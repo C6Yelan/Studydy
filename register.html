@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>Studydy Register</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --gradient-bg: linear-gradient(120deg, #f5fcff 20%, #e9f4ff 60%, #ebffe7 100%);
+      --font: 'Inter', 'Segoe UI', Arial, 'Noto Sans TC', '微軟正黑體', 'Heiti TC', sans-serif;
+      --input-border: #e5eaff;
+      --primary: #4975fa;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      min-height: 100vh;
+      width: 100vw;
+      box-sizing: border-box;
+      font-family: var(--font);
+      background: var(--gradient-bg);
+    }
+    body {
+      min-height: 100vh;
+      width: 100vw;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow-x: hidden;
+      position: relative;
+    }
+    .bg-pattern {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      background:
+        url('data:image/svg+xml;utf8,<svg width="320" height="320" viewBox="0 0 320 320" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="100" cy="100" r="60" fill="%2330d49310"/><ellipse cx="220" cy="200" rx="42" ry="32" fill="%234975fa12"/><ellipse cx="50" cy="260" rx="36" ry="18" fill="%2330d49312"/><circle cx="280" cy="70" r="30" fill="%234975fa10"/></svg>')
+        repeat;
+      background-size: 320px 320px;
+      opacity: 0.18;
+    }
+    .split-wrapper {
+      display: flex;
+      flex-direction: row;
+      align-items: stretch;
+      justify-content: center;
+      width: 92vw;
+      max-width: 1080px;
+      min-height: 84vh;
+      background: none;
+      box-shadow: 0 8px 45px 0 rgba(64,101,244,0.11);
+      border-radius: 2rem;
+      overflow: hidden;
+      position: relative;
+      z-index: 1;
+      margin: 3vh 0;
+    }
+    .left-side {
+      flex: 1.05;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 2.5rem;
+      min-width: 340px;
+      border-top-left-radius: 2rem;
+      border-bottom-left-radius: 2rem;
+      position: relative;
+      z-index: 2;
+    }
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 28px;
+      user-select: none;
+    }
+    .logo-container img {
+      height: 70px;
+      width: 70px;
+      object-fit: contain;
+    }
+    .logo-texts {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+    }
+    .logo-main {
+      font-size: 2rem;
+      font-weight: bold;
+      color: #163675;
+      margin-bottom: 0px;
+      letter-spacing: 0.5px;
+    }
+    .logo-sub {
+      font-size: 1.08rem;
+      color: #5ea4dd;
+      font-weight: 500;
+      letter-spacing: 0.13em;
+      margin-top: 4px;
+      font-family: 'Segoe UI', Arial, 'Noto Sans TC', sans-serif;
+    }
+    .slogan-en {
+      font-size: 1.58rem;
+      font-weight: bold;
+      color: #212121;
+      margin: 25px 0 12px 0;
+      font-family: 'Times New Roman', Times, serif;
+    }
+    .slogan-zh {
+      font-size: 1.04rem;
+      color: #222;
+      letter-spacing: 0.01em;
+      margin-bottom: 5px;
+    }
+    .right-side {
+      flex: 1.2;
+      background: #f3f8fd;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-width: 380px;
+      padding: 2rem 3.3rem;
+      border-top-right-radius: 2rem;
+      border-bottom-right-radius: 2rem;
+      z-index: 2;
+    }
+    .register-title {
+      font-size: 2.1rem;
+      font-weight: 900;
+      color: #212121;
+      margin-bottom: 0;
+      margin-top: 0;
+      line-height: 1.11;
+      letter-spacing: 0px;
+      font-family: 'Noto Sans TC', serif;
+      padding: 0;
+      width: 100%;
+      text-align: center;
+    }
+    .register-form {
+      width: 100%;
+      max-width: 390px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .input-group {
+      position: relative;
+      margin-bottom: 0px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .input-group label {
+      font-size: 1.07rem;
+      color: #222;
+      font-weight: 700;
+      margin-bottom: 6px;
+      display: block;
+      letter-spacing: 0.01em;
+      text-align: left;
+    }
+    .input-group input {
+      width: 100%;
+      min-width: 0;
+      padding: 10px 1.2em 10px 1.2em;
+      border-radius: 1.7em;
+      border: 1.5px solid #dde5f6;
+      background: #f9fbfe;
+      font-size: 1.07rem;
+      color: #222;
+      outline: none;
+      transition: border 0.18s;
+      font-weight: 500;
+      box-sizing: border-box;
+    }
+    .input-group input:focus {
+      border-color: #4975fa;
+      background: #f5f9ff;
+    }
+    /* Captcha */
+    .captcha-group {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .captcha-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+      margin-top: 6px;
+    }
+    .captcha-img {
+      min-width: 104px;
+      height: 44px;
+      font-size: 1.30em;
+      border-radius: 0.6em;
+      background: #fff;
+      border: 1.2px solid #dde5f6;
+      font-family: 'monospace', monospace;
+      color: #555;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      letter-spacing: 0.14em;
+      font-weight: bold;
+      box-sizing: border-box;
+      padding: 0 14px;
+    }
+    .captcha-input {
+      flex: 1;
+      min-width: 120px;
+      max-width: 180px;
+      padding: 10px 1.2em;
+      font-size: 1.07rem;
+      border-radius: 1.7em;
+      border: 1.5px solid #dde5f6;
+      background: #f9fbfe;
+      color: #222;
+      font-weight: 500;
+      outline: none;
+      transition: border 0.18s;
+      box-sizing: border-box;
+      margin-left: 0;
+    }
+    .captcha-input:focus {
+      border-color: #4975fa;
+      background: #f5f9ff;
+    }
+    .captcha-refresh {
+      background: none;
+      color: #4975fa;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0 7px;
+      border-radius: 10px;
+      transition: background 0.17s;
+      margin-left: 0;
+    }
+    .captcha-refresh:hover { background: #eaf1fe; }
+    .register-actions {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      margin-top: 12px;
+      gap: 0;
+      align-items: stretch;
+    }
+    .btn-register {
+      width: 100%;
+      border: none;
+      border-radius: 1.7em;
+      font-size: 1.18rem;
+      font-weight: 700;
+      padding: 13px 0;
+      background: #7da4e8;
+      color: #fff;
+      margin: 0;
+      cursor: pointer;
+      box-shadow: 0 1px 8px #4975fa15;
+      outline: none;
+      transition: background 0.13s, color 0.13s;
+      letter-spacing: 0.03em;
+    }
+    .btn-register:hover,
+    .btn-register:focus {
+      background: #3f6fd4;
+      color: #fff;
+    }
+    .register-options {
+      font-size: 0.95rem;
+      margin-top: 15px;
+      color: #576175;
+      letter-spacing: 0.01em;
+      text-align: center;
+      width: 100%;
+      display: block;
+    }
+    .register-options a {
+      color: #3973c2;
+      text-decoration: underline;
+      margin-left: 7px;
+    }
+    @media (max-width: 1080px) {
+      .split-wrapper {
+        width: 98vw;
+        min-width: unset;
+        max-width: none;
+      }
+      .left-side, .right-side {
+        min-width: 240px;
+        padding: 2rem 1rem;
+      }
+      .register-form {
+        max-width: 98vw;
+        width: 95vw;
+      }
+    }
+    @media (max-width: 800px) {
+      .split-wrapper {
+        flex-direction: column;
+        width: 98vw;
+        min-width: unset;
+        box-shadow: 0 0px 10px 0 rgba(64,101,244,0.13);
+        border-radius: 1.5rem;
+      }
+      .left-side, .right-side {
+        border-radius: 1.5rem;
+        min-width: unset;
+        width: 100%;
+        padding: 2rem 1.5rem;
+      }
+    }
+    @media (max-width: 600px) {
+      .split-wrapper {
+        width: 100vw;
+        margin: 0;
+        border-radius: 0;
+      }
+      .left-side, .right-side {
+        border-radius: 0;
+        padding: 1.5rem 6vw;
+      }
+      .register-form {
+        max-width: 100vw;
+      }
+      .captcha-row {
+        flex-direction: column;
+        gap: 6px;
+        align-items: stretch;
+      }
+      .captcha-input,
+      .captcha-img {
+        width: 100%;
+        max-width: unset;
+        min-width: 0;
+      }
+    }
+    @media (max-width: 700px) {
+      .bg-pattern { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-pattern"></div>
+  <div class="split-wrapper">
+    <!-- Left Panel -->
+    <section class="left-side">
+      <div class="logo-container">
+        <img src="https://i.imgur.com/dVSixJC.png" alt="Studydy logo">
+        <div class="logo-texts">
+          <div class="logo-main">Studydy</div>
+          <div class="logo-sub">SMART LEARNING PLATFORM</div>
+        </div>
+      </div>
+      <div class="slogan-en">Your perfect study buddy.</div>
+      <div class="slogan-zh">利用AI，將您的文件變成神奇的互動故事。</div>
+    </section>
+    <!-- Right Panel -->
+    <section class="right-side">
+      <div class="register-title">建立帳號</div>
+      <form autocomplete="on" class="register-form">
+        <div class="input-group">
+          <label for="register-username">使用者名稱</label>
+          <input type="text" id="register-username" placeholder="請輸入使用者名稱" required autocomplete="username">
+        </div>
+        <div class="input-group">
+          <label for="register-email">電子郵件</label>
+          <input type="email" id="register-email" placeholder="xxx@example.com" required autocomplete="email">
+        </div>
+        <div class="input-group">
+          <label for="register-password">密碼</label>
+          <input type="password" id="register-password" placeholder="請輸入密碼" required autocomplete="new-password">
+        </div>
+        <div class="input-group">
+          <label for="register-confirm-password">確認密碼</label>
+          <input type="password" id="register-confirm-password" placeholder="請再次輸入密碼" required autocomplete="new-password">
+        </div>
+        <div class="captcha-group">
+          <label for="register-captcha">驗證碼</label>
+          <div class="captcha-row">
+            <span class="captcha-img" aria-label="Captcha">8FhK3</span>
+            <input type="text" id="register-captcha" class="captcha-input" name="register-captcha" placeholder="請輸入驗證碼" required autocomplete="off" maxlength="8">
+            <button class="captcha-refresh" type="button" onclick="alert('換一張圖片或整合Google reCAPTCHA！');" title="重新產生驗證碼">↻</button>
+          </div>
+        </div>
+        <div class="register-actions">
+          <button type="submit" class="btn-register">建立帳戶</button>
+          <div class="register-options">
+            已經有帳號嗎？
+            <a href="login1.html">去登入</a>
+          </div>
+        </div>
+      </form>
+    </section>
+  </div>
+</body>
+</html>
