@@ -80,21 +80,23 @@
     .logo-container {
       display: flex;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 10px;
-      user-select: none;
+      flex-direction: column;
+      margin: 0;
+      gap: 5px;
     }
     .logo-container img {
-      height: 300px;
-      width: 300px;
+      display: block;
+      height: auto;
+      width: 400px;
       object-fit: contain;
+      margin: 0;
     }
     
     .slogan-en {
-      font-size: 1.58rem;
-      font-weight: bold;
+      font-size: 2rem;
+      font-weight: 800;
       color: #212121;
-      margin: 25px 0 12px 0;
+      margin: 0 0 12px 0;
       font-family: 'Times New Roman', Times, serif;
     }
     .slogan-zh {
@@ -301,7 +303,7 @@
     <!-- Left Panel -->
     <section class="left-side">
       <div class="logo-container">
-        <img src="images/StudydyLogo.png" alt="Studydy logo">
+        <img src="images/logo.png" alt="Studydy logo">
       </div>
       <div class="slogan-en">Your perfect study buddy.</div>
       <div class="slogan-zh">利用AI，將您的文件變成神奇的互動故事。</div>
