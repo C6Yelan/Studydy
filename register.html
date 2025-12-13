@@ -25,8 +25,9 @@
       min-height: 100vh;
       width: 100vw;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
+      padding-top: 100vh
       overflow-x: hidden;
       position: relative;
     }
@@ -46,7 +47,7 @@
       flex-direction: row;
       align-items: stretch;
       justify-content: center;
-      width: 92vw;
+      width: 90vw;
       max-width: 1080px;
       min-height: 84vh;
       background: none;
@@ -74,35 +75,16 @@
     .logo-container {
       display: flex;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 28px;
-      user-select: none;
+      flex-direction: column;
+      margin: 0;
+      gap: 5px;
     }
     .logo-container img {
-      height: 70px;
-      width: 70px;
+      display: block;
+      height: auto;
+      width: 400px;
       object-fit: contain;
-    }
-    .logo-texts {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      justify-content: center;
-    }
-    .logo-main {
-      font-size: 2rem;
-      font-weight: bold;
-      color: #163675;
-      margin-bottom: 0px;
-      letter-spacing: 0.5px;
-    }
-    .logo-sub {
-      font-size: 1.08rem;
-      color: #5ea4dd;
-      font-weight: 500;
-      letter-spacing: 0.13em;
-      margin-top: 4px;
-      font-family: 'Segoe UI', Arial, 'Noto Sans TC', sans-serif;
+      margin: 0;
     }
     .slogan-en {
       font-size: 1.58rem;
@@ -131,10 +113,10 @@
       z-index: 2;
     }
     .register-title {
-      font-size: 2.1rem;
+      font-size: 2rem;
       font-weight: 900;
       color: #212121;
-      margin-bottom: 0;
+      margin-bottom: 25px;
       margin-top: 0;
       line-height: 1.11;
       letter-spacing: 0px;
@@ -148,43 +130,47 @@
       max-width: 390px;
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 15px;
     }
+
     .input-group {
       position: relative;
-      margin-bottom: 0px;
+      margin-bottom: 0;
       width: 100%;
       display: flex;
       flex-direction: column;
     }
+    
     .input-group label {
-      font-size: 1.07rem;
+      font-size: 0.95rem;
       color: #222;
       font-weight: 700;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
       display: block;
-      letter-spacing: 0.01em;
+      letter-spacing: 0.001em;
       text-align: left;
     }
+    
     .input-group input {
       width: 100%;
       min-width: 0;
-      padding: 10px 1.2em 10px 1.2em;
-      border-radius: 1.7em;
+      padding: 8px 1.1em;
+      border-radius: 1.5em;
       border: 1.5px solid #dde5f6;
       background: #f9fbfe;
-      font-size: 1.07rem;
+      font-size: 1.02rem; 
       color: #222;
       outline: none;
       transition: border 0.18s;
       font-weight: 500;
       box-sizing: border-box;
     }
+    
     .input-group input:focus {
       border-color: #4975fa;
       background: #f5f9ff;
     }
-    /* Captcha */
+
     .captcha-group {
       width: 100%;
       display: flex;
@@ -356,11 +342,7 @@
     <!-- Left Panel -->
     <section class="left-side">
       <div class="logo-container">
-        <img src="https://i.imgur.com/dVSixJC.png" alt="Studydy logo">
-        <div class="logo-texts">
-          <div class="logo-main">Studydy</div>
-          <div class="logo-sub">SMART LEARNING PLATFORM</div>
-        </div>
+        <img src="images/logo.png" alt="Studydy logo">
       </div>
       <div class="slogan-en">Your perfect study buddy.</div>
       <div class="slogan-zh">利用AI，將您的文件變成神奇的互動故事。</div>
