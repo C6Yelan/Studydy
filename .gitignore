@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local-only docs (do not commit)
+docs_local/
+
+# Local-only docs (do not commit)
+docs_local/
