@@ -54,6 +54,16 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=VERIFICATION_CODE_LENGTH, max_length=VERIFICATION_CODE_LENGTH)
+    new_password: str = Field(min_length=MIN_PASSWORD_LENGTH)
+
+
 def _hash_secret(secret: str) -> str:
     salt = os.urandom(16)
     hashed = hashlib.pbkdf2_hmac(
@@ -95,6 +105,16 @@ def _generate_verification_code() -> str:
 
 def _ensure_timezone(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def _get_latest_code(session: Session, email: str) -> EmailVerificationCode | None:
+    return (
+        session.exec(
+            select(EmailVerificationCode)
+            .where(EmailVerificationCode.email == email, EmailVerificationCode.used.is_(False))
+            .order_by(EmailVerificationCode.created_at.desc())
+        ).first()
+    )
 
 
 @router.post(
@@ -146,13 +166,7 @@ async def confirm_registration(
             detail="Email already registered",
         )
 
-    verification = (
-        session.exec(
-            select(EmailVerificationCode)
-            .where(EmailVerificationCode.email == request.email, EmailVerificationCode.used.is_(False))
-            .order_by(EmailVerificationCode.created_at.desc())
-        ).first()
-    )
+    verification = _get_latest_code(session, request.email)
 
     now = datetime.now(timezone.utc)
     expires_at = _ensure_timezone(verification.expires_at) if verification else None
@@ -208,3 +222,63 @@ async def login_user(
 @router.get("/learning-preferences", response_model=List[str])
 def list_learning_preferences() -> List[str]:
     return [pref.value for pref in LearningPreference]
+
+
+@router.post(
+    "/password-reset/request-code",
+    status_code=status.HTTP_200_OK,
+)
+async def request_password_reset_code(
+    request: PasswordResetRequest,
+    session: Session = Depends(get_session),
+    email_service: EmailService = Depends(get_email_service),
+) -> Dict[str, str]:
+    user = session.exec(select(User).where(User.email == request.email)).first()
+    if user:
+        session.exec(delete(EmailVerificationCode).where(EmailVerificationCode.email == request.email))
+        code = _generate_verification_code()
+        now = datetime.now(timezone.utc)
+        verification = EmailVerificationCode(
+            email=request.email,
+            code_hash=_hash_secret(code),
+            expires_at=now + timedelta(minutes=VERIFICATION_CODE_EXPIRE_MINUTES),
+            created_at=now,
+        )
+        session.add(verification)
+        session.commit()
+        email_service.send_verification_code(request.email, code)
+
+    return {"detail": "If the email exists, a verification code has been sent"}
+
+
+@router.post(
+    "/password-reset/confirm",
+    status_code=status.HTTP_200_OK,
+)
+async def confirm_password_reset(
+    request: PasswordResetConfirmRequest,
+    session: Session = Depends(get_session),
+) -> Dict[str, str]:
+    user = session.exec(select(User).where(User.email == request.email)).first()
+    verification = _get_latest_code(session, request.email)
+    now = datetime.now(timezone.utc)
+    expires_at = _ensure_timezone(verification.expires_at) if verification else None
+    if (
+        not user
+        or not verification
+        or expires_at < now
+        or not _verify_secret(request.code, verification.code_hash)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification code",
+        )
+
+    user.password_hash = _hash_secret(request.new_password)
+    verification.used = True
+    session.add(user)
+    session.add(verification)
+    session.commit()
+    session.refresh(user)
+
+    return {"detail": "Password has been reset"}
