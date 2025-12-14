@@ -15,6 +15,10 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
+The database (SQLite by default) is created on startup if it does not exist:
+- Default path: `sqlite:///./studydy.db` (file `studydy.db` in `backend/`)
+- Override with `DATABASE_URL` environment variable (e.g., `export DATABASE_URL=sqlite:///./my.db`)
+
 ## Run tests
 ```bash
 pytest
