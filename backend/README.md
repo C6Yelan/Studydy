@@ -1,6 +1,6 @@
 # Studydy Backend (FastAPI)
 
-Minimal FastAPI skeleton for the Studydy backend. Run everything from the `backend/` directory on WSL.
+Minimal FastAPI backend with SQLModel. Run everything from the `backend/` directory on WSL.
 
 ## Setup
 ```bash
@@ -15,18 +15,25 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-The database (SQLite by default) is created on startup if it does not exist:
-- Default path: `sqlite:///./studydy.db` (file `studydy.db` in `backend/`)
-- Override with `DATABASE_URL` environment variable (e.g., `export DATABASE_URL=sqlite:///./my.db`)
-- JWT secret: defaults to `dev-change-me`; override in non-dev with `JWT_SECRET_KEY` (e.g., `export JWT_SECRET_KEY=your-secret`)
+Database setup happens automatically on startup:
+- Default: SQLite `sqlite:///./studydy.db` (file in `backend/`)
+- Override with `DATABASE_URL` (example MySQL: `mysql+pymysql://user:password@localhost:3306/studydy`)
+- JWT secret defaults to `dev-change-me`; override with `JWT_SECRET_KEY` for non-dev
+- Optional: copy `.env.example` to `.env` and adjust values as needed.
+
+## Auth workflow
+- Password minimum length: 8 characters.
+- Learning preferences allowed: `visual`, `text`, `ai_assisted`.
+
+Endpoints:
+- POST `/auth/register/request-code` → validate email/password, ensure email unused, generate 6-digit code (expires in 10 minutes), send via email service stub. Response: `{"detail": "Verification code sent"}`.
+- POST `/auth/register/confirm` → body: `email`, `password`, `code`, optional `learning_preference`; verifies code then creates user. Response 201 with `id`, `email`, `learning_preference`, `created_at`.
+- POST `/auth/login` → body: `email`, `password`; on success returns `{ "access_token": "<jwt>", "token_type": "bearer" }`. Use with header `Authorization: Bearer <token>`.
+- GET `/auth/learning-preferences` → returns the allowed preference values.
+- GET `/health` → `{"status": "ok"}`.
+- GET `/` → `{"message": "Studydy backend running"}`.
 
 ## Run tests
 ```bash
 pytest
 ```
-
-## API routes (current)
-- GET `/` → `{"message": "Studydy backend running"}`
-- GET `/health` → `{"status": "ok"}`
-- POST `/auth/register` → 201 Created (request: email, password, optional learning_preference; returns id/email/learning_preference/created_at)
-- POST `/auth/login` → 200 OK (request: email, password; returns access_token and token_type)

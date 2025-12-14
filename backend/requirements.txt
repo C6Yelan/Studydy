@@ -4,5 +4,6 @@ pytest
 httpx
 sqlmodel
 pyjwt
+pymysql
 
 email-validator

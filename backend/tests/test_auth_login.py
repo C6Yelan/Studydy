@@ -1,90 +1,52 @@
-from typing import Generator
+import pytest
 
-from fastapi.testclient import TestClient
-from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
-
-from app import db
-from app.db import get_session
-from app.main import app
+pytestmark = pytest.mark.anyio
 
 
-def create_test_engine():
-    return create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
+async def _register_user(client, email_service, email: str, password: str) -> None:
+    request_response = await client.post(
+        "/auth/register/request-code",
+        json={"email": email, "password": password},
+    )
+    assert request_response.status_code == 200
+    code = email_service.sent_codes[email]
+
+    confirm_response = await client.post(
+        "/auth/register/confirm",
+        json={"email": email, "password": password, "code": code},
+    )
+    assert confirm_response.status_code == 201
+
+
+async def test_login_success(client_with_overrides):
+    client, fake_email_service = client_with_overrides
+    await _register_user(client, fake_email_service, "login-success@example.com", "correctpassword")
+
+    response = await client.post(
+        "/auth/login",
+        json={
+            "email": "login-success@example.com",
+            "password": "correctpassword",
+        },
     )
 
-
-def override_get_session(engine) -> Generator[Session, None, None]:
-    def _get_session():
-        with Session(engine) as session:
-            yield session
-
-    return _get_session
+    assert response.status_code == 200
+    data = response.json()
+    assert data["token_type"] == "bearer"
+    assert data["access_token"]
 
 
-def setup_test_app():
-    engine = create_test_engine()
-    SQLModel.metadata.create_all(engine)
-    original_engine = db.engine
-    db.engine = engine
-    app.dependency_overrides[get_session] = override_get_session(engine)
-    return original_engine
+async def test_login_incorrect_credentials(client_with_overrides):
+    client, fake_email_service = client_with_overrides
+    await _register_user(client, fake_email_service, "login-fail@example.com", "correctpassword")
 
+    response = await client.post(
+        "/auth/login",
+        json={
+            "email": "login-fail@example.com",
+            "password": "wrongpassword",
+        },
+    )
 
-def teardown_test_app(original_engine):
-    app.dependency_overrides.clear()
-    db.engine = original_engine
-
-
-def test_login_success():
-    original_engine = setup_test_app()
-    with TestClient(app) as client:
-        register_response = client.post(
-            "/auth/register",
-            json={
-                "email": "login-success@example.com",
-                "password": "correctpassword",
-            },
-        )
-        assert register_response.status_code == 201
-
-        response = client.post(
-            "/auth/login",
-            json={
-                "email": "login-success@example.com",
-                "password": "correctpassword",
-            },
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["token_type"] == "bearer"
-        assert data["access_token"]
-    teardown_test_app(original_engine)
-
-
-def test_login_incorrect_credentials():
-    original_engine = setup_test_app()
-    with TestClient(app) as client:
-        client.post(
-            "/auth/register",
-            json={
-                "email": "login-fail@example.com",
-                "password": "correctpassword",
-            },
-        )
-
-        response = client.post(
-            "/auth/login",
-            json={
-                "email": "login-fail@example.com",
-                "password": "wrongpassword",
-            },
-        )
-
-        assert response.status_code == 401
-        assert response.json() == {"detail": "Incorrect email or password"}
-    teardown_test_app(original_engine)
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Incorrect email or password"}
