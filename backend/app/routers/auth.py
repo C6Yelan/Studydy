@@ -1,7 +1,10 @@
 import hashlib
+import hmac
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, UTC
+from typing import Any, Dict
 
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from sqlmodel import Session, select
@@ -10,6 +13,10 @@ from app.db import get_session
 from app.models import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-change-me")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 
 class RegisterRequest(BaseModel):
@@ -25,6 +32,11 @@ class RegisterResponse(BaseModel):
     created_at: datetime
 
 
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
 def _hash_password(password: str) -> str:
     salt = os.urandom(16)
     hashed = hashlib.pbkdf2_hmac(
@@ -34,6 +46,30 @@ def _hash_password(password: str) -> str:
         100_000,
     )
     return f"{salt.hex()}:{hashed.hex()}"
+
+
+def _verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        salt_hex, hash_hex = stored_hash.split(":")
+    except ValueError:
+        return False
+    salt = bytes.fromhex(salt_hex)
+    expected_hash = bytes.fromhex(hash_hex)
+    computed = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt,
+        100_000,
+    )
+    return hmac.compare_digest(computed, expected_hash)
+
+
+def _create_access_token(data: Dict[str, Any], expires_delta: timedelta | None = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
 
 
 @router.post(
@@ -74,9 +110,21 @@ class LoginRequest(BaseModel):
     password: str
 
 
-@router.post("/login", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-def login_user(request: LoginRequest) -> None:
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Login not implemented yet",
-    )
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+)
+def login_user(
+    request: LoginRequest,
+    session: Session = Depends(get_session),
+) -> TokenResponse:
+    user = session.exec(select(User).where(User.email == request.email)).first()
+    if not user or not _verify_password(request.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token = _create_access_token({"sub": str(user.id)})
+    return TokenResponse(access_token=access_token)

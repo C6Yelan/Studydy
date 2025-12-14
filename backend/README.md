@@ -18,6 +18,7 @@ uvicorn app.main:app --reload
 The database (SQLite by default) is created on startup if it does not exist:
 - Default path: `sqlite:///./studydy.db` (file `studydy.db` in `backend/`)
 - Override with `DATABASE_URL` environment variable (e.g., `export DATABASE_URL=sqlite:///./my.db`)
+- JWT secret: defaults to `dev-change-me`; override in non-dev with `JWT_SECRET_KEY` (e.g., `export JWT_SECRET_KEY=your-secret`)
 
 ## Run tests
 ```bash
@@ -27,5 +28,5 @@ pytest
 ## API routes (current)
 - GET `/` → `{"message": "Studydy backend running"}`
 - GET `/health` → `{"status": "ok"}`
-- POST `/auth/register` → 501 Not Implemented (request: email, password, optional learning_preference)
-- POST `/auth/login` → 501 Not Implemented (request: email, password)
+- POST `/auth/register` → 201 Created (request: email, password, optional learning_preference; returns id/email/learning_preference/created_at)
+- POST `/auth/login` → 200 OK (request: email, password; returns access_token and token_type)

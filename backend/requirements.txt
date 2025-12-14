@@ -3,5 +3,6 @@ uvicorn[standard]
 pytest
 httpx
 sqlmodel
+pyjwt
 
 email-validator

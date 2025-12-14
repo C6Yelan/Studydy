@@ -39,42 +39,52 @@ def teardown_test_app(original_engine):
     db.engine = original_engine
 
 
-def test_register_success():
+def test_login_success():
     original_engine = setup_test_app()
     with TestClient(app) as client:
-        response = client.post(
+        register_response = client.post(
             "/auth/register",
             json={
-                "email": "user@example.com",
-                "password": "supersecret",
-                "learning_preference": "visual",
+                "email": "login-success@example.com",
+                "password": "correctpassword",
+            },
+        )
+        assert register_response.status_code == 201
+
+        response = client.post(
+            "/auth/login",
+            json={
+                "email": "login-success@example.com",
+                "password": "correctpassword",
             },
         )
 
-        assert response.status_code == 201
+        assert response.status_code == 200
         data = response.json()
-        assert data["email"] == "user@example.com"
-        assert data["learning_preference"] == "visual"
-        assert "password_hash" not in data
-        assert data["id"] is not None
-        assert data["created_at"]
+        assert data["token_type"] == "bearer"
+        assert data["access_token"]
     teardown_test_app(original_engine)
 
 
-def test_register_duplicate_email():
+def test_login_incorrect_credentials():
     original_engine = setup_test_app()
     with TestClient(app) as client:
-        first = client.post(
+        client.post(
             "/auth/register",
-            json={"email": "dup@example.com", "password": "pw123456"},
-        )
-        assert first.status_code == 201
-
-        second = client.post(
-            "/auth/register",
-            json={"email": "dup@example.com", "password": "pw123456"},
+            json={
+                "email": "login-fail@example.com",
+                "password": "correctpassword",
+            },
         )
 
-        assert second.status_code == 400
-        assert second.json() == {"detail": "Email already registered"}
+        response = client.post(
+            "/auth/login",
+            json={
+                "email": "login-fail@example.com",
+                "password": "wrongpassword",
+            },
+        )
+
+        assert response.status_code == 401
+        assert response.json() == {"detail": "Incorrect email or password"}
     teardown_test_app(original_engine)
