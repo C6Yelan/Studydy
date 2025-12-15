@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Studydy - Dashboard</title>
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@600;700;900&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+  
+  <div class="bg-pattern"></div>
+
+  <div class="dash-container">
+    
+    <aside class="dash-sidebar">
+      <div class="dash-sidebar__logo">
+        <img src="logo.png" alt="Studydy Logo"> 
+      </div>
+
+      <div class="dash-sidebar__group">
+        <h3 class="dash-sidebar__group-title">學習</h3>
+        <nav class="dash-sidebar__nav">
+          <a href="#" class="dash-sidebar__link dash-sidebar__link--active">
+            <i class="fas fa-layer-group dash-sidebar__icon"></i>
+            <span>儀表板</span>
+          </a>
+          <a href="#" class="dash-sidebar__link">
+            <i class="fas fa-flask dash-sidebar__icon"></i>
+            <span>故事工作室</span>
+          </a>
+          <a href="#" class="dash-sidebar__link">
+            <i class="fas fa-book-open dash-sidebar__icon"></i>
+            <span>我的故事</span>
+          </a>
+        </nav>
+      </div>
+
+      <div class="dash-sidebar__group">
+        <h3 class="dash-sidebar__group-title">指標</h3>
+        <nav class="dash-sidebar__nav">
+          <a href="#" class="dash-sidebar__link">
+            <i class="fas fa-chart-bar dash-sidebar__icon"></i>
+            <span>進步</span>
+          </a>
+        </nav>
+      </div>
+
+      <div class="dash-sidebar__footer">
+        <div class="dash-sidebar__user" id="user-profile-btn">
+          <div class="dash-sidebar__user-avatar">
+            <i class="fas fa-user-circle"></i>
+          </div>
+          <div class="dash-sidebar__user-info">
+            <div class="dash-sidebar__user-name">Agnes</div>
+            <div class="dash-sidebar__user-role">會員</div>
+          </div>
+        </div>
+
+        <div class="dash-sidebar__logout-menu" id="logout-menu">
+            <a href="login.html" class="logout-link">
+                <i class="fas fa-sign-out-alt"></i> 登出帳號
+            </a>
+        </div>
+      </div>
+    </aside>
+
+    <main class="dash-main">
+      
+      <header class="dash-header">
+        <h1 class="dash-header__title">早安， Agnes ！</h1>
+        <p class="dash-header__subtitle">準備好把你的學習 PDF 變成一場冒險之旅了嗎？</p>
+      </header>
+
+      <section class="dash-section">
+        <h2 class="dash-section__label">快速轉換</h2>
+        <div class="dash-card dash-convert__card" id="drop-zone">
+          <div class="dash-convert__icon-wrapper">
+            <i class="fas fa-cloud-upload-alt"></i>
+          </div>
+          <h3 class="dash-convert__title">將您的 PDF、DOC 或 PPT 檔案上傳到此處</h3>
+          <p class="dash-convert__desc">我們的人工智慧將分析 “xxx.pdf”，並<br>為您創建一個基於故事的學習路徑。</p>
+          <input type="file" id="file-input" hidden accept=".pdf,.doc,.docx,.ppt,.pptx">
+        </div>
+      </section>
+
+      <section class="dash-section dash-row-between">
+        <div class="dash-reading__left">
+            <span class="dash-label-text">正在閱讀：</span>
+            <span class="dash-reading__bookName">《xxx》</span>
+        </div>
+        <a href="#" class="dash-link-text">履歷閱讀 <i class="fas fa-arrow-right"></i></a>
+      </section>
+
+      <section class="dash-section">
+        <div class="dash-row-between mb-small">
+            <h2 class="dash-section__label">學習效率</h2>
+            <a href="#" class="dash-link-text">更多詳情 <i class="fas fa-arrow-right"></i></a>
+        </div>
+        
+        <div class="dash-efficiency__grid">
+          <div class="dash-stat-card">
+            <div class="dash-stat-card__header">
+              <span class="dash-stat-card__title">學習時間</span>
+              <i class="fas fa-clock dash-stat-card__icon"></i>
+            </div>
+            <div class="dash-stat-card__value">8h</div>
+            <div class="dash-stat-card__footer">過去 7 天</div>
+          </div>
+
+          <div class="dash-stat-card">
+            <div class="dash-stat-card__header">
+              <span class="dash-stat-card__title">故事已完成</span>
+              <i class="fas fa-book dash-stat-card__icon"></i>
+            </div>
+            <div class="dash-stat-card__value">8</div>
+            <div class="dash-stat-card__footer">本週 +3</div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="js/dashboard.js"></script>
+</body>
+</html>

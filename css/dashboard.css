@@ -1,0 +1,385 @@
+/* --- 變數定義 --- */
+:root {
+  --bg-gradient: linear-gradient(120deg, #f5fcff 20%, #e9f4ff 60%, #ebffe7 100%);
+  --sidebar-bg: #ffffff;
+  /* 圖片中的卡片背景不是純白，而是淡藍灰色 */
+  --card-glass-bg: #e4eaf5; 
+  --primary-color: #4975fa;
+  --text-main: #212121;
+  --text-sub: #666e80; /* 較深的灰色 */
+  --text-light: #9aa5b8; /* 淺灰色標籤 */
+  
+  --font-main: 'Inter', 'Noto Sans TC', sans-serif;
+  --font-serif: 'Noto Serif TC', 'Times New Roman', serif; /* 用於標題與數字 */
+  
+  --sidebar-width: 260px;
+  --border-radius: 1.5rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-main);
+  background: var(--bg-gradient);
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* --- 主容器 --- */
+.dash-container {
+  display: flex;
+  width: 95vw;
+  max-width: 1280px; /* 限制寬度以符合圖片比例 */
+  height: 90vh;
+  background: #f3f8fd; /* 整體底色 */
+  border-radius: 2rem;
+  box-shadow: 0 10px 40px rgba(73, 117, 250, 0.08);
+  overflow: hidden;
+  position: relative;
+}
+
+/* --- 左側 Sidebar --- */
+.dash-sidebar {
+  width: var(--sidebar-width);
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  padding: 2.5rem 1.5rem;
+  flex-shrink: 0;
+  border-right: 1px solid rgba(0,0,0,0.02);
+  position: relative;
+}
+
+.dash-sidebar__logo {
+  margin-bottom: 3rem;
+  padding-left: 0.5rem;
+}
+.dash-sidebar__logo img {
+  height: 55px; /* 根據圖片調整大小 */
+  object-fit: contain;
+}
+
+.dash-sidebar__group {
+  margin-bottom: 1.5rem;
+}
+
+.dash-sidebar__group-title {
+  font-size: 0.9rem;
+  color: #b0b8c8; /* 圖片中很淡的灰色 */
+  margin-bottom: 0.8rem;
+  padding-left: 1.2rem;
+  font-weight: 500;
+  font-family: var(--font-serif); /* 圖片中看起來有點像襯線體或宋體 */
+}
+
+.dash-sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.dash-sidebar__link {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--text-light);
+  padding: 0.75rem 1.2rem;
+  border-radius: 2rem; /* 膠囊狀 */
+  font-weight: 500;
+  transition: all 0.2s;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+}
+
+.dash-sidebar__icon {
+  width: 24px;
+  margin-right: 10px;
+  text-align: center;
+  font-size: 1.1rem;
+}
+
+/* Active 狀態：圖片中是淺藍色背景，藍色文字 */
+.dash-sidebar__link--active, .dash-sidebar__link:hover {
+  background-color: #f0f6ff;
+  color: #5d87ff;
+  font-weight: 600;
+}
+
+/* 底部使用者區塊 */
+.dash-sidebar__footer {
+  margin-top: auto;
+  position: relative;
+}
+
+.dash-sidebar__user {
+  display: flex;
+  align-items: center;
+  padding: 1.2rem 0.5rem 0 0.5rem;
+  border-top: 1px solid #eee; /* 上方分隔線 */
+  gap: 12px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.dash-sidebar__user:hover {
+  opacity: 0.7;
+}
+
+.dash-sidebar__user-avatar {
+  font-size: 2.4rem;
+  color: #6a8eff; /* 頭像顏色 */
+}
+
+.dash-sidebar__user-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-sidebar__user-name {
+  font-weight: 700;
+  color: #333;
+  font-size: 1rem;
+  font-family: var(--font-serif);
+}
+
+.dash-sidebar__user-role {
+  font-size: 0.85rem;
+  color: var(--text-light);
+}
+
+/* 登出選單 (Popup) */
+.dash-sidebar__logout-menu {
+    position: absolute;
+    bottom: 80px; /* 位於頭像上方 */
+    left: 10px;
+    background: white;
+    padding: 10px;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+    width: 180px;
+    display: none; /* 預設隱藏 */
+    z-index: 100;
+    border: 1px solid #eee;
+}
+
+.dash-sidebar__logout-menu.show {
+    display: block;
+    animation: fadeIn 0.2s ease;
+}
+
+.logout-link {
+    display: block;
+    text-decoration: none;
+    color: #ff4d4f;
+    padding: 10px 15px;
+    border-radius: 8px;
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.logout-link:hover {
+    background: #fff1f0;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* --- 右側 Main Content --- */
+.dash-main {
+  flex: 1;
+  padding: 3rem 4rem;
+  overflow-y: auto;
+  background-color: #f2f7fc; /* 右側背景微調 */
+}
+
+/* Header */
+.dash-header {
+  margin-bottom: 2.5rem;
+}
+
+.dash-header__title {
+  font-family: var(--font-serif); /* 使用襯線體 */
+  font-size: 2.8rem;
+  color: #1a1a1a;
+  margin: 0 0 0.2rem 0;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.dash-header__subtitle {
+  color: #8890a0;
+  font-size: 1.1rem;
+  margin-top: 5px;
+  font-weight: 400;
+}
+
+/* 通用標題 */
+.dash-section {
+  margin-bottom: 2.5rem;
+}
+
+.dash-section__label {
+  font-size: 1.1rem;
+  color: #111;
+  margin-bottom: 0.8rem;
+  font-weight: 700;
+  font-family: var(--font-serif);
+}
+
+.dash-row-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.mb-small {
+    margin-bottom: 0.8rem;
+}
+
+.dash-link-text {
+    color: #6a8eff; /* 連結藍色 */
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 1rem;
+    font-family: var(--font-serif); /* 圖片中文字帶有襯線感 */
+}
+.dash-link-text i {
+    font-size: 0.8em;
+    margin-left: 4px;
+}
+
+/* 區塊 1: 快速轉換 (Upload Card) */
+.dash-convert__card {
+  background: var(--card-glass-bg); /* 淡藍灰色背景 */
+  border-radius: 2rem;
+  padding: 3rem 2rem;
+  text-align: center;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s;
+}
+.dash-convert__card:hover {
+    transform: translateY(-2px);
+}
+
+.dash-convert__icon-wrapper {
+  width: 50px;
+  height: 50px;
+  background-color: #6a8eff; /* 藍色圓圈 */
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.2rem;
+  box-shadow: 0 4px 10px rgba(73, 117, 250, 0.3);
+}
+
+.dash-convert__icon-wrapper i {
+  font-size: 1.5rem;
+  color: #fff; /* 白色圖示 */
+}
+
+.dash-convert__title {
+  font-size: 1.3rem;
+  color: #222;
+  margin: 0 0 0.8rem 0;
+  font-weight: 700;
+  font-family: var(--font-serif);
+}
+
+.dash-convert__desc {
+  color: #777;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: 0;
+  font-family: var(--font-serif); /* 圖片說明文字也是襯線體風格 */
+}
+
+/* 區塊 2: 正在閱讀 */
+.dash-label-text {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #111;
+    font-family: var(--font-serif);
+}
+.dash-reading__bookName {
+    font-size: 1.2rem;
+    color: #111;
+    font-family: var(--font-serif);
+}
+
+/* 區塊 3: 學習效率 (Efficiency Cards) */
+.dash-efficiency__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2rem;
+}
+
+.dash-stat-card {
+  background: var(--card-glass-bg); /* 與上傳卡片同色 */
+  border-radius: 1.5rem;
+  padding: 1.5rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+}
+
+.dash-stat-card__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.dash-stat-card__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #111;
+  font-family: var(--font-serif);
+}
+
+.dash-stat-card__icon {
+    color: #6a8eff;
+    font-size: 1rem;
+}
+
+.dash-stat-card__value {
+  font-size: 4rem; /* 巨大字體 */
+  font-weight: 500; /* 不需太粗 */
+  color: #111;
+  font-family: var(--font-serif); /* 圖片中的 8h 是很明顯的襯線體 */
+  line-height: 1.1;
+  margin-bottom: 0.2rem;
+}
+
+.dash-stat-card__footer {
+  font-size: 1rem;
+  color: #555;
+  font-weight: 600;
+  font-family: var(--font-serif);
+}
+
+/* RWD */
+@media (max-width: 1024px) {
+    .dash-container {
+        width: 100vw;
+        height: 100vh;
+        border-radius: 0;
+    }
+}
