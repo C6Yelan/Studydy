@@ -1,20 +1,8 @@
 import pytest
 
+from tests.conftest import register_user  # type: ignore
+
 pytestmark = pytest.mark.anyio
-
-
-async def register_user(client, email_service, email: str, password: str) -> None:
-    resp = await client.post(
-        "/auth/register/request-code",
-        json={"email": email, "password": password},
-    )
-    assert resp.status_code == 200
-    code = email_service.sent_codes[email]
-    confirm = await client.post(
-        "/auth/register/confirm",
-        json={"email": email, "password": password, "code": code},
-    )
-    assert confirm.status_code == 201
 
 
 async def test_password_reset_success(client_with_overrides):
@@ -43,7 +31,7 @@ async def test_password_reset_success(client_with_overrides):
         json={"email": "reset-success@example.com", "password": "newpassword123"},
     )
     assert login_resp.status_code == 200
-    assert login_resp.json()["access_token"]
+    assert login_resp.json()["email"] == "reset-success@example.com"
 
 
 async def test_password_reset_invalid_code_does_not_change_password(client_with_overrides):
@@ -73,6 +61,7 @@ async def test_password_reset_invalid_code_does_not_change_password(client_with_
         json={"email": "reset-fail@example.com", "password": "oldpassword"},
     )
     assert login_old.status_code == 200
+    assert login_old.json()["email"] == "reset-fail@example.com"
 
     login_new = await client.post(
         "/auth/login",

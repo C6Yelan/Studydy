@@ -58,3 +58,15 @@ async def client_with_overrides() -> AsyncGenerator[Tuple[httpx.AsyncClient, Fak
 @pytest.fixture()
 def anyio_backend():
     return "asyncio"
+
+
+async def register_user(client: httpx.AsyncClient, email_service: FakeEmailService, email: str, password: str, learning_preference: str | None = None) -> None:
+    response = await client.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": password,
+            "learning_preference": learning_preference,
+        },
+    )
+    assert response.status_code == 201
