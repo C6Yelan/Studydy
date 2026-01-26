@@ -5,5 +5,5 @@ httpx
 sqlmodel
 pyjwt
 pymysql
-
+itsdangerous
 email-validator
