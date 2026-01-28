@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.db import create_db_and_tables
-from app.routers import auth, health, root
+from app.routers import auth, health, root, dashboard, uploadmaterial 
 
 
 @asynccontextmanager
@@ -46,3 +46,5 @@ app.add_middleware(
 app.include_router(root.router)
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(dashboard.router)
+app.include_router(uploadmaterial.router)
