@@ -1,46 +1,51 @@
-import os
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
-from sqlmodel import Session
+from fastapi import APIRouter, Depends, HTTPException
+from sqlmodel import Session, select
 from datetime import datetime
 from ..db import get_session
-from ..models.dashboard import UserDocument
-from .auth import get_current_user
+from ..models.user import User
+from ..models.dashboard import UserDocument, UserStats
+from .auth import get_current_user 
 
-router = APIRouter(prefix="/materials", tags=["Materials"])
+router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
-UPLOAD_DIR = "uploads"
-if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR)
+def get_greeting():
+    hour = datetime.now().hour
+    if 5 <= hour < 12: return "早安!"
+    elif 12 <= hour < 18: return "午安!"
+    else: return "晚安！"
 
-@router.post("/upload")
-async def upload_material(
-    file: UploadFile = File(...),
-    current_user = Depends(get_current_user),
+@router.get("/me")
+async def get_dashboard_info(
+    current_user_res = Depends(get_current_user), 
     session: Session = Depends(get_session)
 ):
     try:
-        if not current_user:
-            raise HTTPException(status_code=401, detail="Session expired")
-        
-        file_path = os.path.join(UPLOAD_DIR, file.filename)
-        with open(file_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
+        greeting = get_greeting()
+        user_id = current_user_res.id
+        user = session.get(User, user_id)
+        email_name = user.email.split('@')[0] if user and user.email else "User"
 
-        new_doc = UserDocument(
-            user_id=current_user.id,
-            title=file.filename,
-            file_path=file_path, 
-            progress=0,
-            last_accessed=datetime.now()
-        )
-        
-        session.add(new_doc)
-        session.commit()
-        session.refresh(new_doc)
+        doc_stmt = select(UserDocument).where(UserDocument.user_id == user_id).order_by(UserDocument.last_accessed.desc())
+        active_doc = session.exec(doc_stmt).first()
 
-        return {"message": "上傳成功！", "filename": file.filename}
+        stats_stmt = select(UserStats).where(UserStats.user_id == user_id)
+        stats = session.exec(stats_stmt).first()
 
+        return {
+            "greeting_header": f"{greeting}，{email_name}！",
+            "user_profile": {
+                "display_name": email_name,
+                "role": "會員"
+            },
+            "current_reading": {
+                "title": active_doc.title if active_doc else "沒有材料",
+                "progress": active_doc.progress if active_doc else 0 
+            },
+            "stats": {
+                "hours": stats.study_hours if stats else 0.0,
+                "count": stats.stories_completed if stats else 0
+            }
+        }
     except Exception as e:
-        print(f"--- UPLOAD ERROR: {str(e)} ---")
-        raise HTTPException(status_code=500, detail=f"Gagal: {str(e)}")
+        print(f"DASHBOARD ERROR: {e}")
+        raise HTTPException(status_code=500, detail="Internal error")

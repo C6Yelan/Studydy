@@ -1,66 +1,49 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
+import os
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from sqlmodel import Session
 from datetime import datetime
 from ..db import get_session
-from ..models.user import User
-from ..models.dashboard import UserDocument, UserStats
-from .auth import get_current_user 
+from ..models.dashboard import UserDocument
+from .auth import get_current_user
+# Requirement 3: Import the service logic
+from ..services.uploadmaterial import save_upload_file
 
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+router = APIRouter(prefix="/materials", tags=["Materials"])
 
-def get_greeting():
-    hour = datetime.now().hour
-    if 5 <= hour < 12: return "早安!"
-    elif 12 <= hour < 18: return "午安!"
-    else: return "晚安！"
+# Requirement 4: Security whitelist
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".pptx"}
 
-@router.get("/me")
-async def get_dashboard_info(
-    current_user_res = Depends(get_current_user), 
+@router.post("/upload")
+async def upload_material(
+    file: UploadFile = File(...),
+    current_user = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    
+    # 1. Validation (Requirement 4 - "防呆")
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Invalid format. Only PDF, DOCX, and PPTX.")
+
     try:
-        greeting = get_greeting()
-        user_id = current_user_res.id
+        # 2. Call Service (Requirement 3 - Professional structure)
+        # Service handles the UUID naming and 'wb' saving
+        file_path = save_upload_file(file)
 
-        user = session.get(User, user_id)
-        email_name = user.email.split('@')[0] if user and user.email else "User"
+        # 3. Database Entry (Requirement 5)
+        new_doc = UserDocument(
+            user_id=current_user.id,
+            title=file.filename, # Original name for display
+            file_path=file_path, # Path to the UUID renamed file
+            progress=0,
+            last_accessed=datetime.now()
+        )
+        
+        session.add(new_doc)
+        session.commit()
+        session.refresh(new_doc)
 
-        active_doc = None
-        try:
-            doc_stmt = select(UserDocument).where(UserDocument.user_id == user_id).order_by(UserDocument.last_accessed.desc())
-            active_doc = session.exec(doc_stmt).first()
-        except Exception as e:
-            print(f"Error query doc: {e}")
+        return {"message": "Upload successful!", "id": new_doc.id}
 
-        stats = None
-        try:
-            stats_stmt = select(UserStats).where(UserStats.user_id == user_id)
-            stats = session.exec(stats_stmt).first()
-        except Exception as e:
-            print(f"Error query stats: {e}")
-
-        return {
-            "greeting_header": f"{greeting}，{email_name}！",
-            "user_profile": {
-                "display_name": email_name,
-                "role": "會員"
-            },
-            "current_reading": {
-                "title": active_doc.title if active_doc else "沒有材料",
-                "progress": f"{active_doc.progress}%" if active_doc else "0%"
-            },
-            "stats": {
-                "hours": f"{stats.study_hours}h" if stats else "0h",
-                "count": stats.stories_completed if stats else 0
-            }
-        }
-    except Exception as final_e:
-        print(f"CRITICAL DASHBOARD ERROR: {final_e}")
-        return {
-            "greeting_header": "你好！",
-            "user_profile": {"display_name": "User", "role": "會員"},
-            "current_reading": {"title": "Belum ada materi", "progress": "0%"},
-            "stats": {"hours": "0h", "count": 0}
-        }
+    except Exception as e:
+        print(f"--- UPLOAD ERROR: {str(e)} ---")
+        raise HTTPException(status_code=500, detail="Internal server error.")
