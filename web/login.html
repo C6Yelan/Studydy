@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>Studydy Login</title>
+
+  <link rel="stylesheet" href="css/common.css">
+  <link rel="stylesheet" href="css/login.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+</head>
+<body>
+
+  <div class="bg-pattern"></div>
+
+  <div class="split-wrapper">
+
+    <!-- LEFT SIDE -->
+    <section class="left-side">
+      <div class="logo-container">
+        <img src="logo.png" alt="Studydy logo">
+      </div>
+      <div class="slogan-en">Your perfect study buddy.</div>
+      <div class="slogan-zh">利用 AI，將您的文件變成神奇的互動故事。</div>
+    </section>
+    <section class="right-side">
+      <div class="login-title">歡迎回來</div>
+      <div class="login-subtitle">請輸入您的資訊以登入</div>
+      <form autocomplete="on" class="login-form">
+        <div class="input-group" style="margin-bottom:30px;">
+          <label for="email">電子郵件</label>
+          <div class="input-wrapper">
+            <input type="email" id="email" placeholder="xxx@example.com" required autocomplete="email" autofocus>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="password">密碼</label>
+          <input type="password" id="password" placeholder="********" required autocomplete="current-password">
+          
+          <a href="forget_password.html" class="forget_password">忘記密碼？</a>
+        </div>
+        <div class="login-actions">
+          <button type="submit" class="btn-primary">登入</button>
+          <div class="login-options">
+            還沒有帳號嗎？
+            <a href="register.html">建立帳號</a>
+          </div>
+        </div>
+
+      </form>
+    </section>
+  </div>
+  <script src="js/login.js"></script>
+</body>
+</html>
