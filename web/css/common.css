@@ -1,0 +1,264 @@
+/* Studydy/css/common.css */
+
+/* --- 變數定義 --- */
+:root {
+  --bg-gradient: linear-gradient(135deg, #f0f4ff 0%, #eef2f6 100%);
+  --sidebar-bg: #ffffff;
+  --card-glass-bg: #e4eaf5; 
+  --primary-color: #4975fa;
+  --text-main: #212121;
+  --text-sub: #666e80; 
+  --text-light: #9aa5b8;
+  
+  --font-main: 'Inter', 'Noto Sans TC', sans-serif;
+  --font-serif: 'Noto Serif TC', 'Times New Roman', serif;
+  
+  --sidebar-width: 260px;
+  --border-radius: 1.5rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* 全域設定：確保網頁全螢幕且無外層滾動條 */
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-main);
+  background: var(--bg-gradient);
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden; /* ★ 關鍵：禁止瀏覽器預設捲軸 */
+}
+
+/* --- 主容器 (懸浮卡片風格) --- */
+.dash-container {
+  display: flex;
+  width: 96vw; /* 稍微加大寬度 */
+  max-width: 1400px;
+  height: 92vh; /* 固定高度，讓內容在內部適應 */
+  background: #f3f8fd; 
+  border-radius: 2rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.05);
+  overflow: visible; /* 允許登出選單凸出去 */
+  position: relative;
+}
+
+/* --- 左側 Sidebar (側邊欄優化核心) --- */
+.dash-sidebar {
+  width: var(--sidebar-width);
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  /* ★ 優化：縮小內距，與右側內容對齊，節省垂直空間 */
+  padding: 1.5rem 1.5rem; 
+  flex-shrink: 0;
+  border-right: 1px solid rgba(0,0,0,0.02);
+  position: relative;
+  height: 100%;
+  
+  /* ★ 關鍵：設為 visible 讓登出選單能彈出顯示 */
+  overflow: visible; 
+  border-top-left-radius: 2rem;
+  border-bottom-left-radius: 2rem;
+}
+
+.dash-sidebar__logo {
+  /* ★ 優化：減少 Logo 下方留白 */
+  margin-bottom: 2rem;
+  padding-left: 0.5rem;
+}
+.dash-sidebar__logo img {
+  height: 50px; /* Logo 適中大小 */
+  object-fit: contain;
+}
+
+.dash-sidebar__group {
+  /* ★ 優化：減少群組間距 */
+  margin-bottom: 1rem;
+}
+
+.dash-sidebar__group-title {
+  font-size: 0.85rem;
+  color: #b0b8c8;
+  margin-bottom: 0.8rem;
+  padding-left: 1.2rem;
+  font-weight: 600;
+  font-family: var(--font-serif);
+  letter-spacing: 0.05em;
+}
+
+.dash-sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.dash-sidebar__link {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--text-sub);
+  padding: 0.8rem 1.2rem;
+  border-radius: 12px;
+  font-weight: 500;
+  transition: all 0.2s;
+  font-size: 1rem;
+  cursor: pointer;
+  width: 100%;
+}
+
+.dash-sidebar__icon {
+  width: 24px;
+  margin-right: 12px;
+  text-align: center;
+  font-size: 1.1rem;
+}
+
+/* Active 狀態 */
+.dash-sidebar__link--active, .dash-sidebar__link:hover {
+  background-color: #eff6ff;
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+/* --- 底部使用者區塊 & 登出選單 --- */
+.dash-sidebar__footer {
+  margin-top: auto; /* 自動推到最底 */
+  position: relative;
+  padding-top: 1rem;
+  border-top: 1px solid #f0f0f0;
+}
+
+.dash-sidebar__user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0.5rem;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.dash-sidebar__user:hover {
+  background: #f9fafb;
+}
+
+.dash-sidebar__user-avatar {
+  font-size: 2.2rem;
+  color: #6a8eff; 
+}
+
+.dash-sidebar__user-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-sidebar__user-name {
+  font-weight: 700;
+  color: #333;
+  font-size: 0.95rem;
+  font-family: var(--font-serif);
+}
+
+.dash-sidebar__user-role {
+  font-size: 0.8rem;
+  color: #999;
+}
+
+/* ★ 登出選單 (修復版) */
+.dash-sidebar__logout-menu {
+    position: absolute;
+    /* 讓選單顯示在頭像上方 */
+    bottom: 80px; 
+    left: 10px;
+    width: 180px;
+    background: white;
+    padding: 8px;
+    border-radius: 12px;
+    box-shadow: 0 5px 25px rgba(0,0,0,0.15);
+    border: 1px solid #eee;
+    
+    /* 預設隱藏 */
+    display: none; 
+    z-index: 1000;
+}
+
+.dash-sidebar__logout-menu.show {
+    display: block;
+    animation: popUp 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.logout-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: #e86051; /* 紅色警示 */
+    padding: 10px 15px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: background 0.2s;
+}
+
+.logout-link:hover {
+    background: #fff5f5;
+}
+
+button.logout-link {
+  all: unset;              /* remove default button styles */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #e86051;
+  padding: 10px 15px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+button.logout-link:hover {
+  background: #fff5f5;
+}
+
+button.logout-link:focus-visible {
+  outline: 2px solid rgba(73, 117, 250, 0.6); /* match your primary-ish */
+  outline-offset: 2px;
+}
+
+
+@keyframes popUp {
+    from { opacity: 0; transform: translateY(10px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* --- 右側 Main Content (基礎設定) --- */
+/* css/common.css */
+
+/* --- 右側 Main Content (基礎設定) --- */
+.dash-main {
+  flex: 1;
+  /* ★ 關鍵修改：增加內距 (上下 2rem, 左右 3.5rem) */
+  padding: 2rem 3.5rem; 
+  
+  /* 預設隱藏溢出，交給內部區塊(如 dashboard-content)自己決定是否捲動 */
+  overflow: hidden; 
+  
+  background-color: #fff;
+  border-top-right-radius: 2rem;
+  border-bottom-right-radius: 2rem;
+  position: relative;
+}
+
+/* RWD: 當螢幕變小時，自動縮小內距，避免擁擠 */
+@media (max-width: 768px) {
+  .dash-main {
+    padding: 1.5rem;
+  }
+}

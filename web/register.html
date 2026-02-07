@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+
+  <title>Studydy｜Register</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@600;700;900&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="css/register.css">
+</head>
+<body>
+
+<div class="bg-pattern"></div>
+
+<div class="split-wrapper">
+  <section class="left-side">
+    <div class="logo-container">
+      <img src="logo.png" alt="Studydy logo" style="width: 260px; height: auto;">
+    </div>
+    <div class="slogan-en">Your perfect study buddy.</div>
+    <div class="slogan-zh">利用AI，將您的文件變成神奇的互動故事。</div>
+  </section>
+  
+  <section class="right-side">
+    <div class="register-title">建立帳號</div>
+
+    <form autocomplete="on" class="register-form">
+      <div class="input-group">
+        <label for="register-username">使用者名稱</label>
+        <input type="text" id="register-username" placeholder="請輸入使用者名稱" required autocomplete="username">
+      </div>
+
+      <div class="input-group">
+        <label for="register-email">電子郵件</label>
+        <input type="email" id="register-email" placeholder="xxx@example.com" required autocomplete="email">
+      </div>
+
+      <div class="input-group">
+        <label for="register-password">密碼</label>
+        <input type="password" id="register-password" placeholder="請輸入密碼" required autocomplete="new-password">
+      </div>
+
+      <div class="input-group">
+        <label for="register-confirm-password">確認密碼</label>
+        <input type="password" id="register-confirm-password" placeholder="請再次輸入密碼" required autocomplete="new-password">
+      </div>
+
+      <div class="captcha-group">
+        <label for="register-captcha">驗證碼</label>
+        <div class="captcha-row">
+          <span class="captcha-img" aria-label="Captcha">8FhK3</span>
+          <input type="text" id="register-captcha" class="captcha-input"
+                 name="register-captcha" placeholder="請輸入驗證碼"
+                 required autocomplete="off" maxlength="8">
+          <button class="captcha-refresh" type="button"
+                  onclick="alert('換一張圖片或整合Google reCAPTCHA！');"
+                  title="重新產生驗證碼">↻</button>
+        </div>
+      </div>
+
+      <div class="register-actions">
+        <button type="submit" class="btn-register">建立帳戶</button>
+        <div class="register-options">
+          已經有帳號嗎？
+          <a href="login.html">去登入</a>
+        </div>
+      </div>
+    </form>
+  </section>
+</div>
+
+<script src="js/register.js"></script>
+</body>
+</html>
