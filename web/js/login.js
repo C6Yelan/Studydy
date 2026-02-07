@@ -1,3 +1,5 @@
+import { apiFetch } from "./api.js";
+
 document.addEventListener('DOMContentLoaded', () => {
   const loginForm = document.querySelector('.login-form');
 
@@ -18,24 +20,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     try {
-      const res = await fetch('/auth/login', {
+      await apiFetch('/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         credentials: 'include', // ⭐ session cookie
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email : "liucinwen@gmail.com", password : "12345" })
       });
-
-      if (!res.ok) {
-        alert('登入失敗，請檢查您的電子郵件與密碼！');
-        return;
-      }
 
       window.location.href = 'dashboard.html';
 
     } catch (error) {
-      alert('伺服器錯誤，請稍後再試');
+      alert('登入失敗，請檢查您的電子郵件與密碼！');
       console.error(error);
     }
   });
