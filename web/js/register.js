@@ -1,8 +1,10 @@
+import { apiFetch } from "./api.js";
+
 document.addEventListener('DOMContentLoaded', () => {
   const registerForm = document.querySelector('.register-form');
 
   if (registerForm) {
-    registerForm.addEventListener('submit', (e) => {
+    registerForm.addEventListener('submit',async (e) => {
       e.preventDefault();
 
       const password = document.getElementById('register-password').value;
@@ -21,7 +23,17 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      window.location.href = 'login.html';
+      try{
+        await apiFetch('/auth/register', {
+          method : 'POST',
+          body : JSON.stringify({
+            email,password}),
+          });
+          window.location.href = 'login.html';
+        }catch(error){
+          alert('註冊失敗，請檢查您的輸入！');
+          console.error(error);
+        }
     });
   }
 });
