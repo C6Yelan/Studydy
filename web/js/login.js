@@ -26,7 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
           'Content-Type': 'application/json'
         },
         credentials: 'include', // ⭐ session cookie
-        body: JSON.stringify({ email : "liucinwen@gmail.com", password : "12345" })
+        body: JSON.stringify({ email, password })
       });
 
       window.location.href = 'dashboard.html';
