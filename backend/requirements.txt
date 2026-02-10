@@ -7,3 +7,4 @@ pymysql
 
 email-validator
 itsdangerous
+python-multipart

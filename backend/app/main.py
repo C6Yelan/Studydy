@@ -1,5 +1,15 @@
 from contextlib import asynccontextmanager
 import os
+import sys
+from pathlib import Path
+
+# Keep a lightweight vendoring hook so the app can run in environments without
+# external package downloads. If `python-multipart` is installed, it will still
+# take precedence over this fallback because site-packages comes earlier on
+# sys.path than the appended vendor directory.
+_VENDOR_DIR = Path(__file__).resolve().parents[1] / "vendor"
+if _VENDOR_DIR.is_dir():
+    sys.path.append(str(_VENDOR_DIR))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
