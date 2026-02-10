@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, UploadFile, status
 from sqlmodel import Session, select
 
-from app.core.config import ALLOWED_UPLOAD_EXTS, UPLOAD_DIR
+from app.core import config
 from app.db import get_session
 from app.models import UserDocument, UserStats
 from app.routers.auth import get_current_user
@@ -35,8 +35,8 @@ async def upload_material(
 ) -> MaterialUploadResponse:
     stored_path, original_name, stored_name, ext, size = save_upload_file(
         file,
-        upload_dir=UPLOAD_DIR,
-        allowed_exts=set(ALLOWED_UPLOAD_EXTS),
+        upload_dir=config.UPLOAD_DIR,
+        allowed_exts=set(config.ALLOWED_UPLOAD_EXTS),
     )
 
     doc = UserDocument(
