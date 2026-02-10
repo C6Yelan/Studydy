@@ -14,12 +14,12 @@ Keep router files thin; when adding features, extend services or core rather tha
 ## Project layout
 - `app/main.py`: FastAPI app, middleware, routers, lifespan for DB setup.
 - `app/db.py`: engine + `create_db_and_tables()` + `get_session()` dependency.
-- `app/routers/`: `root.py`, `health.py`, `auth.py`.
-- `app/models/`: `user.py`, `verification.py`.
+- `app/routers/`: `root.py`, `health.py`, `auth.py`, `materials.py`.
+- `app/models/`: `user.py`, `verification.py`, `document.py`, `stats.py`.
 - `app/schemas/`: auth request/response models.
 - `app/core/`: config constants and security utilities.
-- `app/services/`: `email.py` (console stub), `verification_codes.py` workflow.
-- `tests/`: pytest tests with dependency overrides.
+- `app/services/`: `email.py` (console stub), `verification_codes.py` workflow, `uploadmaterial.py`.
+- `tests/`: pytest tests with dependency overrides (e.g. `test_materials_upload.py`).
 
 ## Configuration notes
 - Security and workflow constants live in `app/core/config.py`.

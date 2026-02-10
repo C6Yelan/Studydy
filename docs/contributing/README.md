@@ -5,6 +5,7 @@
 - Run backend tests before opening a PR.
 - Do not commit secrets (`.env`, API keys, DB URLs, private keys, certificates).
 - Do not touch `docs_local/` (private, ignored).
+- Do not commit runtime artifacts: `uploads/`, `*.db`.
 
 ## PR expectations
 - One purpose per PR.

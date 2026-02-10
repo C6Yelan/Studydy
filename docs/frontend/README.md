@@ -32,6 +32,40 @@ export async function apiFetch(path, options = {}) {
 - **Session**: `GET /auth/me` and `POST /auth/logout`.
 - **Password reset**: `POST /auth/password-reset/request-code` → `POST /auth/password-reset/confirm`.
 
+## Materials & Dashboard
+Endpoints:
+- `GET /materials/me`
+- `POST /materials/upload` (multipart/form-data, field name: `file`)
+
+Dashboard example (JSON):
+```js
+const me = await apiFetch("/materials/me");
+```
+
+Upload example (FormData):
+```js
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
+
+export async function apiUpload(path, file) {
+  const form = new FormData();
+  form.append("file", file);
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    body: form,
+    credentials: "include",
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw data;
+  return data;
+}
+```
+
+Notes:
+- Do not manually set `Content-Type` for multipart uploads; the browser will add the correct boundary.
+- Always send `credentials: "include"` (session cookie auth).
+
 ## Password reset in dev/test
 - Dev behavior: verification code is printed to backend stdout (ConsoleEmailService).
 - Tests: fake email service captures codes (no console scraping).

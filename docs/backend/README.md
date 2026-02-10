@@ -22,6 +22,8 @@ Environment variables are optional for local dev unless noted.
 - `SESSION_SECRET_KEY` (required in production): session cookie signing secret.
 - `DATABASE_URL` (optional): defaults to SQLite if unset.
 - `CORS_ORIGINS` (optional): comma-separated list of allowed origins for cross-site requests with cookies.
+- `UPLOAD_DIR` (optional): upload storage directory (default: `backend/uploads`).
+- `ALLOWED_UPLOAD_EXTS` (optional): comma-separated allowed extensions (default: `.pdf,.docx,.pptx`).
 
 See `.env.example` for a template. Never commit real secrets.
 
@@ -37,3 +39,6 @@ See `.env.example` for a template. Never commit real secrets.
 
 ## Next docs
 - Architecture, layering, and testing strategy: `docs/backend/development.md`
+
+## Dependencies note
+- File uploads via `UploadFile`/`multipart/form-data` require `python-multipart`.
