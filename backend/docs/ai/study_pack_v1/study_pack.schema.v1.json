@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StudyPack",
+  "type": "object",
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "language": { "type": "string", "default": "zh-TW" },
+
+    "outline": { "type": "array", "items": { "type": "object" }, "default": [] },
+    "key_points": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "glossary": { "type": "array", "items": { "type": "object" }, "default": [] },
+    "quiz": { "type": "array", "items": { "type": "object" }, "default": [] },
+    "story_nodes": { "type": "array", "items": { "type": "object" }, "default": [] }
+  },
+  "required": ["schema_version", "outline", "key_points", "glossary", "quiz", "story_nodes"],
+  "additionalProperties": false
+}
