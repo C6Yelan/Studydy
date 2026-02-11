@@ -8,3 +8,4 @@ pymysql
 email-validator
 itsdangerous
 python-multipart
+jsonschema>=4.0.0
