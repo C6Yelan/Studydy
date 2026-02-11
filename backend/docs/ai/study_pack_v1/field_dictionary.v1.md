@@ -6,7 +6,7 @@ Schema 版本：`study_pack.schema.v1.json`（JSON Schema Draft 2020-12）。
 - 所有 object 都是 `additionalProperties: false`，不得夾帶未定義欄位。
 - 所有陣列欄位若無資料請回 `[]`，不要用 `null`。
 - Root 非空 Gate 使用 `anyOf`：`key_points` / `glossary` / `quiz` / `story_nodes` 至少一個陣列要有資料（`minItems: 1`，不含 `outline`）。
-- 文字欄位統一使用 `minLength: 1`（若該欄位可空則可省略欄位本身），並加上 `maxLength` 上限。
+- 多數文字欄位使用 `minLength: 1`，個別欄位以 schema 為準（例如 `language.minLength: 2`），並加上 `maxLength` 上限。
 - `default` 僅為 annotation；validation 時不會自動補值。
 
 ## 1. Root: StudyPack
