@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+pytest
+httpx
+sqlmodel
+pymysql
+
+email-validator
+itsdangerous
+python-multipart

@@ -218,11 +218,3 @@ docs_local/
 
 # Local-only docs (do not commit)
 docs_local/
-
-# Runtime artifacts (do not commit)
-uploads/
-backend/uploads/
-*.db
-
-# Source imports (do not commit)
-feature-dashboard-uploadmaterial-branch/
