@@ -210,6 +210,16 @@ __marimo__/
 # Local-only docs (do not commit)
 docs_local/
 
+# Local-only datasets (do not commit file contents)
+datasets_local/**
+!datasets_local/
+!datasets_local/raw/
+!datasets_local/raw/.gitkeep
+!datasets_local/redacted/
+!datasets_local/redacted/.gitkeep
+!datasets_local/exports/
+!datasets_local/exports/.gitkeep
+
 # Local-only docs (do not commit)
 docs_local/
 
