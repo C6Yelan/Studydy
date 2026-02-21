@@ -1,3 +1,5 @@
+import sys
+from pathlib import Path
 from typing import AsyncGenerator, Tuple
 
 import httpx
@@ -5,6 +7,11 @@ import pytest
 from httpx import ASGITransport
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT_STR = str(BACKEND_ROOT)
+if BACKEND_ROOT_STR not in sys.path:
+    sys.path.insert(0, BACKEND_ROOT_STR)
 
 from app import db
 from app.db import get_session

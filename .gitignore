@@ -209,15 +209,7 @@ __marimo__/
 
 # Local-only docs (do not commit)
 docs_local/
-
-# Local-only docs (do not commit)
-docs_local/
-
-# Local-only docs (do not commit)
-docs_local/
-
-# Local-only docs (do not commit)
-docs_local/
+temp/
 
 # Runtime artifacts (do not commit)
 uploads/
