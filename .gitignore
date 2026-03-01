@@ -215,6 +215,8 @@ temp/
 uploads/
 backend/uploads/
 *.db
+backend/datasets_local/training/runs/**
+backend/datasets_local/training/artifacts/**
 
 # Source imports (do not commit)
 feature-dashboard-uploadmaterial-branch/
