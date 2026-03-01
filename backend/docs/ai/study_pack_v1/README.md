@@ -18,3 +18,14 @@
 - 使用 `python-jsonschema` 的 `Draft202012Validator` 驗證 schema 與 instance。
 - 使用 `pytest` 驗證固定 golden samples（`minimal_valid.json` / `typical.json` / `edge_case.json`）。
 - 測試入口：`backend/tests/test_study_pack_schema_v1.py`。
+
+## T5 Dataset Schema Gate（Training Data）
+- 指令：
+  - `python backend/scripts/datasets/validate_study_pack_dataset.py --input <jsonl>`
+- 預設會使用 schema：`backend/docs/ai/study_pack_v1/study_pack.schema.v1.json`。
+- output 預設讀取每筆 record 的 `output` 欄位；可用 `--output-key` 指定其他欄位。
+- 產出檔案（預設與 input 同資料夾）：
+  - report：`<input_filename>.report.json`
+  - quarantine：`<input_filename>.quarantine.jsonl`
+- report 用途：提供總覽（`total/passed/failed/pass_rate`）與每個錯誤的 `line_number/record_id/error_path/message`。
+- quarantine 用途：收錄所有 fail 的原始 record，並附加 `validation_errors` 供後續人工排查或修復流程使用。
