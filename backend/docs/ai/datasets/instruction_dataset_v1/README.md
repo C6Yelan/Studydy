@@ -11,6 +11,7 @@
 - `id`: instruction sample id（例：`ins-ch-...`）
 - `dataset_version`: 固定 `instruction_dataset.v1`
 - `split`: `train` / `valid` / `test`（由 `--split` + `--seed` 決定）
+- `task`: 任務類型（目前 MVP 先產 `domain`，保留 `question`/`tutor` 擴充位）
 - `chunk_id`: 對應 T3 chunk id
 - `source`: 追溯資訊
 - `meta`: 原始 chunk meta（保留定位與來源欄位）
@@ -44,6 +45,7 @@ python backend/scripts/datasets/build_instruction_dataset.py \
   --input-format jsonl \
   --out-dir backend/datasets_local/exports \
   --study-pack-schema backend/docs/ai/study_pack_v1/study_pack.schema.v1.json \
+  --task domain \
   --split train:0.9,valid:0.1 \
   --seed 42 \
   --max-context-chars 8000 \
