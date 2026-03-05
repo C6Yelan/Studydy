@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import jsonschema
 import yaml
 from docx import Document
 from pptx import Presentation
@@ -13,6 +14,7 @@ from pptx.util import Inches
 
 BASE = Path(__file__).resolve().parents[1]
 SCRIPT = BASE / "scripts" / "datasets" / "build_chunks.py"
+CHUNK_SCHEMA_PATH = BASE / "docs" / "ai" / "datasets" / "document_chunks.schema.v1.json"
 
 
 def _run_build_chunks(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -60,6 +62,14 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _assert_records_follow_chunk_schema(records: list[dict]) -> None:
+    schema = json.loads(CHUNK_SCHEMA_PATH.read_text(encoding="utf-8"))
+    validator = jsonschema.Draft202012Validator(schema)
+    for record in records:
+        errors = sorted(validator.iter_errors(record), key=lambda item: list(item.path))
+        assert not errors, f"{record['chunk_id']} schema errors: {[error.message for error in errors]}"
 
 
 def test_build_chunks_outputs_txt_docx_pptx_and_stats(tmp_path) -> None:
@@ -164,6 +174,11 @@ def test_build_chunks_outputs_txt_docx_pptx_and_stats(tmp_path) -> None:
     assert all(len(record["text"]) <= 120 for record in txt_records)
     assert all("paragraph_start" in record["meta"] for record in txt_records)
     assert all("paragraph_end" in record["meta"] for record in txt_records)
+    assert all("locator" in record["meta"] for record in txt_records)
+    assert all("source_file" in record["meta"]["locator"] for record in txt_records)
+    assert all("document_id" in record["meta"]["locator"] for record in txt_records)
+    assert all("paragraph_start" in record["meta"]["locator"] for record in txt_records)
+    assert all("paragraph_end" in record["meta"]["locator"] for record in txt_records)
     assert all(record["meta"]["source_relative_path"] == "backend/datasets_local/raw/notes.txt" for record in txt_records)
     assert all(record["meta"]["sha256"] == _sha256_file(txt_redacted_path) for record in txt_records)
     assert any("REDACTED paragraph" in record["text"] for record in txt_records)
@@ -173,6 +188,9 @@ def test_build_chunks_outputs_txt_docx_pptx_and_stats(tmp_path) -> None:
     assert docx_records
     assert all("paragraph_start" in record["meta"] for record in docx_records)
     assert all("paragraph_end" in record["meta"] for record in docx_records)
+    assert all("locator" in record["meta"] for record in docx_records)
+    assert all("paragraph_start" in record["meta"]["locator"] for record in docx_records)
+    assert all("paragraph_end" in record["meta"]["locator"] for record in docx_records)
     assert min(record["meta"]["paragraph_start"] for record in docx_records) == 0
     assert max(record["meta"]["paragraph_end"] for record in docx_records) >= 5
 
@@ -180,8 +198,12 @@ def test_build_chunks_outputs_txt_docx_pptx_and_stats(tmp_path) -> None:
     assert pptx_records
     assert all("slide_start" in record["meta"] for record in pptx_records)
     assert all("slide_end" in record["meta"] for record in pptx_records)
+    assert all("locator" in record["meta"] for record in pptx_records)
+    assert all("slide_index" in record["meta"]["locator"] for record in pptx_records)
     assert min(record["meta"]["slide_start"] for record in pptx_records) == 1
     assert max(record["meta"]["slide_end"] for record in pptx_records) >= 2
+
+    _assert_records_follow_chunk_schema(txt_records + docx_records + pptx_records)
 
     stats_path = out_dir / "chunk_stats.v1.json"
     stats = json.loads(stats_path.read_text(encoding="utf-8"))

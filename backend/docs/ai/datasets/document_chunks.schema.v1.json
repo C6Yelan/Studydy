@@ -32,7 +32,8 @@
         "sha256",
         "dataset_id",
         "created_at",
-        "char_count"
+        "char_count",
+        "locator"
       ],
       "properties": {
         "source_relative_path": {
@@ -58,6 +59,9 @@
         "char_count": {
           "type": "integer",
           "minimum": 1
+        },
+        "locator": {
+          "$ref": "#/$defs/locator"
         },
         "page_start": {
           "type": "integer",
@@ -89,14 +93,107 @@
         "heading": {
           "type": "string"
         }
+      }
+    },
+    "locator": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "source_file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "document_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "page": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "page_start": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "page_end": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "slide_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "slide_start": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "slide_end": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "paragraph_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "paragraph_start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "paragraph_end": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chunk_start_char": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chunk_end_char": {
+          "type": "integer",
+          "minimum": 0
+        }
       },
       "allOf": [
         {
           "anyOf": [
             {
               "required": [
+                "source_file"
+              ]
+            },
+            {
+              "required": [
+                "document_id"
+              ]
+            }
+          ]
+        },
+        {
+          "anyOf": [
+            {
+              "required": [
+                "page"
+              ]
+            },
+            {
+              "required": [
                 "page_start",
                 "page_end"
+              ]
+            },
+            {
+              "required": [
+                "slide_index"
+              ]
+            },
+            {
+              "required": [
+                "slide_start",
+                "slide_end"
+              ]
+            },
+            {
+              "required": [
+                "paragraph_index"
               ]
             },
             {
@@ -107,8 +204,8 @@
             },
             {
               "required": [
-                "slide_start",
-                "slide_end"
+                "chunk_start_char",
+                "chunk_end_char"
               ]
             }
           ]
