@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://studydy.local/schemas/student_v1/student_event.schema.v1.json",
+  "title": "Studydy Student Event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_type",
+    "is_correct",
+    "payload"
+  ],
+  "properties": {
+    "event_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "concept_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ref_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "is_correct": {
+      "type": "boolean"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "time_spent_ms"
+      ],
+      "properties": {
+        "time_spent_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "anyOf": [
+        {
+          "required": [
+            "concept_id"
+          ]
+        },
+        {
+          "required": [
+            "ref_id"
+          ]
+        }
+      ]
+    }
+  ]
+}
