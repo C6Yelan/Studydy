@@ -1,3 +1,4 @@
+# backend/tests/scripts/test_build_instruction_dataset.py
 import json
 from pathlib import Path
 
@@ -5,6 +6,7 @@ from scripts.datasets.build_instruction_dataset import (
     DATASET_VERSION,
     build_instruction_records,
     load_chunks_from_jsonl,
+    TASK_DOMAIN,
     write_split_jsonl,
 )
 
@@ -63,6 +65,7 @@ def test_build_instruction_dataset_from_jsonl_minimal(tmp_path) -> None:
 
     result = build_instruction_records(
         chunks=chunks,
+        task=TASK_DOMAIN,
         split_spec="train:0.67,valid:0.33",
         seed=42,
         max_context_chars=8000,
@@ -89,6 +92,7 @@ def test_build_instruction_dataset_from_jsonl_minimal(tmp_path) -> None:
         "id",
         "dataset_version",
         "split",
+        "task",
         "source",
         "chunk_id",
         "meta",
@@ -101,9 +105,11 @@ def test_build_instruction_dataset_from_jsonl_minimal(tmp_path) -> None:
         assert record["source"]["chunk_id"] == record["chunk_id"]
         assert isinstance(record["source"]["locator"], dict)
         assert record["dataset_version"] == DATASET_VERSION
+        assert record["task"] == TASK_DOMAIN
 
     same_seed_result = build_instruction_records(
         chunks=chunks,
+        task=TASK_DOMAIN,
         split_spec="train:0.67,valid:0.33",
         seed=42,
         max_context_chars=8000,

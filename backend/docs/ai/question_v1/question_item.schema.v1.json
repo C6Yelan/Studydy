@@ -1,97 +1,90 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://studydy.local/schemas/document_chunks.schema.v1.json",
-  "title": "Studydy Document Chunk Record v1",
+  "$id": "https://studydy.local/schemas/question_v1/question_item.schema.v1.json",
+  "title": "Studydy Question Item v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "chunk_id",
-    "text",
-    "meta"
+    "question_id",
+    "concept_id",
+    "difficulty",
+    "stem",
+    "answer_key",
+    "rationale",
+    "evidence_refs"
   ],
   "properties": {
-    "chunk_id": {
-      "type": "string",
-      "pattern": "^ch-[a-zA-Z0-9][a-zA-Z0-9\\-_]*-\\d{6}$"
-    },
-    "text": {
+    "question_id": {
       "type": "string",
       "minLength": 1
     },
-    "meta": {
-      "$ref": "#/$defs/meta"
+    "concept_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "difficulty": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stem": {
+      "type": "string",
+      "minLength": 1
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 2
+    },
+    "answer_key": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        }
+      ]
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/evidenceRef"
+      }
     }
   },
   "$defs": {
-    "meta": {
+    "evidenceRef": {
       "type": "object",
       "additionalProperties": true,
       "required": [
-        "source_relative_path",
-        "file_type",
-        "sha256",
-        "dataset_id",
-        "created_at",
-        "char_count",
+        "chunk_id",
         "locator"
       ],
       "properties": {
-        "source_relative_path": {
+        "chunk_id": {
           "type": "string",
           "minLength": 1
-        },
-        "file_type": {
-          "type": "string",
-          "minLength": 1
-        },
-        "sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
-        "dataset_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "created_at": {
-          "type": "string",
-          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
-        },
-        "char_count": {
-          "type": "integer",
-          "minimum": 1
         },
         "locator": {
           "$ref": "#/$defs/locator"
-        },
-        "page_start": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "page_end": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "paragraph_start": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "paragraph_end": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "slide_start": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "slide_end": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "title": {
-          "type": "string"
-        },
-        "heading": {
-          "type": "string"
         }
       }
     },
@@ -122,18 +115,6 @@
         "slide_index": {
           "type": "integer",
           "minimum": 1
-        },
-        "slide_start": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "slide_end": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "paragraph_index": {
-          "type": "integer",
-          "minimum": 0
         },
         "paragraph_start": {
           "type": "integer",
@@ -183,17 +164,6 @@
             {
               "required": [
                 "slide_index"
-              ]
-            },
-            {
-              "required": [
-                "slide_start",
-                "slide_end"
-              ]
-            },
-            {
-              "required": [
-                "paragraph_index"
               ]
             },
             {

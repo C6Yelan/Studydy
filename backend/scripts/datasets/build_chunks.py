@@ -74,6 +74,13 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _build_document_id(*, dataset_id: str, source_relative_path: str, sha256: str) -> str:
+    digest = hashlib.sha256(
+        f"{dataset_id}:{source_relative_path}:{sha256}".encode("utf-8")
+    ).hexdigest()[:16]
+    return f"doc-{digest}"
+
+
 def _infer_backend_root(manifest_path: Path) -> Path:
     for candidate in [manifest_path.parent, *manifest_path.parents]:
         if candidate.name == "backend":
@@ -451,6 +458,41 @@ def _ensure_supported(path: Path) -> None:
         raise ValueError(f"Unsupported file type for T3 chunking: {path}")
 
 
+def _build_locator(
+    *,
+    locator_key: str,
+    span: ChunkSpan,
+    source_relative_path: str,
+    document_id: str,
+    chunk_start_char: int,
+    chunk_end_char: int,
+) -> dict[str, Any]:
+    locator: dict[str, Any] = {
+        "source_file": source_relative_path,
+        "document_id": document_id,
+        "chunk_start_char": chunk_start_char,
+        "chunk_end_char": chunk_end_char,
+    }
+
+    if locator_key == "page":
+        locator["page_start"] = span.start
+        locator["page_end"] = span.end
+        if span.start == span.end:
+            locator["page"] = span.start
+    elif locator_key == "paragraph":
+        locator["paragraph_start"] = span.start
+        locator["paragraph_end"] = span.end
+        if span.start == span.end:
+            locator["paragraph_index"] = span.start
+    elif locator_key == "slide":
+        locator["slide_index"] = span.start
+        if span.start != span.end:
+            locator["slide_start"] = span.start
+            locator["slide_end"] = span.end
+
+    return locator
+
+
 def build_dataset_chunks(
     *,
     manifest_path: Path,
@@ -520,8 +562,27 @@ def build_dataset_chunks(
                 file_type = selected_path.suffix.lower().lstrip(".")
 
             sha256 = _sha256_file(selected_path)
+            document_id = _build_document_id(
+                dataset_id=dataset_id,
+                source_relative_path=source_relative_path,
+                sha256=sha256,
+            )
+            file_char_cursor = 0
 
             for span in spans:
+                chunk_start_char = file_char_cursor
+                chunk_end_char = chunk_start_char + len(span.text)
+                file_char_cursor = chunk_end_char
+
+                locator = _build_locator(
+                    locator_key=extracted.locator_key,
+                    span=span,
+                    source_relative_path=source_relative_path,
+                    document_id=document_id,
+                    chunk_start_char=chunk_start_char,
+                    chunk_end_char=chunk_end_char,
+                )
+
                 meta: dict[str, Any] = {
                     "source_relative_path": source_relative_path,
                     "file_type": file_type,
@@ -529,6 +590,7 @@ def build_dataset_chunks(
                     "dataset_id": dataset_id,
                     "created_at": created_at,
                     "char_count": len(span.text),
+                    "locator": locator,
                 }
                 if extracted.locator_key == "page":
                     meta["page_start"] = span.start

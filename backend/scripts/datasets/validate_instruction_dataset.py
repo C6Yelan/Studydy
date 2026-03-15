@@ -1,4 +1,4 @@
-"""Validate T4 instruction dataset JSONL against required fields and Study Pack schema."""
+"""Validate T4 instruction dataset JSONL against required fields and task-specific schemas."""
 
 from __future__ import annotations
 
@@ -13,10 +13,17 @@ import jsonschema
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SCHEMA_PATH = (
+DEFAULT_DOMAIN_SCHEMA_PATH = (
     BACKEND_ROOT / "docs" / "ai" / "study_pack_v1" / "study_pack.schema.v1.json"
 )
+DEFAULT_QUESTION_SCHEMA_PATH = (
+    BACKEND_ROOT / "docs" / "ai" / "question_v1" / "question_item.schema.v1.json"
+)
+DEFAULT_TUTOR_SCHEMA_PATH = (
+    BACKEND_ROOT / "docs" / "ai" / "tutor_v1" / "tutor_message.schema.v1.json"
+)
 DEFAULT_INPUT_PATH = BACKEND_ROOT / "datasets_local" / "exports"
+SUPPORTED_TASKS = ("domain", "question", "tutor")
 
 
 def utc_now_iso() -> str:
@@ -71,9 +78,16 @@ def validate_record_shape(record: Any) -> list[str]:
         return ["record must be a JSON object"]
 
     errors: list[str] = []
-    for field in ("id", "dataset_version", "split", "source", "chunk_id", "meta"):
+    for field in ("id", "dataset_version", "split", "task", "source", "chunk_id", "meta"):
         if field not in record:
             errors.append(f"missing required field: {field}")
+
+    task = record.get("task")
+    if "task" in record:
+        if not isinstance(task, str) or not task.strip():
+            errors.append("task must be a non-empty string")
+        elif task not in SUPPORTED_TASKS:
+            errors.append(f"task must be one of {SUPPORTED_TASKS}")
 
     if "source" in record:
         errors.extend(validate_source(record["source"]))
@@ -102,16 +116,30 @@ def validate_record_shape(record: Any) -> list[str]:
     return errors
 
 
+def _load_validator(schema_path: Path) -> jsonschema.Draft202012Validator:
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    return jsonschema.Draft202012Validator(schema)
+
+
 def validate_instruction_dataset(
     *,
     input_path: Path,
-    schema_path: Path,
+    schema_path: Path | None = None,
+    domain_schema_path: Path | None = None,
+    question_schema_path: Path = DEFAULT_QUESTION_SCHEMA_PATH,
+    tutor_schema_path: Path = DEFAULT_TUTOR_SCHEMA_PATH,
     report_path: Path | None = None,
     quarantine_path: Path | None = None,
 ) -> dict[str, Any]:
     files = discover_dataset_files(input_path)
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    validator = jsonschema.Draft202012Validator(schema)
+    if domain_schema_path is None:
+        domain_schema_path = schema_path or DEFAULT_DOMAIN_SCHEMA_PATH
+
+    validators: dict[str, jsonschema.Draft202012Validator] = {
+        "domain": _load_validator(domain_schema_path),
+        "question": _load_validator(question_schema_path),
+        "tutor": _load_validator(tutor_schema_path),
+    }
 
     issues: list[dict[str, Any]] = []
     total_records = 0
@@ -139,10 +167,11 @@ def validate_instruction_dataset(
                 )
                 errors = parse_errors + validate_record_shape(record)
 
+                task_name = record.get("task") if isinstance(record, dict) else None
                 output_json = record.get("output_json") if isinstance(record, dict) else None
-                if isinstance(output_json, dict):
+                if isinstance(output_json, dict) and isinstance(task_name, str) and task_name in validators:
                     schema_errors = sorted(
-                        validator.iter_errors(output_json), key=lambda item: list(item.path)
+                        validators[task_name].iter_errors(output_json), key=lambda item: list(item.path)
                     )
                     for error in schema_errors:
                         path = ".".join(str(part) for part in error.path) or "<root>"
@@ -166,7 +195,11 @@ def validate_instruction_dataset(
         "version": "v1",
         "validated_at": utc_now_iso(),
         "input_path": str(input_path),
-        "schema_path": str(schema_path),
+        "schema_paths": {
+            "domain": str(domain_schema_path),
+            "question": str(question_schema_path),
+            "tutor": str(tutor_schema_path),
+        },
         "files": [str(path) for path in files],
         "total_records": total_records,
         "valid_records": valid_records,
@@ -208,9 +241,23 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--study-pack-schema",
+        "--domain-schema",
+        dest="domain_schema",
         type=Path,
-        default=DEFAULT_SCHEMA_PATH,
-        help=f"Study Pack schema path (default: {DEFAULT_SCHEMA_PATH})",
+        default=DEFAULT_DOMAIN_SCHEMA_PATH,
+        help=f"Domain schema path (default: {DEFAULT_DOMAIN_SCHEMA_PATH})",
+    )
+    parser.add_argument(
+        "--question-schema",
+        type=Path,
+        default=DEFAULT_QUESTION_SCHEMA_PATH,
+        help=f"Question schema path (default: {DEFAULT_QUESTION_SCHEMA_PATH})",
+    )
+    parser.add_argument(
+        "--tutor-schema",
+        type=Path,
+        default=DEFAULT_TUTOR_SCHEMA_PATH,
+        help=f"Tutor schema path (default: {DEFAULT_TUTOR_SCHEMA_PATH})",
     )
     parser.add_argument(
         "--report-path",
@@ -232,7 +279,9 @@ def main() -> int:
     try:
         report = validate_instruction_dataset(
             input_path=args.input,
-            schema_path=args.study_pack_schema,
+            domain_schema_path=args.domain_schema,
+            question_schema_path=args.question_schema,
+            tutor_schema_path=args.tutor_schema,
             report_path=args.report_path,
             quarantine_path=args.quarantine_path,
         )

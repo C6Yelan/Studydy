@@ -26,6 +26,10 @@ PREFERENCE_DATASET_VERSION = "preference_dataset.v1"
 PROMPT_COMPLETION = "prompt_completion"
 CONVERSATIONAL = "conversational"
 FORMAT_CHOICES = (PROMPT_COMPLETION, CONVERSATIONAL)
+TASK_DOMAIN = "domain"
+TASK_QUESTION = "question"
+TASK_TUTOR = "tutor"
+TASK_CHOICES = (TASK_DOMAIN, TASK_QUESTION, TASK_TUTOR)
 
 LOCATOR_KEYS = (
     "page_start",
@@ -200,6 +204,12 @@ def build_study_pack_output(context: str) -> dict[str, Any]:
     }
 
 
+def build_output_by_task(*, task: str, context: str) -> dict[str, Any]:
+    if task == TASK_DOMAIN:
+        return build_study_pack_output(context)
+    raise NotImplementedError(f"task `{task}` is not implemented yet in build_instruction_dataset")
+
+
 def build_locator(meta: dict[str, Any]) -> dict[str, Any]:
     locator: dict[str, Any] = {}
     for key in LOCATOR_KEYS:
@@ -228,6 +238,7 @@ def infer_doc_id(meta: dict[str, Any]) -> str:
 
 def build_prompts(
     *,
+    task: str,
     chunk_id: str,
     source_relative_path: str,
     locator: dict[str, Any],
@@ -236,7 +247,7 @@ def build_prompts(
 ) -> tuple[str, str]:
     system_prompt = (
         "You are a Studydy dataset annotation assistant. "
-        "Return exactly one JSON object that must satisfy Study Pack schema v1. "
+        f"Return exactly one JSON object for task `{task}` and satisfy its schema. "
         "Do not output markdown, code fences, or extra commentary. "
         f"Schema reference: {schema_path}."
     )
@@ -257,6 +268,7 @@ def _build_prompt_text(system_prompt: str, user_prompt: str) -> str:
 def build_sft_record(
     chunk: dict[str, Any],
     *,
+    task: str,
     split: str,
     format_name: str,
     max_context_chars: int,
@@ -276,8 +288,9 @@ def build_sft_record(
         "sha256": meta.get("sha256"),
         "locator": locator,
     }
-    output_json = build_study_pack_output(context)
+    output_json = build_output_by_task(task=task, context=context)
     system_prompt, user_prompt = build_prompts(
+        task=task,
         chunk_id=chunk_id,
         source_relative_path=source_relative_path,
         locator=locator,
@@ -286,9 +299,10 @@ def build_sft_record(
     )
 
     record: dict[str, Any] = {
-        "id": f"ins-{chunk_id}",
+        "id": f"ins-{task}-{chunk_id}",
         "dataset_version": DATASET_VERSION,
         "split": split,
+        "task": task,
         "chunk_id": chunk_id,
         "source": source,
         "meta": meta,
@@ -315,9 +329,10 @@ def build_dpo_record(sft_record: dict[str, Any]) -> dict[str, Any]:
     chosen_json = json.dumps(sft_record["output_json"], ensure_ascii=False)
     rejected_json = json.dumps({"schema_version": "1.0", "outline": []}, ensure_ascii=False)
     return {
-        "id": f"dpo-{sft_record['chunk_id']}",
+        "id": f"dpo-{sft_record['task']}-{sft_record['chunk_id']}",
         "dataset_version": PREFERENCE_DATASET_VERSION,
         "split": sft_record["split"],
+        "task": sft_record["task"],
         "prompt": prompt,
         "chosen": chosen_json,
         "rejected": rejected_json,
@@ -329,6 +344,7 @@ def build_dpo_record(sft_record: dict[str, Any]) -> dict[str, Any]:
 def build_instruction_records(
     *,
     chunks: list[dict[str, Any]],
+    task: str,
     split_spec: str,
     seed: int,
     max_context_chars: int,
@@ -338,6 +354,8 @@ def build_instruction_records(
 ) -> BuildResult:
     if format_name not in FORMAT_CHOICES:
         raise ValueError(f"unsupported format: {format_name}")
+    if task not in TASK_CHOICES:
+        raise ValueError(f"unsupported task: {task}")
 
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     validator = jsonschema.Draft202012Validator(schema)
@@ -348,10 +366,11 @@ def build_instruction_records(
     split_counts: dict[str, int] = {}
 
     for chunk in sorted(chunks, key=lambda item: str(item["chunk_id"])):
-        record_id = f"ins-{chunk['chunk_id']}"
+        record_id = f"ins-{task}-{chunk['chunk_id']}"
         split = assign_split(record_id=record_id, splits=split_definitions, seed=seed)
         sft_record = build_sft_record(
             chunk,
+            task=task,
             split=split,
             format_name=format_name,
             max_context_chars=max_context_chars,
@@ -421,6 +440,7 @@ def write_build_report(
             "input": args.input,
             "input_format": args.input_format,
             "study_pack_schema": str(args.study_pack_schema),
+            "task": args.task,
             "split": args.split,
             "seed": args.seed,
             "max_context_chars": args.max_context_chars,
@@ -465,7 +485,14 @@ def parse_args() -> argparse.Namespace:
         "--study-pack-schema",
         type=Path,
         default=DEFAULT_STUDY_PACK_SCHEMA,
-        help=f"Study Pack schema path (default: {DEFAULT_STUDY_PACK_SCHEMA})",
+        help=f"Domain task schema path (default: {DEFAULT_STUDY_PACK_SCHEMA})",
+    )
+    parser.add_argument(
+        "--task",
+        type=str,
+        choices=TASK_CHOICES,
+        default=TASK_DOMAIN,
+        help=f"Instruction task type (default: {TASK_DOMAIN})",
     )
     parser.add_argument(
         "--split",
@@ -510,6 +537,7 @@ def main() -> int:
 
         result = build_instruction_records(
             chunks=chunks,
+            task=args.task,
             split_spec=args.split,
             seed=args.seed,
             max_context_chars=args.max_context_chars,
