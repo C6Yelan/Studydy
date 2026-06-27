@@ -220,3 +220,19 @@ backend/datasets_local/training/artifacts/**
 
 # Source imports (do not commit)
 feature-dashboard-uploadmaterial-branch/
+
+# Secrets and credentials (do not commit)
+*.pem
+*.crt
+*.cert
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.token
+*.secret
+*.credentials
+.env.*
+!.env.example
+!backend/.env.example
+*.key
