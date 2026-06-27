@@ -1,1 +1,0 @@
-{"schema_version":"1.0","language":"zh-TW","outline":[{"title":"章節1","children":[{"title":"小節1.1"}]}],"key_points":["重點1","重點2"],"glossary":[{"term":"詞彙A","definition":"定義A"}],"quiz":[{"type":"mcq","question":"題目1","options":["A","B","C","D"],"answer_index":0,"explanation":"A 是正確答案。"}],"story_nodes":[{"scene":"情境1","prompt":"接下來怎麼做？","choices":["選項A","選項B"]}]}
