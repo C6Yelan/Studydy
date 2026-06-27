@@ -21,9 +21,19 @@ The first development priority is to keep the data flow clear, the schema stable
 
 * Main development environment: Windows + WSL Ubuntu.
 * Repository location: WSL Linux filesystem.
-* Main repo path: `~/projects/Studydy`.
+* Workspace root: `~/projects/Studydy`.
+* Main integration repo path: `~/projects/Studydy/main`.
+* Role repo paths:
+  * `~/projects/Studydy/main` for Supervisor, final integration, commit, and push.
+  * `~/projects/Studydy/explorer` for Explorer / Planner.
+  * `~/projects/Studydy/implementer` for Implementer.
+  * `~/projects/Studydy/reviewer` for Reviewer / Pruner.
+  * `~/projects/Studydy/doc-curator` for Doc Curator.
+* Shared local handoff path: `~/projects/Studydy/_shared/ai_workflow`.
+* Each role repo should expose the shared handoff path through `docs_local/ai_workflow`.
 * Prefer WSL Codex CLI for coding, testing, and backend work.
-* Codex App may be used for parallel threads, worktree-based tasks, review, or background exploration.
+* Codex App may be used only as a helper for review, discussion, or background exploration.
+* Worktree is not the current primary workflow. Use it only later when the user explicitly decides to run independent branch-based parallel development.
 * Do not let multiple Codex windows modify the same branch or the same files at the same time.
 
 ## Branch rules
@@ -40,32 +50,39 @@ The first development priority is to keep the data flow clear, the schema stable
 
 ## Multi-window workflow
 
-The main workflow is multi-window role separation.
+The main workflow is multi-window role separation through separate role repo folders.
 
 Use these roles:
 
 1. Supervisor
 
+   * Uses `~/projects/Studydy/main`.
    * Controlled by the user.
    * Responsible for task decision, scope control, PLAN approval, review approval, and final Git decisions.
+   * Handles final integration, commit, merge, and push only after user confirmation.
    * Does not automatically implement.
 
 2. Explorer / Planner window
 
+   * Uses `~/projects/Studydy/explorer`.
    * Read-only by default.
    * Finds relevant files, existing patterns, risks, and minimal implementation scope.
-   * Produces or updates the PLAN.
-   * Must not modify files.
+   * Produces or updates the PLAN when explicitly instructed.
+   * Must not modify official source files.
+   * Must not commit or push.
 
 3. Implementer window
 
+   * Uses `~/projects/Studydy/implementer`.
    * Workspace-write only after a PLAN is approved.
    * Implements only the approved PLAN.
    * Must not expand scope, add speculative features, or change unrelated files.
+   * Must not modify `docs_local/` unless explicitly instructed for handoff reporting.
    * Must not commit or push unless the user explicitly asks.
 
 4. Reviewer / Pruner window
 
+   * Uses `~/projects/Studydy/reviewer`.
    * Read-only by default.
    * Reviews the diff against the PLAN.
    * Looks for bugs, unnecessary abstraction, over-implementation, duplicated logic, security issues, missing tests, and documentation bloat.
@@ -73,15 +90,17 @@ Use these roles:
 
 5. Doc Curator window
 
+   * Uses `~/projects/Studydy/doc-curator`.
    * Read-only by default.
    * Checks whether documentation actually needs to change.
    * Suggests the smallest required documentation update only when behavior, setup, API, schema, command, or architecture changed.
+   * Must not expand documentation by default.
 
 ## Subagent usage
 
 Subagents are a short-term acceleration tool, not the main workflow.
 
-Use subagents only when a single Codex window benefits from parallel work, such as:
+Use subagents only when a single Codex window benefits from bounded parallel work, such as:
 
 * parallel repository exploration
 * comparing implementation locations
@@ -105,7 +124,11 @@ Each subagent must have:
 
 ## Local handoff files
 
-Use `docs_local/ai_workflow/` as the private local handoff area.
+Use `docs_local/ai_workflow/` as the private local handoff area inside each role repo.
+
+In this project setup, `docs_local/ai_workflow/` should point to the shared local folder:
+
+`~/projects/Studydy/_shared/ai_workflow`
 
 Recommended files:
 
@@ -117,11 +140,14 @@ Recommended files:
 * `doc_report.md`
 * `decision_log.md`
 * `prompts.md`
+* `window_start_commands.md`
 
 Rules:
 
 * `docs_local/` is private local reference only.
+* `_shared/` is private local reference only.
 * Never add, commit, or push `docs_local/`.
+* Never add, commit, or push `_shared/`.
 * AI windows may read or write handoff files only when explicitly instructed by the user.
 * Handoff files are for coordination, not official project documentation.
 
@@ -143,6 +169,8 @@ A PLAN must include:
 8. completion definition
 
 Implementation must not begin until the user confirms the PLAN.
+
+Small file-review tasks, such as checking `AGENTS.md`, meeting notes, workflow notes, or planning documents, may be handled directly by the user and assistant without opening the full multi-window workflow.
 
 ## Code scope rules
 
@@ -169,6 +197,8 @@ Implementation must not begin until the user confirms the PLAN.
 * Never add, commit, print, or push `.env` files.
 * Never add, commit, print, or push API keys, connection strings, private keys, certificates, tokens, or secrets.
 * Never commit private local notes or files from `docs_local/`.
+* Never commit private local notes or files from `_shared/`.
+* `backend/.env.example` may be committed only with placeholder values.
 * Ask before installing new dependencies.
 * Ask before committing.
 * Ask before pushing.
@@ -195,6 +225,7 @@ Confirm:
 * no `.env` files
 * no secrets
 * no `docs_local/`
+* no `_shared/`
 * no unrelated changes
 * no unplanned documentation expansion
 * no obvious over-implementation
