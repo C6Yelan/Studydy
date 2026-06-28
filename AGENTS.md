@@ -122,6 +122,42 @@ Each subagent must have:
 3. an expected output format
 4. files or areas it must not touch
 
+## Local AI context files
+
+Use `docs_local/ai_context/` as the private local long-lived project context area inside each role repo.
+
+In this project setup, `docs_local/ai_context/` should point to the shared local folder:
+
+`~/projects/Studydy/_shared/ai_context`
+
+Recommended files:
+
+* `00_project_brief.md`
+* `01_mvp_scope.md`
+* `02_domain_model.md`
+* `03_agent_pipeline.md`
+* `04_data_contract.md`
+* `05_architecture_map.md`
+* `06_development_backlog.md`
+* `07_codex_task_templates.md`
+
+Purpose:
+
+* `ai_context/` stores stable project background that helps Codex understand Studydy without repeated explanation.
+* `ai_workflow/` stores current task handoff, PLAN, reports, and decision logs.
+* `AGENTS.md` stores fixed rules that apply to every Codex task.
+
+Rules:
+
+* `docs_local/ai_context/` is private local reference only.
+* `~/projects/Studydy/_shared/ai_context` is private local reference only.
+* Never add, commit, or push `docs_local/ai_context/`.
+* Never add, commit, or push `~/projects/Studydy/_shared/ai_context`.
+* Read only the relevant context files for the current task.
+* Do not copy AI context files into official docs unless the user explicitly confirms.
+* Do not treat AI context files as official project documentation.
+* Keep long background content out of `AGENTS.md`; put it in `ai_context/` instead.
+
 ## Local handoff files
 
 Use `docs_local/ai_workflow/` as the private local handoff area inside each role repo.

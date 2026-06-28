@@ -236,3 +236,4 @@ feature-dashboard-uploadmaterial-branch/
 !.env.example
 !backend/.env.example
 *.key
+*.env
