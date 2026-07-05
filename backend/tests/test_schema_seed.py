@@ -76,6 +76,33 @@ def test_seeded_relations_match_fixed_set(seeded_database):
     assert actual == set(DEMO_RELATIONS)
 
 
+def test_every_seeded_relation_has_evidence(seeded_database):
+    with seeded_database.connect() as connection:
+        rows = connection.execute(
+            text(
+                """
+                select
+                    source.name as source_name,
+                    target.name as target_name,
+                    relation.relation_type::text as relation_type,
+                    count(e.id) as evidence_count
+                from concept_relations relation
+                join concepts source on source.id = relation.source_concept_id
+                join concepts target on target.id = relation.target_concept_id
+                left join evidence e on e.relation_id = relation.id
+                group by source.name, target.name, relation.relation_type
+                """
+            )
+        ).mappings().all()
+
+    evidence_counts = {
+        (row["source_name"], row["target_name"], row["relation_type"]): row["evidence_count"]
+        for row in rows
+    }
+    assert set(evidence_counts) == set(DEMO_RELATIONS)
+    assert all(count >= 1 for count in evidence_counts.values())
+
+
 def test_learning_path_nodes_are_in_expected_order(seeded_database):
     with seeded_database.connect() as connection:
         rows = connection.execute(
