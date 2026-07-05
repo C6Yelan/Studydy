@@ -204,6 +204,16 @@ A PLAN must include:
 7. risks and limitations
 8. completion definition
 
+PLAN fidelity rules:
+
+* Agents must follow the approved planning documents strictly.
+* Do not reinterpret, extend, or replace the approved plan with inferred implementation work.
+* Repo state, missing files, existing patterns, or technical preferences are facts to report, not permission to change scope.
+* If the plan or project documents appear incomplete, inconsistent, impractical, or technically questionable, stop and raise the issue to the user / Supervisor for discussion.
+* Any implementation detail not explicitly stated in the approved plan or directly confirmed by the user must be treated as a Supervisor question, not an implementation task.
+* Explorer / Planner must separate documented requirements from repo observations and open questions.
+* Implementer must execute only documented requirements and Supervisor-approved decisions.
+
 Implementation must not begin until the user confirms the PLAN.
 
 Small file-review tasks, such as checking `AGENTS.md`, meeting notes, workflow notes, or planning documents, may be handled directly by the user and assistant without opening the full multi-window workflow.
