@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     Enum as SQLEnum,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     Numeric,
     String,
@@ -53,6 +54,7 @@ class MaterialBlock(Base):
     __tablename__ = "material_blocks"
     __table_args__ = (
         UniqueConstraint("material_id", "block_index", name="uq_material_blocks_material_block_index"),
+        UniqueConstraint("id", "material_id", name="uq_material_blocks_id_material"),
         CheckConstraint("block_index >= 0", name="ck_material_blocks_block_index_nonnegative"),
     )
 
@@ -101,6 +103,11 @@ class ConceptRelation(Base):
 class Evidence(Base):
     __tablename__ = "evidence"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["block_id", "material_id"],
+            ["material_blocks.id", "material_blocks.material_id"],
+            name="fk_evidence_block_material",
+        ),
         CheckConstraint(
             "(concept_id IS NOT NULL AND relation_id IS NULL) OR "
             "(concept_id IS NULL AND relation_id IS NOT NULL)",
@@ -110,7 +117,7 @@ class Evidence(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     material_id: Mapped[int] = mapped_column(ForeignKey("materials.id", ondelete="CASCADE"), nullable=False)
-    block_id: Mapped[Optional[int]] = mapped_column(ForeignKey("material_blocks.id", ondelete="SET NULL"))
+    block_id: Mapped[Optional[int]] = mapped_column(Integer)
     concept_id: Mapped[Optional[int]] = mapped_column(ForeignKey("concepts.id", ondelete="CASCADE"))
     relation_id: Mapped[Optional[int]] = mapped_column(ForeignKey("concept_relations.id", ondelete="CASCADE"))
     page_number: Mapped[Optional[int]] = mapped_column(Integer)

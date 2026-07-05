@@ -78,6 +78,7 @@ def upgrade() -> None:
         sa.CheckConstraint("block_index >= 0", name="ck_material_blocks_block_index_nonnegative"),
         sa.ForeignKeyConstraint(["material_id"], ["materials.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("id", "material_id", name="uq_material_blocks_id_material"),
         sa.UniqueConstraint("material_id", "block_index", name="uq_material_blocks_material_block_index"),
     )
 
@@ -126,7 +127,11 @@ def upgrade() -> None:
             "(concept_id IS NULL AND relation_id IS NOT NULL)",
             name="ck_evidence_exactly_one_target",
         ),
-        sa.ForeignKeyConstraint(["block_id"], ["material_blocks.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(
+            ["block_id", "material_id"],
+            ["material_blocks.id", "material_blocks.material_id"],
+            name="fk_evidence_block_material",
+        ),
         sa.ForeignKeyConstraint(["concept_id"], ["concepts.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["material_id"], ["materials.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["relation_id"], ["concept_relations.id"], ondelete="CASCADE"),
