@@ -1,0 +1,1 @@
+"""Studydy backend application package."""
