@@ -59,6 +59,23 @@ The first development priority is to keep the data flow clear, the schema stable
 
 The main workflow is multi-window role separation through separate role repo folders.
 
+Role boundaries are mandatory, not advisory. A role must not perform another role's gate, approval, commit, review, or implementation duty just because it can technically access the files.
+
+The workflow order for non-trivial implementation is:
+
+1. Supervisor creates or approves the task boundary.
+2. Explorer / Planner produces the PLAN when needed.
+3. Supervisor explicitly approves the PLAN.
+4. Implementer implements only the approved slice.
+5. Implementer commits / pushes only when the user explicitly instructs that role to do so.
+6. Reviewer / Pruner reviews the committed or otherwise reviewable diff.
+7. Implementer fixes required findings, if any.
+8. Reviewer / Pruner re-checks required fixes, if any.
+9. Supervisor performs the final acceptance gate.
+10. Supervisor releases the next slice only after acceptance.
+
+Do not skip a role gate. Supervisor quick inspection is not a substitute for Reviewer / Pruner review. Reviewer acceptance is not a substitute for Supervisor final acceptance. Implementer reporting is not a substitute for review.
+
 Use these roles:
 
 1. Supervisor
@@ -67,7 +84,10 @@ Use these roles:
    * Controlled by the user.
    * Responsible for task decision, scope control, PLAN approval, review approval, and final Git decisions.
    * Handles final integration, commit, merge, and push only after user confirmation.
-   * Does not automatically implement.
+   * Does not implement feature work.
+   * Must not commit or push Implementer work from the Supervisor window.
+   * Must not mark a slice accepted until Reviewer / Pruner review and any required re-check are complete.
+   * Must not release the next slice until the human / Supervisor acceptance gate is explicit.
 
 2. Explorer / Planner window
 
@@ -77,6 +97,8 @@ Use these roles:
    * Produces or updates the PLAN when explicitly instructed.
    * Must not modify official source files.
    * Must not commit or push.
+   * Must not implement the PLAN it writes.
+   * Must separate documented requirements, repo observations, and open Supervisor questions.
 
 3. Implementer window
 
@@ -86,6 +108,9 @@ Use these roles:
    * Must not expand scope, add speculative features, or change unrelated files.
    * Must not modify `docs_local/` unless explicitly instructed for handoff reporting.
    * Must not commit or push unless the user explicitly asks.
+   * Must not review or accept its own work.
+   * Must not start the next slice until Supervisor releases it.
+   * Must stop and report if the approved PLAN, current task, branch state, or dependency permission is unclear.
 
 4. Reviewer / Pruner window
 
@@ -94,6 +119,9 @@ Use these roles:
    * Reviews the diff against the PLAN.
    * Looks for bugs, unnecessary abstraction, over-implementation, duplicated logic, security issues, missing tests, and documentation bloat.
    * Must not directly rewrite the implementation.
+   * Must issue an explicit `accepted` / `needs-fix` verdict.
+   * Must re-check required fixes before Supervisor acceptance when the previous verdict was `needs-fix`.
+   * Must not release the next slice; that is Supervisor's responsibility.
 
 5. Doc Curator window
 
@@ -102,6 +130,7 @@ Use these roles:
    * Checks whether documentation actually needs to change.
    * Suggests the smallest required documentation update only when behavior, setup, API, schema, command, or architecture changed.
    * Must not expand documentation by default.
+   * Must not implement source changes or approve implementation slices.
 
 ## Subagent usage
 
@@ -193,6 +222,12 @@ Rules:
 * Never add, commit, or push `_shared/`.
 * AI windows may read or write handoff files only when explicitly instructed by the user.
 * Handoff files are for coordination, not official project documentation.
+* Files under `docs_local/ai_workflow/current/` are current-only handoff files, not append-only logs.
+* At every new phase, phase closeout, or slice boundary, reset current reports so they describe only the active phase/slice and immediate gate state.
+* Do not let `current/implementer_report.md`, `current/review_report.md`, `current/explorer_report.md`, or `current/doc_report.md` accumulate previous phases.
+* Preserve durable decisions in `docs_local/ai_workflow/decisions/`, not in `current/`.
+* If a current report contains stale phase content, stop and clean the private handoff before using it as approval or review evidence.
+* Do not approve implementation from conversation summaries when the corresponding current handoff file is stale, missing, or contradictory.
 
 ## Planning rules
 
