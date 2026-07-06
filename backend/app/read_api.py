@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import Concept, ConceptRelation, Evidence, Material, MaterialBlock
+from app.models import Concept, ConceptRelation, Evidence, LearningPathNode, Material, MaterialBlock
 
 router = APIRouter(prefix="/api")
 
@@ -26,6 +26,10 @@ def _optional_float(value: Any) -> float | None:
     if isinstance(value, Decimal):
         return float(value)
     return value
+
+
+def _enum_value(value: Any) -> Any:
+    return value.value if hasattr(value, "value") else value
 
 
 # Fields absent from the Phase 1 schema use the approved v1 read-contract placeholders.
@@ -101,11 +105,7 @@ def _knowledge_map_node(concept: Concept, index: int) -> dict[str, Any]:
 
 
 def _knowledge_map_edge(relation: ConceptRelation) -> dict[str, Any]:
-    relation_type = (
-        relation.relation_type.value
-        if hasattr(relation.relation_type, "value")
-        else relation.relation_type
-    )
+    relation_type = _enum_value(relation.relation_type)
     return {
         "id": str(relation.id),
         "source": str(relation.source_concept_id),
@@ -121,11 +121,48 @@ def _knowledge_map_edge(relation: ConceptRelation) -> dict[str, Any]:
     }
 
 
+def _evidence_summary(evidence: Evidence) -> dict[str, Any]:
+    return {
+        "id": evidence.id,
+        "material_id": evidence.material_id,
+        "block_id": evidence.block_id,
+        "page_number": evidence.page_number,
+        "quote_text": evidence.quote_text,
+        "evidence_type": _enum_value(evidence.evidence_type),
+        "metadata": evidence.metadata_,
+    }
+
+
+def _relation_summary(relation: ConceptRelation) -> dict[str, Any]:
+    return {
+        "id": relation.id,
+        "source_concept_id": relation.source_concept_id,
+        "target_concept_id": relation.target_concept_id,
+        "relation_type": _enum_value(relation.relation_type),
+        "reason": relation.description,
+        "score": {
+            "score_value": _optional_float(relation.score_value),
+            "score_level": relation.score_level,
+            "decision": "accepted",
+            "score_detail": relation.score_detail,
+            "score_reason": relation.score_reason,
+        },
+        "needs_review": relation.needs_review,
+    }
+
+
 def _get_material_or_404(db: Session, material_id: int) -> Material:
     material = db.get(Material, material_id)
     if material is None:
         raise HTTPException(status_code=404, detail="Material not found")
     return material
+
+
+def _get_concept_or_404(db: Session, concept_id: int) -> Concept:
+    concept = db.get(Concept, concept_id)
+    if concept is None:
+        raise HTTPException(status_code=404, detail="Concept not found")
+    return concept
 
 
 @router.get("/materials/{material_id}")
@@ -162,5 +199,42 @@ def get_knowledge_map(material_id: int, db: Session = Depends(get_db)) -> dict[s
     return {
         "nodes": nodes,
         "edges": [_knowledge_map_edge(relation) for relation in relations],
+        "warnings": [],
+    }
+
+
+@router.get("/concepts/{concept_id}")
+def get_concept_detail(concept_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    concept = _get_concept_or_404(db, concept_id)
+
+    evidence_list = db.execute(
+        select(Evidence)
+        .where(Evidence.concept_id == concept_id)
+        .order_by(Evidence.material_id, Evidence.block_id.nullslast(), Evidence.id)
+    ).scalars().all()
+    incoming_relations = db.execute(
+        select(ConceptRelation)
+        .where(ConceptRelation.target_concept_id == concept_id)
+        .order_by(ConceptRelation.id)
+    ).scalars().all()
+    outgoing_relations = db.execute(
+        select(ConceptRelation)
+        .where(ConceptRelation.source_concept_id == concept_id)
+        .order_by(ConceptRelation.id)
+    ).scalars().all()
+    learning_path_position = db.execute(
+        select(LearningPathNode.position)
+        .where(LearningPathNode.concept_id == concept_id)
+        .order_by(LearningPathNode.position)
+    ).scalars().first()
+
+    return {
+        "concept": _concept_summary(concept),
+        "evidence_list": [_evidence_summary(evidence) for evidence in evidence_list],
+        "resource_list": [],
+        "incoming_relations": [_relation_summary(relation) for relation in incoming_relations],
+        "outgoing_relations": [_relation_summary(relation) for relation in outgoing_relations],
+        "learning_path_position": learning_path_position,
+        "mastery_status": "not_started",
         "warnings": [],
     }

@@ -3,8 +3,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.main import app
-from app.models import Material
-from scripts.seed_demo_data import DEMO_CONCEPTS, DEMO_RELATIONS, seed_demo_data
+from app.models import Concept, Material
+from scripts.seed_demo_data import DEMO_CONCEPTS, DEMO_LEARNING_PATH, DEMO_RELATIONS, seed_demo_data
 
 
 @pytest.fixture()
@@ -23,6 +23,13 @@ def demo_material_id(engine) -> int:
                 Material.chapter_range == "Linear Structures",
             )
         ).scalar_one()
+
+
+@pytest.fixture()
+def demo_stack_concept_id(engine) -> int:
+    seed_demo_data()
+    with engine.connect() as connection:
+        return connection.execute(select(Concept.id).where(Concept.name == "Stack")).scalar_one()
 
 
 def test_get_material_returns_demo_summary(client, demo_material_id):
@@ -123,3 +130,60 @@ def test_get_knowledge_map_returns_demo_nodes_edges(client, demo_material_id):
     first_edge = body["edges"][0]
     assert {"id", "source", "target", "type", "label", "data"} <= first_edge.keys()
     assert {"relation_type", "reason", "score_value", "needs_review"} <= first_edge["data"].keys()
+
+
+def test_get_concept_detail_returns_demo_contract(client, demo_stack_concept_id):
+    response = client.get(f"/api/concepts/{demo_stack_concept_id}")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body.keys() == {
+        "concept",
+        "evidence_list",
+        "resource_list",
+        "incoming_relations",
+        "outgoing_relations",
+        "learning_path_position",
+        "mastery_status",
+        "warnings",
+    }
+    assert body["concept"]["id"] == demo_stack_concept_id
+    assert body["concept"]["name"] == "Stack"
+    assert body["resource_list"] == []
+    assert body["mastery_status"] == "not_started"
+    assert body["learning_path_position"] == DEMO_LEARNING_PATH.index("Stack") + 1
+    assert body["warnings"] == []
+
+    assert len(body["evidence_list"]) >= 1
+    first_evidence = body["evidence_list"][0]
+    assert {
+        "id",
+        "material_id",
+        "block_id",
+        "page_number",
+        "quote_text",
+        "evidence_type",
+        "metadata",
+    } <= first_evidence.keys()
+    assert first_evidence["evidence_type"] == "summary"
+
+    assert len(body["incoming_relations"]) >= 1
+    assert len(body["outgoing_relations"]) >= 1
+    first_relation = body["incoming_relations"][0]
+    assert {
+        "id",
+        "source_concept_id",
+        "target_concept_id",
+        "relation_type",
+        "reason",
+        "score",
+        "needs_review",
+    } <= first_relation.keys()
+    assert first_relation["target_concept_id"] == demo_stack_concept_id
+
+
+def test_get_concept_detail_returns_404_for_missing_concept(client):
+    response = client.get("/api/concepts/999999")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Concept not found"
