@@ -28,6 +28,7 @@ def _optional_float(value: Any) -> float | None:
     return value
 
 
+# Fields absent from the Phase 1 schema use the approved v1 read-contract placeholders.
 def _material_summary(material: Material) -> dict[str, Any]:
     return {
         "id": material.id,
@@ -81,6 +82,7 @@ def get_material(material_id: int, db: Session = Depends(get_db)) -> dict[str, A
 def list_material_concepts(material_id: int, db: Session = Depends(get_db)) -> dict[str, list[dict[str, Any]]]:
     _get_material_or_404(db, material_id)
 
+    # Use the first evidence location as the material-local concept order.
     concepts = db.execute(
         select(Concept)
         .join(Evidence, Evidence.concept_id == Concept.id)

@@ -11,6 +11,7 @@ from app.models import Material
 from scripts.seed_demo_data import DEMO_CONCEPTS, seed_demo_data
 
 
+# Minimal ASGI caller keeps these smoke tests dependency-free.
 async def _asgi_get(path: str) -> tuple[int, dict[str, str], Any]:
     body_parts: list[bytes] = []
     status_code: int | None = None
