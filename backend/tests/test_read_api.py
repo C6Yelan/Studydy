@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.main import app
-from app.models import Concept, Material
+from app.models import Concept, Evidence, Material, MaterialBlock
 from scripts.seed_demo_data import DEMO_CONCEPTS, DEMO_LEARNING_PATH, DEMO_RELATIONS, seed_demo_data
 
 
@@ -55,6 +55,7 @@ def test_get_material_returns_demo_summary(client, demo_material_id):
         "/api/materials/999999",
         "/api/materials/999999/concepts",
         "/api/materials/999999/knowledge-map",
+        "/api/materials/999999/learning-path",
     ],
 )
 def test_material_scoped_endpoints_return_404_for_missing_material(client, path):
@@ -218,3 +219,78 @@ def test_get_concept_detail_returns_404_for_missing_concept(client):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Concept not found"
+
+
+def test_get_learning_path_returns_demo_order(client, demo_material_id):
+    response = client.get(f"/api/materials/{demo_material_id}/learning-path")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body.keys() == {"id", "path_type", "status", "nodes", "needs_review", "review_reason"}
+    assert body["id"] is not None
+    assert body["path_type"] == "initial"
+    assert body["status"] == "accepted"
+    assert body["needs_review"] is False
+    assert body["review_reason"] is None
+    assert [node["concept_name"] for node in body["nodes"]] == DEMO_LEARNING_PATH
+
+    first_node = body["nodes"][0]
+    assert {"order_index", "concept_id", "concept_name", "reason", "is_required"} <= first_node.keys()
+    assert first_node["order_index"] == 1
+    assert first_node["reason"] is None
+    assert first_node["is_required"] is True
+
+
+def test_get_learning_path_falls_back_to_material_concept_order(client, engine):
+    seed_demo_data()
+    with engine.begin() as connection:
+        concept_ids = {
+            name: connection.execute(select(Concept.id).where(Concept.name == name)).scalar_one()
+            for name in ("Big-O", "ADT")
+        }
+        material_id = connection.execute(
+            Material.__table__
+            .insert()
+            .values(
+                title="Fallback Learning Path Material",
+                subject="data_structure",
+                chapter_range="Fallback",
+            )
+            .returning(Material.id)
+        ).scalar_one()
+        block_ids = {}
+        for block_index, concept_name in enumerate(("Big-O", "ADT")):
+            block_ids[concept_name] = connection.execute(
+                MaterialBlock.__table__
+                .insert()
+                .values(
+                    material_id=material_id,
+                    block_index=block_index,
+                    page_number=block_index + 1,
+                    block_type="summary",
+                    content=f"Fallback summary for {concept_name}.",
+                )
+                .returning(MaterialBlock.id)
+            ).scalar_one()
+            connection.execute(
+                Evidence.__table__.insert().values(
+                    material_id=material_id,
+                    block_id=block_ids[concept_name],
+                    concept_id=concept_ids[concept_name],
+                    quote_text=f"Fallback summary evidence for {concept_name}.",
+                    evidence_type="summary",
+                    metadata={"test": "learning_path_fallback"},
+                )
+            )
+
+    try:
+        response = client.get(f"/api/materials/{material_id}/learning-path")
+        body = response.json()
+
+        assert response.status_code == 200
+        assert body["id"] is None
+        assert [node["concept_name"] for node in body["nodes"]] == ["Big-O", "ADT"]
+        assert [node["order_index"] for node in body["nodes"]] == [1, 2]
+    finally:
+        with engine.begin() as connection:
+            connection.execute(Material.__table__.delete().where(Material.id == material_id))

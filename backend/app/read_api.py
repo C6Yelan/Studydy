@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import Concept, ConceptRelation, Evidence, LearningPathNode, Material, MaterialBlock
+from app.models import Concept, ConceptRelation, Evidence, LearningPath, LearningPathNode, Material, MaterialBlock
 
 router = APIRouter(prefix="/api")
 
@@ -155,6 +155,27 @@ def _relation_summary(relation: ConceptRelation) -> dict[str, Any]:
     }
 
 
+def _learning_path_response(path_id: int | None, nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "id": path_id,
+        "path_type": "initial",
+        "status": "accepted",
+        "nodes": nodes,
+        "needs_review": False,
+        "review_reason": None,
+    }
+
+
+def _learning_path_node_summary(order_index: int, concept_id: int, concept_name: str) -> dict[str, Any]:
+    return {
+        "order_index": order_index,
+        "concept_id": concept_id,
+        "concept_name": concept_name,
+        "reason": None,
+        "is_required": True,
+    }
+
+
 def _get_material_or_404(db: Session, material_id: int) -> Material:
     material = db.get(Material, material_id)
     if material is None:
@@ -242,3 +263,38 @@ def get_concept_detail(concept_id: int, db: Session = Depends(get_db)) -> dict[s
         "mastery_status": "not_started",
         "warnings": [],
     }
+
+
+@router.get("/materials/{material_id}/learning-path")
+def get_learning_path(material_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    _get_material_or_404(db, material_id)
+
+    learning_path = db.execute(
+        select(LearningPath)
+        .where(LearningPath.material_id == material_id)
+        .order_by(LearningPath.id)
+    ).scalars().first()
+    if learning_path is None:
+        concepts = _material_concepts(db, material_id)
+        return _learning_path_response(
+            None,
+            [
+                _learning_path_node_summary(index, concept.id, concept.name)
+                for index, concept in enumerate(concepts, start=1)
+            ],
+        )
+
+    rows = db.execute(
+        select(LearningPathNode.position, Concept.id, Concept.name)
+        .join(Concept, Concept.id == LearningPathNode.concept_id)
+        .where(LearningPathNode.learning_path_id == learning_path.id)
+        .order_by(LearningPathNode.position)
+    ).all()
+
+    return _learning_path_response(
+        learning_path.id,
+        [
+            _learning_path_node_summary(position, concept_id, concept_name)
+            for position, concept_id, concept_name in rows
+        ],
+    )
