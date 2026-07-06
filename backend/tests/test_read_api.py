@@ -183,6 +183,11 @@ def test_get_concept_detail_returns_demo_contract(client, demo_stack_concept_id)
 
 
 def test_get_concept_detail_derives_score_decision_from_review_state(client, engine, demo_stack_concept_id):
+    with engine.connect() as connection:
+        original_needs_review = connection.execute(
+            select(Concept.needs_review).where(Concept.id == demo_stack_concept_id)
+        ).scalar_one()
+
     with engine.begin() as connection:
         connection.execute(
             Concept.__table__
@@ -191,12 +196,21 @@ def test_get_concept_detail_derives_score_decision_from_review_state(client, eng
             .values(needs_review=True)
         )
 
-    response = client.get(f"/api/concepts/{demo_stack_concept_id}")
-    body = response.json()
+    try:
+        response = client.get(f"/api/concepts/{demo_stack_concept_id}")
+        body = response.json()
 
-    assert response.status_code == 200
-    assert body["concept"]["needs_review"] is True
-    assert body["concept"]["score"]["decision"] == "needs_review"
+        assert response.status_code == 200
+        assert body["concept"]["needs_review"] is True
+        assert body["concept"]["score"]["decision"] == "needs_review"
+    finally:
+        with engine.begin() as connection:
+            connection.execute(
+                Concept.__table__
+                .update()
+                .where(Concept.id == demo_stack_concept_id)
+                .values(needs_review=original_needs_review)
+            )
 
 
 def test_get_concept_detail_returns_404_for_missing_concept(client):
