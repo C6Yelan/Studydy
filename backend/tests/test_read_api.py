@@ -258,9 +258,8 @@ def test_get_learning_path_falls_back_to_material_concept_order(client, engine):
             )
             .returning(Material.id)
         ).scalar_one()
-        block_ids = {}
         for block_index, concept_name in enumerate(("Big-O", "ADT")):
-            block_ids[concept_name] = connection.execute(
+            block_id = connection.execute(
                 MaterialBlock.__table__
                 .insert()
                 .values(
@@ -275,7 +274,7 @@ def test_get_learning_path_falls_back_to_material_concept_order(client, engine):
             connection.execute(
                 Evidence.__table__.insert().values(
                     material_id=material_id,
-                    block_id=block_ids[concept_name],
+                    block_id=block_id,
                     concept_id=concept_ids[concept_name],
                     quote_text=f"Fallback summary evidence for {concept_name}.",
                     evidence_type="summary",
