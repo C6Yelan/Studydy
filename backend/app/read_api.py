@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import Concept, Evidence, Material, MaterialBlock
+from app.models import Concept, ConceptRelation, Evidence, Material, MaterialBlock
 
 router = APIRouter(prefix="/api")
 
@@ -65,6 +65,62 @@ def _concept_summary(concept: Concept) -> dict[str, Any]:
     }
 
 
+def _material_concepts(db: Session, material_id: int) -> list[Concept]:
+    # Use the first evidence location as the material-local concept order.
+    return db.execute(
+        select(Concept)
+        .join(Evidence, Evidence.concept_id == Concept.id)
+        .outerjoin(MaterialBlock, Evidence.block_id == MaterialBlock.id)
+        .where(Evidence.material_id == material_id)
+        .group_by(Concept.id)
+        .order_by(
+            func.min(MaterialBlock.block_index).nullslast(),
+            func.min(Evidence.id),
+            Concept.id,
+        )
+    ).scalars().all()
+
+
+def _knowledge_map_node(concept: Concept, index: int) -> dict[str, Any]:
+    return {
+        "id": str(concept.id),
+        "type": "concept",
+        "position": {
+            "x": (index % 4) * 240,
+            "y": (index // 4) * 160,
+        },
+        "data": {
+            "label": concept.name,
+            "summary": concept.description,
+            "difficulty_level": None,
+            "importance_level": None,
+            "needs_review": concept.needs_review,
+            "score_value": _optional_float(concept.score_value),
+        },
+    }
+
+
+def _knowledge_map_edge(relation: ConceptRelation) -> dict[str, Any]:
+    relation_type = (
+        relation.relation_type.value
+        if hasattr(relation.relation_type, "value")
+        else relation.relation_type
+    )
+    return {
+        "id": str(relation.id),
+        "source": str(relation.source_concept_id),
+        "target": str(relation.target_concept_id),
+        "type": "concept_relation",
+        "label": relation_type,
+        "data": {
+            "relation_type": relation_type,
+            "reason": relation.description,
+            "score_value": _optional_float(relation.score_value),
+            "needs_review": relation.needs_review,
+        },
+    }
+
+
 def _get_material_or_404(db: Session, material_id: int) -> Material:
     material = db.get(Material, material_id)
     if material is None:
@@ -82,18 +138,29 @@ def get_material(material_id: int, db: Session = Depends(get_db)) -> dict[str, A
 def list_material_concepts(material_id: int, db: Session = Depends(get_db)) -> dict[str, list[dict[str, Any]]]:
     _get_material_or_404(db, material_id)
 
-    # Use the first evidence location as the material-local concept order.
-    concepts = db.execute(
-        select(Concept)
-        .join(Evidence, Evidence.concept_id == Concept.id)
-        .outerjoin(MaterialBlock, Evidence.block_id == MaterialBlock.id)
-        .where(Evidence.material_id == material_id)
-        .group_by(Concept.id)
-        .order_by(
-            func.min(MaterialBlock.block_index).nullslast(),
-            func.min(Evidence.id),
-            Concept.id,
+    concepts = _material_concepts(db, material_id)
+    return {"items": [_concept_summary(concept) for concept in concepts]}
+
+
+@router.get("/materials/{material_id}/knowledge-map")
+def get_knowledge_map(material_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    _get_material_or_404(db, material_id)
+
+    concepts = _material_concepts(db, material_id)
+    nodes = [_knowledge_map_node(concept, index) for index, concept in enumerate(concepts)]
+    node_ids = {concept.id for concept in concepts}
+
+    relations = db.execute(
+        select(ConceptRelation)
+        .where(
+            ConceptRelation.source_concept_id.in_(node_ids),
+            ConceptRelation.target_concept_id.in_(node_ids),
         )
+        .order_by(ConceptRelation.id)
     ).scalars().all()
 
-    return {"items": [_concept_summary(concept) for concept in concepts]}
+    return {
+        "nodes": nodes,
+        "edges": [_knowledge_map_edge(relation) for relation in relations],
+        "warnings": [],
+    }
