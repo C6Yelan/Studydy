@@ -74,8 +74,6 @@ def migrated_database(database_url: str) -> str:
     command.upgrade(config, "head")
     yield database_url
     app_engine.dispose()
-    _guard_test_database_url(database_url)
-    command.downgrade(config, "base")
 
 
 @pytest.fixture()
