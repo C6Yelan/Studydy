@@ -4,9 +4,10 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select
 
 from app.main import app
+from app.models import Material
 from scripts.seed_demo_data import DEMO_CONCEPTS, seed_demo_data
 
 
@@ -67,14 +68,10 @@ def demo_material_id(engine) -> int:
     seed_demo_data()
     with engine.connect() as connection:
         return connection.execute(
-            text(
-                """
-                select id
-                from materials
-                where title = 'Linear Structures and ADT'
-                  and subject = 'data_structure'
-                  and chapter_range = 'Linear Structures'
-                """
+            select(Material.id).where(
+                Material.title == "Linear Structures and ADT",
+                Material.subject == "data_structure",
+                Material.chapter_range == "Linear Structures",
             )
         ).scalar_one()
 

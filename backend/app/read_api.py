@@ -81,12 +81,8 @@ def get_material(material_id: int, db: Session = Depends(get_db)) -> dict[str, A
 def list_material_concepts(material_id: int, db: Session = Depends(get_db)) -> dict[str, list[dict[str, Any]]]:
     _get_material_or_404(db, material_id)
 
-    rows = db.execute(
-        select(
-            Concept,
-            func.min(MaterialBlock.block_index).label("block_order"),
-            func.min(Evidence.id).label("evidence_order"),
-        )
+    concepts = db.execute(
+        select(Concept)
         .join(Evidence, Evidence.concept_id == Concept.id)
         .outerjoin(MaterialBlock, Evidence.block_id == MaterialBlock.id)
         .where(Evidence.material_id == material_id)
@@ -96,6 +92,6 @@ def list_material_concepts(material_id: int, db: Session = Depends(get_db)) -> d
             func.min(Evidence.id),
             Concept.id,
         )
-    ).all()
+    ).scalars().all()
 
-    return {"items": [_concept_summary(row.Concept) for row in rows]}
+    return {"items": [_concept_summary(concept) for concept in concepts]}
