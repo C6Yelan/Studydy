@@ -182,6 +182,23 @@ def test_get_concept_detail_returns_demo_contract(client, demo_stack_concept_id)
     assert first_relation["target_concept_id"] == demo_stack_concept_id
 
 
+def test_get_concept_detail_derives_score_decision_from_review_state(client, engine, demo_stack_concept_id):
+    with engine.begin() as connection:
+        connection.execute(
+            Concept.__table__
+            .update()
+            .where(Concept.id == demo_stack_concept_id)
+            .values(needs_review=True)
+        )
+
+    response = client.get(f"/api/concepts/{demo_stack_concept_id}")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["concept"]["needs_review"] is True
+    assert body["concept"]["score"]["decision"] == "needs_review"
+
+
 def test_get_concept_detail_returns_404_for_missing_concept(client):
     response = client.get("/api/concepts/999999")
 

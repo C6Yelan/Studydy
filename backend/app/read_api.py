@@ -32,6 +32,10 @@ def _enum_value(value: Any) -> Any:
     return value.value if hasattr(value, "value") else value
 
 
+def _decision_from_review(needs_review: bool) -> str:
+    return "needs_review" if needs_review else "accepted"
+
+
 # Fields absent from the Phase 1 schema use the approved v1 read-contract placeholders.
 def _material_summary(material: Material) -> dict[str, Any]:
     return {
@@ -59,7 +63,7 @@ def _concept_summary(concept: Concept) -> dict[str, Any]:
         "score": {
             "score_value": _optional_float(concept.score_value),
             "score_level": concept.score_level,
-            "decision": "accepted",
+            "decision": _decision_from_review(concept.needs_review),
             "score_detail": concept.score_detail,
             "score_reason": concept.score_reason,
         },
@@ -143,7 +147,7 @@ def _relation_summary(relation: ConceptRelation) -> dict[str, Any]:
         "score": {
             "score_value": _optional_float(relation.score_value),
             "score_level": relation.score_level,
-            "decision": "accepted",
+            "decision": _decision_from_review(relation.needs_review),
             "score_detail": relation.score_detail,
             "score_reason": relation.score_reason,
         },
