@@ -6,6 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-studydy}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-studydy_dev_password}
     ports:
+      # Dev/test Postgres is published on localhost only, not external interfaces.
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - studydy_postgres_data:/var/lib/postgresql

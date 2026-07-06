@@ -24,6 +24,7 @@ def database_url() -> str:
 
 
 def _guard_test_database_url(database_url: str) -> None:
+    # The smoke test upgrades and seeds the target DB, so only test DB names are accepted.
     try:
         database_name = make_url(database_url).database
     except Exception as exc:

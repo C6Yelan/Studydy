@@ -54,6 +54,7 @@ DEMO_LEARNING_PATH = [
     "Implementation",
 ]
 
+# Demo evidence is seeded as summaries; these are not manually verified exact quotes.
 CONCEPT_SUMMARIES = {
     "Big-O": "Summary evidence: Big-O describes asymptotic growth used to reason about implementation tradeoffs.",
     "ADT": "Summary evidence: ADT separates behavior from concrete representation in linear structures.",
