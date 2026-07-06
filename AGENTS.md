@@ -38,6 +38,8 @@ The first development priority is to keep the data flow clear, the schema stable
 
 ## Branch rules
 
+* `main` is the accepted integration baseline.
+* `be-dev` and `fe-dev` are role base branches for backend and frontend work; they are not substitutes for `main`.
 * Backend base branch: `be-dev`.
 * Backend feature branches: `be/feature-*`.
 * Frontend base branch: `fe-dev`.
@@ -45,6 +47,11 @@ The first development priority is to keep the data flow clear, the schema stable
 * Do not implement features directly on `be-dev` or `fe-dev`.
 * Use a feature branch for real implementation work.
 * Merge into `be-dev` or `fe-dev` only after local review, tests, and user confirmation.
+* After a backend or frontend phase is accepted, Supervisor may promote that base branch into `main` only after status, diff, tests, and review results are checked.
+* Cross-stack vertical slices must use `main` as the shared baseline. Do not bypass `main` by directly moving `fe-dev` to `be-dev` or `be-dev` to `fe-dev`.
+* When frontend work needs an accepted backend baseline, first promote the accepted backend work to `main`, then update `fe-dev` from `main`, then create the frontend feature branch.
+* Prefer fast-forward updates for base-branch promotion and baseline alignment. If fast-forward is not possible, stop and ask the user before creating a merge commit or rebasing.
+* Do not merge legacy, prototype, or unrelated branches into `main`, `be-dev`, or `fe-dev` as part of baseline alignment unless the user explicitly approves that branch.
 * Pull requests are optional and should be used only when external review, discussion history, or GitHub-based checks are needed.
 * Never force push unless the user explicitly confirms the risk.
 
