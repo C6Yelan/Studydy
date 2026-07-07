@@ -208,6 +208,8 @@ marimo/_lsp/
 __marimo__/
 
 # Local-only docs (do not commit)
+AGENTS.md
+.codex/
 docs_local/
 temp/
 
