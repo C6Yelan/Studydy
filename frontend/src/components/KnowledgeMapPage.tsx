@@ -149,6 +149,15 @@ export function KnowledgeMapPage() {
     );
   }, [pageState.map]);
 
+  function handleConceptSelect(conceptId: number) {
+    setSelectedConceptId(conceptId);
+    setDetailState({
+      detail: null,
+      error: null,
+      isLoading: true,
+    });
+  }
+
   return (
     <main className="page-shell">
       <header className="page-header">
@@ -222,7 +231,7 @@ export function KnowledgeMapPage() {
               <KnowledgeMapCanvas
                 map={pageState.map}
                 selectedConceptId={selectedConceptId}
-                onConceptSelect={setSelectedConceptId}
+                onConceptSelect={handleConceptSelect}
               />
               <MapLegend />
             </div>
