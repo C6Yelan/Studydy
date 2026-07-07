@@ -14,6 +14,8 @@ import { RelationEdge, type RelationEdgeData } from "./RelationEdge";
 
 interface KnowledgeMapCanvasProps {
   map: KnowledgeMapResponse;
+  selectedConceptId: number | null;
+  onConceptSelect: (conceptId: number) => void;
 }
 
 const nodeTypes = {
@@ -24,7 +26,11 @@ const edgeTypes = {
   concept_relation: RelationEdge,
 };
 
-export function KnowledgeMapCanvas({ map }: KnowledgeMapCanvasProps) {
+export function KnowledgeMapCanvas({
+  map,
+  selectedConceptId,
+  onConceptSelect,
+}: KnowledgeMapCanvasProps) {
   const nodes = useMemo<Node<ConceptNodeData>[]>(
     () =>
       map.nodes.map((node) => ({
@@ -33,8 +39,9 @@ export function KnowledgeMapCanvas({ map }: KnowledgeMapCanvasProps) {
         position: node.position,
         data: node.data,
         draggable: false,
+        selected: Number(node.id) === selectedConceptId,
       })),
-    [map.nodes],
+    [map.nodes, selectedConceptId],
   );
 
   const edges = useMemo<Edge<RelationEdgeData>[]>(
@@ -63,6 +70,12 @@ export function KnowledgeMapCanvas({ map }: KnowledgeMapCanvasProps) {
         nodesDraggable={false}
         nodesConnectable={false}
         edgesReconnectable={false}
+        onNodeClick={(_, node) => {
+          const conceptId = Number(node.id);
+          if (Number.isInteger(conceptId)) {
+            onConceptSelect(conceptId);
+          }
+        }}
         fitView
         fitViewOptions={{ padding: 0.2 }}
       >

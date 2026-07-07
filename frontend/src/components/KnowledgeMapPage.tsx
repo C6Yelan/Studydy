@@ -1,12 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { getKnowledgeMap, getMaterial } from "../api/readApi";
-import type { KnowledgeMapResponse, MaterialSummary } from "../api/types";
+import { getConceptDetail, getKnowledgeMap, getMaterial } from "../api/readApi";
+import type {
+  ConceptDetailResponse,
+  KnowledgeMapResponse,
+  MaterialSummary,
+} from "../api/types";
+import { ConceptDetailPanel } from "./ConceptDetailPanel";
 import { KnowledgeMapCanvas } from "./KnowledgeMapCanvas";
+import { MapLegend } from "./MapLegend";
 
 interface PageState {
   material: MaterialSummary | null;
   map: KnowledgeMapResponse | null;
+  error: string | null;
+  isLoading: boolean;
+}
+
+interface DetailState {
+  detail: ConceptDetailResponse | null;
   error: string | null;
   isLoading: boolean;
 }
@@ -25,6 +37,12 @@ export function KnowledgeMapPage() {
     map: null,
     error: null,
     isLoading: true,
+  });
+  const [selectedConceptId, setSelectedConceptId] = useState<number | null>(null);
+  const [detailState, setDetailState] = useState<DetailState>({
+    detail: null,
+    error: null,
+    isLoading: false,
   });
 
   useEffect(() => {
@@ -47,6 +65,12 @@ export function KnowledgeMapPage() {
           error: null,
           isLoading: false,
         });
+        setSelectedConceptId(null);
+        setDetailState({
+          detail: null,
+          error: null,
+          isLoading: false,
+        });
       })
       .catch((error: unknown) => {
         if (abortController.signal.aborted) {
@@ -66,12 +90,64 @@ export function KnowledgeMapPage() {
     };
   }, [materialId]);
 
+  useEffect(() => {
+    if (selectedConceptId === null) {
+      setDetailState({
+        detail: null,
+        error: null,
+        isLoading: false,
+      });
+      return;
+    }
+
+    const abortController = new AbortController();
+
+    setDetailState({
+      detail: null,
+      error: null,
+      isLoading: true,
+    });
+
+    getConceptDetail(selectedConceptId, abortController.signal)
+      .then((detail) => {
+        setDetailState({
+          detail,
+          error: null,
+          isLoading: false,
+        });
+      })
+      .catch((error: unknown) => {
+        if (abortController.signal.aborted) {
+          return;
+        }
+
+        setDetailState({
+          detail: null,
+          error: error instanceof Error ? error.message : "Unknown request error",
+          isLoading: false,
+        });
+      });
+
+    return () => {
+      abortController.abort();
+    };
+  }, [selectedConceptId]);
+
   const isMapEmpty =
     !pageState.isLoading &&
     !pageState.error &&
     pageState.map !== null &&
     pageState.map.nodes.length === 0 &&
     pageState.map.edges.length === 0;
+  const conceptLabels = useMemo(() => {
+    if (!pageState.map) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      pageState.map.nodes.map((node) => [Number(node.id), node.data.label]),
+    );
+  }, [pageState.map]);
 
   return (
     <main className="page-shell">
@@ -141,7 +217,23 @@ export function KnowledgeMapPage() {
         ) : null}
 
         {!pageState.isLoading && !pageState.error && pageState.map && !isMapEmpty ? (
-          <KnowledgeMapCanvas map={pageState.map} />
+          <div className="map-workspace">
+            <div className="map-primary">
+              <KnowledgeMapCanvas
+                map={pageState.map}
+                selectedConceptId={selectedConceptId}
+                onConceptSelect={setSelectedConceptId}
+              />
+              <MapLegend />
+            </div>
+            <ConceptDetailPanel
+              detail={detailState.detail}
+              error={detailState.error}
+              isLoading={detailState.isLoading}
+              selectedConceptId={selectedConceptId}
+              conceptLabels={conceptLabels}
+            />
+          </div>
         ) : null}
       </section>
     </main>

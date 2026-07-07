@@ -1,4 +1,4 @@
-import type { KnowledgeMapResponse, MaterialSummary } from "./types";
+import type { ConceptDetailResponse, KnowledgeMapResponse, MaterialSummary } from "./types";
 
 async function requestJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, {
@@ -24,4 +24,8 @@ export function getKnowledgeMap(materialId: number, signal?: AbortSignal) {
     `/api/materials/${materialId}/knowledge-map`,
     signal,
   );
+}
+
+export function getConceptDetail(conceptId: number, signal?: AbortSignal) {
+  return requestJson<ConceptDetailResponse>(`/api/concepts/${conceptId}`, signal);
 }
