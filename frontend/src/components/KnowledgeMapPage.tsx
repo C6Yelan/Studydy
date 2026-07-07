@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { getKnowledgeMap, getMaterial } from "../api/readApi";
 import type { KnowledgeMapResponse, MaterialSummary } from "../api/types";
+import { KnowledgeMapCanvas } from "./KnowledgeMapCanvas";
 
 interface PageState {
   material: MaterialSummary | null;
@@ -140,10 +141,7 @@ export function KnowledgeMapPage() {
         ) : null}
 
         {!pageState.isLoading && !pageState.error && pageState.map && !isMapEmpty ? (
-          <div className="map-placeholder">
-            React Flow canvas starts in Slice 2. This shell has loaded the
-            material and knowledge-map responses.
-          </div>
+          <KnowledgeMapCanvas map={pageState.map} />
         ) : null}
       </section>
     </main>
