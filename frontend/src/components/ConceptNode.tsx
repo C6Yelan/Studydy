@@ -3,7 +3,7 @@ import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import type { KnowledgeMapNode } from "../api/types";
 
 export type ConceptNodeData = KnowledgeMapNode["data"] & Record<string, unknown>;
-export type ConceptNodeType = Node<ConceptNodeData, "concept">;
+type ConceptNodeType = Node<ConceptNodeData, "concept">;
 
 export function ConceptNode({ data }: NodeProps<ConceptNodeType>) {
   return (

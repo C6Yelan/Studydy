@@ -9,7 +9,7 @@ import {
 import type { KnowledgeMapEdge } from "../api/types";
 
 export type RelationEdgeData = KnowledgeMapEdge["data"] & Record<string, unknown>;
-export type RelationEdgeType = Edge<RelationEdgeData, "concept_relation">;
+type RelationEdgeType = Edge<RelationEdgeData, "concept_relation">;
 
 export function RelationEdge({
   id,
