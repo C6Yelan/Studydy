@@ -214,11 +214,17 @@ docs_local/
 temp/
 
 # Runtime artifacts (do not commit)
+node_modules/
 uploads/
 backend/uploads/
 *.db
 backend/datasets_local/training/runs/**
 backend/datasets_local/training/artifacts/**
+
+# Test/browser automation artifacts (do not commit)
+.playwright-mcp/
+playwright-report/
+test-results/
 
 # Source imports (do not commit)
 feature-dashboard-uploadmaterial-branch/
