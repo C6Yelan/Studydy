@@ -150,6 +150,10 @@ export function KnowledgeMapPage() {
   }, [pageState.map]);
 
   function handleConceptSelect(conceptId: number) {
+    if (conceptId === selectedConceptId) {
+      return;
+    }
+
     setSelectedConceptId(conceptId);
     setDetailState({
       detail: null,
