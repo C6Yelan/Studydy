@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { getConceptDetail, getKnowledgeMap, getMaterial } from "../api/readApi";
+import {
+  getConceptDetail,
+  getKnowledgeMap,
+  getLearningPath,
+  getMaterial,
+} from "../api/readApi";
 import type {
   ConceptDetailResponse,
   KnowledgeMapResponse,
+  LearningPathResponse,
   MaterialSummary,
 } from "../api/types";
 import { ConceptDetailPanel } from "./ConceptDetailPanel";
 import { KnowledgeMapCanvas } from "./KnowledgeMapCanvas";
+import { LearningPathPanel } from "./LearningPathPanel";
 import { MapLegend } from "./MapLegend";
 
 interface PageState {
@@ -19,6 +26,12 @@ interface PageState {
 
 interface DetailState {
   detail: ConceptDetailResponse | null;
+  error: string | null;
+  isLoading: boolean;
+}
+
+interface LearningPathState {
+  path: LearningPathResponse | null;
   error: string | null;
   isLoading: boolean;
 }
@@ -43,6 +56,11 @@ export function KnowledgeMapPage() {
     detail: null,
     error: null,
     isLoading: false,
+  });
+  const [learningPathState, setLearningPathState] = useState<LearningPathState>({
+    path: null,
+    error: null,
+    isLoading: true,
   });
 
   useEffect(() => {
@@ -80,6 +98,40 @@ export function KnowledgeMapPage() {
         setPageState({
           material: null,
           map: null,
+          error: error instanceof Error ? error.message : "Unknown request error",
+          isLoading: false,
+        });
+      });
+
+    return () => {
+      abortController.abort();
+    };
+  }, [materialId]);
+
+  useEffect(() => {
+    const abortController = new AbortController();
+
+    setLearningPathState({
+      path: null,
+      error: null,
+      isLoading: true,
+    });
+
+    getLearningPath(materialId, abortController.signal)
+      .then((path) => {
+        setLearningPathState({
+          path,
+          error: null,
+          isLoading: false,
+        });
+      })
+      .catch((error: unknown) => {
+        if (abortController.signal.aborted) {
+          return;
+        }
+
+        setLearningPathState({
+          path: null,
           error: error instanceof Error ? error.message : "Unknown request error",
           isLoading: false,
         });
@@ -231,6 +283,11 @@ export function KnowledgeMapPage() {
 
         {!pageState.isLoading && !pageState.error && pageState.map && !isMapEmpty ? (
           <div className="map-workspace">
+            <LearningPathPanel
+              path={learningPathState.path}
+              error={learningPathState.error}
+              isLoading={learningPathState.isLoading}
+            />
             <div className="map-primary">
               <KnowledgeMapCanvas
                 map={pageState.map}
