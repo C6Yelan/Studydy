@@ -20,6 +20,10 @@ function relationLabel(
   return `${relation.relation_type} ${conceptLabel}`;
 }
 
+function learningPathPositionLabel(position: number | null) {
+  return position === null ? "Not in current Learning Path" : `#${position} in Learning Path`;
+}
+
 export function ConceptDetailPanel({
   detail,
   error,
@@ -90,7 +94,7 @@ export function ConceptDetailPanel({
         </div>
         <div>
           <dt>Path Position</dt>
-          <dd>{detail.learning_path_position ?? "Pending"}</dd>
+          <dd>{learningPathPositionLabel(detail.learning_path_position)}</dd>
         </div>
       </dl>
 
@@ -131,7 +135,12 @@ export function ConceptDetailPanel({
             {detail.incoming_relations.length > 0 ? (
               <ul className="detail-list compact-list">
                 {detail.incoming_relations.map((relation) => (
-                  <li key={relation.id}>{relationLabel(relation, "incoming", conceptLabels)}</li>
+                  <li key={relation.id}>
+                    {relationLabel(relation, "incoming", conceptLabels)}
+                    {relation.reason ? (
+                      <span className="relation-reason">{relation.reason}</span>
+                    ) : null}
+                  </li>
                 ))}
               </ul>
             ) : (
@@ -143,7 +152,12 @@ export function ConceptDetailPanel({
             {detail.outgoing_relations.length > 0 ? (
               <ul className="detail-list compact-list">
                 {detail.outgoing_relations.map((relation) => (
-                  <li key={relation.id}>{relationLabel(relation, "outgoing", conceptLabels)}</li>
+                  <li key={relation.id}>
+                    {relationLabel(relation, "outgoing", conceptLabels)}
+                    {relation.reason ? (
+                      <span className="relation-reason">{relation.reason}</span>
+                    ) : null}
+                  </li>
                 ))}
               </ul>
             ) : (

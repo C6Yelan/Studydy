@@ -537,6 +537,13 @@ h3 {
   font-size: 0.875rem;
 }
 
+.relation-reason {
+  display: block;
+  margin-top: 6px;
+  color: #52606d;
+  line-height: 1.45;
+}
+
 .tag-list {
   display: flex;
   flex-wrap: wrap;
