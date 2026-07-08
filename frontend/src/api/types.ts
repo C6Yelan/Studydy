@@ -99,3 +99,20 @@ export interface ConceptDetailResponse {
   mastery_status: string;
   warnings: string[];
 }
+
+export interface LearningPathNode {
+  order_index: number;
+  concept_id: number;
+  concept_name: string;
+  reason: string | null;
+  is_required: boolean;
+}
+
+export interface LearningPathResponse {
+  id: number | null;
+  path_type: string;
+  status: string;
+  nodes: LearningPathNode[];
+  needs_review: boolean;
+  review_reason: string | null;
+}
