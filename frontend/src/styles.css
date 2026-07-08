@@ -341,18 +341,20 @@ h3 {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
 .path-status,
 .path-requirement {
+  max-width: 100%;
   border: 1px solid #bcccdc;
   border-radius: 999px;
   color: #334e68;
   font-size: 0.75rem;
   font-weight: 700;
   padding: 5px 8px;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .path-review-block {
