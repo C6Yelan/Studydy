@@ -4,9 +4,22 @@ interface LearningPathPanelProps {
   path: LearningPathResponse | null;
   error: string | null;
   isLoading: boolean;
+  selectedConceptId: number | null;
+  onConceptSelect: (conceptId: number) => void;
 }
 
-export function LearningPathPanel({ path, error, isLoading }: LearningPathPanelProps) {
+export function LearningPathPanel({
+  path,
+  error,
+  isLoading,
+  selectedConceptId,
+  onConceptSelect,
+}: LearningPathPanelProps) {
+  const selectedConceptIsInPath =
+    selectedConceptId !== null &&
+    path !== null &&
+    path.nodes.some((node) => node.concept_id === selectedConceptId);
+
   return (
     <aside className="learning-path-panel" aria-live="polite">
       <div className="learning-path-header">
@@ -41,22 +54,40 @@ export function LearningPathPanel({ path, error, isLoading }: LearningPathPanelP
       ) : null}
 
       {!isLoading && !error && path && path.nodes.length > 0 ? (
-        <ol className="learning-path-list">
-          {path.nodes.map((node) => (
-            <li key={`${node.order_index}-${node.concept_id}`}>
-              <span className="path-order">{node.order_index}</span>
-              <div className="path-item-body">
-                <div className="path-item-header">
-                  <h3>{node.concept_name}</h3>
-                  <span className="path-requirement">
-                    {node.is_required ? "Required" : "Optional"}
-                  </span>
-                </div>
-                <p>{node.reason ?? "Reason pending"}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
+        <>
+          {selectedConceptId !== null && !selectedConceptIsInPath ? (
+            <p className="path-selection-note">Not in current Learning Path</p>
+          ) : null}
+          <ol className="learning-path-list">
+            {path.nodes.map((node) => {
+              const isSelected = node.concept_id === selectedConceptId;
+
+              return (
+                <li key={`${node.order_index}-${node.concept_id}`}>
+                  <button
+                    className={`path-item${isSelected ? " path-item-selected" : ""}`}
+                    type="button"
+                    aria-current={isSelected ? "step" : undefined}
+                    onClick={() => onConceptSelect(node.concept_id)}
+                  >
+                    <span className="path-order">{node.order_index}</span>
+                    <span className="path-item-body">
+                      <span className="path-item-header">
+                        <span className="path-item-title">{node.concept_name}</span>
+                        <span className="path-requirement">
+                          {node.is_required ? "Required" : "Optional"}
+                        </span>
+                      </span>
+                      <span className="path-item-reason">
+                        {node.reason ?? "Reason pending"}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </>
       ) : null}
     </aside>
   );

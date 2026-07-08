@@ -287,6 +287,8 @@ export function KnowledgeMapPage() {
               path={learningPathState.path}
               error={learningPathState.error}
               isLoading={learningPathState.isLoading}
+              selectedConceptId={selectedConceptId}
+              onConceptSelect={handleConceptSelect}
             />
             <div className="map-primary">
               <KnowledgeMapCanvas
