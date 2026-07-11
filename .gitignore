@@ -19,6 +19,7 @@ node_modules/
 dist/
 
 # Local Codex workflow
+AGENTS.md
 .codex/
 docs_local
 .role.md
