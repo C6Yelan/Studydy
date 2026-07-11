@@ -1,0 +1,9 @@
+{
+  "case_id": "s0-fail-dry-run",
+  "checks": [
+    {
+      "check_id": "example-non-critical-failure",
+      "status": "fail"
+    }
+  ]
+}

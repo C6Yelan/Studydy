@@ -1,0 +1,9 @@
+{
+  "case_id": "s0-critical-dry-run",
+  "checks": [
+    {
+      "check_id": "example-critical-regression",
+      "status": "critical_regression"
+    }
+  ]
+}

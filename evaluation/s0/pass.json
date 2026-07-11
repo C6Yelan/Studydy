@@ -1,0 +1,13 @@
+{
+  "case_id": "s0-pass-dry-run",
+  "checks": [
+    {
+      "check_id": "workflow-root-selected",
+      "status": "pass"
+    },
+    {
+      "check_id": "private-files-untracked",
+      "status": "pass"
+    }
+  ]
+}
