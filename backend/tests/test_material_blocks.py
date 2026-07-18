@@ -322,6 +322,74 @@ def test_publication_rejects_page_and_mapping_drift(tmp_path: Path) -> None:
         validate_publication(mapping_drift, inputs, ["retired-1"])
 
 
+def test_publication_rejects_failed_material_without_replacing_stable(tmp_path: Path) -> None:
+    inputs = _three_inputs(tmp_path)
+    artifact = build_material_blocks(inputs, ["retired-1"])
+    artifact["materials"][0]["input_status"] = "failed"
+    artifact["materials"][0]["failure_reason"] = "document_unreadable"
+    artifact["materials"][0]["blocks"] = []
+    validate_artifact(artifact)
+    stable_path = tmp_path / "private" / "material_blocks.v1.json"
+    stable_path.parent.mkdir(parents=True)
+    stable_path.write_text("stable-sentinel", encoding="utf-8")
+    staging = stable_path.parent / ".material-blocks-staging"
+
+    with pytest.raises(MaterialBlockContractError, match="every material to be valid"):
+        write_canonical_artifact(
+            artifact,
+            stable_path,
+            staging,
+            active_materials=inputs,
+            retired_case_ids=["retired-1"],
+        )
+
+    assert stable_path.read_text(encoding="utf-8") == "stable-sentinel"
+    assert not staging.exists()
+
+
+def test_publication_rejects_safe_looking_provenance_drift(tmp_path: Path) -> None:
+    inputs = _three_inputs(tmp_path)
+    artifact = build_material_blocks(inputs, ["retired-1"])
+    artifact["parser_provenance"]["parser_version"] = "0.0.0"
+    validate_artifact(artifact)
+
+    with pytest.raises(MaterialBlockContractError, match="not approved"):
+        validate_publication(artifact, inputs, ["retired-1"])
+
+
+@pytest.mark.parametrize("declared_pages", [1.0, "1", True, 0])
+def test_declared_pages_must_be_strict_positive_integer(
+    tmp_path: Path,
+    declared_pages: object,
+) -> None:
+    item = _input(tmp_path, "case-a", ["text"])
+    item = ActiveMaterial(**{**item.__dict__, "declared_pages": declared_pages})
+
+    with pytest.raises(MaterialBlockContractError, match="declared_pages"):
+        build_material_blocks([item], [])
+
+
+@pytest.mark.parametrize("pdf_page", [1.0, "1", True, 0])
+def test_locator_page_must_be_strict_positive_integer(tmp_path: Path, pdf_page: object) -> None:
+    artifact = build_material_blocks([_input(tmp_path, "case-a", ["text"])], [])
+    artifact["materials"][0]["blocks"][0]["locator"]["pdf_page"] = pdf_page
+
+    with pytest.raises(MaterialBlockContractError, match="pdf_page"):
+        validate_artifact(artifact)
+
+
+@pytest.mark.parametrize("mapping_page", [1.0, "1", True, 0])
+def test_source_mapping_page_must_be_strict_positive_integer(
+    tmp_path: Path,
+    mapping_page: object,
+) -> None:
+    item = _input(tmp_path, "case-a", ["text"])
+    item = ActiveMaterial(**{**item.__dict__, "source_refs": {mapping_page: "page:1"}})
+
+    with pytest.raises(MaterialBlockContractError, match="source mapping page"):
+        build_material_blocks([item], [])
+
+
 def test_atomic_writer_cleans_staging_and_round_trips(tmp_path: Path) -> None:
     inputs = _three_inputs(tmp_path)
     artifact = build_material_blocks(inputs, ["retired-1"])

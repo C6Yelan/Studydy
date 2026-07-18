@@ -232,13 +232,14 @@ def validate_artifact(artifact: Mapping[str, Any]) -> None:
             locator_keys = set(locator)
             if not locator_keys <= {"pdf_page", "source_ref"} or "pdf_page" not in locator_keys:
                 raise MaterialBlockContractError("locator must contain pdf_page and optional source_ref only")
-            if locator["pdf_page"] != expected_page:
+            pdf_page = _require_positive_integer(locator["pdf_page"], "pdf_page")
+            if pdf_page != expected_page:
                 raise MaterialBlockContractError("blocks must cover pages in ascending order")
             if "source_ref" in locator:
                 _require_non_empty_string(locator["source_ref"], "source_ref")
             expected_page += 1
 
-            expected_block_id = f"{material_id}:page:{locator['pdf_page']:04d}"
+            expected_block_id = f"{material_id}:page:{pdf_page:04d}"
             if block_id != expected_block_id:
                 raise MaterialBlockContractError("block_id must be deterministically derived")
 
@@ -264,6 +265,8 @@ def validate_publication(
     _validate_selection(active_materials, retired_case_ids)
     if len(active_materials) != 3:
         raise MaterialBlockContractError("publication requires exactly three active materials")
+    if artifact["parser_provenance"] != parser_provenance():
+        raise MaterialBlockContractError("publication parser_provenance is not approved")
 
     expected_by_case = {item.case_id: item for item in active_materials}
     actual_materials = artifact["materials"]
@@ -275,7 +278,7 @@ def validate_publication(
         if material["artifact_ref"] != expected.artifact_ref:
             raise MaterialBlockContractError("publication artifact identity mismatch")
         if material["input_status"] == "failed":
-            continue
+            raise MaterialBlockContractError("publication requires every material to be valid")
         if len(material["blocks"]) != expected.declared_pages:
             raise MaterialBlockContractError("publication declared-page coverage mismatch")
         for page_number, block in enumerate(material["blocks"], start=1):
@@ -393,10 +396,13 @@ def _validate_selection(
         _require_non_empty_string(item.case_id, "case_id")
         _require_non_empty_string(item.artifact_ref, "artifact_ref")
         _require_non_empty_string(item.expected_sha256, "expected_sha256")
-        valid_pages = set(range(1, item.declared_pages + 1))
-        if not set(item.source_refs) <= valid_pages:
-            raise MaterialBlockContractError("source mapping page must be declared")
-        for source_ref in item.source_refs.values():
+        declared_pages = _require_positive_integer(item.declared_pages, "declared_pages")
+        if not isinstance(item.source_refs, Mapping):
+            raise MaterialBlockContractError("source_refs must be a mapping")
+        for page_number, source_ref in item.source_refs.items():
+            page_number = _require_positive_integer(page_number, "source mapping page")
+            if page_number > declared_pages:
+                raise MaterialBlockContractError("source mapping page must be declared")
             _require_non_empty_string(source_ref, "source_ref")
 
 
@@ -438,4 +444,10 @@ def _require_exact_keys(value: Mapping[str, Any], expected: frozenset[str], owne
 def _require_non_empty_string(value: Any, field_name: str) -> str:
     if not isinstance(value, str) or not value:
         raise MaterialBlockContractError(f"{field_name} must be a non-empty string")
+    return value
+
+
+def _require_positive_integer(value: Any, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise MaterialBlockContractError(f"{field_name} must be a positive integer")
     return value
