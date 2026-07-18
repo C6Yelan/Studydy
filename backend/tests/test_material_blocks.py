@@ -16,6 +16,7 @@ from material_blocks import (
     canonical_json_bytes,
     select_active_manifest_entries,
     validate_artifact,
+    validate_publication,
     write_canonical_artifact,
 )
 
@@ -110,6 +111,7 @@ def test_contract_is_refined_and_ordered(tmp_path: Path) -> None:
         "failure_reason",
         "blocks",
     }
+    assert all(item["input_status"] == "valid" for item in artifact["materials"])
     block = artifact["materials"][0]["blocks"][0]
     assert set(block) == {
         "block_id",
@@ -158,7 +160,7 @@ def test_retired_case_id_cannot_be_reused(tmp_path: Path) -> None:
         ("fingerprint", "failed", "input_fingerprint_mismatch"),
         ("page_count", "failed", "declared_page_count_mismatch"),
         ("missing", "failed", "document_unreadable"),
-        ("signature", "unsupported", "document_unreadable"),
+        ("signature", "failed", "document_unreadable"),
     ],
 )
 def test_document_input_failures_do_not_infer_blocks(
@@ -248,14 +250,112 @@ def test_validator_rejects_partial_and_extra_block_provenance(tmp_path: Path) ->
         validate_artifact(duplicated)
 
 
-def test_atomic_writer_cleans_staging_and_round_trips(tmp_path: Path) -> None:
+def test_validator_rejects_identity_drift(tmp_path: Path) -> None:
     artifact = build_material_blocks([_input(tmp_path, "case-a", ["text"])], [])
+    material_drift = copy.deepcopy(artifact)
+    material_drift["materials"][0]["material_id"] = "material-blocks/v1:wrong"
+    with pytest.raises(MaterialBlockContractError, match="material_id"):
+        validate_artifact(material_drift)
+
+    block_drift = copy.deepcopy(artifact)
+    block_drift["materials"][0]["blocks"][0]["block_id"] = "wrong:block"
+    with pytest.raises(MaterialBlockContractError, match="block_id"):
+        validate_artifact(block_drift)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra", "newline", "path"])
+def test_validator_rejects_malformed_provenance(tmp_path: Path, mutation: str) -> None:
+    artifact = build_material_blocks([_input(tmp_path, "case-a", ["text"])], [])
+    malformed = copy.deepcopy(artifact)
+    provenance = malformed["parser_provenance"]
+    if mutation == "missing":
+        provenance.pop("parser_version")
+    elif mutation == "extra":
+        provenance["machine"] = "local"
+    elif mutation == "newline":
+        provenance["parser"] = "pymupdf\nunsafe"
+    else:
+        provenance["parser"] = "private/path"
+
+    with pytest.raises(MaterialBlockContractError, match="parser_provenance|unsafe"):
+        validate_artifact(malformed)
+
+
+@pytest.mark.parametrize("input_status", ["success", "unsupported"])
+def test_validator_rejects_unapproved_material_status(tmp_path: Path, input_status: str) -> None:
+    artifact = build_material_blocks([_input(tmp_path, "case-a", ["text"])], [])
+    artifact["materials"][0]["input_status"] = input_status
+
+    with pytest.raises(MaterialBlockContractError, match="input_status"):
+        validate_artifact(artifact)
+
+
+def test_publication_rejects_wrong_active_coverage_and_identity(tmp_path: Path) -> None:
+    inputs = _three_inputs(tmp_path)
+    artifact = build_material_blocks(inputs, ["retired-1"])
+
+    with pytest.raises(MaterialBlockContractError, match="exactly three"):
+        validate_publication(artifact, inputs[:2], ["retired-1"])
+
+    changed_identity = ActiveMaterial(
+        **{**inputs[0].__dict__, "artifact_ref": "active:changed:compact_pdf"}
+    )
+    with pytest.raises(MaterialBlockContractError, match="artifact identity"):
+        validate_publication(
+            artifact,
+            [changed_identity, inputs[1], inputs[2]],
+            ["retired-1"],
+        )
+
+
+def test_publication_rejects_page_and_mapping_drift(tmp_path: Path) -> None:
+    inputs = _three_inputs(tmp_path)
+    artifact = build_material_blocks(inputs, ["retired-1"])
+    missing_page = copy.deepcopy(artifact)
+    missing_page["materials"][0]["blocks"].pop()
+    with pytest.raises(MaterialBlockContractError, match="declared-page coverage"):
+        validate_publication(missing_page, inputs, ["retired-1"])
+
+    mapping_drift = copy.deepcopy(artifact)
+    mapping_drift["materials"][1]["blocks"][0]["locator"]["source_ref"] = "slide:8"
+    with pytest.raises(MaterialBlockContractError, match="source mapping"):
+        validate_publication(mapping_drift, inputs, ["retired-1"])
+
+
+def test_atomic_writer_cleans_staging_and_round_trips(tmp_path: Path) -> None:
+    inputs = _three_inputs(tmp_path)
+    artifact = build_material_blocks(inputs, ["retired-1"])
     stable_path = tmp_path / "private" / "material_blocks.v1.json"
     staging = tmp_path / "private" / ".material-blocks-staging"
 
-    write_canonical_artifact(artifact, stable_path, staging)
+    write_canonical_artifact(
+        artifact,
+        stable_path,
+        staging,
+        active_materials=inputs,
+        retired_case_ids=["retired-1"],
+    )
 
     assert json.loads(stable_path.read_text(encoding="utf-8")) == artifact
+    assert not staging.exists()
+
+
+def test_atomic_writer_cannot_bypass_completion_gate(tmp_path: Path) -> None:
+    item = _input(tmp_path, "case-a", ["text"])
+    artifact = build_material_blocks([item], [])
+    stable_path = tmp_path / "private" / "material_blocks.v1.json"
+    staging = tmp_path / "private" / ".material-blocks-staging"
+
+    with pytest.raises(MaterialBlockContractError, match="exactly three"):
+        write_canonical_artifact(
+            artifact,
+            stable_path,
+            staging,
+            active_materials=[item],
+            retired_case_ids=[],
+        )
+
+    assert not stable_path.exists()
     assert not staging.exists()
 
 

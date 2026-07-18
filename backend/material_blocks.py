@@ -15,15 +15,16 @@ import pymupdf
 SCHEMA_VERSION = "material-blocks/v1"
 CONTENT_TYPE = "pdf_page_text"
 PARSER_STATUSES = frozenset({"success", "failed", "unsupported"})
-FAILURE_REASONS = frozenset(
+INPUT_STATUSES = frozenset({"valid", "failed"})
+DOCUMENT_FAILURE_REASONS = frozenset(
     {
         "input_fingerprint_mismatch",
         "declared_page_count_mismatch",
         "document_unreadable",
-        "page_unreadable",
-        "no_extractable_text",
-        "parser_error",
     }
+)
+BLOCK_FAILURE_REASONS = frozenset(
+    {"page_unreadable", "no_extractable_text", "parser_error"}
 )
 
 ROOT_KEYS = frozenset({"schema_version", "parser_provenance", "materials"})
@@ -45,6 +46,16 @@ BLOCK_KEYS = frozenset(
         "locator",
         "parser_status",
         "failure_reason",
+    }
+)
+PROVENANCE_KEYS = frozenset(
+    {
+        "parser",
+        "parser_version",
+        "python_version",
+        "extraction_policy",
+        "normalization_policy",
+        "input_verification",
     }
 )
 
@@ -145,7 +156,11 @@ def write_canonical_artifact(
     artifact: Mapping[str, Any],
     stable_path: Path,
     staging_directory: Path,
+    *,
+    active_materials: Sequence[ActiveMaterial],
+    retired_case_ids: Sequence[str],
 ) -> None:
+    validate_publication(artifact, active_materials, retired_case_ids)
     payload = canonical_json_bytes(artifact)
     stable_path = Path(stable_path)
     staging_directory = Path(staging_directory)
@@ -158,7 +173,7 @@ def write_canonical_artifact(
             staged_file.flush()
             os.fsync(staged_file.fileno())
         parsed = json.loads(staged_path.read_text(encoding="utf-8"))
-        validate_artifact(parsed)
+        validate_publication(parsed, active_materials, retired_case_ids)
         stable_path.parent.mkdir(parents=True, exist_ok=True)
         os.replace(staged_path, stable_path)
     finally:
@@ -169,8 +184,7 @@ def validate_artifact(artifact: Mapping[str, Any]) -> None:
     _require_exact_keys(artifact, ROOT_KEYS, "root")
     if artifact["schema_version"] != SCHEMA_VERSION:
         raise MaterialBlockContractError("unsupported schema_version")
-    if not isinstance(artifact["parser_provenance"], Mapping):
-        raise MaterialBlockContractError("parser_provenance must be an object")
+    _validate_provenance(artifact["parser_provenance"])
     materials = artifact["materials"]
     if not isinstance(materials, list):
         raise MaterialBlockContractError("materials must be a list")
@@ -185,17 +199,19 @@ def validate_artifact(artifact: Mapping[str, Any]) -> None:
         material_id = _require_non_empty_string(material["material_id"], "material_id")
         case_id = _require_non_empty_string(material["case_id"], "case_id")
         _require_non_empty_string(material["artifact_ref"], "artifact_ref")
+        if material_id != f"{SCHEMA_VERSION}:{case_id}":
+            raise MaterialBlockContractError("material_id must be deterministically derived")
         if material_id in material_ids:
             raise MaterialBlockContractError("material_id must be unique")
         material_ids.add(material_id)
         case_ids.append(case_id)
 
         input_status = material["input_status"]
-        _validate_status_and_reason(input_status, material["failure_reason"], "material")
+        _validate_input_status_and_reason(input_status, material["failure_reason"])
         blocks = material["blocks"]
         if not isinstance(blocks, list):
             raise MaterialBlockContractError("blocks must be a list")
-        if input_status != "success" and blocks:
+        if input_status == "failed" and blocks:
             raise MaterialBlockContractError("failed input must not contain inferred blocks")
 
         expected_page = 1
@@ -222,8 +238,12 @@ def validate_artifact(artifact: Mapping[str, Any]) -> None:
                 _require_non_empty_string(locator["source_ref"], "source_ref")
             expected_page += 1
 
+            expected_block_id = f"{material_id}:page:{locator['pdf_page']:04d}"
+            if block_id != expected_block_id:
+                raise MaterialBlockContractError("block_id must be deterministically derived")
+
             status = block["parser_status"]
-            _validate_status_and_reason(status, block["failure_reason"], "block")
+            _validate_block_status_and_reason(status, block["failure_reason"])
             text = block["text"]
             if status == "success":
                 if not isinstance(text, str) or not text:
@@ -235,21 +255,51 @@ def validate_artifact(artifact: Mapping[str, Any]) -> None:
         raise MaterialBlockContractError("materials must have unique, ascending case_id values")
 
 
+def validate_publication(
+    artifact: Mapping[str, Any],
+    active_materials: Sequence[ActiveMaterial],
+    retired_case_ids: Sequence[str],
+) -> None:
+    validate_artifact(artifact)
+    _validate_selection(active_materials, retired_case_ids)
+    if len(active_materials) != 3:
+        raise MaterialBlockContractError("publication requires exactly three active materials")
+
+    expected_by_case = {item.case_id: item for item in active_materials}
+    actual_materials = artifact["materials"]
+    if {item["case_id"] for item in actual_materials} != set(expected_by_case):
+        raise MaterialBlockContractError("publication active case identity mismatch")
+
+    for material in actual_materials:
+        expected = expected_by_case[material["case_id"]]
+        if material["artifact_ref"] != expected.artifact_ref:
+            raise MaterialBlockContractError("publication artifact identity mismatch")
+        if material["input_status"] == "failed":
+            continue
+        if len(material["blocks"]) != expected.declared_pages:
+            raise MaterialBlockContractError("publication declared-page coverage mismatch")
+        for page_number, block in enumerate(material["blocks"], start=1):
+            expected_locator: dict[str, Any] = {"pdf_page": page_number}
+            if page_number in expected.source_refs:
+                expected_locator["source_ref"] = expected.source_refs[page_number]
+            if block["locator"] != expected_locator:
+                raise MaterialBlockContractError("publication source mapping mismatch")
+
+
 def _build_material(item: ActiveMaterial) -> dict[str, Any]:
     material = {
         "material_id": f"{SCHEMA_VERSION}:{item.case_id}",
         "case_id": item.case_id,
         "artifact_ref": item.artifact_ref,
-        "input_status": "success",
+        "input_status": "valid",
         "failure_reason": None,
         "blocks": [],
     }
 
     input_failure = _verify_input(item)
     if input_failure is not None:
-        status, reason = input_failure
-        material["input_status"] = status
-        material["failure_reason"] = reason
+        material["input_status"] = "failed"
+        material["failure_reason"] = input_failure
         return material
 
     try:
@@ -274,20 +324,20 @@ def _build_material(item: ActiveMaterial) -> dict[str, Any]:
         document.close()
 
 
-def _verify_input(item: ActiveMaterial) -> tuple[str, str] | None:
+def _verify_input(item: ActiveMaterial) -> str | None:
     if item.declared_pages < 1:
-        return "failed", "declared_page_count_mismatch"
+        return "declared_page_count_mismatch"
     try:
         with item.pdf_path.open("rb") as input_file:
             signature = input_file.read(5)
             input_file.seek(0)
             digest = hashlib.file_digest(input_file, "sha256").hexdigest()
     except OSError:
-        return "failed", "document_unreadable"
+        return "document_unreadable"
     if signature != b"%PDF-":
-        return "unsupported", "document_unreadable"
+        return "document_unreadable"
     if digest.lower() != item.expected_sha256.lower():
-        return "failed", "input_fingerprint_mismatch"
+        return "input_fingerprint_mismatch"
     return None
 
 
@@ -343,16 +393,41 @@ def _validate_selection(
         _require_non_empty_string(item.case_id, "case_id")
         _require_non_empty_string(item.artifact_ref, "artifact_ref")
         _require_non_empty_string(item.expected_sha256, "expected_sha256")
+        valid_pages = set(range(1, item.declared_pages + 1))
+        if not set(item.source_refs) <= valid_pages:
+            raise MaterialBlockContractError("source mapping page must be declared")
+        for source_ref in item.source_refs.values():
+            _require_non_empty_string(source_ref, "source_ref")
 
 
-def _validate_status_and_reason(status: Any, reason: Any, owner: str) -> None:
+def _validate_input_status_and_reason(status: Any, reason: Any) -> None:
+    if status not in INPUT_STATUSES:
+        raise MaterialBlockContractError("invalid material input_status")
+    if status == "valid":
+        if reason is not None:
+            raise MaterialBlockContractError("valid material failure_reason must be null")
+    elif reason not in DOCUMENT_FAILURE_REASONS:
+        raise MaterialBlockContractError("failed material requires a supported failure_reason")
+
+
+def _validate_block_status_and_reason(status: Any, reason: Any) -> None:
     if status not in PARSER_STATUSES:
-        raise MaterialBlockContractError(f"invalid {owner} status")
+        raise MaterialBlockContractError("invalid block status")
     if status == "success":
         if reason is not None:
-            raise MaterialBlockContractError(f"successful {owner} failure_reason must be null")
-    elif reason not in FAILURE_REASONS:
-        raise MaterialBlockContractError(f"non-success {owner} requires a supported failure_reason")
+            raise MaterialBlockContractError("successful block failure_reason must be null")
+    elif reason not in BLOCK_FAILURE_REASONS:
+        raise MaterialBlockContractError("non-success block requires a supported failure_reason")
+
+
+def _validate_provenance(value: Any) -> None:
+    if not isinstance(value, Mapping):
+        raise MaterialBlockContractError("parser_provenance must be an object")
+    _require_exact_keys(value, PROVENANCE_KEYS, "parser_provenance")
+    for field_name, field_value in value.items():
+        field_value = _require_non_empty_string(field_value, field_name)
+        if any(character in field_value for character in {"\n", "\r", "\x00", "/", "\\"}):
+            raise MaterialBlockContractError("parser_provenance contains an unsafe value")
 
 
 def _require_exact_keys(value: Mapping[str, Any], expected: frozenset[str], owner: str) -> None:
