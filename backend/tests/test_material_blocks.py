@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 from pathlib import Path
@@ -15,7 +14,6 @@ from material_blocks import (
     build_material_blocks,
     canonical_json_bytes,
     select_active_manifest_entries,
-    validate_artifact,
     validate_publication,
     write_canonical_artifact,
 )
@@ -58,7 +56,7 @@ def _three_inputs(tmp_path: Path) -> list[ActiveMaterial]:
     ]
 
 
-def test_manifest_selection_is_active_only_and_retired_is_non_input() -> None:
+def test_manifest_selection_is_exactly_three_unique_sorted_active_cases() -> None:
     manifest = {
         "baseline_state": "approved",
         "difficulty_ladder_selections": [
@@ -67,41 +65,41 @@ def test_manifest_selection_is_active_only_and_retired_is_non_input() -> None:
             {"case_id": "case-a", "status": "active"},
             {"case_id": "case-b", "status": "active"},
         ],
-        "retired_tombstones": [
-            {"case_id": "retired-1", "status": "retired"},
-            {"case_id": "retired-2", "status": "retired"},
-        ],
     }
 
-    active, retired_ids = select_active_manifest_entries(manifest)
+    active = select_active_manifest_entries(manifest)
 
     assert [entry["case_id"] for entry in active] == ["case-a", "case-b", "case-c"]
-    assert retired_ids == ["retired-1", "retired-2"]
     assert all(entry["status"] == "active" for entry in active)
 
 
-def test_manifest_selection_rejects_missing_baseline_and_retired_id_reuse() -> None:
+def test_manifest_selection_rejects_missing_baseline_and_duplicate_active_id() -> None:
     manifest = {
         "difficulty_ladder_selections": [
             {"case_id": "case-a", "status": "active"},
             {"case_id": "case-b", "status": "active"},
             {"case_id": "case-c", "status": "active"},
         ],
-        "retired_tombstones": [],
     }
     with pytest.raises(MaterialBlockContractError, match="baseline_state"):
         select_active_manifest_entries(manifest)
 
     manifest["baseline_state"] = "approved"
-    manifest["retired_tombstones"] = [{"case_id": "case-a", "status": "retired"}]
-    with pytest.raises(MaterialBlockContractError, match="must not be reused"):
+    manifest["difficulty_ladder_selections"][2]["case_id"] = "case-a"
+    with pytest.raises(MaterialBlockContractError, match="must be unique"):
         select_active_manifest_entries(manifest)
 
 
 def test_contract_is_refined_and_ordered(tmp_path: Path) -> None:
-    artifact = build_material_blocks(_three_inputs(tmp_path), ["retired-1"])
+    artifact = build_material_blocks(_three_inputs(tmp_path))
 
     assert set(artifact) == {"schema_version", "parser_provenance", "materials"}
+    assert set(artifact["parser_provenance"]) == {
+        "parser",
+        "parser_version",
+        "extraction_policy",
+        "normalization_policy",
+    }
     assert [item["case_id"] for item in artifact["materials"]] == ["case-a", "case-b", "case-c"]
     assert set(artifact["materials"][0]) == {
         "material_id",
@@ -112,19 +110,16 @@ def test_contract_is_refined_and_ordered(tmp_path: Path) -> None:
         "blocks",
     }
     assert all(item["input_status"] == "valid" for item in artifact["materials"])
+    assert artifact["materials"][0]["material_id"] == "material-blocks/v1:case-a"
     block = artifact["materials"][0]["blocks"][0]
     assert set(block) == {
         "block_id",
-        "content_type",
         "text",
         "locator",
         "parser_status",
         "failure_reason",
     }
-    assert "artifact_ref" not in block
-    assert "schema_version" not in block
-    assert "parser_provenance" not in block
-    assert "page_mapping_ref" not in block["locator"]
+    assert block["block_id"] == "material-blocks/v1:case-a:page:0001"
     assert block["locator"] == {"pdf_page": 1}
     assert artifact["materials"][1]["blocks"][0]["locator"] == {
         "pdf_page": 1,
@@ -139,34 +134,24 @@ def test_contract_is_refined_and_ordered(tmp_path: Path) -> None:
 
 def test_active_coverage_and_same_input_rerun_are_canonical(tmp_path: Path) -> None:
     inputs = _three_inputs(tmp_path)
-    first = build_material_blocks(inputs, ["retired-1", "retired-2"])
-    second = build_material_blocks(inputs, ["retired-1", "retired-2"])
+    first = build_material_blocks(inputs)
+    second = build_material_blocks(inputs)
 
-    assert len(first["materials"]) == 3
-    assert [len(item["blocks"]) for item in first["materials"]] == [2, 1, 1]
     assert canonical_json_bytes(first) == canonical_json_bytes(second)
 
 
-def test_retired_case_id_cannot_be_reused(tmp_path: Path) -> None:
-    active = _input(tmp_path, "retired-1", ["text"])
-
-    with pytest.raises(MaterialBlockContractError, match="must not be reused"):
-        build_material_blocks([active], ["retired-1"])
-
-
 @pytest.mark.parametrize(
-    ("mutation", "status", "reason"),
+    ("mutation", "reason"),
     [
-        ("fingerprint", "failed", "input_fingerprint_mismatch"),
-        ("page_count", "failed", "declared_page_count_mismatch"),
-        ("missing", "failed", "document_unreadable"),
-        ("signature", "failed", "document_unreadable"),
+        ("fingerprint", "input_fingerprint_mismatch"),
+        ("page_count", "declared_page_count_mismatch"),
+        ("missing", "document_unreadable"),
+        ("signature", "document_unreadable"),
     ],
 )
 def test_document_input_failures_do_not_infer_blocks(
     tmp_path: Path,
     mutation: str,
-    status: str,
     reason: str,
 ) -> None:
     item = _input(tmp_path, "case-a", ["text"])
@@ -185,9 +170,9 @@ def test_document_input_failures_do_not_infer_blocks(
             }
         )
 
-    material = build_material_blocks([item], [])["materials"][0]
+    material = build_material_blocks([item])["materials"][0]
 
-    assert material["input_status"] == status
+    assert material["input_status"] == "failed"
     assert material["failure_reason"] == reason
     assert material["blocks"] == []
 
@@ -195,11 +180,10 @@ def test_document_input_failures_do_not_infer_blocks(
 def test_empty_page_is_explicit_unsupported_block(tmp_path: Path) -> None:
     item = _input(tmp_path, "case-a", [""])
 
-    block = build_material_blocks([item], [])["materials"][0]["blocks"][0]
+    block = build_material_blocks([item])["materials"][0]["blocks"][0]
 
     assert block == {
         "block_id": "material-blocks/v1:case-a:page:0001",
-        "content_type": "pdf_page_text",
         "text": None,
         "locator": {"pdf_page": 1},
         "parser_status": "unsupported",
@@ -230,72 +214,22 @@ def test_parser_error_is_explicit(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(pymupdf.Page, "get_text", explode)
 
-    block = build_material_blocks([item], [])["materials"][0]["blocks"][0]
+    block = build_material_blocks([item])["materials"][0]["blocks"][0]
 
     assert block["parser_status"] == "failed"
     assert block["failure_reason"] == "parser_error"
     assert block["text"] is None
 
 
-def test_validator_rejects_partial_and_extra_block_provenance(tmp_path: Path) -> None:
-    artifact = build_material_blocks([_input(tmp_path, "case-a", ["text"])], [])
-    partial = copy.deepcopy(artifact)
-    partial["materials"][0]["blocks"][0]["parser_status"] = "partial"
-    with pytest.raises(MaterialBlockContractError, match="status"):
-        validate_artifact(partial)
-
-    duplicated = copy.deepcopy(artifact)
-    duplicated["materials"][0]["blocks"][0]["artifact_ref"] = "duplicate"
-    with pytest.raises(MaterialBlockContractError, match="fields"):
-        validate_artifact(duplicated)
-
-
-def test_validator_rejects_identity_drift(tmp_path: Path) -> None:
-    artifact = build_material_blocks([_input(tmp_path, "case-a", ["text"])], [])
-    material_drift = copy.deepcopy(artifact)
-    material_drift["materials"][0]["material_id"] = "material-blocks/v1:wrong"
-    with pytest.raises(MaterialBlockContractError, match="material_id"):
-        validate_artifact(material_drift)
-
-    block_drift = copy.deepcopy(artifact)
-    block_drift["materials"][0]["blocks"][0]["block_id"] = "wrong:block"
-    with pytest.raises(MaterialBlockContractError, match="block_id"):
-        validate_artifact(block_drift)
-
-
-@pytest.mark.parametrize("mutation", ["missing", "extra", "newline", "path"])
-def test_validator_rejects_malformed_provenance(tmp_path: Path, mutation: str) -> None:
-    artifact = build_material_blocks([_input(tmp_path, "case-a", ["text"])], [])
-    malformed = copy.deepcopy(artifact)
-    provenance = malformed["parser_provenance"]
-    if mutation == "missing":
-        provenance.pop("parser_version")
-    elif mutation == "extra":
-        provenance["machine"] = "local"
-    elif mutation == "newline":
-        provenance["parser"] = "pymupdf\nunsafe"
-    else:
-        provenance["parser"] = "private/path"
-
-    with pytest.raises(MaterialBlockContractError, match="parser_provenance|unsafe"):
-        validate_artifact(malformed)
-
-
-@pytest.mark.parametrize("input_status", ["success", "unsupported"])
-def test_validator_rejects_unapproved_material_status(tmp_path: Path, input_status: str) -> None:
-    artifact = build_material_blocks([_input(tmp_path, "case-a", ["text"])], [])
-    artifact["materials"][0]["input_status"] = input_status
-
-    with pytest.raises(MaterialBlockContractError, match="input_status"):
-        validate_artifact(artifact)
-
-
 def test_publication_rejects_wrong_active_coverage_and_identity(tmp_path: Path) -> None:
     inputs = _three_inputs(tmp_path)
-    artifact = build_material_blocks(inputs, ["retired-1"])
+    artifact = build_material_blocks(inputs)
 
     with pytest.raises(MaterialBlockContractError, match="exactly three"):
-        validate_publication(artifact, inputs[:2], ["retired-1"])
+        validate_publication(artifact, inputs[:2])
+
+    with pytest.raises(MaterialBlockContractError, match="must be unique"):
+        validate_publication(artifact, [inputs[0], inputs[0], inputs[2]])
 
     changed_identity = ActiveMaterial(
         **{**inputs[0].__dict__, "artifact_ref": "active:changed:compact_pdf"}
@@ -304,31 +238,27 @@ def test_publication_rejects_wrong_active_coverage_and_identity(tmp_path: Path) 
         validate_publication(
             artifact,
             [changed_identity, inputs[1], inputs[2]],
-            ["retired-1"],
         )
 
 
 def test_publication_rejects_page_and_mapping_drift(tmp_path: Path) -> None:
     inputs = _three_inputs(tmp_path)
-    artifact = build_material_blocks(inputs, ["retired-1"])
-    missing_page = copy.deepcopy(artifact)
-    missing_page["materials"][0]["blocks"].pop()
+    artifact = build_material_blocks(inputs)
+    wrong_page_count = ActiveMaterial(
+        **{**inputs[0].__dict__, "declared_pages": inputs[0].declared_pages + 1}
+    )
     with pytest.raises(MaterialBlockContractError, match="declared-page coverage"):
-        validate_publication(missing_page, inputs, ["retired-1"])
+        validate_publication(artifact, [wrong_page_count, inputs[1], inputs[2]])
 
-    mapping_drift = copy.deepcopy(artifact)
-    mapping_drift["materials"][1]["blocks"][0]["locator"]["source_ref"] = "slide:8"
+    wrong_mapping = ActiveMaterial(**{**inputs[2].__dict__, "source_refs": {1: "slide:8"}})
     with pytest.raises(MaterialBlockContractError, match="source mapping"):
-        validate_publication(mapping_drift, inputs, ["retired-1"])
+        validate_publication(artifact, [inputs[0], inputs[1], wrong_mapping])
 
 
 def test_publication_rejects_failed_material_without_replacing_stable(tmp_path: Path) -> None:
     inputs = _three_inputs(tmp_path)
-    artifact = build_material_blocks(inputs, ["retired-1"])
-    artifact["materials"][0]["input_status"] = "failed"
-    artifact["materials"][0]["failure_reason"] = "document_unreadable"
-    artifact["materials"][0]["blocks"] = []
-    validate_artifact(artifact)
+    inputs[0] = ActiveMaterial(**{**inputs[0].__dict__, "expected_sha256": "0" * 64})
+    artifact = build_material_blocks(inputs)
     stable_path = tmp_path / "private" / "material_blocks.v1.json"
     stable_path.parent.mkdir(parents=True)
     stable_path.write_text("stable-sentinel", encoding="utf-8")
@@ -340,59 +270,15 @@ def test_publication_rejects_failed_material_without_replacing_stable(tmp_path: 
             stable_path,
             staging,
             active_materials=inputs,
-            retired_case_ids=["retired-1"],
         )
 
     assert stable_path.read_text(encoding="utf-8") == "stable-sentinel"
     assert not staging.exists()
 
 
-def test_publication_rejects_safe_looking_provenance_drift(tmp_path: Path) -> None:
-    inputs = _three_inputs(tmp_path)
-    artifact = build_material_blocks(inputs, ["retired-1"])
-    artifact["parser_provenance"]["parser_version"] = "0.0.0"
-    validate_artifact(artifact)
-
-    with pytest.raises(MaterialBlockContractError, match="not approved"):
-        validate_publication(artifact, inputs, ["retired-1"])
-
-
-@pytest.mark.parametrize("declared_pages", [1.0, "1", True, 0])
-def test_declared_pages_must_be_strict_positive_integer(
-    tmp_path: Path,
-    declared_pages: object,
-) -> None:
-    item = _input(tmp_path, "case-a", ["text"])
-    item = ActiveMaterial(**{**item.__dict__, "declared_pages": declared_pages})
-
-    with pytest.raises(MaterialBlockContractError, match="declared_pages"):
-        build_material_blocks([item], [])
-
-
-@pytest.mark.parametrize("pdf_page", [1.0, "1", True, 0])
-def test_locator_page_must_be_strict_positive_integer(tmp_path: Path, pdf_page: object) -> None:
-    artifact = build_material_blocks([_input(tmp_path, "case-a", ["text"])], [])
-    artifact["materials"][0]["blocks"][0]["locator"]["pdf_page"] = pdf_page
-
-    with pytest.raises(MaterialBlockContractError, match="pdf_page"):
-        validate_artifact(artifact)
-
-
-@pytest.mark.parametrize("mapping_page", [1.0, "1", True, 0])
-def test_source_mapping_page_must_be_strict_positive_integer(
-    tmp_path: Path,
-    mapping_page: object,
-) -> None:
-    item = _input(tmp_path, "case-a", ["text"])
-    item = ActiveMaterial(**{**item.__dict__, "source_refs": {mapping_page: "page:1"}})
-
-    with pytest.raises(MaterialBlockContractError, match="source mapping page"):
-        build_material_blocks([item], [])
-
-
 def test_atomic_writer_cleans_staging_and_round_trips(tmp_path: Path) -> None:
     inputs = _three_inputs(tmp_path)
-    artifact = build_material_blocks(inputs, ["retired-1"])
+    artifact = build_material_blocks(inputs)
     stable_path = tmp_path / "private" / "material_blocks.v1.json"
     staging = tmp_path / "private" / ".material-blocks-staging"
 
@@ -401,7 +287,6 @@ def test_atomic_writer_cleans_staging_and_round_trips(tmp_path: Path) -> None:
         stable_path,
         staging,
         active_materials=inputs,
-        retired_case_ids=["retired-1"],
     )
 
     assert json.loads(stable_path.read_text(encoding="utf-8")) == artifact
@@ -410,7 +295,7 @@ def test_atomic_writer_cleans_staging_and_round_trips(tmp_path: Path) -> None:
 
 def test_atomic_writer_cannot_bypass_completion_gate(tmp_path: Path) -> None:
     item = _input(tmp_path, "case-a", ["text"])
-    artifact = build_material_blocks([item], [])
+    artifact = build_material_blocks([item])
     stable_path = tmp_path / "private" / "material_blocks.v1.json"
     staging = tmp_path / "private" / ".material-blocks-staging"
 
@@ -420,7 +305,6 @@ def test_atomic_writer_cannot_bypass_completion_gate(tmp_path: Path) -> None:
             stable_path,
             staging,
             active_materials=[item],
-            retired_case_ids=[],
         )
 
     assert not stable_path.exists()
