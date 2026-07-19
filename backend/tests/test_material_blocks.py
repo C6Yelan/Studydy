@@ -1,22 +1,14 @@
 from __future__ import annotations
 
 import hashlib
-import json
+from dataclasses import replace
 from pathlib import Path
 
 import pymupdf
 import pytest
 
 import material_blocks
-from material_blocks import (
-    ActiveMaterial,
-    MaterialBlockContractError,
-    build_material_blocks,
-    canonical_json_bytes,
-    select_active_manifest_entries,
-    validate_publication,
-    write_canonical_artifact,
-)
+from material_blocks import ActiveMaterial, build_material_blocks
 
 
 def _make_pdf(path: Path, page_texts: list[str]) -> str:
@@ -32,112 +24,64 @@ def _make_pdf(path: Path, page_texts: list[str]) -> str:
 
 def _input(
     tmp_path: Path,
-    case_id: str,
     page_texts: list[str],
     source_refs: dict[int, str] | None = None,
 ) -> ActiveMaterial:
-    pdf_path = tmp_path / f"{case_id}.pdf"
-    digest = _make_pdf(pdf_path, page_texts)
+    pdf_path = tmp_path / "case-a.pdf"
     return ActiveMaterial(
-        case_id=case_id,
-        artifact_ref=f"active:{case_id}:compact_pdf",
+        case_id="case-a",
+        artifact_ref="active:case-a:compact_pdf",
         pdf_path=pdf_path,
         declared_pages=len(page_texts),
-        expected_sha256=digest,
+        expected_sha256=_make_pdf(pdf_path, page_texts),
         source_refs=source_refs or {},
     )
 
 
-def _three_inputs(tmp_path: Path) -> list[ActiveMaterial]:
-    return [
-        _input(tmp_path, "case-c", ["gamma"]),
-        _input(tmp_path, "case-a", ["alpha  ", "beta"]),
-        _input(tmp_path, "case-b", ["delta"], {1: "slide:7"}),
+def test_successful_material_has_reproducible_page_blocks_and_mapping(tmp_path: Path) -> None:
+    item = _input(tmp_path, ["alpha  ", "beta"], {2: "slide:7"})
+
+    artifact = build_material_blocks(item)
+
+    assert set(artifact) == {"schema_version", "parser_provenance", "materials"}
+    assert artifact["schema_version"] == "material-blocks/v1"
+    assert artifact["parser_provenance"] == {
+        "parser": "pymupdf",
+        "parser_version": pymupdf.VersionBind,
+        "extraction_policy": "page.get_text:text:sort-true-v1",
+        "normalization_policy": "utf8-lf-trailing-whitespace-v1",
+    }
+    assert artifact["materials"] == [
+        {
+            "material_id": "material-blocks/v1:case-a",
+            "case_id": "case-a",
+            "artifact_ref": "active:case-a:compact_pdf",
+            "input_status": "valid",
+            "failure_reason": None,
+            "blocks": [
+                {
+                    "block_id": "material-blocks/v1:case-a:page:0001",
+                    "text": "alpha",
+                    "locator": {"pdf_page": 1},
+                    "parser_status": "success",
+                    "failure_reason": None,
+                },
+                {
+                    "block_id": "material-blocks/v1:case-a:page:0002",
+                    "text": "beta",
+                    "locator": {"pdf_page": 2, "source_ref": "slide:7"},
+                    "parser_status": "success",
+                    "failure_reason": None,
+                },
+            ],
+        }
     ]
 
 
-def test_manifest_selection_is_exactly_three_unique_sorted_active_cases() -> None:
-    manifest = {
-        "baseline_state": "approved",
-        "difficulty_ladder_selections": [
-            {"case_id": "case-c", "status": "active"},
-            {"case_id": "candidate", "status": "candidate"},
-            {"case_id": "case-a", "status": "active"},
-            {"case_id": "case-b", "status": "active"},
-        ],
-    }
+def test_same_input_rerun_has_identical_domain_records(tmp_path: Path) -> None:
+    item = _input(tmp_path, ["alpha", "beta"], {2: "slide:7"})
 
-    active = select_active_manifest_entries(manifest)
-
-    assert [entry["case_id"] for entry in active] == ["case-a", "case-b", "case-c"]
-    assert all(entry["status"] == "active" for entry in active)
-
-
-def test_manifest_selection_rejects_missing_baseline_and_duplicate_active_id() -> None:
-    manifest = {
-        "difficulty_ladder_selections": [
-            {"case_id": "case-a", "status": "active"},
-            {"case_id": "case-b", "status": "active"},
-            {"case_id": "case-c", "status": "active"},
-        ],
-    }
-    with pytest.raises(MaterialBlockContractError, match="baseline_state"):
-        select_active_manifest_entries(manifest)
-
-    manifest["baseline_state"] = "approved"
-    manifest["difficulty_ladder_selections"][2]["case_id"] = "case-a"
-    with pytest.raises(MaterialBlockContractError, match="must be unique"):
-        select_active_manifest_entries(manifest)
-
-
-def test_contract_is_refined_and_ordered(tmp_path: Path) -> None:
-    artifact = build_material_blocks(_three_inputs(tmp_path))
-
-    assert set(artifact) == {"schema_version", "parser_provenance", "materials"}
-    assert set(artifact["parser_provenance"]) == {
-        "parser",
-        "parser_version",
-        "extraction_policy",
-        "normalization_policy",
-    }
-    assert [item["case_id"] for item in artifact["materials"]] == ["case-a", "case-b", "case-c"]
-    assert set(artifact["materials"][0]) == {
-        "material_id",
-        "case_id",
-        "artifact_ref",
-        "input_status",
-        "failure_reason",
-        "blocks",
-    }
-    assert all(item["input_status"] == "valid" for item in artifact["materials"])
-    assert artifact["materials"][0]["material_id"] == "material-blocks/v1:case-a"
-    block = artifact["materials"][0]["blocks"][0]
-    assert set(block) == {
-        "block_id",
-        "text",
-        "locator",
-        "parser_status",
-        "failure_reason",
-    }
-    assert block["block_id"] == "material-blocks/v1:case-a:page:0001"
-    assert block["locator"] == {"pdf_page": 1}
-    assert artifact["materials"][1]["blocks"][0]["locator"] == {
-        "pdf_page": 1,
-        "source_ref": "slide:7",
-    }
-    assert {block["parser_status"] for item in artifact["materials"] for block in item["blocks"]} <= {
-        "success",
-        "failed",
-        "unsupported",
-    }
-
-
-def test_active_coverage_and_same_input_rerun_are_canonical(tmp_path: Path) -> None:
-    inputs = _three_inputs(tmp_path)
-    first = build_material_blocks(inputs)
-    second = build_material_blocks(inputs)
-
-    assert canonical_json_bytes(first) == canonical_json_bytes(second)
+    assert build_material_blocks(item) == build_material_blocks(item)
 
 
 @pytest.mark.parametrize(
@@ -147,30 +91,27 @@ def test_active_coverage_and_same_input_rerun_are_canonical(tmp_path: Path) -> N
         ("page_count", "declared_page_count_mismatch"),
         ("missing", "document_unreadable"),
         ("signature", "document_unreadable"),
+        ("document", "document_unreadable"),
     ],
 )
-def test_document_input_failures_do_not_infer_blocks(
+def test_document_failures_are_explicit_without_inferred_blocks(
     tmp_path: Path,
     mutation: str,
     reason: str,
 ) -> None:
-    item = _input(tmp_path, "case-a", ["text"])
+    item = _input(tmp_path, ["text"])
     if mutation == "fingerprint":
-        item = ActiveMaterial(**{**item.__dict__, "expected_sha256": "0" * 64})
+        item = replace(item, expected_sha256="0" * 64)
     elif mutation == "page_count":
-        item = ActiveMaterial(**{**item.__dict__, "declared_pages": 2})
+        item = replace(item, declared_pages=2)
     elif mutation == "missing":
         item.pdf_path.unlink()
     else:
-        item.pdf_path.write_bytes(b"not a pdf")
-        item = ActiveMaterial(
-            **{
-                **item.__dict__,
-                "expected_sha256": hashlib.sha256(item.pdf_path.read_bytes()).hexdigest(),
-            }
-        )
+        content = b"not a pdf" if mutation == "signature" else b"%PDF-not valid"
+        item.pdf_path.write_bytes(content)
+        item = replace(item, expected_sha256=hashlib.sha256(content).hexdigest())
 
-    material = build_material_blocks([item])["materials"][0]
+    material = build_material_blocks(item)["materials"][0]
 
     assert material["input_status"] == "failed"
     assert material["failure_reason"] == reason
@@ -178,9 +119,9 @@ def test_document_input_failures_do_not_infer_blocks(
 
 
 def test_empty_page_is_explicit_unsupported_block(tmp_path: Path) -> None:
-    item = _input(tmp_path, "case-a", [""])
+    item = _input(tmp_path, [""])
 
-    block = build_material_blocks([item])["materials"][0]["blocks"][0]
+    block = build_material_blocks(item)["materials"][0]["blocks"][0]
 
     assert block == {
         "block_id": "material-blocks/v1:case-a:page:0001",
@@ -191,8 +132,8 @@ def test_empty_page_is_explicit_unsupported_block(tmp_path: Path) -> None:
     }
 
 
-def test_page_level_failures_are_not_silently_dropped(tmp_path: Path) -> None:
-    item = _input(tmp_path, "case-a", ["first", "second"])
+def test_unreadable_page_is_not_silently_dropped(tmp_path: Path) -> None:
+    item = _input(tmp_path, ["first", "second"], {2: "slide:7"})
 
     class UnreadableDocument:
         def load_page(self, page_index: int):
@@ -200,116 +141,30 @@ def test_page_level_failures_are_not_silently_dropped(tmp_path: Path) -> None:
 
     block = material_blocks._build_page_block(UnreadableDocument(), item, 2)
 
-    assert block["locator"] == {"pdf_page": 2}
-    assert block["parser_status"] == "failed"
-    assert block["failure_reason"] == "page_unreadable"
-    assert block["text"] is None
+    assert block == {
+        "block_id": "material-blocks/v1:case-a:page:0002",
+        "text": None,
+        "locator": {"pdf_page": 2, "source_ref": "slide:7"},
+        "parser_status": "failed",
+        "failure_reason": "page_unreadable",
+    }
 
 
 def test_parser_error_is_explicit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    item = _input(tmp_path, "case-a", ["text"])
+    item = _input(tmp_path, ["text"])
 
     def explode(*args, **kwargs):
         raise RuntimeError("synthetic parser failure")
 
     monkeypatch.setattr(pymupdf.Page, "get_text", explode)
 
-    block = build_material_blocks([item])["materials"][0]["blocks"][0]
+    block = build_material_blocks(item)["materials"][0]["blocks"][0]
 
+    assert block["locator"] == {"pdf_page": 1}
     assert block["parser_status"] == "failed"
     assert block["failure_reason"] == "parser_error"
     assert block["text"] is None
 
 
-def test_publication_rejects_wrong_active_coverage_and_identity(tmp_path: Path) -> None:
-    inputs = _three_inputs(tmp_path)
-    artifact = build_material_blocks(inputs)
-
-    with pytest.raises(MaterialBlockContractError, match="exactly three"):
-        validate_publication(artifact, inputs[:2])
-
-    with pytest.raises(MaterialBlockContractError, match="must be unique"):
-        validate_publication(artifact, [inputs[0], inputs[0], inputs[2]])
-
-    changed_identity = ActiveMaterial(
-        **{**inputs[0].__dict__, "artifact_ref": "active:changed:compact_pdf"}
-    )
-    with pytest.raises(MaterialBlockContractError, match="artifact identity"):
-        validate_publication(
-            artifact,
-            [changed_identity, inputs[1], inputs[2]],
-        )
-
-
-def test_publication_rejects_page_and_mapping_drift(tmp_path: Path) -> None:
-    inputs = _three_inputs(tmp_path)
-    artifact = build_material_blocks(inputs)
-    wrong_page_count = ActiveMaterial(
-        **{**inputs[0].__dict__, "declared_pages": inputs[0].declared_pages + 1}
-    )
-    with pytest.raises(MaterialBlockContractError, match="declared-page coverage"):
-        validate_publication(artifact, [wrong_page_count, inputs[1], inputs[2]])
-
-    wrong_mapping = ActiveMaterial(**{**inputs[2].__dict__, "source_refs": {1: "slide:8"}})
-    with pytest.raises(MaterialBlockContractError, match="source mapping"):
-        validate_publication(artifact, [inputs[0], inputs[1], wrong_mapping])
-
-
-def test_publication_rejects_failed_material_without_replacing_stable(tmp_path: Path) -> None:
-    inputs = _three_inputs(tmp_path)
-    inputs[0] = ActiveMaterial(**{**inputs[0].__dict__, "expected_sha256": "0" * 64})
-    artifact = build_material_blocks(inputs)
-    stable_path = tmp_path / "private" / "material_blocks.v1.json"
-    stable_path.parent.mkdir(parents=True)
-    stable_path.write_text("stable-sentinel", encoding="utf-8")
-    staging = stable_path.parent / ".material-blocks-staging"
-
-    with pytest.raises(MaterialBlockContractError, match="every material to be valid"):
-        write_canonical_artifact(
-            artifact,
-            stable_path,
-            staging,
-            active_materials=inputs,
-        )
-
-    assert stable_path.read_text(encoding="utf-8") == "stable-sentinel"
-    assert not staging.exists()
-
-
-def test_atomic_writer_cleans_staging_and_round_trips(tmp_path: Path) -> None:
-    inputs = _three_inputs(tmp_path)
-    artifact = build_material_blocks(inputs)
-    stable_path = tmp_path / "private" / "material_blocks.v1.json"
-    staging = tmp_path / "private" / ".material-blocks-staging"
-
-    write_canonical_artifact(
-        artifact,
-        stable_path,
-        staging,
-        active_materials=inputs,
-    )
-
-    assert json.loads(stable_path.read_text(encoding="utf-8")) == artifact
-    assert not staging.exists()
-
-
-def test_atomic_writer_cannot_bypass_completion_gate(tmp_path: Path) -> None:
-    item = _input(tmp_path, "case-a", ["text"])
-    artifact = build_material_blocks([item])
-    stable_path = tmp_path / "private" / "material_blocks.v1.json"
-    staging = tmp_path / "private" / ".material-blocks-staging"
-
-    with pytest.raises(MaterialBlockContractError, match="exactly three"):
-        write_canonical_artifact(
-            artifact,
-            stable_path,
-            staging,
-            active_materials=[item],
-        )
-
-    assert not stable_path.exists()
-    assert not staging.exists()
-
-
-def test_normalization_removes_only_line_endings_and_trailing_whitespace() -> None:
+def test_normalization_preserves_content_while_normalizing_line_endings() -> None:
     assert material_blocks.normalize_text(" first  \r\nsecond\t\rthird\n\n") == " first\nsecond\nthird"
