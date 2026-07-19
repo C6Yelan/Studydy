@@ -36,6 +36,7 @@ def parser_provenance() -> dict[str, str]:
 
 
 def build_material_blocks(active_material: ActiveMaterial) -> dict[str, Any]:
+    """將單一已授權教材轉換為可重現的 Material Block artifact。"""
     return {
         "schema_version": SCHEMA_VERSION,
         "parser_provenance": parser_provenance(),
@@ -44,6 +45,7 @@ def build_material_blocks(active_material: ActiveMaterial) -> dict[str, Any]:
 
 
 def _build_material(item: ActiveMaterial) -> dict[str, Any]:
+    """驗證單一教材並建立保留失敗狀態的 material record。"""
     material = {
         "material_id": f"{SCHEMA_VERSION}:{item.case_id}",
         "case_id": item.case_id,
@@ -82,6 +84,7 @@ def _build_material(item: ActiveMaterial) -> dict[str, Any]:
 
 
 def _verify_input(item: ActiveMaterial) -> str | None:
+    """驗證 PDF signature 與 SHA-256 fingerprint。"""
     try:
         with item.pdf_path.open("rb") as input_file:
             signature = input_file.read(5)
@@ -91,7 +94,7 @@ def _verify_input(item: ActiveMaterial) -> str | None:
         return "document_unreadable"
     if signature != b"%PDF-":
         return "document_unreadable"
-    if digest.lower() != item.expected_sha256.lower():
+    if digest != item.expected_sha256:
         return "input_fingerprint_mismatch"
     return None
 
@@ -101,6 +104,7 @@ def _build_page_block(
     item: ActiveMaterial,
     page_number: int,
 ) -> dict[str, Any]:
+    """建立保留頁面 locator 與解析狀態的 page block。"""
     locator: dict[str, Any] = {"pdf_page": page_number}
     source_ref = item.source_refs.get(page_number)
     if source_ref is not None:

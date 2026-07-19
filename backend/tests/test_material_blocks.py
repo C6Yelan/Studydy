@@ -88,6 +88,7 @@ def test_same_input_rerun_has_identical_domain_records(tmp_path: Path) -> None:
     ("mutation", "reason"),
     [
         ("fingerprint", "input_fingerprint_mismatch"),
+        ("uppercase_fingerprint", "input_fingerprint_mismatch"),
         ("page_count", "declared_page_count_mismatch"),
         ("missing", "document_unreadable"),
         ("signature", "document_unreadable"),
@@ -102,6 +103,8 @@ def test_document_failures_are_explicit_without_inferred_blocks(
     item = _input(tmp_path, ["text"])
     if mutation == "fingerprint":
         item = replace(item, expected_sha256="0" * 64)
+    elif mutation == "uppercase_fingerprint":
+        item = replace(item, expected_sha256=item.expected_sha256.upper())
     elif mutation == "page_count":
         item = replace(item, declared_pages=2)
     elif mutation == "missing":
@@ -132,22 +135,38 @@ def test_empty_page_is_explicit_unsupported_block(tmp_path: Path) -> None:
     }
 
 
-def test_unreadable_page_is_not_silently_dropped(tmp_path: Path) -> None:
+def test_unreadable_page_is_not_silently_dropped(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     item = _input(tmp_path, ["first", "second"], {2: "slide:7"})
+    original_load_page = pymupdf.Document.load_page
 
-    class UnreadableDocument:
-        def load_page(self, page_index: int):
+    def fail_second_page(document: pymupdf.Document, page_index: int):
+        if page_index == 1:
             raise RuntimeError("synthetic unreadable page")
+        return original_load_page(document, page_index)
 
-    block = material_blocks._build_page_block(UnreadableDocument(), item, 2)
+    monkeypatch.setattr(pymupdf.Document, "load_page", fail_second_page)
 
-    assert block == {
-        "block_id": "material-blocks/v1:case-a:page:0002",
-        "text": None,
-        "locator": {"pdf_page": 2, "source_ref": "slide:7"},
-        "parser_status": "failed",
-        "failure_reason": "page_unreadable",
-    }
+    blocks = build_material_blocks(item)["materials"][0]["blocks"]
+
+    assert blocks == [
+        {
+            "block_id": "material-blocks/v1:case-a:page:0001",
+            "text": "first",
+            "locator": {"pdf_page": 1},
+            "parser_status": "success",
+            "failure_reason": None,
+        },
+        {
+            "block_id": "material-blocks/v1:case-a:page:0002",
+            "text": None,
+            "locator": {"pdf_page": 2, "source_ref": "slide:7"},
+            "parser_status": "failed",
+            "failure_reason": "page_unreadable",
+        },
+    ]
 
 
 def test_parser_error_is_explicit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
