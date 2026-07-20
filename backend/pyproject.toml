@@ -3,6 +3,7 @@ name = "studydy-backend"
 version = "0.1.0"
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "jieba==0.42.1",
     "pymupdf>=1.26.3",
 ]
 
