@@ -19,29 +19,39 @@ class CandidateExtractionFailure(RuntimeError):
 
 
 def _validate_runtime() -> None:
+    """驗證斷詞器與內附詞典皆符合固定版本及內容識別。"""
     try:
         installed_version = metadata.version("jieba")
     except metadata.PackageNotFoundError as error:
         raise CandidateExtractionFailure("jieba_not_installed") from error
+
     if installed_version != JIEBA_VERSION:
         raise CandidateExtractionFailure("jieba_version_mismatch")
+
     try:
         with DICTIONARY_PATH.open("rb") as input_file:
-            dictionary_hash = hashlib.file_digest(input_file, "sha256").hexdigest()
+            dictionary_hash = hashlib.file_digest(
+                input_file,
+                "sha256",
+            ).hexdigest()
     except OSError as error:
         raise CandidateExtractionFailure("dictionary_unreadable") from error
+
     if dictionary_hash != DICTIONARY_SHA256:
         raise CandidateExtractionFailure("dictionary_content_mismatch")
 
 
 def extract_candidates(material_blocks: Mapping[str, Any]) -> dict[str, Any]:
+    """建立保留原始順序且可完整重建區塊的斷詞候選。"""
     if material_blocks.get("schema_version") != "material-blocks/v1":
         raise CandidateExtractionFailure("material_blocks_schema_mismatch")
+
     materials = material_blocks.get("materials")
     if not isinstance(materials, list):
         raise CandidateExtractionFailure("materials_invalid")
 
     _validate_runtime()
+
     tokenizer = jieba.Tokenizer(dictionary=str(DICTIONARY_PATH))
     result: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -63,12 +73,15 @@ def extract_candidates(material_blocks: Mapping[str, Any]) -> dict[str, Any]:
     total_code_points = 0
     covered_code_points = 0
 
+    # 排除的教材與區塊仍保留 accounting，避免無效輸入被誤認為未處理。
     for material in materials:
         if not isinstance(material, Mapping):
             raise CandidateExtractionFailure("material_invalid")
+
         material_id = material.get("material_id")
         if not isinstance(material_id, str) or not material_id:
             raise CandidateExtractionFailure("material_id_missing")
+
         if material.get("input_status") != "valid":
             result["material_accounting"].append(
                 {
@@ -78,9 +91,11 @@ def extract_candidates(material_blocks: Mapping[str, Any]) -> dict[str, Any]:
                 }
             )
             continue
+
         blocks = material.get("blocks")
         if not isinstance(blocks, list):
             raise CandidateExtractionFailure("blocks_invalid")
+
         result["material_accounting"].append(
             {"material_id": material_id, "outcome": "processed"}
         )
@@ -89,9 +104,11 @@ def extract_candidates(material_blocks: Mapping[str, Any]) -> dict[str, Any]:
             total_blocks += 1
             if not isinstance(block, Mapping):
                 raise CandidateExtractionFailure("block_invalid")
+
             block_id = block.get("block_id")
             if not isinstance(block_id, str) or not block_id:
                 raise CandidateExtractionFailure("block_id_missing")
+
             if block.get("parser_status") != "success":
                 result["block_accounting"].append(
                     {
@@ -102,12 +119,15 @@ def extract_candidates(material_blocks: Mapping[str, Any]) -> dict[str, Any]:
                     }
                 )
                 continue
+
             text = block.get("text")
             if not isinstance(text, str):
                 raise CandidateExtractionFailure("block_text_invalid")
+
             locator = block.get("locator")
             if not isinstance(locator, Mapping):
                 raise CandidateExtractionFailure("locator_missing")
+
             locator = dict(locator)
             if not isinstance(locator.get("pdf_page"), int):
                 raise CandidateExtractionFailure("page_locator_missing")
@@ -116,14 +136,18 @@ def extract_candidates(material_blocks: Mapping[str, Any]) -> dict[str, Any]:
                 pieces = list(tokenizer.cut(text, cut_all=False, HMM=False))
             except Exception as error:
                 raise CandidateExtractionFailure("segmentation_failed") from error
+
+            # 位移必須逐段對應原文，確保每個 evidence_ref 指向可重建的內容。
             cursor = 0
             block_candidates = []
             for piece in pieces:
                 if not isinstance(piece, str) or not piece:
                     raise CandidateExtractionFailure("empty_segment")
+
                 end = cursor + len(piece)
                 if text[cursor:end] != piece:
                     raise CandidateExtractionFailure("segmentation_reconstruction_mismatch")
+
                 identity = (
                     f"{material_id}\0{block_id}\0{cursor}\0{end}\0{piece}\0"
                     f"{DICTIONARY_SHA256}"
@@ -142,6 +166,7 @@ def extract_candidates(material_blocks: Mapping[str, Any]) -> dict[str, Any]:
                     }
                 )
                 cursor = end
+
             if cursor != len(text):
                 raise CandidateExtractionFailure("segmentation_reconstruction_mismatch")
 
