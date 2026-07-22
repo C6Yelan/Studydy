@@ -229,6 +229,57 @@ def test_invalid_native_bbox_is_counted_and_marks_partial(
     assert row["page_bbox"] == [0.0, 0.0, 300.0, 200.0]
 
 
+def test_document_page_count_mismatch_keeps_analyzable_page_partial(
+    tmp_path: Path,
+) -> None:
+    baseline_pdf = tmp_path / "baseline.pdf"
+    changed_pdf = tmp_path / "changed.pdf"
+    _text_pdf(baseline_pdf, ["alpha"])
+    _text_pdf(changed_pdf, ["alpha", "beta"])
+    material = _material(baseline_pdf, "case", 1)
+
+    result = analyze_material_native(_artifact(material), {"case": changed_pdf})
+
+    assert result["page_count"] == 1
+    row = result["pages"][0]
+    assert row["status"] == "partial"
+    assert "document_page_count_mismatch" in row["reasons"]
+    assert row["native_summary"]["rawdict"]["available"] is True
+
+
+def test_bbox_outside_tolerance_is_non_blocking(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_path = tmp_path / "case.pdf"
+    _text_pdf(pdf_path, ["alpha"])
+    material = _material(pdf_path, "case", 1)
+    original_get_text = pymupdf.Page.get_text
+
+    def outside_rawdict_bbox(page: pymupdf.Page, option: str = "text", *args, **kwargs):
+        result = original_get_text(page, option, *args, **kwargs)
+        if option == "rawdict" and result["blocks"]:
+            result["blocks"][0]["bbox"] = (
+                -BBOX_TOLERANCE_POINTS - 1,
+                0,
+                10,
+                10,
+            )
+        return result
+
+    monkeypatch.setattr(pymupdf.Page, "get_text", outside_rawdict_bbox)
+    row = analyze_material_native(_artifact(material), {"case": pdf_path})["pages"][0]
+
+    assert row["status"] == "success"
+    assert row["reasons"] == ["native_bbox_outside_page_tolerance"]
+    assert (
+        row["native_summary"]["rawdict"]["block_bboxes"][
+            "outside_page_tolerance"
+        ]
+        == 1
+    )
+
+
 def test_structure_presence_without_order_gap_is_not_task7_eligible(
     tmp_path: Path,
 ) -> None:
@@ -259,9 +310,12 @@ def test_scan_signal_requires_available_empty_native_text_analysis(
     _image_pdf(pdf_path)
     material = _material(pdf_path, "scan", 1)
     original_get_text = pymupdf.Page.get_text
+    rawdict_calls = 0
 
     def unavailable_rawdict(page: pymupdf.Page, option: str = "text", *args, **kwargs):
-        if option == "rawdict":
+        nonlocal rawdict_calls
+        if option == "rawdict" and rawdict_calls == 0:
+            rawdict_calls += 1
             raise AttributeError("synthetic unavailable rawdict")
         return original_get_text(page, option, *args, **kwargs)
 

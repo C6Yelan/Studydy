@@ -25,7 +25,7 @@ def analyze_material_native(
     material_blocks: Mapping[str, Any],
     pdf_paths: Mapping[str, str | Path],
 ) -> dict[str, Any]:
-    """Summarize native PDF structure without retaining page content."""
+    """分析 PDF 原生結構，但不在結果中保留頁面內容。"""
     if material_blocks.get("schema_version") != "material-blocks/v1":
         raise ValueError("material_blocks_schema_mismatch")
     materials = material_blocks.get("materials")
@@ -50,6 +50,8 @@ def _analyze_material(
     material: Mapping[str, Any],
     pdf_paths: Mapping[str, str | Path],
 ) -> list[dict[str, Any]]:
+    """依序比對教材 block 與其對應的 PDF 原生頁面。"""
+    # 讀取並驗證教材識別資訊與既有 blocks。
     material_id = material.get("material_id")
     case_id = material.get("case_id")
     artifact_ref = material.get("artifact_ref")
@@ -61,6 +63,7 @@ def _analyze_material(
     if not isinstance(blocks, list):
         raise ValueError("blocks_invalid")
 
+    # 取得並開啟對應 PDF；無法使用時回傳各 block 的失敗結果。
     pdf_path = pdf_paths.get(case_id)
     if pdf_path is None:
         return [
@@ -89,6 +92,7 @@ def _analyze_material(
         ]
 
     try:
+        # 依 block locator 載入對應頁面並執行原生結構分析。
         page_count_mismatch = document.page_count != len(blocks)
         rows = []
         for block in blocks:
@@ -114,6 +118,7 @@ def _analyze_material(
                 )
                 continue
             row = _analyze_page(material_id, case_id, artifact_ref, block, page)
+            # 頁數不一致時保留分析結果，但將狀態標記為 partial。
             if page_count_mismatch:
                 row["status"] = "partial"
                 row["reasons"] = sorted(
@@ -122,10 +127,12 @@ def _analyze_material(
             rows.append(row)
         return rows
     finally:
+        # 完成或中斷分析時都釋放 PDF 文件資源。
         document.close()
 
 
 def _provenance() -> dict[str, Any]:
+    """記錄產生分析結果時使用的套件版本、擷取策略與幾何規則。"""
     return {
         "library": "PyMuPDF",
         "library_version": pymupdf.VersionBind,
@@ -144,6 +151,7 @@ def _identity(
     artifact_ref: Any,
     block: Mapping[str, Any],
 ) -> dict[str, Any]:
+    """整理頁面結果共用的教材、block、頁碼與來源識別資訊。"""
     locator = block.get("locator")
     if not isinstance(locator, Mapping):
         locator = {}
@@ -164,6 +172,10 @@ def _identity(
 
 
 def _empty_bbox_summary() -> dict[str, int]:
+    """建立尚未累計資料的 bbox 統計結構。
+
+    bbox（bounding box）是標示頁面物件位置與大小的矩形邊界框。
+    """
     return {
         "total": 0,
         "valid": 0,
@@ -174,6 +186,7 @@ def _empty_bbox_summary() -> dict[str, int]:
 
 
 def _empty_native_summary() -> dict[str, Any]:
+    """建立各種原生 PDF 結構尚未分析時的預設摘要。"""
     return {
         "rawdict": {
             "available": False,
@@ -220,6 +233,7 @@ def _empty_native_summary() -> dict[str, Any]:
 
 
 def _empty_comparability(block: Mapping[str, Any]) -> dict[str, Any]:
+    """建立原生文字尚未與 block 文字基準比較時的預設結果。"""
     baseline_text = block.get("text")
     return {
         "baseline_status": block.get("parser_status"),
@@ -233,6 +247,7 @@ def _empty_comparability(block: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _empty_signals() -> dict[str, dict[str, Any]]:
+    """建立尚未偵測到任何辨識缺口的分流訊號。"""
     return {
         "ordinary_layout": {"detected": False, "evidence": []},
         "scan_image_text": {"detected": False, "evidence": []},
@@ -247,6 +262,7 @@ def _failed_row(
     block: Mapping[str, Any],
     reason: str,
 ) -> dict[str, Any]:
+    """建立保留來源定位資訊的單頁失敗結果。"""
     signals = _empty_signals()
     return {
         **_identity(material_id, case_id, artifact_ref, block),
@@ -270,6 +286,7 @@ def _analyze_page(
     block: Mapping[str, Any],
     page: pymupdf.Page,
 ) -> dict[str, Any]:
+    """收集單頁原生結構證據，並判定後續辨識工具的適用缺口。"""
     page_bbox = _rect_values(page.rect)
     if page_bbox is None:
         return _failed_row(
@@ -288,42 +305,51 @@ def _analyze_page(
 
     try:
         rawdict = page.get_text("rawdict", sort=True)
-        rawdict_text = _summarize_rawdict(rawdict, summary["rawdict"], page_bbox)
     except AttributeError:
         reasons.append("rawdict_api_unsupported")
     except Exception:
         reasons.append("rawdict_analysis_failed")
+    else:
+        rawdict_text = _summarize_rawdict(rawdict, summary["rawdict"], page_bbox)
 
     try:
         words = page.get_text("words", sort=True)
-        word_text = _summarize_words(words, summary["words"], page_bbox)
     except AttributeError:
         reasons.append("words_api_unsupported")
     except Exception:
         reasons.append("words_analysis_failed")
+    else:
+        word_text = _summarize_words(words, summary["words"], page_bbox)
 
     try:
         blocks = page.get_text("blocks", sort=True)
-        blocks_text = _summarize_blocks(blocks, summary["blocks"], page_bbox)
     except AttributeError:
         reasons.append("blocks_api_unsupported")
     except Exception:
         reasons.append("blocks_analysis_failed")
+    else:
+        blocks_text = _summarize_blocks(blocks, summary["blocks"], page_bbox)
 
     try:
         images = page.get_image_info(hashes=False, xrefs=False)
+    except AttributeError:
+        reasons.append("displayed_image_api_unsupported")
+    except Exception:
+        reasons.append("displayed_image_analysis_failed")
+    else:
         image_bboxes = [image.get("bbox") for image in images]
         summary["displayed_images"] = _displayed_image_summary(
             image_bboxes,
             page_bbox,
         )
-    except AttributeError:
-        reasons.append("displayed_image_api_unsupported")
-    except Exception:
-        reasons.append("displayed_image_analysis_failed")
 
     try:
         drawings = page.get_drawings()
+    except AttributeError:
+        reasons.append("drawing_api_unsupported")
+    except Exception:
+        reasons.append("drawing_analysis_failed")
+    else:
         drawing_bboxes = [drawing.get("rect") for drawing in drawings]
         summary["vectors"] = {
             "available": True,
@@ -331,16 +357,17 @@ def _analyze_page(
             "bboxes": _bbox_summary(drawing_bboxes, page_bbox),
             "page_area_ratio": _page_area_ratio(drawing_bboxes, page_bbox),
         }
-    except AttributeError:
-        reasons.append("drawing_api_unsupported")
-    except Exception:
-        reasons.append("drawing_analysis_failed")
 
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
             io.StringIO()
         ):
             table_finder = page.find_tables()
+    except AttributeError:
+        reasons.append("table_api_unsupported")
+    except Exception:
+        reasons.append("table_analysis_failed")
+    else:
         tables = list(table_finder.tables)
         table_bboxes = [table.bbox for table in tables]
         summary["tables"] = {
@@ -348,10 +375,6 @@ def _analyze_page(
             "count": len(tables),
             "bboxes": _bbox_summary(table_bboxes, page_bbox),
         }
-    except AttributeError:
-        reasons.append("table_api_unsupported")
-    except Exception:
-        reasons.append("table_analysis_failed")
 
     reasons.extend(_bbox_reason_codes(summary))
 
@@ -386,6 +409,7 @@ def _summarize_rawdict(
     output: dict[str, Any],
     page_bbox: list[float],
 ) -> str:
+    """彙整字元、span、block 文字與 bbox，供後續基準比較。"""
     if not isinstance(rawdict, Mapping) or not isinstance(rawdict.get("blocks"), list):
         raise ValueError("rawdict_invalid")
     blocks = rawdict["blocks"]
@@ -445,6 +469,7 @@ def _summarize_words(
     output: dict[str, Any],
     page_bbox: list[float],
 ) -> str:
+    """依 PyMuPDF 提供的順序彙整單字文字與 bbox。"""
     if not isinstance(words, list):
         raise ValueError("words_invalid")
     bboxes = []
@@ -470,6 +495,7 @@ def _summarize_blocks(
     output: dict[str, Any],
     page_bbox: list[float],
 ) -> str:
+    """彙整文字與圖片 block 的數量、文字及 bbox。"""
     if not isinstance(blocks, list):
         raise ValueError("blocks_invalid")
     bboxes = []
@@ -504,6 +530,7 @@ def _compare_with_baseline(
     blocks_text: str | None,
     word_text: str | None,
 ) -> dict[str, Any]:
+    """只在既有 block 解析成功時，比較各原生文字視圖與文字基準。"""
     baseline_text = block.get("text")
     baseline_comparable = (
         block.get("parser_status") == "success" and isinstance(baseline_text, str)
@@ -530,6 +557,7 @@ def _compare_with_baseline(
 
 
 def _reading_order(comparability: Mapping[str, Any]) -> dict[str, Any]:
+    """依單字序列比對結果判斷原生閱讀順序是否與基準一致。"""
     if comparability.get("baseline_status") != "success":
         return {
             "assessment": "not_comparable",
@@ -559,6 +587,7 @@ def _gap_signals(
     comparability: Mapping[str, Any],
     reading_order: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
+    """根據文字、圖片與版面證據，產生後續辨識工作的分流訊號。"""
     baseline_nonempty = bool(comparability.get("baseline_nonempty"))
     native_text_available = bool(summary["rawdict"]["available"])
     native_characters = summary["rawdict"]["character_count"]
@@ -616,6 +645,7 @@ def _gap_signals(
 
 
 def _gap_class(signals: Mapping[str, Mapping[str, Any]]) -> str:
+    """依固定優先順序將分流訊號整理成單一缺口分類。"""
     if signals["scan_image_text"]["detected"]:
         return "scan_image_text_gap"
     if signals["complex_structure"]["detected"]:
@@ -626,6 +656,7 @@ def _gap_class(signals: Mapping[str, Mapping[str, Any]]) -> str:
 
 
 def _eligibility(signals: Mapping[str, Mapping[str, Any]]) -> dict[str, bool]:
+    """將缺口訊號轉為後續辨識流程的適用狀態。"""
     return {
         "task5_ordinary_layout": bool(signals["ordinary_layout"]["detected"]),
         "task6_scan_image_text": bool(signals["scan_image_text"]["detected"]),
@@ -634,6 +665,7 @@ def _eligibility(signals: Mapping[str, Mapping[str, Any]]) -> dict[str, bool]:
 
 
 def _rect_values(value: Any) -> list[float] | None:
+    """將有效且具面積的矩形轉成四個有限浮點座標。"""
     try:
         rect = pymupdf.Rect(value)
     except Exception:
@@ -650,6 +682,7 @@ def _bbox_summary(
     values: Sequence[Any],
     page_bbox: list[float],
 ) -> dict[str, int]:
+    """統計 bbox 是否有效，以及是否落在允許的頁面誤差範圍內。"""
     result = _empty_bbox_summary()
     result["total"] = len(values)
     page = pymupdf.Rect(page_bbox)
@@ -674,6 +707,7 @@ def _bbox_summary(
 
 
 def _page_area_ratio(values: Sequence[Any], page_bbox: list[float]) -> float:
+    """計算 bbox 在頁面內的總覆蓋比例，並將結果限制在 1.0。"""
     page = pymupdf.Rect(page_bbox)
     area = 0.0
     for value in values:
@@ -690,6 +724,7 @@ def _displayed_image_summary(
     values: Sequence[Any],
     page_bbox: list[float],
 ) -> dict[str, Any]:
+    """區分滿版背景與內容圖片，並彙整圖片幾何資訊。"""
     page = pymupdf.Rect(page_bbox)
     non_background = []
     background_like_count = 0
@@ -718,11 +753,13 @@ def _displayed_image_summary(
 
 
 def _status_for_reasons(reasons: Sequence[str]) -> str:
+    """依原因是否影響分析完整性決定 success 或 partial。"""
     non_blocking = {"native_bbox_outside_page_tolerance"}
     return "partial" if any(reason not in non_blocking for reason in reasons) else "success"
 
 
 def _bbox_reason_codes(summary: Mapping[str, Any]) -> list[str]:
+    """將所有原生結構的 bbox 異常彙整成頁面原因代碼。"""
     bbox_summaries = [
         summary["rawdict"]["block_bboxes"],
         summary["rawdict"]["span_bboxes"],
