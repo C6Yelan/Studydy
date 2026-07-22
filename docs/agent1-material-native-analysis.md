@@ -54,6 +54,7 @@
 - `task7_complex_structure`：存在表格、非背景圖片或密集向量等結構證據，且閱讀順序出現差異。
 
 這三個旗標是 routing heuristic（分流啟發式），不是品質分數、通過門檻或工具選擇。`eligibility` 只表示值得後續查證，不會作為啟動 `candidate_extraction` 的門檻，也不會自動呼叫 OCR、layout 或其他工具。
+三個 eligibility flags 可以同時為 true；`gap_class` 只保留一個值，固定優先序是 `scan_image_text_gap` > `complex_structure_gap` > `ordinary_layout_gap` > `no_detected_native_gap`。
 
 ## 六個數值 heuristic
 
