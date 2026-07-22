@@ -2,7 +2,7 @@
 
 Agent 1 將已授權的本機 PDF 轉成可追溯的文字區塊，再建立保留原文位置的初步斷詞候選。
 
-`已授權 PDF → 逐頁解析 → Material Blocks → 原生結構分析 → 初步斷詞候選`
+`已授權 PDF → 逐頁解析 → Material Blocks → (原生結構分析／初步斷詞候選)`
 
 ## 處理流程
 
@@ -15,6 +15,7 @@ Agent 1 將已授權的本機 PDF 轉成可追溯的文字區塊，再建立保�
 斷詞結果必須依原始順序完整重建區塊。這些候選只表示可追蹤的文字切分結果，不等同正式關鍵字或 Concept。
 
 原生結構分析只保留 aggregate-only 的摘要與 provenance/bbox 等可追溯資訊，不保存教材全文、raw payload、圖片 bytes、drawing commands 或 table cell content。後續 eligibility 只表示有 evidence 支持的 routing 訊號，不會自動安裝、執行或採用額外工具。
+原生結構分析產生的 eligibility 不會 gate 或自動驅動既有的 candidate extraction。
 
 ## 測試重點
 
