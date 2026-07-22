@@ -20,6 +20,10 @@ Agent 1 將已授權的本機 PDF 逐頁讀取，保留每個文字區塊的來�
 | `material_native_analysis` | 統計摘要、來源與位置資訊，以及可辨識的缺口、狀態與原因；只保留彙總結果（aggregate-only） | 不保存教材全文、原始資料封包（raw payload）、圖片位元組（image bytes）、繪圖指令（drawing commands）或表格儲存格內容（table cell content）；後續處理資格訊號（eligibility）不會作為啟動 `candidate_extraction` 的門檻，也不會自動呼叫它或執行其他工具 |
 | `candidate_extraction` | 依原始順序切分文字，保留文字位置（offset）與可回查證據（Evidence），並確認候選可重建原文 | 候選不等同正式關鍵字或 Concept，不進行語意重要性判斷 |
 
+## 如何解讀狀態
+
+狀態、閱讀順序、缺口分類與 routing 欄位的完整解讀，請見[原生結構分析說明](agent1-material-native-analysis.md)。本頁只保留流程與責任總覽，避免重複細節。
+
 ## 測試重點
 
 | 模組 | 驗證項目 |
