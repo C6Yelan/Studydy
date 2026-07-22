@@ -160,10 +160,10 @@ def test_gap_precedence_and_next_task_eligibility_use_only_native_signals(
 
     scan_row = rows["scan"]
     assert scan_row["gap_signals"]["scan_image_text"]["detected"] is True
-    assert scan_row["gap_signals"]["complex_structure"]["detected"] is True
+    assert scan_row["gap_signals"]["complex_structure"]["detected"] is False
     assert scan_row["gap_class"] == "scan_image_text_gap"
     assert scan_row["next_task_eligibility"]["task6_scan_image_text"] is True
-    assert scan_row["next_task_eligibility"]["task7_complex_structure"] is True
+    assert scan_row["next_task_eligibility"]["task7_complex_structure"] is False
 
     complex_row = rows["complex"]
     assert complex_row["gap_signals"]["ordinary_layout"]["detected"] is True
@@ -227,6 +227,82 @@ def test_invalid_native_bbox_is_counted_and_marks_partial(
     assert "native_bbox_invalid" in row["reasons"]
     assert row["native_summary"]["rawdict"]["block_bboxes"]["invalid"] == 1
     assert row["page_bbox"] == [0.0, 0.0, 300.0, 200.0]
+
+
+def test_structure_presence_without_order_gap_is_not_task7_eligible(
+    tmp_path: Path,
+) -> None:
+    pdf_path = tmp_path / "structured.pdf"
+    _image_pdf(pdf_path, with_text=True)
+    material = _material(pdf_path, "structured", 1)
+
+    row = analyze_material_native(
+        _artifact(material),
+        {"structured": pdf_path},
+    )["pages"][0]
+
+    assert row["native_summary"]["displayed_images"]["non_background_count"] > 0
+    assert row["reading_order"]["assessment"] == "match"
+    assert row["gap_signals"]["complex_structure"] == {
+        "detected": False,
+        "evidence": [],
+    }
+    assert row["gap_class"] == "no_detected_native_gap"
+    assert row["next_task_eligibility"]["task7_complex_structure"] is False
+
+
+def test_scan_signal_requires_available_empty_native_text_analysis(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_path = tmp_path / "scan.pdf"
+    _image_pdf(pdf_path)
+    material = _material(pdf_path, "scan", 1)
+    original_get_text = pymupdf.Page.get_text
+
+    def unavailable_rawdict(page: pymupdf.Page, option: str = "text", *args, **kwargs):
+        if option == "rawdict":
+            raise AttributeError("synthetic unavailable rawdict")
+        return original_get_text(page, option, *args, **kwargs)
+
+    monkeypatch.setattr(pymupdf.Page, "get_text", unavailable_rawdict)
+    row = analyze_material_native(_artifact(material), {"scan": pdf_path})["pages"][0]
+
+    assert row["native_summary"]["rawdict"]["available"] is False
+    assert row["native_summary"]["displayed_images"]["page_area_ratio"] >= 0.5
+    assert row["gap_signals"]["scan_image_text"]["detected"] is False
+    assert row["next_task_eligibility"]["task6_scan_image_text"] is False
+    assert row["status"] == "partial"
+    assert "rawdict_api_unsupported" in row["reasons"]
+
+
+def test_serialization_mismatch_does_not_replace_word_order_comparison(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_path = tmp_path / "case.pdf"
+    _text_pdf(pdf_path, ["alpha"])
+    material = _material(pdf_path, "case", 1)
+    material["blocks"][0]["text"] = "different baseline"
+    original_get_text = pymupdf.Page.get_text
+
+    def unavailable_words(page: pymupdf.Page, option: str = "text", *args, **kwargs):
+        if option == "words":
+            raise AttributeError("synthetic unavailable words")
+        return original_get_text(page, option, *args, **kwargs)
+
+    monkeypatch.setattr(pymupdf.Page, "get_text", unavailable_words)
+    row = analyze_material_native(_artifact(material), {"case": pdf_path})["pages"][0]
+
+    assert row["comparability"]["rawdict_exact_match"] is False
+    assert row["comparability"]["blocks_exact_match"] is False
+    assert row["comparability"]["words_non_whitespace_match"] is None
+    assert row["reading_order"] == {
+        "assessment": "unavailable",
+        "reasons": ["word_order_comparison_unavailable"],
+    }
+    assert row["gap_signals"]["ordinary_layout"]["detected"] is False
+    assert row["next_task_eligibility"]["task5_ordinary_layout"] is False
 
 
 @pytest.mark.parametrize(

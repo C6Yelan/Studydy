@@ -541,10 +541,6 @@ def _reading_order(comparability: Mapping[str, Any]) -> dict[str, Any]:
             "reasons": ["baseline_empty"],
         }
     word_match = comparability.get("words_non_whitespace_match")
-    comparisons = {
-        "rawdict_order_differs": comparability.get("rawdict_exact_match"),
-        "blocks_order_differs": comparability.get("blocks_exact_match"),
-    }
     if word_match is True:
         return {"assessment": "match", "reasons": []}
     if word_match is False:
@@ -552,16 +548,9 @@ def _reading_order(comparability: Mapping[str, Any]) -> dict[str, Any]:
             "assessment": "divergent",
             "reasons": ["words_order_differs"],
         }
-    available = [value for value in comparisons.values() if value is not None]
-    if not available:
-        return {
-            "assessment": "unavailable",
-            "reasons": ["native_text_comparison_unavailable"],
-        }
-    reasons = [reason for reason, matches in comparisons.items() if matches is False]
     return {
-        "assessment": "divergent" if reasons else "match",
-        "reasons": sorted(reasons),
+        "assessment": "unavailable",
+        "reasons": ["word_order_comparison_unavailable"],
     }
 
 
@@ -571,6 +560,7 @@ def _gap_signals(
     reading_order: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
     baseline_nonempty = bool(comparability.get("baseline_nonempty"))
+    native_text_available = bool(summary["rawdict"]["available"])
     native_characters = summary["rawdict"]["character_count"]
     image_ratio = summary["displayed_images"]["page_area_ratio"]
     non_background_image_ratio = summary["displayed_images"][
@@ -587,6 +577,7 @@ def _gap_signals(
     scan_evidence = []
     if (
         not baseline_nonempty
+        and native_text_available
         and native_characters == 0
         and image_ratio >= SCAN_IMAGE_AREA_RATIO
     ):
@@ -594,17 +585,19 @@ def _gap_signals(
             ["baseline_and_native_text_empty", "large_displayed_image_area"]
         )
 
-    complex_evidence = []
+    structure_presence = []
     if table_count > 0:
-        complex_evidence.append("native_table_geometry")
+        structure_presence.append("native_table_geometry")
     if non_background_image_ratio >= COMPLEX_IMAGE_AREA_RATIO:
-        complex_evidence.append("non_background_displayed_image_geometry")
+        structure_presence.append("non_background_displayed_image_geometry")
     if (
         vector_count >= COMPLEX_VECTOR_COUNT
         and vector_ratio >= COMPLEX_VECTOR_AREA_RATIO
-        and reading_order.get("assessment") == "divergent"
     ):
-        complex_evidence.append("dense_vector_geometry_with_order_divergence")
+        structure_presence.append("dense_vector_geometry")
+    complex_evidence = []
+    if structure_presence and reading_order.get("assessment") == "divergent":
+        complex_evidence = [*structure_presence, "reading_order_divergent"]
 
     return {
         "ordinary_layout": {
