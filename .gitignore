@@ -24,6 +24,9 @@ AGENTS.md
 docs_local
 .role.md
 
+# Private product runtime
+/.studydy-runtime/
+
 # Local OS/editor files
 .DS_Store
 .vscode/

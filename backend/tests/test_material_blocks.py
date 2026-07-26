@@ -8,7 +8,13 @@ import pymupdf
 import pytest
 
 import material_blocks
-from material_blocks import ActiveMaterial, build_material_blocks
+from material_blocks import (
+    MATERIAL_BLOCKS_STABLE_PATH,
+    ActiveMaterial,
+    build_material_blocks,
+    persist_material_blocks,
+)
+from material_runtime_files import canonical_json_bytes
 
 
 def _make_pdf(path: Path, page_texts: list[str]) -> str:
@@ -43,6 +49,7 @@ def test_successful_material_has_reproducible_page_blocks_and_mapping(tmp_path: 
 
     artifact = build_material_blocks(item)
 
+    assert artifact == build_material_blocks(item)
     assert set(artifact) == {"schema_version", "parser_provenance", "materials"}
     assert artifact["schema_version"] == "material-blocks/v1"
     assert artifact["parser_provenance"] == {
@@ -76,14 +83,6 @@ def test_successful_material_has_reproducible_page_blocks_and_mapping(tmp_path: 
             ],
         }
     ]
-
-
-def test_same_input_rerun_has_identical_domain_records(tmp_path: Path) -> None:
-    item = _input(tmp_path, ["alpha", "beta"], {2: "slide:7"})
-
-    assert build_material_blocks(item) == build_material_blocks(item)
-
-
 @pytest.mark.parametrize(
     ("mutation", "reason"),
     [
@@ -187,3 +186,14 @@ def test_parser_error_is_explicit(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 def test_normalization_preserves_content_while_normalizing_line_endings() -> None:
     assert material_blocks.normalize_text(" first  \r\nsecond\t\rthird\n\n") == " first\nsecond\nthird"
+
+
+def test_persist_material_blocks_uses_stable_runtime_path(tmp_path: Path) -> None:
+    item = _input(tmp_path, ["alpha"], {1: "slide:1"})
+    artifact = build_material_blocks(item)
+
+    persist_material_blocks(artifact, repo_root=tmp_path)
+
+    stable = tmp_path / MATERIAL_BLOCKS_STABLE_PATH
+    assert stable.read_bytes() == canonical_json_bytes(artifact)
+    assert not list((tmp_path / ".studydy-runtime").rglob("*.tmp"))

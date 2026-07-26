@@ -7,8 +7,13 @@ from typing import Any, Mapping
 
 import pymupdf
 
+from material_runtime_files import publish_runtime_json
+
 
 SCHEMA_VERSION = "material-blocks/v1"
+MATERIAL_BLOCKS_STABLE_PATH = (
+    ".studydy-runtime/materials/blocks/stable/material-blocks.v1.json"
+)
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,19 @@ def build_material_blocks(active_material: ActiveMaterial) -> dict[str, Any]:
         "parser_provenance": parser_provenance(),
         "materials": [_build_material(active_material)],
     }
+
+
+def persist_material_blocks(
+    artifact: Mapping[str, Any],
+    *,
+    repo_root: str | Path,
+) -> None:
+    """將通用 JSON 發布器綁定到 Material Blocks 的固定 stable 路徑。"""
+    publish_runtime_json(
+        artifact,
+        repo_root=repo_root,
+        stable_path=MATERIAL_BLOCKS_STABLE_PATH,
+    )
 
 
 def _build_material(item: ActiveMaterial) -> dict[str, Any]:
