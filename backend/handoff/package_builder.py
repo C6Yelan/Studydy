@@ -13,17 +13,20 @@ from .context_builder import (
     MINIMUM_VERTICAL_GAP_LIMIT,
     _rebuild_contexts,
 )
-from .contract import (
-    CONTEXT_POLICY_VERSION,
-    PACKAGE_SCHEMA_VERSION,
-    VALIDATOR_VERSION,
+from .contract import seal_handoff_draft
+from .contract_hashing import (
+    _canonical_sha256,
+    _stable_id,
     package_content_sha256,
     package_envelope_sha256,
     record_canonical_sha256,
-    seal_handoff_draft,
 )
-from .contract_hashing import _canonical_sha256, _stable_id
-from .contract_schema import _non_empty_string
+from .contract_schema import (
+    CONTEXT_POLICY_VERSION,
+    PACKAGE_SCHEMA_VERSION,
+    VALIDATOR_VERSION,
+    _non_empty_string,
+)
 from .source_failure_policy import (
     _apply_candidate_failures,
     _classify_source_failures,

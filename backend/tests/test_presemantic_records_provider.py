@@ -7,13 +7,15 @@ import pytest
 
 from material_runtime_files import canonical_json_bytes
 from handoff.contract import (
-    PACKAGE_SCHEMA_VERSION,
     is_handoff_consumer_eligible_package,
+    seal_handoff_draft,
+)
+from handoff.contract_hashing import (
     package_content_sha256,
     package_envelope_sha256,
     record_canonical_sha256,
-    seal_handoff_draft,
 )
+from handoff.contract_schema import PACKAGE_SCHEMA_VERSION
 from presemantic_records_provider import (
     PACKAGE_INPUT_SCHEMA_VERSION,
     RECORDS_SCHEMA_VERSION,

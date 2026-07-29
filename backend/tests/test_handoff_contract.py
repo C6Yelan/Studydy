@@ -11,18 +11,25 @@ from pathlib import Path
 import pytest
 
 from material_runtime_files import canonical_json_bytes
+import handoff.contract as handoff_contract
+import handoff.contract_hashing as contract_hashing
+import handoff.contract_schema as contract_schema
 from handoff.contract import (
-    FIELD_METADATA,
-    FIELD_METADATA_ROWS,
     HandoffDraftUnserializable,
-    PACKAGE_SCHEMA_VERSION,
-    RECORD_HASH_MISMATCH,
-    UNKNOWN_FIELD_CODES,
     is_handoff_consumer_eligible_package,
+    seal_handoff_draft,
+)
+from handoff.contract_hashing import (
     package_content_sha256,
     package_envelope_sha256,
     record_canonical_sha256,
-    seal_handoff_draft,
+)
+from handoff.contract_schema import (
+    FIELD_METADATA,
+    FIELD_METADATA_ROWS,
+    PACKAGE_SCHEMA_VERSION,
+    RECORD_HASH_MISMATCH,
+    UNKNOWN_FIELD_CODES,
 )
 
 
@@ -35,6 +42,41 @@ COLLECTION_PATHS = {
     "build_attestation": "build_attestations",
     "invalid_record": "invalid_records",
 }
+
+
+def test_contract_public_api_is_exactly_three_names() -> None:
+    expected = (
+        "HandoffDraftUnserializable",
+        "is_handoff_consumer_eligible_package",
+        "seal_handoff_draft",
+    )
+
+    assert handoff_contract.__all__ == expected
+    removed_by_owner = {
+        contract_hashing: (
+            "PKG_DRAFT_UNSERIALIZABLE",
+            "canonical_sha256",
+            "package_content_sha256",
+            "package_envelope_sha256",
+            "record_canonical_sha256",
+        ),
+        contract_schema: (
+            "COLLECTION_ID_FIELDS",
+            "COLLECTION_KEYS",
+            "CONTEXT_POLICY_VERSION",
+            "FIELD_METADATA",
+            "FIELD_METADATA_ROWS",
+            "PACKAGE_SCHEMA_VERSION",
+            "RECORD_HASH_MISMATCH",
+            "RESERVED_NON_EMITTED_CODES",
+            "RUNTIME_FORBIDDEN_FIELDS",
+            "UNKNOWN_FIELD_CODES",
+            "VALIDATOR_VERSION",
+        ),
+    }
+    for owner, names in removed_by_owner.items():
+        assert all(not hasattr(handoff_contract, name) for name in names)
+        assert all(hasattr(owner, name) for name in names)
 
 
 def _text_sha256(text: str) -> str:

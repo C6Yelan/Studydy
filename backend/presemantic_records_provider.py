@@ -8,7 +8,7 @@ from copy import deepcopy
 from typing import Any
 
 from material_runtime_files import canonical_json_bytes
-from handoff.contract import record_canonical_sha256
+from handoff.contract_hashing import record_canonical_sha256
 
 
 PACKAGE_INPUT_SCHEMA_VERSION = "task11-pr2-package-input/v1"
