@@ -157,6 +157,38 @@ def _restamp_records_binding(envelope: dict) -> None:
     ).hexdigest()
 
 
+def _append_source_failure(
+    envelope: dict,
+    *,
+    layout_unit_id: str | None,
+    source_status: str,
+    reason: str,
+    block_id: str = "block-001",
+) -> dict:
+    source_unit = envelope["normalized_source"]["layout_units"][0]
+    failure = {
+        "source_failure_id": (
+            f"source-failure:{source_status}:{layout_unit_id or block_id}"
+        ),
+        "material_id": MATERIAL_ID,
+        "block_id": block_id,
+        "layout_unit_id": layout_unit_id,
+        "source_ref": source_unit["source_ref"],
+        "pdf_page": source_unit["pdf_page"],
+        "source_status": source_status,
+        "source_failure_reasons": [reason],
+        "locator": {
+            "pdf_page": source_unit["pdf_page"],
+            "source_ref": source_unit["source_ref"],
+        },
+        "provenance": {"policy": "synthetic-source-failure"},
+    }
+    failure["canonical_sha256"] = record_canonical_sha256(failure)
+    envelope["records_artifact"]["source_failures"].append(failure)
+    _restamp_records_binding(envelope)
+    return failure
+
+
 def test_public_builder_seals_pass_without_mutating_provider_input() -> None:
     envelope = _envelope()
     original = copy.deepcopy(envelope)
@@ -263,22 +295,120 @@ def test_invalid_context_is_not_repaired_before_pr1_sealing() -> None:
     )
 
 
-def test_source_failure_records_are_preserved_for_pr1_fail_closed_sealing() -> None:
+def test_noncritical_source_omission_passes_without_top_level_pollution() -> None:
     envelope = _envelope()
-    source_failure = {
-        "source_failure_id": "source-failure-synthetic",
-        "source_failure_reasons": ["layout_unit_kind_unsupported"],
-    }
-    envelope["records_artifact"]["source_failures"] = [source_failure]
-    _restamp_records_binding(envelope)
+    source_failure = _append_source_failure(
+        envelope,
+        layout_unit_id="omission-unit-001",
+        source_status="omitted",
+        reason="layout_unit_kind_unsupported",
+    )
+
+    package = build_task11_handoff_package(envelope)
+
+    assert package["status"] == "PASS"
+    assert "source_failures" not in package
+    assert envelope["records_artifact"]["source_failures"] == [
+        source_failure
+    ]
+    assert package["candidate_source_binding"] == envelope[
+        "deterministic_records_binding"
+    ]
+    assert is_task11b_pass_package(
+        package,
+        normalized_source=envelope["normalized_source"],
+    )
+
+
+def test_candidate_lineage_source_failure_uses_existing_lifecycle_path() -> None:
+    envelope = _envelope()
+    _append_source_failure(
+        envelope,
+        layout_unit_id="unit-anchor",
+        source_status="omitted",
+        reason="layout_unit_invalid",
+    )
+
+    package = build_task11_handoff_package(envelope)
+
+    candidate = package["candidates"][0]
+    assert package["status"] == "FAIL"
+    assert candidate["construction_status"] == "invalid"
+    assert candidate["failure_codes"] == ["layout_unit_invalid"]
+    assert any(
+        "layout_unit_invalid" in record["failure_codes"]
+        for record in package["invalid_records"]
+    )
+    assert all(
+        "PKG_FIELD_INVALID" not in record["failure_codes"]
+        for record in package["invalid_records"]
+    )
+
+
+def test_package_scope_source_failure_uses_existing_package_path() -> None:
+    envelope = _envelope()
+    source_failure = _append_source_failure(
+        envelope,
+        layout_unit_id=None,
+        source_status="failed",
+        reason="source_mapping_missing",
+    )
 
     package = build_task11_handoff_package(envelope)
 
     assert package["status"] == "FAIL"
-    assert package["source_failures"] == [source_failure]
-    assert any(
-        "PKG_FIELD_INVALID" in record["failure_codes"]
+    assert "source_failures" not in package
+    package_failure = next(
+        record
         for record in package["invalid_records"]
+        if record["collection"] == "package"
+    )
+    assert package_failure["failure_codes"] == [
+        "PKG_CANDIDATES_INVALID"
+    ]
+    assert source_failure["source_failure_reasons"][0] in package_failure[
+        "reason"
+    ]
+    assert "PKG_FIELD_INVALID" not in package_failure["failure_codes"]
+
+
+def test_unrepresentable_source_failure_locator_keeps_no_package_boundary() -> None:
+    envelope = _envelope()
+    failure = _append_source_failure(
+        envelope,
+        layout_unit_id=None,
+        source_status="failed",
+        reason="page_unreadable",
+    )
+    failure["locator"] = {}
+    failure["canonical_sha256"] = record_canonical_sha256(failure)
+    _restamp_records_binding(envelope)
+
+    with pytest.raises(ValueError, match="^invalid package input$"):
+        build_task11_handoff_package(envelope)
+
+
+def test_zero_literal_candidates_use_package_level_fail_closed_path() -> None:
+    envelope = _envelope(
+        [_unit("unit-anchor", 0, text="Alpha")]
+    )
+
+    package = build_task11_handoff_package(envelope)
+
+    assert package["status"] == "FAIL"
+    assert package["candidates"] == []
+    package_failures = [
+        record
+        for record in package["invalid_records"]
+        if record["collection"] == "package"
+    ]
+    assert all(
+        record["failure_codes"] == ["PKG_CANDIDATES_INVALID"]
+        for record in package_failures
+    )
+    assert any(
+        "zero valid literal candidates" in record["reason"]
+        for record in package_failures
     )
 
 

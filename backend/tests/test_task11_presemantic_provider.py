@@ -211,13 +211,52 @@ def test_public_interface_emits_raw_literal_records_and_empty_projection() -> No
     candidate = records["candidates"][0]
     origin = records["origins"][0]
     evidence = records["evidence_records"][0]
-    assert candidate["surface"] == "Alpha concept definition"
+    assert candidate["surface"] == "Alpha"
     assert candidate["generator_kinds"] == ["literal"]
-    assert origin["literal_span"] == {"start": 0, "end": 24}
-    assert evidence["statement"][0:24] == evidence["literal_surface"]
+    assert origin["literal_span"] == {"start": 0, "end": 5}
+    assert evidence["statement"][0:5] == evidence["literal_surface"]
     source_units = output["normalized_source"]["layout_units"]
     assert [unit["unit_kind"] for unit in source_units] == ["text", "image"]
     assert "text" not in source_units[1]
+
+
+def test_literal_fallback_is_bounded_exact_and_never_whole_unit_text() -> None:
+    output = build_task11_presemantic_package_input(
+        _normalized(
+            _text_unit(
+                text="  Alpha concept definition",
+            )
+        ),
+        MATERIAL_ID,
+    )
+
+    candidate = output["records_artifact"]["candidates"][0]
+    origin = output["records_artifact"]["origins"][0]
+    evidence = output["records_artifact"]["evidence_records"][0]
+    unit_text = output["normalized_source"]["layout_units"][0]["text"]
+    span = origin["literal_span"]
+    assert candidate["surface"] == "Alpha"
+    assert candidate["surface"] != unit_text
+    assert unit_text[span["start"]:span["end"]] == candidate["surface"]
+    assert evidence["statement"][span["start"]:span["end"]] == candidate[
+        "surface"
+    ]
+    assert evidence["literal_surface"] == candidate["surface"]
+
+    no_fallback = build_task11_presemantic_package_input(
+        _normalized(_text_unit(text="Alpha")),
+        MATERIAL_ID,
+    )
+    assert no_fallback["records_artifact"]["candidates"] == []
+
+    long_token = "x" * 80
+    bounded = build_task11_presemantic_package_input(
+        _normalized(_text_unit(text=long_token)),
+        MATERIAL_ID,
+    )
+    bounded_candidate = bounded["records_artifact"]["candidates"][0]
+    assert bounded_candidate["surface"] == "x" * 64
+    assert bounded_candidate["surface"] != long_token
 
 
 def test_records_binding_hashes_only_canonical_records_artifact_and_replays_3_of_3() -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
@@ -175,12 +176,15 @@ def build_task11_presemantic_package_input(
             normalized_units.append(source_unit)
             if source_unit["unit_kind"] != "text":
                 continue
+            literal_span = _bounded_literal_span(source_unit["text"])
+            if literal_span is None:
+                continue
             (
                 candidate,
                 origin,
                 context,
                 evidence,
-            ) = _literal_records(source_unit)
+            ) = _literal_records(source_unit, literal_span)
             candidates.append(candidate)
             origins.append(origin)
             contexts.append(context)
@@ -349,6 +353,7 @@ def _normalized_source_unit(
 
 def _literal_records(
     unit: Mapping[str, Any],
+    literal_span: Mapping[str, int],
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
     text = unit["text"]
     identity = {
@@ -359,12 +364,12 @@ def _literal_records(
     origin_id = _stable_id("origin", identity)
     context_id = _stable_id("context", identity)
     evidence_id = _stable_id("evidence", identity)
-    literal_span = {"start": 0, "end": len(text)}
+    surface = text[literal_span["start"]:literal_span["end"]]
     candidate = {
         "candidate_id": candidate_id,
         "material_id": unit["material_id"],
-        "surface": text,
-        "normalized_surface": text,
+        "surface": surface,
+        "normalized_surface": surface,
         "generator_kinds": ["literal"],
         "origin_ids": [origin_id],
         "context_ids": [context_id],
@@ -389,7 +394,7 @@ def _literal_records(
         "pdf_page": unit["pdf_page"],
         "reading_order": unit["reading_order"],
         "bbox": deepcopy(unit["bbox"]),
-        "literal_span": literal_span,
+        "literal_span": dict(literal_span),
         "safe_context_id": context_id,
         "layout_unit_text_sha256": hashlib.sha256(text.encode()).hexdigest(),
     }
@@ -419,8 +424,8 @@ def _literal_records(
         "evidence_kind": "candidate_literal",
         "statement": text,
         "normalized_statement": text,
-        "literal_surface": text,
-        "literal_span": literal_span,
+        "literal_surface": surface,
+        "literal_span": dict(literal_span),
         "candidate_ids": [candidate_id],
         "context_ids": [context_id],
         "origin_ids": [origin_id],
@@ -428,6 +433,18 @@ def _literal_records(
     for record in (candidate, origin, context, evidence):
         record["canonical_sha256"] = _record_sha256(record)
     return candidate, origin, context, evidence
+
+
+def _bounded_literal_span(text: str) -> dict[str, int] | None:
+    for match in re.finditer(r"\S+", text):
+        start = match.start()
+        end = min(match.end(), start + 64)
+        if end - start < 2:
+            continue
+        if start == 0 and end == len(text):
+            continue
+        return {"start": start, "end": end}
+    return None
 
 
 def _source_failure_from_omission(
