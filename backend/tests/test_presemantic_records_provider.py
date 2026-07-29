@@ -6,7 +6,7 @@ import hashlib
 import pytest
 
 from material_runtime_files import canonical_json_bytes
-from handoff_contract import (
+from handoff.contract import (
     PACKAGE_SCHEMA_VERSION,
     is_handoff_consumer_eligible_package,
     package_content_sha256,

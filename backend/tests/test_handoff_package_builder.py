@@ -6,11 +6,11 @@ import hashlib
 import pytest
 
 from material_runtime_files import canonical_json_bytes
-from handoff_contract import (
+from handoff.contract import (
     is_handoff_consumer_eligible_package,
     record_canonical_sha256,
 )
-from handoff_package_builder import build_handoff_package
+from handoff.package_builder import build_handoff_package
 from presemantic_records_provider import (
     build_presemantic_records_package_input,
 )

@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from material_runtime_files import canonical_json_bytes
-from handoff_contract_hashing import (
+from .contract_hashing import (
     HandoffDraftUnserializable,
     PKG_DRAFT_UNSERIALIZABLE,
     canonical_sha256,
@@ -13,7 +13,7 @@ from handoff_contract_hashing import (
     package_envelope_sha256,
     record_canonical_sha256,
 )
-from handoff_contract_schema import (
+from .contract_schema import (
     COLLECTION_ID_FIELDS,
     COLLECTION_KEYS,
     CONTEXT_POLICY_VERSION,
@@ -30,7 +30,7 @@ from handoff_contract_schema import (
     _validate_package_fields,
     _validate_record_fields,
 )
-from handoff_contract_validation import (
+from .contract_validation import (
     _generated_invalid_records,
     _record_indexes,
     _validate_context_boundaries,

@@ -5,11 +5,11 @@ from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
 
-from handoff_contract_hashing import (
+from .contract_hashing import (
     _valid_input_record_hash,
     record_canonical_sha256,
 )
-from handoff_contract_schema import (
+from .contract_schema import (
     CONTEXT_POLICY_VERSION,
     _integer,
     _non_empty_string,

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from material_runtime_files import canonical_json_bytes
-from handoff_contract import (
+from handoff.contract import (
     FIELD_METADATA,
     FIELD_METADATA_ROWS,
     HandoffDraftUnserializable,
@@ -932,7 +932,7 @@ def _seal_in_isolated_process(payload: dict) -> bytes:
         (
             "import json,sys;"
             "from material_runtime_files import canonical_json_bytes;"
-            "from handoff_contract import seal_handoff_draft;"
+            "from handoff.contract import seal_handoff_draft;"
             "p=json.load(sys.stdin);"
             "sys.stdout.buffer.write(canonical_json_bytes("
             "seal_handoff_draft(p['draft'],normalized_source=p['source'])))"

@@ -5,7 +5,7 @@ from copy import deepcopy
 from typing import Any
 
 from material_runtime_files import canonical_json_bytes
-from handoff_context_builder import (
+from .context_builder import (
     FONT_GAP_MULTIPLIER,
     MAX_CONTEXT_CODE_POINTS,
     MAX_CONTEXT_UNITS,
@@ -13,7 +13,7 @@ from handoff_context_builder import (
     MINIMUM_VERTICAL_GAP_LIMIT,
     _rebuild_contexts,
 )
-from handoff_contract import (
+from .contract import (
     CONTEXT_POLICY_VERSION,
     PACKAGE_SCHEMA_VERSION,
     VALIDATOR_VERSION,
@@ -22,9 +22,9 @@ from handoff_contract import (
     record_canonical_sha256,
     seal_handoff_draft,
 )
-from handoff_contract_hashing import _canonical_sha256, _stable_id
-from handoff_contract_schema import _non_empty_string
-from handoff_source_failure_policy import (
+from .contract_hashing import _canonical_sha256, _stable_id
+from .contract_schema import _non_empty_string
+from .source_failure_policy import (
     _apply_candidate_failures,
     _classify_source_failures,
     _package_invalid_records,

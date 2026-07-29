@@ -71,6 +71,7 @@ def persist_material_native_analysis(
     *,
     repo_root: str | Path,
 ) -> None:
+    """將原生分析 artifact 發布到固定的 runtime 路徑。"""
     publish_runtime_json(
         artifact,
         repo_root=repo_root,
@@ -166,6 +167,7 @@ def _analyze_material(
 def _material_identity(
     material: Mapping[str, Any],
 ) -> tuple[str, str, str]:
+    """驗證並回傳教材與來源 artifact 的完整識別 tuple。"""
     material_id = material.get("material_id")
     case_id = material.get("case_id")
     artifact_ref = material.get("artifact_ref")
@@ -185,6 +187,7 @@ def _source_paths(
     dict[tuple[str, str, str], str | Path],
     dict[tuple[str, str, str], str],
 ]:
+    """以完整教材識別 fail-closed 地建立唯一 PDF 來源對應。"""
     material_counts: dict[tuple[str, str, str], int] = {}
     for material in materials:
         if not isinstance(material, Mapping):
@@ -612,6 +615,7 @@ def _layout_units(
 
 
 def _layout_unit_kind(value: Any) -> str:
+    """將 PyMuPDF block type 映射為穩定的版面單元種類。"""
     if value == 0:
         return "text"
     if value == 1:
@@ -622,6 +626,7 @@ def _layout_unit_kind(value: Any) -> str:
 def _text_unit_content(
     block: Mapping[str, Any],
 ) -> tuple[str, dict[str, Any]]:
+    """彙整文字 spans，並保留候選判斷所需的最小樣式證據。"""
     lines = block.get("lines")
     if not isinstance(lines, list):
         raise ValueError("layout_unit_lines_invalid")
@@ -675,6 +680,7 @@ def _layout_unit_id(
     reading_order: int,
     unit: Mapping[str, Any],
 ) -> str:
+    """以來源識別、位置與閱讀順序產生 deterministic 單元 ID。"""
     payload = {
         "artifact_ref": identity.get("artifact_ref"),
         "bbox": unit["bbox"],
@@ -696,6 +702,7 @@ def _layout_unit_id(
 
 
 def _layout_unit_omission_id(omission: Mapping[str, Any]) -> str:
+    """以來源定位與省略原因產生 deterministic omission ID。"""
     payload = {
         "identity": omission["identity"],
         "kind": omission["kind"],

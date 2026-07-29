@@ -5,13 +5,13 @@ from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from handoff_contract_hashing import (
+from .contract_hashing import (
     canonical_sha256,
     package_content_sha256,
     package_envelope_sha256,
     record_canonical_sha256,
 )
-from handoff_contract_schema import (
+from .contract_schema import (
     COLLECTION_ID_FIELDS,
     COLLECTION_KEYS,
     FIELD_METADATA,
