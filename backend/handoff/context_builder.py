@@ -9,8 +9,8 @@ from .contract_hashing import (
     _valid_input_record_hash,
     record_canonical_sha256,
 )
-from .contract_schema import (
-    CONTEXT_POLICY_VERSION,
+from .contract_schema_metadata import CONTEXT_POLICY_VERSION
+from .contract_schema_values import (
     _integer,
     _non_empty_string,
 )
@@ -43,6 +43,7 @@ def _rebuild_contexts(
     origins: list[Any],
     source_units: list[Any],
 ) -> list[Any]:
+    """只替可驗證的原始 anchor context 擴充局部內容；身分、雜湊或定位不明時保留原值。"""
     if not all(isinstance(unit, Mapping) for unit in source_units):
         return deepcopy(contexts)
     ordered_units = sorted(
@@ -156,6 +157,7 @@ def _matches_provider_anchor_context(
     context: Mapping[str, Any],
     anchor: Mapping[str, Any],
 ) -> bool:
+    """確認 provider context 仍是只包含 anchor 的原始形態，避免重建已被改動的內容。"""
     anchor_id = anchor.get("layout_unit_id")
     text = anchor.get("text")
     locator = anchor.get("locator")
@@ -177,6 +179,7 @@ def _bounded_context_units(
     units: list[Mapping[str, Any]],
     anchor_index: int,
 ) -> tuple[list[Mapping[str, Any]], str, str]:
+    """從 anchor 向相鄰單元擴張，並在邊界或大小上限前停止且回傳兩側原因。"""
     anchor = units[anchor_index]
     if (
         anchor.get("unit_kind") != "text"
@@ -248,6 +251,7 @@ def _edge_reason(
     before: bool,
     selected: list[Mapping[str, Any]],
 ) -> str:
+    """說明 context 一側停止擴張的原因，區分來源邊界、結構邊界與大小限制。"""
     if neighbor_index < 0:
         return "material_start"
     if neighbor_index >= len(units):
@@ -276,6 +280,7 @@ def _adjacent_boundary(
     left: Mapping[str, Any],
     right: Mapping[str, Any],
 ) -> str | None:
+    """比較相鄰單元的來源、順序、文字結構與幾何，回傳第一個不可跨越的邊界。"""
     for field, reason in (
         ("material_id", "material_boundary"),
         ("pdf_page", "page_boundary"),
@@ -378,6 +383,7 @@ def _adjacent_boundary(
     return None
 
 def _fits_context(units: list[Mapping[str, Any]]) -> bool:
+    """確認 context 單元未超過數量與字數上限，且每筆都有可用文字。"""
     texts = [unit.get("text") for unit in units]
     return (
         len(units) <= MAX_CONTEXT_UNITS

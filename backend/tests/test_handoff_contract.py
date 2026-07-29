@@ -7,13 +7,14 @@ import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
 from material_runtime_files import canonical_json_bytes
 import handoff.contract as handoff_contract
 import handoff.contract_hashing as contract_hashing
-import handoff.contract_schema as contract_schema
+import handoff.contract_schema_metadata as contract_schema_metadata
 from handoff.contract import (
     HandoffDraftUnserializable,
     is_handoff_consumer_eligible_package,
@@ -24,7 +25,7 @@ from handoff.contract_hashing import (
     package_envelope_sha256,
     record_canonical_sha256,
 )
-from handoff.contract_schema import (
+from handoff.contract_schema_metadata import (
     FIELD_METADATA,
     FIELD_METADATA_ROWS,
     PACKAGE_SCHEMA_VERSION,
@@ -43,6 +44,121 @@ COLLECTION_PATHS = {
     "invalid_record": "invalid_records",
 }
 
+CROSS_REFERENCE_CASES = [
+    pytest.param(
+        "candidate",
+        "origin_ids",
+        "origin",
+        "XREF_CANDIDATE_ORIGIN_DANGLING",
+        "XREF_CANDIDATE_ORIGIN_CROSS_MATERIAL",
+        id="candidate-origin",
+    ),
+    pytest.param(
+        "candidate",
+        "context_ids",
+        "context",
+        "XREF_CANDIDATE_CONTEXT_DANGLING",
+        "XREF_CANDIDATE_CONTEXT_CROSS_MATERIAL",
+        id="candidate-context",
+    ),
+    pytest.param(
+        "candidate",
+        "evidence_ids",
+        "evidence",
+        "XREF_CANDIDATE_EVIDENCE_DANGLING",
+        "XREF_CANDIDATE_EVIDENCE_CROSS_MATERIAL",
+        id="candidate-evidence",
+    ),
+    pytest.param(
+        "candidate",
+        "projection_ids",
+        "projection",
+        "XREF_CANDIDATE_PROJECTION_DANGLING",
+        "XREF_CANDIDATE_PROJECTION_CROSS_MATERIAL",
+        id="candidate-projection",
+    ),
+    pytest.param(
+        "origin",
+        "candidate_id",
+        "candidate",
+        "XREF_ORIGIN_CANDIDATE_DANGLING",
+        "XREF_ORIGIN_CANDIDATE_CROSS_MATERIAL",
+        id="origin-candidate",
+    ),
+    pytest.param(
+        "origin",
+        "safe_context_id",
+        "context",
+        "XREF_ORIGIN_CONTEXT_DANGLING",
+        "XREF_ORIGIN_CONTEXT_CROSS_MATERIAL",
+        id="origin-context",
+    ),
+    pytest.param(
+        "context",
+        "primary_candidate_ids",
+        "candidate",
+        "XREF_CONTEXT_CANDIDATE_DANGLING",
+        "XREF_CONTEXT_CANDIDATE_CROSS_MATERIAL",
+        id="context-candidate",
+    ),
+    pytest.param(
+        "context",
+        "evidence_ids",
+        "evidence",
+        "XREF_CONTEXT_EVIDENCE_DANGLING",
+        "XREF_CONTEXT_EVIDENCE_CROSS_MATERIAL",
+        id="context-evidence",
+    ),
+    pytest.param(
+        "evidence",
+        "candidate_ids",
+        "candidate",
+        "XREF_EVIDENCE_CANDIDATE_DANGLING",
+        "XREF_EVIDENCE_CANDIDATE_CROSS_MATERIAL",
+        id="evidence-candidate",
+    ),
+    pytest.param(
+        "evidence",
+        "context_ids",
+        "context",
+        "XREF_EVIDENCE_CONTEXT_DANGLING",
+        "XREF_EVIDENCE_CONTEXT_CROSS_MATERIAL",
+        id="evidence-context",
+    ),
+    pytest.param(
+        "evidence",
+        "origin_ids",
+        "origin",
+        "XREF_EVIDENCE_ORIGIN_DANGLING",
+        "XREF_EVIDENCE_ORIGIN_CROSS_MATERIAL",
+        id="evidence-origin",
+    ),
+    pytest.param(
+        "projection",
+        "source_candidate_ids",
+        "candidate",
+        "XREF_PROJECTION_CANDIDATE_DANGLING",
+        "XREF_PROJECTION_CANDIDATE_CROSS_MATERIAL",
+        id="projection-candidate",
+    ),
+    pytest.param(
+        "projection",
+        "source_context_ids",
+        "context",
+        "XREF_PROJECTION_CONTEXT_DANGLING",
+        "XREF_PROJECTION_CONTEXT_CROSS_MATERIAL",
+        id="projection-context",
+    ),
+    pytest.param(
+        "projection",
+        "source_evidence_ids",
+        "evidence",
+        "XREF_PROJECTION_EVIDENCE_DANGLING",
+        "XREF_PROJECTION_EVIDENCE_CROSS_MATERIAL",
+        id="projection-evidence",
+    ),
+]
+
 
 def test_contract_public_api_is_exactly_three_names() -> None:
     expected = (
@@ -60,7 +176,7 @@ def test_contract_public_api_is_exactly_three_names() -> None:
             "package_envelope_sha256",
             "record_canonical_sha256",
         ),
-        contract_schema: (
+        contract_schema_metadata: (
             "COLLECTION_ID_FIELDS",
             "COLLECTION_KEYS",
             "CONTEXT_POLICY_VERSION",
@@ -97,6 +213,7 @@ def _artifact_binding(
 
 
 def synthetic_normalized_source() -> dict:
+    """建立三個連續文字單元的 normalized source，供 contract sealing 與邊界測試共用。"""
     units = [
         {
             "layout_unit_id": "unit-001",
@@ -155,6 +272,7 @@ def synthetic_normalized_source() -> dict:
 
 
 def synthetic_draft() -> dict:
+    """建立 cross-reference 完整且帶 deterministic hashes 的 synthetic handoff draft。"""
     source = synthetic_normalized_source()
     normalized_binding = {
         key: source[key]
@@ -176,18 +294,18 @@ def synthetic_draft() -> dict:
         "material_id": "material-synthetic",
         "surface": "Alpha concept",
         "normalized_surface": "Alpha concept",
-        "generator_kinds": ["lexical"],
+        "extraction_methods": ["lexical"],
         "origin_ids": ["origin-001"],
         "context_ids": ["context-001"],
-        "evidence_refs": ["evidence-001"],
+        "evidence_ids": ["evidence-001"],
         "projection_ids": [],
-        "support": {
+        "support_summary": {
             "flags": {"literal": True},
             "origin_count": 1,
             "context_count": 1,
             "hard_negative_gate": False,
         },
-        "construction_status": "valid",
+        "build_status": "valid",
         "failure_codes": [],
     }
     origin = {
@@ -223,7 +341,7 @@ def synthetic_draft() -> dict:
             "next": "material_end",
             "limits": [],
         },
-        "evidence_refs": ["evidence-001"],
+        "evidence_ids": ["evidence-001"],
         "code_point_count": len(context_text),
     }
     evidence = {
@@ -299,6 +417,7 @@ def _stamp_draft(
     skip_envelope_hash: bool = False,
     preserve_summary_fields: set[str] | None = None,
 ) -> dict:
+    """重算 fixture 各層雜湊與 validation summary；skip 參數用來精準製造失敗案例。"""
     preserve_summary_fields = preserve_summary_fields or set()
     for collection, package_key in COLLECTION_PATHS.items():
         records = draft.get(package_key)
@@ -358,7 +477,7 @@ def _add_projection(draft: dict) -> None:
             "projection_kind": "longer_literal_substring",
             "source_candidate_ids": ["candidate-001"],
             "source_context_ids": ["context-001"],
-            "source_evidence_refs": ["evidence-001"],
+            "source_evidence_ids": ["evidence-001"],
             "projected_surface": "Alpha concept",
             "normalized_projected_surface": "Alpha concept",
             "literal_span": {"start": 0, "end": 13},
@@ -424,10 +543,15 @@ def _restamp_field_mutation(
 def test_valid_synthetic_draft_seals_pass_without_mutation() -> None:
     draft = synthetic_draft()
     original = copy.deepcopy(draft)
+    normalized_source = synthetic_normalized_source()
 
     sealed = seal_handoff_draft(
         draft,
-        normalized_source=synthetic_normalized_source(),
+        normalized_source=normalized_source,
+    )
+    repeated = seal_handoff_draft(
+        draft,
+        normalized_source=normalized_source,
     )
 
     assert draft == original
@@ -435,9 +559,16 @@ def test_valid_synthetic_draft_seals_pass_without_mutation() -> None:
     assert sealed["invalid_records"] == []
     assert sealed["content_sha256"] == package_content_sha256(sealed)
     assert sealed["canonical_sha256"] == package_envelope_sha256(sealed)
+    validation_run_id = sealed["validation_summary"]["validation_run_id"]
+    assert validation_run_id.startswith("validation-")
+    assert len(validation_run_id) == len("validation-") + 24
+    assert (
+        repeated["validation_summary"]["validation_run_id"]
+        == validation_run_id
+    )
     assert sealed["validation_summary"] == {
-        "validation_run_id": sealed["validation_summary"]["validation_run_id"],
-        "validator_version": "task11-handoff-contract/v1",
+        "validation_run_id": validation_run_id,
+        "validator_version": "handoff-contract-validator/v1",
         "validated_content_sha256": sealed["content_sha256"],
         "status": "PASS",
         "failure_count": 0,
@@ -452,6 +583,29 @@ def test_valid_synthetic_draft_seals_pass_without_mutation() -> None:
     assert sealed["build_attestations"][0]["deterministic_replay_pass"] is False
 
 
+def test_canonical_json_bytes_and_sha256_known_answer() -> None:
+    payload = {
+        "z": [3, 1],
+        "alpha": {
+            "enabled": True,
+            "label": "概念",
+        },
+    }
+    expected_bytes = (
+        b'{"alpha":{"enabled":true,"label":"'
+        b"\xe6\xa6\x82\xe5\xbf\xb5"
+        b'"},"z":[3,1]}\n'
+    )
+
+    encoded = canonical_json_bytes(payload)
+
+    assert encoded == expected_bytes
+    assert (
+        hashlib.sha256(encoded).hexdigest()
+        == "6de74373b965b6535dd2c4d05b36c17363bfd3ba7e6469dd8623bf80d176b63b"
+    )
+
+
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_non_finite_draft_is_preseal_unserializable(value: float) -> None:
     draft = synthetic_draft()
@@ -462,6 +616,20 @@ def test_non_finite_draft_is_preseal_unserializable(value: float) -> None:
             draft,
             normalized_source=synthetic_normalized_source(),
         )
+
+
+def test_read_only_mapping_draft_is_sealed_without_mutating_input() -> None:
+    draft = synthetic_draft()
+    original = copy.deepcopy(draft)
+
+    sealed = seal_handoff_draft(
+        MappingProxyType(draft),
+        normalized_source=synthetic_normalized_source(),
+    )
+
+    assert draft == original
+    assert sealed["status"] == "PASS"
+    assert sealed is not draft
 
 
 def test_cyclic_draft_is_preseal_unserializable() -> None:
@@ -549,7 +717,7 @@ def test_empty_candidate_collection_cannot_seal_pass() -> None:
 def test_invalid_candidate_promotes_existing_failure_codes_exactly() -> None:
     draft = synthetic_draft()
     candidate = draft["candidates"][0]
-    candidate["construction_status"] = "invalid"
+    candidate["build_status"] = "invalid"
     candidate["failure_codes"] = [
         "LITERAL_SURFACE_NOT_FOUND",
         "XREF_DANGLING",
@@ -568,7 +736,7 @@ def test_invalid_candidate_promotes_existing_failure_codes_exactly() -> None:
     }
     assert "CANDIDATE_CONSTRUCTION_STATUS_INVALID" not in _all_failure_codes(sealed)
     assert "CANDIDATE_FAILURE_CODES_INVALID" not in _all_failure_codes(sealed)
-    assert sealed["candidates"][0]["construction_status"] == "invalid"
+    assert sealed["candidates"][0]["build_status"] == "invalid"
     assert sealed["candidates"][0]["failure_codes"] == [
         "LITERAL_SURFACE_NOT_FOUND",
         "XREF_DANGLING",
@@ -814,6 +982,66 @@ def test_cross_reference_and_material_failures_are_retained() -> None:
     assert sealed["origins"][0]["material_id"] == "material-other"
 
 
+@pytest.mark.parametrize(
+    "failure_kind",
+    ["dangling", "cross_material"],
+)
+@pytest.mark.parametrize(
+    (
+        "source_collection",
+        "field",
+        "target_collection",
+        "dangling_code",
+        "cross_material_code",
+    ),
+    CROSS_REFERENCE_CASES,
+)
+def test_each_cross_reference_failure_is_retained_without_repair(
+    source_collection: str,
+    field: str,
+    target_collection: str,
+    dangling_code: str,
+    cross_material_code: str,
+    failure_kind: str,
+) -> None:
+    draft = synthetic_draft()
+    if "projection" in {source_collection, target_collection}:
+        _add_projection(draft)
+    source_record = _record_for_collection(draft, source_collection)
+    target_record = _record_for_collection(draft, target_collection)
+
+    if failure_kind == "dangling":
+        current_reference = source_record[field]
+        missing_reference = f"{target_collection}-missing"
+        source_record[field] = (
+            [missing_reference]
+            if isinstance(current_reference, list)
+            else missing_reference
+        )
+        expected_code = dangling_code
+    else:
+        target_record["material_id"] = "material-other"
+        expected_code = cross_material_code
+    _stamp_draft(draft)
+    erroneous_draft = copy.deepcopy(draft)
+
+    sealed = seal_handoff_draft(
+        draft,
+        normalized_source=synthetic_normalized_source(),
+    )
+    sealed_source = _record_for_collection(sealed, source_collection)
+    sealed_target = _record_for_collection(sealed, target_collection)
+
+    assert draft == erroneous_draft
+    assert sealed["status"] == "FAIL"
+    assert expected_code in _all_failure_codes(sealed)
+    assert sealed_source[field] == erroneous_draft[
+        COLLECTION_PATHS[source_collection]
+    ][0][field]
+    if failure_kind == "cross_material":
+        assert sealed_target["material_id"] == "material-other"
+
+
 def test_literal_locator_and_context_boundaries_use_only_bound_source() -> None:
     draft = synthetic_draft()
     source = synthetic_normalized_source()
@@ -928,7 +1156,7 @@ def test_unbound_normalized_source_is_not_used_for_locator_validation(
 
 def test_runtime_evaluation_field_is_fail_closed_even_when_nested() -> None:
     draft = synthetic_draft()
-    draft["candidates"][0]["support"]["flags"]["gold_name"] = "forbidden"
+    draft["candidates"][0]["support_summary"]["flags"]["gold_name"] = "forbidden"
     _stamp_draft(draft)
 
     sealed = seal_handoff_draft(

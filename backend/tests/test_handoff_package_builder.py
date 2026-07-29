@@ -257,7 +257,7 @@ def test_binding_hash_mismatch_fails_before_an_envelope_is_returned() -> None:
         build_handoff_package(envelope)
 
 
-def test_invalid_record_is_preserved_and_only_pr1_assigns_fail() -> None:
+def test_invalid_record_is_preserved_and_contract_sealing_assigns_fail() -> None:
     envelope = _envelope()
     candidate = envelope["records_artifact"]["candidates"][0]
     candidate["surface"] = ""
@@ -274,7 +274,7 @@ def test_invalid_record_is_preserved_and_only_pr1_assigns_fail() -> None:
     )
 
 
-def test_invalid_context_is_not_repaired_before_pr1_sealing() -> None:
+def test_invalid_context_is_not_repaired_before_contract_sealing() -> None:
     envelope = _envelope()
     context = envelope["records_artifact"]["contexts"][0]
     context["text"] = "tampered raw context"
@@ -331,7 +331,7 @@ def test_candidate_lineage_source_failure_uses_existing_lifecycle_path() -> None
 
     candidate = package["candidates"][0]
     assert package["status"] == "FAIL"
-    assert candidate["construction_status"] == "invalid"
+    assert candidate["build_status"] == "invalid"
     assert candidate["failure_codes"] == ["layout_unit_invalid"]
     assert any(
         "layout_unit_invalid" in record["failure_codes"]
@@ -421,7 +421,7 @@ def test_semantic_authority_input_is_rejected_not_copied() -> None:
         build_handoff_package(envelope)
 
 
-def test_anchor_overflow_is_not_truncated_and_pr1_seals_fail() -> None:
+def test_anchor_overflow_is_not_truncated_and_contract_seals_fail() -> None:
     text = "x" * 1201
     envelope = _envelope([_unit("unit-anchor", 0, text=text)])
     _add_known_column(envelope)
@@ -445,6 +445,7 @@ def test_anchor_overflow_is_not_truncated_and_pr1_seals_fail() -> None:
 def _critical_scenario(
     scenario: str,
 ) -> tuple[dict, str, int, str, str, str]:
+    """建立指定的 context 邊界情境，並回傳預期單元數、兩側原因與 package status。"""
     if scenario == "page_boundary":
         envelope = _envelope(
             blocks=[

@@ -17,10 +17,6 @@ STRUCTURED_SCHEMA_VERSION = "normalized-material-blocks/v2"
 MATERIAL_BLOCKS_STABLE_PATH = (
     ".studydy-runtime/materials/blocks/stable/material-blocks.v1.json"
 )
-NATIVE_ANALYSIS_V1_STABLE_PATH = (
-    ".studydy-runtime/materials/native-analysis/stable/"
-    "material-native-analysis.v1.json"
-)
 NATIVE_ANALYSIS_STABLE_PATH = (
     ".studydy-runtime/materials/native-analysis/stable/"
     "material-native-analysis.v2.json"
@@ -87,7 +83,6 @@ def _normalize_material_blocks(
     if native_analysis.get("page_count") != len(pages):
         raise ValueError("native_analysis_page_count_invalid")
 
-    # 索引保留重複 identity，後續必須恰好配對一筆，避免接錯來源文字。
     baseline_rows = _baseline_index(materials)
     output_materials: dict[
         tuple[str | None, str | None, str | None], list[dict[str, Any]]
@@ -397,6 +392,7 @@ def _valid_layout_units(
     block_id: Any,
     page_bbox: Any,
 ) -> bool:
+    """確認單頁版面單元的 ID、順序、內容與位置都符合所屬 block 和頁面。"""
     if not isinstance(value, list) or not value:
         return False
     if not isinstance(block_id, str) or not block_id:
@@ -443,6 +439,7 @@ def _valid_layout_unit_omissions(
     value: Any,
     row: Mapping[str, Any],
 ) -> bool:
+    """確認每筆省略紀錄保留頁面身分、可追查原因與連續順序。"""
     if not isinstance(value, list):
         return False
     expected_identity = {
@@ -497,6 +494,7 @@ def _valid_layout_unit_omissions(
 
 
 def _bbox_inside_page(bbox: list[Any], page_bbox: list[Any]) -> bool:
+    """以原生分析相同的 0.5 pt 誤差判斷位置框是否仍在頁面範圍內。"""
     tolerance = 0.5
     return (
         bbox[0] >= page_bbox[0] - tolerance
@@ -507,6 +505,7 @@ def _bbox_inside_page(bbox: list[Any], page_bbox: list[Any]) -> bool:
 
 
 def _valid_style_summary(value: Any) -> bool:
+    """確認文字樣式摘要的欄位完整，且字型、行數與字級都可安全使用。"""
     if not isinstance(value, Mapping):
         return False
     if set(value) != {

@@ -11,10 +11,15 @@ from material_runtime_files import canonical_json_bytes
 from handoff.contract_hashing import record_canonical_sha256
 
 
-PACKAGE_INPUT_SCHEMA_VERSION = "task11-pr2-package-input/v1"
-RECORDS_SCHEMA_VERSION = "task11-pr2-deterministic-records/v1"
-NORMALIZED_SOURCE_SCHEMA_VERSION = "task11-normalized-source/v1"
+# 定義 provider package input 的 schema contract。
+PACKAGE_INPUT_SCHEMA_VERSION = "presemantic-records-package-input/v1"
+# 定義 presemantic records artifact 的 schema contract。
+RECORDS_SCHEMA_VERSION = "presemantic-records/v1"
+# 定義 normalized layout source artifact 的 schema contract。
+NORMALIZED_SOURCE_SCHEMA_VERSION = "normalized-layout-source/v1"
+# 識別 same-material local layout 的 context policy 版本。
 CONTEXT_POLICY_VERSION = "same-material-local-layout-v1"
+# 識別 literal projection 的 projection policy 版本。
 PROJECTION_POLICY_VERSION = "literal-projection/v1"
 
 
@@ -22,7 +27,11 @@ def build_presemantic_records_package_input(
     normalized_blocks: Mapping[str, Any],
     material_id: str,
 ) -> dict[str, Any]:
-    """Build deterministic literal records without assigning Concept semantics."""
+    """把指定教材的 normalized blocks 轉成 deterministic records package input。
+
+    此階段只建立可回查來源的 literal records 與 source failure evidence，
+    不判斷 Concept 語意，也不把 literal fallback 視為最終 candidate authority。
+    """
     if normalized_blocks.get("schema_version") != "normalized-material-blocks/v2":
         raise ValueError("normalized_blocks_schema_mismatch")
     if not isinstance(material_id, str) or not material_id:
@@ -205,7 +214,7 @@ def build_presemantic_records_package_input(
     }
     normalized_source = {
         "artifact_id": _stable_id(
-            "task11-normalized-source",
+            "normalized-layout-source",
             {
                 "artifact_ref": artifact_ref,
                 "case_id": case_id,
@@ -215,7 +224,7 @@ def build_presemantic_records_package_input(
         "schema_version": NORMALIZED_SOURCE_SCHEMA_VERSION,
         "material_id": material_id,
         "raw_sha256": _canonical_sha256(normalized_source_payload),
-        "locator": f"studydy://task11/normalized-source/{material_id}",
+        "locator": f"studydy://handoff/normalized-layout-source/{material_id}",
         "layout_units": normalized_units,
     }
     normalized_source_binding = {
@@ -231,7 +240,7 @@ def build_presemantic_records_package_input(
 
     records_artifact = {
         "artifact_id": _stable_id(
-            "task11-deterministic-records",
+            "presemantic-records",
             {
                 "artifact_ref": artifact_ref,
                 "case_id": case_id,
@@ -240,7 +249,7 @@ def build_presemantic_records_package_input(
         ),
         "schema_version": RECORDS_SCHEMA_VERSION,
         "material_id": material_id,
-        "locator": f"studydy://task11/deterministic-records/{material_id}",
+        "locator": f"studydy://handoff/presemantic-records/{material_id}",
         "candidates": candidates,
         "origins": origins,
         "contexts": contexts,
@@ -276,7 +285,7 @@ def build_presemantic_records_package_input(
     return {
         "schema_version": PACKAGE_INPUT_SCHEMA_VERSION,
         "package_id": _stable_id(
-            "task11-pr2-package-input",
+            "presemantic-records-package-input",
             {
                 "material_id": material_id,
                 "normalized_source_sha256": normalized_source["raw_sha256"],
@@ -301,6 +310,7 @@ def _normalized_source_unit(
     pdf_page: int,
     source_ref: str,
 ) -> dict[str, Any]:
+    """驗證 layout unit 的來源身分與結構，轉成封存流程使用的統一格式。"""
     if not isinstance(unit, Mapping):
         raise ValueError("layout_unit_invalid")
     unit_id = _required_string(unit, "layout_unit_id")
@@ -355,6 +365,7 @@ def _literal_records(
     unit: Mapping[str, Any],
     literal_span: Mapping[str, int],
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """從 bounded literal span 建立互相綁定的 candidate、origin、context 與 evidence。"""
     text = unit["text"]
     identity = {
         "layout_unit_id": unit["layout_unit_id"],
@@ -370,18 +381,18 @@ def _literal_records(
         "material_id": unit["material_id"],
         "surface": surface,
         "normalized_surface": surface,
-        "generator_kinds": ["literal"],
+        "extraction_methods": ["literal"],
         "origin_ids": [origin_id],
         "context_ids": [context_id],
-        "evidence_refs": [evidence_id],
+        "evidence_ids": [evidence_id],
         "projection_ids": [],
-        "support": {
+        "support_summary": {
             "flags": {"literal": True},
             "origin_count": 1,
             "context_count": 1,
             "hard_negative_gate": False,
         },
-        "construction_status": "valid",
+        "build_status": "valid",
         "failure_codes": [],
     }
     origin = {
@@ -415,7 +426,7 @@ def _literal_records(
             "next": "unknown",
             "limits": ["single_layout_unit"],
         },
-        "evidence_refs": [evidence_id],
+        "evidence_ids": [evidence_id],
         "code_point_count": len(text),
     }
     evidence = {
@@ -436,6 +447,7 @@ def _literal_records(
 
 
 def _bounded_literal_span(text: str) -> dict[str, int] | None:
+    """尋找長度 2 至 64 且不等於整個 layout unit 的第一段非空白文字。"""
     for match in re.finditer(r"\S+", text):
         start = match.start()
         end = min(match.end(), start + 64)
@@ -457,6 +469,7 @@ def _source_failure_from_omission(
     pdf_page: int,
     source_ref: str,
 ) -> dict[str, Any]:
+    """把局部 layout unit omission 轉成保留 locator 與 provenance 的失敗紀錄。"""
     if not isinstance(omission, Mapping):
         raise ValueError("layout_unit_omission_invalid")
     identity = omission.get("identity")
@@ -513,6 +526,7 @@ def _source_failure_from_block(
     reasons: list[str],
     provenance: Any,
 ) -> dict[str, Any]:
+    """把整個 block 的來源問題轉成可依教材、頁面及 artifact 回查的失敗紀錄。"""
     if not reasons:
         raise ValueError("source_failure_reasons_missing")
     failure = {
@@ -546,6 +560,7 @@ def _source_failure_from_block(
 
 
 def _required_string(value: Mapping[str, Any], field: str) -> str:
+    """取得必要的非空字串欄位，缺少或格式錯誤時停止建置。"""
     result = value.get(field)
     if not isinstance(result, str) or not result:
         raise ValueError(f"{field}_invalid")
@@ -553,6 +568,7 @@ def _required_string(value: Mapping[str, Any], field: str) -> str:
 
 
 def _reason_list(value: Any) -> list[str]:
+    """驗證 failure reasons，去除重複值後以固定順序回傳。"""
     if not isinstance(value, list) or not all(
         isinstance(reason, str) and reason
         for reason in value
@@ -562,6 +578,7 @@ def _reason_list(value: Any) -> list[str]:
 
 
 def _valid_bbox(value: Any) -> bool:
+    """判斷 bbox 是否為四個有限座標，且能形成正寬度與正高度的範圍。"""
     return (
         isinstance(value, list)
         and len(value) == 4
@@ -577,6 +594,7 @@ def _valid_bbox(value: Any) -> bool:
 
 
 def _block_sort_key(block: Any) -> tuple[Any, ...]:
+    """依 PDF 頁碼、block ID 與 source reference 建立固定的 block 排序鍵。"""
     if not isinstance(block, Mapping):
         raise ValueError("normalized_block_invalid")
     locator = block.get("locator")
@@ -590,6 +608,7 @@ def _block_sort_key(block: Any) -> tuple[Any, ...]:
 
 
 def _unit_sort_key(unit: Any) -> tuple[Any, ...]:
+    """依 reading order 與 layout unit ID 建立固定的 unit 排序鍵。"""
     if not isinstance(unit, Mapping):
         raise ValueError("layout_unit_invalid")
     return (
@@ -599,6 +618,7 @@ def _unit_sort_key(unit: Any) -> tuple[Any, ...]:
 
 
 def _source_unit_sort_key(unit: Mapping[str, Any]) -> tuple[Any, ...]:
+    """依頁面、block、閱讀順序與 unit ID 排列已正規化的 source units。"""
     return (
         unit["pdf_page"],
         unit["block_id"],
@@ -608,6 +628,7 @@ def _source_unit_sort_key(unit: Mapping[str, Any]) -> tuple[Any, ...]:
 
 
 def _omission_sort_key(omission: Any) -> tuple[Any, ...]:
+    """依 omission order 與 layout unit ID 建立固定的 omission 排序鍵。"""
     if not isinstance(omission, Mapping):
         raise ValueError("layout_unit_omission_invalid")
     locator = omission.get("locator")
@@ -620,6 +641,7 @@ def _omission_sort_key(omission: Any) -> tuple[Any, ...]:
 
 
 def _sort_value(value: Any) -> tuple[int, int | str]:
+    """把整數、字串與無效值轉成可穩定比較的排序值。"""
     if isinstance(value, int) and not isinstance(value, bool):
         return (0, value)
     if isinstance(value, str):
@@ -628,6 +650,7 @@ def _sort_value(value: Any) -> tuple[int, int | str]:
 
 
 def _stable_id(prefix: str, value: Any) -> str:
+    """以 canonical JSON 的內容雜湊產生可重播且固定的識別碼。"""
     try:
         digest = hashlib.sha256(canonical_json_bytes(value)).hexdigest()[:24]
     except (TypeError, ValueError, RecursionError):
@@ -636,6 +659,7 @@ def _stable_id(prefix: str, value: Any) -> str:
 
 
 def _record_sha256(record: Mapping[str, Any]) -> str:
+    """計算忽略 record 既有 canonical_sha256 欄位後的內容指紋。"""
     try:
         return record_canonical_sha256(record)
     except (TypeError, ValueError, RecursionError):
@@ -643,6 +667,7 @@ def _record_sha256(record: Mapping[str, Any]) -> str:
 
 
 def _canonical_sha256(value: Any) -> str:
+    """計算任意可封存 JSON 資料的完整 canonical SHA-256。"""
     try:
         return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
     except (TypeError, ValueError, RecursionError):

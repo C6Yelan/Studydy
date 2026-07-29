@@ -21,12 +21,12 @@ from .contract_hashing import (
     package_envelope_sha256,
     record_canonical_sha256,
 )
-from .contract_schema import (
+from .contract_schema_metadata import (
     CONTEXT_POLICY_VERSION,
     PACKAGE_SCHEMA_VERSION,
     VALIDATOR_VERSION,
-    _non_empty_string,
 )
+from .contract_schema_values import _non_empty_string
 from .source_failure_policy import (
     _apply_candidate_failures,
     _classify_source_failures,
@@ -39,7 +39,7 @@ from presemantic_records_provider import (
 )
 
 
-BUILDER_VERSION = "task11-handoff-package/v1"
+BUILDER_VERSION = "handoff-package-builder/v1"
 
 _PACKAGE_INPUT_FIELDS = {
     "schema_version",
@@ -117,7 +117,7 @@ _RECORD_COLLECTIONS = (
 def build_handoff_package(
     package_input: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Build and seal one deterministic PR1 handoff package."""
+    """Build and seal one deterministic handoff package."""
     _validate_package_input(package_input)
     copied_input = deepcopy(package_input)
     normalized_source = copied_input["normalized_source"]
@@ -177,7 +177,7 @@ def build_handoff_package(
         ),
     )
     package_id = _stable_id(
-        "task11-handoff-package",
+        "handoff-package",
         {
             "context_policy_sha256": context_policy_binding[
                 "canonical_sha256"
@@ -196,7 +196,7 @@ def build_handoff_package(
             },
         ),
         "package_id": package_id,
-        "builder_component": "task11_handoff_package",
+        "builder_component": "handoff_package_builder",
         "builder_version": BUILDER_VERSION,
         "input_bindings": input_bindings,
         "replay_count": 0,
@@ -265,6 +265,7 @@ def build_handoff_package(
     )
 
 def _validate_package_input(package_input: Any) -> None:
+    """以 fail-closed 方式驗證 package 的 schema、binding、教材身分與 policy。"""
     try:
         canonical_json_bytes(package_input)
     except (TypeError, ValueError, RecursionError):
@@ -368,6 +369,7 @@ def _sorted_records(value: list[Any], id_field: str) -> list[Any]:
     return copied
 
 def _contains_semantic_authority(value: Any) -> bool:
+    """遞迴找出禁止的語意權威欄位，避免 builder 接受超出 pre-semantic 範圍的資料。"""
     if isinstance(value, Mapping):
         return any(
             key in _SEMANTIC_AUTHORITY_FIELDS

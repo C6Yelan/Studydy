@@ -15,7 +15,7 @@ from handoff.contract_hashing import (
     package_envelope_sha256,
     record_canonical_sha256,
 )
-from handoff.contract_schema import PACKAGE_SCHEMA_VERSION
+from handoff.contract_schema_metadata import PACKAGE_SCHEMA_VERSION
 from presemantic_records_provider import (
     PACKAGE_INPUT_SCHEMA_VERSION,
     RECORDS_SCHEMA_VERSION,
@@ -98,6 +98,7 @@ def _normalized(*units: dict) -> dict:
 
 
 def _stamp_draft(draft: dict) -> dict:
+    """替 provider compatibility draft 補齊各層雜湊與 PASS validation summary。"""
     for key in (
         "candidates",
         "origins",
@@ -122,12 +123,13 @@ def _stamp_draft(draft: dict) -> dict:
     return draft
 
 
-def _pr1_draft(output: dict) -> dict:
+def _handoff_draft(output: dict) -> dict:
+    """把 provider output 組成可 sealing 的 handoff draft，保留 bindings 與 records。"""
     records = copy.deepcopy(output["records_artifact"])
     attestation = {
         "attestation_id": "attestation-provider",
         "package_id": "package-provider",
-        "builder_component": "task11-presemantic-provider-compatibility",
+        "builder_component": "presemantic-records-provider-compatibility",
         "builder_version": "v1",
         "input_bindings": sorted(
             [
@@ -214,7 +216,7 @@ def test_public_interface_emits_raw_literal_records_and_empty_projection() -> No
     origin = records["origins"][0]
     evidence = records["evidence_records"][0]
     assert candidate["surface"] == "Alpha"
-    assert candidate["generator_kinds"] == ["literal"]
+    assert candidate["extraction_methods"] == ["literal"]
     assert origin["literal_span"] == {"start": 0, "end": 5}
     assert evidence["statement"][0:5] == evidence["literal_surface"]
     source_units = output["normalized_source"]["layout_units"]
@@ -278,11 +280,11 @@ def test_records_binding_hashes_only_canonical_records_artifact_and_replays_3_of
     assert hashes[0] == hashlib.sha256(canonical_json_bytes(records)).hexdigest()
 
 
-def test_pr1_contract_compatibility_seals_pass() -> None:
+def test_handoff_contract_compatibility_seals_pass() -> None:
     output = build_presemantic_records_package_input(_normalized(), MATERIAL_ID)
 
     sealed = seal_handoff_draft(
-        _pr1_draft(output),
+        _handoff_draft(output),
         normalized_source=output["normalized_source"],
     )
 

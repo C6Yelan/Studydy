@@ -9,7 +9,7 @@ from .contract_hashing import (
     _valid_input_record_hash,
     record_canonical_sha256,
 )
-from .contract_schema import _integer, _non_empty_string
+from .contract_schema_values import _integer, _non_empty_string
 
 
 def _classify_source_failures(
@@ -18,6 +18,7 @@ def _classify_source_failures(
     origins: list[Any],
     material_id: str,
 ) -> tuple[dict[str, set[str]], list[tuple[str, str]]]:
+    """把可安全追到 origin 的來源失敗歸給 candidate，其餘保留為 package failure。"""
     candidate_ids = {
         candidate.get("candidate_id")
         for candidate in candidates
@@ -98,14 +99,14 @@ def _classify_source_failures(
             continue
         package_failures.append(
             (
-                _package_scope_failure_code(reasons)
-                or "PKG_CANDIDATES_INVALID",
+                "PKG_CANDIDATES_INVALID",
                 reason_text,
             )
         )
     return candidate_failures, sorted(set(package_failures))
 
 def _valid_source_failure(value: Any) -> bool:
+    """確認來源失敗有完整定位、排序去重的原因、允許狀態與有效雜湊。"""
     if not isinstance(value, Mapping):
         return False
     reasons = value.get("source_failure_reasons")
@@ -137,6 +138,7 @@ def _valid_source_failure(value: Any) -> bool:
 def _package_scope_failure_code(
     reasons: list[str],
 ) -> str | None:
+    """依來源失敗原因判斷是否要提升為 binding、教材或 candidate 層級的 package code。"""
     if any(
         "artifact" in reason or "binding" in reason
         for reason in reasons
@@ -160,6 +162,7 @@ def _apply_candidate_failures(
     candidates: list[Any],
     failures: Mapping[str, set[str]],
 ) -> list[Any]:
+    """在複本上合併 candidate 的來源失敗，標為 invalid 並重算 canonical hash。"""
     output = deepcopy(candidates)
     for candidate in output:
         if not isinstance(candidate, dict):
@@ -174,7 +177,7 @@ def _apply_candidate_failures(
             and all(_non_empty_string(code) for code in existing)
             else []
         )
-        candidate["construction_status"] = "invalid"
+        candidate["build_status"] = "invalid"
         candidate["failure_codes"] = sorted(
             {*existing_codes, *reasons}
         )
@@ -187,6 +190,7 @@ def _package_invalid_records(
     package_id: str,
     failures: list[tuple[str, str]],
 ) -> list[dict[str, Any]]:
+    """把 package 層級失敗轉成可穩定重現且已雜湊的 invalid records。"""
     records = []
     for code, reason in failures:
         identity = {

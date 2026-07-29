@@ -11,21 +11,25 @@ from .contract_hashing import (
     package_envelope_sha256,
     record_canonical_sha256,
 )
-from .contract_schema import (
+from .contract_schema_fields import (
+    _HASH_FIELDS,
+    _INVALID_RECORD_COLLECTION,
+    _add_failure,
+    _record_id,
+)
+from .contract_schema_metadata import (
     COLLECTION_ID_FIELDS,
     COLLECTION_KEYS,
     FIELD_METADATA,
     RESERVED_NON_EMITTED_CODES,
     VALIDATOR_VERSION,
-    _HASH_FIELDS,
-    _INVALID_RECORD_COLLECTION,
-    _add_failure,
+)
+from .contract_schema_values import (
     _binding_matches_source,
     _finite_number,
     _integer,
     _layout_unit_id,
     _non_empty_string,
-    _record_id,
     _text_sha256,
     _valid_bbox,
     _valid_literal_span,
@@ -48,6 +52,7 @@ def _validate_input_hashes(
     package: Mapping[str, Any],
     failures: list[tuple[str, str, str, str]],
 ) -> None:
+    """重新計算 records 與 package hashes，並核對 validation summary 的狀態及錯誤統計。"""
     for collection, package_key in COLLECTION_KEYS.items():
         records = package.get(package_key)
         if not isinstance(records, list):
@@ -128,6 +133,7 @@ def _validate_input_hashes(
 def _record_indexes(
     package: Mapping[str, Any],
 ) -> dict[str, dict[str, Mapping[str, Any]]]:
+    """依 record 類型與正式 ID 建立查找表，供後續跨 record 驗證使用。"""
     indexes: dict[str, dict[str, Mapping[str, Any]]] = {}
     for collection, package_key in COLLECTION_KEYS.items():
         records = package.get(package_key)
@@ -143,21 +149,32 @@ def _record_indexes(
         indexes[collection] = index
     return indexes
 
+# 每一行都在說：哪一種資料的哪個欄位，要去找哪一種資料；
+# 找不到時要報哪個錯，找到但教材不同時又要報哪個錯。
 _CROSS_REFERENCES = (
+    # Candidate 要能找到它來自哪裡、周圍文字、支持證據和延伸結果。
     ("candidate", "origin_ids", "origin", "XREF_CANDIDATE_ORIGIN_DANGLING", "XREF_CANDIDATE_ORIGIN_CROSS_MATERIAL"),
     ("candidate", "context_ids", "context", "XREF_CANDIDATE_CONTEXT_DANGLING", "XREF_CANDIDATE_CONTEXT_CROSS_MATERIAL"),
-    ("candidate", "evidence_refs", "evidence", "XREF_CANDIDATE_EVIDENCE_DANGLING", "XREF_CANDIDATE_EVIDENCE_CROSS_MATERIAL"),
+    ("candidate", "evidence_ids", "evidence", "XREF_CANDIDATE_EVIDENCE_DANGLING", "XREF_CANDIDATE_EVIDENCE_CROSS_MATERIAL"),
     ("candidate", "projection_ids", "projection", "XREF_CANDIDATE_PROJECTION_DANGLING", "XREF_CANDIDATE_PROJECTION_CROSS_MATERIAL"),
+
+    # Origin 要指出它屬於哪個 candidate，以及可以搭配哪段 context。
     ("origin", "candidate_id", "candidate", "XREF_ORIGIN_CANDIDATE_DANGLING", "XREF_ORIGIN_CANDIDATE_CROSS_MATERIAL"),
     ("origin", "safe_context_id", "context", "XREF_ORIGIN_CONTEXT_DANGLING", "XREF_ORIGIN_CONTEXT_CROSS_MATERIAL"),
+
+    # Context 要指出這段文字主要支持哪些 candidates，以及證據在哪裡。
     ("context", "primary_candidate_ids", "candidate", "XREF_CONTEXT_CANDIDATE_DANGLING", "XREF_CONTEXT_CANDIDATE_CROSS_MATERIAL"),
-    ("context", "evidence_refs", "evidence", "XREF_CONTEXT_EVIDENCE_DANGLING", "XREF_CONTEXT_EVIDENCE_CROSS_MATERIAL"),
+    ("context", "evidence_ids", "evidence", "XREF_CONTEXT_EVIDENCE_DANGLING", "XREF_CONTEXT_EVIDENCE_CROSS_MATERIAL"),
+
+    # Evidence 要說清楚它支持哪些 candidates、contexts 和 origins。
     ("evidence", "candidate_ids", "candidate", "XREF_EVIDENCE_CANDIDATE_DANGLING", "XREF_EVIDENCE_CANDIDATE_CROSS_MATERIAL"),
     ("evidence", "context_ids", "context", "XREF_EVIDENCE_CONTEXT_DANGLING", "XREF_EVIDENCE_CONTEXT_CROSS_MATERIAL"),
     ("evidence", "origin_ids", "origin", "XREF_EVIDENCE_ORIGIN_DANGLING", "XREF_EVIDENCE_ORIGIN_CROSS_MATERIAL"),
+
+    # Projection 要保留它是根據哪些 candidate、context 和 evidence 產生的。
     ("projection", "source_candidate_ids", "candidate", "XREF_PROJECTION_CANDIDATE_DANGLING", "XREF_PROJECTION_CANDIDATE_CROSS_MATERIAL"),
     ("projection", "source_context_ids", "context", "XREF_PROJECTION_CONTEXT_DANGLING", "XREF_PROJECTION_CONTEXT_CROSS_MATERIAL"),
-    ("projection", "source_evidence_refs", "evidence", "XREF_PROJECTION_EVIDENCE_DANGLING", "XREF_PROJECTION_EVIDENCE_CROSS_MATERIAL"),
+    ("projection", "source_evidence_ids", "evidence", "XREF_PROJECTION_EVIDENCE_DANGLING", "XREF_PROJECTION_EVIDENCE_CROSS_MATERIAL"),
 )
 
 def _validate_cross_references(
@@ -165,6 +182,7 @@ def _validate_cross_references(
     indexes: Mapping[str, Mapping[str, Mapping[str, Any]]],
     failures: list[tuple[str, str, str, str]],
 ) -> None:
+    """確認 record 間的 ID 連結存在、教材一致，並檢查每筆 origin 都被 candidate 引用。"""
     for source_collection, field, target_collection, dangling_code, material_code in _CROSS_REFERENCES:
         records = package.get(COLLECTION_KEYS[source_collection])
         if not isinstance(records, list):
@@ -206,6 +224,7 @@ def _validate_all_origins_are_referenced(
     indexes: Mapping[str, Mapping[str, Mapping[str, Any]]],
     failures: list[tuple[str, str, str, str]],
 ) -> None:
+    """找出沒有被任何 candidate 引用的 origins，避免 package 留下失去歸屬的來源記錄。"""
     candidates = package.get("candidates")
     if not isinstance(candidates, list):
         return
@@ -234,6 +253,7 @@ def _validate_materials(
     indexes: Mapping[str, Mapping[str, Mapping[str, Any]]],
     failures: list[tuple[str, str, str, str]],
 ) -> None:
+    """確認 candidate、origin、context、evidence 與 projection 都屬於 package 的教材。"""
     package_material = package.get("material_id")
     if not _non_empty_string(package_material):
         return
@@ -254,6 +274,7 @@ def _validated_source_units(
     package: Mapping[str, Any],
     normalized_source: Mapping[str, Any],
 ) -> dict[str, Mapping[str, Any]]:
+    """在 normalized source 與 package 綁定有效時，建立可安全回查的 layout-unit 查找表。"""
     binding = package.get("normalized_source_binding")
     if (
         not _valid_normalized_source_mapping(normalized_source)
@@ -274,6 +295,7 @@ def _validate_literal_and_source_bindings(
     source_units: Mapping[str, Mapping[str, Any]],
     failures: list[tuple[str, str, str, str]],
 ) -> None:
+    """核對 evidence/projection 的文字範圍，以及 origin 與 upstream layout unit 的內容綁定。"""
     for index, evidence in enumerate(indexes["evidence"].values()):
         span = evidence.get("literal_span")
         statement = evidence.get("statement")
@@ -295,16 +317,16 @@ def _validate_literal_and_source_bindings(
     for index, projection in enumerate(indexes["projection"].values()):
         span = projection.get("literal_span")
         surface = projection.get("projected_surface")
-        evidence_refs = projection.get("source_evidence_refs")
+        evidence_ids = projection.get("source_evidence_ids")
         if (
             not _valid_literal_span(span)
             or not isinstance(surface, str)
-            or not isinstance(evidence_refs, list)
+            or not isinstance(evidence_ids, list)
         ):
             continue
         statements = [
             indexes["evidence"][evidence_id].get("statement")
-            for evidence_id in evidence_refs
+            for evidence_id in evidence_ids
             if evidence_id in indexes["evidence"]
         ]
         if not any(
@@ -344,6 +366,7 @@ def _compare_origin_to_source(
     indexes: Mapping[str, Mapping[str, Mapping[str, Any]]],
     failures: list[tuple[str, str, str, str]],
 ) -> None:
+    """逐項比對 origin 與來源 layout unit，並確認文字 hash 及 candidate literal span。"""
     comparisons = (
         ("material_id", "ORIGIN_MATERIAL_MISMATCH"),
         ("block_id", "ORIGIN_BLOCK_REF_INVALID"),
@@ -386,6 +409,7 @@ def _validate_context_boundaries(
     source_units: Mapping[str, Mapping[str, Any]],
     failures: list[tuple[str, str, str, str]],
 ) -> None:
+    """解析每個 context 引用的來源單元，再檢查組合邊界與主要 candidate 的 anchor 限制。"""
     contexts = package.get("contexts")
     if not isinstance(contexts, list):
         return
@@ -427,6 +451,7 @@ def _validate_anchor_overflow(
     source_units: Mapping[str, Mapping[str, Any]],
     failures: list[tuple[str, str, str, str]],
 ) -> None:
+    """確認主要 candidate 所在的單一來源單元沒有超出 context 可安全承載的長度。"""
     primary_candidates = context.get("primary_candidate_ids")
     origins = package.get("origins")
     if not isinstance(primary_candidates, list) or not isinstance(origins, list):
@@ -457,6 +482,7 @@ def _validate_context_units(
     units: list[Mapping[str, Any]],
     failures: list[tuple[str, str, str, str]],
 ) -> None:
+    """確認組成 context 的單元在教材、頁面、順序、文字、位置與數量上形成安全範圍。"""
     material_ids = {unit.get("material_id") for unit in units}
     if len(material_ids) != 1 or context.get("material_id") not in material_ids:
         _add_failure(failures, "context", record_id, "CONTEXT_CROSS_MATERIAL", "layout_unit_refs")
@@ -543,6 +569,7 @@ def _validate_adjacent_units(
     right: Mapping[str, Any],
     failures: list[tuple[str, str, str, str]],
 ) -> None:
+    """檢查相鄰 layout units 的水平重疊、垂直距離及句子或版面分界是否允許串接。"""
     left_bbox = left.get("bbox")
     right_bbox = right.get("bbox")
     if _valid_bbox(left_bbox) and _valid_bbox(right_bbox):
@@ -610,6 +637,7 @@ def _validate_adjacent_units(
 def _generated_invalid_records(
     failures: Sequence[tuple[str, str, str, str]],
 ) -> list[dict[str, Any]]:
+    """將收集到的 failures 分組、去重並排序，產生可追溯且 deterministic 的 invalid records。"""
     grouped: dict[tuple[str, str], dict[str, set[str]]] = defaultdict(
         lambda: {"codes": set(), "details": set()}
     )
@@ -642,6 +670,7 @@ def _validation_summary(
     *,
     input_summary: Any,
 ) -> dict[str, Any]:
+    """依 sealed package 產生 deterministic 驗證摘要，並保留輸入中未知欄位的失敗證據。"""
     invalid_records = sealed["invalid_records"]
     counts = _failure_code_counts(invalid_records)
     status = "FAIL" if invalid_records else "PASS"
@@ -670,6 +699,7 @@ def _validation_summary(
     }
 
 def _failure_code_counts(invalid_records: Any) -> dict[str, int]:
+    """統計 invalid records 內可輸出的 failure codes，並依代碼排序回傳。"""
     counts: Counter[str] = Counter()
     if isinstance(invalid_records, list):
         for record in invalid_records:
