@@ -6,10 +6,13 @@ from pathlib import Path
 
 import pytest
 
+import material_lexical_index
 from material_normalized_blocks import (
     MATERIAL_BLOCKS_STABLE_PATH,
     NATIVE_ANALYSIS_STABLE_PATH,
     NORMALIZED_BLOCKS_STABLE_PATH,
+    NORMALIZED_BLOCKS_V2_STABLE_PATH,
+    SCHEMA_VERSION,
     load_and_normalize_material_blocks,
     normalize_material_blocks,
     persist_normalized_material_blocks,
@@ -50,14 +53,34 @@ def _native(
 ) -> dict:
     pages = []
     for case_id, page, status, reasons in rows:
+        block_id = f"block:{case_id}:{page}"
         pages.append(
             {
                 "material_id": f"material:{case_id}",
                 "case_id": case_id,
                 "artifact_ref": f"artifact:{case_id}",
-                "block_id": f"block:{case_id}:{page}",
+                "block_id": block_id,
                 "pdf_page": page,
                 "source_ref": f"source:{page}",
+                "layout_unit_omissions": [],
+                "layout_units": [
+                    {
+                        "layout_unit_id": f"unit:{case_id}:{page}",
+                        "parent_block_id": block_id,
+                        "reading_order": 0,
+                        "bbox": [0.0, 0.0, 80.0, 20.0],
+                        "kind": "text",
+                        "text": f"{case_id}-{page}",
+                        "style_summary": {
+                            "bold": False,
+                            "font_names": ["Synthetic"],
+                            "font_size_max": 10.0,
+                            "font_size_min": 10.0,
+                            "line_count": 1,
+                            "monospace": False,
+                        },
+                    }
+                ],
                 "page_bbox": [0.0, 0.0, 100.0, 100.0],
                 "provenance": {"library": "synthetic"},
                 "status": status,
@@ -65,7 +88,7 @@ def _native(
             }
         )
     return {
-        "schema_version": "material-native-analysis/v1",
+        "schema_version": "material-native-analysis/v2",
         "page_count": len(pages),
         "pages": pages,
     }
@@ -117,16 +140,19 @@ def test_success_and_warning_partial_are_selected_deterministically() -> None:
     }
     assert partial["selection_reason"] == "native_bbox_invalid"
     assert partial["warnings"] == ["native_bbox_invalid"]
-    assert partial["text"] == "beta"
+    assert partial["layout_units"][0]["text"] == "later-2"
+    assert partial["layout_unit_omissions"] == []
     assert first["source_provenance"]["material_blocks"]["parser_provenance"] == {
         "parser": "synthetic"
     }
-    # 正規化結果可保留基準文字，但不應帶入原生分析的底層結構資料。
+    # 正規化結果保留最小 layout units，但不帶入其他底層結構或語意資料。
     forbidden = {
         "native_summary",
         "rawdict",
         "words",
         "images",
+        "image_data",
+        "stream",
         "chars",
         "cells",
         "candidates",
@@ -250,7 +276,7 @@ def test_loader_reads_stable_runtime_inputs_and_persistence_is_atomic(
     artifact = load_and_normalize_material_blocks(repo_root=tmp_path)
     persist_normalized_material_blocks(artifact, repo_root=tmp_path)
 
-    stable = tmp_path / NORMALIZED_BLOCKS_STABLE_PATH
+    stable = tmp_path / NORMALIZED_BLOCKS_V2_STABLE_PATH
     assert json.loads(stable.read_bytes()) == artifact
     assert set(artifact) == {
         "schema_version",
@@ -264,7 +290,130 @@ def test_loader_reads_stable_runtime_inputs_and_persistence_is_atomic(
             "parser_provenance": {"parser": "synthetic"},
         },
         "native_analysis": {
-            "schema_version": "material-native-analysis/v1",
+            "schema_version": "material-native-analysis/v2",
         },
     }
     assert not list((tmp_path / ".studydy-runtime").rglob("*.tmp"))
+
+
+def test_legacy_lexical_schema_and_locator_remain_v1_literals() -> None:
+    expected_schema = "normalized-material-blocks/v1"
+    expected_locator = (
+        ".studydy-runtime/materials/normalized-blocks/stable/"
+        "normalized-material-blocks.v1.json"
+    )
+
+    assert SCHEMA_VERSION == expected_schema
+    assert NORMALIZED_BLOCKS_STABLE_PATH == expected_locator
+    assert (
+        material_lexical_index.NORMALIZED_BLOCKS_SCHEMA_VERSION
+        == expected_schema
+    )
+    assert (
+        material_lexical_index.NORMALIZED_BLOCKS_STABLE_PATH
+        == expected_locator
+    )
+
+
+def test_layout_unit_omission_is_preserved_and_marks_partial() -> None:
+    blocks = _blocks(("case", 1, "alpha"))
+    native = _native(
+        ("case", 1, "partial", ["layout_unit_kind_unsupported"])
+    )
+    row = native["pages"][0]
+    row["layout_unit_omissions"] = [
+        {
+            "identity": {
+                field: row[field]
+                for field in (
+                    "material_id",
+                    "case_id",
+                    "artifact_ref",
+                    "block_id",
+                    "pdf_page",
+                    "source_ref",
+                )
+            },
+            "kind": "unknown",
+            "layout_unit_id": "omission:case:1",
+            "locator": {
+                "bbox": [82.0, 0.0, 90.0, 20.0],
+                "omission_order": 0,
+            },
+            "provenance": {"native_policy": "synthetic-v2"},
+            "reason": "layout_unit_kind_unsupported",
+            "status": "omitted",
+        }
+    ]
+
+    result = normalize_material_blocks(blocks, native)
+
+    assert result["status"] == "partial"
+    block = result["materials"][0]["blocks"][0]
+    assert block["selection_status"] == "selected"
+    assert block["selection_reason"] == "layout_unit_omissions_present"
+    assert block["warnings"] == ["layout_unit_kind_unsupported"]
+    assert block["layout_unit_omissions"] == row["layout_unit_omissions"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "duplicate_unit_id",
+        "reading_order_gap",
+        "bbox_outside_page",
+        "unknown_kind",
+        "missing_font_maximum",
+    ],
+)
+def test_invalid_layout_units_fail_closed(mutation: str) -> None:
+    blocks = _blocks(("case", 1, "alpha"))
+    native = _native(("case", 1, "success", []))
+    row = native["pages"][0]
+    unit = row["layout_units"][0]
+    if mutation == "duplicate_unit_id":
+        duplicate = deepcopy(unit)
+        duplicate["reading_order"] = 1
+        row["layout_units"].append(duplicate)
+    elif mutation == "reading_order_gap":
+        unit["reading_order"] = 1
+    elif mutation == "bbox_outside_page":
+        unit["bbox"] = [0.0, 0.0, 120.0, 20.0]
+    elif mutation == "unknown_kind":
+        unit["kind"] = "caption"
+    else:
+        del unit["style_summary"]["font_size_max"]
+
+    result = normalize_material_blocks(blocks, native)
+
+    block = result["materials"][0]["blocks"][0]
+    assert result["status"] == "failed"
+    assert block["selection_status"] == "failed"
+    assert "native_layout_units_invalid" in block["reasons"]
+    assert "layout_units" not in block
+
+
+def test_image_unit_is_preserved_without_payload() -> None:
+    blocks = _blocks(("case", 1, "alpha"))
+    native = _native(("case", 1, "success", []))
+    native["pages"][0]["layout_units"] = [
+        {
+            "layout_unit_id": "image:case:1",
+            "parent_block_id": "block:case:1",
+            "reading_order": 0,
+            "bbox": [0.0, 0.0, 80.0, 20.0],
+            "kind": "image",
+        }
+    ]
+
+    result = normalize_material_blocks(blocks, native)
+
+    unit = result["materials"][0]["blocks"][0]["layout_units"][0]
+    assert unit["kind"] == "image"
+    assert set(unit) == {
+        "layout_unit_id",
+        "parent_block_id",
+        "reading_order",
+        "bbox",
+        "kind",
+    }

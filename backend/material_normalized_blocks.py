@@ -4,23 +4,34 @@ import json
 import math
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 from material_runtime_files import publish_runtime_json, resolve_runtime_path
 
 
+# material_lexical_index still imports this legacy contract constant.
 SCHEMA_VERSION = "normalized-material-blocks/v1"
+STRUCTURED_SCHEMA_VERSION = "normalized-material-blocks/v2"
 MATERIAL_BLOCKS_STABLE_PATH = (
     ".studydy-runtime/materials/blocks/stable/material-blocks.v1.json"
 )
-NATIVE_ANALYSIS_STABLE_PATH = (
+NATIVE_ANALYSIS_V1_STABLE_PATH = (
     ".studydy-runtime/materials/native-analysis/stable/"
     "material-native-analysis.v1.json"
+)
+NATIVE_ANALYSIS_STABLE_PATH = (
+    ".studydy-runtime/materials/native-analysis/stable/"
+    "material-native-analysis.v2.json"
 )
 NORMALIZED_BLOCKS_STABLE_PATH = (
     ".studydy-runtime/materials/normalized-blocks/stable/"
     "normalized-material-blocks.v1.json"
+)
+NORMALIZED_BLOCKS_V2_STABLE_PATH = (
+    ".studydy-runtime/materials/normalized-blocks/stable/"
+    "normalized-material-blocks.v2.json"
 )
 IDENTITY_FIELDS = (
     "material_id",
@@ -30,6 +41,14 @@ IDENTITY_FIELDS = (
     "pdf_page",
     "source_ref",
 )
+UNIT_OMISSION_PARTIAL_REASONS = {
+    "layout_unit_bbox_outside_page",
+    "layout_unit_invalid",
+    "layout_unit_kind_unsupported",
+    "layout_unit_text_empty",
+    "native_bbox_invalid",
+    "native_bbox_outside_page_tolerance",
+}
 
 
 def load_and_normalize_material_blocks(
@@ -57,7 +76,7 @@ def _normalize_material_blocks(
     """執行共用的粗粒度輸入檢查與正規化。"""
     if material_blocks.get("schema_version") != "material-blocks/v1":
         raise ValueError("material_blocks_schema_mismatch")
-    if native_analysis.get("schema_version") != "material-native-analysis/v1":
+    if native_analysis.get("schema_version") != "material-native-analysis/v2":
         raise ValueError("native_analysis_schema_mismatch")
     materials = material_blocks.get("materials")
     pages = native_analysis.get("pages")
@@ -75,6 +94,7 @@ def _normalize_material_blocks(
     ] = defaultdict(list)
     has_selected = False
     has_failed = False
+    has_omissions = False
 
     for raw_row in pages:
         row = raw_row if isinstance(raw_row, Mapping) else {}
@@ -93,18 +113,40 @@ def _normalize_material_blocks(
             row.get("status") if isinstance(row.get("status"), str) else None
         )
         native_analysis_reasons = _string_list(row.get("reasons"))
+        omissions = row.get("layout_unit_omissions")
+        valid_omissions = _valid_layout_unit_omissions(omissions, row)
+        omission_rows = omissions if valid_omissions else []
+        ordered_omission_rows = sorted(
+            deepcopy(omission_rows),
+            key=lambda omission: omission["locator"]["omission_order"],
+        )
+        omission_partial = (
+            native_analysis_status == "partial"
+            and bool(omission_rows)
+            and set(native_analysis_reasons).issubset(
+                UNIT_OMISSION_PARTIAL_REASONS
+            )
+        )
         warnings = (
-            ["native_bbox_invalid"]
+            sorted(set(native_analysis_reasons))
             if native_analysis_status == "partial"
-            and "native_bbox_invalid" in native_analysis_reasons
+            and (
+                omission_partial
+                or set(native_analysis_reasons)
+                == {"native_bbox_invalid"}
+            )
             else []
         )
-        # 只有 bbox 異常不影響既有文字內容；其他 partial/failed 狀態一律不放行。
+        # 只要仍有 validated units，unit omission 不阻斷同頁其餘內容。
         selected = not validation_reasons and (
             native_analysis_status == "success"
             or (
                 native_analysis_status == "partial"
-                and "native_bbox_invalid" in native_analysis_reasons
+                and (
+                    omission_partial
+                    or set(native_analysis_reasons)
+                    == {"native_bbox_invalid"}
+                )
             )
         )
         if not selected and not validation_reasons:
@@ -129,11 +171,27 @@ def _normalize_material_blocks(
         }
         if selected and baseline is not None:
             has_selected = True
-            block["text"] = baseline["text"]
+            block["layout_units"] = sorted(
+                deepcopy(row["layout_units"]),
+                key=lambda unit: unit["reading_order"],
+            )
+            block["layout_unit_omissions"] = ordered_omission_rows
+            if omission_rows:
+                has_omissions = True
             if native_analysis_status == "partial":
-                block["selection_reason"] = "native_bbox_invalid"
+                block["selection_reason"] = (
+                    "layout_unit_omissions_present"
+                    if omission_rows
+                    else "native_bbox_invalid"
+                )
         else:
             has_failed = True
+            if (
+                omission_rows
+                and validation_reasons
+                == ["native_layout_units_invalid"]
+            ):
+                block["layout_unit_omissions"] = ordered_omission_rows
 
         material_key = (
             identity["material_id"],
@@ -164,9 +222,13 @@ def _normalize_material_blocks(
             _sort_value(material["case_id"]),
         )
     )
-    status = "success" if not has_failed else ("partial" if has_selected else "failed")
+    status = (
+        "success"
+        if not has_failed and not has_omissions
+        else ("partial" if has_selected else "failed")
+    )
     return {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": STRUCTURED_SCHEMA_VERSION,
         "status": status,
         "source_provenance": {
             "material_blocks": {
@@ -190,7 +252,7 @@ def persist_normalized_material_blocks(
     publish_runtime_json(
         artifact,
         repo_root=repo_root,
-        stable_path=NORMALIZED_BLOCKS_STABLE_PATH,
+        stable_path=NORMALIZED_BLOCKS_V2_STABLE_PATH,
     )
 
 
@@ -277,7 +339,25 @@ def _row_validation_reasons(row: Mapping[str, Any]) -> list[str]:
         )
     ):
         return ["native_analysis_row_invalid"]
-    return []
+    validation_reasons: list[str] = []
+    if status in {"success", "partial"}:
+        if not _valid_layout_units(
+            row.get("layout_units"),
+            row.get("block_id"),
+            row.get("page_bbox"),
+        ):
+            validation_reasons.append("native_layout_units_invalid")
+        omissions = row.get("layout_unit_omissions")
+        omissions_valid = _valid_layout_unit_omissions(omissions, row)
+        if not omissions_valid:
+            validation_reasons.append(
+                "native_layout_unit_omissions_invalid"
+            )
+        elif omissions and status != "partial":
+            validation_reasons.append(
+                "native_layout_unit_omissions_status_invalid"
+            )
+    return validation_reasons
 
 
 def _baseline_usable(row: Mapping[str, Any]) -> bool:
@@ -307,7 +387,167 @@ def _valid_page_bbox(value: Any) -> bool:
             and math.isfinite(coordinate)
             for coordinate in value
         )
+        and value[2] > value[0]
+        and value[3] > value[1]
     )
+
+
+def _valid_layout_units(
+    value: Any,
+    block_id: Any,
+    page_bbox: Any,
+) -> bool:
+    if not isinstance(value, list) or not value:
+        return False
+    if not isinstance(block_id, str) or not block_id:
+        return False
+    if not _valid_page_bbox(page_bbox):
+        return False
+    unit_ids: set[str] = set()
+    reading_orders: list[int] = []
+    for unit in value:
+        if not isinstance(unit, Mapping):
+            return False
+        unit_id = unit.get("layout_unit_id")
+        reading_order = unit.get("reading_order")
+        bbox = unit.get("bbox")
+        kind = unit.get("kind")
+        if not isinstance(unit_id, str) or not unit_id or unit_id in unit_ids:
+            return False
+        if (
+            not isinstance(reading_order, int)
+            or isinstance(reading_order, bool)
+            or reading_order < 0
+        ):
+            return False
+        if unit.get("parent_block_id") != block_id:
+            return False
+        if not _valid_page_bbox(bbox) or not _bbox_inside_page(bbox, page_bbox):
+            return False
+        if kind == "text":
+            if not isinstance(unit.get("text"), str) or not unit["text"].strip():
+                return False
+            if not _valid_style_summary(unit.get("style_summary")):
+                return False
+        elif kind == "image":
+            if "text" in unit or "style_summary" in unit:
+                return False
+        else:
+            return False
+        unit_ids.add(unit_id)
+        reading_orders.append(reading_order)
+    return sorted(reading_orders) == list(range(len(value)))
+
+
+def _valid_layout_unit_omissions(
+    value: Any,
+    row: Mapping[str, Any],
+) -> bool:
+    if not isinstance(value, list):
+        return False
+    expected_identity = {
+        field: row.get(field) for field in IDENTITY_FIELDS
+    }
+    omission_ids: set[str] = set()
+    omission_orders: list[int] = []
+    for omission in value:
+        if not isinstance(omission, Mapping) or set(omission) != {
+            "identity",
+            "kind",
+            "layout_unit_id",
+            "locator",
+            "provenance",
+            "reason",
+            "status",
+        }:
+            return False
+        omission_id = omission.get("layout_unit_id")
+        locator = omission.get("locator")
+        provenance = omission.get("provenance")
+        identity = omission.get("identity")
+        if (
+            not isinstance(omission_id, str)
+            or not omission_id
+            or omission_id in omission_ids
+            or omission.get("kind") not in {"text", "image", "unknown"}
+            or omission.get("status") != "omitted"
+            or not isinstance(omission.get("reason"), str)
+            or not omission["reason"]
+            or identity != expected_identity
+            or not isinstance(locator, Mapping)
+            or set(locator) != {"bbox", "omission_order"}
+            or not isinstance(provenance, Mapping)
+            or not provenance
+            or omission["reason"] not in row.get("reasons", [])
+        ):
+            return False
+        bbox = locator.get("bbox")
+        omission_order = locator.get("omission_order")
+        if bbox is not None and not _valid_page_bbox(bbox):
+            return False
+        if (
+            not isinstance(omission_order, int)
+            or isinstance(omission_order, bool)
+            or omission_order < 0
+        ):
+            return False
+        omission_ids.add(omission_id)
+        omission_orders.append(omission_order)
+    return sorted(omission_orders) == list(range(len(value)))
+
+
+def _bbox_inside_page(bbox: list[Any], page_bbox: list[Any]) -> bool:
+    tolerance = 0.5
+    return (
+        bbox[0] >= page_bbox[0] - tolerance
+        and bbox[1] >= page_bbox[1] - tolerance
+        and bbox[2] <= page_bbox[2] + tolerance
+        and bbox[3] <= page_bbox[3] + tolerance
+    )
+
+
+def _valid_style_summary(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    if set(value) != {
+        "bold",
+        "font_names",
+        "font_size_max",
+        "font_size_min",
+        "line_count",
+        "monospace",
+    }:
+        return False
+    if not isinstance(value.get("bold"), bool):
+        return False
+    if not isinstance(value.get("monospace"), bool):
+        return False
+    fonts = value.get("font_names")
+    if not isinstance(fonts, list) or not all(
+        isinstance(font, str) and font for font in fonts
+    ):
+        return False
+    line_count = value.get("line_count")
+    if (
+        not isinstance(line_count, int)
+        or isinstance(line_count, bool)
+        or line_count < 1
+    ):
+        return False
+    for field in ("font_size_min", "font_size_max"):
+        size = value.get(field)
+        if size is not None and (
+            not isinstance(size, (int, float))
+            or isinstance(size, bool)
+            or not math.isfinite(size)
+            or size <= 0
+        ):
+            return False
+    minimum = value["font_size_min"]
+    maximum = value["font_size_max"]
+    if (minimum is None) != (maximum is None):
+        return False
+    return minimum is None or maximum >= minimum
 
 
 def _sort_value(value: Any) -> tuple[int, int | str]:
