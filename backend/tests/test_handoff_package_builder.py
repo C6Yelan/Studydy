@@ -646,6 +646,28 @@ def test_critical_synthetic_context_groups_13_of_13(
     assert context["code_point_count"] <= 1200
 
 
+def test_negative_zero_context_geometry_keeps_builder_policy() -> None:
+    envelope = _envelope(
+        [
+            _unit("unit-anchor", 0),
+            _unit("unit-next", 1),
+        ]
+    )
+    _add_known_column(envelope)
+    envelope["normalized_source"]["layout_units"][1]["bbox"][0] = -0.0
+    context_id = _context_id_for_unit(envelope, "unit-anchor")
+
+    package = build_handoff_package(envelope)
+
+    context = _output_context(package, context_id)
+    assert package["status"] == "PASS"
+    assert context["layout_unit_refs"] == [
+        {"layout_unit_id": "unit-anchor"},
+        {"layout_unit_id": "unit-next"},
+    ]
+    assert context["boundary_reason"]["next"] == "material_end"
+
+
 def test_image_boundary_and_code_point_limit_stop_without_dropping_anchor() -> None:
     image_envelope = _envelope(
         [
