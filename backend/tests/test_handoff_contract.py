@@ -11,14 +11,14 @@ from pathlib import Path
 import pytest
 
 from material_runtime_files import canonical_json_bytes
-from task11_handoff_contract import (
+from handoff_contract import (
     FIELD_METADATA,
     FIELD_METADATA_ROWS,
     HandoffDraftUnserializable,
     PACKAGE_SCHEMA_VERSION,
     RECORD_HASH_MISMATCH,
     UNKNOWN_FIELD_CODES,
-    is_task11b_pass_package,
+    is_handoff_consumer_eligible_package,
     package_content_sha256,
     package_envelope_sha256,
     record_canonical_sha256,
@@ -401,7 +401,7 @@ def test_valid_synthetic_draft_seals_pass_without_mutation() -> None:
         "failure_count": 0,
         "failure_code_counts": {},
     }
-    assert is_task11b_pass_package(
+    assert is_handoff_consumer_eligible_package(
         sealed,
         normalized_source=synthetic_normalized_source(),
     )
@@ -468,7 +468,7 @@ def test_representable_invalid_draft_is_sha_bound_fail_and_preserves_data() -> N
         sorted(expected_counts.items())
     )
     assert sealed["canonical_sha256"] == package_envelope_sha256(sealed)
-    assert not is_task11b_pass_package(
+    assert not is_handoff_consumer_eligible_package(
         sealed,
         normalized_source=synthetic_normalized_source(),
     )
@@ -834,7 +834,7 @@ def test_none_or_nonmapping_normalized_source_cannot_pass(
 
     assert sealed["status"] == "FAIL"
     assert "PKG_NORMALIZED_SOURCE_BINDING_INVALID" in _all_failure_codes(sealed)
-    assert not is_task11b_pass_package(
+    assert not is_handoff_consumer_eligible_package(
         sealed,
         normalized_source=source,
     )
@@ -932,7 +932,7 @@ def _seal_in_isolated_process(payload: dict) -> bytes:
         (
             "import json,sys;"
             "from material_runtime_files import canonical_json_bytes;"
-            "from task11_handoff_contract import seal_handoff_draft;"
+            "from handoff_contract import seal_handoff_draft;"
             "p=json.load(sys.stdin);"
             "sys.stdout.buffer.write(canonical_json_bytes("
             "seal_handoff_draft(p['draft'],normalized_source=p['source'])))"

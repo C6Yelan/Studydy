@@ -6,13 +6,13 @@ import hashlib
 import pytest
 
 from material_runtime_files import canonical_json_bytes
-from task11_handoff_contract import (
-    is_task11b_pass_package,
+from handoff_contract import (
+    is_handoff_consumer_eligible_package,
     record_canonical_sha256,
 )
-from task11_handoff_package import build_task11_handoff_package
-from task11_presemantic_provider import (
-    build_task11_presemantic_package_input,
+from handoff_package_builder import build_handoff_package
+from presemantic_records_provider import (
+    build_presemantic_records_package_input,
 )
 
 
@@ -117,7 +117,7 @@ def _envelope(
                 units or [_unit("unit-anchor", 0)],
             )
         ]
-    return build_task11_presemantic_package_input(
+    return build_presemantic_records_package_input(
         _normalized(*blocks),
         MATERIAL_ID,
     )
@@ -193,11 +193,11 @@ def test_public_builder_seals_pass_without_mutating_provider_input() -> None:
     envelope = _envelope()
     original = copy.deepcopy(envelope)
 
-    package = build_task11_handoff_package(envelope)
+    package = build_handoff_package(envelope)
 
     assert envelope == original
     assert package["status"] == "PASS"
-    assert is_task11b_pass_package(
+    assert is_handoff_consumer_eligible_package(
         package,
         normalized_source=envelope["normalized_source"],
     )
@@ -210,7 +210,7 @@ def test_public_builder_seals_pass_without_mutating_provider_input() -> None:
 def test_build_attestation_keeps_production_replay_external_only() -> None:
     envelope = _envelope()
 
-    package = build_task11_handoff_package(envelope)
+    package = build_handoff_package(envelope)
 
     assert len(package["build_attestations"]) == 1
     attestation = package["build_attestations"][0]
@@ -241,7 +241,7 @@ def test_three_independent_builds_have_identical_bytes_and_hashes() -> None:
     _add_known_column(envelope)
 
     packages = [
-        build_task11_handoff_package(copy.deepcopy(envelope))
+        build_handoff_package(copy.deepcopy(envelope))
         for _ in range(3)
     ]
 
@@ -256,7 +256,7 @@ def test_binding_hash_mismatch_fails_before_an_envelope_is_returned() -> None:
     envelope["deterministic_records_binding"]["raw_sha256"] = "0" * 64
 
     with pytest.raises(ValueError, match="^invalid package input$"):
-        build_task11_handoff_package(envelope)
+        build_handoff_package(envelope)
 
 
 def test_invalid_record_is_preserved_and_only_pr1_assigns_fail() -> None:
@@ -266,7 +266,7 @@ def test_invalid_record_is_preserved_and_only_pr1_assigns_fail() -> None:
     candidate["canonical_sha256"] = record_canonical_sha256(candidate)
     _restamp_records_binding(envelope)
 
-    package = build_task11_handoff_package(envelope)
+    package = build_handoff_package(envelope)
 
     assert package["status"] == "FAIL"
     assert package["candidates"][0]["surface"] == ""
@@ -285,7 +285,7 @@ def test_invalid_context_is_not_repaired_before_pr1_sealing() -> None:
     context["canonical_sha256"] = record_canonical_sha256(context)
     _restamp_records_binding(envelope)
 
-    package = build_task11_handoff_package(envelope)
+    package = build_handoff_package(envelope)
 
     assert package["status"] == "FAIL"
     assert package["contexts"][0]["text"] == "tampered raw context"
@@ -304,7 +304,7 @@ def test_noncritical_source_omission_passes_without_top_level_pollution() -> Non
         reason="layout_unit_kind_unsupported",
     )
 
-    package = build_task11_handoff_package(envelope)
+    package = build_handoff_package(envelope)
 
     assert package["status"] == "PASS"
     assert "source_failures" not in package
@@ -314,7 +314,7 @@ def test_noncritical_source_omission_passes_without_top_level_pollution() -> Non
     assert package["candidate_source_binding"] == envelope[
         "deterministic_records_binding"
     ]
-    assert is_task11b_pass_package(
+    assert is_handoff_consumer_eligible_package(
         package,
         normalized_source=envelope["normalized_source"],
     )
@@ -329,7 +329,7 @@ def test_candidate_lineage_source_failure_uses_existing_lifecycle_path() -> None
         reason="layout_unit_invalid",
     )
 
-    package = build_task11_handoff_package(envelope)
+    package = build_handoff_package(envelope)
 
     candidate = package["candidates"][0]
     assert package["status"] == "FAIL"
@@ -354,7 +354,7 @@ def test_package_scope_source_failure_uses_existing_package_path() -> None:
         reason="source_mapping_missing",
     )
 
-    package = build_task11_handoff_package(envelope)
+    package = build_handoff_package(envelope)
 
     assert package["status"] == "FAIL"
     assert "source_failures" not in package
@@ -385,7 +385,7 @@ def test_unrepresentable_source_failure_locator_keeps_no_package_boundary() -> N
     _restamp_records_binding(envelope)
 
     with pytest.raises(ValueError, match="^invalid package input$"):
-        build_task11_handoff_package(envelope)
+        build_handoff_package(envelope)
 
 
 def test_zero_literal_candidates_use_package_level_fail_closed_path() -> None:
@@ -393,7 +393,7 @@ def test_zero_literal_candidates_use_package_level_fail_closed_path() -> None:
         [_unit("unit-anchor", 0, text="Alpha")]
     )
 
-    package = build_task11_handoff_package(envelope)
+    package = build_handoff_package(envelope)
 
     assert package["status"] == "FAIL"
     assert package["candidates"] == []
@@ -420,7 +420,7 @@ def test_semantic_authority_input_is_rejected_not_copied() -> None:
     _restamp_records_binding(envelope)
 
     with pytest.raises(ValueError, match="^invalid package input$"):
-        build_task11_handoff_package(envelope)
+        build_handoff_package(envelope)
 
 
 def test_anchor_overflow_is_not_truncated_and_pr1_seals_fail() -> None:
@@ -429,7 +429,7 @@ def test_anchor_overflow_is_not_truncated_and_pr1_seals_fail() -> None:
     _add_known_column(envelope)
     context_id = _context_id_for_unit(envelope, "unit-anchor")
 
-    package = build_task11_handoff_package(envelope)
+    package = build_handoff_package(envelope)
 
     context = _output_context(package, context_id)
     assert package["status"] == "FAIL"
@@ -635,7 +635,7 @@ def test_critical_synthetic_context_groups_13_of_13(
         expected_status,
     ) = _critical_scenario(scenario)
 
-    package = build_task11_handoff_package(envelope)
+    package = build_handoff_package(envelope)
 
     context = _output_context(package, context_id)
     assert package["status"] == expected_status
@@ -659,7 +659,7 @@ def test_image_boundary_and_code_point_limit_stop_without_dropping_anchor() -> N
         "unit-anchor",
     )
 
-    image_package = build_task11_handoff_package(image_envelope)
+    image_package = build_handoff_package(image_envelope)
 
     image_context = _output_context(image_package, image_context_id)
     assert image_package["status"] == "PASS"
@@ -678,7 +678,7 @@ def test_image_boundary_and_code_point_limit_stop_without_dropping_anchor() -> N
         "unit-anchor",
     )
 
-    length_package = build_task11_handoff_package(length_envelope)
+    length_package = build_handoff_package(length_envelope)
 
     length_context = _output_context(length_package, length_context_id)
     assert length_package["status"] == "PASS"

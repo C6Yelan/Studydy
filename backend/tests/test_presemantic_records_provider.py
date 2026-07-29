@@ -6,18 +6,18 @@ import hashlib
 import pytest
 
 from material_runtime_files import canonical_json_bytes
-from task11_handoff_contract import (
+from handoff_contract import (
     PACKAGE_SCHEMA_VERSION,
-    is_task11b_pass_package,
+    is_handoff_consumer_eligible_package,
     package_content_sha256,
     package_envelope_sha256,
     record_canonical_sha256,
     seal_handoff_draft,
 )
-from task11_presemantic_provider import (
+from presemantic_records_provider import (
     PACKAGE_INPUT_SCHEMA_VERSION,
     RECORDS_SCHEMA_VERSION,
-    build_task11_presemantic_package_input,
+    build_presemantic_records_package_input,
 )
 
 
@@ -194,7 +194,7 @@ def _all_keys(value: object) -> set[str]:
 
 
 def test_public_interface_emits_raw_literal_records_and_empty_projection() -> None:
-    output = build_task11_presemantic_package_input(
+    output = build_presemantic_records_package_input(
         _normalized(_text_unit(), _image_unit()),
         MATERIAL_ID,
     )
@@ -221,7 +221,7 @@ def test_public_interface_emits_raw_literal_records_and_empty_projection() -> No
 
 
 def test_literal_fallback_is_bounded_exact_and_never_whole_unit_text() -> None:
-    output = build_task11_presemantic_package_input(
+    output = build_presemantic_records_package_input(
         _normalized(
             _text_unit(
                 text="  Alpha concept definition",
@@ -243,14 +243,14 @@ def test_literal_fallback_is_bounded_exact_and_never_whole_unit_text() -> None:
     ]
     assert evidence["literal_surface"] == candidate["surface"]
 
-    no_fallback = build_task11_presemantic_package_input(
+    no_fallback = build_presemantic_records_package_input(
         _normalized(_text_unit(text="Alpha")),
         MATERIAL_ID,
     )
     assert no_fallback["records_artifact"]["candidates"] == []
 
     long_token = "x" * 80
-    bounded = build_task11_presemantic_package_input(
+    bounded = build_presemantic_records_package_input(
         _normalized(_text_unit(text=long_token)),
         MATERIAL_ID,
     )
@@ -261,7 +261,7 @@ def test_literal_fallback_is_bounded_exact_and_never_whole_unit_text() -> None:
 
 def test_records_binding_hashes_only_canonical_records_artifact_and_replays_3_of_3() -> None:
     outputs = [
-        build_task11_presemantic_package_input(_normalized(), MATERIAL_ID)
+        build_presemantic_records_package_input(_normalized(), MATERIAL_ID)
         for _ in range(3)
     ]
     encoded = [canonical_json_bytes(output) for output in outputs]
@@ -277,7 +277,7 @@ def test_records_binding_hashes_only_canonical_records_artifact_and_replays_3_of
 
 
 def test_pr1_contract_compatibility_seals_pass() -> None:
-    output = build_task11_presemantic_package_input(_normalized(), MATERIAL_ID)
+    output = build_presemantic_records_package_input(_normalized(), MATERIAL_ID)
 
     sealed = seal_handoff_draft(
         _pr1_draft(output),
@@ -285,14 +285,14 @@ def test_pr1_contract_compatibility_seals_pass() -> None:
     )
 
     assert sealed["status"] == "PASS"
-    assert is_task11b_pass_package(
+    assert is_handoff_consumer_eligible_package(
         sealed,
         normalized_source=output["normalized_source"],
     )
 
 
 def test_provider_output_has_no_semantic_authority_fields() -> None:
-    output = build_task11_presemantic_package_input(_normalized(), MATERIAL_ID)
+    output = build_presemantic_records_package_input(_normalized(), MATERIAL_ID)
 
     forbidden = {
         "concept_id",
@@ -345,7 +345,7 @@ def test_source_omission_and_failed_block_reasons_are_preserved_literally() -> N
         }
     ]
 
-    omission_output = build_task11_presemantic_package_input(
+    omission_output = build_presemantic_records_package_input(
         normalized,
         MATERIAL_ID,
     )
@@ -363,7 +363,7 @@ def test_source_omission_and_failed_block_reasons_are_preserved_literally() -> N
     failed_block["native_analysis_status"] = "failed"
     failed_block["reasons"] = ["source_mapping_missing"]
     failed_block.pop("layout_units")
-    output = build_task11_presemantic_package_input(failed, MATERIAL_ID)
+    output = build_presemantic_records_package_input(failed, MATERIAL_ID)
     assert output["records_artifact"]["candidates"] == []
     assert output["records_artifact"]["source_failures"][0][
         "source_failure_reasons"
@@ -465,4 +465,4 @@ def test_public_synthetic_critical_groups_fail_closed_10_of_10(
     mutation(artifact)
 
     with pytest.raises(ValueError, match=message):
-        build_task11_presemantic_package_input(artifact, MATERIAL_ID)
+        build_presemantic_records_package_input(artifact, MATERIAL_ID)

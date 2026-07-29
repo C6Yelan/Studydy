@@ -7,7 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 from material_runtime_files import canonical_json_bytes
-from task11_handoff_contract import (
+from handoff_contract import (
     CONTEXT_POLICY_VERSION,
     PACKAGE_SCHEMA_VERSION,
     VALIDATOR_VERSION,
@@ -16,7 +16,7 @@ from task11_handoff_contract import (
     record_canonical_sha256,
     seal_handoff_draft,
 )
-from task11_presemantic_provider import (
+from presemantic_records_provider import (
     NORMALIZED_SOURCE_SCHEMA_VERSION,
     PACKAGE_INPUT_SCHEMA_VERSION,
     RECORDS_SCHEMA_VERSION,
@@ -109,7 +109,7 @@ _FORBIDDEN_CONTEXT_KINDS = {
 _SENTENCE_TERMINALS = ("。", ".", "！", "!", "？", "?")
 
 
-def build_task11_handoff_package(
+def build_handoff_package(
     package_input: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Build and seal one deterministic PR1 handoff package."""

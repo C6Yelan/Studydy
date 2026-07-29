@@ -365,7 +365,7 @@ def seal_handoff_draft(
     return sealed
 
 
-def is_task11b_pass_package(
+def is_handoff_consumer_eligible_package(
     package: Mapping[str, Any],
     *,
     normalized_source: Mapping[str, Any],

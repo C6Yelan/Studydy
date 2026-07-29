@@ -8,7 +8,7 @@ from copy import deepcopy
 from typing import Any
 
 from material_runtime_files import canonical_json_bytes
-from task11_handoff_contract import record_canonical_sha256
+from handoff_contract import record_canonical_sha256
 
 
 PACKAGE_INPUT_SCHEMA_VERSION = "task11-pr2-package-input/v1"
@@ -18,7 +18,7 @@ CONTEXT_POLICY_VERSION = "same-material-local-layout-v1"
 PROJECTION_POLICY_VERSION = "literal-projection/v1"
 
 
-def build_task11_presemantic_package_input(
+def build_presemantic_records_package_input(
     normalized_blocks: Mapping[str, Any],
     material_id: str,
 ) -> dict[str, Any]:
