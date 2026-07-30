@@ -59,7 +59,7 @@ def build_concept_rule_decisions(
     *,
     normalized_source: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Build deterministic Concept decisions from one exact PASS handoff."""
+    """從一份完全合格的 PASS handoff 建立可重播的 Concept 判斷。"""
     package_hash = (
         package.get("canonical_sha256")
         if isinstance(package, Mapping)
@@ -159,6 +159,7 @@ def _decision_for_group(
     contexts_by_id: Mapping[str, Mapping[str, Any]],
     evidence_by_id: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
+    """在單一正規化名稱邊界內彙整證據，避免不同候選名稱互相污染。"""
     candidate_ids = sorted(
         candidate["candidate_id"] for candidate in candidates
     )
@@ -194,9 +195,16 @@ def _decision_for_group(
             for context_id in evidence["context_ids"]
         }
     )
+    semantic_evidences = [
+        _semantic_evidence_view(
+            evidence,
+            normalized_name=normalized_name,
+        )
+        for evidence in evidences
+    ]
     strong_evidence = [
         evidence
-        for evidence in evidences
+        for evidence in semantic_evidences
         if evidence["evidence_kind"] in _STRONG_EVIDENCE_KINDS
     ]
     definitions = [
@@ -282,12 +290,14 @@ def _decision_for_group(
 
 
 def _normalize_name(value: str) -> str:
+    """將候選名稱正規化為同一份材料內精確分組使用的鍵值。"""
     normalized = unicodedata.normalize("NFKC", value)
     normalized = " ".join(normalized.split())
     return normalized.strip(_EDGE_PUNCTUATION).casefold()
 
 
 def _identifiable_name(value: str) -> bool:
+    """排除無法作為 Concept 名稱的短值、純數字與結構性雜訊。"""
     if not 2 <= len(value) <= 80 or len(value.split()) > 8:
         return False
     if not any(character.isalpha() for character in value):
@@ -300,6 +310,7 @@ def _identifiable_name(value: str) -> bool:
 def _definitions_are_compatible(
     definitions: list[Mapping[str, Any]],
 ) -> bool:
+    """只以包含關係聚合定義，避免因近似文字誤合併不同 Concept。"""
     statements = sorted(
         {
             _normalize_statement(evidence["normalized_statement"])
@@ -314,13 +325,73 @@ def _definitions_are_compatible(
 
 
 def _normalize_statement(value: str) -> str:
+    """正規化證據敘述，以支援可重播的精確比較與排序。"""
     normalized = unicodedata.normalize("NFKC", value)
     return " ".join(normalized.split()).casefold()
+
+
+def _semantic_evidence_view(
+    evidence: Mapping[str, Any],
+    *,
+    normalized_name: str,
+) -> Mapping[str, Any]:
+    """建立不回寫 sealed handoff 的 consumer-private 語意證據視圖。"""
+    if evidence["evidence_kind"] != "candidate_literal":
+        return evidence
+    explanation = _direct_definition_explanation(
+        evidence["statement"],
+        normalized_name=normalized_name,
+    )
+    if explanation is None:
+        return evidence
+    derived = dict(evidence)
+    derived["evidence_kind"] = _DEFINITION_EVIDENCE_KIND
+    derived["statement"] = explanation
+    derived["normalized_statement"] = explanation
+    return derived
+
+
+def _direct_definition_explanation(
+    statement: str,
+    *,
+    normalized_name: str,
+) -> str | None:
+    """只接受名稱錨定、精確 connector 與完整 token 邊界的直接定義。"""
+    normalized_statement = _normalize_statement(statement)
+    if not normalized_statement.startswith(normalized_name):
+        return None
+    remainder = normalized_statement[len(normalized_name):]
+
+    for connector in ("refers to", "means", "is"):
+        prefix = f" {connector} "
+        if remainder.startswith(prefix):
+            return _bounded_explanation(remainder[len(prefix):])
+
+    for connector in ("稱為", "是", "指"):
+        prefix = f" {connector} "
+        if remainder.startswith(prefix):
+            return _bounded_explanation(remainder[len(prefix):])
+
+    remainder = remainder.lstrip()
+    if remainder.startswith(":"):
+        return _bounded_explanation(remainder[1:].lstrip())
+    return None
+
+
+def _bounded_explanation(value: str) -> str | None:
+    """修剪邊界標點，並拒絕沒有文字或數字內容的空泛說明。"""
+    explanation = value.strip(_EDGE_PUNCTUATION)
+    if not explanation or not any(
+        character.isalnum() for character in explanation
+    ):
+        return None
+    return explanation
 
 
 def _teaching_scope(
     definitions: list[Mapping[str, Any]],
 ) -> dict[str, Any]:
+    """從相容定義選出最完整的教學範圍並保留其證據參照。"""
     ordered = sorted(
         definitions,
         key=lambda evidence: (
@@ -340,6 +411,7 @@ def _teaching_scope(
 
 
 def _preferred_name(candidates: list[Mapping[str, Any]]) -> str:
+    """以固定排序選出同一正規化名稱群組的代表名稱。"""
     return sorted(
         {candidate["surface"] for candidate in candidates},
         key=lambda value: (_normalize_name(value), value.casefold(), value),
@@ -347,6 +419,7 @@ def _preferred_name(candidates: list[Mapping[str, Any]]) -> str:
 
 
 def _origin_locator_ref(origin: Mapping[str, Any]) -> dict[str, Any]:
+    """複製判斷結果追溯所需的最小來源定位資訊。"""
     return {
         "origin_id": origin["origin_id"],
         "candidate_id": origin["candidate_id"],
@@ -361,6 +434,7 @@ def _origin_locator_ref(origin: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _context_locator_ref(context: Mapping[str, Any]) -> dict[str, Any]:
+    """複製判斷結果追溯所需的最小上下文定位資訊。"""
     return {
         "context_id": context["context_id"],
         "layout_unit_refs": deepcopy(context["layout_unit_refs"]),
@@ -370,5 +444,6 @@ def _context_locator_ref(context: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _stable_id(prefix: str, value: Any) -> str:
+    """雜湊 canonical bytes 產生穩定 ID，讓 payload 漂移必須改變身分。"""
     digest = hashlib.sha256(canonical_json_bytes(value)).hexdigest()
     return f"{prefix}:{digest}"

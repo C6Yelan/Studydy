@@ -18,10 +18,16 @@ from presemantic_records_provider import (
 _MATERIAL_ID = "material-concept-rules-synthetic"
 
 
-def _unit(unit_id: str, reading_order: int, text: str) -> dict:
+def _unit(
+    unit_id: str,
+    reading_order: int,
+    text: str,
+    *,
+    block_id: str = "block-001",
+) -> dict:
     return {
         "layout_unit_id": unit_id,
-        "parent_block_id": "block-001",
+        "parent_block_id": block_id,
         "reading_order": reading_order,
         "bbox": [
             0.0,
@@ -42,7 +48,42 @@ def _unit(unit_id: str, reading_order: int, text: str) -> dict:
     }
 
 
-def _normalized(*units: dict) -> dict:
+def _block(
+    block_id: str,
+    page: int,
+    units: list[dict],
+) -> dict:
+    copied_units = copy.deepcopy(units)
+    for unit in copied_units:
+        unit["parent_block_id"] = block_id
+    source_ref = (
+        f"synthetic://concept-rules#page={page}&block={block_id}"
+    )
+    return {
+        "material_id": _MATERIAL_ID,
+        "case_id": "case-concept-rules-synthetic",
+        "artifact_ref": "synthetic:concept-rules",
+        "block_id": block_id,
+        "pdf_page": page,
+        "source_ref": source_ref,
+        "locator": {
+            "pdf_page": page,
+            "source_ref": source_ref,
+        },
+        "page_bbox": [0.0, 0.0, 200.0, 300.0],
+        "provenance": {
+            "native_analysis": {"policy": "synthetic-v2"}
+        },
+        "native_analysis_status": "success",
+        "selection_status": "selected",
+        "reasons": [],
+        "warnings": [],
+        "layout_units": copied_units,
+        "layout_unit_omissions": [],
+    }
+
+
+def _normalized_blocks(*blocks: dict) -> dict:
     return {
         "schema_version": "normalized-material-blocks/v2",
         "status": "success",
@@ -52,48 +93,47 @@ def _normalized(*units: dict) -> dict:
                 "material_id": _MATERIAL_ID,
                 "case_id": "case-concept-rules-synthetic",
                 "artifact_ref": "synthetic:concept-rules",
-                "blocks": [
-                    {
-                        "material_id": _MATERIAL_ID,
-                        "case_id": "case-concept-rules-synthetic",
-                        "artifact_ref": "synthetic:concept-rules",
-                        "block_id": "block-001",
-                        "pdf_page": 1,
-                        "source_ref": "synthetic://concept-rules#page=1",
-                        "locator": {
-                            "pdf_page": 1,
-                            "source_ref": (
-                                "synthetic://concept-rules#page=1"
-                            ),
-                        },
-                        "page_bbox": [0.0, 0.0, 200.0, 300.0],
-                        "provenance": {
-                            "native_analysis": {"policy": "synthetic-v2"}
-                        },
-                        "native_analysis_status": "success",
-                        "selection_status": "selected",
-                        "reasons": [],
-                        "warnings": [],
-                        "layout_units": list(units),
-                        "layout_unit_omissions": [],
-                    }
-                ],
+                "blocks": list(blocks),
             }
         ],
     }
+
+
+def _normalized(*units: dict) -> dict:
+    return _normalized_blocks(_block("block-001", 1, list(units)))
 
 
 def _package(
     *texts: str,
     evidence_kinds: tuple[str, ...] | None = None,
     hard_negative: bool = False,
+    separate_blocks: bool = False,
 ) -> tuple[dict, dict]:
-    normalized = _normalized(
-        *[
-            _unit(f"unit-{index:03d}", index, text)
-            for index, text in enumerate(texts)
-        ]
-    )
+    if separate_blocks:
+        normalized = _normalized_blocks(
+            *[
+                _block(
+                    f"block-{index + 1:03d}",
+                    index + 1,
+                    [
+                        _unit(
+                            f"unit-{index:03d}",
+                            0,
+                            text,
+                            block_id=f"block-{index + 1:03d}",
+                        )
+                    ],
+                )
+                for index, text in enumerate(texts)
+            ]
+        )
+    else:
+        normalized = _normalized(
+            *[
+                _unit(f"unit-{index:03d}", index, text)
+                for index, text in enumerate(texts)
+            ]
+        )
     envelope = build_presemantic_records_package_input(
         normalized, _MATERIAL_ID
     )
@@ -125,6 +165,29 @@ def _package(
     )
 
 
+def _source_failure_package() -> tuple[dict, dict]:
+    normalized = _normalized(
+        _unit(
+            "unit-valid",
+            0,
+            "Alpha is a bounded synthetic definition.",
+        )
+    )
+    failed_block = _block("block-failed", 2, [])
+    failed_block["selection_status"] = "failed"
+    failed_block["native_analysis_status"] = "failed"
+    failed_block["reasons"] = ["source_mapping_missing"]
+    failed_block.pop("layout_units")
+    normalized["materials"][0]["blocks"].append(failed_block)
+    envelope = build_presemantic_records_package_input(
+        normalized, _MATERIAL_ID
+    )
+    return (
+        build_handoff_package(envelope),
+        envelope["normalized_source"],
+    )
+
+
 def _build(package: dict, normalized_source: dict) -> dict:
     return build_concept_rule_decisions(
         package,
@@ -142,6 +205,208 @@ def _all_keys(value: object) -> set[str]:
         for child in value:
             keys.update(_all_keys(child))
     return keys
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "Alpha is a bounded synthetic definition.",
+        "Alpha means a bounded synthetic definition.",
+        "Alpha refers to a bounded synthetic definition.",
+    ],
+)
+def test_raw_literal_english_direct_definitions_retain(
+    statement: str,
+) -> None:
+    package, normalized_source = _package(statement)
+    original = copy.deepcopy(package)
+
+    output = _build(package, normalized_source)
+
+    [decision] = output["decisions"]
+    assert decision["outcome"] == "retain"
+    assert decision["reason_codes"] == ["strong_definition_evidence"]
+    assert decision["teaching_scope"]
+    assert decision["teaching_scope"] in statement.casefold()
+    assert output["retained_count"] == 1
+    assert package == original
+    assert {
+        evidence["evidence_kind"]
+        for evidence in package["evidence_records"]
+    } == {"candidate_literal"}
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "熵值 是 系統不確定性的量度。",
+        "熵值 指 系統不確定性的量度。",
+        "熵值 稱為 系統不確定性的量度。",
+        "Entropy: a bounded synthetic definition.",
+        "Entropy： a bounded synthetic definition.",
+    ],
+)
+def test_raw_literal_chinese_and_colon_direct_definitions_retain(
+    statement: str,
+) -> None:
+    package, normalized_source = _package(statement)
+
+    output = _build(package, normalized_source)
+
+    [decision] = output["decisions"]
+    assert (decision["route"], decision["outcome"]) == (
+        "accepted_by_rules",
+        "retain",
+    )
+    assert decision["teaching_scope"] in statement.casefold()
+    assert output["retained_count"] == 1
+    assert package["evidence_records"][0]["evidence_kind"] == (
+        "candidate_literal"
+    )
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "Alpha is",
+        "Alpha isn't a direct definition.",
+        "Before Alpha is a direct definition.",
+    ],
+)
+def test_raw_literal_near_misses_never_retain(statement: str) -> None:
+    package, normalized_source = _package(statement)
+
+    output = _build(package, normalized_source)
+
+    assert output["retained_count"] == 0
+    assert all(
+        decision["outcome"] == "reject"
+        for decision in output["decisions"]
+    )
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "熵值 指數衡量不確定性。",
+        "熵值 是非判斷不確定性。",
+        "熵值 稱為例說明不確定性。",
+    ],
+)
+def test_chinese_connector_prefix_collisions_fail_closed(
+    statement: str,
+) -> None:
+    package, normalized_source = _package(statement)
+    original = copy.deepcopy(package)
+
+    output = _build(package, normalized_source)
+
+    [decision] = output["decisions"]
+    assert (decision["route"], decision["outcome"]) == (
+        "rejected_by_rules",
+        "reject",
+    )
+    assert output["retained_count"] == 0
+    assert output["pending_questions"] == []
+    assert "concept_id" not in decision
+    assert package == original
+    assert package["evidence_records"][0]["evidence_kind"] == (
+        "candidate_literal"
+    )
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "11 is numeric noise.",
+        "Figure is structural noise.",
+        "概念 是 generic noise.",
+    ],
+)
+def test_raw_literal_noise_and_generic_names_never_retain(
+    statement: str,
+) -> None:
+    package, normalized_source = _package(statement)
+
+    output = _build(package, normalized_source)
+
+    [decision] = output["decisions"]
+    assert decision["outcome"] == "reject"
+    assert decision["reason_codes"] == ["name_not_identifiable"]
+    assert output["retained_count"] == 0
+
+
+def test_compatible_raw_definitions_aggregate_across_two_blocks() -> None:
+    package, normalized_source = _package(
+        "Alpha is a bounded synthetic definition.",
+        "Alpha: a bounded synthetic definition.",
+        separate_blocks=True,
+    )
+    original_package = copy.deepcopy(package)
+    original_source = copy.deepcopy(normalized_source)
+
+    outputs = [
+        _build(package, normalized_source)
+        for _ in range(3)
+    ]
+
+    assert package == original_package
+    assert normalized_source == original_source
+    encoded = [canonical_json_bytes(output) for output in outputs]
+    assert encoded[0] == encoded[1] == encoded[2]
+    [decision] = outputs[0]["decisions"]
+    assert decision["outcome"] == "retain"
+    assert len(decision["candidate_ids"]) == 2
+    assert len(decision["evidence_ids"]) == 2
+    assert len(decision["origin_locator_refs"]) == 2
+    assert len(decision["context_locator_refs"]) == 2
+    assert set(decision["candidate_ids"]) == {
+        candidate["candidate_id"] for candidate in package["candidates"]
+    }
+    assert set(decision["evidence_ids"]) == {
+        evidence["evidence_id"]
+        for evidence in package["evidence_records"]
+    }
+    assert {
+        ref["origin_id"] for ref in decision["origin_locator_refs"]
+    } == {origin["origin_id"] for origin in package["origins"]}
+    assert {
+        ref["context_id"]
+        for ref in decision["context_locator_refs"]
+    } == {context["context_id"] for context in package["contexts"]}
+    assert outputs[0]["pending_questions"] == []
+    assert {
+        evidence["evidence_kind"]
+        for evidence in package["evidence_records"]
+    } == {"candidate_literal"}
+
+
+def test_incompatible_raw_definitions_and_hard_negative_review() -> None:
+    conflicting, conflicting_source = _package(
+        "Alpha is the first bounded synthetic definition.",
+        "Alpha: a contradictory second synthetic definition.",
+        separate_blocks=True,
+    )
+    hard_negative, hard_negative_source = _package(
+        "Beta means one bounded synthetic definition.",
+        hard_negative=True,
+    )
+
+    for package, source in (
+        (conflicting, conflicting_source),
+        (hard_negative, hard_negative_source),
+    ):
+        output = _build(package, source)
+        [decision] = output["decisions"]
+        assert (decision["route"], decision["outcome"]) == (
+            "needs_local_model_review",
+            "review",
+        )
+        assert decision["reason_codes"] == [
+            "conflicting_strong_evidence"
+        ]
+        assert "concept_id" not in decision
+        assert output["retained_count"] == 0
 
 
 def test_exact_pass_definition_retains_with_internal_boundary() -> None:
@@ -312,7 +577,6 @@ def test_noise_never_auto_retains(text: str) -> None:
 def test_fail_hash_source_binding_and_reference_inputs_fail_closed() -> None:
     package, normalized_source = _package(
         "Alpha is the bounded synthetic definition.",
-        evidence_kinds=("definition",),
     )
     hash_drift = copy.deepcopy(package)
     hash_drift["candidates"][0]["surface"] = "Changed"
@@ -324,11 +588,13 @@ def test_fail_hash_source_binding_and_reference_inputs_fail_closed() -> None:
         invalid_reference,
         normalized_source=normalized_source,
     )
+    source_failure, source_failure_source = _source_failure_package()
 
     for invalid_package, source in (
         (hash_drift, normalized_source),
         (package, wrong_source),
         (invalid_reference, normalized_source),
+        (source_failure, source_failure_source),
     ):
         output = _build(invalid_package, source)
         assert output["decisions"] == []
