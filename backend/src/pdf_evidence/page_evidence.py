@@ -79,7 +79,9 @@ def _write_file(path: Path, data: bytes) -> None:
 
 
 def _fsync_directory(path: Path) -> None:
-    """將檔名與目錄變更同步到磁碟，確保發布結果完整保存。"""
+    """同步目錄變更；Windows 標準介面不支援時略過。"""
+    if os.name == "nt":
+        return
     descriptor = os.open(path, os.O_RDONLY)
     try:
         os.fsync(descriptor)
