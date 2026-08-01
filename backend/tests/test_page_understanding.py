@@ -1,0 +1,482 @@
+from copy import deepcopy
+import hashlib
+import json
+from pathlib import Path
+import socket
+import urllib.error
+
+import pytest
+
+from pdf_evidence import page_understanding
+from pdf_evidence.page_understanding import process_page_evidence
+
+
+class _Response:
+    """提供 urllib 測試所需的最小 HTTP response。"""
+
+    def __init__(self, body, status=200):
+        self.body = body
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exception_type, exception, traceback):
+        return False
+
+    def getcode(self):
+        return self.status
+
+    def read(self):
+        return self.body
+
+    def close(self):
+        return None
+
+
+class _Opener:
+    """將 direct opener 的 open 呼叫交給測試 callback。"""
+
+    def __init__(self, callback):
+        self.callback = callback
+
+    def open(self, request, timeout):
+        return self.callback(request, timeout)
+
+
+def _render_bytes():
+    """建立不需真實模型處理的 synthetic PNG bytes。"""
+    return b"\x89PNG\r\n\x1a\nsynthetic-page"
+
+
+def _bind_evidence(evidence):
+    """依 Task 3 公式更新 material、page 與 evidence references。"""
+    source = evidence["hashes"]["source_sha256"]
+    native = evidence["hashes"]["native_sha256"]
+    render = evidence["hashes"]["render_sha256"]
+    page_number = evidence["page_number"]
+    page_hash = hashlib.sha256(f"{source}:{page_number}".encode("ascii")).hexdigest()
+    evidence_hash = hashlib.sha256(
+        f"{source}:{page_number}:{native}:{render}".encode("ascii")
+    ).hexdigest()
+    evidence["material_ref"] = f"material:sha256:{source}"
+    evidence["page_ref"] = f"page:sha256:{page_hash}"
+    evidence["evidence_ref"] = f"evidence:sha256:{evidence_hash}"
+
+
+def _page_evidence(render_bytes=None):
+    """建立包含 render 與座標 binding 的成功 Page Evidence。"""
+    render_bytes = _render_bytes() if render_bytes is None else render_bytes
+    evidence = {
+        "schema": "s1-page-evidence/v1",
+        "status": "succeeded",
+        "page_number": 1,
+        "hashes": {
+            "source_sha256": "a" * 64,
+            "native_sha256": "b" * 64,
+            "render_sha256": hashlib.sha256(render_bytes).hexdigest(),
+        },
+        "render": {
+            "schema": "s1-page-render/v1",
+            "width_pixels": 400,
+            "height_pixels": 200,
+        },
+        "geometry": {"visible_points": [0.0, 0.0, 200.0, 100.0]},
+        "coordinate_transform": {
+            "native_coordinate_space": "unrotated_page_points",
+            "render_coordinate_space": "rotated_page_points",
+            "rotated_to_point": [0.0, -1.0, 1.0, 0.0, 0.0, 200.0],
+        },
+    }
+    _bind_evidence(evidence)
+    return evidence
+
+
+def _config(cache_dir):
+    """建立完整且不含 secret 的本機 runtime 設定。"""
+    return {
+        "endpoint_url": "http://127.0.0.1:8080",
+        "cache_dir": str(cache_dir),
+        "deadline_seconds": 10,
+        "max_attempts": 2,
+        "retry_backoff_seconds": 0,
+        "model_id": "local-page-model",
+        "model_revision": "revision-1",
+        "model_artifact_sha256": "d" * 64,
+        "projector_sha256": "e" * 64,
+        "runtime_id": "runtime-1",
+        "processing_policy_version": "policy-1",
+    }
+
+
+def _model_body():
+    """建立模型應回傳的 normalized Page Structure body。"""
+    return {
+        "elements": [
+            {
+                "id": "heading-1",
+                "type": "heading",
+                "bbox": [100, 100, 400, 300],
+                "text": "Visible heading",
+            }
+        ],
+        "reading_order": ["heading-1"],
+        "spatial_relations": [],
+    }
+
+
+def _outer_response(model_body=None, finish_reason="stop"):
+    """包裝本機 chat completions 的 JSON response。"""
+    model_body = _model_body() if model_body is None else model_body
+    return json.dumps(
+        {
+            "choices": [
+                {
+                    "finish_reason": finish_reason,
+                    "message": {"content": json.dumps(model_body)},
+                }
+            ]
+        }
+    ).encode("utf-8")
+
+
+def _successful_build_opener(calls, handlers_seen=None):
+    """記錄 direct opener 與 request，再回傳固定模型結果。"""
+    def open_request(request, timeout):
+        calls.append((request, timeout))
+        return _Response(_outer_response())
+
+    def build_opener(*handlers):
+        if handlers_seen is not None:
+            handlers_seen.extend(handlers)
+        return _Opener(open_request)
+
+    return build_opener
+
+
+def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
+    """驗證 request 最小化、座標 binding、cache 寫入與重新驗證。"""
+    render_bytes = _render_bytes()
+    evidence = _page_evidence(render_bytes)
+    original_evidence = deepcopy(evidence)
+    config = _config(tmp_path / "cache")
+    config["endpoint_url"] = "http://localhost:8080"
+    calls = []
+    handlers = []
+    monkeypatch.setattr(
+        page_understanding.urllib.request,
+        "build_opener",
+        _successful_build_opener(calls, handlers),
+    )
+
+    mismatch = process_page_evidence(evidence, render_bytes + b"changed", config)
+    assert mismatch == {
+        "processing": "failed",
+        "reason_code": "RENDER_HASH_MISMATCH",
+        "input_evidence_ref": evidence["evidence_ref"],
+    }
+    assert calls == []
+    assert not Path(config["cache_dir"]).exists()
+
+    result = process_page_evidence(evidence, render_bytes, config)
+
+    assert result["processing"] == "succeeded"
+    assert result["reason_code"] == "PAGE_STRUCTURE_READY"
+    assert set(result) == {
+        "processing",
+        "reason_code",
+        "cache_key",
+        "input_evidence_ref",
+        "runtime_identity",
+        "page_structure",
+    }
+    assert set(result["runtime_identity"]) == {
+        "model_id",
+        "model_revision",
+        "model_artifact_sha256",
+        "projector_sha256",
+        "runtime_id",
+        "prompt_version",
+        "processing_policy_version",
+    }
+    structure = result["page_structure"]
+    assert structure["schema"] == "s1-page-structure/v1"
+    assert structure["material_ref"] == evidence["material_ref"]
+    assert structure["page_ref"] == evidence["page_ref"]
+    assert structure["page_number"] == evidence["page_number"]
+    assert structure["input_evidence_ref"] == evidence["evidence_ref"]
+    assert structure["coordinate_space"] == "unrotated_page_points"
+    assert structure["elements"][0]["bbox"] == [10.0, 120.0, 30.0, 180.0]
+    assert evidence == original_evidence
+
+    request, timeout = calls[0]
+    assert request.full_url == "http://127.0.0.1:8080/v1/chat/completions"
+    assert request.method == "POST"
+    assert dict(request.header_items()) == {
+        "Content-type": "application/json",
+        "Accept": "application/json",
+    }
+    assert 0 < timeout <= config["deadline_seconds"]
+    request_json = json.loads(request.data)
+    assert set(request_json) == {
+        "model",
+        "messages",
+        "temperature",
+        "response_format",
+    }
+    assert request_json["model"] == config["model_id"]
+    assert request_json["temperature"] == 0
+    assert request_json["response_format"] == {"type": "json_object"}
+    assert request_json["messages"] == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": page_understanding.PAGE_STRUCTURE_PROMPT},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/png;base64,"
+                        + __import__("base64").b64encode(render_bytes).decode("ascii")
+                    },
+                },
+            ],
+        }
+    ]
+    serialized_request = request.data.decode("utf-8")
+    for excluded in (
+        evidence["material_ref"],
+        evidence["page_ref"],
+        evidence["evidence_ref"],
+        evidence["hashes"]["render_sha256"],
+        config["runtime_id"],
+    ):
+        assert excluded not in serialized_request
+    proxy_handler = next(
+        handler
+        for handler in handlers
+        if isinstance(handler, page_understanding.urllib.request.ProxyHandler)
+    )
+    redirect_handler = next(
+        handler for handler in handlers if isinstance(handler, page_understanding._NoRedirect)
+    )
+    assert proxy_handler.proxies == {}
+    with pytest.raises(urllib.error.HTTPError) as redirect:
+        redirect_handler.http_error_302(
+            request, _Response(b""), 302, "redirect", {"Location": "http://example.com"}
+        )
+    assert redirect.value.code == 302
+
+    cache_path = Path(config["cache_dir"]) / f"{result['cache_key']}.json"
+    record = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert set(record) == {
+        "cache_key",
+        "input_evidence_ref",
+        "runtime_identity",
+        "page_structure",
+    }
+    cached = process_page_evidence(evidence, render_bytes, config)
+    assert cached["reason_code"] == "PAGE_STRUCTURE_CACHE_HIT"
+    assert len(calls) == 1
+
+    record["page_structure"]["elements"][0]["bbox"] = [-1, 0, 2, 2]
+    cache_path.write_text(json.dumps(record), encoding="utf-8")
+    refreshed = process_page_evidence(evidence, render_bytes, config)
+    assert refreshed["reason_code"] == "PAGE_STRUCTURE_READY"
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize(
+    "identity_part",
+    [
+        "source_sha256",
+        "page_number",
+        "evidence_ref",
+        "render_schema",
+        "render_sha256",
+        "model_id",
+        "model_revision",
+        "model_artifact_sha256",
+        "projector_sha256",
+        "runtime_id",
+        "prompt_version",
+        "prompt_sha256",
+        "page_structure_schema",
+        "processing_policy_version",
+    ],
+)
+def test_cache_key_invalidates(tmp_path, monkeypatch, identity_part):
+    """驗證每一項 output identity 改變時都不會沿用既有 cache key。"""
+    calls = []
+    monkeypatch.setattr(
+        page_understanding.urllib.request,
+        "build_opener",
+        _successful_build_opener(calls),
+    )
+    render_bytes = _render_bytes()
+    evidence = _page_evidence(render_bytes)
+    config = _config(tmp_path / "cache")
+    baseline = process_page_evidence(evidence, render_bytes, config)
+    assert baseline["processing"] == "succeeded"
+
+    changed_evidence = deepcopy(evidence)
+    changed_config = deepcopy(config)
+    changed_render = render_bytes
+    if identity_part == "source_sha256":
+        changed_evidence["hashes"]["source_sha256"] = "f" * 64
+        _bind_evidence(changed_evidence)
+    elif identity_part == "page_number":
+        changed_evidence["page_number"] = 2
+        _bind_evidence(changed_evidence)
+    elif identity_part == "evidence_ref":
+        changed_evidence["hashes"]["native_sha256"] = "f" * 64
+        _bind_evidence(changed_evidence)
+    elif identity_part == "render_schema":
+        changed_evidence["render"]["schema"] = "s1-page-render/v2"
+    elif identity_part == "render_sha256":
+        changed_render += b"new"
+        changed_evidence["hashes"]["render_sha256"] = hashlib.sha256(
+            changed_render
+        ).hexdigest()
+        _bind_evidence(changed_evidence)
+    elif identity_part in changed_config:
+        if identity_part in {"model_artifact_sha256", "projector_sha256"}:
+            changed_config[identity_part] = "f" * 64
+        else:
+            changed_config[identity_part] += "-new"
+    elif identity_part == "prompt_version":
+        monkeypatch.setattr(
+            page_understanding,
+            "PAGE_STRUCTURE_PROMPT_VERSION",
+            "s1-page-structure-prompt/v2",
+        )
+    elif identity_part == "prompt_sha256":
+        monkeypatch.setattr(
+            page_understanding,
+            "PAGE_STRUCTURE_PROMPT",
+            page_understanding.PAGE_STRUCTURE_PROMPT + " ",
+        )
+    else:
+        monkeypatch.setattr(
+            page_understanding, "PAGE_STRUCTURE_SCHEMA", "s1-page-structure/v2"
+        )
+
+    changed = process_page_evidence(changed_evidence, changed_render, changed_config)
+    assert changed["cache_key"] != baseline["cache_key"]
+
+
+@pytest.mark.parametrize(
+    ("case", "processing", "reason", "expected_calls"),
+    [
+        ("evidence", "failed", "PAGE_EVIDENCE_BINDING_INVALID", 0),
+        ("material_binding", "failed", "PAGE_EVIDENCE_BINDING_INVALID", 0),
+        ("page_binding", "failed", "PAGE_EVIDENCE_BINDING_INVALID", 0),
+        ("evidence_binding", "failed", "PAGE_EVIDENCE_BINDING_INVALID", 0),
+        ("native_hash", "failed", "PAGE_EVIDENCE_BINDING_INVALID", 0),
+        ("hash", "failed", "RENDER_HASH_MISMATCH", 0),
+        ("config", "failed", "LOCAL_CONFIG_INVALID", 0),
+        ("endpoint", "failed", "LOCAL_ENDPOINT_NOT_LOOPBACK", 0),
+        ("endpoint_query", "failed", "LOCAL_ENDPOINT_NOT_LOOPBACK", 0),
+        ("endpoint_fragment", "failed", "LOCAL_ENDPOINT_NOT_LOOPBACK", 0),
+        ("timeout", "partial", "LOCAL_PROVIDER_TIMEOUT", 2),
+        ("rate_limit", "partial", "LOCAL_PROVIDER_RATE_LIMITED", 2),
+        ("server_error", "partial", "LOCAL_PROVIDER_TRANSIENT_ERROR", 2),
+        ("connection", "partial", "LOCAL_PROVIDER_TRANSIENT_ERROR", 2),
+        ("client_error", "failed", "LOCAL_PROVIDER_AUTH_OR_CONFIG_ERROR", 1),
+        ("redirect", "failed", "LOCAL_PROVIDER_AUTH_OR_CONFIG_ERROR", 1),
+        ("truncated", "failed", "MODEL_RESPONSE_TRUNCATED", 1),
+        ("outer_json", "failed", "MODEL_RESPONSE_INVALID_JSON", 1),
+        ("content_json", "failed", "MODEL_RESPONSE_INVALID_JSON", 1),
+        ("normalized_bbox", "failed", "PAGE_STRUCTURE_INVALID", 1),
+        ("schema", "failed", "ELEMENT_SHAPE_INVALID", 1),
+        ("replace", "failed", "PAGE_STRUCTURE_CACHE_WRITE_FAILED", 1),
+    ],
+)
+def test_process_page_evidence_failures(
+    tmp_path, monkeypatch, case, processing, reason, expected_calls
+):
+    """驗證 preflight、Provider、JSON、schema 與 cache 失敗都會 fail closed。"""
+    render_bytes = _render_bytes()
+    evidence = _page_evidence(render_bytes)
+    config = _config(tmp_path / "cache")
+    calls = []
+
+    if case == "evidence":
+        evidence.pop("geometry")
+    elif case == "material_binding":
+        evidence["material_ref"] = f"material:sha256:{'f' * 64}"
+    elif case == "page_binding":
+        evidence["page_ref"] = f"page:sha256:{'f' * 64}"
+    elif case == "evidence_binding":
+        evidence["evidence_ref"] = f"evidence:sha256:{'f' * 64}"
+    elif case == "native_hash":
+        evidence["hashes"]["native_sha256"] = "F" * 64
+    elif case == "hash":
+        render_bytes += b"changed"
+    elif case == "config":
+        config["extra"] = "not-approved"
+    elif case == "endpoint":
+        config["endpoint_url"] = "http://example.com:8080"
+    elif case == "endpoint_query":
+        config["endpoint_url"] = "http://127.0.0.1:8080?"
+    elif case == "endpoint_fragment":
+        config["endpoint_url"] = "http://127.0.0.1:8080#"
+
+    def urlopen(request, timeout):
+        calls.append((request, timeout))
+        if case == "timeout":
+            raise socket.timeout("timed out")
+        if case == "rate_limit":
+            raise urllib.error.HTTPError(request.full_url, 429, "limited", None, None)
+        if case == "server_error":
+            raise urllib.error.HTTPError(request.full_url, 503, "unavailable", None, None)
+        if case == "connection":
+            raise urllib.error.URLError(ConnectionRefusedError("refused"))
+        if case == "client_error":
+            raise urllib.error.HTTPError(request.full_url, 400, "bad request", None, None)
+        if case == "redirect":
+            raise urllib.error.HTTPError(request.full_url, 302, "redirect", None, None)
+        if case == "truncated":
+            return _Response(_outer_response(finish_reason="length"))
+        if case == "outer_json":
+            return _Response(b"not-json")
+        if case == "content_json":
+            return _Response(
+                json.dumps(
+                    {
+                        "choices": [
+                            {
+                                "finish_reason": "stop",
+                                "message": {"content": "not-json"},
+                            }
+                        ]
+                    }
+                ).encode("utf-8")
+            )
+        if case == "normalized_bbox":
+            body = _model_body()
+            body["elements"][0]["bbox"] = [0, 0, 1001, 10]
+            return _Response(_outer_response(body))
+        if case == "schema":
+            body = _model_body()
+            body["elements"][0].pop("text")
+            return _Response(_outer_response(body))
+        return _Response(_outer_response())
+
+    monkeypatch.setattr(
+        page_understanding.urllib.request,
+        "build_opener",
+        lambda *handlers: _Opener(urlopen),
+    )
+    if case == "replace":
+        monkeypatch.setattr(
+            page_understanding.os,
+            "replace",
+            lambda *args, **kwargs: (_ for _ in ()).throw(OSError("replace failed")),
+        )
+
+    result = process_page_evidence(evidence, render_bytes, config)
+
+    assert result["processing"] == processing
+    assert result["reason_code"] == reason
+    assert "page_structure" not in result
+    assert len(calls) == expected_calls
