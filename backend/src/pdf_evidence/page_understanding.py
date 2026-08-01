@@ -17,16 +17,127 @@ import urllib.request
 from .page_structure import PAGE_STRUCTURE_SCHEMA, validate_page_structure
 
 
-PAGE_STRUCTURE_PROMPT_VERSION = "s1-page-structure-prompt/v1"
+PAGE_STRUCTURE_PROMPT_VERSION = "s1-page-structure-prompt/v2"
 PAGE_STRUCTURE_PROMPT = (
-    "Inspect the supplied page image. Return exactly one JSON object and no Markdown or explanation. "
-    "Its exact top-level keys are elements, reading_order, and spatial_relations. Do not return schema, "
-    "material_ref, page_ref, page_number, input_evidence_ref, or coordinate_space. Every element bbox "
-    "must be [x0, y0, x1, y1] in normalized_render_1000 coordinates, where each value is between 0 "
-    "and 1000 and x0 < x1 and y0 < y1. Use only visible page content. Use the Page Structure v1 "
-    "element types and their required fields. Represent uncertain, cropped, unreadable, or conflicting "
-    "visible regions with other_visible_region and uncertainty_kind. Do not invent content."
+    "Inspect the supplied page image and describe its visible structure. Ground every element in "
+    "visible page evidence. Every bbox uses normalized_render_1000 coordinates ordered [x0, y0, x1, y1] "
+    "with values from 0 to 1000; x increases rightward, y increases downward, x0 < x1, and y0 < y1. Preserve reading and spatial relationships, mark uncertain regions explicitly, and do not invent content."
 )
+PAGE_STRUCTURE_BODY_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["elements", "reading_order", "spatial_relations"],
+    "$defs": {"nonempty_string": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "bbox": {
+            "type": "array", "items": {"type": "number", "minimum": 0, "maximum": 1000},
+            "minItems": 4, "maxItems": 4,
+        },
+        "matrix_cell": {"type": "object", "additionalProperties": False, "required": ["row", "column", "text"],
+            "properties": {
+                "row": {"type": "integer", "minimum": 1}, "column": {"type": "integer", "minimum": 1},
+                "text": {"type": "string"},
+            },
+        },
+        "table_cell": {"type": "object", "additionalProperties": False, "required": ["row", "column", "row_span", "column_span", "role", "text"],
+            "properties": {
+                "row": {"type": "integer", "minimum": 1}, "column": {"type": "integer", "minimum": 1},
+                "row_span": {"type": "integer", "minimum": 1}, "column_span": {"type": "integer", "minimum": 1},
+                "role": {"enum": ["header", "data"]},
+                "text": {"type": "string"},
+            },
+        },
+    },
+    "properties": {
+        "elements": {"type": "array", "items": {"oneOf": [
+                    {
+                        "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "text"],
+                        "properties": {
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"enum": ["heading", "paragraph", "code"]},
+                            "bbox": {"$ref": "#/$defs/bbox"},
+                            "text": {"$ref": "#/$defs/nonempty_string"},
+                        },
+                    },
+                    {
+                        "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "items"],
+                        "properties": {
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"const": "list"},
+                            "bbox": {"$ref": "#/$defs/bbox"},
+                            "items": {"type": "array", "items": {"$ref": "#/$defs/nonempty_string"}, "minItems": 1},
+                        },
+                    },
+                    {
+                        "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "latex"],
+                        "properties": {
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"const": "formula"},
+                            "bbox": {"$ref": "#/$defs/bbox"}, "latex": {"$ref": "#/$defs/nonempty_string"},
+                        },
+                    },
+                    {
+                        "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "row_count", "column_count", "cells"],
+                        "properties": {
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"const": "matrix"},
+                            "bbox": {"$ref": "#/$defs/bbox"},
+                            "row_count": {"type": "integer", "minimum": 1}, "column_count": {"type": "integer", "minimum": 1},
+                            "cells": {"type": "array", "items": {"$ref": "#/$defs/matrix_cell"}, "minItems": 1},
+                        },
+                    },
+                    {
+                        "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "row_count", "column_count", "cells"],
+                        "properties": {
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"const": "table"},
+                            "bbox": {"$ref": "#/$defs/bbox"},
+                            "row_count": {"type": "integer", "minimum": 1}, "column_count": {"type": "integer", "minimum": 1},
+                            "cells": {"type": "array", "items": {"$ref": "#/$defs/table_cell"}, "minItems": 1},
+                        },
+                    },
+                    {
+                        "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox"],
+                        "properties": {
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"enum": ["diagram_node", "arrow"]},
+                            "bbox": {"$ref": "#/$defs/bbox"},
+                        },
+                    },
+                    {
+                        "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "text"],
+                        "properties": {
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"const": "diagram_label"},
+                            "bbox": {"$ref": "#/$defs/bbox"}, "text": {"$ref": "#/$defs/nonempty_string"},
+                            "node_id": {"$ref": "#/$defs/nonempty_string"},
+                        },
+                    },
+                    {
+                        "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "uncertainty_kind"],
+                        "properties": {
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"const": "other_visible_region"},
+                            "bbox": {"$ref": "#/$defs/bbox"},
+                            "uncertainty_kind": {"enum": ["uncertain", "cropped", "unreadable", "conflicting"]},
+                        },
+                    },
+                ]
+            },
+        },
+        "reading_order": {"type": "array", "items": {"type": "string"}},
+        "spatial_relations": {"type": "array", "items": {"oneOf": [
+                    {
+                        "type": "object", "additionalProperties": False, "required": ["type", "source_id", "target_id"],
+                        "properties": {
+                            "type": {"enum": ["left_of", "above", "contains"]},
+                            "source_id": {"$ref": "#/$defs/nonempty_string"},
+                            "target_id": {"$ref": "#/$defs/nonempty_string"},
+                        },
+                    },
+                    {
+                        "type": "object", "additionalProperties": False, "required": ["type", "source_id", "target_id", "arrow_id"],
+                        "properties": {
+                            "type": {"const": "directed_arrow"},
+                            "source_id": {"$ref": "#/$defs/nonempty_string"},
+                            "target_id": {"$ref": "#/$defs/nonempty_string"},
+                            "arrow_id": {"$ref": "#/$defs/nonempty_string"},
+                        },
+                    },
+                ]
+            },
+        },
+    },
+}
 
 _CONFIG_KEYS = {
     "endpoint_url",
@@ -285,6 +396,7 @@ def _cache_key(page_evidence: dict[str, Any], local_config: dict[str, Any]) -> s
         "runtime_id": local_config["runtime_id"],
         "prompt_version": PAGE_STRUCTURE_PROMPT_VERSION,
         "prompt_sha256": hashlib.sha256(PAGE_STRUCTURE_PROMPT.encode("utf-8")).hexdigest(),
+        "page_structure_body_schema_sha256": hashlib.sha256(_canonical_json(PAGE_STRUCTURE_BODY_SCHEMA)).hexdigest(),
         "page_structure_schema": PAGE_STRUCTURE_SCHEMA,
         "processing_policy_version": local_config["processing_policy_version"],
     }
@@ -365,7 +477,16 @@ def _request_payload(render_bytes: bytes, model_id: str) -> bytes:
                 }
             ],
             "temperature": 0,
-            "response_format": {"type": "json_object"},
+            "stream": False,
+            "max_tokens": 4096,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "page_structure_body",
+                    "strict": True,
+                    "schema": PAGE_STRUCTURE_BODY_SCHEMA,
+                },
+            },
         }
     )
 

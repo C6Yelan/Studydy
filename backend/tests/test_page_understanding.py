@@ -105,7 +105,7 @@ def _config(cache_dir):
         "model_artifact_sha256": "d" * 64,
         "projector_sha256": "e" * 64,
         "runtime_id": "runtime-1",
-        "processing_policy_version": "policy-1",
+        "processing_policy_version": "s1-page-understanding-policy/v2",
     }
 
 
@@ -199,6 +199,11 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
         "prompt_version",
         "processing_policy_version",
     }
+    assert result["runtime_identity"]["prompt_version"] == "s1-page-structure-prompt/v2"
+    assert (
+        result["runtime_identity"]["processing_policy_version"]
+        == "s1-page-understanding-policy/v2"
+    )
     structure = result["page_structure"]
     assert structure["schema"] == "s1-page-structure/v1"
     assert structure["material_ref"] == evidence["material_ref"]
@@ -222,11 +227,56 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
         "model",
         "messages",
         "temperature",
+        "stream",
+        "max_tokens",
         "response_format",
     }
     assert request_json["model"] == config["model_id"]
     assert request_json["temperature"] == 0
-    assert request_json["response_format"] == {"type": "json_object"}
+    assert request_json["stream"] is False
+    assert request_json["max_tokens"] == 4096
+    assert request_json["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "page_structure_body",
+            "strict": True,
+            "schema": page_understanding.PAGE_STRUCTURE_BODY_SCHEMA,
+        },
+    }
+    body_schema = page_understanding.PAGE_STRUCTURE_BODY_SCHEMA
+    assert body_schema["additionalProperties"] is False
+    assert body_schema["$defs"]["nonempty_string"]["pattern"] == r"\S"
+    assert all(text in page_understanding.PAGE_STRUCTURE_PROMPT for text in (
+        "normalized_render_1000", "[x0, y0, x1, y1]", "0 to 1000", "x increases rightward", "y increases downward"))
+    assert set(body_schema["required"]) == {
+        "elements",
+        "reading_order",
+        "spatial_relations",
+    }
+    object_schemas = [body_schema]
+    pending = [body_schema]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            if value.get("type") == "object" and value is not body_schema:
+                object_schemas.append(value)
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+    assert all(schema["additionalProperties"] is False for schema in object_schemas)
+    element_types = set()
+    for schema in body_schema["properties"]["elements"]["items"]["oneOf"]:
+        type_schema = schema["properties"]["type"]
+        element_types.update(type_schema.get("enum", [type_schema.get("const")]))
+    assert element_types == {
+        "heading", "paragraph", "list", "code", "formula", "matrix", "table",
+        "diagram_node", "diagram_label", "arrow", "other_visible_region",
+    }
+    relation_types = set()
+    for schema in body_schema["properties"]["spatial_relations"]["items"]["oneOf"]:
+        type_schema = schema["properties"]["type"]
+        relation_types.update(type_schema.get("enum", [type_schema.get("const")]))
+    assert relation_types == {"left_of", "above", "contains", "directed_arrow"}
     assert request_json["messages"] == [
         {
             "role": "user",
@@ -347,7 +397,7 @@ def test_cache_key_invalidates(tmp_path, monkeypatch, identity_part):
         monkeypatch.setattr(
             page_understanding,
             "PAGE_STRUCTURE_PROMPT_VERSION",
-            "s1-page-structure-prompt/v2",
+            "s1-page-structure-prompt/v3",
         )
     elif identity_part == "prompt_sha256":
         monkeypatch.setattr(
@@ -362,6 +412,12 @@ def test_cache_key_invalidates(tmp_path, monkeypatch, identity_part):
 
     changed = process_page_evidence(changed_evidence, changed_render, changed_config)
     assert changed["cache_key"] != baseline["cache_key"]
+    if identity_part == "page_structure_schema":
+        changed_body_schema = deepcopy(page_understanding.PAGE_STRUCTURE_BODY_SCHEMA)
+        changed_body_schema["properties"]["elements"]["minItems"] = 1
+        monkeypatch.setattr(page_understanding, "PAGE_STRUCTURE_BODY_SCHEMA", changed_body_schema)
+        body_schema_changed = process_page_evidence(changed_evidence, changed_render, changed_config)
+        assert body_schema_changed["cache_key"] != changed["cache_key"]
 
 
 @pytest.mark.parametrize(
