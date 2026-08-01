@@ -2,6 +2,7 @@ from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
+import re
 import socket
 import urllib.error
 
@@ -245,7 +246,11 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
     }
     body_schema = page_understanding.PAGE_STRUCTURE_BODY_SCHEMA
     assert body_schema["additionalProperties"] is False
-    assert body_schema["$defs"]["nonempty_string"]["pattern"] == r"\S"
+    nonempty_pattern = body_schema["$defs"]["nonempty_string"]["pattern"]
+    assert nonempty_pattern == r"^[\s\S]*\S[\s\S]*$"
+    assert re.fullmatch(nonempty_pattern, " visible ") is not None
+    assert re.fullmatch(nonempty_pattern, " \t\n ") is None
+    assert re.fullmatch(nonempty_pattern, "first line\nsecond line") is not None
     assert all(text in page_understanding.PAGE_STRUCTURE_PROMPT for text in (
         "normalized_render_1000", "[x0, y0, x1, y1]", "0 to 1000", "x increases rightward", "y increases downward"))
     assert set(body_schema["required"]) == {

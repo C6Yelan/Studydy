@@ -25,7 +25,7 @@ PAGE_STRUCTURE_PROMPT = (
 )
 PAGE_STRUCTURE_BODY_SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["elements", "reading_order", "spatial_relations"],
-    "$defs": {"nonempty_string": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "$defs": {"nonempty_string": {"type": "string", "minLength": 1, "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"},
         "bbox": {
             "type": "array", "items": {"type": "number", "minimum": 0, "maximum": 1000},
             "minItems": 4, "maxItems": 4,
@@ -150,15 +150,6 @@ _CONFIG_KEYS = {
     "model_artifact_sha256",
     "projector_sha256",
     "runtime_id",
-    "processing_policy_version",
-}
-_RUNTIME_IDENTITY_KEYS = {
-    "model_id",
-    "model_revision",
-    "model_artifact_sha256",
-    "projector_sha256",
-    "runtime_id",
-    "prompt_version",
     "processing_policy_version",
 }
 _MODEL_BODY_KEYS = {"elements", "reading_order", "spatial_relations"}
@@ -426,8 +417,6 @@ def _read_cache(
         record["cache_key"] != cache_key
         or record["input_evidence_ref"] != evidence_ref
         or record["runtime_identity"] != runtime_identity
-        or not isinstance(record["runtime_identity"], dict)
-        or set(record["runtime_identity"]) != _RUNTIME_IDENTITY_KEYS
         or validate_page_structure(record["page_structure"], page_evidence) is not None
     ):
         return None
@@ -551,7 +540,7 @@ def _post_once(
         if isinstance(error.reason, (socket.timeout, TimeoutError)):
             return None, "LOCAL_PROVIDER_TIMEOUT", True
         return None, "LOCAL_PROVIDER_TRANSIENT_ERROR", True
-    except (ConnectionError, ConnectionResetError):
+    except ConnectionError:
         return None, "LOCAL_PROVIDER_TRANSIENT_ERROR", True
     model_body, reason = _decode_response(body)
     return model_body, reason, False
