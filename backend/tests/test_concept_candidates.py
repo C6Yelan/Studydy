@@ -122,7 +122,7 @@ def _validated_page_inputs():
 
 
 def _context_and_body():
-    """建立可產生 provisional candidate 的 context 與 Sol body。"""
+    """建立可產生 provisional candidate 的 context 與外部 body。"""
     page_structure, page_evidence, page_alignment = _validated_page_inputs()
     context = build_concept_context(
         page_structure, page_evidence, page_alignment, "heading-1"
@@ -248,7 +248,7 @@ def test_context_rejects_unvalidated_or_unbounded_inputs(invalid_input):
 
 
 def test_builds_grounded_development_only_provisional_candidate():
-    """驗證 valid body 只保存已知 Evidence 子集、Sol identity 與 context lineage。"""
+    """驗證 valid body 只保存已知 Evidence 子集、生成來源 identity 與 context lineage。"""
     context, body = _context_and_body()
     originals = deepcopy((context, body))
 
@@ -331,7 +331,7 @@ def test_rejects_invalid_body_and_evidence_ids(invalid_body, reason_code):
 
 @pytest.mark.parametrize("missing_identity", ["handoff", "role", "model"])
 def test_missing_handoff_or_sol_identity_cannot_succeed(missing_identity):
-    """驗證 handoff、Sol role 或 model 缺少時不會建立成功 candidate。"""
+    """驗證 handoff、生成角色或 model 缺少時不會建立成功 candidate。"""
     context, body = _context_and_body()
     handoff_id = "task8-sol-handoff-001"
     sol_identity = {"role": "codex-sol", "model": "gpt-5.6-sol"}

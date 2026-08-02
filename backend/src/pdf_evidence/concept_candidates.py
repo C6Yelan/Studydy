@@ -224,7 +224,7 @@ def build_provisional_concept_candidate(
     handoff_id: Any,
     sol_identity: Any,
 ) -> dict[str, Any]:
-    """驗證 Sol body 與已知 Evidence，建立 development-only provisional candidate。"""
+    """驗證外部產生的 body 與已知 Evidence，建立 development-only provisional candidate。"""
     identity = context["identity"]
     input_binding = context["input_binding"]
     element_ids = [element["element_id"] for element in context["elements"]]
