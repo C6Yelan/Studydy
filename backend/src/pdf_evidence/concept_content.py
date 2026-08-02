@@ -23,15 +23,13 @@ def _collect_group_content(
     content_groups = []
     source_needs_review = False
     for group in groups:
-        if not isinstance(group, dict):
-            return None
-        if group.get("schema") != CONCEPT_GROUP_SCHEMA:
+        if group["schema"] != CONCEPT_GROUP_SCHEMA:
             return None
         status = (
-            group.get("processing"),
-            group.get("quality"),
-            group.get("decision"),
-            group.get("reason_code"),
+            group["processing"],
+            group["quality"],
+            group["decision"],
+            group["reason_code"],
         )
         if status == (
             "succeeded",
@@ -50,21 +48,10 @@ def _collect_group_content(
         else:
             return None
 
-        group_material_ref = group.get("material_ref")
-        group_id = group.get("group_id")
-        normalized_name = group.get("normalized_name")
-        members = group.get("members")
-        if (
-            not isinstance(group_material_ref, str)
-            or not group_material_ref.strip()
-            or not isinstance(group_id, str)
-            or not group_id.strip()
-            or not isinstance(normalized_name, str)
-            or not normalized_name.strip()
-            or not isinstance(members, list)
-            or not members
-        ):
-            return None
+        group_material_ref = group["material_ref"]
+        group_id = group["group_id"]
+        normalized_name = group["normalized_name"]
+        members = group["members"]
         if material_ref is None:
             material_ref = group_material_ref
         elif group_material_ref != material_ref:
@@ -72,34 +59,9 @@ def _collect_group_content(
 
         content_members = []
         for member in members:
-            if not isinstance(member, dict):
-                return None
-            source_page = member.get("source_page")
-            evidence = member.get("evidence")
-            if (
-                not isinstance(member.get("candidate_id"), str)
-                or not member["candidate_id"].strip()
-                or not isinstance(source_page, dict)
-                or source_page.get("material_ref") != material_ref
-                or not isinstance(source_page.get("page_ref"), str)
-                or not source_page["page_ref"].strip()
-                or isinstance(source_page.get("page_number"), bool)
-                or not isinstance(source_page.get("page_number"), int)
-                or source_page["page_number"] < 1
-                or any(
-                    not isinstance(member.get(field), str)
-                    or not member[field].strip()
-                    for field in ("name", "definition", "scope")
-                )
-                or not isinstance(evidence, list)
-                or not evidence
-                or any(
-                    not isinstance(reference, dict)
-                    or not isinstance(reference.get("evidence_id"), str)
-                    or not reference["evidence_id"].strip()
-                    for reference in evidence
-                )
-            ):
+            source_page = member["source_page"]
+            evidence = member["evidence"]
+            if source_page["material_ref"] != material_ref:
                 return None
             content_members.append(
                 {
