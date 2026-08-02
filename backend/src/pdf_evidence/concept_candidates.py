@@ -130,6 +130,15 @@ def build_concept_context(
         "page_structure_sha256": page_structure_sha256,
         "native_sha256": alignment_input_binding["native_sha256"],
     }
+    alignment_findings = page_alignment["findings"]
+    auto_alignment_accepted = (
+        page_alignment["reason_code"] == "ALIGNMENT_ACCEPTED"
+        and alignment_findings == []
+    )
+    reviewed_visual_alignment_accepted = (
+        page_alignment["reason_code"] == "VISUAL_ALIGNMENT_REVIEW_ACCEPTED"
+        and alignment_findings == [{"reason_code": "VISION_CONTENT_PRESENT"}]
+    )
     if (
         page_alignment["schema"] != "s1-page-alignment/v1"
         or page_alignment["identity"] != identity
@@ -138,8 +147,9 @@ def build_concept_context(
         or page_alignment["processing"] != "succeeded"
         or page_alignment["quality"] != "accepted"
         or page_alignment["decision"] != "retain"
-        or page_alignment["reason_code"] != "ALIGNMENT_ACCEPTED"
-        or page_alignment["findings"] != []
+        or not (
+            auto_alignment_accepted or reviewed_visual_alignment_accepted
+        )
     ):
         return None
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 import json
 import math
@@ -293,3 +294,53 @@ def assess_page_structure_alignment(
         findings=findings,
         trusted_identity=True,
     )
+
+
+def adjudicate_visual_alignment(
+    alignment: Any, decision: Any
+) -> dict[str, Any] | None:
+    """以 retain 或 reject 裁決並保留原始視覺檢查紀錄。"""
+    fields = {
+        "schema",
+        "identity",
+        "input_binding",
+        "processing",
+        "quality",
+        "decision",
+        "reason_code",
+        "findings",
+    }
+    if (
+        not isinstance(alignment, dict)
+        or set(alignment) != fields
+        or decision not in {"retain", "reject"}
+    ):
+        return None
+    identity = alignment["identity"]
+    input_binding = alignment["input_binding"]
+    findings = alignment["findings"]
+    if (
+        alignment["schema"] != ALIGNMENT_SCHEMA
+        or not isinstance(identity, dict)
+        or set(identity) != {"material_ref", "page_ref", "page_number"}
+        or not isinstance(input_binding, dict)
+        or set(input_binding)
+        != {"evidence_ref", "page_structure_sha256", "native_sha256"}
+        or alignment["processing"] != "succeeded"
+        or alignment["quality"] != "needs_review"
+        or alignment["decision"] != "review"
+        or alignment["reason_code"] != "VISION_CONTENT_NEEDS_REVIEW"
+        or findings != [{"reason_code": "VISION_CONTENT_PRESENT"}]
+    ):
+        return None
+
+    adjudicated = deepcopy(alignment)
+    if decision == "retain":
+        adjudicated["quality"] = "accepted"
+        adjudicated["decision"] = "retain"
+        adjudicated["reason_code"] = "VISUAL_ALIGNMENT_REVIEW_ACCEPTED"
+    else:
+        adjudicated["quality"] = "unsupported"
+        adjudicated["decision"] = "reject"
+        adjudicated["reason_code"] = "VISUAL_ALIGNMENT_REVIEW_REJECTED"
+    return adjudicated

@@ -13,6 +13,7 @@ from pdf_evidence.concept_candidates import (
     build_concept_context,
     build_provisional_concept_candidate,
 )
+from pdf_evidence.page_alignment import adjudicate_visual_alignment
 
 
 def _canonical_sha256(value):
@@ -206,6 +207,62 @@ def test_builds_one_heading_section_context_without_changing_inputs():
     assert "provider" not in serialized
     context["evidence"][0]["region"]["bbox"][0] = -1
     assert page_structure == originals[0]
+
+
+def test_review_accepted_visual_alignment_can_build_context():
+    """驗證保留視覺檢查紀錄的已接受複核結果可建立 context。"""
+    page_structure, page_evidence, page_alignment = _validated_page_inputs()
+    page_alignment.update(
+        {
+            "quality": "needs_review",
+            "decision": "review",
+            "reason_code": "VISION_CONTENT_NEEDS_REVIEW",
+            "findings": [{"reason_code": "VISION_CONTENT_PRESENT"}],
+        }
+    )
+    reviewed_alignment = adjudicate_visual_alignment(page_alignment, "retain")
+    originals = deepcopy((page_structure, page_evidence, reviewed_alignment))
+
+    context = build_concept_context(
+        page_structure, page_evidence, reviewed_alignment, "heading-1"
+    )
+
+    assert context is not None
+    assert context["input_binding"]["alignment_sha256"] == (
+        _canonical_sha256(reviewed_alignment)
+    )
+    assert reviewed_alignment["findings"] == [
+        {"reason_code": "VISION_CONTENT_PRESENT"}
+    ]
+    assert (page_structure, page_evidence, reviewed_alignment) == originals
+
+
+@pytest.mark.parametrize(
+    "alignment_state", ["raw", "rejected", "empty_finding", "nested_finding_field"]
+)
+def test_unaccepted_visual_alignment_cannot_build_context(alignment_state):
+    """驗證未裁決、已拒絕或 findings 斷鏈的視覺對齊結果不會通過。"""
+    page_structure, page_evidence, page_alignment = _validated_page_inputs()
+    page_alignment.update(
+        {
+            "quality": "needs_review",
+            "decision": "review",
+            "reason_code": "VISION_CONTENT_NEEDS_REVIEW",
+            "findings": [{"reason_code": "VISION_CONTENT_PRESENT"}],
+        }
+    )
+    if alignment_state == "rejected":
+        page_alignment = adjudicate_visual_alignment(page_alignment, "reject")
+    elif alignment_state == "empty_finding":
+        page_alignment = adjudicate_visual_alignment(page_alignment, "retain")
+        page_alignment["findings"] = []
+    elif alignment_state == "nested_finding_field":
+        page_alignment = adjudicate_visual_alignment(page_alignment, "retain")
+        page_alignment["findings"][0]["extra"] = "invalid"
+
+    assert build_concept_context(
+        page_structure, page_evidence, page_alignment, "heading-1"
+    ) is None
 
 
 @pytest.mark.parametrize(

@@ -4,7 +4,10 @@ import json
 
 import pytest
 
-from pdf_evidence.page_alignment import assess_page_structure_alignment
+from pdf_evidence.page_alignment import (
+    adjudicate_visual_alignment,
+    assess_page_structure_alignment,
+)
 
 
 def _canonical_sha256(value):
@@ -228,6 +231,114 @@ def test_vision_only_native_content_needs_review():
 
     assert result["quality"] == "needs_review"
     assert result["reason_code"] == "VISION_CONTENT_NEEDS_REVIEW"
+    assert result["findings"] == [{"reason_code": "VISION_CONTENT_PRESENT"}]
+
+
+@pytest.mark.parametrize(
+    ("decision", "quality", "outcome", "reason_code"),
+    [
+        (
+            "retain",
+            "accepted",
+            "retain",
+            "VISUAL_ALIGNMENT_REVIEW_ACCEPTED",
+        ),
+        (
+            "reject",
+            "unsupported",
+            "reject",
+            "VISUAL_ALIGNMENT_REVIEW_REJECTED",
+        ),
+    ],
+)
+def test_visual_alignment_adjudication_preserves_identity_and_findings(
+    decision, quality, outcome, reason_code
+):
+    """驗證複核裁決只改寫狀態，並保留來源綁定與 findings。"""
+    page_structure, page_evidence, native_page = _simple_inputs()
+    native_page["images"] = [{"xref": 1}]
+    _rebind_native(page_evidence, native_page)
+    page_structure["input_evidence_ref"] = page_evidence["evidence_ref"]
+    alignment = assess_page_structure_alignment(
+        page_structure, page_evidence, native_page
+    )
+    original = deepcopy(alignment)
+
+    result = adjudicate_visual_alignment(alignment, decision)
+
+    assert set(result) == set(alignment)
+    assert result["processing"] == "succeeded"
+    assert result["quality"] == quality
+    assert result["decision"] == outcome
+    assert result["reason_code"] == reason_code
+    assert result["identity"] == alignment["identity"]
+    assert result["input_binding"] == alignment["input_binding"]
+    assert result["findings"] == alignment["findings"]
+    result["findings"][0]["reason_code"] = "changed"
+    assert alignment == original
+
+
+@pytest.mark.parametrize(
+    "invalid_case",
+    [
+        "decision",
+        "shape",
+        "failed",
+        "automatic",
+        "other_review",
+        "empty_findings",
+        "other_finding",
+        "nested_finding_field",
+        "already_adjudicated",
+    ],
+)
+def test_visual_alignment_adjudication_rejects_invalid_inputs(invalid_case):
+    """驗證非原始視覺複核結果或未知裁決一律 fail closed。"""
+    page_structure, page_evidence, native_page = _simple_inputs()
+    native_page["drawings"] = [{"type": "line"}]
+    _rebind_native(page_evidence, native_page)
+    page_structure["input_evidence_ref"] = page_evidence["evidence_ref"]
+    alignment = assess_page_structure_alignment(
+        page_structure, page_evidence, native_page
+    )
+    decision = "retain"
+    if invalid_case == "decision":
+        decision = "review"
+    elif invalid_case == "shape":
+        alignment["extra"] = "invalid"
+    elif invalid_case == "failed":
+        alignment.update(
+            {
+                "processing": "failed",
+                "quality": "unsupported",
+                "decision": "reject",
+                "reason_code": "NATIVE_PAGE_INVALID",
+                "findings": [],
+            }
+        )
+    elif invalid_case == "automatic":
+        alignment.update(
+            {
+                "quality": "accepted",
+                "decision": "retain",
+                "reason_code": "ALIGNMENT_ACCEPTED",
+                "findings": [],
+            }
+        )
+    elif invalid_case == "other_review":
+        alignment["reason_code"] = "COMPLEX_CONTENT_NEEDS_REVIEW"
+    elif invalid_case == "empty_findings":
+        alignment["findings"] = []
+    elif invalid_case == "other_finding":
+        alignment["findings"] = [{"reason_code": "COMPLEX_ELEMENT_PRESENT"}]
+    elif invalid_case == "nested_finding_field":
+        alignment["findings"][0]["extra"] = "invalid"
+    else:
+        alignment = adjudicate_visual_alignment(alignment, "retain")
+    original = deepcopy(alignment)
+
+    assert adjudicate_visual_alignment(alignment, decision) is None
+    assert alignment == original
 
 
 @pytest.mark.parametrize("mismatch", ["text", "bbox", "ambiguous"])
