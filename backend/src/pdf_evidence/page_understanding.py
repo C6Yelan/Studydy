@@ -17,11 +17,15 @@ import urllib.request
 from .page_structure import PAGE_STRUCTURE_SCHEMA, validate_page_structure
 
 
-PAGE_STRUCTURE_PROMPT_VERSION = "s1-page-structure-prompt/v2"
+PAGE_STRUCTURE_PROMPT_VERSION = "s1-page-structure-prompt/v6"
 PAGE_STRUCTURE_PROMPT = (
     "Inspect the supplied page image and describe its visible structure. Ground every element in "
     "visible page evidence. Every bbox uses normalized_render_1000 coordinates ordered [x0, y0, x1, y1] "
-    "with values from 0 to 1000; x increases rightward, y increases downward, x0 < x1, and y0 < y1. Preserve reading and spatial relationships, mark uncertain regions explicitly, and do not invent content."
+    "with values from 0 to 1000; x increases rightward, y increases downward, x0 < x1, and y0 < y1. Preserve reading and spatial relationships, mark uncertain regions explicitly, and do not invent content. "
+    "The reading_order array must reference only existing element IDs, contain no duplicates, and include every element whose type is neither arrow nor diagram_node; arrow and diagram_node IDs are optional. "
+    "Use table for visible rows and cells with header or data roles, and use matrix only for a mathematical array; do not flatten either structure into paragraph or code elements. "
+    "When an arrow points to a visible table field, create a diagram_label for that field and use the label ID as the arrow endpoint instead of the whole table ID. "
+    "Every spatial relation must use existing, distinct source and target IDs. Use each arrow element in at most one directed_arrow relation. Do not emit duplicate relations or both directions of the same left_of, above, or contains relation. A diagram_label node_id must reference a diagram_node."
 )
 PAGE_STRUCTURE_BODY_SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["elements", "reading_order", "spatial_relations"],

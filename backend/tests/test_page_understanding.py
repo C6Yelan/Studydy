@@ -200,7 +200,7 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
         "prompt_version",
         "processing_policy_version",
     }
-    assert result["runtime_identity"]["prompt_version"] == "s1-page-structure-prompt/v2"
+    assert result["runtime_identity"]["prompt_version"] == "s1-page-structure-prompt/v6"
     assert (
         result["runtime_identity"]["processing_policy_version"]
         == "s1-page-understanding-policy/v2"
@@ -253,6 +253,30 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
     assert re.fullmatch(nonempty_pattern, "first line\nsecond line") is not None
     assert all(text in page_understanding.PAGE_STRUCTURE_PROMPT for text in (
         "normalized_render_1000", "[x0, y0, x1, y1]", "0 to 1000", "x increases rightward", "y increases downward"))
+    assert (
+        "The reading_order array must reference only existing element IDs, contain no "
+        "duplicates, and include every element whose type is neither arrow nor "
+        "diagram_node; arrow and diagram_node IDs are optional."
+        in page_understanding.PAGE_STRUCTURE_PROMPT
+    )
+    assert (
+        "Use table for visible rows and cells with header or data roles, and use matrix "
+        "only for a mathematical array; do not flatten either structure into paragraph "
+        "or code elements."
+        in page_understanding.PAGE_STRUCTURE_PROMPT
+    )
+    assert (
+        "When an arrow points to a visible table field, create a diagram_label for that "
+        "field and use the label ID as the arrow endpoint instead of the whole table ID."
+        in page_understanding.PAGE_STRUCTURE_PROMPT
+    )
+    assert (
+        "Every spatial relation must use existing, distinct source and target IDs. Use "
+        "each arrow element in at most one directed_arrow relation. Do not emit duplicate "
+        "relations or both directions of the same left_of, above, or contains relation. "
+        "A diagram_label node_id must reference a diagram_node."
+        in page_understanding.PAGE_STRUCTURE_PROMPT
+    )
     assert set(body_schema["required"]) == {
         "elements",
         "reading_order",
@@ -477,7 +501,7 @@ def test_cache_key_invalidates(tmp_path, monkeypatch, identity_part):
         monkeypatch.setattr(
             page_understanding,
             "PAGE_STRUCTURE_PROMPT_VERSION",
-            "s1-page-structure-prompt/v3",
+            "s1-page-structure-prompt/v7",
         )
     elif identity_part == "prompt_sha256":
         monkeypatch.setattr(
