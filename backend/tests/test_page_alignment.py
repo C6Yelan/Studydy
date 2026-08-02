@@ -133,11 +133,12 @@ def test_accepts_only_fully_grounded_simple_text_without_changing_inputs():
         "processing": "succeeded",
         "quality": "accepted",
         "decision": "retain",
-        "reason": "ALIGNMENT_ACCEPTED",
+        "reason_code": "ALIGNMENT_ACCEPTED",
         "findings": [],
     }
     assert (page_structure, page_evidence, native_page) == originals
     assert "confidence" not in json.dumps(result)
+    assert '"reason"' not in json.dumps(result)
     assert "Synthetic" not in json.dumps(result)
 
 
@@ -209,7 +210,9 @@ def test_complex_elements_need_review(element):
     assert result["processing"] == "succeeded"
     assert result["quality"] == "needs_review"
     assert result["decision"] == "review"
-    assert result["reason"] == "COMPLEX_CONTENT_NEEDS_REVIEW"
+    assert result["reason_code"] == "COMPLEX_CONTENT_NEEDS_REVIEW"
+    assert all("reason_code" in finding for finding in result["findings"])
+    assert all("reason" not in finding for finding in result["findings"])
 
 
 def test_vision_only_native_content_needs_review():
@@ -224,7 +227,7 @@ def test_vision_only_native_content_needs_review():
     )
 
     assert result["quality"] == "needs_review"
-    assert result["reason"] == "VISION_CONTENT_NEEDS_REVIEW"
+    assert result["reason_code"] == "VISION_CONTENT_NEEDS_REVIEW"
 
 
 @pytest.mark.parametrize("mismatch", ["text", "bbox", "ambiguous"])
@@ -245,7 +248,7 @@ def test_text_or_bbox_without_unique_native_span_needs_review(mismatch):
     )
 
     assert result["quality"] == "needs_review"
-    assert result["reason"] == "TEXT_ALIGNMENT_NEEDS_REVIEW"
+    assert result["reason_code"] == "TEXT_ALIGNMENT_NEEDS_REVIEW"
 
 
 def test_native_span_order_conflict_needs_review():
@@ -260,7 +263,7 @@ def test_native_span_order_conflict_needs_review():
     )
 
     assert result["quality"] == "needs_review"
-    assert result["reason"] == "READING_ORDER_NEEDS_REVIEW"
+    assert result["reason_code"] == "READING_ORDER_NEEDS_REVIEW"
 
 
 def test_simple_text_with_spatial_relation_needs_review():
@@ -279,7 +282,7 @@ def test_simple_text_with_spatial_relation_needs_review():
     )
 
     assert result["quality"] == "needs_review"
-    assert result["reason"] == "SPATIAL_RELATION_NEEDS_REVIEW"
+    assert result["reason_code"] == "SPATIAL_RELATION_NEEDS_REVIEW"
 
 
 def test_existing_page_structure_validator_failure_is_preserved():
@@ -294,14 +297,14 @@ def test_existing_page_structure_validator_failure_is_preserved():
     assert result["processing"] == "failed"
     assert result["quality"] == "unsupported"
     assert result["decision"] == "reject"
-    assert result["reason"] == "READING_ORDER_INVALID"
+    assert result["reason_code"] == "READING_ORDER_INVALID"
 
 
 @pytest.mark.parametrize(
-    ("mutation", "reason"),
+    ("mutation", "expected_reason_code"),
     [
         ("schema", "NATIVE_PAGE_INVALID"),
-        ("geometry", "NATIVE_PAGE_INVALID"),
+        ("geometry", "NATIVE_PAGE_BINDING_INVALID"),
         ("material_ref", "NATIVE_PAGE_BINDING_INVALID"),
         ("page_ref", "NATIVE_PAGE_BINDING_INVALID"),
         ("page_number", "NATIVE_PAGE_BINDING_INVALID"),
@@ -311,13 +314,16 @@ def test_existing_page_structure_validator_failure_is_preserved():
         ("evidence_hash", "PAGE_EVIDENCE_HASH_BINDING_INVALID"),
     ],
 )
-def test_native_identity_and_canonical_hash_mismatches_fail_closed(mutation, reason):
+def test_native_identity_and_canonical_hash_mismatches_fail_closed(
+    mutation, expected_reason_code
+):
     """驗證 native schema、頁面 identity 與 canonical hash 錯誤全部 fail closed。"""
     page_structure, page_evidence, native_page = _simple_inputs()
     if mutation == "schema":
         native_page["schema"] = "s1-page-native/v2"
     elif mutation == "geometry":
-        native_page["geometry"].pop("mediabox_points")
+        native_page["geometry"] = deepcopy(native_page["geometry"])
+        native_page["geometry"]["visible_points"] = [0.0, 0.0, 201.0, 100.0]
     elif mutation == "material_ref":
         native_page["material_ref"] = f"material:sha256:{'c' * 64}"
     elif mutation == "page_ref":
@@ -350,5 +356,5 @@ def test_native_identity_and_canonical_hash_mismatches_fail_closed(mutation, rea
     assert result["processing"] == "failed"
     assert result["quality"] == "unsupported"
     assert result["decision"] == "reject"
-    assert result["reason"] == reason
+    assert result["reason_code"] == expected_reason_code
     assert result["findings"] == []

@@ -66,12 +66,12 @@ def _result(
     page_evidence: Any,
     page_structure_sha256: str | None,
     native_sha256: str | None,
+    *,
     processing: str,
     quality: str,
     decision: str,
-    reason: str,
+    reason_code: str,
     findings: list[dict[str, str]],
-    *,
     trusted_identity: bool,
 ) -> dict[str, Any]:
     """建立只含識別、綁定狀態與無教材內容 findings 的結果。"""
@@ -96,7 +96,7 @@ def _result(
         "processing": processing,
         "quality": quality,
         "decision": decision,
-        "reason": reason,
+        "reason_code": reason_code,
         "findings": findings,
     }
 
@@ -119,27 +119,9 @@ def _validate_native_binding(
     spans = native_page["spans"]
     if (
         not isinstance(geometry, dict)
-        or set(geometry)
-        != {
-            "mediabox_points",
-            "cropbox_points",
-            "visible_points",
-            "rotation_degrees",
-        }
         or not isinstance(spans, list)
         or not isinstance(native_page["images"], list)
         or not isinstance(native_page["drawings"], list)
-    ):
-        return "NATIVE_PAGE_INVALID"
-    rotation = geometry["rotation_degrees"]
-    if (
-        any(
-            not _valid_bbox(geometry[field])
-            for field in ("mediabox_points", "cropbox_points", "visible_points")
-        )
-        or isinstance(rotation, bool)
-        or not isinstance(rotation, int)
-        or rotation not in {0, 90, 180, 270}
     ):
         return "NATIVE_PAGE_INVALID"
     for span in spans:
@@ -198,29 +180,36 @@ def _alignment_findings(
 ) -> tuple[str | None, list[dict[str, str]]]:
     """以原生 spans 判斷簡單文字、bbox 與 reading order 是否可確定對回。"""
     if native_page["images"] or native_page["drawings"]:
-        return "VISION_CONTENT_NEEDS_REVIEW", [{"reason": "VISION_CONTENT_PRESENT"}]
+        return "VISION_CONTENT_NEEDS_REVIEW", [
+            {"reason_code": "VISION_CONTENT_PRESENT"}
+        ]
 
     complex_findings = []
     for element in page_structure["elements"]:
         if element["type"] not in SIMPLE_TEXT_TYPES:
-            finding_reason = (
+            finding_reason_code = (
                 "UNCERTAIN_REGION_PRESENT"
                 if element["type"] == "other_visible_region"
                 else "COMPLEX_ELEMENT_PRESENT"
             )
             complex_findings.append(
-                {"element_id": element["id"], "reason": finding_reason}
+                {
+                    "element_id": element["id"],
+                    "reason_code": finding_reason_code,
+                }
             )
     if complex_findings:
         return "COMPLEX_CONTENT_NEEDS_REVIEW", complex_findings
     if page_structure["spatial_relations"]:
         return "SPATIAL_RELATION_NEEDS_REVIEW", [
-            {"reason": "SPATIAL_RELATION_NOT_NATIVE_GROUNDED"}
+            {"reason_code": "SPATIAL_RELATION_NOT_NATIVE_GROUNDED"}
         ]
 
     spans = native_page["spans"]
     if not page_structure["elements"] or not spans:
-        return "TEXT_ALIGNMENT_NEEDS_REVIEW", [{"reason": "TEXT_CONTENT_EMPTY"}]
+        return "TEXT_ALIGNMENT_NEEDS_REVIEW", [
+            {"reason_code": "TEXT_CONTENT_EMPTY"}
+        ]
 
     elements_by_id = {
         element["id"]: element for element in page_structure["elements"]
@@ -236,7 +225,10 @@ def _alignment_findings(
         ]
         if len(candidates) != 1:
             findings.append(
-                {"element_id": element_id, "reason": "NATIVE_SPAN_MATCH_UNCERTAIN"}
+                {
+                    "element_id": element_id,
+                    "reason_code": "NATIVE_SPAN_MATCH_UNCERTAIN",
+                }
             )
         else:
             matched_span_indexes.append(candidates[0])
@@ -247,11 +239,11 @@ def _alignment_findings(
         or set(matched_span_indexes) != set(range(len(spans)))
     ):
         return "TEXT_ALIGNMENT_NEEDS_REVIEW", [
-            {"reason": "NATIVE_SPAN_COVERAGE_UNCERTAIN"}
+            {"reason_code": "NATIVE_SPAN_COVERAGE_UNCERTAIN"}
         ]
     if matched_span_indexes != sorted(matched_span_indexes):
         return "READING_ORDER_NEEDS_REVIEW", [
-            {"reason": "NATIVE_READING_ORDER_CONFLICT"}
+            {"reason_code": "NATIVE_READING_ORDER_CONFLICT"}
         ]
     return None, []
 
@@ -262,61 +254,42 @@ def assess_page_structure_alignment(
     """純函式評估 Page Structure 是否由同頁 native evidence 充分支持。"""
     page_structure_sha256 = _canonical_sha256(page_structure)
     native_sha256 = _canonical_sha256(native_page)
-    validator_reason = validate_page_structure(page_structure, page_evidence)
-    if validator_reason is not None:
+    failure_reason = validate_page_structure(page_structure, page_evidence)
+    if failure_reason is None:
+        failure_reason = _validate_native_binding(
+            page_structure, page_evidence, native_page, native_sha256
+        )
+    if failure_reason is not None:
         return _result(
             page_structure,
             page_evidence,
             page_structure_sha256,
             native_sha256,
-            "failed",
-            "unsupported",
-            "reject",
-            validator_reason,
-            [],
+            processing="failed",
+            quality="unsupported",
+            decision="reject",
+            reason_code=failure_reason,
+            findings=[],
             trusted_identity=False,
         )
 
-    binding_reason = _validate_native_binding(
-        page_structure, page_evidence, native_page, native_sha256
-    )
-    if binding_reason is not None:
-        return _result(
-            page_structure,
-            page_evidence,
-            page_structure_sha256,
-            native_sha256,
-            "failed",
-            "unsupported",
-            "reject",
-            binding_reason,
-            [],
-            trusted_identity=False,
-        )
-
-    review_reason, findings = _alignment_findings(page_structure, native_page)
-    if review_reason is not None:
-        return _result(
-            page_structure,
-            page_evidence,
-            page_structure_sha256,
-            native_sha256,
-            "succeeded",
-            "needs_review",
-            "review",
-            review_reason,
-            findings,
-            trusted_identity=True,
-        )
+    reason_code, findings = _alignment_findings(page_structure, native_page)
+    if reason_code is None:
+        quality = "accepted"
+        decision = "retain"
+        reason_code = "ALIGNMENT_ACCEPTED"
+    else:
+        quality = "needs_review"
+        decision = "review"
     return _result(
         page_structure,
         page_evidence,
         page_structure_sha256,
         native_sha256,
-        "succeeded",
-        "accepted",
-        "retain",
-        "ALIGNMENT_ACCEPTED",
-        [],
+        processing="succeeded",
+        quality=quality,
+        decision=decision,
+        reason_code=reason_code,
+        findings=findings,
         trusted_identity=True,
     )
