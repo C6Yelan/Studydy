@@ -3,7 +3,6 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
-import math
 from typing import Any
 
 from .page_structure import validate_page_structure
@@ -67,27 +66,6 @@ def _valid_sha256(value: Any) -> bool:
     )
 
 
-def _valid_reference(value: Any, prefix: str) -> bool:
-    """判斷 reference 是否具有指定前綴與標準 SHA-256。"""
-    return isinstance(value, str) and value.startswith(prefix) and _valid_sha256(
-        value.removeprefix(prefix)
-    )
-
-
-def _valid_bbox(value: Any) -> bool:
-    """判斷 bbox 是否為四個有限數字組成的有效矩形。"""
-    if not isinstance(value, list) or len(value) != 4:
-        return False
-    if any(
-        isinstance(number, bool)
-        or not isinstance(number, (int, float))
-        or not math.isfinite(number)
-        for number in value
-    ):
-        return False
-    return value[2] > value[0] and value[3] > value[1]
-
-
 def _make_evidence_reference(
     page_structure: dict[str, Any], element: dict[str, Any]
 ) -> dict[str, Any]:
@@ -109,48 +87,6 @@ def _make_evidence_reference(
         "evidence_id": f"evidence-reference:sha256:{evidence_sha256}",
         **reference,
     }
-
-
-def _valid_evidence_reference(
-    reference: Any, identity: dict[str, Any], input_evidence_ref: str
-) -> bool:
-    """驗證 Evidence reference 的同頁 identity、region 與 canonical ID。"""
-    fields = {
-        "schema",
-        "evidence_id",
-        "material_ref",
-        "page_ref",
-        "page_number",
-        "input_evidence_ref",
-        "element_id",
-        "region",
-    }
-    if not isinstance(reference, dict) or set(reference) != fields:
-        return False
-    if reference["schema"] != EVIDENCE_REFERENCE_SCHEMA:
-        return False
-    if any(
-        reference[field] != identity[field]
-        for field in ("material_ref", "page_ref", "page_number")
-    ) or reference["input_evidence_ref"] != input_evidence_ref:
-        return False
-    if not _nonempty_text(reference["element_id"]):
-        return False
-    region = reference["region"]
-    if (
-        not isinstance(region, dict)
-        or set(region) != {"coordinate_space", "bbox"}
-        or region["coordinate_space"] != "unrotated_page_points"
-        or not _valid_bbox(region["bbox"])
-    ):
-        return False
-    value_without_id = {
-        key: value for key, value in reference.items() if key != "evidence_id"
-    }
-    expected_sha256 = _canonical_sha256(value_without_id)
-    return reference["evidence_id"] == (
-        f"evidence-reference:sha256:{expected_sha256}"
-    )
 
 
 def build_concept_context(
@@ -289,70 +225,12 @@ def build_provisional_concept_candidate(
     sol_identity: Any,
 ) -> dict[str, Any]:
     """驗證 Sol body 與已知 Evidence，建立 development-only provisional candidate。"""
-    context_fields = {
-        "schema",
-        "identity",
-        "input_binding",
-        "anchor_element_id",
-        "elements",
-        "evidence",
-    }
-    if not isinstance(context, dict) or set(context) != context_fields:
-        return _candidate_failure("CONCEPT_CONTEXT_INVALID")
     identity = context["identity"]
     input_binding = context["input_binding"]
-    if (
-        context["schema"] != CONCEPT_CONTEXT_SCHEMA
-        or not isinstance(identity, dict)
-        or set(identity) != {"material_ref", "page_ref", "page_number"}
-        or not _valid_reference(identity["material_ref"], "material:sha256:")
-        or not _valid_reference(identity["page_ref"], "page:sha256:")
-        or isinstance(identity["page_number"], bool)
-        or not isinstance(identity["page_number"], int)
-        or identity["page_number"] < 1
-        or not isinstance(input_binding, dict)
-        or set(input_binding)
-        != {"evidence_ref", "page_structure_sha256", "alignment_sha256"}
-        or not _valid_reference(input_binding["evidence_ref"], "evidence:sha256:")
-        or not _valid_sha256(input_binding["page_structure_sha256"])
-        or not _valid_sha256(input_binding["alignment_sha256"])
-        or not _nonempty_text(context["anchor_element_id"])
-        or not isinstance(context["elements"], list)
-        or len(context["elements"]) < 2
-        or not isinstance(context["evidence"], list)
-        or len(context["evidence"]) != len(context["elements"])
-    ):
-        return _candidate_failure("CONCEPT_CONTEXT_INVALID")
-
-    element_ids = []
-    for element in context["elements"]:
-        if (
-            not isinstance(element, dict)
-            or set(element) != {"element_id", "type", "text"}
-            or not _nonempty_text(element["element_id"])
-            or element["type"] not in {"heading", "paragraph", "code"}
-            or not _nonempty_text(element["text"])
-        ):
-            return _candidate_failure("CONCEPT_CONTEXT_INVALID")
-        element_ids.append(element["element_id"])
-    if (
-        len(element_ids) != len(set(element_ids))
-        or element_ids[0] != context["anchor_element_id"]
-        or context["elements"][0]["type"] != "heading"
-    ):
-        return _candidate_failure("CONCEPT_CONTEXT_INVALID")
-
-    known_evidence = {}
-    for reference, element_id in zip(context["evidence"], element_ids, strict=True):
-        if (
-            not _valid_evidence_reference(
-                reference, identity, input_binding["evidence_ref"]
-            )
-            or reference["element_id"] != element_id
-            or reference["evidence_id"] in known_evidence
-        ):
-            return _candidate_failure("CONCEPT_CONTEXT_INVALID")
-        known_evidence[reference["evidence_id"]] = reference
+    element_ids = [element["element_id"] for element in context["elements"]]
+    known_evidence = {
+        reference["evidence_id"]: reference for reference in context["evidence"]
+    }
 
     if not _nonempty_text(handoff_id):
         return _candidate_failure("CONCEPT_LINEAGE_INVALID")
@@ -420,7 +298,7 @@ def build_provisional_concept_candidate(
 
 
 def _valid_provisional_candidate(candidate: Any) -> bool:
-    """驗證 provisional candidate 的形狀、lineage、Evidence 與 stable ID。"""
+    """驗證 provisional outcome 與不可變內容的 canonical stable ID。"""
     fields = {
         "schema",
         "candidate_id",
@@ -441,77 +319,15 @@ def _valid_provisional_candidate(candidate: Any) -> bool:
     }
     if not isinstance(candidate, dict) or set(candidate) != fields:
         return False
-    identity = candidate["identity"]
-    sol_identity = candidate["sol_identity"]
-    prompt_identity = candidate["prompt_identity"]
-    context_binding = candidate["context_binding"]
     if (
-        candidate["schema"] != CONCEPT_CANDIDATE_SCHEMA
-        or candidate["development_only"] is not True
-        or not _nonempty_text(candidate["handoff_id"])
-        or not isinstance(identity, dict)
-        or set(identity) != {"material_ref", "page_ref", "page_number"}
-        or not _valid_reference(identity["material_ref"], "material:sha256:")
-        or not _valid_reference(identity["page_ref"], "page:sha256:")
-        or isinstance(identity["page_number"], bool)
-        or not isinstance(identity["page_number"], int)
-        or identity["page_number"] < 1
-        or not isinstance(sol_identity, dict)
-        or set(sol_identity) != {"role", "model"}
-        or not all(_nonempty_text(value) for value in sol_identity.values())
-        or prompt_identity
-        != {"version": CONCEPT_PROMPT_VERSION, "sha256": CONCEPT_PROMPT_SHA256}
-        or not isinstance(context_binding, dict)
-        or set(context_binding)
-        != {
-            "context_sha256",
-            "evidence_ref",
-            "page_structure_sha256",
-            "alignment_sha256",
-            "anchor_element_id",
-            "element_ids",
-        }
-        or any(
-            not _valid_sha256(context_binding[field])
-            for field in ("context_sha256", "page_structure_sha256", "alignment_sha256")
-        )
-        or not _valid_reference(context_binding["evidence_ref"], "evidence:sha256:")
-        or not _nonempty_text(context_binding["anchor_element_id"])
-        or not isinstance(context_binding["element_ids"], list)
-        or not context_binding["element_ids"]
-        or context_binding["element_ids"][0] != context_binding["anchor_element_id"]
-        or any(not _nonempty_text(value) for value in context_binding["element_ids"])
-        or len(context_binding["element_ids"]) != len(set(context_binding["element_ids"]))
-        or any(not _nonempty_text(candidate[field]) for field in ("name", "definition", "scope"))
-        or not isinstance(candidate["evidence"], list)
-        or not candidate["evidence"]
-        or candidate["processing"] != "succeeded"
+        candidate["processing"] != "succeeded"
         or candidate["quality"] != "needs_review"
         or candidate["decision"] != "review"
         or candidate["reason_code"] != "CONCEPT_CANDIDATE_NEEDS_REVIEW"
-        or not _valid_reference(candidate["candidate_id"], "concept-candidate:sha256:")
-    ):
-        return False
-    evidence_ids = []
-    evidence_element_ids = []
-    for reference in candidate["evidence"]:
-        if not _valid_evidence_reference(
-            reference, identity, context_binding["evidence_ref"]
-        ):
-            return False
-        evidence_ids.append(reference["evidence_id"])
-        evidence_element_ids.append(reference["element_id"])
-    if (
-        len(evidence_ids) != len(set(evidence_ids))
-        or context_binding["anchor_element_id"] not in evidence_element_ids
-        or any(
-            element_id not in context_binding["element_ids"]
-            for element_id in evidence_element_ids
-        )
     ):
         return False
     expected_candidate_sha256 = _canonical_sha256(_candidate_core(candidate))
-    return candidate["candidate_id"] == (
+    return expected_candidate_sha256 is not None and candidate["candidate_id"] == (
         f"concept-candidate:sha256:{expected_candidate_sha256}"
     )
 

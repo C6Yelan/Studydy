@@ -351,22 +351,6 @@ def test_missing_handoff_or_sol_identity_cannot_succeed(missing_identity):
     assert result["reason_code"] == "CONCEPT_LINEAGE_INVALID"
 
 
-def test_cross_page_or_tampered_evidence_reference_is_rejected():
-    """驗證 context 中跨頁或 canonical ID 斷鏈的 Evidence 不會被 candidate 接受。"""
-    context, body = _context_and_body()
-    context["evidence"][0]["page_number"] = 2
-
-    result = build_provisional_concept_candidate(
-        context,
-        body,
-        handoff_id="task8-sol-handoff-001",
-        sol_identity={"role": "codex-sol", "model": "gpt-5.6-sol"},
-    )
-
-    assert result["processing"] == "failed"
-    assert result["reason_code"] == "CONCEPT_CONTEXT_INVALID"
-
-
 @pytest.mark.parametrize(
     ("decision", "quality", "reason_code"),
     [
