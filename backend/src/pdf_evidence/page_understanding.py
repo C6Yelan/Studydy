@@ -17,15 +17,14 @@ import urllib.request
 from .page_structure import PAGE_STRUCTURE_SCHEMA, validate_page_structure
 
 
-PAGE_STRUCTURE_PROMPT_VERSION = "s1-page-structure-prompt/v6"
+PAGE_STRUCTURE_PROMPT_VERSION = "s1-page-structure-prompt/v3"
 PAGE_STRUCTURE_PROMPT = (
-    "Inspect the supplied page image and describe its visible structure. Ground every element in "
-    "visible page evidence. Every bbox uses normalized_render_1000 coordinates ordered [x0, y0, x1, y1] "
-    "with values from 0 to 1000; x increases rightward, y increases downward, x0 < x1, and y0 < y1. Preserve reading and spatial relationships, mark uncertain regions explicitly, and do not invent content. "
-    "The reading_order array must reference only existing element IDs, contain no duplicates, and include every element whose type is neither arrow nor diagram_node; arrow and diagram_node IDs are optional. "
-    "Use table for visible rows and cells with header or data roles, and use matrix only for a mathematical array; do not flatten either structure into paragraph or code elements. "
-    "When an arrow points to a visible table field, create a diagram_label for that field and use the label ID as the arrow endpoint instead of the whole table ID. "
-    "Every spatial relation must use existing, distinct source and target IDs. Use each arrow element in at most one directed_arrow relation. Do not emit duplicate relations or both directions of the same left_of, above, or contains relation. A diagram_label node_id must reference a diagram_node."
+    "Inspect the target page image and describe only its visible page structure. Adjacent page images "
+    "may be supplied as context for understanding continued content, but do not copy their elements "
+    "into the target page output. Ground every element in visible target-page evidence, preserve reading "
+    "and spatial relationships, mark uncertain regions explicitly, and do not invent content. Every bbox "
+    "uses normalized_render_1000 coordinates ordered [x0, y0, x1, y1] with values from 0 to 1000; "
+    "x increases rightward, y increases downward, x0 < x1, and y0 < y1."
 )
 PAGE_STRUCTURE_BODY_SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["elements", "reading_order", "spatial_relations"],
@@ -383,7 +382,11 @@ def _canonical_json(value: Any) -> bytes:
     ).encode("utf-8")
 
 
-def _cache_key(page_evidence: dict[str, Any], local_config: dict[str, Any]) -> str:
+def _cache_key(
+    page_evidence: dict[str, Any],
+    local_config: dict[str, Any],
+    nearby_pages: list[tuple[int, bytes]],
+) -> str:
     """綁定所有會影響 Page Structure 的輸入與版本。"""
     identity = {
         "source_sha256": page_evidence["hashes"]["source_sha256"],
@@ -391,6 +394,13 @@ def _cache_key(page_evidence: dict[str, Any], local_config: dict[str, Any]) -> s
         "evidence_ref": page_evidence["evidence_ref"],
         "render_schema": page_evidence["render"]["schema"],
         "render_sha256": page_evidence["hashes"]["render_sha256"],
+        "nearby_pages": [
+            {
+                "page_number": page_number,
+                "render_sha256": hashlib.sha256(render_bytes).hexdigest(),
+            }
+            for page_number, render_bytes in nearby_pages
+        ],
         "model_id": local_config["model_id"],
         "model_revision": local_config["model_revision"],
         "model_artifact_sha256": local_config["model_artifact_sha256"],
@@ -458,22 +468,41 @@ def _write_cache(cache_path: Path, record: dict[str, Any]) -> bool:
         return False
 
 
-def _request_payload(render_bytes: bytes, model_id: str) -> bytes:
-    """建立只含固定 prompt、PNG data URI 與 model ID 的 request。"""
-    image = base64.b64encode(render_bytes).decode("ascii")
+def _request_payload(
+    render_bytes: bytes,
+    model_id: str,
+    page_number: int,
+    nearby_pages: list[tuple[int, bytes]],
+) -> bytes:
+    """依頁碼順序放入相鄰頁與目標頁，並要求只輸出目標頁。"""
+    content: list[dict[str, Any]] = [
+        {"type": "text", "text": PAGE_STRUCTURE_PROMPT}
+    ]
+    pages = [*nearby_pages, (page_number, render_bytes)]
+    for current_page_number, current_render in sorted(pages):
+        if current_page_number == page_number:
+            label = "Target page. Output elements from this image only."
+        elif current_page_number < page_number:
+            label = "Previous page context. Do not output elements from this image."
+        else:
+            label = "Next page context. Do not output elements from this image."
+        image = base64.b64encode(current_render).decode("ascii")
+        content.extend(
+            [
+                {"type": "text", "text": label},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{image}"},
+                },
+            ]
+        )
     return _canonical_json(
         {
             "model": model_id,
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": PAGE_STRUCTURE_PROMPT},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{image}"},
-                        },
-                    ],
+                    "content": content,
                 }
             ],
             "temperature": 0,
@@ -654,10 +683,55 @@ def _build_page_structure(
     }
 
 
+def _validate_nearby_pages(
+    page_evidence: dict[str, Any], nearby_pages: Any
+) -> list[tuple[int, bytes]] | None:
+    """驗證前後頁來自同一份 PDF，且頁碼與 render hash 都正確。"""
+    if nearby_pages is None:
+        return []
+    if not isinstance(nearby_pages, list) or len(nearby_pages) > 2:
+        return None
+
+    target_page_number = page_evidence["page_number"]
+    source_sha256 = page_evidence["hashes"]["source_sha256"]
+    allowed_page_numbers = {target_page_number - 1, target_page_number + 1}
+    checked_pages: list[tuple[int, bytes]] = []
+    seen_page_numbers: set[int] = set()
+    for nearby_page in nearby_pages:
+        if not isinstance(nearby_page, dict) or set(nearby_page) != {
+            "page_evidence",
+            "render_bytes",
+        }:
+            return None
+        nearby_evidence = nearby_page["page_evidence"]
+        nearby_render = nearby_page["render_bytes"]
+        if (
+            not isinstance(nearby_evidence, dict)
+            or not isinstance(nearby_render, bytes)
+            or not _validate_page_evidence(nearby_evidence)
+            or nearby_evidence["hashes"]["source_sha256"] != source_sha256
+        ):
+            return None
+        nearby_page_number = nearby_evidence["page_number"]
+        if (
+            nearby_page_number not in allowed_page_numbers
+            or nearby_page_number in seen_page_numbers
+            or hashlib.sha256(nearby_render).hexdigest()
+            != nearby_evidence["hashes"]["render_sha256"]
+        ):
+            return None
+        seen_page_numbers.add(nearby_page_number)
+        checked_pages.append((nearby_page_number, nearby_render))
+    return sorted(checked_pages)
+
+
 def process_page_evidence(
-    page_evidence: Any, render_bytes: Any, local_config: Any
+    page_evidence: Any,
+    render_bytes: Any,
+    local_config: Any,
+    nearby_pages: Any = None,
 ) -> dict[str, Any]:
-    """以本機 loopback 模型理解單頁畫面，並回傳已驗證的 Page Structure。"""
+    """用相鄰頁協助理解目標頁，並只回傳目標頁的 Page Structure。"""
     started_at = time.monotonic()
     evidence_ref = _evidence_ref(page_evidence)
     if not isinstance(render_bytes, bytes):
@@ -679,6 +753,11 @@ def process_page_evidence(
         return _result(
             "failed", "PAGE_EVIDENCE_BINDING_INVALID", evidence_ref=evidence_ref
         )
+    checked_nearby_pages = _validate_nearby_pages(page_evidence, nearby_pages)
+    if checked_nearby_pages is None:
+        return _result(
+            "failed", "PAGE_CONTEXT_INVALID", evidence_ref=evidence_ref
+        )
     if not _valid_config(local_config):
         return _result("failed", "LOCAL_CONFIG_INVALID", evidence_ref=evidence_ref)
     endpoint_url = _loopback_endpoint(local_config["endpoint_url"])
@@ -688,7 +767,7 @@ def process_page_evidence(
         )
 
     runtime_identity = _runtime_identity(local_config)
-    cache_key = _cache_key(page_evidence, local_config)
+    cache_key = _cache_key(page_evidence, local_config, checked_nearby_pages)
     cache_path = Path(local_config["cache_dir"]) / f"{cache_key}.json"
     cached = _read_cache(
         cache_path, cache_key, evidence_ref, runtime_identity, page_evidence
@@ -703,7 +782,12 @@ def process_page_evidence(
             page_structure=cached,
         )
 
-    request_body = _request_payload(render_bytes, local_config["model_id"])
+    request_body = _request_payload(
+        render_bytes,
+        local_config["model_id"],
+        page_evidence["page_number"],
+        checked_nearby_pages,
+    )
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({}), _NoRedirect()
     )

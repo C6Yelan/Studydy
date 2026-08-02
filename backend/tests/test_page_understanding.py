@@ -200,7 +200,7 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
         "prompt_version",
         "processing_policy_version",
     }
-    assert result["runtime_identity"]["prompt_version"] == "s1-page-structure-prompt/v6"
+    assert result["runtime_identity"]["prompt_version"] == "s1-page-structure-prompt/v3"
     assert (
         result["runtime_identity"]["processing_policy_version"]
         == "s1-page-understanding-policy/v2"
@@ -251,32 +251,17 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
     assert re.fullmatch(nonempty_pattern, " visible ") is not None
     assert re.fullmatch(nonempty_pattern, " \t\n ") is None
     assert re.fullmatch(nonempty_pattern, "first line\nsecond line") is not None
-    assert all(text in page_understanding.PAGE_STRUCTURE_PROMPT for text in (
-        "normalized_render_1000", "[x0, y0, x1, y1]", "0 to 1000", "x increases rightward", "y increases downward"))
-    assert (
-        "The reading_order array must reference only existing element IDs, contain no "
-        "duplicates, and include every element whose type is neither arrow nor "
-        "diagram_node; arrow and diagram_node IDs are optional."
-        in page_understanding.PAGE_STRUCTURE_PROMPT
+    assert all(
+        text in page_understanding.PAGE_STRUCTURE_PROMPT
+        for text in (
+            "target page",
+            "Adjacent page images",
+            "normalized_render_1000",
+            "[x0, y0, x1, y1]",
+            "do not invent content",
+        )
     )
-    assert (
-        "Use table for visible rows and cells with header or data roles, and use matrix "
-        "only for a mathematical array; do not flatten either structure into paragraph "
-        "or code elements."
-        in page_understanding.PAGE_STRUCTURE_PROMPT
-    )
-    assert (
-        "When an arrow points to a visible table field, create a diagram_label for that "
-        "field and use the label ID as the arrow endpoint instead of the whole table ID."
-        in page_understanding.PAGE_STRUCTURE_PROMPT
-    )
-    assert (
-        "Every spatial relation must use existing, distinct source and target IDs. Use "
-        "each arrow element in at most one directed_arrow relation. Do not emit duplicate "
-        "relations or both directions of the same left_of, above, or contains relation. "
-        "A diagram_label node_id must reference a diagram_node."
-        in page_understanding.PAGE_STRUCTURE_PROMPT
-    )
+    assert "visible table field" not in page_understanding.PAGE_STRUCTURE_PROMPT
     assert set(body_schema["required"]) == {
         "elements",
         "reading_order",
@@ -311,6 +296,10 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
             "role": "user",
             "content": [
                 {"type": "text", "text": page_understanding.PAGE_STRUCTURE_PROMPT},
+                {
+                    "type": "text",
+                    "text": "Target page. Output elements from this image only.",
+                },
                 {
                     "type": "image_url",
                     "image_url": {
@@ -362,6 +351,86 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
     refreshed = process_page_evidence(evidence, render_bytes, config)
     assert refreshed["reason_code"] == "PAGE_STRUCTURE_READY"
     assert len(calls) == 2
+
+
+def test_adjacent_pages_are_context_only_and_change_cache_key(tmp_path, monkeypatch):
+    """驗證前後頁依頁碼排序送出，且有無上下文不會共用 cache。"""
+    target_render = _render_bytes()
+    target_evidence = _page_evidence(target_render)
+    target_evidence["page_number"] = 2
+    _bind_evidence(target_evidence)
+
+    previous_render = b"\x89PNG\r\n\x1a\nprevious-page"
+    previous_evidence = _page_evidence(previous_render)
+    next_render = b"\x89PNG\r\n\x1a\nnext-page"
+    next_evidence = _page_evidence(next_render)
+    next_evidence["page_number"] = 3
+    _bind_evidence(next_evidence)
+
+    calls = []
+    monkeypatch.setattr(
+        page_understanding.urllib.request,
+        "build_opener",
+        _successful_build_opener(calls),
+    )
+    config = _config(tmp_path / "cache")
+    without_context = process_page_evidence(target_evidence, target_render, config)
+    with_context = process_page_evidence(
+        target_evidence,
+        target_render,
+        config,
+        nearby_pages=[
+            {"page_evidence": next_evidence, "render_bytes": next_render},
+            {"page_evidence": previous_evidence, "render_bytes": previous_render},
+        ],
+    )
+
+    assert with_context["processing"] == "succeeded"
+    assert with_context["cache_key"] != without_context["cache_key"]
+    content = json.loads(calls[1][0].data)["messages"][0]["content"]
+    assert [item.get("text") for item in content if item["type"] == "text"] == [
+        page_understanding.PAGE_STRUCTURE_PROMPT,
+        "Previous page context. Do not output elements from this image.",
+        "Target page. Output elements from this image only.",
+        "Next page context. Do not output elements from this image.",
+    ]
+    images = [item["image_url"]["url"] for item in content if item["type"] == "image_url"]
+    assert images == [
+        "data:image/png;base64,"
+        + __import__("base64").b64encode(render).decode("ascii")
+        for render in (previous_render, target_render, next_render)
+    ]
+
+
+def test_rejects_page_context_from_another_pdf(tmp_path, monkeypatch):
+    """驗證不同 PDF 的相鄰頁不會被送給模型。"""
+    calls = []
+    monkeypatch.setattr(
+        page_understanding.urllib.request,
+        "build_opener",
+        _successful_build_opener(calls),
+    )
+    target_render = _render_bytes()
+    target_evidence = _page_evidence(target_render)
+    target_evidence["page_number"] = 2
+    _bind_evidence(target_evidence)
+    other_render = b"\x89PNG\r\n\x1a\nother-pdf"
+    other_evidence = _page_evidence(other_render)
+    other_evidence["hashes"]["source_sha256"] = "f" * 64
+    _bind_evidence(other_evidence)
+
+    result = process_page_evidence(
+        target_evidence,
+        target_render,
+        _config(tmp_path / "cache"),
+        nearby_pages=[
+            {"page_evidence": other_evidence, "render_bytes": other_render}
+        ],
+    )
+
+    assert result["processing"] == "failed"
+    assert result["reason_code"] == "PAGE_CONTEXT_INVALID"
+    assert calls == []
 
 
 def test_page_structure_body_schema_uses_luna_compatible_keywords():
@@ -501,7 +570,7 @@ def test_cache_key_invalidates(tmp_path, monkeypatch, identity_part):
         monkeypatch.setattr(
             page_understanding,
             "PAGE_STRUCTURE_PROMPT_VERSION",
-            "s1-page-structure-prompt/v7",
+            "s1-page-structure-prompt/v4",
         )
     elif identity_part == "prompt_sha256":
         monkeypatch.setattr(
