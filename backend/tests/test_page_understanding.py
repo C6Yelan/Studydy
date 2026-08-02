@@ -200,7 +200,7 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
         "prompt_version",
         "processing_policy_version",
     }
-    assert result["runtime_identity"]["prompt_version"] == "s1-page-structure-prompt/v2"
+    assert result["runtime_identity"]["prompt_version"] == "s1-page-structure-prompt/v3"
     assert (
         result["runtime_identity"]["processing_policy_version"]
         == "s1-page-understanding-policy/v2"
@@ -251,8 +251,17 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
     assert re.fullmatch(nonempty_pattern, " visible ") is not None
     assert re.fullmatch(nonempty_pattern, " \t\n ") is None
     assert re.fullmatch(nonempty_pattern, "first line\nsecond line") is not None
-    assert all(text in page_understanding.PAGE_STRUCTURE_PROMPT for text in (
-        "normalized_render_1000", "[x0, y0, x1, y1]", "0 to 1000", "x increases rightward", "y increases downward"))
+    assert all(
+        text in page_understanding.PAGE_STRUCTURE_PROMPT
+        for text in (
+            "target page",
+            "Adjacent page images",
+            "normalized_render_1000",
+            "[x0, y0, x1, y1]",
+            "do not invent content",
+        )
+    )
+    assert "visible table field" not in page_understanding.PAGE_STRUCTURE_PROMPT
     assert set(body_schema["required"]) == {
         "elements",
         "reading_order",
@@ -270,7 +279,7 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
             pending.extend(value)
     assert all(schema["additionalProperties"] is False for schema in object_schemas)
     element_types = set()
-    for schema in body_schema["properties"]["elements"]["items"]["oneOf"]:
+    for schema in body_schema["properties"]["elements"]["items"]["anyOf"]:
         type_schema = schema["properties"]["type"]
         element_types.update(type_schema.get("enum", [type_schema.get("const")]))
     assert element_types == {
@@ -278,7 +287,7 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
         "diagram_node", "diagram_label", "arrow", "other_visible_region",
     }
     relation_types = set()
-    for schema in body_schema["properties"]["spatial_relations"]["items"]["oneOf"]:
+    for schema in body_schema["properties"]["spatial_relations"]["items"]["anyOf"]:
         type_schema = schema["properties"]["type"]
         relation_types.update(type_schema.get("enum", [type_schema.get("const")]))
     assert relation_types == {"left_of", "above", "contains", "directed_arrow"}
@@ -287,6 +296,10 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
             "role": "user",
             "content": [
                 {"type": "text", "text": page_understanding.PAGE_STRUCTURE_PROMPT},
+                {
+                    "type": "text",
+                    "text": "Target page. Output elements from this image only.",
+                },
                 {
                     "type": "image_url",
                     "image_url": {
@@ -338,6 +351,161 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
     refreshed = process_page_evidence(evidence, render_bytes, config)
     assert refreshed["reason_code"] == "PAGE_STRUCTURE_READY"
     assert len(calls) == 2
+
+
+def test_adjacent_pages_are_context_only_and_change_cache_key(tmp_path, monkeypatch):
+    """驗證前後頁依頁碼排序送出，且有無上下文不會共用 cache。"""
+    target_render = _render_bytes()
+    target_evidence = _page_evidence(target_render)
+    target_evidence["page_number"] = 2
+    _bind_evidence(target_evidence)
+
+    previous_render = b"\x89PNG\r\n\x1a\nprevious-page"
+    previous_evidence = _page_evidence(previous_render)
+    next_render = b"\x89PNG\r\n\x1a\nnext-page"
+    next_evidence = _page_evidence(next_render)
+    next_evidence["page_number"] = 3
+    _bind_evidence(next_evidence)
+
+    calls = []
+    monkeypatch.setattr(
+        page_understanding.urllib.request,
+        "build_opener",
+        _successful_build_opener(calls),
+    )
+    config = _config(tmp_path / "cache")
+    without_context = process_page_evidence(target_evidence, target_render, config)
+    with_context = process_page_evidence(
+        target_evidence,
+        target_render,
+        config,
+        nearby_pages=[
+            {"page_evidence": next_evidence, "render_bytes": next_render},
+            {"page_evidence": previous_evidence, "render_bytes": previous_render},
+        ],
+    )
+
+    assert with_context["processing"] == "succeeded"
+    assert with_context["cache_key"] != without_context["cache_key"]
+    content = json.loads(calls[1][0].data)["messages"][0]["content"]
+    assert [item.get("text") for item in content if item["type"] == "text"] == [
+        page_understanding.PAGE_STRUCTURE_PROMPT,
+        "Previous page context. Do not output elements from this image.",
+        "Target page. Output elements from this image only.",
+        "Next page context. Do not output elements from this image.",
+    ]
+    images = [item["image_url"]["url"] for item in content if item["type"] == "image_url"]
+    assert images == [
+        "data:image/png;base64,"
+        + __import__("base64").b64encode(render).decode("ascii")
+        for render in (previous_render, target_render, next_render)
+    ]
+
+
+def test_rejects_page_context_from_another_pdf(tmp_path, monkeypatch):
+    """驗證不同 PDF 的相鄰頁不會被送給模型。"""
+    calls = []
+    monkeypatch.setattr(
+        page_understanding.urllib.request,
+        "build_opener",
+        _successful_build_opener(calls),
+    )
+    target_render = _render_bytes()
+    target_evidence = _page_evidence(target_render)
+    target_evidence["page_number"] = 2
+    _bind_evidence(target_evidence)
+    other_render = b"\x89PNG\r\n\x1a\nother-pdf"
+    other_evidence = _page_evidence(other_render)
+    other_evidence["hashes"]["source_sha256"] = "f" * 64
+    _bind_evidence(other_evidence)
+
+    result = process_page_evidence(
+        target_evidence,
+        target_render,
+        _config(tmp_path / "cache"),
+        nearby_pages=[
+            {"page_evidence": other_evidence, "render_bytes": other_render}
+        ],
+    )
+
+    assert result["processing"] == "failed"
+    assert result["reason_code"] == "PAGE_CONTEXT_INVALID"
+    assert calls == []
+
+
+def test_page_structure_body_schema_uses_luna_compatible_keywords():
+    """驗證 union 與固定字串型別符合 Luna Structured Outputs 限制。"""
+    pending = [page_understanding.PAGE_STRUCTURE_BODY_SCHEMA]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            assert "oneOf" not in value
+            if "enum" in value or "const" in value:
+                assert value["type"] == "string"
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+
+
+@pytest.mark.parametrize("node_id", [None, "node-1"], ids=["without-node", "with-node"])
+def test_diagram_label_node_id_is_optional_in_schema_and_validator(
+    tmp_path, monkeypatch, node_id
+):
+    """驗證 diagram_label 有無 node_id 都只符合一個 shape 且能通過 validator。"""
+    label = {
+        "id": "label-1",
+        "type": "diagram_label",
+        "bbox": [100, 100, 400, 300],
+        "text": "Visible label",
+    }
+    elements = [label]
+    if node_id is not None:
+        label["node_id"] = node_id
+        elements.insert(
+            0,
+            {"id": node_id, "type": "diagram_node", "bbox": [50, 50, 450, 350]},
+        )
+
+    element_schemas = page_understanding.PAGE_STRUCTURE_BODY_SCHEMA["properties"][
+        "elements"
+    ]["items"]["anyOf"]
+    label_schemas = [
+        schema
+        for schema in element_schemas
+        if schema["properties"]["type"].get("const") == "diagram_label"
+    ]
+    matching_shapes = [
+        schema
+        for schema in label_schemas
+        if set(schema["required"]).issubset(label)
+        and set(label).issubset(schema["properties"])
+    ]
+    assert len(label_schemas) == 2
+    assert len(matching_shapes) == 1
+
+    body = {
+        "elements": elements,
+        "reading_order": ["label-1"],
+        "spatial_relations": [],
+    }
+
+    def build_opener(*_handlers):
+        return _Opener(lambda _request, _timeout: _Response(_outer_response(body)))
+
+    monkeypatch.setattr(page_understanding.urllib.request, "build_opener", build_opener)
+    render_bytes = _render_bytes()
+    result = process_page_evidence(
+        _page_evidence(render_bytes), render_bytes, _config(tmp_path / "cache")
+    )
+
+    assert result["processing"] == "succeeded"
+    assert result["reason_code"] == "PAGE_STRUCTURE_READY"
+    output_label = next(
+        element
+        for element in result["page_structure"]["elements"]
+        if element["type"] == "diagram_label"
+    )
+    assert output_label.get("node_id") == node_id
 
 
 @pytest.mark.parametrize(
@@ -402,7 +570,7 @@ def test_cache_key_invalidates(tmp_path, monkeypatch, identity_part):
         monkeypatch.setattr(
             page_understanding,
             "PAGE_STRUCTURE_PROMPT_VERSION",
-            "s1-page-structure-prompt/v3",
+            "s1-page-structure-prompt/v4",
         )
     elif identity_part == "prompt_sha256":
         monkeypatch.setattr(

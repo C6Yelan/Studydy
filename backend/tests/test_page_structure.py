@@ -253,6 +253,12 @@ def test_accepts_complete_page_structure_without_changing_input():
             "READING_ORDER_INVALID",
         ),
         (
+            lambda page_structure, evidence: page_structure["reading_order"].append(
+                "missing-id"
+            ),
+            "READING_ORDER_INVALID",
+        ),
+        (
             lambda page_structure, evidence: page_structure["reading_order"].remove(
                 "formula"
             ),
