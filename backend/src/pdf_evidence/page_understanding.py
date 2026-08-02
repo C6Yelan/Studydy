@@ -40,17 +40,17 @@ PAGE_STRUCTURE_BODY_SCHEMA = {
             "properties": {
                 "row": {"type": "integer", "minimum": 1}, "column": {"type": "integer", "minimum": 1},
                 "row_span": {"type": "integer", "minimum": 1}, "column_span": {"type": "integer", "minimum": 1},
-                "role": {"enum": ["header", "data"]},
+                "role": {"type": "string", "enum": ["header", "data"]},
                 "text": {"type": "string"},
             },
         },
     },
     "properties": {
-        "elements": {"type": "array", "items": {"oneOf": [
+        "elements": {"type": "array", "items": {"anyOf": [
                     {
                         "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "text"],
                         "properties": {
-                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"enum": ["heading", "paragraph", "code"]},
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"type": "string", "enum": ["heading", "paragraph", "code"]},
                             "bbox": {"$ref": "#/$defs/bbox"},
                             "text": {"$ref": "#/$defs/nonempty_string"},
                         },
@@ -58,7 +58,7 @@ PAGE_STRUCTURE_BODY_SCHEMA = {
                     {
                         "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "items"],
                         "properties": {
-                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"const": "list"},
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"type": "string", "const": "list"},
                             "bbox": {"$ref": "#/$defs/bbox"},
                             "items": {"type": "array", "items": {"$ref": "#/$defs/nonempty_string"}, "minItems": 1},
                         },
@@ -66,14 +66,14 @@ PAGE_STRUCTURE_BODY_SCHEMA = {
                     {
                         "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "latex"],
                         "properties": {
-                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"const": "formula"},
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"type": "string", "const": "formula"},
                             "bbox": {"$ref": "#/$defs/bbox"}, "latex": {"$ref": "#/$defs/nonempty_string"},
                         },
                     },
                     {
                         "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "row_count", "column_count", "cells"],
                         "properties": {
-                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"const": "matrix"},
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"type": "string", "const": "matrix"},
                             "bbox": {"$ref": "#/$defs/bbox"},
                             "row_count": {"type": "integer", "minimum": 1}, "column_count": {"type": "integer", "minimum": 1},
                             "cells": {"type": "array", "items": {"$ref": "#/$defs/matrix_cell"}, "minItems": 1},
@@ -82,7 +82,7 @@ PAGE_STRUCTURE_BODY_SCHEMA = {
                     {
                         "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "row_count", "column_count", "cells"],
                         "properties": {
-                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"const": "table"},
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"type": "string", "const": "table"},
                             "bbox": {"$ref": "#/$defs/bbox"},
                             "row_count": {"type": "integer", "minimum": 1}, "column_count": {"type": "integer", "minimum": 1},
                             "cells": {"type": "array", "items": {"$ref": "#/$defs/table_cell"}, "minItems": 1},
@@ -91,14 +91,21 @@ PAGE_STRUCTURE_BODY_SCHEMA = {
                     {
                         "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox"],
                         "properties": {
-                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"enum": ["diagram_node", "arrow"]},
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"type": "string", "enum": ["diagram_node", "arrow"]},
                             "bbox": {"$ref": "#/$defs/bbox"},
                         },
                     },
                     {
                         "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "text"],
                         "properties": {
-                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"const": "diagram_label"},
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"type": "string", "const": "diagram_label"},
+                            "bbox": {"$ref": "#/$defs/bbox"}, "text": {"$ref": "#/$defs/nonempty_string"},
+                        },
+                    },
+                    {
+                        "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "text", "node_id"],
+                        "properties": {
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"type": "string", "const": "diagram_label"},
                             "bbox": {"$ref": "#/$defs/bbox"}, "text": {"$ref": "#/$defs/nonempty_string"},
                             "node_id": {"$ref": "#/$defs/nonempty_string"},
                         },
@@ -106,20 +113,20 @@ PAGE_STRUCTURE_BODY_SCHEMA = {
                     {
                         "type": "object", "additionalProperties": False, "required": ["id", "type", "bbox", "uncertainty_kind"],
                         "properties": {
-                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"const": "other_visible_region"},
+                            "id": {"$ref": "#/$defs/nonempty_string"}, "type": {"type": "string", "const": "other_visible_region"},
                             "bbox": {"$ref": "#/$defs/bbox"},
-                            "uncertainty_kind": {"enum": ["uncertain", "cropped", "unreadable", "conflicting"]},
+                            "uncertainty_kind": {"type": "string", "enum": ["uncertain", "cropped", "unreadable", "conflicting"]},
                         },
                     },
                 ]
             },
         },
         "reading_order": {"type": "array", "items": {"type": "string"}},
-        "spatial_relations": {"type": "array", "items": {"oneOf": [
+        "spatial_relations": {"type": "array", "items": {"anyOf": [
                     {
                         "type": "object", "additionalProperties": False, "required": ["type", "source_id", "target_id"],
                         "properties": {
-                            "type": {"enum": ["left_of", "above", "contains"]},
+                            "type": {"type": "string", "enum": ["left_of", "above", "contains"]},
                             "source_id": {"$ref": "#/$defs/nonempty_string"},
                             "target_id": {"$ref": "#/$defs/nonempty_string"},
                         },
@@ -127,7 +134,7 @@ PAGE_STRUCTURE_BODY_SCHEMA = {
                     {
                         "type": "object", "additionalProperties": False, "required": ["type", "source_id", "target_id", "arrow_id"],
                         "properties": {
-                            "type": {"const": "directed_arrow"},
+                            "type": {"type": "string", "const": "directed_arrow"},
                             "source_id": {"$ref": "#/$defs/nonempty_string"},
                             "target_id": {"$ref": "#/$defs/nonempty_string"},
                             "arrow_id": {"$ref": "#/$defs/nonempty_string"},
