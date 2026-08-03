@@ -200,7 +200,7 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
         "prompt_version",
         "processing_policy_version",
     }
-    assert result["runtime_identity"]["prompt_version"] == "s1-page-structure-prompt/v3"
+    assert result["runtime_identity"]["prompt_version"] == "s1-page-structure-prompt/v4"
     assert (
         result["runtime_identity"]["processing_policy_version"]
         == "s1-page-understanding-policy/v2"
@@ -259,6 +259,10 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
             "normalized_render_1000",
             "[x0, y0, x1, y1]",
             "do not invent content",
+            "exactly once in reading_order",
+            "Do not add duplicate, self, or inverse relations",
+            "visible internal nodes or connections",
+            "instead of guessing",
         )
     )
     assert "visible table field" not in page_understanding.PAGE_STRUCTURE_PROMPT
@@ -570,7 +574,7 @@ def test_cache_key_invalidates(tmp_path, monkeypatch, identity_part):
         monkeypatch.setattr(
             page_understanding,
             "PAGE_STRUCTURE_PROMPT_VERSION",
-            "s1-page-structure-prompt/v4",
+            "s1-page-structure-prompt/v5",
         )
     elif identity_part == "prompt_sha256":
         monkeypatch.setattr(

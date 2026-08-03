@@ -17,14 +17,21 @@ import urllib.request
 from .page_structure import PAGE_STRUCTURE_SCHEMA, validate_page_structure
 
 
-PAGE_STRUCTURE_PROMPT_VERSION = "s1-page-structure-prompt/v3"
+PAGE_STRUCTURE_PROMPT_VERSION = "s1-page-structure-prompt/v4"
 PAGE_STRUCTURE_PROMPT = (
     "Inspect the target page image and describe only its visible page structure. Adjacent page images "
     "may be supplied as context for understanding continued content, but do not copy their elements "
     "into the target page output. Ground every element in visible target-page evidence, preserve reading "
     "and spatial relationships, mark uncertain regions explicitly, and do not invent content. Every bbox "
     "uses normalized_render_1000 coordinates ordered [x0, y0, x1, y1] with values from 0 to 1000; "
-    "x increases rightward, y increases downward, x0 < x1, and y0 < y1."
+    "x increases rightward, y increases downward, x0 < x1, and y0 < y1. Include every heading, "
+    "paragraph, list, code, formula, matrix, table, diagram_label, and other_visible_region exactly once "
+    "in reading_order; omit diagram_node and arrow from reading_order. Every relation ID must reference "
+    "an existing element. Do not add duplicate, self, or inverse relations. A directed_arrow must use a "
+    "distinct arrow element, and each arrow element may be used by at most one directed_arrow. When a "
+    "diagram has visible internal nodes or connections, describe those parts instead of treating the whole "
+    "diagram as one node. Transcribe visible text exactly; if it cannot be read reliably, use an uncertain "
+    "region instead of guessing."
 )
 PAGE_STRUCTURE_BODY_SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["elements", "reading_order", "spatial_relations"],
