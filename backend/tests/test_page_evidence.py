@@ -54,7 +54,7 @@ def test_builds_identity_hashes_native_render_transform_and_manifest_last(tmp_pa
     result = build_page_evidence(pdf, _sha256(pdf), 2, output_root)
 
     assert result["status"] == "succeeded"
-    assert result["schema"] == "s1-page-evidence/v1"
+    assert result["schema"] == "page-evidence/v1"
     assert result["page_number"] == 2
     assert set(result) == {
         "schema",
@@ -89,7 +89,7 @@ def test_builds_identity_hashes_native_render_transform_and_manifest_last(tmp_pa
         "width_pixels",
         "height_pixels",
     }
-    assert render["schema"] == "s1-page-render/v1"
+    assert render["schema"] == "page-render/v1"
     assert render["dpi"] == 200
     assert render["colorspace"] == "RGB"
     assert render["format"] == "PNG"

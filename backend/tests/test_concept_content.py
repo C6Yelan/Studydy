@@ -10,6 +10,13 @@ from pdf_evidence.concept_candidates import (
     build_provisional_concept_candidate,
 )
 from pdf_evidence.concept_content import (
+    CONCEPT_CONTENT_BODY_SCHEMA,
+    CONCEPT_CONTENT_PROMPT,
+    CONCEPT_CONTENT_PROMPT_SHA256,
+    CONCEPT_CONTENT_PROMPT_VERSION,
+    RELATION_CLUE_KINDS,
+    RELATION_DIRECTIONS,
+    build_concept_content,
     build_concept_keywords,
     build_evidence_summary,
     build_summary_context,
@@ -37,7 +44,7 @@ def _accepted_candidate(
     ).hexdigest()
     evidence_ref = f"evidence:sha256:{evidence_sha256}"
     page_evidence = {
-        "schema": "s1-page-evidence/v1",
+        "schema": "page-evidence/v1",
         "status": "succeeded",
         "material_ref": material_ref,
         "page_ref": page_ref,
@@ -50,7 +57,7 @@ def _accepted_candidate(
         },
     }
     page_structure = {
-        "schema": "s1-page-structure/v1",
+        "schema": "page-structure/v1",
         "material_ref": material_ref,
         "page_ref": page_ref,
         "page_number": page_number,
@@ -83,7 +90,7 @@ def _accepted_candidate(
         ).encode("utf-8")
     ).hexdigest()
     page_alignment = {
-        "schema": "s1-page-alignment/v1",
+        "schema": "page-alignment/v1",
         "identity": {
             "material_ref": material_ref,
             "page_ref": page_ref,
@@ -113,8 +120,11 @@ def _accepted_candidate(
                 reference["evidence_id"] for reference in context["evidence"]
             ],
         },
-        handoff_id=f"candidate-handoff-{material_key}-{page_number}",
-        sol_identity={"role": "candidate-producer", "model": "fixture-model"},
+        generation_run_id=f"concept-generation-{material_key}-{page_number}",
+        generation_identity={
+            "role": "concept-generator",
+            "model": "local-model-revision-001",
+        },
     )
     return adjudicate_concept_candidate(provisional, "retain")
 
@@ -126,6 +136,27 @@ def _groups(names, *, material_key="material-a"):
         for index, name in enumerate(names, start=1)
     ]
     return group_concept_candidates(candidates)
+
+
+def _concept_content_body(context):
+    """建立可由各測試局部改動的有效摘要與關聯線索。"""
+    source_group, target_group = context["groups"]
+    source_evidence_id = source_group["members"][0]["evidence_ids"][0]
+    target_evidence_id = target_group["members"][0]["evidence_ids"][0]
+    return {
+        "summary": "Arrays store values, and loops can visit them.",
+        "summary_evidence_ids": [source_evidence_id, target_evidence_id],
+        "relation_clues": [
+            {
+                "kind": "application",
+                "source_group_id": source_group["group_id"],
+                "target_group_id": target_group["group_id"],
+                "statement": "A loop can visit values stored in an array.",
+                "direction_hint": "source_to_target",
+                "evidence_ids": [source_evidence_id, target_evidence_id],
+            }
+        ],
+    }
 
 
 def test_builds_minimal_same_material_summary_context_without_mutation():
@@ -249,6 +280,214 @@ def test_invalid_summary_body_fails_without_summary_text(
     assert "evidence_ids" not in result
 
 
+def test_combined_content_schema_and_prompt_are_fixed_and_bounded():
+    """驗證模型輸入契約只暴露批准欄位、列舉與字數上限。"""
+    assert CONCEPT_CONTENT_PROMPT_VERSION == "concept-content-prompt/v1"
+    assert CONCEPT_CONTENT_PROMPT_SHA256 == hashlib.sha256(
+        CONCEPT_CONTENT_PROMPT.encode("utf-8")
+    ).hexdigest()
+    assert CONCEPT_CONTENT_BODY_SCHEMA["required"] == [
+        "summary",
+        "summary_evidence_ids",
+        "relation_clues",
+    ]
+    assert set(CONCEPT_CONTENT_BODY_SCHEMA["properties"]) == {
+        "summary",
+        "summary_evidence_ids",
+        "relation_clues",
+    }
+    assert CONCEPT_CONTENT_BODY_SCHEMA["additionalProperties"] is False
+    assert CONCEPT_CONTENT_BODY_SCHEMA["properties"]["summary"]["maxLength"] == 1000
+
+    clues_schema = CONCEPT_CONTENT_BODY_SCHEMA["properties"]["relation_clues"]
+    clue_schema = clues_schema["items"]
+    assert clues_schema["maxItems"] == 8
+    assert set(clue_schema["required"]) == {
+        "kind",
+        "source_group_id",
+        "target_group_id",
+        "statement",
+        "direction_hint",
+        "evidence_ids",
+    }
+    assert set(clue_schema["properties"]) == set(clue_schema["required"])
+    assert clue_schema["additionalProperties"] is False
+    assert clue_schema["properties"]["statement"]["maxLength"] == 300
+    assert clue_schema["properties"]["kind"]["enum"] == list(
+        RELATION_CLUE_KINDS
+    )
+    assert clue_schema["properties"]["direction_hint"]["enum"] == list(
+        RELATION_DIRECTIONS
+    )
+
+
+def test_valid_combined_content_is_evidence_bound_and_needs_review():
+    """驗證有效內容只保留最小 clue，並維持 development review 狀態。"""
+    context = build_summary_context(_groups(["Array", "Loop"]))
+    body = _concept_content_body(context)
+    originals = deepcopy((context, body))
+
+    result = build_concept_content(context, body)
+
+    assert result["development_only"] is True
+    assert result["material_ref"] == context["material_ref"]
+    assert result["source_group_ids"] == [
+        group["group_id"] for group in context["groups"]
+    ]
+    assert result["summary"] == body["summary"]
+    assert result["summary_evidence_ids"] == body["summary_evidence_ids"]
+    assert result["relation_clues"] == body["relation_clues"]
+    assert set(result["relation_clues"][0]) == {
+        "kind",
+        "source_group_id",
+        "target_group_id",
+        "statement",
+        "direction_hint",
+        "evidence_ids",
+    }
+    assert result["processing"] == "succeeded"
+    assert result["quality"] == "needs_review"
+    assert result["decision"] == "review"
+    assert result["reason_code"] == "CONCEPT_CONTENT_NEEDS_REVIEW"
+    result["summary_evidence_ids"].append("changed")
+    result["relation_clues"][0]["evidence_ids"].append("changed")
+    assert (context, body) == originals
+
+
+def test_empty_relation_clues_succeed_with_explicit_reason():
+    """驗證沒有可靠 clue 時誠實回報原因，不建立假 Relation。"""
+    context = build_summary_context(_groups(["Array", "Loop"]))
+    body = _concept_content_body(context)
+    body["relation_clues"] = []
+
+    result = build_concept_content(context, body)
+
+    assert result["processing"] == "succeeded"
+    assert result["quality"] == "needs_review"
+    assert result["decision"] == "review"
+    assert result["relation_clues"] == []
+    assert result["reason_code"] == "CONCEPT_CONTENT_NO_RELATION_CLUES"
+    assert "relations" not in result
+    assert "graph" not in result
+
+
+def test_reversed_group_order_is_not_a_duplicate_clue():
+    """驗證 source 與 target 順序有意義，反向線索可個別保留。"""
+    context = build_summary_context(_groups(["Array", "Loop"]))
+    body = _concept_content_body(context)
+    reversed_clue = deepcopy(body["relation_clues"][0])
+    reversed_clue["source_group_id"], reversed_clue["target_group_id"] = (
+        reversed_clue["target_group_id"],
+        reversed_clue["source_group_id"],
+    )
+    body["relation_clues"].append(reversed_clue)
+
+    result = build_concept_content(context, body)
+
+    assert result["processing"] == "succeeded"
+    assert len(result["relation_clues"]) == 2
+
+
+@pytest.mark.parametrize(
+    ("invalid_case", "reason_code"),
+    [
+        ("root_extra", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("root_missing", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("summary_empty", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("summary_too_long", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("summary_evidence_empty", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("summary_evidence_duplicate", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("summary_evidence_unknown", "CONCEPT_CONTENT_EVIDENCE_INVALID"),
+        ("too_many_clues", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("clue_extra", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("clue_missing", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("kind_invalid", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("direction_invalid", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("statement_empty", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("statement_too_long", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("group_unknown", "CONCEPT_CONTENT_GROUP_INVALID"),
+        ("group_self_pair", "CONCEPT_CONTENT_GROUP_INVALID"),
+        ("clue_evidence_empty", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("clue_evidence_duplicate", "CONCEPT_CONTENT_BODY_INVALID"),
+        ("clue_evidence_unknown", "CONCEPT_CONTENT_EVIDENCE_INVALID"),
+        ("source_evidence_missing", "CONCEPT_CONTENT_EVIDENCE_INVALID"),
+        ("target_evidence_missing", "CONCEPT_CONTENT_EVIDENCE_INVALID"),
+        ("clue_duplicate_trimmed", "CONCEPT_CONTENT_CLUE_DUPLICATE"),
+    ],
+)
+def test_invalid_combined_content_fails_without_unvalidated_text(
+    invalid_case, reason_code
+):
+    """驗證契約或 grounding 失敗時不會帶出未驗證文字。"""
+    context = build_summary_context(_groups(["Array", "Loop"]))
+    body = _concept_content_body(context)
+    clue = body["relation_clues"][0]
+    source_evidence_id, target_evidence_id = clue["evidence_ids"]
+
+    if invalid_case == "root_extra":
+        body["extra"] = "invalid"
+    elif invalid_case == "root_missing":
+        del body["summary"]
+    elif invalid_case == "summary_empty":
+        body["summary"] = " "
+    elif invalid_case == "summary_too_long":
+        body["summary"] = "x" * 1001
+    elif invalid_case == "summary_evidence_empty":
+        body["summary_evidence_ids"] = []
+    elif invalid_case == "summary_evidence_duplicate":
+        body["summary_evidence_ids"] = [source_evidence_id] * 2
+    elif invalid_case == "summary_evidence_unknown":
+        body["summary_evidence_ids"] = ["evidence-reference:sha256:unknown"]
+    elif invalid_case == "too_many_clues":
+        body["relation_clues"] = [deepcopy(clue) for _ in range(9)]
+    elif invalid_case == "clue_extra":
+        clue["extra"] = "invalid"
+    elif invalid_case == "clue_missing":
+        del clue["statement"]
+    elif invalid_case == "kind_invalid":
+        clue["kind"] = "related"
+    elif invalid_case == "direction_invalid":
+        clue["direction_hint"] = "forward"
+    elif invalid_case == "statement_empty":
+        clue["statement"] = " "
+    elif invalid_case == "statement_too_long":
+        clue["statement"] = "x" * 301
+    elif invalid_case == "group_unknown":
+        clue["source_group_id"] = "concept-group:sha256:unknown"
+    elif invalid_case == "group_self_pair":
+        clue["target_group_id"] = clue["source_group_id"]
+    elif invalid_case == "clue_evidence_empty":
+        clue["evidence_ids"] = []
+    elif invalid_case == "clue_evidence_duplicate":
+        clue["evidence_ids"] = [source_evidence_id] * 2
+    elif invalid_case == "clue_evidence_unknown":
+        clue["evidence_ids"] = [
+            source_evidence_id,
+            "evidence-reference:sha256:unknown",
+        ]
+    elif invalid_case == "source_evidence_missing":
+        clue["evidence_ids"] = [target_evidence_id]
+    elif invalid_case == "target_evidence_missing":
+        clue["evidence_ids"] = [source_evidence_id]
+    else:
+        duplicate = {
+            field: f"  {value}  " if isinstance(value, str) else deepcopy(value)
+            for field, value in clue.items()
+        }
+        body["relation_clues"].append(duplicate)
+
+    result = build_concept_content(context, body)
+
+    assert result["processing"] == "failed"
+    assert result["quality"] == "unsupported"
+    assert result["decision"] == "reject"
+    assert result["reason_code"] == reason_code
+    assert "summary" not in result
+    assert "summary_evidence_ids" not in result
+    assert "relation_clues" not in result
+    assert "statement" not in result
+
+
 @pytest.mark.parametrize(
     ("count", "expected_count", "quality", "decision", "reason_code"),
     [
@@ -281,7 +520,7 @@ def test_keywords_preserve_small_counts_and_apply_deterministic_limit(
 def test_zero_keywords_returns_fixed_missing_evidence_reason():
     """驗證沒有群組時不建立假 Keyword，並回傳固定失敗原因。"""
     assert build_concept_keywords([]) == {
-        "schema": "s1-concept-keywords/v1",
+        "schema": "concept-keywords/v1",
         "keywords": [],
         "processing": "failed",
         "quality": "unsupported",

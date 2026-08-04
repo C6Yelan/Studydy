@@ -40,7 +40,7 @@ def _validated_page_inputs():
     evidence_ref = f"evidence:sha256:{'b' * 64}"
     geometry = {"visible_points": [0.0, 0.0, 200.0, 100.0]}
     page_evidence = {
-        "schema": "s1-page-evidence/v1",
+        "schema": "page-evidence/v1",
         "status": "succeeded",
         "material_ref": material_ref,
         "page_ref": page_ref,
@@ -53,7 +53,7 @@ def _validated_page_inputs():
         },
     }
     page_structure = {
-        "schema": "s1-page-structure/v1",
+        "schema": "page-structure/v1",
         "material_ref": material_ref,
         "page_ref": page_ref,
         "page_number": page_number,
@@ -102,7 +102,7 @@ def _validated_page_inputs():
     }
     page_structure_sha256 = _canonical_sha256(page_structure)
     page_alignment = {
-        "schema": "s1-page-alignment/v1",
+        "schema": "page-alignment/v1",
         "identity": {
             "material_ref": material_ref,
             "page_ref": page_ref,
@@ -146,14 +146,17 @@ def _candidate():
     return build_provisional_concept_candidate(
         context,
         body,
-        handoff_id="task8-sol-handoff-001",
-        sol_identity={"role": "codex-sol", "model": "gpt-5.6-sol"},
+        generation_run_id="concept-generation-run-001",
+        generation_identity={
+            "role": "concept-generator",
+            "model": "local-model-revision-001",
+        },
     )
 
 
 def test_prompt_and_body_schema_are_fixed_and_minimal():
     """驗證固定 prompt identity 與 structured body 只含四個批准欄位。"""
-    assert CONCEPT_PROMPT_VERSION == "s1-concept-candidate-prompt/v1"
+    assert CONCEPT_PROMPT_VERSION == "concept-candidate-prompt/v1"
     assert hashlib.sha256(CONCEPT_PROMPT.encode("utf-8")).hexdigest() == (
         CONCEPT_PROMPT_SHA256
     )
@@ -167,6 +170,7 @@ def test_prompt_and_body_schema_are_fixed_and_minimal():
     assert set(CONCEPT_BODY_SCHEMA["properties"]) == set(
         CONCEPT_BODY_SCHEMA["required"]
     )
+    assert "uniqueItems" not in CONCEPT_BODY_SCHEMA["properties"]["evidence_ids"]
 
 
 def test_builds_one_heading_section_context_without_changing_inputs():
@@ -178,7 +182,7 @@ def test_builds_one_heading_section_context_without_changing_inputs():
         page_structure, page_evidence, page_alignment, "heading-1"
     )
 
-    assert context["schema"] == "s1-concept-context/v1"
+    assert context["schema"] == "concept-context/v1"
     assert context["anchor_element_id"] == "heading-1"
     assert [element["element_id"] for element in context["elements"]] == [
         "heading-1",
@@ -191,7 +195,7 @@ def test_builds_one_heading_section_context_without_changing_inputs():
         "code-1",
     ]
     assert all(
-        reference["schema"] == "s1-evidence-reference/v1"
+        reference["schema"] == "evidence-reference/v1"
         for reference in context["evidence"]
     )
     assert context["input_binding"]["page_structure_sha256"] == (
@@ -207,6 +211,145 @@ def test_builds_one_heading_section_context_without_changing_inputs():
     assert "provider" not in serialized
     context["evidence"][0]["region"]["bbox"][0] = -1
     assert page_structure == originals[0]
+
+
+@pytest.mark.parametrize(
+    ("readable_element", "expected_text"),
+    [
+        (
+            {
+                "id": "diagram-label-1",
+                "type": "diagram_label",
+                "bbox": [5.0, 60.0, 100.0, 64.0],
+                "text": "Input",
+            },
+            "Input",
+        ),
+        (
+            {
+                "id": "list-1",
+                "type": "list",
+                "bbox": [5.0, 60.0, 100.0, 64.0],
+                "items": ["First item", "Second item"],
+            },
+            "First item\nSecond item",
+        ),
+        (
+            {
+                "id": "formula-1",
+                "type": "formula",
+                "bbox": [5.0, 60.0, 100.0, 64.0],
+                "latex": "x^2 + y^2",
+            },
+            "x^2 + y^2",
+        ),
+        (
+            {
+                "id": "matrix-1",
+                "type": "matrix",
+                "bbox": [5.0, 60.0, 100.0, 64.0],
+                "row_count": 2,
+                "column_count": 2,
+                "cells": [
+                    {"row": 2, "column": 2, "text": "d"},
+                    {"row": 1, "column": 2, "text": "b"},
+                    {"row": 2, "column": 1, "text": "c"},
+                    {"row": 1, "column": 1, "text": "a"},
+                ],
+            },
+            "a | b\nc | d",
+        ),
+        (
+            {
+                "id": "table-1",
+                "type": "table",
+                "bbox": [5.0, 60.0, 100.0, 64.0],
+                "row_count": 2,
+                "column_count": 2,
+                "cells": [
+                    {
+                        "row": 2,
+                        "column": 2,
+                        "row_span": 1,
+                        "column_span": 1,
+                        "role": "data",
+                        "text": "Right",
+                    },
+                    {
+                        "row": 1,
+                        "column": 1,
+                        "row_span": 1,
+                        "column_span": 2,
+                        "role": "header",
+                        "text": "Header",
+                    },
+                    {
+                        "row": 2,
+                        "column": 1,
+                        "row_span": 1,
+                        "column_span": 1,
+                        "role": "data",
+                        "text": "Left",
+                    },
+                ],
+            },
+            "Header\nLeft | Right",
+        ),
+    ],
+)
+def test_builds_readable_element_text_in_stable_order(
+    readable_element, expected_text
+):
+    """驗證合法 element 依原內容與 row、column 順序產生文字。"""
+    page_structure, page_evidence, page_alignment = _validated_page_inputs()
+    page_structure["elements"].insert(3, readable_element)
+    page_structure["reading_order"].insert(3, readable_element["id"])
+    page_alignment["input_binding"]["page_structure_sha256"] = _canonical_sha256(
+        page_structure
+    )
+    originals = deepcopy((page_structure, page_evidence, page_alignment))
+
+    context = build_concept_context(
+        page_structure, page_evidence, page_alignment, "heading-1"
+    )
+
+    assert context is not None
+    assert [element["text"] for element in context["elements"][:3]] == [
+        "Synthetic arrays",
+        "An array stores values in order.",
+        "values[0]",
+    ]
+    assert context["elements"][3] == {
+        "element_id": readable_element["id"],
+        "type": readable_element["type"],
+        "text": expected_text,
+    }
+    assert context["evidence"][3]["element_id"] == readable_element["id"]
+    assert context["evidence"][3]["region"]["bbox"] == readable_element["bbox"]
+    assert (page_structure, page_evidence, page_alignment) == originals
+
+
+def test_context_rejects_heading_with_only_unreadable_region():
+    """驗證不可讀 region 不會被猜成文字，也不會單獨撐起 heading section。"""
+    page_structure, page_evidence, page_alignment = _validated_page_inputs()
+    page_structure["elements"][1:3] = [
+        {
+            "id": "region-1",
+            "type": "other_visible_region",
+            "bbox": [10.0, 25.0, 150.0, 55.0],
+            "uncertainty_kind": "unreadable",
+        }
+    ]
+    page_structure["reading_order"] = [
+        element["id"] for element in page_structure["elements"]
+    ]
+    page_alignment["input_binding"]["page_structure_sha256"] = _canonical_sha256(
+        page_structure
+    )
+
+    assert build_concept_context(
+        page_structure, page_evidence, page_alignment, "heading-1"
+    ) is None
 
 
 def test_review_accepted_visual_alignment_can_build_context():
@@ -312,8 +455,11 @@ def test_builds_grounded_development_only_provisional_candidate():
     candidate = build_provisional_concept_candidate(
         context,
         body,
-        handoff_id="task8-sol-handoff-001",
-        sol_identity={"role": "codex-sol", "model": "gpt-5.6-sol"},
+        generation_run_id="concept-generation-run-001",
+        generation_identity={
+            "role": "concept-generator",
+            "model": "local-model-revision-001",
+        },
     )
 
     assert candidate["development_only"] is True
@@ -321,10 +467,10 @@ def test_builds_grounded_development_only_provisional_candidate():
     assert candidate["quality"] == "needs_review"
     assert candidate["decision"] == "review"
     assert candidate["reason_code"] == "CONCEPT_CANDIDATE_NEEDS_REVIEW"
-    assert candidate["handoff_id"] == "task8-sol-handoff-001"
-    assert candidate["sol_identity"] == {
-        "role": "codex-sol",
-        "model": "gpt-5.6-sol",
+    assert candidate["generation_run_id"] == "concept-generation-run-001"
+    assert candidate["generation_identity"] == {
+        "role": "concept-generator",
+        "model": "local-model-revision-001",
     }
     assert candidate["prompt_identity"] == {
         "version": CONCEPT_PROMPT_VERSION,
@@ -372,12 +518,15 @@ def test_rejects_invalid_body_and_evidence_ids(invalid_body, reason_code):
     result = build_provisional_concept_candidate(
         context,
         body,
-        handoff_id="task8-sol-handoff-001",
-        sol_identity={"role": "codex-sol", "model": "gpt-5.6-sol"},
+        generation_run_id="concept-generation-run-001",
+        generation_identity={
+            "role": "concept-generator",
+            "model": "local-model-revision-001",
+        },
     )
 
     assert result == {
-        "schema": "s1-concept-candidate/v1",
+        "schema": "concept-candidate/v1",
         "development_only": True,
         "processing": "failed",
         "quality": "unsupported",
@@ -386,22 +535,25 @@ def test_rejects_invalid_body_and_evidence_ids(invalid_body, reason_code):
     }
 
 
-@pytest.mark.parametrize("missing_identity", ["handoff", "role", "model"])
-def test_missing_handoff_or_sol_identity_cannot_succeed(missing_identity):
-    """驗證 handoff、生成角色或 model 缺少時不會建立成功 candidate。"""
+@pytest.mark.parametrize("missing_identity", ["generation_run", "role", "model"])
+def test_missing_generation_run_or_identity_cannot_succeed(missing_identity):
+    """驗證 generation run、生成角色或 model 缺少時不會建立成功 candidate。"""
     context, body = _context_and_body()
-    handoff_id = "task8-sol-handoff-001"
-    sol_identity = {"role": "codex-sol", "model": "gpt-5.6-sol"}
-    if missing_identity == "handoff":
-        handoff_id = ""
+    generation_run_id = "concept-generation-run-001"
+    generation_identity = {
+        "role": "concept-generator",
+        "model": "local-model-revision-001",
+    }
+    if missing_identity == "generation_run":
+        generation_run_id = ""
     else:
-        sol_identity[missing_identity] = ""
+        generation_identity[missing_identity] = ""
 
     result = build_provisional_concept_candidate(
         context,
         body,
-        handoff_id=handoff_id,
-        sol_identity=sol_identity,
+        generation_run_id=generation_run_id,
+        generation_identity=generation_identity,
     )
 
     assert result["processing"] == "failed"

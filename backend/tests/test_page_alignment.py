@@ -53,7 +53,7 @@ def _simple_inputs():
         "rotation_degrees": 0,
     }
     native_page = {
-        "schema": "s1-page-native/v1",
+        "schema": "page-native/v1",
         "material_ref": material_ref,
         "page_ref": page_ref,
         "page_number": page_number,
@@ -66,7 +66,7 @@ def _simple_inputs():
         "drawings": [],
     }
     page_evidence = {
-        "schema": "s1-page-evidence/v1",
+        "schema": "page-evidence/v1",
         "status": "succeeded",
         "reason": "EVIDENCE_READY",
         "material_ref": material_ref,
@@ -86,7 +86,7 @@ def _simple_inputs():
     }
     _rebind_native(page_evidence, native_page)
     page_structure = {
-        "schema": "s1-page-structure/v1",
+        "schema": "page-structure/v1",
         "material_ref": material_ref,
         "page_ref": page_ref,
         "page_number": page_number,
@@ -122,7 +122,7 @@ def test_accepts_only_fully_grounded_simple_text_without_changing_inputs():
     )
 
     assert result == {
-        "schema": "s1-page-alignment/v1",
+        "schema": "page-alignment/v1",
         "identity": {
             "material_ref": page_structure["material_ref"],
             "page_ref": page_structure["page_ref"],
@@ -431,7 +431,7 @@ def test_native_identity_and_canonical_hash_mismatches_fail_closed(
     """驗證 native schema、頁面 identity 與 canonical hash 錯誤全部 fail closed。"""
     page_structure, page_evidence, native_page = _simple_inputs()
     if mutation == "schema":
-        native_page["schema"] = "s1-page-native/v2"
+        native_page["schema"] = "page-native/v2"
     elif mutation == "geometry":
         native_page["geometry"] = deepcopy(native_page["geometry"])
         native_page["geometry"]["visible_points"] = [0.0, 0.0, 201.0, 100.0]

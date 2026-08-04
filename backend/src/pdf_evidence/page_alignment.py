@@ -9,8 +9,8 @@ from typing import Any
 from .page_structure import validate_page_structure
 
 
-ALIGNMENT_SCHEMA = "s1-page-alignment/v1"
-NATIVE_SCHEMA = "s1-page-native/v1"
+ALIGNMENT_SCHEMA = "page-alignment/v1"
+NATIVE_SCHEMA = "page-native/v1"
 NATIVE_FIELDS = {
     "schema",
     "material_ref",
