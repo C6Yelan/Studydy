@@ -11,7 +11,7 @@ SUMMARY_CONTEXT_SCHEMA = "concept-summary-context/v1"
 EVIDENCE_SUMMARY_SCHEMA = "evidence-summary/v1"
 CONCEPT_KEYWORDS_SCHEMA = "concept-keywords/v1"
 CONCEPT_CONTENT_SCHEMA = "concept-content/v1"
-CONCEPT_CONTENT_PROMPT_VERSION = "concept-content-prompt/v1"
+CONCEPT_CONTENT_PROMPT_VERSION = "concept-content-prompt/v2"
 RELATION_CLUE_KINDS = (
     "prerequisite",
     "part_whole",
@@ -24,7 +24,10 @@ RELATION_CLUE_KINDS = (
 RELATION_DIRECTIONS = ("source_to_target", "bidirectional", "none")
 CONCEPT_CONTENT_PROMPT = (
     "Use only the supplied same-material concept groups. Return one JSON object with exactly "
-    "summary, summary_evidence_ids, and relation_clues. Keep summary within 1000 characters. "
+    "summary, summary_evidence_ids, and relation_clues. The summary must state only claims found "
+    "in the source material. Do not use the summary to describe the input, concept-group count, "
+    "Evidence IDs, prompt, model, processing state, source availability or sufficiency, or missing "
+    "context. Keep summary within 1000 characters. "
     "Return at most 8 relation clues; each clue must use an allowed kind and direction_hint, "
     "reference two different supplied group IDs, keep statement within 300 characters, and cite "
     "known Evidence IDs from both groups. Clues are reviewable observations, not formal Relations "

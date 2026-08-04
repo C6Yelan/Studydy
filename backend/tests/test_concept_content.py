@@ -282,10 +282,18 @@ def test_invalid_summary_body_fails_without_summary_text(
 
 def test_combined_content_schema_and_prompt_are_fixed_and_bounded():
     """驗證模型輸入契約只暴露批准欄位、列舉與字數上限。"""
-    assert CONCEPT_CONTENT_PROMPT_VERSION == "concept-content-prompt/v1"
+    assert CONCEPT_CONTENT_PROMPT_VERSION == "concept-content-prompt/v2"
     assert CONCEPT_CONTENT_PROMPT_SHA256 == hashlib.sha256(
         CONCEPT_CONTENT_PROMPT.encode("utf-8")
     ).hexdigest()
+    assert "summary must state only claims found in the source material" in (
+        CONCEPT_CONTENT_PROMPT
+    )
+    assert (
+        "Do not use the summary to describe the input, concept-group count, Evidence IDs, "
+        "prompt, model, processing state, source availability or sufficiency, or missing context."
+        in CONCEPT_CONTENT_PROMPT
+    )
     assert CONCEPT_CONTENT_BODY_SCHEMA["required"] == [
         "summary",
         "summary_evidence_ids",
