@@ -7,7 +7,7 @@ import unicodedata
 from typing import Any
 
 
-CONCEPT_GROUP_SCHEMA = "s1-concept-group/v1"
+CONCEPT_GROUP_SCHEMA = "concept-group/v1"
 
 
 def normalize_concept_name(name: Any) -> str | None:
@@ -32,7 +32,7 @@ def group_concept_candidates(candidates: Any) -> list[dict[str, Any]] | None:
         evidence = candidate.get("evidence")
         candidate_id = candidate.get("candidate_id")
         if (
-            candidate.get("schema") != "s1-concept-candidate/v1"
+            candidate.get("schema") != "concept-candidate/v1"
             or candidate.get("processing") != "succeeded"
             or candidate.get("quality") != "accepted"
             or candidate.get("decision") != "retain"

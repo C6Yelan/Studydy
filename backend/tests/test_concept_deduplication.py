@@ -36,7 +36,7 @@ def _accepted_candidate(
     )
     geometry = {"visible_points": [0.0, 0.0, 200.0, 100.0]}
     page_evidence = {
-        "schema": "s1-page-evidence/v1",
+        "schema": "page-evidence/v1",
         "status": "succeeded",
         "material_ref": material_ref,
         "page_ref": page_ref,
@@ -49,7 +49,7 @@ def _accepted_candidate(
         },
     }
     page_structure = {
-        "schema": "s1-page-structure/v1",
+        "schema": "page-structure/v1",
         "material_ref": material_ref,
         "page_ref": page_ref,
         "page_number": page_number,
@@ -82,7 +82,7 @@ def _accepted_candidate(
         ).encode("utf-8")
     ).hexdigest()
     page_alignment = {
-        "schema": "s1-page-alignment/v1",
+        "schema": "page-alignment/v1",
         "identity": {
             "material_ref": material_ref,
             "page_ref": page_ref,
@@ -112,8 +112,11 @@ def _accepted_candidate(
                 reference["evidence_id"] for reference in context["evidence"]
             ],
         },
-        handoff_id=f"candidate-handoff-{material_key}-{page_number}",
-        sol_identity={"role": "candidate-producer", "model": "fixture-model"},
+        generation_run_id=f"concept-generation-{material_key}-{page_number}",
+        generation_identity={
+            "role": "concept-generator",
+            "model": "local-model-revision-001",
+        },
     )
     return adjudicate_concept_candidate(provisional, "retain")
 

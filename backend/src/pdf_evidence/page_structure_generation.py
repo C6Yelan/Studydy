@@ -4,10 +4,8 @@ import base64
 import hashlib
 import json
 import math
-import os
 from pathlib import Path
 import socket
-import tempfile
 import time
 from typing import Any
 import urllib.error
@@ -17,7 +15,7 @@ import urllib.request
 from .page_structure import PAGE_STRUCTURE_SCHEMA, validate_page_structure
 
 
-PAGE_STRUCTURE_PROMPT_VERSION = "s1-page-structure-prompt/v4"
+PAGE_STRUCTURE_PROMPT_VERSION = "page-structure-prompt/v4"
 PAGE_STRUCTURE_PROMPT = (
     "Inspect the target page image and describe only its visible page structure. Adjacent page images "
     "may be supplied as context for understanding continued content, but do not copy their elements "
@@ -220,7 +218,7 @@ def _evidence_ref(page_evidence: Any) -> str | None:
     return value if _valid_reference(value, "evidence:sha256:") else None
 
 
-def _result(
+def _generation_result(
     processing: str,
     reason_code: str,
     *,
@@ -249,7 +247,7 @@ def _validate_page_evidence(page_evidence: Any) -> bool:
     if not isinstance(page_evidence, dict):
         return False
     if (
-        page_evidence.get("schema") != "s1-page-evidence/v1"
+        page_evidence.get("schema") != "page-evidence/v1"
         or page_evidence.get("status") != "succeeded"
     ):
         return False
@@ -452,30 +450,16 @@ def _read_cache(
 
 
 def _write_cache(cache_path: Path, record: dict[str, Any]) -> bool:
-    """在同目錄同步暫存檔後，以 replace 發布 cache。"""
-    temporary_path: Path | None = None
+    """建立 cache 目錄並寫入固定格式的 JSON。"""
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(
-            mode="wb", delete=False, dir=cache_path.parent
-        ) as temporary:
-            temporary_path = Path(temporary.name)
-            temporary.write(_canonical_json(record))
-            temporary.flush()
-            os.fsync(temporary.fileno())
-        os.replace(temporary_path, cache_path)
-        temporary_path = None
+        cache_path.write_bytes(_canonical_json(record))
         return True
     except OSError:
-        if temporary_path is not None:
-            try:
-                temporary_path.unlink(missing_ok=True)
-            except OSError:
-                pass
         return False
 
 
-def _request_payload(
+def _build_page_structure_request_body(
     render_bytes: bytes,
     model_id: str,
     page_number: int,
@@ -622,7 +606,7 @@ def _request_with_retry(
         time.sleep(min(local_config["retry_backoff_seconds"], remaining))
 
 
-def _build_page_structure(
+def _build_page_structure_artifact(
     model_body: dict[str, Any], page_evidence: dict[str, Any]
 ) -> dict[str, Any] | None:
     """將 normalized bbox 轉為 native 座標並補上可信 root binding。"""
@@ -732,7 +716,7 @@ def _validate_nearby_pages(
     return sorted(checked_pages)
 
 
-def process_page_evidence(
+def generate_page_structure(
     page_evidence: Any,
     render_bytes: Any,
     local_config: Any,
@@ -742,34 +726,34 @@ def process_page_evidence(
     started_at = time.monotonic()
     evidence_ref = _evidence_ref(page_evidence)
     if not isinstance(render_bytes, bytes):
-        return _result("failed", "RENDER_HASH_MISMATCH", evidence_ref=evidence_ref)
+        return _generation_result("failed", "RENDER_HASH_MISMATCH", evidence_ref=evidence_ref)
     if (
         not isinstance(page_evidence, dict)
         or not isinstance(page_evidence.get("hashes"), dict)
         or not _valid_sha256(page_evidence["hashes"].get("render_sha256"))
     ):
-        return _result(
+        return _generation_result(
             "failed", "PAGE_EVIDENCE_BINDING_INVALID", evidence_ref=evidence_ref
         )
     if (
         hashlib.sha256(render_bytes).hexdigest()
         != page_evidence["hashes"]["render_sha256"]
     ):
-        return _result("failed", "RENDER_HASH_MISMATCH", evidence_ref=evidence_ref)
+        return _generation_result("failed", "RENDER_HASH_MISMATCH", evidence_ref=evidence_ref)
     if not _validate_page_evidence(page_evidence):
-        return _result(
+        return _generation_result(
             "failed", "PAGE_EVIDENCE_BINDING_INVALID", evidence_ref=evidence_ref
         )
     checked_nearby_pages = _validate_nearby_pages(page_evidence, nearby_pages)
     if checked_nearby_pages is None:
-        return _result(
+        return _generation_result(
             "failed", "PAGE_CONTEXT_INVALID", evidence_ref=evidence_ref
         )
     if not _valid_config(local_config):
-        return _result("failed", "LOCAL_CONFIG_INVALID", evidence_ref=evidence_ref)
+        return _generation_result("failed", "LOCAL_CONFIG_INVALID", evidence_ref=evidence_ref)
     endpoint_url = _loopback_endpoint(local_config["endpoint_url"])
     if endpoint_url is None:
-        return _result(
+        return _generation_result(
             "failed", "LOCAL_ENDPOINT_NOT_LOOPBACK", evidence_ref=evidence_ref
         )
 
@@ -780,7 +764,7 @@ def process_page_evidence(
         cache_path, cache_key, evidence_ref, runtime_identity, page_evidence
     )
     if cached is not None:
-        return _result(
+        return _generation_result(
             "succeeded",
             "PAGE_STRUCTURE_CACHE_HIT",
             evidence_ref=evidence_ref,
@@ -789,7 +773,7 @@ def process_page_evidence(
             page_structure=cached,
         )
 
-    request_body = _request_payload(
+    request_body = _build_page_structure_request_body(
         render_bytes,
         local_config["model_id"],
         page_evidence["page_number"],
@@ -806,7 +790,7 @@ def process_page_evidence(
         started_at + local_config["deadline_seconds"],
     )
     if reason is not None:
-        return _result(
+        return _generation_result(
             "partial" if partial else "failed",
             reason,
             evidence_ref=evidence_ref,
@@ -814,13 +798,13 @@ def process_page_evidence(
             runtime_identity=runtime_identity,
         )
 
-    page_structure = _build_page_structure(model_body, page_evidence)
+    page_structure = _build_page_structure_artifact(model_body, page_evidence)
     if page_structure is None:
         reason = "PAGE_STRUCTURE_INVALID"
     else:
         reason = validate_page_structure(page_structure, page_evidence)
     if reason is not None:
-        return _result(
+        return _generation_result(
             "failed",
             reason,
             evidence_ref=evidence_ref,
@@ -835,14 +819,14 @@ def process_page_evidence(
         "page_structure": page_structure,
     }
     if not _write_cache(cache_path, record):
-        return _result(
+        return _generation_result(
             "failed",
             "PAGE_STRUCTURE_CACHE_WRITE_FAILED",
             evidence_ref=evidence_ref,
             cache_key=cache_key,
             runtime_identity=runtime_identity,
         )
-    return _result(
+    return _generation_result(
         "succeeded",
         "PAGE_STRUCTURE_READY",
         evidence_ref=evidence_ref,

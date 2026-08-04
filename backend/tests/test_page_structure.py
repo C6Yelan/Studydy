@@ -8,7 +8,7 @@ from pdf_evidence.page_structure import validate_page_structure
 def _successful_page_evidence():
     """建立 identity binding 檢查所需的成功 Page Evidence fixture。"""
     return {
-        "schema": "s1-page-evidence/v1",
+        "schema": "page-evidence/v1",
         "status": "succeeded",
         "material_ref": f"material:sha256:{'a' * 64}",
         "page_ref": f"page:sha256:{'b' * 64}",
@@ -93,7 +93,7 @@ def _page_structure():
         },
     ]
     return {
-        "schema": "s1-page-structure/v1",
+        "schema": "page-structure/v1",
         "material_ref": f"material:sha256:{'a' * 64}",
         "page_ref": f"page:sha256:{'b' * 64}",
         "page_number": 1,

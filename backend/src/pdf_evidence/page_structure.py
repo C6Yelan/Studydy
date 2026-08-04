@@ -4,8 +4,8 @@ import math
 from typing import Any
 
 
-PAGE_STRUCTURE_SCHEMA = "s1-page-structure/v1"
-EVIDENCE_SCHEMA = "s1-page-evidence/v1"
+PAGE_STRUCTURE_SCHEMA = "page-structure/v1"
+EVIDENCE_SCHEMA = "page-evidence/v1"
 COORDINATE_SPACE = "unrotated_page_points"
 
 ELEMENT_TYPES = {

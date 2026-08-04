@@ -8,10 +8,10 @@ from typing import Any
 from .page_structure import validate_page_structure
 
 
-CONCEPT_CONTEXT_SCHEMA = "s1-concept-context/v1"
-EVIDENCE_REFERENCE_SCHEMA = "s1-evidence-reference/v1"
-CONCEPT_CANDIDATE_SCHEMA = "s1-concept-candidate/v1"
-CONCEPT_PROMPT_VERSION = "s1-concept-candidate-prompt/v1"
+CONCEPT_CONTEXT_SCHEMA = "concept-context/v1"
+EVIDENCE_REFERENCE_SCHEMA = "evidence-reference/v1"
+CONCEPT_CANDIDATE_SCHEMA = "concept-candidate/v1"
+CONCEPT_PROMPT_VERSION = "concept-candidate-prompt/v1"
 CONCEPT_PROMPT = (
     "Use only the supplied single-page concept context. Return one JSON object with exactly "
     "name, definition, scope, and evidence_ids. Each text field must be nonempty. evidence_ids "
@@ -30,7 +30,6 @@ CONCEPT_BODY_SCHEMA = {
         "evidence_ids": {
             "type": "array",
             "minItems": 1,
-            "uniqueItems": True,
             "items": {"type": "string", "pattern": r".*\S.*"},
         },
     },
@@ -89,6 +88,28 @@ def _make_evidence_reference(
     }
 
 
+def _readable_element_text(element: dict[str, Any]) -> str | None:
+    """把已驗證 element 的可讀內容轉成順序穩定的 context 文字。"""
+    element_type = element["type"]
+    if element_type in {"heading", "paragraph", "code", "diagram_label"}:
+        return element["text"]
+    if element_type == "list":
+        return "\n".join(element["items"])
+    if element_type == "formula":
+        return element["latex"]
+    if element_type in {"matrix", "table"}:
+        cells_by_row: dict[int, list[str]] = {}
+        for cell in sorted(
+            element["cells"], key=lambda cell: (cell["row"], cell["column"])
+        ):
+            cells_by_row.setdefault(cell["row"], []).append(cell["text"])
+        text = "\n".join(
+            " | ".join(cells_by_row[row]) for row in sorted(cells_by_row)
+        )
+        return text if _nonempty_text(text) else None
+    return None
+
+
 def build_concept_context(
     page_structure: Any,
     page_evidence: Any,
@@ -140,7 +161,7 @@ def build_concept_context(
         and alignment_findings == [{"reason_code": "VISION_CONTENT_PRESENT"}]
     )
     if (
-        page_alignment["schema"] != "s1-page-alignment/v1"
+        page_alignment["schema"] != "page-alignment/v1"
         or page_alignment["identity"] != identity
         or page_alignment["input_binding"] != expected_input_binding
         or not _valid_sha256(expected_input_binding["native_sha256"])
@@ -172,17 +193,24 @@ def build_concept_context(
     if len(selected_elements) < 2:
         return None
 
+    readable_elements = []
+    for element in selected_elements:
+        text = _readable_element_text(element)
+        if text is not None:
+            readable_elements.append((element, text))
+    if len(readable_elements) < 2:
+        return None
     context_elements = [
         {
             "element_id": element["id"],
             "type": element["type"],
-            "text": element["text"],
+            "text": text,
         }
-        for element in selected_elements
+        for element, text in readable_elements
     ]
     evidence = [
         _make_evidence_reference(page_structure, element)
-        for element in selected_elements
+        for element, _ in readable_elements
     ]
     return {
         "schema": CONCEPT_CONTEXT_SCHEMA,
@@ -215,9 +243,9 @@ def _candidate_core(candidate: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema": candidate["schema"],
         "development_only": candidate["development_only"],
-        "handoff_id": candidate["handoff_id"],
+        "generation_run_id": candidate["generation_run_id"],
         "identity": candidate["identity"],
-        "sol_identity": candidate["sol_identity"],
+        "generation_identity": candidate["generation_identity"],
         "prompt_identity": candidate["prompt_identity"],
         "context_binding": candidate["context_binding"],
         "name": candidate["name"],
@@ -231,8 +259,8 @@ def build_provisional_concept_candidate(
     context: Any,
     body: Any,
     *,
-    handoff_id: Any,
-    sol_identity: Any,
+    generation_run_id: Any,
+    generation_identity: Any,
 ) -> dict[str, Any]:
     """驗證外部產生的 body 與已知 Evidence，建立 development-only provisional candidate。"""
     identity = context["identity"]
@@ -242,13 +270,13 @@ def build_provisional_concept_candidate(
         reference["evidence_id"]: reference for reference in context["evidence"]
     }
 
-    if not _nonempty_text(handoff_id):
+    if not _nonempty_text(generation_run_id):
         return _candidate_failure("CONCEPT_LINEAGE_INVALID")
     if (
-        not isinstance(sol_identity, dict)
-        or set(sol_identity) != {"role", "model"}
-        or not _nonempty_text(sol_identity["role"])
-        or not _nonempty_text(sol_identity["model"])
+        not isinstance(generation_identity, dict)
+        or set(generation_identity) != {"role", "model"}
+        or not _nonempty_text(generation_identity["role"])
+        or not _nonempty_text(generation_identity["model"])
     ):
         return _candidate_failure("CONCEPT_LINEAGE_INVALID")
     if not isinstance(body, dict) or set(body) != {
@@ -278,9 +306,9 @@ def build_provisional_concept_candidate(
     candidate = {
         "schema": CONCEPT_CANDIDATE_SCHEMA,
         "development_only": True,
-        "handoff_id": handoff_id,
+        "generation_run_id": generation_run_id,
         "identity": deepcopy(identity),
-        "sol_identity": deepcopy(sol_identity),
+        "generation_identity": deepcopy(generation_identity),
         "prompt_identity": {
             "version": CONCEPT_PROMPT_VERSION,
             "sha256": CONCEPT_PROMPT_SHA256,
@@ -313,9 +341,9 @@ def _valid_provisional_candidate(candidate: Any) -> bool:
         "schema",
         "candidate_id",
         "development_only",
-        "handoff_id",
+        "generation_run_id",
         "identity",
-        "sol_identity",
+        "generation_identity",
         "prompt_identity",
         "context_binding",
         "name",

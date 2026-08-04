@@ -8,8 +8,8 @@ import urllib.error
 
 import pytest
 
-from pdf_evidence import page_understanding
-from pdf_evidence.page_understanding import process_page_evidence
+from pdf_evidence import page_structure_generation
+from pdf_evidence.page_structure_generation import generate_page_structure
 
 
 class _Response:
@@ -51,7 +51,7 @@ def _render_bytes():
 
 
 def _bind_evidence(evidence):
-    """依 Task 3 公式更新 material、page 與 evidence references。"""
+    """依固定 hash 公式更新 material、page 與 evidence references。"""
     source = evidence["hashes"]["source_sha256"]
     native = evidence["hashes"]["native_sha256"]
     render = evidence["hashes"]["render_sha256"]
@@ -69,7 +69,7 @@ def _page_evidence(render_bytes=None):
     """建立包含 render 與座標 binding 的成功 Page Evidence。"""
     render_bytes = _render_bytes() if render_bytes is None else render_bytes
     evidence = {
-        "schema": "s1-page-evidence/v1",
+        "schema": "page-evidence/v1",
         "status": "succeeded",
         "page_number": 1,
         "hashes": {
@@ -78,7 +78,7 @@ def _page_evidence(render_bytes=None):
             "render_sha256": hashlib.sha256(render_bytes).hexdigest(),
         },
         "render": {
-            "schema": "s1-page-render/v1",
+            "schema": "page-render/v1",
             "width_pixels": 400,
             "height_pixels": 200,
         },
@@ -106,7 +106,7 @@ def _config(cache_dir):
         "model_artifact_sha256": "d" * 64,
         "projector_sha256": "e" * 64,
         "runtime_id": "runtime-1",
-        "processing_policy_version": "s1-page-understanding-policy/v2",
+        "processing_policy_version": "page-structure-generation-policy/v2",
     }
 
 
@@ -155,7 +155,7 @@ def _successful_build_opener(calls, handlers_seen=None):
     return build_opener
 
 
-def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
+def test_generate_page_structure_success_and_binding(tmp_path, monkeypatch):
     """驗證 request 最小化、座標 binding、cache 寫入與重新驗證。"""
     render_bytes = _render_bytes()
     evidence = _page_evidence(render_bytes)
@@ -165,12 +165,12 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
     calls = []
     handlers = []
     monkeypatch.setattr(
-        page_understanding.urllib.request,
+        page_structure_generation.urllib.request,
         "build_opener",
         _successful_build_opener(calls, handlers),
     )
 
-    mismatch = process_page_evidence(evidence, render_bytes + b"changed", config)
+    mismatch = generate_page_structure(evidence, render_bytes + b"changed", config)
     assert mismatch == {
         "processing": "failed",
         "reason_code": "RENDER_HASH_MISMATCH",
@@ -179,7 +179,7 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
     assert calls == []
     assert not Path(config["cache_dir"]).exists()
 
-    result = process_page_evidence(evidence, render_bytes, config)
+    result = generate_page_structure(evidence, render_bytes, config)
 
     assert result["processing"] == "succeeded"
     assert result["reason_code"] == "PAGE_STRUCTURE_READY"
@@ -200,13 +200,13 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
         "prompt_version",
         "processing_policy_version",
     }
-    assert result["runtime_identity"]["prompt_version"] == "s1-page-structure-prompt/v4"
+    assert result["runtime_identity"]["prompt_version"] == "page-structure-prompt/v4"
     assert (
         result["runtime_identity"]["processing_policy_version"]
-        == "s1-page-understanding-policy/v2"
+        == "page-structure-generation-policy/v2"
     )
     structure = result["page_structure"]
-    assert structure["schema"] == "s1-page-structure/v1"
+    assert structure["schema"] == "page-structure/v1"
     assert structure["material_ref"] == evidence["material_ref"]
     assert structure["page_ref"] == evidence["page_ref"]
     assert structure["page_number"] == evidence["page_number"]
@@ -241,10 +241,10 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
         "json_schema": {
             "name": "page_structure_body",
             "strict": True,
-            "schema": page_understanding.PAGE_STRUCTURE_BODY_SCHEMA,
+            "schema": page_structure_generation.PAGE_STRUCTURE_BODY_SCHEMA,
         },
     }
-    body_schema = page_understanding.PAGE_STRUCTURE_BODY_SCHEMA
+    body_schema = page_structure_generation.PAGE_STRUCTURE_BODY_SCHEMA
     assert body_schema["additionalProperties"] is False
     nonempty_pattern = body_schema["$defs"]["nonempty_string"]["pattern"]
     assert nonempty_pattern == r"^[\s\S]*\S[\s\S]*$"
@@ -252,7 +252,7 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
     assert re.fullmatch(nonempty_pattern, " \t\n ") is None
     assert re.fullmatch(nonempty_pattern, "first line\nsecond line") is not None
     assert all(
-        text in page_understanding.PAGE_STRUCTURE_PROMPT
+        text in page_structure_generation.PAGE_STRUCTURE_PROMPT
         for text in (
             "target page",
             "Adjacent page images",
@@ -265,7 +265,7 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
             "instead of guessing",
         )
     )
-    assert "visible table field" not in page_understanding.PAGE_STRUCTURE_PROMPT
+    assert "visible table field" not in page_structure_generation.PAGE_STRUCTURE_PROMPT
     assert set(body_schema["required"]) == {
         "elements",
         "reading_order",
@@ -299,7 +299,10 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": page_understanding.PAGE_STRUCTURE_PROMPT},
+                {
+                    "type": "text",
+                    "text": page_structure_generation.PAGE_STRUCTURE_PROMPT,
+                },
                 {
                     "type": "text",
                     "text": "Target page. Output elements from this image only.",
@@ -326,10 +329,12 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
     proxy_handler = next(
         handler
         for handler in handlers
-        if isinstance(handler, page_understanding.urllib.request.ProxyHandler)
+        if isinstance(handler, page_structure_generation.urllib.request.ProxyHandler)
     )
     redirect_handler = next(
-        handler for handler in handlers if isinstance(handler, page_understanding._NoRedirect)
+        handler
+        for handler in handlers
+        if isinstance(handler, page_structure_generation._NoRedirect)
     )
     assert proxy_handler.proxies == {}
     with pytest.raises(urllib.error.HTTPError) as redirect:
@@ -346,13 +351,13 @@ def test_process_page_evidence_success_and_binding(tmp_path, monkeypatch):
         "runtime_identity",
         "page_structure",
     }
-    cached = process_page_evidence(evidence, render_bytes, config)
+    cached = generate_page_structure(evidence, render_bytes, config)
     assert cached["reason_code"] == "PAGE_STRUCTURE_CACHE_HIT"
     assert len(calls) == 1
 
     record["page_structure"]["elements"][0]["bbox"] = [-1, 0, 2, 2]
     cache_path.write_text(json.dumps(record), encoding="utf-8")
-    refreshed = process_page_evidence(evidence, render_bytes, config)
+    refreshed = generate_page_structure(evidence, render_bytes, config)
     assert refreshed["reason_code"] == "PAGE_STRUCTURE_READY"
     assert len(calls) == 2
 
@@ -373,13 +378,13 @@ def test_adjacent_pages_are_context_only_and_change_cache_key(tmp_path, monkeypa
 
     calls = []
     monkeypatch.setattr(
-        page_understanding.urllib.request,
+        page_structure_generation.urllib.request,
         "build_opener",
         _successful_build_opener(calls),
     )
     config = _config(tmp_path / "cache")
-    without_context = process_page_evidence(target_evidence, target_render, config)
-    with_context = process_page_evidence(
+    without_context = generate_page_structure(target_evidence, target_render, config)
+    with_context = generate_page_structure(
         target_evidence,
         target_render,
         config,
@@ -393,7 +398,7 @@ def test_adjacent_pages_are_context_only_and_change_cache_key(tmp_path, monkeypa
     assert with_context["cache_key"] != without_context["cache_key"]
     content = json.loads(calls[1][0].data)["messages"][0]["content"]
     assert [item.get("text") for item in content if item["type"] == "text"] == [
-        page_understanding.PAGE_STRUCTURE_PROMPT,
+        page_structure_generation.PAGE_STRUCTURE_PROMPT,
         "Previous page context. Do not output elements from this image.",
         "Target page. Output elements from this image only.",
         "Next page context. Do not output elements from this image.",
@@ -410,7 +415,7 @@ def test_rejects_page_context_from_another_pdf(tmp_path, monkeypatch):
     """驗證不同 PDF 的相鄰頁不會被送給模型。"""
     calls = []
     monkeypatch.setattr(
-        page_understanding.urllib.request,
+        page_structure_generation.urllib.request,
         "build_opener",
         _successful_build_opener(calls),
     )
@@ -423,7 +428,7 @@ def test_rejects_page_context_from_another_pdf(tmp_path, monkeypatch):
     other_evidence["hashes"]["source_sha256"] = "f" * 64
     _bind_evidence(other_evidence)
 
-    result = process_page_evidence(
+    result = generate_page_structure(
         target_evidence,
         target_render,
         _config(tmp_path / "cache"),
@@ -439,7 +444,7 @@ def test_rejects_page_context_from_another_pdf(tmp_path, monkeypatch):
 
 def test_page_structure_body_schema_uses_luna_compatible_keywords():
     """驗證 union 與固定字串型別符合 Luna Structured Outputs 限制。"""
-    pending = [page_understanding.PAGE_STRUCTURE_BODY_SCHEMA]
+    pending = [page_structure_generation.PAGE_STRUCTURE_BODY_SCHEMA]
     while pending:
         value = pending.pop()
         if isinstance(value, dict):
@@ -470,7 +475,7 @@ def test_diagram_label_node_id_is_optional_in_schema_and_validator(
             {"id": node_id, "type": "diagram_node", "bbox": [50, 50, 450, 350]},
         )
 
-    element_schemas = page_understanding.PAGE_STRUCTURE_BODY_SCHEMA["properties"][
+    element_schemas = page_structure_generation.PAGE_STRUCTURE_BODY_SCHEMA["properties"][
         "elements"
     ]["items"]["anyOf"]
     label_schemas = [
@@ -496,9 +501,11 @@ def test_diagram_label_node_id_is_optional_in_schema_and_validator(
     def build_opener(*_handlers):
         return _Opener(lambda _request, _timeout: _Response(_outer_response(body)))
 
-    monkeypatch.setattr(page_understanding.urllib.request, "build_opener", build_opener)
+    monkeypatch.setattr(
+        page_structure_generation.urllib.request, "build_opener", build_opener
+    )
     render_bytes = _render_bytes()
-    result = process_page_evidence(
+    result = generate_page_structure(
         _page_evidence(render_bytes), render_bytes, _config(tmp_path / "cache")
     )
 
@@ -535,14 +542,14 @@ def test_cache_key_invalidates(tmp_path, monkeypatch, identity_part):
     """驗證每一項 output identity 改變時都不會沿用既有 cache key。"""
     calls = []
     monkeypatch.setattr(
-        page_understanding.urllib.request,
+        page_structure_generation.urllib.request,
         "build_opener",
         _successful_build_opener(calls),
     )
     render_bytes = _render_bytes()
     evidence = _page_evidence(render_bytes)
     config = _config(tmp_path / "cache")
-    baseline = process_page_evidence(evidence, render_bytes, config)
+    baseline = generate_page_structure(evidence, render_bytes, config)
     assert baseline["processing"] == "succeeded"
 
     changed_evidence = deepcopy(evidence)
@@ -558,7 +565,7 @@ def test_cache_key_invalidates(tmp_path, monkeypatch, identity_part):
         changed_evidence["hashes"]["native_sha256"] = "f" * 64
         _bind_evidence(changed_evidence)
     elif identity_part == "render_schema":
-        changed_evidence["render"]["schema"] = "s1-page-render/v2"
+        changed_evidence["render"]["schema"] = "page-render/v2"
     elif identity_part == "render_sha256":
         changed_render += b"new"
         changed_evidence["hashes"]["render_sha256"] = hashlib.sha256(
@@ -568,32 +575,44 @@ def test_cache_key_invalidates(tmp_path, monkeypatch, identity_part):
     elif identity_part in changed_config:
         if identity_part in {"model_artifact_sha256", "projector_sha256"}:
             changed_config[identity_part] = "f" * 64
+        elif identity_part == "processing_policy_version":
+            changed_config[identity_part] = "s1-page-understanding-policy/v2"
         else:
             changed_config[identity_part] += "-new"
     elif identity_part == "prompt_version":
         monkeypatch.setattr(
-            page_understanding,
+            page_structure_generation,
             "PAGE_STRUCTURE_PROMPT_VERSION",
-            "s1-page-structure-prompt/v5",
+            "page-structure-prompt/v5",
         )
     elif identity_part == "prompt_sha256":
         monkeypatch.setattr(
-            page_understanding,
+            page_structure_generation,
             "PAGE_STRUCTURE_PROMPT",
-            page_understanding.PAGE_STRUCTURE_PROMPT + " ",
+            page_structure_generation.PAGE_STRUCTURE_PROMPT + " ",
         )
     else:
         monkeypatch.setattr(
-            page_understanding, "PAGE_STRUCTURE_SCHEMA", "s1-page-structure/v2"
+            page_structure_generation, "PAGE_STRUCTURE_SCHEMA", "page-structure/v2"
         )
 
-    changed = process_page_evidence(changed_evidence, changed_render, changed_config)
+    changed = generate_page_structure(changed_evidence, changed_render, changed_config)
     assert changed["cache_key"] != baseline["cache_key"]
+    if identity_part == "processing_policy_version":
+        assert changed["reason_code"] == "PAGE_STRUCTURE_READY"
     if identity_part == "page_structure_schema":
-        changed_body_schema = deepcopy(page_understanding.PAGE_STRUCTURE_BODY_SCHEMA)
+        changed_body_schema = deepcopy(
+            page_structure_generation.PAGE_STRUCTURE_BODY_SCHEMA
+        )
         changed_body_schema["properties"]["elements"]["minItems"] = 1
-        monkeypatch.setattr(page_understanding, "PAGE_STRUCTURE_BODY_SCHEMA", changed_body_schema)
-        body_schema_changed = process_page_evidence(changed_evidence, changed_render, changed_config)
+        monkeypatch.setattr(
+            page_structure_generation,
+            "PAGE_STRUCTURE_BODY_SCHEMA",
+            changed_body_schema,
+        )
+        body_schema_changed = generate_page_structure(
+            changed_evidence, changed_render, changed_config
+        )
         assert body_schema_changed["cache_key"] != changed["cache_key"]
 
 
@@ -621,10 +640,10 @@ def test_cache_key_invalidates(tmp_path, monkeypatch, identity_part):
         ("content_json", "failed", "MODEL_RESPONSE_INVALID_JSON", 1),
         ("normalized_bbox", "failed", "PAGE_STRUCTURE_INVALID", 1),
         ("schema", "failed", "ELEMENT_SHAPE_INVALID", 1),
-        ("replace", "failed", "PAGE_STRUCTURE_CACHE_WRITE_FAILED", 1),
+        ("write", "failed", "PAGE_STRUCTURE_CACHE_WRITE_FAILED", 1),
     ],
 )
-def test_process_page_evidence_failures(
+def test_generate_page_structure_failures(
     tmp_path, monkeypatch, case, processing, reason, expected_calls
 ):
     """驗證 preflight、Provider、JSON、schema 與 cache 失敗都會 fail closed。"""
@@ -696,18 +715,18 @@ def test_process_page_evidence_failures(
         return _Response(_outer_response())
 
     monkeypatch.setattr(
-        page_understanding.urllib.request,
+        page_structure_generation.urllib.request,
         "build_opener",
         lambda *handlers: _Opener(urlopen),
     )
-    if case == "replace":
+    if case == "write":
         monkeypatch.setattr(
-            page_understanding.os,
-            "replace",
-            lambda *args, **kwargs: (_ for _ in ()).throw(OSError("replace failed")),
+            page_structure_generation.Path,
+            "write_bytes",
+            lambda *args, **kwargs: (_ for _ in ()).throw(OSError("write failed")),
         )
 
-    result = process_page_evidence(evidence, render_bytes, config)
+    result = generate_page_structure(evidence, render_bytes, config)
 
     assert result["processing"] == processing
     assert result["reason_code"] == reason

@@ -13,8 +13,8 @@ from typing import Any
 import pymupdf
 
 
-EVIDENCE_SCHEMA = "s1-page-evidence/v1"
-RENDER_SCHEMA = "s1-page-render/v1"
+EVIDENCE_SCHEMA = "page-evidence/v1"
+RENDER_SCHEMA = "page-render/v1"
 # 固定渲染解析度，供頁面渲染與尺寸驗證使用。
 RENDER_DPI = 200
 
@@ -264,7 +264,7 @@ def _extract_page_payload(
             "rotation_degrees": page.rotation,
         }
         native_descriptor = {
-            "schema": "s1-page-native/v1",
+            "schema": "page-native/v1",
             "material_ref": material_ref,
             "page_ref": page_ref,
             "page_number": page_number,
