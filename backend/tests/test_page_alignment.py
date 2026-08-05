@@ -279,6 +279,64 @@ def test_visual_alignment_adjudication_preserves_identity_and_findings(
 
 
 @pytest.mark.parametrize(
+    ("review_reason", "decision"),
+    [
+        ("SPATIAL_RELATION_NEEDS_REVIEW", "retain"),
+        ("SPATIAL_RELATION_NEEDS_REVIEW", "reject"),
+        ("COMPLEX_CONTENT_NEEDS_REVIEW", "retain"),
+        ("COMPLEX_CONTENT_NEEDS_REVIEW", "reject"),
+        ("TEXT_ALIGNMENT_NEEDS_REVIEW", "retain"),
+        ("TEXT_ALIGNMENT_NEEDS_REVIEW", "reject"),
+    ],
+)
+def test_adjudicates_current_alignment_review_findings(review_reason, decision):
+    """驗證目前 producer 的三種複核 finding 都可明確裁決。"""
+    page_structure, page_evidence, native_page = _simple_inputs()
+    if review_reason == "SPATIAL_RELATION_NEEDS_REVIEW":
+        page_structure["spatial_relations"] = [
+            {
+                "type": "above",
+                "source_id": "heading-1",
+                "target_id": "paragraph-1",
+            }
+        ]
+    elif review_reason == "COMPLEX_CONTENT_NEEDS_REVIEW":
+        page_structure["elements"] = [
+            {
+                "id": "formula-1",
+                "type": "formula",
+                "bbox": [10.0, 10.0, 80.0, 20.0],
+                "latex": "x^2",
+            }
+        ]
+        page_structure["reading_order"] = ["formula-1"]
+    else:
+        page_structure["elements"][0]["text"] = "Different synthetic title"
+
+    alignment = assess_page_structure_alignment(
+        page_structure, page_evidence, native_page
+    )
+    original = deepcopy(alignment)
+    result = adjudicate_visual_alignment(alignment, decision)
+
+    assert alignment["reason_code"] == review_reason
+    assert result["processing"] == "succeeded"
+    assert result["quality"] == (
+        "accepted" if decision == "retain" else "unsupported"
+    )
+    assert result["decision"] == decision
+    assert result["reason_code"] == (
+        "VISUAL_ALIGNMENT_REVIEW_ACCEPTED"
+        if decision == "retain"
+        else "VISUAL_ALIGNMENT_REVIEW_REJECTED"
+    )
+    assert result["identity"] == alignment["identity"]
+    assert result["input_binding"] == alignment["input_binding"]
+    assert result["findings"] == alignment["findings"]
+    assert alignment == original
+
+
+@pytest.mark.parametrize(
     "invalid_case",
     [
         "decision",
@@ -289,6 +347,9 @@ def test_visual_alignment_adjudication_preserves_identity_and_findings(
         "empty_findings",
         "other_finding",
         "nested_finding_field",
+        "unknown_review",
+        "missing_finding_field",
+        "malformed_finding",
         "already_adjudicated",
     ],
 )
@@ -333,6 +394,12 @@ def test_visual_alignment_adjudication_rejects_invalid_inputs(invalid_case):
         alignment["findings"] = [{"reason_code": "COMPLEX_ELEMENT_PRESENT"}]
     elif invalid_case == "nested_finding_field":
         alignment["findings"][0]["extra"] = "invalid"
+    elif invalid_case == "unknown_review":
+        alignment["reason_code"] = "UNKNOWN_REVIEW"
+    elif invalid_case == "missing_finding_field":
+        alignment["findings"] = [{}]
+    elif invalid_case == "malformed_finding":
+        alignment["findings"] = "VISION_CONTENT_PRESENT"
     else:
         alignment = adjudicate_visual_alignment(alignment, "retain")
     original = deepcopy(alignment)

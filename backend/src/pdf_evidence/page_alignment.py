@@ -329,9 +329,49 @@ def adjudicate_visual_alignment(
         or alignment["processing"] != "succeeded"
         or alignment["quality"] != "needs_review"
         or alignment["decision"] != "review"
-        or alignment["reason_code"] != "VISION_CONTENT_NEEDS_REVIEW"
-        or findings != [{"reason_code": "VISION_CONTENT_PRESENT"}]
     ):
+        return None
+
+    reason_code = alignment["reason_code"]
+    if reason_code == "VISION_CONTENT_NEEDS_REVIEW":
+        findings_are_valid = findings == [{"reason_code": "VISION_CONTENT_PRESENT"}]
+    elif reason_code == "SPATIAL_RELATION_NEEDS_REVIEW":
+        findings_are_valid = findings == [
+            {"reason_code": "SPATIAL_RELATION_NOT_NATIVE_GROUNDED"}
+        ]
+    elif reason_code == "COMPLEX_CONTENT_NEEDS_REVIEW":
+        findings_are_valid = (
+            isinstance(findings, list)
+            and bool(findings)
+            and all(
+                isinstance(finding, dict)
+                and set(finding) == {"element_id", "reason_code"}
+                and isinstance(finding["element_id"], str)
+                and bool(finding["element_id"])
+                and finding["reason_code"]
+                in {"COMPLEX_ELEMENT_PRESENT", "UNCERTAIN_REGION_PRESENT"}
+                for finding in findings
+            )
+        )
+    elif reason_code == "TEXT_ALIGNMENT_NEEDS_REVIEW":
+        findings_are_valid = findings in (
+            [{"reason_code": "TEXT_CONTENT_EMPTY"}],
+            [{"reason_code": "NATIVE_SPAN_COVERAGE_UNCERTAIN"}],
+        ) or (
+            isinstance(findings, list)
+            and bool(findings)
+            and all(
+                isinstance(finding, dict)
+                and set(finding) == {"element_id", "reason_code"}
+                and isinstance(finding["element_id"], str)
+                and bool(finding["element_id"])
+                and finding["reason_code"] == "NATIVE_SPAN_MATCH_UNCERTAIN"
+                for finding in findings
+            )
+        )
+    else:
+        return None
+    if not findings_are_valid:
         return None
 
     adjudicated = deepcopy(alignment)

@@ -258,3 +258,81 @@ def test_render_coordinate_write_and_publish_fail_closed(tmp_path, monkeypatch):
         result = build_page_evidence(pdf, source_hash, 1, publish_root)
     assert result["reason"] == "ATOMIC_PUBLISH_FAILED"
     assert _final_manifests(publish_root) == []
+
+
+def test_excludes_only_zero_area_native_spans(tmp_path, monkeypatch):
+    """驗證零面積 span 不阻斷頁面，且有效文字與 bbox 保持原值。"""
+    pdf = _make_pdf(tmp_path)
+    source_hash = _sha256(pdf)
+
+    def spans_with_zero_area(page, *args, **kwargs):
+        """回傳一個有效 span 與兩個無法形成區域的 span。"""
+        return {
+            "blocks": [
+                {
+                    "lines": [
+                        {
+                            "spans": [
+                                {
+                                    "bbox": [18.0, 18.0, 72.0, 30.0],
+                                    "text": "Grounded text",
+                                },
+                                {
+                                    "bbox": [40.0, 40.0, 40.0, 52.0],
+                                    "text": "Zero width",
+                                },
+                                {
+                                    "bbox": [60.0, 60.0, 80.0, 60.0],
+                                    "text": "Zero height",
+                                },
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+
+    with monkeypatch.context() as context:
+        context.setattr(pymupdf.Page, "get_text", spans_with_zero_area)
+        output_root = tmp_path / "zero-area-runtime"
+        result = build_page_evidence(pdf, source_hash, 1, output_root)
+
+    assert result["status"] == "succeeded"
+    manifest = _final_manifests(output_root)[0]
+    native = json.loads(
+        (manifest.parent / "native.json").read_text(encoding="utf-8")
+    )
+    assert native["spans"] == [
+        {"bbox": [18.0, 18.0, 72.0, 30.0], "text": "Grounded text"}
+    ]
+
+
+@pytest.mark.parametrize(
+    "bbox",
+    [
+        [40.0, 40.0, 39.0, 52.0],
+        [40.0, 40.0, 52.0, 39.0],
+        [40.0, 40.0, 52.0],
+    ],
+)
+def test_rejects_structurally_invalid_native_span_bbox(tmp_path, monkeypatch, bbox):
+    """驗證反向或缺少座標的 span bbox 仍維持 fail closed。"""
+    pdf = _make_pdf(tmp_path)
+    source_hash = _sha256(pdf)
+
+    def invalid_span(page, *args, **kwargs):
+        """回傳結構性無效的原生 span bbox。"""
+        return {
+            "blocks": [
+                {"lines": [{"spans": [{"bbox": bbox, "text": "Invalid"}]}]}
+            ]
+        }
+
+    with monkeypatch.context() as context:
+        context.setattr(pymupdf.Page, "get_text", invalid_span)
+        output_root = tmp_path / "invalid-span-runtime"
+        result = build_page_evidence(pdf, source_hash, 1, output_root)
+
+    assert result["status"] == "failed"
+    assert result["reason"] == "COORDINATE_VALIDATION_FAILED"
+    assert _final_manifests(output_root) == []

@@ -188,7 +188,28 @@ def _extract_page_payload(
             for block in text.get("blocks", []):
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
-                        spans.append(_descriptor_value(span))
+                        span_descriptor = _descriptor_value(span)
+                        bbox = (
+                            span_descriptor.get("bbox")
+                            if isinstance(span_descriptor, dict)
+                            else None
+                        )
+                        if (
+                            isinstance(bbox, list)
+                            and len(bbox) == 4
+                            and all(
+                                not isinstance(value, bool)
+                                and isinstance(value, (int, float))
+                                and math.isfinite(value)
+                                for value in bbox
+                            )
+                            and bbox[2] >= bbox[0]
+                            and bbox[3] >= bbox[1]
+                            and (bbox[2] == bbox[0] or bbox[3] == bbox[1])
+                        ):
+                            # 零面積 span 無法形成可回查區域，因此不納入原生證據。
+                            continue
+                        spans.append(span_descriptor)
             images = _descriptor_value(page.get_image_info(hashes=True, xrefs=True))
             drawings = _descriptor_value(page.get_drawings())
         except Exception:
