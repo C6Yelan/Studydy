@@ -27,6 +27,9 @@ docs_local
 # Private product runtime
 /.studydy-runtime/
 
+# Local generated knowledge map data
+/backend/artifacts/
+
 # Local OS/editor files
 .DS_Store
 .vscode/
