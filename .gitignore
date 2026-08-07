@@ -24,6 +24,9 @@ AGENTS.md
 docs_local
 .role.md
 
+# Local generated knowledge map data
+/public/fixtures/*.json
+
 # Local OS/editor files
 .DS_Store
 .vscode/
