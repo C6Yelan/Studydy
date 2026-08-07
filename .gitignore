@@ -26,6 +26,9 @@ docs_local
 
 # Local generated knowledge map data
 /public/fixtures/*.json
+/frontend/public/fixtures/*.json
+!/frontend/public/fixtures/finance-01547e2c-knowledge-map-view.json
+!/frontend/public/fixtures/programming-07b1c1c1-knowledge-map-view.json
 
 # Local generated knowledge map data
 /backend/artifacts/
