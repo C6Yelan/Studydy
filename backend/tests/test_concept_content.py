@@ -13,6 +13,7 @@ from pdf_evidence.concept_content import (
     CONCEPT_CONTENT_BODY_SCHEMA,
     CONCEPT_CONTENT_PROMPT,
     CONCEPT_CONTENT_PROMPT_SHA256,
+    CONCEPT_CONTENT_SCHEMA,
     CONCEPT_CONTENT_PROMPT_VERSION,
     RELATION_CLUE_KINDS,
     RELATION_DIRECTIONS,
@@ -282,7 +283,8 @@ def test_invalid_summary_body_fails_without_summary_text(
 
 def test_combined_content_schema_and_prompt_are_fixed_and_bounded():
     """驗證模型輸入契約只暴露批准欄位、列舉與字數上限。"""
-    assert CONCEPT_CONTENT_PROMPT_VERSION == "concept-content-prompt/v2"
+    assert CONCEPT_CONTENT_SCHEMA == "concept-content/v2"
+    assert CONCEPT_CONTENT_PROMPT_VERSION == "concept-content-prompt/v3"
     assert CONCEPT_CONTENT_PROMPT_SHA256 == hashlib.sha256(
         CONCEPT_CONTENT_PROMPT.encode("utf-8")
     ).hexdigest()
@@ -324,6 +326,7 @@ def test_combined_content_schema_and_prompt_are_fixed_and_bounded():
     assert clue_schema["properties"]["kind"]["enum"] == list(
         RELATION_CLUE_KINDS
     )
+    assert "contains" in RELATION_CLUE_KINDS
     assert clue_schema["properties"]["direction_hint"]["enum"] == list(
         RELATION_DIRECTIONS
     )

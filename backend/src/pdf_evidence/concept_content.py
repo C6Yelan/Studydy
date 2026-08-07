@@ -10,11 +10,11 @@ from .concept_deduplication import CONCEPT_GROUP_SCHEMA
 SUMMARY_CONTEXT_SCHEMA = "concept-summary-context/v1"
 EVIDENCE_SUMMARY_SCHEMA = "evidence-summary/v1"
 CONCEPT_KEYWORDS_SCHEMA = "concept-keywords/v1"
-CONCEPT_CONTENT_SCHEMA = "concept-content/v1"
-CONCEPT_CONTENT_PROMPT_VERSION = "concept-content-prompt/v2"
+CONCEPT_CONTENT_SCHEMA = "concept-content/v2"
+CONCEPT_CONTENT_PROMPT_VERSION = "concept-content-prompt/v3"
 RELATION_CLUE_KINDS = (
     "prerequisite",
-    "part_whole",
+    "contains",
     "example",
     "contrast",
     "application",

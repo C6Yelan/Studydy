@@ -23,6 +23,7 @@ AGENTS.md
 .codex/
 docs_local
 .role.md
+/.studydy-runtime/
 
 # Local generated knowledge map data
 /public/fixtures/*.json

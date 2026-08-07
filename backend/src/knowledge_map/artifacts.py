@@ -7,18 +7,12 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from .study_material_output import validate_study_material_output
+from pdf_evidence.study_material_output import validate_study_material_output
 
 
 RELATION_TYPES = frozenset(
     {"prerequisite", "contains", "similar", "confusing", "application", "example"}
 )
-CLUE_RELATION_TYPES = {
-    "prerequisite": "prerequisite",
-    "part_whole": "contains",
-    "application": "application",
-    "example": "example",
-}
 
 
 class KnowledgeMapError(ValueError):
@@ -103,11 +97,11 @@ def _relations_from_clues(
     for clue in source["relation_clues"]:
         if not _is_grounded(clue, evidence):
             raise KnowledgeMapError("RELATION_EVIDENCE_INVALID")
-        relation_type = CLUE_RELATION_TYPES.get(clue["kind"])
-        if relation_type is not None and clue["direction_hint"] == "source_to_target":
+        is_direct_clue = clue["kind"] in RELATION_TYPES
+        if is_direct_clue and clue["direction_hint"] == "source_to_target":
             content = {
                 "schema": "relation/v1",
-                "type": relation_type,
+                "type": clue["kind"],
                 "source_concept_id": clue["source_concept_id"],
                 "target_concept_id": clue["target_concept_id"],
                 "statement": clue["statement"],
@@ -124,7 +118,7 @@ def _relations_from_clues(
             reason_code = "CONTRAST_REQUIRES_REVIEW"
         elif clue["kind"] == "sequence":
             reason_code = "SEQUENCE_NOT_PREREQUISITE"
-        elif relation_type is not None:
+        elif is_direct_clue:
             reason_code = "RELATION_DIRECTION_NEEDS_REVIEW"
         else:
             reason_code = "CLUE_KIND_REQUIRES_REVIEW"
@@ -211,33 +205,49 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
         "reason_code",
     }
     relation_ids = set()
+    relation_semantic_keys = set()
     for relation in knowledge_map["relations"]:
         if not isinstance(relation, dict):
+            return "KNOWLEDGE_MAP_RELATION_INVALID"
+        if set(relation) != relation_fields:
+            return "KNOWLEDGE_MAP_RELATION_INVALID"
+        if (
+            relation["schema"] != "relation/v1"
+            or relation["type"] not in RELATION_TYPES
+        ):
+            return "KNOWLEDGE_MAP_RELATION_INVALID"
+        if (
+            relation["source_concept_id"] not in concept_id_set
+            or relation["target_concept_id"] not in concept_id_set
+            or relation["source_concept_id"] == relation["target_concept_id"]
+        ):
             return "KNOWLEDGE_MAP_RELATION_INVALID"
         content = {
             key: value for key, value in relation.items() if key != "relation_id"
         }
+        semantic_key = (
+            relation["type"],
+            relation["source_concept_id"],
+            relation["target_concept_id"],
+        )
         if (
-            set(relation) != relation_fields
-            or relation["schema"] != "relation/v1"
-            or relation["type"] not in RELATION_TYPES
-            or relation["source_concept_id"] not in concept_id_set
-            or relation["target_concept_id"] not in concept_id_set
-            or relation["source_concept_id"] == relation["target_concept_id"]
-            or relation["relation_id"]
+            relation["relation_id"]
             != "relation:sha256:" + _canonical_sha256(content)
             or relation["relation_id"] in relation_ids
-            or not _is_grounded(relation, evidence_by_concept)
-            or (
-                relation["processing"],
-                relation["quality"],
-                relation["decision"],
-                relation["reason_code"],
-            )
-            != ("succeeded", "accepted", "retain", "DIRECT_CLUE_ACCEPTED")
+            or semantic_key in relation_semantic_keys
         ):
             return "KNOWLEDGE_MAP_RELATION_INVALID"
+        if not _is_grounded(relation, evidence_by_concept):
+            return "KNOWLEDGE_MAP_RELATION_INVALID"
+        if (
+            relation["processing"],
+            relation["quality"],
+            relation["decision"],
+            relation["reason_code"],
+        ) != ("succeeded", "accepted", "retain", "DIRECT_CLUE_ACCEPTED"):
+            return "KNOWLEDGE_MAP_RELATION_INVALID"
         relation_ids.add(relation["relation_id"])
+        relation_semantic_keys.add(semantic_key)
     if knowledge_map["relations"] != sorted(
         knowledge_map["relations"], key=lambda item: item["relation_id"]
     ):
@@ -256,17 +266,22 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
     for item in knowledge_map["review_items"]:
         if not isinstance(item, dict):
             return "KNOWLEDGE_MAP_REVIEW_INVALID"
-        content = {key: value for key, value in item.items() if key != "review_id"}
+        if set(item) != review_fields:
+            return "KNOWLEDGE_MAP_REVIEW_INVALID"
         if (
-            set(item) != review_fields
-            or item["source_concept_id"] not in concept_id_set
+            item["source_concept_id"] not in concept_id_set
             or item["target_concept_id"] not in concept_id_set
             or item["source_concept_id"] == item["target_concept_id"]
-            or item["quality"] != "needs_review"
-            or item["review_id"]
-            != "relation-review:sha256:" + _canonical_sha256(content)
-            or not _is_grounded(item, evidence_by_concept)
         ):
+            return "KNOWLEDGE_MAP_REVIEW_INVALID"
+        if item["quality"] != "needs_review":
+            return "KNOWLEDGE_MAP_REVIEW_INVALID"
+        content = {key: value for key, value in item.items() if key != "review_id"}
+        if item["review_id"] != "relation-review:sha256:" + _canonical_sha256(
+            content
+        ):
+            return "KNOWLEDGE_MAP_REVIEW_INVALID"
+        if not _is_grounded(item, evidence_by_concept):
             return "KNOWLEDGE_MAP_REVIEW_INVALID"
     return None
 
@@ -302,6 +317,13 @@ def build_initial_learning_path(knowledge_map: Any) -> dict[str, Any]:
     if reason is not None:
         raise KnowledgeMapError(reason)
     concept_ids = [concept["concept_id"] for concept in knowledge_map["concepts"]]
+    learning_order_by_concept = {
+        concept["concept_id"]: (
+            min(member["page_number"] for member in concept["members"]),
+            concept["concept_id"],
+        )
+        for concept in knowledge_map["concepts"]
+    }
     next_concepts = {concept_id: [] for concept_id in concept_ids}
     incoming_count = {concept_id: 0 for concept_id in concept_ids}
     for relation in knowledge_map["relations"]:
@@ -314,16 +336,18 @@ def build_initial_learning_path(knowledge_map: Any) -> dict[str, Any]:
             incoming_count[target_id] += 1
 
     ready = sorted(
-        concept_id for concept_id, count in incoming_count.items() if count == 0
+        learning_order_by_concept[concept_id]
+        for concept_id, count in incoming_count.items()
+        if count == 0
     )
     ordered_concept_ids = []
     while ready:
-        concept_id = ready.pop(0)
+        _, concept_id = ready.pop(0)
         ordered_concept_ids.append(concept_id)
         for target_id in sorted(next_concepts[concept_id]):
             incoming_count[target_id] -= 1
             if incoming_count[target_id] == 0:
-                ready.append(target_id)
+                ready.append(learning_order_by_concept[target_id])
                 ready.sort()
 
     if len(ordered_concept_ids) != len(concept_ids):
@@ -543,7 +567,7 @@ def main(arguments: list[str] | None = None) -> int:
     arguments = sys.argv[1:] if arguments is None else arguments
     if len(arguments) != 2:
         print(
-            "usage: python -m pdf_evidence.knowledge_map SELECTION_JSON OUTPUT_DIR",
+            "usage: python -m knowledge_map.artifacts SELECTION_JSON OUTPUT_DIR",
             file=sys.stderr,
         )
         return 2

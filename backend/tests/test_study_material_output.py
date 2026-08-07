@@ -136,7 +136,7 @@ def _valid_inputs():
     loop_group, loop_evidence_id = _concept_group(page_two, "Loop")
     source_group_ids = [array_group["group_id"], loop_group["group_id"]]
     content = {
-        "schema": "concept-content/v1",
+        "schema": "concept-content/v2",
         "development_only": True,
         "material_ref": material_ref,
         "source_group_ids": source_group_ids,
@@ -207,7 +207,7 @@ def _valid_inputs():
             "page_evidence": "page-evidence/v1;PyMuPDF-1.28.0",
             "page_structure": "page-structure/v1;prompt-v1",
             "concepts": "concept-group/v1;candidate-prompt-v1",
-            "content": "concept-content/v1;content-prompt-v1",
+            "content": "concept-content/v2;concept-content-prompt/v3",
         },
     }
 
@@ -324,6 +324,41 @@ def test_public_s2_fixture_reads_only_validated_output():
     assert consumed["known_limitations"]
 
 
+def test_unsupported_contract_values_fail_closed():
+    """builder 與 validator 都拒絕不受支援的契約值。"""
+    inputs = _valid_inputs()
+    inputs["concept_content_items"][0]["schema"] = "concept-content/unsupported"
+
+    assert build_study_material_output(**inputs) == {
+        "schema": "study-material-output/v2",
+        "development_only": True,
+        "processing": "failed",
+        "quality": "unsupported",
+        "decision": "reject",
+        "reason_code": "STUDY_MATERIAL_OUTPUT_CONTENT_INPUT_INVALID",
+    }
+
+    output = build_study_material_output(**_valid_inputs())
+    output["schema"] = "study-material-output/unsupported"
+    _rebind_output_id(output)
+    assert validate_study_material_output(output) == "STUDY_MATERIAL_OUTPUT_ROOT_INVALID"
+
+    output = build_study_material_output(**_valid_inputs())
+    output["relation_clues"][0]["kind"] = "unsupported"
+    _rebind_output_id(output)
+    assert (
+        validate_study_material_output(output)
+        == "STUDY_MATERIAL_OUTPUT_REFERENCE_INVALID"
+    )
+
+    output = build_study_material_output(**_valid_inputs())
+    output["provenance"]["content"] = (
+        "concept-content/unsupported;concept-content-prompt/unsupported"
+    )
+    _rebind_output_id(output)
+    assert validate_study_material_output(output) == "STUDY_MATERIAL_OUTPUT_ROOT_INVALID"
+
+
 def test_output_is_deterministic_and_does_not_mutate_inputs():
     """驗證相同內容不受輸入順序影響，且 builder 不改寫上游 snapshot。"""
     inputs = _valid_inputs()
@@ -438,7 +473,7 @@ def test_invalid_identity_evidence_or_coverage_fails_closed(
     output = build_study_material_output(**inputs)
 
     assert output == {
-        "schema": "study-material-output/v1",
+        "schema": "study-material-output/v2",
         "development_only": True,
         "processing": "failed",
         "quality": "unsupported",

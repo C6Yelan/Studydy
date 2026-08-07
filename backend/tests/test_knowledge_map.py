@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from pdf_evidence.knowledge_map import (
+from knowledge_map.artifacts import (
     KnowledgeMapError,
     RELATION_TYPES,
     _with_id,
@@ -21,9 +21,9 @@ from pdf_evidence.knowledge_map import (
 
 
 EXPECTED_FILES = {
-    "selection.json": "5b0f213c66c81b5bc60772f81c7a814e862b221b5155c25e55d04133d6bc1610",
-    "finance-01547e2c-study-material-output.json": "cc08260b98bbeed882a479269ddcebbf1624cb1d6b7537b7b4dfeff019b4fcba",
-    "programming-07b1c1c1-study-material-output.json": "72da24b7062cc38bee4894efcf0bf203234e6c3dc5960fde2f4ae8b3bd9ad0e0",
+    "selection.json": "614a5b836bf1491b87bb0f6c61779e5453bb05e930775667140f0e7e375550a2",
+    "finance-01547e2c-study-material-output.json": "1313d59a0ad7afe61c96b5463902b8d8935c228ef0bf02d1caa2b96e2049c727",
+    "programming-07b1c1c1-study-material-output.json": "271c23aee1e85dc6beed70760ed0bf49c013a64a36de786c464a5179c8ce5c6e",
 }
 
 
@@ -97,7 +97,7 @@ def test_direct_clues_are_grounded_and_non_direct_clues_stay_reviewable():
         "application",
     }
     assert len(knowledge_map["relations"]) == sum(
-        clue["kind"] in {"prerequisite", "part_whole", "application", "example"}
+        clue["kind"] in {"prerequisite", "contains", "application", "example"}
         and clue["direction_hint"] == "source_to_target"
         for clue in source_clues
     )
@@ -110,6 +110,39 @@ def test_direct_clues_are_grounded_and_non_direct_clues_stay_reviewable():
         if relation["statement"]
         in {clue["statement"] for clue in source_clues if clue["kind"] == "sequence"}
     )
+
+
+@pytest.mark.parametrize(
+    ("clue_kind", "reason_code"),
+    [
+        ("contrast", "CONTRAST_REQUIRES_REVIEW"),
+        ("sequence", "SEQUENCE_NOT_PREREQUISITE"),
+        ("diagram_connection", "CLUE_KIND_REQUIRES_REVIEW"),
+    ],
+)
+def test_clue_only_observations_never_become_formal_relations(
+    clue_kind, reason_code
+):
+    """三種 clue-only observation 只能進入待複核清單。"""
+    source = _source("programming-07b1c1c1-study-material-output.json")
+    clue = next(
+        item for item in source["relation_clues"] if item["kind"] == "application"
+    )
+    clue["kind"] = clue_kind
+    _rebind_output_id(source)
+
+    knowledge_map = build_knowledge_map(source)
+
+    assert clue["statement"] not in {
+        relation["statement"] for relation in knowledge_map["relations"]
+    }
+    review = next(
+        item
+        for item in knowledge_map["review_items"]
+        if item["statement"] == clue["statement"]
+    )
+    assert review["kind"] == clue_kind
+    assert review["reason_code"] == reason_code
 
 
 def test_relation_contract_accepts_only_the_six_frozen_types():
@@ -140,6 +173,33 @@ def test_relation_contract_accepts_only_the_six_frozen_types():
             template["evidence_ids"],
         )
     ]
+    assert validate_knowledge_map(_rebind_map(changed)) == "KNOWLEDGE_MAP_RELATION_INVALID"
+
+
+def test_semantic_duplicate_relations_fail_closed():
+    """同類型與端點的第二條 Relation 不得以不同 identity 重複出現。"""
+    knowledge_map = build_knowledge_map(
+        _source("programming-07b1c1c1-study-material-output.json")
+    )
+    first = knowledge_map["relations"][0]
+    duplicate_content = {
+        **{key: value for key, value in first.items() if key != "relation_id"},
+        "statement": first["statement"] + "（另一個敘述）",
+    }
+    second = _with_id("relation", "relation_id", duplicate_content)
+    semantic_key = ("type", "source_concept_id", "target_concept_id")
+
+    assert first["relation_id"] != second["relation_id"]
+    assert tuple(first[key] for key in semantic_key) == tuple(
+        second[key] for key in semantic_key
+    )
+    changed = deepcopy(knowledge_map)
+    changed["relations"] = [second]
+    assert validate_knowledge_map(_rebind_map(changed)) is None
+
+    changed["relations"] = sorted(
+        [first, second], key=lambda relation: relation["relation_id"]
+    )
     assert validate_knowledge_map(_rebind_map(changed)) == "KNOWLEDGE_MAP_RELATION_INVALID"
 
 
@@ -195,6 +255,30 @@ def test_only_prerequisites_order_the_path_and_cycle_returns_no_partial_path():
         cycle_path["decision"],
         cycle_path["reason_code"],
     ) == ("failed", "unsupported", "reject", "PREREQUISITE_CYCLE")
+
+
+def test_zero_indegree_concepts_follow_earliest_material_page():
+    """同時可學的 Concept 依教材最早頁次排列，不以 concept_id 取代頁序。"""
+    knowledge_map = build_knowledge_map(
+        _source("programming-07b1c1c1-study-material-output.json")
+    )
+    page_ordered_concept_ids = [
+        concept["concept_id"]
+        for concept in sorted(
+            knowledge_map["concepts"],
+            key=lambda concept: (
+                min(member["page_number"] for member in concept["members"]),
+                concept["concept_id"],
+            ),
+        )
+    ]
+    assert page_ordered_concept_ids != sorted(page_ordered_concept_ids)
+
+    changed = deepcopy(knowledge_map)
+    changed["relations"] = []
+    path = build_initial_learning_path(_rebind_map(changed))
+
+    assert path["ordered_concept_ids"] == page_ordered_concept_ids
 
 
 def test_view_mapping_and_revisions_are_stable_and_bound():

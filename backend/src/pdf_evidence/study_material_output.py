@@ -7,6 +7,7 @@ import math
 from typing import Any
 
 from .concept_content import (
+    CONCEPT_CONTENT_PROMPT_VERSION,
     CONCEPT_CONTENT_SCHEMA,
     CONCEPT_KEYWORDS_SCHEMA,
     MAX_RELATION_STATEMENT_CHARACTERS,
@@ -18,7 +19,7 @@ from .concept_deduplication import CONCEPT_GROUP_SCHEMA
 from .page_structure import validate_page_structure
 
 
-STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v1"
+STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v2"
 EVIDENCE_REFERENCE_SCHEMA = "evidence-reference/v1"
 FORMAL_PROVIDER_DEFERRED = "FORMAL_PROVIDER_DEFERRED"
 CONCEPT_CONTEXT_UNAVAILABLE = "CONCEPT_CONTEXT_UNAVAILABLE"
@@ -149,6 +150,21 @@ def _valid_region(region: Any) -> bool:
         return False
     x0, y0, x1, y1 = bbox
     return x1 > x0 and y1 > y0
+
+
+def _valid_provenance(provenance: Any) -> bool:
+    """確認 content provenance 明確綁定目前 schema 與 prompt 版本。"""
+    if (
+        not isinstance(provenance, dict)
+        or set(provenance) != PROVENANCE_FIELDS
+        or any(not _nonempty_string(provenance[field]) for field in PROVENANCE_FIELDS)
+    ):
+        return False
+    content_versions = provenance["content"].split(";")
+    return (
+        CONCEPT_CONTENT_SCHEMA in content_versions
+        and CONCEPT_CONTENT_PROMPT_VERSION in content_versions
+    )
 
 
 def _root_status(limitation_reasons: set[str]) -> tuple[str, str, str, str] | None:
@@ -713,9 +729,7 @@ def validate_study_material_output(output: Any) -> str | None:
         or not _nonempty_string(output["handoff_id"])
         or not _nonempty_string(output["produced_at"])
         or not _valid_sha256_ref(output["material_ref"], "material:sha256:")
-        or not isinstance(provenance, dict)
-        or set(provenance) != PROVENANCE_FIELDS
-        or any(not _nonempty_string(provenance[field]) for field in PROVENANCE_FIELDS)
+        or not _valid_provenance(provenance)
     ):
         return "STUDY_MATERIAL_OUTPUT_ROOT_INVALID"
     content = {key: value for key, value in output.items() if key != "output_id"}
@@ -757,11 +771,7 @@ def build_study_material_output(
     """將既有已驗證產物包成可由下一階段獨立讀取的輸出。"""
     if not _nonempty_string(handoff_id) or not _nonempty_string(produced_at):
         return _failure("STUDY_MATERIAL_OUTPUT_LINEAGE_INVALID")
-    if (
-        not isinstance(provenance, dict)
-        or set(provenance) != PROVENANCE_FIELDS
-        or any(not _nonempty_string(provenance[field]) for field in PROVENANCE_FIELDS)
-    ):
+    if not _valid_provenance(provenance):
         return _failure("STUDY_MATERIAL_OUTPUT_PROVENANCE_INVALID")
     if isinstance(page_evidence_items, list):
         material_refs = [
