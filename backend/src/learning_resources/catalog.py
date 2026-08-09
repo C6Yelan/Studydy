@@ -5,15 +5,19 @@ from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
+import string
 from typing import Any
 from urllib.parse import urlsplit
 
+import pymupdf
+
 
 CATALOG_SCHEMA = "controlled-resource-catalog/v1"
-SUBJECTS = frozenset({"data_structures", "e_commerce"})
 LICENSE_BOUNDARIES = {
     "cc_by": "attribution_required",
     "cc_by_nc": "noncommercial_attribution_required",
+    "cc_by_sa": "attribution_share_alike_required",
+    "cc_by_nc_sa": "noncommercial_attribution_share_alike_required",
 }
 
 _RESOURCE_INPUT_FIELDS = {
@@ -65,6 +69,7 @@ _EXCLUSION_REASONS = _REVIEW_REASONS | {
     "RESOURCE_LICENSE_INVALID",
     "RESOURCE_ARTIFACT_MISSING",
     "RESOURCE_ARTIFACT_HASH_MISMATCH",
+    "RESOURCE_PDF_INVALID",
     "RESOURCE_DUPLICATE",
 }
 _PLACEHOLDER_VALUES = frozenset(
@@ -126,6 +131,18 @@ def _valid_string_list(values: Any) -> bool:
     )
 
 
+def _valid_subject(value: Any) -> bool:
+    if not isinstance(value, str) or not 1 <= len(value) <= 64:
+        return False
+    if value[0] not in string.ascii_lowercase or value[-1] == "_":
+        return False
+    allowed_characters = frozenset(string.ascii_lowercase + string.digits + "_")
+    return (
+        all(character in allowed_characters for character in value)
+        and "__" not in value
+    )
+
+
 def _valid_locator(value: Any) -> bool:
     if not _nonempty_string(value) or len(value) > 2000 or any(
         character.isspace() for character in value
@@ -133,13 +150,18 @@ def _valid_locator(value: Any) -> bool:
         return False
     try:
         parsed = urlsplit(value)
+        hostname = parsed.hostname
+        username = parsed.username
+        password = parsed.password
+        port = parsed.port
     except ValueError:
         return False
     return (
         parsed.scheme in {"http", "https"}
-        and parsed.hostname is not None
-        and parsed.username is None
-        and parsed.password is None
+        and hostname is not None
+        and username is None
+        and password is None
+        and (port is None or 0 <= port <= 65535)
     )
 
 
@@ -169,7 +191,7 @@ def _artifact_path(artifact_root: Path, artifact_ref: Any) -> Path | None:
 def _resource_reason(resource: Any, artifact_root: Path) -> str | None:
     if not isinstance(resource, dict) or set(resource) != _RESOURCE_FIELDS:
         return "RESOURCE_METADATA_INVALID"
-    if resource["subject"] not in SUBJECTS:
+    if not _valid_subject(resource["subject"]):
         return "RESOURCE_SUBJECT_INVALID"
     string_fields = (
         "resource_key",
@@ -211,6 +233,16 @@ def _resource_reason(resource: Any, artifact_root: Path) -> str | None:
         return "RESOURCE_ARTIFACT_MISSING"
     if artifact_sha256 != resource["artifact_sha256"]:
         return "RESOURCE_ARTIFACT_HASH_MISMATCH"
+    try:
+        document = pymupdf.open(artifact_path)
+        try:
+            is_readable_pdf = document.is_pdf and document.page_count >= 1
+        finally:
+            document.close()
+    except (OSError, RuntimeError, ValueError):
+        return "RESOURCE_PDF_INVALID"
+    if not is_readable_pdf:
+        return "RESOURCE_PDF_INVALID"
     identity = {
         "subject": resource["subject"],
         "title": resource["title"],

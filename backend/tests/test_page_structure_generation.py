@@ -9,7 +9,11 @@ import urllib.error
 import pytest
 
 from pdf_evidence import page_structure_generation
-from pdf_evidence.page_structure_generation import generate_page_structure
+from pdf_evidence.page_structure import validate_page_structure
+from pdf_evidence.page_structure_generation import (
+    finalize_page_structure,
+    generate_page_structure,
+)
 
 
 class _Response:
@@ -732,3 +736,89 @@ def test_generate_page_structure_failures(
     assert result["reason_code"] == reason
     assert "page_structure" not in result
     assert len(calls) == expected_calls
+
+
+def test_finalizer_is_pure_and_returns_validator_valid_current_artifact():
+    """valid body 轉為 native bbox，且 caller inputs 完全不被改寫。"""
+    evidence = _page_evidence()
+    body = _model_body()
+    original_evidence = deepcopy(evidence)
+    original_body = deepcopy(body)
+
+    page_structure = finalize_page_structure(body, evidence)
+
+    assert body == original_body
+    assert evidence == original_evidence
+    assert validate_page_structure(page_structure, evidence) is None
+    assert page_structure == {
+        "schema": "page-structure/v1",
+        "material_ref": evidence["material_ref"],
+        "page_ref": evidence["page_ref"],
+        "page_number": 1,
+        "input_evidence_ref": evidence["evidence_ref"],
+        "coordinate_space": "unrotated_page_points",
+        "elements": [
+            {
+                "id": "heading-1",
+                "type": "heading",
+                "bbox": [10.0, 120.0, 30.0, 180.0],
+                "text": "Visible heading",
+            }
+        ],
+        "reading_order": ["heading-1"],
+        "spatial_relations": [],
+    }
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "body_type",
+        "extra_field",
+        "missing_field",
+        "elements_type",
+        "bbox_type",
+        "bbox_range",
+        "reading_order",
+        "relation",
+        "evidence_type",
+        "evidence_binding",
+    ],
+)
+def test_finalizer_rejects_malformed_body_order_relation_and_evidence(case):
+    """body shape、bbox、order、relation 與 Evidence 錯誤皆 fail closed。"""
+    evidence = _page_evidence()
+    body = _model_body()
+    if case == "body_type":
+        body = []
+    elif case == "extra_field":
+        body["extra"] = True
+    elif case == "missing_field":
+        body.pop("reading_order")
+    elif case == "elements_type":
+        body["elements"] = {}
+    elif case == "bbox_type":
+        body["elements"][0]["bbox"] = "100,100,400,300"
+    elif case == "bbox_range":
+        body["elements"][0]["bbox"] = [0, 0, 1001, 10]
+    elif case == "reading_order":
+        body["reading_order"] = ["unknown-element"]
+    elif case == "relation":
+        body["spatial_relations"] = [
+            {
+                "type": "above",
+                "source_id": "heading-1",
+                "target_id": "unknown-element",
+            }
+        ]
+    elif case == "evidence_type":
+        evidence = []
+    elif case == "evidence_binding":
+        evidence["evidence_ref"] = f"evidence:sha256:{'0' * 64}"
+
+    original_body = deepcopy(body)
+    original_evidence = deepcopy(evidence)
+
+    assert finalize_page_structure(body, evidence) is None
+    assert body == original_body
+    assert evidence == original_evidence

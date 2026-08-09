@@ -27,6 +27,7 @@ docs_local
 
 # Local generated knowledge map data
 /public/fixtures/*.json
+/frontend/public/local-fixtures/*.json
 
 # Local generated knowledge map data
 /backend/artifacts/

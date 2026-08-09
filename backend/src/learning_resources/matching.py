@@ -7,12 +7,12 @@ from typing import Any
 from pdf_evidence.study_material_output import validate_study_material_output
 
 from .catalog import (
-    SUBJECTS,
     _canonical_sha256,
     _failure,
     _nonempty_string,
     _normalized_text,
     _resource_reason,
+    _valid_subject,
     _valid_string_list,
     _valid_timestamp,
     validate_controlled_resource_catalog,
@@ -279,7 +279,7 @@ def build_learning_resource_result(
     """依 subject、明確文字與已驗證複核，建立 0..N 筆學習資源。"""
     if validate_study_material_output(study_material_output) is not None:
         return _failure("LEARNING_RESOURCE_SOURCE_INVALID", LEARNING_RESOURCE_SCHEMA)
-    if subject not in SUBJECTS:
+    if not _valid_subject(subject):
         return _failure("LEARNING_RESOURCE_SUBJECT_INVALID", LEARNING_RESOURCE_SCHEMA)
     if not _valid_timestamp(produced_at) or not _nonempty_string(run_id):
         return _failure("LEARNING_RESOURCE_RUN_INVALID", LEARNING_RESOURCE_SCHEMA)
@@ -407,7 +407,7 @@ def validate_learning_resource_result(
         return "LEARNING_RESOURCE_ROOT_INVALID"
     if (
         result["schema"] != LEARNING_RESOURCE_SCHEMA
-        or result["subject"] not in SUBJECTS
+        or not _valid_subject(result["subject"])
         or result["source_s2_revision"] != study_material_output["output_id"]
         or result["catalog_revision"] != catalog["catalog_revision"]
     ):

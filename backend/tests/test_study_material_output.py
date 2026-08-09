@@ -505,3 +505,95 @@ def test_only_formal_provider_deferred_can_report_succeeded_review():
         }
     ]
     assert validate_study_material_output(output) is None
+
+
+def test_completed_stages_accept_empty_limitations_and_replay():
+    """全部 current stages完成時，以空限制表達 truthful accepted output。"""
+    inputs = _valid_inputs()
+    inputs["page_limitations"] = []
+
+    output = build_study_material_output(**inputs)
+
+    assert output["known_limitations"] == []
+    assert (
+        output["processing"],
+        output["quality"],
+        output["decision"],
+        output["reason_code"],
+    ) == ("succeeded", "accepted", "retain", "DEVELOPMENT_OUTPUT_ACCEPTED")
+    assert validate_study_material_output(output) is None
+    assert _read_s2_fixture(deepcopy(output))["accepted"] is True
+
+
+def test_completed_status_tamper_fails_closed():
+    inputs = _valid_inputs()
+    inputs["page_limitations"] = []
+    output = build_study_material_output(**inputs)
+    output["quality"] = "needs_review"
+    output["decision"] = "review"
+    output["reason_code"] = "DEVELOPMENT_OUTPUT_NEEDS_REVIEW"
+    _rebind_output_id(output)
+
+    assert (
+        validate_study_material_output(output)
+        == "STUDY_MATERIAL_OUTPUT_STATUS_INVALID"
+    )
+
+
+@pytest.mark.parametrize(
+    "page_limitations",
+    [
+        [
+            {
+                "reason_code": "UNKNOWN",
+                "affected_page_refs": ["page:sha256:" + "0" * 64],
+            }
+        ],
+        [{"reason_code": "FORMAL_PROVIDER_DEFERRED"}],
+        [
+            {
+                "reason_code": "FORMAL_PROVIDER_DEFERRED",
+                "affected_page_refs": ["page:sha256:" + "0" * 64],
+            },
+            {
+                "reason_code": "FORMAL_PROVIDER_DEFERRED",
+                "affected_page_refs": ["page:sha256:" + "0" * 64],
+            },
+        ],
+    ],
+)
+def test_unknown_malformed_or_duplicate_limitations_fail_closed(page_limitations):
+    inputs = _valid_inputs()
+    inputs["page_limitations"] = page_limitations
+
+    output = build_study_material_output(**inputs)
+
+    assert output["processing"] == "failed"
+    assert output["quality"] == "unsupported"
+    assert output["decision"] == "reject"
+    assert output["reason_code"].startswith("STUDY_MATERIAL_OUTPUT_")
+
+
+@pytest.mark.parametrize(
+    ("field", "expected_reason"),
+    [
+        ("concept_groups", "STUDY_MATERIAL_OUTPUT_CONCEPT_INPUT_INVALID"),
+        ("concept_content_items", "STUDY_MATERIAL_OUTPUT_CONTENT_INPUT_INVALID"),
+        ("concept_keyword_items", "STUDY_MATERIAL_OUTPUT_KEYWORD_INPUT_INVALID"),
+    ],
+)
+def test_empty_limitations_cannot_accept_missing_stage(field, expected_reason):
+    inputs = _valid_inputs()
+    inputs["page_limitations"] = []
+    inputs[field] = []
+
+    output = build_study_material_output(**inputs)
+
+    assert output == {
+        "schema": "study-material-output/v2",
+        "development_only": True,
+        "processing": "failed",
+        "quality": "unsupported",
+        "decision": "reject",
+        "reason_code": expected_reason,
+    }
