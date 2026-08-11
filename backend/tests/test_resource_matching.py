@@ -3,6 +3,7 @@ import hashlib
 import json
 
 import pytest
+import pymupdf
 
 from learning_resources.catalog import (
     build_controlled_resource_catalog,
@@ -19,6 +20,13 @@ RESULT_RUN = {
     "produced_at": "2026-08-08T12:30:00+08:00",
     "run_id": "learning-resource-test-run",
 }
+
+
+def _write_pdf(path):
+    document = pymupdf.open()
+    document.new_page()
+    document.save(path)
+    document.close()
 
 
 def _candidate(
@@ -259,8 +267,8 @@ def test_matches_explicit_concept_text(
     tmp_path, title, topics, keywords, match_basis
 ):
     """明確名稱或 keyword 只以輸入文字配對，並保留原始資源欄位。"""
-    artifact_path = tmp_path / "source-list.xlsx"
-    artifact_path.write_bytes(b"approved source list")
+    artifact_path = tmp_path / "resource.pdf"
+    _write_pdf(artifact_path)
     catalog = build_controlled_resource_catalog(
         [
             _candidate(
@@ -312,14 +320,27 @@ def test_matches_explicit_concept_text(
         assert resource[field] == catalog["resources"][0][field]
 
 
-def test_subject_filter_runs_before_text_matching(tmp_path):
-    artifact_path = tmp_path / "source-list.xlsx"
-    artifact_path.write_bytes(b"approved source list")
+@pytest.mark.parametrize(
+    ("selected_subject", "other_subject"),
+    [
+        ("data_structures", "e_commerce"),
+        ("linear_algebra", "world_history"),
+    ],
+)
+def test_subject_filter_runs_before_text_matching(
+    tmp_path, selected_subject, other_subject
+):
+    artifact_path = tmp_path / "resource.pdf"
+    _write_pdf(artifact_path)
     candidates = [
-        _candidate(artifact_path, keywords=["array"]),
         _candidate(
             artifact_path,
-            subject="e_commerce",
+            subject=selected_subject,
+            keywords=["array"],
+        ),
+        _candidate(
+            artifact_path,
+            subject=other_subject,
             title="Array commerce",
             topics=["array"],
             keywords=["array"],
@@ -330,7 +351,7 @@ def test_subject_filter_runs_before_text_matching(tmp_path):
     study_material_output = _study_material_output()
 
     result = build_learning_resource_result(
-        study_material_output, catalog, tmp_path, "data_structures", **RESULT_RUN
+        study_material_output, catalog, tmp_path, selected_subject, **RESULT_RUN
     )
 
     assert len(catalog["resources"]) == 2
@@ -338,14 +359,33 @@ def test_subject_filter_runs_before_text_matching(tmp_path):
     expected = next(
         resource
         for resource in catalog["resources"]
-        if resource["subject"] == "data_structures"
+        if resource["subject"] == selected_subject
     )
     assert result["resources"][0]["resource_key"] == expected["resource_key"]
 
 
+@pytest.mark.parametrize("subject", ["Data_Structures", "data-structures", "../physics"])
+def test_matching_rejects_unsafe_subject_slugs(tmp_path, subject):
+    artifact_path = tmp_path / "resource.pdf"
+    _write_pdf(artifact_path)
+    catalog = build_controlled_resource_catalog([_candidate(artifact_path)], tmp_path)
+
+    result = build_learning_resource_result(
+        _study_material_output(), catalog, tmp_path, subject, **RESULT_RUN
+    )
+
+    assert result == {
+        "schema": "learning-resource-result/v1",
+        "processing": "failed",
+        "quality": "unsupported",
+        "decision": "reject",
+        "reason_code": "LEARNING_RESOURCE_SUBJECT_INVALID",
+    }
+
+
 def test_summary_only_match_requires_bound_accepted_review(tmp_path):
-    artifact_path = tmp_path / "source-list.xlsx"
-    artifact_path.write_bytes(b"approved source list")
+    artifact_path = tmp_path / "resource.pdf"
+    _write_pdf(artifact_path)
     catalog = build_controlled_resource_catalog(
         [
             _candidate(
@@ -389,8 +429,8 @@ def test_summary_only_match_requires_bound_accepted_review(tmp_path):
 
 
 def test_no_match_succeeds_without_changing_s2(tmp_path):
-    artifact_path = tmp_path / "source-list.xlsx"
-    artifact_path.write_bytes(b"approved source list")
+    artifact_path = tmp_path / "resource.pdf"
+    _write_pdf(artifact_path)
     catalog = build_controlled_resource_catalog(
         [
             _candidate(
@@ -445,8 +485,8 @@ def test_no_match_succeeds_without_changing_s2(tmp_path):
 
 
 def test_review_and_problem_sources_never_become_matches(tmp_path):
-    artifact_path = tmp_path / "source-list.xlsx"
-    artifact_path.write_bytes(b"approved source list")
+    artifact_path = tmp_path / "resource.pdf"
+    _write_pdf(artifact_path)
     catalog = build_controlled_resource_catalog(
         [
             {
@@ -481,8 +521,8 @@ def test_review_and_problem_sources_never_become_matches(tmp_path):
 
 
 def test_result_tamper_and_changed_artifact_fail_closed(tmp_path):
-    artifact_path = tmp_path / "source-list.xlsx"
-    artifact_path.write_bytes(b"approved source list")
+    artifact_path = tmp_path / "resource.pdf"
+    _write_pdf(artifact_path)
     catalog = build_controlled_resource_catalog([_candidate(artifact_path)], tmp_path)
     study_material_output = _study_material_output()
     result = build_learning_resource_result(
@@ -511,6 +551,17 @@ def test_result_tamper_and_changed_artifact_fail_closed(tmp_path):
             wrong_revision, study_material_output, catalog, tmp_path
         )
         == "LEARNING_RESOURCE_REVISION_INVALID"
+    )
+    unsafe_subject = deepcopy(result)
+    unsafe_subject["subject"] = "../data_structures"
+    assert (
+        validate_learning_resource_result(
+            _rebind_result_revision(unsafe_subject),
+            study_material_output,
+            catalog,
+            tmp_path,
+        )
+        == "LEARNING_RESOURCE_BINDING_INVALID"
     )
     wrong_artifact_hash = deepcopy(result)
     wrong_artifact_hash["resources"][0]["artifact_sha256"] = "0" * 64
@@ -544,8 +595,8 @@ def test_result_tamper_and_changed_artifact_fail_closed(tmp_path):
 
 
 def test_review_binding_and_terms_tamper_fail_closed(tmp_path):
-    artifact_path = tmp_path / "source-list.xlsx"
-    artifact_path.write_bytes(b"approved source list")
+    artifact_path = tmp_path / "resource.pdf"
+    _write_pdf(artifact_path)
     catalog = build_controlled_resource_catalog(
         [
             _candidate(

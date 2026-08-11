@@ -23,6 +23,10 @@ STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v2"
 EVIDENCE_REFERENCE_SCHEMA = "evidence-reference/v1"
 FORMAL_PROVIDER_DEFERRED = "FORMAL_PROVIDER_DEFERRED"
 CONCEPT_CONTEXT_UNAVAILABLE = "CONCEPT_CONTEXT_UNAVAILABLE"
+STUDY_MATERIAL_RELATION_CLUE_KINDS = frozenset(RELATION_CLUE_KINDS) | {
+    "similar",
+    "confusing",
+}
 
 ROOT_FIELDS = frozenset(
     "schema output_id development_only handoff_id produced_at material_ref pages "
@@ -64,6 +68,7 @@ KEYWORD_STATUSES = (
 )
 PARTIAL_STATUS = ("partial", "needs_review", "review", "DEVELOPMENT_FULL_DOCUMENT_PARTIAL")
 DEFERRED_STATUS = ("succeeded", "needs_review", "review", "DEVELOPMENT_OUTPUT_NEEDS_REVIEW")
+COMPLETED_STATUS = ("succeeded", "accepted", "retain", "DEVELOPMENT_OUTPUT_ACCEPTED")
 
 
 def _nonempty_string(value: Any) -> bool:
@@ -168,7 +173,9 @@ def _valid_provenance(provenance: Any) -> bool:
 
 
 def _root_status(limitation_reasons: set[str]) -> tuple[str, str, str, str] | None:
-    """依目前兩種已批准限制決定根層狀態。"""
+    """依已知限制決定 completed、deferred 或 partial 根層狀態。"""
+    if not limitation_reasons:
+        return COMPLETED_STATUS
     if FORMAL_PROVIDER_DEFERRED not in limitation_reasons:
         return None
     if CONCEPT_CONTEXT_UNAVAILABLE in limitation_reasons:
@@ -640,7 +647,7 @@ def _validate_content(
         statement = clue["statement"]
         evidence_ids = clue["evidence_ids"]
         if (
-            clue["kind"] not in RELATION_CLUE_KINDS
+            clue["kind"] not in STUDY_MATERIAL_RELATION_CLUE_KINDS
             or clue["direction_hint"] not in RELATION_DIRECTIONS
             or not _nonempty_string(source_id)
             or not _nonempty_string(target_id)
@@ -683,7 +690,7 @@ def _validate_limitations(
 ) -> str | None:
     """驗證限制 references，並確保根層狀態沒有假成功。"""
     limitations = output["known_limitations"]
-    if not isinstance(limitations, list) or not limitations:
+    if not isinstance(limitations, list):
         return "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
     reasons = set()
     unavailable_pages = set()
@@ -799,7 +806,7 @@ def build_study_material_output(
     keywords = _pack_keywords(concept_keyword_items, material_ref)
     if keywords is None:
         return _failure("STUDY_MATERIAL_OUTPUT_KEYWORD_INPUT_INVALID")
-    if not isinstance(page_limitations, list) or not page_limitations:
+    if not isinstance(page_limitations, list):
         return _failure("STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID")
     try:
         if any(

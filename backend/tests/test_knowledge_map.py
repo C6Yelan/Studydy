@@ -176,6 +176,25 @@ def test_relation_contract_accepts_only_the_six_frozen_types():
     assert validate_knowledge_map(_rebind_map(changed)) == "KNOWLEDGE_MAP_RELATION_INVALID"
 
 
+@pytest.mark.parametrize("relation_type", ["similar", "confusing"])
+def test_resource_relation_types_flow_from_validated_source(relation_type):
+    source = _source("programming-07b1c1c1-study-material-output.json")
+    clue = next(
+        item for item in source["relation_clues"] if item["kind"] == "application"
+    )
+    clue["kind"] = relation_type
+    clue["direction_hint"] = "source_to_target"
+    _rebind_output_id(source)
+
+    knowledge_map = build_knowledge_map(source)
+
+    assert any(
+        relation["type"] == relation_type
+        and relation["statement"] == clue["statement"]
+        for relation in knowledge_map["relations"]
+    )
+
+
 def test_semantic_duplicate_relations_fail_closed():
     """同類型與端點的第二條 Relation 不得以不同 identity 重複出現。"""
     knowledge_map = build_knowledge_map(

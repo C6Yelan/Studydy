@@ -24,12 +24,6 @@ EXTRACTION_POLICY_VERSION = "pymupdf-native-text-blocks/v1"
 MAX_BLOCKS = 6
 MAX_CHARACTERS = 6000
 MIN_NATIVE_CHARACTERS = 200
-APPROVED_SOURCE_LOCATORS = frozenset(
-    {
-        "https://opendatastructures.org/ods-cpp.pdf",
-        "https://opentextbc.ca/electroniccommerce/open/download?type=pdf",
-    }
-)
 
 _CATALOG_COPY_FIELDS = (
     "title",
@@ -361,17 +355,6 @@ def build_resource_evidence(
             "RESOURCE_EVIDENCE_RESOURCE_NOT_FOUND",
             output_path,
         )
-    if resource["source_locator"] not in APPROVED_SOURCE_LOCATORS:
-        return _failed_result(
-            catalog,
-            resource,
-            source_s2_revision,
-            concept_id,
-            produced_at,
-            run_id,
-            "RESOURCE_SOURCE_NOT_APPROVED",
-            output_path,
-        )
     try:
         checked_artifact_root = Path(artifact_root).resolve()
     except (OSError, TypeError):
@@ -505,8 +488,6 @@ def validate_resource_evidence(
         "catalog_revision"
     ):
         return "RESOURCE_EVIDENCE_BINDING_INVALID"
-    if resource["source_locator"] not in APPROVED_SOURCE_LOCATORS:
-        return "RESOURCE_SOURCE_NOT_APPROVED"
     if any(evidence[field] != resource[field] for field in _CATALOG_COPY_FIELDS):
         return "RESOURCE_EVIDENCE_BINDING_INVALID"
     expected_set_id = _evidence_set_id(

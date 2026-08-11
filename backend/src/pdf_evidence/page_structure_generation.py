@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import base64
 import hashlib
 import json
@@ -610,7 +611,7 @@ def _build_page_structure_artifact(
     model_body: dict[str, Any], page_evidence: dict[str, Any]
 ) -> dict[str, Any] | None:
     """將 normalized bbox 轉為 native 座標並補上可信 root binding。"""
-    elements = model_body["elements"]
+    elements = deepcopy(model_body["elements"])
     if not isinstance(elements, list):
         return None
     render = page_evidence["render"]
@@ -661,7 +662,7 @@ def _build_page_structure_artifact(
             max(point[1] for point in native_corners),
         ]
 
-    return {
+    page_structure = {
         "schema": PAGE_STRUCTURE_SCHEMA,
         "material_ref": page_evidence["material_ref"],
         "page_ref": page_evidence["page_ref"],
@@ -669,9 +670,30 @@ def _build_page_structure_artifact(
         "input_evidence_ref": page_evidence["evidence_ref"],
         "coordinate_space": "unrotated_page_points",
         "elements": elements,
-        "reading_order": model_body["reading_order"],
-        "spatial_relations": model_body["spatial_relations"],
+        "reading_order": deepcopy(model_body["reading_order"]),
+        "spatial_relations": deepcopy(model_body["spatial_relations"]),
     }
+    return page_structure
+
+
+def finalize_page_structure(
+    model_body: Any, page_evidence: Any
+) -> dict[str, Any] | None:
+    """純函式驗證 model body，轉換 bbox 並綁回同頁 Evidence。"""
+    if (
+        not isinstance(model_body, dict)
+        or set(model_body)
+        != {"elements", "reading_order", "spatial_relations"}
+        or not _validate_page_evidence(page_evidence)
+    ):
+        return None
+    page_structure = _build_page_structure_artifact(model_body, page_evidence)
+    return (
+        page_structure
+        if page_structure is not None
+        and validate_page_structure(page_structure, page_evidence) is None
+        else None
+    )
 
 
 def _validate_nearby_pages(
@@ -798,9 +820,16 @@ def generate_page_structure(
             runtime_identity=runtime_identity,
         )
 
-    page_structure = _build_page_structure_artifact(model_body, page_evidence)
+    page_structure = finalize_page_structure(model_body, page_evidence)
     if page_structure is None:
-        reason = "PAGE_STRUCTURE_INVALID"
+        invalid_page_structure = _build_page_structure_artifact(
+            model_body, page_evidence
+        )
+        reason = (
+            validate_page_structure(invalid_page_structure, page_evidence)
+            if invalid_page_structure is not None
+            else "PAGE_STRUCTURE_INVALID"
+        )
     else:
         reason = validate_page_structure(page_structure, page_evidence)
     if reason is not None:

@@ -5,15 +5,21 @@ from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
+import string
 from typing import Any
 from urllib.parse import urlsplit
 
+import pymupdf
+
 
 CATALOG_SCHEMA = "controlled-resource-catalog/v1"
-SUBJECTS = frozenset({"data_structures", "e_commerce"})
 LICENSE_BOUNDARIES = {
     "cc_by": "attribution_required",
     "cc_by_nc": "noncommercial_attribution_required",
+    "cc_by_sa": "attribution_share_alike_required",
+    "cc_by_nc_sa": "noncommercial_attribution_share_alike_required",
+    "private_task_authorized": "private_task_only",
+    "academic_noncommercial_notice": "noncommercial_academic_use",
 }
 
 _RESOURCE_INPUT_FIELDS = {
@@ -65,6 +71,7 @@ _EXCLUSION_REASONS = _REVIEW_REASONS | {
     "RESOURCE_LICENSE_INVALID",
     "RESOURCE_ARTIFACT_MISSING",
     "RESOURCE_ARTIFACT_HASH_MISMATCH",
+    "RESOURCE_PDF_INVALID",
     "RESOURCE_DUPLICATE",
 }
 _PLACEHOLDER_VALUES = frozenset(
@@ -126,20 +133,43 @@ def _valid_string_list(values: Any) -> bool:
     )
 
 
+def _valid_subject(value: Any) -> bool:
+    if not isinstance(value, str) or not 1 <= len(value) <= 64:
+        return False
+    if value[0] not in string.ascii_lowercase or value[-1] == "_":
+        return False
+    allowed_characters = frozenset(string.ascii_lowercase + string.digits + "_")
+    return (
+        all(character in allowed_characters for character in value)
+        and "__" not in value
+    )
+
+
 def _valid_locator(value: Any) -> bool:
     if not _nonempty_string(value) or len(value) > 2000 or any(
         character.isspace() for character in value
     ):
         return False
+    artifact_prefix = "artifact:sha256:"
+    if value.startswith(artifact_prefix):
+        digest = value.removeprefix(artifact_prefix)
+        return len(digest) == 64 and all(
+            character in "0123456789abcdef" for character in digest
+        )
     try:
         parsed = urlsplit(value)
+        hostname = parsed.hostname
+        username = parsed.username
+        password = parsed.password
+        port = parsed.port
     except ValueError:
         return False
     return (
         parsed.scheme in {"http", "https"}
-        and parsed.hostname is not None
-        and parsed.username is None
-        and parsed.password is None
+        and hostname is not None
+        and username is None
+        and password is None
+        and (port is None or 0 <= port <= 65535)
     )
 
 
@@ -169,7 +199,7 @@ def _artifact_path(artifact_root: Path, artifact_ref: Any) -> Path | None:
 def _resource_reason(resource: Any, artifact_root: Path) -> str | None:
     if not isinstance(resource, dict) or set(resource) != _RESOURCE_FIELDS:
         return "RESOURCE_METADATA_INVALID"
-    if resource["subject"] not in SUBJECTS:
+    if not _valid_subject(resource["subject"]):
         return "RESOURCE_SUBJECT_INVALID"
     string_fields = (
         "resource_key",
@@ -194,6 +224,11 @@ def _resource_reason(resource: Any, artifact_root: Path) -> str | None:
         return "RESOURCE_METADATA_INVALID"
     if not _valid_locator(resource["source_locator"]):
         return "RESOURCE_LOCATOR_INVALID"
+    if resource["source_locator"].startswith("artifact:sha256:") and (
+        resource["source_locator"]
+        != f"artifact:sha256:{resource['artifact_sha256']}"
+    ):
+        return "RESOURCE_LOCATOR_INVALID"
     expected_boundary = LICENSE_BOUNDARIES.get(resource["license_status"])
     if expected_boundary is None or resource["use_boundary"] != expected_boundary:
         return "RESOURCE_LICENSE_INVALID"
@@ -211,6 +246,16 @@ def _resource_reason(resource: Any, artifact_root: Path) -> str | None:
         return "RESOURCE_ARTIFACT_MISSING"
     if artifact_sha256 != resource["artifact_sha256"]:
         return "RESOURCE_ARTIFACT_HASH_MISMATCH"
+    try:
+        document = pymupdf.open(artifact_path)
+        try:
+            is_readable_pdf = document.is_pdf and document.page_count >= 1
+        finally:
+            document.close()
+    except (OSError, RuntimeError, ValueError):
+        return "RESOURCE_PDF_INVALID"
+    if not is_readable_pdf:
+        return "RESOURCE_PDF_INVALID"
     identity = {
         "subject": resource["subject"],
         "title": resource["title"],
@@ -262,7 +307,7 @@ def build_controlled_resource_catalog(
     resources = []
     exclusions = []
     resource_keys = set()
-    source_locators = set()
+    source_artifacts = set()
     for input_index, candidate in enumerate(candidates):
         if not isinstance(candidate, dict):
             exclusions.append(_exclusion(input_index, "RESOURCE_CANDIDATE_INVALID"))
@@ -303,14 +348,18 @@ def build_controlled_resource_catalog(
         if reason is not None:
             exclusions.append(_exclusion(input_index, reason))
             continue
+        source_artifact = (
+            resource["source_locator"],
+            resource["artifact_sha256"],
+        )
         if (
             resource["resource_key"] in resource_keys
-            or resource["source_locator"] in source_locators
+            or source_artifact in source_artifacts
         ):
             exclusions.append(_exclusion(input_index, "RESOURCE_DUPLICATE"))
             continue
         resource_keys.add(resource["resource_key"])
-        source_locators.add(resource["source_locator"])
+        source_artifacts.add(source_artifact)
         resources.append(resource)
 
     resources.sort(key=lambda resource: resource["resource_key"])
@@ -372,18 +421,22 @@ def validate_controlled_resource_catalog(
         return "RESOURCE_CATALOG_ROOT_INVALID"
 
     resource_keys = set()
-    source_locators = set()
+    source_artifacts = set()
     for resource in resources:
         reason = _resource_reason(resource, checked_artifact_root)
         if reason is not None:
             return reason
+        source_artifact = (
+            resource["source_locator"],
+            resource["artifact_sha256"],
+        )
         if (
             resource["resource_key"] in resource_keys
-            or resource["source_locator"] in source_locators
+            or source_artifact in source_artifacts
         ):
             return "RESOURCE_DUPLICATE"
         resource_keys.add(resource["resource_key"])
-        source_locators.add(resource["source_locator"])
+        source_artifacts.add(source_artifact)
     if resources != sorted(resources, key=lambda resource: resource["resource_key"]):
         return "RESOURCE_CATALOG_ROOT_INVALID"
 

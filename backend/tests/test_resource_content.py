@@ -30,14 +30,18 @@ def _write_pdf(path, text):
     document.close()
 
 
-def _catalog(tmp_path, pdf_path):
+def _catalog(
+    tmp_path,
+    pdf_path,
+    source_locator="https://opendatastructures.org/ods-cpp.pdf",
+):
     candidate = {
         "assessment": "accepted",
         "subject": "data_structures",
         "title": "Open Data Structures",
         "topics": ["array", "stack"],
         "keywords": ["array", "complexity"],
-        "source_locator": "https://opendatastructures.org/ods-cpp.pdf",
+        "source_locator": source_locator,
         "artifact_ref": pdf_path.name,
         "artifact_sha256": hashlib.sha256(pdf_path.read_bytes()).hexdigest(),
         "license_status": "cc_by",
@@ -169,43 +173,30 @@ def test_non_pdf_content_type_fails_closed(tmp_path):
     assert evidence["source_locator"] == catalog["resources"][0]["source_locator"]
 
 
-def test_unapproved_source_locator_fails_closed(tmp_path):
+def test_dynamic_source_locator_builds_bound_evidence(tmp_path):
     pdf_path = tmp_path / "resource.pdf"
     _write_pdf(pdf_path, "Array structures store indexed values. " * 20)
-    catalog = _catalog(tmp_path, pdf_path)
-    catalog["resources"][0]["source_locator"] = "https://unapproved.invalid/book.pdf"
-    identity = {
-        "subject": catalog["resources"][0]["subject"],
-        "title": catalog["resources"][0]["title"],
-        "source_locator": catalog["resources"][0]["source_locator"],
-    }
-    encoded = json.dumps(
-        identity,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-        allow_nan=False,
-    ).encode("utf-8")
-    catalog["resources"][0]["resource_key"] = (
-        "resource:sha256:" + hashlib.sha256(encoded).hexdigest()
+    source_locator = "https://library.example.edu/dynamic/book.pdf?edition=2"
+    catalog = _catalog(
+        tmp_path,
+        pdf_path,
+        source_locator=source_locator,
     )
-    _rebind_catalog(catalog)
 
-    evidence = build_resource_evidence(
+    evidence = _build(tmp_path, catalog)
+
+    assert evidence["reason_code"] == "RESOURCE_EVIDENCE_ACCEPTED"
+    assert evidence["decision_status"] == "retain"
+    assert evidence["source_locator"] == source_locator
+    assert validate_resource_evidence(
+        evidence,
         catalog,
-        catalog["resources"][0]["resource_key"],
         tmp_path,
         "application/pdf",
         SOURCE_S2_REVISION,
         CONCEPT_ID,
         ["array"],
-        PRODUCED_AT,
-        RUN_ID,
-        tmp_path / "evidence.json",
-    )
-
-    assert evidence["reason_code"] == "RESOURCE_SOURCE_NOT_APPROVED"
-    assert evidence["decision_status"] == "reject"
+    ) is None
 
 
 def test_artifact_hash_mismatch_fails_closed(tmp_path):
