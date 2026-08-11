@@ -23,6 +23,10 @@ STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v2"
 EVIDENCE_REFERENCE_SCHEMA = "evidence-reference/v1"
 FORMAL_PROVIDER_DEFERRED = "FORMAL_PROVIDER_DEFERRED"
 CONCEPT_CONTEXT_UNAVAILABLE = "CONCEPT_CONTEXT_UNAVAILABLE"
+STUDY_MATERIAL_RELATION_CLUE_KINDS = frozenset(RELATION_CLUE_KINDS) | {
+    "similar",
+    "confusing",
+}
 
 ROOT_FIELDS = frozenset(
     "schema output_id development_only handoff_id produced_at material_ref pages "
@@ -643,7 +647,7 @@ def _validate_content(
         statement = clue["statement"]
         evidence_ids = clue["evidence_ids"]
         if (
-            clue["kind"] not in RELATION_CLUE_KINDS
+            clue["kind"] not in STUDY_MATERIAL_RELATION_CLUE_KINDS
             or clue["direction_hint"] not in RELATION_DIRECTIONS
             or not _nonempty_string(source_id)
             or not _nonempty_string(target_id)

@@ -324,6 +324,16 @@ def test_public_s2_fixture_reads_only_validated_output():
     assert consumed["known_limitations"]
 
 
+@pytest.mark.parametrize("kind", ["similar", "confusing"])
+def test_resource_relation_clue_kinds_are_accepted_by_downstream_contract(kind):
+    """Resource runner 與 Knowledge Map 共用的正式類型可進入已綁定 S2。"""
+    output = build_study_material_output(**_valid_inputs())
+    output["relation_clues"][0]["kind"] = kind
+    _rebind_output_id(output)
+
+    assert validate_study_material_output(output) is None
+
+
 def test_unsupported_contract_values_fail_closed():
     """builder 與 validator 都拒絕不受支援的契約值。"""
     inputs = _valid_inputs()

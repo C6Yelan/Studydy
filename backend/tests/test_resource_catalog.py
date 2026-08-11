@@ -145,6 +145,39 @@ def test_dynamic_https_source_locators_are_accepted(tmp_path, source_locator):
     assert catalog["resources"][0]["source_locator"] == source_locator
 
 
+def test_private_artifact_locator_is_hash_bound(tmp_path):
+    artifact_path = tmp_path / "resource.pdf"
+    _write_pdf(artifact_path)
+    artifact_sha256 = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+
+    accepted = build_controlled_resource_catalog(
+        [
+            _candidate(
+                artifact_path,
+                source_locator=f"artifact:sha256:{artifact_sha256}",
+                license_status="private_task_authorized",
+                use_boundary="private_task_only",
+            )
+        ],
+        tmp_path,
+    )
+    mismatched = build_controlled_resource_catalog(
+        [
+            _candidate(
+                artifact_path,
+                source_locator="artifact:sha256:" + "0" * 64,
+                license_status="private_task_authorized",
+                use_boundary="private_task_only",
+            )
+        ],
+        tmp_path,
+    )
+
+    assert validate_controlled_resource_catalog(accepted, tmp_path) is None
+    assert mismatched["resources"] == []
+    assert mismatched["exclusions"][0]["reason_code"] == "RESOURCE_LOCATOR_INVALID"
+
+
 @pytest.mark.parametrize(
     "source_locator",
     [
@@ -174,6 +207,8 @@ def test_unsafe_source_locators_fail_closed(tmp_path, source_locator):
         ("cc_by_nc", "noncommercial_attribution_required"),
         ("cc_by_sa", "attribution_share_alike_required"),
         ("cc_by_nc_sa", "noncommercial_attribution_share_alike_required"),
+        ("private_task_authorized", "private_task_only"),
+        ("academic_noncommercial_notice", "noncommercial_academic_use"),
     ],
 )
 def test_approved_license_use_pairs_are_exact(
@@ -285,6 +320,31 @@ def test_duplicate_resource_is_not_retained_twice(tmp_path):
     assert len(catalog["resources"]) == 1
     assert catalog["exclusions"][0]["reason_code"] == "RESOURCE_DUPLICATE"
     assert validate_controlled_resource_catalog(catalog, tmp_path) is None
+
+
+def test_distinct_artifacts_from_one_source_page_are_retained(tmp_path):
+    stack_path = tmp_path / "stack.pdf"
+    queue_path = tmp_path / "queue.pdf"
+    _write_pdf(stack_path)
+    with pymupdf.open() as document:
+        document.new_page()
+        document.new_page()
+        document.save(queue_path)
+    locator = "https://materials.example.edu/stacks-and-queues"
+
+    catalog = build_controlled_resource_catalog(
+        [
+            _candidate(stack_path, title="Stack", source_locator=locator),
+            _candidate(queue_path, title="Queue", source_locator=locator),
+        ],
+        tmp_path,
+    )
+
+    assert validate_controlled_resource_catalog(catalog, tmp_path) is None
+    assert {resource["title"] for resource in catalog["resources"]} == {
+        "Queue",
+        "Stack",
+    }
 
 
 def test_normalized_duplicate_metadata_is_excluded(tmp_path):

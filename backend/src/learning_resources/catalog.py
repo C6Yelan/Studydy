@@ -18,6 +18,8 @@ LICENSE_BOUNDARIES = {
     "cc_by_nc": "noncommercial_attribution_required",
     "cc_by_sa": "attribution_share_alike_required",
     "cc_by_nc_sa": "noncommercial_attribution_share_alike_required",
+    "private_task_authorized": "private_task_only",
+    "academic_noncommercial_notice": "noncommercial_academic_use",
 }
 
 _RESOURCE_INPUT_FIELDS = {
@@ -148,6 +150,12 @@ def _valid_locator(value: Any) -> bool:
         character.isspace() for character in value
     ):
         return False
+    artifact_prefix = "artifact:sha256:"
+    if value.startswith(artifact_prefix):
+        digest = value.removeprefix(artifact_prefix)
+        return len(digest) == 64 and all(
+            character in "0123456789abcdef" for character in digest
+        )
     try:
         parsed = urlsplit(value)
         hostname = parsed.hostname
@@ -215,6 +223,11 @@ def _resource_reason(resource: Any, artifact_root: Path) -> str | None:
     if not _valid_timestamp(resource["checked_at"]):
         return "RESOURCE_METADATA_INVALID"
     if not _valid_locator(resource["source_locator"]):
+        return "RESOURCE_LOCATOR_INVALID"
+    if resource["source_locator"].startswith("artifact:sha256:") and (
+        resource["source_locator"]
+        != f"artifact:sha256:{resource['artifact_sha256']}"
+    ):
         return "RESOURCE_LOCATOR_INVALID"
     expected_boundary = LICENSE_BOUNDARIES.get(resource["license_status"])
     if expected_boundary is None or resource["use_boundary"] != expected_boundary:
@@ -294,7 +307,7 @@ def build_controlled_resource_catalog(
     resources = []
     exclusions = []
     resource_keys = set()
-    source_locators = set()
+    source_artifacts = set()
     for input_index, candidate in enumerate(candidates):
         if not isinstance(candidate, dict):
             exclusions.append(_exclusion(input_index, "RESOURCE_CANDIDATE_INVALID"))
@@ -335,14 +348,18 @@ def build_controlled_resource_catalog(
         if reason is not None:
             exclusions.append(_exclusion(input_index, reason))
             continue
+        source_artifact = (
+            resource["source_locator"],
+            resource["artifact_sha256"],
+        )
         if (
             resource["resource_key"] in resource_keys
-            or resource["source_locator"] in source_locators
+            or source_artifact in source_artifacts
         ):
             exclusions.append(_exclusion(input_index, "RESOURCE_DUPLICATE"))
             continue
         resource_keys.add(resource["resource_key"])
-        source_locators.add(resource["source_locator"])
+        source_artifacts.add(source_artifact)
         resources.append(resource)
 
     resources.sort(key=lambda resource: resource["resource_key"])
@@ -404,18 +421,22 @@ def validate_controlled_resource_catalog(
         return "RESOURCE_CATALOG_ROOT_INVALID"
 
     resource_keys = set()
-    source_locators = set()
+    source_artifacts = set()
     for resource in resources:
         reason = _resource_reason(resource, checked_artifact_root)
         if reason is not None:
             return reason
+        source_artifact = (
+            resource["source_locator"],
+            resource["artifact_sha256"],
+        )
         if (
             resource["resource_key"] in resource_keys
-            or resource["source_locator"] in source_locators
+            or source_artifact in source_artifacts
         ):
             return "RESOURCE_DUPLICATE"
         resource_keys.add(resource["resource_key"])
-        source_locators.add(resource["source_locator"])
+        source_artifacts.add(source_artifact)
     if resources != sorted(resources, key=lambda resource: resource["resource_key"]):
         return "RESOURCE_CATALOG_ROOT_INVALID"
 
