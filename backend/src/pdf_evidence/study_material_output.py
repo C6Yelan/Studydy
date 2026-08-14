@@ -23,11 +23,7 @@ STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v2"
 EVIDENCE_REFERENCE_SCHEMA = "evidence-reference/v1"
 FORMAL_PROVIDER_DEFERRED = "FORMAL_PROVIDER_DEFERRED"
 CONCEPT_CONTEXT_UNAVAILABLE = "CONCEPT_CONTEXT_UNAVAILABLE"
-STUDY_MATERIAL_RELATION_CLUE_KINDS = frozenset(RELATION_CLUE_KINDS) | {
-    "similar",
-    "confusing",
-}
-
+PAGE_CONTENT_EXCLUDED = "PAGE_CONTENT_EXCLUDED"
 ROOT_FIELDS = frozenset(
     "schema output_id development_only handoff_id produced_at material_ref pages "
     "concepts evidence_index summaries keywords relation_clues known_limitations "
@@ -39,6 +35,14 @@ PROVENANCE_FIELDS = frozenset(
 PAGE_FIELDS = frozenset(
     "page_ref page_number page_evidence_ref page_structure_ref".split()
 )
+EXCLUDED_PAGE_FIELDS = frozenset(
+    "page_ref page_number page_evidence_ref last_stage processing quality "
+    "decision reason_code".split()
+)
+EXCLUDED_PAGE_REASONS = {
+    "page_structure": {"PAGE_STRUCTURE_INVALID"},
+    "visual_alignment": {"VISUAL_ALIGNMENT_REVIEW_REJECTED"},
+}
 CONCEPT_FIELDS = frozenset(
     "concept_id normalized_name members processing quality decision reason_code".split()
 )
@@ -178,7 +182,9 @@ def _root_status(limitation_reasons: set[str]) -> tuple[str, str, str, str] | No
         return COMPLETED_STATUS
     if FORMAL_PROVIDER_DEFERRED not in limitation_reasons:
         return None
-    if CONCEPT_CONTEXT_UNAVAILABLE in limitation_reasons:
+    if limitation_reasons.intersection(
+        {CONCEPT_CONTEXT_UNAVAILABLE, PAGE_CONTENT_EXCLUDED}
+    ):
         return PARTIAL_STATUS
     return DEFERRED_STATUS
 
@@ -647,7 +653,7 @@ def _validate_content(
         statement = clue["statement"]
         evidence_ids = clue["evidence_ids"]
         if (
-            clue["kind"] not in STUDY_MATERIAL_RELATION_CLUE_KINDS
+            clue["kind"] not in RELATION_CLUE_KINDS
             or clue["direction_hint"] not in RELATION_DIRECTIONS
             or not _nonempty_string(source_id)
             or not _nonempty_string(target_id)
@@ -683,46 +689,124 @@ def _validate_content(
     return None
 
 
-def _validate_limitations(
-    output: dict[str, Any],
-    page_by_ref: dict[str, dict],
+def validate_known_limitations(
+    *,
+    material_ref: Any,
+    pages: Any,
+    known_limitations: Any,
     concept_page_refs: set[str],
-) -> str | None:
-    """驗證限制 references，並確保根層狀態沒有假成功。"""
-    limitations = output["known_limitations"]
-    if not isinstance(limitations, list):
-        return "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+    _validated_page_by_ref: dict[str, dict] | None = None,
+) -> tuple[tuple[str, str, str, str] | None, str | None]:
+    """獨立呼叫時先驗 pages，完整 output 則重用已驗結果。"""
+    if not _valid_sha256_ref(material_ref, "material:sha256:"):
+        return None, "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+    page_by_ref = _validated_page_by_ref
+    if page_by_ref is None:
+        page_by_ref, reason = _validate_pages({"pages": pages})
+        if reason is not None:
+            return None, "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+    if known_limitations == []:
+        return COMPLETED_STATUS, None
+    if not isinstance(known_limitations, list):
+        return None, "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+
+    page_numbers = {page["page_number"] for page in page_by_ref.values()}
+    evidence_refs = {
+        page["page_evidence_ref"] for page in page_by_ref.values()
+    }
+
     reasons = set()
     unavailable_pages = set()
-    for item in limitations:
-        if not isinstance(item, dict) or set(item) != {
-            "reason_code",
-            "affected_page_refs",
-        }:
-            return "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
-        reason = item["reason_code"]
-        page_refs = item["affected_page_refs"]
+    excluded_pages = {}
+    source_sha256 = material_ref.removeprefix("material:sha256:")
+    for item in known_limitations:
+        if not isinstance(item, dict):
+            return None, "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+        reason = item.get("reason_code")
+        if reason == PAGE_CONTENT_EXCLUDED:
+            if set(item) != {"reason_code", "affected_pages"}:
+                return None, "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+            affected_pages = item["affected_pages"]
+            if not isinstance(affected_pages, list) or not affected_pages:
+                return None, "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+            for page in affected_pages:
+                if not isinstance(page, dict) or set(page) != EXCLUDED_PAGE_FIELDS:
+                    return None, "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+                page_ref = page["page_ref"]
+                page_number = page["page_number"]
+                stage = page["last_stage"]
+                if (
+                    type(page_number) is not int
+                    or page_number < 1
+                    or page_ref
+                    != "page:sha256:"
+                    + hashlib.sha256(
+                        f"{source_sha256}:{page_number}".encode("ascii")
+                    ).hexdigest()
+                    or not _valid_sha256_ref(
+                        page["page_evidence_ref"], "evidence:sha256:"
+                    )
+                    or not _nonempty_string(stage)
+                    or stage not in EXCLUDED_PAGE_REASONS
+                    or not _nonempty_string(page["reason_code"])
+                    or page["reason_code"] not in EXCLUDED_PAGE_REASONS[stage]
+                    or (
+                        page["processing"],
+                        page["quality"],
+                        page["decision"],
+                    )
+                    != ("failed", "unsupported", "reject")
+                    or page_ref in page_by_ref
+                    or page_ref in excluded_pages
+                    or page_number in page_numbers
+                    or page["page_evidence_ref"] in evidence_refs
+                ):
+                    return None, "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+                excluded_pages[page_ref] = page
+                page_numbers.add(page_number)
+                evidence_refs.add(page["page_evidence_ref"])
+            if affected_pages != sorted(
+                affected_pages, key=lambda page: page["page_number"]
+            ):
+                return None, "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+        else:
+            if set(item) != {"reason_code", "affected_page_refs"}:
+                return None, "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+            page_refs = item["affected_page_refs"]
+            if (
+                not _unique_strings(page_refs)
+                or page_refs != sorted(page_refs)
+                or any(page_ref not in page_by_ref for page_ref in page_refs)
+            ):
+                return None, "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
         if (
             not _nonempty_string(reason)
-            or reason not in {CONCEPT_CONTEXT_UNAVAILABLE, FORMAL_PROVIDER_DEFERRED}
+            or reason
+            not in {
+                CONCEPT_CONTEXT_UNAVAILABLE,
+                FORMAL_PROVIDER_DEFERRED,
+                PAGE_CONTENT_EXCLUDED,
+            }
             or reason in reasons
-            or not _unique_strings(page_refs)
-            or page_refs != sorted(page_refs)
-            or any(page_ref not in page_by_ref for page_ref in page_refs)
         ):
-            return "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+            return None, "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
         reasons.add(reason)
         if reason == CONCEPT_CONTEXT_UNAVAILABLE:
             unavailable_pages.update(page_refs)
     expected_status = _root_status(reasons)
     if (
-        limitations != sorted(limitations, key=lambda item: item["reason_code"])
+        known_limitations
+        != sorted(known_limitations, key=lambda item: item["reason_code"])
         or unavailable_pages.intersection(concept_page_refs)
+        or bool(excluded_pages) != (PAGE_CONTENT_EXCLUDED in reasons)
+        or (
+            excluded_pages
+            and page_numbers != set(range(1, len(page_numbers) + 1))
+        )
         or expected_status is None
-        or _status(output) != expected_status
     ):
-        return "STUDY_MATERIAL_OUTPUT_STATUS_INVALID"
-    return None
+        return None, "STUDY_MATERIAL_OUTPUT_STATUS_INVALID"
+    return expected_status, None
 
 
 def validate_study_material_output(output: Any) -> str | None:
@@ -760,7 +844,18 @@ def validate_study_material_output(output: Any) -> str | None:
     )
     if reason is not None:
         return reason
-    return _validate_limitations(output, page_by_ref, concept_pages)
+    expected_status, reason = validate_known_limitations(
+        material_ref=output["material_ref"],
+        pages=output["pages"],
+        known_limitations=output["known_limitations"],
+        concept_page_refs=concept_pages,
+        _validated_page_by_ref=page_by_ref,
+    )
+    if reason is not None:
+        return reason
+    if _status(output) != expected_status:
+        return "STUDY_MATERIAL_OUTPUT_STATUS_INVALID"
+    return None
 
 
 def build_study_material_output(
@@ -809,20 +904,31 @@ def build_study_material_output(
     if not isinstance(page_limitations, list):
         return _failure("STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID")
     try:
-        if any(
-            set(item) != {"reason_code", "affected_page_refs"}
-            for item in page_limitations
-        ):
-            return _failure("STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID")
-        known_limitations = [
-            {
-                "reason_code": item["reason_code"],
-                "affected_page_refs": sorted(item["affected_page_refs"]),
-            }
-            for item in page_limitations
-        ]
+        known_limitations = []
+        for item in page_limitations:
+            if item.get("reason_code") == PAGE_CONTENT_EXCLUDED:
+                if set(item) != {"reason_code", "affected_pages"}:
+                    return _failure("STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID")
+                known_limitations.append(
+                    {
+                        "reason_code": PAGE_CONTENT_EXCLUDED,
+                        "affected_pages": sorted(
+                            deepcopy(item["affected_pages"]),
+                            key=lambda page: page["page_number"],
+                        ),
+                    }
+                )
+            else:
+                if set(item) != {"reason_code", "affected_page_refs"}:
+                    return _failure("STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID")
+                known_limitations.append(
+                    {
+                        "reason_code": item["reason_code"],
+                        "affected_page_refs": sorted(item["affected_page_refs"]),
+                    }
+                )
         known_limitations.sort(key=lambda item: item["reason_code"])
-    except (KeyError, TypeError):
+    except (AttributeError, KeyError, TypeError):
         return _failure("STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID")
     try:
         root_status = _root_status(

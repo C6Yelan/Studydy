@@ -115,7 +115,6 @@ def test_direct_clues_are_grounded_and_non_direct_clues_stay_reviewable():
 @pytest.mark.parametrize(
     ("clue_kind", "reason_code"),
     [
-        ("contrast", "CONTRAST_REQUIRES_REVIEW"),
         ("sequence", "SEQUENCE_NOT_PREREQUISITE"),
         ("diagram_connection", "CLUE_KIND_REQUIRES_REVIEW"),
     ],
@@ -145,7 +144,7 @@ def test_clue_only_observations_never_become_formal_relations(
     assert review["reason_code"] == reason_code
 
 
-def test_relation_contract_accepts_only_the_six_frozen_types():
+def test_relation_contract_accepts_only_current_types():
     knowledge_map = build_knowledge_map(
         _source("programming-07b1c1c1-study-material-output.json")
     )
@@ -174,25 +173,6 @@ def test_relation_contract_accepts_only_the_six_frozen_types():
         )
     ]
     assert validate_knowledge_map(_rebind_map(changed)) == "KNOWLEDGE_MAP_RELATION_INVALID"
-
-
-@pytest.mark.parametrize("relation_type", ["similar", "confusing"])
-def test_resource_relation_types_flow_from_validated_source(relation_type):
-    source = _source("programming-07b1c1c1-study-material-output.json")
-    clue = next(
-        item for item in source["relation_clues"] if item["kind"] == "application"
-    )
-    clue["kind"] = relation_type
-    clue["direction_hint"] = "source_to_target"
-    _rebind_output_id(source)
-
-    knowledge_map = build_knowledge_map(source)
-
-    assert any(
-        relation["type"] == relation_type
-        and relation["statement"] == clue["statement"]
-        for relation in knowledge_map["relations"]
-    )
 
 
 def test_semantic_duplicate_relations_fail_closed():
@@ -337,6 +317,103 @@ def test_view_mapping_and_revisions_are_stable_and_bound():
     mismatched["knowledge_map_revision"] = "knowledge-map:sha256:" + "0" * 64
     with pytest.raises(KnowledgeMapError, match="INITIAL_PATH_REVISION_MISMATCH"):
         build_knowledge_map_view(knowledge_map, mismatched)
+
+
+def test_map_rejects_retained_and_excluded_evidence_collision():
+    """合法 SHA 若同時綁定 retained 與 excluded page 仍須 fail closed。"""
+    knowledge_map = build_knowledge_map(
+        _source("finance-01547e2c-study-material-output.json")
+    )
+    page_number = max(page["page_number"] for page in knowledge_map["pages"]) + 1
+    source_sha256 = knowledge_map["material_ref"].removeprefix(
+        "material:sha256:"
+    )
+    excluded_page = {
+        "page_ref": "page:sha256:"
+        + hashlib.sha256(
+            f"{source_sha256}:{page_number}".encode("ascii")
+        ).hexdigest(),
+        "page_number": page_number,
+        "page_evidence_ref": "evidence:sha256:"
+        + hashlib.sha256(b"excluded-page-evidence").hexdigest(),
+        "last_stage": "page_structure",
+        "processing": "failed",
+        "quality": "unsupported",
+        "decision": "reject",
+        "reason_code": "PAGE_STRUCTURE_INVALID",
+    }
+    changed = deepcopy(knowledge_map)
+    changed["known_limitations"].append(
+        {
+            "reason_code": "PAGE_CONTENT_EXCLUDED",
+            "affected_pages": [excluded_page],
+        }
+    )
+    changed["known_limitations"].sort(key=lambda item: item["reason_code"])
+    changed = _rebind_map(changed)
+
+    assert validate_knowledge_map(changed) is None
+
+    malformed = deepcopy(changed)
+    malformed_exclusion = next(
+        item
+        for item in malformed["known_limitations"]
+        if item["reason_code"] == "PAGE_CONTENT_EXCLUDED"
+    )
+    malformed_exclusion["affected_pages"][0]["page_evidence_ref"] = (
+        "evidence:sha256:" + "g" * 64
+    )
+    assert (
+        validate_knowledge_map(_rebind_map(malformed))
+        == "KNOWLEDGE_MAP_LIMITATION_INVALID"
+    )
+
+    collision = deepcopy(changed)
+    exclusion = next(
+        item
+        for item in collision["known_limitations"]
+        if item["reason_code"] == "PAGE_CONTENT_EXCLUDED"
+    )
+    exclusion["affected_pages"][0]["page_evidence_ref"] = collision["pages"][0][
+        "page_evidence_ref"
+    ]
+
+    assert (
+        validate_knowledge_map(_rebind_map(collision))
+        == "KNOWLEDGE_MAP_LIMITATION_INVALID"
+    )
+
+
+def test_map_rejects_unavailable_concept_page_and_false_root_status():
+    """Map 獨立讀取時重驗 Concept 衝突與 partial 根層狀態。"""
+    knowledge_map = build_knowledge_map(
+        _source("finance-01547e2c-study-material-output.json")
+    )
+    unavailable_concept = deepcopy(knowledge_map)
+    unavailable = next(
+        item
+        for item in unavailable_concept["known_limitations"]
+        if item["reason_code"] == "CONCEPT_CONTEXT_UNAVAILABLE"
+    )
+    unavailable["affected_page_refs"] = [
+        unavailable_concept["concepts"][0]["members"][0]["page_ref"]
+    ]
+    assert (
+        validate_knowledge_map(_rebind_map(unavailable_concept))
+        == "KNOWLEDGE_MAP_LIMITATION_INVALID"
+    )
+
+    false_success = deepcopy(knowledge_map)
+    false_success.update(
+        processing="succeeded",
+        quality="accepted",
+        decision="retain",
+        reason_code="KNOWLEDGE_MAP_ACCEPTED",
+    )
+    assert (
+        validate_knowledge_map(_rebind_map(false_success))
+        == "KNOWLEDGE_MAP_LIMITATION_INVALID"
+    )
 
 
 def test_invalid_source_and_fixture_sha_fail_closed(tmp_path):

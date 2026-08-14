@@ -11,7 +11,6 @@ from .catalog import (
     _failure,
     _nonempty_string,
     _normalized_text,
-    _resource_reason,
     _valid_subject,
     _valid_string_list,
     _valid_timestamp,
@@ -140,7 +139,7 @@ def _review_reason(
     catalog: Any,
     artifact_root: str | Path,
 ) -> str | None:
-    """複核詞必須同時出現在 S2 summary 與資源文字，才接受歧義配對。"""
+    """複核詞必須同時出現在 Study Material Output summary 與資源文字。"""
     if validate_study_material_output(study_material_output) is not None:
         return "RESOURCE_MATCH_REVIEW_SOURCE_INVALID"
     if validate_controlled_resource_catalog(catalog, artifact_root) is not None:
@@ -215,7 +214,7 @@ def validate_resource_match_review(
     catalog: Any,
     artifact_root: str | Path,
 ) -> str | None:
-    """重驗 summary 歧義複核的 S2、catalog、artifact 與文字綁定。"""
+    """重驗 summary 歧義複核的 source output、catalog、artifact 與文字綁定。"""
     return _review_reason(review, study_material_output, catalog, artifact_root)
 
 
@@ -327,11 +326,6 @@ def build_learning_resource_result(
                     continue
                 match_basis = "approved_summary_review"
                 matched_terms = review["evidence_terms"]
-            if (
-                _resource_reason(catalog_resource, Path(artifact_root).resolve())
-                is not None
-            ):
-                return _failure("LEARNING_RESOURCE_GATE_INVALID", LEARNING_RESOURCE_SCHEMA)
             matched_resource = _matched_resource(
                 concept_id, catalog_resource, match_basis, matched_terms
             )
@@ -472,11 +466,6 @@ def validate_learning_resource_result(
             or catalog_resource is None
             or catalog_resource["subject"] != result["subject"]
             or resource["subject"] != result["subject"]
-            or _resource_reason(
-                catalog_resource,
-                Path(artifact_root).resolve(),
-            )
-            is not None
         ):
             return "LEARNING_RESOURCE_GATE_INVALID"
         copied_fields = (

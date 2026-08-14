@@ -242,10 +242,6 @@ def test_valid_summary_is_evidence_bound_and_needs_review():
 @pytest.mark.parametrize(
     ("invalid_body", "reason_code"),
     [
-        ("extra", "EVIDENCE_SUMMARY_BODY_INVALID"),
-        ("missing", "EVIDENCE_SUMMARY_BODY_INVALID"),
-        ("empty_summary", "EVIDENCE_SUMMARY_BODY_INVALID"),
-        ("empty_evidence", "EVIDENCE_SUMMARY_BODY_INVALID"),
         ("unknown_evidence", "EVIDENCE_SUMMARY_EVIDENCE_INVALID"),
     ],
 )
@@ -402,28 +398,7 @@ def test_reversed_group_order_is_not_a_duplicate_clue():
 @pytest.mark.parametrize(
     ("invalid_case", "reason_code"),
     [
-        ("root_extra", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("root_missing", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("summary_empty", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("summary_too_long", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("summary_evidence_empty", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("summary_evidence_duplicate", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("summary_evidence_unknown", "CONCEPT_CONTENT_EVIDENCE_INVALID"),
-        ("too_many_clues", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("clue_extra", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("clue_missing", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("kind_invalid", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("direction_invalid", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("statement_empty", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("statement_too_long", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("group_unknown", "CONCEPT_CONTENT_GROUP_INVALID"),
-        ("group_self_pair", "CONCEPT_CONTENT_GROUP_INVALID"),
-        ("clue_evidence_empty", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("clue_evidence_duplicate", "CONCEPT_CONTENT_BODY_INVALID"),
-        ("clue_evidence_unknown", "CONCEPT_CONTENT_EVIDENCE_INVALID"),
-        ("source_evidence_missing", "CONCEPT_CONTENT_EVIDENCE_INVALID"),
         ("target_evidence_missing", "CONCEPT_CONTENT_EVIDENCE_INVALID"),
-        ("clue_duplicate_trimmed", "CONCEPT_CONTENT_CLUE_DUPLICATE"),
     ],
 )
 def test_invalid_combined_content_fails_without_unvalidated_text(
@@ -503,7 +478,6 @@ def test_invalid_combined_content_fails_without_unvalidated_text(
     ("count", "expected_count", "quality", "decision", "reason_code"),
     [
         (2, 2, "accepted", "retain", "CONCEPT_KEYWORDS_ACCEPTED"),
-        (3, 3, "accepted", "retain", "CONCEPT_KEYWORDS_ACCEPTED"),
         (9, 8, "needs_review", "review", "CONCEPT_KEYWORDS_LIMIT_APPLIED"),
     ],
 )

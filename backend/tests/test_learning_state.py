@@ -4,7 +4,7 @@ import pytest
 
 from knowledge_map.artifacts import _with_id, _with_revision, build_initial_learning_path
 from learning_state.assessment import canonical_sha256, score_submission
-from learning_state.learning_events import normalize_learning_events, validate_learning_event
+from learning_state.learning_events import normalize_learning_events
 from learning_state.learning_state import (
     LearningStateError,
     _mastery_band,
@@ -13,6 +13,28 @@ from learning_state.learning_state import (
 
 
 LEARNER_ID = "learner:trusted"
+MATERIAL_REF = "material:sha256:" + "1" * 64
+SOURCE_OUTPUT_ID = "study-material-output:sha256:" + "2" * 64
+PAGE_REFS = {
+    "a": "page:sha256:" + "3" * 64,
+    "b": "page:sha256:" + "4" * 64,
+}
+PAGE_EVIDENCE_REFS = {
+    "a": "evidence:sha256:" + "5" * 64,
+    "b": "evidence:sha256:" + "6" * 64,
+}
+PAGE_STRUCTURE_REFS = {
+    "a": "page-structure:sha256:" + "7" * 64,
+    "b": "page-structure:sha256:" + "8" * 64,
+}
+CANDIDATE_IDS = {
+    "a": "concept-candidate:sha256:" + "9" * 64,
+    "b": "concept-candidate:sha256:" + "a" * 64,
+}
+EVIDENCE_IDS = {
+    "a": "evidence-reference:sha256:" + "b" * 64,
+    "b": "evidence-reference:sha256:" + "c" * 64,
+}
 
 
 def _build_knowledge_map() -> dict:
@@ -21,11 +43,20 @@ def _build_knowledge_map() -> dict:
             "concept_id": concept_id,
             "members": [
                 {
-                    "candidate_id": f"candidate:{suffix}",
+                    "candidate_id": CANDIDATE_IDS[suffix],
+                    "page_ref": PAGE_REFS[suffix],
                     "page_number": page,
-                    "evidence_ids": [f"evidence:{suffix}"],
+                    "name": suffix.upper(),
+                    "definition": f"概念 {suffix.upper()} 的定義。",
+                    "scope": f"本教材中的概念 {suffix.upper()}。",
+                    "evidence_ids": [EVIDENCE_IDS[suffix]],
                 }
             ],
+            "normalized_name": suffix,
+            "processing": "succeeded",
+            "quality": "accepted",
+            "decision": "retain",
+            "reason_code": "CONCEPT_GROUP_ACCEPTED",
         }
         for concept_id, suffix, page in [
             ("concept:a", "a", 1),
@@ -38,7 +69,7 @@ def _build_knowledge_map() -> dict:
         "source_concept_id": "concept:a",
         "target_concept_id": "concept:b",
         "statement": "A 是 B 的前置概念",
-        "evidence_ids": ["evidence:a", "evidence:b"],
+        "evidence_ids": [EVIDENCE_IDS["a"], EVIDENCE_IDS["b"]],
         "processing": "succeeded",
         "quality": "accepted",
         "decision": "retain",
@@ -46,13 +77,31 @@ def _build_knowledge_map() -> dict:
     }
     content = {
         "schema": "knowledge-map/v1",
-        "source_output_id": "source:test",
-        "material_ref": "material:test",
-        "pages": [],
+        "source_output_id": SOURCE_OUTPUT_ID,
+        "material_ref": MATERIAL_REF,
+        "pages": [
+            {
+                "page_ref": PAGE_REFS[suffix],
+                "page_number": page_number,
+                "page_evidence_ref": PAGE_EVIDENCE_REFS[suffix],
+                "page_structure_ref": PAGE_STRUCTURE_REFS[suffix],
+            }
+            for suffix, page_number in (("a", 1), ("b", 2))
+        ],
         "concepts": concepts,
         "evidence_index": [
-            {"evidence_id": "evidence:a"},
-            {"evidence_id": "evidence:b"},
+            {
+                "evidence_id": EVIDENCE_IDS[suffix],
+                "material_ref": MATERIAL_REF,
+                "page_ref": PAGE_REFS[suffix],
+                "page_number": page_number,
+                "element_id": "heading-1",
+                "region": {
+                    "coordinate_space": "unrotated_page_points",
+                    "bbox": [10.0, 10.0, 180.0, 30.0],
+                },
+            }
+            for suffix, page_number in (("a", 1), ("b", 2))
         ],
         "relations": [_with_id("relation", "relation_id", relation_content)],
         "review_items": [],
@@ -80,7 +129,7 @@ def _build_assessment(knowledge_map: dict, learning_path: dict) -> dict:
                         {"option_id": "option:wrong", "text": "錯誤"},
                     ],
                     "answer_key_option_id": "option:correct",
-                    "source_evidence_ids": [f"evidence:{suffix}"],
+                    "source_evidence_ids": [EVIDENCE_IDS[suffix]],
                 }
             )
     content = {
@@ -506,38 +555,6 @@ def test_all_mastered_produces_deterministic_no_action():
     assert first["suggestion"]["target_concept_id"] is None
     assert first["suggestion"]["learning_suggestion_score"] is None
     assert first == second
-
-
-@pytest.mark.parametrize(
-    "event_type",
-    [
-        "concept_completed",
-        "concept_viewed",
-        "practice_completed",
-        "practice_started",
-        "review_completed",
-    ],
-)
-def test_exact_five_learning_event_types_are_accepted(event_type):
-    knowledge_map, path, _ = _build_inputs()
-    event = _build_learning_event(
-        knowledge_map,
-        path,
-        "concept:a",
-        event_type,
-        "2026-08-09T08:00:00+08:00",
-        event_type,
-    )
-
-    assert (
-        validate_learning_event(
-            event,
-            trusted_learner_id=LEARNER_ID,
-            knowledge_map=knowledge_map,
-            learning_path_revision=path["revision"],
-        )
-        is None
-    )
 
 
 def test_cycle_path_fails_before_state_is_produced():

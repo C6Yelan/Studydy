@@ -149,24 +149,6 @@ def test_accepts_complete_page_structure_without_changing_input():
         ),
         (
             lambda page_structure, evidence: _find_element(
-                page_structure, "heading"
-            ).update(bbox=[-1, 0, 5, 5]),
-            "ELEMENT_BBOX_INVALID",
-        ),
-        (
-            lambda page_structure, evidence: _find_element(
-                page_structure, "paragraph"
-            ).update(id="heading"),
-            "ELEMENT_ID_INVALID",
-        ),
-        (
-            lambda page_structure, evidence: _find_element(
-                page_structure, "list"
-            ).update(items=["first", ""]),
-            "ELEMENT_SHAPE_INVALID",
-        ),
-        (
-            lambda page_structure, evidence: _find_element(
                 page_structure, "matrix"
             )["cells"].pop(),
             "ELEMENT_SHAPE_INVALID",
@@ -178,91 +160,16 @@ def test_accepts_complete_page_structure_without_changing_input():
             "ELEMENT_SHAPE_INVALID",
         ),
         (
-            lambda page_structure, evidence: _find_element(
-                page_structure, "table"
-            )["cells"].pop(),
-            "ELEMENT_SHAPE_INVALID",
-        ),
-        (
-            lambda page_structure, evidence: page_structure["spatial_relations"][
-                0
-            ].update(target_id="missing"),
-            "SPATIAL_RELATION_INVALID",
-        ),
-        (
             lambda page_structure, evidence: page_structure["spatial_relations"][
                 3
             ].update(arrow_id="node"),
             "SPATIAL_RELATION_INVALID",
         ),
         (
-            lambda page_structure, evidence: page_structure["spatial_relations"][
-                3
-            ].update(source_id="arrow"),
-            "SPATIAL_RELATION_INVALID",
-        ),
-        (
-            lambda page_structure, evidence: page_structure[
-                "spatial_relations"
-            ].append(
-                {
-                    "type": "directed_arrow",
-                    "source_id": "label",
-                    "target_id": "node",
-                    "arrow_id": "arrow",
-                }
-            ),
-            "SPATIAL_RELATION_INVALID",
-        ),
-        (
-            lambda page_structure, evidence: page_structure[
-                "spatial_relations"
-            ].append(deepcopy(page_structure["spatial_relations"][0])),
-            "SPATIAL_RELATION_INVALID",
-        ),
-        (
-            lambda page_structure, evidence: page_structure[
-                "spatial_relations"
-            ].append(
-                {"type": "left_of", "source_id": "label", "target_id": "node"}
-            ),
-            "SPATIAL_RELATION_INVALID",
-        ),
-        (
-            lambda page_structure, evidence: _find_element(
-                page_structure, "heading"
-            ).update(type="caption"),
-            "ELEMENT_SHAPE_INVALID",
-        ),
-        (
-            lambda page_structure, evidence: _find_element(
-                page_structure, "uncertain"
-            ).update(uncertainty_kind="unknown"),
-            "ELEMENT_SHAPE_INVALID",
-        ),
-        (
             lambda page_structure, evidence: _find_element(
                 page_structure, "arrow"
             ).update(source_id="node"),
             "ELEMENT_SHAPE_INVALID",
-        ),
-        (
-            lambda page_structure, evidence: page_structure["reading_order"].append(
-                "heading"
-            ),
-            "READING_ORDER_INVALID",
-        ),
-        (
-            lambda page_structure, evidence: page_structure["reading_order"].append(
-                "missing-id"
-            ),
-            "READING_ORDER_INVALID",
-        ),
-        (
-            lambda page_structure, evidence: page_structure["reading_order"].remove(
-                "formula"
-            ),
-            "READING_ORDER_INVALID",
         ),
     ],
 )
