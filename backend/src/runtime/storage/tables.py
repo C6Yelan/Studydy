@@ -1,0 +1,464 @@
+"""定義 runtime 保存資料使用的資料表。"""
+
+from __future__ import annotations
+
+from collections.abc import Generator
+from contextlib import contextmanager
+from datetime import datetime
+from typing import Any
+from uuid import UUID
+
+import psycopg
+from sqlalchemy import (
+    BigInteger,
+    CHAR,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    LargeBinary,
+    PrimaryKeyConstraint,
+    Text,
+    UniqueConstraint,
+    create_engine,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PostgreSQLUUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+from sqlalchemy.pool import NullPool
+
+from .database import resolve_database_dsn
+
+
+class Base(DeclarativeBase):
+    """集中描述目前 PostgreSQL schema；migration 仍是 DDL 唯一來源。"""
+
+
+class SchemaMigration(Base):
+    __tablename__ = "schema_migrations"
+    __table_args__ = (
+        CheckConstraint("sql_sha256 ~ '^[0-9a-f]{64}$'"),
+    )
+
+    version: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    sql_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class Learner(Base):
+    __tablename__ = "learners"
+
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class LearnerSession(Base):
+    __tablename__ = "learner_sessions"
+    __table_args__ = (
+        UniqueConstraint("token_sha256", name="idx_sessions_resolve"),
+        CheckConstraint("octet_length(token_sha256) = 32"),
+        CheckConstraint(
+            "created_at <= idle_expires_at AND idle_expires_at <= absolute_expires_at"
+        ),
+    )
+
+    session_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("learners.learner_id"), nullable=False
+    )
+    token_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    idle_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    absolute_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class Material(Base):
+    __tablename__ = "materials"
+    __table_args__ = (
+        UniqueConstraint("source_artifact_id"),
+        UniqueConstraint("learner_id", "material_id"),
+        UniqueConstraint("learner_id", "upload_idempotency_key_sha256"),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "source_artifact_id"],
+            ["artifacts.learner_id", "artifacts.material_id", "artifacts.artifact_id"],
+            name="materials_source_artifact_fk",
+            deferrable=True,
+            initially="DEFERRED",
+            use_alter=True,
+        ),
+        CheckConstraint("octet_length(upload_idempotency_key_sha256) = 32"),
+        CheckConstraint("octet_length(upload_request_fingerprint) = 32"),
+    )
+
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("learners.learner_id"), nullable=False
+    )
+    source_artifact_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    upload_idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    upload_request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class Artifact(Base):
+    __tablename__ = "artifacts"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "material_id", "artifact_id"),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id"],
+            ["materials.learner_id", "materials.material_id"],
+        ),
+        Index(
+            "idx_artifacts_one_source_pdf",
+            "learner_id",
+            "material_id",
+            unique=True,
+            postgresql_where="kind = 'source_pdf'",
+        ),
+        CheckConstraint("kind IN ('source_pdf', 'resource_pdf')"),
+        CheckConstraint("media_type = 'application/pdf'"),
+        CheckConstraint("octet_length(sha256) = 32"),
+        CheckConstraint("size_bytes > 0 AND size_bytes <= 104857600"),
+    )
+
+    artifact_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class StudyMaterialOutput(Base):
+    __tablename__ = "study_material_outputs"
+    __table_args__ = (
+        PrimaryKeyConstraint("learner_id", "material_id", "output_revision"),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id"],
+            ["materials.learner_id", "materials.material_id"],
+        ),
+        CheckConstraint(
+            "document ? 'output_id' AND document ->> 'output_id' = output_revision"
+        ),
+    )
+
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    output_revision: Mapped[str] = mapped_column(Text)
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class KnowledgeMap(Base):
+    __tablename__ = "knowledge_maps"
+    __table_args__ = (
+        PrimaryKeyConstraint("learner_id", "material_id", "map_revision"),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "source_output_revision"],
+            [
+                "study_material_outputs.learner_id",
+                "study_material_outputs.material_id",
+                "study_material_outputs.output_revision",
+            ],
+        ),
+        CheckConstraint(
+            "document ? 'revision' AND document ->> 'revision' = map_revision"
+        ),
+        CheckConstraint(
+            "document ? 'source_output_id' "
+            "AND document ->> 'source_output_id' = source_output_revision"
+        ),
+    )
+
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    map_revision: Mapped[str] = mapped_column(Text)
+    source_output_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class LearningPath(Base):
+    __tablename__ = "learning_paths"
+    __table_args__ = (
+        PrimaryKeyConstraint("learner_id", "material_id", "path_revision"),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "map_revision"],
+            ["knowledge_maps.learner_id", "knowledge_maps.material_id", "knowledge_maps.map_revision"],
+        ),
+        CheckConstraint(
+            "document ? 'revision' AND document ->> 'revision' = path_revision"
+        ),
+        CheckConstraint(
+            "document ? 'knowledge_map_revision' "
+            "AND document ->> 'knowledge_map_revision' = map_revision"
+        ),
+    )
+
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    path_revision: Mapped[str] = mapped_column(Text)
+    map_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ResourceCatalog(Base):
+    __tablename__ = "resource_catalogs"
+    __table_args__ = (
+        PrimaryKeyConstraint("learner_id", "material_id", "catalog_revision"),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id"],
+            ["materials.learner_id", "materials.material_id"],
+        ),
+        CheckConstraint("char_length(subject) BETWEEN 1 AND 128"),
+        CheckConstraint(
+            "document ? 'catalog_revision' "
+            "AND document ->> 'catalog_revision' = catalog_revision"
+        ),
+    )
+
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    catalog_revision: Mapped[str] = mapped_column(Text)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class LearningResourceResult(Base):
+    __tablename__ = "learning_resource_results"
+    __table_args__ = (
+        PrimaryKeyConstraint("learner_id", "material_id", "result_revision"),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "source_output_revision"],
+            [
+                "study_material_outputs.learner_id",
+                "study_material_outputs.material_id",
+                "study_material_outputs.output_revision",
+            ],
+        ),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "catalog_revision"],
+            ["resource_catalogs.learner_id", "resource_catalogs.material_id", "resource_catalogs.catalog_revision"],
+        ),
+        CheckConstraint(
+            "document ? 'result_revision' "
+            "AND document ->> 'result_revision' = result_revision"
+        ),
+        CheckConstraint(
+            "document ? 'source_s2_revision' "
+            "AND document ->> 'source_s2_revision' = source_output_revision"
+        ),
+        CheckConstraint(
+            "document ? 'catalog_revision' "
+            "AND document ->> 'catalog_revision' = catalog_revision"
+        ),
+    )
+
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    result_revision: Mapped[str] = mapped_column(Text)
+    source_output_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    catalog_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class Assessment(Base):
+    __tablename__ = "assessments"
+    __table_args__ = (
+        PrimaryKeyConstraint("learner_id", "material_id", "assessment_revision"),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "output_revision"],
+            [
+                "study_material_outputs.learner_id",
+                "study_material_outputs.material_id",
+                "study_material_outputs.output_revision",
+            ],
+        ),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "map_revision"],
+            ["knowledge_maps.learner_id", "knowledge_maps.material_id", "knowledge_maps.map_revision"],
+        ),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "path_revision"],
+            ["learning_paths.learner_id", "learning_paths.material_id", "learning_paths.path_revision"],
+        ),
+        CheckConstraint("public_document ? 'assessment_view_id'"),
+        CheckConstraint("answer_key_document ? 'assessment_id'"),
+    )
+
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    assessment_revision: Mapped[str] = mapped_column(Text)
+    output_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    map_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    path_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    public_document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    answer_key_document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class MaterialProcessingRun(Base):
+    __tablename__ = "material_processing_runs"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "idempotency_key_sha256"),
+        UniqueConstraint("learner_id", "material_id", "run_id"),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "source_artifact_id"],
+            ["artifacts.learner_id", "artifacts.material_id", "artifacts.artifact_id"],
+        ),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "catalog_revision"],
+            ["resource_catalogs.learner_id", "resource_catalogs.material_id", "resource_catalogs.catalog_revision"],
+        ),
+        Index(
+            "idx_material_runs_pending",
+            "created_at",
+            "run_id",
+            postgresql_where="status = 'pending'",
+        ),
+        CheckConstraint("char_length(subject) BETWEEN 1 AND 128"),
+        CheckConstraint("page_limit BETWEEN 1 AND 1000"),
+        CheckConstraint("octet_length(idempotency_key_sha256) = 32"),
+        CheckConstraint("octet_length(request_fingerprint) = 32"),
+        CheckConstraint(
+            "status IN ('running', 'pending', 'succeeded', 'partial', 'failed')"
+        ),
+        CheckConstraint(
+            "error_code IN ("
+            "'RESTART_INTERRUPTED',"
+            "'MATERIAL_CONFIGURATION_INVALID',"
+            "'MATERIAL_S1_FAILED',"
+            "'LOCAL_PROVIDER_TIMEOUT',"
+            "'LOCAL_PROVIDER_RATE_LIMITED',"
+            "'LOCAL_PROVIDER_TRANSIENT_ERROR',"
+            "'CONTROLLED_RESOURCE_INVALID',"
+            "'MATERIAL_OUTPUT_FAILED'"
+            ")"
+        ),
+        CheckConstraint(
+            "(status IN ('running', 'pending') AND error_code IS NULL "
+            "AND output_binding IS NULL AND completed_at IS NULL) OR "
+            "(status IN ('succeeded', 'partial') AND error_code IS NULL "
+            "AND output_binding IS NOT NULL AND completed_at IS NOT NULL) OR "
+            "(status = 'failed' AND error_code IS NOT NULL "
+            "AND output_binding IS NULL AND completed_at IS NOT NULL)"
+        ),
+    )
+
+    run_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    source_artifact_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    page_limit: Mapped[int] = mapped_column(Integer, nullable=False)
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    runtime_binding: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    catalog_revision: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    output_binding: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AnswerEvent(Base):
+    __tablename__ = "answer_events"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "submission_id", "question_id"),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "assessment_revision"],
+            ["assessments.learner_id", "assessments.material_id", "assessments.assessment_revision"],
+        ),
+        Index("idx_answer_events_stream", "learner_id", "material_id", "created_at", "answer_event_id"),
+        CheckConstraint(
+            "document ? 'answer_event_id' "
+            "AND document ->> 'answer_event_id' = answer_event_id"
+        ),
+    )
+
+    answer_event_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    submission_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    assessment_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    question_id: Mapped[str] = mapped_column(Text, nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class LearningState(Base):
+    __tablename__ = "learning_states"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "idempotency_key_sha256"),
+        UniqueConstraint("learner_id", "submission_id"),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "map_revision"],
+            ["knowledge_maps.learner_id", "knowledge_maps.material_id", "knowledge_maps.map_revision"],
+        ),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "path_revision"],
+            ["learning_paths.learner_id", "learning_paths.material_id", "learning_paths.path_revision"],
+        ),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "assessment_revision"],
+            ["assessments.learner_id", "assessments.material_id", "assessments.assessment_revision"],
+        ),
+        CheckConstraint("octet_length(idempotency_key_sha256) = 32"),
+        CheckConstraint("octet_length(request_fingerprint) = 32"),
+        CheckConstraint(
+            "document ? 'revision' AND document ->> 'revision' = state_revision"
+        ),
+    )
+
+    state_revision: Mapped[str] = mapped_column(Text, primary_key=True)
+    submission_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    map_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    path_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    assessment_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+@contextmanager
+def database_session(dsn: str | None = None) -> Generator[Session, None, None]:
+    """每個 public operation 使用獨立 transaction，不保留全域 Session。"""
+
+    resolved_dsn = resolve_database_dsn(dsn)
+    engine = create_engine(
+        "postgresql+psycopg://",
+        creator=lambda: psycopg.connect(resolved_dsn),
+        poolclass=NullPool,
+        hide_parameters=True,
+    )
+    try:
+        with Session(engine, expire_on_commit=False) as session:
+            with session.begin():
+                yield session
+    finally:
+        engine.dispose()
+
+
+@contextmanager
+def deferred_artifact_session(
+    dsn: str | None = None,
+) -> Generator[Session, None, None]:
+    """建立 source material 與 artifact 時延後檢查循環 FK。"""
+
+    with database_session(dsn) as session:
+        session.execute(text("SET CONSTRAINTS materials_source_artifact_fk DEFERRED"))
+        yield session

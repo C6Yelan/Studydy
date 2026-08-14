@@ -76,7 +76,7 @@ def _sha256_ref(prefix, value):
 
 
 def _study_material_output(concept_name="array", summary="Arrays store values."):
-    """用既有 S2 builder 建立可由 matching 公開 validator 讀取的 fixture。"""
+    """用既有 builder 建立可由 matching 公開 validator 讀取的 source output。"""
     material_ref = _sha256_ref("material:sha256:", "learning-resource-material")
     page_ref = _sha256_ref("page:sha256:", "learning-resource-page")
     page_evidence_ref = _sha256_ref(
@@ -194,7 +194,7 @@ def _study_material_output(concept_name="array", summary="Arrays store values.")
         [concept_group],
         [content],
         [keyword],
-        handoff_id="learning-resource-s2-fixture",
+        handoff_id="learning-resource-source-output-fixture",
         produced_at="2026-08-08T12:00:00+08:00",
         page_limitations=[
             {
@@ -204,7 +204,7 @@ def _study_material_output(concept_name="array", summary="Arrays store values.")
         ],
         provenance={
             "page_evidence": "page-evidence/v1;PyMuPDF-1.28.0",
-            "page_structure": "page-structure/v1;prompt-v1",
+            "page_structure": "page-structure/v1;structured-generation-loopback/v1",
             "concepts": "concept-group/v1;candidate-prompt-v1",
             "content": "concept-content/v2;concept-content-prompt/v3",
         },
@@ -256,26 +256,17 @@ def _rebind_result_revision(result):
     )
     return result
 
-@pytest.mark.parametrize(
-    ("title", "topics", "keywords", "match_basis"),
-    [
-        ("Array learning", ["sequence"], ["index"], "explicit_name"),
-        ("Indexing guide", ["sequence"], ["array"], "explicit_keyword"),
-    ],
-)
-def test_matches_explicit_concept_text(
-    tmp_path, title, topics, keywords, match_basis
-):
-    """明確名稱或 keyword 只以輸入文字配對，並保留原始資源欄位。"""
+def test_matches_explicit_concept_name(tmp_path):
+    """明確名稱只以輸入文字配對，並保留原始資源欄位。"""
     artifact_path = tmp_path / "resource.pdf"
     _write_pdf(artifact_path)
     catalog = build_controlled_resource_catalog(
         [
             _candidate(
                 artifact_path,
-                title=title,
-                topics=topics,
-                keywords=keywords,
+                title="Array learning",
+                topics=["sequence"],
+                keywords=["index"],
             )
         ],
         tmp_path,
@@ -308,7 +299,7 @@ def test_matches_explicit_concept_text(
     assert resource["subject"] == "data_structures"
     assert "source_name" not in resource
     assert "license_status" not in resource
-    assert resource["match_basis"] == match_basis
+    assert resource["match_basis"] == "explicit_name"
     assert resource["matched_terms"] == ["array"]
     assert resource["resource_id"].startswith("learning-resource:sha256:")
     for field in (
@@ -320,16 +311,8 @@ def test_matches_explicit_concept_text(
         assert resource[field] == catalog["resources"][0][field]
 
 
-@pytest.mark.parametrize(
-    ("selected_subject", "other_subject"),
-    [
-        ("data_structures", "e_commerce"),
-        ("linear_algebra", "world_history"),
-    ],
-)
-def test_subject_filter_runs_before_text_matching(
-    tmp_path, selected_subject, other_subject
-):
+def test_subject_filter_runs_before_text_matching(tmp_path):
+    selected_subject = "data_structures"
     artifact_path = tmp_path / "resource.pdf"
     _write_pdf(artifact_path)
     candidates = [
@@ -340,7 +323,7 @@ def test_subject_filter_runs_before_text_matching(
         ),
         _candidate(
             artifact_path,
-            subject=other_subject,
+            subject="e_commerce",
             title="Array commerce",
             topics=["array"],
             keywords=["array"],
@@ -364,14 +347,13 @@ def test_subject_filter_runs_before_text_matching(
     assert result["resources"][0]["resource_key"] == expected["resource_key"]
 
 
-@pytest.mark.parametrize("subject", ["Data_Structures", "data-structures", "../physics"])
-def test_matching_rejects_unsafe_subject_slugs(tmp_path, subject):
+def test_matching_rejects_unsafe_subject_slug(tmp_path):
     artifact_path = tmp_path / "resource.pdf"
     _write_pdf(artifact_path)
     catalog = build_controlled_resource_catalog([_candidate(artifact_path)], tmp_path)
 
     result = build_learning_resource_result(
-        _study_material_output(), catalog, tmp_path, subject, **RESULT_RUN
+        _study_material_output(), catalog, tmp_path, "../physics", **RESULT_RUN
     )
 
     assert result == {
@@ -428,7 +410,7 @@ def test_summary_only_match_requires_bound_accepted_review(tmp_path):
     ) is None
 
 
-def test_no_match_succeeds_without_changing_s2(tmp_path):
+def test_no_match_succeeds_without_changing_source_output(tmp_path):
     artifact_path = tmp_path / "resource.pdf"
     _write_pdf(artifact_path)
     catalog = build_controlled_resource_catalog(

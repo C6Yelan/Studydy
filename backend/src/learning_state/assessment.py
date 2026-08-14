@@ -27,6 +27,91 @@ ACCEPTED_ANSWER_STATUS = (
 )
 
 
+def build_evidence_grounded_assessment(
+    knowledge_map: Any,
+    learning_path_revision: Any,
+) -> dict[str, Any]:
+    """依每個 concept 的 definition 與 Evidence 建立一題 deterministic 題目。"""
+
+    if (
+        validate_knowledge_map(knowledge_map) is not None
+        or not _is_nonempty_string(learning_path_revision)
+    ):
+        raise ValueError("ASSESSMENT_BUILD_INVALID")
+    questions = []
+    practice_sets = []
+    for concept in knowledge_map["concepts"]:
+        member = concept["members"][0]
+        definition = member["definition"]
+        evidence_ids = sorted(set(member["evidence_ids"]))
+        if not _is_nonempty_string(definition) or not evidence_ids:
+            raise ValueError("ASSESSMENT_BUILD_INVALID")
+        identity = canonical_sha256(
+            {
+                "concept_id": concept["concept_id"],
+                "definition": definition,
+                "evidence_ids": evidence_ids,
+            }
+        )
+        if identity is None:
+            raise ValueError("ASSESSMENT_BUILD_INVALID")
+        question_id = f"question:sha256:{identity}"
+        correct_id = f"option:sha256:{canonical_sha256([question_id, 'correct'])}"
+        absent_id = f"option:sha256:{canonical_sha256([question_id, 'absent'])}"
+        questions.append(
+            {
+                "question_id": question_id,
+                "concept_id": concept["concept_id"],
+                "question_type": "single_choice",
+                "prompt": "哪一項敘述由教材 Evidence 直接支持？",
+                "options": [
+                    {"option_id": absent_id, "text": "教材沒有提供此概念的 Evidence。"},
+                    {"option_id": correct_id, "text": definition},
+                ],
+                "answer_key_option_id": correct_id,
+                "source_evidence_ids": evidence_ids,
+            }
+        )
+        practice_sets.append(
+            {
+                "practice_set_id": f"practice-set:sha256:{identity}",
+                "concept_id": concept["concept_id"],
+                "question_ids": [question_id],
+            }
+        )
+    questions.sort(key=lambda item: item["question_id"])
+    practice_sets.sort(key=lambda item: item["practice_set_id"])
+    assessment_id_digest = canonical_sha256(
+        {
+            "knowledge_map_revision": knowledge_map["revision"],
+            "learning_path_revision": learning_path_revision,
+        }
+    )
+    if assessment_id_digest is None:
+        raise ValueError("ASSESSMENT_BUILD_INVALID")
+    content = {
+        "schema": ASSESSMENT_SCHEMA,
+        "assessment_id": f"assessment:sha256:{assessment_id_digest}",
+        "version": "1",
+        "knowledge_map_revision": knowledge_map["revision"],
+        "learning_path_revision": learning_path_revision,
+        "scoring_rule_version": SCORING_RULE_VERSION,
+        "questions": questions,
+        "practice_sets": practice_sets,
+        "processing": "succeeded",
+        "quality": "accepted",
+        "decision": "retain",
+        "reason_code": "ASSESSMENT_ACCEPTED",
+    }
+    digest = canonical_sha256(content)
+    if digest is None:
+        raise ValueError("ASSESSMENT_BUILD_INVALID")
+    assessment = {**content, "revision": f"assessment:sha256:{digest}"}
+    if validate_assessment(assessment, knowledge_map, learning_path_revision) is not None:
+        raise ValueError("ASSESSMENT_BUILD_INVALID")
+    return assessment
+
+
 def canonical_sha256(value: Any) -> str | None:
     """用固定 JSON 表示計算可重現 SHA-256。"""
     try:

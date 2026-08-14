@@ -71,22 +71,9 @@ def _descriptor_value(value: Any) -> Any:
 
 
 def _write_file(path: Path, data: bytes) -> None:
-    """寫入新檔並同步內容至磁碟。"""
+    """寫入本次建立的新檔。"""
     with path.open("xb") as file:
         file.write(data)
-        file.flush()
-        os.fsync(file.fileno())
-
-
-def _fsync_directory(path: Path) -> None:
-    """同步目錄變更；Windows 標準介面不支援時略過。"""
-    if os.name == "nt":
-        return
-    descriptor = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 def _remove_manifest(manifest_path: Path | None) -> None:
@@ -97,47 +84,6 @@ def _remove_manifest(manifest_path: Path | None) -> None:
         manifest_path.unlink(missing_ok=True)
     except OSError:
         pass
-
-
-def _validate_request(expected_source_sha256: str, page_number: int) -> str | None:
-    """驗證頁碼與來源雜湊格式。"""
-    if (
-        isinstance(page_number, bool)
-        or not isinstance(page_number, int)
-        or page_number < 1
-    ):
-        return "PAGE_NUMBER_INVALID"
-    if (
-        not isinstance(expected_source_sha256, str)
-        or len(expected_source_sha256) != 64
-        or any(character not in "0123456789abcdef" for character in expected_source_sha256)
-    ):
-        return "SOURCE_HASH_INVALID"
-    return None
-
-
-def _verify_source(
-    pdf_path: str | os.PathLike[str], expected_source_sha256: str
-) -> tuple[Path | None, str | None, str | None]:
-    """驗證PDF來源型態、檔頭與內容雜湊。"""
-    try:
-        source_path = Path(pdf_path)
-    except TypeError:
-        return None, None, "SOURCE_PATH_INVALID"
-    if not source_path.exists():
-        return None, None, "SOURCE_MISSING"
-    if not source_path.is_file():
-        return None, None, "SOURCE_NOT_FILE"
-    try:
-        with source_path.open("rb") as source:
-            if source.read(5) != b"%PDF-":
-                return None, None, "SOURCE_NOT_PDF"
-        source_sha256 = _sha256_file(source_path)
-    except OSError:
-        return None, None, "SOURCE_READ_FAILED"
-    if source_sha256 != expected_source_sha256:
-        return None, None, "SOURCE_HASH_MISMATCH"
-    return source_path, source_sha256, None
 
 
 def _extract_page_payload(
@@ -185,6 +131,7 @@ def _extract_page_payload(
         try:
             text = page.get_text("dict", sort=False)
             spans = []
+            span_bboxes = []
             for block in text.get("blocks", []):
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
@@ -194,7 +141,7 @@ def _extract_page_payload(
                             if isinstance(span_descriptor, dict)
                             else None
                         )
-                        if (
+                        has_valid_bbox = (
                             isinstance(bbox, list)
                             and len(bbox) == 4
                             and all(
@@ -205,11 +152,18 @@ def _extract_page_payload(
                             )
                             and bbox[2] >= bbox[0]
                             and bbox[3] >= bbox[1]
-                            and (bbox[2] == bbox[0] or bbox[3] == bbox[1])
+                        )
+                        if has_valid_bbox and (
+                            bbox[2] == bbox[0] or bbox[3] == bbox[1]
                         ):
                             # 零面積 span 無法形成可回查區域，因此不納入原生證據。
                             continue
                         spans.append(span_descriptor)
+                        span_bboxes.append(
+                            [float(value) for value in bbox]
+                            if has_valid_bbox
+                            else None
+                        )
             images = _descriptor_value(page.get_image_info(hashes=True, xrefs=True))
             drawings = _descriptor_value(page.get_drawings())
         except Exception:
@@ -253,16 +207,8 @@ def _extract_page_payload(
                 raise ValueError("non-finite coordinate matrix")
 
             native_region = visible * derotation
-            for span in spans:
-                bbox = span.get("bbox") if isinstance(span, dict) else None
-                if not isinstance(bbox, list) or len(bbox) != 4:
-                    raise ValueError("invalid span bbox")
-                bbox_values = [float(value) for value in bbox]
-                if (
-                    not all(math.isfinite(value) for value in bbox_values)
-                    or bbox_values[2] <= bbox_values[0]
-                    or bbox_values[3] <= bbox_values[1]
-                ):
+            for bbox_values in span_bboxes:
+                if bbox_values is None:
                     raise ValueError("invalid span bbox")
                 intersection = pymupdf.Rect(bbox_values) & native_region
                 if intersection.width <= 0 or intersection.height <= 0:
@@ -383,6 +329,10 @@ def _publish_and_verify(
             sort_keys=True,
         ).encode("utf-8")
         output_directory = root / "output" / evidence_hash
+        if _path_has_symlink(output_directory) or (
+            os.path.lexists(output_directory) and not output_directory.is_dir()
+        ):
+            return "ATOMIC_PUBLISH_FAILED"
         staging_root.mkdir(parents=True, exist_ok=True)
         output_directory.mkdir(parents=True, exist_ok=True)
         stage_path = Path(tempfile.mkdtemp(prefix="publish-", dir=staging_root))
@@ -403,12 +353,10 @@ def _publish_and_verify(
         _remove_manifest(manifest_path)
         os.replace(staged_native, output_directory / "native.json")
         os.replace(staged_render, output_directory / "render.png")
-        _fsync_directory(output_directory)
 
         # 兩個產物都就位後才發布 manifest；沒有 manifest 就不算完整成功結果。
         _write_file(staged_manifest, manifest_bytes)
         os.replace(staged_manifest, manifest_path)
-        _fsync_directory(output_directory)
     except OSError:
         _remove_manifest(manifest_path)
         return "ATOMIC_PUBLISH_FAILED" if manifest_path is not None else "DISK_WRITE_FAILED"
@@ -418,23 +366,13 @@ def _publish_and_verify(
     return None
 
 
-def build_page_evidence(
-    pdf_path: str | os.PathLike[str],
-    expected_source_sha256: str,
+def _build_page_evidence(
+    source_path: Path,
+    source_sha256: str,
     page_number: int,
     output_root: str | os.PathLike[str],
 ) -> dict[str, Any]:
-    """驗證單一 PDF 頁面，並在產物完整後發布 Page Evidence manifest。"""
-    reason = _validate_request(expected_source_sha256, page_number)
-    if reason is not None:
-        return _failure(reason, page_number)
-
-    source_path, source_sha256, reason = _verify_source(
-        pdf_path, expected_source_sha256
-    )
-    if reason is not None:
-        return _failure(reason, page_number)
-
+    """從已選定的 PDF 來源建立並發布單頁 Evidence。"""
     payload, reason = _extract_page_payload(source_path, source_sha256, page_number)
     if reason is not None:
         return _failure(reason, page_number)
@@ -448,3 +386,79 @@ def build_page_evidence(
     if reason is not None:
         return _failure(reason, page_number)
     return manifest
+
+
+def _path_has_symlink(path: Path) -> bool:
+    """檢查 Evidence root 到目標檔之間的既有 symlink。"""
+    try:
+        absolute = Path(os.path.abspath(path))
+        current = Path(absolute.anchor)
+        for part in absolute.parts[1:]:
+            current /= part
+            if os.path.lexists(current) and current.is_symlink():
+                return True
+        return False
+    except (OSError, ValueError):
+        return True
+
+
+def _valid_page_evidence_storage(page_evidence_root: Path) -> bool:
+    """拒絕會讓 controlled Evidence 目錄寫出指定 root 的既有路徑。"""
+    controlled_directories = (
+        page_evidence_root,
+        page_evidence_root / "staging",
+        page_evidence_root / "output",
+    )
+    for directory in controlled_directories:
+        if _path_has_symlink(directory):
+            return False
+        if os.path.lexists(directory) and not directory.is_dir():
+            return False
+    return True
+
+
+def _load_page_artifacts(
+    page_evidence_root: Path,
+    page_evidence: dict[str, Any],
+) -> tuple[dict[str, Any] | None, bytes | None, str | None]:
+    """只讀取 evidence_ref 導出的同頁 native/render，並重驗 manifest/hash。"""
+    evidence_ref = page_evidence.get("evidence_ref")
+    digest = (
+        evidence_ref.removeprefix("evidence:sha256:")
+        if isinstance(evidence_ref, str)
+        and evidence_ref.startswith("evidence:sha256:")
+        else None
+    )
+    if (
+        digest is None
+        or len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+    ):
+        return None, None, "PAGE_EVIDENCE_BINDING_INVALID"
+    evidence_directory = page_evidence_root / "output" / digest
+    manifest_path = evidence_directory / "manifest.json"
+    native_path = evidence_directory / "native.json"
+    render_path = evidence_directory / "render.png"
+    paths = (manifest_path, native_path, render_path)
+    if _path_has_symlink(evidence_directory) or any(
+        path.is_symlink() or not path.is_file() for path in paths
+    ):
+        return None, None, "PAGE_EVIDENCE_ARTIFACT_INVALID"
+    try:
+        manifest_bytes = manifest_path.read_bytes()
+        native_bytes = native_path.read_bytes()
+        render_bytes = render_path.read_bytes()
+        manifest = json.loads(manifest_bytes.decode("utf-8"))
+        native_page = json.loads(native_bytes.decode("utf-8"))
+    except (OSError, RecursionError, UnicodeDecodeError, ValueError):
+        return None, None, "PAGE_EVIDENCE_ARTIFACT_INVALID"
+    hashes = page_evidence.get("hashes")
+    if (
+        manifest != page_evidence
+        or not isinstance(hashes, dict)
+        or hashlib.sha256(native_bytes).hexdigest() != hashes.get("native_sha256")
+        or hashlib.sha256(render_bytes).hexdigest() != hashes.get("render_sha256")
+        or not render_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+    ):
+        return None, None, "PAGE_EVIDENCE_ARTIFACT_INVALID"
+    return native_page, render_bytes, None

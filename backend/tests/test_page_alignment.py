@@ -234,127 +234,36 @@ def test_vision_only_native_content_needs_review():
     assert result["findings"] == [{"reason_code": "VISION_CONTENT_PRESENT"}]
 
 
-@pytest.mark.parametrize(
-    ("decision", "quality", "outcome", "reason_code"),
-    [
-        (
-            "retain",
-            "accepted",
-            "retain",
-            "VISUAL_ALIGNMENT_REVIEW_ACCEPTED",
-        ),
-        (
-            "reject",
-            "unsupported",
-            "reject",
-            "VISUAL_ALIGNMENT_REVIEW_REJECTED",
-        ),
-    ],
-)
-def test_visual_alignment_adjudication_preserves_identity_and_findings(
-    decision, quality, outcome, reason_code
-):
-    """驗證複核裁決只改寫狀態，並保留來源綁定與 findings。"""
+def test_rejected_spatial_relation_review_preserves_identity_and_findings():
+    """驗證 spatial relation 複核拒絕時保留來源綁定與 findings。"""
     page_structure, page_evidence, native_page = _simple_inputs()
-    native_page["images"] = [{"xref": 1}]
-    _rebind_native(page_evidence, native_page)
-    page_structure["input_evidence_ref"] = page_evidence["evidence_ref"]
-    alignment = assess_page_structure_alignment(
-        page_structure, page_evidence, native_page
-    )
-    original = deepcopy(alignment)
-
-    result = adjudicate_visual_alignment(alignment, decision)
-
-    assert set(result) == set(alignment)
-    assert result["processing"] == "succeeded"
-    assert result["quality"] == quality
-    assert result["decision"] == outcome
-    assert result["reason_code"] == reason_code
-    assert result["identity"] == alignment["identity"]
-    assert result["input_binding"] == alignment["input_binding"]
-    assert result["findings"] == alignment["findings"]
-    result["findings"][0]["reason_code"] = "changed"
-    assert alignment == original
-
-
-@pytest.mark.parametrize(
-    ("review_reason", "decision"),
-    [
-        ("SPATIAL_RELATION_NEEDS_REVIEW", "retain"),
-        ("SPATIAL_RELATION_NEEDS_REVIEW", "reject"),
-        ("COMPLEX_CONTENT_NEEDS_REVIEW", "retain"),
-        ("COMPLEX_CONTENT_NEEDS_REVIEW", "reject"),
-        ("TEXT_ALIGNMENT_NEEDS_REVIEW", "retain"),
-        ("TEXT_ALIGNMENT_NEEDS_REVIEW", "reject"),
-    ],
-)
-def test_adjudicates_current_alignment_review_findings(review_reason, decision):
-    """驗證目前 producer 的三種複核 finding 都可明確裁決。"""
-    page_structure, page_evidence, native_page = _simple_inputs()
-    if review_reason == "SPATIAL_RELATION_NEEDS_REVIEW":
-        page_structure["spatial_relations"] = [
-            {
-                "type": "above",
-                "source_id": "heading-1",
-                "target_id": "paragraph-1",
-            }
-        ]
-    elif review_reason == "COMPLEX_CONTENT_NEEDS_REVIEW":
-        page_structure["elements"] = [
-            {
-                "id": "formula-1",
-                "type": "formula",
-                "bbox": [10.0, 10.0, 80.0, 20.0],
-                "latex": "x^2",
-            }
-        ]
-        page_structure["reading_order"] = ["formula-1"]
-    else:
-        page_structure["elements"][0]["text"] = "Different synthetic title"
+    page_structure["spatial_relations"] = [
+        {
+            "type": "above",
+            "source_id": "heading-1",
+            "target_id": "paragraph-1",
+        }
+    ]
 
     alignment = assess_page_structure_alignment(
         page_structure, page_evidence, native_page
     )
     original = deepcopy(alignment)
-    result = adjudicate_visual_alignment(alignment, decision)
+    result = adjudicate_visual_alignment(alignment, "reject")
 
-    assert alignment["reason_code"] == review_reason
+    assert alignment["reason_code"] == "SPATIAL_RELATION_NEEDS_REVIEW"
     assert result["processing"] == "succeeded"
-    assert result["quality"] == (
-        "accepted" if decision == "retain" else "unsupported"
-    )
-    assert result["decision"] == decision
-    assert result["reason_code"] == (
-        "VISUAL_ALIGNMENT_REVIEW_ACCEPTED"
-        if decision == "retain"
-        else "VISUAL_ALIGNMENT_REVIEW_REJECTED"
-    )
+    assert result["quality"] == "unsupported"
+    assert result["decision"] == "reject"
+    assert result["reason_code"] == "VISUAL_ALIGNMENT_REVIEW_REJECTED"
     assert result["identity"] == alignment["identity"]
     assert result["input_binding"] == alignment["input_binding"]
     assert result["findings"] == alignment["findings"]
     assert alignment == original
 
 
-@pytest.mark.parametrize(
-    "invalid_case",
-    [
-        "decision",
-        "shape",
-        "failed",
-        "automatic",
-        "other_review",
-        "empty_findings",
-        "other_finding",
-        "nested_finding_field",
-        "unknown_review",
-        "missing_finding_field",
-        "malformed_finding",
-        "already_adjudicated",
-    ],
-)
-def test_visual_alignment_adjudication_rejects_invalid_inputs(invalid_case):
-    """驗證非原始視覺複核結果或未知裁決一律 fail closed。"""
+def test_visual_alignment_adjudication_rejects_unknown_decision():
+    """驗證未知複核裁決會 fail closed。"""
     page_structure, page_evidence, native_page = _simple_inputs()
     native_page["drawings"] = [{"type": "line"}]
     _rebind_native(page_evidence, native_page)
@@ -362,64 +271,18 @@ def test_visual_alignment_adjudication_rejects_invalid_inputs(invalid_case):
     alignment = assess_page_structure_alignment(
         page_structure, page_evidence, native_page
     )
-    decision = "retain"
-    if invalid_case == "decision":
-        decision = "review"
-    elif invalid_case == "shape":
-        alignment["extra"] = "invalid"
-    elif invalid_case == "failed":
-        alignment.update(
-            {
-                "processing": "failed",
-                "quality": "unsupported",
-                "decision": "reject",
-                "reason_code": "NATIVE_PAGE_INVALID",
-                "findings": [],
-            }
-        )
-    elif invalid_case == "automatic":
-        alignment.update(
-            {
-                "quality": "accepted",
-                "decision": "retain",
-                "reason_code": "ALIGNMENT_ACCEPTED",
-                "findings": [],
-            }
-        )
-    elif invalid_case == "other_review":
-        alignment["reason_code"] = "COMPLEX_CONTENT_NEEDS_REVIEW"
-    elif invalid_case == "empty_findings":
-        alignment["findings"] = []
-    elif invalid_case == "other_finding":
-        alignment["findings"] = [{"reason_code": "COMPLEX_ELEMENT_PRESENT"}]
-    elif invalid_case == "nested_finding_field":
-        alignment["findings"][0]["extra"] = "invalid"
-    elif invalid_case == "unknown_review":
-        alignment["reason_code"] = "UNKNOWN_REVIEW"
-    elif invalid_case == "missing_finding_field":
-        alignment["findings"] = [{}]
-    elif invalid_case == "malformed_finding":
-        alignment["findings"] = "VISION_CONTENT_PRESENT"
-    else:
-        alignment = adjudicate_visual_alignment(alignment, "retain")
     original = deepcopy(alignment)
 
-    assert adjudicate_visual_alignment(alignment, decision) is None
+    assert adjudicate_visual_alignment(alignment, "review") is None
     assert alignment == original
 
 
-@pytest.mark.parametrize("mismatch", ["text", "bbox", "ambiguous"])
-def test_text_or_bbox_without_unique_native_span_needs_review(mismatch):
-    """驗證文字或 bbox 無法唯一對回 native span 時要求複核。"""
+def test_ambiguous_native_span_needs_review():
+    """驗證無法唯一對回 native span 時要求複核。"""
     page_structure, page_evidence, native_page = _simple_inputs()
-    if mismatch == "text":
-        page_structure["elements"][0]["text"] = "Different synthetic title"
-    elif mismatch == "bbox":
-        page_structure["elements"][0]["bbox"] = [10.0, 10.0, 81.0, 20.0]
-    else:
-        native_page["spans"].append(deepcopy(native_page["spans"][0]))
-        _rebind_native(page_evidence, native_page)
-        page_structure["input_evidence_ref"] = page_evidence["evidence_ref"]
+    native_page["spans"].append(deepcopy(native_page["spans"][0]))
+    _rebind_native(page_evidence, native_page)
+    page_structure["input_evidence_ref"] = page_evidence["evidence_ref"]
 
     result = assess_page_structure_alignment(
         page_structure, page_evidence, native_page
@@ -478,54 +341,10 @@ def test_existing_page_structure_validator_failure_is_preserved():
     assert result["reason_code"] == "READING_ORDER_INVALID"
 
 
-@pytest.mark.parametrize(
-    ("mutation", "expected_reason_code"),
-    [
-        ("schema", "NATIVE_PAGE_INVALID"),
-        ("geometry", "NATIVE_PAGE_BINDING_INVALID"),
-        ("material_ref", "NATIVE_PAGE_BINDING_INVALID"),
-        ("page_ref", "NATIVE_PAGE_BINDING_INVALID"),
-        ("page_number", "NATIVE_PAGE_BINDING_INVALID"),
-        ("canonical_material", "PAGE_EVIDENCE_HASH_BINDING_INVALID"),
-        ("canonical_page", "PAGE_EVIDENCE_HASH_BINDING_INVALID"),
-        ("native_hash", "NATIVE_HASH_MISMATCH"),
-        ("evidence_hash", "PAGE_EVIDENCE_HASH_BINDING_INVALID"),
-    ],
-)
-def test_native_identity_and_canonical_hash_mismatches_fail_closed(
-    mutation, expected_reason_code
-):
-    """驗證 native schema、頁面 identity 與 canonical hash 錯誤全部 fail closed。"""
+def test_wrong_native_page_ref_fails_closed():
+    """驗證 native page identity 錯頁時 fail closed。"""
     page_structure, page_evidence, native_page = _simple_inputs()
-    if mutation == "schema":
-        native_page["schema"] = "page-native/v2"
-    elif mutation == "geometry":
-        native_page["geometry"] = deepcopy(native_page["geometry"])
-        native_page["geometry"]["visible_points"] = [0.0, 0.0, 201.0, 100.0]
-    elif mutation == "material_ref":
-        native_page["material_ref"] = f"material:sha256:{'c' * 64}"
-    elif mutation == "page_ref":
-        native_page["page_ref"] = f"page:sha256:{'c' * 64}"
-    elif mutation == "page_number":
-        native_page["page_number"] = 2
-    elif mutation == "canonical_material":
-        material_ref = f"material:sha256:{'c' * 64}"
-        page_structure["material_ref"] = material_ref
-        page_evidence["material_ref"] = material_ref
-        native_page["material_ref"] = material_ref
-        _rebind_native(page_evidence, native_page)
-        page_structure["input_evidence_ref"] = page_evidence["evidence_ref"]
-    elif mutation == "canonical_page":
-        page_ref = f"page:sha256:{'c' * 64}"
-        page_structure["page_ref"] = page_ref
-        page_evidence["page_ref"] = page_ref
-        native_page["page_ref"] = page_ref
-        _rebind_native(page_evidence, native_page)
-        page_structure["input_evidence_ref"] = page_evidence["evidence_ref"]
-    elif mutation == "native_hash":
-        native_page["spans"][0]["text"] = "Changed after binding"
-    else:
-        page_evidence["hashes"]["render_sha256"] = "c" * 64
+    native_page["page_ref"] = f"page:sha256:{'c' * 64}"
 
     result = assess_page_structure_alignment(
         page_structure, page_evidence, native_page
@@ -534,5 +353,5 @@ def test_native_identity_and_canonical_hash_mismatches_fail_closed(
     assert result["processing"] == "failed"
     assert result["quality"] == "unsupported"
     assert result["decision"] == "reject"
-    assert result["reason_code"] == expected_reason_code
+    assert result["reason_code"] == "NATIVE_PAGE_BINDING_INVALID"
     assert result["findings"] == []

@@ -7,11 +7,15 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from pdf_evidence.study_material_output import validate_study_material_output
+from pdf_evidence.study_material_output import (
+    PAGE_CONTENT_EXCLUDED,
+    validate_known_limitations,
+    validate_study_material_output,
+)
 
 
 RELATION_TYPES = frozenset(
-    {"prerequisite", "contains", "similar", "confusing", "application", "example"}
+    {"prerequisite", "contains", "application", "example"}
 )
 
 
@@ -169,7 +173,11 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
         return "KNOWLEDGE_MAP_REVISION_INVALID"
 
     concepts = knowledge_map["concepts"]
-    if not isinstance(concepts, list) or not concepts:
+    if (
+        not isinstance(concepts, list)
+        or not concepts
+        or any(not isinstance(concept, dict) for concept in concepts)
+    ):
         return "KNOWLEDGE_MAP_CONCEPT_INVALID"
     concept_ids = [concept.get("concept_id") for concept in concepts]
     if (
@@ -178,7 +186,50 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
         or concepts != sorted(concepts, key=lambda concept: concept["concept_id"])
     ):
         return "KNOWLEDGE_MAP_CONCEPT_INVALID"
-    evidence_by_concept = _concept_evidence(concepts)
+    try:
+        evidence_by_concept = _concept_evidence(concepts)
+        concept_page_refs = (
+            {
+                member["page_ref"]
+                for concept in concepts
+                for member in concept["members"]
+            }
+            if knowledge_map["known_limitations"]
+            else set()
+        )
+    except (KeyError, TypeError):
+        return "KNOWLEDGE_MAP_CONCEPT_INVALID"
+
+    expected_source_status, limitation_reason = validate_known_limitations(
+        material_ref=knowledge_map["material_ref"],
+        pages=knowledge_map["pages"],
+        known_limitations=knowledge_map["known_limitations"],
+        concept_page_refs=concept_page_refs,
+    )
+    if limitation_reason is not None:
+        return "KNOWLEDGE_MAP_LIMITATION_INVALID"
+    expected_map_status = (
+        (
+            "succeeded",
+            "accepted",
+            "retain",
+            "KNOWLEDGE_MAP_ACCEPTED",
+        )
+        if not knowledge_map["known_limitations"]
+        else (
+            "partial",
+            "needs_review",
+            "review",
+            "SOURCE_OUTPUT_NEEDS_REVIEW",
+        )
+    )
+    actual_map_status = tuple(
+        knowledge_map[field]
+        for field in ("processing", "quality", "decision", "reason_code")
+    )
+    if expected_source_status is None or actual_map_status != expected_map_status:
+        return "KNOWLEDGE_MAP_LIMITATION_INVALID"
+
     evidence_index = knowledge_map["evidence_index"]
     if not isinstance(evidence_index, list):
         return "KNOWLEDGE_MAP_EVIDENCE_INVALID"
@@ -471,17 +522,23 @@ def build_knowledge_map_view(
     page_number_by_ref = {
         page["page_ref"]: page["page_number"] for page in knowledge_map["pages"]
     }
-    limitations = [
-        {
-            "reason_code": item["reason_code"],
-            "page_numbers": sorted(
+    limitations = []
+    for item in knowledge_map["known_limitations"]:
+        page_numbers = (
+            [page["page_number"] for page in item["affected_pages"]]
+            if item["reason_code"] == PAGE_CONTENT_EXCLUDED
+            else [
                 page_number_by_ref[page_ref]
                 for page_ref in item["affected_page_refs"]
-            ),
-            "affected_page_count": len(item["affected_page_refs"]),
-        }
-        for item in knowledge_map["known_limitations"]
-    ]
+            ]
+        )
+        limitations.append(
+            {
+                "reason_code": item["reason_code"],
+                "page_numbers": sorted(page_numbers),
+                "affected_page_count": len(page_numbers),
+            }
+        )
     return {
         "schema": "knowledge-map-view/v1",
         "material_ref": knowledge_map["material_ref"],

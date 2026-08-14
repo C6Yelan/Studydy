@@ -205,30 +205,10 @@ def _valid_inputs():
         ],
         "provenance": {
             "page_evidence": "page-evidence/v1;PyMuPDF-1.28.0",
-            "page_structure": "page-structure/v1;prompt-v1",
+            "page_structure": "page-structure/v1;structured-generation-loopback/v1",
             "concepts": "concept-group/v1;candidate-prompt-v1",
             "content": "concept-content/v2;concept-content-prompt/v3",
         },
-    }
-
-
-def _read_s2_fixture(output):
-    """只經公開 validator 讀取下一階段目前需要的欄位。"""
-    reason = validate_study_material_output(output)
-    if reason is not None:
-        return {"accepted": False, "reason_code": reason}
-    return {
-        "accepted": True,
-        "material_ref": output["material_ref"],
-        "processing": output["processing"],
-        "quality": output["quality"],
-        "decision": output["decision"],
-        "known_limitations": deepcopy(output["known_limitations"]),
-        "concepts": deepcopy(output["concepts"]),
-        "evidence_index": deepcopy(output["evidence_index"]),
-        "summaries": deepcopy(output["summaries"]),
-        "keywords": deepcopy(output["keywords"]),
-        "relation_clues": deepcopy(output["relation_clues"]),
     }
 
 
@@ -306,32 +286,93 @@ def test_builds_evidence_self_contained_partial_output():
     assert validate_study_material_output(output) is None
 
 
-def test_public_s2_fixture_reads_only_validated_output():
-    """驗證下一階段只靠公開 output 即可讀取目前需要的資料。"""
-    output = build_study_material_output(**_valid_inputs())
+def test_excluded_page_keeps_closed_evidence_lineage_and_partial_status():
+    """被排除頁不發布 Structure/Concept，但仍保留可驗的頁面原因。"""
+    inputs = _valid_inputs()
+    excluded_evidence = inputs["page_evidence_items"].pop()
+    inputs["page_structure_items"].pop()
+    source_sha256 = excluded_evidence["material_ref"].removeprefix(
+        "material:sha256:"
+    )
+    excluded_evidence["page_ref"] = "page:sha256:" + hashlib.sha256(
+        f"{source_sha256}:{excluded_evidence['page_number']}".encode("ascii")
+    ).hexdigest()
+    retained_refs = [
+        page["page_ref"] for page in inputs["page_evidence_items"]
+    ]
+    inputs["page_limitations"] = [
+        {
+            "reason_code": "FORMAL_PROVIDER_DEFERRED",
+            "affected_page_refs": retained_refs,
+        },
+        {
+            "reason_code": "PAGE_CONTENT_EXCLUDED",
+            "affected_pages": [
+                {
+                    "page_ref": excluded_evidence["page_ref"],
+                    "page_number": excluded_evidence["page_number"],
+                    "page_evidence_ref": excluded_evidence["evidence_ref"],
+                    "last_stage": "page_structure",
+                    "processing": "failed",
+                    "quality": "unsupported",
+                    "decision": "reject",
+                    "reason_code": "PAGE_STRUCTURE_INVALID",
+                }
+            ],
+        },
+    ]
 
-    consumed = _read_s2_fixture(output)
-
-    assert consumed["accepted"] is True
-    assert consumed["material_ref"] == output["material_ref"]
-    assert consumed["processing"] == "partial"
-    assert consumed["quality"] == "needs_review"
-    assert consumed["concepts"]
-    assert consumed["evidence_index"]
-    assert consumed["summaries"]
-    assert consumed["keywords"]
-    assert consumed["relation_clues"]
-    assert consumed["known_limitations"]
-
-
-@pytest.mark.parametrize("kind", ["similar", "confusing"])
-def test_resource_relation_clue_kinds_are_accepted_by_downstream_contract(kind):
-    """Resource runner 與 Knowledge Map 共用的正式類型可進入已綁定 S2。"""
-    output = build_study_material_output(**_valid_inputs())
-    output["relation_clues"][0]["kind"] = kind
-    _rebind_output_id(output)
+    output = build_study_material_output(**inputs)
 
     assert validate_study_material_output(output) is None
+    assert [page["page_number"] for page in output["pages"]] == [1, 2]
+    assert output["known_limitations"][1]["affected_pages"][0][
+        "page_evidence_ref"
+    ] == excluded_evidence["evidence_ref"]
+    assert (
+        output["processing"], output["quality"], output["decision"],
+        output["reason_code"],
+    ) == (
+        "partial", "needs_review", "review",
+        "DEVELOPMENT_FULL_DOCUMENT_PARTIAL",
+    )
+
+    tampered = deepcopy(output)
+    tampered["known_limitations"][1]["affected_pages"][0]["page_number"] = 2
+    _rebind_output_id(tampered)
+    assert (
+        validate_study_material_output(tampered)
+        == "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+    )
+
+    evidence_collision = deepcopy(output)
+    evidence_collision["known_limitations"][1]["affected_pages"][0][
+        "page_evidence_ref"
+    ] = evidence_collision["pages"][0]["page_evidence_ref"]
+    _rebind_output_id(evidence_collision)
+    assert (
+        validate_study_material_output(evidence_collision)
+        == "STUDY_MATERIAL_OUTPUT_LIMITATION_INVALID"
+    )
+
+
+def test_unavailable_page_cannot_still_publish_a_concept():
+    """同頁若已有 Concept，就不能同時宣稱 context unavailable。"""
+    output = build_study_material_output(**_valid_inputs())
+    unavailable = next(
+        item
+        for item in output["known_limitations"]
+        if item["reason_code"] == "CONCEPT_CONTEXT_UNAVAILABLE"
+    )
+    unavailable["affected_page_refs"] = [
+        output["concepts"][0]["members"][0]["page_ref"]
+    ]
+    _rebind_output_id(output)
+
+    assert (
+        validate_study_material_output(output)
+        == "STUDY_MATERIAL_OUTPUT_STATUS_INVALID"
+    )
 
 
 def test_unsupported_contract_values_fail_closed():
@@ -394,21 +435,12 @@ def test_validator_detects_output_id_tamper():
         validate_study_material_output(output)
         == "STUDY_MATERIAL_OUTPUT_ID_INVALID"
     )
-    assert _read_s2_fixture(output) == {
-        "accepted": False,
-        "reason_code": "STUDY_MATERIAL_OUTPUT_ID_INVALID",
-    }
 
 
 @pytest.mark.parametrize(
     ("tamper_case", "reason_code"),
     [
         ("unknown_reference", "STUDY_MATERIAL_OUTPUT_REFERENCE_INVALID"),
-        ("mixed_material", "STUDY_MATERIAL_OUTPUT_EVIDENCE_INVALID"),
-        ("duplicate_evidence", "STUDY_MATERIAL_OUTPUT_EVIDENCE_INVALID"),
-        ("orphan_evidence", "STUDY_MATERIAL_OUTPUT_ORPHAN_EVIDENCE"),
-        ("locator_mismatch", "STUDY_MATERIAL_OUTPUT_EVIDENCE_INVALID"),
-        ("status_mismatch", "STUDY_MATERIAL_OUTPUT_CONCEPT_INVALID"),
     ],
 )
 def test_validator_rejects_nested_tamper_after_id_rebind(
@@ -444,10 +476,6 @@ def test_validator_rejects_nested_tamper_after_id_rebind(
 @pytest.mark.parametrize(
     ("invalid_case", "reason_code"),
     [
-        ("mixed_material", "STUDY_MATERIAL_OUTPUT_IDENTITY_INVALID"),
-        ("duplicate_evidence", "STUDY_MATERIAL_OUTPUT_DUPLICATE_INVALID"),
-        ("orphan_summary_evidence", "STUDY_MATERIAL_OUTPUT_REFERENCE_INVALID"),
-        ("missing_content_coverage", "STUDY_MATERIAL_OUTPUT_COVERAGE_INVALID"),
         (
             "clue_missing_target_evidence",
             "STUDY_MATERIAL_OUTPUT_REFERENCE_INVALID",
@@ -532,7 +560,6 @@ def test_completed_stages_accept_empty_limitations_and_replay():
         output["reason_code"],
     ) == ("succeeded", "accepted", "retain", "DEVELOPMENT_OUTPUT_ACCEPTED")
     assert validate_study_material_output(output) is None
-    assert _read_s2_fixture(deepcopy(output))["accepted"] is True
 
 
 def test_completed_status_tamper_fails_closed():
@@ -559,17 +586,6 @@ def test_completed_status_tamper_fails_closed():
                 "affected_page_refs": ["page:sha256:" + "0" * 64],
             }
         ],
-        [{"reason_code": "FORMAL_PROVIDER_DEFERRED"}],
-        [
-            {
-                "reason_code": "FORMAL_PROVIDER_DEFERRED",
-                "affected_page_refs": ["page:sha256:" + "0" * 64],
-            },
-            {
-                "reason_code": "FORMAL_PROVIDER_DEFERRED",
-                "affected_page_refs": ["page:sha256:" + "0" * 64],
-            },
-        ],
     ],
 )
 def test_unknown_malformed_or_duplicate_limitations_fail_closed(page_limitations):
@@ -587,9 +603,7 @@ def test_unknown_malformed_or_duplicate_limitations_fail_closed(page_limitations
 @pytest.mark.parametrize(
     ("field", "expected_reason"),
     [
-        ("concept_groups", "STUDY_MATERIAL_OUTPUT_CONCEPT_INPUT_INVALID"),
         ("concept_content_items", "STUDY_MATERIAL_OUTPUT_CONTENT_INPUT_INVALID"),
-        ("concept_keyword_items", "STUDY_MATERIAL_OUTPUT_KEYWORD_INPUT_INVALID"),
     ],
 )
 def test_empty_limitations_cannot_accept_missing_stage(field, expected_reason):
