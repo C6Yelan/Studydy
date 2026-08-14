@@ -14,11 +14,11 @@ import type { Concept, Evidence, KnowledgeMapView, Relation, ReviewItem } from "
 const fixtures = {
   programming: {
     label: "程式設計｜陣列與字串",
-    url: "/fixtures/programming-07b1c1c1-knowledge-map-view.json",
+    url: "/local-fixtures/programming-07b1c1c1-knowledge-map-view.json",
   },
   finance: {
     label: "財政學｜所得稅",
-    url: "/fixtures/finance-01547e2c-knowledge-map-view.json",
+    url: "/local-fixtures/finance-01547e2c-knowledge-map-view.json",
   },
 } as const;
 
