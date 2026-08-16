@@ -179,7 +179,14 @@ class MapConceptView(_ClosedModel):
 class MapRelationView(_ClosedModel):
     relation_id: str
     schema_: Literal["relation/v1"] = Field(alias="schema")
-    type: str
+    type: Literal[
+        "prerequisite",
+        "contains",
+        "similar",
+        "confusing",
+        "application",
+        "example",
+    ]
     source_concept_id: str
     target_concept_id: str
     statement: str
@@ -282,7 +289,14 @@ class DerivedRelationView(_ClosedModel):
     statement: str
     evidence: list[EvidenceView]
     reason_code: str
-    type: str
+    type: Literal[
+        "prerequisite",
+        "contains",
+        "similar",
+        "confusing",
+        "application",
+        "example",
+    ]
 
 
 class DerivedReviewView(_ClosedModel):

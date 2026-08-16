@@ -259,8 +259,8 @@ def test_unknown_summary_evidence_fails_without_summary_text():
 
 def test_combined_content_schema_and_prompt_are_fixed_and_bounded():
     """驗證模型輸入契約只暴露批准欄位、列舉與字數上限。"""
-    assert CONCEPT_CONTENT_SCHEMA == "concept-content/v2"
-    assert CONCEPT_CONTENT_PROMPT_VERSION == "concept-content-prompt/v3"
+    assert CONCEPT_CONTENT_SCHEMA == "concept-content/v3"
+    assert CONCEPT_CONTENT_PROMPT_VERSION == "concept-content-prompt/v4"
     assert CONCEPT_CONTENT_PROMPT_SHA256 == hashlib.sha256(
         CONCEPT_CONTENT_PROMPT.encode("utf-8")
     ).hexdigest()
@@ -270,6 +270,13 @@ def test_combined_content_schema_and_prompt_are_fixed_and_bounded():
     assert (
         "Do not use the summary to describe the input, concept-group count, Evidence IDs, "
         "prompt, model, processing state, source availability or sufficiency, or missing context."
+        in CONCEPT_CONTENT_PROMPT
+    )
+    assert "Use similar only when the cited material supports" in CONCEPT_CONTENT_PROMPT
+    assert "never convert contrast into confusing" in CONCEPT_CONTENT_PROMPT
+    assert "Similar and confusing must use bidirectional" in CONCEPT_CONTENT_PROMPT
+    assert (
+        "Prerequisite, contains, application, and example must use source_to_target"
         in CONCEPT_CONTENT_PROMPT
     )
     assert CONCEPT_CONTENT_BODY_SCHEMA["required"] == [
@@ -303,6 +310,8 @@ def test_combined_content_schema_and_prompt_are_fixed_and_bounded():
         RELATION_CLUE_KINDS
     )
     assert "contains" in RELATION_CLUE_KINDS
+    assert "similar" in RELATION_CLUE_KINDS
+    assert "confusing" in RELATION_CLUE_KINDS
     assert clue_schema["properties"]["direction_hint"]["enum"] == list(
         RELATION_DIRECTIONS
     )
@@ -341,6 +350,54 @@ def test_valid_combined_content_is_evidence_bound_and_needs_review():
     assert (context, body) == originals
 
 
+@pytest.mark.parametrize("kind", ["similar", "confusing"])
+def test_symmetric_clues_are_bidirectional_and_evidence_bound(kind):
+    """對稱線索只有雙向且引用兩端 Evidence 時才能保留。"""
+    context = build_summary_context(_groups(["Array", "Loop"]))
+    body = _concept_content_body(context)
+    clue = body["relation_clues"][0]
+    clue["kind"] = kind
+    clue["direction_hint"] = "bidirectional"
+
+    result = build_concept_content(context, body)
+
+    assert result["processing"] == "succeeded"
+    assert result["relation_clues"] == body["relation_clues"]
+
+
+@pytest.mark.parametrize("kind", ["similar", "confusing"])
+def test_symmetric_clues_fail_closed_for_wrong_direction_or_endpoint(kind):
+    context = build_summary_context(_groups(["Array", "Loop"]))
+    body = _concept_content_body(context)
+    clue = body["relation_clues"][0]
+    clue["kind"] = kind
+
+    wrong_direction = build_concept_content(context, body)
+    assert wrong_direction["reason_code"] == "CONCEPT_CONTENT_BODY_INVALID"
+    assert "relation_clues" not in wrong_direction
+
+    clue["direction_hint"] = "bidirectional"
+    clue["target_group_id"] = clue["source_group_id"]
+    same_endpoint = build_concept_content(context, body)
+    assert same_endpoint["reason_code"] == "CONCEPT_CONTENT_GROUP_INVALID"
+    assert "relation_clues" not in same_endpoint
+
+
+@pytest.mark.parametrize("kind", ["similar", "confusing"])
+def test_symmetric_clues_require_evidence_from_both_groups(kind):
+    context = build_summary_context(_groups(["Array", "Loop"]))
+    body = _concept_content_body(context)
+    clue = body["relation_clues"][0]
+    clue["kind"] = kind
+    clue["direction_hint"] = "bidirectional"
+    clue["evidence_ids"] = [clue["evidence_ids"][0]]
+
+    result = build_concept_content(context, body)
+
+    assert result["reason_code"] == "CONCEPT_CONTENT_EVIDENCE_INVALID"
+    assert "relation_clues" not in result
+
+
 def test_empty_relation_clues_succeed_with_explicit_reason():
     """驗證沒有可靠 clue 時誠實回報原因，不建立假 Relation。"""
     context = build_summary_context(_groups(["Array", "Loop"]))
@@ -373,6 +430,27 @@ def test_reversed_group_order_is_not_a_duplicate_clue():
 
     assert result["processing"] == "succeeded"
     assert len(result["relation_clues"]) == 2
+
+
+@pytest.mark.parametrize("kind", ["similar", "confusing"])
+def test_symmetric_semantic_duplicate_rejects_reverse_order_and_new_statement(kind):
+    context = build_summary_context(_groups(["Array", "Loop"]))
+    body = _concept_content_body(context)
+    clue = body["relation_clues"][0]
+    clue["kind"] = kind
+    clue["direction_hint"] = "bidirectional"
+    reversed_clue = deepcopy(clue)
+    reversed_clue["source_group_id"], reversed_clue["target_group_id"] = (
+        reversed_clue["target_group_id"],
+        reversed_clue["source_group_id"],
+    )
+    reversed_clue["statement"] = "A distinct statement cannot bypass the pair gate."
+    body["relation_clues"].append(reversed_clue)
+
+    result = build_concept_content(context, body)
+
+    assert result["reason_code"] == "CONCEPT_CONTENT_CLUE_DUPLICATE"
+    assert "relation_clues" not in result
 
 
 def test_missing_target_evidence_fails_without_unvalidated_text():

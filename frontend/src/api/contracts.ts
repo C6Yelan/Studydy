@@ -111,7 +111,13 @@ export type MapConceptView = {
   reason_code: string;
 };
 
-export type MapRelationType = "prerequisite" | "contains" | "application" | "example";
+export type MapRelationType =
+  | "prerequisite"
+  | "contains"
+  | "similar"
+  | "confusing"
+  | "application"
+  | "example";
 
 export type MapRelationView = {
   id: string;

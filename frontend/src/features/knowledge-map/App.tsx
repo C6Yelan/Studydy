@@ -26,6 +26,8 @@ import "./styles.css";
 const relationLabels: Record<Relation["type"], string> = {
   prerequisite: "先備",
   contains: "包含",
+  similar: "相似",
+  confusing: "易混淆",
   application: "應用",
   example: "例子",
 };
@@ -309,16 +311,19 @@ export default function KnowledgeMap({ view, resourceResult, onOpenSourcePdf, on
   const edges: Edge[] = useMemo(
     () => view.relations
       .filter((relation) => !visibleConceptIds || (visibleConceptIds.has(relation.source) && visibleConceptIds.has(relation.target)))
-      .map((relation) => ({
-        id: relation.id,
-        source: relation.source,
-        target: relation.target,
-        label: relationLabels[relation.type],
-        data: { relation },
-        markerEnd: { type: MarkerType.ArrowClosed },
-        className: `relation-${relation.type}`,
-        ariaLabel: `${relationLabels[relation.type]}：${relation.statement}`,
-      })),
+      .map((relation) => {
+        const isSymmetric = relation.type === "similar" || relation.type === "confusing";
+        return {
+          id: relation.id,
+          source: relation.source,
+          target: relation.target,
+          label: relationLabels[relation.type],
+          data: { relation },
+          markerEnd: isSymmetric ? undefined : { type: MarkerType.ArrowClosed },
+          className: `relation-${relation.type}`,
+          ariaLabel: `${relationLabels[relation.type]}：${relation.statement}`,
+        };
+      }),
     [view.relations, visibleConceptIds],
   );
 

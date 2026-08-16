@@ -10,11 +10,13 @@ from .concept_deduplication import CONCEPT_GROUP_SCHEMA
 SUMMARY_CONTEXT_SCHEMA = "concept-summary-context/v1"
 EVIDENCE_SUMMARY_SCHEMA = "evidence-summary/v1"
 CONCEPT_KEYWORDS_SCHEMA = "concept-keywords/v1"
-CONCEPT_CONTENT_SCHEMA = "concept-content/v2"
-CONCEPT_CONTENT_PROMPT_VERSION = "concept-content-prompt/v3"
+CONCEPT_CONTENT_SCHEMA = "concept-content/v3"
+CONCEPT_CONTENT_PROMPT_VERSION = "concept-content-prompt/v4"
 RELATION_CLUE_KINDS = (
     "prerequisite",
     "contains",
+    "similar",
+    "confusing",
     "example",
     "contrast",
     "application",
@@ -30,7 +32,12 @@ CONCEPT_CONTENT_PROMPT = (
     "context. Keep summary within 1000 characters. "
     "Return at most 8 relation clues; each clue must use an allowed kind and direction_hint, "
     "reference two different supplied group IDs, keep statement within 300 characters, and cite "
-    "known Evidence IDs from both groups. Clues are reviewable observations, not formal Relations "
+    "known Evidence IDs from both groups. Use similar only when the cited material supports a "
+    "shared meaning, role, structure, or behavior. Use confusing only when the cited material "
+    "supports a specific risk of confusing the concepts or explicitly distinguishes that "
+    "confusion; never convert contrast into confusing. Similar and confusing must use "
+    "bidirectional. Prerequisite, contains, application, and example must use "
+    "source_to_target. Clues are reviewable observations, not formal Relations "
     "or a graph. Do not invent facts, groups, Evidence, a Knowledge Map, or a Learning Path."
 )
 CONCEPT_CONTENT_PROMPT_SHA256 = hashlib.sha256(
@@ -337,6 +344,8 @@ def build_concept_content(context: Any, body: Any) -> dict[str, Any]:
             or len(statement) > MAX_RELATION_STATEMENT_CHARACTERS
         ):
             return _concept_content_failure("CONCEPT_CONTENT_BODY_INVALID")
+        if kind in {"similar", "confusing"} and direction_hint != "bidirectional":
+            return _concept_content_failure("CONCEPT_CONTENT_BODY_INVALID")
         if (
             source_group_id not in group_evidence_ids
             or target_group_id not in group_evidence_ids
@@ -363,11 +372,15 @@ def build_concept_content(context: Any, body: Any) -> dict[str, Any]:
             return _concept_content_failure("CONCEPT_CONTENT_EVIDENCE_INVALID")
 
         clue_key = (
-            kind,
-            source_group_id,
-            target_group_id,
-            statement,
-            direction_hint,
+            (kind, *sorted((source_group_id, target_group_id)))
+            if kind in {"similar", "confusing"}
+            else (
+                kind,
+                source_group_id,
+                target_group_id,
+                statement,
+                direction_hint,
+            )
         )
         if clue_key in clue_keys:
             return _concept_content_failure("CONCEPT_CONTENT_CLUE_DUPLICATE")

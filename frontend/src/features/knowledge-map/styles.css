@@ -114,6 +114,8 @@ button.summary-card:focus-visible { border-color: #a9c2ff; box-shadow: 0 4px 14p
 .relation-legend span::before { content: ""; position: absolute; top: 50%; left: 0; width: 18px; border-top: 2px solid; }
 .relation-legend .is-prerequisite::before { border-color: #5b8def; }
 .relation-legend .is-contains::before { border-color: #22c55e; }
+.relation-legend .is-similar::before { border-color: #8b5cf6; }
+.relation-legend .is-confusing::before { border-color: #e11d48; border-top-style: dashed; }
 .relation-legend .is-application::before { border-color: #06b6d4; border-top-style: dashed; }
 .relation-legend .is-example::before { border-color: #f59e0b; }
 
@@ -134,6 +136,8 @@ button.summary-card:focus-visible { border-color: #a9c2ff; box-shadow: 0 4px 14p
 .map-workspace .react-flow__node.needs-review .concept-node-content small { color: #d86610; background: #fff0e1; }
 .map-workspace .react-flow__edge-path { stroke: #5b8def; stroke-width: 1.5; }
 .map-workspace .react-flow__edge.relation-contains .react-flow__edge-path { stroke: #22c55e; }
+.map-workspace .react-flow__edge.relation-similar .react-flow__edge-path { stroke: #8b5cf6; stroke-width: 2.5; }
+.map-workspace .react-flow__edge.relation-confusing .react-flow__edge-path { stroke: #e11d48; stroke-width: 2.5; stroke-dasharray: 3 5; }
 .map-workspace .react-flow__edge.relation-application .react-flow__edge-path { stroke: #06b6d4; stroke-dasharray: 6 4; }
 .map-workspace .react-flow__edge.relation-example .react-flow__edge-path { stroke: #f59e0b; }
 .map-workspace .react-flow__edge.selected .react-flow__edge-path,
@@ -223,6 +227,8 @@ button.summary-card:focus-visible { border-color: #a9c2ff; box-shadow: 0 4px 14p
 .relation-route > span { color: var(--map-blue); font-size: 1rem; }
 .relation-badge { width: fit-content; margin: 14px 0 -4px !important; padding: 3px 8px; border-radius: 999px; color: #345eae !important; background: #edf3ff; font-size: 0.62rem !important; font-weight: 700; }
 .relation-badge.is-contains { color: #187840 !important; background: #e7f8ef; }
+.relation-badge.is-similar { color: #6941c6 !important; background: #f1ecff; }
+.relation-badge.is-confusing { color: #be123c !important; background: #fff1f4; }
 .relation-badge.is-application { color: #08768b !important; background: #ecfeff; }
 .relation-badge.is-example { color: #a85f09 !important; background: #fff7e6; }
 .evidence-list { margin: 0; padding: 0; list-style: none; }

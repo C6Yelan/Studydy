@@ -328,6 +328,17 @@ def test_fresh_pdf_full_pipeline_and_zero_call_replay(tmp_path):
             }
         ]
         assert len(loopback.requests) == 7
+        content_request = next(
+            request
+            for request in loopback.requests
+            if request["operation"] == "concept_content"
+        )
+        assert content_request["runtime_binding"]["prompt_version"] == (
+            "concept-content-prompt/v4"
+        )
+        assert content_request["runtime_binding"]["response_schema_id"] == (
+            "concept-content-body/v3"
+        )
         page_requests = [
             request
             for request in loopback.requests

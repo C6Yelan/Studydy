@@ -58,6 +58,8 @@ def _rebind_map(knowledge_map: dict) -> dict:
 def _relation(
     template: dict, relation_type: str, source_id: str, target_id: str, evidence_ids: list[str]
 ) -> dict:
+    if relation_type in {"similar", "confusing"}:
+        source_id, target_id = sorted((source_id, target_id))
     content = {
         **{key: value for key, value in template.items() if key != "relation_id"},
         "type": relation_type,
@@ -110,6 +112,84 @@ def test_direct_clues_are_grounded_and_non_direct_clues_stay_reviewable():
         if relation["statement"]
         in {clue["statement"] for clue in source_clues if clue["kind"] == "sequence"}
     )
+
+
+@pytest.mark.parametrize("relation_type", ["similar", "confusing"])
+def test_grounded_bidirectional_clues_become_canonical_symmetric_relations(
+    relation_type,
+):
+    source = _source("programming-07b1c1c1-study-material-output.json")
+    clue = next(
+        item for item in source["relation_clues"] if item["kind"] == "application"
+    )
+    clue["kind"] = relation_type
+    clue["direction_hint"] = "bidirectional"
+    _rebind_output_id(source)
+
+    knowledge_map = build_knowledge_map(source)
+
+    relation = next(
+        item
+        for item in knowledge_map["relations"]
+        if item["statement"] == clue["statement"]
+    )
+    assert relation["type"] == relation_type
+    assert relation["source_concept_id"] < relation["target_concept_id"]
+    assert relation["evidence_ids"] == sorted(clue["evidence_ids"])
+    assert relation["reason_code"] == "DIRECT_CLUE_ACCEPTED"
+
+
+@pytest.mark.parametrize("relation_type", ["similar", "confusing"])
+def test_symmetric_clue_wrong_direction_stays_reviewable(relation_type):
+    source = _source("programming-07b1c1c1-study-material-output.json")
+    clue = next(
+        item for item in source["relation_clues"] if item["kind"] == "application"
+    )
+    clue["kind"] = relation_type
+    clue["direction_hint"] = "source_to_target"
+    _rebind_output_id(source)
+
+    knowledge_map = build_knowledge_map(source)
+
+    assert clue["statement"] not in {
+        relation["statement"] for relation in knowledge_map["relations"]
+    }
+    review = next(
+        item
+        for item in knowledge_map["review_items"]
+        if item["statement"] == clue["statement"]
+    )
+    assert review["reason_code"] == "RELATION_DIRECTION_NEEDS_REVIEW"
+
+
+@pytest.mark.parametrize("relation_type", ["similar", "confusing"])
+def test_symmetric_reverse_clues_with_different_statements_deduplicate(
+    relation_type,
+):
+    source = _source("programming-07b1c1c1-study-material-output.json")
+    clue = next(
+        item for item in source["relation_clues"] if item["kind"] == "application"
+    )
+    clue["kind"] = relation_type
+    clue["direction_hint"] = "bidirectional"
+    reversed_clue = deepcopy(clue)
+    reversed_clue["source_concept_id"], reversed_clue["target_concept_id"] = (
+        reversed_clue["target_concept_id"],
+        reversed_clue["source_concept_id"],
+    )
+    reversed_clue["statement"] = clue["statement"] + "（不同敘述）"
+    source["relation_clues"].append(reversed_clue)
+    _rebind_output_id(source)
+
+    knowledge_map = build_knowledge_map(source)
+
+    matching = [
+        relation
+        for relation in knowledge_map["relations"]
+        if relation["type"] == relation_type
+    ]
+    assert len(matching) == 1
+    assert matching[0]["source_concept_id"] < matching[0]["target_concept_id"]
 
 
 @pytest.mark.parametrize(
@@ -199,6 +279,36 @@ def test_semantic_duplicate_relations_fail_closed():
     changed["relations"] = sorted(
         [first, second], key=lambda relation: relation["relation_id"]
     )
+    assert validate_knowledge_map(_rebind_map(changed)) == "KNOWLEDGE_MAP_RELATION_INVALID"
+
+
+@pytest.mark.parametrize("relation_type", ["similar", "confusing"])
+def test_symmetric_relation_reverse_identity_cannot_bypass_semantic_gate(
+    relation_type,
+):
+    knowledge_map = build_knowledge_map(
+        _source("programming-07b1c1c1-study-material-output.json")
+    )
+    template = knowledge_map["relations"][0]
+    first = _relation(
+        template,
+        relation_type,
+        template["source_concept_id"],
+        template["target_concept_id"],
+        template["evidence_ids"],
+    )
+    reversed_content = {
+        **{key: value for key, value in first.items() if key != "relation_id"},
+        "source_concept_id": first["target_concept_id"],
+        "target_concept_id": first["source_concept_id"],
+        "statement": first["statement"] + "（另一個敘述）",
+    }
+    reversed_relation = _with_id("relation", "relation_id", reversed_content)
+    changed = deepcopy(knowledge_map)
+    changed["relations"] = sorted(
+        [first, reversed_relation], key=lambda relation: relation["relation_id"]
+    )
+
     assert validate_knowledge_map(_rebind_map(changed)) == "KNOWLEDGE_MAP_RELATION_INVALID"
 
 

@@ -161,7 +161,7 @@ def _study_material_output(concept_name="array", summary="Arrays store values.")
         "reason_code": "CONCEPT_GROUP_ACCEPTED",
     }
     content = {
-        "schema": "concept-content/v2",
+        "schema": "concept-content/v3",
         "development_only": True,
         "material_ref": material_ref,
         "source_group_ids": [concept_id],
@@ -206,7 +206,7 @@ def _study_material_output(concept_name="array", summary="Arrays store values.")
             "page_evidence": "page-evidence/v1;PyMuPDF-1.28.0",
             "page_structure": "page-structure/v1;structured-generation-loopback/v1",
             "concepts": "concept-group/v1;candidate-prompt-v1",
-            "content": "concept-content/v2;concept-content-prompt/v3",
+            "content": "concept-content/v3;concept-content-prompt/v4",
         },
     )
 

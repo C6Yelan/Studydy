@@ -14,9 +14,11 @@ from pdf_evidence.study_material_output import (
 )
 
 
-RELATION_TYPES = frozenset(
+DIRECTED_RELATION_TYPES = frozenset(
     {"prerequisite", "contains", "application", "example"}
 )
+SYMMETRIC_RELATION_TYPES = frozenset({"similar", "confusing"})
+RELATION_TYPES = DIRECTED_RELATION_TYPES | SYMMETRIC_RELATION_TYPES
 
 
 class KnowledgeMapError(ValueError):
@@ -94,20 +96,60 @@ def _is_grounded(clue: dict[str, Any], evidence: dict[str, set[str]]) -> bool:
 def _relations_from_clues(
     source: dict[str, Any]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """只把方向與 Evidence 都成立的 direct clue 提升為正式 Relation。"""
+    """只把方向與 Evidence 都成立的 clue 提升為正式 Relation。"""
     evidence = _concept_evidence(source["concepts"])
     relations = []
     review_items = []
-    for clue in source["relation_clues"]:
+    symmetric_relation_keys = set()
+    ordered_clues = sorted(
+        source["relation_clues"],
+        key=lambda clue: (
+            clue["kind"],
+            *(
+                sorted(
+                    (clue["source_concept_id"], clue["target_concept_id"])
+                )
+                if clue["kind"] in SYMMETRIC_RELATION_TYPES
+                else (
+                    clue["source_concept_id"],
+                    clue["target_concept_id"],
+                )
+            ),
+            clue["statement"],
+            clue["direction_hint"],
+            tuple(sorted(clue["evidence_ids"])),
+        ),
+    )
+    for clue in ordered_clues:
         if not _is_grounded(clue, evidence):
             raise KnowledgeMapError("RELATION_EVIDENCE_INVALID")
-        is_direct_clue = clue["kind"] in RELATION_TYPES
-        if is_direct_clue and clue["direction_hint"] == "source_to_target":
+        is_directed_clue = clue["kind"] in DIRECTED_RELATION_TYPES
+        is_symmetric_clue = clue["kind"] in SYMMETRIC_RELATION_TYPES
+        has_accepted_direction = (
+            is_directed_clue and clue["direction_hint"] == "source_to_target"
+        ) or (
+            is_symmetric_clue and clue["direction_hint"] == "bidirectional"
+        )
+        if has_accepted_direction:
+            source_concept_id = clue["source_concept_id"]
+            target_concept_id = clue["target_concept_id"]
+            if is_symmetric_clue:
+                source_concept_id, target_concept_id = sorted(
+                    (source_concept_id, target_concept_id)
+                )
+                semantic_key = (
+                    clue["kind"],
+                    source_concept_id,
+                    target_concept_id,
+                )
+                if semantic_key in symmetric_relation_keys:
+                    continue
+                symmetric_relation_keys.add(semantic_key)
             content = {
                 "schema": "relation/v1",
                 "type": clue["kind"],
-                "source_concept_id": clue["source_concept_id"],
-                "target_concept_id": clue["target_concept_id"],
+                "source_concept_id": source_concept_id,
+                "target_concept_id": target_concept_id,
                 "statement": clue["statement"],
                 "evidence_ids": sorted(clue["evidence_ids"]),
                 "processing": "succeeded",
@@ -122,7 +164,7 @@ def _relations_from_clues(
             reason_code = "CONTRAST_REQUIRES_REVIEW"
         elif clue["kind"] == "sequence":
             reason_code = "SEQUENCE_NOT_PREREQUISITE"
-        elif is_direct_clue:
+        elif is_directed_clue or is_symmetric_clue:
             reason_code = "RELATION_DIRECTION_NEEDS_REVIEW"
         else:
             reason_code = "CLUE_KIND_REQUIRES_REVIEW"
@@ -271,6 +313,10 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             relation["source_concept_id"] not in concept_id_set
             or relation["target_concept_id"] not in concept_id_set
             or relation["source_concept_id"] == relation["target_concept_id"]
+            or (
+                relation["type"] in SYMMETRIC_RELATION_TYPES
+                and relation["source_concept_id"] > relation["target_concept_id"]
+            )
         ):
             return "KNOWLEDGE_MAP_RELATION_INVALID"
         content = {
@@ -278,8 +324,19 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
         }
         semantic_key = (
             relation["type"],
-            relation["source_concept_id"],
-            relation["target_concept_id"],
+            *(
+                sorted(
+                    (
+                        relation["source_concept_id"],
+                        relation["target_concept_id"],
+                    )
+                )
+                if relation["type"] in SYMMETRIC_RELATION_TYPES
+                else (
+                    relation["source_concept_id"],
+                    relation["target_concept_id"],
+                )
+            ),
         )
         if (
             relation["relation_id"]

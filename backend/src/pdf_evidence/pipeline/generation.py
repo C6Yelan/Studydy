@@ -103,7 +103,7 @@ def _runtime_binding(
         prompt_version = CONCEPT_CONTENT_PROMPT_VERSION
         prompt_sha256 = CONCEPT_CONTENT_PROMPT_SHA256
         body_schema = CONCEPT_CONTENT_BODY_SCHEMA
-        response_schema_id = "concept-content-body/v2"
+        response_schema_id = "concept-content-body/v3"
     return {
         "runtime_id": local_config["runtime_id"],
         "model_id": local_config["model_id"],

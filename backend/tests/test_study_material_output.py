@@ -2,6 +2,12 @@ from copy import deepcopy
 import hashlib
 import json
 
+import pytest
+
+from knowledge_map.artifacts import (
+    build_initial_learning_path,
+    build_knowledge_map,
+)
 from pdf_evidence.study_material_output import (
     build_study_material_output,
     validate_study_material_output,
@@ -134,7 +140,7 @@ def _valid_inputs():
     loop_group, loop_evidence_id = _concept_group(page_two, "Loop")
     source_group_ids = [array_group["group_id"], loop_group["group_id"]]
     content = {
-        "schema": "concept-content/v2",
+        "schema": "concept-content/v3",
         "development_only": True,
         "material_ref": material_ref,
         "source_group_ids": source_group_ids,
@@ -205,9 +211,36 @@ def _valid_inputs():
             "page_evidence": "page-evidence/v1;PyMuPDF-1.28.0",
             "page_structure": "page-structure/v1;structured-generation-loopback/v1",
             "concepts": "concept-group/v1;candidate-prompt-v1",
-            "content": "concept-content/v2;concept-content-prompt/v3",
+            "content": "concept-content/v3;concept-content-prompt/v4",
         },
     }
+
+
+def _output_with_symmetric_clue(
+    relation_type,
+    *,
+    direction_hint="bidirectional",
+    include_reverse_duplicate=False,
+):
+    """建立含相似或易混淆線索的最小跨階段輸出。"""
+    inputs = _valid_inputs()
+    clue = inputs["concept_content_items"][0]["relation_clues"][0]
+    clue["kind"] = relation_type
+    clue["direction_hint"] = direction_hint
+    clue["statement"] = f"The concepts have a grounded {relation_type} relation."
+    if include_reverse_duplicate:
+        reverse_clue = deepcopy(clue)
+        reverse_clue["source_group_id"], reverse_clue["target_group_id"] = (
+            reverse_clue["target_group_id"],
+            reverse_clue["source_group_id"],
+        )
+        reverse_clue["statement"] = (
+            f"A differently worded reverse {relation_type} observation."
+        )
+        inputs["concept_content_items"][0]["relation_clues"].append(
+            reverse_clue
+        )
+    return build_study_material_output(**inputs)
 
 
 def test_builds_evidence_self_contained_partial_output():
@@ -282,6 +315,57 @@ def test_builds_evidence_self_contained_partial_output():
     assert output["decision"] == "review"
     assert output["reason_code"] == "DEVELOPMENT_FULL_DOCUMENT_PARTIAL"
     assert validate_study_material_output(output) is None
+
+
+@pytest.mark.parametrize("relation_type", ["similar", "confusing"])
+@pytest.mark.parametrize("include_reverse_duplicate", [False, True])
+def test_symmetric_clues_build_one_canonical_relation_without_changing_path(
+    relation_type,
+    include_reverse_duplicate,
+):
+    """雙向線索固定端點、語意去重，且不影響 prerequisite 路徑。"""
+    source = _output_with_symmetric_clue(
+        relation_type,
+        include_reverse_duplicate=include_reverse_duplicate,
+    )
+    knowledge_map = build_knowledge_map(source)
+    relations = [
+        relation
+        for relation in knowledge_map["relations"]
+        if relation["type"] == relation_type
+    ]
+
+    assert len(relations) == 1
+    assert relations[0]["source_concept_id"] < relations[0]["target_concept_id"]
+    assert relations[0]["quality"] == "accepted"
+    assert relations[0]["decision"] == "retain"
+
+    baseline_map = build_knowledge_map(
+        build_study_material_output(**_valid_inputs())
+    )
+    assert build_initial_learning_path(knowledge_map)[
+        "ordered_concept_ids"
+    ] == build_initial_learning_path(baseline_map)["ordered_concept_ids"]
+
+
+@pytest.mark.parametrize("relation_type", ["similar", "confusing"])
+def test_directional_symmetric_clue_stays_review_only(relation_type):
+    """相似與易混淆若不是 bidirectional，不得升格為正式 Relation。"""
+    source = _output_with_symmetric_clue(
+        relation_type,
+        direction_hint="source_to_target",
+    )
+    knowledge_map = build_knowledge_map(source)
+
+    assert not any(
+        relation["type"] == relation_type
+        for relation in knowledge_map["relations"]
+    )
+    assert any(
+        clue["kind"] == relation_type
+        and clue["reason_code"] == "RELATION_DIRECTION_NEEDS_REVIEW"
+        for clue in knowledge_map["review_items"]
+    )
 
 
 def test_excluded_page_keeps_closed_evidence_lineage_and_partial_status():
