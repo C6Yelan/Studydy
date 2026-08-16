@@ -66,7 +66,7 @@ test("真backend restart後由URL恢復terminal、Map、Assessment與Learning St
   await expect(page.getByRole("heading", { name: "你的學習狀態" })).toBeVisible();
   await expect(page).toHaveURL(statePath);
   await page.goto(assessmentPath);
-  await expect(page.getByRole("heading", { name: "依教材 Evidence 完成單選題" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "根據教材內容完成單選題" })).toBeVisible();
   await page.goto(mapPath);
   await expect(page.getByText("KNOWLEDGE MAP")).toBeVisible();
   await page.goto(runPath);

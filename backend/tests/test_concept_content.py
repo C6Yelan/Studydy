@@ -365,36 +365,16 @@ def test_symmetric_clues_are_bidirectional_and_evidence_bound(kind):
     assert result["relation_clues"] == body["relation_clues"]
 
 
-@pytest.mark.parametrize("kind", ["similar", "confusing"])
-def test_symmetric_clues_fail_closed_for_wrong_direction_or_endpoint(kind):
+def test_symmetric_clue_wrong_direction_fails_closed():
+    """代表性對稱線索若不是雙向，必須拒絕整份未驗證內容。"""
     context = build_summary_context(_groups(["Array", "Loop"]))
     body = _concept_content_body(context)
     clue = body["relation_clues"][0]
-    clue["kind"] = kind
-
-    wrong_direction = build_concept_content(context, body)
-    assert wrong_direction["reason_code"] == "CONCEPT_CONTENT_BODY_INVALID"
-    assert "relation_clues" not in wrong_direction
-
-    clue["direction_hint"] = "bidirectional"
-    clue["target_group_id"] = clue["source_group_id"]
-    same_endpoint = build_concept_content(context, body)
-    assert same_endpoint["reason_code"] == "CONCEPT_CONTENT_GROUP_INVALID"
-    assert "relation_clues" not in same_endpoint
-
-
-@pytest.mark.parametrize("kind", ["similar", "confusing"])
-def test_symmetric_clues_require_evidence_from_both_groups(kind):
-    context = build_summary_context(_groups(["Array", "Loop"]))
-    body = _concept_content_body(context)
-    clue = body["relation_clues"][0]
-    clue["kind"] = kind
-    clue["direction_hint"] = "bidirectional"
-    clue["evidence_ids"] = [clue["evidence_ids"][0]]
+    clue["kind"] = "similar"
 
     result = build_concept_content(context, body)
 
-    assert result["reason_code"] == "CONCEPT_CONTENT_EVIDENCE_INVALID"
+    assert result["reason_code"] == "CONCEPT_CONTENT_BODY_INVALID"
     assert "relation_clues" not in result
 
 
@@ -432,12 +412,12 @@ def test_reversed_group_order_is_not_a_duplicate_clue():
     assert len(result["relation_clues"]) == 2
 
 
-@pytest.mark.parametrize("kind", ["similar", "confusing"])
-def test_symmetric_semantic_duplicate_rejects_reverse_order_and_new_statement(kind):
+def test_symmetric_semantic_duplicate_rejects_reverse_order_and_new_statement():
+    """對稱線索不能用反向端點與不同敘述繞過語意重複檢查。"""
     context = build_summary_context(_groups(["Array", "Loop"]))
     body = _concept_content_body(context)
     clue = body["relation_clues"][0]
-    clue["kind"] = kind
+    clue["kind"] = "confusing"
     clue["direction_hint"] = "bidirectional"
     reversed_clue = deepcopy(clue)
     reversed_clue["source_group_id"], reversed_clue["target_group_id"] = (

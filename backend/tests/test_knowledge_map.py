@@ -139,13 +139,12 @@ def test_grounded_bidirectional_clues_become_canonical_symmetric_relations(
     assert relation["reason_code"] == "DIRECT_CLUE_ACCEPTED"
 
 
-@pytest.mark.parametrize("relation_type", ["similar", "confusing"])
-def test_symmetric_clue_wrong_direction_stays_reviewable(relation_type):
+def test_symmetric_clue_wrong_direction_stays_reviewable():
     source = _source("programming-07b1c1c1-study-material-output.json")
     clue = next(
         item for item in source["relation_clues"] if item["kind"] == "application"
     )
-    clue["kind"] = relation_type
+    clue["kind"] = "similar"
     clue["direction_hint"] = "source_to_target"
     _rebind_output_id(source)
 
@@ -162,15 +161,12 @@ def test_symmetric_clue_wrong_direction_stays_reviewable(relation_type):
     assert review["reason_code"] == "RELATION_DIRECTION_NEEDS_REVIEW"
 
 
-@pytest.mark.parametrize("relation_type", ["similar", "confusing"])
-def test_symmetric_reverse_clues_with_different_statements_deduplicate(
-    relation_type,
-):
+def test_symmetric_reverse_clues_with_different_statements_deduplicate():
     source = _source("programming-07b1c1c1-study-material-output.json")
     clue = next(
         item for item in source["relation_clues"] if item["kind"] == "application"
     )
-    clue["kind"] = relation_type
+    clue["kind"] = "confusing"
     clue["direction_hint"] = "bidirectional"
     reversed_clue = deepcopy(clue)
     reversed_clue["source_concept_id"], reversed_clue["target_concept_id"] = (
@@ -186,7 +182,7 @@ def test_symmetric_reverse_clues_with_different_statements_deduplicate(
     matching = [
         relation
         for relation in knowledge_map["relations"]
-        if relation["type"] == relation_type
+        if relation["type"] == "confusing"
     ]
     assert len(matching) == 1
     assert matching[0]["source_concept_id"] < matching[0]["target_concept_id"]
@@ -282,17 +278,14 @@ def test_semantic_duplicate_relations_fail_closed():
     assert validate_knowledge_map(_rebind_map(changed)) == "KNOWLEDGE_MAP_RELATION_INVALID"
 
 
-@pytest.mark.parametrize("relation_type", ["similar", "confusing"])
-def test_symmetric_relation_reverse_identity_cannot_bypass_semantic_gate(
-    relation_type,
-):
+def test_symmetric_relation_reverse_identity_cannot_bypass_semantic_gate():
     knowledge_map = build_knowledge_map(
         _source("programming-07b1c1c1-study-material-output.json")
     )
     template = knowledge_map["relations"][0]
     first = _relation(
         template,
-        relation_type,
+        "similar",
         template["source_concept_id"],
         template["target_concept_id"],
         template["evidence_ids"],

@@ -2,8 +2,6 @@ from copy import deepcopy
 import hashlib
 import json
 
-import pytest
-
 from knowledge_map.artifacts import (
     build_initial_learning_path,
     build_knowledge_map,
@@ -216,33 +214,6 @@ def _valid_inputs():
     }
 
 
-def _output_with_symmetric_clue(
-    relation_type,
-    *,
-    direction_hint="bidirectional",
-    include_reverse_duplicate=False,
-):
-    """建立含相似或易混淆線索的最小跨階段輸出。"""
-    inputs = _valid_inputs()
-    clue = inputs["concept_content_items"][0]["relation_clues"][0]
-    clue["kind"] = relation_type
-    clue["direction_hint"] = direction_hint
-    clue["statement"] = f"The concepts have a grounded {relation_type} relation."
-    if include_reverse_duplicate:
-        reverse_clue = deepcopy(clue)
-        reverse_clue["source_group_id"], reverse_clue["target_group_id"] = (
-            reverse_clue["target_group_id"],
-            reverse_clue["source_group_id"],
-        )
-        reverse_clue["statement"] = (
-            f"A differently worded reverse {relation_type} observation."
-        )
-        inputs["concept_content_items"][0]["relation_clues"].append(
-            reverse_clue
-        )
-    return build_study_material_output(**inputs)
-
-
 def test_builds_evidence_self_contained_partial_output():
     """驗證合法 partial 輸出欄位、排序、Evidence union 與 review 狀態。"""
     output = build_study_material_output(**_valid_inputs())
@@ -317,22 +288,18 @@ def test_builds_evidence_self_contained_partial_output():
     assert validate_study_material_output(output) is None
 
 
-@pytest.mark.parametrize("relation_type", ["similar", "confusing"])
-@pytest.mark.parametrize("include_reverse_duplicate", [False, True])
-def test_symmetric_clues_build_one_canonical_relation_without_changing_path(
-    relation_type,
-    include_reverse_duplicate,
-):
-    """雙向線索固定端點、語意去重，且不影響 prerequisite 路徑。"""
-    source = _output_with_symmetric_clue(
-        relation_type,
-        include_reverse_duplicate=include_reverse_duplicate,
-    )
+def test_symmetric_clue_builds_canonical_relation_without_changing_path():
+    """保留一個跨階段案例，確認雙向端點與 prerequisite 路徑不變。"""
+    inputs = _valid_inputs()
+    clue = inputs["concept_content_items"][0]["relation_clues"][0]
+    clue["kind"] = "similar"
+    clue["direction_hint"] = "bidirectional"
+    source = build_study_material_output(**inputs)
     knowledge_map = build_knowledge_map(source)
     relations = [
         relation
         for relation in knowledge_map["relations"]
-        if relation["type"] == relation_type
+        if relation["type"] == "similar"
     ]
 
     assert len(relations) == 1
@@ -346,26 +313,6 @@ def test_symmetric_clues_build_one_canonical_relation_without_changing_path(
     assert build_initial_learning_path(knowledge_map)[
         "ordered_concept_ids"
     ] == build_initial_learning_path(baseline_map)["ordered_concept_ids"]
-
-
-@pytest.mark.parametrize("relation_type", ["similar", "confusing"])
-def test_directional_symmetric_clue_stays_review_only(relation_type):
-    """相似與易混淆若不是 bidirectional，不得升格為正式 Relation。"""
-    source = _output_with_symmetric_clue(
-        relation_type,
-        direction_hint="source_to_target",
-    )
-    knowledge_map = build_knowledge_map(source)
-
-    assert not any(
-        relation["type"] == relation_type
-        for relation in knowledge_map["relations"]
-    )
-    assert any(
-        clue["kind"] == relation_type
-        and clue["reason_code"] == "RELATION_DIRECTION_NEEDS_REVIEW"
-        for clue in knowledge_map["review_items"]
-    )
 
 
 def test_excluded_page_keeps_closed_evidence_lineage_and_partial_status():

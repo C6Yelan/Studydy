@@ -46,7 +46,7 @@ test("terminal failure 缺少 sessionStorage 時 fail closed 並提供返回出�
 
   await page.goto(`/materials/${materialId}/runs/${runId}`);
   await expect(page.getByRole("heading", { name: "教材處理失敗" })).toBeVisible();
-  await expect(page.getByText("此分頁缺少原科目資訊，無法安全建立新 run。")).toBeVisible();
+  await expect(page.getByText("此分頁缺少原科目資訊，無法安全建立新的處理作業。請返回上傳頁重新選擇教材。")).toBeVisible();
   await expect(page.getByRole("button", { name: "使用原教材重新處理" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "返回上傳頁" })).toBeVisible();
 });

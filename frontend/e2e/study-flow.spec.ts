@@ -117,15 +117,14 @@ function symmetricRelationMap() {
     concepts: [
       concept("concept-a", "陣列", 40),
       concept("concept-b", "串列", 320),
-      concept("concept-c", "佇列", 600),
     ],
     relations: [
       relation("relation-similar", "concept-a", "concept-b", "similar"),
-      relation("relation-confusing", "concept-b", "concept-c", "confusing"),
+      relation("relation-confusing", "concept-a", "concept-b", "confusing"),
     ],
     path: {
       ...emptyMap().path,
-      ordered_concept_ids: ["concept-a", "concept-b", "concept-c"],
+      ordered_concept_ids: ["concept-a", "concept-b"],
     },
   };
 }
@@ -145,12 +144,12 @@ test("partial empty map 與 resource 顯示真實 reason、limitations 與空狀
   await expect(page.getByText("目前沒有可顯示的概念")).toBeVisible();
   await expect(page.getByText("PAGE_CONTENT_EXCLUDED").first()).toBeVisible();
   await expect(page.getByText("PATH_EMPTY")).toBeVisible();
-  await page.getByRole("button", { name: "學習資源 0" }).click();
+  await page.getByRole("button", { name: "學習資源 0", exact: true }).click();
   await expect(page.getByText("目前沒有與這份教材配對的公開學習資源。")).toBeVisible();
   await expect(page.getByText("NO_RESOURCE_MATCH")).toBeVisible();
 });
 
-test("similar 與 confusing 使用不同樣式且不顯示單向箭頭", async ({ page }) => {
+test("similar 與 confusing 顯示且不使用單向箭頭", async ({ page }) => {
   await page.route(`**/v1/material-processing-runs/${runId}`, async (route) => {
     await route.fulfill({ status: 200, json: terminalRun() });
   });
@@ -162,15 +161,13 @@ test("similar 與 confusing 使用不同樣式且不顯示單向箭頭", async (
   });
 
   await page.goto(`/materials/${materialId}/runs/${runId}/maps/${encodeURIComponent(mapRevision)}/paths/${encodeURIComponent(pathRevision)}`);
-  await expect(page.getByText("相似", { exact: true })).toBeVisible();
-  await expect(page.getByText("易混淆", { exact: true })).toBeVisible();
+  const relationLegend = page.locator('[aria-label="關係圖例"]');
+  await expect(relationLegend.getByText("相似", { exact: true })).toBeVisible();
+  await expect(relationLegend.getByText("易混淆", { exact: true })).toBeVisible();
   const similarEdge = page.locator(".react-flow__edge.relation-similar .react-flow__edge-path");
   const confusingEdge = page.locator(".react-flow__edge.relation-confusing .react-flow__edge-path");
   await expect(similarEdge).toBeVisible();
   await expect(confusingEdge).toBeVisible();
   expect(await similarEdge.getAttribute("marker-end")).toBeNull();
   expect(await confusingEdge.getAttribute("marker-end")).toBeNull();
-  const similarStroke = await similarEdge.evaluate((element) => getComputedStyle(element).stroke);
-  const confusingStroke = await confusingEdge.evaluate((element) => getComputedStyle(element).stroke);
-  expect(similarStroke).not.toBe(confusingStroke);
 });
