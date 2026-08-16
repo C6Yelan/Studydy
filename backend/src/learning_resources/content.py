@@ -36,7 +36,7 @@ _CATALOG_COPY_FIELDS = (
 _EVIDENCE_FIELDS = {
     "schema",
     "evidence_set_id",
-    "source_s2_revision",
+    "source_study_material_output_revision",
     "catalog_revision",
     "concept_id",
     "resource_key",
@@ -185,7 +185,7 @@ def _evidence_set_id(
 def _evidence_result(
     catalog: Any,
     resource: dict[str, Any],
-    source_s2_revision: Any,
+    source_study_material_output_revision: Any,
     concept_id: Any,
     blocks: list[dict[str, Any]],
     produced_at: Any,
@@ -201,7 +201,7 @@ def _evidence_result(
             concept_id,
             blocks,
         ),
-        "source_s2_revision": source_s2_revision,
+        "source_study_material_output_revision": source_study_material_output_revision,
         "catalog_revision": (
             catalog.get("catalog_revision", "") if isinstance(catalog, dict) else ""
         ),
@@ -267,7 +267,7 @@ def _preserve_result(
 def _failed_result(
     catalog: Any,
     resource: dict[str, Any],
-    source_s2_revision: Any,
+    source_study_material_output_revision: Any,
     concept_id: Any,
     produced_at: Any,
     run_id: Any,
@@ -277,7 +277,7 @@ def _failed_result(
     evidence = _evidence_result(
         catalog,
         resource,
-        source_s2_revision,
+        source_study_material_output_revision,
         concept_id,
         [],
         produced_at,
@@ -292,7 +292,7 @@ def build_resource_evidence(
     resource_key: Any,
     artifact_root: str | Path,
     content_type: Any,
-    source_s2_revision: Any,
+    source_study_material_output_revision: Any,
     concept_id: Any,
     concept_terms: Any,
     produced_at: Any,
@@ -302,7 +302,7 @@ def build_resource_evidence(
     """從受控 PDF 選出可回查的 Concept 相關原生文字 blocks。"""
     resource = _resource(catalog, resource_key) or {"resource_key": resource_key}
     if (
-        not _nonempty_string(source_s2_revision)
+        not _nonempty_string(source_study_material_output_revision)
         or not _nonempty_string(concept_id)
         or not _valid_concept_terms(concept_terms)
         or not _valid_timestamp(produced_at)
@@ -311,7 +311,7 @@ def build_resource_evidence(
         return _failed_result(
             catalog,
             resource,
-            source_s2_revision,
+            source_study_material_output_revision,
             concept_id,
             produced_at,
             run_id,
@@ -324,7 +324,7 @@ def build_resource_evidence(
         return _failed_result(
             catalog,
             resource,
-            source_s2_revision,
+            source_study_material_output_revision,
             concept_id,
             produced_at,
             run_id,
@@ -336,7 +336,7 @@ def build_resource_evidence(
         return _failed_result(
             catalog,
             resource,
-            source_s2_revision,
+            source_study_material_output_revision,
             concept_id,
             produced_at,
             run_id,
@@ -348,7 +348,7 @@ def build_resource_evidence(
         return _failed_result(
             catalog,
             {"resource_key": resource_key},
-            source_s2_revision,
+            source_study_material_output_revision,
             concept_id,
             produced_at,
             run_id,
@@ -365,7 +365,7 @@ def build_resource_evidence(
         return _failed_result(
             catalog,
             resource,
-            source_s2_revision,
+            source_study_material_output_revision,
             concept_id,
             produced_at,
             run_id,
@@ -377,7 +377,7 @@ def build_resource_evidence(
         return _failed_result(
             catalog,
             resource,
-            source_s2_revision,
+            source_study_material_output_revision,
             concept_id,
             produced_at,
             run_id,
@@ -388,7 +388,7 @@ def build_resource_evidence(
         return _failed_result(
             catalog,
             resource,
-            source_s2_revision,
+            source_study_material_output_revision,
             concept_id,
             produced_at,
             run_id,
@@ -411,7 +411,7 @@ def build_resource_evidence(
             return _failed_result(
                 catalog,
                 resource,
-                source_s2_revision,
+                source_study_material_output_revision,
                 concept_id,
                 produced_at,
                 run_id,
@@ -426,7 +426,7 @@ def build_resource_evidence(
         return _failed_result(
             catalog,
             resource,
-            source_s2_revision,
+            source_study_material_output_revision,
             concept_id,
             produced_at,
             run_id,
@@ -437,7 +437,7 @@ def build_resource_evidence(
     evidence = _evidence_result(
         catalog,
         resource,
-        source_s2_revision,
+        source_study_material_output_revision,
         concept_id,
         selected_blocks,
         produced_at,
@@ -449,7 +449,7 @@ def build_resource_evidence(
         catalog,
         artifact_root,
         content_type,
-        source_s2_revision,
+        source_study_material_output_revision,
         concept_id,
         concept_terms,
     )
@@ -466,7 +466,7 @@ def validate_resource_evidence(
     catalog: Any,
     artifact_root: str | Path,
     content_type: Any,
-    source_s2_revision: Any,
+    source_study_material_output_revision: Any,
     concept_id: Any,
     concept_terms: Any,
 ) -> str | None:
@@ -476,7 +476,7 @@ def validate_resource_evidence(
     if evidence["schema"] != RESOURCE_EVIDENCE_SCHEMA:
         return "RESOURCE_EVIDENCE_ROOT_INVALID"
     if (
-        evidence["source_s2_revision"] != source_s2_revision
+        evidence["source_study_material_output_revision"] != source_study_material_output_revision
         or evidence["concept_id"] != concept_id
         or evidence["extraction_policy_version"] != EXTRACTION_POLICY_VERSION
         or evidence["pymupdf_version"] != pymupdf.VersionBind

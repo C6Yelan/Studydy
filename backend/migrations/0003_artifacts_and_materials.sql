@@ -111,8 +111,8 @@ CREATE TABLE learning_resource_results (
         REFERENCES resource_catalogs (learner_id, material_id, catalog_revision),
     CHECK (document ? 'result_revision' AND document ->> 'result_revision' = result_revision),
     CHECK (
-        document ? 'source_s2_revision'
-        AND document ->> 'source_s2_revision' = source_output_revision
+        document ? 'source_study_material_output_revision'
+        AND document ->> 'source_study_material_output_revision' = source_output_revision
     ),
     CHECK (document ? 'catalog_revision' AND document ->> 'catalog_revision' = catalog_revision)
 );

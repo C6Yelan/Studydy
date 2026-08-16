@@ -13,7 +13,7 @@ CREATE TABLE material_processing_runs (
     error_code text CHECK (error_code IN (
         'RESTART_INTERRUPTED',
         'MATERIAL_CONFIGURATION_INVALID',
-        'MATERIAL_S1_FAILED',
+        'MATERIAL_ANALYSIS_FAILED',
         'LOCAL_PROVIDER_TIMEOUT',
         'LOCAL_PROVIDER_RATE_LIMITED',
         'LOCAL_PROVIDER_TRANSIENT_ERROR',

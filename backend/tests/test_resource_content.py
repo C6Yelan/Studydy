@@ -3,6 +3,7 @@ import hashlib
 import json
 
 import pymupdf
+import pytest
 
 from learning_resources.catalog import build_controlled_resource_catalog
 from learning_resources.content import (
@@ -12,7 +13,7 @@ from learning_resources.content import (
 )
 
 
-SOURCE_S2_REVISION = "study-material-output:sha256:" + "1" * 64
+SOURCE_STUDY_MATERIAL_OUTPUT_REVISION = "study-material-output:sha256:" + "1" * 64
 CONCEPT_ID = "concept-group:sha256:" + "2" * 64
 PRODUCED_AT = "2026-08-08T14:00:00+08:00"
 RUN_ID = "resource-evidence-test-run"
@@ -62,7 +63,7 @@ def _build(tmp_path, catalog, output_name="evidence.json", **changes):
         "resource_key": _resource_key(catalog),
         "artifact_root": tmp_path,
         "content_type": "application/pdf",
-        "source_s2_revision": SOURCE_S2_REVISION,
+        "source_study_material_output_revision": SOURCE_STUDY_MATERIAL_OUTPUT_REVISION,
         "concept_id": CONCEPT_ID,
         "concept_terms": ["array"],
         "produced_at": PRODUCED_AT,
@@ -127,7 +128,7 @@ def test_builds_page_located_resource_evidence(tmp_path):
         catalog,
         tmp_path,
         "application/pdf",
-        SOURCE_S2_REVISION,
+        SOURCE_STUDY_MATERIAL_OUTPUT_REVISION,
         CONCEPT_ID,
         ["array"],
     ) is None
@@ -193,7 +194,7 @@ def test_dynamic_source_locator_builds_bound_evidence(tmp_path):
         catalog,
         tmp_path,
         "application/pdf",
-        SOURCE_S2_REVISION,
+        SOURCE_STUDY_MATERIAL_OUTPUT_REVISION,
         CONCEPT_ID,
         ["array"],
     ) is None
@@ -297,7 +298,7 @@ def test_wrong_page_and_text_hash_are_rejected(tmp_path):
         catalog,
         tmp_path,
         "application/pdf",
-        SOURCE_S2_REVISION,
+        SOURCE_STUDY_MATERIAL_OUTPUT_REVISION,
         CONCEPT_ID,
         ["array"],
     ) == "RESOURCE_EVIDENCE_BLOCK_INVALID"
@@ -310,31 +311,24 @@ def test_wrong_page_and_text_hash_are_rejected(tmp_path):
         catalog,
         tmp_path,
         "application/pdf",
-        SOURCE_S2_REVISION,
+        SOURCE_STUDY_MATERIAL_OUTPUT_REVISION,
         CONCEPT_ID,
         ["array"],
     ) == "RESOURCE_EVIDENCE_BLOCK_HASH_INVALID"
 
 
-def test_catalog_field_rewrite_is_rejected(tmp_path):
-    pdf_path = tmp_path / "resource.pdf"
-    _write_pdf(pdf_path, "Array structures store indexed values. " * 20)
-    catalog = _catalog(tmp_path, pdf_path)
-    evidence = _build(tmp_path, catalog)
-    evidence["title"] = "Rewritten title"
-
-    assert validate_resource_evidence(
-        evidence,
-        catalog,
-        tmp_path,
-        "application/pdf",
-        SOURCE_S2_REVISION,
-        CONCEPT_ID,
-        ["array"],
-    ) == "RESOURCE_EVIDENCE_BINDING_INVALID"
-
-
-def test_ordered_blocks_change_invalidates_evidence_set_id(tmp_path):
+@pytest.mark.parametrize(
+    ("mutation", "expected_reason"),
+    [
+        ("catalog_rewrite", "RESOURCE_EVIDENCE_BINDING_INVALID"),
+        ("ordered_blocks", "RESOURCE_EVIDENCE_IDENTITY_INVALID"),
+        ("block_bound", "RESOURCE_EVIDENCE_BOUNDS_INVALID"),
+        ("character_bound", "RESOURCE_EVIDENCE_BOUNDS_INVALID"),
+    ],
+)
+def test_validator_rejects_bound_content_mutations(
+    tmp_path, mutation, expected_reason
+):
     pdf_path = tmp_path / "resource.pdf"
     document = pymupdf.open()
     first_page = document.new_page()
@@ -346,64 +340,28 @@ def test_ordered_blocks_change_invalidates_evidence_set_id(tmp_path):
     catalog = _catalog(tmp_path, pdf_path)
     evidence = _build(tmp_path, catalog)
     assert len(evidence["blocks"]) == 2
-    changed_order = deepcopy(evidence)
-    changed_order["blocks"] = list(reversed(changed_order["blocks"]))
+    changed = deepcopy(evidence)
+    if mutation == "catalog_rewrite":
+        changed["title"] = "Rewritten title"
+    elif mutation == "ordered_blocks":
+        changed["blocks"] = list(reversed(changed["blocks"]))
+    elif mutation == "block_bound":
+        while len(changed["blocks"]) <= MAX_BLOCKS:
+            changed["blocks"].append(deepcopy(changed["blocks"][0]))
+        _rebind_evidence_set(changed)
+    else:
+        changed["blocks"][0]["text"] = "array " * 1001
+        _rebind_evidence_set(changed)
 
     assert validate_resource_evidence(
-        changed_order,
+        changed,
         catalog,
         tmp_path,
         "application/pdf",
-        SOURCE_S2_REVISION,
+        SOURCE_STUDY_MATERIAL_OUTPUT_REVISION,
         CONCEPT_ID,
         ["array"],
-    ) == "RESOURCE_EVIDENCE_IDENTITY_INVALID"
-
-
-def test_block_bound_is_rejected(tmp_path):
-    pdf_path = tmp_path / "resource.pdf"
-    document = pymupdf.open()
-    page = document.new_page()
-    for index in range(8):
-        page.insert_text((50, 60 + index * 40), f"Array block {index}. " * 10)
-    document.save(pdf_path)
-    document.close()
-    catalog = _catalog(tmp_path, pdf_path)
-    evidence = _build(tmp_path, catalog)
-    over_bound = deepcopy(evidence)
-    over_bound["blocks"].append(deepcopy(over_bound["blocks"][0]))
-    _rebind_evidence_set(over_bound)
-
-    assert validate_resource_evidence(
-        over_bound,
-        catalog,
-        tmp_path,
-        "application/pdf",
-        SOURCE_S2_REVISION,
-        CONCEPT_ID,
-        ["array"],
-    ) == "RESOURCE_EVIDENCE_BOUNDS_INVALID"
-
-
-def test_character_bound_is_rejected(tmp_path):
-    pdf_path = tmp_path / "resource.pdf"
-    _write_pdf(pdf_path, "Array structures store indexed values. " * 20)
-    catalog = _catalog(tmp_path, pdf_path)
-    evidence = _build(tmp_path, catalog)
-    over_bound = deepcopy(evidence)
-    over_bound["blocks"][0]["text"] = "array " * 1001
-    _rebind_evidence_set(over_bound)
-
-    assert sum(len(block["text"]) for block in over_bound["blocks"]) > 6000
-    assert validate_resource_evidence(
-        over_bound,
-        catalog,
-        tmp_path,
-        "application/pdf",
-        SOURCE_S2_REVISION,
-        CONCEPT_ID,
-        ["array"],
-    ) == "RESOURCE_EVIDENCE_BOUNDS_INVALID"
+    ) == expected_reason
 
 
 def test_prompt_injection_text_fails_closed(tmp_path):

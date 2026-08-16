@@ -98,19 +98,16 @@ def test_source_idempotency_replay_and_conflict(
         assert connection.execute("SELECT count(*) FROM artifacts").fetchone() == (1,)
 
 
-@pytest.mark.parametrize(
-    "content",
-    [
-        b"not-pdf",
-    ],
-)
 def test_invalid_pdf_leaves_no_row_or_residue(
-    artifact_database_dsn: str, artifact_root: Path, content: bytes
+    artifact_database_dsn: str, artifact_root: Path
 ) -> None:
     learner = _learner(artifact_database_dsn)
     with pytest.raises(ArtifactError, match="ARTIFACT_PDF_INVALID"):
         publish_idempotent_source_pdf(
-            learner, io.BytesIO(content), f"invalid-{uuid4()}", dsn=artifact_database_dsn
+            learner,
+            io.BytesIO(b"not-pdf"),
+            f"invalid-{uuid4()}",
+            dsn=artifact_database_dsn,
         )
     with psycopg.connect(artifact_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM materials").fetchone() == (0,)
@@ -152,24 +149,16 @@ def test_source_receipt_rejects_resource_kind(
         )
 
 
-@pytest.mark.parametrize("mode", ["hash"])
-def test_verified_read_rejects_nonregular_or_changed_object(
-    artifact_database_dsn: str, artifact_root: Path, mode: str
+def test_verified_read_rejects_changed_object_hash(
+    artifact_database_dsn: str, artifact_root: Path
 ) -> None:
     learner = _learner(artifact_database_dsn)
     published = _publish_source(learner, _pdf(), artifact_database_dsn)
     path = artifact_root / "objects" / published.artifact_id.hex
     path.chmod(0o600)
-    if mode == "symlink":
-        saved = path.with_suffix(".saved")
-        path.rename(saved)
-        path.symlink_to(saved.name)
-    elif mode == "hash":
-        changed = bytearray(path.read_bytes())
-        changed[-1] ^= 1
-        path.write_bytes(changed)
-    else:
-        path.write_bytes(path.read_bytes() + b"x")
+    changed = bytearray(path.read_bytes())
+    changed[-1] ^= 1
+    path.write_bytes(changed)
     with pytest.raises(ArtifactError, match="ARTIFACT_NOT_AVAILABLE"):
         with open_verified_source_pdf(learner, published.artifact_id, dsn=artifact_database_dsn):
             pass

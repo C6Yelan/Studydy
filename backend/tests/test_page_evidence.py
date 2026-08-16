@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 
 import pymupdf
-import pytest
 
 from pdf_evidence.page_evidence import _build_page_evidence
 
@@ -264,22 +263,21 @@ def test_excludes_only_zero_area_native_spans(tmp_path, monkeypatch):
     ]
 
 
-@pytest.mark.parametrize(
-    "bbox",
-    [
-        [40.0, 40.0, 39.0, 52.0],
-    ],
-)
-def test_rejects_structurally_invalid_native_span_bbox(tmp_path, monkeypatch, bbox):
+def test_rejects_structurally_invalid_native_span_bbox(tmp_path, monkeypatch):
     """驗證反向或缺少座標的 span bbox 仍維持 fail closed。"""
     pdf = _make_pdf(tmp_path)
     source_hash = _sha256(pdf)
+    invalid_bbox = [40.0, 40.0, 39.0, 52.0]
 
     def invalid_span(page, *args, **kwargs):
         """回傳結構性無效的原生 span bbox。"""
         return {
             "blocks": [
-                {"lines": [{"spans": [{"bbox": bbox, "text": "Invalid"}]}]}
+                {
+                    "lines": [
+                        {"spans": [{"bbox": invalid_bbox, "text": "Invalid"}]}
+                    ]
+                }
             ]
         }
 

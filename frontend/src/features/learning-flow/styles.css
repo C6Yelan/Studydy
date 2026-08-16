@@ -1,0 +1,312 @@
+.learning-page {
+  display: grid;
+  width: min(920px, 100%);
+  min-width: 0;
+  gap: 22px;
+  margin: 0 auto;
+}
+
+.learning-heading {
+  text-align: center;
+}
+
+.learning-heading > p:last-child {
+  max-width: 680px;
+  margin: 0 auto;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.learning-status-card {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  padding: 8px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.learning-status-card > div {
+  min-width: 0;
+  padding: 14px;
+  background: var(--surface);
+}
+
+.learning-status-card span,
+.learning-status-card strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.learning-status-card span {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.learning-status-card strong {
+  color: var(--navy);
+  font-size: 0.82rem;
+}
+
+.assessment-form {
+  display: grid;
+  gap: 18px;
+}
+
+.question-card {
+  padding: 24px;
+}
+
+.question-card + .question-card {
+  margin-top: 0;
+  border-top: 1px solid var(--border);
+}
+
+.question-card legend {
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  font-size: 0.78rem;
+}
+
+.question-card > p {
+  margin: 12px 0 18px;
+  color: var(--navy);
+  font-size: 1.02rem;
+  font-weight: 750;
+  line-height: 1.55;
+}
+
+.assessment-options {
+  display: grid;
+  gap: 10px;
+}
+
+.assessment-options label {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 11px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #fff;
+  cursor: pointer;
+  line-height: 1.55;
+}
+
+.assessment-options label:hover,
+.assessment-options label.is-selected {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.assessment-options input {
+  margin-top: 4px;
+  accent-color: var(--blue);
+}
+
+.assessment-message {
+  margin: 0;
+}
+
+.submission-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px;
+}
+
+.submission-card strong,
+.submission-card span {
+  display: block;
+}
+
+.submission-card span {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.learning-revisions {
+  padding: 22px;
+}
+
+.learning-revisions dl {
+  margin: 0;
+}
+
+.learning-revisions dl > div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 14px;
+  padding: 9px 0;
+  border-top: 1px solid var(--border);
+}
+
+.learning-back {
+  justify-self: center;
+}
+
+.learning-empty-page .learning-status-card {
+  width: min(620px, 100%);
+  grid-template-columns: 1fr;
+  margin-top: 24px;
+}
+
+.learning-empty-page .learning-status-card span {
+  margin-top: 6px;
+}
+
+.replay-notice,
+.review-notice {
+  padding: 14px 16px;
+  border: 1px solid #9edac8;
+  border-radius: 12px;
+  color: #08694f;
+  background: #eefbf7;
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.review-notice {
+  border-color: #e9c584;
+  color: #7a4b0a;
+  background: #fff8e8;
+}
+
+.learning-section {
+  display: grid;
+  gap: 12px;
+}
+
+.section-heading,
+.card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-heading h2,
+.card-title-row h3 {
+  margin: 0;
+}
+
+.section-heading > span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.mastery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.mastery-card,
+.weakness-card,
+.suggestion-card,
+.learning-empty-card {
+  padding: 20px;
+}
+
+.card-title-row h3 {
+  color: var(--navy);
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.needs-review-badge {
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: #89520a;
+  background: #fff4df;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.mastery-score {
+  display: block;
+  margin: 18px 0 12px;
+  color: var(--blue);
+  font-size: 1.7rem;
+}
+
+.mastery-card dl,
+.suggestion-card dl {
+  margin: 0;
+}
+
+.mastery-card dl > div,
+.suggestion-card dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.reason-list,
+.weakness-card p {
+  margin: 13px 0 0;
+  color: var(--muted);
+  font: 0.74rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+
+.learning-empty-card {
+  color: var(--muted);
+  text-align: center;
+}
+
+.weakness-card > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.weakness-card span {
+  color: var(--warning);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.suggestion-card {
+  display: grid;
+  gap: 14px;
+}
+
+.suggestion-action {
+  margin: 0;
+  color: var(--blue);
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.learning-actions {
+  justify-content: center;
+  margin-top: 0;
+}
+
+@media (max-width: 700px) {
+  .learning-status-card,
+  .mastery-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .submission-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .learning-revisions dl > div {
+    grid-template-columns: 1fr;
+  }
+}

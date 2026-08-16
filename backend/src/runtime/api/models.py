@@ -94,7 +94,7 @@ class MaterialProcessingRunView(_ClosedModel):
     error_code: Literal[
         "RESTART_INTERRUPTED",
         "MATERIAL_CONFIGURATION_INVALID",
-        "MATERIAL_S1_FAILED",
+        "MATERIAL_ANALYSIS_FAILED",
         "LOCAL_PROVIDER_TIMEOUT",
         "LOCAL_PROVIDER_RATE_LIMITED",
         "LOCAL_PROVIDER_TRANSIENT_ERROR",
@@ -346,7 +346,7 @@ class ResourceItemView(_ClosedModel):
 class LearningResourceResultView(_ClosedModel):
     schema_: Literal["learning-resource-result-view/v1"] = Field(alias="schema")
     result_revision: str = Field(pattern=r"^learning-resource-result:sha256:[0-9a-f]{64}$")
-    source_s2_revision: str = Field(pattern=r"^study-material-output:sha256:[0-9a-f]{64}$")
+    source_study_material_output_revision: str = Field(pattern=r"^study-material-output:sha256:[0-9a-f]{64}$")
     catalog_revision: str = Field(pattern=r"^resource-catalog:sha256:[0-9a-f]{64}$")
     subject: str
     resources: list[ResourceItemView]
@@ -540,7 +540,7 @@ def project_resource_result(document: dict[str, Any]) -> dict[str, Any]:
     root_keys = {
         "result_revision",
         "schema",
-        "source_s2_revision",
+        "source_study_material_output_revision",
         "catalog_revision",
         "subject",
         "resources",

@@ -239,40 +239,20 @@ def test_valid_summary_is_evidence_bound_and_needs_review():
     assert (context, body) == originals
 
 
-@pytest.mark.parametrize(
-    ("invalid_body", "reason_code"),
-    [
-        ("unknown_evidence", "EVIDENCE_SUMMARY_EVIDENCE_INVALID"),
-    ],
-)
-def test_invalid_summary_body_fails_without_summary_text(
-    invalid_body, reason_code
-):
-    """驗證摘要 body 或 Evidence 無效時不會保留未驗證文字。"""
+def test_unknown_summary_evidence_fails_without_summary_text():
+    """驗證摘要引用未知 Evidence 時不會保留未驗證文字。"""
     context = build_summary_context(_groups(["Array"]))
     body = {
         "summary": "Arrays store ordered values.",
-        "evidence_ids": [
-            context["groups"][0]["members"][0]["evidence_ids"][0]
-        ],
+        "evidence_ids": ["evidence-reference:sha256:unknown"],
     }
-    if invalid_body == "extra":
-        body["extra"] = "invalid"
-    elif invalid_body == "missing":
-        del body["summary"]
-    elif invalid_body == "empty_summary":
-        body["summary"] = " "
-    elif invalid_body == "empty_evidence":
-        body["evidence_ids"] = []
-    else:
-        body["evidence_ids"] = ["evidence-reference:sha256:unknown"]
 
     result = build_evidence_summary(context, body)
 
     assert result["processing"] == "failed"
     assert result["quality"] == "unsupported"
     assert result["decision"] == "reject"
-    assert result["reason_code"] == reason_code
+    assert result["reason_code"] == "EVIDENCE_SUMMARY_EVIDENCE_INVALID"
     assert "summary" not in result
     assert "evidence_ids" not in result
 
@@ -395,79 +375,19 @@ def test_reversed_group_order_is_not_a_duplicate_clue():
     assert len(result["relation_clues"]) == 2
 
 
-@pytest.mark.parametrize(
-    ("invalid_case", "reason_code"),
-    [
-        ("target_evidence_missing", "CONCEPT_CONTENT_EVIDENCE_INVALID"),
-    ],
-)
-def test_invalid_combined_content_fails_without_unvalidated_text(
-    invalid_case, reason_code
-):
-    """驗證契約或 grounding 失敗時不會帶出未驗證文字。"""
+def test_missing_target_evidence_fails_without_unvalidated_text():
+    """驗證 relation clue 缺少 target Evidence 時不會帶出未驗證文字。"""
     context = build_summary_context(_groups(["Array", "Loop"]))
     body = _concept_content_body(context)
     clue = body["relation_clues"][0]
-    source_evidence_id, target_evidence_id = clue["evidence_ids"]
-
-    if invalid_case == "root_extra":
-        body["extra"] = "invalid"
-    elif invalid_case == "root_missing":
-        del body["summary"]
-    elif invalid_case == "summary_empty":
-        body["summary"] = " "
-    elif invalid_case == "summary_too_long":
-        body["summary"] = "x" * 1001
-    elif invalid_case == "summary_evidence_empty":
-        body["summary_evidence_ids"] = []
-    elif invalid_case == "summary_evidence_duplicate":
-        body["summary_evidence_ids"] = [source_evidence_id] * 2
-    elif invalid_case == "summary_evidence_unknown":
-        body["summary_evidence_ids"] = ["evidence-reference:sha256:unknown"]
-    elif invalid_case == "too_many_clues":
-        body["relation_clues"] = [deepcopy(clue) for _ in range(9)]
-    elif invalid_case == "clue_extra":
-        clue["extra"] = "invalid"
-    elif invalid_case == "clue_missing":
-        del clue["statement"]
-    elif invalid_case == "kind_invalid":
-        clue["kind"] = "related"
-    elif invalid_case == "direction_invalid":
-        clue["direction_hint"] = "forward"
-    elif invalid_case == "statement_empty":
-        clue["statement"] = " "
-    elif invalid_case == "statement_too_long":
-        clue["statement"] = "x" * 301
-    elif invalid_case == "group_unknown":
-        clue["source_group_id"] = "concept-group:sha256:unknown"
-    elif invalid_case == "group_self_pair":
-        clue["target_group_id"] = clue["source_group_id"]
-    elif invalid_case == "clue_evidence_empty":
-        clue["evidence_ids"] = []
-    elif invalid_case == "clue_evidence_duplicate":
-        clue["evidence_ids"] = [source_evidence_id] * 2
-    elif invalid_case == "clue_evidence_unknown":
-        clue["evidence_ids"] = [
-            source_evidence_id,
-            "evidence-reference:sha256:unknown",
-        ]
-    elif invalid_case == "source_evidence_missing":
-        clue["evidence_ids"] = [target_evidence_id]
-    elif invalid_case == "target_evidence_missing":
-        clue["evidence_ids"] = [source_evidence_id]
-    else:
-        duplicate = {
-            field: f"  {value}  " if isinstance(value, str) else deepcopy(value)
-            for field, value in clue.items()
-        }
-        body["relation_clues"].append(duplicate)
+    clue["evidence_ids"] = [clue["evidence_ids"][0]]
 
     result = build_concept_content(context, body)
 
     assert result["processing"] == "failed"
     assert result["quality"] == "unsupported"
     assert result["decision"] == "reject"
-    assert result["reason_code"] == reason_code
+    assert result["reason_code"] == "CONCEPT_CONTENT_EVIDENCE_INVALID"
     assert "summary" not in result
     assert "summary_evidence_ids" not in result
     assert "relation_clues" not in result

@@ -17,6 +17,9 @@ __pycache__/
 # Node
 node_modules/
 dist/
+/frontend/.playwright-browsers/
+/frontend/playwright-report/
+/frontend/test-results/
 
 # Local Codex workflow
 AGENTS.md

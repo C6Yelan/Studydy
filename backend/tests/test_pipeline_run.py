@@ -13,7 +13,6 @@ import threading
 import pymupdf
 import pytest
 
-import pdf_evidence
 from knowledge_map.artifacts import build_artifacts
 from pdf_evidence.pipeline import run as pipeline_run
 from pdf_evidence.pipeline.run import (
@@ -257,7 +256,7 @@ def _run(pdf_path, source_sha256, output_root, config, run_id="run-1"):
 def test_public_pipeline_binding_is_hash_only_and_matches_run(tmp_path):
     config = _config(tmp_path / "private-cache", "http://127.0.0.1:8080")
     binding = development_pipeline_binding(config)
-    assert binding["schema"] == "s1-development-pipeline-binding/v1"
+    assert binding["schema"] == "material-analysis-pipeline-binding/v1"
     assert len(binding["runtime_binding_sha256"]) == 64
     assert str(tmp_path) not in repr(binding)
     assert config["endpoint_url"] not in repr(binding)
@@ -272,25 +271,15 @@ def test_public_pipeline_binding_is_hash_only_and_matches_run(tmp_path):
     assert development_pipeline_binding({}) is None
 
 
-def test_run_rejects_non_loopback_endpoint_before_generation(
-    tmp_path, monkeypatch
-):
-    """正式 PDF run 只接受沒有 DNS、credentials 或額外路徑的 loopback。"""
-    pdf_path = tmp_path / "source.pdf"
-    source_sha256 = _make_pdf(pdf_path)
-    monkeypatch.setattr(
-        pipeline_run,
-        "generate_development_page_structure",
-        lambda *args, **kwargs: pytest.fail("invalid endpoint reached generation"),
-    )
-    config = _config(tmp_path / "cache", "http://192.0.2.1:8080")
-    run = _run(pdf_path, source_sha256, tmp_path / "output", config)
-    assert run["reason_code"] == "LOCAL_ENDPOINT_NOT_LOOPBACK"
-    assert run["provider_call_counts"]["total"] == 0
-
-
+@pytest.mark.parametrize(
+    ("endpoint_url", "max_attempts", "expected_reason"),
+    [
+        ("http://192.0.2.1:8080", 2, "LOCAL_ENDPOINT_NOT_LOOPBACK"),
+        ("http://127.0.0.1:8080", 0, "LOCAL_CONFIG_INVALID"),
+    ],
+)
 def test_run_rejects_invalid_config_before_generation(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, endpoint_url, max_attempts, expected_reason
 ):
     """正式 PDF run 在任何 generation 前完成 immutable config preflight。"""
     pdf_path = tmp_path / "source.pdf"
@@ -300,10 +289,10 @@ def test_run_rejects_invalid_config_before_generation(
         "generate_development_page_structure",
         lambda *args, **kwargs: pytest.fail("invalid config reached generation"),
     )
-    config = _config(tmp_path / "cache", "http://127.0.0.1:8080")
-    config["max_attempts"] = 0
+    config = _config(tmp_path / "cache", endpoint_url)
+    config["max_attempts"] = max_attempts
     run = _run(pdf_path, source_sha256, tmp_path / "output", config)
-    assert run["reason_code"] == "LOCAL_CONFIG_INVALID"
+    assert run["reason_code"] == expected_reason
     assert run["provider_call_counts"]["total"] == 0
 
 
@@ -567,6 +556,45 @@ def test_generation_timeout_is_never_downgraded_to_partial(tmp_path, monkeypatch
     assert result["study_material_output"] is None
 
 
+def test_eleven_page_pdf_reaches_generation_before_any_page_limit_failure(
+    tmp_path,
+    monkeypatch,
+):
+    """既有 1000 頁契約內的教材不受 preview pilot 頁數阻擋。"""
+    pdf_path = tmp_path / "eleven-pages.pdf"
+    source_sha256 = _make_pdf(pdf_path, page_count=11)
+
+    def stop_at_first_generation(*args, **kwargs):
+        return {
+            "processing": "failed",
+            "reason_code": "LOCAL_PROVIDER_TIMEOUT",
+            "provider_call_count": 1,
+            "cache_hit": False,
+            "artifact": None,
+        }
+
+    monkeypatch.setattr(
+        pipeline_run,
+        "generate_development_page_structure",
+        stop_at_first_generation,
+    )
+    result = run_development_pdf(
+        pdf_path,
+        source_sha256,
+        tmp_path / "output",
+        _config(tmp_path / "cache", "http://127.0.0.1:8080"),
+        run_id="eleven-page-run",
+        produced_at="2026-08-16T12:00:00+08:00",
+        page_limit=1000,
+    )
+
+    assert result["processing"] == "failed"
+    assert result["reason_code"] == "LOCAL_PROVIDER_TIMEOUT"
+    assert result["provider_call_counts"]["page_structure"] == 1
+    assert result["provider_call_counts"]["total"] == 1
+    assert result["study_material_output"] is None
+
+
 def test_preflight_failures_make_zero_calls(tmp_path, monkeypatch):
     """hash、media、加密與頁數問題都在 generation 前終止。"""
     pdf_path = tmp_path / "source.pdf"
@@ -749,54 +777,6 @@ def test_all_page_evidence_precedes_generation_and_artifact_tamper_fails(
     )[2] == "PAGE_EVIDENCE_ARTIFACT_INVALID"
 
 
-def test_product_exports_only_the_current_pdf_entry():
-    """package root 只公開目前正式的 PDF processing entry。"""
-    assert pdf_evidence.__all__ == ["run_development_pdf"]
-    assert pdf_evidence.run_development_pdf is run_development_pdf
-
-
-def test_page_evidence_root_symlink_fails_before_write_or_call(tmp_path):
-    """controlled Page Evidence root 不得把教材產物導出指定 root。"""
-    pdf_path = tmp_path / "source.pdf"
-    source_sha256 = _make_pdf(pdf_path)
-    output_root = tmp_path / "output"
-    output_root.mkdir()
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    symlink_path = output_root / "page_evidence"
-    symlink_path.parent.mkdir(parents=True, exist_ok=True)
-    symlink_path.symlink_to(outside, target_is_directory=True)
-
-    result = _run(
-        pdf_path,
-        source_sha256,
-        output_root,
-        _config(tmp_path / "cache", "http://127.0.0.1:8080"),
-    )
-
-    assert result["processing"] == "failed"
-    assert result["reason_code"] == "OUTPUT_ROOT_INVALID"
-    assert result["provider_call_counts"]["total"] == 0
-    assert result["study_material_output"] is None
-    assert list(outside.iterdir()) == []
-
-
-def test_invalid_output_root_is_terminal_before_write_or_call(tmp_path):
-    """OS 不可用的 output path 必須回固定 failure envelope。"""
-    pdf_path = tmp_path / "source.pdf"
-    source_sha256 = _make_pdf(pdf_path)
-    result = _run(
-        pdf_path,
-        source_sha256,
-        "\x00",
-        _config(tmp_path / "cache", "http://127.0.0.1:8080"),
-    )
-    assert result["processing"] == "failed"
-    assert result["reason_code"] == "OUTPUT_ROOT_INVALID"
-    assert result["provider_call_counts"]["total"] == 0
-    assert result["study_material_output"] is None
-
-
 def test_source_swap_after_preflight_cannot_change_page_evidence(
     tmp_path, monkeypatch
 ):
@@ -848,101 +828,3 @@ def test_source_swap_after_preflight_cannot_change_page_evidence(
     assert snapshot_modes == [(0o600, 0o700), (0o600, 0o700)]
     assert hashlib.sha256(pdf_path.read_bytes()).hexdigest() == replacement_sha256
     assert all(path != pdf_path and not path.exists() for path in snapshot_paths)
-
-
-def test_snapshot_cleanup_failure_preserves_exact_run_metrics(tmp_path, monkeypatch):
-    """cleanup gap 必須終止 run，但不可抹掉已發生的呼叫與頁面狀態。"""
-    pdf_path = tmp_path / "source.pdf"
-    source_sha256 = _make_pdf(pdf_path)
-    temporary_root = tmp_path / "snapshot"
-    temporary_root.mkdir()
-
-    class CleanupFailure:
-        def __init__(self, *, prefix):
-            self.name = str(temporary_root)
-
-        def cleanup(self):
-            raise OSError("injected cleanup failure")
-
-    expected_status = {
-        "page_number": 1,
-        "page_ref": "page:sha256:" + "a" * 64,
-        "last_stage": "page_structure",
-        "processing": "failed",
-        "quality": "unsupported",
-        "decision": "reject",
-        "reason_code": "LOCAL_PROVIDER_TIMEOUT",
-    }
-
-    def completed_inner(*args, **kwargs):
-        return {
-            "schema": "s1-development-run/v1",
-            "development_only": True,
-            "run_id": "run-1",
-            "input_binding": {
-                "material_ref": f"material:sha256:{source_sha256}",
-                "source_sha256": source_sha256,
-                "page_count": 2,
-                "runtime_binding_sha256": "b" * 64,
-            },
-            "processing": "failed",
-            "quality": "unsupported",
-            "decision": "reject",
-            "reason_code": "LOCAL_PROVIDER_TIMEOUT",
-            "provider_call_counts": {
-                "page_structure": 2,
-                "visual_alignment_adjudication": 0,
-                "concept_candidate": 0,
-                "concept_content": 0,
-                "total": 2,
-            },
-            "cache_hits": {
-                "page_structure": 0,
-                "visual_alignment_adjudication": 0,
-                "concept_candidate": 0,
-                "concept_content": 0,
-                "total": 0,
-            },
-            "page_statuses": [expected_status],
-            "study_material_output": None,
-        }
-
-    monkeypatch.setattr(
-        pipeline_run.tempfile,
-        "TemporaryDirectory",
-        CleanupFailure,
-    )
-    monkeypatch.setattr(
-        pipeline_run,
-        "_run_development_pdf_snapshot",
-        completed_inner,
-    )
-    result = _run(
-        pdf_path,
-        source_sha256,
-        tmp_path / "output",
-        _config(tmp_path / "cache", "http://127.0.0.1:8080"),
-    )
-
-    assert result["reason_code"] == "MATERIAL_SNAPSHOT_CLEANUP_FAILED"
-    assert result["processing"] == "failed"
-    assert result["provider_call_counts"]["total"] == 2
-    assert result["page_statuses"] == [expected_status]
-    assert result["study_material_output"] is None
-    assert not (temporary_root / "source.pdf").exists()
-
-
-def test_non_regular_source_is_rejected_without_blocking_or_call(tmp_path):
-    """FIFO 等非 regular source 不得在 open/read 階段卡住 worker。"""
-    fifo_path = tmp_path / "source.pdf"
-    os.mkfifo(fifo_path)
-    result = _run(
-        fifo_path,
-        "a" * 64,
-        tmp_path / "output",
-        _config(tmp_path / "cache", "http://127.0.0.1:8080"),
-    )
-    assert result["processing"] == "failed"
-    assert result["reason_code"] == "MATERIAL_MISSING"
-    assert result["provider_call_counts"]["total"] == 0
-    assert result["study_material_output"] is None

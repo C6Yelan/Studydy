@@ -647,12 +647,12 @@ def execute_claimed_material_processing_run(
             run.page_limit,
         )
         if safe_run_status is None:
-            raise MaterialProcessingError("MATERIAL_S1_FAILED")
+            raise MaterialProcessingError("MATERIAL_ANALYSIS_FAILED")
         if safe_run_status["processing"] == "failed":
             reason = (
                 safe_run_status["reason_code"]
                 if safe_run_status["reason_code"] in _SAFE_PROVIDER_ERRORS
-                else "MATERIAL_S1_FAILED"
+                else "MATERIAL_ANALYSIS_FAILED"
             )
             _terminal_failure(run.run_id, reason, dsn=dsn)
             return read_material_processing_run(run.learner_id, run.run_id, dsn=dsn)
@@ -662,7 +662,7 @@ def execute_claimed_material_processing_run(
             or output.get("handoff_id") != str(run.run_id)
             or output.get("material_ref") != f"material:sha256:{source_sha256}"
         ):
-            raise MaterialProcessingError("MATERIAL_S1_FAILED")
+            raise MaterialProcessingError("MATERIAL_ANALYSIS_FAILED")
         publish_terminal_outputs(
             run.learner_id, run.material_id, run.run_id, run.subject,
             catalog, output, safe_run_status, dsn=dsn,
@@ -670,14 +670,14 @@ def execute_claimed_material_processing_run(
     except MaterialProcessingError as error:
         reason = str(error)
         if reason not in {
-            "MATERIAL_CONFIGURATION_INVALID", "MATERIAL_S1_FAILED",
+            "MATERIAL_CONFIGURATION_INVALID", "MATERIAL_ANALYSIS_FAILED",
             "LOCAL_PROVIDER_TIMEOUT", "LOCAL_PROVIDER_RATE_LIMITED", "LOCAL_PROVIDER_TRANSIENT_ERROR",
             "CONTROLLED_RESOURCE_INVALID", "MATERIAL_OUTPUT_FAILED",
         }:
-            reason = "MATERIAL_S1_FAILED"
+            reason = "MATERIAL_ANALYSIS_FAILED"
         _terminal_failure(run.run_id, reason, dsn=dsn)
     except MaterialRunOutputError:
         _terminal_failure(run.run_id, "MATERIAL_OUTPUT_FAILED", dsn=dsn)
     except Exception:
-        _terminal_failure(run.run_id, "MATERIAL_S1_FAILED", dsn=dsn)
+        _terminal_failure(run.run_id, "MATERIAL_ANALYSIS_FAILED", dsn=dsn)
     return read_material_processing_run(run.learner_id, run.run_id, dsn=dsn)

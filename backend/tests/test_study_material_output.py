@@ -2,8 +2,6 @@ from copy import deepcopy
 import hashlib
 import json
 
-import pytest
-
 from pdf_evidence.study_material_output import (
     build_study_material_output,
     validate_study_material_output,
@@ -437,76 +435,25 @@ def test_validator_detects_output_id_tamper():
     )
 
 
-@pytest.mark.parametrize(
-    ("tamper_case", "reason_code"),
-    [
-        ("unknown_reference", "STUDY_MATERIAL_OUTPUT_REFERENCE_INVALID"),
-    ],
-)
-def test_validator_rejects_nested_tamper_after_id_rebind(
-    tamper_case, reason_code
-):
-    """驗證重算 ID 也不能掩蓋 packaged reference、orphan 或 status 斷鏈。"""
+def test_validator_rejects_unknown_reference_after_id_rebind():
+    """驗證重算 ID 也不能掩蓋 packaged reference 斷鏈。"""
     output = build_study_material_output(**_valid_inputs())
-    if tamper_case == "unknown_reference":
-        output["concepts"][0]["members"][0]["evidence_ids"] = [
-            _sha256_ref("evidence-reference:sha256:", "unknown")
-        ]
-    elif tamper_case == "mixed_material":
-        output["evidence_index"][0]["material_ref"] = _sha256_ref(
-            "material:sha256:", "material-b"
-        )
-    elif tamper_case == "duplicate_evidence":
-        output["evidence_index"].append(deepcopy(output["evidence_index"][0]))
-    elif tamper_case == "orphan_evidence":
-        orphan = deepcopy(output["evidence_index"][0])
-        orphan["evidence_id"] = _sha256_ref(
-            "evidence-reference:sha256:", "orphan-output"
-        )
-        output["evidence_index"].append(orphan)
-    elif tamper_case == "locator_mismatch":
-        output["evidence_index"][0]["page_ref"] = output["pages"][1]["page_ref"]
-    else:
-        output["concepts"][0]["quality"] = "needs_review"
+    output["concepts"][0]["members"][0]["evidence_ids"] = [
+        _sha256_ref("evidence-reference:sha256:", "unknown")
+    ]
     _rebind_output_id(output)
 
-    assert validate_study_material_output(output) == reason_code
+    assert (
+        validate_study_material_output(output)
+        == "STUDY_MATERIAL_OUTPUT_REFERENCE_INVALID"
+    )
 
 
-@pytest.mark.parametrize(
-    ("invalid_case", "reason_code"),
-    [
-        (
-            "clue_missing_target_evidence",
-            "STUDY_MATERIAL_OUTPUT_REFERENCE_INVALID",
-        ),
-    ],
-)
-def test_invalid_identity_evidence_or_coverage_fails_closed(
-    invalid_case, reason_code
-):
-    """驗證重要 identity、Evidence 與 coverage 斷鏈不會洩漏語意內容。"""
+def test_relation_clue_missing_target_evidence_fails_closed():
+    """驗證 relation clue 的 target Evidence 斷鏈不會洩漏語意內容。"""
     inputs = _valid_inputs()
-    if invalid_case == "mixed_material":
-        inputs["page_evidence_items"][1]["material_ref"] = _sha256_ref(
-            "material:sha256:", "material-b"
-        )
-    elif invalid_case == "duplicate_evidence":
-        evidence = inputs["concept_groups"][0]["members"][0]["evidence"]
-        evidence.append(deepcopy(evidence[0]))
-    elif invalid_case == "orphan_summary_evidence":
-        inputs["concept_content_items"][0]["summary_evidence_ids"] = [
-            _sha256_ref("evidence-reference:sha256:", "orphan")
-        ]
-    elif invalid_case == "missing_content_coverage":
-        content = inputs["concept_content_items"][0]
-        content["source_group_ids"] = content["source_group_ids"][:1]
-        content["summary_evidence_ids"] = content["summary_evidence_ids"][:1]
-        content["relation_clues"] = []
-        content["reason_code"] = "CONCEPT_CONTENT_NO_RELATION_CLUES"
-    else:
-        clue = inputs["concept_content_items"][0]["relation_clues"][0]
-        clue["evidence_ids"] = clue["evidence_ids"][:1]
+    clue = inputs["concept_content_items"][0]["relation_clues"][0]
+    clue["evidence_ids"] = clue["evidence_ids"][:1]
 
     output = build_study_material_output(**inputs)
 
@@ -516,7 +463,7 @@ def test_invalid_identity_evidence_or_coverage_fails_closed(
         "processing": "failed",
         "quality": "unsupported",
         "decision": "reject",
-        "reason_code": reason_code,
+        "reason_code": "STUDY_MATERIAL_OUTPUT_REFERENCE_INVALID",
     }
     assert "concepts" not in output
     assert "summaries" not in output
@@ -577,20 +524,14 @@ def test_completed_status_tamper_fails_closed():
     )
 
 
-@pytest.mark.parametrize(
-    "page_limitations",
-    [
-        [
-            {
-                "reason_code": "UNKNOWN",
-                "affected_page_refs": ["page:sha256:" + "0" * 64],
-            }
-        ],
-    ],
-)
-def test_unknown_malformed_or_duplicate_limitations_fail_closed(page_limitations):
+def test_unknown_limitation_fails_closed():
     inputs = _valid_inputs()
-    inputs["page_limitations"] = page_limitations
+    inputs["page_limitations"] = [
+        {
+            "reason_code": "UNKNOWN",
+            "affected_page_refs": ["page:sha256:" + "0" * 64],
+        }
+    ]
 
     output = build_study_material_output(**inputs)
 
@@ -600,16 +541,10 @@ def test_unknown_malformed_or_duplicate_limitations_fail_closed(page_limitations
     assert output["reason_code"].startswith("STUDY_MATERIAL_OUTPUT_")
 
 
-@pytest.mark.parametrize(
-    ("field", "expected_reason"),
-    [
-        ("concept_content_items", "STUDY_MATERIAL_OUTPUT_CONTENT_INPUT_INVALID"),
-    ],
-)
-def test_empty_limitations_cannot_accept_missing_stage(field, expected_reason):
+def test_empty_limitations_cannot_accept_missing_content_stage():
     inputs = _valid_inputs()
     inputs["page_limitations"] = []
-    inputs[field] = []
+    inputs["concept_content_items"] = []
 
     output = build_study_material_output(**inputs)
 
@@ -619,5 +554,5 @@ def test_empty_limitations_cannot_accept_missing_stage(field, expected_reason):
         "processing": "failed",
         "quality": "unsupported",
         "decision": "reject",
-        "reason_code": expected_reason,
+        "reason_code": "STUDY_MATERIAL_OUTPUT_CONTENT_INPUT_INVALID",
     }

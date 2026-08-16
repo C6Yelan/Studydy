@@ -226,7 +226,7 @@ def _review(study_material_output, catalog, evidence_terms):
     resource = catalog["resources"][0]
     content = {
         "schema": "resource-match-review/v1",
-        "source_s2_revision": study_material_output["output_id"],
+        "source_study_material_output_revision": study_material_output["output_id"],
         "catalog_revision": catalog["catalog_revision"],
         "concept_id": study_material_output["concepts"][0]["concept_id"],
         "resource_key": resource["resource_key"],
@@ -512,7 +512,7 @@ def test_result_tamper_and_changed_artifact_fail_closed(tmp_path):
     )
 
     wrong_reference = deepcopy(result)
-    wrong_reference["source_s2_revision"] = (
+    wrong_reference["source_study_material_output_revision"] = (
         "study-material-output:sha256:" + "0" * 64
     )
     assert (
@@ -595,7 +595,7 @@ def test_review_binding_and_terms_tamper_fail_closed(tmp_path):
     )
     review = _review(study_material_output, catalog, ["queue"])
     wrong_binding = deepcopy(review)
-    wrong_binding["source_s2_revision"] = (
+    wrong_binding["source_study_material_output_revision"] = (
         "study-material-output:sha256:" + "0" * 64
     )
     wrong_binding["review_id"] = _canonical_id(

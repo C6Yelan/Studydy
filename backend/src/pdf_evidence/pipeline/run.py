@@ -38,7 +38,7 @@ from ..study_material_output import (
 )
 
 
-RUN_SCHEMA = "s1-development-run/v1"
+RUN_SCHEMA = "material-analysis-run/v1"
 _OPERATIONS = (
     "page_structure",
     "visual_alignment_adjudication",
@@ -87,7 +87,7 @@ def development_pipeline_binding(local_config: Any) -> dict[str, Any] | None:
         }
     )
     return {
-        "schema": "s1-development-pipeline-binding/v1",
+        "schema": "material-analysis-pipeline-binding/v1",
         "runtime_binding_sha256": runtime_binding_sha256,
     }
 

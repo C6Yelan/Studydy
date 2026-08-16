@@ -253,8 +253,8 @@ class LearningResourceResult(Base):
             "AND document ->> 'result_revision' = result_revision"
         ),
         CheckConstraint(
-            "document ? 'source_s2_revision' "
-            "AND document ->> 'source_s2_revision' = source_output_revision"
+            "document ? 'source_study_material_output_revision' "
+            "AND document ->> 'source_study_material_output_revision' = source_output_revision"
         ),
         CheckConstraint(
             "document ? 'catalog_revision' "
@@ -336,7 +336,7 @@ class MaterialProcessingRun(Base):
             "error_code IN ("
             "'RESTART_INTERRUPTED',"
             "'MATERIAL_CONFIGURATION_INVALID',"
-            "'MATERIAL_S1_FAILED',"
+            "'MATERIAL_ANALYSIS_FAILED',"
             "'LOCAL_PROVIDER_TIMEOUT',"
             "'LOCAL_PROVIDER_RATE_LIMITED',"
             "'LOCAL_PROVIDER_TRANSIENT_ERROR',"

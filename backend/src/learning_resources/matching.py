@@ -40,7 +40,7 @@ _MATCH_FIELDS = {
 _RESULT_FIELDS = {
     "schema",
     "result_revision",
-    "source_s2_revision",
+    "source_study_material_output_revision",
     "catalog_revision",
     "subject",
     "resources",
@@ -54,7 +54,7 @@ _RESULT_FIELDS = {
 _REVIEW_FIELDS = {
     "schema",
     "review_id",
-    "source_s2_revision",
+    "source_study_material_output_revision",
     "catalog_revision",
     "concept_id",
     "resource_key",
@@ -149,7 +149,7 @@ def _review_reason(
     if review["schema"] != RESOURCE_MATCH_REVIEW_SCHEMA:
         return "RESOURCE_MATCH_REVIEW_ROOT_INVALID"
     if (
-        review["source_s2_revision"] != study_material_output["output_id"]
+        review["source_study_material_output_revision"] != study_material_output["output_id"]
         or review["catalog_revision"] != catalog["catalog_revision"]
     ):
         return "RESOURCE_MATCH_REVIEW_BINDING_INVALID"
@@ -354,7 +354,7 @@ def build_learning_resource_result(
     processing, quality, decision, reason_code = status
     content = {
         "schema": LEARNING_RESOURCE_SCHEMA,
-        "source_s2_revision": study_material_output["output_id"],
+        "source_study_material_output_revision": study_material_output["output_id"],
         "catalog_revision": catalog["catalog_revision"],
         "subject": subject,
         "resources": resources,
@@ -402,7 +402,7 @@ def validate_learning_resource_result(
     if (
         result["schema"] != LEARNING_RESOURCE_SCHEMA
         or not _valid_subject(result["subject"])
-        or result["source_s2_revision"] != study_material_output["output_id"]
+        or result["source_study_material_output_revision"] != study_material_output["output_id"]
         or result["catalog_revision"] != catalog["catalog_revision"]
     ):
         return "LEARNING_RESOURCE_BINDING_INVALID"
