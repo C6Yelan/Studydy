@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
-import secrets
 import subprocess
 import time
 from uuid import uuid4
@@ -25,13 +23,12 @@ class DatabaseDsn(str):
         return "<redacted database DSN>"
 
 
-def _run_docker(*arguments: str, environment: dict[str, str] | None = None) -> str:
+def _run_docker(*arguments: str) -> str:
     completed = subprocess.run(
         ["docker", *arguments],
         check=False,
         capture_output=True,
         text=True,
-        env=environment,
     )
     if completed.returncode != 0:
         pytest.fail("DISPOSABLE_POSTGRES_DOCKER_FAILED", pytrace=False)
@@ -46,9 +43,6 @@ def migrations_dir() -> Path:
 @pytest.fixture(scope="session")
 def postgres_dsn() -> DatabaseDsn:
     container_name = f"studydy-postgres-test-{uuid4().hex}"
-    password = secrets.token_hex(32)
-    docker_environment = os.environ.copy()
-    docker_environment["POSTGRES_PASSWORD"] = password
 
     _run_docker(
         "run",
@@ -66,7 +60,7 @@ def postgres_dsn() -> DatabaseDsn:
         "--shm-size",
         "256m",
         "--env",
-        "POSTGRES_PASSWORD",
+        "POSTGRES_HOST_AUTH_METHOD=trust",
         "--env",
         "POSTGRES_DB=studydy_test",
         "--env",
@@ -75,11 +69,10 @@ def postgres_dsn() -> DatabaseDsn:
         "PGDATA=/var/lib/postgresql/18/docker",
         "--env",
         (
-            "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 "
+            "POSTGRES_INITDB_ARGS=--auth-host=trust "
             "--data-checksums --encoding=UTF8 --locale=C"
         ),
         POSTGRES_IMAGE,
-        environment=docker_environment,
     )
     try:
         port_output = _run_docker("port", container_name, "5432/tcp")
@@ -88,7 +81,7 @@ def postgres_dsn() -> DatabaseDsn:
             "host=127.0.0.1 "
             f"port={port} "
             "dbname=studydy_test user=studydy_test_owner "
-            f"password={password} connect_timeout=2"
+            "connect_timeout=2"
         )
 
         deadline = time.monotonic() + 60
