@@ -7,7 +7,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
+import stat
 import tempfile
 from typing import Any
 from uuid import UUID, uuid4
@@ -53,6 +55,19 @@ _BINDING_FILES = (
     "backend/src/runtime/material_processing.py",
     "backend/src/runtime/storage/material_outputs.py",
 )
+_LOCAL_AI_SOURCE_HASHES = {
+    "__init__.py": "c7a3ebd9b5d9dcd05a9c8a0610efb0ee5481d4733dd4101872bcf72c5ee4008c",
+    "protocol.py": "e37a91ffcda3df8e6190797da2cbe2db24f3c28db4eea367b4d7e3653d32b254",
+    "ocr_process.py": "d6f431c990630b60311ef0e9737ea4805896eb709eb69dd24644d93a580a232a",
+    "concept_process.py": "3e94ed380a2adc6ea16c14bc9d9c72d4b424b2fae9f3d8383653543e1aab15cb",
+}
+_PACKAGE_VERSIONS = {
+    "studydy-local-ai": "0.1.0",
+    "setuptools": "84.0.0",
+    "torch": "2.10.0+cu128",
+    "torchvision": "0.25.0+cu128",
+    "transformers": "4.57.1",
+}
 
 
 class MaterialProcessingError(RuntimeError):
@@ -126,9 +141,162 @@ def _row(row: MaterialProcessingRunRow) -> MaterialProcessingRun:
 def _file_sha256(path: Path) -> str:
     try:
         with path.open("rb") as source:
-            return sha256(source.read()).hexdigest()
+            digest = sha256()
+            while chunk := source.read(_CHUNK):
+                digest.update(chunk)
+            return digest.hexdigest()
     except OSError:
         raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID") from None
+
+
+@dataclass(frozen=True)
+class _RuntimeFile:
+    path: Path
+    expected_sha256: str
+    expected_size: int | None = None
+
+
+def _absolute_runtime_path(value: str, *, is_directory: bool) -> Path:
+    """只接受已存在的絕對本機路徑，避免 runtime root 被換成連結。"""
+
+    path = Path(value)
+    try:
+        path_status = path.lstat()
+    except OSError:
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID") from None
+    expected_kind = stat.S_ISDIR if is_directory else stat.S_ISREG
+    if not path.is_absolute() or stat.S_ISLNK(path_status.st_mode) or not expected_kind(
+        path_status.st_mode
+    ):
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+    return path
+
+
+def _prepare_private_runtime_root(value: str) -> None:
+    """建立 owner-only runtime root；既有寬鬆或連結目錄一律拒絕。"""
+
+    path = Path(value)
+    if not path.is_absolute() or path.is_symlink():
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+    try:
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path_status = path.lstat()
+    except OSError:
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID") from None
+    if (
+        not stat.S_ISDIR(path_status.st_mode)
+        or stat.S_ISLNK(path_status.st_mode)
+        or path_status.st_uid != os.getuid()
+        or stat.S_IMODE(path_status.st_mode) & 0o077
+    ):
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+
+
+def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
+    """把 runtime lock 對應到 child 真正會開啟的本機檔案。"""
+
+    runtime_lock = local_config["runtime_lock"]
+    python_executable = _absolute_runtime_path(
+        local_config["python_executable"], is_directory=False
+    )
+    if not os.access(python_executable, os.X_OK):
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+    site_packages = _absolute_runtime_path(
+        local_config["site_packages"], is_directory=True
+    )
+    ocr_model_root = _absolute_runtime_path(
+        local_config["ocr_model_root"], is_directory=True
+    )
+    concept_model_root = _absolute_runtime_path(
+        local_config["concept_model_root"], is_directory=True
+    )
+    package_root = site_packages / "studydy_local_ai"
+    files = [
+        _RuntimeFile(
+            python_executable,
+            runtime_lock["python"]["executable_sha256"],
+        ),
+        *(
+            _RuntimeFile(package_root / name, expected_sha256)
+            for name, expected_sha256 in _LOCAL_AI_SOURCE_HASHES.items()
+        ),
+        _RuntimeFile(
+            ocr_model_root / "model.safetensors",
+            runtime_lock["ocr"]["weight_sha256"],
+        ),
+        _RuntimeFile(
+            ocr_model_root / "config.json",
+            runtime_lock["ocr"]["config_sha256"],
+        ),
+        *(
+            _RuntimeFile(ocr_model_root / name, expected_sha256)
+            for name, expected_sha256 in runtime_lock["ocr"]["reviewed_code"].items()
+        ),
+    ]
+    for required_file in runtime_lock["semantic"]["required_files"]:
+        name = required_file["name"]
+        if Path(name).name != name:
+            raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+        files.append(
+            _RuntimeFile(
+                concept_model_root / name,
+                required_file["sha256"],
+                required_file["size"],
+            )
+        )
+    return tuple(files)
+
+
+def _distribution_versions(site_packages: Path) -> dict[str, str]:
+    """直接讀取固定 site-packages metadata，不執行待驗 runtime 程式。"""
+
+    found: dict[str, str] = {}
+    try:
+        metadata_files = tuple(site_packages.glob("*.dist-info/METADATA"))
+        for metadata_file in metadata_files:
+            name = version = None
+            with metadata_file.open("r", encoding="utf-8") as metadata:
+                for line in metadata:
+                    if line.startswith("Name: "):
+                        name = line[6:].strip().lower().replace("_", "-")
+                    elif line.startswith("Version: "):
+                        version = line[9:].strip()
+                    if name is not None and version is not None:
+                        break
+            if name in _PACKAGE_VERSIONS:
+                if name in found:
+                    raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+                found[name] = version
+    except (OSError, UnicodeError):
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID") from None
+    return found
+
+
+def formal_runtime_preflight(local_config: Any) -> dict[str, Any]:
+    """在 worker 啟動前核對實際離線 Python、套件與兩個模型。"""
+
+    binding = formal_runtime_binding(local_config)
+    assert isinstance(local_config, dict)
+    _prepare_private_runtime_root(local_config["private_runtime_root"])
+    runtime_files = _runtime_files(local_config)
+    for runtime_file in runtime_files:
+        try:
+            file_status = runtime_file.path.stat()
+        except OSError:
+            raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID") from None
+        if not stat.S_ISREG(file_status.st_mode):
+            raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+        if (
+            runtime_file.expected_size is not None
+            and file_status.st_size != runtime_file.expected_size
+        ):
+            raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+        if _file_sha256(runtime_file.path) != runtime_file.expected_sha256:
+            raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+    site_packages = Path(local_config["site_packages"])
+    if _distribution_versions(site_packages) != _PACKAGE_VERSIONS:
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+    return binding
 
 
 def formal_runtime_binding(local_config: Any) -> dict[str, Any]:

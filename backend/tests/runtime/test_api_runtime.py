@@ -40,6 +40,11 @@ def settings(
     artifact_root = tmp_path / "private-artifacts"
     monkeypatch.setenv("STUDYDY_ARTIFACT_ROOT", str(artifact_root))
     monkeypatch.setattr(app_module, "start_runtime_workers", lambda **kwargs: _Workers())
+    monkeypatch.setattr(
+        app_module,
+        "formal_runtime_preflight",
+        processing_module.formal_runtime_binding,
+    )
     runtime_settings = {
         "private_runtime_root": str(tmp_path / "private-runtime"),
         "runtime_lock": json.loads(
@@ -83,6 +88,22 @@ def _material_and_run(client: TestClient):
     )
     assert response.status_code == 202
     return material, response.json()
+
+
+def test_api_settings_fail_closed_when_runtime_preflight_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    def failed_preflight(_):
+        raise RuntimeError("private diagnostic")
+
+    monkeypatch.setattr(app_module, "formal_runtime_preflight", failed_preflight)
+    with pytest.raises(ValueError, match="API_SETTINGS_INVALID"):
+        ApiSettings(
+            profile="development",
+            public_origin="http://127.0.0.1:4173",
+            secure_cookie=False,
+            local_config={"private_runtime_root": str(tmp_path)},
+        )
 
 
 def test_create_and_poll_v2_rejects_caller_page_subset(settings: ApiSettings):

@@ -260,6 +260,97 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert len(binding["code_hashes"]) == 6
 
 
+def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    settings = _settings(tmp_path)
+    runtime_file = tmp_path / "verified-runtime-file"
+    runtime_file.write_bytes(b"exact runtime")
+    expected_sha256 = hashlib.sha256(b"exact runtime").hexdigest()
+    monkeypatch.setattr(
+        processing_module,
+        "_runtime_files",
+        lambda _: (processing_module._RuntimeFile(runtime_file, expected_sha256),),
+    )
+    monkeypatch.setattr(
+        processing_module,
+        "_distribution_versions",
+        lambda _: processing_module._PACKAGE_VERSIONS,
+    )
+
+    binding = processing_module.formal_runtime_preflight(settings)
+    assert binding["schema"] == "formal-agent1-runtime-binding/v1"
+    runtime_root = Path(settings["private_runtime_root"])
+    assert runtime_root.stat().st_mode & 0o777 == 0o700
+
+    runtime_file.write_bytes(b"drifted runtime")
+    with pytest.raises(
+        MaterialProcessingError, match="MATERIAL_CONFIGURATION_INVALID"
+    ):
+        processing_module.formal_runtime_preflight(settings)
+
+
+def test_runtime_file_plan_covers_python_package_ocr_and_qwen(tmp_path: Path):
+    settings = _settings(tmp_path)
+    python_executable = tmp_path / "python"
+    python_executable.write_bytes(b"python")
+    python_executable.chmod(0o700)
+    for key in ("site_packages", "ocr_model_root", "concept_model_root"):
+        path = tmp_path / key
+        path.mkdir()
+        settings[key] = str(path)
+    settings["python_executable"] = str(python_executable)
+
+    runtime_files = processing_module._runtime_files(settings)
+    relative_names = {runtime_file.path.name for runtime_file in runtime_files}
+    assert len(runtime_files) == 22
+    assert {
+        "python",
+        "__init__.py",
+        "protocol.py",
+        "ocr_process.py",
+        "concept_process.py",
+        "model.safetensors",
+        "configuration_deepseek_v2.py",
+        "model-00003-of-00003.safetensors",
+        "tokenizer.json",
+    } <= relative_names
+    qwen_files = settings["runtime_lock"]["semantic"]["required_files"]
+    expected_sizes = {
+        required_file["name"]: required_file["size"] for required_file in qwen_files
+    }
+    for runtime_file in runtime_files:
+        if runtime_file.path.parent == Path(settings["concept_model_root"]):
+            assert runtime_file.expected_size == expected_sizes[runtime_file.path.name]
+
+
+def test_distribution_versions_require_one_exact_metadata_record_per_package(
+    tmp_path: Path,
+):
+    site_packages = tmp_path / "site-packages"
+    site_packages.mkdir()
+    for name, version in processing_module._PACKAGE_VERSIONS.items():
+        metadata_root = site_packages / f"{name.replace('-', '_')}-{version}.dist-info"
+        metadata_root.mkdir()
+        (metadata_root / "METADATA").write_text(
+            f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n",
+            encoding="utf-8",
+        )
+    assert processing_module._distribution_versions(site_packages) == (
+        processing_module._PACKAGE_VERSIONS
+    )
+
+    duplicate = site_packages / "duplicate.dist-info"
+    duplicate.mkdir()
+    (duplicate / "METADATA").write_text(
+        "Name: torch\nVersion: 2.10.0+cu128\n", encoding="utf-8"
+    )
+    with pytest.raises(
+        MaterialProcessingError, match="MATERIAL_CONFIGURATION_INVALID"
+    ):
+        processing_module._distribution_versions(site_packages)
+
+
 def test_changed_runtime_binding_fails_before_producer_and_writes_no_revisions(
     processing_database_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

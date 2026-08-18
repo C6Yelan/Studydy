@@ -37,7 +37,7 @@ from ..learner_session import (
 )
 from ..material_processing import (
     create_material_processing_run,
-    formal_runtime_binding,
+    formal_runtime_preflight,
     read_material_processing_run,
 )
 from ..storage.artifacts import (
@@ -100,7 +100,7 @@ class ApiSettings:
             raise ValueError("API_SETTINGS_INVALID")
         try:
             copied = deepcopy(self.local_config)
-            formal_runtime_binding(copied)
+            formal_runtime_preflight(copied)
         except Exception:
             raise ValueError("API_SETTINGS_INVALID") from None
         object.__setattr__(self, "local_config", copied)
