@@ -40,11 +40,11 @@ from ..material_processing import (
     formal_runtime_preflight,
     read_material_processing_run,
 )
-from ..storage.artifacts import (
+from ..storage.source_pdf import (
     open_verified_source_pdf,
     publish_idempotent_source_pdf,
 )
-from ..storage.material_outputs import read_material_run_outputs
+from ..storage.material_review_outputs import read_material_run_outputs
 from ..workers import start_runtime_workers
 
 
@@ -284,6 +284,15 @@ def _install_openapi(app: FastAPI) -> None:
                         "required": True,
                         "content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}},
                     }
+                if path == "/v1/artifacts/{artifact_id}" and method == "get":
+                    operation["responses"]["200"] = {
+                        "description": "Verified source PDF",
+                        "content": {
+                            "application/pdf": {
+                                "schema": {"type": "string", "format": "binary"}
+                            }
+                        },
+                    }
                 if path not in public_paths:
                     operation["security"] = [{"CookieSession": []}]
                 response_codes = {400, 500}
@@ -300,6 +309,8 @@ def _install_openapi(app: FastAPI) -> None:
                 response_codes.add(503)
                 for code in sorted(response_codes):
                     operation.setdefault("responses", {})[str(code)] = deepcopy(error_response)
+        components["schemas"].pop("HTTPValidationError", None)
+        components["schemas"].pop("ValidationError", None)
         app.openapi_schema = schema
         return schema
 

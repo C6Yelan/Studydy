@@ -48,9 +48,9 @@ export default function KnowledgeMap({ apiClient, route }: {
     </section>
   );
 
-  const openSourcePdf = () => {
+  const openSourcePdf = (pageNumber: number) => {
     if (!sourceArtifactId) return;
-    window.open(apiClient.sourceArtifactUrl(sourceArtifactId), "_blank", "noopener,noreferrer");
+    window.open(apiClient.sourceArtifactUrl(sourceArtifactId, pageNumber), "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -97,7 +97,11 @@ export default function KnowledgeMap({ apiClient, route }: {
                 <code>[{evidence.region.bbox.join(", ")}] · {evidence.region.coordinate_space}</code>
               </li>
             ))}</ul>
-            <button className="evidence-open" type="button" onClick={openSourcePdf}>開啟來源 PDF</button>
+            <button
+              className="evidence-open"
+              type="button"
+              onClick={() => openSourcePdf(concept.evidence[0].page_number)}
+            >開啟來源 PDF 第 {concept.evidence[0].page_number} 頁</button>
             <code className="reason-code">{concept.reason_codes.join(" · ")}</code>
           </article>
         ))}

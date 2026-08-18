@@ -66,9 +66,20 @@ class MaterialOutputBinding(_ClosedModel):
     processing: Literal["succeeded", "partial"]
     quality: Literal["needs_review"]
     decision: Literal["review"]
-    reason_codes: list[str]
+    reason_codes: list[str] = Field(min_length=1, max_length=64)
     ocr_calls: int = Field(ge=0, le=32)
     concept_calls: int = Field(ge=0, le=64)
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> "MaterialOutputBinding":
+        if (
+            len(self.reason_codes) != len(set(self.reason_codes))
+            or self.reason_codes != sorted(self.reason_codes)
+            or self.ocr_calls > self.page_count
+            or self.concept_calls > 2 * self.page_count
+        ):
+            raise ValueError("MATERIAL_OUTPUT_BINDING_INVALID")
+        return self
 
 
 class MaterialProcessingRunView(_ClosedModel):
@@ -115,54 +126,54 @@ class RegionView(_ClosedModel):
 
 
 class EvidenceView(_ClosedModel):
-    evidence_id: str
-    page_ref: str
+    evidence_id: str = Field(pattern=r"^evidence:sha256:[0-9a-f]{64}$")
+    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
     page_number: int = Field(ge=1, le=32)
-    kind: str
+    kind: str = Field(min_length=1, max_length=64)
     region: RegionView
 
 
 class ReviewConceptView(_ClosedModel):
-    concept_id: str
-    label: str
-    definition: str
-    key_points: list[str]
-    page_ref: str
-    evidence: list[EvidenceView] = Field(min_length=1)
+    concept_id: str = Field(pattern=r"^concept:sha256:[0-9a-f]{64}$")
+    label: str = Field(min_length=1, max_length=120)
+    definition: str = Field(min_length=1, max_length=1_000)
+    key_points: list[str] = Field(min_length=1, max_length=10)
+    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
+    evidence: list[EvidenceView] = Field(min_length=1, max_length=16)
     quality: Literal["needs_review"]
     decision: Literal["review"]
-    reason_codes: list[str]
+    reason_codes: list[str] = Field(min_length=1, max_length=64)
 
 
 class ImageLiteView(_ClosedModel):
-    image_id: str
-    page_ref: str
+    image_id: str = Field(pattern=r"^image:sha256:[0-9a-f]{64}$")
+    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
     page_number: int = Field(ge=1, le=32)
     region: RegionView
-    evidence: list[EvidenceView]
+    evidence: list[EvidenceView] = Field(max_length=8)
 
 
 class ExcludedPageView(_ClosedModel):
-    page_ref: str
+    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
     page_number: int = Field(ge=1, le=32)
     page_evidence_id: str | None
     last_stage: Literal["page_evidence", "concept"]
     processing: Literal["failed"]
     quality: Literal["needs_review"]
     decision: Literal["reject"]
-    reason_codes: list[str]
+    reason_codes: list[str] = Field(min_length=1, max_length=64)
 
 
 class ArtifactStatusView(_ClosedModel):
     processing: Literal["succeeded", "partial"]
     quality: Literal["needs_review"]
     decision: Literal["review"]
-    reason_codes: list[str]
+    reason_codes: list[str] = Field(min_length=1, max_length=64)
 
 
 class KnowledgeMapView(_ClosedModel):
     schema_: Literal["knowledge-map-view/v2"] = Field(alias="schema")
-    material_ref: str
+    material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
     knowledge_map_revision: str = Field(
         pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
     )
@@ -170,13 +181,32 @@ class KnowledgeMapView(_ClosedModel):
         pattern=r"^study-material-output:sha256:[0-9a-f]{64}$"
     )
     status: ArtifactStatusView
-    concepts: list[ReviewConceptView] = Field(min_length=1)
-    images: list[ImageLiteView]
-    excluded_pages: list[ExcludedPageView]
+    concepts: list[ReviewConceptView] = Field(min_length=1, max_length=768)
+    images: list[ImageLiteView] = Field(max_length=8_192)
+    excluded_pages: list[ExcludedPageView] = Field(max_length=32)
 
     @model_validator(mode="after")
     def validate_same_page_links(self) -> "KnowledgeMapView":
         included_refs = {concept.page_ref for concept in self.concepts}
+        reason_lists = [
+            self.status.reason_codes,
+            *(concept.reason_codes for concept in self.concepts),
+            *(page.reason_codes for page in self.excluded_pages),
+        ]
+        if any(reasons != sorted(set(reasons)) for reasons in reason_lists):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        if len({concept.concept_id for concept in self.concepts}) != len(self.concepts):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        if len({image.image_id for image in self.images}) != len(self.images):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        if len({page.page_ref for page in self.excluded_pages}) != len(self.excluded_pages):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        if len({page.page_number for page in self.excluded_pages}) != len(self.excluded_pages):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        if any(len({item.evidence_id for item in concept.evidence}) != len(concept.evidence) for concept in self.concepts):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        if any(len({item.evidence_id for item in image.evidence}) != len(image.evidence) for image in self.images):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if any(
             evidence.page_ref != concept.page_ref
             for concept in self.concepts

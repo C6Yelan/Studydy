@@ -6,6 +6,7 @@ from knowledge_map.artifacts import (
     validate_knowledge_map,
 )
 from pdf_evidence.study_material_output import build_study_material_output
+from pdf_evidence.ocr_page_evidence import canonical_sha256
 from test_study_material_output import producer_output
 
 
@@ -55,3 +56,14 @@ def test_map_revision_tamper_is_rejected():
     tampered = deepcopy(knowledge_map)
     tampered["concepts"][0]["label"] = "Changed"
     assert validate_knowledge_map(tampered) == "KNOWLEDGE_MAP_INVALID"
+
+
+def test_recomputed_map_revision_cannot_hide_nested_unexpected_field():
+    knowledge_map = build_review_knowledge_map(
+        build_study_material_output(producer_output())
+    )
+    knowledge_map["concepts"][0]["unexpected_field"] = True
+    identity = dict(knowledge_map)
+    identity.pop("revision")
+    knowledge_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(identity)
+    assert validate_knowledge_map(knowledge_map) == "KNOWLEDGE_MAP_INVALID"

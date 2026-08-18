@@ -1,10 +1,11 @@
-"""原子保存文字優先 runtime 的兩個 domain revisions 與 run binding。"""
+"""原子保存文字優先 runtime 的複核 Output、Map 與 run binding。"""
 
 from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+import re
 from typing import Any
 from uuid import UUID
 
@@ -18,12 +19,13 @@ from knowledge_map.artifacts import (
     validate_knowledge_map,
 )
 from pdf_evidence.concept_evidence_output import BUNDLE_SCHEMA, OUTPUT_SCHEMA, TERMINAL_SCHEMA
+from pdf_evidence.text_first_bundle import validate_bundle_documents
 from pdf_evidence.study_material_output import (
     build_study_material_output,
     validate_study_material_output,
 )
 
-from .artifacts import open_verified_source_pdf
+from .source_pdf import open_verified_source_pdf
 from .tables import (
     KnowledgeMap,
     MaterialProcessingRun,
@@ -47,6 +49,43 @@ class MaterialRunOutputs:
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def _binding_is_valid(binding: Any) -> bool:
+    fields = {
+        "schema", "producer_bundle_id", "producer_run_id", "concept_evidence_output_id",
+        "study_material_output_revision", "knowledge_map_revision",
+        "runtime_binding_sha256", "page_count", "processing", "quality", "decision",
+        "reason_codes", "ocr_calls", "concept_calls",
+    }
+    if not isinstance(binding, dict) or set(binding) != fields:
+        return False
+    return (
+        binding["schema"] == "material-run-output-binding/v2"
+        and type(binding["page_count"]) is int
+        and 1 <= binding["page_count"] <= 32
+        and binding["processing"] in {"succeeded", "partial"}
+        and binding["quality"] == "needs_review"
+        and binding["decision"] == "review"
+        and isinstance(binding["reason_codes"], list)
+        and all(isinstance(reason, str) and reason for reason in binding["reason_codes"])
+        and binding["reason_codes"] == sorted(set(binding["reason_codes"]))
+        and type(binding["ocr_calls"]) is int
+        and 0 <= binding["ocr_calls"] <= binding["page_count"]
+        and type(binding["concept_calls"]) is int
+        and 0 <= binding["concept_calls"] <= 2 * binding["page_count"]
+        and all(
+            isinstance(binding[field], str) and binding[field]
+            for field in fields
+            - {"page_count", "reason_codes", "ocr_calls", "concept_calls"}
+        )
+        and re.fullmatch(r"text-first-producer-bundle:sha256:[0-9a-f]{64}", binding["producer_bundle_id"]) is not None
+        and re.fullmatch(r"text-first-run:[0-9a-fA-F-]{36}", binding["producer_run_id"]) is not None
+        and re.fullmatch(r"concept-evidence-output:sha256:[0-9a-f]{64}", binding["concept_evidence_output_id"]) is not None
+        and re.fullmatch(r"study-material-output:sha256:[0-9a-f]{64}", binding["study_material_output_revision"]) is not None
+        and re.fullmatch(r"knowledge-map:sha256:[0-9a-f]{64}", binding["knowledge_map_revision"]) is not None
+        and re.fullmatch(r"[0-9a-f]{64}", binding["runtime_binding_sha256"]) is not None
+    )
 
 
 def _insert_immutable(
@@ -73,6 +112,8 @@ def _validated_producer(producer_bundle: Any, run_id: UUID) -> tuple[dict, dict,
     terminal = producer_bundle["terminal"]
     output = producer_bundle["output"]
     expected_run_id = f"text-first-run:{run_id}"
+    if not validate_bundle_documents(bundle, terminal, output, expected_run_id):
+        raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID")
     terminal_fields = {
         "schema", "aggregation_policy", "run_id", "produced_at", "output_id",
         "runtime_binding_sha256", "page_count", "included_page_count",
@@ -166,6 +207,8 @@ def publish_terminal_outputs(
         "ocr_calls": terminal["ocr_calls"],
         "concept_calls": terminal["concept_calls"],
     }
+    if not _binding_is_valid(binding):
+        raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID")
     try:
         with database_session(dsn) as session:
             created = _now()
@@ -265,7 +308,7 @@ def read_material_run_outputs(
             if run is None or not isinstance(run[1], dict):
                 raise MaterialRunOutputError("MATERIAL_OUTPUT_UNAVAILABLE")
             source_artifact_id, binding = run
-            if binding.get("schema") != "material-run-output-binding/v2":
+            if not _binding_is_valid(binding):
                 raise MaterialRunOutputError("MATERIAL_OUTPUT_UNAVAILABLE")
             output_row = session.execute(
                 select(StudyMaterialOutput.document).where(
@@ -288,6 +331,8 @@ def read_material_run_outputs(
         knowledge_map = map_row[1]
         if (
             map_row[0] != study_material_output.get("output_id")
+            or binding["study_material_output_revision"] != study_material_output.get("output_id")
+            or binding["knowledge_map_revision"] != knowledge_map.get("revision")
             or validate_study_material_output(study_material_output) is not None
             or validate_knowledge_map(knowledge_map, study_material_output) is not None
         ):

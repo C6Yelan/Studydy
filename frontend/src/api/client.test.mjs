@@ -174,10 +174,37 @@ test("Map v2 使用 exact run/revision 並要求 same-page PDF locator", async (
   );
 });
 
+test("Map v2 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
+  const mutations = {
+    unexpected: (view) => { view.concepts[0].unexpected_field = true; },
+    duplicate: (view) => { view.concepts.push(structuredClone(view.concepts[0])); },
+    nonfinite: (view) => { view.concepts[0].evidence[0].region.bbox[0] = Number.NaN; },
+    type: (view) => { view.concepts[0].evidence[0].page_number = true; },
+    count: (view) => { view.concepts[0].key_points = Array.from({ length: 11 }, () => "point"); },
+    reference: (view) => { view.concepts[0].evidence[0].page_ref = `page:sha256:${"f".repeat(64)}`; },
+  };
+  for (const [name, mutate] of Object.entries(mutations)) {
+    await context.test(name, async () => {
+      const invalid = mapView();
+      mutate(invalid);
+      let calls = 0;
+      const client = new StudydyApiClient(async () => {
+        calls += 1;
+        return calls === 1 ? new Response(null, { status: 204 }) : Response.json(invalid);
+      });
+      await assert.rejects(
+        client.getKnowledgeMap({ materialId, runId, mapRevision }),
+        (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
+      );
+    });
+  }
+});
+
 test("client surface 不含 deferred downstream methods", () => {
   const client = new StudydyApiClient(async () => new Response(null, { status: 204 }));
   for (const name of ["getAssessment", "submitLearningUpdate", "getLearningResourceResult", "getLearningState"]) {
     assert.equal(client[name], undefined);
   }
   assert.equal(client.sourceArtifactUrl(artifactId), `/v1/artifacts/${artifactId}`);
+  assert.equal(client.sourceArtifactUrl(artifactId, 2), `/v1/artifacts/${artifactId}#page=2`);
 });

@@ -16,15 +16,15 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, update
 
-from pdf_evidence.concept_evidence_output import read_producer_bundle
+from pdf_evidence.text_first_bundle import read_producer_bundle
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.text_first_run import (
     _validate_runtime_lock,
     run_full_text_first_pdf,
 )
 
-from .storage.artifacts import open_verified_source_pdf
-from .storage.material_outputs import MaterialRunOutputError, publish_terminal_outputs
+from .storage.source_pdf import open_verified_source_pdf
+from .storage.material_review_outputs import MaterialRunOutputError, publish_terminal_outputs
 from .storage.tables import (
     Learner,
     MaterialProcessingRun as MaterialProcessingRunRow,
@@ -49,11 +49,14 @@ _LOCKED_FILES = {
 }
 _BINDING_FILES = (
     "backend/src/pdf_evidence/concept_evidence_output.py",
+    "backend/src/pdf_evidence/text_first_bundle.py",
     "backend/src/pdf_evidence/text_first_run.py",
     "backend/src/pdf_evidence/study_material_output.py",
     "backend/src/knowledge_map/artifacts.py",
     "backend/src/runtime/material_processing.py",
-    "backend/src/runtime/storage/material_outputs.py",
+    "backend/src/runtime/local_app.py",
+    "backend/src/runtime/storage/source_pdf.py",
+    "backend/src/runtime/storage/material_review_outputs.py",
 )
 _LOCAL_AI_SOURCE_HASHES = {
     "__init__.py": "c7a3ebd9b5d9dcd05a9c8a0610efb0ee5481d4733dd4101872bcf72c5ee4008c",

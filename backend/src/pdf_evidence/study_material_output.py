@@ -6,7 +6,7 @@ from copy import deepcopy
 import math
 from typing import Any
 
-from .concept_evidence_output import AGGREGATION_POLICY, OUTPUT_SCHEMA
+from .concept_evidence_output import AGGREGATION_POLICY, validate_output_document
 from .ocr_page_evidence import canonical_sha256
 
 
@@ -33,11 +33,165 @@ def _expected_identity(document: dict[str, Any]) -> str:
 
 
 def _producer_identity_is_valid(producer_output: Any) -> bool:
-    if not isinstance(producer_output, dict) or producer_output.get("schema") != OUTPUT_SCHEMA:
+    return validate_output_document(producer_output)
+
+
+def _string_list(value: Any, *, minimum: int = 0, maximum: int = 256) -> bool:
+    return (
+        isinstance(value, list)
+        and minimum <= len(value) <= maximum
+        and all(isinstance(item, str) and 1 <= len(item) <= 1_000 for item in value)
+    )
+
+
+def _shape_is_valid(document: Any) -> bool:
+    fields = {
+        "schema", "run_id", "produced_at", "material_ref", "source_binding", "pages",
+        "excluded_pages", "concepts", "evidence_index", "images", "processing",
+        "quality", "decision", "reason_codes", "output_id",
+    }
+    if not isinstance(document, dict) or set(document) != fields:
         return False
-    identity = dict(producer_output)
-    output_id = identity.pop("output_id", None)
-    return output_id == "concept-evidence-output:sha256:" + canonical_sha256(identity)
+    binding = document["source_binding"]
+    if not isinstance(binding, dict) or set(binding) != {
+        "source_sha256", "page_count", "producer_output_id", "runtime_binding_sha256"
+    }:
+        return False
+    if (
+        document["schema"] != STUDY_MATERIAL_OUTPUT_SCHEMA
+        or type(binding["page_count"]) is not int
+        or not 1 <= binding["page_count"] <= 32
+        or document["processing"] not in {"succeeded", "partial"}
+        or (document["quality"], document["decision"]) != ("needs_review", "review")
+        or not _string_list(document["reason_codes"], minimum=1)
+        or document["reason_codes"] != sorted(set(document["reason_codes"]))
+    ):
+        return False
+    page_fields = {
+        "page_ref", "page_number", "page_evidence_id", "native_evidence_ref",
+        "processing", "quality", "decision", "reason_codes",
+    }
+    pages_by_ref: dict[str, int] = {}
+    page_numbers: set[int] = set()
+    if not isinstance(document["pages"], list) or not document["pages"]:
+        return False
+    for page in document["pages"]:
+        if (
+            not isinstance(page, dict)
+            or set(page) != page_fields
+            or not isinstance(page["page_ref"], str)
+            or page["page_ref"] in pages_by_ref
+            or type(page["page_number"]) is not int
+            or not 1 <= page["page_number"] <= binding["page_count"]
+            or page["page_number"] in page_numbers
+            or (page["processing"], page["quality"], page["decision"])
+            != ("succeeded", "needs_review", "review")
+            or not _string_list(page["reason_codes"], minimum=1)
+        ):
+            return False
+        pages_by_ref[page["page_ref"]] = page["page_number"]
+        page_numbers.add(page["page_number"])
+    evidence_fields = {"evidence_id", "page_ref", "page_number", "kind", "region"}
+    evidence_pages: dict[str, str] = {}
+    if not isinstance(document["evidence_index"], list) or len(document["evidence_index"]) > 2_048:
+        return False
+    for evidence in document["evidence_index"]:
+        if (
+            not isinstance(evidence, dict)
+            or set(evidence) != evidence_fields
+            or not isinstance(evidence["evidence_id"], str)
+            or evidence["evidence_id"] in evidence_pages
+            or evidence["page_ref"] not in pages_by_ref
+            or evidence["page_number"] != pages_by_ref[evidence["page_ref"]]
+            or not isinstance(evidence["kind"], str)
+            or not 1 <= len(evidence["kind"]) <= 64
+            or not _valid_region(evidence["region"])
+        ):
+            return False
+        evidence_pages[evidence["evidence_id"]] = evidence["page_ref"]
+    concept_fields = {
+        "concept_id", "page_ref", "label", "definition", "key_points", "evidence_ids",
+        "processing", "quality", "decision", "reason_codes",
+    }
+    concept_ids: set[str] = set()
+    if not isinstance(document["concepts"], list) or not document["concepts"]:
+        return False
+    for concept in document["concepts"]:
+        if not isinstance(concept, dict) or set(concept) != concept_fields:
+            return False
+        references = concept["evidence_ids"]
+        if (
+            not isinstance(concept["concept_id"], str)
+            or concept["concept_id"] in concept_ids
+            or concept["page_ref"] not in pages_by_ref
+            or not isinstance(concept["label"], str)
+            or not 1 <= len(concept["label"]) <= 120
+            or not isinstance(concept["definition"], str)
+            or not 1 <= len(concept["definition"]) <= 1_000
+            or not _string_list(concept["key_points"], minimum=1, maximum=10)
+            or any(len(point) > 300 for point in concept["key_points"])
+            or not _string_list(references, minimum=1, maximum=16)
+            or len(references) != len(set(references))
+            or any(evidence_pages.get(reference) != concept["page_ref"] for reference in references)
+            or (concept["processing"], concept["quality"], concept["decision"])
+            != ("succeeded", "needs_review", "review")
+            or not _string_list(concept["reason_codes"], minimum=1)
+        ):
+            return False
+        concept_ids.add(concept["concept_id"])
+    image_fields = {
+        "image_id", "page_ref", "page_number", "image_hash", "region",
+        "caption_evidence_ids", "nearby_evidence_ids",
+    }
+    image_ids: set[str] = set()
+    if not isinstance(document["images"], list) or len(document["images"]) > 8_192:
+        return False
+    for image in document["images"]:
+        if not isinstance(image, dict) or set(image) != image_fields:
+            return False
+        if not isinstance(image["caption_evidence_ids"], list) or not isinstance(
+            image["nearby_evidence_ids"], list
+        ):
+            return False
+        references = image["caption_evidence_ids"] + image["nearby_evidence_ids"]
+        if (
+            not isinstance(image["image_id"], str)
+            or image["image_id"] in image_ids
+            or image["page_ref"] not in pages_by_ref
+            or image["page_number"] != pages_by_ref[image["page_ref"]]
+            or not _valid_region(image["region"])
+            or not all(isinstance(items, list) for items in (image["caption_evidence_ids"], image["nearby_evidence_ids"]))
+            or len(references) != len(set(references))
+            or any(evidence_pages.get(reference) != image["page_ref"] for reference in references)
+        ):
+            return False
+        image_ids.add(image["image_id"])
+    excluded_fields = {
+        "page_ref", "page_number", "page_evidence_id", "last_stage", "processing",
+        "quality", "decision", "reason_codes",
+    }
+    excluded_numbers: set[int] = set()
+    if not isinstance(document["excluded_pages"], list):
+        return False
+    for page in document["excluded_pages"]:
+        if (
+            not isinstance(page, dict)
+            or set(page) != excluded_fields
+            or page["page_ref"] in pages_by_ref
+            or type(page["page_number"]) is not int
+            or not 1 <= page["page_number"] <= binding["page_count"]
+            or page["page_number"] in excluded_numbers
+            or page["last_stage"] not in {"page_evidence", "concept"}
+            or (page["processing"], page["quality"], page["decision"])
+            != ("failed", "needs_review", "reject")
+            or not _string_list(page["reason_codes"], minimum=1)
+        ):
+            return False
+        excluded_numbers.add(page["page_number"])
+    return (
+        page_numbers | excluded_numbers == set(range(1, binding["page_count"] + 1))
+        and (document["processing"] == "partial") == bool(document["excluded_pages"])
+    )
 
 
 def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, Any]:
@@ -222,6 +376,8 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
         ),
     }
     document["output_id"] = _expected_identity(document)
+    if not _shape_is_valid(document):
+        raise ValueError("STUDY_MATERIAL_OUTPUT_INVALID")
     return document
 
 
@@ -230,7 +386,7 @@ def validate_study_material_output(
 ) -> str | None:
     """重建時使用 exact producer；一般讀取至少重驗 schema 與 identity。"""
 
-    if not isinstance(document, dict) or document.get("schema") != STUDY_MATERIAL_OUTPUT_SCHEMA:
+    if not _shape_is_valid(document):
         return "STUDY_MATERIAL_OUTPUT_INVALID"
     try:
         if document.get("output_id") != _expected_identity(document):

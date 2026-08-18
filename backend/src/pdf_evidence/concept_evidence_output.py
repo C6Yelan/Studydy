@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import json
-import os
-from pathlib import Path
-import tempfile
+import math
+import re
 from typing import Any
 
 from .ocr_page_evidence import canonical_bytes, canonical_sha256
@@ -17,6 +15,8 @@ TERMINAL_SCHEMA = "text-first-run-terminal/v2"
 BUNDLE_SCHEMA = "text-first-producer-bundle/v1"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
 MAX_BUNDLE_FILE_BYTES = 16 * 1024 * 1024
+RUNTIME_LOCK_SHA256 = "b777829253b40ddca6a6fb9f076ddd6125f12b6e3f4450a85fa6737f5321f967"
+_SHA_REF = re.compile(r"[a-z-]+:sha256:[0-9a-f]{64}")
 KNOWN_REASONS = {
     "MEDIA_TYPE_INVALID",
     "SOURCE_READ_FAILED",
@@ -66,6 +66,269 @@ def clean_reasons(reasons: list[str]) -> list[str]:
     return sorted(
         {reason if reason in KNOWN_REASONS else "INTERNAL_FAILURE" for reason in reasons}
     )
+
+
+def _closed(value: Any, fields: set[str]) -> bool:
+    return isinstance(value, dict) and set(value) == fields
+
+
+def _reasons(value: Any, *, require_sorted: bool = True) -> bool:
+    return (
+        isinstance(value, list)
+        and all(isinstance(reason, str) and reason in KNOWN_REASONS for reason in value)
+        and len(value) == len(set(value))
+        and (not require_sorted or value == sorted(value))
+    )
+
+
+def _box(value: Any) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) == 4
+        and all(type(number) in {int, float} and math.isfinite(number) for number in value)
+        and value[0] < value[2]
+        and value[1] < value[3]
+    )
+
+
+def _page_is_valid(page: Any, source_binding: dict[str, Any], runtime_binding: dict[str, Any]) -> bool:
+    fields = {
+        "schema", "material_id", "material_revision", "section_id", "page_ref",
+        "page_number", "geometry", "coordinate_space", "native_evidence_ref", "render",
+        "evidence_blocks", "images", "input_binding", "processing_policy",
+        "normalizer_policy", "produced_at", "processing", "quality", "decision",
+        "reason_codes", "page_evidence_id",
+    }
+    if not _closed(page, fields) or page["schema"] != "page-evidence/v2":
+        return False
+    if (
+        page["material_id"] != f"material:sha256:{source_binding['source_sha256']}"
+        or type(page["page_number"]) is not int
+        or page["page_number"] not in source_binding["page_numbers"]
+        or page["coordinate_space"] != "unrotated_pdf_points"
+        or (page["processing"], page["quality"], page["decision"])
+        != ("partial", "needs_review", "review")
+        or not _reasons(page["reason_codes"], require_sorted=False)
+    ):
+        return False
+    geometry = page["geometry"]
+    if not _closed(
+        geometry,
+        {"visible_points", "unrotated_points", "rotation_degrees", "derotation_matrix"},
+    ):
+        return False
+    if (
+        not _box(geometry["visible_points"])
+        or not _box(geometry["unrotated_points"])
+        or geometry["rotation_degrees"] not in {0, 90, 180, 270}
+        or not isinstance(geometry["derotation_matrix"], list)
+        or len(geometry["derotation_matrix"]) != 6
+        or any(type(number) not in {int, float} or not math.isfinite(number) for number in geometry["derotation_matrix"])
+    ):
+        return False
+    render = page["render"]
+    if not _closed(
+        render,
+        {"schema", "policy", "dpi", "colorspace", "format", "coverage", "pymupdf_version", "width", "height", "sha256"},
+    ):
+        return False
+    if (
+        render["schema"] != "page-render/v1"
+        or render["policy"] != "pymupdf-rgb-200dpi/v1"
+        or render["dpi"] != 200
+        or render["colorspace"] != "RGB"
+        or render["format"] != "PNG"
+        or render["coverage"] != "full_visible_page"
+        or type(render["width"]) is not int
+        or type(render["height"]) is not int
+        or render["width"] < 1
+        or render["height"] < 1
+        or not isinstance(render["sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", render["sha256"]) is None
+    ):
+        return False
+    input_binding = page["input_binding"]
+    if not _closed(input_binding, {"source_sha256", "page_number", "render_sha256", "page", "ocr"}):
+        return False
+    if (
+        input_binding["source_sha256"] != source_binding["source_sha256"]
+        or input_binding["page_number"] != page["page_number"]
+        or input_binding["render_sha256"] != render["sha256"]
+        or input_binding["page"] != runtime_binding.get("page")
+        or input_binding["ocr"] != runtime_binding.get("ocr")
+    ):
+        return False
+    evidence_ids: set[str] = set()
+    for block in page["evidence_blocks"]:
+        if not _closed(
+            block,
+            {"evidence_id", "block_id", "ocr_type", "kind", "text", "reading_order", "locator", "render_region", "source"},
+        ):
+            return False
+        locator = block["locator"]
+        if (
+            not _closed(locator, {"page", "block_id", "region"})
+            or locator["page"] != page["page_number"]
+            or locator["block_id"] != block["block_id"]
+            or not _box(locator["region"])
+            or not _box(block["render_region"])
+            or block["source"] != "unlimited_ocr"
+            or block["evidence_id"] in evidence_ids
+        ):
+            return False
+        evidence_ids.add(block["evidence_id"])
+    if not 1 <= len(evidence_ids) <= 64:
+        return False
+    for image in page["images"]:
+        if not _closed(
+            image,
+            {"image_id", "image_hash", "region", "caption_evidence_ids", "nearby_evidence_ids"},
+        ):
+            return False
+        references = image["caption_evidence_ids"] + image["nearby_evidence_ids"]
+        if (
+            not _box(image["region"])
+            or not all(isinstance(items, list) for items in (image["caption_evidence_ids"], image["nearby_evidence_ids"]))
+            or len(references) != len(set(references))
+            or not set(references) <= evidence_ids
+        ):
+            return False
+    identity = dict(page)
+    page_evidence_id = identity.pop("page_evidence_id")
+    return page_evidence_id == f"page-evidence:sha256:{canonical_sha256(identity)}"
+
+
+def validate_output_document(output: Any) -> bool:
+    """重驗完整 producer output；identity 重算也不能帶入額外欄位。"""
+
+    fields = {
+        "schema", "aggregation_policy", "run_id", "produced_at", "material_id",
+        "material_revision", "source_binding", "pages", "excluded_pages", "concepts",
+        "rejected_candidates", "runtime_binding", "processing", "quality", "decision",
+        "reason_codes", "output_id",
+    }
+    if not _closed(output, fields) or output["schema"] != OUTPUT_SCHEMA:
+        return False
+    source_binding = output["source_binding"]
+    runtime_binding = output["runtime_binding"]
+    if not _closed(source_binding, {"source_sha256", "page_numbers"}):
+        return False
+    page_numbers = source_binding["page_numbers"]
+    if (
+        not isinstance(source_binding["source_sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", source_binding["source_sha256"]) is None
+        or not isinstance(page_numbers, list)
+        or page_numbers != list(range(1, len(page_numbers) + 1))
+        or not 1 <= len(page_numbers) <= 32
+        or canonical_sha256(runtime_binding) != RUNTIME_LOCK_SHA256
+        or output["aggregation_policy"] != AGGREGATION_POLICY
+        or (output["quality"], output["decision"]) != ("needs_review", "review")
+        or output["processing"] not in {"succeeded", "partial"}
+        or not _reasons(output["reason_codes"])
+    ):
+        return False
+    pages = output["pages"]
+    excluded_pages = output["excluded_pages"]
+    if (
+        not isinstance(pages, list)
+        or not 1 <= len(pages) <= 32
+        or not isinstance(excluded_pages, list)
+        or len(excluded_pages) > 31
+    ):
+        return False
+    if any(not _page_is_valid(page, source_binding, runtime_binding) for page in pages):
+        return False
+    if any(len(page["images"]) > 256 for page in pages):
+        return False
+    page_refs = {page["page_ref"]: page["page_number"] for page in pages}
+    if len(page_refs) != len(pages) or len(set(page_refs.values())) != len(pages):
+        return False
+    excluded_refs: set[str] = set()
+    excluded_numbers: set[int] = set()
+    excluded_fields = {
+        "page_ref", "page_number", "page_evidence_id", "last_stage", "processing",
+        "quality", "decision", "reason_codes",
+    }
+    for page in excluded_pages:
+        if (
+            not _closed(page, excluded_fields)
+            or page["page_ref"] in page_refs
+            or page["page_ref"] in excluded_refs
+            or type(page["page_number"]) is not int
+            or page["page_number"] not in page_numbers
+            or page["page_number"] in excluded_numbers
+            or page["last_stage"] not in {"page_evidence", "concept"}
+            or (page["processing"], page["quality"], page["decision"])
+            != ("failed", "needs_review", "reject")
+            or not _reasons(page["reason_codes"])
+        ):
+            return False
+        excluded_refs.add(page["page_ref"])
+        excluded_numbers.add(page["page_number"])
+    if set(page_refs.values()) | excluded_numbers != set(page_numbers):
+        return False
+    evidence_pages = {
+        block["evidence_id"]: page["page_ref"]
+        for page in pages
+        for block in page["evidence_blocks"]
+    }
+    concept_ids: set[str] = set()
+    concept_processing: set[str] = set()
+    concept_fields = {
+        "concept_id", "page_ref", "label", "definition", "key_points", "evidence_ids",
+        "processing", "quality", "decision", "reason_codes",
+    }
+    if not isinstance(output["concepts"], list) or not 1 <= len(output["concepts"]) <= 24 * len(pages):
+        return False
+    for concept in output["concepts"]:
+        if not _closed(concept, concept_fields):
+            return False
+        references = concept["evidence_ids"]
+        if (
+            concept["concept_id"] in concept_ids
+            or concept["page_ref"] not in page_refs
+            or not isinstance(references, list)
+            or not 1 <= len(references) <= 16
+            or len(references) != len(set(references))
+            or any(evidence_pages.get(reference) != concept["page_ref"] for reference in references)
+            or concept["processing"] not in {"succeeded", "partial"}
+            or (concept["quality"], concept["decision"])
+            != ("needs_review", "review")
+            or not _reasons(concept["reason_codes"])
+        ):
+            return False
+        concept_ids.add(concept["concept_id"])
+        concept_processing.add(concept["processing"])
+    if len(concept_processing) != 1:
+        return False
+    is_qualification_partial = concept_processing == {"partial"} and not excluded_pages
+    if (output["processing"] == "partial") != (bool(excluded_pages) or is_qualification_partial):
+        return False
+    rejected_fields = {
+        "page_ref", "candidate_index", "processing", "quality", "decision", "reason_codes"
+    }
+    if not isinstance(output["rejected_candidates"], list) or len(output["rejected_candidates"]) > 24 * len(pages):
+        return False
+    for rejected in output["rejected_candidates"]:
+        if (
+            not _closed(rejected, rejected_fields)
+            or rejected["page_ref"] not in page_refs
+            or type(rejected["candidate_index"]) is not int
+            or rejected["candidate_index"] < 0
+            or (rejected["processing"], rejected["quality"], rejected["decision"])
+            != ("failed", "needs_review", "reject")
+            or not _reasons(rejected["reason_codes"])
+        ):
+            return False
+    identity = dict(output)
+    output_id = identity.pop("output_id")
+    try:
+        return (
+            output_id == f"concept-evidence-output:sha256:{canonical_sha256(identity)}"
+            and len(canonical_bytes(output)) <= MAX_BUNDLE_FILE_BYTES
+        )
+    except (RecursionError, TypeError, ValueError):
+        return False
 
 
 def _page_number(page_ref: str, pages: dict[str, dict[str, Any]]) -> int:
@@ -184,6 +447,8 @@ def build_output(
     output["output_id"] = f"concept-evidence-output:sha256:{canonical_sha256(output)}"
     if len(canonical_bytes(output)) > MAX_BUNDLE_FILE_BYTES:
         raise ValueError("PROTOCOL_LIMIT_EXCEEDED")
+    if not validate_output_document(output):
+        raise ValueError("PRODUCER_BUNDLE_INVALID")
     return output
 
 
@@ -230,160 +495,3 @@ def build_terminal(
         "ocr_loads": ocr_loads,
         "concept_loads": concept_loads,
     }
-
-
-def _write_new(path: Path, encoded: bytes) -> None:
-    with path.open("xb") as destination:
-        destination.write(encoded)
-        destination.flush()
-        os.fsync(destination.fileno())
-
-
-def _bundle_document(
-    run_id: str, output: dict[str, Any] | None, terminal: dict[str, Any]
-) -> dict[str, Any]:
-    output_bytes = canonical_bytes(output) if output is not None else None
-    terminal_bytes = canonical_bytes(terminal)
-    bundle = {
-        "schema": BUNDLE_SCHEMA,
-        "run_id": run_id,
-        "output_file": "concept-evidence-output.json" if output is not None else None,
-        "output_sha256": canonical_sha256(output) if output is not None else None,
-        "terminal_file": "terminal.json",
-        "terminal_sha256": canonical_sha256(terminal),
-        "output_size_bytes": len(output_bytes) if output_bytes is not None else 0,
-        "terminal_size_bytes": len(terminal_bytes),
-        "processing": terminal["processing"],
-        "quality": terminal.get("quality", "needs_review"),
-        "decision": terminal.get("decision", "review"),
-    }
-    bundle["bundle_id"] = f"text-first-producer-bundle:sha256:{canonical_sha256(bundle)}"
-    return bundle
-
-
-def publish_run(
-    runtime_root: Path,
-    run_id: str,
-    output: dict[str, Any] | None,
-    terminal: dict[str, Any],
-) -> Path:
-    """全部檔案重讀一致後，才以一次 rename 發布不可覆寫的 bundle。"""
-
-    if (
-        runtime_root.is_symlink()
-        or not isinstance(run_id, str)
-        or not run_id
-        or "/" in run_id
-        or "\\" in run_id
-    ):
-        raise OSError("RUN_TERMINAL_WRITE_FAILED")
-    runs = runtime_root / "runs"
-    if runs.is_symlink() or (runs.exists() and not runs.is_dir()):
-        raise OSError("RUN_TERMINAL_WRITE_FAILED")
-    runs.mkdir(parents=True, exist_ok=True)
-    destination = runs / run_id
-    if os.path.lexists(destination):
-        raise FileExistsError("ARTIFACT_COLLISION")
-    stage = Path(tempfile.mkdtemp(prefix="run-", dir=runs))
-    try:
-        if output is not None:
-            encoded_output = canonical_bytes(output)
-            output_path = stage / "concept-evidence-output.json"
-            try:
-                _write_new(output_path, encoded_output)
-                if output_path.read_bytes() != encoded_output:
-                    raise OSError
-            except OSError as error:
-                raise OSError("FINAL_OUTPUT_WRITE_FAILED") from error
-        encoded_terminal = canonical_bytes(terminal)
-        encoded_bundle = canonical_bytes(_bundle_document(run_id, output, terminal))
-        terminal_path = stage / "terminal.json"
-        bundle_path = stage / "producer-bundle.json"
-        try:
-            _write_new(terminal_path, encoded_terminal)
-            _write_new(bundle_path, encoded_bundle)
-            if (
-                terminal_path.read_bytes() != encoded_terminal
-                or bundle_path.read_bytes() != encoded_bundle
-            ):
-                raise OSError
-            directory_descriptor = os.open(runs, os.O_RDONLY)
-            try:
-                os.fsync(directory_descriptor)
-                os.replace(stage, destination)
-                os.fsync(directory_descriptor)
-            finally:
-                os.close(directory_descriptor)
-        except OSError as error:
-            raise OSError("RUN_TERMINAL_WRITE_FAILED") from error
-        return destination
-    finally:
-        if stage.exists():
-            for child in stage.iterdir():
-                child.unlink(missing_ok=True)
-            stage.rmdir()
-
-
-def _read_json_file(path: Path) -> dict[str, Any]:
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_BUNDLE_FILE_BYTES:
-        raise ValueError("PRODUCER_BUNDLE_INVALID")
-    try:
-        value = json.loads(
-            path.read_bytes(),
-            object_pairs_hook=_object_without_duplicates,
-            parse_constant=lambda _: (_ for _ in ()).throw(ValueError()),
-        )
-    except (OSError, RecursionError, UnicodeDecodeError, ValueError):
-        raise ValueError("PRODUCER_BUNDLE_INVALID") from None
-    if not isinstance(value, dict):
-        raise ValueError("PRODUCER_BUNDLE_INVALID")
-    return value
-
-
-def _object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    value: dict[str, Any] = {}
-    for key, item in pairs:
-        if key in value:
-            raise ValueError("PRODUCER_BUNDLE_INVALID")
-        value[key] = item
-    return value
-
-
-def read_producer_bundle(runtime_root: Path, run_id: str) -> dict[str, Any]:
-    """只從固定檔名讀取，並重驗 bundle、terminal 與 output 的 exact binding。"""
-
-    if not isinstance(run_id, str) or not run_id or "/" in run_id or "\\" in run_id:
-        raise ValueError("PRODUCER_BUNDLE_INVALID")
-    runs = runtime_root / "runs"
-    directory = runs / run_id
-    if (
-        runtime_root.is_symlink()
-        or runs.is_symlink()
-        or directory.is_symlink()
-        or not directory.is_dir()
-    ):
-        raise ValueError("PRODUCER_BUNDLE_INVALID")
-    bundle = _read_json_file(directory / "producer-bundle.json")
-    terminal = _read_json_file(directory / "terminal.json")
-    expected_files = {"producer-bundle.json", "terminal.json"}
-    output: dict[str, Any] | None = None
-    if bundle.get("output_file") is not None:
-        if bundle.get("output_file") != "concept-evidence-output.json":
-            raise ValueError("PRODUCER_BUNDLE_INVALID")
-        output = _read_json_file(directory / "concept-evidence-output.json")
-        expected_files.add("concept-evidence-output.json")
-    try:
-        if (
-            {item.name for item in directory.iterdir()} != expected_files
-            or bundle != _bundle_document(run_id, output, terminal)
-            or terminal.get("schema") != TERMINAL_SCHEMA
-            or terminal.get("run_id") != run_id
-            or terminal.get("output_id")
-            != (output.get("output_id") if output is not None else None)
-            or (output is not None and output.get("schema") != OUTPUT_SCHEMA)
-            or (output is not None and output.get("run_id") != run_id)
-        ):
-            raise ValueError("PRODUCER_BUNDLE_INVALID")
-    except (KeyError, OSError, TypeError):
-        raise ValueError("PRODUCER_BUNDLE_INVALID") from None
-    return {"bundle": bundle, "terminal": terminal, "output": output}

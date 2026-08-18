@@ -20,7 +20,7 @@ function terminalRun() {
     output_binding: {
       schema: "material-run-output-binding/v2",
       producer_bundle_id: `text-first-producer-bundle:sha256:${"1".repeat(64)}`,
-      producer_run_id: "text-first-run:review-example",
+      producer_run_id: "text-first-run:00000000-0000-4000-8000-000000000001",
       concept_evidence_output_id: `concept-evidence-output:sha256:${"2".repeat(64)}`,
       study_material_output_revision: outputRevision,
       knowledge_map_revision: mapRevision,

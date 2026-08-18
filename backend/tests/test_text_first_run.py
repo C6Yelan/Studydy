@@ -7,7 +7,7 @@ import pymupdf
 import pytest
 
 import pdf_evidence.text_first_run as run_module
-from pdf_evidence.concept_evidence_output import read_producer_bundle
+from pdf_evidence.text_first_bundle import read_producer_bundle
 
 
 def _settings(tmp_path):

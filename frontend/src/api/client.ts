@@ -81,8 +81,16 @@ function isRevision(value: unknown, prefix: string): value is string {
     && sha256Pattern.test(value.slice(prefix.length + 8));
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
+function isStringArray(value: unknown, minimum = 0, maximum = 256): value is string[] {
+  return Array.isArray(value)
+    && value.length >= minimum
+    && value.length <= maximum
+    && value.every((item) => typeof item === "string" && item.length > 0);
+}
+
+function isSortedUniqueStrings(value: unknown, minimum = 1, maximum = 64): value is string[] {
+  return isStringArray(value, minimum, maximum)
+    && value.every((item, index) => index === 0 || value[index - 1] < item);
 }
 
 function isMaterial(value: unknown): value is MaterialView {
@@ -108,6 +116,7 @@ function isBinding(value: unknown): boolean {
     && isRevision(item.producer_bundle_id, "text-first-producer-bundle")
     && typeof item.producer_run_id === "string"
     && item.producer_run_id.startsWith("text-first-run:")
+    && isUuid(item.producer_run_id.slice("text-first-run:".length))
     && isRevision(item.concept_evidence_output_id, "concept-evidence-output")
     && isRevision(item.study_material_output_revision, "study-material-output")
     && isRevision(item.knowledge_map_revision, "knowledge-map")
@@ -119,9 +128,13 @@ function isBinding(value: unknown): boolean {
     && (item.processing === "succeeded" || item.processing === "partial")
     && item.quality === "needs_review"
     && item.decision === "review"
-    && isStringArray(item.reason_codes)
+    && isSortedUniqueStrings(item.reason_codes)
     && Number.isInteger(item.ocr_calls)
-    && Number.isInteger(item.concept_calls);
+    && Number(item.ocr_calls) >= 0
+    && Number(item.ocr_calls) <= Number(item.page_count)
+    && Number.isInteger(item.concept_calls)
+    && Number(item.concept_calls) >= 0
+    && Number(item.concept_calls) <= 2 * Number(item.page_count);
 }
 
 function isMaterialRun(value: unknown): value is MaterialProcessingRunView {
@@ -164,25 +177,27 @@ function isRegion(value: unknown): boolean {
 function isEvidence(value: unknown, pageRef: string): boolean {
   const item = closed(value, ["evidence_id", "page_ref", "page_number", "kind", "region"]);
   return !!item
-    && typeof item.evidence_id === "string"
+    && isRevision(item.evidence_id, "evidence")
     && item.page_ref === pageRef
     && Number.isInteger(item.page_number)
     && Number(item.page_number) >= 1
     && Number(item.page_number) <= 32
-    && typeof item.kind === "string"
+    && typeof item.kind === "string" && item.kind.length >= 1 && item.kind.length <= 64
     && isRegion(item.region);
 }
 
 function isImage(value: unknown): boolean {
   const image = closed(value, ["image_id", "page_ref", "page_number", "region", "evidence"]);
   return !!image
-    && typeof image.image_id === "string"
-    && typeof image.page_ref === "string"
+    && isRevision(image.image_id, "image")
+    && isRevision(image.page_ref, "page")
     && Number.isInteger(image.page_number)
     && Number(image.page_number) >= 1
     && Number(image.page_number) <= 32
     && isRegion(image.region)
     && Array.isArray(image.evidence)
+    && image.evidence.length <= 8
+    && new Set(image.evidence.map((evidence) => object(evidence)?.evidence_id)).size === image.evidence.length
     && image.evidence.every((evidence) => isEvidence(evidence, image.page_ref as string));
 }
 
@@ -192,7 +207,7 @@ function isExcludedPage(value: unknown): boolean {
     "quality", "decision", "reason_codes",
   ]);
   return !!page
-    && typeof page.page_ref === "string"
+    && isRevision(page.page_ref, "page")
     && Number.isInteger(page.page_number)
     && Number(page.page_number) >= 1
     && Number(page.page_number) <= 32
@@ -201,8 +216,7 @@ function isExcludedPage(value: unknown): boolean {
     && page.processing === "failed"
     && page.quality === "needs_review"
     && page.decision === "reject"
-    && isStringArray(page.reason_codes)
-    && page.reason_codes.length > 0;
+    && isSortedUniqueStrings(page.reason_codes);
 }
 
 function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
@@ -212,41 +226,50 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
   ]);
   if (!item
     || item.schema !== "knowledge-map-view/v2"
-    || typeof item.material_ref !== "string"
+    || !isRevision(item.material_ref, "material")
     || !isRevision(item.knowledge_map_revision, "knowledge-map")
     || !isRevision(item.source_output_id, "study-material-output")
-    || !Array.isArray(item.concepts)
-    || !Array.isArray(item.images)
-    || !Array.isArray(item.excluded_pages)) return false;
+    || !Array.isArray(item.concepts) || item.concepts.length < 1 || item.concepts.length > 768
+    || !Array.isArray(item.images) || item.images.length > 8192
+    || !Array.isArray(item.excluded_pages) || item.excluded_pages.length > 32) return false;
   const status = closed(item.status, ["processing", "quality", "decision", "reason_codes"]);
   if (!status
     || (status.processing !== "succeeded" && status.processing !== "partial")
     || status.quality !== "needs_review"
     || status.decision !== "review"
-    || !isStringArray(status.reason_codes)) return false;
+    || !isSortedUniqueStrings(status.reason_codes)) return false;
   const conceptsAreValid = item.concepts.every((value) => {
     const concept = closed(value, [
       "concept_id", "label", "definition", "key_points", "page_ref", "evidence",
       "quality", "decision", "reason_codes",
     ]);
     return !!concept
-      && typeof concept.concept_id === "string"
-      && typeof concept.label === "string"
-      && typeof concept.definition === "string"
-      && isStringArray(concept.key_points)
-      && typeof concept.page_ref === "string"
+      && isRevision(concept.concept_id, "concept")
+      && typeof concept.label === "string" && concept.label.length >= 1 && concept.label.length <= 120
+      && typeof concept.definition === "string" && concept.definition.length >= 1 && concept.definition.length <= 1000
+      && isStringArray(concept.key_points, 1, 10)
+      && isRevision(concept.page_ref, "page")
       && Array.isArray(concept.evidence)
-      && concept.evidence.length > 0
+      && concept.evidence.length > 0 && concept.evidence.length <= 16
+      && new Set(concept.evidence.map((evidence) => object(evidence)?.evidence_id)).size === concept.evidence.length
       && concept.evidence.every((evidence) => isEvidence(evidence, concept.page_ref as string))
       && concept.quality === "needs_review"
       && concept.decision === "review"
-      && isStringArray(concept.reason_codes);
+      && isSortedUniqueStrings(concept.reason_codes);
   });
   if (!conceptsAreValid
     || !item.images.every(isImage)
     || !item.excluded_pages.every(isExcludedPage)) return false;
-  const includedPageRefs = new Set(item.concepts.map((value) => object(value)?.page_ref));
-  return item.excluded_pages.every((value) => !includedPageRefs.has(object(value)?.page_ref))
+  const conceptIds = item.concepts.map((entry) => object(entry)?.concept_id);
+  const imageIds = item.images.map((entry) => object(entry)?.image_id);
+  const excludedRefs = item.excluded_pages.map((entry) => object(entry)?.page_ref);
+  const excludedNumbers = item.excluded_pages.map((entry) => object(entry)?.page_number);
+  const includedPageRefs = new Set(item.concepts.map((entry) => object(entry)?.page_ref));
+  return new Set(conceptIds).size === conceptIds.length
+    && new Set(imageIds).size === imageIds.length
+    && new Set(excludedRefs).size === excludedRefs.length
+    && new Set(excludedNumbers).size === excludedNumbers.length
+    && item.excluded_pages.every((entry) => !includedPageRefs.has(object(entry)?.page_ref))
     && (status.processing === "partial") === (item.excluded_pages.length > 0);
 }
 
@@ -422,9 +445,12 @@ export class StudydyApiClient {
     return view;
   }
 
-  sourceArtifactUrl(artifactId: string): string {
+  sourceArtifactUrl(artifactId: string, pageNumber?: number): string {
     if (!isUuid(artifactId)) throw new ApiClientError("input", "教材檔案編號無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
-    return `/v1/artifacts/${artifactId}`;
+    if (pageNumber !== undefined && (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > 32)) {
+      throw new ApiClientError("input", "教材頁碼無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    return `/v1/artifacts/${artifactId}${pageNumber === undefined ? "" : `#page=${pageNumber}`}`;
   }
 }
 

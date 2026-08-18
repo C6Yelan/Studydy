@@ -19,7 +19,7 @@ from uuid import uuid4
 
 import pymupdf
 
-from .concept_evidence_output import build_output, build_terminal, publish_run
+from .concept_evidence_output import build_output, build_terminal
 from .concept_generation import (
     MAX_ATTEMPTS,
     PROMPT_SHA256,
@@ -43,6 +43,7 @@ from .ocr_page_evidence import (
     extract_page,
     page_cache_key,
 )
+from .text_first_bundle import publish_run
 
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")

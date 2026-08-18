@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
-from pdf_evidence.study_material_output import validate_study_material_output
+from pdf_evidence.study_material_output import _shape_is_valid, validate_study_material_output
 
 
 KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v2"
@@ -16,6 +16,45 @@ KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v2"
 def _revision(document: dict[str, Any]) -> str:
     content = {key: value for key, value in document.items() if key != "revision"}
     return "knowledge-map:sha256:" + canonical_sha256(content)
+
+
+def _shape_is_closed(knowledge_map: Any) -> bool:
+    fields = {
+        "schema", "source_output_id", "material_ref", "pages", "excluded_pages",
+        "concepts", "evidence_index", "images", "processing", "quality", "decision",
+        "reason_codes", "revision",
+    }
+    if not isinstance(knowledge_map, dict) or set(knowledge_map) != fields:
+        return False
+    if not isinstance(knowledge_map["pages"], list) or not isinstance(
+        knowledge_map["excluded_pages"], list
+    ):
+        return False
+    page_count = len(knowledge_map["pages"]) + len(knowledge_map["excluded_pages"])
+    source_binding = {
+        "source_sha256": "0" * 64,
+        "page_count": page_count,
+        "producer_output_id": "concept-evidence-output:sha256:" + "0" * 64,
+        "runtime_binding_sha256": "0" * 64,
+    }
+    study_shape = {
+        "schema": "study-material-output/v3",
+        "run_id": "text-first-run:00000000-0000-4000-8000-000000000000",
+        "produced_at": "2026-01-01T00:00:00Z",
+        "material_ref": knowledge_map["material_ref"],
+        "source_binding": source_binding,
+        "pages": knowledge_map["pages"],
+        "excluded_pages": knowledge_map["excluded_pages"],
+        "concepts": knowledge_map["concepts"],
+        "evidence_index": knowledge_map["evidence_index"],
+        "images": knowledge_map["images"],
+        "processing": knowledge_map["processing"],
+        "quality": knowledge_map["quality"],
+        "decision": knowledge_map["decision"],
+        "reason_codes": knowledge_map["reason_codes"],
+    }
+    study_shape["output_id"] = "study-material-output:sha256:" + canonical_sha256(study_shape)
+    return _shape_is_valid(study_shape)
 
 
 def build_review_knowledge_map(study_material_output: dict[str, Any]) -> dict[str, Any]:
@@ -47,9 +86,9 @@ def build_review_knowledge_map(study_material_output: dict[str, Any]) -> dict[st
 def validate_knowledge_map(
     knowledge_map: Any, study_material_output: dict[str, Any] | None = None
 ) -> str | None:
-    if not isinstance(knowledge_map, dict) or knowledge_map.get("schema") != KNOWLEDGE_MAP_SCHEMA:
-        return "KNOWLEDGE_MAP_INVALID"
     try:
+        if not _shape_is_closed(knowledge_map) or knowledge_map["schema"] != KNOWLEDGE_MAP_SCHEMA:
+            return "KNOWLEDGE_MAP_INVALID"
         if knowledge_map.get("revision") != _revision(knowledge_map):
             return "KNOWLEDGE_MAP_INVALID"
         if study_material_output is not None and knowledge_map != build_review_knowledge_map(

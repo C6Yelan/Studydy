@@ -10,7 +10,8 @@ import pymupdf
 import pytest
 
 import runtime.material_processing as processing_module
-from pdf_evidence.concept_evidence_output import build_output, build_terminal, publish_run
+from pdf_evidence.concept_evidence_output import build_output, build_terminal
+from pdf_evidence.text_first_bundle import publish_run
 from pdf_evidence.concept_generation import build_semantic_request, validate_concepts
 from pdf_evidence.ocr_page_evidence import build_page_evidence, canonical_sha256, extract_page
 from runtime.material_processing import (
@@ -23,8 +24,8 @@ from runtime.material_processing import (
     read_material_processing_run,
     recover_interrupted_material_runs,
 )
-from runtime.storage.artifacts import publish_idempotent_source_pdf
-from runtime.storage.material_outputs import (
+from runtime.storage.source_pdf import publish_idempotent_source_pdf
+from runtime.storage.material_review_outputs import (
     MaterialRunOutputError,
     read_material_run_outputs,
 )
@@ -117,7 +118,13 @@ def _fake_successful_producer(
     page = build_page_evidence(
         raw_page,
         [{"type": "text", "text": "Public evidence", "bbox": [100, 100, 900, 300]}],
-        input_binding={"source_sha256": source_sha256, "page_number": 1},
+        input_binding={
+            "source_sha256": source_sha256,
+            "page_number": 1,
+            "render_sha256": raw_page["render"]["sha256"],
+            "page": settings["runtime_lock"]["page"],
+            "ocr": settings["runtime_lock"]["ocr"],
+        },
         produced_at=produced_at,
     )
     semantic_request = build_semantic_request(page)
@@ -257,7 +264,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     encoded = json.dumps(binding)
     assert settings["private_runtime_root"] not in encoded
     assert settings["ocr_model_root"] not in encoded
-    assert len(binding["code_hashes"]) == 6
+    assert len(binding["code_hashes"]) == 9
 
 
 def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(

@@ -162,7 +162,10 @@ def test_success_exposes_only_review_map_with_pdf_locator(
 
 def test_openapi_has_no_deferred_downstream_routes(settings: ApiSettings):
     app = create_app(settings)
-    document = json.loads(canonical_openapi_bytes(app))
+    encoded = canonical_openapi_bytes(app)
+    fixture = Path(__file__).parent / "fixtures" / "openapi-v2.json"
+    assert encoded == fixture.read_bytes()
+    document = json.loads(encoded)
     paths = set(document["paths"])
     assert paths == {
         "/v1/session",
@@ -173,14 +176,26 @@ def test_openapi_has_no_deferred_downstream_routes(settings: ApiSettings):
         "/v1/materials/{material_id}/knowledge-maps/{map_revision}",
         "/v1/artifacts/{artifact_id}",
     }
-    encoded = json.dumps(document)
+    assert "HTTPValidationError" not in document["components"]["schemas"]
+    assert "ValidationError" not in document["components"]["schemas"]
+    assert all(
+        schema.get("additionalProperties") is False
+        for schema in document["components"]["schemas"].values()
+        if schema.get("type") == "object"
+    )
+    source_response = document["paths"]["/v1/artifacts/{artifact_id}"]["get"]["responses"]["200"]
+    assert source_response["content"]["application/pdf"]["schema"] == {
+        "type": "string",
+        "format": "binary",
+    }
+    encoded_document = json.dumps(document)
     for deferred in (
         "learning-path",
         "assessment",
         "learning-state",
         "learning-resource-result",
     ):
-        assert deferred not in encoded
+        assert deferred not in encoded_document
 
 
 def test_owner_scope_and_safe_fixed_errors(settings: ApiSettings):
