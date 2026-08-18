@@ -19,7 +19,7 @@ def test_local_composition_builds_settings_before_app(monkeypatch):
         public_origin="https://studydy.test",
         secure_cookie=True,
         local_config=local_config,
-        dsn="postgresql://unused",
+        dsn="test-database-location",
     ) is marker
     local_config["private_runtime_root"] = "changed"
     assert observed[0]["local_config"]["private_runtime_root"] == "/tmp/studydy-runtime"
