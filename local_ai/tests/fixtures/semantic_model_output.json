@@ -1,0 +1,10 @@
+{
+  "concepts": [
+    {
+      "label": "Photosynthesis",
+      "definition": "Photosynthesis converts light energy into chemical energy.",
+      "key_points": ["Plants convert light energy."],
+      "evidence_ids": ["evidence-one"]
+    }
+  ]
+}

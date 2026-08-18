@@ -1,0 +1,151 @@
+{
+  "schema": "studydy-local-ai-runtime-lock/v2",
+  "python": {
+    "version": "3.12.3",
+    "executable_sha256": "d2bf63ac665084e548f1e32bdab323a559141dbd237bfa578640dc1041ddd44e"
+  },
+  "packages": {
+    "studydy_local_ai_wheel_sha256": "afc5f9fd62817ddfd1fe4505d402a7aeeb923f7a3e6af131205d57771588b6c8",
+    "setuptools": "84.0.0",
+    "torch": "2.10.0+cu128",
+    "torchvision": "0.25.0+cu128",
+    "transformers": "4.57.1"
+  },
+  "page": {
+    "pymupdf_version": "1.28.0",
+    "schema": "page-evidence/v2",
+    "native_schema": "page-native/v2",
+    "render": {
+      "schema": "page-render/v1",
+      "dpi": 200,
+      "colorspace": "RGB",
+      "format": "PNG",
+      "coverage": "full_visible_page"
+    },
+    "render_sha256": "a1d0c0e330ca0b4cb4f8aa0b541e6530b14d8c9644b4c62ae70a4fcf8c437f85",
+    "normalization": {
+      "version": "qualification-normalization/1",
+      "operations": ["crlf_to_lf", "unicode_nfc", "remove_trailing_whitespace"]
+    },
+    "normalization_sha256": "b7fd4dafe2a5d57fe7c41342b0c2917ddde5101696b2284b6914bfbf6947532d",
+    "processing": "p02-fixed-unlimited-text-first/v1",
+    "normalizer": "p02-nfkc-whitespace/v1",
+    "code_hashes": {
+      "backend_ocr_page_evidence": "464dd905c89675ec57775e0d6170416f4702f18407d7e06dce95d054d7769f03"
+    },
+    "fixture_hashes": {}
+  },
+  "ocr": {
+    "model_id": "Unlimited-OCR",
+    "revision": "07dea832e22aefee32ad281d4b80551282e1c168",
+    "weight_sha256": "2bc48a7a110061ea58fff65d3169367eebe3aee371ca6968dc2219c1b2855fc6",
+    "reviewed_code_revision": "d49ff64afffc1f47ab563dc1c589bc2f78808fa4",
+    "reviewed_code": {
+      "configuration_deepseek_v2.py": "b8470dd616ba8745fce6e27b093aef73a098863cc891b2477dcf9326a36000f7",
+      "conversation.py": "ec7b6ce89bcda643de1f43269ffa66a7b2e65dc3ed30e427958f776546b4ba03",
+      "deepencoder.py": "0ae2fb6d1e5ae8cf100fc32f854830acd08c821a0a1f23a94a76588c222ddcf2",
+      "modeling_deepseekv2.py": "74e36e6bd0ba7bc565ef76464a99baa8e6bccb710ae9c1007b54ac30b855fa4c",
+      "modeling_unlimitedocr.py": "268bdcbe12cf37bf5a2debb53faf542e56570958a5d9f3314aab3cab2cf6cb48"
+    },
+    "config_sha256": "27246d03fd670904ec9601b1cb0861fbb79ec076830771daa8d943d6229946f9",
+    "prompt": "<image>document parsing.",
+    "prompt_sha256": "a210f5b991d35d2a9a7d6c6160f54165c0ae96e02fbfdd1bc38400232021c303",
+    "qualification_config": {
+      "candidate": "unlimited",
+      "round": 1,
+      "image_mode": "gundam",
+      "max_length": 32768,
+      "no_repeat_ngram_size": 35,
+      "ngram_window": 128,
+      "temperature": 0.0
+    },
+    "qualification_config_sha256": "815c555f46c5901190991a49619c61a969e6cc1b01297f06e45af37fd10ac5f3",
+    "inference": {
+      "base_size": 1024,
+      "image_size": 640,
+      "crop_mode": true,
+      "eval_mode": true,
+      "max_length": 32768,
+      "no_repeat_ngram_size": 35,
+      "ngram_window": 128,
+      "temperature": 0.0,
+      "save_results": false
+    },
+    "grammar": "p02-strict-det-only/v1",
+    "code_hashes": {
+      "local_ai_protocol": "e37a91ffcda3df8e6190797da2cbe2db24f3c28db4eea367b4d7e3653d32b254",
+      "local_ai_ocr": "d6f431c990630b60311ef0e9737ea4805896eb709eb69dd24644d93a580a232a"
+    },
+    "fixture_hashes": {}
+  },
+  "semantic": {
+    "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+    "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+    "dtype": "bfloat16",
+    "trust_remote_code": false,
+    "binding_manifest_sha256": "61cbb8e0973dcbefc6009f66ddfc2da2fe3d9aba4094ade8a82043f6624651c4",
+    "required_file_count": 10,
+    "required_files": [
+      {"name": "config.json", "size": 727, "sha256": "5beea1a4a34c62782bfb2f911c606741a3bab8f92d80a118fa053c28af12e8ba"},
+      {"name": "generation_config.json", "size": 238, "sha256": "835fffe355c9438e7a25be099b3fccaa98350b83451f9fd2d99512e74f1ade48"},
+      {"name": "merges.txt", "size": 1671839, "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3"},
+      {"name": "model-00001-of-00003.safetensors", "size": 3957900840, "sha256": "75311d91bb08cf0b882913da464a1e722a31fb44db35208663487efb7a3d8ed6"},
+      {"name": "model-00002-of-00003.safetensors", "size": 3987450520, "sha256": "0b48adbb1f60e901153d91907ba11ce63bd4b8b584482e730f48808d055dfba1"},
+      {"name": "model-00003-of-00003.safetensors", "size": 99630640, "sha256": "7dd39ccca5e4de123c74c14af44c9bf2eb75df33b4614382af0134528e060d5d"},
+      {"name": "model.safetensors.index.json", "size": 32819, "sha256": "d6c42883a895dfef5b0080ed2116a1bcd764f558406b98923d675978a1abf29c"},
+      {"name": "tokenizer.json", "size": 11422654, "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"},
+      {"name": "tokenizer_config.json", "size": 9377, "sha256": "a62ff0a2472a0fa1b8eaabcb57c59b58afa42a22831dc141400b6e0cf2b65ce3"},
+      {"name": "vocab.json", "size": 2776833, "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"}
+    ],
+    "prompt": "You extract study concepts from normalized text evidence.\nUse only the supplied evidence. Return JSON only, with exactly this shape:\n{\"concepts\":[{\"label\":\"...\",\"definition\":\"...\",\"key_points\":[\"...\"],\"evidence_ids\":[\"...\"]}]}\nEvery central claim and key point must be grounded by its listed Evidence IDs.\nDo not return status, paths, coordinates, commentary, markdown, or additional fields.",
+    "prompt_sha256": "97f14f58b3599f22fcda7921d69fbd64035562c11897a4eadc6aacb355f5ca5c",
+    "request_schema": "semantic-qualification-input/v1",
+    "output_schema": "semantic-concepts/v1",
+    "chat_template": {
+      "messages": "single_user",
+      "tokenize": true,
+      "add_generation_prompt": true,
+      "return_tensors": "pt",
+      "input_token_limit": 4096
+    },
+    "generation": {"do_sample": false, "max_new_tokens": 1536, "use_cache": true},
+    "retry": {
+      "max_attempts": 2,
+      "fixed_retry_count": 1,
+      "timeout_seconds": 300,
+      "retryable_reasons": [
+        "CANDIDATE_SCHEMA_INVALID",
+        "CHILD_TIMEOUT",
+        "DUPLICATE_EVIDENCE_REFERENCE",
+        "INVALID_CONCEPT_COUNT",
+        "INVALID_EVIDENCE_REFERENCES",
+        "INVALID_KEY_POINTS",
+        "INVALID_TEXT_FIELD",
+        "MODEL_OOM",
+        "MODEL_OUTPUT_INVALID_JSON",
+        "MODEL_OUTPUT_TOO_LARGE",
+        "MODEL_OUTPUT_TRUNCATED",
+        "NO_USABLE_CONCEPT",
+        "UNKNOWN_EVIDENCE_ID"
+      ]
+    },
+    "policy": {
+      "candidate_text_normalizer": "p02-nfkc-whitespace/v1",
+      "cross_concept_evidence_reuse": true,
+      "lexical_overlap_decision": false,
+      "sanitation": "single-trailing-ascii-quote/v1",
+      "fenced_json": "reject",
+      "generation_termination": "final-token-eos-required/v1",
+      "structurally_valid_decision": "review"
+    },
+    "code_hashes": {
+      "local_ai_protocol": "e37a91ffcda3df8e6190797da2cbe2db24f3c28db4eea367b4d7e3653d32b254",
+      "local_ai_concept": "3e94ed380a2adc6ea16c14bc9d9c72d4b424b2fae9f3d8383653543e1aab15cb",
+      "backend_concept_generation": "805a0b3830db291a17af7f5b0da85b8a89c757ce7abeb81538ddede5cf25d446"
+    },
+    "fixture_hashes": {
+      "semantic_request.json": "dd1ebd2ff79a274df59f21d66f13789da25f262bf8fb03c66c73b79efd7a191d",
+      "semantic_model_output.json": "8031a30b7c4bc4d1a9efa4cd8e7b643476878fb1e96e5cbd329379b75a691553"
+    }
+  }
+}
