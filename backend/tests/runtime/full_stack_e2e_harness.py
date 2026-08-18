@@ -555,7 +555,7 @@ def main() -> int:
             except HarnessFailure as error:
                 print(str(error), file=sys.stderr)
                 return 1
-    print("STUDY_FLOW_E2E_PASS")
+    print("MATERIAL_REVIEW_E2E_PASS")
     return 0
 
 

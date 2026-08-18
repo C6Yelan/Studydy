@@ -23,7 +23,7 @@ from pdf_evidence.text_first_run import (
     run_full_text_first_pdf,
 )
 
-from .storage.source_pdf import open_verified_source_pdf
+from .storage.artifacts import open_verified_source_pdf
 from .storage.material_review_outputs import MaterialRunOutputError, publish_terminal_outputs
 from .storage.tables import (
     Learner,
@@ -55,7 +55,7 @@ _BINDING_FILES = (
     "backend/src/knowledge_map/artifacts.py",
     "backend/src/runtime/material_processing.py",
     "backend/src/runtime/local_app.py",
-    "backend/src/runtime/storage/source_pdf.py",
+    "backend/src/pdf_evidence/source_pdf.py",
     "backend/src/runtime/storage/material_review_outputs.py",
 )
 _LOCAL_AI_SOURCE_HASHES = {

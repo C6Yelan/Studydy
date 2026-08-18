@@ -7,6 +7,7 @@ import pymupdf
 import pytest
 
 import pdf_evidence.text_first_run as run_module
+from pdf_evidence.source_pdf import build_whole_document_request, copy_source_snapshot
 from pdf_evidence.text_first_bundle import read_producer_bundle
 
 
@@ -40,6 +41,27 @@ def _request(path):
         "expected_source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "page_numbers": [1],
     }
+
+
+def test_source_pdf_snapshot_and_whole_document_page_count(tmp_path):
+    source_path = tmp_path / "source.pdf"
+    snapshot_path = tmp_path / "snapshot.pdf"
+    _pdf(source_path, page_count=2)
+    source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+
+    assert copy_source_snapshot(source_path, snapshot_path) is None
+    assert snapshot_path.read_bytes() == source_path.read_bytes()
+    assert build_whole_document_request(
+        {
+            "media_type": "application/pdf",
+            "source_path": str(snapshot_path),
+            "expected_source_sha256": source_sha256,
+        }
+    )["page_numbers"] == [1, 2]
+
+    symlink_path = tmp_path / "source-link.pdf"
+    symlink_path.symlink_to(source_path)
+    assert copy_source_snapshot(symlink_path, tmp_path / "ignored.pdf") == "MATERIAL_MISSING"
 
 
 class FakeChild:

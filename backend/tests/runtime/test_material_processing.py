@@ -24,7 +24,7 @@ from runtime.material_processing import (
     read_material_processing_run,
     recover_interrupted_material_runs,
 )
-from runtime.storage.source_pdf import publish_idempotent_source_pdf
+from runtime.storage.artifacts import publish_idempotent_source_pdf
 from runtime.storage.material_review_outputs import (
     MaterialRunOutputError,
     read_material_run_outputs,

@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import re
-import stat
 import tempfile
 import time
 from typing import Any
@@ -43,6 +42,11 @@ from .ocr_page_evidence import (
     extract_page,
     page_cache_key,
 )
+from .source_pdf import (
+    MaterialPageLimitExceeded,
+    build_whole_document_request,
+    copy_source_snapshot,
+)
 from .text_first_bundle import publish_run
 
 
@@ -60,57 +64,6 @@ _PAGE_EXCLUSION_REASONS = {
     "INVALID_EVIDENCE_REFERENCES",
     "DUPLICATE_EVIDENCE_REFERENCE",
 }
-
-
-class _MaterialPageLimitExceeded(ValueError):
-    def __init__(self, page_count: int) -> None:
-        super().__init__("MATERIAL_PAGE_LIMIT_EXCEEDED")
-        self.page_count = page_count
-
-
-def _copy_source_snapshot(pdf_path: Any, snapshot_path: Path) -> str | None:
-    """從同一個已開啟 FD 複製不可變的來源快照，並拒絕 symlink。"""
-    try:
-        source_path = Path(pdf_path)
-    except TypeError:
-        return "MATERIAL_INPUT_INVALID"
-    try:
-        if source_path.is_symlink() or not source_path.exists():
-            return "MATERIAL_MISSING"
-        source_descriptor = os.open(
-            source_path,
-            os.O_RDONLY
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_NONBLOCK", 0),
-        )
-    except FileNotFoundError:
-        return "MATERIAL_MISSING"
-    except (OSError, ValueError):
-        return "MATERIAL_READ_FAILED"
-    snapshot_descriptor: int | None = None
-    try:
-        source_status = os.fstat(source_descriptor)
-        if not stat.S_ISREG(source_status.st_mode):
-            return "MATERIAL_MISSING"
-        snapshot_descriptor = os.open(
-            snapshot_path,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-            0o600,
-        )
-        with os.fdopen(source_descriptor, "rb") as source:
-            source_descriptor = -1
-            with os.fdopen(snapshot_descriptor, "wb") as snapshot:
-                snapshot_descriptor = None
-                while chunk := source.read(1024 * 1024):
-                    snapshot.write(chunk)
-        return None
-    except (OSError, ValueError):
-        return "MATERIAL_READ_FAILED"
-    finally:
-        if source_descriptor >= 0:
-            os.close(source_descriptor)
-        if snapshot_descriptor is not None:
-            os.close(snapshot_descriptor)
 
 
 def _now() -> str:
@@ -452,54 +405,6 @@ def _validate_request(request: Any) -> tuple[Path, list[int], str]:
     finally:
         document.close()
     return source_path, pages, source_sha256
-
-
-def _whole_document_request(request: Any) -> dict[str, Any]:
-    """Formal runtime 不接受 caller page subset，且在 model 啟動前拒絕超限教材。"""
-
-    if not isinstance(request, dict) or set(request) != {
-        "media_type",
-        "source_path",
-        "expected_source_sha256",
-    }:
-        raise ValueError("SOURCE_READ_FAILED")
-    if request["media_type"] != "application/pdf":
-        raise ValueError("MEDIA_TYPE_INVALID")
-    source_path = Path(request["source_path"])
-    if source_path.is_symlink():
-        raise ValueError("SOURCE_READ_FAILED")
-    source_sha256 = request["expected_source_sha256"]
-    if not isinstance(source_sha256, str) or _SHA256.fullmatch(source_sha256) is None:
-        raise ValueError("SOURCE_HASH_MISMATCH")
-    try:
-        with source_path.open("rb") as source:
-            if source.read(5) != b"%PDF-":
-                raise ValueError("PDF_INVALID")
-            source.seek(0)
-            actual_sha256 = hashlib.file_digest(source, "sha256").hexdigest()
-        if actual_sha256 != source_sha256:
-            raise ValueError("SOURCE_HASH_MISMATCH")
-        document = pymupdf.open(source_path)
-    except ValueError:
-        raise
-    except (OSError, TypeError) as error:
-        raise ValueError("SOURCE_READ_FAILED") from error
-    except Exception as error:
-        raise ValueError("PDF_INVALID") from error
-    try:
-        if document.needs_pass:
-            raise ValueError("PDF_ENCRYPTED")
-        page_count = document.page_count
-    finally:
-        document.close()
-    if page_count < 1:
-        raise ValueError("PDF_INVALID")
-    if page_count > 32:
-        raise _MaterialPageLimitExceeded(page_count)
-    return {
-        **request,
-        "page_numbers": list(range(1, page_count + 1)),
-    }
 
 
 @contextmanager
@@ -887,12 +792,12 @@ def _run_text_first_pdf(
     )
     try:
         _validate_runtime_lock(runtime_lock)
-        checked_request = _whole_document_request(request) if whole_document else request
+        checked_request = build_whole_document_request(request) if whole_document else request
         source_path, page_numbers, source_sha256 = _validate_request(checked_request)
         page_count = len(page_numbers)
         snapshot_directory = tempfile.TemporaryDirectory(prefix="studydy-source-")
         snapshot_path = Path(snapshot_directory.name) / "source.pdf"
-        if _copy_source_snapshot(source_path, snapshot_path) is not None:
+        if copy_source_snapshot(source_path, snapshot_path) is not None:
             raise ValueError("SOURCE_READ_FAILED")
         source_path, page_numbers, source_sha256 = _validate_request(
             {**checked_request, "source_path": str(snapshot_path)}
@@ -1088,7 +993,7 @@ def _run_text_first_pdf(
         publish_run(root, run_id, output, terminal)
         return terminal
     except BaseException as error:
-        if isinstance(error, _MaterialPageLimitExceeded):
+        if isinstance(error, MaterialPageLimitExceeded):
             page_count = error.page_count
         reason = _reason(error)
         terminal = build_terminal(

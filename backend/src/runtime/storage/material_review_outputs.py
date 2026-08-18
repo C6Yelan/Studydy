@@ -25,7 +25,7 @@ from pdf_evidence.study_material_output import (
     validate_study_material_output,
 )
 
-from .source_pdf import open_verified_source_pdf
+from .artifacts import open_verified_source_pdf
 from .tables import (
     KnowledgeMap,
     MaterialProcessingRun,

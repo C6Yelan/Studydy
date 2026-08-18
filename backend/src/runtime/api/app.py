@@ -40,7 +40,7 @@ from ..material_processing import (
     formal_runtime_preflight,
     read_material_processing_run,
 )
-from ..storage.source_pdf import (
+from ..storage.artifacts import (
     open_verified_source_pdf,
     publish_idempotent_source_pdf,
 )

@@ -10,11 +10,12 @@ import pytest
 
 from runtime.storage.artifacts import (
     ArtifactError,
+    open_verified_source_pdf,
     open_verified_resource_pdf,
+    publish_idempotent_source_pdf,
     publish_resource_pdf,
     remove_resource_pdf,
 )
-from runtime.storage.source_pdf import open_verified_source_pdf, publish_idempotent_source_pdf
 from runtime.storage.migrations import run_migrations
 
 
