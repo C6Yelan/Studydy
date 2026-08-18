@@ -29,3 +29,21 @@ def test_output_write_failure_never_leaves_published_terminal(tmp_path, monkeypa
             {"processing": "partial"},
         )
     assert not (tmp_path / "runs" / "run-one").exists()
+
+
+def test_verified_reader_rejects_tamper_symlink_and_traversal(tmp_path):
+    terminal = {
+        "schema": output_module.TERMINAL_SCHEMA,
+        "run_id": "run-one",
+        "output_id": None,
+        "processing": "failed",
+        "quality": "needs_review",
+        "decision": "reject",
+    }
+    destination = output_module.publish_run(tmp_path, "run-one", None, terminal)
+    assert output_module.read_producer_bundle(tmp_path, "run-one")["terminal"] == terminal
+    (destination / "terminal.json").write_text('{"tampered":true}', encoding="utf-8")
+    with pytest.raises(ValueError, match="PRODUCER_BUNDLE_INVALID"):
+        output_module.read_producer_bundle(tmp_path, "run-one")
+    with pytest.raises(ValueError, match="PRODUCER_BUNDLE_INVALID"):
+        output_module.read_producer_bundle(tmp_path, "../run-one")

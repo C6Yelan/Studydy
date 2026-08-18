@@ -1,18 +1,10 @@
-import type { MaterialSubject, MaterialProcessingRunView } from "../../api/contracts";
+import type { MaterialProcessingRunView } from "../../api/contracts";
 
 export const maximumPdfBytes = 100 * 1024 * 1024;
-export const automaticPollLimit = 80;
+export const automaticPollLimit = 240;
 export const automaticPollIntervalMs = 1_500;
-export const materialRunRequestTimeoutMs = 10_000;
-
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type PdfFileDetails = Pick<File, "size" | "type">;
-
-type RunRecovery = {
-  schema: "material-run-recovery/v1";
-  subject: MaterialSubject;
-};
 
 export function validatePdfFile(file: PdfFileDetails | null): string | null {
   if (!file) return "請先選擇 PDF 教材。";
@@ -27,53 +19,22 @@ export function formatFileSize(sizeBytes: number): string {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
-// 這裡只保存同一分頁重新處理時需要的科目，不是教材或處理結果的正式資料來源。
-export function saveRunSubject(storage: Storage, runId: string, subject: MaterialSubject): boolean {
-  if (!uuidPattern.test(runId)) return false;
-  const recovery: RunRecovery = { schema: "material-run-recovery/v1", subject };
-  try {
-    storage.setItem(`studydy.material-run.${runId}`, JSON.stringify(recovery));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function readRunSubject(storage: Storage, runId: string): MaterialSubject | null {
-  // 編號或保存內容不符合目前格式時就放棄恢復，避免用不完整資料建立新的處理作業。
-  if (!uuidPattern.test(runId)) return null;
-  try {
-    const saved = storage.getItem(`studydy.material-run.${runId}`);
-    if (!saved) return null;
-    const recovery: unknown = JSON.parse(saved);
-    if (!recovery || typeof recovery !== "object" || Array.isArray(recovery)) return null;
-    const keys = Object.keys(recovery);
-    if (keys.length !== 2 || !keys.includes("schema") || !keys.includes("subject")) return null;
-    const candidate = recovery as Record<string, unknown>;
-    if (candidate.schema !== "material-run-recovery/v1") return null;
-    return candidate.subject === "data_structures" || candidate.subject === "economics"
-      ? candidate.subject
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 export function materialRunLabel(status: MaterialProcessingRunView["status"]): string {
   if (status === "pending") return "等待開始處理";
-  if (status === "running") return "正在分析教材";
-  if (status === "succeeded") return "處理完成";
-  if (status === "partial") return "部分完成，需要複核";
+  if (status === "running") return "正在分析完整教材";
+  if (status === "succeeded") return "處理完成，等待複核";
+  if (status === "partial") return "部分頁面已排除，等待複核";
   return "處理失敗";
 }
 
-export function materialFailureMessage(errorCode: NonNullable<MaterialProcessingRunView["error_code"]>): string {
+export function materialFailureMessage(errorCode: string): string {
   if (errorCode === "RESTART_INTERRUPTED") return "服務重新啟動時中斷了這次處理。";
-  if (errorCode === "LOCAL_PROVIDER_TIMEOUT") return "頁面分析服務超過等待時間。";
-  if (errorCode === "LOCAL_PROVIDER_RATE_LIMITED") return "頁面分析服務目前請求過多。";
-  if (errorCode === "LOCAL_PROVIDER_TRANSIENT_ERROR") return "頁面分析服務暫時無法使用。";
-  if (errorCode === "MATERIAL_CONFIGURATION_INVALID") return "教材處理設定無法使用。";
-  if (errorCode === "MATERIAL_ANALYSIS_FAILED") return "教材頁面分析未能產生有效結果。";
-  if (errorCode === "CONTROLLED_RESOURCE_INVALID") return "科目的學習資源目前無法使用。";
-  return "教材輸出未能安全完成。";
+  if (errorCode === "MATERIAL_PAGE_LIMIT_EXCEEDED") return "目前一次最多處理 32 頁 PDF。";
+  if (errorCode === "MATERIAL_CONFIGURATION_INVALID" || errorCode === "RUNTIME_BINDING_INVALID") {
+    return "本機教材處理環境未通過安全檢查。";
+  }
+  if (errorCode === "NO_USABLE_EVIDENCE" || errorCode === "NO_USABLE_CONCEPT") {
+    return "教材沒有產生可安全回查的概念與依據。";
+  }
+  return "教材分析未能安全完成，沒有發布知識地圖。";
 }

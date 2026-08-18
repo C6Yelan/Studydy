@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
 from datetime import datetime, timezone
+import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import stat
 import tempfile
 import time
 from typing import Any
@@ -40,10 +43,73 @@ from .ocr_page_evidence import (
     extract_page,
     page_cache_key,
 )
-from .pipeline.source import _copy_source_snapshot
 
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+_PAGE_EXCLUSION_REASONS = {
+    "NO_USABLE_EVIDENCE",
+    "NO_USABLE_CONCEPT",
+    "MODEL_OUTPUT_TOO_LARGE",
+    "MODEL_OUTPUT_INVALID_JSON",
+    "MODEL_OUTPUT_TRUNCATED",
+    "CANDIDATE_SCHEMA_INVALID",
+    "INVALID_CONCEPT_COUNT",
+    "INVALID_TEXT_FIELD",
+    "INVALID_KEY_POINTS",
+    "INVALID_EVIDENCE_REFERENCES",
+    "DUPLICATE_EVIDENCE_REFERENCE",
+}
+
+
+class _MaterialPageLimitExceeded(ValueError):
+    def __init__(self, page_count: int) -> None:
+        super().__init__("MATERIAL_PAGE_LIMIT_EXCEEDED")
+        self.page_count = page_count
+
+
+def _copy_source_snapshot(pdf_path: Any, snapshot_path: Path) -> str | None:
+    """從同一個已開啟 FD 複製不可變的來源快照，並拒絕 symlink。"""
+    try:
+        source_path = Path(pdf_path)
+    except TypeError:
+        return "MATERIAL_INPUT_INVALID"
+    try:
+        if source_path.is_symlink() or not source_path.exists():
+            return "MATERIAL_MISSING"
+        source_descriptor = os.open(
+            source_path,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+        )
+    except FileNotFoundError:
+        return "MATERIAL_MISSING"
+    except (OSError, ValueError):
+        return "MATERIAL_READ_FAILED"
+    snapshot_descriptor: int | None = None
+    try:
+        source_status = os.fstat(source_descriptor)
+        if not stat.S_ISREG(source_status.st_mode):
+            return "MATERIAL_MISSING"
+        snapshot_descriptor = os.open(
+            snapshot_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        with os.fdopen(source_descriptor, "rb") as source:
+            source_descriptor = -1
+            with os.fdopen(snapshot_descriptor, "wb") as snapshot:
+                snapshot_descriptor = None
+                while chunk := source.read(1024 * 1024):
+                    snapshot.write(chunk)
+        return None
+    except (OSError, ValueError):
+        return "MATERIAL_READ_FAILED"
+    finally:
+        if source_descriptor >= 0:
+            os.close(source_descriptor)
+        if snapshot_descriptor is not None:
+            os.close(snapshot_descriptor)
 
 
 def _now() -> str:
@@ -61,7 +127,9 @@ def _reason(error: BaseException) -> str:
         "PDF_INVALID",
         "PDF_ENCRYPTED",
         "PAGE_SELECTION_INVALID",
+        "MATERIAL_PAGE_LIMIT_EXCEEDED",
         "RUNTIME_BINDING_INVALID",
+        "RUNTIME_BUSY",
         "PROTOCOL_LIMIT_EXCEEDED",
         "CHILD_TIMEOUT",
         "CHILD_EXITED",
@@ -88,6 +156,7 @@ def _reason(error: BaseException) -> str:
         "ARTIFACT_COLLISION",
         "FINAL_OUTPUT_WRITE_FAILED",
         "RUN_TERMINAL_WRITE_FAILED",
+        "PRODUCER_BUNDLE_INVALID",
     }
     return value if value in allowed else "INTERNAL_FAILURE"
 
@@ -382,6 +451,98 @@ def _validate_request(request: Any) -> tuple[Path, list[int], str]:
     finally:
         document.close()
     return source_path, pages, source_sha256
+
+
+def _whole_document_request(request: Any) -> dict[str, Any]:
+    """Formal runtime 不接受 caller page subset，且在 model 啟動前拒絕超限教材。"""
+
+    if not isinstance(request, dict) or set(request) != {
+        "media_type",
+        "source_path",
+        "expected_source_sha256",
+    }:
+        raise ValueError("SOURCE_READ_FAILED")
+    if request["media_type"] != "application/pdf":
+        raise ValueError("MEDIA_TYPE_INVALID")
+    source_path = Path(request["source_path"])
+    if source_path.is_symlink():
+        raise ValueError("SOURCE_READ_FAILED")
+    source_sha256 = request["expected_source_sha256"]
+    if not isinstance(source_sha256, str) or _SHA256.fullmatch(source_sha256) is None:
+        raise ValueError("SOURCE_HASH_MISMATCH")
+    try:
+        with source_path.open("rb") as source:
+            if source.read(5) != b"%PDF-":
+                raise ValueError("PDF_INVALID")
+            source.seek(0)
+            actual_sha256 = hashlib.file_digest(source, "sha256").hexdigest()
+        if actual_sha256 != source_sha256:
+            raise ValueError("SOURCE_HASH_MISMATCH")
+        document = pymupdf.open(source_path)
+    except ValueError:
+        raise
+    except (OSError, TypeError) as error:
+        raise ValueError("SOURCE_READ_FAILED") from error
+    except Exception as error:
+        raise ValueError("PDF_INVALID") from error
+    try:
+        if document.needs_pass:
+            raise ValueError("PDF_ENCRYPTED")
+        page_count = document.page_count
+    finally:
+        document.close()
+    if page_count < 1:
+        raise ValueError("PDF_INVALID")
+    if page_count > 32:
+        raise _MaterialPageLimitExceeded(page_count)
+    return {
+        **request,
+        "page_numbers": list(range(1, page_count + 1)),
+    }
+
+
+@contextmanager
+def _agent1_lock(runtime_root: Path):
+    """跨 process 同時只允許一個本機 OCR/Qwen resident sequence。"""
+
+    if runtime_root.is_symlink():
+        raise ValueError("RUNTIME_BINDING_INVALID")
+    runtime_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock_path = runtime_root / "agent1.lock"
+    if lock_path.is_symlink():
+        raise ValueError("RUNTIME_BINDING_INVALID")
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise ValueError("RUNTIME_BUSY") from None
+                time.sleep(0.05)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _excluded_page(
+    page: dict[str, Any], stage: str, reason_code: str
+) -> dict[str, Any]:
+    """保留被排除頁的 identity 與 truthful terminal 狀態。"""
+
+    return {
+        "page_ref": page["page_ref"],
+        "page_number": page["page_number"],
+        "page_evidence_id": page.get("page_evidence_id"),
+        "last_stage": stage,
+        "processing": "failed",
+        "quality": "needs_review",
+        "decision": "reject",
+        "reason_codes": [reason_code],
+    }
 
 
 def _cache_path(root: Path, operation: str, key: str) -> Path:
@@ -695,172 +856,220 @@ def _semantic_response(
     )
 
 
-def run_text_first_pdf(request: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
-    """成功只發布 partial/review output；任一 failure 不建立成功 artifact。"""
-    run_id = f"text-first-run:{uuid4()}"
-    produced_at = _now()
+def _run_text_first_pdf(
+    request: dict[str, Any],
+    settings: dict[str, Any],
+    *,
+    whole_document: bool,
+    requested_run_id: str | None = None,
+    requested_produced_at: str | None = None,
+    requested_runtime_binding_sha256: str | None = None,
+) -> dict[str, Any]:
+    """依序執行 OCR/Qwen；formal 模式可明確排除個別內容頁。"""
+
+    run_id = requested_run_id or f"text-first-run:{uuid4()}"
+    produced_at = requested_produced_at or _now()
     started = time.monotonic()
     ocr_calls = 0
     concept_calls = 0
+    ocr_loads = 0
+    concept_loads = 0
+    page_count = 0
     output: dict[str, Any] | None = None
     cache_invalid = False
+    excluded_pages: list[dict[str, Any]] = []
     snapshot_directory: tempfile.TemporaryDirectory[str] | None = None
     root = Path(settings["private_runtime_root"])
     runtime_lock = settings.get("runtime_lock")
-    runtime_binding_sha256 = canonical_sha256(runtime_lock)
+    runtime_binding_sha256 = requested_runtime_binding_sha256 or canonical_sha256(
+        runtime_lock
+    )
     try:
         _validate_runtime_lock(runtime_lock)
-        source_path, page_numbers, source_sha256 = _validate_request(request)
+        checked_request = _whole_document_request(request) if whole_document else request
+        source_path, page_numbers, source_sha256 = _validate_request(checked_request)
+        page_count = len(page_numbers)
         snapshot_directory = tempfile.TemporaryDirectory(prefix="studydy-source-")
         snapshot_path = Path(snapshot_directory.name) / "source.pdf"
         if _copy_source_snapshot(source_path, snapshot_path) is not None:
             raise ValueError("SOURCE_READ_FAILED")
         source_path, page_numbers, source_sha256 = _validate_request(
-            {**request, "source_path": str(snapshot_path)}
+            {**checked_request, "source_path": str(snapshot_path)}
         )
-        prepared_pages: list[tuple[dict[str, Any], dict[str, Any], str, dict[str, Any] | None, bool]] = []
-        for page_number in page_numbers:
-            page = extract_page(source_path, source_sha256, page_number)
-            _write_native(root, page)
-            binding = {
-                "source_sha256": source_sha256,
-                "page_number": page_number,
-                "render_sha256": page["render"]["sha256"],
-                "page": runtime_lock["page"],
-                "ocr": runtime_lock["ocr"],
-            }
-            key = page_cache_key(binding)
-            cached, invalid = _read_cache(_cache_path(root, "page", key), "page", key, binding)
-            cache_invalid = cache_invalid or invalid
-            prepared_pages.append((page, binding, key, cached, invalid))
-        generated_pages: dict[int, dict[str, Any]] = {}
-        if any(cached is None for _, _, _, cached, _ in prepared_pages):
-            ocr = start_ocr_process(settings)
-            try:
-                for page, binding, key, cached, invalid in prepared_pages:
-                    if cached is not None:
-                        continue
-                    page_number = page["page_number"]
-                    ocr_calls += 1
-                    response = ocr.request(
-                        {
-                            "schema": "local-ocr-request/v1",
-                            "request_id": f"page-{page_number}",
-                            "render": {
-                                "sha256": page["render"]["sha256"],
-                                "width": page["render"]["width"],
-                                "height": page["render"]["height"],
-                                "png_base64": base64.b64encode(page["png_bytes"]).decode("ascii"),
-                            },
-                        },
-                        120,
+        page_artifacts = []
+        ocr = None
+        try:
+            for page_number in page_numbers:
+                page = extract_page(source_path, source_sha256, page_number)
+                try:
+                    _write_native(root, page)
+                    binding = {
+                        "source_sha256": source_sha256,
+                        "page_number": page_number,
+                        "render_sha256": page["render"]["sha256"],
+                        "page": runtime_lock["page"],
+                        "ocr": runtime_lock["ocr"],
+                    }
+                    key = page_cache_key(binding)
+                    artifact, invalid = _read_cache(
+                        _cache_path(root, "page", key), "page", key, binding
                     )
-                    if (
-                        set(response) != {"schema", "request_id", "blocks"}
-                        or response["schema"] != "local-ocr-response/v1"
-                        or response["request_id"] != f"page-{page_number}"
-                    ):
-                        raise ValueError("CHILD_RESPONSE_INVALID")
-                    artifact = build_page_evidence(
-                        page,
-                        response["blocks"],
-                        input_binding=binding,
-                        produced_at=produced_at,
-                    )
-                    _write_cache(
-                        _cache_path(root, "page", key),
-                        "page",
-                        key,
-                        binding,
-                        artifact,
-                        replace_invalid=invalid,
-                    )
-                    generated_pages[page_number] = artifact
-            finally:
-                ocr.close()
-        page_artifacts = [
-            cached if cached is not None else generated_pages[page["page_number"]]
-            for page, _, _, cached, _ in prepared_pages
-        ]
-
-        prepared_semantic: list[
-            tuple[dict[str, Any], dict[str, Any], dict[str, Any], str, dict[str, Any] | None, bool]
-        ] = []
-        for page in page_artifacts:
-            semantic_request = build_semantic_request(page)
-            binding = {
-                "page_evidence_sha256": canonical_sha256(page),
-                "semantic_request_sha256": canonical_sha256(semantic_request),
-                "evidence_allowlist": [item["evidence_id"] for item in semantic_request["evidence"]],
-                "semantic": runtime_lock["semantic"],
-            }
-            key = semantic_cache_key(binding)
-            cached, invalid = _read_cache(
-                _cache_path(root, "semantic", key), "semantic", key, binding
-            )
-            cache_invalid = cache_invalid or invalid
-            prepared_semantic.append((page, semantic_request, binding, key, cached, invalid))
-        generated_semantic: dict[str, dict[str, Any]] = {}
-        if any(cached is None for _, _, _, _, cached, _ in prepared_semantic):
-            concept = start_concept_process(settings)
-            try:
-                for page, semantic_request, binding, key, cached, invalid in prepared_semantic:
-                    if cached is not None:
-                        continue
-                    request_id = page["page_ref"].split(":")[-1][:32]
-                    artifact = None
-                    last_error: BaseException | None = None
-                    for attempt in range(1, MAX_ATTEMPTS + 1):
-                        try:
-                            artifact = _semantic_response(
-                                concept,
-                                request_id,
-                                semantic_request,
-                                binding,
-                                page["page_ref"],
-                                attempt,
-                            )
-                            concept_calls += 1
-                            break
-                        except LocalAIError as error:
-                            concept_calls += 1
-                            last_error = error
-                            if attempt == MAX_ATTEMPTS or not retryable(error.reason_code):
-                                raise
-                            if error.reason_code == "CHILD_TIMEOUT":
-                                concept.abort()
-                                concept = start_concept_process(settings)
-                        except SemanticOutputError as error:
-                            concept_calls += 1
-                            last_error = error
-                            if attempt == MAX_ATTEMPTS or not retryable(error.reason_code):
-                                raise
+                    cache_invalid = cache_invalid or invalid
                     if artifact is None:
-                        raise last_error or SemanticOutputError("NO_USABLE_CONCEPT")
-                    _write_cache(
+                        if ocr is None:
+                            ocr = start_ocr_process(settings)
+                            ocr_loads += 1
+                        ocr_calls += 1
+                        response = ocr.request(
+                            {
+                                "schema": "local-ocr-request/v1",
+                                "request_id": f"page-{page_number}",
+                                "render": {
+                                    "sha256": page["render"]["sha256"],
+                                    "width": page["render"]["width"],
+                                    "height": page["render"]["height"],
+                                    "png_base64": base64.b64encode(
+                                        page["png_bytes"]
+                                    ).decode("ascii"),
+                                },
+                            },
+                            120,
+                        )
+                        if (
+                            set(response) != {"schema", "request_id", "blocks"}
+                            or response["schema"] != "local-ocr-response/v1"
+                            or response["request_id"] != f"page-{page_number}"
+                        ):
+                            raise ValueError("CHILD_RESPONSE_INVALID")
+                        artifact = build_page_evidence(
+                            page,
+                            response["blocks"],
+                            input_binding=binding,
+                            produced_at=produced_at,
+                        )
+                        _write_cache(
+                            _cache_path(root, "page", key),
+                            "page",
+                            key,
+                            binding,
+                            artifact,
+                            replace_invalid=invalid,
+                        )
+                    page_artifacts.append(artifact)
+                except BaseException as error:
+                    reason_code = _reason(error)
+                    if whole_document and reason_code in _PAGE_EXCLUSION_REASONS:
+                        excluded_pages.append(
+                            _excluded_page(page, "page_evidence", reason_code)
+                        )
+                        continue
+                    raise
+                finally:
+                    page.pop("png_bytes", None)
+        finally:
+            if ocr is not None:
+                ocr.close()
+
+        semantic_pages = []
+        included_pages = []
+        concept = None
+        try:
+            for page in page_artifacts:
+                try:
+                    semantic_request = build_semantic_request(page)
+                    binding = {
+                        "page_evidence_sha256": canonical_sha256(page),
+                        "semantic_request_sha256": canonical_sha256(semantic_request),
+                        "evidence_allowlist": [
+                            item["evidence_id"] for item in semantic_request["evidence"]
+                        ],
+                        "semantic": runtime_lock["semantic"],
+                    }
+                    key = semantic_cache_key(binding)
+                    artifact, invalid = _read_cache(
                         _cache_path(root, "semantic", key),
                         "semantic",
                         key,
                         binding,
-                        artifact,
-                        replace_invalid=invalid,
                     )
-                    generated_semantic[page["page_ref"]] = artifact
-            finally:
+                    cache_invalid = cache_invalid or invalid
+                    if artifact is None:
+                        if concept is None:
+                            concept = start_concept_process(settings)
+                            concept_loads += 1
+                        request_id = page["page_ref"].split(":")[-1][:32]
+                        last_error: BaseException | None = None
+                        for attempt in range(1, MAX_ATTEMPTS + 1):
+                            try:
+                                artifact = _semantic_response(
+                                    concept,
+                                    request_id,
+                                    semantic_request,
+                                    binding,
+                                    page["page_ref"],
+                                    attempt,
+                                )
+                                concept_calls += 1
+                                break
+                            except LocalAIError as error:
+                                concept_calls += 1
+                                last_error = error
+                                if attempt == MAX_ATTEMPTS or not retryable(
+                                    error.reason_code
+                                ):
+                                    raise
+                                if error.reason_code == "CHILD_TIMEOUT":
+                                    concept.abort()
+                                    concept = start_concept_process(settings)
+                                    concept_loads += 1
+                            except SemanticOutputError as error:
+                                concept_calls += 1
+                                last_error = error
+                                if attempt == MAX_ATTEMPTS or not retryable(
+                                    error.reason_code
+                                ):
+                                    raise
+                        if artifact is None:
+                            raise last_error or SemanticOutputError(
+                                "NO_USABLE_CONCEPT"
+                            )
+                        _write_cache(
+                            _cache_path(root, "semantic", key),
+                            "semantic",
+                            key,
+                            binding,
+                            artifact,
+                            replace_invalid=invalid,
+                        )
+                    semantic_pages.append(artifact)
+                    included_pages.append(page)
+                except BaseException as error:
+                    reason_code = _reason(error)
+                    if whole_document and reason_code in _PAGE_EXCLUSION_REASONS:
+                        excluded_pages.append(_excluded_page(page, "concept", reason_code))
+                        continue
+                    raise
+        finally:
+            if concept is not None:
                 concept.close()
-        semantic_pages = [
-            cached if cached is not None else generated_semantic[page["page_ref"]]
-            for page, _, _, _, cached, _ in prepared_semantic
-        ]
         output = build_output(
             run_id=run_id,
             produced_at=produced_at,
             source_binding={"source_sha256": source_sha256, "page_numbers": page_numbers},
-            pages=page_artifacts,
+            pages=included_pages,
             semantic_pages=semantic_pages,
             runtime_binding=runtime_lock,
             run_reasons=["CACHE_INVALID"] if cache_invalid else [],
+            excluded_pages=excluded_pages,
         )
+        if not whole_document:
+            output["processing"] = "partial"
+            for concept_item in output["concepts"]:
+                concept_item["processing"] = "partial"
+            output.pop("output_id")
+            output["output_id"] = (
+                "concept-evidence-output:sha256:" + canonical_sha256(output)
+            )
         terminal = build_terminal(
             run_id=run_id,
             produced_at=produced_at,
@@ -870,10 +1079,16 @@ def run_text_first_pdf(request: dict[str, Any], settings: dict[str, Any]) -> dic
             duration_ms=int((time.monotonic() - started) * 1000),
             ocr_calls=ocr_calls,
             concept_calls=concept_calls,
+            ocr_loads=ocr_loads,
+            concept_loads=concept_loads,
+            page_count=page_count,
+            excluded_pages=excluded_pages,
         )
         publish_run(root, run_id, output, terminal)
         return terminal
     except BaseException as error:
+        if isinstance(error, _MaterialPageLimitExceeded):
+            page_count = error.page_count
         reason = _reason(error)
         terminal = build_terminal(
             run_id=run_id,
@@ -884,6 +1099,10 @@ def run_text_first_pdf(request: dict[str, Any], settings: dict[str, Any]) -> dic
             duration_ms=int((time.monotonic() - started) * 1000),
             ocr_calls=ocr_calls,
             concept_calls=concept_calls,
+            ocr_loads=ocr_loads,
+            concept_loads=concept_loads,
+            page_count=page_count,
+            excluded_pages=excluded_pages,
         )
         try:
             publish_run(root, run_id, None, terminal)
@@ -893,3 +1112,52 @@ def run_text_first_pdf(request: dict[str, Any], settings: dict[str, Any]) -> dic
     finally:
         if snapshot_directory is not None:
             snapshot_directory.cleanup()
+
+
+def run_text_first_pdf(request: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
+    """保留單次指定頁 qualification 入口，formal runtime 不呼叫此入口。"""
+
+    return _run_text_first_pdf(request, settings, whole_document=False)
+
+
+def run_full_text_first_pdf(
+    request: dict[str, Any],
+    settings: dict[str, Any],
+    *,
+    run_id: str | None = None,
+    produced_at: str | None = None,
+    runtime_binding_sha256: str | None = None,
+) -> dict[str, Any]:
+    """鎖定全域本機模型後，處理 PDF 的精確 1..N 頁。"""
+
+    root = Path(settings["private_runtime_root"])
+    resolved_run_id = run_id or f"text-first-run:{uuid4()}"
+    resolved_produced_at = produced_at or _now()
+    resolved_binding_sha256 = runtime_binding_sha256 or canonical_sha256(
+        settings.get("runtime_lock")
+    )
+    try:
+        with _agent1_lock(root):
+            return _run_text_first_pdf(
+                request,
+                settings,
+                whole_document=True,
+                requested_run_id=resolved_run_id,
+                requested_produced_at=resolved_produced_at,
+                requested_runtime_binding_sha256=resolved_binding_sha256,
+            )
+    except ValueError as error:
+        if _reason(error) != "RUNTIME_BUSY":
+            raise
+        terminal = build_terminal(
+            run_id=resolved_run_id,
+            produced_at=resolved_produced_at,
+            output=None,
+            runtime_binding_sha256=resolved_binding_sha256,
+            reasons=["RUNTIME_BUSY"],
+            duration_ms=5_000,
+            ocr_calls=0,
+            concept_calls=0,
+        )
+        publish_run(root, resolved_run_id, None, terminal)
+        return terminal

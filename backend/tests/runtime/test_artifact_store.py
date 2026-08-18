@@ -21,7 +21,7 @@ from runtime.storage.migrations import run_migrations
 
 @pytest.fixture
 def artifact_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5)
     return clean_database_dsn
 
 

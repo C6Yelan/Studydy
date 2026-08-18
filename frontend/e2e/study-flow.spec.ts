@@ -1,173 +1,93 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const materialId = "6f9619ff-8b86-4e3a-a2f1-2bb9424d5c81";
 const artifactId = "7f9619ff-8b86-4e3a-a2f1-2bb9424d5c82";
 const runId = "8f9619ff-8b86-4e3a-a2f1-2bb9424d5c83";
 const mapRevision = `knowledge-map:sha256:${"d".repeat(64)}`;
-const pathRevision = `initial-learning-path:sha256:${"e".repeat(64)}`;
-const resourceRevision = `learning-resource-result:sha256:${"c".repeat(64)}`;
 const outputRevision = `study-material-output:sha256:${"a".repeat(64)}`;
-const catalogRevision = `resource-catalog:sha256:${"b".repeat(64)}`;
+
+async function sessionReady(page: Page) {
+  await page.route("**/v1/session/refresh", (route) => route.fulfill({ status: 204 }));
+}
 
 function terminalRun() {
   return {
-    schema: "material-processing-run/v1",
+    schema: "material-processing-run/v2",
     run_id: runId,
     material_id: materialId,
     source_artifact_id: artifactId,
-    status: "partial",
-    catalog_revision: catalogRevision,
+    status: "succeeded",
     output_binding: {
-      schema: "material-run-output-binding/v1",
+      schema: "material-run-output-binding/v2",
+      producer_bundle_id: `text-first-producer-bundle:sha256:${"1".repeat(64)}`,
+      producer_run_id: "text-first-run:review-example",
+      concept_evidence_output_id: `concept-evidence-output:sha256:${"2".repeat(64)}`,
       study_material_output_revision: outputRevision,
-      catalog_revision: catalogRevision,
-      learning_resource_result_revision: resourceRevision,
       knowledge_map_revision: mapRevision,
-      learning_path_revision: pathRevision,
-      assessment_revision: `assessment:sha256:${"f".repeat(64)}`,
-      processing: "partial",
+      runtime_binding_sha256: "3".repeat(64),
+      page_count: 1,
+      processing: "succeeded",
       quality: "needs_review",
       decision: "review",
-      reason_code: "DEVELOPMENT_FULL_DOCUMENT_PARTIAL",
-      provider_call_counts: {
-        page_structure: 1,
-        visual_alignment_adjudication: 0,
-        concept_candidate: 1,
-        concept_content: 1,
-        total: 3,
-      },
-      development_only: true,
+      reason_codes: ["WHOLE_DOCUMENT_REVIEW_REQUIRED"],
+      ocr_calls: 1,
+      concept_calls: 1,
     },
     error_code: null,
-    created_at: "2026-08-15T00:00:00Z",
-    updated_at: "2026-08-15T00:01:00Z",
-    completed_at: "2026-08-15T00:01:00Z",
+    created_at: "2026-08-19T00:00:00Z",
+    updated_at: "2026-08-19T00:01:00Z",
+    completed_at: "2026-08-19T00:01:00Z",
   };
 }
 
-function emptyMap() {
+function reviewMap() {
+  const pageRef = `page:sha256:${"4".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v1",
-    material_ref: "material-ref-1",
+    schema: "knowledge-map-view/v2",
+    material_ref: `material:sha256:${"5".repeat(64)}`,
     knowledge_map_revision: mapRevision,
-    learning_path_revision: pathRevision,
+    source_output_id: outputRevision,
     status: {
-      processing: "partial",
+      processing: "succeeded",
       quality: "needs_review",
       decision: "review",
-      reason_code: "PAGE_CONTENT_EXCLUDED",
+      reason_codes: ["WHOLE_DOCUMENT_REVIEW_REQUIRED"],
     },
-    concepts: [],
-    relations: [],
-    review_items: [],
-    path: {
-      ordered_concept_ids: [],
-      processing: "partial",
+    concepts: [{
+      concept_id: `concept:sha256:${"6".repeat(64)}`,
+      label: "二元樹",
+      definition: "每個節點最多有兩個子節點的樹。",
+      key_points: ["左子節點", "右子節點"],
+      page_ref: pageRef,
+      evidence: [{
+        evidence_id: `evidence:sha256:${"7".repeat(64)}`,
+        page_ref: pageRef,
+        page_number: 1,
+        kind: "native_text",
+        region: { coordinate_space: "unrotated_pdf_points", bbox: [40, 50, 220, 82] },
+      }],
       quality: "needs_review",
       decision: "review",
-      reason_code: "PATH_EMPTY",
-    },
-    limitations: [{
-      reason_code: "PAGE_CONTENT_EXCLUDED",
-      page_numbers: [1],
-      affected_page_count: 1,
+      reason_codes: ["CONCEPT_REVIEW_REQUIRED"],
     }],
+    images: [],
+    excluded_pages: [],
   };
 }
 
-function emptyResources() {
-  return {
-    schema: "learning-resource-result-view/v1",
-    result_revision: resourceRevision,
-    source_study_material_output_revision: outputRevision,
-    catalog_revision: catalogRevision,
-    subject: "data_structures",
-    resources: [],
-    produced_at: "2026-08-15T00:01:00Z",
-    run_id: runId,
-    processing: "partial",
-    quality: "needs_review",
-    decision: "review",
-    reason_code: "NO_RESOURCE_MATCH",
-  };
-}
-
-function symmetricRelationMap() {
-  const concept = (id: string, label: string, x: number) => ({
-    id,
-    label,
-    definition: `${label} 的教材定義。`,
-    members: [],
-    evidence: [],
-    position: { x, y: 80 },
-    quality: "accepted",
-    reason_code: "CONCEPT_ACCEPTED",
+test("review-only Map 只顯示概念與同頁 PDF locator", async ({ page }) => {
+  await sessionReady(page);
+  await page.route(`**/v1/material-processing-runs/${runId}`, (route) => {
+    return route.fulfill({ status: 200, json: terminalRun() });
   });
-  const relation = (id: string, source: string, target: string, type: "similar" | "confusing") => ({
-    id,
-    source,
-    target,
-    type,
-    statement: `${source} 與 ${target} 的教材關聯。`,
-    evidence: [],
-    reason_code: "DIRECT_CLUE_ACCEPTED",
-  });
-  return {
-    ...emptyMap(),
-    concepts: [
-      concept("concept-a", "陣列", 40),
-      concept("concept-b", "串列", 320),
-    ],
-    relations: [
-      relation("relation-similar", "concept-a", "concept-b", "similar"),
-      relation("relation-confusing", "concept-a", "concept-b", "confusing"),
-    ],
-    path: {
-      ...emptyMap().path,
-      ordered_concept_ids: ["concept-a", "concept-b"],
-    },
-  };
-}
-
-test("partial empty map 與 resource 顯示真實 reason、limitations 與空狀態", async ({ page }) => {
-  await page.route(`**/v1/material-processing-runs/${runId}`, async (route) => {
-    await route.fulfill({ status: 200, json: terminalRun() });
-  });
-  await page.route("**/v1/materials/*/knowledge-map-views/*/*?run_id=*", async (route) => {
-    await route.fulfill({ status: 200, json: emptyMap() });
-  });
-  await page.route("**/v1/materials/*/learning-resource-results/*?run_id=*", async (route) => {
-    await route.fulfill({ status: 200, json: emptyResources() });
+  await page.route("**/v1/materials/*/knowledge-maps/**", (route) => {
+    return route.fulfill({ status: 200, json: reviewMap() });
   });
 
-  await page.goto(`/materials/${materialId}/runs/${runId}/maps/${encodeURIComponent(mapRevision)}/paths/${encodeURIComponent(pathRevision)}`);
-  await expect(page.getByText("目前沒有可顯示的概念")).toBeVisible();
-  await expect(page.getByText("PAGE_CONTENT_EXCLUDED").first()).toBeVisible();
-  await expect(page.getByText("PATH_EMPTY")).toBeVisible();
-  await page.getByRole("button", { name: "學習資源 0", exact: true }).click();
-  await expect(page.getByText("目前沒有與這份教材配對的公開學習資源。")).toBeVisible();
-  await expect(page.getByText("NO_RESOURCE_MATCH")).toBeVisible();
-});
-
-test("similar 與 confusing 顯示且不使用單向箭頭", async ({ page }) => {
-  await page.route(`**/v1/material-processing-runs/${runId}`, async (route) => {
-    await route.fulfill({ status: 200, json: terminalRun() });
-  });
-  await page.route("**/v1/materials/*/knowledge-map-views/*/*?run_id=*", async (route) => {
-    await route.fulfill({ status: 200, json: symmetricRelationMap() });
-  });
-  await page.route("**/v1/materials/*/learning-resource-results/*?run_id=*", async (route) => {
-    await route.fulfill({ status: 200, json: emptyResources() });
-  });
-
-  await page.goto(`/materials/${materialId}/runs/${runId}/maps/${encodeURIComponent(mapRevision)}/paths/${encodeURIComponent(pathRevision)}`);
-  const relationLegend = page.locator('[aria-label="關係圖例"]');
-  await expect(relationLegend.getByText("相似", { exact: true })).toBeVisible();
-  await expect(relationLegend.getByText("易混淆", { exact: true })).toBeVisible();
-  const similarEdge = page.locator(".react-flow__edge.relation-similar .react-flow__edge-path");
-  const confusingEdge = page.locator(".react-flow__edge.relation-confusing .react-flow__edge-path");
-  await expect(similarEdge).toBeVisible();
-  await expect(confusingEdge).toBeVisible();
-  expect(await similarEdge.getAttribute("marker-end")).toBeNull();
-  expect(await confusingEdge.getAttribute("marker-end")).toBeNull();
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}`);
+  await expect(page.getByRole("heading", { name: "教材概念與 Evidence 複核" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "二元樹" })).toBeVisible();
+  await expect(page.getByText("第 1 頁 · native_text")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Learning Path", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Assessment", exact: true })).toHaveCount(0);
 });

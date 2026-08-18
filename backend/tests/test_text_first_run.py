@@ -7,6 +7,7 @@ import pymupdf
 import pytest
 
 import pdf_evidence.text_first_run as run_module
+from pdf_evidence.concept_evidence_output import read_producer_bundle
 
 
 def _settings(tmp_path):
@@ -23,10 +24,11 @@ def _settings(tmp_path):
     }
 
 
-def _pdf(path):
+def _pdf(path, page_count=1):
     document = pymupdf.open()
-    page = document.new_page(width=612, height=792)
-    page.insert_text((72, 100), "Public science note")
+    for page_number in range(1, page_count + 1):
+        page = document.new_page(width=612, height=792)
+        page.insert_text((72, 100), f"Public science note {page_number}")
     document.save(path)
     document.close()
 
@@ -138,6 +140,30 @@ class MalformedOcrResponse(FakeChild):
             "request_id": request["request_id"],
             "blocks": [],
             "extra": True,
+        }
+
+
+class SecondPageInvalidOcr(FakeChild):
+    def request(self, request, timeout):
+        self.state[self.kind] += 1
+        if request["request_id"] == "page-2":
+            return {
+                "schema": "local-ocr-response/v1",
+                "request_id": request["request_id"],
+                "blocks": [
+                    {"type": "text", "text": "", "bbox": [100, 100, 900, 300]}
+                ],
+            }
+        return {
+            "schema": "local-ocr-response/v1",
+            "request_id": request["request_id"],
+            "blocks": [
+                {
+                    "type": "text",
+                    "text": "Public evidence",
+                    "bbox": [100, 100, 900, 300],
+                }
+            ],
         }
 
 
@@ -408,3 +434,135 @@ def test_invalid_media_type_is_truthful_and_sanitized(tmp_path):
     assert terminal["processing"] == "failed"
     assert terminal["reason_codes"] == ["MEDIA_TYPE_INVALID"]
     assert "private-sentinel" not in json.dumps(terminal)
+
+
+def test_formal_whole_document_excludes_one_page_and_keeps_grounded_core(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "public-two-pages.pdf"
+    _pdf(path, page_count=2)
+    state = _state()
+    original_extract_page = run_module.extract_page
+    previous_page = []
+
+    def tracked_extract_page(*arguments):
+        if previous_page:
+            assert "png_bytes" not in previous_page[0]
+        page = original_extract_page(*arguments)
+        previous_page[:] = [page]
+        return page
+
+    monkeypatch.setattr(run_module, "extract_page", tracked_extract_page)
+    monkeypatch.setattr(
+        run_module,
+        "start_ocr_process",
+        lambda settings: SecondPageInvalidOcr("ocr", state),
+    )
+    monkeypatch.setattr(
+        run_module,
+        "start_concept_process",
+        lambda settings: FakeChild("concept", state),
+    )
+    run_id = "text-first-run:00000000-0000-4000-8000-000000000002"
+    terminal = run_module.run_full_text_first_pdf(
+        {
+            "media_type": "application/pdf",
+            "source_path": str(path),
+            "expected_source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        },
+        _settings(tmp_path),
+        run_id=run_id,
+    )
+    assert terminal["processing"] == "partial"
+    assert terminal["page_count"] == 2
+    assert terminal["included_page_count"] == terminal["excluded_page_count"] == 1
+    assert terminal["ocr_calls"] == 2
+    assert terminal["concept_calls"] == 1
+    assert terminal["ocr_loads"] == terminal["concept_loads"] == 1
+    bundle = read_producer_bundle(tmp_path / "runtime", run_id)
+    assert bundle["output"]["concepts"][0]["processing"] == "succeeded"
+    assert bundle["output"]["excluded_pages"][0]["page_number"] == 2
+    assert bundle["output"]["excluded_pages"][0]["decision"] == "reject"
+    assert "png_bytes" not in previous_page[0]
+    assert state["resident"] == []
+    assert list((tmp_path / "runtime").rglob("*.png")) == []
+
+
+def test_formal_33_page_pdf_fails_before_model_calls(tmp_path, monkeypatch):
+    path = tmp_path / "too-many-pages.pdf"
+    _pdf(path, page_count=33)
+    monkeypatch.setattr(
+        run_module,
+        "start_ocr_process",
+        lambda settings: (_ for _ in ()).throw(AssertionError("OCR must not start")),
+    )
+    monkeypatch.setattr(
+        run_module,
+        "start_concept_process",
+        lambda settings: (_ for _ in ()).throw(AssertionError("Qwen must not start")),
+    )
+    terminal = run_module.run_full_text_first_pdf(
+        {
+            "media_type": "application/pdf",
+            "source_path": str(path),
+            "expected_source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        },
+        _settings(tmp_path),
+    )
+    assert terminal["processing"] == "failed"
+    assert terminal["page_count"] == 33
+    assert terminal["reason_codes"] == ["MATERIAL_PAGE_LIMIT_EXCEEDED"]
+    assert terminal["ocr_calls"] == terminal["concept_calls"] == 0
+
+
+def test_formal_lock_has_bounded_busy_failure(tmp_path, monkeypatch):
+    runtime_root = tmp_path / "runtime"
+    with run_module._agent1_lock(runtime_root):
+        moments = iter((0.0, 6.0))
+        monkeypatch.setattr(run_module.time, "monotonic", lambda: next(moments))
+        monkeypatch.setattr(run_module.time, "sleep", lambda _: None)
+        with pytest.raises(ValueError, match="RUNTIME_BUSY"):
+            with run_module._agent1_lock(runtime_root):
+                pass
+
+
+def test_formal_busy_lock_publishes_truthful_failed_terminal(tmp_path, monkeypatch):
+    class BusyLock:
+        def __enter__(self):
+            raise ValueError("RUNTIME_BUSY")
+
+        def __exit__(self, *_arguments):
+            return None
+
+    monkeypatch.setattr(run_module, "_agent1_lock", lambda _: BusyLock())
+    run_id = "text-first-run:00000000-0000-4000-8000-000000000003"
+    terminal = run_module.run_full_text_first_pdf(
+        {
+            "media_type": "application/pdf",
+            "source_path": "not-read-while-busy.pdf",
+            "expected_source_sha256": "0" * 64,
+        },
+        _settings(tmp_path),
+        run_id=run_id,
+    )
+    assert terminal["processing"] == "failed"
+    assert terminal["reason_codes"] == ["RUNTIME_BUSY"]
+    assert terminal["ocr_calls"] == terminal["concept_calls"] == 0
+    assert read_producer_bundle(tmp_path / "runtime", run_id)["terminal"] == terminal
+
+
+def test_formal_runtime_rejects_caller_page_subset_before_model(tmp_path, monkeypatch):
+    path = tmp_path / "public.pdf"
+    _pdf(path)
+    monkeypatch.setattr(
+        run_module,
+        "start_ocr_process",
+        lambda settings: (_ for _ in ()).throw(AssertionError("OCR must not start")),
+    )
+    terminal = run_module.run_full_text_first_pdf(
+        _request(path),
+        _settings(tmp_path),
+    )
+    assert terminal["processing"] == "failed"
+    assert terminal["reason_codes"] == ["SOURCE_READ_FAILED"]
+    assert terminal["ocr_calls"] == 0

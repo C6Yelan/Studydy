@@ -12,24 +12,18 @@ type SessionState =
   | { status: "failed"; message: string; canRetry: boolean };
 
 function initialRoute(): AppRoute {
-  return readRoute(window.location).route;
-}
-
-function wasLearningStateReplay(): boolean {
-  return window.history.state?.learningStateReplay === true;
+  return readRoute(window.location.pathname).route;
 }
 
 function routeLabel(route: AppRoute): string {
   if (route.name === "home") return "教材上傳";
   if (route.name === "material-run") return "教材處理狀態";
   if (route.name === "knowledge-map") return "知識地圖";
-  if (route.name === "assessment") return "學習評量";
-  return "學習狀態";
+  return "概念與 Evidence 複核";
 }
 
 export default function App() {
   const [route, setRoute] = useState<AppRoute>(initialRoute);
-  const [learningStateReplay, setLearningStateReplay] = useState(wasLearningStateReplay);
   const [session, setSession] = useState<SessionState>({ status: "starting" });
 
   const startSession = useCallback(() => {
@@ -51,10 +45,9 @@ export default function App() {
 
   useEffect(() => {
     const readLocation = () => {
-      const next = readRoute(window.location);
-      if (!next.isValid) writeRoute({ name: "home" }, true);
+      const next = readRoute(window.location.pathname);
+      if (!next.isCanonical) writeRoute({ name: "home" }, true);
       setRoute(next.route);
-      setLearningStateReplay(next.route.name === "learning-state" && wasLearningStateReplay());
     };
     readLocation();
     window.addEventListener("popstate", readLocation);
@@ -85,11 +78,7 @@ export default function App() {
           </section>
         )}
         {session.status === "ready" && (
-          <MaterialFlow
-            apiClient={apiClient}
-            route={route}
-            learningStateWasReplayed={learningStateReplay}
-          />
+          <MaterialFlow apiClient={apiClient} route={route} />
         )}
         {session.status === "failed" && (
           <section className="state-page failure-page" role="alert">

@@ -315,40 +315,27 @@ class MaterialProcessingRun(Base):
             ["learner_id", "material_id", "source_artifact_id"],
             ["artifacts.learner_id", "artifacts.material_id", "artifacts.artifact_id"],
         ),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id", "catalog_revision"],
-            ["resource_catalogs.learner_id", "resource_catalogs.material_id", "resource_catalogs.catalog_revision"],
-        ),
         Index(
             "idx_material_runs_pending",
             "created_at",
             "run_id",
             postgresql_where="status = 'pending'",
         ),
-        CheckConstraint("char_length(subject) BETWEEN 1 AND 128"),
-        CheckConstraint("page_limit BETWEEN 1 AND 1000"),
         CheckConstraint("octet_length(idempotency_key_sha256) = 32"),
         CheckConstraint("octet_length(request_fingerprint) = 32"),
         CheckConstraint(
             "status IN ('running', 'pending', 'succeeded', 'partial', 'failed')"
         ),
         CheckConstraint(
-            "error_code IN ("
-            "'RESTART_INTERRUPTED',"
-            "'MATERIAL_CONFIGURATION_INVALID',"
-            "'MATERIAL_ANALYSIS_FAILED',"
-            "'LOCAL_PROVIDER_TIMEOUT',"
-            "'LOCAL_PROVIDER_RATE_LIMITED',"
-            "'LOCAL_PROVIDER_TRANSIENT_ERROR',"
-            "'CONTROLLED_RESOURCE_INVALID',"
-            "'MATERIAL_OUTPUT_FAILED'"
-            ")"
+            "error_code IS NULL OR error_code ~ '^[A-Z][A-Z0-9_]{0,99}$'"
         ),
         CheckConstraint(
             "(status IN ('running', 'pending') AND error_code IS NULL "
             "AND output_binding IS NULL AND completed_at IS NULL) OR "
             "(status IN ('succeeded', 'partial') AND error_code IS NULL "
-            "AND output_binding IS NOT NULL AND completed_at IS NOT NULL) OR "
+            "AND output_binding IS NOT NULL "
+            "AND output_binding ->> 'schema' = 'material-run-output-binding/v2' "
+            "AND completed_at IS NOT NULL) OR "
             "(status = 'failed' AND error_code IS NOT NULL "
             "AND output_binding IS NULL AND completed_at IS NOT NULL)"
         ),
@@ -358,12 +345,9 @@ class MaterialProcessingRun(Base):
     learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
     material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
     source_artifact_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
-    subject: Mapped[str] = mapped_column(Text, nullable=False)
-    page_limit: Mapped[int] = mapped_column(Integer, nullable=False)
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     runtime_binding: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    catalog_revision: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     error_code: Mapped[str | None] = mapped_column(Text)
     output_binding: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

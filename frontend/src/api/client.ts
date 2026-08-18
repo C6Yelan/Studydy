@@ -1,24 +1,15 @@
 import type {
   ApiErrorView,
   ApiReasonCode,
-  AssessmentRequest,
-  AssessmentView,
   KnowledgeMapRequest,
   KnowledgeMapView,
   KnownApiReasonCode,
-  LearningResourceRequest,
-  LearningResourceResultView,
-  LearningStateRequest,
-  LearningStateView,
-  LearningUpdateCreate,
-  MaterialOutputBinding,
   MaterialProcessingCreate,
   MaterialProcessingRunView,
   MaterialView,
 } from "./contracts";
 
 type FetchRequest = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-type JsonReader<T> = (value: unknown) => value is T;
 type JsonObject = Record<string, unknown>;
 
 const knownApiReasons = new Set<KnownApiReasonCode>([
@@ -32,10 +23,13 @@ const knownApiReasons = new Set<KnownApiReasonCode>([
   "STORAGE_UNAVAILABLE",
   "INTERNAL_ERROR",
 ]);
-
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const sha256Pattern = /^[0-9a-f]{64}$/;
 const maximumPdfBytes = 100 * 1024 * 1024;
+
+function requestOrigin(): string {
+  return globalThis.location?.origin ?? "http://127.0.0.1:4173";
+}
 
 export class ApiClientError extends Error {
   readonly kind: "api" | "network" | "schema" | "input";
@@ -64,219 +58,209 @@ export class ApiClientError extends Error {
   }
 }
 
-export type LearningStateSubmission = {
-  state: LearningStateView;
-  replayed: boolean;
-};
-
-function readJsonObject(value: unknown): JsonObject | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as JsonObject;
+function object(value: unknown): JsonObject | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as JsonObject
+    : null;
 }
 
-function readClosedObject(
-  value: unknown,
-  requiredKeys: readonly string[],
-  optionalKeys: readonly string[] = [],
-): JsonObject | null {
-  const object = readJsonObject(value);
-  if (!object) return null;
-  const allowedKeys = new Set([...requiredKeys, ...optionalKeys]);
-  if (Object.keys(object).some((key) => !allowedKeys.has(key))) return null;
-  if (requiredKeys.some((key) => !Object.hasOwn(object, key))) return null;
-  return object;
-}
-
-function isString(value: unknown): value is string {
-  return typeof value === "string";
+function closed(value: unknown, keys: readonly string[]): JsonObject | null {
+  const item = object(value);
+  return item && Object.keys(item).length === keys.length && keys.every((key) => Object.hasOwn(item, key))
+    ? item
+    : null;
 }
 
 function isUuid(value: unknown): value is string {
-  return isString(value) && uuidPattern.test(value);
+  return typeof value === "string" && uuidPattern.test(value);
 }
 
 function isRevision(value: unknown, prefix: string): value is string {
-  return isString(value) && value.startsWith(`${prefix}:sha256:`) && sha256Pattern.test(value.slice(prefix.length + 8));
+  return typeof value === "string"
+    && value.startsWith(`${prefix}:sha256:`)
+    && sha256Pattern.test(value.slice(prefix.length + 8));
 }
 
-function isPublicResourceLocator(value: unknown): value is string {
-  if (!isString(value) || !value || /\s/.test(value)) return false;
-  if (isRevision(value, "artifact")) return true;
-  try {
-    const locator = new URL(value);
-    return (locator.protocol === "http:" || locator.protocol === "https:")
-      && !!locator.hostname
-      && !locator.username
-      && !locator.password;
-  } catch {
-    return false;
-  }
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-function isMaterialView(value: unknown): value is MaterialView {
-  const object = readJsonObject(value);
-  return !!object
-    && object.schema === "material/v1"
-    && isUuid(object.material_id)
-    && isUuid(object.source_artifact_id)
-    && isString(object.source_sha256)
-    && sha256Pattern.test(object.source_sha256)
-    && typeof object.size_bytes === "number"
-    && Number.isInteger(object.size_bytes);
+function isMaterial(value: unknown): value is MaterialView {
+  const item = closed(value, ["schema", "material_id", "source_artifact_id", "source_sha256", "size_bytes"]);
+  return !!item
+    && item.schema === "material/v1"
+    && isUuid(item.material_id)
+    && isUuid(item.source_artifact_id)
+    && typeof item.source_sha256 === "string"
+    && sha256Pattern.test(item.source_sha256)
+    && Number.isInteger(item.size_bytes)
+    && Number(item.size_bytes) > 0;
 }
 
-function isMaterialOutputBinding(value: unknown): value is MaterialOutputBinding {
-  const object = readJsonObject(value);
-  return !!object
-    && object.schema === "material-run-output-binding/v1"
-    && isRevision(object.study_material_output_revision, "study-material-output")
-    && isRevision(object.catalog_revision, "resource-catalog")
-    && isRevision(object.learning_resource_result_revision, "learning-resource-result")
-    && isRevision(object.knowledge_map_revision, "knowledge-map")
-    && isRevision(object.learning_path_revision, "initial-learning-path")
-    && isRevision(object.assessment_revision, "assessment")
-    && (object.processing === "succeeded" || object.processing === "partial");
+function isBinding(value: unknown): boolean {
+  const item = closed(value, [
+    "schema", "producer_bundle_id", "producer_run_id", "concept_evidence_output_id",
+    "study_material_output_revision", "knowledge_map_revision", "runtime_binding_sha256",
+    "page_count", "processing", "quality", "decision", "reason_codes", "ocr_calls", "concept_calls",
+  ]);
+  return !!item
+    && item.schema === "material-run-output-binding/v2"
+    && isRevision(item.producer_bundle_id, "text-first-producer-bundle")
+    && typeof item.producer_run_id === "string"
+    && item.producer_run_id.startsWith("text-first-run:")
+    && isRevision(item.concept_evidence_output_id, "concept-evidence-output")
+    && isRevision(item.study_material_output_revision, "study-material-output")
+    && isRevision(item.knowledge_map_revision, "knowledge-map")
+    && typeof item.runtime_binding_sha256 === "string"
+    && sha256Pattern.test(item.runtime_binding_sha256)
+    && Number.isInteger(item.page_count)
+    && Number(item.page_count) >= 1
+    && Number(item.page_count) <= 32
+    && (item.processing === "succeeded" || item.processing === "partial")
+    && item.quality === "needs_review"
+    && item.decision === "review"
+    && isStringArray(item.reason_codes)
+    && Number.isInteger(item.ocr_calls)
+    && Number.isInteger(item.concept_calls);
 }
 
 function isMaterialRun(value: unknown): value is MaterialProcessingRunView {
-  const object = readJsonObject(value);
-  if (!object || object.schema !== "material-processing-run/v1") return false;
-  if (!isUuid(object.run_id) || !isUuid(object.material_id) || !isUuid(object.source_artifact_id)) return false;
-  if (!isString(object.created_at) || !isString(object.updated_at)) return false;
-  if (object.completed_at !== null && !isString(object.completed_at)) return false;
-  if (object.error_code !== null && !isString(object.error_code)) return false;
-  if (
-    object.catalog_revision !== undefined
-    && object.catalog_revision !== null
-    && !isRevision(object.catalog_revision, "resource-catalog")
-  ) return false;
-  if (object.output_binding !== null && !isMaterialOutputBinding(object.output_binding)) return false;
-  const binding = object.output_binding as MaterialOutputBinding | null;
-  if (binding && object.catalog_revision !== binding.catalog_revision) return false;
-  if (object.status === "succeeded" || object.status === "partial") {
-    return binding !== null
-      && binding.processing === object.status
-      && object.error_code === null
-      && isString(object.completed_at);
+  const item = closed(value, [
+    "schema", "run_id", "material_id", "source_artifact_id", "status", "output_binding",
+    "error_code", "created_at", "updated_at", "completed_at",
+  ]);
+  if (!item || item.schema !== "material-processing-run/v2") return false;
+  if (!isUuid(item.run_id) || !isUuid(item.material_id) || !isUuid(item.source_artifact_id)) return false;
+  if (typeof item.created_at !== "string" || typeof item.updated_at !== "string") return false;
+  const hasBinding = isBinding(item.output_binding);
+  if (item.status === "succeeded" || item.status === "partial") {
+    return hasBinding
+      && object(item.output_binding)?.processing === item.status
+      && item.error_code === null
+      && typeof item.completed_at === "string";
   }
-  if (object.status === "failed") {
-    return binding === null
-      && isString(object.error_code)
-      && isString(object.completed_at);
+  if (item.status === "failed") {
+    return item.output_binding === null
+      && typeof item.error_code === "string"
+      && typeof item.completed_at === "string";
   }
-  if (object.status === "pending" || object.status === "running") {
-    return binding === null && object.error_code === null && object.completed_at === null;
-  }
-  return false;
+  return (item.status === "pending" || item.status === "running")
+    && item.output_binding === null
+    && item.error_code === null
+    && item.completed_at === null;
 }
 
-function hasMatchingMaterialEvidence(value: unknown, materialRef: string): boolean {
-  const object = readJsonObject(value);
-  return !!object
-    && Array.isArray(object.evidence)
-    && object.evidence.every((evidence) => readJsonObject(evidence)?.material_ref === materialRef);
+function isRegion(value: unknown): boolean {
+  const region = closed(value, ["coordinate_space", "bbox"]);
+  return !!region
+    && region.coordinate_space === "unrotated_pdf_points"
+    && Array.isArray(region.bbox)
+    && region.bbox.length === 4
+    && region.bbox.every((number) => typeof number === "number" && Number.isFinite(number))
+    && Number(region.bbox[0]) < Number(region.bbox[2])
+    && Number(region.bbox[1]) < Number(region.bbox[3]);
+}
+
+function isEvidence(value: unknown, pageRef: string): boolean {
+  const item = closed(value, ["evidence_id", "page_ref", "page_number", "kind", "region"]);
+  return !!item
+    && typeof item.evidence_id === "string"
+    && item.page_ref === pageRef
+    && Number.isInteger(item.page_number)
+    && Number(item.page_number) >= 1
+    && Number(item.page_number) <= 32
+    && typeof item.kind === "string"
+    && isRegion(item.region);
+}
+
+function isImage(value: unknown): boolean {
+  const image = closed(value, ["image_id", "page_ref", "page_number", "region", "evidence"]);
+  return !!image
+    && typeof image.image_id === "string"
+    && typeof image.page_ref === "string"
+    && Number.isInteger(image.page_number)
+    && Number(image.page_number) >= 1
+    && Number(image.page_number) <= 32
+    && isRegion(image.region)
+    && Array.isArray(image.evidence)
+    && image.evidence.every((evidence) => isEvidence(evidence, image.page_ref as string));
+}
+
+function isExcludedPage(value: unknown): boolean {
+  const page = closed(value, [
+    "page_ref", "page_number", "page_evidence_id", "last_stage", "processing",
+    "quality", "decision", "reason_codes",
+  ]);
+  return !!page
+    && typeof page.page_ref === "string"
+    && Number.isInteger(page.page_number)
+    && Number(page.page_number) >= 1
+    && Number(page.page_number) <= 32
+    && (page.page_evidence_id === null || typeof page.page_evidence_id === "string")
+    && (page.last_stage === "page_evidence" || page.last_stage === "concept")
+    && page.processing === "failed"
+    && page.quality === "needs_review"
+    && page.decision === "reject"
+    && isStringArray(page.reason_codes)
+    && page.reason_codes.length > 0;
 }
 
 function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
-  const object = readJsonObject(value);
-  if (!object || object.schema !== "knowledge-map-view/v1" || !isString(object.material_ref)) return false;
-  if (!isRevision(object.knowledge_map_revision, "knowledge-map")) return false;
-  if (!isRevision(object.learning_path_revision, "initial-learning-path")) return false;
-  if (!Array.isArray(object.concepts) || !Array.isArray(object.relations) || !Array.isArray(object.review_items)) {
-    return false;
-  }
-  return [...object.concepts, ...object.relations, ...object.review_items]
-    .every((item) => hasMatchingMaterialEvidence(item, object.material_ref as string));
-}
-
-function hasPrivateResourceLocator(object: JsonObject): boolean {
-  return Object.keys(object).some((key) =>
-    key.endsWith("_path") || key.startsWith("private_") || key === "storage_locator"
-  );
-}
-
-function containsPrivateResourceLocator(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(containsPrivateResourceLocator);
-  const object = readJsonObject(value);
-  if (!object) return false;
-  if (hasPrivateResourceLocator(object)) return true;
-  if (Object.hasOwn(object, "source_locator") && !isPublicResourceLocator(object.source_locator)) return true;
-  return Object.values(object).some(containsPrivateResourceLocator);
-}
-
-function isLearningResourceResult(value: unknown): value is LearningResourceResultView {
-  const object = readJsonObject(value);
-  return !!object
-    && object.schema === "learning-resource-result-view/v1"
-    && isRevision(object.result_revision, "learning-resource-result")
-    && isRevision(object.source_study_material_output_revision, "study-material-output")
-    && isRevision(object.catalog_revision, "resource-catalog")
-    && isUuid(object.run_id)
-    && Array.isArray(object.resources)
-    && !containsPrivateResourceLocator(object);
-}
-
-function containsAssessmentAnswerKey(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(containsAssessmentAnswerKey);
-  const object = readJsonObject(value);
-  if (!object) return false;
-  if (Object.keys(object).some((key) =>
-    key.includes("answer_key") || key.startsWith("correct_answer") || key.startsWith("correct_option")
-  )) return true;
-  return Object.values(object).some(containsAssessmentAnswerKey);
-}
-
-function isAssessment(value: unknown): value is AssessmentView {
-  const object = readJsonObject(value);
-  return !!object
-    && object.schema === "assessment-view/v1"
-    && isRevision(object.assessment_view_id, "assessment-view")
-    && isRevision(object.knowledge_map_revision, "knowledge-map")
-    && isRevision(object.learning_path_revision, "initial-learning-path")
-    && Array.isArray(object.questions)
-    && Array.isArray(object.practice_sets)
-    && !containsAssessmentAnswerKey(object);
-}
-
-function containsPrivateLearningField(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(containsPrivateLearningField);
-  const object = readJsonObject(value);
-  if (!object) return false;
-  if (Object.keys(object).some((key) =>
-    key.startsWith("learner_")
-    || key === "user_id"
-    || key === "assessment_score"
-    || key.includes("answer_key")
-  )) return true;
-  return Object.values(object).some(containsPrivateLearningField);
-}
-
-function isLearningState(value: unknown): value is LearningStateView {
-  const object = readJsonObject(value);
-  return !!object
-    && object.schema === "learning-state-view/v1"
-    && isRevision(object.state_revision, "learning-state")
-    && isRevision(object.knowledge_map_revision, "knowledge-map")
-    && isRevision(object.learning_path_revision, "initial-learning-path")
-    && isRevision(object.assessment_id, "assessment")
-    && isRevision(object.assessment_revision, "assessment")
-    && Array.isArray(object.mastery)
-    && Array.isArray(object.weaknesses)
-    && !!readJsonObject(object.suggestion)
-    && !containsPrivateLearningField(object);
+  const item = closed(value, [
+    "schema", "material_ref", "knowledge_map_revision", "source_output_id", "status",
+    "concepts", "images", "excluded_pages",
+  ]);
+  if (!item
+    || item.schema !== "knowledge-map-view/v2"
+    || typeof item.material_ref !== "string"
+    || !isRevision(item.knowledge_map_revision, "knowledge-map")
+    || !isRevision(item.source_output_id, "study-material-output")
+    || !Array.isArray(item.concepts)
+    || !Array.isArray(item.images)
+    || !Array.isArray(item.excluded_pages)) return false;
+  const status = closed(item.status, ["processing", "quality", "decision", "reason_codes"]);
+  if (!status
+    || (status.processing !== "succeeded" && status.processing !== "partial")
+    || status.quality !== "needs_review"
+    || status.decision !== "review"
+    || !isStringArray(status.reason_codes)) return false;
+  const conceptsAreValid = item.concepts.every((value) => {
+    const concept = closed(value, [
+      "concept_id", "label", "definition", "key_points", "page_ref", "evidence",
+      "quality", "decision", "reason_codes",
+    ]);
+    return !!concept
+      && typeof concept.concept_id === "string"
+      && typeof concept.label === "string"
+      && typeof concept.definition === "string"
+      && isStringArray(concept.key_points)
+      && typeof concept.page_ref === "string"
+      && Array.isArray(concept.evidence)
+      && concept.evidence.length > 0
+      && concept.evidence.every((evidence) => isEvidence(evidence, concept.page_ref as string))
+      && concept.quality === "needs_review"
+      && concept.decision === "review"
+      && isStringArray(concept.reason_codes);
+  });
+  if (!conceptsAreValid
+    || !item.images.every(isImage)
+    || !item.excluded_pages.every(isExcludedPage)) return false;
+  const includedPageRefs = new Set(item.concepts.map((value) => object(value)?.page_ref));
+  return item.excluded_pages.every((value) => !includedPageRefs.has(object(value)?.page_ref))
+    && (status.processing === "partial") === (item.excluded_pages.length > 0);
 }
 
 function isApiError(value: unknown): value is ApiErrorView {
-  const object = readJsonObject(value);
-  return !!object
-    && object.schema === "api-error/v1"
-    && isUuid(object.request_id)
-    && isString(object.reason_code)
-    && typeof object.retryable === "boolean"
-    && object.message === "Request could not be completed.";
+  const item = closed(value, ["schema", "request_id", "reason_code", "retryable", "message"]);
+  return !!item
+    && item.schema === "api-error/v1"
+    && isUuid(item.request_id)
+    && typeof item.reason_code === "string"
+    && typeof item.retryable === "boolean"
+    && item.message === "Request could not be completed.";
 }
 
-function safeErrorMessage(reasonCode: ApiReasonCode): string {
+function safeMessage(reasonCode: ApiReasonCode): string {
   if (reasonCode === "SESSION_REQUIRED") return "工作階段已失效，請重新整理後再試。";
   if (reasonCode === "RESOURCE_NOT_FOUND") return "找不到這筆資料，或你沒有權限讀取。";
   if (reasonCode === "MATERIAL_TOO_LARGE") return "PDF 不可超過 100 MiB。";
@@ -285,421 +269,165 @@ function safeErrorMessage(reasonCode: ApiReasonCode): string {
   return "目前無法完成請求，請稍後再試。";
 }
 
-async function readApiError(response: Response): Promise<ApiClientError> {
-  let body: unknown;
+async function apiFailure(response: Response): Promise<ApiClientError> {
+  let value: unknown;
   try {
-    body = await response.json();
+    value = await response.json();
   } catch {
+    value = null;
+  }
+  if (!isApiError(value)) {
     return new ApiClientError("schema", "伺服器回應格式不符。", {
       status: response.status,
       reasonCode: "RESPONSE_SCHEMA_MISMATCH",
     });
   }
-  if (!isApiError(body)) {
-    return new ApiClientError("schema", "伺服器回應格式不符。", {
-      status: response.status,
-      reasonCode: "RESPONSE_SCHEMA_MISMATCH",
-    });
-  }
-  const reasonCode = knownApiReasons.has(body.reason_code as KnownApiReasonCode)
-    ? body.reason_code as KnownApiReasonCode
+  const reasonCode = knownApiReasons.has(value.reason_code as KnownApiReasonCode)
+    ? value.reason_code as KnownApiReasonCode
     : "UNKNOWN_API_ERROR";
-  return new ApiClientError("api", safeErrorMessage(reasonCode), {
+  return new ApiClientError("api", safeMessage(reasonCode), {
     status: response.status,
     reasonCode,
-    requestId: body.request_id,
-    retryable: body.retryable,
+    requestId: value.request_id,
+    retryable: value.retryable,
   });
 }
 
-function assertApiPath(path: string): void {
-  if (!path.startsWith("/v1/") || path.startsWith("//") || path.includes("://")) {
-    throw new ApiClientError("input", "請求路徑無效。", {
-      reasonCode: "REQUEST_INPUT_INVALID",
-    });
-  }
-}
-
 export class StudydyApiClient {
+  private sessionChecked = false;
   private readonly fetchRequest: FetchRequest;
-  private sessionStart: Promise<void> | null = null;
 
-  constructor(fetchRequest: FetchRequest = globalThis.fetch.bind(globalThis)) {
+  constructor(fetchRequest: FetchRequest = fetch.bind(globalThis)) {
     this.fetchRequest = fetchRequest;
   }
 
-  ensureSession(): Promise<void> {
-    if (!this.sessionStart) {
-      this.sessionStart = this.refreshOrCreateSession().catch((error: unknown) => {
-        this.sessionStart = null;
-        throw error;
-      });
-    }
-    return this.sessionStart;
+  async ensureSession(): Promise<void> {
+    if (this.sessionChecked) return;
+    await this.refreshSession();
+    this.sessionChecked = true;
   }
 
-  async createMaterial(pdf: Blob, userIntentKey: string = crypto.randomUUID()): Promise<MaterialView> {
-    if (pdf.type !== "application/pdf") {
-      throw new ApiClientError("input", "只接受 PDF 教材。", {
-        reasonCode: "REQUEST_INPUT_INVALID",
+  private async refreshSession(): Promise<void> {
+    const response = await this.fetchRequest("/v1/session/refresh", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Origin: requestOrigin() },
+    });
+    if (response.status === 204) return;
+    if (response.status === 401) {
+      const created = await this.fetchRequest("/v1/session", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { Origin: requestOrigin() },
       });
+      if (created.status === 204) return;
+      throw await apiFailure(created);
     }
-    if (pdf.size === 0 || pdf.size > maximumPdfBytes) {
-      throw new ApiClientError("input", pdf.size === 0 ? "PDF 不可為空白檔案。" : "PDF 不可超過 100 MiB。", {
-        reasonCode: "REQUEST_INPUT_INVALID",
-      });
+    throw await apiFailure(response);
+  }
+
+  private async request(path: string, init: RequestInit, retrySession = true): Promise<Response> {
+    await this.ensureSession();
+    let response: Response;
+    try {
+      response = await this.fetchRequest(path, { credentials: "same-origin", ...init });
+    } catch {
+      throw new ApiClientError("network", "網路連線失敗，請稍後再試。", { reasonCode: "NETWORK_ERROR", retryable: true });
     }
-    return this.sendProtectedJson(
+    if (response.status === 401 && retrySession) {
+      await this.refreshSession();
+      return this.request(path, init, false);
+    }
+    if (!response.ok) throw await apiFailure(response);
+    return response;
+  }
+
+  private async json<T>(path: string, init: RequestInit, read: (value: unknown) => value is T): Promise<T> {
+    const response = await this.request(path, init);
+    let value: unknown;
+    try {
+      value = await response.json();
+    } catch {
+      value = null;
+    }
+    if (!read(value)) {
+      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    }
+    return value;
+  }
+
+  async createMaterial(pdf: Blob, idempotencyKey = crypto.randomUUID()): Promise<MaterialView> {
+    if (pdf.type !== "application/pdf" || pdf.size < 1 || pdf.size > maximumPdfBytes) {
+      throw new ApiClientError("input", "請選擇 100 MiB 以內的 PDF。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    const request = () => this.json(
       "/v1/materials",
       {
         method: "POST",
         headers: {
+          Origin: requestOrigin(),
           "Content-Type": "application/pdf",
-          "Idempotency-Key": userIntentKey,
+          "Idempotency-Key": idempotencyKey,
         },
         body: pdf,
       },
-      201,
-      isMaterialView,
+      isMaterial,
     );
+    try {
+      return await request();
+    } catch (error) {
+      if (error instanceof ApiClientError && error.kind === "network") return request();
+      throw error;
+    }
   }
 
-  async createMaterialRun(
-    request: MaterialProcessingCreate,
-    userIntentKey: string = crypto.randomUUID(),
-  ): Promise<MaterialProcessingRunView> {
-    return this.sendProtectedJson(
+  async createMaterialRun(body: MaterialProcessingCreate, idempotencyKey = crypto.randomUUID()): Promise<MaterialProcessingRunView> {
+    if (
+      body.schema !== "material-processing-create/v2"
+      || !isUuid(body.material_id)
+      || !isUuid(body.source_artifact_id)
+      || Object.keys(body).length !== 3
+    ) {
+      throw new ApiClientError("input", "教材處理請求無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    return this.json(
       "/v1/material-processing-runs",
       {
         method: "POST",
         headers: {
+          Origin: requestOrigin(),
           "Content-Type": "application/json",
-          "Idempotency-Key": userIntentKey,
+          "Idempotency-Key": idempotencyKey,
         },
-        body: JSON.stringify(request),
+        body: JSON.stringify(body),
       },
-      202,
       isMaterialRun,
     );
   }
 
-  async getMaterialRun(runId: string, signal?: AbortSignal): Promise<MaterialProcessingRunView> {
-    return this.sendProtectedJson(
-      `/v1/material-processing-runs/${encodeURIComponent(runId)}`,
-      { method: "GET", signal },
-      200,
-      isMaterialRun,
-    );
+  async getMaterialRun(runId: string): Promise<MaterialProcessingRunView> {
+    if (!isUuid(runId)) throw new ApiClientError("input", "處理作業編號無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    return this.json(`/v1/material-processing-runs/${runId}`, { method: "GET" }, isMaterialRun);
   }
 
   async getKnowledgeMap(request: KnowledgeMapRequest): Promise<KnowledgeMapView> {
-    const path = [
-      "/v1/materials",
-      encodeURIComponent(request.materialId),
-      "knowledge-map-views",
-      encodeURIComponent(request.mapRevision),
-      encodeURIComponent(request.pathRevision),
-    ].join("/");
-    const query = new URLSearchParams({ run_id: request.runId });
-    const map = await this.sendProtectedJson(`${path}?${query}`, { method: "GET" }, 200, isKnowledgeMap);
-    if (
-      map.knowledge_map_revision !== request.mapRevision
-      || map.learning_path_revision !== request.pathRevision
-    ) {
-      throw new ApiClientError("schema", "知識地圖版本與回應不一致。", {
-        status: 200,
-        reasonCode: "RESPONSE_SCHEMA_MISMATCH",
-      });
+    if (!isUuid(request.materialId) || !isUuid(request.runId) || !isRevision(request.mapRevision, "knowledge-map")) {
+      throw new ApiClientError("input", "知識地圖識別資訊無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
     }
-    return map;
+    const path = `/v1/materials/${request.materialId}/knowledge-maps/${encodeURIComponent(request.mapRevision)}?run_id=${request.runId}`;
+    const view = await this.json(path, { method: "GET" }, isKnowledgeMap);
+    if (view.knowledge_map_revision !== request.mapRevision) {
+      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    }
+    return view;
   }
 
-  async getLearningResourceResult(request: LearningResourceRequest): Promise<LearningResourceResultView> {
-    const path = [
-      "/v1/materials",
-      encodeURIComponent(request.materialId),
-      "learning-resource-results",
-      encodeURIComponent(request.resultRevision),
-    ].join("/");
-    const query = new URLSearchParams({ run_id: request.runId });
-    return this.sendProtectedJson(`${path}?${query}`, { method: "GET" }, 200, isLearningResourceResult);
+  sourceArtifactUrl(artifactId: string): string {
+    if (!isUuid(artifactId)) throw new ApiClientError("input", "教材檔案編號無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    return `/v1/artifacts/${artifactId}`;
   }
+}
 
-  sourceArtifactUrl(sourceArtifactId: string): string {
-    if (!isUuid(sourceArtifactId)) {
-      throw new ApiClientError("input", "教材來源識別碼無效。", {
-        reasonCode: "REQUEST_INPUT_INVALID",
-      });
-    }
-    return `/v1/artifacts/${encodeURIComponent(sourceArtifactId)}`;
-  }
-
-  async getSourceArtifact(sourceArtifactId: string, signal?: AbortSignal): Promise<Blob> {
-    const path = this.sourceArtifactUrl(sourceArtifactId);
-    await this.ensureSession();
-    let response = await this.send(path, { method: "GET", signal });
-    if (response.status === 401) {
-      await this.recoverSession();
-      response = await this.send(path, { method: "GET", signal });
-    }
-    if (response.status !== 200) throw await readApiError(response);
-    const contentType = response.headers.get("Content-Type")?.split(";", 1)[0].trim().toLowerCase();
-    if (contentType !== "application/pdf") {
-      throw new ApiClientError("schema", "教材來源不是可安全開啟的 PDF。", {
-        status: response.status,
-        reasonCode: "RESPONSE_SCHEMA_MISMATCH",
-      });
-    }
-    const pdf = await response.blob();
-    if (pdf.size === 0) {
-      throw new ApiClientError("schema", "來源 PDF 是空白內容。", {
-        status: response.status,
-        reasonCode: "RESPONSE_SCHEMA_MISMATCH",
-      });
-    }
-    return pdf;
-  }
-
-  async getAssessment(request: AssessmentRequest): Promise<AssessmentView> {
-    if (
-      !isUuid(request.materialId)
-      || !isRevision(request.outputRevision, "study-material-output")
-      || !isRevision(request.mapRevision, "knowledge-map")
-      || !isRevision(request.pathRevision, "initial-learning-path")
-      || !isRevision(request.assessmentRevision, "assessment")
-    ) {
-      throw new ApiClientError("input", "評量識別資訊無效。", {
-        reasonCode: "REQUEST_INPUT_INVALID",
-      });
-    }
-    const path = [
-      "/v1/materials",
-      encodeURIComponent(request.materialId),
-      "assessments",
-      encodeURIComponent(request.assessmentRevision),
-    ].join("/");
-    const query = new URLSearchParams({
-      output_revision: request.outputRevision,
-      map_revision: request.mapRevision,
-      path_revision: request.pathRevision,
-    });
-    const assessment = await this.sendProtectedJson(`${path}?${query}`, { method: "GET" }, 200, isAssessment);
-    if (
-      assessment.knowledge_map_revision !== request.mapRevision
-      || assessment.learning_path_revision !== request.pathRevision
-    ) {
-      throw new ApiClientError("schema", "評量版本與回應不一致。", {
-        status: 200,
-        reasonCode: "RESPONSE_SCHEMA_MISMATCH",
-      });
-    }
-    return assessment;
-  }
-
-  async submitLearningUpdate(
-    update: LearningUpdateCreate,
-    userIntentKey: string = crypto.randomUUID(),
-  ): Promise<LearningStateSubmission> {
-    const object = readClosedObject(update, [
-      "schema",
-      "material_id",
-      "map_revision",
-      "path_revision",
-      "assessment_revision",
-      "responses",
-    ]);
-    const responses = object?.responses;
-    const hasValidResponses = Array.isArray(responses)
-      && responses.length >= 1
-      && responses.length <= 200
-      && responses.every((response) => {
-        const item = readClosedObject(response, ["question_id", "selected_option_id"]);
-        return !!item && isString(item.question_id) && !!item.question_id
-          && isString(item.selected_option_id) && !!item.selected_option_id;
-      });
-    if (
-      !object
-      || object.schema !== "learning-update-create/v1"
-      || !isUuid(object.material_id)
-      || !isRevision(object.map_revision, "knowledge-map")
-      || !isRevision(object.path_revision, "initial-learning-path")
-      || !isRevision(object.assessment_revision, "assessment")
-      || !hasValidResponses
-      || new Set((responses as Array<{ question_id: string }>).map((item) => item.question_id)).size !== responses.length
-    ) {
-      throw new ApiClientError("input", "作答內容或版本資訊無效。", {
-        reasonCode: "REQUEST_INPUT_INVALID",
-      });
-    }
-    const closedUpdate: LearningUpdateCreate = {
-      schema: "learning-update-create/v1",
-      material_id: object.material_id,
-      map_revision: object.map_revision,
-      path_revision: object.path_revision,
-      assessment_revision: object.assessment_revision,
-      responses: (responses as Array<{ question_id: string; selected_option_id: string }>).map((response) => ({
-        question_id: response.question_id,
-        selected_option_id: response.selected_option_id,
-      })),
-    };
-    const response = await this.sendProtectedJsonResponse(
-      `/v1/materials/${encodeURIComponent(closedUpdate.material_id)}/learning-states`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": userIntentKey,
-        },
-        body: JSON.stringify(closedUpdate),
-      },
-      [200, 201],
-      isLearningState,
-    );
-    const state = response.body;
-    if (
-      state.knowledge_map_revision !== closedUpdate.map_revision
-      || state.learning_path_revision !== closedUpdate.path_revision
-      || state.assessment_revision !== closedUpdate.assessment_revision
-    ) {
-      throw new ApiClientError("schema", "學習狀態版本與目前流程不一致。", {
-        status: response.status,
-        reasonCode: "RESPONSE_SCHEMA_MISMATCH",
-      });
-    }
-    return { state, replayed: response.status === 200 };
-  }
-
-  async getLearningState(request: LearningStateRequest): Promise<LearningStateView> {
-    if (!isUuid(request.materialId) || !isRevision(request.stateRevision, "learning-state")) {
-      throw new ApiClientError("input", "學習狀態識別資訊無效。", {
-        reasonCode: "REQUEST_INPUT_INVALID",
-      });
-    }
-    const state = await this.sendProtectedJson(
-      `/v1/materials/${encodeURIComponent(request.materialId)}/learning-states/${encodeURIComponent(request.stateRevision)}`,
-      { method: "GET" },
-      200,
-      isLearningState,
-    );
-    if (state.state_revision !== request.stateRevision) {
-      throw new ApiClientError("schema", "學習狀態版本與網址不一致。", {
-        status: 200,
-        reasonCode: "RESPONSE_SCHEMA_MISMATCH",
-      });
-    }
-    return state;
-  }
-
-  private async refreshOrCreateSession(): Promise<void> {
-    try {
-      await this.sendEmpty("/v1/session/refresh", { method: "POST" }, 204);
-    } catch (error) {
-      if (!(error instanceof ApiClientError) || error.status !== 401) throw error;
-      await this.sendEmpty("/v1/session", { method: "POST" }, 204);
-    }
-  }
-
-  private async recoverSession(): Promise<void> {
-    this.sessionStart = null;
-    await this.ensureSession();
-  }
-
-  private async sendProtectedJson<T>(
-    path: string,
-    init: RequestInit,
-    expectedStatus: number,
-    readJson: JsonReader<T>,
-  ): Promise<T> {
-    const response = await this.sendProtectedJsonResponse(path, init, [expectedStatus], readJson);
-    return response.body;
-  }
-
-  private async sendProtectedJsonResponse<T>(
-    path: string,
-    init: RequestInit,
-    expectedStatuses: readonly number[],
-    readJson: JsonReader<T>,
-  ): Promise<{ body: T; status: number }> {
-    await this.ensureSession();
-    try {
-      return await this.sendJsonResponse(path, init, expectedStatuses, readJson);
-    } catch (error) {
-      if (!(error instanceof ApiClientError) || error.status !== 401) throw error;
-      await this.recoverSession();
-      return this.sendJsonResponse(path, init, expectedStatuses, readJson);
-    }
-  }
-
-  private async sendEmpty(path: string, init: RequestInit, expectedStatus: number): Promise<void> {
-    const response = await this.send(path, init);
-    if (response.status === expectedStatus) return;
-    throw await readApiError(response);
-  }
-
-  private async sendJsonResponse<T>(
-    path: string,
-    init: RequestInit,
-    expectedStatuses: readonly number[],
-    readJson: JsonReader<T>,
-  ): Promise<{ body: T; status: number }> {
-    const response = await this.send(path, init);
-    if (!expectedStatuses.includes(response.status)) throw await readApiError(response);
-    let body: unknown;
-    try {
-      body = await response.json();
-    } catch {
-      throw new ApiClientError("schema", "伺服器回應格式不符。", {
-        status: response.status,
-        reasonCode: "RESPONSE_SCHEMA_MISMATCH",
-      });
-    }
-    if (!readJson(body)) {
-      throw new ApiClientError("schema", "伺服器回應格式不符。", {
-        status: response.status,
-        reasonCode: "RESPONSE_SCHEMA_MISMATCH",
-      });
-    }
-    return { body, status: response.status };
-  }
-
-  private async send(path: string, init: RequestInit): Promise<Response> {
-    assertApiPath(path);
-    const request = { ...init, credentials: "same-origin" as const };
-    const method = request.method?.toUpperCase() ?? "GET";
-    const hasIdempotencyKey = new Headers(request.headers).has("Idempotency-Key");
-    const canRetryNetwork = method === "GET"
-      || path === "/v1/session/refresh"
-      || hasIdempotencyKey;
-    try {
-      return await this.fetchRequest(path, request);
-    } catch {
-      if (request.signal?.aborted) {
-        throw new ApiClientError("network", "請求已取消或超過等待時間。", {
-          reasonCode: "NETWORK_ERROR",
-          retryable: true,
-        });
-      }
-      if (!canRetryNetwork) {
-        throw new ApiClientError("network", "無法連線到 Studydy，請檢查網路後再試。", {
-          reasonCode: "NETWORK_ERROR",
-          retryable: true,
-        });
-      }
-      try {
-        // 同一次送出的網路重試沿用原本的 Idempotency-Key，避免後端重複建立資料。
-        return await this.fetchRequest(path, request);
-      } catch {
-        if (request.signal?.aborted) {
-          throw new ApiClientError("network", "請求已取消或超過等待時間。", {
-            reasonCode: "NETWORK_ERROR",
-            retryable: true,
-          });
-        }
-        throw new ApiClientError("network", "無法連線到 Studydy，請檢查網路後再試。", {
-          reasonCode: "NETWORK_ERROR",
-          retryable: true,
-        });
-      }
-    }
-  }
+export function errorMessage(error: unknown): string {
+  return error instanceof ApiClientError ? error.message : "目前無法完成操作，請稍後再試。";
 }

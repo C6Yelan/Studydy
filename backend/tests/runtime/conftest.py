@@ -8,6 +8,8 @@ import time
 from uuid import uuid4
 
 import psycopg
+from psycopg import sql
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 import pytest
 
 from runtime.storage.migrations import DEFAULT_MIGRATIONS_DIR
@@ -104,8 +106,26 @@ def postgres_dsn() -> DatabaseDsn:
 
 
 @pytest.fixture
-def clean_database_dsn(postgres_dsn: str) -> str:
+def clean_database_dsn(postgres_dsn: str):
+    """每個 test 取得新建、空白且只屬於本次 session container 的 database。"""
+
+    database_name = f"studydy_case_{uuid4().hex}"
+    connection_fields = conninfo_to_dict(postgres_dsn)
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
-        connection.execute("DROP SCHEMA public CASCADE")
-        connection.execute("CREATE SCHEMA public")
-    return postgres_dsn
+        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
+    connection_fields["dbname"] = database_name
+    case_dsn = DatabaseDsn(make_conninfo(**connection_fields))
+    try:
+        with psycopg.connect(case_dsn) as connection:
+            assert connection.execute(
+                "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public'"
+            ).fetchone() == (0,)
+        yield case_dsn
+    finally:
+        with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+            connection.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname=%s AND pid<>pg_backend_pid()",
+                (database_name,),
+            )
+            connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database_name)))
