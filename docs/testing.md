@@ -14,8 +14,8 @@ npm run e2e:install
 再依作業系統慣例啟用 `backend` 的虛擬環境，確認 `python` 指向該環境，並從 repository root 執行：
 
 ```bash
-python backend/tests/runtime/material_review_e2e_runner.py --list
-python backend/tests/runtime/material_review_e2e_runner.py
+python backend/tests/runtime/study_flow_e2e_runner.py --list
+python backend/tests/runtime/study_flow_e2e_runner.py
 ```
 
 Python runner 會確認固定 port `4173`、`8001` 未被占用，建立 disposable PostgreSQL，套用 migration，再啟動自己擁有的 Uvicorn、Vite 與 Playwright child。成功、失敗、timeout 或 signal 都只清理這次建立的 process group 與 PostgreSQL container。若直接執行 inner `playwright test`，因缺少 harness identity 會以 `E2E_HARNESS_REQUIRED` 結束。
