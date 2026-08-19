@@ -10,16 +10,8 @@ from typing import Any, BinaryIO
 
 OCR_REQUEST_SCHEMA = "local-ocr-request/v1"
 OCR_RESPONSE_SCHEMA = "local-ocr-response/v1"
-CONCEPT_REQUEST_SCHEMA = "local-concept-request/v1"
-CONCEPT_RESPONSE_SCHEMA = "local-concept-response/v1"
-CONCEPT_FAILURE_SCHEMA = "local-concept-failure/v1"
-SEMANTIC_REQUEST_SCHEMA = "semantic-qualification-input/v1"
-MODEL_OUTPUT_TRUNCATED = "MODEL_OUTPUT_TRUNCATED"
-
 MAX_OCR_REQUEST_BYTES = 96 * 1024 * 1024
 MAX_OCR_RESPONSE_BYTES = 4 * 1024 * 1024
-MAX_CONCEPT_REQUEST_BYTES = 512 * 1024
-MAX_CONCEPT_RESPONSE_BYTES = 65_536 + 1024
 MAX_BLOCKS = 64
 MAX_BLOCK_TEXT = 8_000
 MAX_PAGE_TEXT = 100_000
@@ -140,20 +132,4 @@ def validate_ocr_request(request: Any) -> dict[str, Any]:
         "width": width,
         "height": height,
         "png_bytes": png_bytes,
-    }
-
-
-def validate_concept_request(request: Any) -> dict[str, Any]:
-    expected = {"schema", "request_id", "attempt", "semantic_request"}
-    if not isinstance(request, dict) or set(request) != expected:
-        raise ProtocolError("CHILD_REQUEST_INVALID")
-    if request["schema"] != CONCEPT_REQUEST_SCHEMA or request["attempt"] not in (1, 2):
-        raise ProtocolError("CHILD_REQUEST_INVALID")
-    semantic_request = request["semantic_request"]
-    if not isinstance(semantic_request, dict) or semantic_request.get("schema") != SEMANTIC_REQUEST_SCHEMA:
-        raise ProtocolError("CHILD_REQUEST_INVALID")
-    return {
-        "request_id": _request_id(request["request_id"]),
-        "attempt": request["attempt"],
-        "semantic_request": semantic_request,
     }

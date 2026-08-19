@@ -37,6 +37,8 @@ _RESOURCE_LIMIT_REASONS = {"PROTOCOL_LIMIT_EXCEEDED", "MODEL_INPUT_TOO_LARGE"}
 _PROCESS_FAILED_REASONS = {
     "CHILD_EXITED",
     "CHILD_RESPONSE_INVALID",
+    "CONCEPT_API_RESPONSE_INVALID",
+    "CONCEPT_API_UNAVAILABLE",
     "MODEL_OOM",
     "MODEL_GENERATION_FAILED",
 }
@@ -79,6 +81,8 @@ _DETAILED_REASON_CODES = FORMAL_REASON_CODES.union(
     {
         "RUNTIME_BINDING_INVALID",
         "CHILD_TIMEOUT",
+        "CONCEPT_API_CONFIG_INVALID",
+        "CONCEPT_API_TIMEOUT",
         "CACHE_INVALID",
         "PRODUCER_BUNDLE_INVALID",
     },
@@ -90,11 +94,11 @@ def formal_reason_code(reason: str) -> str:
         return reason
     elif reason in _SOURCE_INVALID_REASONS:
         return "SOURCE_INVALID"
-    elif reason == "RUNTIME_BINDING_INVALID":
+    elif reason in {"RUNTIME_BINDING_INVALID", "CONCEPT_API_CONFIG_INVALID"}:
         return "RUNTIME_INVALID"
     elif reason in _RESOURCE_LIMIT_REASONS:
         return "RESOURCE_LIMIT_EXCEEDED"
-    elif reason == "CHILD_TIMEOUT":
+    elif reason in {"CHILD_TIMEOUT", "CONCEPT_API_TIMEOUT"}:
         return "PROCESS_TIMEOUT"
     elif reason in _PROCESS_FAILED_REASONS:
         return "PROCESS_FAILED"

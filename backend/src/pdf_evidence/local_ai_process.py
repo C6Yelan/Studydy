@@ -14,10 +14,6 @@ _OCR_BOOTSTRAP = (
     "import sys;sys.path.insert(0,sys.argv.pop(1));"
     "from studydy_local_ai.ocr_process import main;raise SystemExit(main())"
 )
-_CONCEPT_BOOTSTRAP = (
-    "import sys;sys.path.insert(0,sys.argv.pop(1));"
-    "from studydy_local_ai.concept_process import main;raise SystemExit(main())"
-)
 
 
 class LocalAIError(RuntimeError):
@@ -173,18 +169,4 @@ def start_ocr_process(settings: dict[str, Any]) -> LocalAIProcess:
         ],
         request_limit=96 * 1024 * 1024,
         response_limit=4 * 1024 * 1024,
-    )
-
-
-def start_concept_process(settings: dict[str, Any]) -> LocalAIProcess:
-    return LocalAIProcess(
-        [
-            settings["python_executable"],
-            "-c",
-            _CONCEPT_BOOTSTRAP,
-            settings["site_packages"],
-            settings["concept_model_root"],
-        ],
-        request_limit=512 * 1024,
-        response_limit=65_536 + 1024,
     )

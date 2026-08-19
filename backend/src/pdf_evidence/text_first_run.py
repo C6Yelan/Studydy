@@ -15,8 +15,17 @@ import time
 from typing import Any
 from uuid import uuid4
 
+import httpx
 import pymupdf
 
+from .concept_api import (
+    CHAT_COMPLETIONS_PATH,
+    MAX_TOKENS,
+    TEMPERATURE,
+    ConceptAPIError,
+    chat_completions_url,
+    request_concept_text,
+)
 from .concept_evidence_output import (
     build_output,
     validate_page_evidence,
@@ -31,7 +40,7 @@ from .concept_generation import (
     semantic_cache_key,
     validate_concepts,
 )
-from .local_ai_process import LocalAIError, start_concept_process, start_ocr_process
+from .local_ai_process import LocalAIError, start_ocr_process
 from .ocr_page_evidence import (
     NATIVE_SCHEMA,
     NORMALIZER_POLICY,
@@ -70,7 +79,7 @@ def _now() -> str:
 
 
 def _reason(error: BaseException) -> str:
-    if isinstance(error, (SemanticOutputError, LocalAIError)):
+    if isinstance(error, (ConceptAPIError, SemanticOutputError, LocalAIError)):
         return error.reason_code
     value = str(error)
     allowed = {
@@ -86,6 +95,10 @@ def _reason(error: BaseException) -> str:
         "CHILD_TIMEOUT",
         "CHILD_EXITED",
         "CHILD_RESPONSE_INVALID",
+        "CONCEPT_API_CONFIG_INVALID",
+        "CONCEPT_API_RESPONSE_INVALID",
+        "CONCEPT_API_TIMEOUT",
+        "CONCEPT_API_UNAVAILABLE",
         "MODEL_OOM",
         "MODEL_GENERATION_FAILED",
         "MODEL_INPUT_TOO_LARGE",
@@ -142,7 +155,6 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         or not isinstance(packages, dict)
         or set(packages)
         != {
-            "studydy_local_ai_wheel_sha256",
             "setuptools",
             "torch",
             "torchvision",
@@ -152,8 +164,6 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         or packages.get("torch") != "2.10.0+cu128"
         or packages.get("torchvision") != "0.25.0+cu128"
         or packages.get("transformers") != "4.57.1"
-        or packages.get("studydy_local_ai_wheel_sha256")
-        != "afc5f9fd62817ddfd1fe4505d402a7aeeb923f7a3e6af131205d57771588b6c8"
     ):
         raise ValueError("RUNTIME_BINDING_INVALID")
     expected_render = {
@@ -256,28 +266,22 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         or ocr.get("grammar") != "p02-strict-det-only/v1"
         or ocr.get("code_hashes")
         != {
-            "local_ai_protocol": "e37a91ffcda3df8e6190797da2cbe2db24f3c28db4eea367b4d7e3653d32b254",
+            "local_ai_protocol": "2cf8c64d90ea79f76606e22caaf465f16ffd4153adbe83c90c18e6aa51bead43",
             "local_ai_ocr": "d6f431c990630b60311ef0e9737ea4805896eb709eb69dd24644d93a580a232a",
         }
         or ocr.get("fixture_hashes") != {}
     ):
         raise ValueError("RUNTIME_BINDING_INVALID")
-    expected_generation = {"do_sample": False, "max_new_tokens": 1536, "use_cache": True}
-    expected_chat_template = {
-        "messages": "single_user",
-        "tokenize": True,
-        "add_generation_prompt": True,
-        "return_tensors": "pt",
-        "input_token_limit": 4096,
-    }
+    expected_generation = {"temperature": TEMPERATURE, "max_tokens": MAX_TOKENS}
     expected_retry = {
         "max_attempts": 2,
         "fixed_retry_count": 1,
         "timeout_seconds": 300,
         "retryable_reasons": sorted(
             [
-                "CHILD_TIMEOUT",
-                "MODEL_OOM",
+                "CONCEPT_API_RESPONSE_INVALID",
+                "CONCEPT_API_TIMEOUT",
+                "CONCEPT_API_UNAVAILABLE",
                 "MODEL_OUTPUT_INVALID_JSON",
                 "MODEL_OUTPUT_TRUNCATED",
                 "CANDIDATE_SCHEMA_INVALID",
@@ -298,7 +302,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         "lexical_overlap_decision": False,
         "sanitation": "single-trailing-ascii-quote/v1",
         "fenced_json": "reject",
-        "generation_termination": "final-token-eos-required/v1",
+        "generation_termination": "finish-reason-stop-required/v1",
         "structurally_valid_decision": "review",
     }
     if (
@@ -306,17 +310,12 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         or set(semantic)
         != {
             "model_id",
-            "revision",
-            "dtype",
-            "trust_remote_code",
-            "binding_manifest_sha256",
-            "required_file_count",
-            "required_files",
+            "api_protocol",
+            "api_path",
             "prompt",
             "prompt_sha256",
             "request_schema",
             "output_schema",
-            "chat_template",
             "generation",
             "retry",
             "policy",
@@ -324,28 +323,20 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
             "fixture_hashes",
         }
         or semantic.get("model_id") != "Qwen/Qwen3-4B-Instruct-2507"
-        or semantic.get("revision") != "cdbee75f17c01a7cc42f958dc650907174af0554"
-        or semantic.get("dtype") != "bfloat16"
-        or semantic.get("trust_remote_code") is not False
-        or semantic.get("binding_manifest_sha256") != "61cbb8e0973dcbefc6009f66ddfc2da2fe3d9aba4094ade8a82043f6624651c4"
-        or semantic.get("required_file_count") != 10
-        or not isinstance(semantic.get("required_files"), list)
-        or canonical_sha256(semantic.get("required_files"))
-        != "687ce9aa177c2df2f453dd906f03f71e437c5e9ddab2c9a93e10ef1190b97ecc"
+        or semantic.get("api_protocol") != "openai-chat-completions/v1"
+        or semantic.get("api_path") != CHAT_COMPLETIONS_PATH
         or semantic.get("prompt") != PROMPT_TEMPLATE
         or semantic.get("prompt_sha256") != PROMPT_SHA256
         or not _hash_matches(semantic["prompt"], semantic["prompt_sha256"])
         or semantic.get("request_schema") != "semantic-qualification-input/v1"
         or semantic.get("output_schema") != "semantic-concepts/v1"
-        or semantic.get("chat_template") != expected_chat_template
         or semantic.get("generation") != expected_generation
         or semantic.get("retry") != expected_retry
         or semantic.get("policy") != expected_policy
         or semantic.get("code_hashes")
         != {
-            "local_ai_protocol": "e37a91ffcda3df8e6190797da2cbe2db24f3c28db4eea367b4d7e3653d32b254",
-            "local_ai_concept": "3e94ed380a2adc6ea16c14bc9d9c72d4b424b2fae9f3d8383653543e1aab15cb",
-            "backend_concept_generation": "805a0b3830db291a17af7f5b0da85b8a89c757ce7abeb81538ddede5cf25d446",
+            "backend_concept_api": "75dca2128f733555de5f5ea6dfca612b13da8809c6dbb790f88551defc92e4ac",
+            "backend_concept_generation": "1a3ba77a2aca9238b41e0d82079792a0d51067f04bd27c49f1f07a89ba17bce1",
         }
         or semantic.get("fixture_hashes")
         != {
@@ -407,7 +398,7 @@ def _validate_request(request: Any) -> tuple[Path, list[int], str]:
 
 @contextmanager
 def _agent1_lock(runtime_root: Path, *, wait_seconds: float = 5):
-    """跨 process 同時只允許一個本機 OCR/Qwen resident sequence。"""
+    """跨 process 同時只允許一個本機 OCR 與 Concept API sequence。"""
 
     if type(wait_seconds) not in {int, float} or wait_seconds < 0:
         raise ValueError("RUNTIME_BINDING_INVALID")
@@ -687,34 +678,22 @@ def _write_cache(
 
 
 def _semantic_response(
-    concept_process: Any,
-    request_id: str,
+    concept_client: httpx.Client,
+    settings: dict[str, Any],
     semantic_request: dict[str, Any],
     binding: dict[str, Any],
     page_ref: str,
     attempt: int,
 ) -> dict[str, Any]:
-    response = concept_process.request(
-        {
-            "schema": "local-concept-request/v1",
-            "request_id": request_id,
-            "attempt": attempt,
-            "semantic_request": semantic_request,
-        },
-        300,
+    model_text = request_concept_text(
+        concept_client,
+        base_url=settings["concept_api_base_url"],
+        model=settings["concept_model"],
+        semantic_request=semantic_request,
+        timeout_seconds=settings["runtime_lock"]["semantic"]["retry"]["timeout_seconds"],
     )
-    if response.get("request_id") != request_id or response.get("attempt") != attempt:
-        raise SemanticOutputError("CHILD_RESPONSE_INVALID")
-    if response.get("schema") == "local-concept-failure/v1":
-        if set(response) != {"schema", "request_id", "attempt", "reason_code"}:
-            raise SemanticOutputError("CHILD_RESPONSE_INVALID")
-        raise SemanticOutputError(response["reason_code"])
-    if set(response) != {"schema", "request_id", "attempt", "model_text"} or response.get(
-        "schema"
-    ) != "local-concept-response/v1":
-        raise SemanticOutputError("CHILD_RESPONSE_INVALID")
     return validate_concepts(
-        response["model_text"],
+        model_text,
         semantic_request=semantic_request,
         page_ref=page_ref,
         input_binding=binding,
@@ -731,7 +710,7 @@ def _run_text_first_pdf(
     requested_produced_at: str | None = None,
     requested_runtime_binding_sha256: str | None = None,
 ) -> dict[str, Any]:
-    """依序執行 OCR/Qwen；formal 模式可明確排除個別內容頁。"""
+    """依序執行 OCR 與 Concept API；formal 模式可明確排除個別內容頁。"""
 
     run_id = requested_run_id or f"text-first-run:{uuid4()}"
     produced_at = requested_produced_at or _now()
@@ -752,6 +731,9 @@ def _run_text_first_pdf(
     )
     try:
         _validate_runtime_lock(runtime_lock)
+        chat_completions_url(settings.get("concept_api_base_url"))
+        if settings.get("concept_model") != runtime_lock["semantic"]["model_id"]:
+            raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
         checked_request = build_whole_document_request(request) if whole_document else request
         source_path, page_numbers, source_sha256 = _validate_request(checked_request)
         page_count = len(page_numbers)
@@ -838,7 +820,7 @@ def _run_text_first_pdf(
 
         semantic_pages = []
         included_pages = []
-        concept = None
+        concept_client: httpx.Client | None = None
         try:
             for page in page_artifacts:
                 try:
@@ -850,6 +832,10 @@ def _run_text_first_pdf(
                             item["evidence_id"] for item in semantic_request["evidence"]
                         ],
                         "semantic": runtime_lock["semantic"],
+                        "concept_api": {
+                            "base_url": settings["concept_api_base_url"],
+                            "model": settings["concept_model"],
+                        },
                     }
                     key = semantic_cache_key(binding)
                     artifact, invalid = _read_cache(
@@ -860,16 +846,17 @@ def _run_text_first_pdf(
                     )
                     cache_invalid = cache_invalid or invalid
                     if artifact is None:
-                        if concept is None:
-                            concept = start_concept_process(settings)
-                            concept_loads += 1
-                        request_id = page["page_ref"].split(":")[-1][:32]
+                        if concept_client is None:
+                            concept_client = httpx.Client(
+                                trust_env=False,
+                                follow_redirects=False,
+                            )
                         last_error: BaseException | None = None
                         for attempt in range(1, MAX_ATTEMPTS + 1):
                             try:
                                 artifact = _semantic_response(
-                                    concept,
-                                    request_id,
+                                    concept_client,
+                                    settings,
                                     semantic_request,
                                     binding,
                                     page["page_ref"],
@@ -877,18 +864,7 @@ def _run_text_first_pdf(
                                 )
                                 concept_calls += 1
                                 break
-                            except LocalAIError as error:
-                                concept_calls += 1
-                                last_error = error
-                                if attempt == MAX_ATTEMPTS or not retryable(
-                                    error.reason_code
-                                ):
-                                    raise
-                                if error.reason_code == "CHILD_TIMEOUT":
-                                    concept.abort()
-                                    concept = start_concept_process(settings)
-                                    concept_loads += 1
-                            except SemanticOutputError as error:
+                            except (ConceptAPIError, SemanticOutputError) as error:
                                 concept_calls += 1
                                 last_error = error
                                 if attempt == MAX_ATTEMPTS or not retryable(
@@ -916,8 +892,8 @@ def _run_text_first_pdf(
                         continue
                     raise
         finally:
-            if concept is not None:
-                concept.close()
+            if concept_client is not None:
+                concept_client.close()
         output = build_output(
             run_id=run_id,
             produced_at=produced_at,

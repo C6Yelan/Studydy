@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, update
 
+from pdf_evidence.concept_api import ConceptAPIError, chat_completions_url
 from pdf_evidence.text_first_bundle import read_producer_bundle
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.text_first_run import (
@@ -37,17 +38,26 @@ _CONFIG_KEYS = {
     "python_executable",
     "site_packages",
     "ocr_model_root",
-    "concept_model_root",
+    "concept_api_base_url",
+    "concept_model",
+}
+_CONFIG_PATH_KEYS = {
+    "private_runtime_root",
+    "python_executable",
+    "site_packages",
+    "ocr_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "e3f27220b18ef7aa2f411a8c7a984937a7ad604213e3908166b79bae10d17cb0",
+    "local_ai/runtime-lock.json": "094b8c432e40fe056b27c044ae1dde19720a69c6a8cf09bcef47803226f7f0a7",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "464dd905c89675ec57775e0d6170416f4702f18407d7e06dce95d054d7769f03",
-    "backend/src/pdf_evidence/concept_generation.py": "805a0b3830db291a17af7f5b0da85b8a89c757ce7abeb81538ddede5cf25d446",
-    "backend/src/pdf_evidence/local_ai_process.py": "91b2411fefb174c97204f83ce738cceb718ef3c2a755dc4177a362e52da81472",
+    "backend/src/pdf_evidence/concept_generation.py": "1a3ba77a2aca9238b41e0d82079792a0d51067f04bd27c49f1f07a89ba17bce1",
+    "backend/src/pdf_evidence/concept_api.py": "75dca2128f733555de5f5ea6dfca612b13da8809c6dbb790f88551defc92e4ac",
+    "backend/src/pdf_evidence/local_ai_process.py": "5a4396631eb82426ae60d809a63d5245ff88777d762a5365ace98e602f25182b",
 }
 _BINDING_FILES = (
     "backend/src/pdf_evidence/artifact_reason_codes.py",
     "backend/src/pdf_evidence/concept_evidence_output.py",
+    "backend/src/pdf_evidence/concept_api.py",
     "backend/src/pdf_evidence/text_first_bundle.py",
     "backend/src/pdf_evidence/text_first_run.py",
     "backend/src/pdf_evidence/study_material_output.py",
@@ -59,9 +69,8 @@ _BINDING_FILES = (
 )
 _LOCAL_AI_SOURCE_HASHES = {
     "__init__.py": "c7a3ebd9b5d9dcd05a9c8a0610efb0ee5481d4733dd4101872bcf72c5ee4008c",
-    "protocol.py": "e37a91ffcda3df8e6190797da2cbe2db24f3c28db4eea367b4d7e3653d32b254",
+    "protocol.py": "2cf8c64d90ea79f76606e22caaf465f16ffd4153adbe83c90c18e6aa51bead43",
     "ocr_process.py": "d6f431c990630b60311ef0e9737ea4805896eb709eb69dd24644d93a580a232a",
-    "concept_process.py": "3e94ed380a2adc6ea16c14bc9d9c72d4b424b2fae9f3d8383653543e1aab15cb",
 }
 _PACKAGE_VERSIONS = {
     "studydy-local-ai": "0.1.0",
@@ -195,7 +204,7 @@ def _prepare_private_runtime_root(value: str) -> None:
 
 
 def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
-    """把 runtime lock 對應到 child 真正會開啟的本機檔案。"""
+    """把 runtime lock 對應到 OCR child 真正會開啟的本機檔案。"""
 
     runtime_lock = local_config["runtime_lock"]
     python_executable = _absolute_runtime_path(
@@ -208,9 +217,6 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
     )
     ocr_model_root = _absolute_runtime_path(
         local_config["ocr_model_root"], is_directory=True
-    )
-    concept_model_root = _absolute_runtime_path(
-        local_config["concept_model_root"], is_directory=True
     )
     package_root = site_packages / "studydy_local_ai"
     files = [
@@ -235,17 +241,6 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
             for name, expected_sha256 in runtime_lock["ocr"]["reviewed_code"].items()
         ),
     ]
-    for required_file in runtime_lock["semantic"]["required_files"]:
-        name = required_file["name"]
-        if Path(name).name != name:
-            raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
-        files.append(
-            _RuntimeFile(
-                concept_model_root / name,
-                required_file["sha256"],
-                required_file["size"],
-            )
-        )
     return tuple(files)
 
 
@@ -275,7 +270,7 @@ def _distribution_versions(site_packages: Path) -> dict[str, str]:
 
 
 def formal_runtime_preflight(local_config: Any) -> dict[str, Any]:
-    """在 worker 啟動前核對實際離線 Python、套件與兩個模型。"""
+    """在 worker 啟動前核對 OCR runtime 與 loopback Concept API 設定。"""
 
     binding = formal_runtime_binding(local_config)
     assert isinstance(local_config, dict)
@@ -306,10 +301,17 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
 
     if not isinstance(local_config, dict) or set(local_config) != _CONFIG_KEYS:
         raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
-    for key in _CONFIG_KEYS - {"runtime_lock"}:
+    for key in _CONFIG_PATH_KEYS:
         value = local_config.get(key)
         if not isinstance(value, str) or not value or "://" in value:
             raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+    concept_model = local_config.get("concept_model")
+    if not isinstance(concept_model, str) or not concept_model or len(concept_model) > 256:
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+    try:
+        chat_completions_url(local_config.get("concept_api_base_url"))
+    except ConceptAPIError:
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID") from None
     runtime_root = Path(local_config["private_runtime_root"])
     if not runtime_root.is_absolute() or runtime_root.is_symlink():
         raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
@@ -317,6 +319,8 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         _validate_runtime_lock(local_config["runtime_lock"])
     except (TypeError, ValueError):
         raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID") from None
+    if concept_model != local_config["runtime_lock"]["semantic"]["model_id"]:
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
 
     repository_root = Path(__file__).resolve().parents[3]
     for relative_path, expected_sha256 in _LOCKED_FILES.items():
@@ -336,8 +340,6 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
             "ocr_calls_per_page": 1,
             "concept_calls_per_page": 2,
             "ocr_initial_loads": 1,
-            "concept_initial_loads": 1,
-            "concept_timeout_restarts_per_page": 1,
         },
         "timeouts_seconds": {
             "resident_lock": 5,
@@ -347,10 +349,14 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         "retry_policy": {
             "ocr_attempts": 1,
             "concept_attempts": 2,
-            "concept_restart_reason": "CHILD_TIMEOUT",
         },
-        "residency_policy": "sequential-ocr-then-qwen/v1",
-        "network_policy": "local-anonymous-pipes-no-egress-config/v1",
+        "concept_api": {
+            "base_url": local_config["concept_api_base_url"],
+            "model": concept_model,
+            "protocol": local_config["runtime_lock"]["semantic"]["api_protocol"],
+        },
+        "residency_policy": "ocr-child-then-loopback-concept-api/v1",
+        "network_policy": "loopback-concept-api-no-credentials/v1",
         "raw_retention": "none",
     }
     binding["runtime_binding_sha256"] = canonical_sha256(binding)

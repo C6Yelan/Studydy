@@ -21,7 +21,8 @@ _ENVIRONMENT_KEYS = {
     "python_executable": "STUDYDY_LOCAL_AI_PYTHON",
     "site_packages": "STUDYDY_LOCAL_AI_SITE_PACKAGES",
     "ocr_model_root": "STUDYDY_OCR_MODEL_ROOT",
-    "concept_model_root": "STUDYDY_CONCEPT_MODEL_ROOT",
+    "concept_api_base_url": "STUDYDY_CONCEPT_API_BASE_URL",
+    "concept_model": "STUDYDY_CONCEPT_MODEL",
 }
 
 

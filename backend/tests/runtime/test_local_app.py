@@ -17,7 +17,8 @@ def _environment(profile="local"):
         "STUDYDY_LOCAL_AI_PYTHON": "/local-ai/python",
         "STUDYDY_LOCAL_AI_SITE_PACKAGES": "/local-ai/site-packages",
         "STUDYDY_OCR_MODEL_ROOT": "/models/ocr",
-        "STUDYDY_CONCEPT_MODEL_ROOT": "/models/concept",
+        "STUDYDY_CONCEPT_API_BASE_URL": "http://127.0.0.1:8101",
+        "STUDYDY_CONCEPT_MODEL": "Qwen/Qwen3-4B-Instruct-2507",
     }
 
 
@@ -67,7 +68,8 @@ def test_formal_launch_uses_the_local_composition_root(monkeypatch):
         "python_executable",
         "site_packages",
         "ocr_model_root",
-        "concept_model_root",
+        "concept_api_base_url",
+        "concept_model",
     }
     assert observed[1] == (
         app,

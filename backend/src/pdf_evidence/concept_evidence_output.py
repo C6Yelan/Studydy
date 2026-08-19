@@ -15,7 +15,7 @@ from .ocr_page_evidence import canonical_bytes, canonical_sha256
 OUTPUT_SCHEMA = "concept-evidence-output/v2"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
 MAX_ARTIFACT_FILE_BYTES = 16 * 1024 * 1024
-RUNTIME_LOCK_SHA256 = "b777829253b40ddca6a6fb9f076ddd6125f12b6e3f4450a85fa6737f5321f967"
+RUNTIME_LOCK_SHA256 = "4103350b70f9453d7c6aaedb075986804f6b4e84b5ade09d7c7c44c86f18b53b"
 
 
 def _closed(value: Any, fields: set[str]) -> bool:

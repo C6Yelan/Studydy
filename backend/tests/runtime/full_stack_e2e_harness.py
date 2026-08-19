@@ -483,7 +483,8 @@ def _backend_child() -> int:
         "STUDYDY_LOCAL_AI_PYTHON": "fixed-python",
         "STUDYDY_LOCAL_AI_SITE_PACKAGES": "fixed-site-packages",
         "STUDYDY_OCR_MODEL_ROOT": "fixed-ocr-model",
-        "STUDYDY_CONCEPT_MODEL_ROOT": "fixed-concept-model",
+        "STUDYDY_CONCEPT_API_BASE_URL": "http://127.0.0.1:8101",
+        "STUDYDY_CONCEPT_MODEL": "Qwen/Qwen3-4B-Instruct-2507",
     }
     run_local_app(environment=local_environment, port=BACKEND_PORT)
     return 0

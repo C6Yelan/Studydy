@@ -45,17 +45,19 @@ def settings(
         "formal_runtime_preflight",
         processing_module.formal_runtime_binding,
     )
+    runtime_lock = json.loads(
+        (Path(__file__).parents[3] / "local_ai" / "runtime-lock.json").read_text(
+            encoding="utf-8"
+        )
+    )
     runtime_settings = {
         "private_runtime_root": str(tmp_path / "private-runtime"),
-        "runtime_lock": json.loads(
-            (Path(__file__).parents[3] / "local_ai" / "runtime-lock.json").read_text(
-                encoding="utf-8"
-            )
-        ),
+        "runtime_lock": runtime_lock,
         "python_executable": "fixed-python",
         "site_packages": "fixed-site-packages",
         "ocr_model_root": "fixed-ocr-model",
-        "concept_model_root": "fixed-concept-model",
+        "concept_api_base_url": "http://127.0.0.1:8101",
+        "concept_model": runtime_lock["semantic"]["model_id"],
     }
     return ApiSettings(
         profile="local",

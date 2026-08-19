@@ -4,16 +4,10 @@ import json
 import pytest
 
 from studydy_local_ai.protocol import (
-    MODEL_OUTPUT_TRUNCATED,
     ProtocolError,
     decode_json_object,
-    validate_concept_request,
     validate_ocr_request,
 )
-
-
-def test_truncated_output_uses_fixed_sanitized_reason():
-    assert MODEL_OUTPUT_TRUNCATED == "MODEL_OUTPUT_TRUNCATED"
 
 
 def test_json_contract_rejects_duplicate_nan_and_deep_values():
@@ -42,16 +36,3 @@ def test_ocr_request_decodes_only_bound_png():
     request["render"]["extra"] = True
     with pytest.raises(ProtocolError):
         validate_ocr_request(request)
-
-
-def test_concept_request_binds_attempt_and_semantic_schema():
-    request = {
-        "schema": "local-concept-request/v1",
-        "request_id": "semantic-1",
-        "attempt": 2,
-        "semantic_request": {"schema": "semantic-qualification-input/v1"},
-    }
-    assert validate_concept_request(request)["attempt"] == 2
-    request["attempt"] = 3
-    with pytest.raises(ProtocolError):
-        validate_concept_request(request)

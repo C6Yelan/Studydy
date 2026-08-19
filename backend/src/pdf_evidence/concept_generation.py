@@ -1,4 +1,4 @@
-"""建立 semantic request 並驗證 Qwen Concept candidates。"""
+"""建立 semantic request 並驗證 Concept candidates。"""
 
 from __future__ import annotations
 
@@ -19,13 +19,14 @@ Every central claim and key point must be grounded by its listed Evidence IDs.
 Do not return status, paths, coordinates, commentary, markdown, or additional fields."""
 PROMPT_SHA256 = "97f14f58b3599f22fcda7921d69fbd64035562c11897a4eadc6aacb355f5ca5c"
 SANITATION_POLICY = "single-trailing-ascii-quote/v1"
-PROCESSING_POLICY = "p02-qwen-concept-review/v1"
+PROCESSING_POLICY = "loopback-concept-review/v1"
 MAX_MODEL_OUTPUT_BYTES = 65_536
 MAX_ATTEMPTS = 2
 
 RETRYABLE_REASONS = {
-    "CHILD_TIMEOUT",
-    "MODEL_OOM",
+    "CONCEPT_API_TIMEOUT",
+    "CONCEPT_API_UNAVAILABLE",
+    "CONCEPT_API_RESPONSE_INVALID",
     "MODEL_OUTPUT_INVALID_JSON",
     "MODEL_OUTPUT_TRUNCATED",
     "CANDIDATE_SCHEMA_INVALID",
