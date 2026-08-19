@@ -25,12 +25,25 @@ def _semantic_request():
     }
 
 
+def _request(client, *, base_url="http://localhost:8101"):
+    return request_concept_text(
+        client,
+        base_url=base_url,
+        model="fixed-model",
+        semantic_request=_semantic_request(),
+        timeout_seconds=300,
+    )
+
+
 def _server_settings():
     return {
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": "Qwen/Qwen3-4B-Instruct-2507",
+        "concept_server_executable": "/runtime/bin/vllm",
+        "concept_model_root": "/models/qwen",
         "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 2,
+        "concept_max_model_len": 5_632,
     }
 
 
@@ -51,12 +64,23 @@ def test_owned_vllm_server_uses_fixed_bounded_command_and_cleans_up(monkeypatch)
     server.close()
 
     expected_command = (
-        "vllm serve Qwen/Qwen3-4B-Instruct-2507 --host 127.0.0.1 --port 8101 "
-        "--kv-cache-memory-bytes 2147483648 --max-num-seqs 2 --disable-log-requests"
+        "/runtime/bin/vllm serve /models/qwen --served-model-name "
+        "Qwen/Qwen3-4B-Instruct-2507 --host 127.0.0.1 --port 8101 "
+        "--kv-cache-memory-bytes 2147483648 --max-num-seqs 2 --max-model-len 5632 "
+        "--generation-config vllm --enforce-eager --disable-log-requests"
     ).split()
     assert popen.call_args.args[0] == expected_command
     process_options = popen.call_args.kwargs
     assert process_options.pop("start_new_session") is True
+    assert process_options.pop("env") == {
+        "DO_NOT_TRACK": "1",
+        "HF_HUB_DISABLE_TELEMETRY": "1",
+        "HF_HUB_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "VLLM_NO_USAGE_STATS": "1",
+        "VLLM_USE_FLASHINFER_SAMPLER": "0",
+        "VLLM_USE_V2_MODEL_RUNNER": "0",
+    }
     assert set(process_options.values()) == {concept_api_module.subprocess.DEVNULL}
     health.get.assert_called_once_with("http://127.0.0.1:8101/health", timeout=1)
     killpg.assert_called_once_with(1234, concept_api_module.signal.SIGTERM)
@@ -110,13 +134,7 @@ def test_chat_completion_uses_exact_loopback_request_and_returns_content():
         )
 
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
-        model_text = request_concept_text(
-            client,
-            base_url="http://127.0.0.1:8101",
-            model="fixed-model",
-            semantic_request=_semantic_request(),
-            timeout_seconds=300,
-        )
+        model_text = _request(client, base_url="http://127.0.0.1:8101")
 
     assert model_text == '{"concepts":[]}'
     assert observed[0].url == "http://127.0.0.1:8101/v1/chat/completions"
@@ -169,13 +187,7 @@ def test_chat_completion_reports_http_unavailable_and_timeout(failure_type, reas
 
     with httpx.Client(transport=httpx.MockTransport(fail)) as client:
         with pytest.raises(ConceptAPIError, match=reason_code):
-            request_concept_text(
-                client,
-                base_url="http://localhost:8101",
-                model="fixed-model",
-                semantic_request=_semantic_request(),
-                timeout_seconds=300,
-            )
+            _request(client)
 
 
 @pytest.mark.parametrize(
@@ -197,10 +209,4 @@ def test_chat_completion_rejects_malformed_or_truncated_response(content, reason
     transport = httpx.MockTransport(lambda request: httpx.Response(200, content=content))
     with httpx.Client(transport=transport) as client:
         with pytest.raises(ConceptAPIError, match=reason_code):
-            request_concept_text(
-                client,
-                base_url="http://localhost:8101",
-                model="fixed-model",
-                semantic_request=_semantic_request(),
-                timeout_seconds=300,
-            )
+            _request(client)

@@ -312,6 +312,10 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         or set(semantic)
         != {
             "model_id",
+            "revision",
+            "binding_manifest_sha256",
+            "required_file_count",
+            "required_files",
             "api_protocol",
             "api_path",
             "prompt",
@@ -325,6 +329,13 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
             "fixture_hashes",
         }
         or semantic.get("model_id") != "Qwen/Qwen3-4B-Instruct-2507"
+        or semantic.get("revision") != "cdbee75f17c01a7cc42f958dc650907174af0554"
+        or semantic.get("binding_manifest_sha256")
+        != "61cbb8e0973dcbefc6009f66ddfc2da2fe3d9aba4094ade8a82043f6624651c4"
+        or semantic.get("required_file_count") != 10
+        or not isinstance(semantic.get("required_files"), list)
+        or canonical_sha256(semantic.get("required_files"))
+        != "687ce9aa177c2df2f453dd906f03f71e437c5e9ddab2c9a93e10ef1190b97ecc"
         or semantic.get("api_protocol") != "openai-chat-completions/v1"
         or semantic.get("api_path") != CHAT_COMPLETIONS_PATH
         or semantic.get("prompt") != PROMPT_TEMPLATE
@@ -337,7 +348,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         or semantic.get("policy") != expected_policy
         or semantic.get("code_hashes")
         != {
-            "backend_concept_api": "b757fccb73584e0ff8e545d1e4fa7164f0be5c340abf5d80a8ec967bdc91bf68",
+            "backend_concept_api": "55f11ada85cf3ecf73619cdddd8d7f7a45a093d16653608a13a79ebd6d1d6215",
             "backend_concept_generation": "1a3ba77a2aca9238b41e0d82079792a0d51067f04bd27c49f1f07a89ba17bce1",
         }
         or semantic.get("fixture_hashes")
@@ -746,6 +757,11 @@ def _run_text_first_pdf(
             or settings["concept_max_concurrency"] not in {1, 2}
         ):
             raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
+        if (
+            type(settings.get("concept_max_model_len")) is not int
+            or settings["concept_max_model_len"] < 1
+        ):
+            raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
         checked_request = build_whole_document_request(request) if whole_document else request
         source_path, page_numbers, source_sha256 = _validate_request(checked_request)
         page_count = len(page_numbers)
@@ -846,6 +862,7 @@ def _run_text_first_pdf(
                         "model": settings["concept_model"],
                         "kv_cache_bytes": settings["concept_kv_cache_bytes"],
                         "max_concurrency": settings["concept_max_concurrency"],
+                        "max_model_len": settings["concept_max_model_len"],
                     },
                 }
                 key = semantic_cache_key(binding)

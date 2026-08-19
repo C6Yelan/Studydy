@@ -19,6 +19,8 @@ def _environment(profile="local"):
         "STUDYDY_OCR_MODEL_ROOT": "/models/ocr",
         "STUDYDY_CONCEPT_API_BASE_URL": "http://127.0.0.1:8101",
         "STUDYDY_CONCEPT_MODEL": "Qwen/Qwen3-4B-Instruct-2507",
+        "STUDYDY_CONCEPT_SERVER_EXECUTABLE": "/runtime/bin/vllm",
+        "STUDYDY_CONCEPT_MODEL_ROOT": "/models/qwen",
     }
 
 
@@ -70,11 +72,15 @@ def test_formal_launch_uses_the_local_composition_root(monkeypatch):
         "ocr_model_root",
         "concept_api_base_url",
         "concept_model",
+        "concept_server_executable",
+        "concept_model_root",
         "concept_kv_cache_bytes",
         "concept_max_concurrency",
+        "concept_max_model_len",
     }
     assert observed[0]["local_config"]["concept_kv_cache_bytes"] == 2_147_483_648
     assert observed[0]["local_config"]["concept_max_concurrency"] == 2
+    assert observed[0]["local_config"]["concept_max_model_len"] == 5_632
     assert observed[1] == (
         app,
         {

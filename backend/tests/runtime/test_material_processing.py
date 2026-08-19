@@ -79,8 +79,11 @@ def _settings(tmp_path: Path) -> dict:
         "ocr_model_root": "fixed-ocr-model",
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": "Qwen/Qwen3-4B-Instruct-2507",
+        "concept_server_executable": "fixed-vllm",
+        "concept_model_root": "fixed-qwen-model",
         "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 2,
+        "concept_max_model_len": 5_632,
     }
 
 
@@ -331,12 +334,17 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     encoded = json.dumps(binding)
     assert settings["private_runtime_root"] not in encoded
     assert settings["ocr_model_root"] not in encoded
+    assert settings["concept_server_executable"] not in encoded
+    assert settings["concept_model_root"] not in encoded
     assert binding["concept_api"] == {
         "base_url": "http://127.0.0.1:8101",
         "model": "Qwen/Qwen3-4B-Instruct-2507",
+        "model_revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+        "model_binding_manifest_sha256": "61cbb8e0973dcbefc6009f66ddfc2da2fe3d9aba4094ade8a82043f6624651c4",
         "protocol": "openai-chat-completions/v1",
         "kv_cache_bytes": 2_147_483_648,
         "max_concurrency": 2,
+        "max_model_len": 5_632,
     }
     assert len(binding["code_hashes"]) == 11
     assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
@@ -346,6 +354,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
         {**settings, "concept_model": "different-model"},
         {**settings, "concept_kv_cache_bytes": 0},
         {**settings, "concept_max_concurrency": 3},
+        {**settings, "concept_max_model_len": 0},
     ):
         with pytest.raises(
             MaterialProcessingError, match="MATERIAL_CONFIGURATION_INVALID"
@@ -363,7 +372,11 @@ def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
     monkeypatch.setattr(
         processing_module,
         "_runtime_files",
-        lambda _: (processing_module._RuntimeFile(runtime_file, expected_sha256),),
+        lambda _: (
+            processing_module._RuntimeFile(
+                runtime_file, expected_sha256, len(b"exact runtime")
+            ),
+        ),
     )
     monkeypatch.setattr(
         processing_module,
@@ -372,31 +385,40 @@ def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
     )
 
     binding = processing_module.formal_runtime_preflight(settings)
-    assert binding["schema"] == "formal-agent1-runtime-binding/v2"
+    assert binding["schema"] == "formal-agent1-runtime-binding/v3"
     runtime_root = Path(settings["private_runtime_root"])
     assert runtime_root.stat().st_mode & 0o777 == 0o700
 
-    runtime_file.write_bytes(b"drifted runtime")
+    runtime_file.write_bytes(b"short")
+    with pytest.raises(
+        MaterialProcessingError, match="MATERIAL_CONFIGURATION_INVALID"
+    ):
+        processing_module.formal_runtime_preflight(settings)
+    runtime_file.write_bytes(b"drift runtime")
     with pytest.raises(
         MaterialProcessingError, match="MATERIAL_CONFIGURATION_INVALID"
     ):
         processing_module.formal_runtime_preflight(settings)
 
 
-def test_runtime_file_plan_covers_python_package_and_ocr(tmp_path: Path):
+def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
     settings = _settings(tmp_path)
     python_executable = tmp_path / "python"
     python_executable.write_bytes(b"python")
     python_executable.chmod(0o700)
-    for key in ("site_packages", "ocr_model_root"):
+    for key in ("site_packages", "ocr_model_root", "concept_model_root"):
         path = tmp_path / key
         path.mkdir()
         settings[key] = str(path)
     settings["python_executable"] = str(python_executable)
+    concept_server = tmp_path / "vllm"
+    concept_server.write_bytes(b"vllm")
+    concept_server.chmod(0o700)
+    settings["concept_server_executable"] = str(concept_server)
 
     runtime_files = processing_module._runtime_files(settings)
     relative_names = {runtime_file.path.name for runtime_file in runtime_files}
-    assert len(runtime_files) == 11
+    assert len(runtime_files) == 21
     assert {
         "python",
         "__init__.py",
@@ -404,6 +426,8 @@ def test_runtime_file_plan_covers_python_package_and_ocr(tmp_path: Path):
         "ocr_process.py",
         "model.safetensors",
         "configuration_deepseek_v2.py",
+        "model-00001-of-00003.safetensors",
+        "tokenizer.json",
     } <= relative_names
 
 

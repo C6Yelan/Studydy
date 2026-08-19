@@ -485,6 +485,8 @@ def _backend_child() -> int:
         "STUDYDY_OCR_MODEL_ROOT": "fixed-ocr-model",
         "STUDYDY_CONCEPT_API_BASE_URL": "http://127.0.0.1:8101",
         "STUDYDY_CONCEPT_MODEL": "Qwen/Qwen3-4B-Instruct-2507",
+        "STUDYDY_CONCEPT_SERVER_EXECUTABLE": "/runtime/bin/vllm",
+        "STUDYDY_CONCEPT_MODEL_ROOT": "/models/qwen",
     }
     run_local_app(environment=local_environment, port=BACKEND_PORT)
     return 0

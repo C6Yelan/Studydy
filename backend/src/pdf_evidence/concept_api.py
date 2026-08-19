@@ -19,7 +19,15 @@ MAX_TOKENS = 1_536
 TEMPERATURE = 0
 MAX_API_RESPONSE_BYTES = 128 * 1_024
 CONCEPT_SERVER_READY_TIMEOUT_SECONDS = 300
-_VLLM_EXECUTABLE = "vllm"
+_VLLM_ENVIRONMENT = {
+    "DO_NOT_TRACK": "1",
+    "HF_HUB_DISABLE_TELEMETRY": "1",
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1",
+    "VLLM_NO_USAGE_STATS": "1",
+    "VLLM_USE_FLASHINFER_SAMPLER": "0",
+    "VLLM_USE_V2_MODEL_RUNNER": "0",
+}
 
 
 class ConceptAPIError(RuntimeError):
@@ -70,8 +78,10 @@ def start_concept_server(settings: dict[str, Any]) -> LocalConceptServer:
     parsed = urlsplit(base_url)
     port = parsed.port or 80
     command = [
-        _VLLM_EXECUTABLE,
+        settings["concept_server_executable"],
         "serve",
+        settings["concept_model_root"],
+        "--served-model-name",
         settings["concept_model"],
         "--host",
         parsed.hostname or "127.0.0.1",
@@ -81,6 +91,11 @@ def start_concept_server(settings: dict[str, Any]) -> LocalConceptServer:
         str(settings["concept_kv_cache_bytes"]),
         "--max-num-seqs",
         str(settings["concept_max_concurrency"]),
+        "--max-model-len",
+        str(settings["concept_max_model_len"]),
+        "--generation-config",
+        "vllm",
+        "--enforce-eager",
         "--disable-log-requests",
     ]
     try:
@@ -90,6 +105,7 @@ def start_concept_server(settings: dict[str, Any]) -> LocalConceptServer:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
+            env=_VLLM_ENVIRONMENT,
         )
     except OSError as error:
         raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error

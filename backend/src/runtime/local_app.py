@@ -23,10 +23,13 @@ _ENVIRONMENT_KEYS = {
     "ocr_model_root": "STUDYDY_OCR_MODEL_ROOT",
     "concept_api_base_url": "STUDYDY_CONCEPT_API_BASE_URL",
     "concept_model": "STUDYDY_CONCEPT_MODEL",
+    "concept_server_executable": "STUDYDY_CONCEPT_SERVER_EXECUTABLE",
+    "concept_model_root": "STUDYDY_CONCEPT_MODEL_ROOT",
 }
 _OPTIONAL_INTEGER_SETTINGS = {
     "concept_kv_cache_bytes": ("STUDYDY_CONCEPT_KV_CACHE_BYTES", 2_147_483_648),
     "concept_max_concurrency": ("STUDYDY_CONCEPT_MAX_CONCURRENCY", 2),
+    "concept_max_model_len": ("STUDYDY_CONCEPT_MAX_MODEL_LEN", 5_632),
 }
 
 

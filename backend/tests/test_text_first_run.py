@@ -24,8 +24,11 @@ def _settings(tmp_path):
         "ocr_model_root": "fixed-ocr",
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
+        "concept_server_executable": "fixed-vllm",
+        "concept_model_root": "fixed-qwen",
         "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 2,
+        "concept_max_model_len": 5_632,
     }
 
 
@@ -45,6 +48,12 @@ def _request(path):
         "expected_source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "page_numbers": [1],
     }
+
+
+def _whole_request(path):
+    request = _request(path)
+    request.pop("page_numbers")
+    return request
 
 
 def test_source_pdf_snapshot_and_whole_document_page_count(tmp_path):
@@ -542,11 +551,7 @@ def test_formal_whole_document_excludes_one_page_and_keeps_grounded_core(
     )
     run_id = "text-first-run:00000000-0000-4000-8000-000000000002"
     bundle = run_module.run_full_text_first_pdf(
-        {
-            "media_type": "application/pdf",
-            "source_path": str(path),
-            "expected_source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        },
+        _whole_request(path),
         _settings(tmp_path),
         run_id=run_id,
     )
@@ -566,9 +571,11 @@ def test_formal_whole_document_excludes_one_page_and_keeps_grounded_core(
     assert list((tmp_path / "runtime").rglob("*.png")) == []
 
 
-@pytest.mark.parametrize("page_count", [33, 40])
+@pytest.mark.parametrize(
+    ("page_count", "max_concurrency"), [(33, 2), (40, 1)]
+)
 def test_formal_long_pdf_processes_every_page_without_truncation(
-    tmp_path, monkeypatch, page_count
+    tmp_path, monkeypatch, page_count, max_concurrency
 ):
     path = tmp_path / f"long-{page_count}-pages.pdf"
     _pdf(path, page_count=page_count)
@@ -600,13 +607,11 @@ def test_formal_long_pdf_processes_every_page_without_truncation(
     )
     monkeypatch.setattr(run_module, "request_concept_text", concurrent_concept)
     run_id = f"text-first-run:00000000-0000-4000-8000-{page_count:012d}"
+    settings = _settings(tmp_path)
+    settings["concept_max_concurrency"] = max_concurrency
     bundle = run_module.run_full_text_first_pdf(
-        {
-            "media_type": "application/pdf",
-            "source_path": str(path),
-            "expected_source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        },
-        _settings(tmp_path),
+        _whole_request(path),
+        settings,
         run_id=run_id,
     )
     assert bundle["processing"] == "succeeded"
@@ -616,7 +621,7 @@ def test_formal_long_pdf_processes_every_page_without_truncation(
     assert bundle["ocr_calls"] == bundle["concept_calls"] == page_count
     assert bundle["ocr_loads"] == 1
     assert bundle["concept_loads"] == 1
-    assert maximum_active == 2
+    assert maximum_active == max_concurrency
     assert len(servers) == 1 and servers[0].is_closed
     published = read_producer_bundle(tmp_path / "runtime", run_id)
     pages = published["output"]["pages"]
@@ -652,11 +657,7 @@ def test_formal_concept_failure_closes_owned_server(tmp_path, monkeypatch):
     )
 
     bundle = run_module.run_full_text_first_pdf(
-        {
-            "media_type": "application/pdf",
-            "source_path": str(path),
-            "expected_source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        },
+        _whole_request(path),
         _settings(tmp_path),
     )
 
