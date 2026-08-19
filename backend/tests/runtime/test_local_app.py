@@ -14,13 +14,13 @@ def _environment(profile="local"):
         "STUDYDY_PUBLIC_ORIGIN": "http://127.0.0.1:4173",
         "STUDYDY_SECURE_COOKIE": "false",
         "STUDYDY_PRIVATE_RUNTIME_ROOT": "/private/runtime",
-        "STUDYDY_LOCAL_AI_PYTHON": "/local-ai/python",
-        "STUDYDY_LOCAL_AI_SITE_PACKAGES": "/local-ai/site-packages",
-        "STUDYDY_OCR_MODEL_ROOT": "/models/ocr",
+        "STUDYDY_LOCAL_AI_PYTHON": "/opt/studydy/ocr/bin/python3.12",
+        "STUDYDY_LOCAL_AI_SITE_PACKAGES": "/opt/studydy/ocr/lib/python3.12/site-packages",
+        "STUDYDY_OCR_MODEL_ROOT": "/opt/studydy/models/unlimited-ocr",
         "STUDYDY_CONCEPT_API_BASE_URL": "http://127.0.0.1:8101",
         "STUDYDY_CONCEPT_MODEL": "Qwen/Qwen3-4B-Instruct-2507",
-        "STUDYDY_CONCEPT_SERVER_EXECUTABLE": "/runtime/bin/vllm",
-        "STUDYDY_CONCEPT_MODEL_ROOT": "/models/qwen",
+        "STUDYDY_CONCEPT_SERVER_EXECUTABLE": "/opt/studydy/vllm/bin/vllm",
+        "STUDYDY_CONCEPT_MODEL_ROOT": "/opt/studydy/models/qwen3-4b-instruct-2507",
     }
 
 

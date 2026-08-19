@@ -480,13 +480,13 @@ def _backend_child() -> int:
         "STUDYDY_PUBLIC_ORIGIN": f"http://127.0.0.1:{FRONTEND_PORT}",
         "STUDYDY_SECURE_COOKIE": "false",
         "STUDYDY_PRIVATE_RUNTIME_ROOT": runtime_root,
-        "STUDYDY_LOCAL_AI_PYTHON": "fixed-python",
-        "STUDYDY_LOCAL_AI_SITE_PACKAGES": "fixed-site-packages",
-        "STUDYDY_OCR_MODEL_ROOT": "fixed-ocr-model",
+        "STUDYDY_LOCAL_AI_PYTHON": "/opt/studydy/ocr/bin/python3.12",
+        "STUDYDY_LOCAL_AI_SITE_PACKAGES": "/opt/studydy/ocr/lib/python3.12/site-packages",
+        "STUDYDY_OCR_MODEL_ROOT": "/opt/studydy/models/unlimited-ocr",
         "STUDYDY_CONCEPT_API_BASE_URL": "http://127.0.0.1:8101",
         "STUDYDY_CONCEPT_MODEL": "Qwen/Qwen3-4B-Instruct-2507",
-        "STUDYDY_CONCEPT_SERVER_EXECUTABLE": "/runtime/bin/vllm",
-        "STUDYDY_CONCEPT_MODEL_ROOT": "/models/qwen",
+        "STUDYDY_CONCEPT_SERVER_EXECUTABLE": "/opt/studydy/vllm/bin/vllm",
+        "STUDYDY_CONCEPT_MODEL_ROOT": "/opt/studydy/models/qwen3-4b-instruct-2507",
     }
     run_local_app(environment=local_environment, port=BACKEND_PORT)
     return 0

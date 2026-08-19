@@ -74,13 +74,13 @@ def _settings(tmp_path: Path) -> dict:
                 encoding="utf-8"
             )
         ),
-        "python_executable": "fixed-python",
-        "site_packages": "fixed-site-packages",
-        "ocr_model_root": "fixed-ocr-model",
+        "python_executable": "/opt/studydy/ocr/bin/python3.12",
+        "site_packages": "/opt/studydy/ocr/lib/python3.12/site-packages",
+        "ocr_model_root": "/opt/studydy/models/unlimited-ocr",
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": "Qwen/Qwen3-4B-Instruct-2507",
-        "concept_server_executable": "fixed-vllm",
-        "concept_model_root": "fixed-qwen-model",
+        "concept_server_executable": "/opt/studydy/vllm/bin/vllm",
+        "concept_model_root": "/opt/studydy/models/qwen3-4b-instruct-2507",
         "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 2,
         "concept_max_model_len": 5_632,
@@ -418,13 +418,15 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
 
     runtime_files = processing_module._runtime_files(settings)
     relative_names = {runtime_file.path.name for runtime_file in runtime_files}
-    assert len(runtime_files) == 21
+    assert len(runtime_files) == 25
     assert {
         "python",
         "__init__.py",
         "protocol.py",
         "ocr_process.py",
-        "model.safetensors",
+        "model-00001-of-000001.safetensors",
+        "model.safetensors.index.json",
+        "special_tokens_map.json",
         "configuration_deepseek_v2.py",
         "model-00001-of-00003.safetensors",
         "tokenizer.json",

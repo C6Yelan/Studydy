@@ -152,7 +152,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
     if (
         python != {
             "version": "3.12.3",
-            "executable_sha256": "d2bf63ac665084e548f1e32bdab323a559141dbd237bfa578640dc1041ddd44e",
+            "executable_sha256": "4933b6c4a8521fb3aa93856701e30b3ac2626d3c47ceb22965a3b0b422e85b44",
         }
         or not isinstance(packages, dict)
         or set(packages)
@@ -237,7 +237,8 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         != {
             "model_id",
             "revision",
-            "weight_sha256",
+            "required_file_count",
+            "required_files",
             "reviewed_code_revision",
             "reviewed_code",
             "config_sha256",
@@ -252,7 +253,10 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         }
         or ocr.get("model_id") != "Unlimited-OCR"
         or ocr.get("revision") != "07dea832e22aefee32ad281d4b80551282e1c168"
-        or ocr.get("weight_sha256") != "2bc48a7a110061ea58fff65d3169367eebe3aee371ca6968dc2219c1b2855fc6"
+        or ocr.get("required_file_count") != 5
+        or not isinstance(ocr.get("required_files"), list)
+        or canonical_sha256(ocr.get("required_files"))
+        != "06b3884ad665063c1b4b88feec7b769c100138f847acf3ffa2d76afcea71015d"
         or ocr.get("reviewed_code_revision") != "d49ff64afffc1f47ab563dc1c589bc2f78808fa4"
         or not isinstance(ocr.get("reviewed_code"), dict)
         or canonical_sha256(ocr.get("reviewed_code"))

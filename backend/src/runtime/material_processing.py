@@ -59,7 +59,7 @@ _CONFIG_PATH_KEYS = {
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "a1f046e1da58aab136455c05bc4057b111c0ce826e816ab0fedbe6707fc9eb45",
+    "local_ai/runtime-lock.json": "7d880aa734ad79436a0a67c8b80a7b42db4b5716e577501cd0e86e6d4974d03b",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "464dd905c89675ec57775e0d6170416f4702f18407d7e06dce95d054d7769f03",
     "backend/src/pdf_evidence/concept_generation.py": "1a3ba77a2aca9238b41e0d82079792a0d51067f04bd27c49f1f07a89ba17bce1",
     "backend/src/pdf_evidence/concept_api.py": "55f11ada85cf3ecf73619cdddd8d7f7a45a093d16653608a13a79ebd6d1d6215",
@@ -248,10 +248,6 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
             for name, expected_sha256 in _LOCAL_AI_SOURCE_HASHES.items()
         ),
         _RuntimeFile(
-            ocr_model_root / "model.safetensors",
-            runtime_lock["ocr"]["weight_sha256"],
-        ),
-        _RuntimeFile(
             ocr_model_root / "config.json",
             runtime_lock["ocr"]["config_sha256"],
         ),
@@ -260,6 +256,17 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
             for name, expected_sha256 in runtime_lock["ocr"]["reviewed_code"].items()
         ),
     ]
+    for required_file in runtime_lock["ocr"]["required_files"]:
+        name = required_file["name"]
+        if Path(name).name != name:
+            raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+        files.append(
+            _RuntimeFile(
+                ocr_model_root / name,
+                required_file["sha256"],
+                required_file["size"],
+            )
+        )
     for required_file in runtime_lock["semantic"]["required_files"]:
         name = required_file["name"]
         if Path(name).name != name:
