@@ -124,7 +124,6 @@ function isBinding(value: unknown): boolean {
     && sha256Pattern.test(item.runtime_binding_sha256)
     && Number.isInteger(item.page_count)
     && Number(item.page_count) >= 1
-    && Number(item.page_count) <= 32
     && (item.processing === "succeeded" || item.processing === "partial")
     && item.quality === "needs_review"
     && item.decision === "review"
@@ -181,7 +180,6 @@ function isEvidence(value: unknown, pageRef: string): boolean {
     && item.page_ref === pageRef
     && Number.isInteger(item.page_number)
     && Number(item.page_number) >= 1
-    && Number(item.page_number) <= 32
     && typeof item.kind === "string" && item.kind.length >= 1 && item.kind.length <= 64
     && isRegion(item.region);
 }
@@ -193,7 +191,6 @@ function isImage(value: unknown): boolean {
     && isRevision(image.page_ref, "page")
     && Number.isInteger(image.page_number)
     && Number(image.page_number) >= 1
-    && Number(image.page_number) <= 32
     && isRegion(image.region)
     && Array.isArray(image.evidence)
     && image.evidence.length <= 8
@@ -210,7 +207,6 @@ function isExcludedPage(value: unknown): boolean {
     && isRevision(page.page_ref, "page")
     && Number.isInteger(page.page_number)
     && Number(page.page_number) >= 1
-    && Number(page.page_number) <= 32
     && (page.page_evidence_id === null || typeof page.page_evidence_id === "string")
     && (page.last_stage === "page_evidence" || page.last_stage === "concept")
     && page.processing === "failed"
@@ -229,9 +225,9 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     || !isRevision(item.material_ref, "material")
     || !isRevision(item.knowledge_map_revision, "knowledge-map")
     || !isRevision(item.source_output_id, "study-material-output")
-    || !Array.isArray(item.concepts) || item.concepts.length < 1 || item.concepts.length > 768
-    || !Array.isArray(item.images) || item.images.length > 8192
-    || !Array.isArray(item.excluded_pages) || item.excluded_pages.length > 32) return false;
+    || !Array.isArray(item.concepts) || item.concepts.length < 1
+    || !Array.isArray(item.images)
+    || !Array.isArray(item.excluded_pages)) return false;
   const status = closed(item.status, ["processing", "quality", "decision", "reason_codes"]);
   if (!status
     || (status.processing !== "succeeded" && status.processing !== "partial")
@@ -447,7 +443,7 @@ export class StudydyApiClient {
 
   sourceArtifactUrl(artifactId: string, pageNumber?: number): string {
     if (!isUuid(artifactId)) throw new ApiClientError("input", "教材檔案編號無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
-    if (pageNumber !== undefined && (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > 32)) {
+    if (pageNumber !== undefined && (!Number.isInteger(pageNumber) || pageNumber < 1)) {
       throw new ApiClientError("input", "教材頁碼無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
     }
     return `/v1/artifacts/${artifactId}${pageNumber === undefined ? "" : `#page=${pageNumber}`}`;

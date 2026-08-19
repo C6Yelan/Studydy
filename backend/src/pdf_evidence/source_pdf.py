@@ -15,14 +15,6 @@ import pymupdf
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
-class MaterialPageLimitExceeded(ValueError):
-    """教材頁數超過正式流程上限。"""
-
-    def __init__(self, page_count: int) -> None:
-        super().__init__("MATERIAL_PAGE_LIMIT_EXCEEDED")
-        self.page_count = page_count
-
-
 def copy_source_snapshot(pdf_path: Any, snapshot_path: Path) -> str | None:
     """從同一個已開啟 FD 複製不可變的來源快照，並拒絕 symlink。"""
 
@@ -109,8 +101,6 @@ def build_whole_document_request(request: Any) -> dict[str, Any]:
         document.close()
     if page_count < 1:
         raise ValueError("PDF_INVALID")
-    if page_count > 32:
-        raise MaterialPageLimitExceeded(page_count)
     return {
         **request,
         "page_numbers": list(range(1, page_count + 1)),

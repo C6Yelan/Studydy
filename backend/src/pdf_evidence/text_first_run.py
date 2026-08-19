@@ -42,11 +42,7 @@ from .ocr_page_evidence import (
     extract_page,
     page_cache_key,
 )
-from .source_pdf import (
-    MaterialPageLimitExceeded,
-    build_whole_document_request,
-    copy_source_snapshot,
-)
+from .source_pdf import build_whole_document_request, copy_source_snapshot
 from .text_first_bundle import publish_run
 
 
@@ -81,7 +77,6 @@ def _reason(error: BaseException) -> str:
         "PDF_INVALID",
         "PDF_ENCRYPTED",
         "PAGE_SELECTION_INVALID",
-        "MATERIAL_PAGE_LIMIT_EXCEEDED",
         "RUNTIME_BINDING_INVALID",
         "RUNTIME_BUSY",
         "PROTOCOL_LIMIT_EXCEEDED",
@@ -374,7 +369,7 @@ def _validate_request(request: Any) -> tuple[Path, list[int], str]:
     pages = request["page_numbers"]
     if (
         not isinstance(pages, list)
-        or not 1 <= len(pages) <= 32
+        or not pages
         or any(type(page) is not int for page in pages)
         or pages != sorted(set(pages))
         or pages[0] < 1
@@ -993,8 +988,6 @@ def _run_text_first_pdf(
         publish_run(root, run_id, output, terminal)
         return terminal
     except BaseException as error:
-        if isinstance(error, MaterialPageLimitExceeded):
-            page_count = error.page_count
         reason = _reason(error)
         terminal = build_terminal(
             run_id=run_id,

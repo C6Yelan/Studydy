@@ -63,7 +63,7 @@ def _binding_is_valid(binding: Any) -> bool:
     return (
         binding["schema"] == "material-run-output-binding/v2"
         and type(binding["page_count"]) is int
-        and 1 <= binding["page_count"] <= 32
+        and binding["page_count"] >= 1
         and binding["processing"] in {"succeeded", "partial"}
         and binding["quality"] == "needs_review"
         and binding["decision"] == "review"
@@ -138,7 +138,7 @@ def _validated_producer(producer_bundle: Any, run_id: UUID) -> tuple[dict, dict,
         or terminal.get("quality") != "needs_review"
         or terminal.get("decision") != "review"
         or type(terminal.get("page_count")) is not int
-        or not 1 <= terminal["page_count"] <= 32
+        or terminal["page_count"] < 1
         or type(terminal.get("included_page_count")) is not int
         or type(terminal.get("excluded_page_count")) is not int
         or terminal["included_page_count"] + terminal["excluded_page_count"]

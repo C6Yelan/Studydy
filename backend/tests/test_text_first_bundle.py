@@ -31,17 +31,17 @@ def test_bundle_documents_are_closed_after_all_identities_are_recomputed():
     assert not validate_bundle_documents(changed, terminal, output, output["run_id"])
 
 
-def test_failed_terminal_allows_observed_over_limit_page_count_but_zero_model_calls():
+def test_failed_terminal_keeps_observed_page_count_without_product_ceiling():
     terminal = build_terminal(
         run_id="text-first-run:00000000-0000-4000-8000-000000000001",
         produced_at="2026-08-19T00:00:00Z",
         output=None,
         runtime_binding_sha256="a" * 64,
-        reasons=["MATERIAL_PAGE_LIMIT_EXCEEDED"],
+        reasons=["INTERNAL_FAILURE"],
         duration_ms=1,
         ocr_calls=0,
         concept_calls=0,
-        page_count=33,
+        page_count=100_001,
     )
     assert validate_terminal(terminal, None)
 

@@ -332,7 +332,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         "runtime_lock_sha256": canonical_sha256(local_config["runtime_lock"]),
         "code_hashes": code_hashes,
         "document_policy": "whole-document-review-aggregation/v1",
-        "page_range": {"minimum": 1, "maximum": 32, "caller_subset": False},
+        "page_range": {"minimum": 1, "caller_subset": False},
         "call_ceilings": {
             "ocr_calls_per_page": 1,
             "concept_calls_per_page": 2,

@@ -67,17 +67,48 @@ test("real upload、create v2、poll、Map v2 與 session PDF page locator", asy
 });
 
 
-test("real 33-page run reaches truthful failed terminal", async ({ page }) => {
-  test.setTimeout(60_000);
+test("real 33-page run succeeds with every original page", async ({ page }) => {
+  test.setTimeout(90_000);
   await page.goto("/");
   await page.getByLabel("選擇 PDF 教材").setInputFiles({
-    name: "too-many-pages.pdf",
+    name: "thirty-three-pages.pdf",
     mimeType: "application/pdf",
     buffer: safePdf(33),
   });
   await page.getByRole("button", { name: "上傳並分析完整教材" }).click();
-  await expect(page.getByRole("heading", { name: "教材處理失敗" })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText("MATERIAL_PAGE_LIMIT_EXCEEDED")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "處理完成，等待複核" })).toBeVisible({ timeout: 60_000 });
+  await page.getByRole("button", { name: "開啟複核地圖" }).click();
+  await expect(page.getByText("第 33 頁 · paragraph")).toBeVisible();
+});
+
+
+test("real longer document keeps page 40 Map and source PDF locator", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto("/");
+  await page.getByLabel("選擇 PDF 教材").setInputFiles({
+    name: "forty-pages.pdf",
+    mimeType: "application/pdf",
+    buffer: safePdf(40),
+  });
+  await page.getByRole("button", { name: "上傳並分析完整教材" }).click();
+  await expect(page.getByRole("heading", { name: "處理完成，等待複核" })).toBeVisible({ timeout: 60_000 });
+  await page.getByRole("button", { name: "開啟複核地圖" }).click();
+  await expect(page.getByText("第 40 頁 · paragraph")).toBeVisible();
+  await page.evaluate(() => {
+    const originalOpen = window.open.bind(window);
+    Object.assign(window, { __studydyOpenedUrl: "" });
+    window.open = (url, target, features) => {
+      Object.assign(window, { __studydyOpenedUrl: String(url) });
+      return originalOpen(url, target, features);
+    };
+  });
+  const sourceResponse = page.context().waitForEvent("response", { predicate: (response) =>
+    new URL(response.url()).pathname.startsWith("/v1/artifacts/") && response.status() === 200,
+  });
+  await page.getByRole("button", { name: "開啟來源 PDF 第 40 頁" }).click();
+  await sourceResponse;
+  const openedUrl = await page.evaluate(() => String((window as Window & { __studydyOpenedUrl: string }).__studydyOpenedUrl));
+  expect(openedUrl).toContain("#page=40");
 });
 
 

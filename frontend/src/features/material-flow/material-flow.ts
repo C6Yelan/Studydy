@@ -1,7 +1,6 @@
 import type { MaterialProcessingRunView } from "../../api/contracts";
 
 export const maximumPdfBytes = 100 * 1024 * 1024;
-export const automaticPollLimit = 240;
 export const automaticPollIntervalMs = 1_500;
 
 type PdfFileDetails = Pick<File, "size" | "type">;
@@ -29,7 +28,6 @@ export function materialRunLabel(status: MaterialProcessingRunView["status"]): s
 
 export function materialFailureMessage(errorCode: string): string {
   if (errorCode === "RESTART_INTERRUPTED") return "服務重新啟動時中斷了這次處理。";
-  if (errorCode === "MATERIAL_PAGE_LIMIT_EXCEEDED") return "目前一次最多處理 32 頁 PDF。";
   if (errorCode === "MATERIAL_CONFIGURATION_INVALID" || errorCode === "RUNTIME_BINDING_INVALID") {
     return "本機教材處理環境未通過安全檢查。";
   }

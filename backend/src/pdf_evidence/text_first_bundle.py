@@ -43,7 +43,7 @@ def validate_terminal(terminal: Any, output: dict[str, Any] | None) -> bool:
         terminal["schema"] != TERMINAL_SCHEMA
         or terminal["aggregation_policy"] != AGGREGATION_POLICY
         or type(page_count) is not int
-        or not 0 <= page_count <= 100_000
+        or page_count < 0
         or type(included) is not int
         or type(excluded) is not int
         or included < 0
@@ -79,7 +79,7 @@ def validate_terminal(terminal: Any, output: dict[str, Any] | None) -> bool:
         )
     return (
         validate_output_document(output)
-        and 1 <= page_count <= 32
+        and page_count >= 1
         and terminal["run_id"] == output["run_id"]
         and terminal["output_id"] == output["output_id"]
         and terminal["processing"] == output["processing"]

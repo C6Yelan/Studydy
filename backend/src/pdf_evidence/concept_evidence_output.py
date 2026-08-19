@@ -24,7 +24,6 @@ KNOWN_REASONS = {
     "PDF_INVALID",
     "PDF_ENCRYPTED",
     "PAGE_SELECTION_INVALID",
-    "MATERIAL_PAGE_LIMIT_EXCEEDED",
     "RUNTIME_BINDING_INVALID",
     "RUNTIME_BUSY",
     "PROTOCOL_LIMIT_EXCEEDED",
@@ -219,7 +218,7 @@ def validate_output_document(output: Any) -> bool:
         or re.fullmatch(r"[0-9a-f]{64}", source_binding["source_sha256"]) is None
         or not isinstance(page_numbers, list)
         or page_numbers != list(range(1, len(page_numbers) + 1))
-        or not 1 <= len(page_numbers) <= 32
+        or not page_numbers
         or canonical_sha256(runtime_binding) != RUNTIME_LOCK_SHA256
         or output["aggregation_policy"] != AGGREGATION_POLICY
         or (output["quality"], output["decision"]) != ("needs_review", "review")
@@ -231,9 +230,8 @@ def validate_output_document(output: Any) -> bool:
     excluded_pages = output["excluded_pages"]
     if (
         not isinstance(pages, list)
-        or not 1 <= len(pages) <= 32
+        or not pages
         or not isinstance(excluded_pages, list)
-        or len(excluded_pages) > 31
     ):
         return False
     if any(not _page_is_valid(page, source_binding, runtime_binding) for page in pages):

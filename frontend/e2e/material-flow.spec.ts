@@ -16,7 +16,7 @@ function failedRun() {
     source_artifact_id: artifactId,
     status: "failed",
     output_binding: null,
-    error_code: "MATERIAL_PAGE_LIMIT_EXCEEDED",
+    error_code: "NO_USABLE_EVIDENCE",
     created_at: "2026-08-19T00:00:00Z",
     updated_at: "2026-08-19T00:01:00Z",
     completed_at: "2026-08-19T00:01:00Z",
@@ -42,7 +42,7 @@ test("非 PDF 在 client 端拒絕且不呼叫 material API", async ({ page }) =
   expect(materialCalls).toBe(0);
 });
 
-test("33 頁 terminal failure 顯示固定原因並提供返回出口", async ({ page }) => {
+test("內容無法建立 Evidence 時顯示 truthful terminal failure", async ({ page }) => {
   await sessionReady(page);
   await page.route(`**/v1/material-processing-runs/${runId}`, (route) => {
     return route.fulfill({ status: 200, json: failedRun() });
@@ -50,7 +50,7 @@ test("33 頁 terminal failure 顯示固定原因並提供返回出口", async ({
 
   await page.goto(`/materials/${materialId}/runs/${runId}`);
   await expect(page.getByRole("heading", { name: "教材處理失敗" })).toBeVisible();
-  await expect(page.getByText("目前一次最多處理 32 頁 PDF。")).toBeVisible();
-  await expect(page.getByText("MATERIAL_PAGE_LIMIT_EXCEEDED")).toBeVisible();
+  await expect(page.getByText("教材沒有產生可安全回查的概念與依據。")).toBeVisible();
+  await expect(page.getByText("NO_USABLE_EVIDENCE")).toBeVisible();
   await expect(page.getByRole("button", { name: "返回上傳" })).toBeVisible();
 });

@@ -114,45 +114,64 @@ def _fake_successful_producer(
 ):
     source_path = Path(request["source_path"])
     source_sha256 = request["expected_source_sha256"]
-    raw_page = extract_page(source_path, source_sha256, 1)
-    page = build_page_evidence(
-        raw_page,
-        [{"type": "text", "text": "Public evidence", "bbox": [100, 100, 900, 300]}],
-        input_binding={
-            "source_sha256": source_sha256,
-            "page_number": 1,
-            "render_sha256": raw_page["render"]["sha256"],
-            "page": settings["runtime_lock"]["page"],
-            "ocr": settings["runtime_lock"]["ocr"],
-        },
-        produced_at=produced_at,
-    )
-    semantic_request = build_semantic_request(page)
-    semantic = validate_concepts(
-        json.dumps(
-            {
-                "concepts": [
-                    {
-                        "label": "Public concept",
-                        "definition": "Public definition",
-                        "key_points": ["Public point"],
-                        "evidence_ids": [semantic_request["evidence"][0]["evidence_id"]],
-                    }
-                ]
+    with pymupdf.open(source_path) as document:
+        page_count = document.page_count
+    pages = []
+    semantic_pages = []
+    for page_number in range(1, page_count + 1):
+        raw_page = extract_page(source_path, source_sha256, page_number)
+        page = build_page_evidence(
+            raw_page,
+            [
+                {
+                    "type": "text",
+                    "text": f"Public evidence {page_number}",
+                    "bbox": [100, 100, 900, 300],
+                }
+            ],
+            input_binding={
+                "source_sha256": source_sha256,
+                "page_number": page_number,
+                "render_sha256": raw_page["render"]["sha256"],
+                "page": settings["runtime_lock"]["page"],
+                "ocr": settings["runtime_lock"]["ocr"],
             },
-            separators=(",", ":"),
-        ),
-        semantic_request=semantic_request,
-        page_ref=page["page_ref"],
-        input_binding={"semantic": "fixed"},
-        attempt=1,
-    )
+            produced_at=produced_at,
+        )
+        raw_page.pop("png_bytes", None)
+        semantic_request = build_semantic_request(page)
+        semantic = validate_concepts(
+            json.dumps(
+                {
+                    "concepts": [
+                        {
+                            "label": f"Public concept {page_number}",
+                            "definition": "Public definition",
+                            "key_points": ["Public point"],
+                            "evidence_ids": [
+                                semantic_request["evidence"][0]["evidence_id"]
+                            ],
+                        }
+                    ]
+                },
+                separators=(",", ":"),
+            ),
+            semantic_request=semantic_request,
+            page_ref=page["page_ref"],
+            input_binding={"semantic": "fixed"},
+            attempt=1,
+        )
+        pages.append(page)
+        semantic_pages.append(semantic)
     output = build_output(
         run_id=run_id,
         produced_at=produced_at,
-        source_binding={"source_sha256": source_sha256, "page_numbers": [1]},
-        pages=[page],
-        semantic_pages=[semantic],
+        source_binding={
+            "source_sha256": source_sha256,
+            "page_numbers": list(range(1, page_count + 1)),
+        },
+        pages=pages,
+        semantic_pages=semantic_pages,
         runtime_binding=settings["runtime_lock"],
         run_reasons=[],
     )
@@ -163,11 +182,11 @@ def _fake_successful_producer(
         runtime_binding_sha256=runtime_binding_sha256,
         reasons=output["reason_codes"],
         duration_ms=1,
-        ocr_calls=1,
-        concept_calls=1,
+        ocr_calls=page_count,
+        concept_calls=page_count,
         ocr_loads=1,
         concept_loads=1,
-        page_count=1,
+        page_count=page_count,
     )
     publish_run(Path(settings["private_runtime_root"]), run_id, output, terminal)
     return terminal
@@ -246,13 +265,57 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
     _assert_downstream_zero(processing_database_dsn)
 
 
+def test_long_document_publishes_every_page_and_resolves_page_above_old_limit(
+    processing_database_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    learner_id = _learner(processing_database_dsn)
+    source = _source(processing_database_dsn, learner_id, page_count=40)
+    settings = _settings(tmp_path)
+    created = create_material_processing_run(
+        learner_id,
+        source.material_id,
+        source.artifact_id,
+        "long-document",
+        settings,
+        dsn=processing_database_dsn,
+    )
+    claim = claim_next_material_processing_run(dsn=processing_database_dsn)
+    assert claim is not None and claim.run.run_id == created.run_id
+    monkeypatch.setattr(
+        processing_module, "run_full_text_first_pdf", _fake_successful_producer
+    )
+
+    completed = execute_claimed_material_processing_run(
+        claim, settings, dsn=processing_database_dsn
+    )
+    assert completed.status == "succeeded"
+    assert completed.output_binding["page_count"] == 40
+    outputs = read_material_run_outputs(
+        learner_id, source.material_id, created.run_id, dsn=processing_database_dsn
+    )
+    assert [page["page_number"] for page in outputs.study_material_output["pages"]] == list(
+        range(1, 41)
+    )
+    locator_pages = {
+        evidence["page_number"]
+        for concept in outputs.knowledge_map_view["concepts"]
+        for evidence in concept["evidence"]
+    }
+    assert locator_pages == set(range(1, 41))
+    assert any(
+        evidence["page_number"] == 40
+        for concept in outputs.knowledge_map_view["concepts"]
+        for evidence in concept["evidence"]
+    )
+    _assert_downstream_zero(processing_database_dsn)
+
+
 def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path):
     settings = _settings(tmp_path)
     binding = formal_runtime_binding(settings)
     assert binding["raw_retention"] == "none"
     assert binding["page_range"] == {
         "minimum": 1,
-        "maximum": 32,
         "caller_subset": False,
     }
     assert binding["timeouts_seconds"] == {
@@ -407,11 +470,11 @@ def test_failed_producer_publishes_zero_domain_revisions(
             produced_at=produced_at,
             output=None,
             runtime_binding_sha256=runtime_binding_sha256,
-            reasons=["MATERIAL_PAGE_LIMIT_EXCEEDED"],
+            reasons=["INTERNAL_FAILURE"],
             duration_ms=1,
             ocr_calls=0,
             concept_calls=0,
-            page_count=33,
+            page_count=40,
         )
         publish_run(Path(local_settings["private_runtime_root"]), run_id, None, terminal)
         return terminal
@@ -421,7 +484,7 @@ def test_failed_producer_publishes_zero_domain_revisions(
         claim, settings, dsn=processing_database_dsn
     )
     assert failed.status == "failed"
-    assert failed.error_code == "MATERIAL_PAGE_LIMIT_EXCEEDED"
+    assert failed.error_code == "INTERNAL_FAILURE"
     assert failed.output_binding is None
     with psycopg.connect(processing_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM study_material_outputs").fetchone() == (0,)

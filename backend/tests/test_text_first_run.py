@@ -510,19 +510,22 @@ def test_formal_whole_document_excludes_one_page_and_keeps_grounded_core(
     assert list((tmp_path / "runtime").rglob("*.png")) == []
 
 
-def test_formal_33_page_pdf_fails_before_model_calls(tmp_path, monkeypatch):
-    path = tmp_path / "too-many-pages.pdf"
-    _pdf(path, page_count=33)
+@pytest.mark.parametrize("page_count", [33, 40])
+def test_formal_long_pdf_processes_every_page_without_truncation(
+    tmp_path, monkeypatch, page_count
+):
+    path = tmp_path / f"long-{page_count}-pages.pdf"
+    _pdf(path, page_count=page_count)
+    state = _state()
     monkeypatch.setattr(
-        run_module,
-        "start_ocr_process",
-        lambda settings: (_ for _ in ()).throw(AssertionError("OCR must not start")),
+        run_module, "start_ocr_process", lambda settings: FakeChild("ocr", state)
     )
     monkeypatch.setattr(
         run_module,
         "start_concept_process",
-        lambda settings: (_ for _ in ()).throw(AssertionError("Qwen must not start")),
+        lambda settings: FakeChild("concept", state),
     )
+    run_id = f"text-first-run:00000000-0000-4000-8000-{page_count:012d}"
     terminal = run_module.run_full_text_first_pdf(
         {
             "media_type": "application/pdf",
@@ -530,11 +533,20 @@ def test_formal_33_page_pdf_fails_before_model_calls(tmp_path, monkeypatch):
             "expected_source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         },
         _settings(tmp_path),
+        run_id=run_id,
     )
-    assert terminal["processing"] == "failed"
-    assert terminal["page_count"] == 33
-    assert terminal["reason_codes"] == ["MATERIAL_PAGE_LIMIT_EXCEEDED"]
-    assert terminal["ocr_calls"] == terminal["concept_calls"] == 0
+    assert terminal["processing"] == "succeeded"
+    assert terminal["page_count"] == page_count
+    assert terminal["included_page_count"] == page_count
+    assert terminal["excluded_page_count"] == 0
+    assert terminal["ocr_calls"] == terminal["concept_calls"] == page_count
+    assert terminal["ocr_loads"] == terminal["concept_loads"] == 1
+    bundle = read_producer_bundle(tmp_path / "runtime", run_id)
+    pages = bundle["output"]["pages"]
+    assert [page["page_number"] for page in pages] == list(range(1, page_count + 1))
+    assert pages[-1]["evidence_blocks"][0]["locator"]["page"] == page_count
+    assert state["resident"] == []
+    assert list((tmp_path / "runtime").rglob("*.png")) == []
 
 
 def test_formal_lock_has_bounded_busy_failure(tmp_path, monkeypatch):

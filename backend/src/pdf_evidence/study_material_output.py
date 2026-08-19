@@ -60,7 +60,7 @@ def _shape_is_valid(document: Any) -> bool:
     if (
         document["schema"] != STUDY_MATERIAL_OUTPUT_SCHEMA
         or type(binding["page_count"]) is not int
-        or not 1 <= binding["page_count"] <= 32
+        or binding["page_count"] < 1
         or document["processing"] not in {"succeeded", "partial"}
         or (document["quality"], document["decision"]) != ("needs_review", "review")
         or not _string_list(document["reason_codes"], minimum=1)
@@ -93,7 +93,7 @@ def _shape_is_valid(document: Any) -> bool:
         page_numbers.add(page["page_number"])
     evidence_fields = {"evidence_id", "page_ref", "page_number", "kind", "region"}
     evidence_pages: dict[str, str] = {}
-    if not isinstance(document["evidence_index"], list) or len(document["evidence_index"]) > 2_048:
+    if not isinstance(document["evidence_index"], list):
         return False
     for evidence in document["evidence_index"]:
         if (
@@ -144,7 +144,7 @@ def _shape_is_valid(document: Any) -> bool:
         "caption_evidence_ids", "nearby_evidence_ids",
     }
     image_ids: set[str] = set()
-    if not isinstance(document["images"], list) or len(document["images"]) > 8_192:
+    if not isinstance(document["images"], list):
         return False
     for image in document["images"]:
         if not isinstance(image, dict) or set(image) != image_fields:
@@ -207,7 +207,7 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
     page_numbers = source_binding.get("page_numbers")
     if (
         not isinstance(page_numbers, list)
-        or not 1 <= len(page_numbers) <= 32
+        or not page_numbers
         or page_numbers != list(range(1, len(page_numbers) + 1))
     ):
         raise ValueError("STUDY_MATERIAL_SOURCE_INVALID")

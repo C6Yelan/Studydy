@@ -62,13 +62,13 @@ class MaterialOutputBinding(_ClosedModel):
         pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
     )
     runtime_binding_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    page_count: int = Field(ge=1, le=32)
+    page_count: int = Field(ge=1)
     processing: Literal["succeeded", "partial"]
     quality: Literal["needs_review"]
     decision: Literal["review"]
     reason_codes: list[str] = Field(min_length=1, max_length=64)
-    ocr_calls: int = Field(ge=0, le=32)
-    concept_calls: int = Field(ge=0, le=64)
+    ocr_calls: int = Field(ge=0)
+    concept_calls: int = Field(ge=0)
 
     @model_validator(mode="after")
     def validate_counts(self) -> "MaterialOutputBinding":
@@ -128,7 +128,7 @@ class RegionView(_ClosedModel):
 class EvidenceView(_ClosedModel):
     evidence_id: str = Field(pattern=r"^evidence:sha256:[0-9a-f]{64}$")
     page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
-    page_number: int = Field(ge=1, le=32)
+    page_number: int = Field(ge=1)
     kind: str = Field(min_length=1, max_length=64)
     region: RegionView
 
@@ -148,14 +148,14 @@ class ReviewConceptView(_ClosedModel):
 class ImageLiteView(_ClosedModel):
     image_id: str = Field(pattern=r"^image:sha256:[0-9a-f]{64}$")
     page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
-    page_number: int = Field(ge=1, le=32)
+    page_number: int = Field(ge=1)
     region: RegionView
     evidence: list[EvidenceView] = Field(max_length=8)
 
 
 class ExcludedPageView(_ClosedModel):
     page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
-    page_number: int = Field(ge=1, le=32)
+    page_number: int = Field(ge=1)
     page_evidence_id: str | None
     last_stage: Literal["page_evidence", "concept"]
     processing: Literal["failed"]
@@ -181,9 +181,9 @@ class KnowledgeMapView(_ClosedModel):
         pattern=r"^study-material-output:sha256:[0-9a-f]{64}$"
     )
     status: ArtifactStatusView
-    concepts: list[ReviewConceptView] = Field(min_length=1, max_length=768)
-    images: list[ImageLiteView] = Field(max_length=8_192)
-    excluded_pages: list[ExcludedPageView] = Field(max_length=32)
+    concepts: list[ReviewConceptView] = Field(min_length=1)
+    images: list[ImageLiteView]
+    excluded_pages: list[ExcludedPageView]
 
     @model_validator(mode="after")
     def validate_same_page_links(self) -> "KnowledgeMapView":

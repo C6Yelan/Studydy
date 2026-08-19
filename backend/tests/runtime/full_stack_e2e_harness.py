@@ -459,39 +459,19 @@ def _backend_child() -> int:
     Path(runtime_root).mkdir(mode=0o700, parents=True, exist_ok=True)
     os.environ["STUDYDY_ARTIFACT_ROOT"] = artifact_root
     import json
-    import pymupdf
-
     import runtime.api.app as app_module
     import runtime.material_processing as processing_module
-    from pdf_evidence.concept_evidence_output import build_terminal
-    from pdf_evidence.text_first_bundle import publish_run
     from runtime.local_app import create_local_app
     from test_material_processing import _fake_successful_producer
 
     def deterministic_producer(request, settings, *, run_id, produced_at, runtime_binding_sha256):
-        with pymupdf.open(request["source_path"]) as document:
-            page_count = document.page_count
-        if page_count <= 32:
-            return _fake_successful_producer(
-                request,
-                settings,
-                run_id=run_id,
-                produced_at=produced_at,
-                runtime_binding_sha256=runtime_binding_sha256,
-            )
-        terminal = build_terminal(
+        return _fake_successful_producer(
+            request,
+            settings,
             run_id=run_id,
             produced_at=produced_at,
-            output=None,
             runtime_binding_sha256=runtime_binding_sha256,
-            reasons=["MATERIAL_PAGE_LIMIT_EXCEEDED"],
-            duration_ms=1,
-            ocr_calls=0,
-            concept_calls=0,
-            page_count=page_count,
         )
-        publish_run(Path(settings["private_runtime_root"]), run_id, None, terminal)
-        return terminal
 
     app_module.formal_runtime_preflight = processing_module.formal_runtime_binding
     processing_module.run_full_text_first_pdf = deterministic_producer

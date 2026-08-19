@@ -6,7 +6,6 @@ import { writeRoute, type AppRoute } from "../../app/routes";
 import KnowledgeMap from "../knowledge-map/App";
 import {
   automaticPollIntervalMs,
-  automaticPollLimit,
   formatFileSize,
   materialFailureMessage,
   materialRunLabel,
@@ -51,7 +50,7 @@ function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
       <div className="upload-copy">
         <p className="eyebrow">PDF → 可回查的概念地圖</p>
         <h1>上傳完整教材，逐頁建立複核地圖</h1>
-        <p>目前接受 1–32 頁的 application/pdf。系統會處理整份文件，不會截斷或只挑部分頁面。</p>
+        <p>接受完整的 application/pdf。系統會依原始順序處理每一頁，不會截斷或只挑部分頁面。</p>
       </div>
       <div className="surface upload-card">
         <label className="file-drop">
@@ -67,7 +66,7 @@ function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
           />
           <img src="/assets/studydy/upload-guide.png" alt="" />
           <strong>{file ? file.name : "選擇 PDF 教材"}</strong>
-          <span>{file ? formatFileSize(file.size) : "最多 100 MiB，正式流程最多 32 頁"}</span>
+          <span>{file ? formatFileSize(file.size) : "最多 100 MiB，頁數越多需要越長處理時間"}</span>
         </label>
         {message && <p className="form-error" role="alert">{message}</p>}
         <button className="primary-button" type="button" disabled={isSubmitting} onClick={submit}>
@@ -89,7 +88,6 @@ function RunView({ apiClient, route }: {
   useEffect(() => {
     let cancelled = false;
     let timer: number | null = null;
-    let pollCount = 0;
     const poll = async () => {
       try {
         const next = await apiClient.getMaterialRun(route.runId);
@@ -97,8 +95,7 @@ function RunView({ apiClient, route }: {
         if (next.material_id !== route.materialId) throw new Error("RUN_MATERIAL_MISMATCH");
         setRun(next);
         setMessage(null);
-        if ((next.status === "pending" || next.status === "running") && pollCount < automaticPollLimit) {
-          pollCount += 1;
+        if (next.status === "pending" || next.status === "running") {
           timer = window.setTimeout(poll, automaticPollIntervalMs);
         }
       } catch (error) {

@@ -16,8 +16,8 @@ test("PDF validation keeps formal media and size boundary", () => {
   assert.equal(formatFileSize(1024), "1 KiB");
 });
 
-test("v2 run labels and 33-page failure remain truthful", () => {
+test("v2 run labels and content failures remain truthful", () => {
   assert.equal(materialRunLabel("succeeded"), "處理完成，等待複核");
   assert.equal(materialRunLabel("partial"), "部分頁面已排除，等待複核");
-  assert.equal(materialFailureMessage("MATERIAL_PAGE_LIMIT_EXCEEDED"), "目前一次最多處理 32 頁 PDF。");
+  assert.equal(materialFailureMessage("NO_USABLE_EVIDENCE"), "教材沒有產生可安全回查的概念與依據。");
 });

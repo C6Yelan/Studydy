@@ -46,13 +46,13 @@ function successfulRun() {
       study_material_output_revision: `study-material-output:sha256:${"3".repeat(64)}`,
       knowledge_map_revision: mapRevision,
       runtime_binding_sha256: "4".repeat(64),
-      page_count: 1,
+      page_count: 40,
       processing: "succeeded",
       quality: "needs_review",
       decision: "review",
       reason_codes: ["SEMANTIC_REVIEW_REQUIRED"],
-      ocr_calls: 1,
-      concept_calls: 1,
+      ocr_calls: 40,
+      concept_calls: 40,
     },
     updated_at: "2026-08-19T00:01:00Z",
     completed_at: "2026-08-19T00:01:00Z",
@@ -81,7 +81,7 @@ function mapView() {
       evidence: [{
         evidence_id: `evidence:sha256:${"8".repeat(64)}`,
         page_ref: pageRef,
-        page_number: 1,
+        page_number: 40,
         kind: "paragraph",
         region: { coordinate_space: "unrotated_pdf_points", bbox: [72, 80, 300, 120] },
       }],
@@ -155,7 +155,7 @@ test("Map v2 使用 exact run/revision 並要求 same-page PDF locator", async (
       : Response.json(mapView());
   });
   const view = await client.getKnowledgeMap({ materialId, runId, mapRevision });
-  assert.equal(view.concepts[0].evidence[0].page_number, 1);
+  assert.equal(view.concepts[0].evidence[0].page_number, 40);
   assert.deepEqual(paths, [
     "/v1/session/refresh",
     `/v1/materials/${materialId}/knowledge-maps/${encodeURIComponent(mapRevision)}?run_id=${runId}`,
@@ -206,5 +206,5 @@ test("client surface 不含 deferred downstream methods", () => {
     assert.equal(client[name], undefined);
   }
   assert.equal(client.sourceArtifactUrl(artifactId), `/v1/artifacts/${artifactId}`);
-  assert.equal(client.sourceArtifactUrl(artifactId, 2), `/v1/artifacts/${artifactId}#page=2`);
+  assert.equal(client.sourceArtifactUrl(artifactId, 40), `/v1/artifacts/${artifactId}#page=40`);
 });

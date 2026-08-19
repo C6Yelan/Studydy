@@ -183,6 +183,18 @@ def test_openapi_has_no_deferred_downstream_routes(settings: ApiSettings):
         for schema in document["components"]["schemas"].values()
         if schema.get("type") == "object"
     )
+    schemas = document["components"]["schemas"]
+    for schema_name, field_name in (
+        ("MaterialOutputBinding", "page_count"),
+        ("MaterialOutputBinding", "ocr_calls"),
+        ("MaterialOutputBinding", "concept_calls"),
+        ("EvidenceView", "page_number"),
+        ("ImageLiteView", "page_number"),
+        ("ExcludedPageView", "page_number"),
+    ):
+        assert "maximum" not in schemas[schema_name]["properties"][field_name]
+    for field_name in ("concepts", "images", "excluded_pages"):
+        assert "maxItems" not in schemas["KnowledgeMapView"]["properties"][field_name]
     source_response = document["paths"]["/v1/artifacts/{artifact_id}"]["get"]["responses"]["200"]
     assert source_response["content"]["application/pdf"]["schema"] == {
         "type": "string",
