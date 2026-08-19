@@ -352,7 +352,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         or semantic.get("policy") != expected_policy
         or semantic.get("code_hashes")
         != {
-            "backend_concept_api": "55f11ada85cf3ecf73619cdddd8d7f7a45a093d16653608a13a79ebd6d1d6215",
+            "backend_concept_api": "ecfc16da63825d093c0d1b269b8cba41de203dda105730d6ce8699606d8df609",
             "backend_concept_generation": "1a3ba77a2aca9238b41e0d82079792a0d51067f04bd27c49f1f07a89ba17bce1",
         }
         or semantic.get("fixture_hashes")

@@ -67,9 +67,10 @@ def test_owned_vllm_server_uses_fixed_bounded_command_and_cleans_up(monkeypatch)
         "/runtime/bin/vllm serve /models/qwen --served-model-name "
         "Qwen/Qwen3-4B-Instruct-2507 --host 127.0.0.1 --port 8101 "
         "--kv-cache-memory-bytes 2147483648 --max-num-seqs 2 --max-model-len 5632 "
-        "--generation-config vllm --enforce-eager --disable-log-requests"
+        "--generation-config vllm --enforce-eager"
     ).split()
     assert popen.call_args.args[0] == expected_command
+    assert "--enable-log-requests" not in expected_command
     process_options = popen.call_args.kwargs
     assert process_options.pop("start_new_session") is True
     assert process_options.pop("env") == {

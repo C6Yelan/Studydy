@@ -96,7 +96,6 @@ def start_concept_server(settings: dict[str, Any]) -> LocalConceptServer:
         "--generation-config",
         "vllm",
         "--enforce-eager",
-        "--disable-log-requests",
     ]
     try:
         process = subprocess.Popen(
