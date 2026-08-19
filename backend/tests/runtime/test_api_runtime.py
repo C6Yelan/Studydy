@@ -55,6 +55,7 @@ def settings(
         "runtime_lock": runtime_lock,
         "python_executable": "/opt/studydy/ocr/bin/python3.12",
         "site_packages": "/opt/studydy/ocr/lib/python3.12/site-packages",
+        "concept_site_packages": "/opt/studydy/vllm/lib/python3.12/site-packages",
         "ocr_model_root": "/opt/studydy/models/unlimited-ocr",
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],

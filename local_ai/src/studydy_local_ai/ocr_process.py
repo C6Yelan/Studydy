@@ -15,11 +15,8 @@ from typing import Any
 import unicodedata
 
 from .protocol import (
-    MAX_BLOCKS,
-    MAX_BLOCK_TEXT,
     MAX_OCR_REQUEST_BYTES,
     MAX_OCR_RESPONSE_BYTES,
-    MAX_PAGE_TEXT,
     OCR_RESPONSE_SCHEMA,
     ProtocolError,
     read_ndjson,
@@ -46,7 +43,6 @@ def parse_det_blocks(model_text: str) -> list[dict[str, Any]]:
     normalized = normalize_candidate_text(model_text)
     blocks: list[dict[str, Any]] = []
     cursor = 0
-    total_text = 0
     for match in DET_BLOCK.finditer(normalized):
         if normalized[cursor : match.start()].strip():
             raise ProtocolError("OCR_OUTPUT_INVALID")
@@ -62,12 +58,7 @@ def parse_det_blocks(model_text: str) -> list[dict[str, Any]]:
         ):
             raise ProtocolError("OCR_OUTPUT_INVALID")
         text = match.group(3)
-        total_text += len(text)
-        if len(text) > MAX_BLOCK_TEXT or total_text > MAX_PAGE_TEXT:
-            raise ProtocolError("OCR_OUTPUT_INVALID")
         blocks.append({"type": match.group(1), "bbox": bbox, "text": text})
-        if len(blocks) > MAX_BLOCKS:
-            raise ProtocolError("OCR_OUTPUT_INVALID")
         cursor = match.end()
     if (
         not blocks

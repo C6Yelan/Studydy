@@ -1,9 +1,9 @@
+"""Deterministic fake-producer browser wiring；真實 OCR/Qwen smoke 由 Evaluator 另行執行。"""
+
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import hmac
 import os
 from pathlib import Path
 import secrets
@@ -12,10 +12,8 @@ import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from urllib.error import URLError
-from urllib.parse import urlsplit
 from urllib.request import urlopen
 from uuid import uuid4
 
@@ -157,56 +155,15 @@ class OwnedProcess:
             self._log_file = None
 
 
-class _ControlServer(ThreadingHTTPServer):
-    daemon_threads = False
-    block_on_close = True
-
-    def __init__(self, harness: "FullStackHarness", token: str) -> None:
-        self.harness = harness
-        self.token = token
-        super().__init__(("127.0.0.1", 0), _ControlRequest)
-
-
-class _ControlRequest(BaseHTTPRequestHandler):
-    server: _ControlServer
-
-    def do_POST(self) -> None:
-        if urlsplit(self.path).path != "/restart-backend":
-            self.send_error(404)
-            return
-        supplied_token = self.headers.get("X-Studydy-E2E-Token", "")
-        if not hmac.compare_digest(supplied_token, self.server.token):
-            self.send_error(403)
-            return
-        if self.headers.get("Content-Length") not in {None, "0"}:
-            self.send_error(400)
-            return
-        try:
-            self.server.harness.restart_backend()
-        except HarnessFailure:
-            self.send_error(503)
-            return
-        self.send_response(204)
-        self.end_headers()
-
-    def log_message(self, _format: str, *_arguments: object) -> None:
-        return
-
-
 class FullStackHarness:
     def __init__(self) -> None:
         self.harness_id = f"studydy-e2e-{uuid4().hex}"
-        self.control_token = secrets.token_urlsafe(32)
         self.container_name = f"studydy-e2e-postgres-{uuid4().hex}"
         self._temporary_directory = tempfile.TemporaryDirectory(prefix="studydy-e2e-")
         self.runtime_root = Path(self._temporary_directory.name)
         self.database_dsn = ""
         self.backend: OwnedProcess | None = None
         self.vite: OwnedProcess | None = None
-        self.control_server: _ControlServer | None = None
-        self.control_thread: threading.Thread | None = None
-        self.restart_lock = threading.Lock()
-        self._closing = threading.Event()
         self.postgres_started = False
 
     def start(self) -> None:
@@ -229,7 +186,6 @@ class FullStackHarness:
                     raise HarnessFailure("E2E_DATABASE_NOT_EMPTY")
         self._start_backend()
         self._start_vite()
-        self._start_control_server()
 
     def _start_postgres(self) -> None:
         database_auth_value = secrets.token_hex(32)
@@ -314,40 +270,10 @@ class FullStackHarness:
         process = self.vite.start()
         _wait_for_http(f"http://127.0.0.1:{FRONTEND_PORT}/", process)
 
-    def _start_control_server(self) -> None:
-        self.control_server = _ControlServer(self, self.control_token)
-        self.control_thread = threading.Thread(
-            target=self.control_server.serve_forever,
-            name="studydy-e2e-control",
-            daemon=True,
-        )
-        self.control_thread.start()
-
-    @property
-    def control_url(self) -> str:
-        if self.control_server is None:
-            raise HarnessFailure("E2E_CONTROL_NOT_READY")
-        return f"http://127.0.0.1:{self.control_server.server_port}"
-
     def playwright_environment(self) -> dict[str, str]:
         environment = _clean_child_environment()
         environment["STUDYDY_E2E_HARNESS_ID"] = self.harness_id
-        environment["STUDYDY_E2E_CONTROL_URL"] = self.control_url
-        environment["STUDYDY_E2E_CONTROL_TOKEN"] = self.control_token
         return environment
-
-    def restart_backend(self) -> None:
-        with self.restart_lock:
-            if self._closing.is_set():
-                raise HarnessFailure("E2E_HARNESS_CLOSING")
-            if self.backend is None:
-                raise HarnessFailure("E2E_BACKEND_NOT_OWNED")
-            self.backend.stop()
-            if not _is_port_free(BACKEND_PORT):
-                raise HarnessFailure("E2E_BACKEND_CLEANUP_FAILED")
-            if self._closing.is_set():
-                raise HarnessFailure("E2E_HARNESS_CLOSING")
-            self._start_backend()
 
     def run_playwright(self) -> None:
         process = subprocess.Popen(
@@ -372,23 +298,12 @@ class FullStackHarness:
         owned_vite_port = self.vite is not None
         owned_backend_port = self.backend is not None
         owned_postgres = self.postgres_started
-        self._closing.set()
-        if self.control_server is not None:
-            if self.control_thread is not None and self.control_thread.is_alive():
-                self.control_server.shutdown()
-            self.control_server.server_close()
-            self.control_server = None
-        if self.control_thread is not None:
-            self.control_thread.join(timeout=5)
-            cleanup_failed = cleanup_failed or self.control_thread.is_alive()
-            self.control_thread = None
-        with self.restart_lock:
-            if self.vite is not None:
-                self.vite.stop()
-                self.vite = None
-            if self.backend is not None:
-                self.backend.stop()
-                self.backend = None
+        if self.vite is not None:
+            self.vite.stop()
+            self.vite = None
+        if self.backend is not None:
+            self.backend.stop()
+            self.backend = None
         if owned_postgres:
             _docker("rm", "--force", self.container_name, check=False)
             self.postgres_started = False
@@ -416,8 +331,6 @@ class FullStackHarness:
 def _list_environment() -> dict[str, str]:
     environment = _clean_child_environment()
     environment["STUDYDY_E2E_HARNESS_ID"] = f"studydy-e2e-{uuid4().hex}"
-    environment["STUDYDY_E2E_CONTROL_URL"] = "http://127.0.0.1:1"
-    environment["STUDYDY_E2E_CONTROL_TOKEN"] = secrets.token_urlsafe(32)
     return environment
 
 
@@ -464,6 +377,7 @@ def _backend_child() -> int:
     from test_material_processing import _fake_successful_producer
 
     def deterministic_producer(request, settings, *, run_id, produced_at, runtime_binding_sha256):
+        """Browser wiring 使用 deterministic fake，不宣稱執行真實 OCR/Qwen。"""
         return _fake_successful_producer(
             request,
             settings,
@@ -482,6 +396,7 @@ def _backend_child() -> int:
         "STUDYDY_PRIVATE_RUNTIME_ROOT": runtime_root,
         "STUDYDY_LOCAL_AI_PYTHON": "/opt/studydy/ocr/bin/python3.12",
         "STUDYDY_LOCAL_AI_SITE_PACKAGES": "/opt/studydy/ocr/lib/python3.12/site-packages",
+        "STUDYDY_CONCEPT_SITE_PACKAGES": "/opt/studydy/vllm/lib/python3.12/site-packages",
         "STUDYDY_OCR_MODEL_ROOT": "/opt/studydy/models/unlimited-ocr",
         "STUDYDY_CONCEPT_API_BASE_URL": "http://127.0.0.1:8101",
         "STUDYDY_CONCEPT_MODEL": "Qwen/Qwen3-4B-Instruct-2507",

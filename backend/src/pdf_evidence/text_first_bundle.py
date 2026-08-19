@@ -293,3 +293,22 @@ def read_producer_bundle(runtime_root: Path, run_id: str) -> dict[str, Any]:
     except (KeyError, OSError, TypeError):
         raise ValueError("PRODUCER_BUNDLE_INVALID") from None
     return {"bundle": bundle, "output": output}
+
+
+def remove_producer_bundle(runtime_root: Path, run_id: str) -> None:
+    """只移除已驗證 run 的兩個固定 handoff 檔案。"""
+
+    if not isinstance(run_id, str) or not run_id or "/" in run_id or "\\" in run_id:
+        raise OSError("PRODUCER_BUNDLE_CLEANUP_FAILED")
+    directory = runtime_root / "runs" / run_id
+    if directory.is_symlink() or not directory.is_dir():
+        raise OSError("PRODUCER_BUNDLE_CLEANUP_FAILED")
+    try:
+        for name in ("concept-evidence-output.json", "producer-bundle.json"):
+            path = directory / name
+            if path.is_symlink():
+                raise OSError
+            path.unlink(missing_ok=True)
+        directory.rmdir()
+    except OSError as error:
+        raise OSError("PRODUCER_BUNDLE_CLEANUP_FAILED") from error

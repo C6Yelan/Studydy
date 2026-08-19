@@ -15,7 +15,7 @@ from .ocr_page_evidence import canonical_bytes, canonical_sha256
 OUTPUT_SCHEMA = "concept-evidence-output/v2"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
 MAX_ARTIFACT_FILE_BYTES = 16 * 1024 * 1024
-RUNTIME_LOCK_SHA256 = "61d23103325d2926492403b524b3781a64fabad74a2a2f0469d3da79814ad32e"
+RUNTIME_LOCK_SHA256 = "c5916c750a02ba0e52141ce92d3f22743c8a49ea90ee46a1e00c4595e74a9d28"
 
 
 def _closed(value: Any, fields: set[str]) -> bool:
@@ -139,7 +139,7 @@ def validate_page_evidence(
         ):
             return False
         evidence_ids.add(block["evidence_id"])
-    if not 1 <= len(evidence_ids) <= 64:
+    if not evidence_ids:
         return False
     image_ids: set[str] = set()
     for image in page["images"]:
@@ -247,7 +247,7 @@ def validate_output_document(output: Any) -> bool:
             evidence_pages[evidence_id] = page["page_ref"]
     concept_ids: set[str] = set()
     concept_page_refs: set[str] = set()
-    concept_processing: set[str] = set()
+    has_partial_concept = False
     concept_fields = {
         "concept_id", "page_ref", "label", "definition", "key_points", "evidence_ids",
         "processing", "quality", "decision", "reason_codes",
@@ -273,11 +273,8 @@ def validate_output_document(output: Any) -> bool:
             return False
         concept_ids.add(concept["concept_id"])
         concept_page_refs.add(concept["page_ref"])
-        concept_processing.add(concept["processing"])
-    if len(concept_processing) != 1 or concept_page_refs != set(page_refs):
-        return False
-    is_qualification_partial = concept_processing == {"partial"} and not excluded_pages
-    if (output["processing"] == "partial") != (bool(excluded_pages) or is_qualification_partial):
+        has_partial_concept = has_partial_concept or concept["processing"] == "partial"
+    if concept_page_refs != set(page_refs):
         return False
     rejected_fields = {
         "page_ref", "candidate_index", "processing", "quality", "decision", "reason_codes"
@@ -295,6 +292,14 @@ def validate_output_document(output: Any) -> bool:
             or not _reasons(rejected["reason_codes"], formal=True)
         ):
             return False
+    is_partial = (
+        bool(excluded_pages)
+        or any(page["processing"] == "partial" for page in pages)
+        or has_partial_concept
+        or bool(output["rejected_candidates"])
+    )
+    if (output["processing"] == "partial") != is_partial:
+        return False
     identity = dict(output)
     output_id = identity.pop("output_id")
     try:
@@ -335,7 +340,7 @@ def build_output(
     for semantic_page in semantic_pages:
         for source_concept in semantic_page["concepts"]:
             concept = deepcopy(source_concept)
-            concept["processing"] = "succeeded"
+            concept["processing"] = semantic_page["processing"]
             concept["quality"] = "needs_review"
             concept["decision"] = "review"
             concept["reason_codes"] = formal_reason_codes(
@@ -375,7 +380,11 @@ def build_output(
         "concepts": concepts,
         "rejected_candidates": rejected,
         "runtime_binding": deepcopy(runtime_binding),
-        "processing": "partial" if excluded else "succeeded",
+        "processing": "partial" if (
+            excluded
+            or any(page["processing"] == "partial" for page in formal_pages)
+            or any(page["processing"] == "partial" for page in semantic_pages)
+        ) else "succeeded",
         "quality": "needs_review",
         "decision": "review",
         "reason_codes": formal_reason_codes(reasons),

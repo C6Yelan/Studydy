@@ -84,8 +84,8 @@ def _shape_is_valid(document: Any) -> bool:
             or type(page["page_number"]) is not int
             or not 1 <= page["page_number"] <= binding["page_count"]
             or page["page_number"] in page_numbers
-            or (page["processing"], page["quality"], page["decision"])
-            != ("succeeded", "needs_review", "review")
+            or page["processing"] not in {"succeeded", "partial"}
+            or (page["quality"], page["decision"]) != ("needs_review", "review")
             or not _string_list(page["reason_codes"], minimum=1)
             or not reason_codes_are_valid(page["reason_codes"], formal=True)
         ):
@@ -134,8 +134,9 @@ def _shape_is_valid(document: Any) -> bool:
             or not _string_list(references, minimum=1, maximum=16)
             or len(references) != len(set(references))
             or any(evidence_pages.get(reference) != concept["page_ref"] for reference in references)
-            or (concept["processing"], concept["quality"], concept["decision"])
-            != ("succeeded", "needs_review", "review")
+            or concept["processing"] not in {"succeeded", "partial"}
+            or (concept["quality"], concept["decision"])
+            != ("needs_review", "review")
             or not _string_list(concept["reason_codes"], minimum=1)
             or not reason_codes_are_valid(concept["reason_codes"], formal=True)
         ):
@@ -191,9 +192,14 @@ def _shape_is_valid(document: Any) -> bool:
         ):
             return False
         excluded_numbers.add(page["page_number"])
+    is_partial = (
+        bool(document["excluded_pages"])
+        or any(page["processing"] == "partial" for page in document["pages"])
+        or any(concept["processing"] == "partial" for concept in document["concepts"])
+    )
     return (
         page_numbers | excluded_numbers == set(range(1, binding["page_count"] + 1))
-        and (document["processing"] == "partial") == bool(document["excluded_pages"])
+        and (document["processing"] == "partial") == is_partial
     )
 
 
@@ -249,10 +255,12 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
                 "page_number": page_number,
                 "page_evidence_id": source_page["page_evidence_id"],
                 "native_evidence_ref": source_page["native_evidence_ref"],
-                "processing": "succeeded",
+                "processing": source_page["processing"],
                 "quality": "needs_review",
                 "decision": "review",
-                "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
+                "reason_codes": formal_reason_codes(
+                    source_page["reason_codes"] + ["CONTENT_REVIEW_REQUIRED"]
+                ),
             }
         )
         for block in source_page.get("evidence_blocks", []):
@@ -320,7 +328,10 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
                 source_concept.get("quality"),
                 source_concept.get("decision"),
             )
-            != ("succeeded", "needs_review", "review")
+            not in {
+                ("succeeded", "needs_review", "review"),
+                ("partial", "needs_review", "review"),
+            }
         ):
             raise ValueError("STUDY_MATERIAL_CONCEPT_INVALID")
         concepts.append(deepcopy(source_concept))
@@ -345,7 +356,7 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
     if page_numbers_seen | excluded_numbers != set(page_numbers):
         raise ValueError("STUDY_MATERIAL_PAGE_INVALID")
 
-    processing = "partial" if excluded_pages else "succeeded"
+    processing = producer_output["processing"]
     document = {
         "schema": STUDY_MATERIAL_OUTPUT_SCHEMA,
         "run_id": producer_output["run_id"],

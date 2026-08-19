@@ -14,7 +14,7 @@ PAGE_SCHEMA = "page-evidence/v2"
 NATIVE_SCHEMA = "page-native/v2"
 RENDER_POLICY = "pymupdf-rgb-200dpi/v1"
 PROCESSING_POLICY = "unlimited-ocr-page-evidence/v1"
-NORMALIZER_POLICY = "ocr-text-nfkc-whitespace/v1"
+NORMALIZER_POLICY = "ocr-text-nfc-line-preserving/v1"
 _OCR_TYPE = re.compile(r"[A-Za-z_][\w-]{0,63}")
 
 
@@ -72,6 +72,14 @@ def extract_page(
     visible = page.rect
     if visible.width <= 0 or visible.height <= 0 or page.rotation not in (0, 90, 180, 270):
         raise ValueError("OCR_LOCATOR_INVALID")
+    estimated_width = math.ceil(visible.width * 200 / 72)
+    estimated_height = math.ceil(visible.height * 200 / 72)
+    estimated_rgb_bytes = estimated_width * estimated_height * 3
+    if (
+        estimated_rgb_bytes > 150_000_000
+        or max(estimated_width, estimated_height) > 32_768
+    ):
+        raise ValueError("PROTOCOL_LIMIT_EXCEEDED")
     raw_text = _json_value(page.get_text("rawdict", sort=False))
     images = _json_value(page.get_image_info(hashes=True, xrefs=True))
     drawings = _json_value(page.get_drawings())
@@ -133,8 +141,11 @@ def extract_page(
 def _normalized_text(value: Any) -> str:
     if not isinstance(value, str):
         raise ValueError("OCR_OUTPUT_INVALID")
-    normalized = " ".join(unicodedata.normalize("NFKC", value).split())
-    if not 1 <= len(normalized) <= 8_000:
+    normalized = unicodedata.normalize(
+        "NFC", value.replace("\r\n", "\n").replace("\r", "\n")
+    )
+    normalized = "\n".join(line.rstrip() for line in normalized.split("\n"))
+    if not normalized.strip():
         raise ValueError("OCR_OUTPUT_INVALID")
     return normalized
 
@@ -203,7 +214,7 @@ def build_page_evidence(
     produced_at: str,
 ) -> dict[str, Any]:
     """只保留可建立同頁文字 Evidence 的 blocks；child contract 仍整體 fail closed。"""
-    if not isinstance(ocr_blocks, list) or not 1 <= len(ocr_blocks) <= 64:
+    if not isinstance(ocr_blocks, list) or not ocr_blocks:
         raise ValueError("OCR_OUTPUT_INVALID")
     native_evidence = page.get("native_evidence")
     if (
@@ -216,7 +227,6 @@ def build_page_evidence(
     ):
         raise ValueError("OCR_LOCATOR_INVALID")
     evidence_blocks: list[dict[str, Any]] = []
-    total_text = 0
     has_rejected_block = False
     for reading_order, block in enumerate(ocr_blocks):
         if not isinstance(block, dict) or set(block) != {"type", "text", "bbox"}:
@@ -228,13 +238,10 @@ def build_page_evidence(
             raise ValueError("OCR_OUTPUT_INVALID")
         try:
             text = _normalized_text(block["text"])
-            if total_text + len(text) > 100_000:
-                raise ValueError("OCR_OUTPUT_INVALID")
             render_region, region = _locator(block["bbox"], page)
         except ValueError:
             has_rejected_block = True
             continue
-        total_text += len(text)
         block_id = _ref(
             "block",
             {"page_ref": page["page_ref"], "reading_order": reading_order, "region": region},

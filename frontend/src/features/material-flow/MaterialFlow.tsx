@@ -60,6 +60,8 @@ function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             disabled={isSubmitting}
             onChange={(event) => {
               const next = event.currentTarget.files?.[0] ?? null;
+              uploadKey.current = crypto.randomUUID();
+              runKey.current = crypto.randomUUID();
               setFile(next);
               setMessage(validatePdfFile(next));
             }}

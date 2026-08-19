@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -7,12 +8,14 @@ import pytest
 
 import pdf_evidence.concept_api as concept_api_module
 from pdf_evidence.concept_api import (
+    CONCEPT_RESPONSE_FORMAT,
     ConceptAPIError,
     chat_completions_url,
     request_concept_text,
     start_concept_server,
 )
 from pdf_evidence.concept_generation import PROMPT_TEMPLATE
+from pdf_evidence.ocr_page_evidence import canonical_sha256
 
 
 def _semantic_request():
@@ -31,6 +34,7 @@ def _request(client, *, base_url="http://localhost:8101"):
         base_url=base_url,
         model="fixed-model",
         semantic_request=_semantic_request(),
+        max_model_len=5_632,
         timeout_seconds=300,
     )
 
@@ -122,6 +126,8 @@ def test_chat_completion_uses_exact_loopback_request_and_returns_content():
 
     def respond(request):
         observed.append(request)
+        if request.url.path == "/tokenize":
+            return httpx.Response(200, json={"count": 100, "max_model_len": 5_632})
         return httpx.Response(
             200,
             json={
@@ -138,9 +144,20 @@ def test_chat_completion_uses_exact_loopback_request_and_returns_content():
         model_text = _request(client, base_url="http://127.0.0.1:8101")
 
     assert model_text == '{"concepts":[]}'
-    assert observed[0].url == "http://127.0.0.1:8101/v1/chat/completions"
-    assert "authorization" not in observed[0].headers
-    body = json.loads(observed[0].content)
+    assert observed[0].url == "http://127.0.0.1:8101/tokenize"
+    assert json.loads(observed[0].content)["add_generation_prompt"] is True
+    assert observed[1].url == "http://127.0.0.1:8101/v1/chat/completions"
+    assert "authorization" not in observed[1].headers
+    body = json.loads(observed[1].content)
+    assert "uniqueItems" not in json.dumps(body["response_format"])
+    runtime_lock = json.loads(
+        (Path(__file__).parents[2] / "local_ai" / "runtime-lock.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert canonical_sha256(body["response_format"]["json_schema"]["schema"]) == (
+        runtime_lock["semantic"]["structured_output"]["schema_sha256"]
+    )
     assert body == {
         "model": "fixed-model",
         "messages": [
@@ -155,7 +172,21 @@ def test_chat_completion_uses_exact_loopback_request_and_returns_content():
         ],
         "temperature": 0,
         "max_tokens": 1536,
+        "response_format": CONCEPT_RESPONSE_FORMAT,
     }
+
+
+def test_tokenizer_budget_rejects_before_generation_call():
+    observed_paths = []
+
+    def respond(request):
+        observed_paths.append(request.url.path)
+        return httpx.Response(200, json={"count": 4_097, "max_model_len": 5_632})
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ConceptAPIError, match="MODEL_INPUT_TOO_LARGE"):
+            _request(client)
+    assert observed_paths == ["/tokenize"]
 
 
 @pytest.mark.parametrize(
@@ -207,7 +238,12 @@ def test_chat_completion_reports_http_unavailable_and_timeout(failure_type, reas
     ],
 )
 def test_chat_completion_rejects_malformed_or_truncated_response(content, reason_code):
-    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=content))
+    def respond(request):
+        if request.url.path == "/tokenize":
+            return httpx.Response(200, json={"count": 100, "max_model_len": 5_632})
+        return httpx.Response(200, content=content)
+
+    transport = httpx.MockTransport(respond)
     with httpx.Client(transport=transport) as client:
         with pytest.raises(ConceptAPIError, match=reason_code):
             _request(client)

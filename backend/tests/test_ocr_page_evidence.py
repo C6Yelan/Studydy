@@ -36,7 +36,14 @@ def test_200dpi_rgb_page_identity_and_ocr_locator(tmp_path):
     assert (page["render"]["width"], page["render"]["height"]) == (400, 600)
     artifact = build_page_evidence(
         page,
-        [{"type": "text", "text": "Public OCR text", "bbox": [100, 100, 900, 300]}],
+        [
+            {
+                "type": "code" if ordinal == 0 else "text",
+                "text": "  first line\n    second line" if ordinal == 0 else f"Public OCR text {ordinal}",
+                "bbox": [100, 100, 900, 300],
+            }
+            for ordinal in range(65)
+        ],
         input_binding={"fixed": True},
         produced_at="2026-08-18T00:00:00Z",
     )
@@ -47,9 +54,31 @@ def test_200dpi_rgb_page_identity_and_ocr_locator(tmp_path):
     assert block["locator"]["page"] == 1
     assert block["render_region"] == [40.0, 60.0, 360.0, 180.0]
     assert block["source"] == "unlimited_ocr"
+    assert block["text"] == "  first line\n    second line"
+    assert len(artifact["evidence_blocks"]) == 65
     assert len(artifact["images"]) == 257
     assert "png_bytes" not in artifact
     assert artifact["reason_codes"] == ["PAGE_CONTENT_REVIEW_REQUIRED"]
+
+
+def test_render_guard_rejects_geometry_before_page_content_or_pixmap_reads():
+    class OversizedPage:
+        number = 0
+        rotation = 0
+        rect = pymupdf.Rect(0, 0, 20_000, 20_000)
+
+        def get_text(self, *_args, **_kwargs):
+            raise AssertionError("page content must not be read")
+
+        def get_pixmap(self, *_args, **_kwargs):
+            raise AssertionError("pixmap must not be rendered")
+
+    class Document:
+        def load_page(self, _index):
+            return OversizedPage()
+
+    with pytest.raises(ValueError, match="PROTOCOL_LIMIT_EXCEEDED"):
+        extract_page(Document(), "0" * 64, 1)
 
 
 def test_rotated_page_locator_stays_on_same_one_based_page(tmp_path):

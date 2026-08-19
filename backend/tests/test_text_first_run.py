@@ -8,7 +8,7 @@ import pymupdf
 import pytest
 
 import pdf_evidence.text_first_run as run_module
-from pdf_evidence.source_pdf import build_whole_document_request, copy_source_snapshot
+from pdf_evidence.source_pdf import snapshot_whole_document_request
 from pdf_evidence.text_first_bundle import read_producer_bundle
 
 
@@ -21,6 +21,7 @@ def _settings(tmp_path):
         "runtime_lock": runtime_lock,
         "python_executable": "/opt/studydy/ocr/bin/python3.12",
         "site_packages": "/opt/studydy/ocr/lib/python3.12/site-packages",
+        "concept_site_packages": "/opt/studydy/vllm/lib/python3.12/site-packages",
         "ocr_model_root": "/opt/studydy/models/unlimited-ocr",
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
@@ -62,19 +63,28 @@ def test_source_pdf_snapshot_and_whole_document_page_count(tmp_path):
     _pdf(source_path, page_count=2)
     source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
 
-    assert copy_source_snapshot(source_path, snapshot_path) is None
-    assert snapshot_path.read_bytes() == source_path.read_bytes()
-    assert build_whole_document_request(
+    checked = snapshot_whole_document_request(
         {
             "media_type": "application/pdf",
-            "source_path": str(snapshot_path),
+            "source_path": str(source_path),
             "expected_source_sha256": source_sha256,
-        }
-    )["page_numbers"] == [1, 2]
+        },
+        snapshot_path,
+    )
+    assert snapshot_path.read_bytes() == source_path.read_bytes()
+    assert checked["page_numbers"] == [1, 2]
 
     symlink_path = tmp_path / "source-link.pdf"
     symlink_path.symlink_to(source_path)
-    assert copy_source_snapshot(symlink_path, tmp_path / "ignored.pdf") == "MATERIAL_MISSING"
+    with pytest.raises(ValueError, match="SOURCE_READ_FAILED"):
+        snapshot_whole_document_request(
+            {
+                "media_type": "application/pdf",
+                "source_path": str(symlink_path),
+                "expected_source_sha256": source_sha256,
+            },
+            tmp_path / "ignored.pdf",
+        )
 
 
 class FakeChild:
@@ -232,7 +242,7 @@ def test_sequential_product_path_and_exact_replay_zero_model_calls(tmp_path, mon
     assert state["resident"] == []
 
 
-def test_semantic_fixed_retry_uses_same_binding_and_first_success(tmp_path, monkeypatch):
+def test_malformed_concept_output_is_one_call_and_failed(tmp_path, monkeypatch):
     path = tmp_path / "public.pdf"
     _pdf(path)
     state = _state()
@@ -243,27 +253,10 @@ def test_semantic_fixed_retry_uses_same_binding_and_first_success(tmp_path, monk
         FakeConceptAPI(state, invalid_first=True),
     )
     bundle = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
-    assert bundle["processing"] == "succeeded"
-    assert bundle["concept_calls"] == 2
-    semantic_cache = next((tmp_path / "runtime" / "cache" / "semantic").glob("*.json"))
-    artifact = json.loads(semantic_cache.read_text(encoding="utf-8"))["artifact"]
-    assert artifact["attempt"] == 2
-
-
-def test_two_invalid_semantic_attempts_publish_only_failed_bundle(tmp_path, monkeypatch):
-    path = tmp_path / "public.pdf"
-    _pdf(path)
-    state = _state()
-    monkeypatch.setattr(run_module, "start_ocr_process", lambda settings: FakeChild("ocr", state))
-    monkeypatch.setattr(
-        run_module,
-        "request_concept_text",
-        FakeConceptAPI(state, always_invalid=True),
-    )
-    bundle = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
     assert bundle["processing"] == "failed"
     assert bundle["output_id"] is None
-    assert bundle["reason_codes"] == ["PAGE_CONTENT_UNUSABLE"]
+    assert bundle["concept_calls"] == 1
+    assert bundle["reason_codes"] == ["MODEL_OUTPUT_INVALID"]
     run_root = tmp_path / "runtime" / "runs" / bundle["run_id"]
     assert not (run_root / "concept-evidence-output.json").exists()
 

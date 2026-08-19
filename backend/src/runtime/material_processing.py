@@ -41,6 +41,7 @@ _CONFIG_KEYS = {
     "runtime_lock",
     "python_executable",
     "site_packages",
+    "concept_site_packages",
     "ocr_model_root",
     "concept_api_base_url",
     "concept_model",
@@ -54,15 +55,16 @@ _CONFIG_PATH_KEYS = {
     "private_runtime_root",
     "python_executable",
     "site_packages",
+    "concept_site_packages",
     "ocr_model_root",
     "concept_server_executable",
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "f5ca484e6ceba2df1bb3c7f017d45808e3d5dd99dcaee04cd78fe7223961f71b",
-    "backend/src/pdf_evidence/ocr_page_evidence.py": "cad3a5f3df5a4117c849e85fd06dc2e027f7472ebc7660583536d5a4216005a7",
-    "backend/src/pdf_evidence/concept_generation.py": "ee5a37df2a2308818a6706911ed2917881297a6498fc28ec7dbd6e08bf7a3410",
-    "backend/src/pdf_evidence/concept_api.py": "ecfc16da63825d093c0d1b269b8cba41de203dda105730d6ce8699606d8df609",
+    "local_ai/runtime-lock.json": "7500306f49c992d999df06d4c92c9aa8de4b3bd8fd67d3be4fd150d950856b4f",
+    "backend/src/pdf_evidence/ocr_page_evidence.py": "9f952c93b66086f48f09c9e7349c9af12ca3fc1f53b4cd2043d515b1684aa089",
+    "backend/src/pdf_evidence/concept_generation.py": "1308d52e066b730f9e928934adf18dc0382da01dbd485e31cfe2d197851f2ef0",
+    "backend/src/pdf_evidence/concept_api.py": "ddb3b27c4f56ec834c7757442bcd0a1011661ebdd8ff5a6871a830cc5b1b75db",
     "backend/src/pdf_evidence/local_ai_process.py": "72e5c4a15ee078e94e985a998944bc08175382f14e84eb3f0a417025bc2b723f",
 }
 _BINDING_FILES = (
@@ -80,16 +82,17 @@ _BINDING_FILES = (
 )
 _LOCAL_AI_SOURCE_HASHES = {
     "__init__.py": "c7a3ebd9b5d9dcd05a9c8a0610efb0ee5481d4733dd4101872bcf72c5ee4008c",
-    "protocol.py": "2cf8c64d90ea79f76606e22caaf465f16ffd4153adbe83c90c18e6aa51bead43",
-    "ocr_process.py": "d6f431c990630b60311ef0e9737ea4805896eb709eb69dd24644d93a580a232a",
+    "protocol.py": "a785181371733846ef4774e32ba2fa9caff1d558b9c61b56cacab54a3b13d93f",
+    "ocr_process.py": "a429f32b5062860bff9412588953619a970383c8ed92b374425fa33ff8e6846f",
 }
-_PACKAGE_VERSIONS = {
+_OCR_PACKAGE_VERSIONS = {
     "studydy-local-ai": "0.1.0",
     "setuptools": "84.0.0",
     "torch": "2.10.0+cu128",
     "torchvision": "0.25.0+cu128",
     "transformers": "4.57.1",
 }
+_CONCEPT_PACKAGE_VERSIONS = {"vllm": "0.26.0+cu129"}
 
 
 class MaterialProcessingError(RuntimeError):
@@ -226,6 +229,9 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
     site_packages = _absolute_runtime_path(
         local_config["site_packages"], is_directory=True
     )
+    _absolute_runtime_path(
+        local_config["concept_site_packages"], is_directory=True
+    )
     ocr_model_root = _absolute_runtime_path(
         local_config["ocr_model_root"], is_directory=True
     )
@@ -242,6 +248,10 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
         _RuntimeFile(
             python_executable,
             runtime_lock["python"]["executable_sha256"],
+        ),
+        _RuntimeFile(
+            concept_server_executable,
+            runtime_lock["semantic"]["server"]["executable_sha256"],
         ),
         *(
             _RuntimeFile(package_root / name, expected_sha256)
@@ -281,7 +291,9 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
     return tuple(files)
 
 
-def _distribution_versions(site_packages: Path) -> dict[str, str]:
+def _distribution_versions(
+    site_packages: Path, expected_versions: dict[str, str]
+) -> dict[str, str]:
     """直接讀取固定 site-packages metadata，不執行待驗 runtime 程式。"""
 
     found: dict[str, str] = {}
@@ -297,7 +309,7 @@ def _distribution_versions(site_packages: Path) -> dict[str, str]:
                         version = line[9:].strip()
                     if name is not None and version is not None:
                         break
-            if name in _PACKAGE_VERSIONS:
+            if name in expected_versions:
                 if name in found:
                     raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
                 found[name] = version
@@ -328,7 +340,13 @@ def formal_runtime_preflight(local_config: Any) -> dict[str, Any]:
         if _file_sha256(runtime_file.path) != runtime_file.expected_sha256:
             raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
     site_packages = Path(local_config["site_packages"])
-    if _distribution_versions(site_packages) != _PACKAGE_VERSIONS:
+    if _distribution_versions(site_packages, _OCR_PACKAGE_VERSIONS) != _OCR_PACKAGE_VERSIONS:
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+    concept_site_packages = Path(local_config["concept_site_packages"])
+    if (
+        _distribution_versions(concept_site_packages, _CONCEPT_PACKAGE_VERSIONS)
+        != _CONCEPT_PACKAGE_VERSIONS
+    ):
         raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
     return binding
 
@@ -367,6 +385,19 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID") from None
     if concept_model != local_config["runtime_lock"]["semantic"]["model_id"]:
         raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+    semantic_lock = local_config["runtime_lock"]["semantic"]
+    if (
+        semantic_lock["server"]
+        != {
+            "package": "vllm",
+            "version": _CONCEPT_PACKAGE_VERSIONS["vllm"],
+            "executable_sha256": "6d34800bbe39c7b1d94043fa0a7badafd894dbc422e0212f94ebe16547b2097a",
+        }
+        or concept_max_model_len
+        != semantic_lock["input_token_budget"]["maximum_input_tokens"]
+        + semantic_lock["generation"]["max_tokens"]
+    ):
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
 
     repository_root = Path(__file__).resolve().parents[3]
     for relative_path, expected_sha256 in _LOCKED_FILES.items():
@@ -377,7 +408,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         for relative_path in _BINDING_FILES
     }
     binding = {
-        "schema": "formal-agent1-runtime-binding/v3",
+        "schema": "formal-agent1-runtime-binding/v4",
         "runtime_lock_sha256": canonical_sha256(local_config["runtime_lock"]),
         "code_hashes": code_hashes,
         "document_policy": "whole-document-review-aggregation/v1",
@@ -409,10 +440,17 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
             "kv_cache_bytes": concept_kv_cache_bytes,
             "max_concurrency": concept_max_concurrency,
             "max_model_len": concept_max_model_len,
+            "server": deepcopy(semantic_lock["server"]),
+            "structured_output": deepcopy(semantic_lock["structured_output"]),
+            "input_token_budget": deepcopy(semantic_lock["input_token_budget"]),
         },
         "residency_policy": "ocr-child-then-owned-loopback-concept-server/v3",
         "network_policy": "loopback-concept-api-no-credentials/v1",
-        "raw_retention": "none",
+        "retention_policy": {
+            "provider_raw": "not_persisted",
+            "validated_cache": "local_private_cache",
+            "run_handoff": "deleted_before_terminal_publish",
+        },
     }
     binding["runtime_binding_sha256"] = canonical_sha256(binding)
     return binding
@@ -616,9 +654,6 @@ def execute_claimed_material_processing_run(
     try:
         if formal_runtime_binding(local_config) != run.runtime_binding:
             raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
-        source_sha256 = _source_hash(
-            run.learner_id, run.material_id, run.source_artifact_id, dsn=dsn
-        )
         with tempfile.TemporaryDirectory(prefix="studydy-material-run-") as directory:
             private = Path(directory)
             private.chmod(0o700)
@@ -626,6 +661,9 @@ def execute_claimed_material_processing_run(
             with open_verified_source_pdf(
                 run.learner_id, run.source_artifact_id, dsn=dsn
             ) as source:
+                if source.material_id != run.material_id:
+                    raise MaterialProcessingError("MATERIAL_RUN_INVALID")
+                source_sha256 = source.sha256
                 with source_path.open("xb") as destination:
                     while chunk := source.file.read(_CHUNK):
                         destination.write(chunk)
@@ -663,8 +701,11 @@ def execute_claimed_material_processing_run(
             source_sha256,
             run.runtime_binding["runtime_binding_sha256"],
             producer_bundle,
+            runtime_root=Path(local_config["private_runtime_root"]),
             dsn=dsn,
         )
+    except OSError as error:
+        _record_run_failure(run.run_id, str(error), dsn=dsn)
     except MaterialRunOutputError:
         _record_run_failure(run.run_id, "MATERIAL_OUTPUT_FAILED", dsn=dsn)
     except MaterialProcessingError as error:

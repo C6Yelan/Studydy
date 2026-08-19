@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+import threading
 from uuid import UUID, uuid4
 
 import psycopg
 import pymupdf
 import pytest
+import runtime.storage.artifacts as artifact_storage
 
 from runtime.storage.artifacts import (
     ArtifactError,
     open_verified_source_pdf,
-    open_verified_resource_pdf,
     publish_idempotent_source_pdf,
-    publish_resource_pdf,
-    remove_resource_pdf,
 )
 from runtime.storage.migrations import run_migrations
 
@@ -98,6 +98,61 @@ def test_source_idempotency_replay_and_conflict(
         assert connection.execute("SELECT count(*) FROM artifacts").fetchone() == (1,)
 
 
+def test_concurrent_source_publish_rereads_same_winner_or_reports_conflict(
+    artifact_database_dsn: str,
+    artifact_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    learner = _learner(artifact_database_dsn)
+    original_read = artifact_storage._read_source_receipt
+
+    def concurrent_publish(key: str, contents: tuple[bytes, bytes]):
+        barrier = threading.Barrier(2)
+        counter_lock = threading.Lock()
+        prechecks = 0
+
+        def synchronized_read(*arguments):
+            nonlocal prechecks
+            receipt = original_read(*arguments)
+            with counter_lock:
+                prechecks += 1
+                is_initial_read = prechecks <= 2
+            if is_initial_read:
+                barrier.wait(timeout=5)
+            return receipt
+
+        monkeypatch.setattr(artifact_storage, "_read_source_receipt", synchronized_read)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(
+                    publish_idempotent_source_pdf,
+                    learner,
+                    io.BytesIO(content),
+                    key,
+                    dsn=artifact_database_dsn,
+                )
+                for content in contents
+            ]
+            outcomes = []
+            for future in futures:
+                try:
+                    outcomes.append(future.result(timeout=10))
+                except ArtifactError as error:
+                    outcomes.append(str(error))
+        monkeypatch.setattr(artifact_storage, "_read_source_receipt", original_read)
+        return outcomes
+
+    same_pdf = _pdf("same concurrent content")
+    same_outcomes = concurrent_publish("concurrent-same", (same_pdf, same_pdf))
+    assert same_outcomes[0] == same_outcomes[1]
+
+    different_outcomes = concurrent_publish(
+        "concurrent-different", (_pdf("first concurrent content"), _pdf("second concurrent content"))
+    )
+    assert sum(isinstance(outcome, str) for outcome in different_outcomes) == 1
+    assert "ARTIFACT_IDEMPOTENCY_CONFLICT" in different_outcomes
+
+
 def test_invalid_pdf_leaves_no_row_or_residue(
     artifact_database_dsn: str, artifact_root: Path
 ) -> None:
@@ -115,40 +170,6 @@ def test_invalid_pdf_leaves_no_row_or_residue(
     assert list((artifact_root / "objects").iterdir()) == []
 
 
-def test_source_receipt_rejects_resource_kind(
-    artifact_database_dsn: str, artifact_root: Path
-) -> None:
-    learner = _learner(artifact_database_dsn)
-    source_content = _pdf("source")
-    source = publish_idempotent_source_pdf(
-        learner, io.BytesIO(source_content), "kind-receipt", dsn=artifact_database_dsn
-    )
-    resource_content = _pdf("resource")
-    digest = __import__("hashlib").sha256(resource_content).hexdigest()
-    resource_id = uuid4()
-    publish_resource_pdf(
-        learner,
-        source.material_id,
-        resource_id,
-        io.BytesIO(resource_content),
-        digest,
-        len(resource_content),
-        dsn=artifact_database_dsn,
-    )
-    with psycopg.connect(artifact_database_dsn) as connection:
-        connection.execute(
-            "UPDATE materials SET source_artifact_id=%s WHERE material_id=%s",
-            (resource_id, source.material_id),
-        )
-    with pytest.raises(ArtifactError, match="ARTIFACT_PUBLISH_FAILED"):
-        publish_idempotent_source_pdf(
-            learner,
-            io.BytesIO(source_content),
-            "kind-receipt",
-            dsn=artifact_database_dsn,
-        )
-
-
 def test_verified_read_rejects_changed_object_hash(
     artifact_database_dsn: str, artifact_root: Path
 ) -> None:
@@ -162,29 +183,6 @@ def test_verified_read_rejects_changed_object_hash(
     with pytest.raises(ArtifactError, match="ARTIFACT_NOT_AVAILABLE"):
         with open_verified_source_pdf(learner, published.artifact_id, dsn=artifact_database_dsn):
             pass
-
-
-def test_resource_publish_read_collision_and_exact_failure_cleanup(
-    artifact_database_dsn: str, artifact_root: Path
-) -> None:
-    learner = _learner(artifact_database_dsn)
-    source = _publish_source(learner, _pdf("source"), artifact_database_dsn)
-    content = _pdf("resource")
-    digest = __import__("hashlib").sha256(content).hexdigest()
-    artifact_id = uuid4()
-    publish_resource_pdf(
-        learner, source.material_id, artifact_id, io.BytesIO(content), digest, len(content), dsn=artifact_database_dsn
-    )
-    with pytest.raises(ArtifactError, match="RESOURCE_ARTIFACT_CONFLICT"):
-        publish_resource_pdf(
-            learner, source.material_id, artifact_id, io.BytesIO(content), digest, len(content), dsn=artifact_database_dsn
-        )
-    with open_verified_resource_pdf(learner, source.material_id, artifact_id, dsn=artifact_database_dsn) as opened:
-        assert opened.file.read() == content
-    remove_resource_pdf(learner, source.material_id, artifact_id, dsn=artifact_database_dsn)
-    assert not (artifact_root / "objects" / artifact_id.hex).exists()
-    with psycopg.connect(artifact_database_dsn) as connection:
-        assert connection.execute("SELECT count(*) FROM artifacts WHERE kind='resource_pdf'").fetchone() == (0,)
 
 
 def test_root_must_be_absolute_private_directory(

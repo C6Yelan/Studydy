@@ -40,7 +40,7 @@ from .ocr_page_evidence import (
     canonical_sha256,
     extract_page,
 )
-from .source_pdf import build_whole_document_request, copy_source_snapshot
+from .source_pdf import snapshot_whole_document_request
 from .text_first_bundle import build_producer_bundle, publish_run
 
 
@@ -50,6 +50,7 @@ _PAGE_EXCLUSION_REASONS = {
     "MODEL_OUTPUT_TOO_LARGE",
     "MODEL_OUTPUT_INVALID_JSON",
     "MODEL_OUTPUT_TRUNCATED",
+    "MODEL_INPUT_TOO_LARGE",
     "CANDIDATE_SCHEMA_INVALID",
     "INVALID_CONCEPT_COUNT",
     "INVALID_TEXT_FIELD",
@@ -389,13 +390,10 @@ def _process_pdf(
             or settings["concept_max_model_len"] < 1
         ):
             raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
-        checked_request = build_whole_document_request(request)
         snapshot_directory = tempfile.TemporaryDirectory(prefix="studydy-source-")
         snapshot_path = Path(snapshot_directory.name) / "source.pdf"
-        if copy_source_snapshot(checked_request["source_path"], snapshot_path) is not None:
-            raise ValueError("SOURCE_READ_FAILED")
-        checked_request = build_whole_document_request(
-            {**request, "source_path": str(snapshot_path)}
+        checked_request = snapshot_whole_document_request(
+            request, snapshot_path
         )
         source_path = Path(checked_request["source_path"])
         page_numbers = checked_request["page_numbers"]
@@ -558,6 +556,7 @@ def _process_pdf(
                                 base_url=settings["concept_api_base_url"],
                                 model=settings["concept_model"],
                                 semantic_request=work["semantic_request"],
+                                max_model_len=settings["concept_max_model_len"],
                                 timeout_seconds=retry_policy["timeout_seconds"],
                             )
                             artifact = validate_concepts(
@@ -623,6 +622,27 @@ def _process_pdf(
                 raise error
             semantic_pages.append(work["artifact"])
             included_pages.append(work["page"])
+        if not included_pages:
+            bundle = build_producer_bundle(
+                run_id=run_id,
+                produced_at=produced_at,
+                output=None,
+                runtime_binding_sha256=runtime_binding_sha256,
+                reasons=[
+                    reason
+                    for page in excluded_pages
+                    for reason in page["reason_codes"]
+                ],
+                duration_ms=int((time.monotonic() - started) * 1000),
+                ocr_calls=ocr_calls,
+                concept_calls=concept_calls,
+                ocr_loads=ocr_loads,
+                concept_loads=concept_loads,
+                page_count=page_count,
+                excluded_pages=excluded_pages,
+            )
+            publish_run(root, bundle, None)
+            return bundle
         output = build_output(
             run_id=run_id,
             produced_at=produced_at,

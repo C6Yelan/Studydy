@@ -1,8 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const harnessId = process.env.STUDYDY_E2E_HARNESS_ID ?? "";
-const controlUrl = process.env.STUDYDY_E2E_CONTROL_URL ?? "";
-const controlToken = process.env.STUDYDY_E2E_CONTROL_TOKEN ?? "";
 
 const browserEnvironment: Record<string, string> = {};
 for (const [name, value] of Object.entries(process.env)) {
@@ -12,8 +10,6 @@ for (const [name, value] of Object.entries(process.env)) {
 }
 
 if (!/^studydy-e2e-[0-9a-f]{32}$/.test(harnessId)) throw new Error("E2E_HARNESS_REQUIRED");
-if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(controlUrl)) throw new Error("E2E_CONTROL_REQUIRED");
-if (!/^[A-Za-z0-9_-]{32,}$/.test(controlToken)) throw new Error("E2E_CONTROL_REQUIRED");
 
 export default defineConfig({
   testDir: "./e2e",

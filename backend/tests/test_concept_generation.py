@@ -155,7 +155,27 @@ def test_semantic_request_fields_and_evidence_references_remain_exact():
             attempt=1,
         )
 
+    request = _request()
+    request["evidence"].append(request["evidence"][0])
+    with pytest.raises(SemanticOutputError, match="DUPLICATE_EVIDENCE_ID"):
+        validate_concepts(
+            json.dumps(_output(), separators=(",", ":")),
+            semantic_request=request,
+            page_ref="page:sha256:" + "1" * 64,
+            input_binding={"evidence_allowlist": ["evidence-one"]},
+            attempt=1,
+        )
+
     output = _output()
     output["concepts"][0]["evidence_ids"] = ["ｅvidence-one"]
     with pytest.raises(SemanticOutputError, match="NO_USABLE_CONCEPT"):
         _validate(json.dumps(output, ensure_ascii=False, separators=(",", ":")))
+
+    output = _output()
+    output["concepts"].append(dict(output["concepts"][0]))
+    output["concepts"][0]["evidence_ids"] = ["evidence-one", "evidence-one"]
+    artifact = _validate(json.dumps(output, separators=(",", ":")))
+    assert artifact["rejected_candidates"][0]["reason_codes"] == [
+        "DUPLICATE_EVIDENCE_REFERENCE"
+    ]
+    assert len(artifact["concepts"]) == 1

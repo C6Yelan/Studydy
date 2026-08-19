@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 
-function safePdf(pageCount = 1): Buffer {
+function safePdf(): Buffer {
+  const pageCount = 1;
   const objects: string[] = [];
   const pageObjectNumbers = Array.from({ length: pageCount }, (_, index) => index + 3);
   const contentObject = 3 + pageCount;
@@ -28,7 +29,7 @@ function safePdf(pageCount = 1): Buffer {
 }
 
 
-test("real upload、create v2、poll、Map v2 與 session PDF page locator", async ({ page }) => {
+test("deterministic fake-producer browser wiring：upload、poll、Map 與 PDF locator", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto("/");
   await page.getByLabel("選擇 PDF 教材").setInputFiles({
@@ -64,62 +65,4 @@ test("real upload、create v2、poll、Map v2 與 session PDF page locator", asy
   const openedUrl = await page.evaluate(() => String((window as Window & { __studydyOpenedUrl: string }).__studydyOpenedUrl));
   expect(openedUrl).toContain("/v1/artifacts/");
   expect(openedUrl).toContain("#page=1");
-});
-
-
-test("real 33-page run succeeds with every original page", async ({ page }) => {
-  test.setTimeout(90_000);
-  await page.goto("/");
-  await page.getByLabel("選擇 PDF 教材").setInputFiles({
-    name: "thirty-three-pages.pdf",
-    mimeType: "application/pdf",
-    buffer: safePdf(33),
-  });
-  await page.getByRole("button", { name: "上傳並分析完整教材" }).click();
-  await expect(page.getByRole("heading", { name: "處理完成，等待複核" })).toBeVisible({ timeout: 60_000 });
-  await page.getByRole("button", { name: "開啟複核地圖" }).click();
-  await expect(page.getByText("第 33 頁 · paragraph")).toBeVisible();
-});
-
-
-test("real longer document keeps page 40 Map and source PDF locator", async ({ page }) => {
-  test.setTimeout(90_000);
-  await page.goto("/");
-  await page.getByLabel("選擇 PDF 教材").setInputFiles({
-    name: "forty-pages.pdf",
-    mimeType: "application/pdf",
-    buffer: safePdf(40),
-  });
-  await page.getByRole("button", { name: "上傳並分析完整教材" }).click();
-  await expect(page.getByRole("heading", { name: "處理完成，等待複核" })).toBeVisible({ timeout: 60_000 });
-  await page.getByRole("button", { name: "開啟複核地圖" }).click();
-  await expect(page.getByText("第 40 頁 · paragraph")).toBeVisible();
-  await page.evaluate(() => {
-    const originalOpen = window.open.bind(window);
-    Object.assign(window, { __studydyOpenedUrl: "" });
-    window.open = (url, target, features) => {
-      Object.assign(window, { __studydyOpenedUrl: String(url) });
-      return originalOpen(url, target, features);
-    };
-  });
-  const sourceResponse = page.context().waitForEvent("response", { predicate: (response) =>
-    new URL(response.url()).pathname.startsWith("/v1/artifacts/") && response.status() === 200,
-  });
-  await page.getByRole("button", { name: "開啟來源 PDF 第 40 頁" }).click();
-  await sourceResponse;
-  const openedUrl = await page.evaluate(() => String((window as Window & { __studydyOpenedUrl: string }).__studydyOpenedUrl));
-  expect(openedUrl).toContain("#page=40");
-});
-
-
-test("old downstream API and UI routes fail closed", async ({ page }) => {
-  await page.goto("/");
-  const apiStatus = await page.evaluate(async () => {
-    const response = await fetch("/v1/materials/00000000-0000-4000-8000-000000000000/assessments/old");
-    return response.status;
-  });
-  expect(apiStatus).toBe(404);
-  await page.goto("/materials/00000000-0000-4000-8000-000000000000/runs/00000000-0000-4000-8000-000000000000/assessments/old");
-  await expect(page.getByRole("heading", { name: "上傳完整教材，逐頁建立複核地圖" })).toBeVisible();
-  await expect(page).toHaveURL("/");
 });

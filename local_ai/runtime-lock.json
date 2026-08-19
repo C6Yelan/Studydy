@@ -28,9 +28,9 @@
     },
     "normalization_sha256": "7c2be4a85c07ef3a792fd1e7ba90f0c0436c83457a92cfbded7465581148b810",
     "processing": "unlimited-ocr-page-evidence/v1",
-    "normalizer": "ocr-text-nfkc-whitespace/v1",
+    "normalizer": "ocr-text-nfc-line-preserving/v1",
     "code_hashes": {
-      "backend_ocr_page_evidence": "cad3a5f3df5a4117c849e85fd06dc2e027f7472ebc7660583536d5a4216005a7"
+      "backend_ocr_page_evidence": "9f952c93b66086f48f09c9e7349c9af12ca3fc1f53b4cd2043d515b1684aa089"
     },
     "fixture_hashes": {}
   },
@@ -69,8 +69,8 @@
     },
     "grammar": "strict-det-blocks/v1",
     "code_hashes": {
-      "local_ai_protocol": "2cf8c64d90ea79f76606e22caaf465f16ffd4153adbe83c90c18e6aa51bead43",
-      "local_ai_ocr": "d6f431c990630b60311ef0e9737ea4805896eb709eb69dd24644d93a580a232a"
+      "local_ai_protocol": "a785181371733846ef4774e32ba2fa9caff1d558b9c61b56cacab54a3b13d93f",
+      "local_ai_ocr": "a429f32b5062860bff9412588953619a970383c8ed92b374425fa33ff8e6846f"
     },
     "fixture_hashes": {}
   },
@@ -93,30 +93,35 @@
     ],
     "api_protocol": "openai-chat-completions/v1",
     "api_path": "/v1/chat/completions",
+    "server": {
+      "package": "vllm",
+      "version": "0.26.0+cu129",
+      "executable_sha256": "6d34800bbe39c7b1d94043fa0a7badafd894dbc422e0212f94ebe16547b2097a"
+    },
     "prompt": "You extract study concepts from normalized text evidence.\nUse only the supplied evidence. Return JSON only, with exactly this shape:\n{\"concepts\":[{\"label\":\"...\",\"definition\":\"...\",\"key_points\":[\"...\"],\"evidence_ids\":[\"...\"]}]}\nEvery central claim and key point must be grounded by its listed Evidence IDs.\nDo not return status, paths, coordinates, commentary, markdown, or additional fields.",
     "prompt_sha256": "97f14f58b3599f22fcda7921d69fbd64035562c11897a4eadc6aacb355f5ca5c",
     "request_schema": "concept-generation-input/v1",
     "output_schema": "semantic-concepts/v1",
     "generation": {"temperature": 0, "max_tokens": 1536},
+    "structured_output": {
+      "type": "json_schema",
+      "name": "studydy_page_concepts",
+      "strict": true,
+      "schema_sha256": "f8db04ce45a749207541e62ed37b13549a80ea0caaeddc6c1967824dce42555e"
+    },
+    "input_token_budget": {
+      "api_path": "/tokenize",
+      "add_generation_prompt": true,
+      "add_special_tokens": false,
+      "maximum_input_tokens": 4096
+    },
     "retry": {
       "max_attempts": 2,
       "fixed_retry_count": 1,
       "timeout_seconds": 300,
       "retryable_reasons": [
-        "CANDIDATE_SCHEMA_INVALID",
-        "CONCEPT_API_RESPONSE_INVALID",
         "CONCEPT_API_TIMEOUT",
-        "CONCEPT_API_UNAVAILABLE",
-        "DUPLICATE_EVIDENCE_REFERENCE",
-        "INVALID_CONCEPT_COUNT",
-        "INVALID_EVIDENCE_REFERENCES",
-        "INVALID_KEY_POINTS",
-        "INVALID_TEXT_FIELD",
-        "MODEL_OUTPUT_INVALID_JSON",
-        "MODEL_OUTPUT_TOO_LARGE",
-        "MODEL_OUTPUT_TRUNCATED",
-        "NO_USABLE_CONCEPT",
-        "UNKNOWN_EVIDENCE_ID"
+        "CONCEPT_API_UNAVAILABLE"
       ]
     },
     "policy": {
@@ -128,8 +133,8 @@
       "structurally_valid_decision": "review"
     },
     "code_hashes": {
-      "backend_concept_api": "ecfc16da63825d093c0d1b269b8cba41de203dda105730d6ce8699606d8df609",
-      "backend_concept_generation": "ee5a37df2a2308818a6706911ed2917881297a6498fc28ec7dbd6e08bf7a3410"
+      "backend_concept_api": "ddb3b27c4f56ec834c7757442bcd0a1011661ebdd8ff5a6871a830cc5b1b75db",
+      "backend_concept_generation": "1308d52e066b730f9e928934adf18dc0382da01dbd485e31cfe2d197851f2ef0"
     },
     "fixture_hashes": {
       "semantic_request.json": "7fb2b3b23ee84940ca564ee1b8915648a457a670d6918859985eb01cce728246",

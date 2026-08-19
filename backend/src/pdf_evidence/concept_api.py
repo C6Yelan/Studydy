@@ -15,10 +15,55 @@ from .ocr_page_evidence import canonical_bytes
 
 
 CHAT_COMPLETIONS_PATH = "/v1/chat/completions"
+TOKENIZE_PATH = "/tokenize"
 MAX_TOKENS = 1_536
 TEMPERATURE = 0
 MAX_API_RESPONSE_BYTES = 128 * 1_024
 CONCEPT_SERVER_READY_TIMEOUT_SECONDS = 300
+CONCEPT_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "studydy_page_concepts",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["concepts"],
+            "properties": {
+                "concepts": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 24,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": [
+                            "label", "definition", "key_points", "evidence_ids"
+                        ],
+                        "properties": {
+                            "label": {"type": "string", "minLength": 1, "maxLength": 120},
+                            "definition": {
+                                "type": "string", "minLength": 1, "maxLength": 1_000
+                            },
+                            "key_points": {
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 10,
+                                "items": {"type": "string", "minLength": 1, "maxLength": 300},
+                            },
+                            "evidence_ids": {
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 16,
+                                "items": {"type": "string", "minLength": 1, "maxLength": 128},
+                            },
+                        },
+                    },
+                }
+            },
+        },
+    },
+}
 _VLLM_ENVIRONMENT = {
     "DO_NOT_TRACK": "1",
     "HF_HUB_DISABLE_TELEMETRY": "1",
@@ -153,6 +198,11 @@ def chat_completions_url(base_url: Any) -> str:
     return f"{base_url.rstrip('/')}{CHAT_COMPLETIONS_PATH}"
 
 
+def _tokenize_url(base_url: str) -> str:
+    chat_completions_url(base_url)
+    return f"{base_url.rstrip('/')}{TOKENIZE_PATH}"
+
+
 def _without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     value: dict[str, Any] = {}
     for key, item in pairs:
@@ -172,21 +222,58 @@ def request_concept_text(
     base_url: str,
     model: str,
     semantic_request: dict[str, Any],
+    max_model_len: int,
     timeout_seconds: float,
 ) -> str:
-    """呼叫單一 Chat Completions endpoint，只回傳待驗證的 model text。"""
+    """先用同一 server tokenizer 鎖定 input budget，再取得一次待驗 model text。"""
 
-    if not isinstance(model, str) or not model or len(model) > 256:
+    if (
+        not isinstance(model, str)
+        or not model
+        or len(model) > 256
+        or type(max_model_len) is not int
+        or max_model_len <= MAX_TOKENS
+    ):
         raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
     prompt = f"{PROMPT_TEMPLATE}\nINPUT:\n{canonical_bytes(semantic_request).decode('utf-8')}"
+    messages = [{"role": "user", "content": prompt}]
     try:
+        tokenized = client.post(
+            _tokenize_url(base_url),
+            json={
+                "model": model,
+                "messages": messages,
+                "add_generation_prompt": True,
+                "add_special_tokens": False,
+            },
+            timeout=timeout_seconds,
+        )
+        tokenized.raise_for_status()
+        if not tokenized.content or len(tokenized.content) > MAX_API_RESPONSE_BYTES:
+            raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
+        token_count = json.loads(
+            tokenized.content.decode("utf-8"),
+            object_pairs_hook=_without_duplicates,
+            parse_constant=_reject_constant,
+        )
+        if (
+            not isinstance(token_count, dict)
+            or type(token_count.get("count")) is not int
+            or type(token_count.get("max_model_len")) is not int
+            or token_count["count"] < 1
+            or token_count["max_model_len"] != max_model_len
+        ):
+            raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
+        if token_count["count"] + MAX_TOKENS > max_model_len:
+            raise ConceptAPIError("MODEL_INPUT_TOO_LARGE")
         response = client.post(
             chat_completions_url(base_url),
             json={
                 "model": model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages,
                 "temperature": TEMPERATURE,
                 "max_tokens": MAX_TOKENS,
+                "response_format": CONCEPT_RESPONSE_FORMAT,
             },
             timeout=timeout_seconds,
         )
@@ -195,6 +282,8 @@ def request_concept_text(
         raise ConceptAPIError("CONCEPT_API_TIMEOUT") from error
     except (httpx.HTTPStatusError, httpx.RequestError) as error:
         raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
+    except (RecursionError, UnicodeDecodeError, ValueError):
+        raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID") from None
     if not response.content or len(response.content) > MAX_API_RESPONSE_BYTES:
         raise ConceptAPIError("MODEL_OUTPUT_TOO_LARGE")
     try:

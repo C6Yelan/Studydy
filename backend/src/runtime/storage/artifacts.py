@@ -12,7 +12,8 @@ from typing import BinaryIO
 from uuid import UUID, uuid4
 
 import pymupdf
-from sqlalchemy import delete, insert, select
+from sqlalchemy import insert, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .tables import Artifact, Material, database_session, deferred_artifact_session
@@ -36,15 +37,6 @@ class PublishedSourcePdf:
 
 @dataclass(frozen=True)
 class VerifiedSourcePdf:
-    material_id: UUID
-    artifact_id: UUID
-    sha256: str
-    size_bytes: int
-    file: BinaryIO = field(repr=False, compare=False)
-
-
-@dataclass(frozen=True)
-class VerifiedResourcePdf:
     material_id: UUID
     artifact_id: UUID
     sha256: str
@@ -186,6 +178,18 @@ def _read_source_receipt(session: Session, learner_id: UUID, key: bytes):
     ).one_or_none()
 
 
+def _published_source(
+    root: Path, existing: Any, fingerprint: bytes
+) -> PublishedSourcePdf:
+    if existing[4] != "source_pdf":
+        raise _error("ARTIFACT_PUBLISH_FAILED")
+    if bytes(existing[5]) != fingerprint:
+        raise _error("ARTIFACT_IDEMPOTENCY_CONFLICT")
+    file = _verify_file(_object_path(root, existing[1]), bytes(existing[2]), existing[3])
+    file.close()
+    return PublishedSourcePdf(existing[0], existing[1], bytes(existing[2]).hex(), existing[3])
+
+
 def _publish_source(
     learner_id: UUID,
     source: BinaryIO,
@@ -204,13 +208,7 @@ def _publish_source(
         with database_session(dsn) as session:
             existing = _read_source_receipt(session, learner_id, key_digest)
         if existing is not None:
-            if existing[4] != "source_pdf":
-                raise _error("ARTIFACT_PUBLISH_FAILED")
-            if bytes(existing[5]) != fingerprint:
-                raise _error("ARTIFACT_IDEMPOTENCY_CONFLICT")
-            file = _verify_file(_object_path(root, existing[1]), bytes(existing[2]), existing[3])
-            file.close()
-            return PublishedSourcePdf(existing[0], existing[1], bytes(existing[2]).hex(), existing[3])
+            return _published_source(root, existing, fingerprint)
 
         material_id = uuid4()
         artifact_id = uuid4()
@@ -240,6 +238,14 @@ def _publish_source(
                         created_at=datetime.now(UTC),
                     )
                 )
+        except IntegrityError:
+            final.unlink(missing_ok=True)
+            final = None
+            with database_session(dsn) as session:
+                winner = _read_source_receipt(session, learner_id, key_digest)
+            if winner is None:
+                raise _error("ARTIFACT_PUBLISH_FAILED") from None
+            return _published_source(root, winner, fingerprint)
         except Exception:
             final.unlink(missing_ok=True)
             raise _error("ARTIFACT_PUBLISH_FAILED") from None
@@ -292,118 +298,3 @@ def open_verified_source_pdf(
             opened.close()
         except Exception:
             pass
-
-
-def publish_resource_pdf(
-    learner_id: UUID,
-    material_id: UUID,
-    artifact_id: UUID,
-    source: BinaryIO,
-    expected_sha256: str,
-    expected_size_bytes: int,
-    *,
-    dsn: str | None = None,
-) -> None:
-    identifiers = (learner_id, material_id, artifact_id)
-    if not all(isinstance(value, UUID) for value in identifiers):
-        raise _error("RESOURCE_ARTIFACT_PUBLISH_FAILED")
-    try:
-        expected = bytes.fromhex(expected_sha256)
-    except (TypeError, ValueError):
-        raise _error("RESOURCE_ARTIFACT_PUBLISH_FAILED") from None
-    if len(expected) != 32 or not 1 <= expected_size_bytes <= SOURCE_LIMIT_BYTES:
-        raise _error("RESOURCE_ARTIFACT_PUBLISH_FAILED")
-    root = _root()
-    final = _object_path(root, artifact_id)
-    if final.exists():
-        raise _error("RESOURCE_ARTIFACT_CONFLICT")
-
-    staging = root / ".staging" / f"{uuid4().hex}.tmp"
-    try:
-        digest, size = _copy_pdf(source, staging)
-        if digest != expected or size != expected_size_bytes:
-            raise _error("RESOURCE_ARTIFACT_PUBLISH_FAILED")
-        os.rename(staging, final)
-        try:
-            with database_session(dsn) as session:
-                session.add(
-                    Artifact(
-                        artifact_id=artifact_id,
-                        learner_id=learner_id,
-                        material_id=material_id,
-                        kind="resource_pdf",
-                        media_type="application/pdf",
-                        sha256=digest,
-                        size_bytes=size,
-                        created_at=datetime.now(UTC),
-                    )
-                )
-        except Exception:
-            final.unlink(missing_ok=True)
-            raise _error("RESOURCE_ARTIFACT_PUBLISH_FAILED") from None
-    finally:
-        staging.unlink(missing_ok=True)
-
-
-@contextmanager
-def open_verified_resource_pdf(
-    learner_id: UUID,
-    material_id: UUID,
-    artifact_id: UUID,
-    *,
-    dsn: str | None = None,
-) -> Generator[VerifiedResourcePdf, None, None]:
-    if not all(isinstance(value, UUID) for value in (learner_id, material_id, artifact_id)):
-        raise _error("RESOURCE_ARTIFACT_NOT_AVAILABLE")
-    try:
-        with database_session(dsn) as session:
-            row = session.execute(
-                select(Artifact.sha256, Artifact.size_bytes).where(
-                    Artifact.learner_id == learner_id,
-                    Artifact.material_id == material_id,
-                    Artifact.artifact_id == artifact_id,
-                    Artifact.kind == "resource_pdf",
-                )
-            ).one_or_none()
-        if row is None:
-            raise _error("RESOURCE_ARTIFACT_NOT_AVAILABLE")
-        opened = _verify_file(_object_path(_root(), artifact_id), bytes(row[0]), row[1])
-    except ArtifactError as error:
-        if str(error) == "ARTIFACT_NOT_AVAILABLE":
-            raise _error("RESOURCE_ARTIFACT_NOT_AVAILABLE") from None
-        raise
-    except Exception:
-        raise _error("RESOURCE_ARTIFACT_NOT_AVAILABLE") from None
-    try:
-        yield VerifiedResourcePdf(material_id, artifact_id, bytes(row[0]).hex(), row[1], opened)
-    finally:
-        try:
-            opened.close()
-        except Exception:
-            pass
-
-
-def remove_resource_pdf(
-    learner_id: UUID,
-    material_id: UUID,
-    artifact_id: UUID,
-    *,
-    dsn: str | None = None,
-) -> None:
-    """只供同一次建立失敗時移除 exact resource row 與檔案。"""
-    try:
-        with database_session(dsn) as session:
-            row = session.execute(
-                delete(Artifact)
-                .where(
-                    Artifact.learner_id == learner_id,
-                    Artifact.material_id == material_id,
-                    Artifact.artifact_id == artifact_id,
-                    Artifact.kind == "resource_pdf",
-                )
-                .returning(Artifact.artifact_id)
-            ).one_or_none()
-        if row is not None:
-            _object_path(_root(), artifact_id).unlink(missing_ok=True)
-    except Exception:
-        raise _error("RESOURCE_ARTIFACT_CLEANUP_FAILED") from None

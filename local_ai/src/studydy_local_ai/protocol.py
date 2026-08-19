@@ -12,9 +12,6 @@ OCR_REQUEST_SCHEMA = "local-ocr-request/v1"
 OCR_RESPONSE_SCHEMA = "local-ocr-response/v1"
 MAX_OCR_REQUEST_BYTES = 96 * 1024 * 1024
 MAX_OCR_RESPONSE_BYTES = 4 * 1024 * 1024
-MAX_BLOCKS = 64
-MAX_BLOCK_TEXT = 8_000
-MAX_PAGE_TEXT = 100_000
 
 _REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")

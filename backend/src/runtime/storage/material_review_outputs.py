@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 import re
 from typing import Any
 from uuid import UUID
@@ -17,7 +18,11 @@ from knowledge_map.artifacts import (
     validate_knowledge_map,
 )
 from pdf_evidence.artifact_reason_codes import reason_codes_are_valid
-from pdf_evidence.text_first_bundle import validate_bundle_documents
+from pdf_evidence.text_first_bundle import (
+    remove_producer_bundle,
+    validate_bundle_documents,
+)
+from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.study_material_output import (
     build_study_material_output,
     validate_study_material_output,
@@ -124,13 +129,15 @@ def publish_material_outputs(
     runtime_binding_sha256: str,
     producer_bundle: dict[str, Any],
     *,
+    runtime_root: Path,
     dsn: str | None = None,
 ) -> MaterialRunOutputs:
-    """先重驗 producer，再以單一 DB transaction 發布 Output、Map 與 binding。"""
+    """在單一 transaction 內保存 Output、Map，清理 handoff 後才發布 terminal。"""
 
     bundle, producer_output = _validated_producer(producer_bundle, run_id)
     if (
         producer_output.get("material_id") != f"material:sha256:{source_sha256}"
+        or producer_output.get("source_binding", {}).get("source_sha256") != source_sha256
         or bundle.get("runtime_binding_sha256") != runtime_binding_sha256
     ):
         raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID")
@@ -161,6 +168,26 @@ def publish_material_outputs(
         raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID")
     try:
         with database_session(dsn) as session:
+            run_row = session.execute(
+                select(
+                    MaterialProcessingRun.source_artifact_id,
+                    MaterialProcessingRun.runtime_binding,
+                ).where(
+                    MaterialProcessingRun.learner_id == learner_id,
+                    MaterialProcessingRun.material_id == material_id,
+                    MaterialProcessingRun.run_id == run_id,
+                    MaterialProcessingRun.status == "running",
+                )
+            ).one_or_none()
+            if run_row is None or not isinstance(run_row[1], dict):
+                raise MaterialRunOutputError("MATERIAL_RUN_UNAVAILABLE")
+            run_runtime = run_row[1]
+            if (
+                run_runtime.get("runtime_binding_sha256") != runtime_binding_sha256
+                or run_runtime.get("runtime_lock_sha256")
+                != canonical_sha256(producer_output["runtime_binding"])
+            ):
+                raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID")
             created = _now()
             _insert_immutable(
                 session,
@@ -199,6 +226,7 @@ def publish_material_outputs(
                 ),
                 (study_material_output["output_id"], knowledge_map),
             )
+            remove_producer_bundle(runtime_root, bundle["run_id"])
             status = "partial" if bundle["processing"] == "partial" else "succeeded"
             updated = session.execute(
                 update(MaterialProcessingRun)
@@ -218,7 +246,7 @@ def publish_material_outputs(
             ).scalar_one_or_none()
             if updated is None:
                 raise MaterialRunOutputError("MATERIAL_RUN_UNAVAILABLE")
-    except MaterialRunOutputError:
+    except (MaterialRunOutputError, OSError):
         raise
     except Exception:
         raise MaterialRunOutputError("MATERIAL_OUTPUT_STORE_FAILED") from None
@@ -247,6 +275,8 @@ def read_material_run_outputs(
             run = session.execute(
                 select(
                     MaterialProcessingRun.source_artifact_id,
+                    MaterialProcessingRun.runtime_binding,
+                    MaterialProcessingRun.status,
                     MaterialProcessingRun.output_binding,
                 ).where(
                     MaterialProcessingRun.learner_id == learner_id,
@@ -255,9 +285,9 @@ def read_material_run_outputs(
                     MaterialProcessingRun.status.in_(("succeeded", "partial")),
                 )
             ).one_or_none()
-            if run is None or not isinstance(run[1], dict):
+            if run is None or not isinstance(run[1], dict) or not isinstance(run[3], dict):
                 raise MaterialRunOutputError("MATERIAL_OUTPUT_UNAVAILABLE")
-            source_artifact_id, binding = run
+            source_artifact_id, run_runtime, run_status, binding = run
             if not _binding_is_valid(binding):
                 raise MaterialRunOutputError("MATERIAL_OUTPUT_UNAVAILABLE")
             output_row = session.execute(
@@ -283,12 +313,30 @@ def read_material_run_outputs(
             map_row[0] != study_material_output.get("output_id")
             or binding["study_material_output_revision"] != study_material_output.get("output_id")
             or binding["knowledge_map_revision"] != knowledge_map.get("revision")
+            or binding["concept_evidence_output_id"]
+            != study_material_output.get("source_binding", {}).get("producer_output_id")
+            or binding["runtime_binding_sha256"]
+            != run_runtime.get("runtime_binding_sha256")
+            or run_runtime.get("runtime_lock_sha256")
+            != study_material_output.get("source_binding", {}).get("runtime_binding_sha256")
+            or binding["page_count"]
+            != study_material_output.get("source_binding", {}).get("page_count")
+            or binding["processing"] != study_material_output.get("processing")
+            or binding["processing"] != run_status
+            or study_material_output.get("run_id") != binding["producer_run_id"]
             or validate_study_material_output(study_material_output) is not None
             or validate_knowledge_map(knowledge_map, study_material_output) is not None
         ):
             raise MaterialRunOutputError("MATERIAL_OUTPUT_UNAVAILABLE")
-        with open_verified_source_pdf(learner_id, source_artifact_id, dsn=dsn):
-            pass
+        with open_verified_source_pdf(learner_id, source_artifact_id, dsn=dsn) as source:
+            if (
+                source.material_id != material_id
+                or source.sha256
+                != study_material_output.get("source_binding", {}).get("source_sha256")
+                or study_material_output.get("material_ref")
+                != f"material:sha256:{source.sha256}"
+            ):
+                raise MaterialRunOutputError("MATERIAL_OUTPUT_UNAVAILABLE")
         return MaterialRunOutputs(
             study_material_output["output_id"],
             knowledge_map["revision"],

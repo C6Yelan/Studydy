@@ -70,7 +70,7 @@ def producer_output(*, excluded_page: bool = False):
             }
         ],
         "processing_policy": "unlimited-ocr-page-evidence/v1",
-        "normalizer_policy": "ocr-text-nfkc-whitespace/v1",
+        "normalizer_policy": "ocr-text-nfc-line-preserving/v1",
         "produced_at": "2026-08-19T00:00:00Z",
         "processing": "partial",
         "quality": "needs_review",
@@ -107,6 +107,7 @@ def producer_output(*, excluded_page: bool = False):
             }
         ],
         "rejected_candidates": [],
+        "processing": "partial",
         "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
     }
     excluded = (
@@ -144,8 +145,9 @@ def test_build_v3_keeps_exact_same_page_pdf_locator_and_image_lite():
     source = producer_output()
     output = build_study_material_output(source)
     assert output["schema"] == "study-material-output/v3"
-    assert output["processing"] == "succeeded"
-    assert output["concepts"][0]["processing"] == "succeeded"
+    assert output["processing"] == "partial"
+    assert output["pages"][0]["processing"] == "partial"
+    assert output["concepts"][0]["processing"] == "partial"
     assert output["concepts"][0]["evidence_ids"] == [
         output["evidence_index"][0]["evidence_id"]
     ]

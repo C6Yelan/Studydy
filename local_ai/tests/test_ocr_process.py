@@ -19,6 +19,16 @@ def test_exact_p02_det_grammar_preserves_type_text_and_bbox():
     ]
 
 
+def test_det_grammar_uses_response_bytes_instead_of_fixed_block_count():
+    model_text = "".join(
+        f"<|det|>code [1,2,3,4]<|/det|>  line {index}\n    indented\n"
+        for index in range(65)
+    )
+    blocks = parse_det_blocks(model_text)
+    assert len(blocks) == 65
+    assert blocks[0]["text"] == "  line 0\n    indented\n"
+
+
 @pytest.mark.parametrize(
     "model_text",
     [

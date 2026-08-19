@@ -50,6 +50,16 @@ def _exact_text(value: Any, maximum: int) -> str:
     return value
 
 
+def _exact_evidence_text(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip() or "\r" in value:
+        raise SemanticOutputError("INVALID_TEXT_FIELD")
+    normalized = unicodedata.normalize("NFC", value)
+    normalized = "\n".join(line.rstrip() for line in normalized.split("\n"))
+    if normalized != value or any(ord(character) < 32 and character not in "\n\t" for character in value):
+        raise SemanticOutputError("INVALID_TEXT_FIELD")
+    return value
+
+
 def _normalized_candidate_text(value: Any, maximum: int) -> str:
     """正規化模型產生的 Concept 文字，再檢查可用性與安全邊界。"""
     if not isinstance(value, str):
@@ -97,17 +107,16 @@ def validate_semantic_request(request: Any) -> dict[str, dict[str, Any]]:
     for field in ("material_id", "material_revision", "section_id"):
         _exact_text(request[field], 128)
     evidence_items = request["evidence"]
-    if not isinstance(evidence_items, list) or not 1 <= len(evidence_items) <= 64:
+    if not isinstance(evidence_items, list) or not evidence_items:
         raise SemanticOutputError("INVALID_EVIDENCE_COUNT")
     evidence_by_id: dict[str, dict[str, Any]] = {}
-    total_text = 0
     for evidence in evidence_items:
         if not isinstance(evidence, dict) or set(evidence) != {"evidence_id", "text", "locator"}:
             raise SemanticOutputError("INPUT_SCHEMA_INVALID")
         evidence_id = _exact_text(evidence["evidence_id"], 128)
         if evidence_id in evidence_by_id:
             raise SemanticOutputError("DUPLICATE_EVIDENCE_ID")
-        total_text += len(_exact_text(evidence["text"], 8_000))
+        _exact_evidence_text(evidence["text"])
         locator = evidence["locator"]
         if not isinstance(locator, dict) or set(locator) != {"page", "block_id", "region"}:
             raise SemanticOutputError("INVALID_LOCATOR")
@@ -123,8 +132,6 @@ def validate_semantic_request(request: Any) -> dict[str, dict[str, Any]]:
         ):
             raise SemanticOutputError("INVALID_LOCATOR")
         evidence_by_id[evidence_id] = evidence
-    if total_text > 100_000:
-        raise SemanticOutputError("INPUT_TEXT_TOO_LARGE")
     return evidence_by_id
 
 
