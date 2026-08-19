@@ -560,6 +560,29 @@ def test_formal_lock_has_bounded_busy_failure(tmp_path, monkeypatch):
                 pass
 
 
+def test_formal_run_reuses_worker_lock_ownership(tmp_path, monkeypatch):
+    observed = []
+    monkeypatch.setattr(
+        run_module,
+        "_run_text_first_pdf",
+        lambda request, settings, **arguments: observed.append(arguments) or {"ok": True},
+    )
+
+    with run_module._agent1_lock(tmp_path / "runtime"):
+        terminal = run_module.run_full_text_first_pdf(
+            {
+                "media_type": "application/pdf",
+                "source_path": "owned-by-worker.pdf",
+                "expected_source_sha256": "0" * 64,
+            },
+            _settings(tmp_path),
+            run_id="text-first-run:00000000-0000-4000-8000-000000000004",
+        )
+
+    assert terminal == {"ok": True}
+    assert observed[0]["whole_document"] is True
+
+
 def test_formal_busy_lock_publishes_truthful_failed_terminal(tmp_path, monkeypatch):
     class BusyLock:
         def __enter__(self):

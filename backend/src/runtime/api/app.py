@@ -81,18 +81,18 @@ class ApiSettings:
     dsn: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
-        if self.profile not in {"development", "test"} or type(self.secure_cookie) is not bool:
+        if self.profile not in {"local", "test"} or type(self.secure_cookie) is not bool:
             raise ValueError("API_SETTINGS_INVALID")
         origin = _normalized_origin(self.public_origin)
         if origin is None or origin != self.public_origin:
             raise ValueError("API_SETTINGS_INVALID")
         parsed = urlsplit(origin)
-        is_development_loopback = (
-            self.profile == "development"
+        is_local_loopback = (
+            self.profile == "local"
             and parsed.scheme == "http"
             and _is_numeric_loopback(parsed.hostname)
         )
-        if not self.secure_cookie and not is_development_loopback:
+        if not self.secure_cookie and not is_local_loopback:
             raise ValueError("API_SETTINGS_INVALID")
         if type(self.local_config) is not dict or (
             self.dsn is not None and not isinstance(self.dsn, str)

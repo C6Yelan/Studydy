@@ -58,7 +58,7 @@ def settings(
         "concept_model_root": "fixed-concept-model",
     }
     return ApiSettings(
-        profile="development",
+        profile="local",
         public_origin="http://127.0.0.1:4173",
         secure_cookie=False,
         local_config=runtime_settings,
@@ -99,11 +99,43 @@ def test_api_settings_fail_closed_when_runtime_preflight_fails(
     monkeypatch.setattr(app_module, "formal_runtime_preflight", failed_preflight)
     with pytest.raises(ValueError, match="API_SETTINGS_INVALID"):
         ApiSettings(
-            profile="development",
+            profile="local",
             public_origin="http://127.0.0.1:4173",
             secure_cookie=False,
             local_config={"private_runtime_root": str(tmp_path)},
         )
+
+
+@pytest.mark.parametrize("profile", ["development", "production", "unknown"])
+def test_api_settings_reject_non_local_profiles(profile, monkeypatch):
+    monkeypatch.setattr(app_module, "formal_runtime_preflight", lambda _: {})
+    with pytest.raises(ValueError, match="API_SETTINGS_INVALID"):
+        ApiSettings(
+            profile=profile,
+            public_origin="http://127.0.0.1:4173",
+            secure_cookie=False,
+            local_config={},
+        )
+
+
+@pytest.mark.parametrize(
+    ("profile", "public_origin", "secure_cookie"),
+    [
+        ("local", "http://127.0.0.1:4173", False),
+        ("test", "https://studydy.test", True),
+    ],
+)
+def test_api_settings_accept_local_and_test_profiles(
+    profile, public_origin, secure_cookie, monkeypatch
+):
+    monkeypatch.setattr(app_module, "formal_runtime_preflight", lambda _: {})
+    settings = ApiSettings(
+        profile=profile,
+        public_origin=public_origin,
+        secure_cookie=secure_cookie,
+        local_config={},
+    )
+    assert settings.profile == profile
 
 
 def test_create_and_poll_v2_rejects_caller_page_subset(settings: ApiSettings):

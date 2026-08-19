@@ -458,10 +458,9 @@ def _backend_child() -> int:
     Path(artifact_root).mkdir(mode=0o700, parents=True, exist_ok=True)
     Path(runtime_root).mkdir(mode=0o700, parents=True, exist_ok=True)
     os.environ["STUDYDY_ARTIFACT_ROOT"] = artifact_root
-    import json
     import runtime.api.app as app_module
     import runtime.material_processing as processing_module
-    from runtime.local_app import create_local_app
+    from runtime.local_app import run_local_app
     from test_material_processing import _fake_successful_producer
 
     def deterministic_producer(request, settings, *, run_id, produced_at, runtime_binding_sha256):
@@ -475,30 +474,18 @@ def _backend_child() -> int:
 
     app_module.formal_runtime_preflight = processing_module.formal_runtime_binding
     processing_module.run_full_text_first_pdf = deterministic_producer
-    local_config = {
-        "private_runtime_root": runtime_root,
-        "runtime_lock": json.loads((REPOSITORY_ROOT / "local_ai" / "runtime-lock.json").read_text(encoding="utf-8")),
-        "python_executable": "fixed-python",
-        "site_packages": "fixed-site-packages",
-        "ocr_model_root": "fixed-ocr-model",
-        "concept_model_root": "fixed-concept-model",
+    os.environ["STUDYDY_DATABASE_DSN"] = database_dsn
+    local_environment = {
+        "STUDYDY_PROFILE": "local",
+        "STUDYDY_PUBLIC_ORIGIN": f"http://127.0.0.1:{FRONTEND_PORT}",
+        "STUDYDY_SECURE_COOKIE": "false",
+        "STUDYDY_PRIVATE_RUNTIME_ROOT": runtime_root,
+        "STUDYDY_LOCAL_AI_PYTHON": "fixed-python",
+        "STUDYDY_LOCAL_AI_SITE_PACKAGES": "fixed-site-packages",
+        "STUDYDY_OCR_MODEL_ROOT": "fixed-ocr-model",
+        "STUDYDY_CONCEPT_MODEL_ROOT": "fixed-concept-model",
     }
-    app = create_local_app(
-        profile="development",
-        public_origin=f"http://127.0.0.1:{FRONTEND_PORT}",
-        secure_cookie=False,
-        local_config=local_config,
-        dsn=database_dsn,
-    )
-    import uvicorn
-
-    uvicorn.run(
-        app,
-        host="127.0.0.1",
-        port=BACKEND_PORT,
-        log_config=None,
-        access_log=False,
-    )
+    run_local_app(environment=local_environment, port=BACKEND_PORT)
     return 0
 
 

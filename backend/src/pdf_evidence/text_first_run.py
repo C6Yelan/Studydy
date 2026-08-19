@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from threading import local
 import time
 from typing import Any
 from uuid import uuid4
@@ -60,6 +61,7 @@ _PAGE_EXCLUSION_REASONS = {
     "INVALID_EVIDENCE_REFERENCES",
     "DUPLICATE_EVIDENCE_REFERENCE",
 }
+_AGENT1_OWNERSHIP = local()
 
 
 def _now() -> str:
@@ -403,9 +405,11 @@ def _validate_request(request: Any) -> tuple[Path, list[int], str]:
 
 
 @contextmanager
-def _agent1_lock(runtime_root: Path):
+def _agent1_lock(runtime_root: Path, *, wait_seconds: float = 5):
     """跨 process 同時只允許一個本機 OCR/Qwen resident sequence。"""
 
+    if type(wait_seconds) not in {int, float} or wait_seconds < 0:
+        raise ValueError("RUNTIME_BINDING_INVALID")
     if runtime_root.is_symlink():
         raise ValueError("RUNTIME_BINDING_INVALID")
     runtime_root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -414,7 +418,7 @@ def _agent1_lock(runtime_root: Path):
         raise ValueError("RUNTIME_BINDING_INVALID")
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + wait_seconds
         while True:
             try:
                 fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -423,10 +427,24 @@ def _agent1_lock(runtime_root: Path):
                 if time.monotonic() >= deadline:
                     raise ValueError("RUNTIME_BUSY") from None
                 time.sleep(0.05)
-        yield
+        previous_root = getattr(_AGENT1_OWNERSHIP, "runtime_root", None)
+        _AGENT1_OWNERSHIP.runtime_root = runtime_root
+        try:
+            yield
+        finally:
+            if previous_root is None:
+                del _AGENT1_OWNERSHIP.runtime_root
+            else:
+                _AGENT1_OWNERSHIP.runtime_root = previous_root
     finally:
         fcntl.flock(descriptor, fcntl.LOCK_UN)
         os.close(descriptor)
+
+
+def _has_agent1_ownership(runtime_root: Path) -> bool:
+    """只在目前 thread 已實際取得相同 runtime lock 時回傳真。"""
+
+    return getattr(_AGENT1_OWNERSHIP, "runtime_root", None) == runtime_root
 
 
 def _excluded_page(
@@ -1035,16 +1053,21 @@ def run_full_text_first_pdf(
     resolved_binding_sha256 = runtime_binding_sha256 or canonical_sha256(
         settings.get("runtime_lock")
     )
+    def execute() -> dict[str, Any]:
+        return _run_text_first_pdf(
+            request,
+            settings,
+            whole_document=True,
+            requested_run_id=resolved_run_id,
+            requested_produced_at=resolved_produced_at,
+            requested_runtime_binding_sha256=resolved_binding_sha256,
+        )
+
     try:
+        if _has_agent1_ownership(root):
+            return execute()
         with _agent1_lock(root):
-            return _run_text_first_pdf(
-                request,
-                settings,
-                whole_document=True,
-                requested_run_id=resolved_run_id,
-                requested_produced_at=resolved_produced_at,
-                requested_runtime_binding_sha256=resolved_binding_sha256,
-            )
+            return execute()
     except ValueError as error:
         if _reason(error) != "RUNTIME_BUSY":
             raise
