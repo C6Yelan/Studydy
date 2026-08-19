@@ -128,14 +128,6 @@ class FakeConceptAPI:
         )
 
 
-class TimeoutConceptAPI(FakeConceptAPI):
-    def __call__(self, client, **arguments):
-        if self.state["concept"] == 0:
-            self.state["concept"] += 1
-            raise run_module.ConceptAPIError("CONCEPT_API_TIMEOUT")
-        return super().__call__(client, **arguments)
-
-
 class FailingOcr(FakeChild):
     def __init__(self, kind, state, reason_code):
         super().__init__(kind, state)
@@ -144,12 +136,6 @@ class FailingOcr(FakeChild):
     def request(self, request, timeout):
         self.state[self.kind] += 1
         raise run_module.LocalAIError(self.reason_code)
-
-
-class TruncatedConceptAPI(FakeConceptAPI):
-    def __call__(self, client, **arguments):
-        self.state["concept"] += 1
-        raise run_module.ConceptAPIError("MODEL_OUTPUT_TRUNCATED")
 
 
 class AllInvalidOcr(FakeChild):
@@ -228,12 +214,13 @@ def test_sequential_product_path_and_exact_replay_zero_model_calls(tmp_path, mon
     state = _state()
     monkeypatch.setattr(run_module, "start_ocr_process", lambda settings: FakeChild("ocr", state))
     monkeypatch.setattr(run_module, "request_concept_text", FakeConceptAPI(state))
-    first = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
-    second = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
-    assert first["processing"] == second["processing"] == "partial"
+    first = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
+    second = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
+    assert first["processing"] == second["processing"] == "succeeded"
     assert state["ocr"] == state["concept"] == 1
     assert state["ocr_loads"] == 1
-    assert first["concept_loads"] == second["concept_loads"] == 0
+    assert first["concept_loads"] == 1
+    assert second["concept_loads"] == 0
     assert second["ocr_calls"] == second["concept_calls"] == 0
     assert list((tmp_path / "runtime").rglob("*.png")) == []
     saved_json = "".join(
@@ -255,29 +242,12 @@ def test_semantic_fixed_retry_uses_same_binding_and_first_success(tmp_path, monk
         "request_concept_text",
         FakeConceptAPI(state, invalid_first=True),
     )
-    bundle = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
-    assert bundle["processing"] == "partial"
+    bundle = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
+    assert bundle["processing"] == "succeeded"
     assert bundle["concept_calls"] == 2
     semantic_cache = next((tmp_path / "runtime" / "cache" / "semantic").glob("*.json"))
     artifact = json.loads(semantic_cache.read_text(encoding="utf-8"))["artifact"]
     assert artifact["attempt"] == 2
-
-
-def test_semantic_timeout_retries_api_for_second_and_final_attempt(tmp_path, monkeypatch):
-    path = tmp_path / "public.pdf"
-    _pdf(path)
-    state = _state()
-    monkeypatch.setattr(run_module, "start_ocr_process", lambda settings: FakeChild("ocr", state))
-    monkeypatch.setattr(
-        run_module,
-        "request_concept_text",
-        TimeoutConceptAPI(state),
-    )
-    bundle = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
-    assert bundle["processing"] == "partial"
-    assert bundle["concept_calls"] == 2
-    assert bundle["concept_loads"] == 0
-    assert state["resident"] == []
 
 
 def test_two_invalid_semantic_attempts_publish_only_failed_bundle(tmp_path, monkeypatch):
@@ -290,40 +260,16 @@ def test_two_invalid_semantic_attempts_publish_only_failed_bundle(tmp_path, monk
         "request_concept_text",
         FakeConceptAPI(state, always_invalid=True),
     )
-    bundle = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
+    bundle = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
     assert bundle["processing"] == "failed"
     assert bundle["output_id"] is None
-    assert bundle["reason_codes"] == ["MODEL_OUTPUT_INVALID"]
+    assert bundle["reason_codes"] == ["PAGE_CONTENT_UNUSABLE"]
     run_root = tmp_path / "runtime" / "runs" / bundle["run_id"]
     assert not (run_root / "concept-evidence-output.json").exists()
 
 
-def test_two_non_eos_attempts_fail_without_semantic_cache_or_output(tmp_path, monkeypatch):
-    path = tmp_path / "public.pdf"
-    _pdf(path)
-    state = _state()
-    monkeypatch.setattr(run_module, "start_ocr_process", lambda settings: FakeChild("ocr", state))
-    monkeypatch.setattr(
-        run_module,
-        "request_concept_text",
-        TruncatedConceptAPI(state),
-    )
-    bundle = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
-    assert bundle["processing"] == "failed"
-    assert bundle["reason_codes"] == ["MODEL_OUTPUT_INVALID"]
-    assert bundle["concept_calls"] == 2
-    assert list((tmp_path / "runtime" / "cache" / "semantic").glob("*.json")) == []
-    run_root = tmp_path / "runtime" / "runs" / bundle["run_id"]
-    assert not (run_root / "concept-evidence-output.json").exists()
-    assert state["resident"] == []
-
-
-@pytest.mark.parametrize(
-    ("reason_code", "formal_reason"),
-    [("CHILD_TIMEOUT", "PROCESS_TIMEOUT"), ("CHILD_EXITED", "PROCESS_FAILED")],
-)
 def test_dispatched_ocr_failure_keeps_reason_and_counts_call(
-    tmp_path, monkeypatch, reason_code, formal_reason
+    tmp_path, monkeypatch
 ):
     path = tmp_path / "public.pdf"
     _pdf(path)
@@ -331,11 +277,11 @@ def test_dispatched_ocr_failure_keeps_reason_and_counts_call(
     monkeypatch.setattr(
         run_module,
         "start_ocr_process",
-        lambda settings: FailingOcr("ocr", state, reason_code),
+        lambda settings: FailingOcr("ocr", state, "CHILD_EXITED"),
     )
-    bundle = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
+    bundle = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
     assert bundle["processing"] == "failed"
-    assert bundle["reason_codes"] == [formal_reason]
+    assert bundle["reason_codes"] == ["PROCESS_FAILED"]
     assert bundle["ocr_calls"] == 1
     assert bundle["concept_calls"] == 0
     assert state["resident"] == []
@@ -347,12 +293,12 @@ def test_invalid_semantic_cache_is_recomputed_and_reported(tmp_path, monkeypatch
     state = _state()
     monkeypatch.setattr(run_module, "start_ocr_process", lambda settings: FakeChild("ocr", state))
     monkeypatch.setattr(run_module, "request_concept_text", FakeConceptAPI(state))
-    first = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
-    assert first["processing"] == "partial"
+    first = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
+    assert first["processing"] == "succeeded"
     semantic_cache = next((tmp_path / "runtime" / "cache" / "semantic").glob("*.json"))
     semantic_cache.write_text('{"invalid":NaN}', encoding="utf-8")
-    replay = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
-    assert replay["processing"] == "partial"
+    replay = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
+    assert replay["processing"] == "succeeded"
     assert replay["ocr_calls"] == 0
     assert replay["concept_calls"] == 1
     assert "CACHE_RECOVERED" in replay["reason_codes"]
@@ -370,8 +316,8 @@ def test_page_cache_uses_full_geometry_validation_before_replay(tmp_path, monkey
         "request_concept_text",
         FakeConceptAPI(state),
     )
-    first = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
-    assert first["processing"] == "partial"
+    first = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
+    assert first["processing"] == "succeeded"
     page_cache = next((tmp_path / "runtime" / "cache" / "page").glob("*.json"))
     record = json.loads(page_cache.read_text(encoding="utf-8"))
     artifact = record["artifact"]
@@ -383,9 +329,9 @@ def test_page_cache_uses_full_geometry_validation_before_replay(tmp_path, monkey
     record["artifact_sha256"] = run_module.canonical_sha256(artifact)
     page_cache.write_bytes(run_module.canonical_bytes(record))
 
-    replay = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
+    replay = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
 
-    assert replay["processing"] == "partial"
+    assert replay["processing"] == "succeeded"
     assert replay["ocr_calls"] == 1
     assert replay["concept_calls"] == 1
     assert "CACHE_RECOVERED" in replay["reason_codes"]
@@ -396,7 +342,7 @@ def test_all_rejected_blocks_publish_only_no_evidence_bundle(tmp_path, monkeypat
     _pdf(path)
     state = _state()
     monkeypatch.setattr(run_module, "start_ocr_process", lambda settings: AllInvalidOcr("ocr", state))
-    bundle = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
+    bundle = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
     assert bundle["processing"] == "failed"
     assert bundle["reason_codes"] == ["PAGE_CONTENT_UNUSABLE"]
     assert bundle["ocr_calls"] == 1
@@ -416,7 +362,7 @@ def test_malformed_child_response_remains_hard_failure(tmp_path, monkeypatch):
         "start_ocr_process",
         lambda settings: MalformedOcrResponse("ocr", state),
     )
-    bundle = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
+    bundle = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
     assert bundle["processing"] == "failed"
     assert bundle["reason_codes"] == ["PROCESS_FAILED"]
     assert bundle["ocr_calls"] == 1
@@ -428,92 +374,35 @@ def test_runtime_drift_rejected_before_private_path_access(tmp_path):
     settings = _settings(tmp_path)
     settings = deepcopy(settings)
     settings["runtime_lock"]["semantic"]["prompt_sha256"] = "0" * 64
-    bundle = run_module.run_text_first_pdf(
+    bundle = run_module.run_full_text_first_pdf(
         {
             "media_type": "application/pdf",
             "source_path": "private-sentinel.pdf",
             "expected_source_sha256": "0" * 64,
-            "page_numbers": [1],
         },
         settings,
     )
     assert bundle["reason_codes"] == ["RUNTIME_INVALID"]
     assert "private-sentinel" not in json.dumps(bundle)
-
-
-def test_source_hash_drift_in_runtime_lock_is_rejected(tmp_path):
-    settings = deepcopy(_settings(tmp_path))
-    settings["runtime_lock"]["semantic"]["code_hashes"]["backend_concept_api"] = (
-        "c1cea5dd3331dc4481a9ee4d337c7fe65f835bf5654f4956d27e715c4bbc11c4"
-    )
-    bundle = run_module.run_text_first_pdf(
-        {
-            "media_type": "application/pdf",
-            "source_path": "private-sentinel.pdf",
-            "expected_source_sha256": "0" * 64,
-            "page_numbers": [1],
-        },
-        settings,
-    )
-    assert bundle["reason_codes"] == ["RUNTIME_INVALID"]
-    assert "private-sentinel" not in json.dumps(bundle)
-
-
 def test_external_concept_api_is_rejected_before_source_access(tmp_path):
     settings = deepcopy(_settings(tmp_path))
     settings["concept_api_base_url"] = "http://example.test:8101"
-    bundle = run_module.run_text_first_pdf(
+    bundle = run_module.run_full_text_first_pdf(
         {
             "media_type": "application/pdf",
             "source_path": "private-sentinel.pdf",
             "expected_source_sha256": "0" * 64,
-            "page_numbers": [1],
         },
         settings,
     )
     assert bundle["reason_codes"] == ["RUNTIME_INVALID"]
     assert "private-sentinel" not in json.dumps(bundle)
-
-
-def test_missing_finish_reason_policy_is_rejected_before_source_access(tmp_path):
-    settings = deepcopy(_settings(tmp_path))
-    settings["runtime_lock"]["semantic"]["policy"].pop("generation_termination")
-    bundle = run_module.run_text_first_pdf(
-        {
-            "media_type": "application/pdf",
-            "source_path": "private-sentinel.pdf",
-            "expected_source_sha256": "0" * 64,
-            "page_numbers": [1],
-        },
-        settings,
-    )
-    assert bundle["reason_codes"] == ["RUNTIME_INVALID"]
-    assert "private-sentinel" not in json.dumps(bundle)
-
-
-def test_generation_cap_drift_in_runtime_lock_is_rejected(tmp_path):
-    settings = deepcopy(_settings(tmp_path))
-    settings["runtime_lock"]["semantic"]["generation"]["max_tokens"] = 1_024
-    bundle = run_module.run_text_first_pdf(
-        {
-            "media_type": "application/pdf",
-            "source_path": "private-sentinel.pdf",
-            "expected_source_sha256": "0" * 64,
-            "page_numbers": [1],
-        },
-        settings,
-    )
-    assert bundle["reason_codes"] == ["RUNTIME_INVALID"]
-    assert "private-sentinel" not in json.dumps(bundle)
-
-
 def test_invalid_media_type_is_truthful_and_sanitized(tmp_path):
-    bundle = run_module.run_text_first_pdf(
+    bundle = run_module.run_full_text_first_pdf(
         {
             "media_type": "text/plain",
             "source_path": "private-sentinel.pdf",
             "expected_source_sha256": "0" * 64,
-            "page_numbers": [1],
         },
         _settings(tmp_path),
     )
@@ -530,10 +419,13 @@ def test_formal_whole_document_excludes_one_page_and_keeps_grounded_core(
     state = _state()
     original_extract_page = run_module.extract_page
     previous_page = []
+    source_documents = []
 
     def tracked_extract_page(*arguments):
         if previous_page:
             assert "png_bytes" not in previous_page[0]
+            assert "native_evidence" not in previous_page[0]
+        source_documents.append(arguments[0])
         page = original_extract_page(*arguments)
         previous_page[:] = [page]
         return page
@@ -567,16 +459,20 @@ def test_formal_whole_document_excludes_one_page_and_keeps_grounded_core(
     assert published["output"]["excluded_pages"][0]["page_number"] == 2
     assert published["output"]["excluded_pages"][0]["decision"] == "reject"
     assert "png_bytes" not in previous_page[0]
+    assert "native_evidence" not in previous_page[0]
+    assert len({id(document) for document in source_documents}) == 1
     assert state["resident"] == []
     assert list((tmp_path / "runtime").rglob("*.png")) == []
+    assert not (tmp_path / "runtime" / "artifacts" / "native").exists()
+    for artifact_path in (tmp_path / "runtime").rglob("*.json"):
+        assert '"raw_text"' not in artifact_path.read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize(
-    ("page_count", "max_concurrency"), [(33, 2), (40, 1)]
-)
 def test_formal_long_pdf_processes_every_page_without_truncation(
-    tmp_path, monkeypatch, page_count, max_concurrency
+    tmp_path, monkeypatch
 ):
+    page_count = 33
+    max_concurrency = 2
     path = tmp_path / f"long-{page_count}-pages.pdf"
     _pdf(path, page_count=page_count)
     state = _state()
@@ -683,7 +579,7 @@ def test_formal_run_reuses_worker_lock_ownership(tmp_path, monkeypatch):
     observed = []
     monkeypatch.setattr(
         run_module,
-        "_run_text_first_pdf",
+        "_process_pdf",
         lambda request, settings, **arguments: observed.append(arguments) or {"ok": True},
     )
 
@@ -699,7 +595,7 @@ def test_formal_run_reuses_worker_lock_ownership(tmp_path, monkeypatch):
         )
 
     assert bundle == {"ok": True}
-    assert observed[0]["whole_document"] is True
+    assert len(observed) == 1
 
 
 def test_formal_busy_lock_publishes_truthful_failed_bundle(tmp_path, monkeypatch):

@@ -15,7 +15,7 @@ from .ocr_page_evidence import canonical_bytes, canonical_sha256
 OUTPUT_SCHEMA = "concept-evidence-output/v2"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
 MAX_ARTIFACT_FILE_BYTES = 16 * 1024 * 1024
-RUNTIME_LOCK_SHA256 = "12995c859a5719db05cdcad530cfaaa543b7a49b992276002a5f00037e7b0131"
+RUNTIME_LOCK_SHA256 = "61d23103325d2926492403b524b3781a64fabad74a2a2f0469d3da79814ad32e"
 
 
 def _closed(value: Any, fields: set[str]) -> bool:
@@ -64,9 +64,8 @@ def validate_page_evidence(
         or page["coordinate_space"] != "unrotated_pdf_points"
         or not isinstance(page["evidence_blocks"], list)
         or not isinstance(page["images"], list)
-        or len(page["images"]) > 256
-        or (page["processing"], page["quality"], page["decision"])
-        != ("partial", "needs_review", "review")
+        or page["processing"] not in {"succeeded", "partial"}
+        or (page["quality"], page["decision"]) != ("needs_review", "review")
         or not _reasons(
             page["reason_codes"],
             formal=formal_reasons,
@@ -211,8 +210,6 @@ def validate_output_document(output: Any) -> bool:
         )
         for page in pages
     ):
-        return False
-    if any(len(page["images"]) > 256 for page in pages):
         return False
     page_refs = {page["page_ref"]: page["page_number"] for page in pages}
     if len(page_refs) != len(pages) or len(set(page_refs.values())) != len(pages):

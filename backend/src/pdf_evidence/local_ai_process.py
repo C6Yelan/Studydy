@@ -1,15 +1,17 @@
-"""以 bounded anonymous pipes 啟動固定本機 AI child。"""
-
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 import json
 import subprocess
-from threading import Thread
 from typing import Any
 
 
-MAX_STDERR_BYTES = 1024 * 1024
+_OCR_ENVIRONMENT = {
+    "HF_HUB_DISABLE_PROGRESS_BARS": "1",
+    "HF_HUB_DISABLE_TELEMETRY": "1",
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1",
+}
 _OCR_BOOTSTRAP = (
     "import sys;sys.path.insert(0,sys.argv.pop(1));"
     "from studydy_local_ai.ocr_process import main;raise SystemExit(main())"
@@ -57,32 +59,39 @@ def _read_response(stream: Any, max_bytes: int) -> dict[str, Any]:
 
 
 class LocalAIProcess:
-    """管理單一 child 的 request、timeout、stderr discard 與終止。"""
+    """管理單一 child 的 request、timeout 與終止。"""
 
     def __init__(self, command: list[str], *, request_limit: int, response_limit: int) -> None:
         self._request_limit = request_limit
         self._response_limit = response_limit
-        self._stderr_bytes = 0
         self._is_closed = False
         try:
             self._process = subprocess.Popen(
                 command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=_OCR_ENVIRONMENT,
             )
         except OSError as error:
             raise LocalAIError("CHILD_EXITED") from error
-        self._stderr_thread = Thread(target=self._drain_stderr, daemon=True)
-        self._stderr_thread.start()
 
-    def _drain_stderr(self) -> None:
-        assert self._process.stderr is not None
-        while chunk := self._process.stderr.read(8192):
-            self._stderr_bytes += len(chunk)
-            if self._stderr_bytes > MAX_STDERR_BYTES:
-                self._process.kill()
-                return
+    def _exchange(self, encoded: bytes) -> dict[str, Any]:
+        assert self._process.stdin is not None and self._process.stdout is not None
+        try:
+            self._process.stdin.write(encoded + b"\n")
+            self._process.stdin.flush()
+        except (BrokenPipeError, OSError) as error:
+            raise LocalAIError("CHILD_EXITED") from error
+        return _read_response(self._process.stdout, self._response_limit)
+
+    def _close_streams(self) -> None:
+        for stream in (self._process.stdin, self._process.stdout):
+            try:
+                if stream is not None and not stream.closed:
+                    stream.close()
+            except OSError:
+                pass
 
     def request(self, request: dict[str, Any], timeout_seconds: float) -> dict[str, Any]:
         try:
@@ -99,14 +108,8 @@ class LocalAIProcess:
             raise LocalAIError("PROTOCOL_LIMIT_EXCEEDED")
         if self._process.poll() is not None:
             raise LocalAIError("CHILD_EXITED")
-        assert self._process.stdin is not None and self._process.stdout is not None
-        try:
-            self._process.stdin.write(encoded + b"\n")
-            self._process.stdin.flush()
-        except (BrokenPipeError, OSError) as error:
-            raise LocalAIError("CHILD_EXITED") from error
         with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_read_response, self._process.stdout, self._response_limit)
+            future = executor.submit(self._exchange, encoded)
             try:
                 return future.result(timeout=timeout_seconds)
             except FutureTimeout as error:
@@ -126,42 +129,34 @@ class LocalAIProcess:
                 self._process.kill()
                 self._process.wait()
                 raise LocalAIError("CHILD_TIMEOUT") from error
-            self._stderr_thread.join(timeout=5)
-            if self._stderr_bytes:
-                raise LocalAIError(
-                    "PROTOCOL_LIMIT_EXCEEDED"
-                    if self._stderr_bytes > MAX_STDERR_BYTES
-                    else "CHILD_RESPONSE_INVALID"
-                )
             if return_code != 0:
                 raise LocalAIError("CHILD_EXITED")
             assert self._process.stdout is not None
             if self._process.stdout.read(1):
                 raise LocalAIError("CHILD_RESPONSE_INVALID")
         finally:
-            for stream in (self._process.stdin, self._process.stdout, self._process.stderr):
-                if stream is not None and not stream.closed:
-                    stream.close()
+            self._close_streams()
 
     def abort(self) -> None:
         if self._is_closed:
             return
         self._is_closed = True
         try:
-            if self._process.poll() is None:
-                self._process.kill()
-            self._process.wait()
-            self._stderr_thread.join(timeout=5)
+            try:
+                if self._process.poll() is None:
+                    self._process.kill()
+                self._process.wait()
+            except OSError:
+                pass
         finally:
-            for stream in (self._process.stdin, self._process.stdout, self._process.stderr):
-                if stream is not None and not stream.closed:
-                    stream.close()
+            self._close_streams()
 
 
 def start_ocr_process(settings: dict[str, Any]) -> LocalAIProcess:
     return LocalAIProcess(
         [
             settings["python_executable"],
+            "-I",
             "-c",
             _OCR_BOOTSTRAP,
             settings["site_packages"],

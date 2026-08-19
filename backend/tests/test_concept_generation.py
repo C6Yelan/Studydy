@@ -47,19 +47,12 @@ def test_exact_request_preserves_identity_text_and_locator():
     assert build_semantic_request(page) == _request()
 
 
-def test_single_trailing_ascii_quote_is_only_sanitation():
-    model_text = json.dumps(_output(), ensure_ascii=False, separators=(",", ":")) + '"'
-    artifact = _validate(model_text)
-    assert len(artifact["concepts"]) == 1
-    assert artifact["concepts"][0]["decision"] == "review"
-    assert "TRAILING_QUOTE_REMOVED" in artifact["reason_codes"]
-
-
 @pytest.mark.parametrize(
     "model_text",
     [
         '```json\n{"concepts":[]}\n```',
         'prefix{"concepts":[]}',
+        '{"concepts":[]}"',
         '{"concepts":[]}}',
         '{"concepts":[]}""',
         '{"concepts":',
@@ -92,6 +85,8 @@ def test_cross_concept_evidence_reuse_and_no_lexical_decision():
     artifact = _validate(json.dumps(output, separators=(",", ":")))
     assert len(artifact["concepts"]) == 2
     assert all(concept["decision"] == "review" for concept in artifact["concepts"])
+    assert all(concept["processing"] == "succeeded" for concept in artifact["concepts"])
+    assert artifact["processing"] == "succeeded"
 
 
 def test_per_concept_invalid_candidate_is_rejected_without_losing_valid_candidate():
@@ -107,6 +102,7 @@ def test_per_concept_invalid_candidate_is_rejected_without_losing_valid_candidat
     artifact = _validate(json.dumps(output, separators=(",", ":")))
     assert len(artifact["concepts"]) == 1
     assert artifact["rejected_candidates"][0]["reason_codes"] == ["UNKNOWN_EVIDENCE_ID"]
+    assert artifact["processing"] == "partial"
 
 
 def test_model_status_or_locator_fields_are_not_trusted():

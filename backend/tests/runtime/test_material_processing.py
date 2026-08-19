@@ -120,55 +120,56 @@ def _fake_successful_producer(
 ):
     source_path = Path(request["source_path"])
     source_sha256 = request["expected_source_sha256"]
-    with pymupdf.open(source_path) as document:
-        page_count = document.page_count
     pages = []
     semantic_pages = []
-    for page_number in range(1, page_count + 1):
-        raw_page = extract_page(source_path, source_sha256, page_number)
-        page = build_page_evidence(
-            raw_page,
-            [
-                {
-                    "type": "text",
-                    "text": f"Public evidence {page_number}",
-                    "bbox": [100, 100, 900, 300],
-                }
-            ],
-            input_binding={
-                "source_sha256": source_sha256,
-                "page_number": page_number,
-                "render_sha256": raw_page["render"]["sha256"],
-                "page": settings["runtime_lock"]["page"],
-                "ocr": settings["runtime_lock"]["ocr"],
-            },
-            produced_at=produced_at,
-        )
-        raw_page.pop("png_bytes", None)
-        semantic_request = build_semantic_request(page)
-        semantic = validate_concepts(
-            json.dumps(
-                {
-                    "concepts": [
-                        {
-                            "label": f"Public concept {page_number}",
-                            "definition": "Public definition",
-                            "key_points": ["Public point"],
-                            "evidence_ids": [
-                                semantic_request["evidence"][0]["evidence_id"]
-                            ],
-                        }
-                    ]
+    with pymupdf.open(source_path) as document:
+        page_count = document.page_count
+        for page_number in range(1, page_count + 1):
+            raw_page = extract_page(document, source_sha256, page_number)
+            page = build_page_evidence(
+                raw_page,
+                [
+                    {
+                        "type": "text",
+                        "text": f"Public evidence {page_number}",
+                        "bbox": [100, 100, 900, 300],
+                    }
+                ],
+                input_binding={
+                    "source_sha256": source_sha256,
+                    "page_number": page_number,
+                    "render_sha256": raw_page["render"]["sha256"],
+                    "page": settings["runtime_lock"]["page"],
+                    "ocr": settings["runtime_lock"]["ocr"],
                 },
-                separators=(",", ":"),
-            ),
-            semantic_request=semantic_request,
-            page_ref=page["page_ref"],
-            input_binding={"semantic": "fixed"},
-            attempt=1,
-        )
-        pages.append(page)
-        semantic_pages.append(semantic)
+                produced_at=produced_at,
+            )
+            raw_page.pop("png_bytes", None)
+            raw_page.pop("native_evidence", None)
+            semantic_request = build_semantic_request(page)
+            semantic = validate_concepts(
+                json.dumps(
+                    {
+                        "concepts": [
+                            {
+                                "label": f"Public concept {page_number}",
+                                "definition": "Public definition",
+                                "key_points": ["Public point"],
+                                "evidence_ids": [
+                                    semantic_request["evidence"][0]["evidence_id"]
+                                ],
+                            }
+                        ]
+                    },
+                    separators=(",", ":"),
+                ),
+                semantic_request=semantic_request,
+                page_ref=page["page_ref"],
+                input_binding={"semantic": "fixed"},
+                attempt=1,
+            )
+            pages.append(page)
+            semantic_pages.append(semantic)
     output = build_output(
         run_id=run_id,
         produced_at=produced_at,

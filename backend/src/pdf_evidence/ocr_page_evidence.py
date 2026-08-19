@@ -1,11 +1,8 @@
-"""把 PyMuPDF 200-DPI page identity 與 strict OCR blocks 組成 Page Evidence。"""
-
 from __future__ import annotations
 
 import hashlib
 import json
 import math
-from pathlib import Path
 import re
 from typing import Any
 import unicodedata
@@ -16,8 +13,8 @@ import pymupdf
 PAGE_SCHEMA = "page-evidence/v2"
 NATIVE_SCHEMA = "page-native/v2"
 RENDER_POLICY = "pymupdf-rgb-200dpi/v1"
-PROCESSING_POLICY = "p02-fixed-unlimited-text-first/v1"
-NORMALIZER_POLICY = "p02-nfkc-whitespace/v1"
+PROCESSING_POLICY = "unlimited-ocr-page-evidence/v1"
+NORMALIZER_POLICY = "ocr-text-nfkc-whitespace/v1"
 _OCR_TYPE = re.compile(r"[A-Za-z_][\w-]{0,63}")
 
 
@@ -65,74 +62,72 @@ def _json_value(value: Any) -> Any:
     raise ValueError("OCR_LOCATOR_INVALID")
 
 
-def extract_page(source_path: Path, source_sha256: str, page_number: int) -> dict[str, Any]:
+def extract_page(
+    document: pymupdf.Document, source_sha256: str, page_number: int
+) -> dict[str, Any]:
     """在記憶體建立 200-DPI RGB PNG 與 native evidence。"""
-    document = pymupdf.open(source_path)
-    try:
-        page = document.load_page(page_number - 1)
-        if page.number + 1 != page_number:
-            raise ValueError("OCR_LOCATOR_INVALID")
-        visible = page.rect
-        if visible.width <= 0 or visible.height <= 0 or page.rotation not in (0, 90, 180, 270):
-            raise ValueError("OCR_LOCATOR_INVALID")
-        raw_text = _json_value(page.get_text("rawdict", sort=False))
-        images = _json_value(page.get_image_info(hashes=True, xrefs=True))
-        drawings = _json_value(page.get_drawings())
-        pixmap = page.get_pixmap(dpi=200, colorspace=pymupdf.csRGB, alpha=False)
-        png_bytes = pixmap.tobytes("png")
-        if (
-            pixmap.width * pixmap.height > 50_000_000
-            or max(pixmap.width, pixmap.height) > 32_768
-            or len(png_bytes) > 64 * 1024 * 1024
-            or not png_bytes.startswith(b"\x89PNG\r\n\x1a\n")
-        ):
-            raise ValueError("PROTOCOL_LIMIT_EXCEEDED")
-        material_id = f"material:sha256:{source_sha256}"
-        material_revision = _ref("material-revision", {"source_sha256": source_sha256})
-        page_ref = _ref("page", {"source_sha256": source_sha256, "page_number": page_number})
-        section_id = _ref("section", {"page_ref": page_ref})
-        native_evidence = {
-            "schema": NATIVE_SCHEMA,
-            "material_id": material_id,
-            "material_revision": material_revision,
-            "section_id": section_id,
-            "page_ref": page_ref,
-            "page_number": page_number,
-            "raw_text": raw_text,
-            "images": images,
-            "drawings": drawings,
-        }
-        return {
-            "material_id": material_id,
-            "material_revision": material_revision,
-            "section_id": section_id,
-            "page_ref": page_ref,
-            "page_number": page_number,
-            "geometry": {
-                "visible_points": _box(visible),
-                "unrotated_points": _box(visible * page.derotation_matrix),
-                "rotation_degrees": page.rotation,
-                "derotation_matrix": [float(number) for number in page.derotation_matrix],
-            },
-            "native_evidence_ref": _ref("native-evidence", native_evidence),
-            "native_evidence": native_evidence,
-            "images": images,
-            "png_bytes": png_bytes,
-            "render": {
-                "schema": "page-render/v1",
-                "policy": RENDER_POLICY,
-                "dpi": 200,
-                "colorspace": "RGB",
-                "format": "PNG",
-                "coverage": "full_visible_page",
-                "pymupdf_version": pymupdf.__version__,
-                "width": pixmap.width,
-                "height": pixmap.height,
-                "sha256": hashlib.sha256(png_bytes).hexdigest(),
-            },
-        }
-    finally:
-        document.close()
+    page = document.load_page(page_number - 1)
+    if page.number + 1 != page_number:
+        raise ValueError("OCR_LOCATOR_INVALID")
+    visible = page.rect
+    if visible.width <= 0 or visible.height <= 0 or page.rotation not in (0, 90, 180, 270):
+        raise ValueError("OCR_LOCATOR_INVALID")
+    raw_text = _json_value(page.get_text("rawdict", sort=False))
+    images = _json_value(page.get_image_info(hashes=True, xrefs=True))
+    drawings = _json_value(page.get_drawings())
+    pixmap = page.get_pixmap(dpi=200, colorspace=pymupdf.csRGB, alpha=False)
+    png_bytes = pixmap.tobytes("png")
+    if (
+        pixmap.width * pixmap.height > 50_000_000
+        or max(pixmap.width, pixmap.height) > 32_768
+        or len(png_bytes) > 64 * 1024 * 1024
+        or not png_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+    ):
+        raise ValueError("PROTOCOL_LIMIT_EXCEEDED")
+    material_id = f"material:sha256:{source_sha256}"
+    material_revision = _ref("material-revision", {"source_sha256": source_sha256})
+    page_ref = _ref("page", {"source_sha256": source_sha256, "page_number": page_number})
+    section_id = _ref("section", {"page_ref": page_ref})
+    native_evidence = {
+        "schema": NATIVE_SCHEMA,
+        "material_id": material_id,
+        "material_revision": material_revision,
+        "section_id": section_id,
+        "page_ref": page_ref,
+        "page_number": page_number,
+        "raw_text": raw_text,
+        "images": images,
+        "drawings": drawings,
+    }
+    return {
+        "material_id": material_id,
+        "material_revision": material_revision,
+        "section_id": section_id,
+        "page_ref": page_ref,
+        "page_number": page_number,
+        "geometry": {
+            "visible_points": _box(visible),
+            "unrotated_points": _box(visible * page.derotation_matrix),
+            "rotation_degrees": page.rotation,
+            "derotation_matrix": [float(number) for number in page.derotation_matrix],
+        },
+        "native_evidence_ref": _ref("native-evidence", native_evidence),
+        "native_evidence": native_evidence,
+        "images": images,
+        "png_bytes": png_bytes,
+        "render": {
+            "schema": "page-render/v1",
+            "policy": RENDER_POLICY,
+            "dpi": 200,
+            "colorspace": "RGB",
+            "format": "PNG",
+            "coverage": "full_visible_page",
+            "pymupdf_version": pymupdf.__version__,
+            "width": pixmap.width,
+            "height": pixmap.height,
+            "sha256": hashlib.sha256(png_bytes).hexdigest(),
+        },
+    }
 
 
 def _normalized_text(value: Any) -> str:
@@ -272,14 +267,21 @@ def build_page_evidence(
     if not evidence_blocks:
         raise ValueError("NO_USABLE_EVIDENCE")
     image_artifacts: list[dict[str, Any]] = []
-    for ordinal, image in enumerate(page["images"][:256]):
+    has_rejected_image = False
+    for ordinal, image in enumerate(page["images"]):
         bbox = image.get("bbox") if isinstance(image, dict) else None
         if not isinstance(bbox, list) or len(bbox) != 4:
+            has_rejected_image = True
             continue
-        region = [float(number) for number in bbox]
+        try:
+            region = [float(number) for number in bbox]
+        except (TypeError, ValueError):
+            has_rejected_image = True
+            continue
         if any(not math.isfinite(number) for number in region) or not (
             region[0] < region[2] and region[1] < region[3]
         ):
+            has_rejected_image = True
             continue
         captions = [
             block["evidence_id"]
@@ -303,7 +305,7 @@ def build_page_evidence(
             }
         )
     reasons = ["PAGE_CONTENT_REVIEW_REQUIRED"]
-    if has_rejected_block:
+    if has_rejected_block or has_rejected_image:
         reasons.append("OCR_OUTPUT_INVALID")
     artifact = {
         "schema": PAGE_SCHEMA,
@@ -322,7 +324,7 @@ def build_page_evidence(
         "processing_policy": PROCESSING_POLICY,
         "normalizer_policy": NORMALIZER_POLICY,
         "produced_at": produced_at,
-        "processing": "partial",
+        "processing": "partial" if has_rejected_block or has_rejected_image else "succeeded",
         "quality": "needs_review",
         "decision": "review",
         "reason_codes": reasons,
@@ -331,7 +333,3 @@ def build_page_evidence(
     if len(canonical_bytes(artifact)) > 4 * 1024 * 1024:
         raise ValueError("PROTOCOL_LIMIT_EXCEEDED")
     return artifact
-
-
-def page_cache_key(input_binding: dict[str, Any]) -> str:
-    return canonical_sha256(input_binding)

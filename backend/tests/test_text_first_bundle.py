@@ -2,6 +2,7 @@ from copy import deepcopy
 
 import pytest
 
+import pdf_evidence.text_first_bundle as bundle_module
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.text_first_bundle import (
     build_producer_bundle,
@@ -10,9 +11,8 @@ from pdf_evidence.text_first_bundle import (
 from test_study_material_output import producer_output
 
 
-def test_bundle_documents_are_closed_after_all_identities_are_recomputed():
-    output = producer_output()
-    bundle = build_producer_bundle(
+def _success_bundle(output):
+    return build_producer_bundle(
         run_id=output["run_id"],
         produced_at=output["produced_at"],
         output=output,
@@ -25,6 +25,25 @@ def test_bundle_documents_are_closed_after_all_identities_are_recomputed():
         concept_loads=1,
         page_count=1,
     )
+
+
+def _failed_bundle(output):
+    return build_producer_bundle(
+        run_id=output["run_id"],
+        produced_at=output["produced_at"],
+        output=None,
+        runtime_binding_sha256="a" * 64,
+        reasons=["INTERNAL_FAILURE"],
+        duration_ms=1,
+        ocr_calls=0,
+        concept_calls=0,
+        page_count=1,
+    )
+
+
+def test_bundle_documents_are_closed_after_all_identities_are_recomputed():
+    output = producer_output()
+    bundle = _success_bundle(output)
     assert bundle["schema"] == "text-first-producer-bundle/v2"
     assert validate_bundle_documents(bundle, output, output["run_id"])
     changed = deepcopy(bundle)
@@ -42,18 +61,76 @@ def test_bundle_documents_are_closed_after_all_identities_are_recomputed():
 )
 def test_bundle_binds_output_identity_hash_and_size(field, value):
     output = producer_output()
-    bundle = build_producer_bundle(
-        run_id=output["run_id"],
-        produced_at=output["produced_at"],
-        output=output,
-        runtime_binding_sha256="a" * 64,
-        reasons=output["reason_codes"],
-        duration_ms=1,
-        ocr_calls=1,
-        concept_calls=1,
-        page_count=1,
-    )
+    bundle = _success_bundle(output)
     bundle[field] = value
+    identity = dict(bundle)
+    identity.pop("bundle_id")
+    bundle["bundle_id"] = (
+        "text-first-producer-bundle:sha256:" + canonical_sha256(identity)
+    )
+
+    assert not validate_bundle_documents(bundle, output, output["run_id"])
+
+
+def test_atomic_publish_writes_exact_files_and_rejects_collision(tmp_path):
+    output = producer_output()
+    bundle = _success_bundle(output)
+    destination = bundle_module.publish_run(tmp_path, bundle, output)
+
+    assert {item.name for item in destination.iterdir()} == {
+        "concept-evidence-output.json",
+        "producer-bundle.json",
+    }
+    with pytest.raises(FileExistsError):
+        bundle_module.publish_run(tmp_path, bundle, output)
+
+
+def test_publish_write_failures_never_leave_a_run(tmp_path, monkeypatch):
+    output = producer_output()
+    cases = [
+        (_success_bundle(output), output, "FINAL_OUTPUT_WRITE_FAILED"),
+        (_failed_bundle(output), None, "PRODUCER_BUNDLE_WRITE_FAILED"),
+    ]
+    monkeypatch.setattr(
+        bundle_module,
+        "_write_new",
+        lambda path, encoded: (_ for _ in ()).throw(OSError()),
+    )
+
+    for index, (bundle, published_output, reason) in enumerate(cases):
+        runtime_root = tmp_path / str(index)
+        with pytest.raises(OSError, match=reason):
+            bundle_module.publish_run(runtime_root, bundle, published_output)
+        assert not (runtime_root / "runs" / output["run_id"]).exists()
+
+
+def test_verified_reader_rejects_tamper_symlink_and_traversal(tmp_path):
+    output = producer_output()
+    bundle = _failed_bundle(output)
+    destination = bundle_module.publish_run(tmp_path, bundle, None)
+    assert bundle_module.read_producer_bundle(tmp_path, output["run_id"])[
+        "bundle"
+    ] == bundle
+
+    bundle_path = destination / "producer-bundle.json"
+    bundle_path.write_text('{"tampered":true}', encoding="utf-8")
+    with pytest.raises(ValueError, match="PRODUCER_BUNDLE_INVALID"):
+        bundle_module.read_producer_bundle(tmp_path, output["run_id"])
+
+    bundle_path.unlink()
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}", encoding="utf-8")
+    bundle_path.symlink_to(outside)
+    with pytest.raises(ValueError, match="PRODUCER_BUNDLE_INVALID"):
+        bundle_module.read_producer_bundle(tmp_path, output["run_id"])
+    with pytest.raises(ValueError, match="PRODUCER_BUNDLE_INVALID"):
+        bundle_module.read_producer_bundle(tmp_path, "../run-one")
+
+
+def test_bundle_rejects_detailed_reason_code():
+    output = producer_output()
+    bundle = _success_bundle(output)
+    bundle["reason_codes"] = ["SEMANTIC_REVIEW_REQUIRED"]
     identity = dict(bundle)
     identity.pop("bundle_id")
     bundle["bundle_id"] = (

@@ -17,11 +17,20 @@ def _pdf(path: Path, *, rotated=False):
     document.close()
 
 
+def _extract(path: Path):
+    source_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+    with pymupdf.open(path) as document:
+        return extract_page(document, source_sha256, 1)
+
+
 def test_200dpi_rgb_page_identity_and_ocr_locator(tmp_path):
     path = tmp_path / "public.pdf"
     _pdf(path)
-    source_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
-    page = extract_page(path, source_sha256, 1)
+    page = _extract(path)
+    page["images"] = [
+        {"bbox": [0.0, 0.0, 1.0, 1.0], "digest": f"{ordinal:064x}"}
+        for ordinal in range(257)
+    ]
     assert page["render"]["dpi"] == 200
     assert page["render"]["colorspace"] == "RGB"
     assert (page["render"]["width"], page["render"]["height"]) == (400, 600)
@@ -33,11 +42,12 @@ def test_200dpi_rgb_page_identity_and_ocr_locator(tmp_path):
     )
     block = artifact["evidence_blocks"][0]
     assert artifact["schema"] == "page-evidence/v2"
-    assert artifact["processing"] == "partial"
+    assert artifact["processing"] == "succeeded"
     assert artifact["decision"] == "review"
     assert block["locator"]["page"] == 1
     assert block["render_region"] == [40.0, 60.0, 360.0, 180.0]
     assert block["source"] == "unlimited_ocr"
+    assert len(artifact["images"]) == 257
     assert "png_bytes" not in artifact
     assert artifact["reason_codes"] == ["PAGE_CONTENT_REVIEW_REQUIRED"]
 
@@ -45,7 +55,7 @@ def test_200dpi_rgb_page_identity_and_ocr_locator(tmp_path):
 def test_rotated_page_locator_stays_on_same_one_based_page(tmp_path):
     path = tmp_path / "rotated.pdf"
     _pdf(path, rotated=True)
-    page = extract_page(path, hashlib.sha256(path.read_bytes()).hexdigest(), 1)
+    page = _extract(path)
     artifact = build_page_evidence(
         page,
         [{"type": "title", "text": "Public title", "bbox": [100, 100, 900, 300]}],
@@ -54,13 +64,14 @@ def test_rotated_page_locator_stays_on_same_one_based_page(tmp_path):
     )
     region = artifact["evidence_blocks"][0]["locator"]["region"]
     assert artifact["page_number"] == 1
-    assert region[0] < region[2] and region[1] < region[3]
+    assert region == pytest.approx([14.4, 21.6, 43.2, 194.4])
 
 
 def test_blank_and_image_only_blocks_are_rejected_but_text_page_remains(tmp_path):
     path = tmp_path / "public.pdf"
     _pdf(path)
-    page = extract_page(path, hashlib.sha256(path.read_bytes()).hexdigest(), 1)
+    page = _extract(path)
+    page["images"] = [{"bbox": "invalid"}]
     artifact = build_page_evidence(
         page,
         [
@@ -75,13 +86,14 @@ def test_blank_and_image_only_blocks_are_rejected_but_text_page_remains(tmp_path
     assert artifact["processing"] == "partial"
     assert artifact["quality"] == "needs_review"
     assert artifact["decision"] == "review"
+    assert artifact["images"] == []
     assert artifact["reason_codes"] == ["PAGE_CONTENT_REVIEW_REQUIRED", "OCR_OUTPUT_INVALID"]
 
 
 def test_unsafe_locator_is_rejected_without_publishing_its_evidence(tmp_path):
     path = tmp_path / "public.pdf"
     _pdf(path)
-    page = extract_page(path, hashlib.sha256(path.read_bytes()).hexdigest(), 1)
+    page = _extract(path)
     artifact = build_page_evidence(
         page,
         [
@@ -110,7 +122,7 @@ def test_unsafe_locator_is_rejected_without_publishing_its_evidence(tmp_path):
 def test_all_unusable_blocks_fail_without_page_artifact(tmp_path, blocks):
     path = tmp_path / "public.pdf"
     _pdf(path)
-    page = extract_page(path, hashlib.sha256(path.read_bytes()).hexdigest(), 1)
+    page = _extract(path)
     with pytest.raises(ValueError, match="NO_USABLE_EVIDENCE"):
         build_page_evidence(page, blocks, input_binding={}, produced_at="x")
 
@@ -118,7 +130,7 @@ def test_all_unusable_blocks_fail_without_page_artifact(tmp_path, blocks):
 def test_wrong_page_identity_and_malformed_child_block_still_fail_hard(tmp_path):
     path = tmp_path / "public.pdf"
     _pdf(path)
-    page = extract_page(path, hashlib.sha256(path.read_bytes()).hexdigest(), 1)
+    page = _extract(path)
     page["page_number"] = 2
     with pytest.raises(ValueError, match="OCR_LOCATOR_INVALID"):
         build_page_evidence(

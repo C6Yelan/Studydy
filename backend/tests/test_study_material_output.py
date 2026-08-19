@@ -69,8 +69,8 @@ def producer_output(*, excluded_page: bool = False):
                 "nearby_evidence_ids": [],
             }
         ],
-        "processing_policy": "p02-fixed-unlimited-text-first/v1",
-        "normalizer_policy": "p02-nfkc-whitespace/v1",
+        "processing_policy": "unlimited-ocr-page-evidence/v1",
+        "normalizer_policy": "ocr-text-nfkc-whitespace/v1",
         "produced_at": "2026-08-19T00:00:00Z",
         "processing": "partial",
         "quality": "needs_review",

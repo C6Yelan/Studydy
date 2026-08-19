@@ -1,5 +1,5 @@
 {
-  "schema": "semantic-qualification-input/v1",
+  "schema": "concept-generation-input/v1",
   "material_id": "material-alpha",
   "material_revision": "revision-one",
   "section_id": "section-light",

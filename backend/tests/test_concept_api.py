@@ -17,7 +17,7 @@ from pdf_evidence.concept_generation import PROMPT_TEMPLATE
 
 def _semantic_request():
     return {
-        "schema": "semantic-qualification-input/v1",
+        "schema": "concept-generation-input/v1",
         "material_id": "material-public",
         "material_revision": "revision-public",
         "section_id": "section-public",
@@ -149,7 +149,7 @@ def test_chat_completion_uses_exact_loopback_request_and_returns_content():
                 "content": f"{PROMPT_TEMPLATE}\nINPUT:\n"
                 '{"evidence":[],"material_id":"material-public",'
                 '"material_revision":"revision-public",'
-                '"schema":"semantic-qualification-input/v1",'
+                '"schema":"concept-generation-input/v1",'
                 '"section_id":"section-public"}',
             }
         ],

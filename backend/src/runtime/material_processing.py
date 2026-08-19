@@ -59,11 +59,11 @@ _CONFIG_PATH_KEYS = {
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "ef47c486e1680c49d6060b5aadc17a8ec23af807d091ad4a77c6413dd53c366e",
-    "backend/src/pdf_evidence/ocr_page_evidence.py": "464dd905c89675ec57775e0d6170416f4702f18407d7e06dce95d054d7769f03",
-    "backend/src/pdf_evidence/concept_generation.py": "1a3ba77a2aca9238b41e0d82079792a0d51067f04bd27c49f1f07a89ba17bce1",
+    "local_ai/runtime-lock.json": "f5ca484e6ceba2df1bb3c7f017d45808e3d5dd99dcaee04cd78fe7223961f71b",
+    "backend/src/pdf_evidence/ocr_page_evidence.py": "cad3a5f3df5a4117c849e85fd06dc2e027f7472ebc7660583536d5a4216005a7",
+    "backend/src/pdf_evidence/concept_generation.py": "ee5a37df2a2308818a6706911ed2917881297a6498fc28ec7dbd6e08bf7a3410",
     "backend/src/pdf_evidence/concept_api.py": "ecfc16da63825d093c0d1b269b8cba41de203dda105730d6ce8699606d8df609",
-    "backend/src/pdf_evidence/local_ai_process.py": "5a4396631eb82426ae60d809a63d5245ff88777d762a5365ace98e602f25182b",
+    "backend/src/pdf_evidence/local_ai_process.py": "72e5c4a15ee078e94e985a998944bc08175382f14e84eb3f0a417025bc2b723f",
 }
 _BINDING_FILES = (
     "backend/src/pdf_evidence/artifact_reason_codes.py",
