@@ -1,12 +1,16 @@
 import json
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
 
+import pdf_evidence.concept_api as concept_api_module
 from pdf_evidence.concept_api import (
     ConceptAPIError,
     chat_completions_url,
     request_concept_text,
+    start_concept_server,
 )
 from pdf_evidence.concept_generation import PROMPT_TEMPLATE
 
@@ -19,6 +23,73 @@ def _semantic_request():
         "section_id": "section-public",
         "evidence": [],
     }
+
+
+def _server_settings():
+    return {
+        "concept_api_base_url": "http://127.0.0.1:8101",
+        "concept_model": "Qwen/Qwen3-4B-Instruct-2507",
+        "concept_kv_cache_bytes": 2_147_483_648,
+        "concept_max_concurrency": 2,
+    }
+
+
+def test_owned_vllm_server_uses_fixed_bounded_command_and_cleans_up(monkeypatch):
+    process = MagicMock(pid=1234)
+    process.poll.return_value = None
+    health = MagicMock()
+    health.__enter__.return_value = health
+    health.get.return_value = SimpleNamespace(status_code=200)
+    popen = MagicMock(return_value=process)
+    killpg = MagicMock()
+    monkeypatch.setattr(concept_api_module.subprocess, "Popen", popen)
+    monkeypatch.setattr(concept_api_module.httpx, "Client", lambda **_: health)
+    monkeypatch.setattr(concept_api_module.os, "killpg", killpg)
+
+    server = start_concept_server(_server_settings())
+    server.close()
+    server.close()
+
+    expected_command = (
+        "vllm serve Qwen/Qwen3-4B-Instruct-2507 --host 127.0.0.1 --port 8101 "
+        "--kv-cache-memory-bytes 2147483648 --max-num-seqs 2 --disable-log-requests"
+    ).split()
+    assert popen.call_args.args[0] == expected_command
+    process_options = popen.call_args.kwargs
+    assert process_options.pop("start_new_session") is True
+    assert set(process_options.values()) == {concept_api_module.subprocess.DEVNULL}
+    health.get.assert_called_once_with("http://127.0.0.1:8101/health", timeout=1)
+    killpg.assert_called_once_with(1234, concept_api_module.signal.SIGTERM)
+    process.wait.assert_called_once_with(timeout=30)
+
+
+@pytest.mark.parametrize(
+    ("process_return_code", "health_error", "moments", "reason_code"),
+    [
+        (7, None, [0.0], "CONCEPT_API_UNAVAILABLE"),
+        (None, httpx.ConnectError("public unavailable"), [0.0, 301.0], "CONCEPT_API_TIMEOUT"),
+    ],
+)
+def test_owned_vllm_server_start_failures_always_cleanup(
+    monkeypatch, process_return_code, health_error, moments, reason_code
+):
+    process = MagicMock(pid=1234)
+    process.poll.return_value = process_return_code
+    health = MagicMock()
+    health.__enter__.return_value = health
+    health.get.side_effect = health_error
+    killpg = MagicMock()
+    monkeypatch.setattr(concept_api_module.subprocess, "Popen", lambda *_, **__: process)
+    monkeypatch.setattr(concept_api_module.httpx, "Client", lambda **_: health)
+    monkeypatch.setattr(concept_api_module.time, "monotonic", lambda: moments.pop(0))
+    monkeypatch.setattr(concept_api_module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(concept_api_module.os, "killpg", killpg)
+
+    with pytest.raises(ConceptAPIError, match=reason_code):
+        start_concept_server(_server_settings())
+
+    killpg.assert_called_once()
+    process.wait.assert_called_once_with(timeout=30)
 
 
 def test_chat_completion_uses_exact_loopback_request_and_returns_content():

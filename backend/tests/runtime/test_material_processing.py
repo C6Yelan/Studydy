@@ -79,6 +79,8 @@ def _settings(tmp_path: Path) -> dict:
         "ocr_model_root": "fixed-ocr-model",
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": "Qwen/Qwen3-4B-Instruct-2507",
+        "concept_kv_cache_bytes": 2_147_483_648,
+        "concept_max_concurrency": 2,
     }
 
 
@@ -323,6 +325,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
         "resident_lock": 5,
         "ocr_page": 120,
         "concept_attempt": 300,
+        "concept_server_ready": 300,
     }
     assert binding["retry_policy"]["concept_attempts"] == 2
     encoded = json.dumps(binding)
@@ -332,6 +335,8 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
         "base_url": "http://127.0.0.1:8101",
         "model": "Qwen/Qwen3-4B-Instruct-2507",
         "protocol": "openai-chat-completions/v1",
+        "kv_cache_bytes": 2_147_483_648,
+        "max_concurrency": 2,
     }
     assert len(binding["code_hashes"]) == 11
     assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
@@ -339,6 +344,8 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     for changed in (
         {**settings, "concept_api_base_url": "http://example.test:8101"},
         {**settings, "concept_model": "different-model"},
+        {**settings, "concept_kv_cache_bytes": 0},
+        {**settings, "concept_max_concurrency": 3},
     ):
         with pytest.raises(
             MaterialProcessingError, match="MATERIAL_CONFIGURATION_INVALID"
@@ -365,7 +372,7 @@ def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
     )
 
     binding = processing_module.formal_runtime_preflight(settings)
-    assert binding["schema"] == "formal-agent1-runtime-binding/v1"
+    assert binding["schema"] == "formal-agent1-runtime-binding/v2"
     runtime_root = Path(settings["private_runtime_root"])
     assert runtime_root.stat().st_mode & 0o777 == 0o700
 

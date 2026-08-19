@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
+import subprocess
+import time
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -14,6 +18,8 @@ CHAT_COMPLETIONS_PATH = "/v1/chat/completions"
 MAX_TOKENS = 1_536
 TEMPERATURE = 0
 MAX_API_RESPONSE_BYTES = 128 * 1_024
+CONCEPT_SERVER_READY_TIMEOUT_SECONDS = 300
+_VLLM_EXECUTABLE = "vllm"
 
 
 class ConceptAPIError(RuntimeError):
@@ -22,6 +28,90 @@ class ConceptAPIError(RuntimeError):
     def __init__(self, reason_code: str) -> None:
         super().__init__(reason_code)
         self.reason_code = reason_code
+
+
+class LocalConceptServer:
+    """關閉 runner 啟動的 vLLM process group，避免模型留在 GPU。"""
+
+    def __init__(self, process: subprocess.Popen[bytes]) -> None:
+        self._process = process
+        self._is_closed = False
+
+    def close(self) -> None:
+        if self._is_closed:
+            return
+        try:
+            os.killpg(self._process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except OSError as error:
+            raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
+        try:
+            self._process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(self._process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except OSError as error:
+                raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
+            try:
+                self._process.wait(timeout=30)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
+        self._is_closed = True
+
+
+def start_concept_server(settings: dict[str, Any]) -> LocalConceptServer:
+    """以固定 vLLM CLI 啟動 loopback server，ready 前不送教材。"""
+
+    base_url = settings["concept_api_base_url"]
+    chat_completions_url(base_url)
+    parsed = urlsplit(base_url)
+    port = parsed.port or 80
+    command = [
+        _VLLM_EXECUTABLE,
+        "serve",
+        settings["concept_model"],
+        "--host",
+        parsed.hostname or "127.0.0.1",
+        "--port",
+        str(port),
+        "--kv-cache-memory-bytes",
+        str(settings["concept_kv_cache_bytes"]),
+        "--max-num-seqs",
+        str(settings["concept_max_concurrency"]),
+        "--disable-log-requests",
+    ]
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
+    server = LocalConceptServer(process)
+    deadline = time.monotonic() + CONCEPT_SERVER_READY_TIMEOUT_SECONDS
+    try:
+        with httpx.Client(trust_env=False, follow_redirects=False) as client:
+            while True:
+                if process.poll() is not None:
+                    raise ConceptAPIError("CONCEPT_API_UNAVAILABLE")
+                try:
+                    response = client.get(f"{base_url.rstrip('/')}/health", timeout=1)
+                    if response.status_code == 200:
+                        return server
+                except httpx.RequestError:
+                    pass
+                if time.monotonic() >= deadline:
+                    raise ConceptAPIError("CONCEPT_API_TIMEOUT")
+                time.sleep(0.1)
+    except BaseException:
+        server.close()
+        raise
 
 
 def chat_completions_url(base_url: Any) -> str:

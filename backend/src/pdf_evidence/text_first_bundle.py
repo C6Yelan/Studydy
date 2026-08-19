@@ -114,7 +114,7 @@ def validate_bundle_documents(
             or type(bundle["ocr_loads"]) is not int
             or bundle["ocr_loads"] not in {0, 1}
             or type(bundle["concept_loads"]) is not int
-            or not 0 <= bundle["concept_loads"] <= page_count + 1
+            or bundle["concept_loads"] not in {0, 1}
             or bundle["quality"] != "needs_review"
             or not reason_codes_are_valid(bundle["reason_codes"], formal=True)
             or bundle["reason_codes"] != sorted(set(bundle["reason_codes"]))

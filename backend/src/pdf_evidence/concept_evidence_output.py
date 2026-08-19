@@ -15,7 +15,7 @@ from .ocr_page_evidence import canonical_bytes, canonical_sha256
 OUTPUT_SCHEMA = "concept-evidence-output/v2"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
 MAX_ARTIFACT_FILE_BYTES = 16 * 1024 * 1024
-RUNTIME_LOCK_SHA256 = "4103350b70f9453d7c6aaedb075986804f6b4e84b5ade09d7c7c44c86f18b53b"
+RUNTIME_LOCK_SHA256 = "c3ddb2efa1701d6bcdc0ff92685cae06ec2b2da1509615d4162a4f5d6e0345ff"
 
 
 def _closed(value: Any, fields: set[str]) -> bool:
@@ -347,7 +347,10 @@ def build_output(
             concepts.append(concept)
     if not concepts:
         raise ValueError("NO_USABLE_CONCEPT")
-    concepts.sort(key=lambda concept: (concept["page_ref"], concept["concept_id"]))
+    page_numbers = {page["page_ref"]: page["page_number"] for page in formal_pages}
+    concepts.sort(
+        key=lambda concept: (page_numbers[concept["page_ref"]], concept["concept_id"])
+    )
 
     rejected = []
     for page in semantic_pages:

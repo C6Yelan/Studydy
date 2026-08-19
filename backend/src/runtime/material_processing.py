@@ -14,7 +14,11 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, update
 
-from pdf_evidence.concept_api import ConceptAPIError, chat_completions_url
+from pdf_evidence.concept_api import (
+    CONCEPT_SERVER_READY_TIMEOUT_SECONDS,
+    ConceptAPIError,
+    chat_completions_url,
+)
 from pdf_evidence.text_first_bundle import read_producer_bundle
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.text_first_run import (
@@ -40,6 +44,8 @@ _CONFIG_KEYS = {
     "ocr_model_root",
     "concept_api_base_url",
     "concept_model",
+    "concept_kv_cache_bytes",
+    "concept_max_concurrency",
 }
 _CONFIG_PATH_KEYS = {
     "private_runtime_root",
@@ -48,10 +54,10 @@ _CONFIG_PATH_KEYS = {
     "ocr_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "094b8c432e40fe056b27c044ae1dde19720a69c6a8cf09bcef47803226f7f0a7",
+    "local_ai/runtime-lock.json": "acbfdda3f99662d5930cc25651022886a2c22c4d8940ed8e4eb6e4e900459275",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "464dd905c89675ec57775e0d6170416f4702f18407d7e06dce95d054d7769f03",
     "backend/src/pdf_evidence/concept_generation.py": "1a3ba77a2aca9238b41e0d82079792a0d51067f04bd27c49f1f07a89ba17bce1",
-    "backend/src/pdf_evidence/concept_api.py": "75dca2128f733555de5f5ea6dfca612b13da8809c6dbb790f88551defc92e4ac",
+    "backend/src/pdf_evidence/concept_api.py": "b757fccb73584e0ff8e545d1e4fa7164f0be5c340abf5d80a8ec967bdc91bf68",
     "backend/src/pdf_evidence/local_ai_process.py": "5a4396631eb82426ae60d809a63d5245ff88777d762a5365ace98e602f25182b",
 }
 _BINDING_FILES = (
@@ -308,6 +314,12 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
     concept_model = local_config.get("concept_model")
     if not isinstance(concept_model, str) or not concept_model or len(concept_model) > 256:
         raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+    concept_kv_cache_bytes = local_config.get("concept_kv_cache_bytes")
+    if type(concept_kv_cache_bytes) is not int or concept_kv_cache_bytes < 1:
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+    concept_max_concurrency = local_config.get("concept_max_concurrency")
+    if type(concept_max_concurrency) is not int or concept_max_concurrency not in {1, 2}:
+        raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
     try:
         chat_completions_url(local_config.get("concept_api_base_url"))
     except ConceptAPIError:
@@ -331,7 +343,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         for relative_path in _BINDING_FILES
     }
     binding = {
-        "schema": "formal-agent1-runtime-binding/v1",
+        "schema": "formal-agent1-runtime-binding/v2",
         "runtime_lock_sha256": canonical_sha256(local_config["runtime_lock"]),
         "code_hashes": code_hashes,
         "document_policy": "whole-document-review-aggregation/v1",
@@ -340,11 +352,13 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
             "ocr_calls_per_page": 1,
             "concept_calls_per_page": 2,
             "ocr_initial_loads": 1,
+            "concept_initial_loads": 1,
         },
         "timeouts_seconds": {
             "resident_lock": 5,
             "ocr_page": 120,
             "concept_attempt": 300,
+            "concept_server_ready": CONCEPT_SERVER_READY_TIMEOUT_SECONDS,
         },
         "retry_policy": {
             "ocr_attempts": 1,
@@ -354,8 +368,10 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
             "base_url": local_config["concept_api_base_url"],
             "model": concept_model,
             "protocol": local_config["runtime_lock"]["semantic"]["api_protocol"],
+            "kv_cache_bytes": concept_kv_cache_bytes,
+            "max_concurrency": concept_max_concurrency,
         },
-        "residency_policy": "ocr-child-then-loopback-concept-api/v1",
+        "residency_policy": "ocr-child-then-owned-loopback-concept-server/v2",
         "network_policy": "loopback-concept-api-no-credentials/v1",
         "raw_retention": "none",
     }

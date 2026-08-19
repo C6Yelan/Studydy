@@ -24,6 +24,10 @@ _ENVIRONMENT_KEYS = {
     "concept_api_base_url": "STUDYDY_CONCEPT_API_BASE_URL",
     "concept_model": "STUDYDY_CONCEPT_MODEL",
 }
+_OPTIONAL_INTEGER_SETTINGS = {
+    "concept_kv_cache_bytes": ("STUDYDY_CONCEPT_KV_CACHE_BYTES", 2_147_483_648),
+    "concept_max_concurrency": ("STUDYDY_CONCEPT_MAX_CONCURRENCY", 2),
+}
 
 
 def _required_environment_value(environment: Mapping[str, str], name: str) -> str:
@@ -51,6 +55,11 @@ def _app_arguments_from_environment(environment: Mapping[str, str]) -> dict[str,
         name: _required_environment_value(environment, environment_name)
         for name, environment_name in _ENVIRONMENT_KEYS.items()
     }
+    for name, (environment_name, default) in _OPTIONAL_INTEGER_SETTINGS.items():
+        raw_value = environment.get(environment_name, str(default))
+        if not isinstance(raw_value, str) or not raw_value.isdecimal():
+            raise ValueError("LOCAL_APP_SETTINGS_INVALID")
+        values[name] = int(raw_value)
     profile = values.pop("profile")
     if profile not in {"local", "test"}:
         raise ValueError("LOCAL_APP_SETTINGS_INVALID")

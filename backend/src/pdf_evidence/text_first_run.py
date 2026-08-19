@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
@@ -25,6 +26,7 @@ from .concept_api import (
     ConceptAPIError,
     chat_completions_url,
     request_concept_text,
+    start_concept_server,
 )
 from .concept_evidence_output import (
     build_output,
@@ -335,7 +337,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         or semantic.get("policy") != expected_policy
         or semantic.get("code_hashes")
         != {
-            "backend_concept_api": "75dca2128f733555de5f5ea6dfca612b13da8809c6dbb790f88551defc92e4ac",
+            "backend_concept_api": "b757fccb73584e0ff8e545d1e4fa7164f0be5c340abf5d80a8ec967bdc91bf68",
             "backend_concept_generation": "1a3ba77a2aca9238b41e0d82079792a0d51067f04bd27c49f1f07a89ba17bce1",
         }
         or semantic.get("fixture_hashes")
@@ -734,6 +736,16 @@ def _run_text_first_pdf(
         chat_completions_url(settings.get("concept_api_base_url"))
         if settings.get("concept_model") != runtime_lock["semantic"]["model_id"]:
             raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
+        if (
+            type(settings.get("concept_kv_cache_bytes")) is not int
+            or settings["concept_kv_cache_bytes"] < 1
+        ):
+            raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
+        if (
+            type(settings.get("concept_max_concurrency")) is not int
+            or settings["concept_max_concurrency"] not in {1, 2}
+        ):
+            raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
         checked_request = build_whole_document_request(request) if whole_document else request
         source_path, page_numbers, source_sha256 = _validate_request(checked_request)
         page_count = len(page_numbers)
@@ -818,82 +830,143 @@ def _run_text_first_pdf(
             if ocr is not None:
                 ocr.close()
 
-        semantic_pages = []
-        included_pages = []
+        semantic_work = []
+        for page in page_artifacts:
+            try:
+                semantic_request = build_semantic_request(page)
+                binding = {
+                    "page_evidence_sha256": canonical_sha256(page),
+                    "semantic_request_sha256": canonical_sha256(semantic_request),
+                    "evidence_allowlist": [
+                        item["evidence_id"] for item in semantic_request["evidence"]
+                    ],
+                    "semantic": runtime_lock["semantic"],
+                    "concept_api": {
+                        "base_url": settings["concept_api_base_url"],
+                        "model": settings["concept_model"],
+                        "kv_cache_bytes": settings["concept_kv_cache_bytes"],
+                        "max_concurrency": settings["concept_max_concurrency"],
+                    },
+                }
+                key = semantic_cache_key(binding)
+                artifact, invalid = _read_cache(
+                    _cache_path(root, "semantic", key),
+                    "semantic",
+                    key,
+                    binding,
+                )
+                cache_invalid = cache_invalid or invalid
+                semantic_work.append(
+                    {
+                        "page": page,
+                        "semantic_request": semantic_request,
+                        "binding": binding,
+                        "key": key,
+                        "replace_invalid": invalid,
+                        "artifact": artifact,
+                        "calls": 0,
+                        "error": None,
+                    }
+                )
+            except BaseException as error:
+                reason_code = _reason(error)
+                if whole_document and reason_code in _PAGE_EXCLUSION_REASONS:
+                    excluded_pages.append(_excluded_page(page, "concept", reason_code))
+                    continue
+                raise
+
+        missing_semantic = [
+            work for work in semantic_work if work["artifact"] is None
+        ]
+        concept_server = None
         concept_client: httpx.Client | None = None
         try:
-            for page in page_artifacts:
+            if missing_semantic:
+                if whole_document:
+                    concept_loads += 1
+                    concept_server = start_concept_server(settings)
+                concept_client = httpx.Client(
+                    trust_env=False,
+                    follow_redirects=False,
+                )
+
+            def generate(
+                work: dict[str, Any],
+            ) -> tuple[dict[str, Any] | None, int, BaseException | None]:
+                calls = 0
                 try:
-                    semantic_request = build_semantic_request(page)
-                    binding = {
-                        "page_evidence_sha256": canonical_sha256(page),
-                        "semantic_request_sha256": canonical_sha256(semantic_request),
-                        "evidence_allowlist": [
-                            item["evidence_id"] for item in semantic_request["evidence"]
-                        ],
-                        "semantic": runtime_lock["semantic"],
-                        "concept_api": {
-                            "base_url": settings["concept_api_base_url"],
-                            "model": settings["concept_model"],
-                        },
-                    }
-                    key = semantic_cache_key(binding)
-                    artifact, invalid = _read_cache(
-                        _cache_path(root, "semantic", key),
-                        "semantic",
-                        key,
-                        binding,
-                    )
-                    cache_invalid = cache_invalid or invalid
+                    artifact = None
+                    last_error: BaseException | None = None
+                    for attempt in range(1, MAX_ATTEMPTS + 1):
+                        try:
+                            assert concept_client is not None
+                            artifact = _semantic_response(
+                                concept_client,
+                                settings,
+                                work["semantic_request"],
+                                work["binding"],
+                                work["page"]["page_ref"],
+                                attempt,
+                            )
+                            calls += 1
+                            break
+                        except (ConceptAPIError, SemanticOutputError) as error:
+                            calls += 1
+                            last_error = error
+                            if attempt == MAX_ATTEMPTS or not retryable(
+                                error.reason_code
+                            ):
+                                raise
                     if artifact is None:
-                        if concept_client is None:
-                            concept_client = httpx.Client(
-                                trust_env=False,
-                                follow_redirects=False,
-                            )
-                        last_error: BaseException | None = None
-                        for attempt in range(1, MAX_ATTEMPTS + 1):
-                            try:
-                                artifact = _semantic_response(
-                                    concept_client,
-                                    settings,
-                                    semantic_request,
-                                    binding,
-                                    page["page_ref"],
-                                    attempt,
-                                )
-                                concept_calls += 1
-                                break
-                            except (ConceptAPIError, SemanticOutputError) as error:
-                                concept_calls += 1
-                                last_error = error
-                                if attempt == MAX_ATTEMPTS or not retryable(
-                                    error.reason_code
-                                ):
-                                    raise
-                        if artifact is None:
-                            raise last_error or SemanticOutputError(
-                                "NO_USABLE_CONCEPT"
-                            )
-                        _write_cache(
-                            _cache_path(root, "semantic", key),
-                            "semantic",
-                            key,
-                            binding,
-                            artifact,
-                            replace_invalid=invalid,
+                        raise last_error or SemanticOutputError(
+                            "NO_USABLE_CONCEPT"
                         )
-                    semantic_pages.append(artifact)
-                    included_pages.append(page)
+                    _write_cache(
+                        _cache_path(root, "semantic", work["key"]),
+                        "semantic",
+                        work["key"],
+                        work["binding"],
+                        artifact,
+                        replace_invalid=work["replace_invalid"],
+                    )
+                    return artifact, calls, None
                 except BaseException as error:
-                    reason_code = _reason(error)
-                    if whole_document and reason_code in _PAGE_EXCLUSION_REASONS:
-                        excluded_pages.append(_excluded_page(page, "concept", reason_code))
-                        continue
-                    raise
+                    return None, calls, error
+
+            if missing_semantic:
+                with ThreadPoolExecutor(
+                    max_workers=settings["concept_max_concurrency"]
+                ) as executor:
+                    generated = executor.map(generate, missing_semantic)
+                    for work, (artifact, calls, error) in zip(
+                        missing_semantic, generated, strict=True
+                    ):
+                        work["artifact"] = artifact
+                        work["calls"] = calls
+                        work["error"] = error
+                        concept_calls += calls
         finally:
-            if concept_client is not None:
-                concept_client.close()
+            try:
+                if concept_client is not None:
+                    concept_client.close()
+            finally:
+                if concept_server is not None:
+                    concept_server.close()
+
+        semantic_pages = []
+        included_pages = []
+        for work in semantic_work:
+            error = work["error"]
+            if error is not None:
+                reason_code = _reason(error)
+                if whole_document and reason_code in _PAGE_EXCLUSION_REASONS:
+                    excluded_pages.append(
+                        _excluded_page(work["page"], "concept", reason_code)
+                    )
+                    continue
+                raise error
+            semantic_pages.append(work["artifact"])
+            included_pages.append(work["page"])
         output = build_output(
             run_id=run_id,
             produced_at=produced_at,

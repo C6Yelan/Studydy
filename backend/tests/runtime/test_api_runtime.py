@@ -58,6 +58,8 @@ def settings(
         "ocr_model_root": "fixed-ocr-model",
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
+        "concept_kv_cache_bytes": 2_147_483_648,
+        "concept_max_concurrency": 2,
     }
     return ApiSettings(
         profile="local",

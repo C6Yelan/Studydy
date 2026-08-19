@@ -70,7 +70,11 @@ def test_formal_launch_uses_the_local_composition_root(monkeypatch):
         "ocr_model_root",
         "concept_api_base_url",
         "concept_model",
+        "concept_kv_cache_bytes",
+        "concept_max_concurrency",
     }
+    assert observed[0]["local_config"]["concept_kv_cache_bytes"] == 2_147_483_648
+    assert observed[0]["local_config"]["concept_max_concurrency"] == 2
     assert observed[1] == (
         app,
         {
