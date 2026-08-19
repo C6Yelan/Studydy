@@ -22,7 +22,7 @@ from pdf_evidence.text_first_run import (
 )
 
 from .storage.artifacts import open_verified_source_pdf
-from .storage.material_review_outputs import MaterialRunOutputError, publish_terminal_outputs
+from .storage.material_review_outputs import MaterialRunOutputError, publish_material_outputs
 from .storage.tables import (
     Learner,
     MaterialProcessingRun as MaterialProcessingRunRow,
@@ -513,7 +513,7 @@ def claim_next_material_processing_run(
         raise MaterialProcessingError("MATERIAL_RUN_STORAGE_FAILED") from None
 
 
-def _terminal_failure(run_id: UUID, reason: str, *, dsn: str | None) -> None:
+def _record_run_failure(run_id: UUID, reason: str, *, dsn: str | None) -> None:
     safe_reason = (
         reason
         if isinstance(reason, str)
@@ -569,7 +569,7 @@ def execute_claimed_material_processing_run(
                     while chunk := source.file.read(_CHUNK):
                         destination.write(chunk)
             producer_run_id = f"text-first-run:{run.run_id}"
-            terminal = run_full_text_first_pdf(
+            run_full_text_first_pdf(
                 {
                     "media_type": "application/pdf",
                     "source_path": str(source_path),
@@ -585,16 +585,17 @@ def execute_claimed_material_processing_run(
         producer_bundle = read_producer_bundle(
             Path(local_config["private_runtime_root"]), producer_run_id
         )
-        if terminal != producer_bundle["terminal"]:
-            raise MaterialProcessingError("PRODUCER_BUNDLE_INVALID")
-        if terminal["processing"] == "failed":
-            _terminal_failure(
+        bundle = producer_bundle["bundle"]
+        if bundle["processing"] == "failed":
+            _record_run_failure(
                 run.run_id,
-                terminal["reason_codes"][0] if terminal["reason_codes"] else "MATERIAL_ANALYSIS_FAILED",
+                bundle["reason_codes"][0]
+                if bundle["reason_codes"]
+                else "MATERIAL_ANALYSIS_FAILED",
                 dsn=dsn,
             )
             return read_material_processing_run(run.learner_id, run.run_id, dsn=dsn)
-        publish_terminal_outputs(
+        publish_material_outputs(
             run.learner_id,
             run.material_id,
             run.run_id,
@@ -604,9 +605,9 @@ def execute_claimed_material_processing_run(
             dsn=dsn,
         )
     except MaterialRunOutputError:
-        _terminal_failure(run.run_id, "MATERIAL_OUTPUT_FAILED", dsn=dsn)
+        _record_run_failure(run.run_id, "MATERIAL_OUTPUT_FAILED", dsn=dsn)
     except MaterialProcessingError as error:
-        _terminal_failure(run.run_id, str(error), dsn=dsn)
+        _record_run_failure(run.run_id, str(error), dsn=dsn)
     except Exception:
-        _terminal_failure(run.run_id, "MATERIAL_ANALYSIS_FAILED", dsn=dsn)
+        _record_run_failure(run.run_id, "MATERIAL_ANALYSIS_FAILED", dsn=dsn)
     return read_material_processing_run(run.learner_id, run.run_id, dsn=dsn)

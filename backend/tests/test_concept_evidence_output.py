@@ -8,8 +8,9 @@ from pdf_evidence.artifact_reason_codes import (
     FORMAL_REASON_CODES,
     formal_reason_code,
 )
-from pdf_evidence.concept_evidence_output import build_terminal, validate_output_document
+from pdf_evidence.concept_evidence_output import validate_output_document
 from pdf_evidence.ocr_page_evidence import canonical_sha256
+from pdf_evidence.text_first_bundle import build_producer_bundle
 from test_study_material_output import producer_output
 
 
@@ -105,7 +106,7 @@ def test_formal_reason_taxonomy_and_detailed_mapping_are_exact():
         "CACHE_INVALID": "CACHE_RECOVERED",
         "CACHE_WRITE_FAILED": "STORAGE_WRITE_FAILED",
         "FINAL_OUTPUT_WRITE_FAILED": "STORAGE_WRITE_FAILED",
-        "RUN_TERMINAL_WRITE_FAILED": "STORAGE_WRITE_FAILED",
+        "PRODUCER_BUNDLE_WRITE_FAILED": "STORAGE_WRITE_FAILED",
         "PRODUCER_BUNDLE_INVALID": "ARTIFACT_INVALID",
         "PAGE_CONTENT_REVIEW_REQUIRED": "CONTENT_REVIEW_REQUIRED",
         "TRAILING_QUOTE_REMOVED": "CONTENT_REVIEW_REQUIRED",
@@ -120,8 +121,8 @@ def test_formal_reason_taxonomy_and_detailed_mapping_are_exact():
     assert formal_reason_code("NOT_A_REASON") == "INTERNAL_FAILURE"
 
 
-def terminal_for(output):
-    return build_terminal(
+def bundle_for(output):
+    return build_producer_bundle(
         run_id=output["run_id"],
         produced_at=output["produced_at"],
         output=output,
@@ -136,41 +137,75 @@ def terminal_for(output):
     )
 
 
-def test_atomic_publish_writes_output_before_terminal(tmp_path):
+def test_atomic_publish_writes_exact_success_files(tmp_path):
     output = producer_output()
-    terminal = terminal_for(output)
-    destination = output_module.publish_run(tmp_path, output["run_id"], output, terminal)
-    assert (destination / "concept-evidence-output.json").is_file()
-    assert (destination / "terminal.json").is_file()
+    bundle = bundle_for(output)
+    destination = output_module.publish_run(tmp_path, bundle, output)
+    assert {item.name for item in destination.iterdir()} == {
+        "concept-evidence-output.json",
+        "producer-bundle.json",
+    }
     with pytest.raises(FileExistsError):
-        output_module.publish_run(tmp_path, output["run_id"], output, terminal)
+        output_module.publish_run(tmp_path, bundle, output)
 
 
-def test_output_write_failure_never_leaves_published_terminal(tmp_path, monkeypatch):
+def test_output_write_failure_never_leaves_published_bundle(tmp_path, monkeypatch):
     output = producer_output()
-    terminal = terminal_for(output)
+    bundle = bundle_for(output)
     monkeypatch.setattr(
         output_module,
         "_write_new",
         lambda path, encoded: (_ for _ in ()).throw(OSError()),
     )
     with pytest.raises(OSError, match="FINAL_OUTPUT_WRITE_FAILED"):
-        output_module.publish_run(
-            tmp_path, output["run_id"], output, terminal,
-        )
+        output_module.publish_run(tmp_path, bundle, output)
+    assert not (tmp_path / "runs" / output["run_id"]).exists()
+
+
+def test_bundle_write_failure_never_leaves_published_run(tmp_path, monkeypatch):
+    output = producer_output()
+    bundle = build_producer_bundle(
+        run_id=output["run_id"],
+        produced_at=output["produced_at"],
+        output=None,
+        runtime_binding_sha256="a" * 64,
+        reasons=["INTERNAL_FAILURE"],
+        duration_ms=1,
+        ocr_calls=0,
+        concept_calls=0,
+        page_count=1,
+    )
+    monkeypatch.setattr(
+        output_module,
+        "_write_new",
+        lambda path, encoded: (_ for _ in ()).throw(OSError()),
+    )
+
+    with pytest.raises(OSError, match="PRODUCER_BUNDLE_WRITE_FAILED"):
+        output_module.publish_run(tmp_path, bundle, None)
     assert not (tmp_path / "runs" / output["run_id"]).exists()
 
 
 def test_verified_reader_rejects_tamper_symlink_and_traversal(tmp_path):
     output = producer_output()
-    terminal = build_terminal(
+    bundle = build_producer_bundle(
         run_id=output["run_id"], produced_at=output["produced_at"], output=None,
         runtime_binding_sha256="a" * 64, reasons=["INTERNAL_FAILURE"], duration_ms=1,
         ocr_calls=0, concept_calls=0, page_count=1,
     )
-    destination = output_module.publish_run(tmp_path, output["run_id"], None, terminal)
-    assert output_module.read_producer_bundle(tmp_path, output["run_id"])["terminal"] == terminal
-    (destination / "terminal.json").write_text('{"tampered":true}', encoding="utf-8")
+    destination = output_module.publish_run(tmp_path, bundle, None)
+    assert {item.name for item in destination.iterdir()} == {"producer-bundle.json"}
+    assert output_module.read_producer_bundle(tmp_path, output["run_id"])["bundle"] == bundle
+    bundle_path = destination / "producer-bundle.json"
+    bundle_path.write_text(
+        '{"tampered":true}', encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="PRODUCER_BUNDLE_INVALID"):
+        output_module.read_producer_bundle(tmp_path, output["run_id"])
+    bundle_path.unlink()
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}", encoding="utf-8")
+    bundle_path.symlink_to(outside)
     with pytest.raises(ValueError, match="PRODUCER_BUNDLE_INVALID"):
         output_module.read_producer_bundle(tmp_path, output["run_id"])
     with pytest.raises(ValueError, match="PRODUCER_BUNDLE_INVALID"):
@@ -230,16 +265,22 @@ def test_evidence_ids_must_be_unique_across_included_pages():
     assert validate_output_document(output) is False
 
 
-def test_terminal_is_closed_and_rejects_type_count_and_nonfinite_values():
+def test_bundle_is_closed_and_rejects_type_count_and_nonfinite_values():
     output = producer_output()
-    terminal = terminal_for(output)
-    terminal["unexpected_field"] = True
-    assert output_module.validate_terminal(terminal, output) is False
-    terminal.pop("unexpected_field")
-    terminal["ocr_calls"] = True
-    assert output_module.validate_terminal(terminal, output) is False
-    terminal["ocr_calls"] = 33
-    assert output_module.validate_terminal(terminal, output) is False
+    bundle = bundle_for(output)
+    bundle["unexpected_field"] = True
+    assert output_module.validate_bundle_documents(
+        bundle, output, output["run_id"]
+    ) is False
+    bundle.pop("unexpected_field")
+    bundle["ocr_calls"] = True
+    assert output_module.validate_bundle_documents(
+        bundle, output, output["run_id"]
+    ) is False
+    bundle["ocr_calls"] = 33
+    assert output_module.validate_bundle_documents(
+        bundle, output, output["run_id"]
+    ) is False
 
 
 def test_formal_artifacts_reject_detailed_reason_compatibility():
@@ -249,6 +290,13 @@ def test_formal_artifacts_reject_detailed_reason_compatibility():
     assert validate_output_document(output) is False
 
     output = producer_output()
-    terminal = terminal_for(output)
-    terminal["reason_codes"] = ["SEMANTIC_REVIEW_REQUIRED"]
-    assert output_module.validate_terminal(terminal, output) is False
+    bundle = bundle_for(output)
+    bundle["reason_codes"] = ["SEMANTIC_REVIEW_REQUIRED"]
+    identity = dict(bundle)
+    identity.pop("bundle_id")
+    bundle["bundle_id"] = (
+        "text-first-producer-bundle:sha256:" + canonical_sha256(identity)
+    )
+    assert output_module.validate_bundle_documents(
+        bundle, output, output["run_id"]
+    ) is False

@@ -2,14 +2,17 @@ from copy import deepcopy
 
 import pytest
 
-from pdf_evidence.concept_evidence_output import build_terminal
-from pdf_evidence.text_first_bundle import validate_bundle_documents, validate_terminal
+from pdf_evidence.ocr_page_evidence import canonical_sha256
+from pdf_evidence.text_first_bundle import (
+    build_producer_bundle,
+    validate_bundle_documents,
+)
 from test_study_material_output import producer_output
 
 
 def test_bundle_documents_are_closed_after_all_identities_are_recomputed():
     output = producer_output()
-    terminal = build_terminal(
+    bundle = build_producer_bundle(
         run_id=output["run_id"],
         produced_at=output["produced_at"],
         output=output,
@@ -22,17 +25,46 @@ def test_bundle_documents_are_closed_after_all_identities_are_recomputed():
         concept_loads=1,
         page_count=1,
     )
-    from pdf_evidence.text_first_bundle import _bundle_document
-
-    bundle = _bundle_document(output["run_id"], output, terminal)
-    assert validate_bundle_documents(bundle, terminal, output, output["run_id"])
+    assert bundle["schema"] == "text-first-producer-bundle/v2"
+    assert validate_bundle_documents(bundle, output, output["run_id"])
     changed = deepcopy(bundle)
     changed["unexpected_field"] = True
-    assert not validate_bundle_documents(changed, terminal, output, output["run_id"])
+    assert not validate_bundle_documents(changed, output, output["run_id"])
 
 
-def test_failed_terminal_keeps_observed_page_count_without_product_ceiling():
-    terminal = build_terminal(
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("output_id", "concept-evidence-output:sha256:" + "f" * 64),
+        ("output_sha256", "f" * 64),
+        ("output_size_bytes", 0),
+    ],
+)
+def test_bundle_binds_output_identity_hash_and_size(field, value):
+    output = producer_output()
+    bundle = build_producer_bundle(
+        run_id=output["run_id"],
+        produced_at=output["produced_at"],
+        output=output,
+        runtime_binding_sha256="a" * 64,
+        reasons=output["reason_codes"],
+        duration_ms=1,
+        ocr_calls=1,
+        concept_calls=1,
+        page_count=1,
+    )
+    bundle[field] = value
+    identity = dict(bundle)
+    identity.pop("bundle_id")
+    bundle["bundle_id"] = (
+        "text-first-producer-bundle:sha256:" + canonical_sha256(identity)
+    )
+
+    assert not validate_bundle_documents(bundle, output, output["run_id"])
+
+
+def test_failed_bundle_keeps_observed_page_count_without_product_ceiling():
+    bundle = build_producer_bundle(
         run_id="text-first-run:00000000-0000-4000-8000-000000000001",
         produced_at="2026-08-19T00:00:00Z",
         output=None,
@@ -43,7 +75,7 @@ def test_failed_terminal_keeps_observed_page_count_without_product_ceiling():
         concept_calls=0,
         page_count=100_001,
     )
-    assert validate_terminal(terminal, None)
+    assert validate_bundle_documents(bundle, None, bundle["run_id"])
 
 
 @pytest.mark.parametrize(

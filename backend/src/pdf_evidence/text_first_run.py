@@ -19,7 +19,6 @@ import pymupdf
 
 from .concept_evidence_output import (
     build_output,
-    build_terminal,
     validate_page_evidence,
 )
 from .concept_generation import (
@@ -46,7 +45,7 @@ from .ocr_page_evidence import (
     page_cache_key,
 )
 from .source_pdf import build_whole_document_request, copy_source_snapshot
-from .text_first_bundle import publish_run
+from .text_first_bundle import build_producer_bundle, publish_run
 
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -108,7 +107,7 @@ def _reason(error: BaseException) -> str:
         "CACHE_WRITE_FAILED",
         "ARTIFACT_COLLISION",
         "FINAL_OUTPUT_WRITE_FAILED",
-        "RUN_TERMINAL_WRITE_FAILED",
+        "PRODUCER_BUNDLE_WRITE_FAILED",
         "PRODUCER_BUNDLE_INVALID",
     }
     return value if value in allowed else "INTERNAL_FAILURE"
@@ -452,7 +451,7 @@ def _has_agent1_ownership(runtime_root: Path) -> bool:
 def _excluded_page(
     page: dict[str, Any], stage: str, reason_code: str
 ) -> dict[str, Any]:
-    """保留被排除頁的 identity 與 truthful terminal 狀態。"""
+    """保留被排除頁的 identity 與 truthful bundle 狀態。"""
 
     return {
         "page_ref": page["page_ref"],
@@ -937,7 +936,7 @@ def _run_text_first_pdf(
             output["output_id"] = (
                 "concept-evidence-output:sha256:" + canonical_sha256(output)
             )
-        terminal = build_terminal(
+        bundle = build_producer_bundle(
             run_id=run_id,
             produced_at=produced_at,
             output=output,
@@ -951,11 +950,11 @@ def _run_text_first_pdf(
             page_count=page_count,
             excluded_pages=excluded_pages,
         )
-        publish_run(root, run_id, output, terminal)
-        return terminal
+        publish_run(root, bundle, output)
+        return bundle
     except BaseException as error:
         reason = _reason(error)
-        terminal = build_terminal(
+        bundle = build_producer_bundle(
             run_id=run_id,
             produced_at=produced_at,
             output=None,
@@ -970,10 +969,10 @@ def _run_text_first_pdf(
             excluded_pages=excluded_pages,
         )
         try:
-            publish_run(root, run_id, None, terminal)
-        except BaseException as terminal_error:
-            raise RuntimeError("RUN_TERMINAL_WRITE_FAILED") from terminal_error
-        return terminal
+            publish_run(root, bundle, None)
+        except BaseException as bundle_error:
+            raise RuntimeError("PRODUCER_BUNDLE_WRITE_FAILED") from bundle_error
+        return bundle
     finally:
         if snapshot_directory is not None:
             snapshot_directory.cleanup()
@@ -1019,7 +1018,7 @@ def run_full_text_first_pdf(
     except ValueError as error:
         if _reason(error) != "RUNTIME_BUSY":
             raise
-        terminal = build_terminal(
+        bundle = build_producer_bundle(
             run_id=resolved_run_id,
             produced_at=resolved_produced_at,
             output=None,
@@ -1029,5 +1028,5 @@ def run_full_text_first_pdf(
             ocr_calls=0,
             concept_calls=0,
         )
-        publish_run(root, resolved_run_id, None, terminal)
-        return terminal
+        publish_run(root, bundle, None)
+        return bundle

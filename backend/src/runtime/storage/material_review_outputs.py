@@ -98,27 +98,25 @@ def _insert_immutable(
         raise MaterialRunOutputError("MATERIAL_OUTPUT_FAILED")
 
 
-def _validated_producer(producer_bundle: Any, run_id: UUID) -> tuple[dict, dict, dict]:
+def _validated_producer(producer_bundle: Any, run_id: UUID) -> tuple[dict, dict]:
     if not isinstance(producer_bundle, dict) or set(producer_bundle) != {
         "bundle",
-        "terminal",
         "output",
     }:
         raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID")
     bundle = producer_bundle["bundle"]
-    terminal = producer_bundle["terminal"]
     output = producer_bundle["output"]
     expected_run_id = f"text-first-run:{run_id}"
     if (
-        not validate_bundle_documents(bundle, terminal, output, expected_run_id)
+        not validate_bundle_documents(bundle, output, expected_run_id)
         or output is None
-        or terminal.get("processing") not in {"succeeded", "partial"}
+        or bundle.get("processing") not in {"succeeded", "partial"}
     ):
         raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID")
-    return bundle, terminal, output
+    return bundle, output
 
 
-def publish_terminal_outputs(
+def publish_material_outputs(
     learner_id: UUID,
     material_id: UUID,
     run_id: UUID,
@@ -130,10 +128,10 @@ def publish_terminal_outputs(
 ) -> MaterialRunOutputs:
     """先重驗 producer，再以單一 DB transaction 發布 Output、Map 與 binding。"""
 
-    bundle, terminal, producer_output = _validated_producer(producer_bundle, run_id)
+    bundle, producer_output = _validated_producer(producer_bundle, run_id)
     if (
         producer_output.get("material_id") != f"material:sha256:{source_sha256}"
-        or terminal.get("runtime_binding_sha256") != runtime_binding_sha256
+        or bundle.get("runtime_binding_sha256") != runtime_binding_sha256
     ):
         raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID")
     try:
@@ -151,13 +149,13 @@ def publish_terminal_outputs(
         "study_material_output_revision": study_material_output["output_id"],
         "knowledge_map_revision": knowledge_map["revision"],
         "runtime_binding_sha256": runtime_binding_sha256,
-        "page_count": terminal["page_count"],
-        "processing": terminal["processing"],
-        "quality": terminal["quality"],
-        "decision": terminal["decision"],
-        "reason_codes": deepcopy(terminal["reason_codes"]),
-        "ocr_calls": terminal["ocr_calls"],
-        "concept_calls": terminal["concept_calls"],
+        "page_count": bundle["page_count"],
+        "processing": bundle["processing"],
+        "quality": bundle["quality"],
+        "decision": bundle["decision"],
+        "reason_codes": deepcopy(bundle["reason_codes"]),
+        "ocr_calls": bundle["ocr_calls"],
+        "concept_calls": bundle["concept_calls"],
     }
     if not _binding_is_valid(binding):
         raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID")
@@ -201,7 +199,7 @@ def publish_terminal_outputs(
                 ),
                 (study_material_output["output_id"], knowledge_map),
             )
-            status = "partial" if terminal["processing"] == "partial" else "succeeded"
+            status = "partial" if bundle["processing"] == "partial" else "succeeded"
             updated = session.execute(
                 update(MaterialProcessingRun)
                 .where(

@@ -93,7 +93,7 @@ class MaterialProcessingRunView(_ClosedModel):
     completed_at: datetime | None
 
     @model_validator(mode="after")
-    def validate_terminal_shape(self) -> "MaterialProcessingRunView":
+    def validate_status_shape(self) -> "MaterialProcessingRunView":
         if self.status in {"succeeded", "partial"}:
             if (
                 self.output_binding is None

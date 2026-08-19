@@ -10,8 +10,8 @@ import pymupdf
 import pytest
 
 import runtime.material_processing as processing_module
-from pdf_evidence.concept_evidence_output import build_output, build_terminal
-from pdf_evidence.text_first_bundle import publish_run
+from pdf_evidence.concept_evidence_output import build_output
+from pdf_evidence.text_first_bundle import build_producer_bundle, publish_run
 from pdf_evidence.concept_generation import build_semantic_request, validate_concepts
 from pdf_evidence.ocr_page_evidence import build_page_evidence, canonical_sha256, extract_page
 from runtime.material_processing import (
@@ -175,7 +175,7 @@ def _fake_successful_producer(
         runtime_binding=settings["runtime_lock"],
         run_reasons=[],
     )
-    terminal = build_terminal(
+    bundle = build_producer_bundle(
         run_id=run_id,
         produced_at=produced_at,
         output=output,
@@ -188,8 +188,8 @@ def _fake_successful_producer(
         concept_loads=1,
         page_count=page_count,
     )
-    publish_run(Path(settings["private_runtime_root"]), run_id, output, terminal)
-    return terminal
+    publish_run(Path(settings["private_runtime_root"]), bundle, output)
+    return bundle
 
 
 def _created_run(dsn: str, tmp_path: Path, key: str = "run-key"):
@@ -466,7 +466,7 @@ def test_failed_producer_publishes_zero_domain_revisions(
         produced_at,
         runtime_binding_sha256,
     ):
-        terminal = build_terminal(
+        bundle = build_producer_bundle(
             run_id=run_id,
             produced_at=produced_at,
             output=None,
@@ -477,8 +477,8 @@ def test_failed_producer_publishes_zero_domain_revisions(
             concept_calls=0,
             page_count=40,
         )
-        publish_run(Path(local_settings["private_runtime_root"]), run_id, None, terminal)
-        return terminal
+        publish_run(Path(local_settings["private_runtime_root"]), bundle, None)
+        return bundle
 
     monkeypatch.setattr(processing_module, "run_full_text_first_pdf", failed_producer)
     failed = execute_claimed_material_processing_run(

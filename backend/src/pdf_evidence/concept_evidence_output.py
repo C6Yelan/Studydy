@@ -13,7 +13,6 @@ from .ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
 OUTPUT_SCHEMA = "concept-evidence-output/v2"
-TERMINAL_SCHEMA = "text-first-run-terminal/v2"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
 MAX_ARTIFACT_FILE_BYTES = 16 * 1024 * 1024
 RUNTIME_LOCK_SHA256 = "b777829253b40ddca6a6fb9f076ddd6125f12b6e3f4450a85fa6737f5321f967"
@@ -387,48 +386,3 @@ def build_output(
     if not validate_output_document(output):
         raise ValueError("PRODUCER_BUNDLE_INVALID")
     return output
-
-
-def build_terminal(
-    *,
-    run_id: str,
-    produced_at: str,
-    output: dict[str, Any] | None,
-    runtime_binding_sha256: str,
-    reasons: list[str],
-    duration_ms: int,
-    ocr_calls: int,
-    concept_calls: int,
-    ocr_loads: int = 0,
-    concept_loads: int = 0,
-    page_count: int = 0,
-    excluded_pages: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    failed = output is None
-    excluded_count = (
-        len(output.get("excluded_pages", []))
-        if output is not None
-        else len(excluded_pages or [])
-    )
-    included_count = len(output.get("pages", [])) if output is not None else 0
-    processing = "failed" if failed else output["processing"]
-    return {
-        "schema": TERMINAL_SCHEMA,
-        "aggregation_policy": AGGREGATION_POLICY,
-        "run_id": run_id,
-        "produced_at": produced_at,
-        "output_id": output["output_id"] if output is not None else None,
-        "runtime_binding_sha256": runtime_binding_sha256,
-        "page_count": page_count or included_count + excluded_count,
-        "included_page_count": included_count,
-        "excluded_page_count": excluded_count,
-        "processing": processing,
-        "quality": "needs_review",
-        "decision": "reject" if failed else "review",
-        "reason_codes": formal_reason_codes(reasons),
-        "duration_ms": duration_ms,
-        "ocr_calls": ocr_calls,
-        "concept_calls": concept_calls,
-        "ocr_loads": ocr_loads,
-        "concept_loads": concept_loads,
-    }
