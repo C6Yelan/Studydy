@@ -61,7 +61,7 @@ def test_bundle_json_rejects_duplicate_and_nonfinite_values(tmp_path, encoded):
 
 def test_bundle_json_has_explicit_depth_and_size_limits(tmp_path):
     from pdf_evidence.text_first_bundle import (
-        MAX_BUNDLE_FILE_BYTES,
+        MAX_ARTIFACT_FILE_BYTES,
         _check_depth,
         _read_json_file,
     )
@@ -76,7 +76,7 @@ def test_bundle_json_has_explicit_depth_and_size_limits(tmp_path):
 
     path = tmp_path / "too-large.json"
     with path.open("wb") as output:
-        output.seek(MAX_BUNDLE_FILE_BYTES)
+        output.seek(MAX_ARTIFACT_FILE_BYTES)
         output.write(b"x")
     with pytest.raises(ValueError, match="PRODUCER_BUNDLE_INVALID"):
         _read_json_file(path)

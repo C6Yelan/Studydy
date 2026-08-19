@@ -5,9 +5,22 @@ from knowledge_map.artifacts import (
     build_review_knowledge_map,
     validate_knowledge_map,
 )
+from pdf_evidence.artifact_reason_codes import FORMAL_REASON_CODES
 from pdf_evidence.study_material_output import build_study_material_output
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from test_study_material_output import producer_output
+
+
+def _reason_lists(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "reason_codes":
+                yield item
+            else:
+                yield from _reason_lists(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _reason_lists(item)
 
 
 def test_map_v2_is_review_only_and_public_view_has_pdf_locators_without_text():
@@ -27,6 +40,11 @@ def test_map_v2_is_review_only_and_public_view_has_pdf_locators_without_text():
     assert evidence["region"]["coordinate_space"] == "unrotated_pdf_points"
     assert "text" not in str(view)
     assert "runtime_binding" not in str(view)
+    assert all(
+        reasons and set(reasons) <= FORMAL_REASON_CODES
+        for document in (producer_output(), study_output, knowledge_map, view)
+        for reasons in _reason_lists(document)
+    )
     assert validate_knowledge_map(knowledge_map, study_output) is None
 
 

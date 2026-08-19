@@ -263,7 +263,7 @@ def test_two_invalid_semantic_attempts_publish_only_failed_terminal(tmp_path, mo
     terminal = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
     assert terminal["processing"] == "failed"
     assert terminal["output_id"] is None
-    assert terminal["reason_codes"] == ["INVALID_CONCEPT_COUNT"]
+    assert terminal["reason_codes"] == ["MODEL_OUTPUT_INVALID"]
     run_root = tmp_path / "runtime" / "runs" / terminal["run_id"]
     assert not (run_root / "concept-evidence-output.json").exists()
 
@@ -280,7 +280,7 @@ def test_two_non_eos_attempts_fail_without_semantic_cache_or_output(tmp_path, mo
     )
     terminal = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
     assert terminal["processing"] == "failed"
-    assert terminal["reason_codes"] == ["MODEL_OUTPUT_TRUNCATED"]
+    assert terminal["reason_codes"] == ["MODEL_OUTPUT_INVALID"]
     assert terminal["concept_calls"] == 2
     assert list((tmp_path / "runtime" / "cache" / "semantic").glob("*.json")) == []
     run_root = tmp_path / "runtime" / "runs" / terminal["run_id"]
@@ -288,9 +288,12 @@ def test_two_non_eos_attempts_fail_without_semantic_cache_or_output(tmp_path, mo
     assert state["resident"] == []
 
 
-@pytest.mark.parametrize("reason_code", ["CHILD_TIMEOUT", "CHILD_EXITED"])
+@pytest.mark.parametrize(
+    ("reason_code", "formal_reason"),
+    [("CHILD_TIMEOUT", "PROCESS_TIMEOUT"), ("CHILD_EXITED", "PROCESS_FAILED")],
+)
 def test_dispatched_ocr_failure_keeps_reason_and_counts_call(
-    tmp_path, monkeypatch, reason_code
+    tmp_path, monkeypatch, reason_code, formal_reason
 ):
     path = tmp_path / "public.pdf"
     _pdf(path)
@@ -302,7 +305,7 @@ def test_dispatched_ocr_failure_keeps_reason_and_counts_call(
     )
     terminal = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
     assert terminal["processing"] == "failed"
-    assert terminal["reason_codes"] == [reason_code]
+    assert terminal["reason_codes"] == [formal_reason]
     assert terminal["ocr_calls"] == 1
     assert terminal["concept_calls"] == 0
     assert state["resident"] == []
@@ -322,7 +325,40 @@ def test_invalid_semantic_cache_is_recomputed_and_reported(tmp_path, monkeypatch
     assert replay["processing"] == "partial"
     assert replay["ocr_calls"] == 0
     assert replay["concept_calls"] == 1
-    assert "CACHE_INVALID" in replay["reason_codes"]
+    assert "CACHE_RECOVERED" in replay["reason_codes"]
+
+
+def test_page_cache_uses_full_geometry_validation_before_replay(tmp_path, monkeypatch):
+    path = tmp_path / "public.pdf"
+    _pdf(path)
+    state = _state()
+    monkeypatch.setattr(
+        run_module, "start_ocr_process", lambda settings: FakeChild("ocr", state)
+    )
+    monkeypatch.setattr(
+        run_module,
+        "start_concept_process",
+        lambda settings: FakeChild("concept", state),
+    )
+    first = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
+    assert first["processing"] == "partial"
+    page_cache = next((tmp_path / "runtime" / "cache" / "page").glob("*.json"))
+    record = json.loads(page_cache.read_text(encoding="utf-8"))
+    artifact = record["artifact"]
+    artifact["geometry"]["visible_points"] = [0.0, 0.0, 0.0, 1.0]
+    artifact.pop("page_evidence_id")
+    artifact["page_evidence_id"] = (
+        "page-evidence:sha256:" + run_module.canonical_sha256(artifact)
+    )
+    record["artifact_sha256"] = run_module.canonical_sha256(artifact)
+    page_cache.write_bytes(run_module.canonical_bytes(record))
+
+    replay = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
+
+    assert replay["processing"] == "partial"
+    assert replay["ocr_calls"] == 1
+    assert replay["concept_calls"] == 1
+    assert "CACHE_RECOVERED" in replay["reason_codes"]
 
 
 def test_all_rejected_blocks_publish_only_no_evidence_terminal(tmp_path, monkeypatch):
@@ -332,7 +368,7 @@ def test_all_rejected_blocks_publish_only_no_evidence_terminal(tmp_path, monkeyp
     monkeypatch.setattr(run_module, "start_ocr_process", lambda settings: AllInvalidOcr("ocr", state))
     terminal = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
     assert terminal["processing"] == "failed"
-    assert terminal["reason_codes"] == ["NO_USABLE_EVIDENCE"]
+    assert terminal["reason_codes"] == ["PAGE_CONTENT_UNUSABLE"]
     assert terminal["ocr_calls"] == 1
     assert terminal["concept_calls"] == 0
     assert state["concept_loads"] == 0
@@ -352,7 +388,7 @@ def test_malformed_child_response_remains_hard_failure(tmp_path, monkeypatch):
     )
     terminal = run_module.run_text_first_pdf(_request(path), _settings(tmp_path))
     assert terminal["processing"] == "failed"
-    assert terminal["reason_codes"] == ["CHILD_RESPONSE_INVALID"]
+    assert terminal["reason_codes"] == ["PROCESS_FAILED"]
     assert terminal["ocr_calls"] == 1
     assert terminal["concept_calls"] == 0
     assert list((tmp_path / "runtime" / "cache" / "page").glob("*.json")) == []
@@ -371,7 +407,7 @@ def test_runtime_drift_rejected_before_private_path_access(tmp_path):
         },
         settings,
     )
-    assert terminal["reason_codes"] == ["RUNTIME_BINDING_INVALID"]
+    assert terminal["reason_codes"] == ["RUNTIME_INVALID"]
     assert "private-sentinel" not in json.dumps(terminal)
 
 
@@ -389,7 +425,7 @@ def test_source_hash_drift_in_runtime_lock_is_rejected(tmp_path):
         },
         settings,
     )
-    assert terminal["reason_codes"] == ["RUNTIME_BINDING_INVALID"]
+    assert terminal["reason_codes"] == ["RUNTIME_INVALID"]
     assert "private-sentinel" not in json.dumps(terminal)
 
 
@@ -407,7 +443,7 @@ def test_old_wheel_binding_is_rejected_before_source_access(tmp_path):
         },
         settings,
     )
-    assert terminal["reason_codes"] == ["RUNTIME_BINDING_INVALID"]
+    assert terminal["reason_codes"] == ["RUNTIME_INVALID"]
     assert "private-sentinel" not in json.dumps(terminal)
 
 
@@ -423,7 +459,7 @@ def test_missing_eos_termination_policy_is_rejected_before_source_access(tmp_pat
         },
         settings,
     )
-    assert terminal["reason_codes"] == ["RUNTIME_BINDING_INVALID"]
+    assert terminal["reason_codes"] == ["RUNTIME_INVALID"]
     assert "private-sentinel" not in json.dumps(terminal)
 
 
@@ -439,7 +475,7 @@ def test_generation_cap_drift_in_runtime_lock_is_rejected(tmp_path):
         },
         settings,
     )
-    assert terminal["reason_codes"] == ["RUNTIME_BINDING_INVALID"]
+    assert terminal["reason_codes"] == ["RUNTIME_INVALID"]
     assert "private-sentinel" not in json.dumps(terminal)
 
 
@@ -454,7 +490,7 @@ def test_invalid_media_type_is_truthful_and_sanitized(tmp_path):
         _settings(tmp_path),
     )
     assert terminal["processing"] == "failed"
-    assert terminal["reason_codes"] == ["MEDIA_TYPE_INVALID"]
+    assert terminal["reason_codes"] == ["SOURCE_INVALID"]
     assert "private-sentinel" not in json.dumps(terminal)
 
 

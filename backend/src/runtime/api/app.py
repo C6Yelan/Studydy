@@ -1,5 +1,3 @@
-"""Student MVP 的 formal material runtime HTTP surface。"""
-
 from __future__ import annotations
 
 from contextlib import asynccontextmanager

@@ -1,5 +1,3 @@
-"""由 Study Material Output 建立只供複核的 Knowledge Map。"""
-
 from __future__ import annotations
 
 from copy import deepcopy
@@ -76,7 +74,7 @@ def build_review_knowledge_map(study_material_output: dict[str, Any]) -> dict[st
         "decision": "review",
         "reason_codes": sorted(
             set(study_material_output["reason_codes"])
-            | {"KNOWLEDGE_MAP_REVIEW_REQUIRED"}
+            | {"CONTENT_REVIEW_REQUIRED"}
         ),
     }
     document["revision"] = _revision(document)

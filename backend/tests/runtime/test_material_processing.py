@@ -327,7 +327,8 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     encoded = json.dumps(binding)
     assert settings["private_runtime_root"] not in encoded
     assert settings["ocr_model_root"] not in encoded
-    assert len(binding["code_hashes"]) == 9
+    assert len(binding["code_hashes"]) == 10
+    assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
 
 
 def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(

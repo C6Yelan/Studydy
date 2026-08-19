@@ -1,5 +1,3 @@
-"""原子發布並重驗文字優先 producer bundle。"""
-
 from __future__ import annotations
 
 import json
@@ -9,17 +7,17 @@ import re
 import tempfile
 from typing import Any
 
+from .artifact_reason_codes import reason_codes_are_valid
 from .concept_evidence_output import (
     AGGREGATION_POLICY,
-    BUNDLE_SCHEMA,
-    MAX_BUNDLE_FILE_BYTES,
-    OUTPUT_SCHEMA,
+    MAX_ARTIFACT_FILE_BYTES,
     TERMINAL_SCHEMA,
     validate_output_document,
 )
 from .ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
+BUNDLE_SCHEMA = "text-first-producer-bundle/v1"
 _TERMINAL_FIELDS = {
     "schema", "aggregation_policy", "run_id", "produced_at", "output_id",
     "runtime_binding_sha256", "page_count", "included_page_count",
@@ -63,9 +61,7 @@ def validate_terminal(terminal: Any, output: dict[str, Any] | None) -> bool:
         or re.fullmatch(r"text-first-run:[0-9a-fA-F-]{36}", terminal["run_id"]) is None
         or not isinstance(terminal["runtime_binding_sha256"], str)
         or re.fullmatch(r"[0-9a-f]{64}", terminal["runtime_binding_sha256"]) is None
-        or not isinstance(terminal["reason_codes"], list)
-        or not terminal["reason_codes"]
-        or not all(isinstance(reason, str) and reason for reason in terminal["reason_codes"])
+        or not reason_codes_are_valid(terminal["reason_codes"], formal=True)
         or terminal["reason_codes"] != sorted(set(terminal["reason_codes"]))
     ):
         return False
@@ -221,7 +217,11 @@ def _check_depth(value: Any, depth: int = 0) -> None:
 
 
 def _read_json_file(path: Path) -> dict[str, Any]:
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_BUNDLE_FILE_BYTES:
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or path.stat().st_size > MAX_ARTIFACT_FILE_BYTES
+    ):
         raise ValueError("PRODUCER_BUNDLE_INVALID")
     try:
         value = json.loads(
@@ -259,7 +259,6 @@ def read_producer_bundle(runtime_root: Path, run_id: str) -> dict[str, Any]:
         if (
             not validate_bundle_documents(bundle, terminal, output, run_id)
             or {item.name for item in directory.iterdir()} != expected_files
-            or (output is not None and output["schema"] != OUTPUT_SCHEMA)
         ):
             raise ValueError("PRODUCER_BUNDLE_INVALID")
     except (KeyError, OSError, TypeError):

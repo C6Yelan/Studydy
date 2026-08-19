@@ -1,5 +1,3 @@
-"""正式本機 runtime 的單一 composition root。"""
-
 from __future__ import annotations
 
 from collections.abc import Mapping

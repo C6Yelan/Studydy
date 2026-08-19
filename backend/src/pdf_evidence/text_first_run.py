@@ -1,5 +1,3 @@
-"""以本機 OCR 與 Qwen 依序處理單一 PDF 的指定頁面。"""
-
 from __future__ import annotations
 
 import base64
@@ -19,7 +17,11 @@ from uuid import uuid4
 
 import pymupdf
 
-from .concept_evidence_output import build_output, build_terminal
+from .concept_evidence_output import (
+    build_output,
+    build_terminal,
+    validate_page_evidence,
+)
 from .concept_generation import (
     MAX_ATTEMPTS,
     PROMPT_SHA256,
@@ -502,72 +504,6 @@ def _write_native(root: Path, page: dict[str, Any]) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def _page_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
-    fields = {
-        "schema",
-        "material_id",
-        "material_revision",
-        "section_id",
-        "page_ref",
-        "page_number",
-        "geometry",
-        "coordinate_space",
-        "native_evidence_ref",
-        "render",
-        "evidence_blocks",
-        "images",
-        "input_binding",
-        "processing_policy",
-        "normalizer_policy",
-        "produced_at",
-        "processing",
-        "quality",
-        "decision",
-        "reason_codes",
-        "page_evidence_id",
-    }
-    if (
-        not isinstance(artifact, dict)
-        or set(artifact) != fields
-        or artifact["schema"] != PAGE_SCHEMA
-        or artifact["input_binding"] != binding
-        or artifact["processing"] != "partial"
-        or artifact["quality"] != "needs_review"
-        or artifact["decision"] != "review"
-        or not isinstance(artifact["evidence_blocks"], list)
-        or not artifact["evidence_blocks"]
-    ):
-        return False
-    identity = dict(artifact)
-    page_evidence_id = identity.pop("page_evidence_id")
-    if page_evidence_id != f"page-evidence:sha256:{canonical_sha256(identity)}":
-        return False
-    evidence_ids: set[str] = set()
-    for block in artifact["evidence_blocks"]:
-        if (
-            not isinstance(block, dict)
-            or set(block)
-            != {
-                "evidence_id",
-                "block_id",
-                "ocr_type",
-                "kind",
-                "text",
-                "reading_order",
-                "locator",
-                "render_region",
-                "source",
-            }
-            or block["source"] != "unlimited_ocr"
-            or block["evidence_id"] in evidence_ids
-            or block["locator"].get("page") != artifact["page_number"]
-            or block["locator"].get("block_id") != block["block_id"]
-        ):
-            return False
-        evidence_ids.add(block["evidence_id"])
-    return True
-
-
 def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
     fields = {
         "schema",
@@ -652,7 +588,6 @@ def _read_cache(
         _check_cache_depth(record)
     except (OSError, UnicodeDecodeError, ValueError):
         return None, True
-    validator = _page_artifact_valid if operation == "page" else _semantic_artifact_valid
     try:
         valid = (
             isinstance(record, dict)
@@ -663,8 +598,21 @@ def _read_cache(
             and record["cache_key"] == key
             and record["input_binding"] == binding
             and record["artifact_sha256"] == canonical_sha256(record["artifact"])
-            and validator(record["artifact"], binding)
         )
+        if valid and operation == "page":
+            valid = validate_page_evidence(
+                record["artifact"],
+                {
+                    "source_sha256": binding.get("source_sha256"),
+                    "page_numbers": [binding.get("page_number")],
+                },
+                {"page": binding.get("page"), "ocr": binding.get("ocr")},
+                formal_reasons=False,
+            )
+        elif valid and operation == "semantic":
+            valid = _semantic_artifact_valid(record["artifact"], binding)
+        else:
+            valid = False
     except (KeyError, TypeError, ValueError):
         valid = False
     return (record["artifact"], False) if valid else (None, True)

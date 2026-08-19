@@ -1,5 +1,3 @@
-"""定義 runtime 保存資料使用的資料表。"""
-
 from __future__ import annotations
 
 from collections.abc import Generator

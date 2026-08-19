@@ -1,5 +1,3 @@
-"""原子保存文字優先 runtime 的複核 Output、Map 與 run binding。"""
-
 from __future__ import annotations
 
 from copy import deepcopy
@@ -18,7 +16,7 @@ from knowledge_map.artifacts import (
     build_review_knowledge_map,
     validate_knowledge_map,
 )
-from pdf_evidence.concept_evidence_output import BUNDLE_SCHEMA, OUTPUT_SCHEMA, TERMINAL_SCHEMA
+from pdf_evidence.artifact_reason_codes import reason_codes_are_valid
 from pdf_evidence.text_first_bundle import validate_bundle_documents
 from pdf_evidence.study_material_output import (
     build_study_material_output,
@@ -67,8 +65,7 @@ def _binding_is_valid(binding: Any) -> bool:
         and binding["processing"] in {"succeeded", "partial"}
         and binding["quality"] == "needs_review"
         and binding["decision"] == "review"
-        and isinstance(binding["reason_codes"], list)
-        and all(isinstance(reason, str) and reason for reason in binding["reason_codes"])
+        and reason_codes_are_valid(binding["reason_codes"], formal=True)
         and binding["reason_codes"] == sorted(set(binding["reason_codes"]))
         and type(binding["ocr_calls"]) is int
         and 0 <= binding["ocr_calls"] <= binding["page_count"]
@@ -112,55 +109,10 @@ def _validated_producer(producer_bundle: Any, run_id: UUID) -> tuple[dict, dict,
     terminal = producer_bundle["terminal"]
     output = producer_bundle["output"]
     expected_run_id = f"text-first-run:{run_id}"
-    if not validate_bundle_documents(bundle, terminal, output, expected_run_id):
-        raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID")
-    terminal_fields = {
-        "schema", "aggregation_policy", "run_id", "produced_at", "output_id",
-        "runtime_binding_sha256", "page_count", "included_page_count",
-        "excluded_page_count", "processing", "quality", "decision", "reason_codes",
-        "duration_ms", "ocr_calls", "concept_calls", "ocr_loads", "concept_loads",
-    }
-    output_fields = {
-        "schema", "aggregation_policy", "run_id", "produced_at", "material_id",
-        "material_revision", "source_binding", "pages", "excluded_pages", "concepts",
-        "rejected_candidates", "runtime_binding", "processing", "quality", "decision",
-        "reason_codes", "output_id",
-    }
     if (
-        not isinstance(bundle, dict)
-        or bundle.get("schema") != BUNDLE_SCHEMA
-        or bundle.get("run_id") != expected_run_id
-        or not isinstance(terminal, dict)
-        or set(terminal) != terminal_fields
-        or terminal.get("schema") != TERMINAL_SCHEMA
-        or terminal.get("run_id") != expected_run_id
+        not validate_bundle_documents(bundle, terminal, output, expected_run_id)
+        or output is None
         or terminal.get("processing") not in {"succeeded", "partial"}
-        or terminal.get("quality") != "needs_review"
-        or terminal.get("decision") != "review"
-        or type(terminal.get("page_count")) is not int
-        or terminal["page_count"] < 1
-        or type(terminal.get("included_page_count")) is not int
-        or type(terminal.get("excluded_page_count")) is not int
-        or terminal["included_page_count"] + terminal["excluded_page_count"]
-        != terminal["page_count"]
-        or type(terminal.get("ocr_calls")) is not int
-        or not 0 <= terminal["ocr_calls"] <= terminal["page_count"]
-        or type(terminal.get("concept_calls")) is not int
-        or not 0 <= terminal["concept_calls"] <= 2 * terminal["page_count"]
-        or type(terminal.get("ocr_loads")) is not int
-        or terminal["ocr_loads"] not in {0, 1}
-        or type(terminal.get("concept_loads")) is not int
-        or not 0 <= terminal["concept_loads"] <= terminal["page_count"] + 1
-        or not isinstance(output, dict)
-        or set(output) != output_fields
-        or output.get("schema") != OUTPUT_SCHEMA
-        or output.get("run_id") != expected_run_id
-        or not isinstance(output.get("pages"), list)
-        or len(output["pages"]) != terminal["included_page_count"]
-        or not isinstance(output.get("excluded_pages"), list)
-        or len(output["excluded_pages"]) != terminal["excluded_page_count"]
-        or terminal.get("output_id") != output.get("output_id")
-        or terminal.get("processing") != output.get("processing")
     ):
         raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID")
     return bundle, terminal, output

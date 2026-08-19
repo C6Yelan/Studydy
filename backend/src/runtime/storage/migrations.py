@@ -1,5 +1,3 @@
-"""以 checksum ledger 與 advisory lock 套用 PostgreSQL migration。"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass

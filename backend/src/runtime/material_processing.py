@@ -1,5 +1,3 @@
-"""Formal persisted material_processing_run 與本機文字優先執行入口。"""
-
 from __future__ import annotations
 
 from copy import deepcopy
@@ -48,6 +46,7 @@ _LOCKED_FILES = {
     "backend/src/pdf_evidence/local_ai_process.py": "91b2411fefb174c97204f83ce738cceb718ef3c2a755dc4177a362e52da81472",
 }
 _BINDING_FILES = (
+    "backend/src/pdf_evidence/artifact_reason_codes.py",
     "backend/src/pdf_evidence/concept_evidence_output.py",
     "backend/src/pdf_evidence/text_first_bundle.py",
     "backend/src/pdf_evidence/text_first_run.py",

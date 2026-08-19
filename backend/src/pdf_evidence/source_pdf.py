@@ -1,5 +1,3 @@
-"""建立不可變來源 PDF 快照，並確認正式流程需要處理的完整頁數。"""
-
 from __future__ import annotations
 
 import hashlib

@@ -1,5 +1,3 @@
-"""依序執行待處理教材工作的背景 worker。"""
-
 from __future__ import annotations
 
 from copy import deepcopy

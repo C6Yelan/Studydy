@@ -1,5 +1,3 @@
-"""建立、發布並重驗本機文字優先流程的封閉產物。"""
-
 from __future__ import annotations
 
 from copy import deepcopy
@@ -7,75 +5,29 @@ import math
 import re
 from typing import Any
 
+from .artifact_reason_codes import (
+    formal_reason_codes,
+    reason_codes_are_valid,
+)
 from .ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
 OUTPUT_SCHEMA = "concept-evidence-output/v2"
 TERMINAL_SCHEMA = "text-first-run-terminal/v2"
-BUNDLE_SCHEMA = "text-first-producer-bundle/v1"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
-MAX_BUNDLE_FILE_BYTES = 16 * 1024 * 1024
+MAX_ARTIFACT_FILE_BYTES = 16 * 1024 * 1024
 RUNTIME_LOCK_SHA256 = "b777829253b40ddca6a6fb9f076ddd6125f12b6e3f4450a85fa6737f5321f967"
-_SHA_REF = re.compile(r"[a-z-]+:sha256:[0-9a-f]{64}")
-KNOWN_REASONS = {
-    "MEDIA_TYPE_INVALID",
-    "SOURCE_READ_FAILED",
-    "SOURCE_HASH_MISMATCH",
-    "PDF_INVALID",
-    "PDF_ENCRYPTED",
-    "PAGE_SELECTION_INVALID",
-    "RUNTIME_BINDING_INVALID",
-    "RUNTIME_BUSY",
-    "PROTOCOL_LIMIT_EXCEEDED",
-    "CHILD_TIMEOUT",
-    "CHILD_EXITED",
-    "CHILD_RESPONSE_INVALID",
-    "MODEL_OOM",
-    "MODEL_GENERATION_FAILED",
-    "MODEL_INPUT_TOO_LARGE",
-    "OCR_OUTPUT_INVALID",
-    "OCR_LOCATOR_INVALID",
-    "NO_USABLE_EVIDENCE",
-    "PAGE_CONTENT_REVIEW_REQUIRED",
-    "PAGE_CONTENT_EXCLUDED",
-    "MODEL_OUTPUT_TOO_LARGE",
-    "MODEL_OUTPUT_INVALID_JSON",
-    "MODEL_OUTPUT_TRUNCATED",
-    "CANDIDATE_SCHEMA_INVALID",
-    "INVALID_CONCEPT_COUNT",
-    "INVALID_TEXT_FIELD",
-    "INVALID_KEY_POINTS",
-    "INVALID_EVIDENCE_REFERENCES",
-    "DUPLICATE_EVIDENCE_REFERENCE",
-    "UNKNOWN_EVIDENCE_ID",
-    "NO_USABLE_CONCEPT",
-    "TRAILING_QUOTE_REMOVED",
-    "SEMANTIC_REVIEW_REQUIRED",
-    "CACHE_INVALID",
-    "CACHE_WRITE_FAILED",
-    "ARTIFACT_COLLISION",
-    "FINAL_OUTPUT_WRITE_FAILED",
-    "RUN_TERMINAL_WRITE_FAILED",
-    "PRODUCER_BUNDLE_INVALID",
-    "INTERNAL_FAILURE",
-}
-
-
-def clean_reasons(reasons: list[str]) -> list[str]:
-    return sorted(
-        {reason if reason in KNOWN_REASONS else "INTERNAL_FAILURE" for reason in reasons}
-    )
 
 
 def _closed(value: Any, fields: set[str]) -> bool:
     return isinstance(value, dict) and set(value) == fields
 
 
-def _reasons(value: Any, *, require_sorted: bool = True) -> bool:
+def _reasons(
+    value: Any, *, formal: bool, require_sorted: bool = True
+) -> bool:
     return (
-        isinstance(value, list)
-        and all(isinstance(reason, str) and reason in KNOWN_REASONS for reason in value)
-        and len(value) == len(set(value))
+        reason_codes_are_valid(value, formal=formal)
         and (not require_sorted or value == sorted(value))
     )
 
@@ -90,7 +42,13 @@ def _box(value: Any) -> bool:
     )
 
 
-def _page_is_valid(page: Any, source_binding: dict[str, Any], runtime_binding: dict[str, Any]) -> bool:
+def validate_page_evidence(
+    page: Any,
+    source_binding: dict[str, Any],
+    runtime_binding: dict[str, Any],
+    *,
+    formal_reasons: bool,
+) -> bool:
     fields = {
         "schema", "material_id", "material_revision", "section_id", "page_ref",
         "page_number", "geometry", "coordinate_space", "native_evidence_ref", "render",
@@ -105,9 +63,16 @@ def _page_is_valid(page: Any, source_binding: dict[str, Any], runtime_binding: d
         or type(page["page_number"]) is not int
         or page["page_number"] not in source_binding["page_numbers"]
         or page["coordinate_space"] != "unrotated_pdf_points"
+        or not isinstance(page["evidence_blocks"], list)
+        or not isinstance(page["images"], list)
+        or len(page["images"]) > 256
         or (page["processing"], page["quality"], page["decision"])
         != ("partial", "needs_review", "review")
-        or not _reasons(page["reason_codes"], require_sorted=False)
+        or not _reasons(
+            page["reason_codes"],
+            formal=formal_reasons,
+            require_sorted=False,
+        )
     ):
         return False
     geometry = page["geometry"]
@@ -178,6 +143,7 @@ def _page_is_valid(page: Any, source_binding: dict[str, Any], runtime_binding: d
         evidence_ids.add(block["evidence_id"])
     if not 1 <= len(evidence_ids) <= 64:
         return False
+    image_ids: set[str] = set()
     for image in page["images"]:
         if not _closed(
             image,
@@ -190,8 +156,11 @@ def _page_is_valid(page: Any, source_binding: dict[str, Any], runtime_binding: d
             or not all(isinstance(items, list) for items in (image["caption_evidence_ids"], image["nearby_evidence_ids"]))
             or len(references) != len(set(references))
             or not set(references) <= evidence_ids
+            or not isinstance(image["image_id"], str)
+            or image["image_id"] in image_ids
         ):
             return False
+        image_ids.add(image["image_id"])
     identity = dict(page)
     page_evidence_id = identity.pop("page_evidence_id")
     return page_evidence_id == f"page-evidence:sha256:{canonical_sha256(identity)}"
@@ -223,7 +192,7 @@ def validate_output_document(output: Any) -> bool:
         or output["aggregation_policy"] != AGGREGATION_POLICY
         or (output["quality"], output["decision"]) != ("needs_review", "review")
         or output["processing"] not in {"succeeded", "partial"}
-        or not _reasons(output["reason_codes"])
+        or not _reasons(output["reason_codes"], formal=True)
     ):
         return False
     pages = output["pages"]
@@ -234,7 +203,15 @@ def validate_output_document(output: Any) -> bool:
         or not isinstance(excluded_pages, list)
     ):
         return False
-    if any(not _page_is_valid(page, source_binding, runtime_binding) for page in pages):
+    if any(
+        not validate_page_evidence(
+            page,
+            source_binding,
+            runtime_binding,
+            formal_reasons=True,
+        )
+        for page in pages
+    ):
         return False
     if any(len(page["images"]) > 256 for page in pages):
         return False
@@ -258,19 +235,22 @@ def validate_output_document(output: Any) -> bool:
             or page["last_stage"] not in {"page_evidence", "concept"}
             or (page["processing"], page["quality"], page["decision"])
             != ("failed", "needs_review", "reject")
-            or not _reasons(page["reason_codes"])
+            or not _reasons(page["reason_codes"], formal=True)
         ):
             return False
         excluded_refs.add(page["page_ref"])
         excluded_numbers.add(page["page_number"])
     if set(page_refs.values()) | excluded_numbers != set(page_numbers):
         return False
-    evidence_pages = {
-        block["evidence_id"]: page["page_ref"]
-        for page in pages
-        for block in page["evidence_blocks"]
-    }
+    evidence_pages: dict[str, str] = {}
+    for page in pages:
+        for block in page["evidence_blocks"]:
+            evidence_id = block["evidence_id"]
+            if evidence_id in evidence_pages:
+                return False
+            evidence_pages[evidence_id] = page["page_ref"]
     concept_ids: set[str] = set()
+    concept_page_refs: set[str] = set()
     concept_processing: set[str] = set()
     concept_fields = {
         "concept_id", "page_ref", "label", "definition", "key_points", "evidence_ids",
@@ -292,12 +272,13 @@ def validate_output_document(output: Any) -> bool:
             or concept["processing"] not in {"succeeded", "partial"}
             or (concept["quality"], concept["decision"])
             != ("needs_review", "review")
-            or not _reasons(concept["reason_codes"])
+            or not _reasons(concept["reason_codes"], formal=True)
         ):
             return False
         concept_ids.add(concept["concept_id"])
+        concept_page_refs.add(concept["page_ref"])
         concept_processing.add(concept["processing"])
-    if len(concept_processing) != 1:
+    if len(concept_processing) != 1 or concept_page_refs != set(page_refs):
         return False
     is_qualification_partial = concept_processing == {"partial"} and not excluded_pages
     if (output["processing"] == "partial") != (bool(excluded_pages) or is_qualification_partial):
@@ -315,7 +296,7 @@ def validate_output_document(output: Any) -> bool:
             or rejected["candidate_index"] < 0
             or (rejected["processing"], rejected["quality"], rejected["decision"])
             != ("failed", "needs_review", "reject")
-            or not _reasons(rejected["reason_codes"])
+            or not _reasons(rejected["reason_codes"], formal=True)
         ):
             return False
     identity = dict(output)
@@ -323,67 +304,10 @@ def validate_output_document(output: Any) -> bool:
     try:
         return (
             output_id == f"concept-evidence-output:sha256:{canonical_sha256(identity)}"
-            and len(canonical_bytes(output)) <= MAX_BUNDLE_FILE_BYTES
+            and len(canonical_bytes(output)) <= MAX_ARTIFACT_FILE_BYTES
         )
     except (RecursionError, TypeError, ValueError):
         return False
-
-
-def _page_number(page_ref: str, pages: dict[str, dict[str, Any]]) -> int:
-    page = pages.get(page_ref)
-    if page is None or type(page.get("page_number")) is not int:
-        raise ValueError("UNKNOWN_EVIDENCE_ID")
-    return page["page_number"]
-
-
-def _validate_page_links(
-    page_artifacts: list[dict[str, Any]], semantic_pages: list[dict[str, Any]]
-) -> None:
-    """Concept 與 image-lite Evidence 必須留在自己的 PDF 頁面。"""
-
-    pages: dict[str, dict[str, Any]] = {}
-    evidence_pages: dict[str, str] = {}
-    for page in page_artifacts:
-        page_ref = page.get("page_ref")
-        if not isinstance(page_ref, str) or page_ref in pages:
-            raise ValueError("OCR_LOCATOR_INVALID")
-        if page.get("coordinate_space") != "unrotated_pdf_points":
-            raise ValueError("OCR_LOCATOR_INVALID")
-        pages[page_ref] = page
-        for block in page.get("evidence_blocks", []):
-            evidence_id = block.get("evidence_id") if isinstance(block, dict) else None
-            locator = block.get("locator") if isinstance(block, dict) else None
-            if (
-                not isinstance(evidence_id, str)
-                or evidence_id in evidence_pages
-                or not isinstance(locator, dict)
-                or locator.get("page") != page.get("page_number")
-            ):
-                raise ValueError("OCR_LOCATOR_INVALID")
-            evidence_pages[evidence_id] = page_ref
-        for image in page.get("images", []):
-            if not isinstance(image, dict):
-                raise ValueError("OCR_LOCATOR_INVALID")
-            references = image.get("caption_evidence_ids", []) + image.get(
-                "nearby_evidence_ids", []
-            )
-            if any(evidence_pages.get(item) != page_ref for item in references):
-                raise ValueError("UNKNOWN_EVIDENCE_ID")
-
-    semantic_refs: set[str] = set()
-    for semantic_page in semantic_pages:
-        page_ref = semantic_page.get("page_ref")
-        if not isinstance(page_ref, str) or page_ref in semantic_refs or page_ref not in pages:
-            raise ValueError("UNKNOWN_EVIDENCE_ID")
-        semantic_refs.add(page_ref)
-        for concept in semantic_page.get("concepts", []):
-            if concept.get("page_ref") != page_ref or any(
-                evidence_pages.get(evidence_id) != page_ref
-                for evidence_id in concept.get("evidence_ids", [])
-            ):
-                raise ValueError("UNKNOWN_EVIDENCE_ID")
-    if semantic_refs != set(pages):
-        raise ValueError("NO_USABLE_CONCEPT")
 
 
 def build_output(
@@ -400,7 +324,16 @@ def build_output(
     excluded = deepcopy(excluded_pages or [])
     if not pages or not semantic_pages:
         raise ValueError("NO_USABLE_CONCEPT")
-    _validate_page_links(pages, semantic_pages)
+
+    formal_pages = deepcopy(pages)
+    for page in formal_pages:
+        page["reason_codes"] = formal_reason_codes(page["reason_codes"])
+        page.pop("page_evidence_id")
+        page["page_evidence_id"] = (
+            "page-evidence:sha256:" + canonical_sha256(page)
+        )
+    for page in excluded:
+        page["reason_codes"] = formal_reason_codes(page["reason_codes"])
 
     concepts = []
     for semantic_page in semantic_pages:
@@ -409,16 +342,22 @@ def build_output(
             concept["processing"] = "succeeded"
             concept["quality"] = "needs_review"
             concept["decision"] = "review"
+            concept["reason_codes"] = formal_reason_codes(
+                concept["reason_codes"]
+            )
             concepts.append(concept)
     if not concepts:
         raise ValueError("NO_USABLE_CONCEPT")
     concepts.sort(key=lambda concept: (concept["page_ref"], concept["concept_id"]))
 
-    rejected = [
-        {"page_ref": page["page_ref"], **deepcopy(candidate)}
-        for page in semantic_pages
-        for candidate in page["rejected_candidates"]
-    ]
+    rejected = []
+    for page in semantic_pages:
+        for source_candidate in page["rejected_candidates"]:
+            candidate = {"page_ref": page["page_ref"], **deepcopy(source_candidate)}
+            candidate["reason_codes"] = formal_reason_codes(
+                candidate["reason_codes"]
+            )
+            rejected.append(candidate)
     reasons = run_reasons + ["SEMANTIC_REVIEW_REQUIRED"]
     reasons.extend(reason for page in pages for reason in page["reason_codes"])
     reasons.extend(reason for page in semantic_pages for reason in page["reason_codes"])
@@ -429,10 +368,10 @@ def build_output(
         "aggregation_policy": AGGREGATION_POLICY,
         "run_id": run_id,
         "produced_at": produced_at,
-        "material_id": pages[0]["material_id"],
-        "material_revision": pages[0]["material_revision"],
+        "material_id": formal_pages[0]["material_id"],
+        "material_revision": formal_pages[0]["material_revision"],
         "source_binding": deepcopy(source_binding),
-        "pages": deepcopy(pages),
+        "pages": formal_pages,
         "excluded_pages": excluded,
         "concepts": concepts,
         "rejected_candidates": rejected,
@@ -440,10 +379,10 @@ def build_output(
         "processing": "partial" if excluded else "succeeded",
         "quality": "needs_review",
         "decision": "review",
-        "reason_codes": clean_reasons(reasons),
+        "reason_codes": formal_reason_codes(reasons),
     }
     output["output_id"] = f"concept-evidence-output:sha256:{canonical_sha256(output)}"
-    if len(canonical_bytes(output)) > MAX_BUNDLE_FILE_BYTES:
+    if len(canonical_bytes(output)) > MAX_ARTIFACT_FILE_BYTES:
         raise ValueError("PROTOCOL_LIMIT_EXCEEDED")
     if not validate_output_document(output):
         raise ValueError("PRODUCER_BUNDLE_INVALID")
@@ -486,7 +425,7 @@ def build_terminal(
         "processing": processing,
         "quality": "needs_review",
         "decision": "reject" if failed else "review",
-        "reason_codes": clean_reasons(reasons),
+        "reason_codes": formal_reason_codes(reasons),
         "duration_ms": duration_ms,
         "ocr_calls": ocr_calls,
         "concept_calls": concept_calls,

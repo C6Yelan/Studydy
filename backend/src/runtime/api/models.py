@@ -1,5 +1,3 @@
-"""Formal material runtime 的封閉 public models。"""
-
 from __future__ import annotations
 
 from copy import deepcopy

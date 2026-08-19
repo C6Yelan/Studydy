@@ -1,11 +1,10 @@
-"""把已驗證的文字優先 producer output 整理成 Study Material Output。"""
-
 from __future__ import annotations
 
 from copy import deepcopy
 import math
 from typing import Any
 
+from .artifact_reason_codes import formal_reason_codes, reason_codes_are_valid
 from .concept_evidence_output import AGGREGATION_POLICY, validate_output_document
 from .ocr_page_evidence import canonical_sha256
 
@@ -64,6 +63,7 @@ def _shape_is_valid(document: Any) -> bool:
         or document["processing"] not in {"succeeded", "partial"}
         or (document["quality"], document["decision"]) != ("needs_review", "review")
         or not _string_list(document["reason_codes"], minimum=1)
+        or not reason_codes_are_valid(document["reason_codes"], formal=True)
         or document["reason_codes"] != sorted(set(document["reason_codes"]))
     ):
         return False
@@ -87,6 +87,7 @@ def _shape_is_valid(document: Any) -> bool:
             or (page["processing"], page["quality"], page["decision"])
             != ("succeeded", "needs_review", "review")
             or not _string_list(page["reason_codes"], minimum=1)
+            or not reason_codes_are_valid(page["reason_codes"], formal=True)
         ):
             return False
         pages_by_ref[page["page_ref"]] = page["page_number"]
@@ -136,6 +137,7 @@ def _shape_is_valid(document: Any) -> bool:
             or (concept["processing"], concept["quality"], concept["decision"])
             != ("succeeded", "needs_review", "review")
             or not _string_list(concept["reason_codes"], minimum=1)
+            or not reason_codes_are_valid(concept["reason_codes"], formal=True)
         ):
             return False
         concept_ids.add(concept["concept_id"])
@@ -185,6 +187,7 @@ def _shape_is_valid(document: Any) -> bool:
             or (page["processing"], page["quality"], page["decision"])
             != ("failed", "needs_review", "reject")
             or not _string_list(page["reason_codes"], minimum=1)
+            or not reason_codes_are_valid(page["reason_codes"], formal=True)
         ):
             return False
         excluded_numbers.add(page["page_number"])
@@ -249,7 +252,7 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
                 "processing": "succeeded",
                 "quality": "needs_review",
                 "decision": "review",
-                "reason_codes": ["PAGE_CONTENT_REVIEW_REQUIRED"],
+                "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
             }
         )
         for block in source_page.get("evidence_blocks", []):
@@ -370,9 +373,9 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
         "processing": processing,
         "quality": "needs_review",
         "decision": "review",
-        "reason_codes": sorted(
-            set(producer_output["reason_codes"])
-            | ({"PAGE_CONTENT_EXCLUDED"} if excluded_pages else set())
+        "reason_codes": formal_reason_codes(
+            producer_output["reason_codes"]
+            + (["PAGE_CONTENT_EXCLUDED"] if excluded_pages else [])
         ),
     }
     document["output_id"] = _expected_identity(document)

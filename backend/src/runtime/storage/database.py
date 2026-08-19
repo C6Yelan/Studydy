@@ -1,5 +1,3 @@
-"""建立與驗證 runtime 資料庫連線。"""
-
 from __future__ import annotations
 
 import os
