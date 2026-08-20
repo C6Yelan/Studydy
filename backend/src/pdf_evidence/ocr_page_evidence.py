@@ -12,10 +12,19 @@ import pymupdf
 
 PAGE_SCHEMA = "page-evidence/v2"
 NATIVE_SCHEMA = "page-native/v2"
-RENDER_POLICY = "pymupdf-rgb-200dpi/v1"
 PROCESSING_POLICY = "unlimited-ocr-page-evidence/v1"
 NORMALIZER_POLICY = "ocr-text-nfc-line-preserving/v1"
-_OCR_TYPE = re.compile(r"[A-Za-z_][\w-]{0,63}")
+RENDER_DPI = 200
+PDF_POINTS_PER_INCH = 72
+RGB_CHANNELS = 3
+MAX_RENDER_PIXELS = 50_000_000
+MAX_RENDER_SIDE = 32_768
+MAX_PNG_BYTES = 64 * 1024 * 1024
+MAX_PAGE_ARTIFACT_BYTES = 4 * 1024 * 1024
+CAPTION_DISTANCE_POINTS = 36
+NEARBY_EVIDENCE_DISTANCE_POINTS = 72
+RENDER_POLICY = f"pymupdf-rgb-{RENDER_DPI}dpi/v1"
+_OCR_TYPE = re.compile(r"[A-Za-z_][\w-]*")
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -72,23 +81,23 @@ def extract_page(
     visible = page.rect
     if visible.width <= 0 or visible.height <= 0 or page.rotation not in (0, 90, 180, 270):
         raise ValueError("OCR_LOCATOR_INVALID")
-    estimated_width = math.ceil(visible.width * 200 / 72)
-    estimated_height = math.ceil(visible.height * 200 / 72)
-    estimated_rgb_bytes = estimated_width * estimated_height * 3
+    estimated_width = math.ceil(visible.width * RENDER_DPI / PDF_POINTS_PER_INCH)
+    estimated_height = math.ceil(visible.height * RENDER_DPI / PDF_POINTS_PER_INCH)
+    estimated_rgb_bytes = estimated_width * estimated_height * RGB_CHANNELS
     if (
-        estimated_rgb_bytes > 150_000_000
-        or max(estimated_width, estimated_height) > 32_768
+        estimated_rgb_bytes > MAX_RENDER_PIXELS * RGB_CHANNELS
+        or max(estimated_width, estimated_height) > MAX_RENDER_SIDE
     ):
         raise ValueError("PROTOCOL_LIMIT_EXCEEDED")
     raw_text = _json_value(page.get_text("rawdict", sort=False))
     images = _json_value(page.get_image_info(hashes=True, xrefs=True))
     drawings = _json_value(page.get_drawings())
-    pixmap = page.get_pixmap(dpi=200, colorspace=pymupdf.csRGB, alpha=False)
+    pixmap = page.get_pixmap(dpi=RENDER_DPI, colorspace=pymupdf.csRGB, alpha=False)
     png_bytes = pixmap.tobytes("png")
     if (
-        pixmap.width * pixmap.height > 50_000_000
-        or max(pixmap.width, pixmap.height) > 32_768
-        or len(png_bytes) > 64 * 1024 * 1024
+        pixmap.width * pixmap.height > MAX_RENDER_PIXELS
+        or max(pixmap.width, pixmap.height) > MAX_RENDER_SIDE
+        or len(png_bytes) > MAX_PNG_BYTES
         or not png_bytes.startswith(b"\x89PNG\r\n\x1a\n")
     ):
         raise ValueError("PROTOCOL_LIMIT_EXCEEDED")
@@ -126,7 +135,7 @@ def extract_page(
         "render": {
             "schema": "page-render/v1",
             "policy": RENDER_POLICY,
-            "dpi": 200,
+            "dpi": RENDER_DPI,
             "colorspace": "RGB",
             "format": "PNG",
             "coverage": "full_visible_page",
@@ -293,15 +302,19 @@ def build_page_evidence(
         captions = [
             block["evidence_id"]
             for block in evidence_blocks
-            if block["kind"] == "caption" and _distance(region, block["locator"]["region"]) <= 36
+            if block["kind"] == "caption"
+            and _distance(region, block["locator"]["region"])
+            <= CAPTION_DISTANCE_POINTS
         ]
         nearby = sorted(
             (
                 (_distance(region, block["locator"]["region"]), block["reading_order"], block["evidence_id"])
                 for block in evidence_blocks
-                if block["kind"] != "caption" and _distance(region, block["locator"]["region"]) <= 72
+                if block["kind"] != "caption"
+                and _distance(region, block["locator"]["region"])
+                <= NEARBY_EVIDENCE_DISTANCE_POINTS
             )
-        )[:4]
+        )
         image_artifacts.append(
             {
                 "image_id": _ref("image", {"page_ref": page["page_ref"], "ordinal": ordinal, "region": region}),
@@ -337,6 +350,6 @@ def build_page_evidence(
         "reason_codes": reasons,
     }
     artifact["page_evidence_id"] = _ref("page-evidence", artifact)
-    if len(canonical_bytes(artifact)) > 4 * 1024 * 1024:
+    if len(canonical_bytes(artifact)) > MAX_PAGE_ARTIFACT_BYTES:
         raise ValueError("PROTOCOL_LIMIT_EXCEEDED")
     return artifact

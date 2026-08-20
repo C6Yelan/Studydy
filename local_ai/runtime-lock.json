@@ -30,7 +30,7 @@
     "processing": "unlimited-ocr-page-evidence/v1",
     "normalizer": "ocr-text-nfc-line-preserving/v1",
     "code_hashes": {
-      "backend_ocr_page_evidence": "9f952c93b66086f48f09c9e7349c9af12ca3fc1f53b4cd2043d515b1684aa089"
+      "backend_ocr_page_evidence": "26954290a9b87f81bc707f0639eb08a6c4bf390c98a6c39982d983cdf9acc90c"
     },
     "fixture_hashes": {}
   },

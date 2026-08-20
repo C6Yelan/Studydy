@@ -17,6 +17,7 @@ from pdf_evidence.text_first_bundle import build_producer_bundle, publish_run
 from pdf_evidence.concept_generation import build_semantic_request, validate_concepts
 from pdf_evidence.ocr_page_evidence import build_page_evidence, canonical_sha256, extract_page
 from knowledge_map.artifacts import validate_knowledge_map
+from runtime.api.models import KnowledgeMapView
 from runtime.material_processing import (
     ClaimedMaterialProcessingRun,
     MaterialProcessingError,
@@ -434,6 +435,39 @@ def test_partial_page_and_semantic_status_reaches_persisted_run(
     assert outputs.study_material_output["pages"][0]["processing"] == "partial"
     assert outputs.study_material_output["concepts"][0]["processing"] == "partial"
     assert outputs.knowledge_map["processing"] == "partial"
+    view = deepcopy(outputs.knowledge_map_view)
+    evidence = view["concepts"][0]["evidence"][0]
+    view["images"] = [
+        {
+            "image_id": "image:sha256:" + "a" * 64,
+            "page_ref": evidence["page_ref"],
+            "page_number": evidence["page_number"],
+            "region": deepcopy(evidence["region"]),
+            "evidence": [
+                {**deepcopy(evidence), "evidence_id": f"evidence:sha256:{index:064x}"}
+                for index in range(9)
+            ],
+        }
+    ]
+    api_view = KnowledgeMapView.model_validate(view).model_dump(by_alias=True)
+    assert api_view["status"]["processing"] == "partial"
+    assert api_view["excluded_pages"] == []
+    assert api_view["images"][0]["evidence"] == view["images"][0]["evidence"]
+    view["status"]["processing"] = "succeeded"
+    view["excluded_pages"] = [
+        {
+            "page_ref": "page:sha256:" + "b" * 64,
+            "page_number": 2,
+            "page_evidence_id": None,
+            "last_stage": "page_evidence",
+            "processing": "failed",
+            "quality": "needs_review",
+            "decision": "reject",
+            "reason_codes": ["NO_USABLE_EVIDENCE"],
+        }
+    ]
+    with pytest.raises(ValueError, match="KNOWLEDGE_MAP_VIEW_INVALID"):
+        KnowledgeMapView.model_validate(view)
 
 
 def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path):

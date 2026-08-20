@@ -148,7 +148,7 @@ class ImageLiteView(_ClosedModel):
     page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
     page_number: int = Field(ge=1)
     region: RegionView
-    evidence: list[EvidenceView] = Field(max_length=8)
+    evidence: list[EvidenceView]
 
 
 class ExcludedPageView(_ClosedModel):
@@ -219,7 +219,7 @@ class KnowledgeMapView(_ClosedModel):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if any(page.page_ref in included_refs for page in self.excluded_pages):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if (self.status.processing == "partial") != bool(self.excluded_pages):
+        if self.excluded_pages and self.status.processing != "partial":
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         return self
 

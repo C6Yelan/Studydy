@@ -67,7 +67,7 @@ function mapView() {
     knowledge_map_revision: mapRevision,
     source_output_id: `study-material-output:sha256:${"3".repeat(64)}`,
     status: {
-      processing: "succeeded",
+      processing: "partial",
       quality: "needs_review",
       decision: "review",
       reason_codes: ["KNOWLEDGE_MAP_REVIEW_REQUIRED"],
@@ -89,7 +89,19 @@ function mapView() {
       decision: "review",
       reason_codes: ["SEMANTIC_REVIEW_REQUIRED"],
     }],
-    images: [],
+    images: [{
+      image_id: `image:sha256:${"a".repeat(64)}`,
+      page_ref: pageRef,
+      page_number: 40,
+      region: { coordinate_space: "unrotated_pdf_points", bbox: [72, 140, 300, 260] },
+      evidence: Array.from({ length: 9 }, (_, index) => ({
+        evidence_id: `evidence:sha256:${(index + 1).toString(16).repeat(64)}`,
+        page_ref: pageRef,
+        page_number: 40,
+        kind: "paragraph",
+        region: { coordinate_space: "unrotated_pdf_points", bbox: [72, 80, 300, 120] },
+      })),
+    }],
     excluded_pages: [],
   };
 }
@@ -156,6 +168,12 @@ test("Map v2 使用 exact run/revision 並要求 same-page PDF locator", async (
   });
   const view = await client.getKnowledgeMap({ materialId, runId, mapRevision });
   assert.equal(view.concepts[0].evidence[0].page_number, 40);
+  assert.equal(view.status.processing, "partial");
+  assert.equal(view.excluded_pages.length, 0);
+  assert.deepEqual(
+    view.images[0].evidence.map((evidence) => evidence.evidence_id),
+    mapView().images[0].evidence.map((evidence) => evidence.evidence_id),
+  );
   assert.deepEqual(paths, [
     "/v1/session/refresh",
     `/v1/materials/${materialId}/knowledge-maps/${encodeURIComponent(mapRevision)}?run_id=${runId}`,
@@ -182,6 +200,19 @@ test("Map v2 recursively rejects unexpected、duplicate、nonfinite、type 與 c
     type: (view) => { view.concepts[0].evidence[0].page_number = true; },
     count: (view) => { view.concepts[0].key_points = Array.from({ length: 11 }, () => "point"); },
     reference: (view) => { view.concepts[0].evidence[0].page_ref = `page:sha256:${"f".repeat(64)}`; },
+    excluded: (view) => {
+      view.status.processing = "succeeded";
+      view.excluded_pages = [{
+        page_ref: `page:sha256:${"b".repeat(64)}`,
+        page_number: 2,
+        page_evidence_id: null,
+        last_stage: "page_evidence",
+        processing: "failed",
+        quality: "needs_review",
+        decision: "reject",
+        reason_codes: ["NO_USABLE_EVIDENCE"],
+      }];
+    },
   };
   for (const [name, mutate] of Object.entries(mutations)) {
     await context.test(name, async () => {

@@ -27,6 +27,7 @@ def test_200dpi_rgb_page_identity_and_ocr_locator(tmp_path):
     path = tmp_path / "public.pdf"
     _pdf(path)
     page = _extract(path)
+    long_ocr_type = "custom_" + "x" * 64
     page["images"] = [
         {"bbox": [0.0, 0.0, 1.0, 1.0], "digest": f"{ordinal:064x}"}
         for ordinal in range(257)
@@ -38,7 +39,7 @@ def test_200dpi_rgb_page_identity_and_ocr_locator(tmp_path):
         page,
         [
             {
-                "type": "code" if ordinal == 0 else "text",
+                "type": long_ocr_type if ordinal == 0 else "text",
                 "text": "  first line\n    second line" if ordinal == 0 else f"Public OCR text {ordinal}",
                 "bbox": [100, 100, 900, 300],
             }
@@ -54,9 +55,13 @@ def test_200dpi_rgb_page_identity_and_ocr_locator(tmp_path):
     assert block["locator"]["page"] == 1
     assert block["render_region"] == [40.0, 60.0, 360.0, 180.0]
     assert block["source"] == "unlimited_ocr"
+    assert block["ocr_type"] == long_ocr_type
     assert block["text"] == "  first line\n    second line"
     assert len(artifact["evidence_blocks"]) == 65
     assert len(artifact["images"]) == 257
+    assert artifact["images"][0]["nearby_evidence_ids"] == [
+        evidence["evidence_id"] for evidence in artifact["evidence_blocks"]
+    ]
     assert "png_bytes" not in artifact
     assert artifact["reason_codes"] == ["PAGE_CONTENT_REVIEW_REQUIRED"]
 

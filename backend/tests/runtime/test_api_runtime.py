@@ -235,6 +235,7 @@ def test_openapi_has_no_deferred_downstream_routes(settings: ApiSettings):
         assert "maximum" not in schemas[schema_name]["properties"][field_name]
     for field_name in ("concepts", "images", "excluded_pages"):
         assert "maxItems" not in schemas["KnowledgeMapView"]["properties"][field_name]
+    assert "maxItems" not in schemas["ImageLiteView"]["properties"]["evidence"]
     source_response = document["paths"]["/v1/artifacts/{artifact_id}"]["get"]["responses"]["200"]
     assert source_response["content"]["application/pdf"]["schema"] == {
         "type": "string",

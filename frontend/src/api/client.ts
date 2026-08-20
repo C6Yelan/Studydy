@@ -193,7 +193,6 @@ function isImage(value: unknown): boolean {
     && Number(image.page_number) >= 1
     && isRegion(image.region)
     && Array.isArray(image.evidence)
-    && image.evidence.length <= 8
     && new Set(image.evidence.map((evidence) => object(evidence)?.evidence_id)).size === image.evidence.length
     && image.evidence.every((evidence) => isEvidence(evidence, image.page_ref as string));
 }
@@ -266,7 +265,7 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     && new Set(excludedRefs).size === excludedRefs.length
     && new Set(excludedNumbers).size === excludedNumbers.length
     && item.excluded_pages.every((entry) => !includedPageRefs.has(object(entry)?.page_ref))
-    && (status.processing === "partial") === (item.excluded_pages.length > 0);
+    && (item.excluded_pages.length === 0 || status.processing === "partial");
 }
 
 function isApiError(value: unknown): value is ApiErrorView {
