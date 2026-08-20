@@ -25,6 +25,7 @@ dist/
 AGENTS.md
 .codex/
 docs_local
+/fix.md
 .role.md
 /.studydy-runtime/
 
