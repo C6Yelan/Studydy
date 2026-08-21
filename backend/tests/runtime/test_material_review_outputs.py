@@ -27,7 +27,11 @@ def _binding():
 
 def test_persisted_binding_is_closed_and_bool_is_not_an_integer():
     binding = _binding()
+    binding["concept_calls"] = 3
     assert _binding_is_valid(binding)
+    binding["concept_calls"] = -1
+    assert not _binding_is_valid(binding)
+    binding["concept_calls"] = 3
     binding["unexpected_field"] = True
     assert not _binding_is_valid(binding)
     binding.pop("unexpected_field")

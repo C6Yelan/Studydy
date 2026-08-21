@@ -132,8 +132,7 @@ function isBinding(value: unknown): boolean {
     && Number(item.ocr_calls) >= 0
     && Number(item.ocr_calls) <= Number(item.page_count)
     && Number.isInteger(item.concept_calls)
-    && Number(item.concept_calls) >= 0
-    && Number(item.concept_calls) <= 2 * Number(item.page_count);
+    && Number(item.concept_calls) >= 0;
 }
 
 function isMaterialRun(value: unknown): value is MaterialProcessingRunView {

@@ -8,6 +8,7 @@ import pytest
 import runtime.api.app as app_module
 import runtime.material_processing as processing_module
 from runtime.api.app import ApiSettings, canonical_openapi_bytes, create_app
+from runtime.api.models import MaterialOutputBinding
 from runtime.material_processing import (
     MaterialProcessingError,
     claim_next_material_processing_run,
@@ -175,6 +176,30 @@ def test_api_settings_accept_local_and_test_profiles(
         local_config={},
     )
     assert settings.profile == profile
+
+
+def test_output_binding_accepts_multiple_concept_batches_per_page():
+    binding = {
+        "schema": "material-run-output-binding/v2",
+        "producer_bundle_id": "text-first-producer-bundle:sha256:" + "1" * 64,
+        "producer_run_id": "text-first-run:00000000-0000-4000-8000-000000000001",
+        "concept_evidence_output_id": "concept-evidence-output:sha256:" + "2" * 64,
+        "study_material_output_revision": "study-material-output:sha256:" + "3" * 64,
+        "knowledge_map_revision": "knowledge-map:sha256:" + "4" * 64,
+        "runtime_binding_sha256": "5" * 64,
+        "page_count": 1,
+        "processing": "succeeded",
+        "quality": "needs_review",
+        "decision": "review",
+        "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
+        "ocr_calls": 1,
+        "concept_calls": 3,
+    }
+
+    assert MaterialOutputBinding.model_validate(binding).concept_calls == 3
+    binding["concept_calls"] = -1
+    with pytest.raises(ValueError):
+        MaterialOutputBinding.model_validate(binding)
 
 
 def test_create_and_poll_v2_rejects_caller_page_subset(settings: ApiSettings):

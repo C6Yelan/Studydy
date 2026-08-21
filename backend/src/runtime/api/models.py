@@ -74,7 +74,6 @@ class MaterialOutputBinding(_ClosedModel):
             len(self.reason_codes) != len(set(self.reason_codes))
             or self.reason_codes != sorted(self.reason_codes)
             or self.ocr_calls > self.page_count
-            or self.concept_calls > 2 * self.page_count
         ):
             raise ValueError("MATERIAL_OUTPUT_BINDING_INVALID")
         return self

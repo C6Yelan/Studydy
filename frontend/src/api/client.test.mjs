@@ -158,6 +158,31 @@ test("terminal binding 不完整時拒絕假成功", async () => {
   );
 });
 
+test("terminal binding 接受單頁多批 concept calls 並拒絕負數", async () => {
+  const accepted = successfulRun();
+  accepted.output_binding.page_count = 1;
+  accepted.output_binding.ocr_calls = 1;
+  accepted.output_binding.concept_calls = 3;
+  let calls = 0;
+  const acceptedClient = new StudydyApiClient(async () => {
+    calls += 1;
+    return calls === 1 ? new Response(null, { status: 204 }) : Response.json(accepted);
+  });
+  assert.equal((await acceptedClient.getMaterialRun(runId)).output_binding.concept_calls, 3);
+
+  const invalid = successfulRun();
+  invalid.output_binding.concept_calls = -1;
+  calls = 0;
+  const rejectedClient = new StudydyApiClient(async () => {
+    calls += 1;
+    return calls === 1 ? new Response(null, { status: 204 }) : Response.json(invalid);
+  });
+  await assert.rejects(
+    rejectedClient.getMaterialRun(runId),
+    (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
+  );
+});
+
 test("Map v2 使用 exact run/revision 並要求 same-page PDF locator", async () => {
   const paths = [];
   const client = new StudydyApiClient(async (input) => {

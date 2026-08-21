@@ -75,7 +75,7 @@ def _binding_is_valid(binding: Any) -> bool:
         and type(binding["ocr_calls"]) is int
         and 0 <= binding["ocr_calls"] <= binding["page_count"]
         and type(binding["concept_calls"]) is int
-        and 0 <= binding["concept_calls"] <= 2 * binding["page_count"]
+        and binding["concept_calls"] >= 0
         and all(
             isinstance(binding[field], str) and binding[field]
             for field in fields
