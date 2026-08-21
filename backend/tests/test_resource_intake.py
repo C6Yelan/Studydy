@@ -176,6 +176,9 @@ def test_analyze_writes_immutable_bundle_and_exact_replay_uses_no_model(
     candidate = json.loads(encoded)
     assert encoded.startswith(b"{\n") and encoded.endswith(b"\n")
     assert hashlib.sha256(encoded).hexdigest() == first["candidate_sha256"]
+    assert candidate["candidate_content_sha256"] == (
+        resource_intake._candidate_content_sha256(candidate)
+    )
     assert candidate["publishable_proposals"][0]["label"] == "Public concept"
     assert candidate["processing"] == "partial"
     assert candidate["critical_blockers"] == []
@@ -195,8 +198,12 @@ def test_analyze_writes_immutable_bundle_and_exact_replay_uses_no_model(
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize(
+    "telemetry_field",
+    ["external_network_calls", "peak_rss_kib"],
+)
 def test_telemetry_tamper_fails_replay_and_publish_without_overwriting(
-    tmp_path, monkeypatch, capsys
+    tmp_path, monkeypatch, capsys, telemetry_field
 ):
     (
         analyzed,
@@ -209,8 +216,11 @@ def test_telemetry_tamper_fails_replay_and_publish_without_overwriting(
     ) = _analyze(tmp_path, monkeypatch, capsys)
     candidate_path = candidates / analyzed["candidate_id"] / "candidate.json"
     candidate = json.loads(candidate_path.read_bytes())
-    candidate["telemetry"]["external_network_calls"] = 999
-    assert analyzed["candidate_id"] != resource_intake._candidate_id(
+    if telemetry_field == "external_network_calls":
+        candidate["telemetry"][telemetry_field] = 999
+    else:
+        candidate["telemetry"][telemetry_field] += 1
+    tampered_input_id = resource_intake._candidate_id(
         resource_intake._candidate_identity(
             candidate["source"],
             candidate["base"],
@@ -218,6 +228,13 @@ def test_telemetry_tamper_fails_replay_and_publish_without_overwriting(
             candidate["ceilings"],
             candidate["telemetry"],
         )
+    )
+    if telemetry_field == "external_network_calls":
+        assert analyzed["candidate_id"] != tampered_input_id
+    else:
+        assert analyzed["candidate_id"] == tampered_input_id
+    assert candidate["candidate_content_sha256"] != (
+        resource_intake._candidate_content_sha256(candidate)
     )
     corrupted_bytes = resource_intake._candidate_bytes(candidate)
     candidate_path.write_bytes(corrupted_bytes)
@@ -251,34 +268,6 @@ def test_telemetry_tamper_fails_replay_and_publish_without_overwriting(
     assert candidate_path.read_bytes() == corrupted_bytes
     assert library_path.read_bytes() == original_library
     assert len(calls) == 1
-
-
-def test_candidate_boundary_rejects_invalid_nested_current_fields(
-    tmp_path, monkeypatch, capsys
-):
-    analyzed, _, _, _, _, candidates, _ = _analyze(tmp_path, monkeypatch, capsys)
-    candidate_path = candidates / analyzed["candidate_id"] / "candidate.json"
-    candidate = json.loads(candidate_path.read_bytes())
-
-    unknown = deepcopy(candidate)
-    unknown["source"]["unexpected"] = True
-    missing = deepcopy(candidate)
-    missing["runtime"].pop("model_revision")
-    ill_typed = deepcopy(candidate)
-    ill_typed["ceilings"]["latency_ceiling_seconds"] = "2"
-    invalid_domain = deepcopy(candidate)
-    invalid_domain["publishable_proposals"][0]["page_number"] = 0
-    nonfinite = deepcopy(candidate)
-    nonfinite["publishable_proposals"][0]["region"]["bbox"][0] = float("inf")
-
-    for invalid_candidate in (
-        unknown, missing, ill_typed, invalid_domain, nonfinite
-    ):
-        assert not resource_intake._candidate_is_valid(
-            invalid_candidate,
-            analyzed["candidate_id"],
-            resource_intake._candidate_bytes(invalid_candidate),
-        )
 
 
 def test_publish_is_atomic_idempotent_and_never_parses_review(

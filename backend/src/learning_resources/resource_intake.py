@@ -41,10 +41,10 @@ _METADATA_FIELDS = {
     "license_url", "use_boundary",
 }
 _CANDIDATE_FIELDS = {
-    "schema", "candidate_policy", "candidate_id", "source", "base", "runtime",
-    "ceilings", "producer", "publishable_proposals", "omitted_items",
-    "critical_blockers", "processing", "quality", "decision", "reason_codes",
-    "telemetry",
+    "schema", "candidate_policy", "candidate_id", "candidate_content_sha256",
+    "source", "base", "runtime", "ceilings", "producer",
+    "publishable_proposals", "omitted_items", "critical_blockers",
+    "processing", "quality", "decision", "reason_codes", "telemetry",
 }
 _SOURCE_FIELDS = {"source_sha256", "page_count", "metadata"}
 _BASE_FIELDS = {"library_revision", "library_sha256"}
@@ -366,6 +366,12 @@ def _candidate_bytes(candidate: dict[str, Any]) -> bytes:
     return json.dumps(candidate, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8") + b"\n"
 
 
+def _candidate_content_sha256(candidate: dict[str, Any]) -> str:
+    content = dict(candidate)
+    content.pop("candidate_content_sha256", None)
+    return canonical_sha256(content)
+
+
 def _review_text(candidate: dict[str, Any], candidate_sha256: str) -> str:
     source = candidate["source"]
     lines = [
@@ -463,6 +469,9 @@ def _candidate_is_valid(
             candidate["schema"] != CANDIDATE_SCHEMA
             or candidate["candidate_policy"] != CANDIDATE_POLICY
             or candidate["candidate_id"] != candidate_id
+            or not _is_sha256(candidate["candidate_content_sha256"])
+            or candidate["candidate_content_sha256"]
+            != _candidate_content_sha256(candidate)
             or candidate["processing"] != "partial"
             or candidate["quality"] != "needs_review"
             or candidate["decision"] != "review"
@@ -764,6 +773,7 @@ def analyze(arguments: argparse.Namespace, environment: Mapping[str, str]) -> di
             "peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
         },
     }
+    candidate["candidate_content_sha256"] = _candidate_content_sha256(candidate)
     encoded = _candidate_bytes(candidate)
     candidate_sha256 = hashlib.sha256(encoded).hexdigest()
     _write_candidate(directory, encoded, _review_text(candidate, candidate_sha256))
