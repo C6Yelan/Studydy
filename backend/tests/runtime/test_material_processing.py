@@ -537,8 +537,10 @@ def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     settings = _settings(tmp_path)
+    runtime_target = tmp_path / "verified-runtime-target"
+    runtime_target.write_bytes(b"exact runtime")
     runtime_file = tmp_path / "verified-runtime-file"
-    runtime_file.write_bytes(b"exact runtime")
+    runtime_file.symlink_to(runtime_target)
     expected_sha256 = hashlib.sha256(b"exact runtime").hexdigest()
     monkeypatch.setattr(
         processing_module,
@@ -563,12 +565,12 @@ def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
     runtime_root = Path(settings["private_runtime_root"])
     assert runtime_root.stat().st_mode & 0o777 == 0o700
 
-    runtime_file.write_bytes(b"short")
+    runtime_target.write_bytes(b"short")
     with pytest.raises(MaterialProcessingError) as size_failure:
         processing_module.formal_runtime_preflight(settings)
     assert size_failure.value.component == "ocr_package"
     assert size_failure.value.reason == "LOCAL_RUNTIME_SIZE_MISMATCH"
-    runtime_file.write_bytes(b"drift runtime")
+    runtime_target.write_bytes(b"drift runtime")
     with pytest.raises(MaterialProcessingError) as hash_failure:
         processing_module.formal_runtime_preflight(settings)
     assert hash_failure.value.component == "ocr_package"

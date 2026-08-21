@@ -223,19 +223,17 @@ class _RuntimeFile:
 def _absolute_runtime_path(
     value: str, *, is_directory: bool, component: str
 ) -> Path:
-    """只接受已存在的絕對本機路徑，避免 runtime root 被換成連結。"""
+    """確認 runtime 路徑存在且類型正確；正常 symlink 由作業系統解析。"""
 
     path = Path(value)
     try:
-        path_status = path.lstat()
+        path_status = path.stat()
     except FileNotFoundError:
         raise _runtime_error(component, "LOCAL_RUNTIME_MISSING") from None
     except OSError:
         raise _runtime_error(component, "LOCAL_RUNTIME_UNSAFE_TARGET") from None
     expected_kind = stat.S_ISDIR if is_directory else stat.S_ISREG
-    if not path.is_absolute() or stat.S_ISLNK(path_status.st_mode) or not expected_kind(
-        path_status.st_mode
-    ):
+    if not path.is_absolute() or not expected_kind(path_status.st_mode):
         raise _runtime_error(component, "LOCAL_RUNTIME_UNSAFE_TARGET")
     return path
 
@@ -393,7 +391,7 @@ def validate_installed_local_runtime(
     runtime_files = _runtime_files(local_config)
     for runtime_file in runtime_files:
         try:
-            file_status = runtime_file.path.lstat()
+            file_status = runtime_file.path.stat()
         except FileNotFoundError:
             raise _runtime_error(
                 runtime_file.component, "LOCAL_RUNTIME_MISSING"
@@ -402,9 +400,7 @@ def validate_installed_local_runtime(
             raise _runtime_error(
                 runtime_file.component, "LOCAL_RUNTIME_UNSAFE_TARGET"
             ) from None
-        if stat.S_ISLNK(file_status.st_mode) or not stat.S_ISREG(
-            file_status.st_mode
-        ):
+        if not stat.S_ISREG(file_status.st_mode):
             raise _runtime_error(
                 runtime_file.component, "LOCAL_RUNTIME_UNSAFE_TARGET"
             )
