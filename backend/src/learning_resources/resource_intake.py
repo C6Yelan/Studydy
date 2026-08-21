@@ -20,7 +20,7 @@ from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 from pdf_evidence.text_first_bundle import read_producer_bundle
 from pdf_evidence.text_first_run import run_full_text_first_pdf
 from runtime.local_app import read_local_ai_config_from_environment
-from runtime.material_processing import formal_runtime_preflight
+from runtime.material_processing import MaterialProcessingError, formal_runtime_preflight
 
 from .map_resources import build_resource_library, validate_resource_library
 
@@ -84,6 +84,17 @@ _OMITTED_REASONS = {
 
 class ResourceIntakeError(ValueError):
     """只攜帶可安全輸出的固定 reason code。"""
+
+    def __init__(
+        self,
+        reason_code: str,
+        *,
+        component: str | None = None,
+        runtime_reason: str | None = None,
+    ) -> None:
+        super().__init__(reason_code)
+        self.component = component
+        self.runtime_reason = runtime_reason
 
 
 def _fail(reason: str) -> None:
@@ -207,6 +218,12 @@ def _runtime_summary(local_config: dict[str, Any]) -> dict[str, Any]:
         }
     except ResourceIntakeError:
         raise
+    except MaterialProcessingError as error:
+        raise ResourceIntakeError(
+            "RESOURCE_RUNTIME_BINDING_MISMATCH",
+            component=error.component,
+            runtime_reason=error.reason,
+        ) from None
     except Exception:
         _fail("RESOURCE_RUNTIME_BINDING_MISMATCH")
 
@@ -918,7 +935,11 @@ def main(argv: list[str] | None = None, environment: Mapping[str, str] | None = 
         print(json.dumps(result, sort_keys=True))
         return 0
     except ResourceIntakeError as error:
-        print(json.dumps({"status": "failed", "reason_code": str(error)}, sort_keys=True))
+        failure = {"status": "failed", "reason_code": str(error)}
+        if error.component is not None and error.runtime_reason is not None:
+            failure["component"] = error.component
+            failure["reason"] = error.runtime_reason
+        print(json.dumps(failure, sort_keys=True))
         return 1
     except Exception:
         print(json.dumps({"status": "failed", "reason_code": "RESOURCE_INTAKE_FAILED"}, sort_keys=True))

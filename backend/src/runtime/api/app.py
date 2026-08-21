@@ -34,6 +34,7 @@ from ..learner_session import (
     revoke_session,
 )
 from ..material_processing import (
+    MaterialProcessingError,
     create_material_processing_run,
     formal_runtime_preflight,
     read_material_processing_run,
@@ -68,6 +69,17 @@ class _ApiFailure(Exception):
         self.reason_code = reason_code
 
 
+class ApiSettingsError(ValueError):
+    """只保留可安全診斷的 fixed runtime stage。"""
+
+    def __init__(
+        self, component: str | None = None, reason: str | None = None
+    ) -> None:
+        super().__init__("API_SETTINGS_INVALID")
+        self.component = component
+        self.reason = reason
+
+
 @dataclass(frozen=True)
 class ApiSettings:
     """保存唯一 server-owned API 與 local-only runtime 設定。"""
@@ -99,8 +111,10 @@ class ApiSettings:
         try:
             copied = deepcopy(self.local_config)
             formal_runtime_preflight(copied)
+        except MaterialProcessingError as error:
+            raise ApiSettingsError(error.component, error.reason) from None
         except Exception:
-            raise ValueError("API_SETTINGS_INVALID") from None
+            raise ApiSettingsError() from None
         object.__setattr__(self, "local_config", copied)
 
 

@@ -13,21 +13,12 @@ from learning_resources.map_resources import (
 )
 from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 from pdf_evidence.text_first_bundle import build_producer_bundle, publish_run
+from runtime.material_processing import MaterialProcessingError
 from test_study_material_output import producer_output
 
 
 def _environment(runtime_root: Path) -> dict[str, str]:
-    return {
-        "STUDYDY_PRIVATE_RUNTIME_ROOT": str(runtime_root),
-        "STUDYDY_LOCAL_AI_PYTHON": "/opt/studydy/ocr/bin/python3.12",
-        "STUDYDY_LOCAL_AI_SITE_PACKAGES": "/opt/studydy/ocr/site-packages",
-        "STUDYDY_CONCEPT_SITE_PACKAGES": "/opt/studydy/vllm/site-packages",
-        "STUDYDY_OCR_MODEL_ROOT": "/opt/studydy/models/ocr",
-        "STUDYDY_CONCEPT_API_BASE_URL": "http://127.0.0.1:8101",
-        "STUDYDY_CONCEPT_MODEL": "Qwen/Qwen3-4B-Instruct-2507",
-        "STUDYDY_CONCEPT_SERVER_EXECUTABLE": "/opt/studydy/vllm/bin/vllm",
-        "STUDYDY_CONCEPT_MODEL_ROOT": "/opt/studydy/models/qwen",
-    }
+    return {"STUDYDY_LOCAL_RUNTIME_ROOT": str(runtime_root.parent)}
 
 
 def _metadata(path: Path) -> None:
@@ -122,6 +113,27 @@ def _install_producer(monkeypatch, runtime_root: Path, calls: list[dict]) -> Non
 
     monkeypatch.setattr(resource_intake, "run_full_text_first_pdf", run)
     monkeypatch.setattr(resource_intake, "_inspect_pdf", lambda _: ("a" * 64, 1))
+
+
+def test_runtime_summary_preserves_only_fixed_runtime_stage(monkeypatch):
+    monkeypatch.setattr(
+        resource_intake,
+        "formal_runtime_preflight",
+        lambda _: (_ for _ in ()).throw(
+            MaterialProcessingError(
+                "private diagnostic",
+                component="ocr_package",
+                reason="LOCAL_RUNTIME_HASH_MISMATCH",
+            )
+        ),
+    )
+
+    with pytest.raises(resource_intake.ResourceIntakeError) as failure:
+        resource_intake._runtime_summary({"runtime_lock": {}})
+
+    assert str(failure.value) == "RESOURCE_RUNTIME_BINDING_MISMATCH"
+    assert failure.value.component == "ocr_package"
+    assert failure.value.runtime_reason == "LOCAL_RUNTIME_HASH_MISMATCH"
 
 
 def _analyze(tmp_path, monkeypatch, capsys):

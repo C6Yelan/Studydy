@@ -1,5 +1,5 @@
 {
-  "schema": "studydy-local-ai-runtime-lock/v2",
+  "schema": "studydy-local-ai-runtime-lock/v3",
   "python": {
     "version": "3.12.3",
     "executable_sha256": "4933b6c4a8521fb3aa93856701e30b3ac2626d3c47ceb22965a3b0b422e85b44"
@@ -68,9 +68,10 @@
       "save_results": false
     },
     "grammar": "strict-det-blocks/v1",
-    "code_hashes": {
-      "local_ai_protocol": "a785181371733846ef4774e32ba2fa9caff1d558b9c61b56cacab54a3b13d93f",
-      "local_ai_ocr": "a429f32b5062860bff9412588953619a970383c8ed92b374425fa33ff8e6846f"
+    "package_sources": {
+      "__init__.py": "c7a3ebd9b5d9dcd05a9c8a0610efb0ee5481d4733dd4101872bcf72c5ee4008c",
+      "protocol.py": "a785181371733846ef4774e32ba2fa9caff1d558b9c61b56cacab54a3b13d93f",
+      "ocr_process.py": "a429f32b5062860bff9412588953619a970383c8ed92b374425fa33ff8e6846f"
     },
     "fixture_hashes": {}
   },

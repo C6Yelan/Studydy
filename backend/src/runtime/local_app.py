@@ -18,17 +18,7 @@ _APP_ENVIRONMENT_KEYS = {
     "public_origin": "STUDYDY_PUBLIC_ORIGIN",
     "secure_cookie": "STUDYDY_SECURE_COOKIE",
 }
-_LOCAL_AI_ENVIRONMENT_KEYS = {
-    "private_runtime_root": "STUDYDY_PRIVATE_RUNTIME_ROOT",
-    "python_executable": "STUDYDY_LOCAL_AI_PYTHON",
-    "site_packages": "STUDYDY_LOCAL_AI_SITE_PACKAGES",
-    "concept_site_packages": "STUDYDY_CONCEPT_SITE_PACKAGES",
-    "ocr_model_root": "STUDYDY_OCR_MODEL_ROOT",
-    "concept_api_base_url": "STUDYDY_CONCEPT_API_BASE_URL",
-    "concept_model": "STUDYDY_CONCEPT_MODEL",
-    "concept_server_executable": "STUDYDY_CONCEPT_SERVER_EXECUTABLE",
-    "concept_model_root": "STUDYDY_CONCEPT_MODEL_ROOT",
-}
+_LOCAL_RUNTIME_ROOT_ENVIRONMENT_KEY = "STUDYDY_LOCAL_RUNTIME_ROOT"
 _OPTIONAL_INTEGER_SETTINGS = {
     "concept_kv_cache_bytes": ("STUDYDY_CONCEPT_KV_CACHE_BYTES", 2_147_483_648),
     "concept_max_concurrency": ("STUDYDY_CONCEPT_MAX_CONCURRENCY", 2),
@@ -79,18 +69,42 @@ def _app_arguments_from_environment(environment: Mapping[str, str]) -> dict[str,
 def read_local_ai_config_from_environment(
     environment: Mapping[str, str],
 ) -> dict[str, Any]:
-    """只取既有 OCR 與 Concept runtime 所需的非 secret 環境設定。"""
+    """從單一 root 組出固定 OCR 與 Concept runtime 設定。"""
 
-    values = {
-        name: _required_environment_value(environment, environment_name)
-        for name, environment_name in _LOCAL_AI_ENVIRONMENT_KEYS.items()
+    root_value = environment.get(_LOCAL_RUNTIME_ROOT_ENVIRONMENT_KEY)
+    if root_value is None:
+        root = Path.home() / ".local" / "share" / "studydy"
+    elif (
+        not isinstance(root_value, str)
+        or not root_value
+        or "\x00" in root_value
+        or not Path(root_value).is_absolute()
+    ):
+        raise ValueError("LOCAL_APP_SETTINGS_INVALID")
+    else:
+        root = Path(root_value)
+    runtime_lock = _runtime_lock()
+    values: dict[str, Any] = {
+        "private_runtime_root": str(root / "runtime"),
+        "runtime_lock": runtime_lock,
+        "python_executable": str(root / "ocr" / "runtime" / "bin" / "python3.12"),
+        "site_packages": str(
+            root / "ocr" / "runtime" / "lib" / "python3.12" / "site-packages"
+        ),
+        "concept_site_packages": str(
+            root / "vllm" / "lib" / "python3.12" / "site-packages"
+        ),
+        "ocr_model_root": str(root / "models" / "unlimited-ocr"),
+        "concept_api_base_url": "http://127.0.0.1:8101",
+        "concept_model": runtime_lock["semantic"]["model_id"],
+        "concept_server_executable": str(root / "vllm" / "bin" / "vllm"),
+        "concept_model_root": str(root / "models" / "qwen3-4b-instruct-2507"),
     }
     for name, (environment_name, default) in _OPTIONAL_INTEGER_SETTINGS.items():
         raw_value = environment.get(environment_name, str(default))
         if not isinstance(raw_value, str) or not raw_value.isdecimal():
             raise ValueError("LOCAL_APP_SETTINGS_INVALID")
         values[name] = int(raw_value)
-    values["runtime_lock"] = _runtime_lock()
     return values
 
 

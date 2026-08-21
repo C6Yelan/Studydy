@@ -49,7 +49,16 @@ _DOMAIN_TABLES = (
 
 
 @pytest.fixture
-def processing_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
+def processing_database_dsn(
+    clean_database_dsn: str,
+    migrations_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> str:
+    monkeypatch.setattr(
+        processing_module,
+        "formal_runtime_preflight",
+        processing_module.formal_runtime_binding,
+    )
     assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (
         1,
         2,
@@ -71,21 +80,22 @@ def artifact_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _settings(tmp_path: Path) -> dict:
+    root = tmp_path / "local-runtime"
     return {
-        "private_runtime_root": str(tmp_path / "private-runtime"),
+        "private_runtime_root": str(root / "runtime"),
         "runtime_lock": json.loads(
             (Path(__file__).parents[3] / "local_ai" / "runtime-lock.json").read_text(
                 encoding="utf-8"
             )
         ),
-        "python_executable": "/opt/studydy/ocr/bin/python3.12",
-        "site_packages": "/opt/studydy/ocr/lib/python3.12/site-packages",
-        "concept_site_packages": "/opt/studydy/vllm/lib/python3.12/site-packages",
-        "ocr_model_root": "/opt/studydy/models/unlimited-ocr",
+        "python_executable": str(root / "ocr/runtime/bin/python3.12"),
+        "site_packages": str(root / "ocr/runtime/lib/python3.12/site-packages"),
+        "concept_site_packages": str(root / "vllm/lib/python3.12/site-packages"),
+        "ocr_model_root": str(root / "models/unlimited-ocr"),
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": "Qwen/Qwen3-4B-Instruct-2507",
-        "concept_server_executable": "/opt/studydy/vllm/bin/vllm",
-        "concept_model_root": "/opt/studydy/models/qwen3-4b-instruct-2507",
+        "concept_server_executable": str(root / "vllm/bin/vllm"),
+        "concept_model_root": str(root / "models/qwen3-4b-instruct-2507"),
         "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 2,
         "concept_max_model_len": 5_632,
@@ -535,14 +545,17 @@ def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
         "_runtime_files",
         lambda _: (
             processing_module._RuntimeFile(
-                runtime_file, expected_sha256, len(b"exact runtime")
+                runtime_file,
+                expected_sha256,
+                "ocr_package",
+                len(b"exact runtime"),
             ),
         ),
     )
     monkeypatch.setattr(
         processing_module,
         "_distribution_versions",
-        lambda _path, expected: expected,
+        lambda _path, expected, **_: expected,
     )
 
     binding = processing_module.formal_runtime_preflight(settings)
@@ -551,39 +564,68 @@ def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
     assert runtime_root.stat().st_mode & 0o777 == 0o700
 
     runtime_file.write_bytes(b"short")
-    with pytest.raises(
-        MaterialProcessingError, match="MATERIAL_CONFIGURATION_INVALID"
-    ):
+    with pytest.raises(MaterialProcessingError) as size_failure:
         processing_module.formal_runtime_preflight(settings)
+    assert size_failure.value.component == "ocr_package"
+    assert size_failure.value.reason == "LOCAL_RUNTIME_SIZE_MISMATCH"
     runtime_file.write_bytes(b"drift runtime")
-    with pytest.raises(
-        MaterialProcessingError, match="MATERIAL_CONFIGURATION_INVALID"
-    ):
+    with pytest.raises(MaterialProcessingError) as hash_failure:
         processing_module.formal_runtime_preflight(settings)
+    assert hash_failure.value.component == "ocr_package"
+    assert hash_failure.value.reason == "LOCAL_RUNTIME_HASH_MISMATCH"
+
+
+def test_preflight_prepares_private_root_only_after_shared_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    settings = _settings(tmp_path)
+    observed = []
+
+    def failed_validation(_):
+        observed.append("validate")
+        raise MaterialProcessingError(
+            "MATERIAL_CONFIGURATION_INVALID",
+            component="ocr_package",
+            reason="LOCAL_RUNTIME_HASH_MISMATCH",
+        )
+
+    monkeypatch.setattr(
+        processing_module, "validate_installed_local_runtime", failed_validation
+    )
+    monkeypatch.setattr(
+        processing_module,
+        "_prepare_private_runtime_root",
+        lambda _: observed.append("prepare"),
+    )
+
+    with pytest.raises(MaterialProcessingError) as failure:
+        processing_module.formal_runtime_preflight(settings)
+
+    assert observed == ["validate"]
+    assert failure.value.component == "ocr_package"
+    assert failure.value.reason == "LOCAL_RUNTIME_HASH_MISMATCH"
 
 
 def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
     settings = _settings(tmp_path)
-    python_executable = tmp_path / "python"
+    python_executable = Path(settings["python_executable"])
+    python_executable.parent.mkdir(parents=True)
     python_executable.write_bytes(b"python")
     python_executable.chmod(0o700)
     for key in (
         "site_packages", "concept_site_packages", "ocr_model_root", "concept_model_root"
     ):
-        path = tmp_path / key
-        path.mkdir()
-        settings[key] = str(path)
-    settings["python_executable"] = str(python_executable)
-    concept_server = tmp_path / "vllm"
+        Path(settings[key]).mkdir(parents=True)
+    concept_server = Path(settings["concept_server_executable"])
+    concept_server.parent.mkdir(parents=True, exist_ok=True)
     concept_server.write_bytes(b"vllm")
     concept_server.chmod(0o700)
-    settings["concept_server_executable"] = str(concept_server)
 
     runtime_files = processing_module._runtime_files(settings)
     relative_names = {runtime_file.path.name for runtime_file in runtime_files}
     assert len(runtime_files) == 26
     assert {
-        "python",
+        "python3.12",
         "vllm",
         "__init__.py",
         "protocol.py",
@@ -595,6 +637,11 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
         "model-00001-of-00003.safetensors",
         "tokenizer.json",
     } <= relative_names
+    assert tuple(settings["runtime_lock"]["ocr"]["package_sources"]) == (
+        "__init__.py",
+        "protocol.py",
+        "ocr_process.py",
+    )
 
 
 def test_distribution_versions_require_one_exact_metadata_record_per_package(
@@ -610,7 +657,9 @@ def test_distribution_versions_require_one_exact_metadata_record_per_package(
             encoding="utf-8",
         )
     assert processing_module._distribution_versions(
-        site_packages, processing_module._OCR_PACKAGE_VERSIONS
+        site_packages,
+        processing_module._OCR_PACKAGE_VERSIONS,
+        component="ocr_package",
     ) == (
         processing_module._OCR_PACKAGE_VERSIONS
     )
@@ -624,7 +673,9 @@ def test_distribution_versions_require_one_exact_metadata_record_per_package(
         MaterialProcessingError, match="MATERIAL_CONFIGURATION_INVALID"
     ):
         processing_module._distribution_versions(
-            site_packages, processing_module._OCR_PACKAGE_VERSIONS
+            site_packages,
+            processing_module._OCR_PACKAGE_VERSIONS,
+            component="ocr_package",
         )
 
 
@@ -653,6 +704,39 @@ def test_changed_runtime_binding_fails_before_producer_and_writes_no_revisions(
     with psycopg.connect(processing_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM study_material_outputs").fetchone() == (0,)
         assert connection.execute("SELECT count(*) FROM knowledge_maps").fetchone() == (0,)
+
+
+def test_runtime_stage_failure_stops_before_producer_and_keeps_persisted_code(
+    processing_database_dsn: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _, _, settings, _ = _created_run(processing_database_dsn, tmp_path)
+    claim = claim_next_material_processing_run(dsn=processing_database_dsn)
+    assert claim is not None
+
+    def failed_preflight(_):
+        raise MaterialProcessingError(
+            "MATERIAL_CONFIGURATION_INVALID",
+            component="python_runtime",
+            reason="LOCAL_RUNTIME_NOT_EXECUTABLE",
+        )
+
+    monkeypatch.setattr(processing_module, "formal_runtime_preflight", failed_preflight)
+    monkeypatch.setattr(
+        processing_module,
+        "run_full_text_first_pdf",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("producer must not start")
+        ),
+    )
+
+    failed = execute_claimed_material_processing_run(
+        claim, settings, dsn=processing_database_dsn
+    )
+
+    assert failed.status == "failed"
+    assert failed.error_code == "MATERIAL_CONFIGURATION_INVALID"
 
 
 def test_failed_producer_publishes_zero_domain_revisions(

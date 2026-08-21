@@ -16,17 +16,18 @@ def _settings(tmp_path):
     runtime_lock = json.loads(
         (Path(__file__).parents[2] / "local_ai" / "runtime-lock.json").read_text(encoding="utf-8")
     )
+    root = tmp_path
     return {
-        "private_runtime_root": str(tmp_path / "runtime"),
+        "private_runtime_root": str(root / "runtime"),
         "runtime_lock": runtime_lock,
-        "python_executable": "/opt/studydy/ocr/bin/python3.12",
-        "site_packages": "/opt/studydy/ocr/lib/python3.12/site-packages",
-        "concept_site_packages": "/opt/studydy/vllm/lib/python3.12/site-packages",
-        "ocr_model_root": "/opt/studydy/models/unlimited-ocr",
+        "python_executable": str(root / "ocr/runtime/bin/python3.12"),
+        "site_packages": str(root / "ocr/runtime/lib/python3.12/site-packages"),
+        "concept_site_packages": str(root / "vllm/lib/python3.12/site-packages"),
+        "ocr_model_root": str(root / "models/unlimited-ocr"),
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
-        "concept_server_executable": "/opt/studydy/vllm/bin/vllm",
-        "concept_model_root": "/opt/studydy/models/qwen3-4b-instruct-2507",
+        "concept_server_executable": str(root / "vllm/bin/vllm"),
+        "concept_model_root": str(root / "models/qwen3-4b-instruct-2507"),
         "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 2,
         "concept_max_model_len": 5_632,

@@ -9,6 +9,7 @@ import runtime.api.app as app_module
 import runtime.material_processing as processing_module
 from runtime.api.app import ApiSettings, canonical_openapi_bytes, create_app
 from runtime.material_processing import (
+    MaterialProcessingError,
     claim_next_material_processing_run,
     execute_claimed_material_processing_run,
 )
@@ -45,22 +46,28 @@ def settings(
         "formal_runtime_preflight",
         processing_module.formal_runtime_binding,
     )
+    monkeypatch.setattr(
+        processing_module,
+        "formal_runtime_preflight",
+        processing_module.formal_runtime_binding,
+    )
     runtime_lock = json.loads(
         (Path(__file__).parents[3] / "local_ai" / "runtime-lock.json").read_text(
             encoding="utf-8"
         )
     )
+    root = tmp_path / "local-runtime"
     runtime_settings = {
-        "private_runtime_root": str(tmp_path / "private-runtime"),
+        "private_runtime_root": str(root / "runtime"),
         "runtime_lock": runtime_lock,
-        "python_executable": "/opt/studydy/ocr/bin/python3.12",
-        "site_packages": "/opt/studydy/ocr/lib/python3.12/site-packages",
-        "concept_site_packages": "/opt/studydy/vllm/lib/python3.12/site-packages",
-        "ocr_model_root": "/opt/studydy/models/unlimited-ocr",
+        "python_executable": str(root / "ocr/runtime/bin/python3.12"),
+        "site_packages": str(root / "ocr/runtime/lib/python3.12/site-packages"),
+        "concept_site_packages": str(root / "vllm/lib/python3.12/site-packages"),
+        "ocr_model_root": str(root / "models/unlimited-ocr"),
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
-        "concept_server_executable": "/opt/studydy/vllm/bin/vllm",
-        "concept_model_root": "/opt/studydy/models/qwen3-4b-instruct-2507",
+        "concept_server_executable": str(root / "vllm/bin/vllm"),
+        "concept_model_root": str(root / "models/qwen3-4b-instruct-2507"),
         "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 2,
         "concept_max_model_len": 5_632,
@@ -112,6 +119,30 @@ def test_api_settings_fail_closed_when_runtime_preflight_fails(
             secure_cookie=False,
             local_config={"private_runtime_root": str(tmp_path)},
         )
+
+
+def test_api_settings_preserves_only_safe_runtime_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    def failed_preflight(_):
+        raise MaterialProcessingError(
+            "MATERIAL_CONFIGURATION_INVALID",
+            component="concept_runtime",
+            reason="LOCAL_RUNTIME_VERSION_MISMATCH",
+        )
+
+    monkeypatch.setattr(app_module, "formal_runtime_preflight", failed_preflight)
+    with pytest.raises(ValueError) as failure:
+        ApiSettings(
+            profile="local",
+            public_origin="http://127.0.0.1:4173",
+            secure_cookie=False,
+            local_config={"private_runtime_root": str(tmp_path)},
+        )
+
+    assert str(failure.value) == "API_SETTINGS_INVALID"
+    assert failure.value.component == "concept_runtime"
+    assert failure.value.reason == "LOCAL_RUNTIME_VERSION_MISMATCH"
 
 
 @pytest.mark.parametrize("profile", ["development", "production", "unknown"])

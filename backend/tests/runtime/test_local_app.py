@@ -8,20 +8,12 @@ import runtime.local_app as local_app
 import uvicorn
 
 
-def _environment(profile="local"):
+def _environment(profile="local", runtime_root="/temporary/studydy"):
     return {
         "STUDYDY_PROFILE": profile,
         "STUDYDY_PUBLIC_ORIGIN": "http://127.0.0.1:4173",
         "STUDYDY_SECURE_COOKIE": "false",
-        "STUDYDY_PRIVATE_RUNTIME_ROOT": "/private/runtime",
-        "STUDYDY_LOCAL_AI_PYTHON": "/opt/studydy/ocr/bin/python3.12",
-        "STUDYDY_LOCAL_AI_SITE_PACKAGES": "/opt/studydy/ocr/lib/python3.12/site-packages",
-        "STUDYDY_CONCEPT_SITE_PACKAGES": "/opt/studydy/vllm/lib/python3.12/site-packages",
-        "STUDYDY_OCR_MODEL_ROOT": "/opt/studydy/models/unlimited-ocr",
-        "STUDYDY_CONCEPT_API_BASE_URL": "http://127.0.0.1:8101",
-        "STUDYDY_CONCEPT_MODEL": "Qwen/Qwen3-4B-Instruct-2507",
-        "STUDYDY_CONCEPT_SERVER_EXECUTABLE": "/opt/studydy/vllm/bin/vllm",
-        "STUDYDY_CONCEPT_MODEL_ROOT": "/opt/studydy/models/qwen3-4b-instruct-2507",
+        "STUDYDY_LOCAL_RUNTIME_ROOT": runtime_root,
     }
 
 
@@ -83,6 +75,9 @@ def test_formal_launch_uses_the_local_composition_root(monkeypatch):
     assert observed[0]["local_config"]["concept_kv_cache_bytes"] == 2_147_483_648
     assert observed[0]["local_config"]["concept_max_concurrency"] == 2
     assert observed[0]["local_config"]["concept_max_model_len"] == 5_632
+    assert observed[0]["local_config"]["python_executable"] == (
+        "/temporary/studydy/ocr/runtime/bin/python3.12"
+    )
     assert observed[1] == (
         app,
         {
@@ -117,6 +112,32 @@ def test_cli_reader_returns_only_existing_local_ai_arguments():
     }
     assert "public_origin" not in local_config
     assert local_config["concept_max_concurrency"] == 2
+
+
+def test_default_root_and_only_three_tunings_are_environment_configurable(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(local_app.Path, "home", lambda: tmp_path)
+    environment = {
+        "STUDYDY_CONCEPT_KV_CACHE_BYTES": "1024",
+        "STUDYDY_CONCEPT_MAX_CONCURRENCY": "1",
+        "STUDYDY_CONCEPT_MAX_MODEL_LEN": "5632",
+    }
+
+    local_config = local_app.read_local_ai_config_from_environment(environment)
+
+    root = tmp_path / ".local" / "share" / "studydy"
+    assert local_config["python_executable"] == str(
+        root / "ocr" / "runtime" / "bin" / "python3.12"
+    )
+    assert local_config["site_packages"] == str(
+        root / "ocr" / "runtime" / "lib" / "python3.12" / "site-packages"
+    )
+    assert local_config["concept_model"] == local_config["runtime_lock"][
+        "semantic"
+    ]["model_id"]
+    assert local_config["concept_kv_cache_bytes"] == 1024
+    assert local_config["concept_max_concurrency"] == 1
 
 
 @pytest.mark.parametrize("profile", ["development", "production", "unknown"])
