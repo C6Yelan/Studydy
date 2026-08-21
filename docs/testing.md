@@ -37,3 +37,27 @@ PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/pytest -q \
 ```
 
 公開模型 smoke 必須使用 `local_ai/runtime-lock.json` 綁定的離線 wheel、模型 revision、prompt 與 generation 設定。驗收時確認同一 product path 產生至少一個 page、Evidence block 與 Concept，狀態維持 `partial / needs_review / review`；再以相同輸入重跑，OCR 與 Qwen 呼叫數都必須為零。測試輸出只報告狀態、數量、延遲與固定 reason code，不保存 page image、完整 OCR／model text 或 raw pipe 內容。
+
+## Fixed local runtime checks
+
+本機 runtime 的預設 root 是 `~/.local/share/studydy`。OCR runtime 位於
+`<root>/ocr/runtime`；若需使用其他整個 runtime root，只設定
+`STUDYDY_LOCAL_RUNTIME_ROOT`（必須是絕對路徑）。沒有其他 runtime path、model
+或 endpoint 的 root override。
+
+這些命令都從 repository root 執行：
+
+```bash
+PYTHONPATH=backend/src python -m runtime.local_runtime sync
+PYTHONPATH=backend/src python -m runtime.local_runtime sync --rollback
+PYTHONPATH=backend/src python -m runtime.local_runtime verify
+```
+
+`verify` 只讀取並驗證目前已安裝的 runtime，沒有副作用。`sync` 是明確、另行授權
+的操作，只 reconcile 已安裝 Studydy Python package 中的三個檔案：
+`__init__.py`、`protocol.py` 與 `ocr_process.py`。若有變更，會先保留三個檔案的完整
+backup；`sync --rollback` 會從該 backup 還原。sync 不會在啟動時自動執行，也不會
+進行下載、安裝或網路操作；在真實主機上執行會改動檔案，必須另行取得批准。
+
+測試中的 disposable fixtures 只驗證這些 layout、驗證與 backup/rollback 邏輯。
+真實主機 E2E 與 unseen-PDF 評估是另外核准的操作，不屬於 fixture 測試。
