@@ -15,6 +15,7 @@ from typing import Any, Mapping
 
 import pymupdf
 
+from pdf_evidence.artifact_reason_codes import reason_codes_are_valid
 from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 from pdf_evidence.text_first_bundle import read_producer_bundle
 from pdf_evidence.text_first_run import run_full_text_first_pdf
@@ -44,6 +45,40 @@ _CANDIDATE_FIELDS = {
     "ceilings", "producer", "publishable_proposals", "omitted_items",
     "critical_blockers", "processing", "quality", "decision", "reason_codes",
     "telemetry",
+}
+_SOURCE_FIELDS = {"source_sha256", "page_count", "metadata"}
+_BASE_FIELDS = {"library_revision", "library_sha256"}
+_RUNTIME_FIELDS = {
+    "runtime_binding_sha256", "producer_runtime_binding_sha256", "model_id",
+    "model_revision", "prompt_sha256", "page_schema", "render_sha256",
+}
+_CEILING_FIELDS = {"page_ceiling", "latency_ceiling_seconds"}
+_PRODUCER_FIELDS = {
+    "run_id", "bundle_id", "output_id", "output_sha256",
+    "runtime_binding_sha256", "processing", "quality", "decision",
+    "reason_codes", "duration_ms", "ocr_calls", "concept_calls",
+    "ocr_loads", "concept_loads",
+}
+_PROPOSAL_FIELDS = {
+    "proposal_id", "source_concept_id", "source_evidence_id", "page_number",
+    "label", "quote", "region", "processing", "quality", "decision",
+    "reason_codes",
+}
+_REGION_FIELDS = {"coordinate_space", "bbox"}
+_OMITTED_FIELDS = {
+    "concept_id", "page_number", "reason_code", "processing", "quality",
+    "decision",
+}
+_TELEMETRY_FIELDS = {
+    "external_network_calls", "monetary_cost", "peak_rss_kib",
+    "peak_vram_bytes",
+}
+_OMITTED_REASONS = {
+    "RESOURCE_EVIDENCE_MISSING",
+    "RESOURCE_EVIDENCE_WRONG_PAGE",
+    "RESOURCE_EVIDENCE_NOT_GROUNDED",
+    "RESOURCE_MULTIPLE_EVIDENCE_NOT_SUPPORTED",
+    "RESOURCE_PROPOSAL_UNCERTAIN",
 }
 
 
@@ -85,6 +120,10 @@ def _read_json(path: Path, reason: str) -> tuple[dict[str, Any], bytes]:
 
 def _nonempty_text(value: Any, maximum: int = 2_000) -> bool:
     return isinstance(value, str) and bool(value.strip()) and len(value) <= maximum
+
+
+def _is_sha256(value: Any) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
 def _validate_metadata(document: Any) -> dict[str, Any]:
@@ -177,6 +216,7 @@ def _candidate_identity(
     base: dict[str, Any],
     runtime: dict[str, Any],
     ceilings: dict[str, Any],
+    telemetry: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "candidate_policy": CANDIDATE_POLICY,
@@ -184,6 +224,11 @@ def _candidate_identity(
         "base": base,
         "runtime": runtime,
         "ceilings": ceilings,
+        "telemetry": {
+            "external_network_calls": telemetry["external_network_calls"],
+            "monetary_cost": telemetry["monetary_cost"],
+            "peak_vram_bytes": telemetry["peak_vram_bytes"],
+        },
     }
 
 
@@ -404,6 +449,217 @@ def _safe_paths(candidate_id: str) -> tuple[str, str]:
     return f"{base}/candidate.json", f"{base}/review.md"
 
 
+def _candidate_is_valid(
+    candidate: Any,
+    candidate_id: str,
+    encoded: bytes,
+) -> bool:
+    """在 candidate 檔案邊界完整重驗目前 v1 文件。"""
+
+    try:
+        if not isinstance(candidate, dict) or set(candidate) != _CANDIDATE_FIELDS:
+            return False
+        if (
+            candidate["schema"] != CANDIDATE_SCHEMA
+            or candidate["candidate_policy"] != CANDIDATE_POLICY
+            or candidate["candidate_id"] != candidate_id
+            or candidate["processing"] != "partial"
+            or candidate["quality"] != "needs_review"
+            or candidate["decision"] != "review"
+            or candidate["reason_codes"] != [REVIEW_REASON]
+            or candidate["critical_blockers"] != []
+            or encoded != _candidate_bytes(candidate)
+        ):
+            return False
+
+        source = candidate["source"]
+        if not isinstance(source, dict) or set(source) != _SOURCE_FIELDS:
+            return False
+        if (
+            not _is_sha256(source["source_sha256"])
+            or type(source["page_count"]) is not int
+            or source["page_count"] < 1
+        ):
+            return False
+        _validate_metadata(source["metadata"])
+
+        base = candidate["base"]
+        if not isinstance(base, dict) or set(base) != _BASE_FIELDS:
+            return False
+        if (
+            not isinstance(base["library_revision"], str)
+            or re.fullmatch(
+                r"resource-library:sha256:[0-9a-f]{64}",
+                base["library_revision"],
+            ) is None
+            or not _is_sha256(base["library_sha256"])
+        ):
+            return False
+
+        runtime = candidate["runtime"]
+        if not isinstance(runtime, dict) or set(runtime) != _RUNTIME_FIELDS:
+            return False
+        if (
+            not _is_sha256(runtime["runtime_binding_sha256"])
+            or not _is_sha256(runtime["producer_runtime_binding_sha256"])
+            or not _is_sha256(runtime["prompt_sha256"])
+            or not _is_sha256(runtime["render_sha256"])
+            or not _nonempty_text(runtime["model_id"])
+            or not _nonempty_text(runtime["model_revision"])
+            or not _nonempty_text(runtime["page_schema"])
+        ):
+            return False
+
+        ceilings = candidate["ceilings"]
+        if not isinstance(ceilings, dict) or set(ceilings) != _CEILING_FIELDS:
+            return False
+        if (
+            type(ceilings["page_ceiling"]) is not int
+            or ceilings["page_ceiling"] < source["page_count"]
+            or type(ceilings["latency_ceiling_seconds"]) is not int
+            or ceilings["latency_ceiling_seconds"] < 1
+        ):
+            return False
+
+        telemetry = candidate["telemetry"]
+        if not isinstance(telemetry, dict) or set(telemetry) != _TELEMETRY_FIELDS:
+            return False
+        if (
+            type(telemetry["external_network_calls"]) is not int
+            or telemetry["external_network_calls"] != 0
+            or type(telemetry["monetary_cost"]) is not int
+            or telemetry["monetary_cost"] != 0
+            or type(telemetry["peak_rss_kib"]) is not int
+            or telemetry["peak_rss_kib"] < 0
+            or telemetry["peak_vram_bytes"] != "unavailable"
+        ):
+            return False
+        if candidate_id != _candidate_id(
+            _candidate_identity(source, base, runtime, ceilings, telemetry)
+        ):
+            return False
+
+        producer = candidate["producer"]
+        if not isinstance(producer, dict) or set(producer) != _PRODUCER_FIELDS:
+            return False
+        if (
+            not isinstance(producer["run_id"], str)
+            or re.fullmatch(
+                r"text-first-run:[0-9a-fA-F-]{36}", producer["run_id"]
+            ) is None
+            or not isinstance(producer["bundle_id"], str)
+            or re.fullmatch(
+                r"text-first-producer-bundle:sha256:[0-9a-f]{64}",
+                producer["bundle_id"],
+            ) is None
+            or not isinstance(producer["output_id"], str)
+            or re.fullmatch(
+                r"concept-evidence-output:sha256:[0-9a-f]{64}",
+                producer["output_id"],
+            ) is None
+            or not _is_sha256(producer["output_sha256"])
+            or producer["runtime_binding_sha256"]
+            != runtime["producer_runtime_binding_sha256"]
+            or producer["processing"] not in {"succeeded", "partial"}
+            or producer["quality"] != "needs_review"
+            or producer["decision"] != "review"
+            or not reason_codes_are_valid(producer["reason_codes"], formal=True)
+            or producer["reason_codes"] != sorted(set(producer["reason_codes"]))
+        ):
+            return False
+        numeric_limits = (
+            ("duration_ms", ceilings["latency_ceiling_seconds"] * 1000),
+            ("ocr_calls", source["page_count"]),
+            ("concept_calls", 2 * source["page_count"]),
+            ("ocr_loads", 1),
+            ("concept_loads", 1),
+        )
+        if any(
+            type(producer[field]) is not int or not 0 <= producer[field] <= maximum
+            for field, maximum in numeric_limits
+        ):
+            return False
+
+        proposals = candidate["publishable_proposals"]
+        if not isinstance(proposals, list) or not proposals:
+            return False
+        proposal_ids: set[str] = set()
+        for proposal in proposals:
+            if not isinstance(proposal, dict) or set(proposal) != _PROPOSAL_FIELDS:
+                return False
+            region = proposal["region"]
+            if not isinstance(region, dict) or set(region) != _REGION_FIELDS:
+                return False
+            if (
+                re.fullmatch(
+                    r"concept:sha256:[0-9a-f]{64}",
+                    proposal["source_concept_id"],
+                ) is None
+                or re.fullmatch(
+                    r"evidence:sha256:[0-9a-f]{64}",
+                    proposal["source_evidence_id"],
+                ) is None
+                or type(proposal["page_number"]) is not int
+                or not 1 <= proposal["page_number"] <= source["page_count"]
+                or not _nonempty_text(proposal["label"], 120)
+                or not _nonempty_text(proposal["quote"], MAX_QUOTE_LENGTH)
+                or region["coordinate_space"] != "unrotated_pdf_points"
+                or not _valid_bbox(region["bbox"])
+                or proposal["processing"] != "partial"
+                or proposal["quality"] != "needs_review"
+                or proposal["decision"] != "review"
+                or proposal["reason_codes"] != [REVIEW_REASON]
+            ):
+                return False
+            proposal_identity = {
+                key: proposal[key]
+                for key in (
+                    "source_concept_id", "source_evidence_id", "page_number",
+                    "label", "quote", "region",
+                )
+            }
+            expected_id = (
+                "resource-proposal:sha256:" + canonical_sha256(proposal_identity)
+            )
+            if proposal["proposal_id"] != expected_id or expected_id in proposal_ids:
+                return False
+            proposal_ids.add(expected_id)
+        if proposals != sorted(
+            proposals, key=lambda item: (item["page_number"], item["proposal_id"])
+        ):
+            return False
+
+        omitted_items = candidate["omitted_items"]
+        if not isinstance(omitted_items, list):
+            return False
+        omitted_keys: set[tuple[str, int]] = set()
+        for item in omitted_items:
+            if not isinstance(item, dict) or set(item) != _OMITTED_FIELDS:
+                return False
+            if (
+                not _nonempty_text(item["concept_id"])
+                or type(item["page_number"]) is not int
+                or not 1 <= item["page_number"] <= source["page_count"]
+                or item["reason_code"] not in _OMITTED_REASONS
+                or item["processing"] != "failed"
+                or item["quality"] != "needs_review"
+                or item["decision"] != "reject"
+            ):
+                return False
+            key = (item["concept_id"], item["page_number"])
+            if key in omitted_keys:
+                return False
+            omitted_keys.add(key)
+        if omitted_items != sorted(
+            omitted_items,
+            key=lambda item: (item["page_number"], item["concept_id"]),
+        ):
+            return False
+        return True
+    except (KeyError, RecursionError, ResourceIntakeError, TypeError, ValueError):
+        return False
+
+
 def _load_candidate(candidate_id: str, expected_sha256: str | None = None) -> tuple[dict[str, Any], bytes, str]:
     directory, path, review_path = _candidate_paths(candidate_id)
     if directory.is_symlink() or not review_path.is_file() or review_path.is_symlink():
@@ -412,24 +668,7 @@ def _load_candidate(candidate_id: str, expected_sha256: str | None = None) -> tu
     actual_sha256 = hashlib.sha256(encoded).hexdigest()
     if expected_sha256 is not None and actual_sha256 != expected_sha256:
         _fail("RESOURCE_CANDIDATE_SHA_MISMATCH")
-    if not isinstance(candidate, dict) or set(candidate) != _CANDIDATE_FIELDS:
-        _fail("RESOURCE_CANDIDATE_INVALID")
-    if (
-        candidate.get("schema") != CANDIDATE_SCHEMA
-        or candidate.get("candidate_policy") != CANDIDATE_POLICY
-        or candidate.get("candidate_id") != candidate_id
-        or candidate.get("candidate_id") != _candidate_id(_candidate_identity(
-            candidate.get("source"), candidate.get("base"), candidate.get("runtime"), candidate.get("ceilings")
-        ))
-        or candidate.get("processing") != "partial"
-        or candidate.get("quality") != "needs_review"
-        or candidate.get("decision") != "review"
-        or candidate.get("reason_codes") != [REVIEW_REASON]
-        or not isinstance(candidate.get("publishable_proposals"), list)
-        or not candidate["publishable_proposals"]
-        or candidate.get("critical_blockers") != []
-        or encoded != _candidate_bytes(candidate)
-    ):
+    if not _candidate_is_valid(candidate, candidate_id, encoded):
         _fail("RESOURCE_CANDIDATE_INVALID")
     return candidate, encoded, actual_sha256
 
@@ -473,7 +712,14 @@ def analyze(arguments: argparse.Namespace, environment: Mapping[str, str]) -> di
     source = {"source_sha256": source_sha256, "page_count": page_count, "metadata": metadata}
     base = {"library_revision": library["library_revision"], "library_sha256": library_sha256}
     ceilings = {"page_ceiling": arguments.page_ceiling, "latency_ceiling_seconds": arguments.latency_ceiling_seconds}
-    candidate_id = _candidate_id(_candidate_identity(source, base, runtime, ceilings))
+    telemetry_binding = {
+        "external_network_calls": 0,
+        "monetary_cost": 0,
+        "peak_vram_bytes": "unavailable",
+    }
+    candidate_id = _candidate_id(
+        _candidate_identity(source, base, runtime, ceilings, telemetry_binding)
+    )
     directory, _, _ = _candidate_paths(candidate_id)
     if directory.exists():
         candidate, _, candidate_sha256 = _load_candidate(candidate_id)
@@ -513,7 +759,10 @@ def analyze(arguments: argparse.Namespace, environment: Mapping[str, str]) -> di
         "publishable_proposals": proposals, "omitted_items": omitted,
         "critical_blockers": blockers, "processing": "partial", "quality": "needs_review",
         "decision": "review", "reason_codes": [REVIEW_REASON],
-        "telemetry": {"external_network_calls": 0, "monetary_cost": 0, "peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, "peak_vram_bytes": "unavailable"},
+        "telemetry": {
+            **telemetry_binding,
+            "peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+        },
     }
     encoded = _candidate_bytes(candidate)
     candidate_sha256 = hashlib.sha256(encoded).hexdigest()

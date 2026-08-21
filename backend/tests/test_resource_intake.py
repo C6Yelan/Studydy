@@ -195,6 +195,92 @@ def test_analyze_writes_immutable_bundle_and_exact_replay_uses_no_model(
     assert len(calls) == 1
 
 
+def test_telemetry_tamper_fails_replay_and_publish_without_overwriting(
+    tmp_path, monkeypatch, capsys
+):
+    (
+        analyzed,
+        analyze_arguments,
+        pdf_path,
+        library_path,
+        runtime_root,
+        candidates,
+        calls,
+    ) = _analyze(tmp_path, monkeypatch, capsys)
+    candidate_path = candidates / analyzed["candidate_id"] / "candidate.json"
+    candidate = json.loads(candidate_path.read_bytes())
+    candidate["telemetry"]["external_network_calls"] = 999
+    assert analyzed["candidate_id"] != resource_intake._candidate_id(
+        resource_intake._candidate_identity(
+            candidate["source"],
+            candidate["base"],
+            candidate["runtime"],
+            candidate["ceilings"],
+            candidate["telemetry"],
+        )
+    )
+    corrupted_bytes = resource_intake._candidate_bytes(candidate)
+    candidate_path.write_bytes(corrupted_bytes)
+    corrupted_sha256 = hashlib.sha256(corrupted_bytes).hexdigest()
+    original_library = library_path.read_bytes()
+
+    assert resource_intake.main(
+        analyze_arguments, _environment(runtime_root)
+    ) == 1
+    replay_failure = json.loads(capsys.readouterr().out)
+    assert replay_failure == {
+        "reason_code": "RESOURCE_CANDIDATE_INVALID",
+        "status": "failed",
+    }
+    assert corrupted_sha256 not in json.dumps(replay_failure)
+    assert candidate_path.read_bytes() == corrupted_bytes
+    assert len(calls) == 1
+
+    publish_arguments = [
+        "publish", analyzed["candidate_id"],
+        "--candidate-sha256", corrupted_sha256,
+        "--confirm", analyzed["candidate_id"], "--source-pdf", str(pdf_path),
+        "--library-file", str(library_path),
+    ]
+    assert resource_intake.main(
+        publish_arguments, _environment(runtime_root)
+    ) == 1
+    assert json.loads(capsys.readouterr().out)["reason_code"] == (
+        "RESOURCE_CANDIDATE_INVALID"
+    )
+    assert candidate_path.read_bytes() == corrupted_bytes
+    assert library_path.read_bytes() == original_library
+    assert len(calls) == 1
+
+
+def test_candidate_boundary_rejects_invalid_nested_current_fields(
+    tmp_path, monkeypatch, capsys
+):
+    analyzed, _, _, _, _, candidates, _ = _analyze(tmp_path, monkeypatch, capsys)
+    candidate_path = candidates / analyzed["candidate_id"] / "candidate.json"
+    candidate = json.loads(candidate_path.read_bytes())
+
+    unknown = deepcopy(candidate)
+    unknown["source"]["unexpected"] = True
+    missing = deepcopy(candidate)
+    missing["runtime"].pop("model_revision")
+    ill_typed = deepcopy(candidate)
+    ill_typed["ceilings"]["latency_ceiling_seconds"] = "2"
+    invalid_domain = deepcopy(candidate)
+    invalid_domain["publishable_proposals"][0]["page_number"] = 0
+    nonfinite = deepcopy(candidate)
+    nonfinite["publishable_proposals"][0]["region"]["bbox"][0] = float("inf")
+
+    for invalid_candidate in (
+        unknown, missing, ill_typed, invalid_domain, nonfinite
+    ):
+        assert not resource_intake._candidate_is_valid(
+            invalid_candidate,
+            analyzed["candidate_id"],
+            resource_intake._candidate_bytes(invalid_candidate),
+        )
+
+
 def test_publish_is_atomic_idempotent_and_never_parses_review(
     tmp_path, monkeypatch, capsys
 ):
