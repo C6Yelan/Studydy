@@ -133,11 +133,11 @@ class EvidenceView(_ClosedModel):
 
 class ReviewConceptView(_ClosedModel):
     concept_id: str = Field(pattern=r"^concept:sha256:[0-9a-f]{64}$")
-    label: str = Field(min_length=1, max_length=120)
-    definition: str = Field(min_length=1, max_length=1_000)
-    key_points: list[str] = Field(min_length=1, max_length=10)
+    label: str = Field(min_length=1)
+    definition: str = Field(min_length=1)
+    key_points: list[str] = Field(min_length=1)
     page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
-    evidence: list[EvidenceView] = Field(min_length=1, max_length=16)
+    evidence: list[EvidenceView] = Field(min_length=1)
     quality: Literal["needs_review"]
     decision: Literal["review"]
     reason_codes: list[str] = Field(min_length=1, max_length=64)

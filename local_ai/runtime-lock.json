@@ -99,16 +99,16 @@
       "version": "0.26.0+cu129",
       "executable_sha256": "6d34800bbe39c7b1d94043fa0a7badafd894dbc422e0212f94ebe16547b2097a"
     },
-    "prompt": "You extract study concepts from normalized text evidence.\nUse only the supplied evidence. Return JSON only, with exactly this shape:\n{\"concepts\":[{\"label\":\"...\",\"definition\":\"...\",\"key_points\":[\"...\"],\"evidence_ids\":[\"...\"]}]}\nEvery central claim and key point must be grounded by its listed Evidence IDs.\nDo not return status, paths, coordinates, commentary, markdown, or additional fields.",
-    "prompt_sha256": "97f14f58b3599f22fcda7921d69fbd64035562c11897a4eadc6aacb355f5ca5c",
-    "request_schema": "concept-generation-input/v1",
+    "prompt": "You extract study concepts from normalized text evidence.\nUse only the supplied evidence. Return JSON only, with exactly this shape:\n{\"concepts\":[{\"label\":\"...\",\"definition\":\"...\",\"key_points\":[\"...\"],\"evidence_ids\":[\"...\"]}]}\nReturn the short Evidence IDs exactly as supplied. Every central claim and key point must be grounded by its listed Evidence IDs.\nExclude author names, institutions, page numbers, and document-title-only metadata unless they are themselves taught by the page.\nDo not return status, paths, coordinates, commentary, markdown, or additional fields.",
+    "prompt_sha256": "e764d04248ef848c6785b9a9bb941803614aea32b21dfc811c468e6bca62dfb3",
+    "request_schema": "concept-generation-input/v2",
     "output_schema": "semantic-concepts/v1",
     "generation": {"temperature": 0, "max_tokens": 1536},
     "structured_output": {
       "type": "json_schema",
       "name": "studydy_page_concepts",
       "strict": true,
-      "schema_sha256": "f8db04ce45a749207541e62ed37b13549a80ea0caaeddc6c1967824dce42555e"
+      "schema_sha256": "9e8023bf4344f4df9c48ded3d62dcae2e1d1551664927167c675abe6d08b05e3"
     },
     "input_token_budget": {
       "api_path": "/tokenize",
@@ -134,12 +134,12 @@
       "structurally_valid_decision": "review"
     },
     "code_hashes": {
-      "backend_concept_api": "6de84fb9c1b00c116684ac2b19ed2b9227307c0f41290b3a48c27ebad75c5251",
-      "backend_concept_generation": "1308d52e066b730f9e928934adf18dc0382da01dbd485e31cfe2d197851f2ef0"
+      "backend_concept_api": "7277b7490bbb6f85166de890b6a3dc64265d94d228954f683bfeb28d67b68560",
+      "backend_concept_generation": "ea08ebe038a2c75956eec904f1ac83095c5376262069244f72c1dc61d58e36d0"
     },
     "fixture_hashes": {
-      "semantic_request.json": "7fb2b3b23ee84940ca564ee1b8915648a457a670d6918859985eb01cce728246",
-      "semantic_model_output.json": "8031a30b7c4bc4d1a9efa4cd8e7b643476878fb1e96e5cbd329379b75a691553"
+      "semantic_request.json": "80ce6b6dd05eb3bbe1c768d5c8dcd453b52a3f7a3d5c521e123f97cfc8fecc58",
+      "semantic_model_output.json": "73918bbe9b2018a37ebf699ab3d1234c7c13dd5facf105dfc98049eee5eda7ac"
     }
   }
 }

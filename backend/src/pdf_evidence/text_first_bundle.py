@@ -110,7 +110,7 @@ def validate_bundle_documents(
             or type(bundle["ocr_calls"]) is not int
             or not 0 <= bundle["ocr_calls"] <= page_count
             or type(bundle["concept_calls"]) is not int
-            or not 0 <= bundle["concept_calls"] <= 2 * page_count
+            or bundle["concept_calls"] < 0
             or type(bundle["ocr_loads"]) is not int
             or bundle["ocr_loads"] not in {0, 1}
             or type(bundle["concept_loads"]) is not int

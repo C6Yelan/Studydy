@@ -166,7 +166,7 @@ def _fake_producer(
             )
             raw_page.pop("png_bytes", None)
             raw_page.pop("native_evidence", None)
-            semantic_request = build_semantic_request(page)
+            semantic_request, evidence_aliases = build_semantic_request(page)
             semantic = validate_concepts(
                 json.dumps(
                     {
@@ -176,7 +176,7 @@ def _fake_producer(
                                 "definition": "Public definition",
                                 "key_points": ["Public point"],
                                 "evidence_ids": [
-                                    semantic_request["evidence"][0]["evidence_id"]
+                                    semantic_request["evidence"][0]["id"]
                                 ],
                             }
                         ]
@@ -184,6 +184,7 @@ def _fake_producer(
                     separators=(",", ":"),
                 ),
                 semantic_request=semantic_request,
+                evidence_aliases=evidence_aliases,
                 page_ref=page["page_ref"],
                 input_binding={"semantic": "fixed"},
                 attempt=1,

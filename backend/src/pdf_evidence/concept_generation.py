@@ -1,22 +1,15 @@
 from __future__ import annotations
 
 import json
-import math
 from typing import Any
 import unicodedata
 
 from .ocr_page_evidence import canonical_sha256
 
 
-SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v1"
+SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v2"
 SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v1"
-PROMPT_TEMPLATE = """You extract study concepts from normalized text evidence.
-Use only the supplied evidence. Return JSON only, with exactly this shape:
-{"concepts":[{"label":"...","definition":"...","key_points":["..."],"evidence_ids":["..."]}]}
-Every central claim and key point must be grounded by its listed Evidence IDs.
-Do not return status, paths, coordinates, commentary, markdown, or additional fields."""
-PROMPT_SHA256 = "97f14f58b3599f22fcda7921d69fbd64035562c11897a4eadc6aacb355f5ca5c"
-PROCESSING_POLICY = "concept-evidence-review/v1"
+PROCESSING_POLICY = "concept-evidence-review/v2"
 MAX_MODEL_OUTPUT_BYTES = 65_536
 
 
@@ -60,79 +53,82 @@ def _exact_evidence_text(value: Any) -> str:
     return value
 
 
-def _normalized_candidate_text(value: Any, maximum: int) -> str:
+def _normalized_candidate_text(value: Any) -> str:
     """正規化模型產生的 Concept 文字，再檢查可用性與安全邊界。"""
     if not isinstance(value, str):
         raise SemanticOutputError("INVALID_TEXT_FIELD")
     normalized = " ".join(unicodedata.normalize("NFKC", value).split())
     if (
         not normalized
-        or len(normalized) > maximum
         or any(ord(character) < 32 for character in normalized)
     ):
         raise SemanticOutputError("INVALID_TEXT_FIELD")
     return normalized
 
 
-def build_semantic_request(page_evidence: dict[str, Any]) -> dict[str, Any]:
-    """保留 material identity 與 Evidence locator。"""
+def build_semantic_request(
+    page_evidence: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """模型只取得短 alias 與文字；正式 Evidence identity 留在後端。"""
     evidence = []
-    for block in page_evidence["evidence_blocks"]:
-        evidence.append(
-            {
-                "evidence_id": block["evidence_id"],
-                "text": block["text"],
-                "locator": {
-                    "page": block["locator"]["page"],
-                    "block_id": block["locator"]["block_id"],
-                    "region": block["locator"]["region"],
-                },
-            }
-        )
+    evidence_aliases = {}
+    for index, block in enumerate(page_evidence["evidence_blocks"], start=1):
+        alias = f"e{index}"
+        evidence.append({"id": alias, "text": block["text"]})
+        evidence_aliases[alias] = block["evidence_id"]
     request = {
         "schema": SEMANTIC_REQUEST_SCHEMA,
-        "material_id": page_evidence["material_id"],
-        "material_revision": page_evidence["material_revision"],
-        "section_id": page_evidence["section_id"],
         "evidence": evidence,
     }
     validate_semantic_request(request)
-    return request
+    return request, evidence_aliases
 
 
 def validate_semantic_request(request: Any) -> dict[str, dict[str, Any]]:
-    expected = {"schema", "material_id", "material_revision", "section_id", "evidence"}
+    expected = {"schema", "evidence"}
     if not isinstance(request, dict) or set(request) != expected or request["schema"] != SEMANTIC_REQUEST_SCHEMA:
         raise SemanticOutputError("INPUT_SCHEMA_INVALID")
-    for field in ("material_id", "material_revision", "section_id"):
-        _exact_text(request[field], 128)
     evidence_items = request["evidence"]
     if not isinstance(evidence_items, list) or not evidence_items:
         raise SemanticOutputError("INVALID_EVIDENCE_COUNT")
     evidence_by_id: dict[str, dict[str, Any]] = {}
     for evidence in evidence_items:
-        if not isinstance(evidence, dict) or set(evidence) != {"evidence_id", "text", "locator"}:
+        if not isinstance(evidence, dict) or set(evidence) != {"id", "text"}:
             raise SemanticOutputError("INPUT_SCHEMA_INVALID")
-        evidence_id = _exact_text(evidence["evidence_id"], 128)
+        evidence_id = _exact_text(evidence["id"], 16)
         if evidence_id in evidence_by_id:
             raise SemanticOutputError("DUPLICATE_EVIDENCE_ID")
         _exact_evidence_text(evidence["text"])
-        locator = evidence["locator"]
-        if not isinstance(locator, dict) or set(locator) != {"page", "block_id", "region"}:
-            raise SemanticOutputError("INVALID_LOCATOR")
-        if type(locator["page"]) is not int or locator["page"] < 1:
-            raise SemanticOutputError("INVALID_LOCATOR")
-        _exact_text(locator["block_id"], 128)
-        region = locator["region"]
-        if (
-            not isinstance(region, list)
-            or len(region) != 4
-            or any(type(number) not in {int, float} or not math.isfinite(number) for number in region)
-            or not (region[0] < region[2] and region[1] < region[3])
-        ):
-            raise SemanticOutputError("INVALID_LOCATOR")
         evidence_by_id[evidence_id] = evidence
     return evidence_by_id
+
+
+def split_semantic_request(
+    request: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """依原頁面順序切半；單一超長 Evidence 則只切它的文字。"""
+
+    evidence = list(validate_semantic_request(request).values())
+    if len(evidence) > 1:
+        middle = len(evidence) // 2
+        groups = (evidence[:middle], evidence[middle:])
+    else:
+        item = evidence[0]
+        text = item["text"]
+        if len(text) < 2:
+            raise SemanticOutputError("MODEL_INPUT_TOO_LARGE")
+        middle = len(text) // 2
+        left, right = text[:middle].strip(), text[middle:].strip()
+        if not left or not right:
+            raise SemanticOutputError("MODEL_INPUT_TOO_LARGE")
+        groups = ([{"id": item["id"], "text": left}], [{"id": item["id"], "text": right}])
+    requests = tuple(
+        {"schema": SEMANTIC_REQUEST_SCHEMA, "evidence": group}
+        for group in groups
+    )
+    for child in requests:
+        validate_semantic_request(child)
+    return requests
 
 
 def _decode_complete_output(model_text: Any) -> dict[str, Any]:
@@ -155,7 +151,10 @@ def _decode_complete_output(model_text: Any) -> dict[str, Any]:
     return output
 
 
-def _candidate_reason(candidate: Any, evidence_ids: set[str]) -> tuple[dict[str, Any] | None, str | None]:
+def _candidate_reason(
+    candidate: Any,
+    evidence_aliases: dict[str, str],
+) -> tuple[dict[str, Any] | None, str | None]:
     try:
         if not isinstance(candidate, dict) or set(candidate) != {
             "label",
@@ -164,28 +163,28 @@ def _candidate_reason(candidate: Any, evidence_ids: set[str]) -> tuple[dict[str,
             "evidence_ids",
         }:
             raise SemanticOutputError("CANDIDATE_SCHEMA_INVALID")
-        label = _normalized_candidate_text(candidate["label"], 120)
-        definition = _normalized_candidate_text(candidate["definition"], 1_000)
+        label = _normalized_candidate_text(candidate["label"])
+        definition = _normalized_candidate_text(candidate["definition"])
         key_points = candidate["key_points"]
-        if not isinstance(key_points, list) or not 1 <= len(key_points) <= 10:
+        if not isinstance(key_points, list) or not key_points:
             raise SemanticOutputError("INVALID_KEY_POINTS")
-        normalized_points = [_normalized_candidate_text(point, 300) for point in key_points]
+        normalized_points = [_normalized_candidate_text(point) for point in key_points]
         references = candidate["evidence_ids"]
         if (
             not isinstance(references, list)
-            or not 1 <= len(references) <= 16
+            or not references
             or any(not isinstance(reference, str) for reference in references)
         ):
             raise SemanticOutputError("INVALID_EVIDENCE_REFERENCES")
         if len(set(references)) != len(references):
             raise SemanticOutputError("DUPLICATE_EVIDENCE_REFERENCE")
-        if not set(references) <= evidence_ids:
+        if not set(references) <= set(evidence_aliases):
             raise SemanticOutputError("UNKNOWN_EVIDENCE_ID")
         return {
             "label": label,
             "definition": definition,
             "key_points": normalized_points,
-            "evidence_ids": references,
+            "evidence_ids": [evidence_aliases[reference] for reference in references],
         }, None
     except SemanticOutputError as error:
         return None, error.reason_code
@@ -195,23 +194,25 @@ def validate_concepts(
     model_text: Any,
     *,
     semantic_request: dict[str, Any],
+    evidence_aliases: dict[str, str],
     page_ref: str,
     input_binding: dict[str, Any],
     attempt: int,
 ) -> dict[str, Any]:
     """只信任 model 的 Concept fields；狀態與決策由 backend 建立。"""
     evidence_by_id = validate_semantic_request(semantic_request)
+    if set(evidence_by_id) != set(evidence_aliases):
+        raise SemanticOutputError("INPUT_SCHEMA_INVALID")
     output = _decode_complete_output(model_text)
     if set(output) != {"concepts"}:
         raise SemanticOutputError("CANDIDATE_SCHEMA_INVALID")
     candidates = output["concepts"]
-    if not isinstance(candidates, list) or not 1 <= len(candidates) <= 24:
+    if not isinstance(candidates, list) or not candidates:
         raise SemanticOutputError("INVALID_CONCEPT_COUNT")
     concepts: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
-    evidence_ids = set(evidence_by_id)
     for index, candidate in enumerate(candidates):
-        valid, reason = _candidate_reason(candidate, evidence_ids)
+        valid, reason = _candidate_reason(candidate, evidence_aliases)
         if valid is None:
             rejected.append(
                 {
@@ -244,6 +245,51 @@ def validate_concepts(
         "rejected_candidates": rejected,
         "input_binding": input_binding,
         "attempt": attempt,
+        "processing_policy": PROCESSING_POLICY,
+        "processing": "partial" if rejected else "succeeded",
+        "quality": "needs_review",
+        "decision": "review",
+        "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
+    }
+
+
+def combine_semantic_batches(
+    batches: list[dict[str, Any]],
+    *,
+    page_ref: str,
+    input_binding: dict[str, Any],
+) -> dict[str, Any]:
+    """把同頁各批已驗證結果合回一個 page artifact。"""
+
+    if not batches:
+        raise SemanticOutputError("NO_USABLE_CONCEPT")
+    concepts_by_id: dict[str, dict[str, Any]] = {}
+    rejected = []
+    for batch in batches:
+        if batch.get("page_ref") != page_ref:
+            raise SemanticOutputError("INPUT_SCHEMA_INVALID")
+        for concept in batch["concepts"]:
+            previous = concepts_by_id.get(concept["concept_id"])
+            if previous is not None and previous != concept:
+                raise SemanticOutputError("CANDIDATE_SCHEMA_INVALID")
+            concepts_by_id[concept["concept_id"]] = concept
+        for candidate in batch["rejected_candidates"]:
+            rejected.append(
+                {
+                    **candidate,
+                    "candidate_index": len(rejected),
+                }
+            )
+    concepts = sorted(concepts_by_id.values(), key=lambda item: item["concept_id"])
+    if not concepts:
+        raise SemanticOutputError("NO_USABLE_CONCEPT")
+    return {
+        "schema": SEMANTIC_ARTIFACT_SCHEMA,
+        "page_ref": page_ref,
+        "concepts": concepts,
+        "rejected_candidates": rejected,
+        "input_binding": input_binding,
+        "attempt": max(batch["attempt"] for batch in batches),
         "processing_policy": PROCESSING_POLICY,
         "processing": "partial" if rejected else "succeeded",
         "quality": "needs_review",

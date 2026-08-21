@@ -15,7 +15,7 @@ from .ocr_page_evidence import canonical_bytes, canonical_sha256
 OUTPUT_SCHEMA = "concept-evidence-output/v2"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
 MAX_ARTIFACT_FILE_BYTES = 16 * 1024 * 1024
-RUNTIME_LOCK_SHA256 = "f8261c513b84947486ba9c116976fb7c38da3e6e84bb6de02852b17bf7372137"
+RUNTIME_LOCK_SHA256 = "b552e9d4c7b6af93a2d640de39445802e26459b4ec2dcd6a17c7318ea91d449a"
 
 
 def _closed(value: Any, fields: set[str]) -> bool:
@@ -252,7 +252,7 @@ def validate_output_document(output: Any) -> bool:
         "concept_id", "page_ref", "label", "definition", "key_points", "evidence_ids",
         "processing", "quality", "decision", "reason_codes",
     }
-    if not isinstance(output["concepts"], list) or not 1 <= len(output["concepts"]) <= 24 * len(pages):
+    if not isinstance(output["concepts"], list) or not output["concepts"]:
         return False
     for concept in output["concepts"]:
         if not _closed(concept, concept_fields):
@@ -262,7 +262,7 @@ def validate_output_document(output: Any) -> bool:
             concept["concept_id"] in concept_ids
             or concept["page_ref"] not in page_refs
             or not isinstance(references, list)
-            or not 1 <= len(references) <= 16
+            or not references
             or len(references) != len(set(references))
             or any(evidence_pages.get(reference) != concept["page_ref"] for reference in references)
             or concept["processing"] not in {"succeeded", "partial"}
@@ -279,7 +279,7 @@ def validate_output_document(output: Any) -> bool:
     rejected_fields = {
         "page_ref", "candidate_index", "processing", "quality", "decision", "reason_codes"
     }
-    if not isinstance(output["rejected_candidates"], list) or len(output["rejected_candidates"]) > 24 * len(pages):
+    if not isinstance(output["rejected_candidates"], list):
         return False
     for rejected in output["rejected_candidates"]:
         if (

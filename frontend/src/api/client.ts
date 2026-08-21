@@ -81,10 +81,10 @@ function isRevision(value: unknown, prefix: string): value is string {
     && sha256Pattern.test(value.slice(prefix.length + 8));
 }
 
-function isStringArray(value: unknown, minimum = 0, maximum = 256): value is string[] {
+function isStringArray(value: unknown, minimum = 0, maximum?: number): value is string[] {
   return Array.isArray(value)
     && value.length >= minimum
-    && value.length <= maximum
+    && (maximum === undefined || value.length <= maximum)
     && value.every((item) => typeof item === "string" && item.length > 0);
 }
 
@@ -240,12 +240,12 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     ]);
     return !!concept
       && isRevision(concept.concept_id, "concept")
-      && typeof concept.label === "string" && concept.label.length >= 1 && concept.label.length <= 120
-      && typeof concept.definition === "string" && concept.definition.length >= 1 && concept.definition.length <= 1000
-      && isStringArray(concept.key_points, 1, 10)
+      && typeof concept.label === "string" && concept.label.length >= 1
+      && typeof concept.definition === "string" && concept.definition.length >= 1
+      && isStringArray(concept.key_points, 1)
       && isRevision(concept.page_ref, "page")
       && Array.isArray(concept.evidence)
-      && concept.evidence.length > 0 && concept.evidence.length <= 16
+      && concept.evidence.length > 0
       && new Set(concept.evidence.map((evidence) => object(evidence)?.evidence_id)).size === concept.evidence.length
       && concept.evidence.every((evidence) => isEvidence(evidence, concept.page_ref as string))
       && concept.quality === "needs_review"

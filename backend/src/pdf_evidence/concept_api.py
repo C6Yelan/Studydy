@@ -10,7 +10,6 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .concept_generation import PROMPT_TEMPLATE
 from .ocr_page_evidence import canonical_bytes
 
 
@@ -33,7 +32,6 @@ CONCEPT_RESPONSE_FORMAT = {
                 "concepts": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": 24,
                     "items": {
                         "type": "object",
                         "additionalProperties": False,
@@ -41,21 +39,17 @@ CONCEPT_RESPONSE_FORMAT = {
                             "label", "definition", "key_points", "evidence_ids"
                         ],
                         "properties": {
-                            "label": {"type": "string", "minLength": 1, "maxLength": 120},
-                            "definition": {
-                                "type": "string", "minLength": 1, "maxLength": 1_000
-                            },
+                            "label": {"type": "string", "minLength": 1},
+                            "definition": {"type": "string", "minLength": 1},
                             "key_points": {
                                 "type": "array",
                                 "minItems": 1,
-                                "maxItems": 10,
-                                "items": {"type": "string", "minLength": 1, "maxLength": 300},
+                                "items": {"type": "string", "minLength": 1},
                             },
                             "evidence_ids": {
                                 "type": "array",
                                 "minItems": 1,
-                                "maxItems": 16,
-                                "items": {"type": "string", "minLength": 1, "maxLength": 128},
+                                "items": {"type": "string", "minLength": 1},
                             },
                         },
                     },
@@ -222,6 +216,7 @@ def request_concept_text(
     *,
     base_url: str,
     model: str,
+    prompt_template: str,
     semantic_request: dict[str, Any],
     max_model_len: int,
     timeout_seconds: float,
@@ -232,11 +227,13 @@ def request_concept_text(
         not isinstance(model, str)
         or not model
         or len(model) > 256
+        or not isinstance(prompt_template, str)
+        or not prompt_template
         or type(max_model_len) is not int
         or max_model_len <= MAX_TOKENS
     ):
         raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
-    prompt = f"{PROMPT_TEMPLATE}\nINPUT:\n{canonical_bytes(semantic_request).decode('utf-8')}"
+    prompt = f"{prompt_template}\nINPUT:\n{canonical_bytes(semantic_request).decode('utf-8')}"
     messages = [{"role": "user", "content": prompt}]
     try:
         tokenized = client.post(

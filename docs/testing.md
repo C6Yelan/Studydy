@@ -61,3 +61,31 @@ backup；`sync --rollback` 會從該 backup 還原。sync 不會在啟動時自�
 
 測試中的 disposable fixtures 只驗證這些 layout、驗證與 backup/rollback 邏輯。
 真實主機 E2E 與 unseen-PDF 評估是另外核准的操作，不屬於 fixture 測試。
+
+## Resource intake
+
+先準備一份 `resource-source-metadata/v1` JSON，並確認固定本機 runtime 已通過
+`verify`。分析命令會處理 PDF 全頁；若單頁內容超過模型 context，會依 tokenizer
+結果在該頁內分批，不需要設定頁數、block 數或執行秒數上限：
+
+```bash
+PYTHONPATH=backend/src backend/.venv/bin/python -m learning_resources.resource_intake \
+  analyze <PDF> --metadata <METADATA_JSON>
+```
+
+命令只會在 ignored `.studydy-runtime/resource-intake/candidates/` 產生可閱讀的
+`review.md` 與 machine-readable `candidate.json`，並輸出兩者路徑；不會修改正式
+resource library。人工檢查頁碼、label、每一筆 Evidence、授權與引用後，才使用分析
+輸出的 exact candidate ID 與 SHA 發布：
+
+```bash
+PYTHONPATH=backend/src backend/.venv/bin/python -m learning_resources.resource_intake \
+  publish <CANDIDATE_ID> \
+  --candidate-sha256 <CANDIDATE_SHA256> \
+  --confirm <CANDIDATE_ID> \
+  --source-pdf <PDF>
+```
+
+Concept prompt 只定義於 `local_ai/runtime-lock.json`；runtime 會驗證 prompt SHA 後再
+呼叫本機 Qwen。模型每批只收到短 Evidence ID 與該批文字，正式 identity、頁面定位、
+bbox 與 runtime metadata 均留在後端完成綁定。

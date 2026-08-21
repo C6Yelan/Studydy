@@ -35,11 +35,17 @@ def _producer_identity_is_valid(producer_output: Any) -> bool:
     return validate_output_document(producer_output)
 
 
-def _string_list(value: Any, *, minimum: int = 0, maximum: int = 256) -> bool:
+def _string_list(
+    value: Any,
+    *,
+    minimum: int = 0,
+    maximum: int | None = None,
+) -> bool:
     return (
         isinstance(value, list)
-        and minimum <= len(value) <= maximum
-        and all(isinstance(item, str) and 1 <= len(item) <= 1_000 for item in value)
+        and len(value) >= minimum
+        and (maximum is None or len(value) <= maximum)
+        and all(isinstance(item, str) and bool(item) for item in value)
     )
 
 
@@ -126,12 +132,11 @@ def _shape_is_valid(document: Any) -> bool:
             or concept["concept_id"] in concept_ids
             or concept["page_ref"] not in pages_by_ref
             or not isinstance(concept["label"], str)
-            or not 1 <= len(concept["label"]) <= 120
+            or not concept["label"]
             or not isinstance(concept["definition"], str)
-            or not 1 <= len(concept["definition"]) <= 1_000
-            or not _string_list(concept["key_points"], minimum=1, maximum=10)
-            or any(len(point) > 300 for point in concept["key_points"])
-            or not _string_list(references, minimum=1, maximum=16)
+            or not concept["definition"]
+            or not _string_list(concept["key_points"], minimum=1)
+            or not _string_list(references, minimum=1)
             or len(references) != len(set(references))
             or any(evidence_pages.get(reference) != concept["page_ref"] for reference in references)
             or concept["processing"] not in {"succeeded", "partial"}

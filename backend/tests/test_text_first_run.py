@@ -113,6 +113,19 @@ class FakeChild:
         self.state["resident"].remove(self.kind)
 
 
+class MultipleEvidenceChild(FakeChild):
+    def request(self, request, timeout):
+        self.state[self.kind] += 1
+        return {
+            "schema": "local-ocr-response/v1",
+            "request_id": request["request_id"],
+            "blocks": [
+                {"type": "text", "text": "First public detail", "bbox": [100, 100, 900, 300]},
+                {"type": "text", "text": "Second public detail", "bbox": [100, 350, 900, 550]},
+            ],
+        }
+
+
 class FakeConceptAPI:
     def __init__(self, state, *, invalid_first=False, always_invalid=False):
         self.state = state
@@ -123,7 +136,7 @@ class FakeConceptAPI:
         self.state["concept"] += 1
         if self.always_invalid or (self.invalid_first and self.state["concept"] == 1):
             return '{"concepts":[]}'
-        evidence_id = arguments["semantic_request"]["evidence"][0]["evidence_id"]
+        evidence_id = arguments["semantic_request"]["evidence"][0]["id"]
         return json.dumps(
             {
                 "concepts": [
@@ -241,6 +254,45 @@ def test_sequential_product_path_and_exact_replay_zero_model_calls(tmp_path, mon
     assert "png_base64" not in saved_json
     assert "model_text" not in saved_json
     assert state["resident"] == []
+
+
+def test_oversized_page_is_split_and_all_batches_remain_grounded(tmp_path, monkeypatch):
+    path = tmp_path / "public.pdf"
+    _pdf(path)
+    state = _state()
+    seen_requests = []
+
+    def split_when_needed(client, **arguments):
+        semantic_request = arguments["semantic_request"]
+        seen_requests.append(deepcopy(semantic_request))
+        if len(semantic_request["evidence"]) > 1:
+            raise run_module.ConceptAPIError("MODEL_INPUT_TOO_LARGE")
+        return FakeConceptAPI(state)(client, **arguments)
+
+    monkeypatch.setattr(
+        run_module,
+        "start_ocr_process",
+        lambda settings: MultipleEvidenceChild("ocr", state),
+    )
+    monkeypatch.setattr(run_module, "request_concept_text", split_when_needed)
+
+    bundle = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
+    output = read_producer_bundle(
+        tmp_path / "runtime", bundle["run_id"]
+    )["output"]
+
+    assert bundle["processing"] == "succeeded"
+    assert bundle["excluded_page_count"] == 0
+    assert bundle["concept_calls"] == len(output["concepts"])
+    assert len(seen_requests) > bundle["concept_calls"]
+    page_evidence_ids = {
+        block["evidence_id"] for block in output["pages"][0]["evidence_blocks"]
+    }
+    assert {
+        evidence_id
+        for concept in output["concepts"]
+        for evidence_id in concept["evidence_ids"]
+    } == page_evidence_ids
 
 
 def test_malformed_concept_output_is_one_call_and_failed(tmp_path, monkeypatch):

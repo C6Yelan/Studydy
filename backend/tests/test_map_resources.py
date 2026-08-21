@@ -34,11 +34,13 @@ def _entry(source_sha256, label="Quantum Field Theory", page_number=2, left=40.0
         "source_sha256": source_sha256,
         "page_number": page_number,
         "label": label,
-        "quote": f"{label} connects fields with particle observations.",
-        "region": {
-            "coordinate_space": "unrotated_pdf_points",
-            "bbox": [left, 80.0, left + 240.0, 104.0],
-        },
+        "evidence": [{
+            "quote": f"{label} connects fields with particle observations.",
+            "region": {
+                "coordinate_space": "unrotated_pdf_points",
+                "bbox": [left, 80.0, left + 240.0, 104.0],
+            },
+        }],
     }
 
 
@@ -156,7 +158,7 @@ def test_builder_preserves_exact_evidence_lineage_and_rejects_bad_input():
     assert evidence["page_number"] == entry["page_number"]
     assert evidence["page_ref"] == concept["page_ref"]
     assert concept["evidence_ids"] == [evidence["evidence_id"]]
-    assert evidence["quote"] == entry["quote"]
+    assert evidence["quote"] == entry["evidence"][0]["quote"]
     assert (evidence["processing"], evidence["quality"], evidence["decision"]) == (
         "succeeded",
         "accepted",
@@ -164,9 +166,29 @@ def test_builder_preserves_exact_evidence_lineage_and_rejects_bad_input():
     )
 
     invalid_entry = deepcopy(entry)
-    invalid_entry["region"]["bbox"] = [10.0, 20.0, 5.0, 30.0]
+    invalid_entry["evidence"][0]["region"]["bbox"] = [10.0, 20.0, 5.0, 30.0]
     with pytest.raises(ValueError, match="RESOURCE_LIBRARY_INPUT_INVALID"):
         build_resource_library([_source(source_sha256)], [invalid_entry])
+
+
+def test_builder_keeps_all_reviewed_evidence_for_one_concept():
+    source_sha256 = "a" * 64
+    entry = _entry(source_sha256)
+    entry["evidence"].append({
+        "quote": "A second reviewed passage supports the same concept.",
+        "region": {
+            "coordinate_space": "unrotated_pdf_points",
+            "bbox": [40.0, 120.0, 280.0, 144.0],
+        },
+    })
+
+    library = build_resource_library([_source(source_sha256)], [entry])
+
+    assert len(library["evidence"]) == 2
+    assert len(library["concepts"][0]["evidence_ids"]) == 2
+    assert set(library["concepts"][0]["evidence_ids"]) == {
+        evidence["evidence_id"] for evidence in library["evidence"]
+    }
 
     broken = deepcopy(library)
     broken["concepts"][0]["evidence_ids"] = ["resource-evidence:sha256:" + "0" * 64]

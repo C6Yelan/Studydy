@@ -37,7 +37,8 @@ _SOURCE_INPUT_FIELDS = {
     "use_boundary",
 }
 _SOURCE_FIELDS = _SOURCE_INPUT_FIELDS | {"resource_id"}
-_ENTRY_FIELDS = {"source_sha256", "page_number", "label", "quote", "region"}
+_ENTRY_FIELDS = {"source_sha256", "page_number", "label", "evidence"}
+_REVIEWED_EVIDENCE_FIELDS = {"quote", "region"}
 _EVIDENCE_FIELDS = {
     "evidence_id",
     "resource_id",
@@ -219,51 +220,63 @@ def _build_resource_library(
         source_sha256 = reviewed_entry["source_sha256"]
         source = sources_by_sha.get(source_sha256)
         page_number = reviewed_entry["page_number"]
+        reviewed_evidence = reviewed_entry["evidence"]
         if (
             source is None
             or type(page_number) is not int
             or not 1 <= page_number <= source["page_count"]
             or not _is_nonempty_text(reviewed_entry["label"])
-            or not _is_nonempty_text(reviewed_entry["quote"])
-            or not _valid_region(reviewed_entry["region"])
+            or not isinstance(reviewed_evidence, list)
+            or not reviewed_evidence
         ):
             raise ValueError("RESOURCE_LIBRARY_INPUT_INVALID")
 
         label = _clean_text(reviewed_entry["label"])
-        quote = _clean_text(reviewed_entry["quote"])
-        if not label or not quote or not _normalized_label(label):
+        if not label or not _normalized_label(label):
             raise ValueError("RESOURCE_LIBRARY_INPUT_INVALID")
-        region = deepcopy(reviewed_entry["region"])
         page_ref = _page_ref(source["resource_id"], page_number)
-        quote_sha256 = hashlib.sha256(quote.encode("utf-8")).hexdigest()
-        evidence_identity = {
-            "locator_policy": LOCATOR_POLICY,
-            "page_ref": page_ref,
-            "quote_sha256": quote_sha256,
-            "region": region,
-        }
-        evidence_id = "resource-evidence:sha256:" + canonical_sha256(
-            evidence_identity
-        )
-        evidence = {
-            "evidence_id": evidence_id,
-            "resource_id": source["resource_id"],
-            "page_ref": page_ref,
-            "page_number": page_number,
-            "quote": quote,
-            "quote_sha256": quote_sha256,
-            "region": region,
-            "processing": "succeeded",
-            "quality": "accepted",
-            "decision": "retain",
-            "reason_codes": [],
-        }
-        previous_evidence = evidence_by_id.get(evidence_id)
-        if previous_evidence is not None and previous_evidence != evidence:
-            raise ValueError("RESOURCE_LIBRARY_INPUT_INVALID")
-        evidence_by_id[evidence_id] = evidence
-
-        evidence_ids = [evidence_id]
+        evidence_ids = []
+        for reviewed_item in reviewed_evidence:
+            if (
+                not isinstance(reviewed_item, dict)
+                or set(reviewed_item) != _REVIEWED_EVIDENCE_FIELDS
+                or not _is_nonempty_text(reviewed_item["quote"])
+                or not _valid_region(reviewed_item["region"])
+            ):
+                raise ValueError("RESOURCE_LIBRARY_INPUT_INVALID")
+            quote = _clean_text(reviewed_item["quote"])
+            if not quote:
+                raise ValueError("RESOURCE_LIBRARY_INPUT_INVALID")
+            region = deepcopy(reviewed_item["region"])
+            quote_sha256 = hashlib.sha256(quote.encode("utf-8")).hexdigest()
+            evidence_identity = {
+                "locator_policy": LOCATOR_POLICY,
+                "page_ref": page_ref,
+                "quote_sha256": quote_sha256,
+                "region": region,
+            }
+            evidence_id = "resource-evidence:sha256:" + canonical_sha256(
+                evidence_identity
+            )
+            evidence = {
+                "evidence_id": evidence_id,
+                "resource_id": source["resource_id"],
+                "page_ref": page_ref,
+                "page_number": page_number,
+                "quote": quote,
+                "quote_sha256": quote_sha256,
+                "region": region,
+                "processing": "succeeded",
+                "quality": "accepted",
+                "decision": "retain",
+                "reason_codes": [],
+            }
+            previous_evidence = evidence_by_id.get(evidence_id)
+            if previous_evidence is not None and previous_evidence != evidence:
+                raise ValueError("RESOURCE_LIBRARY_INPUT_INVALID")
+            evidence_by_id[evidence_id] = evidence
+            evidence_ids.append(evidence_id)
+        evidence_ids = sorted(set(evidence_ids))
         concept_identity = {
             "quality_policy": QUALITY_POLICY,
             "page_ref": page_ref,

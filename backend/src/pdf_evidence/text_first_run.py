@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -31,6 +32,8 @@ from .concept_evidence_output import (
 from .concept_generation import (
     SemanticOutputError,
     build_semantic_request,
+    combine_semantic_batches,
+    split_semantic_request,
     validate_concepts,
 )
 from .local_ai_process import LocalAIError, start_ocr_process
@@ -50,7 +53,6 @@ _PAGE_EXCLUSION_REASONS = {
     "MODEL_OUTPUT_TOO_LARGE",
     "MODEL_OUTPUT_INVALID_JSON",
     "MODEL_OUTPUT_TRUNCATED",
-    "MODEL_INPUT_TOO_LARGE",
     "CANDIDATE_SCHEMA_INVALID",
     "INVALID_CONCEPT_COUNT",
     "INVALID_TEXT_FIELD",
@@ -94,11 +96,14 @@ def _reason(error: Exception) -> str:
 
 def _validate_runtime_lock(runtime_lock: Any) -> None:
     try:
+        semantic = runtime_lock["semantic"]
         matches = (
             isinstance(runtime_lock, dict)
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
+            and hashlib.sha256(semantic["prompt"].encode("utf-8")).hexdigest()
+            == semantic["prompt_sha256"]
         )
-    except (RecursionError, TypeError, ValueError):
+    except (KeyError, RecursionError, TypeError, ValueError):
         matches = False
     if not matches:
         raise ValueError("RUNTIME_BINDING_INVALID")
@@ -483,13 +488,11 @@ def _process_pdf(
         semantic_work = []
         for page in page_artifacts:
             try:
-                semantic_request = build_semantic_request(page)
+                semantic_request, evidence_aliases = build_semantic_request(page)
                 binding = {
                     "page_evidence_sha256": canonical_sha256(page),
                     "semantic_request_sha256": canonical_sha256(semantic_request),
-                    "evidence_allowlist": [
-                        item["evidence_id"] for item in semantic_request["evidence"]
-                    ],
+                    "evidence_allowlist": list(evidence_aliases.values()),
                     "semantic": runtime_lock["semantic"],
                     "concept_api": {
                         "base_url": settings["concept_api_base_url"],
@@ -511,6 +514,7 @@ def _process_pdf(
                     {
                         "page": page,
                         "semantic_request": semantic_request,
+                        "evidence_aliases": evidence_aliases,
                         "binding": binding,
                         "key": key,
                         "replace_invalid": invalid,
@@ -544,39 +548,64 @@ def _process_pdf(
             ) -> tuple[dict[str, Any] | None, int, Exception | None]:
                 calls = 0
                 try:
-                    artifact = None
                     retry_policy = runtime_lock["semantic"]["retry"]
                     max_attempts = retry_policy["max_attempts"]
                     retryable_reasons = set(retry_policy["retryable_reasons"])
-                    for attempt in range(1, max_attempts + 1):
-                        try:
-                            assert concept_client is not None
-                            model_text = request_concept_text(
-                                concept_client,
-                                base_url=settings["concept_api_base_url"],
-                                model=settings["concept_model"],
-                                semantic_request=work["semantic_request"],
-                                max_model_len=settings["concept_max_model_len"],
-                                timeout_seconds=retry_policy["timeout_seconds"],
-                            )
-                            artifact = validate_concepts(
-                                model_text,
-                                semantic_request=work["semantic_request"],
-                                page_ref=work["page"]["page_ref"],
-                                input_binding=work["binding"],
-                                attempt=attempt,
-                            )
-                            calls += 1
-                            break
-                        except (ConceptAPIError, SemanticOutputError) as error:
-                            calls += 1
-                            if (
-                                attempt == max_attempts
-                                or error.reason_code not in retryable_reasons
-                            ):
-                                raise
-                    if artifact is None:
-                        raise RuntimeError("INTERNAL_FAILURE")
+                    pending = [work["semantic_request"]]
+                    batches = []
+                    while pending:
+                        request = pending.pop(0)
+                        aliases = {
+                            item["id"]: work["evidence_aliases"][item["id"]]
+                            for item in request["evidence"]
+                        }
+                        artifact = None
+                        for attempt in range(1, max_attempts + 1):
+                            try:
+                                assert concept_client is not None
+                                model_text = request_concept_text(
+                                    concept_client,
+                                    base_url=settings["concept_api_base_url"],
+                                    model=settings["concept_model"],
+                                    prompt_template=runtime_lock["semantic"]["prompt"],
+                                    semantic_request=request,
+                                    max_model_len=settings["concept_max_model_len"],
+                                    timeout_seconds=retry_policy["timeout_seconds"],
+                                )
+                                calls += 1
+                                artifact = validate_concepts(
+                                    model_text,
+                                    semantic_request=request,
+                                    evidence_aliases=aliases,
+                                    page_ref=work["page"]["page_ref"],
+                                    input_binding=work["binding"],
+                                    attempt=attempt,
+                                )
+                                break
+                            except ConceptAPIError as error:
+                                if error.reason_code == "MODEL_INPUT_TOO_LARGE":
+                                    first, second = split_semantic_request(request)
+                                    pending[0:0] = [first, second]
+                                    break
+                                calls += 1
+                                if (
+                                    attempt == max_attempts
+                                    or error.reason_code not in retryable_reasons
+                                ):
+                                    raise
+                            except SemanticOutputError as error:
+                                if (
+                                    attempt == max_attempts
+                                    or error.reason_code not in retryable_reasons
+                                ):
+                                    raise
+                        if artifact is not None:
+                            batches.append(artifact)
+                    artifact = combine_semantic_batches(
+                        batches,
+                        page_ref=work["page"]["page_ref"],
+                        input_binding=work["binding"],
+                    )
                     _write_cache(
                         _cache_path(root, "semantic", work["key"]),
                         "semantic",

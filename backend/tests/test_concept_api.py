@@ -14,16 +14,19 @@ from pdf_evidence.concept_api import (
     request_concept_text,
     start_concept_server,
 )
-from pdf_evidence.concept_generation import PROMPT_TEMPLATE
 from pdf_evidence.ocr_page_evidence import canonical_sha256
+
+
+RUNTIME_LOCK = json.loads(
+    (Path(__file__).parents[2] / "local_ai" / "runtime-lock.json").read_text(
+        encoding="utf-8"
+    )
+)
 
 
 def _semantic_request():
     return {
-        "schema": "concept-generation-input/v1",
-        "material_id": "material-public",
-        "material_revision": "revision-public",
-        "section_id": "section-public",
+        "schema": "concept-generation-input/v2",
         "evidence": [],
     }
 
@@ -33,6 +36,7 @@ def _request(client, *, base_url="http://localhost:8101"):
         client,
         base_url=base_url,
         model="fixed-model",
+        prompt_template=RUNTIME_LOCK["semantic"]["prompt"],
         semantic_request=_semantic_request(),
         max_model_len=5_632,
         timeout_seconds=300,
@@ -151,24 +155,16 @@ def test_chat_completion_uses_exact_loopback_request_and_returns_content():
     assert "authorization" not in observed[1].headers
     body = json.loads(observed[1].content)
     assert "uniqueItems" not in json.dumps(body["response_format"])
-    runtime_lock = json.loads(
-        (Path(__file__).parents[2] / "local_ai" / "runtime-lock.json").read_text(
-            encoding="utf-8"
-        )
-    )
     assert canonical_sha256(body["response_format"]["json_schema"]["schema"]) == (
-        runtime_lock["semantic"]["structured_output"]["schema_sha256"]
+        RUNTIME_LOCK["semantic"]["structured_output"]["schema_sha256"]
     )
     assert body == {
         "model": "fixed-model",
         "messages": [
             {
                 "role": "user",
-                "content": f"{PROMPT_TEMPLATE}\nINPUT:\n"
-                '{"evidence":[],"material_id":"material-public",'
-                '"material_revision":"revision-public",'
-                '"schema":"concept-generation-input/v1",'
-                '"section_id":"section-public"}',
+                "content": f"{RUNTIME_LOCK['semantic']['prompt']}\nINPUT:\n"
+                '{"evidence":[],"schema":"concept-generation-input/v2"}',
             }
         ],
         "temperature": 0,

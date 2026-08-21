@@ -1,17 +1,9 @@
 {
-  "schema": "concept-generation-input/v1",
-  "material_id": "material-alpha",
-  "material_revision": "revision-one",
-  "section_id": "section-light",
+  "schema": "concept-generation-input/v2",
   "evidence": [
     {
-      "evidence_id": "evidence-one",
-      "text": "Photosynthesis converts light energy into chemical energy in plants.",
-      "locator": {
-        "page": 1,
-        "block_id": "block-one",
-        "region": [10, 20, 90, 60]
-      }
+      "id": "e1",
+      "text": "Photosynthesis converts light energy into chemical energy in plants."
     }
   ]
 }

@@ -26,11 +26,9 @@ from .map_resources import build_resource_library, validate_resource_library
 
 
 METADATA_SCHEMA = "resource-source-metadata/v1"
-CANDIDATE_SCHEMA = "resource-intake-candidate/v1"
-CANDIDATE_POLICY = "resource-intake-exact-batch/v1"
+CANDIDATE_SCHEMA = "resource-intake-candidate/v2"
+CANDIDATE_POLICY = "resource-intake-multi-evidence/v2"
 REVIEW_REASON = "RESOURCE_HUMAN_REVIEW_REQUIRED"
-MAX_JSON_BYTES = 1024 * 1024
-MAX_QUOTE_LENGTH = 2_000
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_LIBRARY_FILE = Path(__file__).with_name("data") / "resource_library_v1.json"
@@ -42,7 +40,7 @@ _METADATA_FIELDS = {
 }
 _CANDIDATE_FIELDS = {
     "schema", "candidate_policy", "candidate_id", "candidate_content_sha256",
-    "source", "base", "runtime", "ceilings", "producer",
+    "source", "base", "runtime", "producer",
     "publishable_proposals", "omitted_items", "critical_blockers",
     "processing", "quality", "decision", "reason_codes", "telemetry",
 }
@@ -52,7 +50,6 @@ _RUNTIME_FIELDS = {
     "runtime_binding_sha256", "producer_runtime_binding_sha256", "model_id",
     "model_revision", "prompt_sha256", "page_schema", "render_sha256",
 }
-_CEILING_FIELDS = {"page_ceiling", "latency_ceiling_seconds"}
 _PRODUCER_FIELDS = {
     "run_id", "bundle_id", "output_id", "output_sha256",
     "runtime_binding_sha256", "processing", "quality", "decision",
@@ -60,10 +57,11 @@ _PRODUCER_FIELDS = {
     "ocr_loads", "concept_loads",
 }
 _PROPOSAL_FIELDS = {
-    "proposal_id", "source_concept_id", "source_evidence_id", "page_number",
-    "label", "quote", "region", "processing", "quality", "decision",
+    "proposal_id", "source_concept_id", "page_number", "label", "evidence",
+    "processing", "quality", "decision",
     "reason_codes",
 }
+_PROPOSAL_EVIDENCE_FIELDS = {"source_evidence_id", "quote", "region"}
 _REGION_FIELDS = {"coordinate_space", "bbox"}
 _OMITTED_FIELDS = {
     "concept_id", "page_number", "reason_code", "processing", "quality",
@@ -77,7 +75,6 @@ _OMITTED_REASONS = {
     "RESOURCE_EVIDENCE_MISSING",
     "RESOURCE_EVIDENCE_WRONG_PAGE",
     "RESOURCE_EVIDENCE_NOT_GROUNDED",
-    "RESOURCE_MULTIPLE_EVIDENCE_NOT_SUPPORTED",
     "RESOURCE_PROPOSAL_UNCERTAIN",
 }
 
@@ -112,7 +109,7 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _read_json(path: Path, reason: str) -> tuple[dict[str, Any], bytes]:
     try:
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_JSON_BYTES:
+        if path.is_symlink() or not path.is_file():
             _fail(reason)
         encoded = path.read_bytes()
         document = json.loads(
@@ -129,8 +126,12 @@ def _read_json(path: Path, reason: str) -> tuple[dict[str, Any], bytes]:
     return document, encoded
 
 
-def _nonempty_text(value: Any, maximum: int = 2_000) -> bool:
-    return isinstance(value, str) and bool(value.strip()) and len(value) <= maximum
+def _nonempty_text(value: Any, maximum: int | None = None) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+        and (maximum is None or len(value) <= maximum)
+    )
 
 
 def _is_sha256(value: Any) -> bool:
@@ -232,7 +233,6 @@ def _candidate_identity(
     source: dict[str, Any],
     base: dict[str, Any],
     runtime: dict[str, Any],
-    ceilings: dict[str, Any],
     telemetry: dict[str, Any],
 ) -> dict[str, Any]:
     return {
@@ -240,7 +240,6 @@ def _candidate_identity(
         "source": source,
         "base": base,
         "runtime": runtime,
-        "ceilings": ceilings,
         "telemetry": {
             "external_network_calls": telemetry["external_network_calls"],
             "monetary_cost": telemetry["monetary_cost"],
@@ -285,24 +284,20 @@ def _project_output(output: dict[str, Any]) -> tuple[list[dict[str, Any]], list[
         references = concept.get("evidence_ids")
         if not isinstance(references, list) or not references:
             reason = "RESOURCE_EVIDENCE_MISSING"
-        elif len(references) != 1:
-            reason = "RESOURCE_MULTIPLE_EVIDENCE_NOT_SUPPORTED"
-        elif references[0] not in evidence_by_id:
+        elif any(reference not in evidence_by_id for reference in references):
             reason = "RESOURCE_EVIDENCE_MISSING"
         else:
-            page, block = evidence_by_id[references[0]]
-            locator = block.get("locator")
-            quote = block.get("text")
-            if page["page_ref"] != concept.get("page_ref"):
+            resolved = [evidence_by_id[reference] for reference in references]
+            if any(page["page_ref"] != concept.get("page_ref") for page, _ in resolved):
                 reason = "RESOURCE_EVIDENCE_WRONG_PAGE"
-            elif (
+            elif any(
                 page.get("coordinate_space") != "unrotated_pdf_points"
-                or not isinstance(locator, dict)
-                or locator.get("page") != page.get("page_number")
-                or not _valid_bbox(locator.get("region"))
-                or not _nonempty_text(quote, MAX_QUOTE_LENGTH)
-                or not _nonempty_text(concept.get("label"), 120)
-            ):
+                or not isinstance(block.get("locator"), dict)
+                or block["locator"].get("page") != page.get("page_number")
+                or not _valid_bbox(block["locator"].get("region"))
+                or not _nonempty_text(block.get("text"))
+                for page, block in resolved
+            ) or not _nonempty_text(concept.get("label")):
                 reason = "RESOURCE_EVIDENCE_NOT_GROUNDED"
             elif concept.get("processing") != "succeeded":
                 reason = "RESOURCE_PROPOSAL_UNCERTAIN"
@@ -323,17 +318,27 @@ def _project_output(output: dict[str, Any]) -> tuple[list[dict[str, Any]], list[
                 "decision": "reject",
             })
             continue
-        page, block = evidence_by_id[references[0]]
+        resolved = [evidence_by_id[reference] for reference in references]
+        page = resolved[0][0]
+        proposal_evidence = sorted(
+            [
+                {
+                    "source_evidence_id": reference,
+                    "quote": block["text"],
+                    "region": {
+                        "coordinate_space": "unrotated_pdf_points",
+                        "bbox": block["locator"]["region"],
+                    },
+                }
+                for reference, (_, block) in zip(references, resolved, strict=True)
+            ],
+            key=lambda item: item["source_evidence_id"],
+        )
         proposal_identity = {
             "source_concept_id": concept["concept_id"],
-            "source_evidence_id": references[0],
             "page_number": page["page_number"],
             "label": concept["label"],
-            "quote": block["text"],
-            "region": {
-                "coordinate_space": "unrotated_pdf_points",
-                "bbox": block["locator"]["region"],
-            },
+            "evidence": proposal_evidence,
         }
         proposals.append({
             "proposal_id": "resource-proposal:sha256:" + canonical_sha256(proposal_identity),
@@ -420,10 +425,16 @@ def _review_text(candidate: dict[str, Any], candidate_sha256: str) -> str:
     for proposal in candidate["publishable_proposals"]:
         lines.extend([
             f"### {proposal['proposal_id']}", f"- Page: {proposal['page_number']}",
-            f"- Concept: `{proposal['source_concept_id']}`", f"- Evidence: `{proposal['source_evidence_id']}`",
-            f"- Label: {proposal['label']}", f"- Quote: {proposal['quote']}",
-            f"- BBox: {proposal['region']['bbox']}", "",
+            f"- Concept: `{proposal['source_concept_id']}`",
+            f"- Label: {proposal['label']}",
         ])
+        for evidence in proposal["evidence"]:
+            lines.extend([
+                f"- Evidence: `{evidence['source_evidence_id']}`",
+                f"  - Quote: {evidence['quote']}",
+                f"  - BBox: {evidence['region']['bbox']}",
+            ])
+        lines.append("")
     lines.extend(["## Omitted items", ""])
     for item in candidate["omitted_items"]:
         lines.append(f"- `{item['concept_id']}`: {item['reason_code']}")
@@ -477,7 +488,7 @@ def _candidate_is_valid(
     candidate_id: str,
     encoded: bytes,
 ) -> bool:
-    """在 candidate 檔案邊界完整重驗目前 v1 文件。"""
+    """在 candidate 檔案邊界完整重驗目前文件。"""
 
     try:
         if not isinstance(candidate, dict) or set(candidate) != _CANDIDATE_FIELDS:
@@ -536,17 +547,6 @@ def _candidate_is_valid(
         ):
             return False
 
-        ceilings = candidate["ceilings"]
-        if not isinstance(ceilings, dict) or set(ceilings) != _CEILING_FIELDS:
-            return False
-        if (
-            type(ceilings["page_ceiling"]) is not int
-            or ceilings["page_ceiling"] < source["page_count"]
-            or type(ceilings["latency_ceiling_seconds"]) is not int
-            or ceilings["latency_ceiling_seconds"] < 1
-        ):
-            return False
-
         telemetry = candidate["telemetry"]
         if not isinstance(telemetry, dict) or set(telemetry) != _TELEMETRY_FIELDS:
             return False
@@ -561,7 +561,7 @@ def _candidate_is_valid(
         ):
             return False
         if candidate_id != _candidate_id(
-            _candidate_identity(source, base, runtime, ceilings, telemetry)
+            _candidate_identity(source, base, runtime, telemetry)
         ):
             return False
 
@@ -593,17 +593,13 @@ def _candidate_is_valid(
             or producer["reason_codes"] != sorted(set(producer["reason_codes"]))
         ):
             return False
-        numeric_limits = (
-            ("duration_ms", ceilings["latency_ceiling_seconds"] * 1000),
-            ("ocr_calls", source["page_count"]),
-            ("concept_calls", 2 * source["page_count"]),
-            ("ocr_loads", 1),
-            ("concept_loads", 1),
-        )
         if any(
-            type(producer[field]) is not int or not 0 <= producer[field] <= maximum
-            for field, maximum in numeric_limits
-        ):
+            type(producer[field]) is not int or producer[field] < 0
+            for field in (
+                "duration_ms", "ocr_calls", "concept_calls", "ocr_loads",
+                "concept_loads",
+            )
+        ) or producer["ocr_loads"] > 1 or producer["concept_loads"] > 1:
             return False
 
         proposals = candidate["publishable_proposals"]
@@ -613,35 +609,47 @@ def _candidate_is_valid(
         for proposal in proposals:
             if not isinstance(proposal, dict) or set(proposal) != _PROPOSAL_FIELDS:
                 return False
-            region = proposal["region"]
-            if not isinstance(region, dict) or set(region) != _REGION_FIELDS:
+            evidence_items = proposal["evidence"]
+            if not isinstance(evidence_items, list) or not evidence_items:
                 return False
             if (
                 re.fullmatch(
                     r"concept:sha256:[0-9a-f]{64}",
                     proposal["source_concept_id"],
                 ) is None
-                or re.fullmatch(
-                    r"evidence:sha256:[0-9a-f]{64}",
-                    proposal["source_evidence_id"],
-                ) is None
                 or type(proposal["page_number"]) is not int
                 or not 1 <= proposal["page_number"] <= source["page_count"]
-                or not _nonempty_text(proposal["label"], 120)
-                or not _nonempty_text(proposal["quote"], MAX_QUOTE_LENGTH)
-                or region["coordinate_space"] != "unrotated_pdf_points"
-                or not _valid_bbox(region["bbox"])
+                or not _nonempty_text(proposal["label"])
                 or proposal["processing"] != "partial"
                 or proposal["quality"] != "needs_review"
                 or proposal["decision"] != "review"
                 or proposal["reason_codes"] != [REVIEW_REASON]
             ):
                 return False
+            evidence_ids = []
+            for evidence in evidence_items:
+                if (
+                    not isinstance(evidence, dict)
+                    or set(evidence) != _PROPOSAL_EVIDENCE_FIELDS
+                    or re.fullmatch(
+                        r"evidence:sha256:[0-9a-f]{64}",
+                        evidence["source_evidence_id"],
+                    ) is None
+                    or not _nonempty_text(evidence["quote"])
+                    or not isinstance(evidence["region"], dict)
+                    or set(evidence["region"]) != _REGION_FIELDS
+                    or evidence["region"]["coordinate_space"]
+                    != "unrotated_pdf_points"
+                    or not _valid_bbox(evidence["region"]["bbox"])
+                ):
+                    return False
+                evidence_ids.append(evidence["source_evidence_id"])
+            if evidence_ids != sorted(set(evidence_ids)):
+                return False
             proposal_identity = {
                 key: proposal[key]
                 for key in (
-                    "source_concept_id", "source_evidence_id", "page_number",
-                    "label", "quote", "region",
+                    "source_concept_id", "page_number", "label", "evidence",
                 )
             }
             expected_id = (
@@ -730,21 +738,18 @@ def analyze(arguments: argparse.Namespace, environment: Mapping[str, str]) -> di
     metadata, _ = _read_json(Path(arguments.metadata), "RESOURCE_METADATA_INVALID")
     metadata = _validate_metadata(metadata)
     source_sha256, page_count = _inspect_pdf(Path(arguments.pdf))
-    if page_count > arguments.page_ceiling:
-        _fail("RESOURCE_PAGE_CEILING_EXCEEDED")
     library, _, library_sha256 = _read_library(Path(arguments.library_file))
     local_config = read_local_ai_config_from_environment(environment)
     runtime = _runtime_summary(local_config)
     source = {"source_sha256": source_sha256, "page_count": page_count, "metadata": metadata}
     base = {"library_revision": library["library_revision"], "library_sha256": library_sha256}
-    ceilings = {"page_ceiling": arguments.page_ceiling, "latency_ceiling_seconds": arguments.latency_ceiling_seconds}
     telemetry_binding = {
         "external_network_calls": 0,
         "monetary_cost": 0,
         "peak_vram_bytes": "unavailable",
     }
     candidate_id = _candidate_id(
-        _candidate_identity(source, base, runtime, ceilings, telemetry_binding)
+        _candidate_identity(source, base, runtime, telemetry_binding)
     )
     directory, _, _ = _candidate_paths(candidate_id)
     if directory.exists():
@@ -769,10 +774,8 @@ def analyze(arguments: argparse.Namespace, environment: Mapping[str, str]) -> di
         or len(output["source_binding"]["page_numbers"]) != page_count
         or bundle["runtime_binding_sha256"] != runtime["producer_runtime_binding_sha256"]
         or bundle["ocr_calls"] > page_count
-        or bundle["concept_calls"] > 2 * page_count
         or bundle["ocr_loads"] > 1
         or bundle["concept_loads"] > 1
-        or bundle["duration_ms"] > arguments.latency_ceiling_seconds * 1000
     ):
         _fail("RESOURCE_PRODUCER_FAILED")
     proposals, omitted, blockers = _project_output(output)
@@ -781,7 +784,7 @@ def analyze(arguments: argparse.Namespace, environment: Mapping[str, str]) -> di
     candidate = {
         "schema": CANDIDATE_SCHEMA, "candidate_policy": CANDIDATE_POLICY,
         "candidate_id": candidate_id, "source": source, "base": base, "runtime": runtime,
-        "ceilings": ceilings, "producer": _producer_summary(bundle),
+        "producer": _producer_summary(bundle),
         "publishable_proposals": proposals, "omitted_items": omitted,
         "critical_blockers": blockers, "processing": "partial", "quality": "needs_review",
         "decision": "review", "reason_codes": [REVIEW_REASON],
@@ -804,13 +807,15 @@ def _reviewed_inputs(library: dict[str, Any]) -> tuple[list[dict[str, Any]], lis
     source_by_resource = {item["resource_id"]: item["source_sha256"] for item in library["sources"]}
     entries = []
     for concept in library["concepts"]:
-        if len(concept["evidence_ids"]) != 1:
-            _fail("RESOURCE_LIBRARY_ROUND_TRIP_FAILED")
-        evidence = evidence_by_id[concept["evidence_ids"][0]]
+        evidence_items = [evidence_by_id[evidence_id] for evidence_id in concept["evidence_ids"]]
+        evidence = evidence_items[0]
         entries.append({
             "source_sha256": source_by_resource[evidence["resource_id"]],
             "page_number": evidence["page_number"], "label": concept["label"],
-            "quote": evidence["quote"], "region": deepcopy(evidence["region"]),
+            "evidence": [
+                {"quote": item["quote"], "region": deepcopy(item["region"])}
+                for item in evidence_items
+            ],
         })
     return sources, entries
 
@@ -822,7 +827,10 @@ def _candidate_formal_library(candidate: dict[str, Any]) -> dict[str, Any]:
     entries = [{
         "source_sha256": candidate["source"]["source_sha256"],
         "page_number": proposal["page_number"], "label": proposal["label"],
-        "quote": proposal["quote"], "region": deepcopy(proposal["region"]),
+        "evidence": [
+            {"quote": item["quote"], "region": deepcopy(item["region"])}
+            for item in proposal["evidence"]
+        ],
     } for proposal in candidate["publishable_proposals"]]
     return build_resource_library([source], entries)
 
@@ -909,8 +917,6 @@ def _parser() -> argparse.ArgumentParser:
     analyze_parser = commands.add_parser("analyze")
     analyze_parser.add_argument("pdf")
     analyze_parser.add_argument("--metadata", required=True)
-    analyze_parser.add_argument("--page-ceiling", required=True, type=int)
-    analyze_parser.add_argument("--latency-ceiling-seconds", required=True, type=int)
     analyze_parser.add_argument("--library-file", default=str(DEFAULT_LIBRARY_FILE))
     publish_parser = commands.add_parser("publish")
     publish_parser.add_argument("candidate_id")
@@ -925,8 +931,6 @@ def main(argv: list[str] | None = None, environment: Mapping[str, str] | None = 
     try:
         arguments = _parser().parse_args(argv)
         if arguments.command == "analyze":
-            if arguments.page_ceiling < 1 or arguments.latency_ceiling_seconds < 1:
-                _fail("RESOURCE_CEILING_INVALID")
             result = analyze(arguments, os.environ if environment is None else environment)
         else:
             if re.fullmatch(r"[0-9a-f]{64}", arguments.candidate_sha256) is None:

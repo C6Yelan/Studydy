@@ -60,11 +60,13 @@ def _entry(source_sha256: str, label: str = "Base Concept") -> dict:
         "source_sha256": source_sha256,
         "page_number": 1,
         "label": label,
-        "quote": f"{label} has public evidence.",
-        "region": {
-            "coordinate_space": "unrotated_pdf_points",
-            "bbox": [20.0, 30.0, 300.0, 60.0],
-        },
+        "evidence": [{
+            "quote": f"{label} has public evidence.",
+            "region": {
+                "coordinate_space": "unrotated_pdf_points",
+                "bbox": [20.0, 30.0, 300.0, 60.0],
+            },
+        }],
     }
 
 
@@ -150,7 +152,6 @@ def _analyze(tmp_path, monkeypatch, capsys):
     _install_producer(monkeypatch, runtime_root, calls)
     arguments = [
         "analyze", str(pdf_path), "--metadata", str(metadata_path),
-        "--page-ceiling", "1", "--latency-ceiling-seconds", "2",
         "--library-file", str(library_path),
     ]
     assert resource_intake.main(arguments, _environment(runtime_root)) == 0
@@ -408,10 +409,20 @@ def test_projection_omits_unsupported_and_marks_grounding_blockers():
     assert blockers == ["RESOURCE_EVIDENCE_MISSING"]
 
     multiple = deepcopy(output)
-    multiple["concepts"][0]["evidence_ids"] *= 2
+    multiple["concepts"][0]["processing"] = "succeeded"
+    second_evidence = deepcopy(multiple["pages"][0]["evidence_blocks"][0])
+    second_evidence["evidence_id"] = "evidence:sha256:" + "8" * 64
+    second_evidence["block_id"] = "block:sha256:" + "7" * 64
+    second_evidence["locator"]["block_id"] = second_evidence["block_id"]
+    second_evidence["text"] = "Additional public evidence"
+    multiple["pages"][0]["evidence_blocks"].append(second_evidence)
+    multiple["concepts"][0]["evidence_ids"].append(second_evidence["evidence_id"])
     proposals, omitted, blockers = resource_intake._project_output(multiple)
-    assert proposals == []
-    assert omitted[0]["reason_code"] == "RESOURCE_MULTIPLE_EVIDENCE_NOT_SUPPORTED"
+    assert [item["source_evidence_id"] for item in proposals[0]["evidence"]] == [
+        output["concepts"][0]["evidence_ids"][0],
+        second_evidence["evidence_id"],
+    ]
+    assert omitted == []
     assert blockers == []
 
     rejected = deepcopy(output)

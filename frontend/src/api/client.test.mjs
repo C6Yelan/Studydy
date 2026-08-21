@@ -198,7 +198,7 @@ test("Map v2 recursively rejects unexpected、duplicate、nonfinite、type 與 c
     duplicate: (view) => { view.concepts.push(structuredClone(view.concepts[0])); },
     nonfinite: (view) => { view.concepts[0].evidence[0].region.bbox[0] = Number.NaN; },
     type: (view) => { view.concepts[0].evidence[0].page_number = true; },
-    count: (view) => { view.concepts[0].key_points = Array.from({ length: 11 }, () => "point"); },
+    count: (view) => { view.concepts[0].key_points = []; },
     reference: (view) => { view.concepts[0].evidence[0].page_ref = `page:sha256:${"f".repeat(64)}`; },
     excluded: (view) => {
       view.status.processing = "succeeded";
