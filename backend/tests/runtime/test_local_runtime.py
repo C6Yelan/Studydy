@@ -46,7 +46,7 @@ def _symlinked_runtime_config(tmp_path: Path, symlink_kind: str) -> dict:
         actual_root.mkdir()
         configured_root = tmp_path / "linked-runtime"
         configured_root.symlink_to(actual_root, target_is_directory=True)
-    else:
+    elif symlink_kind == "intermediate":
         configured_root = tmp_path / "local-runtime"
         configured_root.mkdir()
         actual_ocr = tmp_path / "actual-ocr"
@@ -54,11 +54,20 @@ def _symlinked_runtime_config(tmp_path: Path, symlink_kind: str) -> dict:
         (configured_root / "ocr").symlink_to(
             actual_ocr, target_is_directory=True
         )
+    else:
+        configured_root = tmp_path / "local-runtime"
+        configured_root.mkdir()
     config = read_local_ai_config_from_environment(
         {"STUDYDY_LOCAL_RUNTIME_ROOT": str(configured_root)}
     )
     package_root = Path(config["site_packages"]) / "studydy_local_ai"
-    package_root.mkdir(parents=True)
+    if symlink_kind == "package":
+        package_root.parent.mkdir(parents=True)
+        actual_package = tmp_path / "actual-package"
+        actual_package.mkdir()
+        package_root.symlink_to(actual_package, target_is_directory=True)
+    else:
+        package_root.mkdir(parents=True)
     for name in local_runtime._SOURCE_NAMES:
         target = package_root / name
         target.write_bytes(b"installed " + name.encode())
@@ -66,7 +75,7 @@ def _symlinked_runtime_config(tmp_path: Path, symlink_kind: str) -> dict:
     return config
 
 
-@pytest.mark.parametrize("symlink_kind", ["root", "intermediate"])
+@pytest.mark.parametrize("symlink_kind", ["root", "intermediate", "package"])
 @pytest.mark.parametrize("operation", ["verify", "preflight", "sync", "rollback"])
 def test_runtime_operations_reject_symlinked_path_before_mutation(
     tmp_path: Path,
@@ -115,6 +124,41 @@ def test_runtime_operations_reject_symlinked_path_before_mutation(
         path.name.startswith(f"{local_runtime._BACKUP_NAME}-")
         for path in package_root.parent.iterdir()
     )
+
+
+def test_shared_validator_checks_runtime_file_parents_before_leaf_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    actual_parent = tmp_path / "actual-parent"
+    actual_parent.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    linked_parent.symlink_to(actual_parent, target_is_directory=True)
+    runtime_file = processing_module._RuntimeFile(
+        linked_parent / "locked-file",
+        "0" * 64,
+        "ocr_package",
+    )
+
+    def unexpected_read(*_args, **_kwargs):
+        raise AssertionError("runtime leaf read must not start")
+
+    monkeypatch.setattr(processing_module, "formal_runtime_binding", lambda _: {})
+    monkeypatch.setattr(
+        processing_module, "_runtime_files", lambda _: (runtime_file,)
+    )
+    monkeypatch.setattr(
+        processing_module, "_absolute_runtime_path", unexpected_read
+    )
+    monkeypatch.setattr(processing_module, "_file_sha256", unexpected_read)
+    monkeypatch.setattr(
+        processing_module, "_distribution_versions", unexpected_read
+    )
+
+    with pytest.raises(MaterialProcessingError) as failure:
+        processing_module.validate_installed_local_runtime({})
+
+    assert failure.value.component == "layout"
+    assert failure.value.reason == "LOCAL_RUNTIME_UNSAFE_TARGET"
 
 
 def test_sync_is_idempotent_and_explicit_rollback_restores_complete_backup(
