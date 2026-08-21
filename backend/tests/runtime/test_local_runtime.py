@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 import runtime.local_runtime as local_runtime
+import runtime.material_processing as processing_module
 from runtime.local_app import read_local_ai_config_from_environment
 from runtime.material_processing import MaterialProcessingError
 
@@ -37,6 +38,83 @@ def _tracked_bytes() -> dict[str, bytes]:
         name: (source_root / name).read_bytes()
         for name in local_runtime._SOURCE_NAMES
     }
+
+
+def _symlinked_runtime_config(tmp_path: Path, symlink_kind: str) -> dict:
+    if symlink_kind == "root":
+        actual_root = tmp_path / "actual-runtime"
+        actual_root.mkdir()
+        configured_root = tmp_path / "linked-runtime"
+        configured_root.symlink_to(actual_root, target_is_directory=True)
+    else:
+        configured_root = tmp_path / "local-runtime"
+        configured_root.mkdir()
+        actual_ocr = tmp_path / "actual-ocr"
+        actual_ocr.mkdir()
+        (configured_root / "ocr").symlink_to(
+            actual_ocr, target_is_directory=True
+        )
+    config = read_local_ai_config_from_environment(
+        {"STUDYDY_LOCAL_RUNTIME_ROOT": str(configured_root)}
+    )
+    package_root = Path(config["site_packages"]) / "studydy_local_ai"
+    package_root.mkdir(parents=True)
+    for name in local_runtime._SOURCE_NAMES:
+        target = package_root / name
+        target.write_bytes(b"installed " + name.encode())
+        target.chmod(0o640)
+    return config
+
+
+@pytest.mark.parametrize("symlink_kind", ["root", "intermediate"])
+@pytest.mark.parametrize("operation", ["verify", "preflight", "sync", "rollback"])
+def test_runtime_operations_reject_symlinked_path_before_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    symlink_kind: str,
+    operation: str,
+):
+    config = _symlinked_runtime_config(tmp_path, symlink_kind)
+    package_root = Path(config["site_packages"]) / "studydy_local_ai"
+    original = _installed_bytes(config)
+    original_modes = {
+        name: stat.S_IMODE((package_root / name).stat().st_mode)
+        for name in local_runtime._SOURCE_NAMES
+    }
+    backup_root = package_root.parent / local_runtime._BACKUP_NAME
+
+    def unexpected_mutation(*_args, **_kwargs):
+        raise AssertionError("runtime mutation must not start")
+
+    monkeypatch.setattr(local_runtime, "_source_and_target_files", unexpected_mutation)
+    monkeypatch.setattr(local_runtime, "_build_backup", unexpected_mutation)
+    monkeypatch.setattr(local_runtime, "_atomic_replace", unexpected_mutation)
+    monkeypatch.setattr(
+        processing_module, "_prepare_private_runtime_root", unexpected_mutation
+    )
+    invoke = {
+        "verify": local_runtime.verify_local_runtime,
+        "preflight": processing_module.formal_runtime_preflight,
+        "sync": local_runtime.sync_local_runtime,
+        "rollback": local_runtime.rollback_local_runtime,
+    }[operation]
+
+    with pytest.raises(MaterialProcessingError) as failure:
+        invoke(config)
+
+    assert failure.value.component == "layout"
+    assert failure.value.reason == "LOCAL_RUNTIME_UNSAFE_TARGET"
+    assert _installed_bytes(config) == original
+    assert {
+        name: stat.S_IMODE((package_root / name).stat().st_mode)
+        for name in local_runtime._SOURCE_NAMES
+    } == original_modes
+    assert not backup_root.exists()
+    assert not Path(config["private_runtime_root"]).exists()
+    assert not any(
+        path.name.startswith(f"{local_runtime._BACKUP_NAME}-")
+        for path in package_root.parent.iterdir()
+    )
 
 
 def test_sync_is_idempotent_and_explicit_rollback_restores_complete_backup(

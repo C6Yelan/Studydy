@@ -220,6 +220,27 @@ class _RuntimeFile:
     expected_size: int | None = None
 
 
+def _reject_symlinked_path_components(paths: tuple[Path, ...]) -> None:
+    """拒絕通往固定 runtime 檔案的任何既存 symlink。"""
+
+    for path in paths:
+        if not path.is_absolute():
+            raise _runtime_error("layout", "LOCAL_RUNTIME_SETTINGS_MISMATCH")
+        current = Path(path.anchor)
+        for part in path.parts[1:]:
+            current /= part
+            try:
+                path_status = current.lstat()
+            except FileNotFoundError:
+                break
+            except OSError:
+                raise _runtime_error(
+                    "layout", "LOCAL_RUNTIME_UNSAFE_TARGET"
+                ) from None
+            if stat.S_ISLNK(path_status.st_mode):
+                raise _runtime_error("layout", "LOCAL_RUNTIME_UNSAFE_TARGET")
+
+
 def _absolute_runtime_path(
     value: str, *, is_directory: bool, component: str
 ) -> Path:
@@ -488,6 +509,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         for name, expected in expected_paths.items()
     ):
         raise _runtime_error("layout", "LOCAL_RUNTIME_SETTINGS_MISMATCH")
+    _reject_symlinked_path_components((root, *expected_paths.values()))
     concept_model = local_config.get("concept_model")
     if not isinstance(concept_model, str) or not concept_model or len(concept_model) > 256:
         raise _runtime_error("concept_model", "LOCAL_RUNTIME_SETTINGS_MISMATCH")
