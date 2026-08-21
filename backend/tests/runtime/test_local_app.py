@@ -94,6 +94,31 @@ def test_formal_launch_uses_the_local_composition_root(monkeypatch):
     )
 
 
+def test_cli_reader_returns_only_existing_local_ai_arguments():
+    environment = _environment()
+    environment["STUDYDY_PUBLIC_ORIGIN"] = "private-app-value"
+
+    local_config = local_app.read_local_ai_config_from_environment(environment)
+
+    assert set(local_config) == {
+        "private_runtime_root",
+        "runtime_lock",
+        "python_executable",
+        "site_packages",
+        "concept_site_packages",
+        "ocr_model_root",
+        "concept_api_base_url",
+        "concept_model",
+        "concept_server_executable",
+        "concept_model_root",
+        "concept_kv_cache_bytes",
+        "concept_max_concurrency",
+        "concept_max_model_len",
+    }
+    assert "public_origin" not in local_config
+    assert local_config["concept_max_concurrency"] == 2
+
+
 @pytest.mark.parametrize("profile", ["development", "production", "unknown"])
 def test_formal_launch_rejects_non_local_profile(profile):
     with pytest.raises(ValueError, match="LOCAL_APP_SETTINGS_INVALID"):

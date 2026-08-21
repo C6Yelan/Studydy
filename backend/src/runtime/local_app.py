@@ -13,10 +13,12 @@ import uvicorn
 from .api.app import ApiSettings, create_app
 
 
-_ENVIRONMENT_KEYS = {
+_APP_ENVIRONMENT_KEYS = {
     "profile": "STUDYDY_PROFILE",
     "public_origin": "STUDYDY_PUBLIC_ORIGIN",
     "secure_cookie": "STUDYDY_SECURE_COOKIE",
+}
+_LOCAL_AI_ENVIRONMENT_KEYS = {
     "private_runtime_root": "STUDYDY_PRIVATE_RUNTIME_ROOT",
     "python_executable": "STUDYDY_LOCAL_AI_PYTHON",
     "site_packages": "STUDYDY_LOCAL_AI_SITE_PACKAGES",
@@ -57,28 +59,39 @@ def _app_arguments_from_environment(environment: Mapping[str, str]) -> dict[str,
 
     values = {
         name: _required_environment_value(environment, environment_name)
-        for name, environment_name in _ENVIRONMENT_KEYS.items()
+        for name, environment_name in _APP_ENVIRONMENT_KEYS.items()
+    }
+    local_config = read_local_ai_config_from_environment(environment)
+    profile = values["profile"]
+    if profile not in {"local", "test"}:
+        raise ValueError("LOCAL_APP_SETTINGS_INVALID")
+    if values["secure_cookie"] not in {"true", "false"}:
+        raise ValueError("LOCAL_APP_SETTINGS_INVALID")
+    return {
+        "profile": profile,
+        "public_origin": values["public_origin"],
+        "secure_cookie": values["secure_cookie"] == "true",
+        "local_config": local_config,
+        "dsn": None,
+    }
+
+
+def read_local_ai_config_from_environment(
+    environment: Mapping[str, str],
+) -> dict[str, Any]:
+    """只取既有 OCR 與 Concept runtime 所需的非 secret 環境設定。"""
+
+    values = {
+        name: _required_environment_value(environment, environment_name)
+        for name, environment_name in _LOCAL_AI_ENVIRONMENT_KEYS.items()
     }
     for name, (environment_name, default) in _OPTIONAL_INTEGER_SETTINGS.items():
         raw_value = environment.get(environment_name, str(default))
         if not isinstance(raw_value, str) or not raw_value.isdecimal():
             raise ValueError("LOCAL_APP_SETTINGS_INVALID")
         values[name] = int(raw_value)
-    profile = values.pop("profile")
-    if profile not in {"local", "test"}:
-        raise ValueError("LOCAL_APP_SETTINGS_INVALID")
-    secure_cookie_text = values.pop("secure_cookie")
-    if secure_cookie_text not in {"true", "false"}:
-        raise ValueError("LOCAL_APP_SETTINGS_INVALID")
-    public_origin = values.pop("public_origin")
     values["runtime_lock"] = _runtime_lock()
-    return {
-        "profile": profile,
-        "public_origin": public_origin,
-        "secure_cookie": secure_cookie_text == "true",
-        "local_config": values,
-        "dsn": None,
-    }
+    return values
 
 
 def create_local_app(

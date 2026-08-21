@@ -75,28 +75,6 @@ _LIBRARY_FIELDS = {
     "decision",
     "reason_codes",
 }
-_MATCH_FIELDS = {
-    "match_id",
-    "study_concept_id",
-    "resource_concept_id",
-    "match_reason",
-    "processing",
-    "quality",
-    "decision",
-    "reason_codes",
-}
-_CONTEXT_FIELDS = {
-    "schema",
-    "context_revision",
-    "matching_policy",
-    "study_output_id",
-    "resource_library_revision",
-    "matches",
-    "processing",
-    "quality",
-    "decision",
-    "reason_codes",
-}
 
 
 def _is_sha256(value: Any) -> bool:
@@ -346,8 +324,6 @@ def build_resource_library(
 
     try:
         return _build_resource_library(reviewed_sources, reviewed_entries)
-    except ValueError:
-        raise
     except (KeyError, RecursionError, TypeError) as error:
         raise ValueError("RESOURCE_LIBRARY_INPUT_INVALID") from error
 
@@ -453,7 +429,6 @@ def _validate_resource_library(document: Any) -> str | None:
         if not isinstance(concept, dict) or set(concept) != _CONCEPT_FIELDS:
             return "RESOURCE_LIBRARY_INVALID"
         evidence_ids = concept["evidence_ids"]
-        referenced_evidence = [evidence_by_id.get(evidence_id) for evidence_id in evidence_ids]
         if (
             concept["concept_id"] in concept_ids
             or not _is_nonempty_text(concept["label"])
@@ -462,11 +437,15 @@ def _validate_resource_library(document: Any) -> str | None:
             or not isinstance(evidence_ids, list)
             or not evidence_ids
             or evidence_ids != sorted(set(evidence_ids))
-            or any(evidence is None for evidence in referenced_evidence)
-            or any(evidence["page_ref"] != concept["page_ref"] for evidence in referenced_evidence)
-            or len({evidence["resource_id"] for evidence in referenced_evidence}) != 1
             or not _has_status(concept, _ACCEPTED_STATUS)
             or not _valid_reason_codes(concept["reason_codes"], [])
+        ):
+            return "RESOURCE_LIBRARY_INVALID"
+        referenced_evidence = [evidence_by_id.get(evidence_id) for evidence_id in evidence_ids]
+        if (
+            any(evidence is None for evidence in referenced_evidence)
+            or any(evidence["page_ref"] != concept["page_ref"] for evidence in referenced_evidence)
+            or len({evidence["resource_id"] for evidence in referenced_evidence}) != 1
         ):
             return "RESOURCE_LIBRARY_INVALID"
         identity = {
@@ -647,10 +626,7 @@ def build_map_resource_context(
         or validate_resource_library(library) is not None
     ):
         raise ValueError("MAP_RESOURCE_CONTEXT_INPUT_INVALID")
-    document = _build_context_document(study_output, library)
-    if validate_map_resource_context(document, study_output, library) is not None:
-        raise ValueError("MAP_RESOURCE_CONTEXT_BUILD_INVALID")
-    return document
+    return _build_context_document(study_output, library)
 
 
 def _validate_map_resource_context(
@@ -661,53 +637,10 @@ def _validate_map_resource_context(
     if (
         not _study_output_is_valid(study_output)
         or validate_resource_library(library) is not None
-        or not isinstance(context, dict)
-        or set(context) != _CONTEXT_FIELDS
     ):
         return "MAP_RESOURCE_CONTEXT_INVALID"
-    if (
-        context["schema"] != MAP_RESOURCE_CONTEXT_SCHEMA
-        or context["matching_policy"] != MATCHING_POLICY
-        or context["study_output_id"] != study_output["output_id"]
-        or context["resource_library_revision"] != library["library_revision"]
-        or not isinstance(context["matches"], list)
-    ):
-        return "MAP_RESOURCE_CONTEXT_INVALID"
-
-    study_concept_ids = {
-        concept["concept_id"] for concept in study_output["concepts"]
-    }
-    resource_concept_ids = {
-        concept["concept_id"] for concept in library["concepts"]
-    }
-    match_ids: set[str] = set()
-    for match in context["matches"]:
-        if not isinstance(match, dict) or set(match) != _MATCH_FIELDS:
-            return "MAP_RESOURCE_CONTEXT_INVALID"
-        identity = {
-            "schema": MAP_RESOURCE_CONTEXT_SCHEMA,
-            "matching_policy": MATCHING_POLICY,
-            "study_output_id": study_output["output_id"],
-            "resource_library_revision": library["library_revision"],
-            "study_concept_id": match["study_concept_id"],
-            "resource_concept_id": match["resource_concept_id"],
-            "match_reason": match["match_reason"],
-        }
-        if (
-            match["match_id"] in match_ids
-            or match["study_concept_id"] not in study_concept_ids
-            or match["resource_concept_id"] not in resource_concept_ids
-            or match["match_reason"] != "EXACT_NORMALIZED_LABEL"
-            or not _has_status(match, _MATCH_STATUS)
-            or not _valid_reason_codes(match["reason_codes"], [_MATCH_REASON])
-            or match["match_id"]
-            != "resource-match:sha256:" + canonical_sha256(identity)
-        ):
-            return "MAP_RESOURCE_CONTEXT_INVALID"
-        match_ids.add(match["match_id"])
-
     expected = _build_context_document(study_output, library)
-    if context != expected or context["context_revision"] != _context_revision(context):
+    if context != expected:
         return "MAP_RESOURCE_CONTEXT_INVALID"
     return None
 
