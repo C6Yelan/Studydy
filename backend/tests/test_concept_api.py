@@ -81,6 +81,7 @@ def test_owned_vllm_server_uses_fixed_bounded_command_and_cleans_up(monkeypatch)
         "DO_NOT_TRACK": "1",
         "HF_HUB_DISABLE_TELEMETRY": "1",
         "HF_HUB_OFFLINE": "1",
+        "PATH": "/usr/bin:/bin",
         "TRANSFORMERS_OFFLINE": "1",
         "VLLM_NO_USAGE_STATS": "1",
         "VLLM_USE_FLASHINFER_SAMPLER": "0",
