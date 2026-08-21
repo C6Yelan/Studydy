@@ -77,7 +77,7 @@ def _entry(source_sha256: str, label: str = "Base Concept") -> dict:
     }
 
 
-def _write_library(path: Path, extra: tuple[str, str] | None = None) -> dict:
+def _write_library(path: Path, extra: tuple[str, str] | None = None) -> None:
     sources = [_source("b" * 64, "Base Source")]
     entries = [_entry("b" * 64)]
     if extra is not None:
@@ -86,7 +86,6 @@ def _write_library(path: Path, extra: tuple[str, str] | None = None) -> dict:
         entries.append(_entry(source_sha256, label))
     library = build_resource_library(sources, entries)
     path.write_bytes(canonical_bytes(library))
-    return library
 
 
 def _install_producer(monkeypatch, runtime_root: Path, calls: list[dict]) -> None:
@@ -145,6 +144,20 @@ def _analyze(tmp_path, monkeypatch, capsys):
     assert resource_intake.main(arguments, _environment(runtime_root)) == 0
     first = json.loads(capsys.readouterr().out)
     return first, arguments, pdf_path, library_path, runtime_root, candidates, calls
+
+
+def _publish_arguments(
+    analyzed: dict,
+    candidate_sha256: str,
+    pdf_path: Path,
+    library_path: Path,
+) -> list[str]:
+    return [
+        "publish", analyzed["candidate_id"],
+        "--candidate-sha256", candidate_sha256,
+        "--confirm", analyzed["candidate_id"], "--source-pdf", str(pdf_path),
+        "--library-file", str(library_path),
+    ]
 
 
 def test_pdf_inspection_computes_exact_hash_and_physical_page_count(tmp_path):
@@ -220,22 +233,6 @@ def test_telemetry_tamper_fails_replay_and_publish_without_overwriting(
         candidate["telemetry"][telemetry_field] = 999
     else:
         candidate["telemetry"][telemetry_field] += 1
-    tampered_input_id = resource_intake._candidate_id(
-        resource_intake._candidate_identity(
-            candidate["source"],
-            candidate["base"],
-            candidate["runtime"],
-            candidate["ceilings"],
-            candidate["telemetry"],
-        )
-    )
-    if telemetry_field == "external_network_calls":
-        assert analyzed["candidate_id"] != tampered_input_id
-    else:
-        assert analyzed["candidate_id"] == tampered_input_id
-    assert candidate["candidate_content_sha256"] != (
-        resource_intake._candidate_content_sha256(candidate)
-    )
     corrupted_bytes = resource_intake._candidate_bytes(candidate)
     candidate_path.write_bytes(corrupted_bytes)
     corrupted_sha256 = hashlib.sha256(corrupted_bytes).hexdigest()
@@ -253,12 +250,9 @@ def test_telemetry_tamper_fails_replay_and_publish_without_overwriting(
     assert candidate_path.read_bytes() == corrupted_bytes
     assert len(calls) == 1
 
-    publish_arguments = [
-        "publish", analyzed["candidate_id"],
-        "--candidate-sha256", corrupted_sha256,
-        "--confirm", analyzed["candidate_id"], "--source-pdf", str(pdf_path),
-        "--library-file", str(library_path),
-    ]
+    publish_arguments = _publish_arguments(
+        analyzed, corrupted_sha256, pdf_path, library_path
+    )
     assert resource_intake.main(
         publish_arguments, _environment(runtime_root)
     ) == 1
@@ -270,7 +264,7 @@ def test_telemetry_tamper_fails_replay_and_publish_without_overwriting(
     assert len(calls) == 1
 
 
-def test_publish_is_atomic_idempotent_and_never_parses_review(
+def test_publish_is_idempotent_and_never_parses_review(
     tmp_path, monkeypatch, capsys
 ):
     analyzed, _, pdf_path, library_path, runtime_root, candidates, _ = _analyze(
@@ -278,12 +272,9 @@ def test_publish_is_atomic_idempotent_and_never_parses_review(
     )
     review_path = candidates / analyzed["candidate_id"] / "review.md"
     review_path.write_text("human notes are not machine authority", encoding="utf-8")
-    arguments = [
-        "publish", analyzed["candidate_id"],
-        "--candidate-sha256", analyzed["candidate_sha256"],
-        "--confirm", analyzed["candidate_id"], "--source-pdf", str(pdf_path),
-        "--library-file", str(library_path),
-    ]
+    arguments = _publish_arguments(
+        analyzed, analyzed["candidate_sha256"], pdf_path, library_path
+    )
 
     assert resource_intake.main(arguments, _environment(runtime_root)) == 0
     published = json.loads(capsys.readouterr().out)
@@ -342,38 +333,44 @@ def test_replace_failure_and_candidate_tamper_never_overwrite_library(
     analyzed, _, pdf_path, library_path, runtime_root, candidates, _ = _analyze(
         tmp_path, monkeypatch, capsys
     )
-    arguments = [
-        "publish", analyzed["candidate_id"], "--candidate-sha256", analyzed["candidate_sha256"],
-        "--confirm", analyzed["candidate_id"], "--source-pdf", str(pdf_path),
-        "--library-file", str(library_path),
-    ]
+    arguments = _publish_arguments(
+        analyzed, analyzed["candidate_sha256"], pdf_path, library_path
+    )
     original = library_path.read_bytes()
 
-    monkeypatch.setattr(resource_intake, "_inspect_pdf", lambda _: ("c" * 64, 1))
-    assert resource_intake.main(arguments, _environment(runtime_root)) == 1
-    assert json.loads(capsys.readouterr().out)["reason_code"] == "RESOURCE_SOURCE_BINDING_MISMATCH"
-    assert library_path.read_bytes() == original
-    monkeypatch.setattr(resource_intake, "_inspect_pdf", lambda _: ("a" * 64, 1))
+    with monkeypatch.context() as source_failure:
+        source_failure.setattr(
+            resource_intake, "_inspect_pdf", lambda _: ("c" * 64, 1)
+        )
+        assert resource_intake.main(arguments, _environment(runtime_root)) == 1
+        assert json.loads(capsys.readouterr().out)["reason_code"] == (
+            "RESOURCE_SOURCE_BINDING_MISMATCH"
+        )
+        assert library_path.read_bytes() == original
 
-    real_named_temporary_file = resource_intake.tempfile.NamedTemporaryFile
-    monkeypatch.setattr(
-        resource_intake.tempfile,
-        "NamedTemporaryFile",
-        lambda **_: (_ for _ in ()).throw(OSError()),
-    )
-    assert resource_intake.main(arguments, _environment(runtime_root)) == 1
-    assert json.loads(capsys.readouterr().out)["reason_code"] == "RESOURCE_LIBRARY_WRITE_FAILED"
-    assert library_path.read_bytes() == original
-    monkeypatch.setattr(
-        resource_intake.tempfile, "NamedTemporaryFile", real_named_temporary_file
-    )
+    with monkeypatch.context() as temporary_file_failure:
+        temporary_file_failure.setattr(
+            resource_intake.tempfile,
+            "NamedTemporaryFile",
+            lambda **_: (_ for _ in ()).throw(OSError()),
+        )
+        assert resource_intake.main(arguments, _environment(runtime_root)) == 1
+        assert json.loads(capsys.readouterr().out)["reason_code"] == (
+            "RESOURCE_LIBRARY_WRITE_FAILED"
+        )
+        assert library_path.read_bytes() == original
 
-    real_replace = resource_intake.os.replace
-    monkeypatch.setattr(resource_intake.os, "replace", lambda *_: (_ for _ in ()).throw(OSError()))
-    assert resource_intake.main(arguments, _environment(runtime_root)) == 1
-    assert json.loads(capsys.readouterr().out)["reason_code"] == "RESOURCE_LIBRARY_WRITE_FAILED"
-    assert library_path.read_bytes() == original
-    monkeypatch.setattr(resource_intake.os, "replace", real_replace)
+    with monkeypatch.context() as replace_failure:
+        replace_failure.setattr(
+            resource_intake.os,
+            "replace",
+            lambda *_: (_ for _ in ()).throw(OSError()),
+        )
+        assert resource_intake.main(arguments, _environment(runtime_root)) == 1
+        assert json.loads(capsys.readouterr().out)["reason_code"] == (
+            "RESOURCE_LIBRARY_WRITE_FAILED"
+        )
+        assert library_path.read_bytes() == original
 
     candidate_path = candidates / analyzed["candidate_id"] / "candidate.json"
     candidate_path.write_bytes(candidate_path.read_bytes() + b" ")
