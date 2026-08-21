@@ -220,27 +220,6 @@ class _RuntimeFile:
     expected_size: int | None = None
 
 
-def _reject_symlinked_path_components(paths: tuple[Path, ...]) -> None:
-    """拒絕通往固定 runtime 檔案的任何既存 symlink。"""
-
-    for path in paths:
-        if not path.is_absolute():
-            raise _runtime_error("layout", "LOCAL_RUNTIME_SETTINGS_MISMATCH")
-        current = Path(path.anchor)
-        for part in path.parts[1:]:
-            current /= part
-            try:
-                path_status = current.lstat()
-            except FileNotFoundError:
-                break
-            except OSError:
-                raise _runtime_error(
-                    "layout", "LOCAL_RUNTIME_UNSAFE_TARGET"
-                ) from None
-            if stat.S_ISLNK(path_status.st_mode):
-                raise _runtime_error("layout", "LOCAL_RUNTIME_UNSAFE_TARGET")
-
-
 def _absolute_runtime_path(
     value: str, *, is_directory: bool, component: str
 ) -> Path:
@@ -285,11 +264,36 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
     """把 runtime lock 對應到 OCR 與 Qwen 真正會開啟的本機檔案。"""
 
     runtime_lock = local_config["runtime_lock"]
-    python_executable = Path(local_config["python_executable"])
-    site_packages = Path(local_config["site_packages"])
-    ocr_model_root = Path(local_config["ocr_model_root"])
-    concept_server_executable = Path(local_config["concept_server_executable"])
-    concept_model_root = Path(local_config["concept_model_root"])
+    python_executable = _absolute_runtime_path(
+        local_config["python_executable"],
+        is_directory=False,
+        component="python_runtime",
+    )
+    if not os.access(python_executable, os.X_OK):
+        raise _runtime_error("python_runtime", "LOCAL_RUNTIME_NOT_EXECUTABLE")
+    site_packages = _absolute_runtime_path(
+        local_config["site_packages"], is_directory=True, component="ocr_package"
+    )
+    _absolute_runtime_path(
+        local_config["concept_site_packages"],
+        is_directory=True,
+        component="concept_runtime",
+    )
+    ocr_model_root = _absolute_runtime_path(
+        local_config["ocr_model_root"], is_directory=True, component="ocr_model"
+    )
+    concept_server_executable = _absolute_runtime_path(
+        local_config["concept_server_executable"],
+        is_directory=False,
+        component="concept_runtime",
+    )
+    if not os.access(concept_server_executable, os.X_OK):
+        raise _runtime_error("concept_runtime", "LOCAL_RUNTIME_NOT_EXECUTABLE")
+    concept_model_root = _absolute_runtime_path(
+        local_config["concept_model_root"],
+        is_directory=True,
+        component="concept_model",
+    )
     package_root = site_packages / "studydy_local_ai"
     files = [
         _RuntimeFile(
@@ -387,43 +391,6 @@ def validate_installed_local_runtime(
     binding = formal_runtime_binding(local_config)
     assert isinstance(local_config, dict)
     runtime_files = _runtime_files(local_config)
-    _reject_symlinked_path_components(
-        tuple(runtime_file.path.parent for runtime_file in runtime_files)
-    )
-    python_executable = _absolute_runtime_path(
-        local_config["python_executable"],
-        is_directory=False,
-        component="python_runtime",
-    )
-    if not os.access(python_executable, os.X_OK):
-        raise _runtime_error("python_runtime", "LOCAL_RUNTIME_NOT_EXECUTABLE")
-    _absolute_runtime_path(
-        local_config["site_packages"],
-        is_directory=True,
-        component="ocr_package",
-    )
-    _absolute_runtime_path(
-        local_config["concept_site_packages"],
-        is_directory=True,
-        component="concept_runtime",
-    )
-    _absolute_runtime_path(
-        local_config["ocr_model_root"],
-        is_directory=True,
-        component="ocr_model",
-    )
-    concept_server_executable = _absolute_runtime_path(
-        local_config["concept_server_executable"],
-        is_directory=False,
-        component="concept_runtime",
-    )
-    if not os.access(concept_server_executable, os.X_OK):
-        raise _runtime_error("concept_runtime", "LOCAL_RUNTIME_NOT_EXECUTABLE")
-    _absolute_runtime_path(
-        local_config["concept_model_root"],
-        is_directory=True,
-        component="concept_model",
-    )
     for runtime_file in runtime_files:
         try:
             file_status = runtime_file.path.lstat()
@@ -521,10 +488,6 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         for name, expected in expected_paths.items()
     ):
         raise _runtime_error("layout", "LOCAL_RUNTIME_SETTINGS_MISMATCH")
-    installed_package_root = site_packages / "studydy_local_ai"
-    _reject_symlinked_path_components(
-        (root, *expected_paths.values(), installed_package_root)
-    )
     concept_model = local_config.get("concept_model")
     if not isinstance(concept_model, str) or not concept_model or len(concept_model) > 256:
         raise _runtime_error("concept_model", "LOCAL_RUNTIME_SETTINGS_MISMATCH")

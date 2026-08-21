@@ -537,21 +537,6 @@ def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     settings = _settings(tmp_path)
-    python_executable = Path(settings["python_executable"])
-    python_executable.parent.mkdir(parents=True)
-    python_executable.write_bytes(b"python")
-    python_executable.chmod(0o700)
-    for key in (
-        "site_packages",
-        "concept_site_packages",
-        "ocr_model_root",
-        "concept_model_root",
-    ):
-        Path(settings[key]).mkdir(parents=True)
-    concept_server = Path(settings["concept_server_executable"])
-    concept_server.parent.mkdir(parents=True, exist_ok=True)
-    concept_server.write_bytes(b"vllm")
-    concept_server.chmod(0o700)
     runtime_file = tmp_path / "verified-runtime-file"
     runtime_file.write_bytes(b"exact runtime")
     expected_sha256 = hashlib.sha256(b"exact runtime").hexdigest()
