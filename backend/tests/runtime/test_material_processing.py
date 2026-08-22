@@ -493,6 +493,12 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
         "minimum": 1,
         "caller_subset": False,
     }
+    assert "concept_calls_per_page" not in binding["call_ceilings"]
+    assert binding["call_ceilings"] == {
+        "ocr_calls_per_page": 1,
+        "ocr_initial_loads": 1,
+        "concept_initial_loads": 1,
+    }
     assert binding["timeouts_seconds"] == {
         "resident_lock": 5,
         "ocr_page": 120,

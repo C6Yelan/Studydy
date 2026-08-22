@@ -557,7 +557,6 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         "page_range": {"minimum": 1, "caller_subset": False},
         "call_ceilings": {
             "ocr_calls_per_page": 1,
-            "concept_calls_per_page": 2,
             "ocr_initial_loads": 1,
             "concept_initial_loads": 1,
         },
