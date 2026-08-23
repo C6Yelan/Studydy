@@ -1,4 +1,5 @@
 from copy import deepcopy
+from hashlib import sha256
 import json
 from pathlib import Path
 
@@ -64,6 +65,36 @@ def test_formal_keep_is_claim_grounded_and_exactly_covers_source():
         study["concepts"][0]["definition"]["claim_id"],
         study["concepts"][0]["key_points"][0]["claim_id"],
     ]
+
+
+def test_resolution_rejects_claim_subset_as_missing():
+    study = _study()
+    request, concepts, claims = build_resolution_requests(study["concepts"])[0]
+    candidate = {
+        "schema": "formal-concept-resolution/v1",
+        "group_id": request["group_id"],
+        "resolutions": [{
+            "operation": "KEEP",
+            "source_ids": ["c1"],
+            "nodes": [{
+                "label": study["concepts"][0]["label"],
+                "claim_ids": [next(iter(claims))],
+            }],
+        }],
+    }
+
+    try:
+        validate_resolution(
+            candidate,
+            request=request,
+            concept_aliases=concepts,
+            claim_aliases=claims,
+            source_concepts=study["concepts"],
+        )
+    except FormalConceptError as error:
+        assert str(error) == "RESOLUTION_CLAIM_MISSING"
+    else:
+        raise AssertionError("claim subset must fail closed")
 
 
 def test_resolution_rejects_missing_duplicate_and_split_above_two():
@@ -412,7 +443,16 @@ def test_agent3_uses_one_local_server_and_retries_only_a_temporary_failure(monke
             encoding="utf-8"
         )
     )
-    assert runtime_lock["formal_resolution"]["prompt"].startswith("/no_think\n")
+    resolution_prompt = runtime_lock["formal_resolution"]["prompt"]
+    assert resolution_prompt.startswith("/no_think\n")
+    assert "Claims are not independently droppable" in resolution_prompt
+    assert (
+        "every claim alias owned by source_ids must appear exactly once across all "
+        "output nodes"
+    ) in resolution_prompt
+    assert sha256(resolution_prompt.encode("utf-8")).hexdigest() == (
+        runtime_lock["formal_resolution"]["prompt_sha256"]
+    )
     assert runtime_lock["formal_relation"]["prompt"].startswith("/no_think\n")
     closed = []
 

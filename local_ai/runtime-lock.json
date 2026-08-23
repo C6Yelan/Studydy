@@ -137,8 +137,8 @@
     }
   },
   "formal_resolution": {
-    "prompt": "/no_think\nResolve every supplied source candidate exactly once using KEEP, MERGE, RENAME, SPLIT, or DROP. Use only supplied candidate and claim aliases. KEEP and RENAME use exactly one source and one node; MERGE uses at least two sources and one node; SPLIT uses one source and exactly two nodes; DROP uses one source and no nodes. Every retained claim must appear exactly once, KEEP must preserve the supplied label exactly, and every candidate must be covered. Return JSON only.",
-    "prompt_sha256": "d3ad5764f1fb8a135b9e785efbe7e3584fdd58bcc97bf721b5988052e78c7f24",
+    "prompt": "/no_think\nResolve every supplied source candidate exactly once using KEEP, MERGE, RENAME, SPLIT, or DROP. Use only supplied candidate and claim aliases. KEEP and RENAME use exactly one source and one node; MERGE uses at least two sources and one node; SPLIT uses one source and exactly two nodes; DROP uses one source and no nodes. Claims are not independently droppable: for KEEP, RENAME, MERGE, and SPLIT, every claim alias owned by source_ids must appear exactly once across all output nodes; DROP must retain zero claims and is the only operation that may omit them. KEEP must preserve the supplied label exactly, and every candidate must be covered. Return JSON only.",
+    "prompt_sha256": "99bd122e8876fdb49296d1669b2f2ce1927ef08961591fbd88a1299617bce239",
     "request_schema": "formal-concept-resolution-input/v1",
     "output_schema": "formal-concept-resolution/v1",
     "generation": {"temperature": 0, "max_tokens": 2048},
