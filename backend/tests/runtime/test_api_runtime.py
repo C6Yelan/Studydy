@@ -7,6 +7,7 @@ import pytest
 
 import runtime.api.app as app_module
 import runtime.material_processing as processing_module
+import runtime.storage.material_review_outputs as output_module
 from runtime.api.app import ApiSettings, canonical_openapi_bytes, create_app
 from runtime.api.models import MaterialOutputBinding
 from runtime.material_processing import (
@@ -15,7 +16,7 @@ from runtime.material_processing import (
     execute_claimed_material_processing_run,
 )
 from runtime.storage.migrations import run_migrations
-from test_material_processing import _fake_successful_producer, _pdf
+from test_material_processing import _fake_knowledge_map, _fake_successful_producer, _pdf
 
 
 class _Workers:
@@ -52,6 +53,7 @@ def settings(
         "formal_runtime_preflight",
         processing_module.formal_runtime_binding,
     )
+    monkeypatch.setattr(output_module, "generate_knowledge_map", _fake_knowledge_map)
     runtime_lock = json.loads(
         (Path(__file__).parents[3] / "local_ai" / "runtime-lock.json").read_text(
             encoding="utf-8"
@@ -68,10 +70,10 @@ def settings(
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
         "concept_server_executable": str(root / "vllm/bin/vllm"),
-        "concept_model_root": str(root / "models/qwen3-4b-instruct-2507"),
+        "concept_model_root": str(root / "models/qwen3-14b-awq"),
         "concept_kv_cache_bytes": 2_147_483_648,
-        "concept_max_concurrency": 2,
-        "concept_max_model_len": 5_632,
+        "concept_max_concurrency": 1,
+        "concept_max_model_len": 8_192,
     }
     return ApiSettings(
         profile="local",
@@ -180,7 +182,7 @@ def test_api_settings_accept_local_and_test_profiles(
 
 def test_output_binding_accepts_multiple_concept_batches_per_page():
     binding = {
-        "schema": "material-run-output-binding/v2",
+        "schema": "material-run-output-binding/v3",
         "producer_bundle_id": "text-first-producer-bundle:sha256:" + "1" * 64,
         "producer_run_id": "text-first-run:00000000-0000-4000-8000-000000000001",
         "concept_evidence_output_id": "concept-evidence-output:sha256:" + "2" * 64,
@@ -247,9 +249,9 @@ def test_success_exposes_only_review_map_with_pdf_locator(
         )
         assert map_response.status_code == 200
         view = map_response.json()
-        assert view["schema"] == "knowledge-map-view/v2"
+        assert view["schema"] == "knowledge-map-view/v3"
         assert view["status"]["decision"] == "review"
-        assert view["concepts"][0]["evidence"][0]["page_number"] == 1
+        assert view["concepts"][0]["claims"][0]["evidence"][0]["page_number"] == 1
         encoded = json.dumps(view)
         assert "Public evidence" not in encoded
         assert "runtime_binding" not in encoded
@@ -285,17 +287,15 @@ def test_openapi_has_no_deferred_downstream_routes(settings: ApiSettings):
         ("MaterialOutputBinding", "ocr_calls"),
         ("MaterialOutputBinding", "concept_calls"),
         ("EvidenceView", "page_number"),
-        ("ImageLiteView", "page_number"),
         ("ExcludedPageView", "page_number"),
     ):
         assert "maximum" not in schemas[schema_name]["properties"][field_name]
-    for field_name in ("concepts", "images", "excluded_pages"):
+    for field_name in ("concepts", "relations", "initial_learning_path", "excluded_pages"):
         assert "maxItems" not in schemas["KnowledgeMapView"]["properties"][field_name]
-    assert "maxItems" not in schemas["ImageLiteView"]["properties"]["evidence"]
-    for field_name in ("key_points", "evidence"):
-        assert "maxItems" not in schemas["ReviewConceptView"]["properties"][field_name]
-    for field_name in ("label", "definition"):
-        assert "maxLength" not in schemas["ReviewConceptView"]["properties"][field_name]
+    assert "maxItems" not in schemas["FormalConceptView"]["properties"]["claims"]
+    assert "maxLength" not in schemas["FormalConceptView"]["properties"]["label"]
+    assert "maxItems" not in schemas["FormalClaimView"]["properties"]["evidence"]
+    assert "maxLength" not in schemas["FormalClaimView"]["properties"]["text"]
     source_response = document["paths"]["/v1/artifacts/{artifact_id}"]["get"]["responses"]["200"]
     assert source_response["content"]["application/pdf"]["schema"] == {
         "type": "string",

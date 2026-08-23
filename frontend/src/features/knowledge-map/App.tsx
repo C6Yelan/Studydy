@@ -57,9 +57,9 @@ export default function KnowledgeMap({ apiClient, route }: {
     <section className="knowledge-review-page">
       <header className="knowledge-review-header">
         <div>
-          <p className="eyebrow">Knowledge Map v2 · review-only</p>
+          <p className="eyebrow">Knowledge Map v3 · review-only</p>
           <h1>教材概念與 Evidence 複核</h1>
-          <p>所有概念仍是待複核狀態；本頁不產生正式 Relation、Learning Path、Assessment 或 Learning State。</p>
+          <p>Formal Concept、Relation 與初始學習路徑都保留待複核狀態。</p>
         </div>
         <button className="secondary-button" type="button" onClick={() => writeRoute({
           name: "material-run", materialId: route.materialId, runId: route.runId,
@@ -69,7 +69,7 @@ export default function KnowledgeMap({ apiClient, route }: {
       <div className="review-summary surface">
         <div><strong>{view.concepts.length}</strong><span>個待複核概念</span></div>
         <div><strong>{view.excluded_pages.length}</strong><span>個排除頁面</span></div>
-        <div><strong>{view.images.length}</strong><span>個 image-lite locator</span></div>
+        <div><strong>{view.relations.length}</strong><span>條待複核 Relation</span></div>
       </div>
 
       {view.excluded_pages.length > 0 && (
@@ -85,23 +85,26 @@ export default function KnowledgeMap({ apiClient, route }: {
 
       <div className="concept-review-grid">
         {view.concepts.map((concept) => (
-          <article className="surface concept-review-card" key={concept.concept_id}>
+          <article className="surface concept-review-card" key={concept.formal_concept_id}>
             <span className="outcome-badge is-review">待複核</span>
             <h2>{concept.label}</h2>
-            <p>{concept.definition}</p>
-            <ul>{concept.key_points.map((point) => <li key={point}>{point}</li>)}</ul>
-            <h3>PDF Evidence locator</h3>
-            <ul className="evidence-list">{concept.evidence.map((evidence) => (
-              <li key={evidence.evidence_id}>
-                <strong>第 {evidence.page_number} 頁 · {evidence.kind}</strong>
-                <code>[{evidence.region.bbox.join(", ")}] · {evidence.region.coordinate_space}</code>
-              </li>
-            ))}</ul>
-            <button
-              className="evidence-open"
-              type="button"
-              onClick={() => openSourcePdf(concept.evidence[0].page_number)}
-            >開啟來源 PDF 第 {concept.evidence[0].page_number} 頁</button>
+            {concept.claims.map((claim) => (
+              <section key={claim.claim_id}>
+                <p>{claim.text}</p>
+                <h3>PDF Evidence locator</h3>
+                <ul className="evidence-list">{claim.evidence.map((evidence) => (
+                  <li key={evidence.evidence_id}>
+                    <strong>第 {evidence.page_number} 頁 · {evidence.kind}</strong>
+                    <code>[{evidence.region.bbox.join(", ")}] · {evidence.region.coordinate_space}</code>
+                  </li>
+                ))}</ul>
+                <button
+                  className="evidence-open"
+                  type="button"
+                  onClick={() => openSourcePdf(claim.evidence[0].page_number)}
+                >開啟來源 PDF 第 {claim.evidence[0].page_number} 頁</button>
+              </section>
+            ))}
             <code className="reason-code">{concept.reason_codes.join(" · ")}</code>
           </article>
         ))}

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from pdf_evidence.concept_evidence_output import build_output
+from pdf_evidence.concept_generation import claim_id, concept_id
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.study_material_output import (
     build_study_material_output,
@@ -17,7 +18,7 @@ def producer_output(*, excluded_page: bool = False):
     page_ref = "page:sha256:" + "1" * 64
     evidence_id = "evidence:sha256:" + "2" * 64
     page = {
-        "schema": "page-evidence/v2",
+        "schema": "page-evidence/v3",
         "material_id": f"material:sha256:{source_sha256}",
         "material_revision": "material-revision:sha256:" + "3" * 64,
         "page_ref": page_ref,
@@ -25,6 +26,7 @@ def producer_output(*, excluded_page: bool = False):
         "coordinate_space": "unrotated_pdf_points",
         "section_id": "section:sha256:" + "4" * 64,
         "native_evidence_ref": "native-evidence:sha256:" + "5" * 64,
+        "route": "OCR_needed",
         "geometry": {
             "visible_points": [0.0, 0.0, 420.0, 600.0],
             "unrotated_points": [0.0, 0.0, 420.0, 600.0],
@@ -69,7 +71,7 @@ def producer_output(*, excluded_page: bool = False):
                 "nearby_evidence_ids": [],
             }
         ],
-        "processing_policy": "unlimited-ocr-page-evidence/v1",
+        "processing_policy": "native-first-page-evidence/v1",
         "normalizer_policy": "ocr-text-nfc-line-preserving/v1",
         "produced_at": "2026-08-19T00:00:00Z",
         "processing": "partial",
@@ -86,20 +88,38 @@ def producer_output(*, excluded_page: bool = False):
         "source_sha256": source_sha256,
         "page_number": 1,
         "render_sha256": page["render"]["sha256"],
+        "route": "OCR_needed",
         "page": runtime_lock["page"],
         "ocr": runtime_lock["ocr"],
     }
     page["page_evidence_id"] = "page-evidence:sha256:" + canonical_sha256(page)
+    definition = {
+        "text": "Public definition",
+        "evidence_ids": [evidence_id],
+    }
+    definition = {
+        "claim_id": claim_id(page_ref, "definition", definition),
+        **definition,
+    }
+    point = {
+        "text": "Public key point",
+        "evidence_ids": [evidence_id],
+    }
+    point = {
+        "claim_id": claim_id(page_ref, "key_point", point, index=0),
+        **point,
+    }
     semantic_page = {
         "page_ref": page_ref,
         "concepts": [
             {
-                "concept_id": "concept:sha256:" + "9" * 64,
+                "concept_id": concept_id(
+                    page_ref, "Public concept", definition, [point]
+                ),
                 "page_ref": page_ref,
                 "label": "Public concept",
-                "definition": "Public definition",
-                "key_points": ["Public key point"],
-                "evidence_ids": [evidence_id],
+                "definition": definition,
+                "key_points": [point],
                 "processing": "partial",
                 "quality": "needs_review",
                 "decision": "review",
@@ -141,14 +161,14 @@ def producer_output(*, excluded_page: bool = False):
     )
 
 
-def test_build_v3_keeps_exact_same_page_pdf_locator_and_image_lite():
+def test_build_v4_keeps_claim_level_same_page_pdf_locator_and_image_lite():
     source = producer_output()
     output = build_study_material_output(source)
-    assert output["schema"] == "study-material-output/v3"
+    assert output["schema"] == "study-material-output/v4"
     assert output["processing"] == "partial"
     assert output["pages"][0]["processing"] == "partial"
     assert output["concepts"][0]["processing"] == "partial"
-    assert output["concepts"][0]["evidence_ids"] == [
+    assert output["concepts"][0]["definition"]["evidence_ids"] == [
         output["evidence_index"][0]["evidence_id"]
     ]
     assert output["evidence_index"][0]["region"] == {
@@ -175,7 +195,7 @@ def test_excluded_page_is_partial_review_reject_without_silent_truncation():
 
 def test_cross_page_or_unknown_evidence_fails_closed():
     source = producer_output()
-    source["concepts"][0]["evidence_ids"] = ["evidence:sha256:" + "f" * 64]
+    source["concepts"][0]["definition"]["evidence_ids"] = ["evidence:sha256:" + "f" * 64]
     with pytest.raises(ValueError, match="STUDY_MATERIAL_SOURCE_INVALID"):
         build_study_material_output(source)
 
@@ -183,7 +203,7 @@ def test_cross_page_or_unknown_evidence_fails_closed():
 def test_output_identity_tamper_is_rejected():
     output = build_study_material_output(producer_output())
     tampered = deepcopy(output)
-    tampered["concepts"][0]["definition"] = "Changed"
+    tampered["concepts"][0]["definition"]["text"] = "Changed"
     assert validate_study_material_output(tampered) == "STUDY_MATERIAL_OUTPUT_INVALID"
 
 
@@ -201,7 +221,7 @@ def test_recomputed_output_identity_cannot_hide_nested_unexpected_field():
     [
         (("evidence_index", 0, "region", "bbox", 0), float("nan")),
         (("pages", 0, "page_number"), True),
-        (("concepts", 0, "evidence_ids"), []),
+        (("concepts", 0, "definition", "evidence_ids"), []),
     ],
 )
 def test_closed_output_rejects_nonfinite_type_count_and_reference_mutations(mutation, value):
@@ -211,3 +231,17 @@ def test_closed_output_rejects_nonfinite_type_count_and_reference_mutations(muta
         target = target[key]
     target[mutation[-1]] = value
     assert validate_study_material_output(output) == "STUDY_MATERIAL_OUTPUT_INVALID"
+
+
+def test_zero_concepts_preserves_the_page_and_stays_partial_review():
+    source = producer_output()
+    source["concepts"] = []
+    source["processing"] = "partial"
+    source["reason_codes"] = ["CONTENT_REVIEW_REQUIRED", "PAGE_CONTENT_UNUSABLE"]
+    identity = dict(source)
+    identity.pop("output_id")
+    source["output_id"] = "concept-evidence-output:sha256:" + canonical_sha256(identity)
+    output = build_study_material_output(source)
+    assert output["concepts"] == []
+    assert [page["page_number"] for page in output["pages"]] == [1]
+    assert output["processing"] == "partial"

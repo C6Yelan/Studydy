@@ -39,7 +39,7 @@ function successfulRun() {
     ...pendingRun(),
     status: "succeeded",
     output_binding: {
-      schema: "material-run-output-binding/v2",
+      schema: "material-run-output-binding/v3",
       producer_bundle_id: `text-first-producer-bundle:sha256:${"1".repeat(64)}`,
       producer_run_id: `text-first-run:${runId}`,
       concept_evidence_output_id: `concept-evidence-output:sha256:${"2".repeat(64)}`,
@@ -62,7 +62,7 @@ function successfulRun() {
 function mapView() {
   const pageRef = `page:sha256:${"5".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v2",
+    schema: "knowledge-map-view/v3",
     material_ref: `material:sha256:${"6".repeat(64)}`,
     knowledge_map_revision: mapRevision,
     source_output_id: `study-material-output:sha256:${"3".repeat(64)}`,
@@ -73,35 +73,27 @@ function mapView() {
       reason_codes: ["KNOWLEDGE_MAP_REVIEW_REQUIRED"],
     },
     concepts: [{
-      concept_id: `concept:sha256:${"7".repeat(64)}`,
+      formal_concept_id: `formal-concept:sha256:${"7".repeat(64)}`,
       label: "Public concept",
-      definition: "Public definition",
-      key_points: ["Public point"],
-      page_ref: pageRef,
-      evidence: [{
-        evidence_id: `evidence:sha256:${"8".repeat(64)}`,
-        page_ref: pageRef,
-        page_number: 40,
-        kind: "paragraph",
-        region: { coordinate_space: "unrotated_pdf_points", bbox: [72, 80, 300, 120] },
+      claims: [{
+        claim_id: `claim:sha256:${"9".repeat(64)}`,
+        text: "Public definition",
+        evidence: [{
+          evidence_id: `evidence:sha256:${"8".repeat(64)}`,
+          page_ref: pageRef,
+          page_number: 40,
+          kind: "paragraph",
+          region: { coordinate_space: "unrotated_pdf_points", bbox: [72, 80, 300, 120] },
+        }],
       }],
+      source_concept_ids: [`concept:sha256:${"a".repeat(64)}`],
+      source_page_numbers: [40],
       quality: "needs_review",
       decision: "review",
       reason_codes: ["SEMANTIC_REVIEW_REQUIRED"],
     }],
-    images: [{
-      image_id: `image:sha256:${"a".repeat(64)}`,
-      page_ref: pageRef,
-      page_number: 40,
-      region: { coordinate_space: "unrotated_pdf_points", bbox: [72, 140, 300, 260] },
-      evidence: Array.from({ length: 9 }, (_, index) => ({
-        evidence_id: `evidence:sha256:${(index + 1).toString(16).repeat(64)}`,
-        page_ref: pageRef,
-        page_number: 40,
-        kind: "paragraph",
-        region: { coordinate_space: "unrotated_pdf_points", bbox: [72, 80, 300, 120] },
-      })),
-    }],
+    relations: [],
+    initial_learning_path: [`formal-concept:sha256:${"7".repeat(64)}`],
     excluded_pages: [],
   };
 }
@@ -183,7 +175,7 @@ test("terminal binding 接受單頁多批 concept calls 並拒絕負數", async 
   );
 });
 
-test("Map v2 使用 exact run/revision 並要求 same-page PDF locator", async () => {
+test("Map v3 使用 exact run/revision 並要求 claim PDF locator", async () => {
   const paths = [];
   const client = new StudydyApiClient(async (input) => {
     paths.push(String(input));
@@ -192,20 +184,17 @@ test("Map v2 使用 exact run/revision 並要求 same-page PDF locator", async (
       : Response.json(mapView());
   });
   const view = await client.getKnowledgeMap({ materialId, runId, mapRevision });
-  assert.equal(view.concepts[0].evidence[0].page_number, 40);
+  assert.equal(view.concepts[0].claims[0].evidence[0].page_number, 40);
   assert.equal(view.status.processing, "partial");
   assert.equal(view.excluded_pages.length, 0);
-  assert.deepEqual(
-    view.images[0].evidence.map((evidence) => evidence.evidence_id),
-    mapView().images[0].evidence.map((evidence) => evidence.evidence_id),
-  );
+  assert.deepEqual(view.initial_learning_path, mapView().initial_learning_path);
   assert.deepEqual(paths, [
     "/v1/session/refresh",
     `/v1/materials/${materialId}/knowledge-maps/${encodeURIComponent(mapRevision)}?run_id=${runId}`,
   ]);
 
   const foreign = mapView();
-  foreign.concepts[0].evidence[0].page_ref = `page:sha256:${"f".repeat(64)}`;
+  foreign.concepts[0].claims[0].evidence[0].page_number = 41;
   let calls = 0;
   const invalidClient = new StudydyApiClient(async () => {
     calls += 1;
@@ -217,14 +206,14 @@ test("Map v2 使用 exact run/revision 並要求 same-page PDF locator", async (
   );
 });
 
-test("Map v2 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
+test("Map v3 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
   const mutations = {
     unexpected: (view) => { view.concepts[0].unexpected_field = true; },
     duplicate: (view) => { view.concepts.push(structuredClone(view.concepts[0])); },
-    nonfinite: (view) => { view.concepts[0].evidence[0].region.bbox[0] = Number.NaN; },
-    type: (view) => { view.concepts[0].evidence[0].page_number = true; },
-    count: (view) => { view.concepts[0].key_points = []; },
-    reference: (view) => { view.concepts[0].evidence[0].page_ref = `page:sha256:${"f".repeat(64)}`; },
+    nonfinite: (view) => { view.concepts[0].claims[0].evidence[0].region.bbox[0] = Number.NaN; },
+    type: (view) => { view.concepts[0].claims[0].evidence[0].page_number = true; },
+    count: (view) => { view.concepts[0].claims = []; },
+    reference: (view) => { view.concepts[0].claims[0].evidence[0].page_number = 41; },
     excluded: (view) => {
       view.status.processing = "succeeded";
       view.excluded_pages = [{

@@ -13,6 +13,7 @@ from learning_resources.map_resources import (
     validate_resource_library,
 )
 from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
+from pdf_evidence.concept_generation import claim_id, concept_id
 
 
 def _source(source_sha256, title="Physics Notes"):
@@ -47,20 +48,35 @@ def _entry(source_sha256, label="Quantum Field Theory", page_number=2, left=40.0
 def _study_output(label, source_sha256="f" * 64):
     page_ref = "page:sha256:" + "1" * 64
     evidence_id = "evidence:sha256:" + "2" * 64
+    definition = {
+        "text": "A reviewed Study-side concept.",
+        "evidence_ids": [evidence_id],
+    }
+    definition = {
+        "claim_id": claim_id(page_ref, "definition", definition),
+        **definition,
+    }
+    point = {
+        "text": "The page provides direct evidence.",
+        "evidence_ids": [evidence_id],
+    }
+    point = {
+        "claim_id": claim_id(page_ref, "key_point", point, index=0),
+        **point,
+    }
     concept = {
-        "concept_id": "concept-group:sha256:" + "3" * 64,
+        "concept_id": concept_id(page_ref, label, definition, [point]),
         "page_ref": page_ref,
         "label": label,
-        "definition": "A reviewed Study-side concept.",
-        "key_points": ["The page provides direct evidence."],
-        "evidence_ids": [evidence_id],
+        "definition": definition,
+        "key_points": [point],
         "processing": "succeeded",
         "quality": "needs_review",
         "decision": "review",
         "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
     }
     document = {
-        "schema": "study-material-output/v3",
+        "schema": "study-material-output/v4",
         "run_id": "study-test-run",
         "produced_at": "2026-08-21T10:00:00+08:00",
         "material_ref": "material:sha256:" + source_sha256,

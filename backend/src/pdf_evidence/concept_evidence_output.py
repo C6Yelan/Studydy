@@ -9,13 +9,14 @@ from .artifact_reason_codes import (
     formal_reason_codes,
     reason_codes_are_valid,
 )
+from .concept_generation import claim_id, concept_id
 from .ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
-OUTPUT_SCHEMA = "concept-evidence-output/v2"
+OUTPUT_SCHEMA = "concept-evidence-output/v3"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
 MAX_ARTIFACT_FILE_BYTES = 16 * 1024 * 1024
-RUNTIME_LOCK_SHA256 = "b552e9d4c7b6af93a2d640de39445802e26459b4ec2dcd6a17c7318ea91d449a"
+RUNTIME_LOCK_SHA256 = "eae6767819a8c4cb9ac9c2c15dc8be83ca04196c9785c2d734999e6a23bbf12a"
 
 
 def _closed(value: Any, fields: set[str]) -> bool:
@@ -41,6 +42,34 @@ def _box(value: Any) -> bool:
     )
 
 
+def _claim_is_valid(
+    claim: Any,
+    page_ref: str,
+    evidence_pages: dict[str, str],
+    kind: str,
+    *,
+    index: int | None = None,
+) -> bool:
+    if not _closed(claim, {"claim_id", "text", "evidence_ids"}):
+        return False
+    references = claim["evidence_ids"]
+    return (
+        claim["claim_id"]
+        == claim_id(
+            page_ref,
+            kind,
+            {"text": claim["text"], "evidence_ids": references},
+            index=index,
+        )
+        and isinstance(claim["text"], str)
+        and bool(claim["text"])
+        and isinstance(references, list)
+        and bool(references)
+        and len(references) == len(set(references))
+        and all(evidence_pages.get(reference) == page_ref for reference in references)
+    )
+
+
 def validate_page_evidence(
     page: Any,
     source_binding: dict[str, Any],
@@ -50,12 +79,12 @@ def validate_page_evidence(
 ) -> bool:
     fields = {
         "schema", "material_id", "material_revision", "section_id", "page_ref",
-        "page_number", "geometry", "coordinate_space", "native_evidence_ref", "render",
+        "page_number", "geometry", "coordinate_space", "native_evidence_ref", "route", "render",
         "evidence_blocks", "images", "input_binding", "processing_policy",
         "normalizer_policy", "produced_at", "processing", "quality", "decision",
         "reason_codes", "page_evidence_id",
     }
-    if not _closed(page, fields) or page["schema"] != "page-evidence/v2":
+    if not _closed(page, fields) or page["schema"] != "page-evidence/v3":
         return False
     if (
         page["material_id"] != f"material:sha256:{source_binding['source_sha256']}"
@@ -64,6 +93,7 @@ def validate_page_evidence(
         or page["coordinate_space"] != "unrotated_pdf_points"
         or not isinstance(page["evidence_blocks"], list)
         or not isinstance(page["images"], list)
+        or page["route"] not in {"native_sufficient", "OCR_needed"}
         or page["processing"] not in {"succeeded", "partial"}
         or (page["quality"], page["decision"]) != ("needs_review", "review")
         or not _reasons(
@@ -110,12 +140,13 @@ def validate_page_evidence(
     ):
         return False
     input_binding = page["input_binding"]
-    if not _closed(input_binding, {"source_sha256", "page_number", "render_sha256", "page", "ocr"}):
+    if not _closed(input_binding, {"source_sha256", "page_number", "render_sha256", "route", "page", "ocr"}):
         return False
     if (
         input_binding["source_sha256"] != source_binding["source_sha256"]
         or input_binding["page_number"] != page["page_number"]
         or input_binding["render_sha256"] != render["sha256"]
+        or input_binding["route"] != page["route"]
         or input_binding["page"] != runtime_binding.get("page")
         or input_binding["ocr"] != runtime_binding.get("ocr")
     ):
@@ -134,7 +165,8 @@ def validate_page_evidence(
             or locator["block_id"] != block["block_id"]
             or not _box(locator["region"])
             or not _box(block["render_region"])
-            or block["source"] != "unlimited_ocr"
+            or block["source"] not in {"native_text", "unlimited_ocr"}
+            or (block["source"] == "native_text") != (page["route"] == "native_sufficient")
             or block["evidence_id"] in evidence_ids
         ):
             return False
@@ -249,22 +281,38 @@ def validate_output_document(output: Any) -> bool:
     concept_page_refs: set[str] = set()
     has_partial_concept = False
     concept_fields = {
-        "concept_id", "page_ref", "label", "definition", "key_points", "evidence_ids",
+        "concept_id", "page_ref", "label", "definition", "key_points",
         "processing", "quality", "decision", "reason_codes",
     }
-    if not isinstance(output["concepts"], list) or not output["concepts"]:
+    if not isinstance(output["concepts"], list):
         return False
     for concept in output["concepts"]:
         if not _closed(concept, concept_fields):
             return False
-        references = concept["evidence_ids"]
         if (
             concept["concept_id"] in concept_ids
             or concept["page_ref"] not in page_refs
-            or not isinstance(references, list)
-            or not references
-            or len(references) != len(set(references))
-            or any(evidence_pages.get(reference) != concept["page_ref"] for reference in references)
+            or not _claim_is_valid(
+                concept["definition"], concept["page_ref"], evidence_pages, "definition"
+            )
+            or not isinstance(concept["key_points"], list)
+            or not concept["key_points"]
+            or any(
+                not _claim_is_valid(
+                    point,
+                    concept["page_ref"],
+                    evidence_pages,
+                    "key_point",
+                    index=index,
+                )
+                for index, point in enumerate(concept["key_points"])
+            )
+            or concept["concept_id"] != concept_id(
+                concept["page_ref"],
+                concept["label"],
+                concept["definition"],
+                concept["key_points"],
+            )
             or concept["processing"] not in {"succeeded", "partial"}
             or (concept["quality"], concept["decision"])
             != ("needs_review", "review")
@@ -274,8 +322,6 @@ def validate_output_document(output: Any) -> bool:
         concept_ids.add(concept["concept_id"])
         concept_page_refs.add(concept["page_ref"])
         has_partial_concept = has_partial_concept or concept["processing"] == "partial"
-    if concept_page_refs != set(page_refs):
-        return False
     rejected_fields = {
         "page_ref", "candidate_index", "processing", "quality", "decision", "reason_codes"
     }
@@ -297,6 +343,7 @@ def validate_output_document(output: Any) -> bool:
         or any(page["processing"] == "partial" for page in pages)
         or has_partial_concept
         or bool(output["rejected_candidates"])
+        or not output["concepts"]
     )
     if (output["processing"] == "partial") != is_partial:
         return False
@@ -323,8 +370,8 @@ def build_output(
     excluded_pages: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     excluded = deepcopy(excluded_pages or [])
-    if not pages or not semantic_pages:
-        raise ValueError("NO_USABLE_CONCEPT")
+    if not pages or not semantic_pages or len(pages) != len(semantic_pages):
+        raise ValueError("ARTIFACT_INVALID")
 
     formal_pages = deepcopy(pages)
     for page in formal_pages:
@@ -347,8 +394,6 @@ def build_output(
                 concept["reason_codes"]
             )
             concepts.append(concept)
-    if not concepts:
-        raise ValueError("NO_USABLE_CONCEPT")
     page_numbers = {page["page_ref"]: page["page_number"] for page in formal_pages}
     concepts.sort(
         key=lambda concept: (page_numbers[concept["page_ref"]], concept["concept_id"])
@@ -367,6 +412,8 @@ def build_output(
     reasons.extend(reason for page in semantic_pages for reason in page["reason_codes"])
     if excluded:
         reasons.append("PAGE_CONTENT_EXCLUDED")
+    if not concepts:
+        reasons.append("NO_USABLE_CONCEPT")
     output = {
         "schema": OUTPUT_SCHEMA,
         "aggregation_policy": AGGREGATION_POLICY,
@@ -384,6 +431,7 @@ def build_output(
             excluded
             or any(page["processing"] == "partial" for page in formal_pages)
             or any(page["processing"] == "partial" for page in semantic_pages)
+            or not concepts
         ) else "succeeded",
         "quality": "needs_review",
         "decision": "review",

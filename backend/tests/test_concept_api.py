@@ -38,7 +38,7 @@ def _request(client, *, base_url="http://localhost:8101"):
         model="fixed-model",
         prompt_template=RUNTIME_LOCK["semantic"]["prompt"],
         semantic_request=_semantic_request(),
-        max_model_len=5_632,
+        max_model_len=8_192,
         timeout_seconds=300,
     )
 
@@ -46,12 +46,12 @@ def _request(client, *, base_url="http://localhost:8101"):
 def _server_settings():
     return {
         "concept_api_base_url": "http://127.0.0.1:8101",
-        "concept_model": "Qwen/Qwen3-4B-Instruct-2507",
+        "concept_model": "Qwen/Qwen3-14B-AWQ",
         "concept_server_executable": "/runtime/bin/vllm",
         "concept_model_root": "/models/qwen",
         "concept_kv_cache_bytes": 2_147_483_648,
-        "concept_max_concurrency": 2,
-        "concept_max_model_len": 5_632,
+        "concept_max_concurrency": 1,
+        "concept_max_model_len": 8_192,
     }
 
 
@@ -73,8 +73,8 @@ def test_owned_vllm_server_uses_fixed_bounded_command_and_cleans_up(monkeypatch)
 
     expected_command = (
         "/runtime/bin/vllm serve /models/qwen --served-model-name "
-        "Qwen/Qwen3-4B-Instruct-2507 --host 127.0.0.1 --port 8101 "
-        "--kv-cache-memory-bytes 2147483648 --max-num-seqs 2 --max-model-len 5632 "
+        "Qwen/Qwen3-14B-AWQ --host 127.0.0.1 --port 8101 "
+        "--kv-cache-memory-bytes 2147483648 --max-num-seqs 1 --max-model-len 8192 "
         "--generation-config vllm --enforce-eager"
     ).split()
     assert popen.call_args.args[0] == expected_command
@@ -132,7 +132,7 @@ def test_chat_completion_uses_exact_loopback_request_and_returns_content():
     def respond(request):
         observed.append(request)
         if request.url.path == "/tokenize":
-            return httpx.Response(200, json={"count": 100, "max_model_len": 5_632})
+            return httpx.Response(200, json={"count": 100, "max_model_len": 8_192})
         return httpx.Response(
             200,
             json={
@@ -178,7 +178,7 @@ def test_tokenizer_budget_rejects_before_generation_call():
 
     def respond(request):
         observed_paths.append(request.url.path)
-        return httpx.Response(200, json={"count": 4_097, "max_model_len": 5_632})
+        return httpx.Response(200, json={"count": 6_657, "max_model_len": 8_192})
 
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
         with pytest.raises(ConceptAPIError, match="MODEL_INPUT_TOO_LARGE"):
@@ -237,7 +237,7 @@ def test_chat_completion_reports_http_unavailable_and_timeout(failure_type, reas
 def test_chat_completion_rejects_malformed_or_truncated_response(content, reason_code):
     def respond(request):
         if request.url.path == "/tokenize":
-            return httpx.Response(200, json={"count": 100, "max_model_len": 5_632})
+            return httpx.Response(200, json={"count": 100, "max_model_len": 8_192})
         return httpx.Response(200, content=content)
 
     transport = httpx.MockTransport(respond)

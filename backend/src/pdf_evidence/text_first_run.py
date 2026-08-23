@@ -30,6 +30,7 @@ from .concept_evidence_output import (
     validate_page_evidence,
 )
 from .concept_generation import (
+    claim_id,
     SemanticOutputError,
     build_semantic_request,
     combine_semantic_batches,
@@ -38,10 +39,12 @@ from .concept_generation import (
 )
 from .local_ai_process import LocalAIError, start_ocr_process
 from .ocr_page_evidence import (
+    build_native_page_evidence,
     build_page_evidence,
     canonical_bytes,
     canonical_sha256,
     extract_page,
+    route_page,
 )
 from .source_pdf import snapshot_whole_document_request
 from .text_first_bundle import build_producer_bundle, publish_run
@@ -100,8 +103,18 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         matches = (
             isinstance(runtime_lock, dict)
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
-            and hashlib.sha256(semantic["prompt"].encode("utf-8")).hexdigest()
-            == semantic["prompt_sha256"]
+            and runtime_lock["semantic"]["required_file_count"]
+            == len(runtime_lock["semantic"]["required_files"])
+            and runtime_lock["semantic"]["binding_manifest_sha256"]
+            == canonical_sha256(runtime_lock["semantic"]["required_files"])
+            and runtime_lock["semantic"]["revision"]
+            == "content-sha256:"
+            + runtime_lock["semantic"]["binding_manifest_sha256"]
+            and all(
+                hashlib.sha256(runtime_lock[stage]["prompt"].encode("utf-8")).hexdigest()
+                == runtime_lock[stage]["prompt_sha256"]
+                for stage in ("semantic", "formal_resolution", "formal_relation")
+            )
         )
     except (KeyError, RecursionError, TypeError, ValueError):
         matches = False
@@ -190,14 +203,13 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
     if (
         not isinstance(artifact, dict)
         or set(artifact) != fields
-        or artifact["schema"] != "semantic-page-concepts/v1"
+        or artifact["schema"] != "semantic-page-concepts/v2"
         or artifact["input_binding"] != binding
         or artifact["attempt"] not in (1, 2)
         or artifact["processing"]
         != ("partial" if artifact["rejected_candidates"] else "succeeded")
         or artifact["decision"] != "review"
         or not isinstance(artifact["concepts"], list)
-        or not artifact["concepts"]
     ):
         return False
     allowed = set(binding["evidence_allowlist"])
@@ -211,16 +223,44 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
                 "label",
                 "definition",
                 "key_points",
-                "evidence_ids",
                 "processing",
                 "quality",
                 "decision",
                 "reason_codes",
             }
             or concept["page_ref"] != artifact["page_ref"]
-            or not set(concept["evidence_ids"]) <= allowed
             or concept["processing"] != "succeeded"
             or concept["decision"] != "review"
+        ):
+            return False
+        claims = [concept["definition"], *concept["key_points"]]
+        if any(
+            not isinstance(claim, dict)
+            or set(claim) != {"claim_id", "text", "evidence_ids"}
+            or not claim["evidence_ids"]
+            or len(claim["evidence_ids"]) != len(set(claim["evidence_ids"]))
+            or not set(claim["evidence_ids"]) <= allowed
+            for claim in claims
+        ):
+            return False
+        if concept["definition"]["claim_id"] != claim_id(
+            artifact["page_ref"],
+            "definition",
+            {
+                "text": concept["definition"]["text"],
+                "evidence_ids": concept["definition"]["evidence_ids"],
+            },
+        ):
+            return False
+        if any(
+            point["claim_id"]
+            != claim_id(
+                artifact["page_ref"],
+                "key_point",
+                {"text": point["text"], "evidence_ids": point["evidence_ids"]},
+                index=index,
+            )
+            for index, point in enumerate(concept["key_points"])
         ):
             return False
         identity = {
@@ -228,7 +268,6 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
             "label": concept["label"],
             "definition": concept["definition"],
             "key_points": concept["key_points"],
-            "evidence_ids": concept["evidence_ids"],
         }
         if concept["concept_id"] != f"concept:sha256:{canonical_sha256(identity)}":
             return False
@@ -387,7 +426,7 @@ def _process_pdf(
             raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
         if (
             type(settings.get("concept_max_concurrency")) is not int
-            or settings["concept_max_concurrency"] not in {1, 2}
+            or settings["concept_max_concurrency"] != 1
         ):
             raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
         if (
@@ -411,10 +450,12 @@ def _process_pdf(
             for page_number in page_numbers:
                 page = extract_page(document, source_sha256, page_number)
                 try:
+                    route = route_page(page)
                     binding = {
                         "source_sha256": source_sha256,
                         "page_number": page_number,
                         "render_sha256": page["render"]["sha256"],
+                        "route": route,
                         "page": runtime_lock["page"],
                         "ocr": runtime_lock["ocr"],
                     }
@@ -424,37 +465,44 @@ def _process_pdf(
                     )
                     cache_invalid = cache_invalid or invalid
                     if artifact is None:
-                        if ocr is None:
-                            ocr = start_ocr_process(settings)
-                            ocr_loads += 1
-                        ocr_calls += 1
-                        response = ocr.request(
-                            {
-                                "schema": "local-ocr-request/v1",
-                                "request_id": f"page-{page_number}",
-                                "render": {
-                                    "sha256": page["render"]["sha256"],
-                                    "width": page["render"]["width"],
-                                    "height": page["render"]["height"],
-                                    "png_base64": base64.b64encode(
-                                        page["png_bytes"]
-                                    ).decode("ascii"),
+                        if route == "native_sufficient":
+                            artifact = build_native_page_evidence(
+                                page,
+                                input_binding=binding,
+                                produced_at=produced_at,
+                            )
+                        else:
+                            if ocr is None:
+                                ocr = start_ocr_process(settings)
+                                ocr_loads += 1
+                            ocr_calls += 1
+                            response = ocr.request(
+                                {
+                                    "schema": "local-ocr-request/v1",
+                                    "request_id": f"page-{page_number}",
+                                    "render": {
+                                        "sha256": page["render"]["sha256"],
+                                        "width": page["render"]["width"],
+                                        "height": page["render"]["height"],
+                                        "png_base64": base64.b64encode(
+                                            page["png_bytes"]
+                                        ).decode("ascii"),
+                                    },
                                 },
-                            },
-                            120,
-                        )
-                        if (
-                            set(response) != {"schema", "request_id", "blocks"}
-                            or response["schema"] != "local-ocr-response/v1"
-                            or response["request_id"] != f"page-{page_number}"
-                        ):
-                            raise ValueError("CHILD_RESPONSE_INVALID")
-                        artifact = build_page_evidence(
-                            page,
-                            response["blocks"],
-                            input_binding=binding,
-                            produced_at=produced_at,
-                        )
+                                120,
+                            )
+                            if (
+                                set(response) != {"schema", "request_id", "blocks"}
+                                or response["schema"] != "local-ocr-response/v1"
+                                or response["request_id"] != f"page-{page_number}"
+                            ):
+                                raise ValueError("CHILD_RESPONSE_INVALID")
+                            artifact = build_page_evidence(
+                                page,
+                                response["blocks"],
+                                input_binding=binding,
+                                produced_at=produced_at,
+                            )
                         _write_cache(
                             _cache_path(root, "page", key),
                             "page",

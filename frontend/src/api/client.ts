@@ -112,7 +112,7 @@ function isBinding(value: unknown): boolean {
     "page_count", "processing", "quality", "decision", "reason_codes", "ocr_calls", "concept_calls",
   ]);
   return !!item
-    && item.schema === "material-run-output-binding/v2"
+    && item.schema === "material-run-output-binding/v3"
     && isRevision(item.producer_bundle_id, "text-first-producer-bundle")
     && typeof item.producer_run_id === "string"
     && item.producer_run_id.startsWith("text-first-run:")
@@ -172,28 +172,16 @@ function isRegion(value: unknown): boolean {
     && Number(region.bbox[1]) < Number(region.bbox[3]);
 }
 
-function isEvidence(value: unknown, pageRef: string): boolean {
+function isEvidence(value: unknown, pageRef?: string): boolean {
   const item = closed(value, ["evidence_id", "page_ref", "page_number", "kind", "region"]);
   return !!item
     && isRevision(item.evidence_id, "evidence")
-    && item.page_ref === pageRef
+    && isRevision(item.page_ref, "page")
+    && (pageRef === undefined || item.page_ref === pageRef)
     && Number.isInteger(item.page_number)
     && Number(item.page_number) >= 1
     && typeof item.kind === "string" && item.kind.length >= 1 && item.kind.length <= 64
     && isRegion(item.region);
-}
-
-function isImage(value: unknown): boolean {
-  const image = closed(value, ["image_id", "page_ref", "page_number", "region", "evidence"]);
-  return !!image
-    && isRevision(image.image_id, "image")
-    && isRevision(image.page_ref, "page")
-    && Number.isInteger(image.page_number)
-    && Number(image.page_number) >= 1
-    && isRegion(image.region)
-    && Array.isArray(image.evidence)
-    && new Set(image.evidence.map((evidence) => object(evidence)?.evidence_id)).size === image.evidence.length
-    && image.evidence.every((evidence) => isEvidence(evidence, image.page_ref as string));
 }
 
 function isExcludedPage(value: unknown): boolean {
@@ -216,54 +204,84 @@ function isExcludedPage(value: unknown): boolean {
 function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
   const item = closed(value, [
     "schema", "material_ref", "knowledge_map_revision", "source_output_id", "status",
-    "concepts", "images", "excluded_pages",
+    "concepts", "relations", "initial_learning_path", "excluded_pages",
   ]);
   if (!item
-    || item.schema !== "knowledge-map-view/v2"
+    || item.schema !== "knowledge-map-view/v3"
     || !isRevision(item.material_ref, "material")
     || !isRevision(item.knowledge_map_revision, "knowledge-map")
     || !isRevision(item.source_output_id, "study-material-output")
-    || !Array.isArray(item.concepts) || item.concepts.length < 1
-    || !Array.isArray(item.images)
+    || !Array.isArray(item.concepts)
+    || !Array.isArray(item.relations)
+    || !Array.isArray(item.initial_learning_path)
     || !Array.isArray(item.excluded_pages)) return false;
   const status = closed(item.status, ["processing", "quality", "decision", "reason_codes"]);
   if (!status
-    || (status.processing !== "succeeded" && status.processing !== "partial")
+    || !["succeeded", "partial", "failed"].includes(String(status.processing))
     || status.quality !== "needs_review"
-    || status.decision !== "review"
+    || (status.decision !== "review" && status.decision !== "reject")
     || !isSortedUniqueStrings(status.reason_codes)) return false;
   const conceptsAreValid = item.concepts.every((value) => {
     const concept = closed(value, [
-      "concept_id", "label", "definition", "key_points", "page_ref", "evidence",
+      "formal_concept_id", "label", "claims", "source_concept_ids", "source_page_numbers",
       "quality", "decision", "reason_codes",
     ]);
     return !!concept
-      && isRevision(concept.concept_id, "concept")
+      && isRevision(concept.formal_concept_id, "formal-concept")
       && typeof concept.label === "string" && concept.label.length >= 1
-      && typeof concept.definition === "string" && concept.definition.length >= 1
-      && isStringArray(concept.key_points, 1)
-      && isRevision(concept.page_ref, "page")
-      && Array.isArray(concept.evidence)
-      && concept.evidence.length > 0
-      && new Set(concept.evidence.map((evidence) => object(evidence)?.evidence_id)).size === concept.evidence.length
-      && concept.evidence.every((evidence) => isEvidence(evidence, concept.page_ref as string))
+      && isStringArray(concept.source_concept_ids, 1)
+      && Array.isArray(concept.source_page_numbers)
+      && concept.source_page_numbers.length > 0
+      && concept.source_page_numbers.every((page) => Number.isInteger(page) && Number(page) >= 1)
+      && Array.isArray(concept.claims)
+      && concept.claims.length > 0
+      && concept.claims.every((value) => {
+        const claim = closed(value, ["claim_id", "text", "evidence"]);
+        return !!claim
+          && isRevision(claim.claim_id, "claim")
+          && typeof claim.text === "string" && claim.text.length > 0
+          && Array.isArray(claim.evidence) && claim.evidence.length > 0
+          && new Set(claim.evidence.map((evidence) => object(evidence)?.evidence_id)).size === claim.evidence.length
+          && claim.evidence.every((evidence) => isEvidence(evidence)
+            && (concept.source_page_numbers as unknown[]).includes(object(evidence)?.page_number));
+      })
       && concept.quality === "needs_review"
       && concept.decision === "review"
       && isSortedUniqueStrings(concept.reason_codes);
   });
   if (!conceptsAreValid
-    || !item.images.every(isImage)
     || !item.excluded_pages.every(isExcludedPage)) return false;
-  const conceptIds = item.concepts.map((entry) => object(entry)?.concept_id);
-  const imageIds = item.images.map((entry) => object(entry)?.image_id);
+  const conceptIds = item.concepts.map((entry) => object(entry)?.formal_concept_id);
+  const relationsAreValid = item.relations.every((value) => {
+    const relation = closed(value, [
+      "relation_id", "type", "source_formal_concept_id", "target_formal_concept_id",
+      "source_evidence_ids", "target_evidence_ids", "quality", "decision",
+      "reason_codes", "is_in_prerequisite_cycle",
+    ]);
+    return !!relation
+      && isRevision(relation.relation_id, "formal-relation")
+      && ["prerequisite", "contains", "similar", "confusing", "application", "example"].includes(String(relation.type))
+      && conceptIds.includes(relation.source_formal_concept_id)
+      && conceptIds.includes(relation.target_formal_concept_id)
+      && relation.source_formal_concept_id !== relation.target_formal_concept_id
+      && isStringArray(relation.source_evidence_ids, 1)
+      && isStringArray(relation.target_evidence_ids, 1)
+      && relation.quality === "needs_review"
+      && relation.decision === "review"
+      && isSortedUniqueStrings(relation.reason_codes)
+      && typeof relation.is_in_prerequisite_cycle === "boolean";
+  });
   const excludedRefs = item.excluded_pages.map((entry) => object(entry)?.page_ref);
   const excludedNumbers = item.excluded_pages.map((entry) => object(entry)?.page_number);
-  const includedPageRefs = new Set(item.concepts.map((entry) => object(entry)?.page_ref));
   return new Set(conceptIds).size === conceptIds.length
-    && new Set(imageIds).size === imageIds.length
+    && relationsAreValid
+    && new Set(item.relations.map((entry) => object(entry)?.relation_id)).size === item.relations.length
+    && isStringArray(item.initial_learning_path)
+    && item.initial_learning_path.length === conceptIds.length
+    && new Set(item.initial_learning_path).size === conceptIds.length
+    && item.initial_learning_path.every((id) => conceptIds.includes(id))
     && new Set(excludedRefs).size === excludedRefs.length
     && new Set(excludedNumbers).size === excludedNumbers.length
-    && item.excluded_pages.every((entry) => !includedPageRefs.has(object(entry)?.page_ref))
     && (item.excluded_pages.length === 0 || status.processing === "partial");
 }
 

@@ -2,6 +2,7 @@ from copy import deepcopy
 
 from pdf_evidence.artifact_reason_codes import formal_reason_code
 from pdf_evidence.concept_evidence_output import validate_output_document
+from pdf_evidence.concept_generation import claim_id, concept_id
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from test_study_material_output import producer_output
 
@@ -37,9 +38,32 @@ def _two_page_output():
     _reidentify_page(second_page)
 
     second_concept = deepcopy(output["concepts"][0])
-    second_concept["concept_id"] = "concept:sha256:" + "e" * 64
     second_concept["page_ref"] = second_page_ref
-    second_concept["evidence_ids"] = [second_evidence_id]
+    second_concept["definition"]["evidence_ids"] = [second_evidence_id]
+    second_concept["key_points"][0]["evidence_ids"] = [second_evidence_id]
+    second_concept["definition"]["claim_id"] = claim_id(
+        second_page_ref,
+        "definition",
+        {
+            "text": second_concept["definition"]["text"],
+            "evidence_ids": [second_evidence_id],
+        },
+    )
+    second_concept["key_points"][0]["claim_id"] = claim_id(
+        second_page_ref,
+        "key_point",
+        {
+            "text": second_concept["key_points"][0]["text"],
+            "evidence_ids": [second_evidence_id],
+        },
+        index=0,
+    )
+    second_concept["concept_id"] = concept_id(
+        second_page_ref,
+        second_concept["label"],
+        second_concept["definition"],
+        second_concept["key_points"],
+    )
     output["pages"].append(second_page)
     output["concepts"].append(second_concept)
     output["source_binding"]["page_numbers"] = [1, 2]
@@ -83,16 +107,19 @@ def test_page_and_concept_references_remain_page_local_after_reidentification():
     assert validate_output_document(output) is False
 
     output = producer_output()
-    output["concepts"][0]["evidence_ids"] = ["evidence:sha256:" + "f" * 64]
+    output["concepts"][0]["definition"]["evidence_ids"] = ["evidence:sha256:" + "f" * 64]
     _reidentify_output(output)
     assert validate_output_document(output) is False
 
 
-def test_every_included_page_requires_a_usable_concept():
+def test_included_page_does_not_require_a_concept():
     output = _two_page_output()
     output["concepts"].pop()
     _reidentify_output(output)
-    assert validate_output_document(output) is False
+    output["processing"] = "partial"
+    output["reason_codes"] = ["CONTENT_REVIEW_REQUIRED", "PAGE_CONTENT_UNUSABLE"]
+    _reidentify_output(output)
+    assert validate_output_document(output) is True
 
 
 def test_evidence_ids_must_be_unique_across_included_pages():

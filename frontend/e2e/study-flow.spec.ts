@@ -18,7 +18,7 @@ function terminalRun() {
     source_artifact_id: artifactId,
     status: "succeeded",
     output_binding: {
-      schema: "material-run-output-binding/v2",
+      schema: "material-run-output-binding/v3",
       producer_bundle_id: `text-first-producer-bundle:sha256:${"1".repeat(64)}`,
       producer_run_id: "text-first-run:00000000-0000-4000-8000-000000000001",
       concept_evidence_output_id: `concept-evidence-output:sha256:${"2".repeat(64)}`,
@@ -42,8 +42,9 @@ function terminalRun() {
 
 function reviewMap() {
   const pageRef = `page:sha256:${"4".repeat(64)}`;
+  const formalConceptId = `formal-concept:sha256:${"6".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v2",
+    schema: "knowledge-map-view/v3",
     material_ref: `material:sha256:${"5".repeat(64)}`,
     knowledge_map_revision: mapRevision,
     source_output_id: outputRevision,
@@ -54,23 +55,27 @@ function reviewMap() {
       reason_codes: ["WHOLE_DOCUMENT_REVIEW_REQUIRED"],
     },
     concepts: [{
-      concept_id: `concept:sha256:${"6".repeat(64)}`,
+      formal_concept_id: formalConceptId,
       label: "二元樹",
-      definition: "每個節點最多有兩個子節點的樹。",
-      key_points: ["左子節點", "右子節點"],
-      page_ref: pageRef,
-      evidence: [{
-        evidence_id: `evidence:sha256:${"7".repeat(64)}`,
-        page_ref: pageRef,
-        page_number: 1,
-        kind: "native_text",
-        region: { coordinate_space: "unrotated_pdf_points", bbox: [40, 50, 220, 82] },
+      claims: [{
+        claim_id: `claim:sha256:${"8".repeat(64)}`,
+        text: "每個節點最多有兩個子節點的樹。",
+        evidence: [{
+          evidence_id: `evidence:sha256:${"7".repeat(64)}`,
+          page_ref: pageRef,
+          page_number: 1,
+          kind: "native_text",
+          region: { coordinate_space: "unrotated_pdf_points", bbox: [40, 50, 220, 82] },
+        }],
       }],
+      source_concept_ids: [`concept:sha256:${"9".repeat(64)}`],
+      source_page_numbers: [1],
       quality: "needs_review",
       decision: "review",
-      reason_codes: ["CONCEPT_REVIEW_REQUIRED"],
+      reason_codes: ["FORMAL_CONCEPT_REVIEW_REQUIRED"],
     }],
-    images: [],
+    relations: [],
+    initial_learning_path: [formalConceptId],
     excluded_pages: [],
   };
 }

@@ -34,7 +34,7 @@ export type MaterialProcessingCreate = {
 };
 
 export type MaterialOutputBinding = {
-  schema: "material-run-output-binding/v2";
+  schema: "material-run-output-binding/v3";
   producer_bundle_id: string;
   producer_run_id: string;
   concept_evidence_output_id: string;
@@ -76,18 +76,6 @@ export type EvidenceView = {
   region: RegionView;
 };
 
-export type ReviewConceptView = {
-  concept_id: string;
-  label: string;
-  definition: string;
-  key_points: string[];
-  page_ref: string;
-  evidence: EvidenceView[];
-  quality: "needs_review";
-  decision: "review";
-  reason_codes: string[];
-};
-
 export type ExcludedPageView = {
   page_ref: string;
   page_number: number;
@@ -100,24 +88,39 @@ export type ExcludedPageView = {
 };
 
 export type KnowledgeMapView = {
-  schema: "knowledge-map-view/v2";
+  schema: "knowledge-map-view/v3";
   material_ref: string;
   knowledge_map_revision: string;
   source_output_id: string;
   status: {
-    processing: "succeeded" | "partial";
+    processing: "succeeded" | "partial" | "failed";
+    quality: "needs_review";
+    decision: "review" | "reject";
+    reason_codes: string[];
+  };
+  concepts: {
+    formal_concept_id: string;
+    label: string;
+    claims: { claim_id: string; text: string; evidence: EvidenceView[] }[];
+    source_concept_ids: string[];
+    source_page_numbers: number[];
     quality: "needs_review";
     decision: "review";
     reason_codes: string[];
-  };
-  concepts: ReviewConceptView[];
-  images: {
-    image_id: string;
-    page_ref: string;
-    page_number: number;
-    region: RegionView;
-    evidence: EvidenceView[];
   }[];
+  relations: {
+    relation_id: string;
+    type: "prerequisite" | "contains" | "similar" | "confusing" | "application" | "example";
+    source_formal_concept_id: string;
+    target_formal_concept_id: string;
+    source_evidence_ids: string[];
+    target_evidence_ids: string[];
+    quality: "needs_review";
+    decision: "review";
+    reason_codes: string[];
+    is_in_prerequisite_cycle: boolean;
+  }[];
+  initial_learning_path: string[];
   excluded_pages: ExcludedPageView[];
 };
 

@@ -19,7 +19,7 @@ from .material_processing import (
 
 
 _SOURCE_NAMES = ("__init__.py", "protocol.py", "ocr_process.py")
-_EXPECTED_RUNTIME_FILES = 26
+_EXPECTED_RUNTIME_FILES = 20
 _BACKUP_NAME = ".studydy_local_ai-backup"
 _CHUNK = 1024 * 1024
 

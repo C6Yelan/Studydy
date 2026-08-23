@@ -8,7 +8,7 @@ from test_study_material_output import producer_output
 
 def _binding():
     return {
-        "schema": "material-run-output-binding/v2",
+        "schema": "material-run-output-binding/v3",
         "producer_bundle_id": "text-first-producer-bundle:sha256:" + "1" * 64,
         "producer_run_id": "text-first-run:00000000-0000-4000-8000-000000000001",
         "concept_evidence_output_id": "concept-evidence-output:sha256:" + "2" * 64,

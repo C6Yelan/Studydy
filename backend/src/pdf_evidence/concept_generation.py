@@ -7,9 +7,9 @@ import unicodedata
 from .ocr_page_evidence import canonical_sha256
 
 
-SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v2"
-SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v1"
-PROCESSING_POLICY = "concept-evidence-review/v2"
+SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v3"
+SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v2"
+PROCESSING_POLICY = "claim-grounded-concept-review/v1"
 MAX_MODEL_OUTPUT_BYTES = 65_536
 
 
@@ -160,34 +160,42 @@ def _candidate_reason(
             "label",
             "definition",
             "key_points",
-            "evidence_ids",
         }:
             raise SemanticOutputError("CANDIDATE_SCHEMA_INVALID")
         label = _normalized_candidate_text(candidate["label"])
-        definition = _normalized_candidate_text(candidate["definition"])
+        definition = _claim(candidate["definition"], evidence_aliases)
         key_points = candidate["key_points"]
         if not isinstance(key_points, list) or not key_points:
             raise SemanticOutputError("INVALID_KEY_POINTS")
-        normalized_points = [_normalized_candidate_text(point) for point in key_points]
-        references = candidate["evidence_ids"]
-        if (
-            not isinstance(references, list)
-            or not references
-            or any(not isinstance(reference, str) for reference in references)
-        ):
-            raise SemanticOutputError("INVALID_EVIDENCE_REFERENCES")
-        if len(set(references)) != len(references):
-            raise SemanticOutputError("DUPLICATE_EVIDENCE_REFERENCE")
-        if not set(references) <= set(evidence_aliases):
-            raise SemanticOutputError("UNKNOWN_EVIDENCE_ID")
+        normalized_points = [_claim(point, evidence_aliases) for point in key_points]
         return {
             "label": label,
             "definition": definition,
             "key_points": normalized_points,
-            "evidence_ids": [evidence_aliases[reference] for reference in references],
         }, None
     except SemanticOutputError as error:
         return None, error.reason_code
+
+
+def _claim(value: Any, evidence_aliases: dict[str, str]) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {"text", "evidence_ids"}:
+        raise SemanticOutputError("CANDIDATE_SCHEMA_INVALID")
+    text = _normalized_candidate_text(value["text"])
+    references = value["evidence_ids"]
+    if (
+        not isinstance(references, list)
+        or not references
+        or any(not isinstance(reference, str) for reference in references)
+    ):
+        raise SemanticOutputError("INVALID_EVIDENCE_REFERENCES")
+    if len(set(references)) != len(references):
+        raise SemanticOutputError("DUPLICATE_EVIDENCE_REFERENCE")
+    if not set(references) <= set(evidence_aliases):
+        raise SemanticOutputError("UNKNOWN_EVIDENCE_ID")
+    return {
+        "text": text,
+        "evidence_ids": [evidence_aliases[reference] for reference in references],
+    }
 
 
 def validate_concepts(
@@ -207,7 +215,7 @@ def validate_concepts(
     if set(output) != {"concepts"}:
         raise SemanticOutputError("CANDIDATE_SCHEMA_INVALID")
     candidates = output["concepts"]
-    if not isinstance(candidates, list) or not candidates:
+    if not isinstance(candidates, list):
         raise SemanticOutputError("INVALID_CONCEPT_COUNT")
     concepts: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
@@ -224,20 +232,29 @@ def validate_concepts(
                 }
             )
             continue
-        identity = {"page_ref": page_ref, **valid}
+        definition = {
+            "claim_id": claim_id(page_ref, "definition", valid["definition"]),
+            **valid["definition"],
+        }
+        key_points = [
+            {
+                "claim_id": claim_id(page_ref, "key_point", point, index=index),
+                **point,
+            }
+            for index, point in enumerate(valid["key_points"])
+        ]
+        grounded = {"label": valid["label"], "definition": definition, "key_points": key_points}
         concepts.append(
             {
-                "concept_id": f"concept:sha256:{canonical_sha256(identity)}",
+                "concept_id": concept_id(page_ref, **grounded),
                 "page_ref": page_ref,
-                **valid,
+                **grounded,
                 "processing": "succeeded",
                 "quality": "needs_review",
                 "decision": "review",
                 "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
             }
         )
-    if not concepts:
-        raise SemanticOutputError("NO_USABLE_CONCEPT")
     return {
         "schema": SEMANTIC_ARTIFACT_SCHEMA,
         "page_ref": page_ref,
@@ -262,7 +279,7 @@ def combine_semantic_batches(
     """把同頁各批已驗證結果合回一個 page artifact。"""
 
     if not batches:
-        raise SemanticOutputError("NO_USABLE_CONCEPT")
+        raise SemanticOutputError("CANDIDATE_SCHEMA_INVALID")
     concepts_by_id: dict[str, dict[str, Any]] = {}
     rejected = []
     for batch in batches:
@@ -281,8 +298,6 @@ def combine_semantic_batches(
                 }
             )
     concepts = sorted(concepts_by_id.values(), key=lambda item: item["concept_id"])
-    if not concepts:
-        raise SemanticOutputError("NO_USABLE_CONCEPT")
     return {
         "schema": SEMANTIC_ARTIFACT_SCHEMA,
         "page_ref": page_ref,
@@ -296,3 +311,36 @@ def combine_semantic_batches(
         "decision": "review",
         "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
     }
+
+
+def claim_id(
+    page_ref: str,
+    kind: str,
+    claim: dict[str, Any],
+    *,
+    index: int | None = None,
+) -> str:
+    """以頁面、claim 類型與內容建立不可混頁的穩定 ID。"""
+
+    identity = {"page_ref": page_ref, "kind": kind}
+    if index is not None:
+        identity["index"] = index
+    identity.update(claim)
+    return f"claim:sha256:{canonical_sha256(identity)}"
+
+
+def concept_id(
+    page_ref: str,
+    label: str,
+    definition: dict[str, Any],
+    key_points: list[dict[str, Any]],
+) -> str:
+    """以完整 claim-level 內容建立 Concept 穩定 ID。"""
+
+    identity = {
+        "page_ref": page_ref,
+        "label": label,
+        "definition": definition,
+        "key_points": key_points,
+    }
+    return f"concept:sha256:{canonical_sha256(identity)}"

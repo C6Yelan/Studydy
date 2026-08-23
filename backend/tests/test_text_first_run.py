@@ -27,10 +27,10 @@ def _settings(tmp_path):
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
         "concept_server_executable": str(root / "vllm/bin/vllm"),
-        "concept_model_root": str(root / "models/qwen3-4b-instruct-2507"),
+        "concept_model_root": str(root / "models/qwen3-14b-awq"),
         "concept_kv_cache_bytes": 2_147_483_648,
-        "concept_max_concurrency": 2,
-        "concept_max_model_len": 5_632,
+        "concept_max_concurrency": 1,
+        "concept_max_model_len": 8_192,
     }
 
 
@@ -135,16 +135,15 @@ class FakeConceptAPI:
     def __call__(self, client, **arguments):
         self.state["concept"] += 1
         if self.always_invalid or (self.invalid_first and self.state["concept"] == 1):
-            return '{"concepts":[]}'
+            return '{"concepts":'
         evidence_id = arguments["semantic_request"]["evidence"][0]["id"]
         return json.dumps(
             {
                 "concepts": [
                     {
                         "label": "Public concept",
-                        "definition": "Public definition",
-                        "key_points": ["Public point"],
-                        "evidence_ids": [evidence_id],
+                        "definition": {"text": "Public definition", "evidence_ids": [evidence_id]},
+                        "key_points": [{"text": "Public point", "evidence_ids": [evidence_id]}],
                     }
                 ]
             },
@@ -241,8 +240,9 @@ def test_sequential_product_path_and_exact_replay_zero_model_calls(tmp_path, mon
     first = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
     second = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
     assert first["processing"] == second["processing"] == "succeeded"
-    assert state["ocr"] == state["concept"] == 1
-    assert state["ocr_loads"] == 1
+    assert state["ocr"] == 0
+    assert state["concept"] == 1
+    assert state["ocr_loads"] == 0
     assert first["concept_loads"] == 1
     assert second["concept_loads"] == 0
     assert second["ocr_calls"] == second["concept_calls"] == 0
@@ -274,6 +274,7 @@ def test_oversized_page_is_split_and_all_batches_remain_grounded(tmp_path, monke
         "start_ocr_process",
         lambda settings: MultipleEvidenceChild("ocr", state),
     )
+    monkeypatch.setattr(run_module, "route_page", lambda page: "OCR_needed")
     monkeypatch.setattr(run_module, "request_concept_text", split_when_needed)
 
     bundle = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
@@ -291,7 +292,8 @@ def test_oversized_page_is_split_and_all_batches_remain_grounded(tmp_path, monke
     assert {
         evidence_id
         for concept in output["concepts"]
-        for evidence_id in concept["evidence_ids"]
+        for claim in [concept["definition"], *concept["key_points"]]
+        for evidence_id in claim["evidence_ids"]
     } == page_evidence_ids
 
 
@@ -325,6 +327,7 @@ def test_dispatched_ocr_failure_keeps_reason_and_counts_call(
         "start_ocr_process",
         lambda settings: FailingOcr("ocr", state, "CHILD_EXITED"),
     )
+    monkeypatch.setattr(run_module, "route_page", lambda page: "OCR_needed")
     bundle = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
     assert bundle["processing"] == "failed"
     assert bundle["reason_codes"] == ["PROCESS_FAILED"]
@@ -378,7 +381,7 @@ def test_page_cache_uses_full_geometry_validation_before_replay(tmp_path, monkey
     replay = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
 
     assert replay["processing"] == "succeeded"
-    assert replay["ocr_calls"] == 1
+    assert replay["ocr_calls"] == 0
     assert replay["concept_calls"] == 1
     assert "CACHE_RECOVERED" in replay["reason_codes"]
 
@@ -388,6 +391,7 @@ def test_all_rejected_blocks_publish_only_no_evidence_bundle(tmp_path, monkeypat
     _pdf(path)
     state = _state()
     monkeypatch.setattr(run_module, "start_ocr_process", lambda settings: AllInvalidOcr("ocr", state))
+    monkeypatch.setattr(run_module, "route_page", lambda page: "OCR_needed")
     bundle = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
     assert bundle["processing"] == "failed"
     assert bundle["reason_codes"] == ["PAGE_CONTENT_UNUSABLE"]
@@ -408,6 +412,7 @@ def test_malformed_child_response_remains_hard_failure(tmp_path, monkeypatch):
         "start_ocr_process",
         lambda settings: MalformedOcrResponse("ocr", state),
     )
+    monkeypatch.setattr(run_module, "route_page", lambda page: "OCR_needed")
     bundle = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
     assert bundle["processing"] == "failed"
     assert bundle["reason_codes"] == ["PROCESS_FAILED"]
@@ -482,6 +487,7 @@ def test_formal_whole_document_excludes_one_page_and_keeps_grounded_core(
         "start_ocr_process",
         lambda settings: SecondPageInvalidOcr("ocr", state),
     )
+    monkeypatch.setattr(run_module, "route_page", lambda page: "OCR_needed")
     monkeypatch.setattr(
         run_module,
         "request_concept_text",
@@ -518,7 +524,7 @@ def test_formal_long_pdf_processes_every_page_without_truncation(
     tmp_path, monkeypatch
 ):
     page_count = 33
-    max_concurrency = 2
+    max_concurrency = 1
     path = tmp_path / f"long-{page_count}-pages.pdf"
     _pdf(path, page_count=page_count)
     state = _state()
@@ -560,8 +566,9 @@ def test_formal_long_pdf_processes_every_page_without_truncation(
     assert bundle["page_count"] == page_count
     assert bundle["included_page_count"] == page_count
     assert bundle["excluded_page_count"] == 0
-    assert bundle["ocr_calls"] == bundle["concept_calls"] == page_count
-    assert bundle["ocr_loads"] == 1
+    assert bundle["ocr_calls"] == 0
+    assert bundle["concept_calls"] == page_count
+    assert bundle["ocr_loads"] == 0
     assert bundle["concept_loads"] == 1
     assert maximum_active == max_concurrency
     assert len(servers) == 1 and servers[0].is_closed

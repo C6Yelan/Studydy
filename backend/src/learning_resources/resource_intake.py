@@ -281,8 +281,25 @@ def _project_output(output: dict[str, Any]) -> tuple[list[dict[str, Any]], list[
     blockers: set[str] = set()
     for concept in output["concepts"]:
         reason = None
-        references = concept.get("evidence_ids")
-        if not isinstance(references, list) or not references:
+        claims = [concept.get("definition"), *concept.get("key_points", [])]
+        references = sorted(
+            {
+                evidence_id
+                for claim in claims
+                if isinstance(claim, dict)
+                for evidence_id in claim.get("evidence_ids", [])
+                if isinstance(evidence_id, str)
+            }
+        )
+        if (
+            not all(
+                isinstance(claim, dict)
+                and isinstance(claim.get("evidence_ids"), list)
+                and bool(claim["evidence_ids"])
+                for claim in claims
+            )
+            or not references
+        ):
             reason = "RESOURCE_EVIDENCE_MISSING"
         elif any(reference not in evidence_by_id for reference in references):
             reason = "RESOURCE_EVIDENCE_MISSING"

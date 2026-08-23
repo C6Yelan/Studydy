@@ -16,7 +16,8 @@ from pdf_evidence.concept_evidence_output import build_output
 from pdf_evidence.text_first_bundle import build_producer_bundle, publish_run
 from pdf_evidence.concept_generation import build_semantic_request, validate_concepts
 from pdf_evidence.ocr_page_evidence import build_page_evidence, canonical_sha256, extract_page
-from knowledge_map.artifacts import validate_knowledge_map
+from knowledge_map.artifacts import build_knowledge_map, validate_knowledge_map
+from knowledge_map.formal_concepts import build_resolution_requests, validate_resolution
 from runtime.api.models import KnowledgeMapView
 from runtime.material_processing import (
     ClaimedMaterialProcessingRun,
@@ -59,6 +60,7 @@ def processing_database_dsn(
         "formal_runtime_preflight",
         processing_module.formal_runtime_binding,
     )
+    monkeypatch.setattr(output_module, "generate_knowledge_map", _fake_knowledge_map)
     assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (
         1,
         2,
@@ -93,12 +95,12 @@ def _settings(tmp_path: Path) -> dict:
         "concept_site_packages": str(root / "vllm/lib/python3.12/site-packages"),
         "ocr_model_root": str(root / "models/unlimited-ocr"),
         "concept_api_base_url": "http://127.0.0.1:8101",
-        "concept_model": "Qwen/Qwen3-4B-Instruct-2507",
+        "concept_model": "Qwen/Qwen3-14B-AWQ",
         "concept_server_executable": str(root / "vllm/bin/vllm"),
-        "concept_model_root": str(root / "models/qwen3-4b-instruct-2507"),
+        "concept_model_root": str(root / "models/qwen3-14b-awq"),
         "concept_kv_cache_bytes": 2_147_483_648,
-        "concept_max_concurrency": 2,
-        "concept_max_model_len": 5_632,
+        "concept_max_concurrency": 1,
+        "concept_max_model_len": 8_192,
     }
 
 
@@ -127,6 +129,47 @@ def _source(dsn: str, learner_id: UUID, *, page_count: int = 1):
         io.BytesIO(_pdf(page_count)),
         f"material-{uuid4()}",
         dsn=dsn,
+    )
+
+
+def _fake_knowledge_map(study_output, _settings, material_runtime_binding_sha256):
+    resolutions = []
+    for request, concept_aliases, claim_aliases in build_resolution_requests(
+        study_output["concepts"]
+    ):
+        candidate = {
+            "schema": "formal-concept-resolution/v1",
+            "group_id": request["group_id"],
+            "resolutions": [
+                {
+                    "operation": "KEEP",
+                    "source_ids": [source["id"]],
+                    "nodes": [{
+                        "label": source["label"],
+                        "claim_ids": [claim["id"] for claim in source["claims"]],
+                    }],
+                }
+                for source in request["candidates"]
+            ],
+        }
+        resolutions.append(
+            validate_resolution(
+                candidate,
+                request=request,
+                concept_aliases=concept_aliases,
+                claim_aliases=claim_aliases,
+                source_concepts=study_output["concepts"],
+            )
+        )
+    return build_knowledge_map(
+        study_output,
+        resolutions,
+        [],
+        relation_pair_status={
+            "processing": "succeeded",
+            "reason_codes": ["RELATION_REVIEW_REQUIRED"],
+        },
+        material_runtime_binding_sha256=material_runtime_binding_sha256,
     )
 
 
@@ -159,6 +202,7 @@ def _fake_producer(
                     "source_sha256": source_sha256,
                     "page_number": page_number,
                     "render_sha256": raw_page["render"]["sha256"],
+                    "route": "OCR_needed",
                     "page": settings["runtime_lock"]["page"],
                     "ocr": settings["runtime_lock"]["ocr"],
                 },
@@ -173,11 +217,14 @@ def _fake_producer(
                         "concepts": [
                             {
                                 "label": f"Public concept {page_number}",
-                                "definition": "Public definition",
-                                "key_points": ["Public point"],
-                                "evidence_ids": [
-                                    semantic_request["evidence"][0]["id"]
-                                ],
+                                "definition": {
+                                    "text": "Public definition",
+                                    "evidence_ids": [semantic_request["evidence"][0]["id"]],
+                                },
+                                "key_points": [{
+                                    "text": "Public point",
+                                    "evidence_ids": [semantic_request["evidence"][0]["id"]],
+                                }],
                             }
                         ]
                     },
@@ -315,8 +362,8 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
     completed = execute_claimed_material_processing_run(
         claim, settings, dsn=processing_database_dsn
     )
-    assert completed.status == "succeeded"
-    assert completed.output_binding["schema"] == "material-run-output-binding/v2"
+    assert completed.status == "succeeded", completed.error_code
+    assert completed.output_binding["schema"] == "material-run-output-binding/v3"
     assert not (
         Path(settings["private_runtime_root"])
         / "runs"
@@ -325,10 +372,9 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
     outputs = read_material_run_outputs(
         learner_id, source.material_id, created.run_id, dsn=processing_database_dsn
     )
-    assert outputs.study_material_output["schema"] == "study-material-output/v3"
-    assert outputs.knowledge_map["schema"] == "knowledge-map/v2"
-    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v2"
-    assert "text" not in json.dumps(outputs.knowledge_map_view)
+    assert outputs.study_material_output["schema"] == "study-material-output/v4"
+    assert outputs.knowledge_map["schema"] == "knowledge-map/v3"
+    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v3"
     with psycopg.connect(processing_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM study_material_outputs").fetchone() == (1,)
         assert connection.execute("SELECT count(*) FROM knowledge_maps").fetchone() == (1,)
@@ -410,13 +456,15 @@ def test_long_document_publishes_every_page_and_resolves_page_above_old_limit(
     locator_pages = {
         evidence["page_number"]
         for concept in outputs.knowledge_map_view["concepts"]
-        for evidence in concept["evidence"]
+        for claim in concept["claims"]
+        for evidence in claim["evidence"]
     }
     assert locator_pages == set(range(1, 41))
     assert any(
         evidence["page_number"] == 40
         for concept in outputs.knowledge_map_view["concepts"]
-        for evidence in concept["evidence"]
+        for claim in concept["claims"]
+        for evidence in claim["evidence"]
     )
     _assert_downstream_zero(processing_database_dsn)
 
@@ -447,23 +495,11 @@ def test_partial_page_and_semantic_status_reaches_persisted_run(
     assert outputs.study_material_output["concepts"][0]["processing"] == "partial"
     assert outputs.knowledge_map["processing"] == "partial"
     view = deepcopy(outputs.knowledge_map_view)
-    evidence = view["concepts"][0]["evidence"][0]
-    view["images"] = [
-        {
-            "image_id": "image:sha256:" + "a" * 64,
-            "page_ref": evidence["page_ref"],
-            "page_number": evidence["page_number"],
-            "region": deepcopy(evidence["region"]),
-            "evidence": [
-                {**deepcopy(evidence), "evidence_id": f"evidence:sha256:{index:064x}"}
-                for index in range(9)
-            ],
-        }
-    ]
+    evidence = view["concepts"][0]["claims"][0]["evidence"][0]
     api_view = KnowledgeMapView.model_validate(view).model_dump(by_alias=True)
     assert api_view["status"]["processing"] == "partial"
     assert api_view["excluded_pages"] == []
-    assert api_view["images"][0]["evidence"] == view["images"][0]["evidence"]
+    assert api_view["concepts"][0]["claims"][0]["evidence"][0] == evidence
     view["status"]["processing"] = "succeeded"
     view["excluded_pages"] = [
         {
@@ -497,7 +533,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert binding["call_ceilings"] == {
         "ocr_calls_per_page": 1,
         "ocr_initial_loads": 1,
-        "concept_initial_loads": 1,
+        "concept_initial_loads": 2,
     }
     assert binding["timeouts_seconds"] == {
         "resident_lock": 5,
@@ -513,18 +549,18 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert settings["concept_model_root"] not in encoded
     assert binding["concept_api"] == {
         "base_url": "http://127.0.0.1:8101",
-        "model": "Qwen/Qwen3-4B-Instruct-2507",
-        "model_revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
-        "model_binding_manifest_sha256": "61cbb8e0973dcbefc6009f66ddfc2da2fe3d9aba4094ade8a82043f6624651c4",
+        "model": "Qwen/Qwen3-14B-AWQ",
+        "model_revision": "content-sha256:5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619",
+        "model_binding_manifest_sha256": "5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619",
         "protocol": "openai-chat-completions/v1",
         "kv_cache_bytes": 2_147_483_648,
-        "max_concurrency": 2,
-        "max_model_len": 5_632,
+        "max_concurrency": 1,
+        "max_model_len": 8_192,
         "server": settings["runtime_lock"]["semantic"]["server"],
         "structured_output": settings["runtime_lock"]["semantic"]["structured_output"],
         "input_token_budget": settings["runtime_lock"]["semantic"]["input_token_budget"],
     }
-    assert len(binding["code_hashes"]) == 11
+    assert len(binding["code_hashes"]) == 14
     assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
 
     for changed in (
@@ -568,7 +604,7 @@ def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
     )
 
     binding = processing_module.formal_runtime_preflight(settings)
-    assert binding["schema"] == "formal-agent1-runtime-binding/v4"
+    assert binding["schema"] == "formal-material-runtime-binding/v5"
     runtime_root = Path(settings["private_runtime_root"])
     assert runtime_root.stat().st_mode & 0o777 == 0o700
 
@@ -632,7 +668,7 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
 
     runtime_files = processing_module._runtime_files(settings)
     relative_names = {runtime_file.path.name for runtime_file in runtime_files}
-    assert len(runtime_files) == 26
+    assert len(runtime_files) == 20
     assert {
         "python3.12",
         "vllm",
@@ -643,7 +679,7 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
         "model.safetensors.index.json",
         "special_tokens_map.json",
         "configuration_deepseek_v2.py",
-        "model-00001-of-00003.safetensors",
+            "model-00001-of-00002.safetensors",
         "tokenizer.json",
     } <= relative_names
     assert tuple(settings["runtime_lock"]["ocr"]["package_sources"]) == (
@@ -792,6 +828,39 @@ def test_failed_producer_publishes_zero_domain_revisions(
     _assert_downstream_zero(processing_database_dsn)
 
 
+def test_agent3_failure_is_not_success_and_keeps_only_safe_local_diagnostic(
+    processing_database_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    _, _, settings, created = _created_run(processing_database_dsn, tmp_path)
+    claim = claim_next_material_processing_run(dsn=processing_database_dsn)
+    assert claim is not None
+    monkeypatch.setattr(
+        processing_module, "run_full_text_first_pdf", _fake_successful_producer
+    )
+    monkeypatch.setattr(
+        output_module,
+        "generate_knowledge_map",
+        lambda *_: (_ for _ in ()).throw(ValueError("raw model output")),
+    )
+
+    failed = execute_claimed_material_processing_run(
+        claim, settings, dsn=processing_database_dsn
+    )
+
+    assert failed.status == "failed"
+    assert failed.error_code == "KNOWLEDGE_GENERATION_FAILED"
+    diagnostic = json.loads(
+        (
+            Path(settings["private_runtime_root"])
+            / "stage-failures"
+            / f"{created.run_id}.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert diagnostic["stage"] == "formal_knowledge"
+    assert diagnostic["reason_code"] == "KNOWLEDGE_GENERATION_FAILED"
+    assert "raw model output" not in json.dumps(diagnostic)
+
+
 def test_startup_recovery_precedes_claim(
     processing_database_dsn: str, tmp_path: Path
 ):
@@ -834,11 +903,11 @@ def test_owner_scope_and_tampered_map_read_fail_closed(
     with psycopg.connect(processing_database_dsn) as connection:
         stored = connection.execute("SELECT document FROM knowledge_maps").fetchone()[0]
         forged = deepcopy(stored)
-        forged["concepts"][0]["label"] = "Forged but self-rehashed label"
+        forged["formal_concepts"][0]["label"] = "Forged but self-rehashed label"
         forged["revision"] = "knowledge-map:sha256:" + canonical_sha256(
             {key: value for key, value in forged.items() if key != "revision"}
         )
-        assert validate_knowledge_map(forged) is None
+        assert validate_knowledge_map(forged) == "KNOWLEDGE_MAP_INVALID"
         connection.execute(
             "UPDATE knowledge_maps SET map_revision=%s, document=%s",
             (forged["revision"], Jsonb(forged)),

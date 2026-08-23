@@ -6,10 +6,11 @@ from typing import Any
 
 from .artifact_reason_codes import formal_reason_codes, reason_codes_are_valid
 from .concept_evidence_output import AGGREGATION_POLICY, validate_output_document
+from .concept_generation import claim_id, concept_id
 from .ocr_page_evidence import canonical_sha256
 
 
-STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v3"
+STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v4"
 
 
 def _valid_region(region: Any) -> bool:
@@ -117,28 +118,42 @@ def _shape_is_valid(document: Any) -> bool:
             return False
         evidence_pages[evidence["evidence_id"]] = evidence["page_ref"]
     concept_fields = {
-        "concept_id", "page_ref", "label", "definition", "key_points", "evidence_ids",
+        "concept_id", "page_ref", "label", "definition", "key_points",
         "processing", "quality", "decision", "reason_codes",
     }
     concept_ids: set[str] = set()
-    if not isinstance(document["concepts"], list) or not document["concepts"]:
+    if not isinstance(document["concepts"], list):
         return False
     for concept in document["concepts"]:
         if not isinstance(concept, dict) or set(concept) != concept_fields:
             return False
-        references = concept["evidence_ids"]
         if (
             not isinstance(concept["concept_id"], str)
             or concept["concept_id"] in concept_ids
             or concept["page_ref"] not in pages_by_ref
             or not isinstance(concept["label"], str)
             or not concept["label"]
-            or not isinstance(concept["definition"], str)
-            or not concept["definition"]
-            or not _string_list(concept["key_points"], minimum=1)
-            or not _string_list(references, minimum=1)
-            or len(references) != len(set(references))
-            or any(evidence_pages.get(reference) != concept["page_ref"] for reference in references)
+            or not _claim_is_valid(
+                concept["definition"], concept["page_ref"], evidence_pages, "definition"
+            )
+            or not isinstance(concept["key_points"], list)
+            or not concept["key_points"]
+            or any(
+                not _claim_is_valid(
+                    point,
+                    concept["page_ref"],
+                    evidence_pages,
+                    "key_point",
+                    index=index,
+                )
+                for index, point in enumerate(concept["key_points"])
+            )
+            or concept["concept_id"] != concept_id(
+                concept["page_ref"],
+                concept["label"],
+                concept["definition"],
+                concept["key_points"],
+            )
             or concept["processing"] not in {"succeeded", "partial"}
             or (concept["quality"], concept["decision"])
             != ("needs_review", "review")
@@ -323,11 +338,26 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
     concepts = []
     for source_concept in producer_output.get("concepts", []):
         page_ref = source_concept.get("page_ref") if isinstance(source_concept, dict) else None
-        evidence_ids = source_concept.get("evidence_ids", []) if isinstance(source_concept, dict) else []
         if (
             page_ref not in page_refs
-            or not evidence_ids
-            or any(evidence_pages.get(evidence_id) != page_ref for evidence_id in evidence_ids)
+            or not _claim_is_valid(
+                source_concept.get("definition"),
+                page_ref,
+                evidence_pages,
+                "definition",
+            )
+            or not isinstance(source_concept.get("key_points"), list)
+            or not source_concept["key_points"]
+            or any(
+                not _claim_is_valid(
+                    point,
+                    page_ref,
+                    evidence_pages,
+                    "key_point",
+                    index=index,
+                )
+                for index, point in enumerate(source_concept["key_points"])
+            )
             or (
                 source_concept.get("processing"),
                 source_concept.get("quality"),
@@ -340,8 +370,6 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
         ):
             raise ValueError("STUDY_MATERIAL_CONCEPT_INVALID")
         concepts.append(deepcopy(source_concept))
-    if not concepts:
-        raise ValueError("STUDY_MATERIAL_CONCEPT_INVALID")
 
     excluded_pages = deepcopy(producer_output.get("excluded_pages", []))
     excluded_numbers: set[int] = set()
@@ -398,6 +426,33 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
     if not _shape_is_valid(document):
         raise ValueError("STUDY_MATERIAL_OUTPUT_INVALID")
     return document
+
+
+def _claim_is_valid(
+    claim: Any,
+    page_ref: str,
+    evidence_pages: dict[str, str],
+    kind: str,
+    *,
+    index: int | None = None,
+) -> bool:
+    if not isinstance(claim, dict) or set(claim) != {"claim_id", "text", "evidence_ids"}:
+        return False
+    references = claim["evidence_ids"]
+    return (
+        claim["claim_id"]
+        == claim_id(
+            page_ref,
+            kind,
+            {"text": claim["text"], "evidence_ids": references},
+            index=index,
+        )
+        and isinstance(claim["text"], str)
+        and bool(claim["text"])
+        and _string_list(references, minimum=1)
+        and len(references) == len(set(references))
+        and all(evidence_pages.get(reference) == page_ref for reference in references)
+    )
 
 
 def validate_study_material_output(

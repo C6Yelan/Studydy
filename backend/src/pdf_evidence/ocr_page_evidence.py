@@ -10,9 +10,9 @@ import unicodedata
 import pymupdf
 
 
-PAGE_SCHEMA = "page-evidence/v2"
+PAGE_SCHEMA = "page-evidence/v3"
 NATIVE_SCHEMA = "page-native/v2"
-PROCESSING_POLICY = "unlimited-ocr-page-evidence/v1"
+PROCESSING_POLICY = "native-first-page-evidence/v1"
 NORMALIZER_POLICY = "ocr-text-nfc-line-preserving/v1"
 RENDER_DPI = 200
 PDF_POINTS_PER_INCH = 72
@@ -215,6 +215,92 @@ def _distance(first: list[float], second: list[float]) -> float:
     return math.hypot(dx, dy)
 
 
+def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
+    """依 PDF 原生閱讀順序取出有 bbox 的文字行。"""
+
+    native = page.get("native_evidence", {}).get("raw_text", {})
+    blocks: list[dict[str, Any]] = []
+    for source_block in native.get("blocks", []) if isinstance(native, dict) else []:
+        if not isinstance(source_block, dict) or source_block.get("type") != 0:
+            continue
+        for line in source_block.get("lines", []):
+            if not isinstance(line, dict):
+                continue
+            pieces = []
+            for span in line.get("spans", []):
+                if not isinstance(span, dict):
+                    continue
+                text = span.get("text")
+                if text is None:
+                    characters = span.get("chars", [])
+                    text = "".join(
+                        character.get("c", "")
+                        for character in characters
+                        if isinstance(character, dict)
+                    )
+                if isinstance(text, str):
+                    pieces.append(text)
+            text = "".join(pieces)
+            bbox = line.get("bbox")
+            if (
+                text.strip()
+                and isinstance(bbox, list)
+                and len(bbox) == 4
+                and all(type(number) in {int, float} for number in bbox)
+            ):
+                blocks.append({"type": "text", "text": text, "bbox": bbox})
+    return blocks
+
+
+def route_page(page: dict[str, Any]) -> str:
+    """只在原生文字足以回查時略過 OCR；其餘頁面一律交給 OCR。"""
+
+    blocks = _native_text_blocks(page)
+    text = " ".join(block["text"] for block in blocks)
+    visible = [character for character in text if not character.isspace()]
+    if len(visible) < 8:
+        return "OCR_needed"
+    bad = sum(
+        character == "\ufffd"
+        or unicodedata.category(character) in {"Cc", "Cs", "Co"}
+        for character in visible
+    )
+    meaningful = sum(character.isalnum() for character in visible)
+    if bad * 10 > len(visible) or meaningful * 2 < len(visible):
+        return "OCR_needed"
+    return "native_sufficient"
+
+
+def _native_region(
+    bbox: Any, page: dict[str, Any]
+) -> tuple[list[float], list[float]]:
+    if (
+        not isinstance(bbox, list)
+        or len(bbox) != 4
+        or any(type(number) not in {int, float} or not math.isfinite(number) for number in bbox)
+    ):
+        raise ValueError("OCR_LOCATOR_INVALID")
+    region = [float(number) for number in bbox]
+    boundary = pymupdf.Rect(page["geometry"]["unrotated_points"])
+    clipped = pymupdf.Rect(region) & boundary
+    if clipped.width <= 0 or clipped.height <= 0:
+        raise ValueError("OCR_LOCATOR_INVALID")
+    region = _box(clipped)
+    visible = pymupdf.Rect(page["geometry"]["visible_points"])
+    rotation_matrix = pymupdf.Matrix(*page["geometry"]["derotation_matrix"])
+    if rotation_matrix.invert() != 0:
+        raise ValueError("OCR_LOCATOR_INVALID")
+    rotated = clipped * rotation_matrix
+    width, height = page["render"]["width"], page["render"]["height"]
+    render_region = [
+        rotated.x0 * width / visible.width,
+        rotated.y0 * height / visible.height,
+        rotated.x1 * width / visible.width,
+        rotated.y1 * height / visible.height,
+    ]
+    return render_region, region
+
+
 def build_page_evidence(
     page: dict[str, Any],
     ocr_blocks: Any,
@@ -222,8 +308,54 @@ def build_page_evidence(
     input_binding: dict[str, Any],
     produced_at: str,
 ) -> dict[str, Any]:
-    """只保留可建立同頁文字 Evidence 的 blocks；child contract 仍整體 fail closed。"""
-    if not isinstance(ocr_blocks, list) or not ocr_blocks:
+    """從 OCR block 建立同頁 Evidence；child contract 仍整體 fail closed。"""
+    return _build_page_evidence(
+        page,
+        ocr_blocks,
+        input_binding=input_binding,
+        produced_at=produced_at,
+        route="OCR_needed",
+        source="unlimited_ocr",
+    )
+
+
+def build_native_page_evidence(
+    page: dict[str, Any],
+    *,
+    input_binding: dict[str, Any],
+    produced_at: str,
+) -> dict[str, Any]:
+    """原生文字足夠時直接建立 Evidence，不啟動 OCR。"""
+
+    if route_page(page) != "native_sufficient":
+        raise ValueError("NO_USABLE_EVIDENCE")
+    return _build_page_evidence(
+        page,
+        _native_text_blocks(page),
+        input_binding=input_binding,
+        produced_at=produced_at,
+        route="native_sufficient",
+        source="native_text",
+    )
+
+
+def _build_page_evidence(
+    page: dict[str, Any],
+    source_blocks: Any,
+    *,
+    input_binding: dict[str, Any],
+    produced_at: str,
+    route: str,
+    source: str,
+) -> dict[str, Any]:
+    if route not in {"native_sufficient", "OCR_needed"}:
+        raise ValueError("PAGE_ROUTE_INVALID")
+    if (route, source) not in {
+        ("native_sufficient", "native_text"),
+        ("OCR_needed", "unlimited_ocr"),
+    }:
+        raise ValueError("PAGE_ROUTE_INVALID")
+    if not isinstance(source_blocks, list) or not source_blocks:
         raise ValueError("OCR_OUTPUT_INVALID")
     native_evidence = page.get("native_evidence")
     if (
@@ -237,7 +369,7 @@ def build_page_evidence(
         raise ValueError("OCR_LOCATOR_INVALID")
     evidence_blocks: list[dict[str, Any]] = []
     has_rejected_block = False
-    for reading_order, block in enumerate(ocr_blocks):
+    for reading_order, block in enumerate(source_blocks):
         if not isinstance(block, dict) or set(block) != {"type", "text", "bbox"}:
             raise ValueError("OCR_OUTPUT_INVALID")
         ocr_type = block["type"]
@@ -247,7 +379,10 @@ def build_page_evidence(
             raise ValueError("OCR_OUTPUT_INVALID")
         try:
             text = _normalized_text(block["text"])
-            render_region, region = _locator(block["bbox"], page)
+            if source == "native_text":
+                render_region, region = _native_region(block["bbox"], page)
+            else:
+                render_region, region = _locator(block["bbox"], page)
         except ValueError:
             has_rejected_block = True
             continue
@@ -277,7 +412,7 @@ def build_page_evidence(
                     "region": region,
                 },
                 "render_region": render_region,
-                "source": "unlimited_ocr",
+                "source": source,
             }
         )
     if not evidence_blocks:
@@ -337,6 +472,7 @@ def build_page_evidence(
         "geometry": page["geometry"],
         "coordinate_space": "unrotated_pdf_points",
         "native_evidence_ref": page["native_evidence_ref"],
+        "route": route,
         "render": page["render"],
         "evidence_blocks": evidence_blocks,
         "images": image_artifacts,

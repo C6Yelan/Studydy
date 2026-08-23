@@ -73,8 +73,8 @@ def test_formal_launch_uses_the_local_composition_root(monkeypatch):
         "concept_max_model_len",
     }
     assert observed[0]["local_config"]["concept_kv_cache_bytes"] == 2_147_483_648
-    assert observed[0]["local_config"]["concept_max_concurrency"] == 2
-    assert observed[0]["local_config"]["concept_max_model_len"] == 5_632
+    assert observed[0]["local_config"]["concept_max_concurrency"] == 1
+    assert observed[0]["local_config"]["concept_max_model_len"] == 8_192
     assert observed[0]["local_config"]["python_executable"] == (
         "/temporary/studydy/ocr/runtime/bin/python3.12"
     )
@@ -111,7 +111,7 @@ def test_cli_reader_returns_only_existing_local_ai_arguments():
         "concept_max_model_len",
     }
     assert "public_origin" not in local_config
-    assert local_config["concept_max_concurrency"] == 2
+    assert local_config["concept_max_concurrency"] == 1
 
 
 def test_default_root_and_only_three_tunings_are_environment_configurable(

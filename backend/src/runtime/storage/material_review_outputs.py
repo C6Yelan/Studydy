@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+import os
 import re
 from typing import Any
 from uuid import UUID
@@ -14,15 +15,15 @@ from sqlalchemy.orm import Session
 
 from knowledge_map.artifacts import (
     build_knowledge_map_view,
-    build_review_knowledge_map,
     validate_knowledge_map,
 )
-from pdf_evidence.artifact_reason_codes import reason_codes_are_valid
+from knowledge_map.local_generation import generate_knowledge_map
+from pdf_evidence.artifact_reason_codes import formal_reason_codes, reason_codes_are_valid
 from pdf_evidence.text_first_bundle import (
     remove_producer_bundle,
     validate_bundle_documents,
 )
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 from pdf_evidence.study_material_output import (
     build_study_material_output,
     validate_study_material_output,
@@ -54,6 +55,35 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _write_stage_failure(
+    runtime_root: Path,
+    run_id: UUID,
+    reason_code: str,
+) -> None:
+    """只保存固定 stage/reason，不保存教材或模型 request/response。"""
+
+    failures = runtime_root / "stage-failures"
+    if runtime_root.is_symlink() or failures.is_symlink():
+        raise OSError("STAGE_ARTIFACT_WRITE_FAILED")
+    try:
+        failures.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path = failures / f"{run_id}.json"
+        encoded = canonical_bytes({
+            "schema": "material-stage-failure/v1",
+            "run_id": str(run_id),
+            "stage": "formal_knowledge",
+            "reason_code": reason_code,
+            "produced_at": _now().isoformat(),
+        })
+        with path.open("xb") as destination:
+            os.chmod(path, 0o600)
+            destination.write(encoded)
+            destination.flush()
+            os.fsync(destination.fileno())
+    except OSError as error:
+        raise OSError("STAGE_ARTIFACT_WRITE_FAILED") from error
+
+
 def _binding_is_valid(binding: Any) -> bool:
     fields = {
         "schema", "producer_bundle_id", "producer_run_id", "concept_evidence_output_id",
@@ -64,7 +94,7 @@ def _binding_is_valid(binding: Any) -> bool:
     if not isinstance(binding, dict) or set(binding) != fields:
         return False
     return (
-        binding["schema"] == "material-run-output-binding/v2"
+        binding["schema"] == "material-run-output-binding/v3"
         and type(binding["page_count"]) is int
         and binding["page_count"] >= 1
         and binding["processing"] in {"succeeded", "partial"}
@@ -129,6 +159,7 @@ def publish_material_outputs(
     runtime_binding_sha256: str,
     producer_bundle: dict[str, Any],
     *,
+    local_config: dict[str, Any],
     runtime_root: Path,
     dsn: str | None = None,
 ) -> MaterialRunOutputs:
@@ -143,13 +174,30 @@ def publish_material_outputs(
         raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID")
     try:
         study_material_output = build_study_material_output(producer_output)
-        knowledge_map = build_review_knowledge_map(study_material_output)
-        knowledge_map_view = build_knowledge_map_view(knowledge_map)
     except (KeyError, TypeError, ValueError):
         raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID") from None
+    try:
+        knowledge_map = generate_knowledge_map(
+            study_material_output,
+            local_config,
+            runtime_binding_sha256,
+        )
+        knowledge_map_view = build_knowledge_map_view(knowledge_map)
+    except (KeyError, TypeError, ValueError):
+        try:
+            _write_stage_failure(runtime_root, run_id, "KNOWLEDGE_GENERATION_FAILED")
+        except OSError:
+            raise MaterialRunOutputError("STAGE_ARTIFACT_WRITE_FAILED") from None
+        raise MaterialRunOutputError("KNOWLEDGE_GENERATION_FAILED") from None
 
+    final_processing = (
+        "partial"
+        if bundle["processing"] == "partial"
+        or knowledge_map["processing"] == "partial"
+        else "succeeded"
+    )
     binding = {
-        "schema": "material-run-output-binding/v2",
+        "schema": "material-run-output-binding/v3",
         "producer_bundle_id": bundle["bundle_id"],
         "producer_run_id": bundle["run_id"],
         "concept_evidence_output_id": producer_output["output_id"],
@@ -157,10 +205,13 @@ def publish_material_outputs(
         "knowledge_map_revision": knowledge_map["revision"],
         "runtime_binding_sha256": runtime_binding_sha256,
         "page_count": bundle["page_count"],
-        "processing": bundle["processing"],
+        "processing": final_processing,
         "quality": bundle["quality"],
         "decision": bundle["decision"],
-        "reason_codes": deepcopy(bundle["reason_codes"]),
+        "reason_codes": formal_reason_codes(
+            bundle["reason_codes"]
+            + (["NO_FORMAL_CONCEPT"] if knowledge_map["decision"] == "reject" else [])
+        ),
         "ocr_calls": bundle["ocr_calls"],
         "concept_calls": bundle["concept_calls"],
     }
@@ -227,7 +278,7 @@ def publish_material_outputs(
                 (study_material_output["output_id"], knowledge_map),
             )
             remove_producer_bundle(runtime_root, bundle["run_id"])
-            status = "partial" if bundle["processing"] == "partial" else "succeeded"
+            status = final_processing
             updated = session.execute(
                 update(MaterialProcessingRun)
                 .where(
@@ -266,7 +317,7 @@ def read_material_run_outputs(
     *,
     dsn: str | None = None,
 ) -> MaterialRunOutputs:
-    """依 owner/run binding 重驗 Output v3 與 review-only Map v2。"""
+    """依 owner/run binding 重驗 Study Material 與 Knowledge Map。"""
 
     if not all(isinstance(value, UUID) for value in (learner_id, material_id, run_id)):
         raise MaterialRunOutputError("MATERIAL_OUTPUT_UNAVAILABLE")
@@ -309,10 +360,44 @@ def read_material_run_outputs(
             raise MaterialRunOutputError("MATERIAL_OUTPUT_UNAVAILABLE")
         study_material_output = output_row[0]
         knowledge_map = map_row[1]
+        source_concepts = {
+            concept["concept_id"]: concept
+            for concept in study_material_output.get("concepts", [])
+            if isinstance(concept, dict) and isinstance(concept.get("concept_id"), str)
+        }
+        formal_claims_match_source = all(
+            any(
+                claim == source_concept["definition"]
+                or claim in source_concept["key_points"]
+                for source_id in formal_concept.get("source_concept_ids", [])
+                if (source_concept := source_concepts.get(source_id)) is not None
+            )
+            for formal_concept in knowledge_map.get("formal_concepts", [])
+            for claim in formal_concept.get("claims", [])
+        )
         if (
             map_row[0] != study_material_output.get("output_id")
             or binding["study_material_output_revision"] != study_material_output.get("output_id")
             or binding["knowledge_map_revision"] != knowledge_map.get("revision")
+            or knowledge_map.get("source_binding", {}).get("study_material_output_id")
+            != study_material_output.get("output_id")
+            or knowledge_map.get("source_binding", {}).get("producer_output_id")
+            != study_material_output.get("source_binding", {}).get("producer_output_id")
+            or knowledge_map.get("source_binding", {}).get("producer_runtime_lock_sha256")
+            != study_material_output.get("source_binding", {}).get("runtime_binding_sha256")
+            or knowledge_map.get("source_binding", {}).get("material_runtime_binding_sha256")
+            != binding["runtime_binding_sha256"]
+            or knowledge_map.get("material_ref") != study_material_output.get("material_ref")
+            or knowledge_map.get("evidence_index")
+            != study_material_output.get("evidence_index")
+            or knowledge_map.get("excluded_pages")
+            != study_material_output.get("excluded_pages")
+            or any(
+                source_id not in source_concepts
+                for formal_concept in knowledge_map.get("formal_concepts", [])
+                for source_id in formal_concept.get("source_concept_ids", [])
+            )
+            or not formal_claims_match_source
             or binding["concept_evidence_output_id"]
             != study_material_output.get("source_binding", {}).get("producer_output_id")
             or binding["runtime_binding_sha256"]
@@ -321,11 +406,17 @@ def read_material_run_outputs(
             != study_material_output.get("source_binding", {}).get("runtime_binding_sha256")
             or binding["page_count"]
             != study_material_output.get("source_binding", {}).get("page_count")
-            or binding["processing"] != study_material_output.get("processing")
             or binding["processing"] != run_status
+            or binding["processing"]
+            != (
+                "partial"
+                if study_material_output.get("processing") == "partial"
+                or knowledge_map.get("processing") == "partial"
+                else "succeeded"
+            )
             or study_material_output.get("run_id") != binding["producer_run_id"]
             or validate_study_material_output(study_material_output) is not None
-            or validate_knowledge_map(knowledge_map, study_material_output) is not None
+            or validate_knowledge_map(knowledge_map) is not None
         ):
             raise MaterialRunOutputError("MATERIAL_OUTPUT_UNAVAILABLE")
         with open_verified_source_pdf(learner_id, source_artifact_id, dsn=dsn) as source:

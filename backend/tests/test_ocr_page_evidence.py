@@ -4,7 +4,12 @@ from pathlib import Path
 import pymupdf
 import pytest
 
-from pdf_evidence.ocr_page_evidence import build_page_evidence, extract_page
+from pdf_evidence.ocr_page_evidence import (
+    build_native_page_evidence,
+    build_page_evidence,
+    extract_page,
+    route_page,
+)
 
 
 def _pdf(path: Path, *, rotated=False):
@@ -49,7 +54,8 @@ def test_200dpi_rgb_page_identity_and_ocr_locator(tmp_path):
         produced_at="2026-08-18T00:00:00Z",
     )
     block = artifact["evidence_blocks"][0]
-    assert artifact["schema"] == "page-evidence/v2"
+    assert artifact["schema"] == "page-evidence/v3"
+    assert artifact["route"] == "OCR_needed"
     assert artifact["processing"] == "succeeded"
     assert artifact["decision"] == "review"
     assert block["locator"]["page"] == 1
@@ -64,6 +70,37 @@ def test_200dpi_rgb_page_identity_and_ocr_locator(tmp_path):
     ]
     assert "png_bytes" not in artifact
     assert artifact["reason_codes"] == ["PAGE_CONTENT_REVIEW_REQUIRED"]
+
+
+def test_native_text_routes_without_ocr_and_keeps_pdf_bbox_order(tmp_path):
+    path = tmp_path / "native.pdf"
+    _pdf(path)
+    page = _extract(path)
+    assert route_page(page) == "native_sufficient"
+    artifact = build_native_page_evidence(
+        page,
+        input_binding={"route": "native_sufficient"},
+        produced_at="x",
+    )
+    assert artifact["route"] == "native_sufficient"
+    assert artifact["evidence_blocks"][0]["source"] == "native_text"
+    assert artifact["evidence_blocks"][0]["reading_order"] == 0
+    assert artifact["evidence_blocks"][0]["locator"]["page"] == 1
+
+
+def test_empty_and_garbled_native_text_route_to_ocr(tmp_path):
+    path = tmp_path / "scan.pdf"
+    document = pymupdf.open()
+    document.new_page(width=144, height=216)
+    document.save(path)
+    document.close()
+    assert route_page(_extract(path)) == "OCR_needed"
+
+    page = _extract(path)
+    page["native_evidence"]["raw_text"] = {
+        "blocks": [{"type": 0, "lines": [{"bbox": [1, 1, 20, 20], "spans": [{"text": "��������"}]}]}]
+    }
+    assert route_page(page) == "OCR_needed"
 
 
 def test_render_guard_rejects_geometry_before_page_content_or_pixmap_reads():

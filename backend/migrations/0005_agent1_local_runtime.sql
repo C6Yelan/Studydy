@@ -17,7 +17,7 @@ ALTER TABLE material_processing_runs
         OR (status IN ('succeeded', 'partial')
             AND error_code IS NULL
             AND output_binding IS NOT NULL
-            AND output_binding ->> 'schema' = 'material-run-output-binding/v2'
+            AND output_binding ->> 'schema' = 'material-run-output-binding/v3'
             AND completed_at IS NOT NULL)
         OR (status = 'failed'
             AND error_code IS NOT NULL

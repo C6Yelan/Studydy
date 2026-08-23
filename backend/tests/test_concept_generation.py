@@ -72,20 +72,25 @@ def test_fence_prefix_suffix_truncation_duplicate_and_nan_fail(model_text):
         _validate(model_text)
 
 
+def test_zero_concepts_is_a_valid_page_result():
+    artifact = _validate('{"concepts":[]}')
+    assert artifact["concepts"] == []
+    assert artifact["processing"] == "succeeded"
+    assert artifact["decision"] == "review"
+
+
 def test_cross_concept_evidence_reuse_and_no_lexical_decision():
     output = {
         "concepts": [
             {
                 "label": "Unrelated label",
-                "definition": "Structurally valid unrelated definition",
-                "key_points": ["No lexical matching decision"],
-                "evidence_ids": ["e1"],
+                "definition": {"text": "Structurally valid unrelated definition", "evidence_ids": ["e1"]},
+                "key_points": [{"text": "No lexical matching decision", "evidence_ids": ["e1"]}],
             },
             {
                 "label": "Second concept",
-                "definition": "Second definition",
-                "key_points": ["Second point"],
-                "evidence_ids": ["e1"],
+                "definition": {"text": "Second definition", "evidence_ids": ["e1"]},
+                "key_points": [{"text": "Second point", "evidence_ids": ["e1"]}],
             },
         ]
     }
@@ -101,9 +106,8 @@ def test_per_concept_invalid_candidate_is_rejected_without_losing_valid_candidat
     output["concepts"].append(
         {
             "label": "Invalid",
-            "definition": "Invalid evidence",
-            "key_points": ["Invalid"],
-            "evidence_ids": ["unknown"],
+            "definition": {"text": "Invalid evidence", "evidence_ids": ["unknown"]},
+            "key_points": [{"text": "Invalid", "evidence_ids": ["e1"]}],
         }
     )
     artifact = _validate(json.dumps(output, separators=(",", ":")))
@@ -115,8 +119,9 @@ def test_per_concept_invalid_candidate_is_rejected_without_losing_valid_candidat
 def test_model_status_or_locator_fields_are_not_trusted():
     output = _output()
     output["concepts"][0]["status"] = "accepted"
-    with pytest.raises(SemanticOutputError, match="NO_USABLE_CONCEPT"):
-        _validate(json.dumps(output, separators=(",", ":")))
+    artifact = _validate(json.dumps(output, separators=(",", ":")))
+    assert artifact["concepts"] == []
+    assert artifact["rejected_candidates"][0]["reason_codes"] == ["CANDIDATE_SCHEMA_INVALID"]
 
 
 def test_candidate_text_is_normalized_before_validation():
@@ -124,29 +129,29 @@ def test_candidate_text_is_normalized_before_validation():
     output["concepts"][0].update(
         {
             "label": "  Ｌight   energy  ",
-            "definition": "Plants\n convert\t light into chemical energy.",
-            "key_points": ["  Full-width： light   becomes energy  "],
+            "definition": {"text": "Plants\n convert\t light into chemical energy.", "evidence_ids": ["e1"]},
+            "key_points": [{"text": "  Full-width： light   becomes energy  ", "evidence_ids": ["e1"]}],
         }
     )
     artifact = _validate(json.dumps(output, ensure_ascii=False, separators=(",", ":")))
     concept = artifact["concepts"][0]
     assert concept["label"] == "Light energy"
-    assert concept["definition"] == "Plants convert light into chemical energy."
-    assert concept["key_points"] == ["Full-width: light becomes energy"]
+    assert concept["definition"]["text"] == "Plants convert light into chemical energy."
+    assert concept["key_points"][0]["text"] == "Full-width: light becomes energy"
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
     [
         ("label", "  \t\n  "),
-        ("definition", "safe\x00unsafe"),
+        ("definition", {"text": "safe\x00unsafe", "evidence_ids": ["e1"]}),
     ],
 )
 def test_candidate_text_still_rejects_empty_long_or_control_values(field, value):
     output = _output()
     output["concepts"][0][field] = value
-    with pytest.raises(SemanticOutputError, match="NO_USABLE_CONCEPT"):
-        _validate(json.dumps(output, ensure_ascii=False, separators=(",", ":")))
+    artifact = _validate(json.dumps(output, ensure_ascii=False, separators=(",", ":")))
+    assert artifact["concepts"] == []
 
 
 def test_semantic_request_aliases_and_evidence_references_remain_exact():
@@ -175,13 +180,12 @@ def test_semantic_request_aliases_and_evidence_references_remain_exact():
         )
 
     output = _output()
-    output["concepts"][0]["evidence_ids"] = ["ｅ1"]
-    with pytest.raises(SemanticOutputError, match="NO_USABLE_CONCEPT"):
-        _validate(json.dumps(output, ensure_ascii=False, separators=(",", ":")))
+    output["concepts"][0]["definition"]["evidence_ids"] = ["ｅ1"]
+    assert _validate(json.dumps(output, ensure_ascii=False, separators=(",", ":")))["concepts"] == []
 
     output = _output()
-    output["concepts"].append(dict(output["concepts"][0]))
-    output["concepts"][0]["evidence_ids"] = ["e1", "e1"]
+    output["concepts"].append(json.loads(json.dumps(output["concepts"][0])))
+    output["concepts"][0]["definition"]["evidence_ids"] = ["e1", "e1"]
     artifact = _validate(json.dumps(output, separators=(",", ":")))
     assert artifact["rejected_candidates"][0]["reason_codes"] == [
         "DUPLICATE_EVIDENCE_REFERENCE"
@@ -191,7 +195,7 @@ def test_semantic_request_aliases_and_evidence_references_remain_exact():
 
 def test_large_page_request_splits_without_losing_formal_evidence_ids():
     request = {
-        "schema": "concept-generation-input/v2",
+        "schema": "concept-generation-input/v3",
         "evidence": [
             {"id": "e1", "text": "first concept"},
             {"id": "e2", "text": "second concept"},
@@ -213,9 +217,8 @@ def test_large_page_request_splits_without_losing_formal_evidence_ids():
                 json.dumps({
                     "concepts": [{
                         "label": label,
-                        "definition": f"{label} definition",
-                        "key_points": [f"{label} point"],
-                        "evidence_ids": list(aliases),
+                        "definition": {"text": f"{label} definition", "evidence_ids": list(aliases)},
+                        "key_points": [{"text": f"{label} point", "evidence_ids": list(aliases)}],
                     }]
                 }),
                 semantic_request=batch,
@@ -234,13 +237,14 @@ def test_large_page_request_splits_without_losing_formal_evidence_ids():
     assert {
         evidence_id
         for concept in combined["concepts"]
-        for evidence_id in concept["evidence_ids"]
+        for claim in [concept["definition"], *concept["key_points"]]
+        for evidence_id in claim["evidence_ids"]
     } == {"formal-one", "formal-two"}
 
 
 def test_single_large_evidence_split_removes_only_boundary_whitespace():
     first, second = split_semantic_request({
-        "schema": "concept-generation-input/v2",
+        "schema": "concept-generation-input/v3",
         "evidence": [{"id": "e1", "text": "first half   second half"}],
     })
     assert first["evidence"] == [{"id": "e1", "text": "first half"}]

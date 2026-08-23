@@ -61,10 +61,10 @@ _CONFIG_PATH_KEYS = {
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "d057bebf36616d09f5e88cf013eb8e46891b2bced232e4b0b510f146ec286006",
-    "backend/src/pdf_evidence/ocr_page_evidence.py": "26954290a9b87f81bc707f0639eb08a6c4bf390c98a6c39982d983cdf9acc90c",
-    "backend/src/pdf_evidence/concept_generation.py": "ea08ebe038a2c75956eec904f1ac83095c5376262069244f72c1dc61d58e36d0",
-    "backend/src/pdf_evidence/concept_api.py": "7277b7490bbb6f85166de890b6a3dc64265d94d228954f683bfeb28d67b68560",
+    "local_ai/runtime-lock.json": "d14169d560f34ce7514eda5a6f72bab3a9d08ba13cc9bbe927c44392527f846d",
+    "backend/src/pdf_evidence/ocr_page_evidence.py": "38d3361dd4c6f6467e558d9bfd1520a3c3b5cb5c1358495d3216134c11b65b78",
+    "backend/src/pdf_evidence/concept_generation.py": "afad7726379afaba94d5d68919e8200f80ab2bef48b888f9150fe800a60c24f4",
+    "backend/src/pdf_evidence/concept_api.py": "55c55f4594c7db2298b499fe018285d04a76e8d04089fdd1a19cee382209d2b6",
     "backend/src/pdf_evidence/local_ai_process.py": "72e5c4a15ee078e94e985a998944bc08175382f14e84eb3f0a417025bc2b723f",
 }
 _BINDING_FILES = (
@@ -75,6 +75,9 @@ _BINDING_FILES = (
     "backend/src/pdf_evidence/text_first_run.py",
     "backend/src/pdf_evidence/study_material_output.py",
     "backend/src/knowledge_map/artifacts.py",
+    "backend/src/knowledge_map/formal_concepts.py",
+    "backend/src/knowledge_map/relations.py",
+    "backend/src/knowledge_map/local_generation.py",
     "backend/src/runtime/material_processing.py",
     "backend/src/runtime/local_app.py",
     "backend/src/pdf_evidence/source_pdf.py",
@@ -343,7 +346,7 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
                 concept_model_root / name,
                 required_file["sha256"],
                 "concept_model",
-                required_file["size"],
+                required_file.get("size"),
             )
         )
     return tuple(files)
@@ -384,7 +387,7 @@ def _distribution_versions(
 def validate_installed_local_runtime(
     local_config: Any,
 ) -> tuple[dict[str, Any], int]:
-    """唯讀核對固定 runtime binding、26 個檔案與套件版本。"""
+    """唯讀核對固定 runtime binding、必要檔案與套件版本。"""
 
     binding = formal_runtime_binding(local_config)
     assert isinstance(local_config, dict)
@@ -477,7 +480,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         "concept_site_packages": root / "vllm/lib/python3.12/site-packages",
         "ocr_model_root": root / "models/unlimited-ocr",
         "concept_server_executable": root / "vllm/bin/vllm",
-        "concept_model_root": root / "models/qwen3-4b-instruct-2507",
+        "concept_model_root": root / "models/qwen3-14b-awq",
     }
     if any(
         Path(local_config[name]) != expected
@@ -491,7 +494,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
     if type(concept_kv_cache_bytes) is not int or concept_kv_cache_bytes < 1:
         raise _runtime_error("concept_runtime", "LOCAL_RUNTIME_SETTINGS_MISMATCH")
     concept_max_concurrency = local_config.get("concept_max_concurrency")
-    if type(concept_max_concurrency) is not int or concept_max_concurrency not in {1, 2}:
+    if type(concept_max_concurrency) is not int or concept_max_concurrency != 1:
         raise _runtime_error("concept_runtime", "LOCAL_RUNTIME_SETTINGS_MISMATCH")
     concept_max_model_len = local_config.get("concept_max_model_len")
     if type(concept_max_model_len) is not int or concept_max_model_len < 1:
@@ -550,7 +553,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         for relative_path in _BINDING_FILES
     }
     binding = {
-        "schema": "formal-agent1-runtime-binding/v4",
+        "schema": "formal-material-runtime-binding/v5",
         "runtime_lock_sha256": canonical_sha256(local_config["runtime_lock"]),
         "code_hashes": code_hashes,
         "document_policy": "whole-document-review-aggregation/v1",
@@ -558,7 +561,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         "call_ceilings": {
             "ocr_calls_per_page": 1,
             "ocr_initial_loads": 1,
-            "concept_initial_loads": 1,
+            "concept_initial_loads": 2,
         },
         "timeouts_seconds": {
             "resident_lock": 5,
@@ -842,13 +845,14 @@ def execute_claimed_material_processing_run(
             source_sha256,
             run.runtime_binding["runtime_binding_sha256"],
             producer_bundle,
+            local_config=deepcopy(local_config),
             runtime_root=Path(local_config["private_runtime_root"]),
             dsn=dsn,
         )
     except OSError as error:
         _record_run_failure(run.run_id, str(error), dsn=dsn)
-    except MaterialRunOutputError:
-        _record_run_failure(run.run_id, "MATERIAL_OUTPUT_FAILED", dsn=dsn)
+    except MaterialRunOutputError as error:
+        _record_run_failure(run.run_id, str(error), dsn=dsn)
     except MaterialProcessingError as error:
         _record_run_failure(run.run_id, str(error), dsn=dsn)
     except Exception:

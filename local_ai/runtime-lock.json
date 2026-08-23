@@ -12,7 +12,7 @@
   },
   "page": {
     "pymupdf_version": "1.28.0",
-    "schema": "page-evidence/v2",
+    "schema": "page-evidence/v3",
     "native_schema": "page-native/v2",
     "render": {
       "schema": "page-render/v1",
@@ -27,10 +27,10 @@
       "operations": ["crlf_to_lf", "unicode_nfc", "remove_trailing_whitespace"]
     },
     "normalization_sha256": "7c2be4a85c07ef3a792fd1e7ba90f0c0436c83457a92cfbded7465581148b810",
-    "processing": "unlimited-ocr-page-evidence/v1",
+    "processing": "native-first-page-evidence/v1",
     "normalizer": "ocr-text-nfc-line-preserving/v1",
     "code_hashes": {
-      "backend_ocr_page_evidence": "26954290a9b87f81bc707f0639eb08a6c4bf390c98a6c39982d983cdf9acc90c"
+      "backend_ocr_page_evidence": "38d3361dd4c6f6467e558d9bfd1520a3c3b5cb5c1358495d3216134c11b65b78"
     },
     "fixture_hashes": {}
   },
@@ -76,21 +76,15 @@
     "fixture_hashes": {}
   },
   "semantic": {
-    "model_id": "Qwen/Qwen3-4B-Instruct-2507",
-    "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
-    "binding_manifest_sha256": "61cbb8e0973dcbefc6009f66ddfc2da2fe3d9aba4094ade8a82043f6624651c4",
-    "required_file_count": 10,
+    "model_id": "Qwen/Qwen3-14B-AWQ",
+    "revision": "content-sha256:5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619",
+    "binding_manifest_sha256": "5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619",
+    "required_file_count": 4,
     "required_files": [
-      {"name": "config.json", "size": 727, "sha256": "5beea1a4a34c62782bfb2f911c606741a3bab8f92d80a118fa053c28af12e8ba"},
-      {"name": "generation_config.json", "size": 238, "sha256": "835fffe355c9438e7a25be099b3fccaa98350b83451f9fd2d99512e74f1ade48"},
-      {"name": "merges.txt", "size": 1671839, "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3"},
-      {"name": "model-00001-of-00003.safetensors", "size": 3957900840, "sha256": "75311d91bb08cf0b882913da464a1e722a31fb44db35208663487efb7a3d8ed6"},
-      {"name": "model-00002-of-00003.safetensors", "size": 3987450520, "sha256": "0b48adbb1f60e901153d91907ba11ce63bd4b8b584482e730f48808d055dfba1"},
-      {"name": "model-00003-of-00003.safetensors", "size": 99630640, "sha256": "7dd39ccca5e4de123c74c14af44c9bf2eb75df33b4614382af0134528e060d5d"},
-      {"name": "model.safetensors.index.json", "size": 32819, "sha256": "d6c42883a895dfef5b0080ed2116a1bcd764f558406b98923d675978a1abf29c"},
-      {"name": "tokenizer.json", "size": 11422654, "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"},
-      {"name": "tokenizer_config.json", "size": 9377, "sha256": "a62ff0a2472a0fa1b8eaabcb57c59b58afa42a22831dc141400b6e0cf2b65ce3"},
-      {"name": "vocab.json", "size": 2776833, "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"}
+      {"name": "config.json", "sha256": "5244a80c9acdc63504acff475a9c84044cca0f62cb4f184fe0cf7d1792fafb5a"},
+      {"name": "model.safetensors.index.json", "sha256": "b8243c9f4e592643b48eb2c35f99f5a6c160a2e8a89b01075e05701871851997"},
+      {"name": "model-00001-of-00002.safetensors", "sha256": "668eb0f1356638310db286f4819b223c12e3916934123f1a81b2b2c0e148c6a2"},
+      {"name": "model-00002-of-00002.safetensors", "sha256": "c3c1625df80fe01211038bfa520629ebde6adf776556aa80cd49696d986d6657"}
     ],
     "api_protocol": "openai-chat-completions/v1",
     "api_path": "/v1/chat/completions",
@@ -99,22 +93,22 @@
       "version": "0.26.0+cu129",
       "executable_sha256": "6d34800bbe39c7b1d94043fa0a7badafd894dbc422e0212f94ebe16547b2097a"
     },
-    "prompt": "You extract study concepts from normalized text evidence.\nUse only the supplied evidence. Return JSON only, with exactly this shape:\n{\"concepts\":[{\"label\":\"...\",\"definition\":\"...\",\"key_points\":[\"...\"],\"evidence_ids\":[\"...\"]}]}\nReturn the short Evidence IDs exactly as supplied. Every central claim and key point must be grounded by its listed Evidence IDs.\nExclude author names, institutions, page numbers, and document-title-only metadata unless they are themselves taught by the page.\nDo not return status, paths, coordinates, commentary, markdown, or additional fields.",
-    "prompt_sha256": "e764d04248ef848c6785b9a9bb941803614aea32b21dfc811c468e6bca62dfb3",
-    "request_schema": "concept-generation-input/v2",
-    "output_schema": "semantic-concepts/v1",
+    "prompt": "Extract study concepts only from the supplied evidence. Return concepts=[] when the page teaches no concept. Each definition and each key point must separately contain non-empty evidence_ids. Return JSON only and no additional fields.",
+    "prompt_sha256": "40c9c9d39f4a8c804df942e9312f1a093d7e20dd8fe27b2b07faa58998eb3adb",
+    "request_schema": "concept-generation-input/v3",
+    "output_schema": "semantic-page-concepts/v2",
     "generation": {"temperature": 0, "max_tokens": 1536},
     "structured_output": {
       "type": "json_schema",
       "name": "studydy_page_concepts",
       "strict": true,
-      "schema_sha256": "9e8023bf4344f4df9c48ded3d62dcae2e1d1551664927167c675abe6d08b05e3"
+      "schema_sha256": "0c0e36cde1f8d4a3cdf6733c4228c8c56937d825836c1e983ab860d26c3b591e"
     },
     "input_token_budget": {
       "api_path": "/tokenize",
       "add_generation_prompt": true,
       "add_special_tokens": false,
-      "maximum_input_tokens": 4096
+      "maximum_input_tokens": 6656
     },
     "retry": {
       "max_attempts": 2,
@@ -134,12 +128,36 @@
       "structurally_valid_decision": "review"
     },
     "code_hashes": {
-      "backend_concept_api": "7277b7490bbb6f85166de890b6a3dc64265d94d228954f683bfeb28d67b68560",
-      "backend_concept_generation": "ea08ebe038a2c75956eec904f1ac83095c5376262069244f72c1dc61d58e36d0"
+      "backend_concept_api": "55c55f4594c7db2298b499fe018285d04a76e8d04089fdd1a19cee382209d2b6",
+      "backend_concept_generation": "afad7726379afaba94d5d68919e8200f80ab2bef48b888f9150fe800a60c24f4"
     },
     "fixture_hashes": {
-      "semantic_request.json": "80ce6b6dd05eb3bbe1c768d5c8dcd453b52a3f7a3d5c521e123f97cfc8fecc58",
-      "semantic_model_output.json": "73918bbe9b2018a37ebf699ab3d1234c7c13dd5facf105dfc98049eee5eda7ac"
+      "semantic_request.json": "1f4f7cfd7c3282b2fc31243b3fb23f65f9303fe7d998ad4a086033783c695fab",
+      "semantic_model_output.json": "b097b099d350b02fc947b2ad0b5f415e53fab96d8039400d42f370a4f5b51327"
+    }
+  },
+  "formal_resolution": {
+    "prompt": "Resolve every supplied source candidate exactly once using KEEP, MERGE, RENAME, SPLIT, or DROP. Use only supplied candidate and claim aliases. SPLIT must create exactly two nodes and every retained claim must appear exactly once. Return JSON only.",
+    "prompt_sha256": "4037439de148edbad030edeb31ac2e70e23970c33a66d1457f87b7bcc59992a7",
+    "request_schema": "formal-concept-resolution-input/v1",
+    "output_schema": "formal-concept-resolution/v1",
+    "generation": {"temperature": 0, "max_tokens": 2048},
+    "timeout_seconds": 300,
+    "retry": {
+      "max_attempts": 2,
+      "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
+    }
+  },
+  "formal_relation": {
+    "prompt": "For every supplied pair return relations, no_relation, or uncertain. Use only supplied node and Evidence aliases. Relation types are prerequisite, contains, similar, confusing, application, and example. Every relation needs Evidence from both endpoints. Return JSON only.",
+    "prompt_sha256": "d476cd5437a4285ba016a766472aaf1e2917c7a157fedc5903a69323b49105dc",
+    "request_schema": "formal-relation-input/v1",
+    "output_schema": "formal-relations/v1",
+    "generation": {"temperature": 0, "max_tokens": 2048},
+    "timeout_seconds": 300,
+    "retry": {
+      "max_attempts": 2,
+      "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
     }
   }
 }

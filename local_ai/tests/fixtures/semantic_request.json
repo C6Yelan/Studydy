@@ -1,5 +1,5 @@
 {
-  "schema": "concept-generation-input/v2",
+  "schema": "concept-generation-input/v3",
   "evidence": [
     {
       "id": "e1",

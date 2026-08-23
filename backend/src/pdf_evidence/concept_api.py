@@ -31,25 +31,43 @@ CONCEPT_RESPONSE_FORMAT = {
             "properties": {
                 "concepts": {
                     "type": "array",
-                    "minItems": 1,
                     "items": {
                         "type": "object",
                         "additionalProperties": False,
                         "required": [
-                            "label", "definition", "key_points", "evidence_ids"
+                            "label", "definition", "key_points"
                         ],
                         "properties": {
                             "label": {"type": "string", "minLength": 1},
-                            "definition": {"type": "string", "minLength": 1},
+                            "definition": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["text", "evidence_ids"],
+                                "properties": {
+                                    "text": {"type": "string", "minLength": 1},
+                                    "evidence_ids": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "items": {"type": "string", "minLength": 1},
+                                    },
+                                },
+                            },
                             "key_points": {
                                 "type": "array",
                                 "minItems": 1,
-                                "items": {"type": "string", "minLength": 1},
-                            },
-                            "evidence_ids": {
-                                "type": "array",
-                                "minItems": 1,
-                                "items": {"type": "string", "minLength": 1},
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "required": ["text", "evidence_ids"],
+                                    "properties": {
+                                        "text": {"type": "string", "minLength": 1},
+                                        "evidence_ids": {
+                                            "type": "array",
+                                            "minItems": 1,
+                                            "items": {"type": "string", "minLength": 1},
+                                        },
+                                    },
+                                },
                             },
                         },
                     },
@@ -221,7 +239,32 @@ def request_concept_text(
     max_model_len: int,
     timeout_seconds: float,
 ) -> str:
-    """先用同一 server tokenizer 鎖定 input budget，再取得一次待驗 model text。"""
+    return request_structured_text(
+        client,
+        base_url=base_url,
+        model=model,
+        prompt_template=prompt_template,
+        request_document=semantic_request,
+        response_format=CONCEPT_RESPONSE_FORMAT,
+        max_model_len=max_model_len,
+        max_tokens=MAX_TOKENS,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def request_structured_text(
+    client: httpx.Client,
+    *,
+    base_url: str,
+    model: str,
+    prompt_template: str,
+    request_document: dict[str, Any],
+    response_format: dict[str, Any],
+    max_model_len: int,
+    max_tokens: int,
+    timeout_seconds: float,
+) -> str:
+    """以同一個本機 server tokenizer 驗證 budget，再取得固定 schema JSON。"""
 
     if (
         not isinstance(model, str)
@@ -230,10 +273,12 @@ def request_concept_text(
         or not isinstance(prompt_template, str)
         or not prompt_template
         or type(max_model_len) is not int
-        or max_model_len <= MAX_TOKENS
+        or type(max_tokens) is not int
+        or not 1 <= max_tokens < max_model_len
+        or not isinstance(response_format, dict)
     ):
         raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
-    prompt = f"{prompt_template}\nINPUT:\n{canonical_bytes(semantic_request).decode('utf-8')}"
+    prompt = f"{prompt_template}\nINPUT:\n{canonical_bytes(request_document).decode('utf-8')}"
     messages = [{"role": "user", "content": prompt}]
     try:
         tokenized = client.post(
@@ -262,7 +307,7 @@ def request_concept_text(
             or token_count["max_model_len"] != max_model_len
         ):
             raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
-        if token_count["count"] + MAX_TOKENS > max_model_len:
+        if token_count["count"] + max_tokens > max_model_len:
             raise ConceptAPIError("MODEL_INPUT_TOO_LARGE")
         response = client.post(
             chat_completions_url(base_url),
@@ -270,8 +315,8 @@ def request_concept_text(
                 "model": model,
                 "messages": messages,
                 "temperature": TEMPERATURE,
-                "max_tokens": MAX_TOKENS,
-                "response_format": CONCEPT_RESPONSE_FORMAT,
+                "max_tokens": max_tokens,
+                "response_format": response_format,
             },
             timeout=timeout_seconds,
         )

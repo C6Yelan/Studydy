@@ -43,7 +43,7 @@ class MaterialProcessingCreate(_ClosedModel):
 
 
 class MaterialOutputBinding(_ClosedModel):
-    schema_: Literal["material-run-output-binding/v2"] = Field(alias="schema")
+    schema_: Literal["material-run-output-binding/v3"] = Field(alias="schema")
     producer_bundle_id: str = Field(
         pattern=r"^text-first-producer-bundle:sha256:[0-9a-f]{64}$"
     )
@@ -130,24 +130,34 @@ class EvidenceView(_ClosedModel):
     region: RegionView
 
 
-class ReviewConceptView(_ClosedModel):
-    concept_id: str = Field(pattern=r"^concept:sha256:[0-9a-f]{64}$")
-    label: str = Field(min_length=1)
-    definition: str = Field(min_length=1)
-    key_points: list[str] = Field(min_length=1)
-    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
+class FormalClaimView(_ClosedModel):
+    claim_id: str = Field(pattern=r"^claim:sha256:[0-9a-f]{64}$")
+    text: str = Field(min_length=1)
     evidence: list[EvidenceView] = Field(min_length=1)
+
+
+class FormalConceptView(_ClosedModel):
+    formal_concept_id: str = Field(pattern=r"^formal-concept:sha256:[0-9a-f]{64}$")
+    label: str = Field(min_length=1)
+    claims: list[FormalClaimView] = Field(min_length=1)
+    source_concept_ids: list[str] = Field(min_length=1)
+    source_page_numbers: list[int] = Field(min_length=1)
     quality: Literal["needs_review"]
     decision: Literal["review"]
     reason_codes: list[str] = Field(min_length=1, max_length=64)
 
 
-class ImageLiteView(_ClosedModel):
-    image_id: str = Field(pattern=r"^image:sha256:[0-9a-f]{64}$")
-    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
-    page_number: int = Field(ge=1)
-    region: RegionView
-    evidence: list[EvidenceView]
+class FormalRelationView(_ClosedModel):
+    relation_id: str = Field(pattern=r"^formal-relation:sha256:[0-9a-f]{64}$")
+    type: Literal["prerequisite", "contains", "similar", "confusing", "application", "example"]
+    source_formal_concept_id: str
+    target_formal_concept_id: str
+    source_evidence_ids: list[str] = Field(min_length=1)
+    target_evidence_ids: list[str] = Field(min_length=1)
+    quality: Literal["needs_review"]
+    decision: Literal["review"]
+    reason_codes: list[str] = Field(min_length=1)
+    is_in_prerequisite_cycle: bool
 
 
 class ExcludedPageView(_ClosedModel):
@@ -162,14 +172,14 @@ class ExcludedPageView(_ClosedModel):
 
 
 class ArtifactStatusView(_ClosedModel):
-    processing: Literal["succeeded", "partial"]
+    processing: Literal["succeeded", "partial", "failed"]
     quality: Literal["needs_review"]
-    decision: Literal["review"]
+    decision: Literal["review", "reject"]
     reason_codes: list[str] = Field(min_length=1, max_length=64)
 
 
 class KnowledgeMapView(_ClosedModel):
-    schema_: Literal["knowledge-map-view/v2"] = Field(alias="schema")
+    schema_: Literal["knowledge-map-view/v3"] = Field(alias="schema")
     material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
     knowledge_map_revision: str = Field(
         pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
@@ -178,13 +188,14 @@ class KnowledgeMapView(_ClosedModel):
         pattern=r"^study-material-output:sha256:[0-9a-f]{64}$"
     )
     status: ArtifactStatusView
-    concepts: list[ReviewConceptView] = Field(min_length=1)
-    images: list[ImageLiteView]
+    concepts: list[FormalConceptView]
+    relations: list[FormalRelationView]
+    initial_learning_path: list[str]
     excluded_pages: list[ExcludedPageView]
 
     @model_validator(mode="after")
     def validate_same_page_links(self) -> "KnowledgeMapView":
-        included_refs = {concept.page_ref for concept in self.concepts}
+        concept_ids = {concept.formal_concept_id for concept in self.concepts}
         reason_lists = [
             self.status.reason_codes,
             *(concept.reason_codes for concept in self.concepts),
@@ -192,31 +203,29 @@ class KnowledgeMapView(_ClosedModel):
         ]
         if any(reasons != sorted(set(reasons)) for reasons in reason_lists):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if len({concept.concept_id for concept in self.concepts}) != len(self.concepts):
+        if len(concept_ids) != len(self.concepts):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if len({image.image_id for image in self.images}) != len(self.images):
+        if set(self.initial_learning_path) != concept_ids:
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if len({page.page_ref for page in self.excluded_pages}) != len(self.excluded_pages):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if len({page.page_number for page in self.excluded_pages}) != len(self.excluded_pages):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if any(len({item.evidence_id for item in concept.evidence}) != len(concept.evidence) for concept in self.concepts):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if any(len({item.evidence_id for item in image.evidence}) != len(image.evidence) for image in self.images):
+        if len({relation.relation_id for relation in self.relations}) != len(self.relations):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if any(
-            evidence.page_ref != concept.page_ref
+            relation.source_formal_concept_id not in concept_ids
+            or relation.target_formal_concept_id not in concept_ids
+            or relation.source_formal_concept_id == relation.target_formal_concept_id
+            for relation in self.relations
+        ):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        if any(
+            evidence.page_number not in concept.source_page_numbers
             for concept in self.concepts
-            for evidence in concept.evidence
+            for claim in concept.claims
+            for evidence in claim.evidence
         ):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if any(
-            evidence.page_ref != image.page_ref
-            for image in self.images
-            for evidence in image.evidence
-        ):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if any(page.page_ref in included_refs for page in self.excluded_pages):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if self.excluded_pages and self.status.processing != "partial":
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
