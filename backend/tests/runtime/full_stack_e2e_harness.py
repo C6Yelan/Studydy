@@ -174,7 +174,7 @@ class FullStackHarness:
                 "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public'"
             ).fetchone() != (0,):
                 raise HarnessFailure("E2E_DATABASE_NOT_EMPTY")
-        if run_migrations(self.database_dsn, migrations_dir=DEFAULT_MIGRATIONS_DIR) != (1, 2, 3, 4, 5):
+        if run_migrations(self.database_dsn, migrations_dir=DEFAULT_MIGRATIONS_DIR) != (1, 2, 3, 4, 5, 6):
             raise HarnessFailure("E2E_FRESH_MIGRATION_FAILED")
         with psycopg.connect(self.database_dsn) as connection:
             for table in (
@@ -373,8 +373,9 @@ def _backend_child() -> int:
     os.environ["STUDYDY_ARTIFACT_ROOT"] = artifact_root
     import runtime.api.app as app_module
     import runtime.material_processing as processing_module
+    import runtime.storage.material_review_outputs as output_module
     from runtime.local_app import run_local_app
-    from test_material_processing import _fake_successful_producer
+    from test_material_processing import _fake_knowledge_map, _fake_successful_producer
 
     def deterministic_producer(request, settings, *, run_id, produced_at, runtime_binding_sha256):
         """Browser wiring 使用 deterministic fake，不宣稱執行真實 OCR/Qwen。"""
@@ -387,7 +388,11 @@ def _backend_child() -> int:
         )
 
     app_module.formal_runtime_preflight = processing_module.formal_runtime_binding
+    processing_module.formal_runtime_preflight = (
+        processing_module.formal_runtime_binding
+    )
     processing_module.run_full_text_first_pdf = deterministic_producer
+    output_module.generate_knowledge_map = _fake_knowledge_map
     os.environ["STUDYDY_DATABASE_DSN"] = database_dsn
     local_environment = {
         "STUDYDY_PROFILE": "local",

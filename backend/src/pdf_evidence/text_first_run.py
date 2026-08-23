@@ -274,6 +274,20 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
     return True
 
 
+def _is_heading_only_page(page: dict[str, Any]) -> bool:
+    """只有明確 heading Evidence 的頁面不建立學習 Concept。"""
+
+    evidence_blocks = page.get("evidence_blocks")
+    return (
+        isinstance(evidence_blocks, list)
+        and bool(evidence_blocks)
+        and all(
+            isinstance(block, dict) and block.get("kind") == "heading"
+            for block in evidence_blocks
+        )
+    )
+
+
 def _read_cache(
     path: Path,
     operation: str,
@@ -558,6 +572,23 @@ def _process_pdf(
                     binding,
                 )
                 cache_invalid = cache_invalid or invalid
+                if artifact is None and _is_heading_only_page(page):
+                    artifact = validate_concepts(
+                        '{"concepts":[]}',
+                        semantic_request=semantic_request,
+                        evidence_aliases=evidence_aliases,
+                        page_ref=page["page_ref"],
+                        input_binding=binding,
+                        attempt=1,
+                    )
+                    _write_cache(
+                        _cache_path(root, "semantic", key),
+                        "semantic",
+                        key,
+                        binding,
+                        artifact,
+                        replace_invalid=invalid,
+                    )
                 semantic_work.append(
                     {
                         "page": page,

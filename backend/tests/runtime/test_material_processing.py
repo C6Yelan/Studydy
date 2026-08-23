@@ -67,11 +67,40 @@ def processing_database_dsn(
         3,
         4,
         5,
+        6,
     )
     with psycopg.connect(clean_database_dsn) as connection:
         for table in ("material_processing_runs", *_DOMAIN_TABLES):
             assert connection.execute(f"SELECT count(*) FROM {table}").fetchone() == (0,)
     return clean_database_dsn
+
+
+def test_applied_migration_five_accepts_forward_output_binding_upgrade(
+    clean_database_dsn: str,
+    migrations_dir: Path,
+    tmp_path: Path,
+):
+    migration_five_dir = tmp_path / "migration-five"
+    migration_five_dir.mkdir()
+    for source in sorted(migrations_dir.glob("000[1-5]_*.sql")):
+        (migration_five_dir / source.name).write_bytes(source.read_bytes())
+
+    assert run_migrations(
+        clean_database_dsn, migrations_dir=migration_five_dir
+    ) == (1, 2, 3, 4, 5)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (6,)
+
+    with psycopg.connect(clean_database_dsn) as connection:
+        constraint = connection.execute(
+            """
+            SELECT pg_get_constraintdef(oid)
+            FROM pg_constraint
+            WHERE conname = 'material_processing_runs_terminal_v3_check'
+            """
+        ).fetchone()
+    assert constraint is not None
+    assert "material-run-output-binding/v3" in constraint[0]
+    assert "material-run-output-binding/v2" not in constraint[0]
 
 
 @pytest.fixture(autouse=True)

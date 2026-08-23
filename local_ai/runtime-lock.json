@@ -137,8 +137,8 @@
     }
   },
   "formal_resolution": {
-    "prompt": "Resolve every supplied source candidate exactly once using KEEP, MERGE, RENAME, SPLIT, or DROP. Use only supplied candidate and claim aliases. SPLIT must create exactly two nodes and every retained claim must appear exactly once. Return JSON only.",
-    "prompt_sha256": "4037439de148edbad030edeb31ac2e70e23970c33a66d1457f87b7bcc59992a7",
+    "prompt": "/no_think\nResolve every supplied source candidate exactly once using KEEP, MERGE, RENAME, SPLIT, or DROP. Use only supplied candidate and claim aliases. KEEP and RENAME use exactly one source and one node; MERGE uses at least two sources and one node; SPLIT uses one source and exactly two nodes; DROP uses one source and no nodes. Every retained claim must appear exactly once, KEEP must preserve the supplied label exactly, and every candidate must be covered. Return JSON only.",
+    "prompt_sha256": "d3ad5764f1fb8a135b9e785efbe7e3584fdd58bcc97bf721b5988052e78c7f24",
     "request_schema": "formal-concept-resolution-input/v1",
     "output_schema": "formal-concept-resolution/v1",
     "generation": {"temperature": 0, "max_tokens": 2048},
@@ -149,8 +149,8 @@
     }
   },
   "formal_relation": {
-    "prompt": "For every supplied pair return relations, no_relation, or uncertain. Use only supplied node and Evidence aliases. Relation types are prerequisite, contains, similar, confusing, application, and example. Every relation needs Evidence from both endpoints. Return JSON only.",
-    "prompt_sha256": "d476cd5437a4285ba016a766472aaf1e2917c7a157fedc5903a69323b49105dc",
+    "prompt": "/no_think\nFor every supplied pair return relations, no_relation, or uncertain. Use only supplied node and Evidence aliases. Relation types are prerequisite, contains, similar, confusing, application, and example. Every relation needs Evidence from both endpoints. Return JSON only.",
+    "prompt_sha256": "d4e81f27ec3a30989da76ae1e4a60fc32412856d303697f173b24985d2a40af1",
     "request_schema": "formal-relation-input/v1",
     "output_schema": "formal-relations/v1",
     "generation": {"temperature": 0, "max_tokens": 2048},

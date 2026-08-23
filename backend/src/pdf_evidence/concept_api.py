@@ -263,6 +263,7 @@ def request_structured_text(
     max_model_len: int,
     max_tokens: int,
     timeout_seconds: float,
+    enable_thinking: bool | None = None,
 ) -> str:
     """以同一個本機 server tokenizer 驗證 budget，再取得固定 schema JSON。"""
 
@@ -276,6 +277,7 @@ def request_structured_text(
         or type(max_tokens) is not int
         or not 1 <= max_tokens < max_model_len
         or not isinstance(response_format, dict)
+        or (enable_thinking is not None and type(enable_thinking) is not bool)
     ):
         raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
     prompt = f"{prompt_template}\nINPUT:\n{canonical_bytes(request_document).decode('utf-8')}"
@@ -309,15 +311,20 @@ def request_structured_text(
             raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
         if token_count["count"] + max_tokens > max_model_len:
             raise ConceptAPIError("MODEL_INPUT_TOO_LARGE")
+        request_body = {
+            "model": model,
+            "messages": messages,
+            "temperature": TEMPERATURE,
+            "max_tokens": max_tokens,
+            "response_format": response_format,
+        }
+        if enable_thinking is not None:
+            request_body["chat_template_kwargs"] = {
+                "enable_thinking": enable_thinking
+            }
         response = client.post(
             chat_completions_url(base_url),
-            json={
-                "model": model,
-                "messages": messages,
-                "temperature": TEMPERATURE,
-                "max_tokens": max_tokens,
-                "response_format": response_format,
-            },
+            json=request_body,
             timeout=timeout_seconds,
         )
         response.raise_for_status()

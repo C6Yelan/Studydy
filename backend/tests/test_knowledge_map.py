@@ -412,6 +412,8 @@ def test_agent3_uses_one_local_server_and_retries_only_a_temporary_failure(monke
             encoding="utf-8"
         )
     )
+    assert runtime_lock["formal_resolution"]["prompt"].startswith("/no_think\n")
+    assert runtime_lock["formal_relation"]["prompt"].startswith("/no_think\n")
     closed = []
 
     class Server:
@@ -431,6 +433,15 @@ def test_agent3_uses_one_local_server_and_retries_only_a_temporary_failure(monke
     calls = []
 
     def request_text(*_, request_document, **__):
+        assert __["enable_thinking"] is False
+        response_schema = __["response_format"]["json_schema"]["schema"]
+        assert response_schema["properties"]["group_id"] == {
+            "const": request_document["group_id"]
+        }
+        source_items = response_schema["properties"]["resolutions"]["items"]
+        assert source_items["properties"]["source_ids"]["items"] == {
+            "enum": [candidate["id"] for candidate in request_document["candidates"]]
+        }
         calls.append(request_document["schema"])
         if len(calls) == 1:
             raise ConceptAPIError("CONCEPT_API_TIMEOUT")

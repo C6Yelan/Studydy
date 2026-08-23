@@ -227,6 +227,7 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
             if not isinstance(line, dict):
                 continue
             pieces = []
+            font_sizes = []
             for span in line.get("spans", []):
                 if not isinstance(span, dict):
                     continue
@@ -240,6 +241,9 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
                     )
                 if isinstance(text, str):
                     pieces.append(text)
+                size = span.get("size")
+                if type(size) in {int, float} and math.isfinite(size):
+                    font_sizes.append(float(size))
             text = "".join(pieces)
             bbox = line.get("bbox")
             if (
@@ -248,7 +252,34 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
                 and len(bbox) == 4
                 and all(type(number) in {int, float} for number in bbox)
             ):
-                blocks.append({"type": "text", "text": text, "bbox": bbox})
+                blocks.append(
+                    {
+                        "type": "text",
+                        "text": text,
+                        "bbox": bbox,
+                        "max_font_size": max(font_sizes, default=0),
+                    }
+                )
+    boundary = pymupdf.Rect(page["geometry"]["unrotated_points"])
+    content_blocks = [
+        block
+        for block in blocks
+        if block["bbox"][3] < boundary.y0 + boundary.height * 0.9
+    ]
+    is_centered_title_page = (
+        bool(content_blocks)
+        and max(block["max_font_size"] for block in content_blocks) >= 30
+        and all(
+            block["bbox"][2] - block["bbox"][0] <= boundary.width * 0.35
+            and boundary.x0 + boundary.width * 0.35
+            <= (block["bbox"][0] + block["bbox"][2]) / 2
+            <= boundary.x0 + boundary.width * 0.65
+            for block in content_blocks
+        )
+    )
+    for block in blocks:
+        block["type"] = "title" if is_centered_title_page else "text"
+        del block["max_font_size"]
     return blocks
 
 

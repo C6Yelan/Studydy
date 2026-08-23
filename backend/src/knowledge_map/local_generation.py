@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 from typing import Any
 
@@ -107,6 +108,34 @@ _RELATION_FORMAT = {
 }
 
 
+def _resolution_format(request: dict[str, Any]) -> dict[str, Any]:
+    """讓 structured output 只能選目前群組實際存在的 alias。"""
+
+    candidate_aliases = [candidate["id"] for candidate in request["candidates"]]
+    claim_aliases = [
+        claim["id"]
+        for candidate in request["candidates"]
+        for claim in candidate["claims"]
+    ]
+    response_format = deepcopy(_RESOLUTION_FORMAT)
+    schema = response_format["json_schema"]["schema"]
+    schema["properties"]["group_id"] = {"const": request["group_id"]}
+    resolutions = schema["properties"]["resolutions"]
+    resolutions["minItems"] = 1
+    resolutions["maxItems"] = len(candidate_aliases)
+    resolution = resolutions["items"]["properties"]
+    resolution["source_ids"]["maxItems"] = len(candidate_aliases)
+    resolution["source_ids"]["items"] = {"enum": candidate_aliases}
+    resolution["nodes"]["maxItems"] = 2
+    resolution["nodes"]["items"]["properties"]["claim_ids"]["maxItems"] = len(
+        claim_aliases
+    )
+    resolution["nodes"]["items"]["properties"]["claim_ids"]["items"] = {
+        "enum": claim_aliases
+    }
+    return response_format
+
+
 def _json_document(model_text: str) -> dict[str, Any]:
     def no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         document: dict[str, Any] = {}
@@ -147,6 +176,7 @@ def _request_stage(
                 max_model_len=settings["concept_max_model_len"],
                 max_tokens=stage["generation"]["max_tokens"],
                 timeout_seconds=stage["timeout_seconds"],
+                enable_thinking=False,
             )
         except ConceptAPIError as error:
             if (
@@ -191,7 +221,7 @@ def generate_knowledge_map(
                     settings,
                     runtime_lock["formal_resolution"],
                     request,
-                    _RESOLUTION_FORMAT,
+                    _resolution_format(request),
                 )
                 resolution_artifacts.append(
                     validate_resolution(

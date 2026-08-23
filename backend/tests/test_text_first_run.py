@@ -43,6 +43,24 @@ def _pdf(path, page_count=1):
     document.close()
 
 
+def _title_and_content_pdf(path):
+    document = pymupdf.open()
+    title_page = document.new_page(width=720, height=540)
+    title_page.insert_text((280, 330), "Public title", fontsize=32)
+    title_page.insert_text((295, 400), "Public author", fontsize=20)
+    title_page.insert_text((560, 520), "Public footer", fontsize=12)
+    content_page = document.new_page(width=720, height=540)
+    content_page.insert_text((280, 65), "Public topic", fontsize=32)
+    content_page.insert_text(
+        (43, 150),
+        "Public grounded content explains a concrete learning rule and example.",
+        fontsize=18,
+    )
+    content_page.insert_text((560, 520), "Public footer", fontsize=12)
+    document.save(path)
+    document.close()
+
+
 def _request(path):
     return {
         "media_type": "application/pdf",
@@ -254,6 +272,31 @@ def test_sequential_product_path_and_exact_replay_zero_model_calls(tmp_path, mon
     assert "png_base64" not in saved_json
     assert "model_text" not in saved_json
     assert state["resident"] == []
+
+
+def test_heading_only_page_keeps_evidence_without_suppressing_adjacent_content(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "title-and-content.pdf"
+    _title_and_content_pdf(path)
+    state = _state()
+    monkeypatch.setattr(run_module, "request_concept_text", FakeConceptAPI(state))
+
+    bundle = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+    output = read_producer_bundle(tmp_path / "runtime", bundle["run_id"])["output"]
+
+    assert bundle["processing"] == "succeeded"
+    assert bundle["included_page_count"] == 2
+    assert bundle["concept_calls"] == state["concept"] == 1
+    assert all(
+        block["kind"] == "heading"
+        for block in output["pages"][0]["evidence_blocks"]
+    )
+    assert [concept["page_ref"] for concept in output["concepts"]] == [
+        output["pages"][1]["page_ref"]
+    ]
 
 
 def test_oversized_page_is_split_and_all_batches_remain_grounded(tmp_path, monkeypatch):

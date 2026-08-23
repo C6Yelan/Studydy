@@ -48,7 +48,9 @@ test("deterministic fake-producer browser wiring：upload、poll、Map 與 PDF l
   await expect(page.getByRole("heading", { name: /處理完成，等待複核|部分頁面已排除，等待複核/ })).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: "開啟複核地圖" }).click();
   await expect(page.getByRole("heading", { name: "教材概念與 Evidence 複核" })).toBeVisible();
-  await expect(page.getByText("第 1 頁 · paragraph")).toBeVisible();
+  const claimLocators = page.getByText("第 1 頁 · paragraph");
+  await expect(claimLocators).toHaveCount(2);
+  await expect(claimLocators.first()).toBeVisible();
   await page.evaluate(() => {
     const originalOpen = window.open.bind(window);
     Object.assign(window, { __studydyOpenedUrl: "" });
@@ -60,7 +62,7 @@ test("deterministic fake-producer browser wiring：upload、poll、Map 與 PDF l
   const sourceResponse = page.context().waitForEvent("response", { predicate: (response) =>
     new URL(response.url()).pathname.startsWith("/v1/artifacts/") && response.status() === 200,
   });
-  await page.getByRole("button", { name: "開啟來源 PDF 第 1 頁" }).click();
+  await page.getByRole("button", { name: "開啟來源 PDF 第 1 頁" }).first().click();
   await sourceResponse;
   const openedUrl = await page.evaluate(() => String((window as Window & { __studydyOpenedUrl: string }).__studydyOpenedUrl));
   expect(openedUrl).toContain("/v1/artifacts/");
