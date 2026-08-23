@@ -75,7 +75,7 @@ def processing_database_dsn(
     return clean_database_dsn
 
 
-def test_applied_migration_five_accepts_forward_output_binding_upgrade(
+def test_populated_migration_five_deletes_v2_terminal_runs_on_forward_upgrade(
     clean_database_dsn: str,
     migrations_dir: Path,
     tmp_path: Path,
@@ -88,9 +88,134 @@ def test_applied_migration_five_accepts_forward_output_binding_upgrade(
     assert run_migrations(
         clean_database_dsn, migrations_dir=migration_five_dir
     ) == (1, 2, 3, 4, 5)
+
+    learner_id = uuid4()
+    material_id = uuid4()
+    source_artifact_id = uuid4()
+    deleted_run_ids = [uuid4(), uuid4()]
+    surviving_run_ids = [uuid4(), uuid4(), uuid4()]
+    runs = (
+        (
+            deleted_run_ids[0],
+            "succeeded",
+            None,
+            {"schema": "material-run-output-binding/v2"},
+            True,
+        ),
+        (
+            deleted_run_ids[1],
+            "partial",
+            None,
+            {"schema": "material-run-output-binding/v2"},
+            True,
+        ),
+        (surviving_run_ids[0], "pending", None, None, False),
+        (surviving_run_ids[1], "running", None, None, False),
+        (surviving_run_ids[2], "failed", "MATERIAL_ANALYSIS_FAILED", None, True),
+    )
+    with psycopg.connect(clean_database_dsn) as connection:
+        connection.execute("SET CONSTRAINTS ALL DEFERRED")
+        connection.execute(
+            "INSERT INTO learners VALUES (%s, clock_timestamp())",
+            (learner_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO materials (
+                material_id, learner_id, source_artifact_id,
+                upload_idempotency_key_sha256, upload_request_fingerprint, created_at
+            ) VALUES (%s, %s, %s, %s, %s, clock_timestamp())
+            """,
+            (material_id, learner_id, source_artifact_id, b"m" * 32, b"r" * 32),
+        )
+        connection.execute(
+            """
+            INSERT INTO artifacts (
+                artifact_id, learner_id, material_id, kind, media_type,
+                sha256, size_bytes, created_at
+            ) VALUES (
+                %s, %s, %s, 'source_pdf', 'application/pdf',
+                %s, 1, clock_timestamp()
+            )
+            """,
+            (source_artifact_id, learner_id, material_id, b"s" * 32),
+        )
+        for index, (
+            run_id,
+            status,
+            error_code,
+            output_binding,
+            is_completed,
+        ) in enumerate(runs):
+            connection.execute(
+                """
+                INSERT INTO material_processing_runs (
+                    run_id, learner_id, material_id, source_artifact_id,
+                    idempotency_key_sha256, request_fingerprint, runtime_binding,
+                    status, error_code, output_binding, created_at, updated_at,
+                    completed_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, clock_timestamp(), clock_timestamp(),
+                    CASE WHEN %s THEN clock_timestamp() ELSE NULL END
+                )
+                """,
+                (
+                    run_id,
+                    learner_id,
+                    material_id,
+                    source_artifact_id,
+                    bytes([index + 1]) * 32,
+                    bytes([index + 11]) * 32,
+                    Jsonb({"schema": "test-runtime-binding"}),
+                    status,
+                    error_code,
+                    Jsonb(output_binding) if output_binding is not None else None,
+                    is_completed,
+                ),
+            )
+
     assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (6,)
 
     with psycopg.connect(clean_database_dsn) as connection:
+        remaining_run_ids = {
+            row[0]
+            for row in connection.execute(
+                "SELECT run_id FROM material_processing_runs"
+            ).fetchall()
+        }
+        assert not set(deleted_run_ids) & remaining_run_ids
+        assert set(surviving_run_ids) == remaining_run_ids
+
+        v3_run_id = uuid4()
+        connection.execute(
+            """
+            INSERT INTO material_processing_runs (
+                run_id, learner_id, material_id, source_artifact_id,
+                idempotency_key_sha256, request_fingerprint, runtime_binding,
+                status, error_code, output_binding, created_at, updated_at,
+                completed_at
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s,
+                'succeeded', NULL, %s, clock_timestamp(), clock_timestamp(),
+                clock_timestamp()
+            )
+            """,
+            (
+                v3_run_id,
+                learner_id,
+                material_id,
+                source_artifact_id,
+                b"v" * 32,
+                b"f" * 32,
+                Jsonb({"schema": "test-runtime-binding"}),
+                Jsonb({"schema": "material-run-output-binding/v3"}),
+            ),
+        )
+        assert connection.execute(
+            "SELECT count(*) FROM material_processing_runs WHERE run_id = %s",
+            (v3_run_id,),
+        ).fetchone() == (1,)
         constraint = connection.execute(
             """
             SELECT pg_get_constraintdef(oid)
@@ -591,6 +716,25 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     }
     assert len(binding["code_hashes"]) == 14
     assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
+    repository_root = Path(__file__).parents[3]
+    for locked_sha256, relative_path in (
+        (
+            settings["runtime_lock"]["page"]["code_hashes"][
+                "backend_ocr_page_evidence"
+            ],
+            "backend/src/pdf_evidence/ocr_page_evidence.py",
+        ),
+        (
+            settings["runtime_lock"]["semantic"]["code_hashes"][
+                "backend_concept_api"
+            ],
+            "backend/src/pdf_evidence/concept_api.py",
+        ),
+    ):
+        source_sha256 = hashlib.sha256(
+            (repository_root / relative_path).read_bytes()
+        ).hexdigest()
+        assert locked_sha256 == source_sha256
 
     for changed in (
         {**settings, "concept_api_base_url": "http://example.test:8101"},

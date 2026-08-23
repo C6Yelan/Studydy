@@ -1,6 +1,10 @@
 ALTER TABLE material_processing_runs
     DROP CONSTRAINT material_processing_runs_terminal_v2_check;
 
+DELETE FROM material_processing_runs
+WHERE status IN ('succeeded', 'partial')
+    AND output_binding ->> 'schema' = 'material-run-output-binding/v2';
+
 ALTER TABLE material_processing_runs
     ADD CONSTRAINT material_processing_runs_terminal_v3_check CHECK (
         (status IN ('running', 'pending')

@@ -61,7 +61,7 @@ _CONFIG_PATH_KEYS = {
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "eafac294f376316a1acd2f47d7e2f70e10fa873bc0a64a708ab4714178da1711",
+    "local_ai/runtime-lock.json": "3006d931e3583487b706e89e6069abe0678b0521748f3046e9259c65c2f88e34",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "69deb46b06762b82ec75eded692452329d7e364c2b3e8a4ff4b6ac1fa14e71c0",
     "backend/src/pdf_evidence/concept_generation.py": "afad7726379afaba94d5d68919e8200f80ab2bef48b888f9150fe800a60c24f4",
     "backend/src/pdf_evidence/concept_api.py": "101baffaa34a5b440b3dd354a078c5416634c3a63321dfd567cd15f4d3882750",
