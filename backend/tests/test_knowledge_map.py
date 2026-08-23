@@ -406,6 +406,78 @@ def test_map_revision_binds_formal_nodes_relations_path_and_cycle_exclusion():
     assert validate_knowledge_map(tampered) == "KNOWLEDGE_MAP_INVALID"
 
 
+def test_map_allows_identical_shared_claim_and_rejects_claim_conflicts():
+    study = _study()
+    first = _keep_resolution(study)["formal_concepts"][0]
+    second = deepcopy(first)
+    second["label"] = "Related concept"
+    second["resolution_order"] = [1, 0]
+    second["formal_concept_id"] = "formal-concept:sha256:" + canonical_sha256(
+        {
+            "group_id": second["group_id"],
+            "operation": second["operation"],
+            "source_concept_ids": second["source_concept_ids"],
+            "label": second["label"],
+            "claims": second["claims"],
+        }
+    )
+    knowledge_map = build_knowledge_map(
+        study,
+        [{"formal_concepts": [first, second]}],
+        [],
+        relation_pair_status={
+            "processing": "succeeded",
+            "reason_codes": ["RELATION_REVIEW_REQUIRED"],
+        },
+        material_runtime_binding_sha256="f" * 64,
+    )
+    shared_claim_id = first["claims"][0]["claim_id"]
+    assert sum(
+        claim["claim_id"] == shared_claim_id
+        for concept in knowledge_map["formal_concepts"]
+        for claim in concept["claims"]
+    ) == 2
+    assert validate_knowledge_map(knowledge_map) is None
+
+    for conflict in ("text", "evidence_ids"):
+        tampered = deepcopy(knowledge_map)
+        conflicting_concept = tampered["formal_concepts"][1]
+        old_formal_id = conflicting_concept["formal_concept_id"]
+        if conflict == "text":
+            conflicting_concept["claims"][0]["text"] = "Conflicting text"
+        else:
+            alternate_evidence = deepcopy(tampered["evidence_index"][0])
+            alternate_evidence["evidence_id"] = "evidence:sha256:" + "9" * 64
+            tampered["evidence_index"].append(alternate_evidence)
+            conflicting_concept["claims"][0]["evidence_ids"] = [
+                alternate_evidence["evidence_id"]
+            ]
+        conflicting_concept["formal_concept_id"] = (
+            "formal-concept:sha256:"
+            + canonical_sha256(
+                {
+                    "group_id": conflicting_concept["group_id"],
+                    "operation": conflicting_concept["operation"],
+                    "source_concept_ids": conflicting_concept["source_concept_ids"],
+                    "label": conflicting_concept["label"],
+                    "claims": conflicting_concept["claims"],
+                }
+            )
+        )
+        tampered["initial_learning_path"] = [
+            conflicting_concept["formal_concept_id"]
+            if formal_id == old_formal_id
+            else formal_id
+            for formal_id in tampered["initial_learning_path"]
+        ]
+        revision_input = dict(tampered)
+        revision_input.pop("revision")
+        tampered["revision"] = (
+            "knowledge-map:sha256:" + canonical_sha256(revision_input)
+        )
+        assert validate_knowledge_map(tampered) == "KNOWLEDGE_MAP_INVALID"
+
+
 def test_zero_formal_concepts_stops_with_partial_reject():
     study = _study()
     knowledge_map = build_knowledge_map(

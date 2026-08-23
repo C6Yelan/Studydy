@@ -279,7 +279,7 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             evidence_pages[evidence["evidence_id"]] = evidence["page_ref"]
             page_numbers[evidence["page_ref"]] = evidence["page_number"]
         formal_evidence: dict[str, set[str]] = {}
-        formal_claim_ids: set[str] = set()
+        formal_claims: dict[str, dict[str, Any]] = {}
         for concept in formal:
             claims = concept.get("claims") if isinstance(concept, dict) else None
             if (
@@ -341,12 +341,13 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             ):
                 return "KNOWLEDGE_MAP_INVALID"
             concept_claim_ids = {claim["claim_id"] for claim in claims}
-            if (
-                len(concept_claim_ids) != len(claims)
-                or formal_claim_ids & concept_claim_ids
-            ):
+            if len(concept_claim_ids) != len(claims):
                 return "KNOWLEDGE_MAP_INVALID"
-            formal_claim_ids.update(concept_claim_ids)
+            for claim in claims:
+                known_claim = formal_claims.get(claim["claim_id"])
+                if known_claim is not None and known_claim != claim:
+                    return "KNOWLEDGE_MAP_INVALID"
+                formal_claims[claim["claim_id"]] = claim
             formal_evidence[concept["formal_concept_id"]] = {
                 evidence_id
                 for claim in claims
