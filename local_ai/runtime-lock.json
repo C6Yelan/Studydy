@@ -149,8 +149,8 @@
     }
   },
   "formal_relation": {
-    "prompt": "/no_think\nFor every supplied pair return relations, no_relation, or uncertain. Use only supplied node and Evidence aliases. Apply these meanings and orientations: prerequisite means source knowledge is needed before understanding or performing the target (source -> target); contains means source is a broader whole or topic and target is an actual part or subtopic (source -> target); similar means the endpoints express substantially the same idea or mechanism (symmetric); confusing means the endpoints are distinct but have specific overlapping features that make them easy to mistake for each other (symmetric); application means target applies or uses the source concept or rule in practice (source -> target); example means target is a concrete instance or illustration of source (source -> target). Never reverse a directed relation. A consequence or effect is not an example unless it is a concrete instance; different examples or cases do not contain one another; sharing only a broad topic does not justify similar or confusing. Every relation needs sufficient Evidence from both endpoints to support both its type and, when directed, its orientation. Return no_relation when the Evidence supports no listed relation; return uncertain when it suggests a relation but is insufficient to determine the type or direction. Return JSON only.",
-    "prompt_sha256": "d147ddebfca1cf7b80c28f3b33a82391b4c3767840dd84cbff4b765d0b52178f",
+    "prompt": "/no_think\nFor every supplied pair return relations, no_relation, or uncertain. Use only supplied node and Evidence aliases. Relation types are prerequisite, contains, similar, confusing, application, and example. Every relation needs Evidence from both endpoints. Return JSON only.",
+    "prompt_sha256": "d4e81f27ec3a30989da76ae1e4a60fc32412856d303697f173b24985d2a40af1",
     "request_schema": "formal-relation-input/v1",
     "output_schema": "formal-relations/v1",
     "generation": {"temperature": 0, "max_tokens": 2048},
