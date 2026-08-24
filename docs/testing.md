@@ -2,7 +2,7 @@
 
 ## Material review browser regression
 
-此 regression 的 core full-stack case 不攔截產品 API，會用 harness 產生的安全 PDF 經真 local backend 建立 material 與 persisted `material_processing_run`，產生 Study Material Output v3 與 review-only Knowledge Map v2，並驗證 Evidence 可回查至來源 PDF 的同頁 locator。其餘 `page.route` 只用於 session setup 與代表性的 failure／review display；這些案例不宣稱為 full-stack。
+此 regression 不攔截產品 API，會用 harness 產生的安全 PDF 經真 local backend 建立 material 與 persisted `material_processing_run`，並驗證 API、資料庫與 frontend wiring。OCR、Concept 與 Knowledge Map producer 使用 deterministic test implementation，因此不宣稱驗證真實 OCR、Qwen、Relation Evidence Gate 或 mDeBERTa；真 local AI 必須另外執行下方測試與 production smoke。
 
 先從 `frontend/` 安裝前端套件與 Playwright Chromium：
 
@@ -55,12 +55,28 @@ PYTHONPATH=backend/src python -m runtime.local_runtime verify
 
 `verify` 只讀取並驗證目前已安裝的 runtime，沒有副作用。`sync` 是明確、另行授權
 的操作，只 reconcile 已安裝 Studydy Python package 中的三個檔案：
-`__init__.py`、`protocol.py` 與 `ocr_process.py`。若有變更，會先保留三個檔案的完整
+`__init__.py`、`protocol.py`、`ocr_process.py` 與 `relation_process.py`。若有變更，會先保留四個檔案的完整
 backup；`sync --rollback` 會從該 backup 還原。sync 不會在啟動時自動執行，也不會
 進行下載、安裝或網路操作；在真實主機上執行會改動檔案，必須另行取得批准。
 
 測試中的 disposable fixtures 只驗證這些 layout、驗證與 backup/rollback 邏輯。
 真實主機 E2E 與 unseen-PDF 評估是另外核准的操作，不屬於 fixture 測試。
+
+## Relation verifier checks
+
+Relation production path 只接受 `contains`、`prerequisite` 與 `related`。前兩類必須先有 directional pair Evidence，再由固定 mDeBERTa child 驗證；`related` 不呼叫 NLI。以下 focused tests 會以真 subprocess boundary 區分 dependency missing、CUDA unavailable、model load failure、timeout 與 invalid response，並確認失敗時不建立 structural edge、也不回退到 Qwen：
+
+Candidate selector 的固定上限是每份教材 128 pairs；超過時只使用 deterministic ranking 的前 128 pairs，Knowledge Map 必須回報 `partial` 與 `RELATION_PAIR_CEILING_EXCEEDED`。本次不調整該上限。
+
+```bash
+PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/pytest -q \
+  backend/tests/test_local_ai_process.py \
+  backend/tests/test_knowledge_map.py \
+  local_ai/tests/test_protocol.py \
+  local_ai/tests/test_relation_process.py
+```
+
+`runtime.local_runtime verify` 先驗證 pinned package metadata、模型檔與 code hash；真正啟動 Relation child 時，還會由該 child 使用自己的 Python import `torch`／`transformers` 並回報 bounded startup reason。CUDA 不可用不得誤報成 dependency missing。真模型 acceptance 與實際教材 E2E 只在 CUDA host 執行。
 
 ## Resource intake
 
