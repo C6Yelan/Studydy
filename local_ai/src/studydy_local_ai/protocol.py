@@ -12,6 +12,11 @@ OCR_REQUEST_SCHEMA = "local-ocr-request/v1"
 OCR_RESPONSE_SCHEMA = "local-ocr-response/v1"
 MAX_OCR_REQUEST_BYTES = 96 * 1024 * 1024
 MAX_OCR_RESPONSE_BYTES = 4 * 1024 * 1024
+RELATION_REQUEST_SCHEMA = "local-relation-verifier-request/v1"
+RELATION_RESPONSE_SCHEMA = "local-relation-verifier-response/v1"
+RELATION_STARTUP_SCHEMA = "local-relation-verifier-startup/v1"
+MAX_RELATION_REQUEST_BYTES = 64 * 1024
+MAX_RELATION_RESPONSE_BYTES = 1024
 
 _REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -129,4 +134,29 @@ def validate_ocr_request(request: Any) -> dict[str, Any]:
         "width": width,
         "height": height,
         "png_bytes": png_bytes,
+    }
+
+
+def validate_relation_request(request: Any) -> dict[str, str]:
+    """Verifier 只接受固定 relation type 與 bounded grounded premise。"""
+
+    if (
+        not isinstance(request, dict)
+        or set(request) != {"schema", "request_id", "relation_type", "premise"}
+        or request.get("schema") != RELATION_REQUEST_SCHEMA
+        or request.get("relation_type") not in {"prerequisite", "contains"}
+    ):
+        raise ProtocolError("CHILD_REQUEST_INVALID")
+    premise = request.get("premise")
+    if (
+        not isinstance(premise, str)
+        or not premise.strip()
+        or len(premise) > 16_384
+        or any(ord(character) < 32 and character not in "\n\t" for character in premise)
+    ):
+        raise ProtocolError("CHILD_REQUEST_INVALID")
+    return {
+        "request_id": _request_id(request["request_id"]),
+        "relation_type": request["relation_type"],
+        "premise": premise,
     }

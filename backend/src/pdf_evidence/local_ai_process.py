@@ -16,6 +16,10 @@ _OCR_BOOTSTRAP = (
     "import sys;sys.path.insert(0,sys.argv.pop(1));"
     "from studydy_local_ai.ocr_process import main;raise SystemExit(main())"
 )
+_RELATION_BOOTSTRAP = (
+    "import sys;sys.path.insert(0,sys.argv.pop(1));"
+    "from studydy_local_ai.relation_process import main;raise SystemExit(main())"
+)
 
 
 class LocalAIError(RuntimeError):
@@ -108,13 +112,31 @@ class LocalAIProcess:
             raise LocalAIError("PROTOCOL_LIMIT_EXCEEDED")
         if self._process.poll() is not None:
             raise LocalAIError("CHILD_EXITED")
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(self._exchange, encoded)
-            try:
-                return future.result(timeout=timeout_seconds)
-            except FutureTimeout as error:
-                self.abort()
-                raise LocalAIError("CHILD_TIMEOUT") from error
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(self._exchange, encoded)
+        try:
+            return future.result(timeout=timeout_seconds)
+        except FutureTimeout as error:
+            self.abort()
+            raise LocalAIError("CHILD_TIMEOUT") from error
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    def read_startup_response(self, timeout_seconds: float) -> dict[str, Any]:
+        """等待 child readiness；timeout 時終止尚未就緒的 process。"""
+
+        assert self._process.stdout is not None
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(
+            _read_response, self._process.stdout, self._response_limit
+        )
+        try:
+            return future.result(timeout=timeout_seconds)
+        except FutureTimeout as error:
+            self.abort()
+            raise LocalAIError("RELATION_VERIFIER_TIMEOUT") from error
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
     def close(self) -> None:
         if self._is_closed:
@@ -165,3 +187,52 @@ def start_ocr_process(settings: dict[str, Any]) -> LocalAIProcess:
         request_limit=96 * 1024 * 1024,
         response_limit=4 * 1024 * 1024,
     )
+
+
+def start_relation_process(
+    settings: dict[str, Any], startup_timeout_seconds: float
+) -> LocalAIProcess:
+    """以 OCR runtime 既有 Python/torch 啟動固定本機 NLI child。"""
+
+    process = LocalAIProcess(
+        [
+            settings["python_executable"],
+            "-I",
+            "-c",
+            _RELATION_BOOTSTRAP,
+            settings["site_packages"],
+            settings["relation_model_root"],
+        ],
+        request_limit=64 * 1024,
+        response_limit=1024,
+    )
+    try:
+        startup = process.read_startup_response(startup_timeout_seconds)
+    except LocalAIError as error:
+        process.abort()
+        if error.reason_code == "RELATION_VERIFIER_TIMEOUT":
+            raise
+        if error.reason_code == "CHILD_RESPONSE_INVALID":
+            raise LocalAIError("RELATION_VERIFIER_RESPONSE_INVALID") from None
+        raise LocalAIError("RELATION_VERIFIER_UNAVAILABLE") from None
+    ready = {
+        "schema": "local-relation-verifier-startup/v1",
+        "status": "ready",
+    }
+    failure_reasons = {
+        "RELATION_VERIFIER_DEPENDENCY_MISSING",
+        "RELATION_VERIFIER_CUDA_UNAVAILABLE",
+        "RELATION_VERIFIER_MODEL_LOAD_FAILED",
+    }
+    if startup == ready:
+        return process
+    if (
+        set(startup) == {"schema", "status", "reason_code"}
+        and startup.get("schema") == ready["schema"]
+        and startup.get("status") == "failed"
+        and startup.get("reason_code") in failure_reasons
+    ):
+        process.abort()
+        raise LocalAIError(startup["reason_code"])
+    process.abort()
+    raise LocalAIError("RELATION_VERIFIER_RESPONSE_INVALID")

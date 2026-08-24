@@ -1,8 +1,26 @@
 import sys
+from pathlib import Path
+import shutil
 
 import pytest
 
-from pdf_evidence.local_ai_process import LocalAIError, LocalAIProcess
+import pdf_evidence.local_ai_process as process_module
+from pdf_evidence.local_ai_process import (
+    LocalAIError,
+    LocalAIProcess,
+    start_relation_process,
+)
+
+
+def _relation_child_settings(tmp_path: Path) -> dict[str, str]:
+    site_packages = tmp_path / "site-packages"
+    source_package = Path(__file__).parents[2] / "local_ai/src/studydy_local_ai"
+    shutil.copytree(source_package, site_packages / "studydy_local_ai")
+    return {
+        "python_executable": sys.executable,
+        "site_packages": str(site_packages),
+        "relation_model_root": str(tmp_path / "model"),
+    }
 
 
 def test_bounded_ndjson_pipe_and_clean_exit():
@@ -50,3 +68,65 @@ def test_child_exit_request_limit_and_stderr_are_not_exposed():
     child = LocalAIProcess([sys.executable, "-c", code], request_limit=100, response_limit=100)
     assert child.request({"request_id": "public"}, 2) == {"request_id": "public"}
     child.close()
+
+
+@pytest.mark.parametrize(
+    ("torch_source", "transformers_source", "expected_reason"),
+    [
+        (
+            "raise ImportError('private dependency diagnostic')\n",
+            "",
+            "RELATION_VERIFIER_DEPENDENCY_MISSING",
+        ),
+        (
+            "class cuda:\n    @staticmethod\n    def is_available(): return False\n",
+            "class AutoConfig: pass\nclass AutoModelForSequenceClassification: pass\nclass AutoTokenizer: pass\n",
+            "RELATION_VERIFIER_CUDA_UNAVAILABLE",
+        ),
+        (
+            "class cuda:\n    @staticmethod\n    def is_available(): return True\n",
+            "class Broken:\n    @staticmethod\n    def from_pretrained(*args, **kwargs): raise OSError('private model diagnostic')\nAutoConfig = AutoModelForSequenceClassification = AutoTokenizer = Broken\n",
+            "RELATION_VERIFIER_MODEL_LOAD_FAILED",
+        ),
+    ],
+)
+def test_real_relation_child_distinguishes_startup_failures(
+    tmp_path, torch_source, transformers_source, expected_reason
+):
+    settings = _relation_child_settings(tmp_path)
+    site_packages = Path(settings["site_packages"])
+    (site_packages / "torch.py").write_text(torch_source, encoding="utf-8")
+    if transformers_source:
+        (site_packages / "transformers.py").write_text(
+            transformers_source, encoding="utf-8"
+        )
+
+    with pytest.raises(LocalAIError) as failure:
+        start_relation_process(settings, 2)
+
+    assert failure.value.reason_code == expected_reason
+
+
+@pytest.mark.parametrize(
+    ("bootstrap", "startup_timeout", "expected_reason"),
+    [
+        (
+            "import json;print(json.dumps({'schema':'wrong'}),flush=True)",
+            2,
+            "RELATION_VERIFIER_RESPONSE_INVALID",
+        ),
+        (
+            "import time;time.sleep(10)",
+            0.02,
+            "RELATION_VERIFIER_TIMEOUT",
+        ),
+    ],
+)
+def test_relation_startup_invalid_response_and_timeout_fail_closed(
+    tmp_path, monkeypatch, bootstrap, startup_timeout, expected_reason
+):
+    monkeypatch.setattr(process_module, "_RELATION_BOOTSTRAP", bootstrap)
+    with pytest.raises(LocalAIError) as failure:
+        start_relation_process(_relation_child_settings(tmp_path), startup_timeout)
+
+    assert failure.value.reason_code == expected_reason
