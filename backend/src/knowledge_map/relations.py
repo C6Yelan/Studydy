@@ -146,8 +146,6 @@ def _evidence_ids(
         if owner == concept["formal_concept_id"]
         for evidence_id in claim["evidence_ids"]
     }
-    if not selected:
-        selected.update(concept["claims"][0]["evidence_ids"])
     return sorted(selected)
 
 
@@ -167,15 +165,18 @@ def _pair_evidence(
             source, target, supporting = (
                 (left, right, forward) if forward else (right, left, reverse)
             )
-            proposals.append(
-                {
-                    "type": relation_type,
-                    "source": source,
-                    "target": target,
-                    "source_evidence_ids": _evidence_ids(source, supporting),
-                    "target_evidence_ids": _evidence_ids(target, supporting),
-                }
-            )
+            source_evidence_ids = _evidence_ids(source, supporting)
+            target_evidence_ids = _evidence_ids(target, supporting)
+            if source_evidence_ids and target_evidence_ids:
+                proposals.append(
+                    {
+                        "type": relation_type,
+                        "source": source,
+                        "target": target,
+                        "source_evidence_ids": source_evidence_ids,
+                        "target_evidence_ids": target_evidence_ids,
+                    }
+                )
             signals.add("explicit_relation")
     related_support, related_signals = _related_claims(left, right)
     signals.update(related_signals)
@@ -183,15 +184,18 @@ def _pair_evidence(
         source, target = sorted(
             (left, right), key=lambda concept: concept["formal_concept_id"]
         )
-        proposals.append(
-            {
-                "type": "related",
-                "source": source,
-                "target": target,
-                "source_evidence_ids": _evidence_ids(source, related_support),
-                "target_evidence_ids": _evidence_ids(target, related_support),
-            }
-        )
+        source_evidence_ids = _evidence_ids(source, related_support)
+        target_evidence_ids = _evidence_ids(target, related_support)
+        if source_evidence_ids and target_evidence_ids:
+            proposals.append(
+                {
+                    "type": "related",
+                    "source": source,
+                    "target": target,
+                    "source_evidence_ids": source_evidence_ids,
+                    "target_evidence_ids": target_evidence_ids,
+                }
+            )
     return proposals, conflicts, signals
 
 

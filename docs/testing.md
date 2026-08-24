@@ -54,7 +54,7 @@ PYTHONPATH=backend/src python -m runtime.local_runtime verify
 ```
 
 `verify` 只讀取並驗證目前已安裝的 runtime，沒有副作用。`sync` 是明確、另行授權
-的操作，只 reconcile 已安裝 Studydy Python package 中的三個檔案：
+的操作，只 reconcile 已安裝 Studydy Python package 中的四個檔案：
 `__init__.py`、`protocol.py`、`ocr_process.py` 與 `relation_process.py`。若有變更，會先保留四個檔案的完整
 backup；`sync --rollback` 會從該 backup 還原。sync 不會在啟動時自動執行，也不會
 進行下載、安裝或網路操作；在真實主機上執行會改動檔案，必須另行取得批准。

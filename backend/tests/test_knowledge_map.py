@@ -379,6 +379,18 @@ def _relation_pages(concepts):
     }
 
 
+def _add_relation_claim(concept, number, text, evidence_number):
+    evidence_id = f"evidence:sha256:{evidence_number:064x}"
+    concept["claims"].append(
+        {
+            "claim_id": f"claim:sha256:{number:064x}",
+            "text": text,
+            "evidence_ids": [evidence_id],
+        }
+    )
+    return evidence_id
+
+
 def test_relation_selector_prioritizes_explicit_cross_page_pair_over_adjacency():
     concepts = [
         _relation_concept(1, "Algebra", "Algebra contains Eigenvectors.", page_number=1),
@@ -460,9 +472,48 @@ def test_relation_evidence_gate_skips_verifier_and_edge_without_pair_evidence():
     assert artifact["diagnostics"].get("verifier_calls", 0) == 0
 
 
-def test_contains_direction_is_deterministic_and_conflict_fails_closed():
-    parent = _relation_concept(1, "Linear algebra", "Linear algebra contains Matrices.")
+@pytest.mark.parametrize("supporting_endpoint", ["source", "target"])
+def test_relation_evidence_gate_rejects_when_only_one_endpoint_supports_relation(
+    supporting_endpoint,
+):
+    parent = _relation_concept(
+        1, "Linear algebra", "Linear algebra is a field of study."
+    )
     child = _relation_concept(2, "Matrices", "Matrices are rectangular arrays.")
+    if supporting_endpoint == "source":
+        _add_relation_claim(
+            parent, 201, "Linear algebra contains Matrices.", 301
+        )
+    else:
+        _add_relation_claim(
+            child, 202, "Matrices is a component of Linear algebra.", 302
+        )
+    calls = []
+
+    artifact = build_relation_artifact(
+        [(parent["formal_concept_id"], child["formal_concept_id"])],
+        [parent, child],
+        _relation_pages([parent, child]),
+        lambda *arguments: calls.append(arguments) or True,
+    )
+
+    assert artifact["relations"] == []
+    assert calls == []
+    assert artifact["diagnostics"]["rejected_no_evidence"] == 1
+    assert artifact["diagnostics"].get("verifier_calls", 0) == 0
+
+
+def test_contains_direction_is_deterministic_and_conflict_fails_closed():
+    parent = _relation_concept(
+        1, "Linear algebra", "Linear algebra is a field of study."
+    )
+    child = _relation_concept(2, "Matrices", "Matrices are rectangular arrays.")
+    parent_support = _add_relation_claim(
+        parent, 201, "Linear algebra contains Matrices.", 301
+    )
+    child_support = _add_relation_claim(
+        child, 202, "Matrices is a component of Linear algebra.", 302
+    )
     verified = []
     artifact = build_relation_artifact(
         [(parent["formal_concept_id"], child["formal_concept_id"])],
@@ -476,6 +527,14 @@ def test_contains_direction_is_deterministic_and_conflict_fails_closed():
     assert verified == [("contains", "Linear algebra", "Matrices")]
     assert relation["source_formal_concept_id"] == parent["formal_concept_id"]
     assert relation["target_formal_concept_id"] == child["formal_concept_id"]
+    assert relation["source_evidence_ids"] == [parent_support]
+    assert relation["target_evidence_ids"] == [child_support]
+    assert parent["claims"][0]["evidence_ids"][0] not in relation[
+        "source_evidence_ids"
+    ]
+    assert child["claims"][0]["evidence_ids"][0] not in relation[
+        "target_evidence_ids"
+    ]
 
     unsupported = build_relation_artifact(
         [(parent["formal_concept_id"], child["formal_concept_id"])],
@@ -487,7 +546,7 @@ def test_contains_direction_is_deterministic_and_conflict_fails_closed():
     assert unsupported["processing"] == "partial"
     assert unsupported["reason_codes"] == ["RELATION_VERIFIER_UNAVAILABLE"]
 
-    child["claims"][0]["text"] = "Matrices contains Linear algebra."
+    child["claims"][-1]["text"] = "Matrices contains Linear algebra."
     conflict = build_relation_artifact(
         [(parent["formal_concept_id"], child["formal_concept_id"])],
         [parent, child],
@@ -510,11 +569,15 @@ def test_relation_startup_failure_keeps_related_and_drops_structural(
     monkeypatch, reason_code
 ):
     parent = _relation_concept(
-        1, "Linear algebra", "Linear algebra contains Matrices."
+        1, "Linear algebra", "Linear algebra is a field of study."
     )
     child = _relation_concept(2, "Matrices", "Matrices are rectangular arrays.")
+    _add_relation_claim(parent, 201, "Linear algebra contains Matrices.", 301)
+    _add_relation_claim(
+        child, 202, "Matrices is a component of Linear algebra.", 302
+    )
     related_left = _relation_concept(3, "Graphs", "See Networks for related topics.")
-    related_right = _relation_concept(4, "Networks", "Networks connect nodes.")
+    related_right = _relation_concept(4, "Networks", "See Graphs for related topics.")
     concepts = [parent, child, related_left, related_right]
     batches = [[
         (parent["formal_concept_id"], child["formal_concept_id"]),
@@ -558,9 +621,13 @@ def test_relation_runtime_failure_rebuilds_all_batches_fail_closed(
     monkeypatch, request_outcome, expected_reason
 ):
     parent = _relation_concept(
-        1, "Linear algebra", "Linear algebra contains Matrices."
+        1, "Linear algebra", "Linear algebra is a field of study."
     )
     child = _relation_concept(2, "Matrices", "Matrices are rectangular arrays.")
+    _add_relation_claim(parent, 201, "Linear algebra contains Matrices.", 301)
+    _add_relation_claim(
+        child, 202, "Matrices is a component of Linear algebra.", 302
+    )
     process_events = []
 
     class Process:
@@ -600,13 +667,16 @@ def test_prerequisite_requires_explicit_dependency_not_document_order():
     )["relations"] == []
 
     target["claims"][0]["text"] = "Derivatives requires Limits."
+    _add_relation_claim(
+        prerequisite, 201, "Learn Limits before Derivatives.", 301
+    )
     relation = build_relation_artifact(
         pair, [prerequisite, target], _relation_pages([prerequisite, target]), lambda *_: True
     )["relations"][0]
     assert relation["type"] == "prerequisite"
     assert relation["source_formal_concept_id"] == prerequisite["formal_concept_id"]
 
-    prerequisite["claims"][0]["text"] = "Limits requires Derivatives."
+    prerequisite["claims"][-1]["text"] = "Limits requires Derivatives."
     assert build_relation_artifact(
         pair, [prerequisite, target], _relation_pages([prerequisite, target]), lambda *_: True
     )["relations"] == []
@@ -622,6 +692,10 @@ def test_related_requires_grounded_association_and_never_calls_verifier():
     )["relations"] == []
 
     left["claims"][0]["text"] = "See Graph Models for a visualization example."
+    assert build_relation_artifact(
+        pair, [left, right], _relation_pages([left, right]), lambda *_: True
+    )["relations"] == []
+    right["claims"][0]["text"] = "See Graph Model for the matching explanation."
     related = build_relation_artifact(
         pair, [left, right], _relation_pages([left, right]), lambda *args: calls.append(args) or True
     )
