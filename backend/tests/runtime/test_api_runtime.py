@@ -68,6 +68,7 @@ def settings(
         "site_packages": str(root / "ocr/runtime/lib/python3.12/site-packages"),
         "concept_site_packages": str(root / "vllm/lib/python3.12/site-packages"),
         "ocr_model_root": str(root / "models/unlimited-ocr"),
+        "relation_model_root": str(root / "models/mdeberta-v3-base-mnli-xnli"),
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
         "concept_server_executable": str(root / "vllm/bin/vllm"),
@@ -250,7 +251,7 @@ def test_success_exposes_only_review_map_with_pdf_locator(
         )
         assert map_response.status_code == 200
         view = map_response.json()
-        assert view["schema"] == "knowledge-map-view/v3"
+        assert view["schema"] == "knowledge-map-view/v4"
         assert view["status"]["decision"] == "review"
         assert view["concepts"][0]["claims"][0]["evidence"][0]["page_number"] == 1
         encoded = json.dumps(view)

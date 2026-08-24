@@ -44,7 +44,7 @@ function reviewMap() {
   const pageRef = `page:sha256:${"4".repeat(64)}`;
   const formalConceptId = `formal-concept:sha256:${"6".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v3",
+    schema: "knowledge-map-view/v4",
     material_ref: `material:sha256:${"5".repeat(64)}`,
     knowledge_map_revision: mapRevision,
     source_output_id: outputRevision,
@@ -75,6 +75,19 @@ function reviewMap() {
       reason_codes: ["FORMAL_CONCEPT_REVIEW_REQUIRED"],
     }],
     relations: [],
+    relation_diagnostics: {
+      possible_pairs: 0,
+      candidate_pairs: 0,
+      selected_pairs: 0,
+      selected_signal_counts: {},
+      evidence_gated_pairs: 0,
+      rejected_no_evidence: 0,
+      direction_conflicts: 0,
+      verifier_calls: 0,
+      verifier_rejected: 0,
+      verifier_unsupported: 0,
+      accepted_relations: 0,
+    },
     initial_learning_path: [formalConceptId],
     excluded_pages: [],
   };

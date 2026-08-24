@@ -62,7 +62,7 @@ function successfulRun() {
 function mapView() {
   const pageRef = `page:sha256:${"5".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v3",
+    schema: "knowledge-map-view/v4",
     material_ref: `material:sha256:${"6".repeat(64)}`,
     knowledge_map_revision: mapRevision,
     source_output_id: `study-material-output:sha256:${"3".repeat(64)}`,
@@ -93,9 +93,55 @@ function mapView() {
       reason_codes: ["SEMANTIC_REVIEW_REQUIRED"],
     }],
     relations: [],
+    relation_diagnostics: {
+      possible_pairs: 0,
+      candidate_pairs: 0,
+      selected_pairs: 0,
+      selected_signal_counts: {},
+      evidence_gated_pairs: 0,
+      rejected_no_evidence: 0,
+      direction_conflicts: 0,
+      verifier_calls: 0,
+      verifier_rejected: 0,
+      verifier_unsupported: 0,
+      accepted_relations: 0,
+    },
     initial_learning_path: [`formal-concept:sha256:${"7".repeat(64)}`],
     excluded_pages: [],
   };
+}
+
+function mapViewWithRelation() {
+  const view = mapView();
+  const source = view.concepts[0];
+  const target = structuredClone(source);
+  target.formal_concept_id = `formal-concept:sha256:${"b".repeat(64)}`;
+  target.claims[0].claim_id = `claim:sha256:${"c".repeat(64)}`;
+  target.claims[0].evidence[0].evidence_id = `evidence:sha256:${"e".repeat(64)}`;
+  target.source_concept_ids = [`concept:sha256:${"f".repeat(64)}`];
+  view.concepts.push(target);
+  view.initial_learning_path.push(target.formal_concept_id);
+  view.relations.push({
+    relation_id: `formal-relation:sha256:${"a".repeat(64)}`,
+    type: "related",
+    source_formal_concept_id: source.formal_concept_id,
+    target_formal_concept_id: target.formal_concept_id,
+    source_evidence_ids: [source.claims[0].evidence[0].evidence_id],
+    target_evidence_ids: [target.claims[0].evidence[0].evidence_id],
+    quality: "needs_review",
+    decision: "review",
+    reason_codes: ["RELATION_REVIEW_REQUIRED"],
+    is_in_prerequisite_cycle: false,
+  });
+  Object.assign(view.relation_diagnostics, {
+    possible_pairs: 1,
+    candidate_pairs: 1,
+    selected_pairs: 1,
+    selected_signal_counts: { shared_evidence: 1 },
+    evidence_gated_pairs: 1,
+    accepted_relations: 1,
+  });
+  return view;
 }
 
 test("protected request 的 401 會 refresh 後重送", async () => {
@@ -175,7 +221,7 @@ test("terminal binding 接受單頁多批 concept calls 並拒絕負數", async 
   );
 });
 
-test("Map v3 使用 exact run/revision 並要求 claim PDF locator", async () => {
+test("Map v4 使用 exact run/revision 並要求 claim PDF locator", async () => {
   const paths = [];
   const client = new StudydyApiClient(async (input) => {
     paths.push(String(input));
@@ -206,7 +252,31 @@ test("Map v3 使用 exact run/revision 並要求 claim PDF locator", async () =>
   );
 });
 
-test("Map v3 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
+test("Map v4 relation Evidence 必須屬於各自 endpoint", async () => {
+  let calls = 0;
+  const acceptedClient = new StudydyApiClient(async () => {
+    calls += 1;
+    return calls === 1
+      ? new Response(null, { status: 204 })
+      : Response.json(mapViewWithRelation());
+  });
+  assert.equal((await acceptedClient.getKnowledgeMap({ materialId, runId, mapRevision }))
+    .relations.length, 1);
+
+  const invalid = mapViewWithRelation();
+  invalid.relations[0].target_evidence_ids = invalid.relations[0].source_evidence_ids;
+  calls = 0;
+  const rejectedClient = new StudydyApiClient(async () => {
+    calls += 1;
+    return calls === 1 ? new Response(null, { status: 204 }) : Response.json(invalid);
+  });
+  await assert.rejects(
+    rejectedClient.getKnowledgeMap({ materialId, runId, mapRevision }),
+    (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
+  );
+});
+
+test("Map v4 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
   const mutations = {
     unexpected: (view) => { view.concepts[0].unexpected_field = true; },
     duplicate: (view) => { view.concepts.push(structuredClone(view.concepts[0])); },

@@ -149,7 +149,7 @@ class FormalConceptView(_ClosedModel):
 
 class FormalRelationView(_ClosedModel):
     relation_id: str = Field(pattern=r"^formal-relation:sha256:[0-9a-f]{64}$")
-    type: Literal["prerequisite", "contains", "similar", "confusing", "application", "example"]
+    type: Literal["prerequisite", "contains", "related"]
     source_formal_concept_id: str
     target_formal_concept_id: str
     source_evidence_ids: list[str] = Field(min_length=1)
@@ -158,6 +158,42 @@ class FormalRelationView(_ClosedModel):
     decision: Literal["review"]
     reason_codes: list[str] = Field(min_length=1)
     is_in_prerequisite_cycle: bool
+
+
+class RelationDiagnosticsView(_ClosedModel):
+    possible_pairs: int = Field(ge=0)
+    candidate_pairs: int = Field(ge=0)
+    selected_pairs: int = Field(ge=0)
+    selected_signal_counts: dict[str, int]
+    evidence_gated_pairs: int = Field(ge=0)
+    rejected_no_evidence: int = Field(ge=0)
+    direction_conflicts: int = Field(ge=0)
+    verifier_calls: int = Field(ge=0)
+    verifier_rejected: int = Field(ge=0)
+    verifier_unsupported: int = Field(ge=0)
+    accepted_relations: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> "RelationDiagnosticsView":
+        allowed_signals = {
+            "adjacent",
+            "same_group",
+            "same_page",
+            "explicit_relation",
+            "cross_reference",
+            "shared_evidence",
+            "shared_formula",
+        }
+        if (
+            self.selected_pairs > self.candidate_pairs
+            or self.candidate_pairs > self.possible_pairs
+            or any(
+                signal not in allowed_signals or count < 0
+                for signal, count in self.selected_signal_counts.items()
+            )
+        ):
+            raise ValueError("RELATION_DIAGNOSTICS_INVALID")
+        return self
 
 
 class ExcludedPageView(_ClosedModel):
@@ -179,7 +215,7 @@ class ArtifactStatusView(_ClosedModel):
 
 
 class KnowledgeMapView(_ClosedModel):
-    schema_: Literal["knowledge-map-view/v3"] = Field(alias="schema")
+    schema_: Literal["knowledge-map-view/v4"] = Field(alias="schema")
     material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
     knowledge_map_revision: str = Field(
         pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
@@ -190,6 +226,7 @@ class KnowledgeMapView(_ClosedModel):
     status: ArtifactStatusView
     concepts: list[FormalConceptView]
     relations: list[FormalRelationView]
+    relation_diagnostics: RelationDiagnosticsView
     initial_learning_path: list[str]
     excluded_pages: list[ExcludedPageView]
 
@@ -199,6 +236,7 @@ class KnowledgeMapView(_ClosedModel):
         reason_lists = [
             self.status.reason_codes,
             *(concept.reason_codes for concept in self.concepts),
+            *(relation.reason_codes for relation in self.relations),
             *(page.reason_codes for page in self.excluded_pages),
         ]
         if any(reasons != sorted(set(reasons)) for reasons in reason_lists):
@@ -217,6 +255,22 @@ class KnowledgeMapView(_ClosedModel):
             relation.source_formal_concept_id not in concept_ids
             or relation.target_formal_concept_id not in concept_ids
             or relation.source_formal_concept_id == relation.target_formal_concept_id
+            for relation in self.relations
+        ):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        evidence_by_concept = {
+            concept.formal_concept_id: {
+                evidence.evidence_id
+                for claim in concept.claims
+                for evidence in claim.evidence
+            }
+            for concept in self.concepts
+        }
+        if any(
+            not set(relation.source_evidence_ids)
+            <= evidence_by_concept[relation.source_formal_concept_id]
+            or not set(relation.target_evidence_ids)
+            <= evidence_by_concept[relation.target_formal_concept_id]
             for relation in self.relations
         ):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
