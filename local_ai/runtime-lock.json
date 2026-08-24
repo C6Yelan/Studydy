@@ -1,5 +1,5 @@
 {
-  "schema": "studydy-local-ai-runtime-lock/v3",
+  "schema": "studydy-local-ai-runtime-lock/v4",
   "python": {
     "version": "3.12.3",
     "executable_sha256": "4933b6c4a8521fb3aa93856701e30b3ac2626d3c47ceb22965a3b0b422e85b44"
@@ -70,8 +70,9 @@
     "grammar": "strict-det-blocks/v1",
     "package_sources": {
       "__init__.py": "c7a3ebd9b5d9dcd05a9c8a0610efb0ee5481d4733dd4101872bcf72c5ee4008c",
-      "protocol.py": "a785181371733846ef4774e32ba2fa9caff1d558b9c61b56cacab54a3b13d93f",
-      "ocr_process.py": "a429f32b5062860bff9412588953619a970383c8ed92b374425fa33ff8e6846f"
+      "protocol.py": "f4baccb95b53ee64ece8c0bfa785a5da55f12e947d5dc6e579a037e6bdad9e30",
+      "ocr_process.py": "a429f32b5062860bff9412588953619a970383c8ed92b374425fa33ff8e6846f",
+      "relation_process.py": "15aca1c85a34bd213ec249920fce67fcde750ecff6df0c9357ebf650e3d6a303"
     },
     "fixture_hashes": {}
   },
@@ -148,16 +149,36 @@
       "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
     }
   },
-  "formal_relation": {
-    "prompt": "/no_think\nFor every supplied pair return relations, no_relation, or uncertain. Use only supplied node and Evidence aliases. Relation types are prerequisite, contains, similar, confusing, application, and example. Every relation needs Evidence from both endpoints. Return JSON only.",
-    "prompt_sha256": "d4e81f27ec3a30989da76ae1e4a60fc32412856d303697f173b24985d2a40af1",
-    "request_schema": "formal-relation-input/v1",
-    "output_schema": "formal-relations/v1",
-    "generation": {"temperature": 0, "max_tokens": 2048},
-    "timeout_seconds": 300,
-    "retry": {
-      "max_attempts": 2,
-      "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
-    }
+  "relation_verifier": {
+    "model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+    "revision": "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c",
+    "license": "MIT",
+    "required_file_count": 7,
+    "required_files": [
+      {"name": "config.json", "size": 1066, "sha256": "4e4430c95100d613df80fa01276f231931e1b535557cf62fbb3cc50323e50cca"},
+      {"name": "model.safetensors", "size": 557652046, "sha256": "65af59b1ff4450b09ecbf13ca35c840dbf038b26ff8e10e5ea89ca724828ed1e"},
+      {"name": "spm.model", "size": 4305025, "sha256": "13c8d666d62a7bc4ac8f040aab68e942c861f93303156cc28f5c7e885d86d6e3"},
+      {"name": "tokenizer.json", "size": 16331396, "sha256": "3aca3ce69a0a35aeb144a52c4f1d41c4246b8785f8f398315cc8fb6b24057810"},
+      {"name": "tokenizer_config.json", "size": 1256, "sha256": "df9fd3a4482cc4a866788244824573fab8e74dadd1609d4f0e5997f9e96921dc"},
+      {"name": "special_tokens_map.json", "size": 286, "sha256": "9463f61e1b109a8eb4688b829260d7c6b1e6dff04c98ff7269bb89e2b92369b9"},
+      {"name": "added_tokens.json", "size": 23, "sha256": "fb697283833d25e2c711f1bc37730ecd8b20f4bd5f015db1d84aefe0adc9155a"}
+    ],
+    "request_schema": "local-relation-verifier-request/v1",
+    "response_schema": "local-relation-verifier-response/v1",
+    "startup_schema": "local-relation-verifier-startup/v1",
+    "startup_failure_reasons": [
+      "RELATION_VERIFIER_DEPENDENCY_MISSING",
+      "RELATION_VERIFIER_CUDA_UNAVAILABLE",
+      "RELATION_VERIFIER_MODEL_LOAD_FAILED"
+    ],
+    "hypotheses": {
+      "prerequisite": "Understanding B requires prior understanding of A.",
+      "contains": "B is a subordinate concept, sub-concept, or component of A."
+    },
+    "decision_rule": "entailment-threshold-and-argmax/v1",
+    "entailment_threshold": 0.8,
+    "maximum_tokens": 384,
+    "timeout_seconds": 120,
+    "safe_loading": "safetensors-local-only-no-remote-code"
   }
 }

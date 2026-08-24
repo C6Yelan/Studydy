@@ -1,27 +1,211 @@
 from __future__ import annotations
 
-from typing import Any
+from collections import Counter
+import re
+from typing import Any, Callable
+import unicodedata
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 
 
-RELATION_REQUEST_SCHEMA = "formal-relation-input/v1"
-RELATION_OUTPUT_SCHEMA = "formal-relations/v1"
-RELATION_TYPES = {
-    "prerequisite",
-    "contains",
-    "similar",
-    "confusing",
-    "application",
-    "example",
-}
-SYMMETRIC_TYPES = {"similar", "confusing"}
+RELATION_REQUEST_SCHEMA = "formal-relation-input/v2"
+RELATION_OUTPUT_SCHEMA = "formal-relations/v2"
+RELATION_TYPES = {"prerequisite", "contains", "related"}
+SYMMETRIC_TYPES = {"related"}
 MAX_RELATION_PAIRS = 128
 PAIR_BATCH_SIZE = 16
+
+RelationVerifier = Callable[[str, dict[str, Any], dict[str, Any]], bool]
 
 
 class RelationError(ValueError):
     """Relation candidate 不安全時只回傳固定 reason code。"""
+
+
+def _text(value: str) -> str:
+    return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+
+def _claims(concept: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    return [(_text(claim["text"]), claim) for claim in concept["claims"]]
+
+
+def _label_pattern(label: str) -> str | None:
+    normalized = _text(label)
+    if len(normalized.replace(" ", "")) < 2:
+        return None
+    return re.escape(normalized)
+
+
+def _directed_claims(
+    source: dict[str, Any],
+    target: dict[str, Any],
+    relation_type: str,
+) -> list[tuple[str, dict[str, Any]]]:
+    """只接受同一句中可辨識兩端與方向的 hierarchy/dependency 敘述。"""
+
+    source_label = _label_pattern(source["label"])
+    target_label = _label_pattern(target["label"])
+    if source_label is None or target_label is None:
+        return []
+    if relation_type == "contains":
+        patterns = (
+            rf"{source_label}.{{0,80}}\b(?:contains?|includes?|comprises?)\b.{{0,80}}{target_label}",
+            rf"{target_label}.{{0,80}}\b(?:is|are)\b.{{0,20}}\b(?:a |an )?(?:part|component|sub-?concept) of\b.{{0,80}}{source_label}",
+            rf"{source_label}.{{0,80}}(?:包含|包括|由).{{0,80}}{target_label}",
+            rf"{target_label}.{{0,80}}是.{{0,30}}{source_label}.{{0,20}}的(?:一部分|組成部分|子概念|子觀念)",
+        )
+    elif relation_type == "prerequisite":
+        patterns = (
+            rf"{target_label}.{{0,80}}\b(?:requires?|depends? on|has (?:a )?prerequisite)\b.{{0,80}}{source_label}",
+            rf"\b(?:understand|learn|master)\b.{{0,50}}{source_label}.{{0,30}}\bbefore\b.{{0,50}}{target_label}",
+            rf"{target_label}.{{0,80}}(?:需要|依賴).{{0,80}}{source_label}",
+            rf"先(?:理解|學習|掌握)?.{{0,40}}{source_label}.{{0,40}}再(?:理解|學習|掌握)?.{{0,40}}{target_label}",
+        )
+    else:
+        raise RelationError("RELATION_TYPE_INVALID")
+    return [
+        (concept["formal_concept_id"], claim)
+        for concept in (source, target)
+        for claim_text, claim in _claims(concept)
+        if any(re.search(pattern, claim_text) for pattern in patterns)
+    ]
+
+
+def _formulas(concept: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    found: dict[str, list[dict[str, Any]]] = {}
+    for claim_text, claim in _claims(concept):
+        expressions = re.findall(
+            r"\$[^$\n]{2,120}\$|\\\([^\n]{2,120}?\\\)|\\\[[^\n]{2,120}?\\\]",
+            claim_text,
+        )
+        for expression in expressions:
+            found.setdefault(expression, []).append(claim)
+    return found
+
+
+def _related_claims(
+    left: dict[str, Any], right: dict[str, Any]
+) -> tuple[list[tuple[str, dict[str, Any]]], set[str]]:
+    supporting: list[tuple[str, dict[str, Any]]] = []
+    signals: set[str] = set()
+    for concept, other in ((left, right), (right, left)):
+        other_label = _label_pattern(other["label"])
+        if other_label is None:
+            continue
+        for claim_text, claim in _claims(concept):
+            cross_reference_patterns = (
+                rf"\b(?:see|refer to|compare with|related to|example of|application of)\b.{{0,60}}{other_label}",
+                rf"{other_label}.{{0,60}}\b(?:example|application|related topic)\b",
+                rf"(?:參見|另見|比較|相關於|例如|應用於).{{0,40}}{other_label}",
+                rf"{other_label}.{{0,40}}(?:的例子|的應用|相關主題)",
+            )
+            if any(re.search(pattern, claim_text) for pattern in cross_reference_patterns):
+                supporting.append((concept["formal_concept_id"], claim))
+                signals.add("cross_reference")
+    left_evidence = {
+        evidence_id for _, claim in _claims(left) for evidence_id in claim["evidence_ids"]
+    }
+    right_evidence = {
+        evidence_id for _, claim in _claims(right) for evidence_id in claim["evidence_ids"]
+    }
+    shared_evidence = left_evidence & right_evidence
+    if shared_evidence:
+        signals.add("shared_evidence")
+        for concept in (left, right):
+            for _, claim in _claims(concept):
+                if set(claim["evidence_ids"]) & shared_evidence:
+                    supporting.append((concept["formal_concept_id"], claim))
+    left_formulas = _formulas(left)
+    right_formulas = _formulas(right)
+    shared_formulas = set(left_formulas) & set(right_formulas)
+    if shared_formulas:
+        signals.add("shared_formula")
+        for expression in shared_formulas:
+            supporting.extend(
+                (left["formal_concept_id"], claim)
+                for claim in left_formulas[expression]
+            )
+            supporting.extend(
+                (right["formal_concept_id"], claim)
+                for claim in right_formulas[expression]
+            )
+    unique = {
+        (owner, claim["claim_id"]): (owner, claim) for owner, claim in supporting
+    }
+    return list(unique.values()), signals
+
+
+def _evidence_ids(
+    concept: dict[str, Any],
+    supporting: list[tuple[str, dict[str, Any]]],
+) -> list[str]:
+    selected = {
+        evidence_id
+        for owner, claim in supporting
+        if owner == concept["formal_concept_id"]
+        for evidence_id in claim["evidence_ids"]
+    }
+    if not selected:
+        selected.update(concept["claims"][0]["evidence_ids"])
+    return sorted(selected)
+
+
+def _pair_evidence(
+    left: dict[str, Any], right: dict[str, Any]
+) -> tuple[list[dict[str, Any]], set[str], set[str]]:
+    proposals = []
+    conflicts: set[str] = set()
+    signals: set[str] = set()
+    for relation_type in ("contains", "prerequisite"):
+        forward = _directed_claims(left, right, relation_type)
+        reverse = _directed_claims(right, left, relation_type)
+        if forward and reverse:
+            conflicts.add(relation_type)
+            signals.add("explicit_relation")
+        elif forward or reverse:
+            source, target, supporting = (
+                (left, right, forward) if forward else (right, left, reverse)
+            )
+            proposals.append(
+                {
+                    "type": relation_type,
+                    "source": source,
+                    "target": target,
+                    "source_evidence_ids": _evidence_ids(source, supporting),
+                    "target_evidence_ids": _evidence_ids(target, supporting),
+                }
+            )
+            signals.add("explicit_relation")
+    related_support, related_signals = _related_claims(left, right)
+    signals.update(related_signals)
+    if related_support and not proposals and not conflicts:
+        source, target = sorted(
+            (left, right), key=lambda concept: concept["formal_concept_id"]
+        )
+        proposals.append(
+            {
+                "type": "related",
+                "source": source,
+                "target": target,
+                "source_evidence_ids": _evidence_ids(source, related_support),
+                "target_evidence_ids": _evidence_ids(target, related_support),
+            }
+        )
+    return proposals, conflicts, signals
+
+
+def has_structural_relation_evidence(
+    pairs: list[tuple[str, str]], formal_concepts: list[dict[str, Any]]
+) -> bool:
+    formal_by_id = {concept["formal_concept_id"]: concept for concept in formal_concepts}
+    return any(
+        any(proposal["type"] in {"contains", "prerequisite"} for proposal in proposals)
+        for left_id, right_id in pairs
+        for proposals, _, _ in [
+            _pair_evidence(formal_by_id[left_id], formal_by_id[right_id])
+        ]
+    )
 
 
 def select_relation_pairs(
@@ -30,7 +214,7 @@ def select_relation_pairs(
     *,
     ceiling: int = MAX_RELATION_PAIRS,
 ) -> tuple[list[list[tuple[str, str]]], dict[str, Any]]:
-    """依同頁、首次相鄰與同 resolution group 建立固定順序 pair。"""
+    """先排 explicit cross-page signals，再補同頁/group/相鄰候選。"""
 
     ordered = sorted(
         formal_concepts,
@@ -40,25 +224,60 @@ def select_relation_pairs(
             concept["formal_concept_id"],
         ),
     )
-    pairs: set[tuple[str, str]] = set()
+    candidates = []
     for index, left in enumerate(ordered):
-        for right in ordered[index + 1 :]:
+        for right_index, right in enumerate(ordered[index + 1 :], start=index + 1):
+            _, _, evidence_signals = _pair_evidence(left, right)
+            signals = set(evidence_signals)
             if set(left["source_page_refs"]) & set(right["source_page_refs"]):
-                pairs.add((left["formal_concept_id"], right["formal_concept_id"]))
+                signals.add("same_page")
             if left["group_id"] == right["group_id"]:
-                pairs.add((left["formal_concept_id"], right["formal_concept_id"]))
-    for left, right in zip(ordered, ordered[1:]):
-        pairs.add((left["formal_concept_id"], right["formal_concept_id"]))
-    position = {concept["formal_concept_id"]: index for index, concept in enumerate(ordered)}
-    selected = sorted(pairs, key=lambda pair: (position[pair[0]], position[pair[1]]))
-    is_partial = len(selected) > ceiling
-    selected = selected[:ceiling]
-    batches = [selected[index : index + PAIR_BATCH_SIZE] for index in range(0, len(selected), PAIR_BATCH_SIZE)]
+                signals.add("same_group")
+            if right_index == index + 1:
+                signals.add("adjacent")
+            if signals:
+                high_value = len(
+                    signals
+                    & {
+                        "explicit_relation",
+                        "cross_reference",
+                        "shared_evidence",
+                        "shared_formula",
+                    }
+                )
+                candidates.append(
+                    (
+                        -high_value,
+                        index,
+                        right_index,
+                        (left["formal_concept_id"], right["formal_concept_id"]),
+                        signals,
+                    )
+                )
+    candidates.sort(key=lambda candidate: candidate[:3])
+    selected = candidates[:ceiling]
+    signal_counts = Counter(signal for *_, signals in selected for signal in signals)
+    pairs = [candidate[3] for candidate in selected]
+    is_partial = len(candidates) > ceiling
+    batches = [
+        pairs[index : index + PAIR_BATCH_SIZE]
+        for index in range(0, len(pairs), PAIR_BATCH_SIZE)
+    ]
     return batches, {
         "processing": "partial" if is_partial else "succeeded",
         "quality": "needs_review",
         "decision": "review",
-        "reason_codes": ["RELATION_PAIR_CEILING_EXCEEDED"] if is_partial else ["RELATION_REVIEW_REQUIRED"],
+        "reason_codes": [
+            "RELATION_PAIR_CEILING_EXCEEDED"
+            if is_partial
+            else "RELATION_REVIEW_REQUIRED"
+        ],
+        "diagnostics": {
+            "possible_pairs": len(ordered) * (len(ordered) - 1) // 2,
+            "candidate_pairs": len(candidates),
+            "selected_pairs": len(selected),
+            "selected_signal_counts": dict(sorted(signal_counts.items())),
+        },
     }
 
 
@@ -66,16 +285,13 @@ def build_relation_request(
     pairs: list[tuple[str, str]],
     formal_concepts: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, str], dict[str, tuple[str, str]]]:
-    """Model 只看短 Concept／Evidence alias，不取得正式 identity。"""
+    """建立只含目前 pair 所需的短 alias 與 grounded claims。"""
 
     concepts_by_id = {concept["formal_concept_id"]: concept for concept in formal_concepts}
     concept_aliases: dict[str, str] = {}
     evidence_aliases: dict[str, tuple[str, str]] = {}
     nodes = []
-    needed = []
-    for pair in pairs:
-        needed.extend(pair)
-    for concept_id in dict.fromkeys(needed):
+    for concept_id in dict.fromkeys(item for pair in pairs for item in pair):
         concept = concepts_by_id.get(concept_id)
         if concept is None:
             raise RelationError("RELATION_ENDPOINT_INVALID")
@@ -104,6 +320,114 @@ def build_relation_request(
     return request, concept_aliases, evidence_aliases
 
 
+def relation_premise(source: dict[str, Any], target: dict[str, Any]) -> str:
+    """固定 A/B 方向；NLI 只驗證，不能交換 Evidence Gate 的方向。"""
+
+    source_claims = "\n".join(claim["text"] for claim in source["claims"])
+    target_claims = "\n".join(claim["text"] for claim in target["claims"])
+    return (
+        f"A: {source['label']}\nA grounded claims:\n{source_claims}\n"
+        f"B: {target['label']}\nB grounded claims:\n{target_claims}"
+    )
+
+
+def build_relation_artifact(
+    pairs: list[tuple[str, str]],
+    formal_concepts: list[dict[str, Any]],
+    evidence_pages: dict[str, str],
+    verifier: RelationVerifier | None,
+    *,
+    verifier_failure_reason: str = "RELATION_VERIFIER_UNAVAILABLE",
+) -> dict[str, Any]:
+    """Evidence Gate 先成立；structural proposal 才可呼叫 verifier。"""
+
+    request, concept_aliases, evidence_aliases = build_relation_request(
+        pairs, formal_concepts
+    )
+    formal_by_id = {concept["formal_concept_id"]: concept for concept in formal_concepts}
+    alias_by_id = {concept_id: alias for alias, concept_id in concept_aliases.items()}
+    evidence_alias_by_id = {
+        (owner_id, evidence_id): alias
+        for alias, (owner_id, evidence_id) in evidence_aliases.items()
+    }
+    diagnostics = Counter()
+    answers = []
+    for expected in request["pairs"]:
+        left = formal_by_id[concept_aliases[expected["left"]]]
+        right = formal_by_id[concept_aliases[expected["right"]]]
+        proposals, conflicts, _ = _pair_evidence(left, right)
+        if conflicts:
+            diagnostics["direction_conflicts"] += 1
+            answers.append(
+                {"id": expected["id"], "outcome": "uncertain", "relations": []}
+            )
+            continue
+        accepted = []
+        has_unsupported = False
+        if proposals:
+            diagnostics["evidence_gated_pairs"] += 1
+        else:
+            diagnostics["rejected_no_evidence"] += 1
+        for proposal in proposals:
+            if proposal["type"] != "related":
+                if verifier is None:
+                    diagnostics["verifier_unsupported"] += 1
+                    has_unsupported = True
+                    continue
+                diagnostics["verifier_calls"] += 1
+                if not verifier(proposal["type"], proposal["source"], proposal["target"]):
+                    diagnostics["verifier_rejected"] += 1
+                    continue
+            source_id = proposal["source"]["formal_concept_id"]
+            target_id = proposal["target"]["formal_concept_id"]
+            accepted.append(
+                {
+                    "type": proposal["type"],
+                    "source": alias_by_id[source_id],
+                    "target": alias_by_id[target_id],
+                    "source_evidence_ids": [
+                        evidence_alias_by_id[(source_id, evidence_id)]
+                        for evidence_id in proposal["source_evidence_ids"]
+                    ],
+                    "target_evidence_ids": [
+                        evidence_alias_by_id[(target_id, evidence_id)]
+                        for evidence_id in proposal["target_evidence_ids"]
+                    ],
+                }
+            )
+        diagnostics["accepted_relations"] += len(accepted)
+        answers.append(
+            {
+                "id": expected["id"],
+                "outcome": (
+                    "relations"
+                    if accepted
+                    else "uncertain"
+                    if has_unsupported
+                    else "no_relation"
+                ),
+                "relations": accepted,
+            }
+        )
+    artifact = validate_relations(
+        {"schema": RELATION_OUTPUT_SCHEMA, "pairs": answers},
+        request=request,
+        concept_aliases=concept_aliases,
+        evidence_aliases=evidence_aliases,
+        formal_concepts=formal_concepts,
+        evidence_pages=evidence_pages,
+    )
+    artifact["diagnostics"] = dict(sorted(diagnostics.items()))
+    if diagnostics["verifier_unsupported"]:
+        artifact.update(
+            {
+                "processing": "partial",
+                "reason_codes": [verifier_failure_reason],
+            }
+        )
+    return artifact
+
+
 def validate_relations(
     candidate: Any,
     *,
@@ -113,13 +437,13 @@ def validate_relations(
     formal_concepts: list[dict[str, Any]],
     evidence_pages: dict[str, str],
 ) -> dict[str, Any]:
-    """驗證 endpoint、雙側 Evidence ownership、方向與重覆衝突。"""
+    """驗證 endpoint、雙側 Evidence ownership、三類方向與重覆衝突。"""
 
     if (
         not isinstance(candidate, dict)
         or set(candidate) != {"schema", "pairs"}
-        or candidate["schema"] != RELATION_OUTPUT_SCHEMA
-        or not isinstance(candidate["pairs"], list)
+        or candidate.get("schema") != RELATION_OUTPUT_SCHEMA
+        or not isinstance(candidate.get("pairs"), list)
     ):
         raise RelationError("RELATION_SCHEMA_INVALID")
     expected = {pair["id"]: pair for pair in request["pairs"]}
@@ -143,15 +467,22 @@ def validate_relations(
         ):
             raise RelationError("RELATION_SCHEMA_INVALID")
         seen_pairs.add(answer["id"])
-        allowed_endpoints = {expected[answer["id"]]["left"], expected[answer["id"]]["right"]}
+        allowed = {
+            expected[answer["id"]]["left"],
+            expected[answer["id"]]["right"],
+        }
         for source_relation in answer["relations"]:
             if (
                 not isinstance(source_relation, dict)
                 or set(source_relation) != {
-                    "type", "source", "target", "source_evidence_ids", "target_evidence_ids"
+                    "type",
+                    "source",
+                    "target",
+                    "source_evidence_ids",
+                    "target_evidence_ids",
                 }
                 or source_relation["type"] not in RELATION_TYPES
-                or {source_relation["source"], source_relation["target"]} != allowed_endpoints
+                or {source_relation["source"], source_relation["target"]} != allowed
                 or source_relation["source"] == source_relation["target"]
             ):
                 raise RelationError("RELATION_ENDPOINT_INVALID")
@@ -165,11 +496,14 @@ def validate_relations(
             target_evidence = _owned_evidence(
                 source_relation["target_evidence_ids"], target_id, evidence_aliases
             )
-            source_pages = set(formal_by_id[source_id]["source_page_refs"])
-            target_pages = set(formal_by_id[target_id]["source_page_refs"])
-            if (
-                any(evidence_pages.get(item) not in source_pages for item in source_evidence)
-                or any(evidence_pages.get(item) not in target_pages for item in target_evidence)
+            if any(
+                evidence_pages.get(item)
+                not in set(formal_by_id[source_id]["source_page_refs"])
+                for item in source_evidence
+            ) or any(
+                evidence_pages.get(item)
+                not in set(formal_by_id[target_id]["source_page_refs"])
+                for item in target_evidence
             ):
                 raise RelationError("RELATION_EVIDENCE_INVALID")
             relation_type = source_relation["type"]

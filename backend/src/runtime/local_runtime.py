@@ -18,9 +18,16 @@ from .material_processing import (
 )
 
 
-_SOURCE_NAMES = ("__init__.py", "protocol.py", "ocr_process.py")
-_EXPECTED_RUNTIME_FILES = 20
-_BACKUP_NAME = ".studydy_local_ai-backup"
+_SOURCE_NAMES = (
+    "__init__.py",
+    "protocol.py",
+    "ocr_process.py",
+    "relation_process.py",
+)
+_EXPECTED_RUNTIME_FILES = 28
+_BACKUP_NAME = ".studydy_local_ai-backup-v4"
+_NEW_SOURCE_NAME = "relation_process.py"
+_MISSING_SUFFIX = ".missing"
 _CHUNK = 1024 * 1024
 
 
@@ -102,20 +109,30 @@ def _owned_regular_file(path: Path, *, component: str) -> os.stat_result:
 
 def _safe_targets(
     pairs: tuple[tuple[Path, Path], ...],
-) -> tuple[tuple[Path, os.stat_result], ...]:
+) -> tuple[tuple[Path, os.stat_result | None], ...]:
     target_root = pairs[0][1].parent
     root_status = _owned_directory(target_root, component="ocr_package")
     parent_status = _owned_directory(target_root.parent, component="backup")
-    targets = tuple(
-        (target, _owned_regular_file(target, component="ocr_package"))
-        for _, target in pairs
-    )
+    targets = []
+    for _, target in pairs:
+        try:
+            target_status = _owned_regular_file(
+                target, component="ocr_package"
+            )
+        except MaterialProcessingError as error:
+            if (
+                target.name != _NEW_SOURCE_NAME
+                or error.reason != "LOCAL_RUNTIME_MISSING"
+            ):
+                raise
+            target_status = None
+        targets.append((target, target_status))
     if parent_status.st_dev != root_status.st_dev or any(
-        target_status.st_dev != root_status.st_dev
+        target_status is not None and target_status.st_dev != root_status.st_dev
         for _, target_status in targets
     ):
         raise _runtime_error("backup", "LOCAL_RUNTIME_UNSAFE_TARGET")
-    return targets
+    return tuple(targets)
 
 
 def _fsync_directory(path: Path) -> None:
@@ -149,13 +166,14 @@ def _remove_temporary_backup(path: Path) -> None:
     try:
         for name in _SOURCE_NAMES:
             (path / name).unlink(missing_ok=True)
+            (path / f"{name}{_MISSING_SUFFIX}").unlink(missing_ok=True)
         path.rmdir()
     except OSError:
         pass
 
 
 def _build_backup(
-    targets: tuple[tuple[Path, os.stat_result], ...],
+    targets: tuple[tuple[Path, os.stat_result | None], ...],
 ) -> Path:
     target_root = targets[0][0].parent
     backup_root = target_root.parent / _BACKUP_NAME
@@ -166,6 +184,16 @@ def _build_backup(
     )
     try:
         for target, target_status in targets:
+            if target_status is None:
+                marker = temporary_root / f"{target.name}{_MISSING_SUFFIX}"
+                descriptor = os.open(
+                    marker,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                )
+                os.fsync(descriptor)
+                os.close(descriptor)
+                continue
             backup_file = temporary_root / target.name
             _copy_new_file(target, backup_file, stat.S_IMODE(target_status.st_mode))
             if _hash_file(backup_file, component="backup") != _hash_file(
@@ -184,7 +212,9 @@ def _build_backup(
     return backup_root
 
 
-def _validated_backup(backup_root: Path, device: int) -> tuple[Path, ...]:
+def _validated_backup(
+    backup_root: Path, device: int
+) -> tuple[Path | None, ...]:
     backup_status = _owned_directory(backup_root, component="backup")
     if backup_status.st_dev != device:
         raise _runtime_error("backup", "LOCAL_RUNTIME_BACKUP_CONFLICT")
@@ -192,10 +222,36 @@ def _validated_backup(backup_root: Path, device: int) -> tuple[Path, ...]:
         names = {entry.name for entry in backup_root.iterdir()}
     except OSError:
         raise _runtime_error("backup", "LOCAL_RUNTIME_BACKUP_CONFLICT") from None
-    if names != set(_SOURCE_NAMES):
+    allowed_names = set(_SOURCE_NAMES) | {
+        f"{_NEW_SOURCE_NAME}{_MISSING_SUFFIX}"
+    }
+    if (
+        not names <= allowed_names
+        or len(names) != len(_SOURCE_NAMES)
+        or any(
+            name not in names
+            and f"{name}{_MISSING_SUFFIX}" not in names
+            for name in _SOURCE_NAMES
+        )
+        or any(
+            f"{name}{_MISSING_SUFFIX}" in names and name != _NEW_SOURCE_NAME
+            for name in _SOURCE_NAMES
+        )
+    ):
         raise _runtime_error("backup", "LOCAL_RUNTIME_BACKUP_CONFLICT")
-    backup_files = tuple(backup_root / name for name in _SOURCE_NAMES)
+    backup_files = tuple(
+        None
+        if f"{name}{_MISSING_SUFFIX}" in names
+        else backup_root / name
+        for name in _SOURCE_NAMES
+    )
     for backup_file in backup_files:
+        if backup_file is None:
+            marker = backup_root / f"{_NEW_SOURCE_NAME}{_MISSING_SUFFIX}"
+            marker_status = _owned_regular_file(marker, component="backup")
+            if marker_status.st_dev != device or marker_status.st_size != 0:
+                raise _runtime_error("backup", "LOCAL_RUNTIME_BACKUP_CONFLICT")
+            continue
         backup_file_status = _owned_regular_file(backup_file, component="backup")
         if backup_file_status.st_dev != device:
             raise _runtime_error("backup", "LOCAL_RUNTIME_BACKUP_CONFLICT")
@@ -222,14 +278,26 @@ def _atomic_replace(source: Path, target: Path, mode: int) -> None:
 
 
 def _restore_targets(
-    targets: tuple[tuple[Path, os.stat_result], ...],
+    targets: tuple[tuple[Path, os.stat_result | None], ...],
     backup_root: Path,
     names: set[str] | None = None,
 ) -> int:
-    backup_files = _validated_backup(backup_root, targets[0][1].st_dev)
+    device = _owned_directory(targets[0][0].parent, component="backup").st_dev
+    backup_files = _validated_backup(backup_root, device)
     restored = 0
     for (target, _), backup_file in zip(targets, backup_files, strict=True):
         if names is not None and target.name not in names:
+            continue
+        if backup_file is None:
+            _owned_regular_file(target, component="ocr_package")
+            try:
+                target.unlink()
+                _fsync_directory(target.parent)
+            except OSError:
+                raise _runtime_error(
+                    "transaction", "LOCAL_RUNTIME_WRITE_FAILED"
+                ) from None
+            restored += 1
             continue
         backup_status = _owned_regular_file(backup_file, component="backup")
         _atomic_replace(
@@ -258,7 +326,8 @@ def sync_local_runtime(local_config: dict[str, Any]) -> dict[str, Any]:
     changed = tuple(
         (source, target, target_status)
         for (source, target), (_, target_status) in zip(pairs, targets, strict=True)
-        if _hash_file(source) != _hash_file(target, component="ocr_package")
+        if target_status is None
+        or _hash_file(source) != _hash_file(target, component="ocr_package")
     )
     if not changed:
         return {
@@ -272,7 +341,11 @@ def sync_local_runtime(local_config: dict[str, Any]) -> dict[str, Any]:
     try:
         for source, target, target_status in changed:
             attempted.add(target.name)
-            _atomic_replace(source, target, stat.S_IMODE(target_status.st_mode))
+            if target_status is None:
+                _copy_new_file(source, target, 0o640)
+                _fsync_directory(target.parent)
+            else:
+                _atomic_replace(source, target, stat.S_IMODE(target_status.st_mode))
         _, verified_files = validate_installed_local_runtime(local_config)
         if verified_files != _EXPECTED_RUNTIME_FILES:
             raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")

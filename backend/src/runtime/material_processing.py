@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, update
 
+from knowledge_map.relations import MAX_RELATION_PAIRS
 from pdf_evidence.concept_api import (
     CONCEPT_SERVER_READY_TIMEOUT_SECONDS,
     ConceptAPIError,
@@ -43,6 +44,7 @@ _CONFIG_KEYS = {
     "site_packages",
     "concept_site_packages",
     "ocr_model_root",
+    "relation_model_root",
     "concept_api_base_url",
     "concept_model",
     "concept_server_executable",
@@ -57,15 +59,16 @@ _CONFIG_PATH_KEYS = {
     "site_packages",
     "concept_site_packages",
     "ocr_model_root",
+    "relation_model_root",
     "concept_server_executable",
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "3006d931e3583487b706e89e6069abe0678b0521748f3046e9259c65c2f88e34",
+    "local_ai/runtime-lock.json": "e40e5cb4a37b5f539f0755ccb3c528426302f9295e8f0a7ba837fac71e69bf9a",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "69deb46b06762b82ec75eded692452329d7e364c2b3e8a4ff4b6ac1fa14e71c0",
     "backend/src/pdf_evidence/concept_generation.py": "afad7726379afaba94d5d68919e8200f80ab2bef48b888f9150fe800a60c24f4",
     "backend/src/pdf_evidence/concept_api.py": "101baffaa34a5b440b3dd354a078c5416634c3a63321dfd567cd15f4d3882750",
-    "backend/src/pdf_evidence/local_ai_process.py": "72e5c4a15ee078e94e985a998944bc08175382f14e84eb3f0a417025bc2b723f",
+    "backend/src/pdf_evidence/local_ai_process.py": "32686d52b8ef2a472dab833fdaa15bad4c45121e7c68f62af8fc05e53799578a",
 }
 _BINDING_FILES = (
     "backend/src/pdf_evidence/artifact_reason_codes.py",
@@ -78,6 +81,7 @@ _BINDING_FILES = (
     "backend/src/knowledge_map/formal_concepts.py",
     "backend/src/knowledge_map/relations.py",
     "backend/src/knowledge_map/local_generation.py",
+    "backend/src/pdf_evidence/local_ai_process.py",
     "backend/src/runtime/material_processing.py",
     "backend/src/runtime/local_app.py",
     "backend/src/pdf_evidence/source_pdf.py",
@@ -97,6 +101,7 @@ _RUNTIME_COMPONENTS = {
     "python_runtime",
     "ocr_package",
     "ocr_model",
+    "relation_model",
     "concept_runtime",
     "concept_model",
     "product_code",
@@ -262,7 +267,7 @@ def _prepare_private_runtime_root(value: str) -> None:
 
 
 def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
-    """把 runtime lock 對應到 OCR 與 Qwen 真正會開啟的本機檔案。"""
+    """把 runtime lock 對應到 OCR、Qwen 與 Relation verifier 本機檔案。"""
 
     runtime_lock = local_config["runtime_lock"]
     python_executable = _absolute_runtime_path(
@@ -282,6 +287,11 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
     )
     ocr_model_root = _absolute_runtime_path(
         local_config["ocr_model_root"], is_directory=True, component="ocr_model"
+    )
+    relation_model_root = _absolute_runtime_path(
+        local_config["relation_model_root"],
+        is_directory=True,
+        component="relation_model",
     )
     concept_server_executable = _absolute_runtime_path(
         local_config["concept_server_executable"],
@@ -346,6 +356,18 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
                 concept_model_root / name,
                 required_file["sha256"],
                 "concept_model",
+                required_file.get("size"),
+            )
+        )
+    for required_file in runtime_lock["relation_verifier"]["required_files"]:
+        name = required_file["name"]
+        if Path(name).name != name:
+            raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")
+        files.append(
+            _RuntimeFile(
+                relation_model_root / name,
+                required_file["sha256"],
+                "relation_model",
                 required_file.get("size"),
             )
         )
@@ -479,6 +501,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         "site_packages": root / "ocr/runtime/lib/python3.12/site-packages",
         "concept_site_packages": root / "vllm/lib/python3.12/site-packages",
         "ocr_model_root": root / "models/unlimited-ocr",
+        "relation_model_root": root / "models/mdeberta-v3-base-mnli-xnli",
         "concept_server_executable": root / "vllm/bin/vllm",
         "concept_model_root": root / "models/qwen3-14b-awq",
     }
@@ -553,7 +576,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         for relative_path in _BINDING_FILES
     }
     binding = {
-        "schema": "formal-material-runtime-binding/v5",
+        "schema": "formal-material-runtime-binding/v6",
         "runtime_lock_sha256": canonical_sha256(local_config["runtime_lock"]),
         "code_hashes": code_hashes,
         "document_policy": "whole-document-review-aggregation/v1",
@@ -562,12 +585,17 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
             "ocr_calls_per_page": 1,
             "ocr_initial_loads": 1,
             "concept_initial_loads": 2,
+            "relation_verifier_initial_loads": 1,
+            "relation_verifier_calls_per_material": MAX_RELATION_PAIRS,
         },
         "timeouts_seconds": {
             "resident_lock": 5,
             "ocr_page": 120,
             "concept_attempt": 300,
             "concept_server_ready": CONCEPT_SERVER_READY_TIMEOUT_SECONDS,
+            "relation_verifier": local_config["runtime_lock"][
+                "relation_verifier"
+            ]["timeout_seconds"],
         },
         "retry_policy": {
             "ocr_attempts": 1,
@@ -588,7 +616,13 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
             "structured_output": deepcopy(semantic_lock["structured_output"]),
             "input_token_budget": deepcopy(semantic_lock["input_token_budget"]),
         },
-        "residency_policy": "ocr-child-then-owned-loopback-concept-server/v3",
+        "relation_verifier": deepcopy(
+            local_config["runtime_lock"]["relation_verifier"]
+        ),
+        "residency_policy": (
+            "ocr-child-then-owned-loopback-concept-server-"
+            "then-relation-verifier/v4"
+        ),
         "network_policy": "loopback-concept-api-no-credentials/v1",
         "retention_policy": {
             "provider_raw": "not_persisted",

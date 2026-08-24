@@ -9,14 +9,26 @@ from pdf_evidence.artifact_reason_codes import reason_codes_are_valid
 from pdf_evidence.study_material_output import validate_study_material_output
 
 
-RELATION_TYPES = {
-    "prerequisite", "contains", "similar", "confusing", "application", "example"
+RELATION_TYPES = {"prerequisite", "contains", "related"}
+SYMMETRIC_RELATION_TYPES = {"related"}
+
+
+KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v4"
+KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v4"
+
+_RELATION_DIAGNOSTIC_FIELDS = {
+    "possible_pairs",
+    "candidate_pairs",
+    "selected_pairs",
+    "selected_signal_counts",
+    "evidence_gated_pairs",
+    "rejected_no_evidence",
+    "direction_conflicts",
+    "verifier_calls",
+    "verifier_rejected",
+    "verifier_unsupported",
+    "accepted_relations",
 }
-SYMMETRIC_RELATION_TYPES = {"similar", "confusing"}
-
-
-KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v3"
-KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v3"
 
 
 def _revision(document: dict[str, Any]) -> str:
@@ -100,6 +112,27 @@ def _learning_path(
     return path
 
 
+def _relation_diagnostics(
+    relation_pair_status: dict[str, Any],
+    relation_artifacts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    selector = relation_pair_status.get("diagnostics", {})
+    diagnostics = {
+        "possible_pairs": selector.get("possible_pairs", 0),
+        "candidate_pairs": selector.get("candidate_pairs", 0),
+        "selected_pairs": selector.get("selected_pairs", 0),
+        "selected_signal_counts": deepcopy(
+            selector.get("selected_signal_counts", {})
+        ),
+    }
+    for field in _RELATION_DIAGNOSTIC_FIELDS - set(diagnostics):
+        diagnostics[field] = sum(
+            artifact.get("diagnostics", {}).get(field, 0)
+            for artifact in relation_artifacts
+        )
+    return diagnostics
+
+
 def build_knowledge_map(
     study_material_output: dict[str, Any],
     resolution_artifacts: list[dict[str, Any]],
@@ -173,6 +206,11 @@ def build_knowledge_map(
         "KNOWLEDGE_MAP_REVIEW_REQUIRED",
         *study_material_output["reason_codes"],
         *relation_pair_status.get("reason_codes", []),
+        *(
+            reason
+            for artifact in relation_artifacts
+            for reason in artifact.get("reason_codes", [])
+        ),
     }
     if cycle_ids:
         reasons.add("PREREQUISITE_CYCLE")
@@ -190,6 +228,9 @@ def build_knowledge_map(
         "material_ref": study_material_output["material_ref"],
         "formal_concepts": formal_concepts,
         "relations": relations,
+        "relation_diagnostics": _relation_diagnostics(
+            relation_pair_status, relation_artifacts
+        ),
         "initial_learning_path": path,
         "evidence_index": deepcopy(study_material_output["evidence_index"]),
         "excluded_pages": deepcopy(study_material_output["excluded_pages"]),
@@ -206,7 +247,7 @@ def build_knowledge_map(
 
 def validate_knowledge_map(knowledge_map: Any) -> str | None:
     fields = {
-        "schema", "source_output_id", "source_binding", "material_ref", "formal_concepts", "relations",
+        "schema", "source_output_id", "source_binding", "material_ref", "formal_concepts", "relations", "relation_diagnostics",
         "initial_learning_path", "evidence_index", "excluded_pages", "processing",
         "quality", "decision", "reason_codes", "revision",
     }
@@ -236,6 +277,35 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             )
             or not reason_codes_are_valid(knowledge_map["reason_codes"], formal=True)
             or knowledge_map["reason_codes"] != sorted(set(knowledge_map["reason_codes"]))
+        ):
+            return "KNOWLEDGE_MAP_INVALID"
+        diagnostics = knowledge_map["relation_diagnostics"]
+        if (
+            not isinstance(diagnostics, dict)
+            or set(diagnostics) != _RELATION_DIAGNOSTIC_FIELDS
+            or any(
+                type(diagnostics[field]) is not int or diagnostics[field] < 0
+                for field in _RELATION_DIAGNOSTIC_FIELDS
+                - {"selected_signal_counts"}
+            )
+            or not isinstance(diagnostics["selected_signal_counts"], dict)
+            or any(
+                signal
+                not in {
+                    "adjacent",
+                    "same_group",
+                    "same_page",
+                    "explicit_relation",
+                    "cross_reference",
+                    "shared_evidence",
+                    "shared_formula",
+                }
+                or type(count) is not int
+                or count < 0
+                for signal, count in diagnostics["selected_signal_counts"].items()
+            )
+            or diagnostics["selected_pairs"] > diagnostics["candidate_pairs"]
+            or diagnostics["candidate_pairs"] > diagnostics["possible_pairs"]
         ):
             return "KNOWLEDGE_MAP_INVALID"
         formal = knowledge_map["formal_concepts"]
@@ -483,6 +553,7 @@ def build_knowledge_map_view(knowledge_map: dict[str, Any]) -> dict[str, Any]:
         },
         "concepts": concepts,
         "relations": deepcopy(knowledge_map["relations"]),
+        "relation_diagnostics": deepcopy(knowledge_map["relation_diagnostics"]),
         "initial_learning_path": deepcopy(knowledge_map["initial_learning_path"]),
         "excluded_pages": deepcopy(knowledge_map["excluded_pages"]),
     }

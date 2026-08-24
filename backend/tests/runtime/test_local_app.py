@@ -64,6 +64,7 @@ def test_formal_launch_uses_the_local_composition_root(monkeypatch):
         "site_packages",
         "concept_site_packages",
         "ocr_model_root",
+        "relation_model_root",
         "concept_api_base_url",
         "concept_model",
         "concept_server_executable",
@@ -77,6 +78,9 @@ def test_formal_launch_uses_the_local_composition_root(monkeypatch):
     assert observed[0]["local_config"]["concept_max_model_len"] == 8_192
     assert observed[0]["local_config"]["python_executable"] == (
         "/temporary/studydy/ocr/runtime/bin/python3.12"
+    )
+    assert observed[0]["local_config"]["relation_model_root"] == (
+        "/temporary/studydy/models/mdeberta-v3-base-mnli-xnli"
     )
     assert observed[1] == (
         app,
@@ -102,6 +106,7 @@ def test_cli_reader_returns_only_existing_local_ai_arguments():
         "site_packages",
         "concept_site_packages",
         "ocr_model_root",
+        "relation_model_root",
         "concept_api_base_url",
         "concept_model",
         "concept_server_executable",

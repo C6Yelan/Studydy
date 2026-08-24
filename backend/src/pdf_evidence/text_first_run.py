@@ -100,9 +100,11 @@ def _reason(error: Exception) -> str:
 def _validate_runtime_lock(runtime_lock: Any) -> None:
     try:
         semantic = runtime_lock["semantic"]
+        relation_verifier = runtime_lock["relation_verifier"]
         matches = (
             isinstance(runtime_lock, dict)
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
+            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v4"
             and runtime_lock["semantic"]["required_file_count"]
             == len(runtime_lock["semantic"]["required_files"])
             and runtime_lock["semantic"]["binding_manifest_sha256"]
@@ -113,8 +115,31 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
             and all(
                 hashlib.sha256(runtime_lock[stage]["prompt"].encode("utf-8")).hexdigest()
                 == runtime_lock[stage]["prompt_sha256"]
-                for stage in ("semantic", "formal_resolution", "formal_relation")
+                for stage in ("semantic", "formal_resolution")
             )
+            and relation_verifier["model_id"]
+            == "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
+            and relation_verifier["revision"]
+            == "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c"
+            and relation_verifier["required_file_count"]
+            == len(relation_verifier["required_files"])
+            and relation_verifier["startup_schema"]
+            == "local-relation-verifier-startup/v1"
+            and relation_verifier["startup_failure_reasons"]
+            == [
+                "RELATION_VERIFIER_DEPENDENCY_MISSING",
+                "RELATION_VERIFIER_CUDA_UNAVAILABLE",
+                "RELATION_VERIFIER_MODEL_LOAD_FAILED",
+            ]
+            and relation_verifier["hypotheses"]
+            == {
+                "prerequisite": "Understanding B requires prior understanding of A.",
+                "contains": "B is a subordinate concept, sub-concept, or component of A.",
+            }
+            and relation_verifier["decision_rule"]
+            == "entailment-threshold-and-argmax/v1"
+            and relation_verifier["entailment_threshold"] == 0.8
+            and relation_verifier["maximum_tokens"] == 384
         )
     except (KeyError, RecursionError, TypeError, ValueError):
         matches = False
