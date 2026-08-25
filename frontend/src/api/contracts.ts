@@ -88,7 +88,7 @@ export type ExcludedPageView = {
 };
 
 export type KnowledgeMapView = {
-  schema: "knowledge-map-view/v5";
+  schema: "knowledge-map-view/v6";
   material_ref: string;
   knowledge_map_revision: string;
   source_output_id: string;
@@ -131,8 +131,11 @@ export type KnowledgeMapView = {
     type: "prerequisite" | "contains" | "related";
     source_formal_concept_id: string;
     target_formal_concept_id: string;
-    source_evidence_ids: string[];
-    target_evidence_ids: string[];
+    relation_evidence: {
+      owner_formal_concept_id: string;
+      claim_id: string;
+      evidence_ids: string[];
+    }[];
     quality: "needs_review";
     decision: "review";
     reason_codes: string[];
@@ -147,8 +150,13 @@ export type KnowledgeMapView = {
     rejected_no_evidence: number;
     direction_conflicts: number;
     verifier_calls: number;
+    verifier_accepted: number;
     verifier_rejected: number;
     verifier_unsupported: number;
+    structural_proposals: number;
+    contains_proposals: number;
+    prerequisite_proposals: number;
+    related_proposals: number;
     accepted_relations: number;
   };
   resource_binding: {

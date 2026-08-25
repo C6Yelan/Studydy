@@ -205,13 +205,17 @@ function isRelationDiagnostics(value: unknown): boolean {
   const diagnostics = closed(value, [
     "possible_pairs", "candidate_pairs", "selected_pairs", "selected_signal_counts",
     "evidence_gated_pairs", "rejected_no_evidence", "direction_conflicts",
-    "verifier_calls", "verifier_rejected", "verifier_unsupported", "accepted_relations",
+    "verifier_calls", "verifier_accepted", "verifier_rejected", "verifier_unsupported",
+    "structural_proposals", "contains_proposals", "prerequisite_proposals",
+    "related_proposals", "accepted_relations",
   ]);
   if (!diagnostics) return false;
   const countNames = [
     "possible_pairs", "candidate_pairs", "selected_pairs", "evidence_gated_pairs",
-    "rejected_no_evidence", "direction_conflicts", "verifier_calls", "verifier_rejected",
-    "verifier_unsupported", "accepted_relations",
+    "rejected_no_evidence", "direction_conflicts", "verifier_calls", "verifier_accepted",
+    "verifier_rejected", "verifier_unsupported", "structural_proposals",
+    "contains_proposals", "prerequisite_proposals", "related_proposals",
+    "accepted_relations",
   ];
   const signals = object(diagnostics.selected_signal_counts);
   const allowedSignals = new Set([
@@ -223,7 +227,11 @@ function isRelationDiagnostics(value: unknown): boolean {
     && Object.entries(signals).every(([name, count]) => allowedSignals.has(name)
       && Number.isInteger(count) && Number(count) >= 0)
     && Number(diagnostics.selected_pairs) <= Number(diagnostics.candidate_pairs)
-    && Number(diagnostics.candidate_pairs) <= Number(diagnostics.possible_pairs);
+    && Number(diagnostics.candidate_pairs) <= Number(diagnostics.possible_pairs)
+    && Number(diagnostics.verifier_accepted) + Number(diagnostics.verifier_rejected)
+      <= Number(diagnostics.verifier_calls)
+    && Number(diagnostics.structural_proposals) === Number(diagnostics.contains_proposals)
+      + Number(diagnostics.prerequisite_proposals);
 }
 
 function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
@@ -233,7 +241,7 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     "resource_diagnostics", "resource_decisions", "initial_learning_path", "excluded_pages",
   ]);
   if (!item
-    || item.schema !== "knowledge-map-view/v5"
+    || item.schema !== "knowledge-map-view/v6"
     || !isRevision(item.material_ref, "material")
     || !isRevision(item.knowledge_map_revision, "knowledge-map")
     || !isRevision(item.source_output_id, "study-material-output")
@@ -324,19 +332,19 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     || Number(resourceDiagnostics.matches) !== Number(resourceDiagnostics.promoted_matches)
       + Number(resourceDiagnostics.dropped_matches) + Number(resourceDiagnostics.split_review_matches)) return false;
   const conceptIds = item.concepts.map((entry) => object(entry)?.formal_concept_id);
-  const evidenceByConcept = new Map(
+  const claimsByConcept = new Map(
     (item.concepts as unknown as KnowledgeMapView["concepts"]).map((concept) => [
       concept.formal_concept_id,
-      new Set(
-        concept.claims.flatMap((claim) =>
-          claim.evidence.map((evidence) => evidence.evidence_id)),
-      ),
+      new Map(concept.claims.map((claim) => [
+        claim.claim_id,
+        new Set(claim.evidence.map((evidence) => evidence.evidence_id)),
+      ])),
     ]),
   );
   const relationsAreValid = item.relations.every((value) => {
     const relation = closed(value, [
       "relation_id", "type", "source_formal_concept_id", "target_formal_concept_id",
-      "source_evidence_ids", "target_evidence_ids", "quality", "decision",
+      "relation_evidence", "quality", "decision",
       "reason_codes", "is_in_prerequisite_cycle",
     ]);
     return !!relation
@@ -345,14 +353,27 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
       && conceptIds.includes(relation.source_formal_concept_id)
       && conceptIds.includes(relation.target_formal_concept_id)
       && relation.source_formal_concept_id !== relation.target_formal_concept_id
-      && isStringArray(relation.source_evidence_ids, 1)
-      && isStringArray(relation.target_evidence_ids, 1)
-      && (relation.source_evidence_ids as unknown[]).every((evidenceId) =>
-        evidenceByConcept.get(String(relation.source_formal_concept_id))
-          ?.has(String(evidenceId)) === true)
-      && (relation.target_evidence_ids as unknown[]).every((evidenceId) =>
-        evidenceByConcept.get(String(relation.target_formal_concept_id))
-          ?.has(String(evidenceId)) === true)
+      && Array.isArray(relation.relation_evidence)
+      && relation.relation_evidence.length > 0
+      && relation.relation_evidence.every((value) => {
+        const evidence = closed(value, [
+          "owner_formal_concept_id", "claim_id", "evidence_ids",
+        ]);
+        return !!evidence
+          && [relation.source_formal_concept_id, relation.target_formal_concept_id]
+            .includes(evidence.owner_formal_concept_id)
+          && isRevision(evidence.claim_id, "claim")
+          && isStringArray(evidence.evidence_ids, 1)
+          && (evidence.evidence_ids as string[]).every(
+            (item, index, items) => index === 0 || items[index - 1] < item,
+          )
+          && (evidence.evidence_ids as unknown[]).every((evidenceId) =>
+            claimsByConcept.get(String(evidence.owner_formal_concept_id))
+              ?.get(String(evidence.claim_id))?.has(String(evidenceId)) === true);
+      })
+      && new Set((relation.relation_evidence as unknown as Array<Record<string, unknown>>)
+        .map((evidence) => `${String(evidence.owner_formal_concept_id)}:${String(evidence.claim_id)}`))
+        .size === relation.relation_evidence.length
       && relation.quality === "needs_review"
       && relation.decision === "review"
       && isSortedUniqueStrings(relation.reason_codes)

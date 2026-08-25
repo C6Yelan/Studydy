@@ -399,7 +399,10 @@ def test_relation_aliases_are_formal_and_wrong_evidence_owner_fails():
     first = resolution["formal_concepts"][0]
     second = deepcopy(first)
     second["formal_concept_id"] = "formal-concept:sha256:" + "f" * 64
-    second["label"] = "Second"
+    first["label"] = "Alpha"
+    first["claims"][0]["text"] = "Alpha contains Beta."
+    second["label"] = "Beta"
+    second["claims"][0]["text"] = "Beta is independently grounded."
     second["resolution_order"] = [1, 0]
     formal = [first, second]
     pairs, status = select_relation_pairs(formal, {study["pages"][0]["page_ref"]: 1})
@@ -407,18 +410,20 @@ def test_relation_aliases_are_formal_and_wrong_evidence_owner_fails():
     request, concept_aliases, evidence_aliases = build_relation_request(pairs[0], formal)
     pair = request["pairs"][0]
     source_evidence = next(alias for alias, owner in evidence_aliases.items() if owner[0] == concept_aliases[pair["left"]])
-    target_evidence = next(alias for alias, owner in evidence_aliases.items() if owner[0] == concept_aliases[pair["right"]])
+    target_evidence = next(
+        alias for alias, owner in evidence_aliases.items()
+        if owner[0] == concept_aliases[pair["right"]]
+    )
     candidate = {
-        "schema": "formal-relations/v2",
+        "schema": "formal-relations/v3",
         "pairs": [{
             "id": pair["id"],
             "outcome": "relations",
             "relations": [{
-                "type": "prerequisite",
+                "type": "contains",
                 "source": pair["left"],
                 "target": pair["right"],
-                "source_evidence_ids": [source_evidence],
-                "target_evidence_ids": [target_evidence],
+                "relation_evidence_ids": [source_evidence],
             }],
         }],
     }
@@ -431,7 +436,15 @@ def test_relation_aliases_are_formal_and_wrong_evidence_owner_fails():
         evidence_pages={study["evidence_index"][0]["evidence_id"]: study["pages"][0]["page_ref"]},
     )
     assert artifact["relations"][0]["source_formal_concept_id"].startswith("formal-concept:")
-    candidate["pairs"][0]["relations"][0]["source_evidence_ids"] = [target_evidence]
+    relation_evidence = artifact["relations"][0]["relation_evidence"]
+    assert relation_evidence == [{
+        "owner_formal_concept_id": first["formal_concept_id"],
+        "claim_id": first["claims"][0]["claim_id"],
+        "evidence_ids": first["claims"][0]["evidence_ids"],
+    }]
+    candidate["pairs"][0]["relations"][0]["relation_evidence_ids"] = [
+        target_evidence
+    ]
     try:
         validate_relations(
             candidate,
@@ -446,12 +459,27 @@ def test_relation_aliases_are_formal_and_wrong_evidence_owner_fails():
     else:
         raise AssertionError("wrong owner must fail closed")
 
+    candidate["pairs"][0]["relations"][0]["relation_evidence_ids"] = [
+        "unresolved"
+    ]
+    with pytest.raises(RelationError, match="RELATION_EVIDENCE_INVALID"):
+        validate_relations(
+            candidate,
+            request=request,
+            concept_aliases=concept_aliases,
+            evidence_aliases=evidence_aliases,
+            formal_concepts=formal,
+            evidence_pages={
+                study["evidence_index"][0]["evidence_id"]:
+                study["pages"][0]["page_ref"]
+            },
+        )
+
     relation = {
-        "type": "prerequisite",
+        "type": "contains",
         "source": pair["left"],
         "target": pair["right"],
-        "source_evidence_ids": [source_evidence],
-        "target_evidence_ids": [target_evidence],
+        "relation_evidence_ids": [source_evidence],
     }
     for invalid_relations in (
         [relation, deepcopy(relation)],
@@ -461,14 +489,13 @@ def test_relation_aliases_are_formal_and_wrong_evidence_owner_fails():
                 "type": "contains",
                 "source": pair["right"],
                 "target": pair["left"],
-                "source_evidence_ids": [target_evidence],
-                "target_evidence_ids": [source_evidence],
+                "relation_evidence_ids": [target_evidence],
             },
         ],
         [{**relation, "source": study["concepts"][0]["concept_id"]}],
     ):
         invalid = {
-            "schema": "formal-relations/v2",
+            "schema": "formal-relations/v3",
             "pairs": [{
                 "id": pair["id"],
                 "outcome": "relations",
@@ -613,8 +640,26 @@ def test_relation_evidence_gate_skips_verifier_and_edge_without_pair_evidence():
     assert artifact["diagnostics"].get("verifier_calls", 0) == 0
 
 
+def test_endpoint_mention_without_relation_semantics_stays_rejected():
+    left = _relation_concept(1, "Arrays", "Arrays are compared with Matrices.")
+    right = _relation_concept(2, "Matrices", "Matrices store values.")
+    calls = []
+
+    artifact = build_relation_artifact(
+        [(left["formal_concept_id"], right["formal_concept_id"])],
+        [left, right],
+        _relation_pages([left, right]),
+        lambda *arguments: calls.append(arguments) or True,
+    )
+
+    assert artifact["relations"] == []
+    assert artifact["diagnostics"]["rejected_no_evidence"] == 1
+    assert artifact["diagnostics"].get("structural_proposals", 0) == 0
+    assert calls == []
+
+
 @pytest.mark.parametrize("supporting_endpoint", ["source", "target"])
-def test_relation_evidence_gate_rejects_when_only_one_endpoint_supports_relation(
+def test_single_grounded_contains_statement_reaches_verifier_with_true_owner(
     supporting_endpoint,
 ):
     parent = _relation_concept(
@@ -638,10 +683,20 @@ def test_relation_evidence_gate_rejects_when_only_one_endpoint_supports_relation
         lambda *arguments: calls.append(arguments) or True,
     )
 
-    assert artifact["relations"] == []
-    assert calls == []
-    assert artifact["diagnostics"]["rejected_no_evidence"] == 1
-    assert artifact["diagnostics"].get("verifier_calls", 0) == 0
+    relation = artifact["relations"][0]
+    expected_owner = parent if supporting_endpoint == "source" else child
+    assert calls == [("contains", parent, child)]
+    assert relation["source_formal_concept_id"] == parent["formal_concept_id"]
+    assert relation["target_formal_concept_id"] == child["formal_concept_id"]
+    assert relation["relation_evidence"] == [{
+        "owner_formal_concept_id": expected_owner["formal_concept_id"],
+        "claim_id": expected_owner["claims"][-1]["claim_id"],
+        "evidence_ids": expected_owner["claims"][-1]["evidence_ids"],
+    }]
+    assert artifact["diagnostics"]["contains_proposals"] == 1
+    assert artifact["diagnostics"]["structural_proposals"] == 1
+    assert artifact["diagnostics"]["verifier_calls"] == 1
+    assert artifact["diagnostics"]["verifier_accepted"] == 1
 
 
 def test_contains_direction_is_deterministic_and_conflict_fails_closed():
@@ -668,14 +723,25 @@ def test_contains_direction_is_deterministic_and_conflict_fails_closed():
     assert verified == [("contains", "Linear algebra", "Matrices")]
     assert relation["source_formal_concept_id"] == parent["formal_concept_id"]
     assert relation["target_formal_concept_id"] == child["formal_concept_id"]
-    assert relation["source_evidence_ids"] == [parent_support]
-    assert relation["target_evidence_ids"] == [child_support]
-    assert parent["claims"][0]["evidence_ids"][0] not in relation[
-        "source_evidence_ids"
+    assert relation["relation_evidence"] == [
+        {
+            "owner_formal_concept_id": parent["formal_concept_id"],
+            "claim_id": parent["claims"][-1]["claim_id"],
+            "evidence_ids": [parent_support],
+        },
+        {
+            "owner_formal_concept_id": child["formal_concept_id"],
+            "claim_id": child["claims"][-1]["claim_id"],
+            "evidence_ids": [child_support],
+        },
     ]
-    assert child["claims"][0]["evidence_ids"][0] not in relation[
-        "target_evidence_ids"
-    ]
+    relation_evidence_ids = {
+        evidence_id
+        for item in relation["relation_evidence"]
+        for evidence_id in item["evidence_ids"]
+    }
+    assert parent["claims"][0]["evidence_ids"][0] not in relation_evidence_ids
+    assert child["claims"][0]["evidence_ids"][0] not in relation_evidence_ids
 
     unsupported = build_relation_artifact(
         [(parent["formal_concept_id"], child["formal_concept_id"])],
@@ -696,6 +762,28 @@ def test_contains_direction_is_deterministic_and_conflict_fails_closed():
     )
     assert conflict["relations"] == []
     assert conflict["diagnostics"]["direction_conflicts"] == 1
+
+
+def test_structural_proposal_rejected_by_verifier_stays_fail_closed():
+    parent = _relation_concept(
+        1, "Linear algebra", "Linear algebra contains Matrices."
+    )
+    child = _relation_concept(2, "Matrices", "Matrices are rectangular arrays.")
+    calls = []
+
+    artifact = build_relation_artifact(
+        [(parent["formal_concept_id"], child["formal_concept_id"])],
+        [parent, child],
+        _relation_pages([parent, child]),
+        lambda *arguments: calls.append(arguments) or False,
+    )
+
+    assert artifact["relations"] == []
+    assert calls == [("contains", parent, child)]
+    assert artifact["diagnostics"]["structural_proposals"] == 1
+    assert artifact["diagnostics"]["verifier_calls"] == 1
+    assert artifact["diagnostics"].get("verifier_accepted", 0) == 0
+    assert artifact["diagnostics"]["verifier_rejected"] == 1
 
 
 @pytest.mark.parametrize(
@@ -807,17 +895,33 @@ def test_prerequisite_requires_explicit_dependency_not_document_order():
         pair, [prerequisite, target], _relation_pages([prerequisite, target]), lambda *_: True
     )["relations"] == []
 
-    target["claims"][0]["text"] = "Derivatives requires Limits."
-    _add_relation_claim(
-        prerequisite, 201, "Learn Limits before Derivatives.", 301
+    evidence_id = _add_relation_claim(
+        target, 201, "Derivatives requires Limits.", 301
     )
+    calls = []
     relation = build_relation_artifact(
-        pair, [prerequisite, target], _relation_pages([prerequisite, target]), lambda *_: True
-    )["relations"][0]
+        pair,
+        [prerequisite, target],
+        _relation_pages([prerequisite, target]),
+        lambda *arguments: calls.append(arguments) or True,
+    )
+    accepted = relation["relations"][0]
+    assert calls == [("prerequisite", prerequisite, target)]
+    assert relation["diagnostics"]["prerequisite_proposals"] == 1
+    assert relation["diagnostics"]["verifier_calls"] == 1
+    assert relation["diagnostics"]["verifier_accepted"] == 1
+    relation = accepted
     assert relation["type"] == "prerequisite"
     assert relation["source_formal_concept_id"] == prerequisite["formal_concept_id"]
+    assert relation["relation_evidence"] == [{
+        "owner_formal_concept_id": target["formal_concept_id"],
+        "claim_id": target["claims"][-1]["claim_id"],
+        "evidence_ids": [evidence_id],
+    }]
 
-    prerequisite["claims"][-1]["text"] = "Limits requires Derivatives."
+    _add_relation_claim(
+        prerequisite, 202, "Limits requires Derivatives.", 302
+    )
     assert build_relation_artifact(
         pair, [prerequisite, target], _relation_pages([prerequisite, target]), lambda *_: True
     )["relations"] == []
@@ -857,7 +961,7 @@ def test_relation_contract_rejects_all_legacy_relation_types():
     source_evidence, target_evidence = evidence_aliases
     for legacy_type in {"similar", "confusing", "application", "example"}:
         candidate = {
-            "schema": "formal-relations/v2",
+            "schema": "formal-relations/v3",
             "pairs": [{
                 "id": pair["id"],
                 "outcome": "relations",
@@ -865,8 +969,7 @@ def test_relation_contract_rejects_all_legacy_relation_types():
                     "type": legacy_type,
                     "source": pair["left"],
                     "target": pair["right"],
-                    "source_evidence_ids": [source_evidence],
-                    "target_evidence_ids": [target_evidence],
+                    "relation_evidence_ids": [source_evidence],
                 }],
             }],
         }
@@ -913,8 +1016,11 @@ def test_map_revision_binds_formal_nodes_relations_path_and_cycle_exclusion():
             "type": "prerequisite",
             "source_formal_concept_id": nodes[source]["formal_concept_id"],
             "target_formal_concept_id": nodes[target]["formal_concept_id"],
-            "source_evidence_ids": [study["evidence_index"][0]["evidence_id"]],
-            "target_evidence_ids": [study["evidence_index"][0]["evidence_id"]],
+            "relation_evidence": [{
+                "owner_formal_concept_id": nodes[source]["formal_concept_id"],
+                "claim_id": nodes[source]["claims"][0]["claim_id"],
+                "evidence_ids": [study["evidence_index"][0]["evidence_id"]],
+            }],
         }
         relations.append({
             "relation_id": "formal-relation:sha256:" + canonical_sha256(identity),
@@ -938,11 +1044,29 @@ def test_map_revision_binds_formal_nodes_relations_path_and_cycle_exclusion():
     assert knowledge_map["initial_learning_path"] == [node["formal_concept_id"] for node in nodes]
     assert validate_knowledge_map(knowledge_map) is None
     view = build_knowledge_map_view(knowledge_map)
-    assert view["schema"] == "knowledge-map-view/v5"
+    assert view["schema"] == "knowledge-map-view/v6"
     assert view["relations"][0]["source_formal_concept_id"].startswith("formal-concept:")
 
     tampered = deepcopy(knowledge_map)
     tampered["initial_learning_path"].reverse()
+    assert validate_knowledge_map(tampered) == "KNOWLEDGE_MAP_INVALID"
+
+    tampered = deepcopy(knowledge_map)
+    relation = tampered["relations"][0]
+    relation["relation_evidence"][0]["claim_id"] = "claim:sha256:" + "0" * 64
+    relation_identity = {
+        key: relation[key]
+        for key in (
+            "type", "source_formal_concept_id", "target_formal_concept_id",
+            "relation_evidence",
+        )
+    }
+    relation["relation_id"] = (
+        "formal-relation:sha256:" + canonical_sha256(relation_identity)
+    )
+    identity = dict(tampered)
+    identity.pop("revision")
+    tampered["revision"] = "knowledge-map:sha256:" + canonical_sha256(identity)
     assert validate_knowledge_map(tampered) == "KNOWLEDGE_MAP_INVALID"
 
 

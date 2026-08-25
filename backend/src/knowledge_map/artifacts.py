@@ -14,8 +14,8 @@ RELATION_TYPES = {"prerequisite", "contains", "related"}
 SYMMETRIC_RELATION_TYPES = {"related"}
 
 
-KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v5"
-KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v5"
+KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v6"
+KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v6"
 
 _RESOURCE_DIAGNOSTIC_FIELDS = {
     "matches",
@@ -52,8 +52,13 @@ _RELATION_DIAGNOSTIC_FIELDS = {
     "rejected_no_evidence",
     "direction_conflicts",
     "verifier_calls",
+    "verifier_accepted",
     "verifier_rejected",
     "verifier_unsupported",
+    "structural_proposals",
+    "contains_proposals",
+    "prerequisite_proposals",
+    "related_proposals",
     "accepted_relations",
 }
 
@@ -356,6 +361,11 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             )
             or diagnostics["selected_pairs"] > diagnostics["candidate_pairs"]
             or diagnostics["candidate_pairs"] > diagnostics["possible_pairs"]
+            or diagnostics["verifier_accepted"] + diagnostics["verifier_rejected"]
+            > diagnostics["verifier_calls"]
+            or diagnostics["structural_proposals"]
+            != diagnostics["contains_proposals"]
+            + diagnostics["prerequisite_proposals"]
         ):
             return "KNOWLEDGE_MAP_INVALID"
         resource_binding = knowledge_map["resource_binding"]
@@ -422,7 +432,7 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                 return "KNOWLEDGE_MAP_INVALID"
             evidence_pages[evidence["evidence_id"]] = evidence["page_ref"]
             page_numbers[evidence["page_ref"]] = evidence["page_number"]
-        formal_evidence: dict[str, set[str]] = {}
+        claims_by_formal: dict[str, dict[str, dict[str, Any]]] = {}
         formal_claims: dict[str, dict[str, Any]] = {}
         promoted_match_ids: set[str] = set()
         promoted_resource_count = 0
@@ -551,10 +561,8 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                 if known_claim is not None and known_claim != claim:
                     return "KNOWLEDGE_MAP_INVALID"
                 formal_claims[claim["claim_id"]] = claim
-            formal_evidence[concept["formal_concept_id"]] = {
-                evidence_id
-                for claim in claims
-                for evidence_id in claim["evidence_ids"]
+            claims_by_formal[concept["formal_concept_id"]] = {
+                claim["claim_id"]: claim for claim in claims
             }
         decision_match_ids: set[str] = set()
         split_reviews = 0
@@ -615,8 +623,7 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                 "type": relation.get("type"),
                 "source_formal_concept_id": relation.get("source_formal_concept_id"),
                 "target_formal_concept_id": relation.get("target_formal_concept_id"),
-                "source_evidence_ids": relation.get("source_evidence_ids"),
-                "target_evidence_ids": relation.get("target_evidence_ids"),
+                "relation_evidence": relation.get("relation_evidence"),
             }
             relation_key = (
                 relation.get("type"),
@@ -626,8 +633,8 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             if (
                 set(relation) != {
                     "relation_id", "type", "source_formal_concept_id",
-                    "target_formal_concept_id", "source_evidence_ids",
-                    "target_evidence_ids", "quality", "decision", "reason_codes",
+                    "target_formal_concept_id", "relation_evidence",
+                    "quality", "decision", "reason_codes",
                     "is_in_prerequisite_cycle",
                 }
                 or relation["relation_id"] in relation_ids
@@ -643,16 +650,8 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                 or relation["relation_id"]
                 != "formal-relation:sha256:" + canonical_sha256(identity)
                 or relation_key in relation_keys
-                or not relation["source_evidence_ids"]
-                or not relation["target_evidence_ids"]
-                or len(relation["source_evidence_ids"])
-                != len(set(relation["source_evidence_ids"]))
-                or len(relation["target_evidence_ids"])
-                != len(set(relation["target_evidence_ids"]))
-                or not set(relation["source_evidence_ids"])
-                <= formal_evidence[relation["source_formal_concept_id"]]
-                or not set(relation["target_evidence_ids"])
-                <= formal_evidence[relation["target_formal_concept_id"]]
+                or not isinstance(relation["relation_evidence"], list)
+                or not relation["relation_evidence"]
                 or (
                     relation["type"] in SYMMETRIC_RELATION_TYPES
                     and relation["target_formal_concept_id"]
@@ -666,6 +665,30 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                     ) in directed_pairs
                 )
             ):
+                return "KNOWLEDGE_MAP_INVALID"
+            relation_evidence_keys = []
+            for item in relation["relation_evidence"]:
+                if (
+                    not isinstance(item, dict)
+                    or set(item) != {
+                        "owner_formal_concept_id", "claim_id", "evidence_ids"
+                    }
+                    or item["owner_formal_concept_id"] not in {
+                        relation["source_formal_concept_id"],
+                        relation["target_formal_concept_id"],
+                    }
+                    or not isinstance(item["claim_id"], str)
+                    or not isinstance(item["evidence_ids"], list)
+                    or not item["evidence_ids"]
+                    or item["evidence_ids"] != sorted(set(item["evidence_ids"]))
+                ):
+                    return "KNOWLEDGE_MAP_INVALID"
+                owner = item["owner_formal_concept_id"]
+                claim = claims_by_formal[owner].get(item["claim_id"])
+                if claim is None or not set(item["evidence_ids"]) <= set(claim["evidence_ids"]):
+                    return "KNOWLEDGE_MAP_INVALID"
+                relation_evidence_keys.append((owner, item["claim_id"]))
+            if relation_evidence_keys != sorted(set(relation_evidence_keys)):
                 return "KNOWLEDGE_MAP_INVALID"
             relation_ids.add(relation["relation_id"])
             relation_keys.add(relation_key)

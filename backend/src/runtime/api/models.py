@@ -180,13 +180,26 @@ class FormalConceptView(_ClosedModel):
     reason_codes: list[str] = Field(min_length=1, max_length=64)
 
 
+class RelationEvidenceView(_ClosedModel):
+    owner_formal_concept_id: str = Field(
+        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$"
+    )
+    claim_id: str = Field(pattern=r"^claim:sha256:[0-9a-f]{64}$")
+    evidence_ids: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_evidence_ids(self) -> "RelationEvidenceView":
+        if self.evidence_ids != sorted(set(self.evidence_ids)):
+            raise ValueError("RELATION_EVIDENCE_INVALID")
+        return self
+
+
 class FormalRelationView(_ClosedModel):
     relation_id: str = Field(pattern=r"^formal-relation:sha256:[0-9a-f]{64}$")
     type: Literal["prerequisite", "contains", "related"]
     source_formal_concept_id: str
     target_formal_concept_id: str
-    source_evidence_ids: list[str] = Field(min_length=1)
-    target_evidence_ids: list[str] = Field(min_length=1)
+    relation_evidence: list[RelationEvidenceView] = Field(min_length=1)
     quality: Literal["needs_review"]
     decision: Literal["review"]
     reason_codes: list[str] = Field(min_length=1)
@@ -202,8 +215,13 @@ class RelationDiagnosticsView(_ClosedModel):
     rejected_no_evidence: int = Field(ge=0)
     direction_conflicts: int = Field(ge=0)
     verifier_calls: int = Field(ge=0)
+    verifier_accepted: int = Field(ge=0)
     verifier_rejected: int = Field(ge=0)
     verifier_unsupported: int = Field(ge=0)
+    structural_proposals: int = Field(ge=0)
+    contains_proposals: int = Field(ge=0)
+    prerequisite_proposals: int = Field(ge=0)
+    related_proposals: int = Field(ge=0)
     accepted_relations: int = Field(ge=0)
 
     @model_validator(mode="after")
@@ -220,6 +238,9 @@ class RelationDiagnosticsView(_ClosedModel):
         if (
             self.selected_pairs > self.candidate_pairs
             or self.candidate_pairs > self.possible_pairs
+            or self.verifier_accepted + self.verifier_rejected > self.verifier_calls
+            or self.structural_proposals
+            != self.contains_proposals + self.prerequisite_proposals
             or any(
                 signal not in allowed_signals or count < 0
                 for signal, count in self.selected_signal_counts.items()
@@ -294,7 +315,7 @@ class ArtifactStatusView(_ClosedModel):
 
 
 class KnowledgeMapView(_ClosedModel):
-    schema_: Literal["knowledge-map-view/v5"] = Field(alias="schema")
+    schema_: Literal["knowledge-map-view/v6"] = Field(alias="schema")
     material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
     knowledge_map_revision: str = Field(
         pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
@@ -340,11 +361,12 @@ class KnowledgeMapView(_ClosedModel):
             for relation in self.relations
         ):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        evidence_by_concept = {
+        claims_by_concept = {
             concept.formal_concept_id: {
-                evidence.evidence_id
+                claim.claim_id: {
+                    evidence.evidence_id for evidence in claim.evidence
+                }
                 for claim in concept.claims
-                for evidence in claim.evidence
             }
             for concept in self.concepts
         }
@@ -372,10 +394,28 @@ class KnowledgeMapView(_ClosedModel):
         ):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if any(
-            not set(relation.source_evidence_ids)
-            <= evidence_by_concept[relation.source_formal_concept_id]
-            or not set(relation.target_evidence_ids)
-            <= evidence_by_concept[relation.target_formal_concept_id]
+            evidence.owner_formal_concept_id not in {
+                relation.source_formal_concept_id,
+                relation.target_formal_concept_id,
+            }
+            or evidence.claim_id not in claims_by_concept[
+                evidence.owner_formal_concept_id
+            ]
+            or not set(evidence.evidence_ids)
+            <= claims_by_concept[evidence.owner_formal_concept_id][evidence.claim_id]
+            for relation in self.relations
+            for evidence in relation.relation_evidence
+        ):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        if any(
+            [
+                (item.owner_formal_concept_id, item.claim_id)
+                for item in relation.relation_evidence
+            ]
+            != sorted({
+                (item.owner_formal_concept_id, item.claim_id)
+                for item in relation.relation_evidence
+            })
             for relation in self.relations
         ):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")

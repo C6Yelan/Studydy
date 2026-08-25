@@ -9,7 +9,7 @@ from pdf_evidence.ocr_page_evidence import canonical_sha256
 
 
 RELATION_REQUEST_SCHEMA = "formal-relation-input/v2"
-RELATION_OUTPUT_SCHEMA = "formal-relations/v2"
+RELATION_OUTPUT_SCHEMA = "formal-relations/v3"
 RELATION_TYPES = {"prerequisite", "contains", "related"}
 SYMMETRIC_TYPES = {"related"}
 MAX_RELATION_PAIRS = 128
@@ -149,6 +149,22 @@ def _evidence_ids(
     return sorted(selected)
 
 
+def _relation_evidence(
+    supporting: list[tuple[str, dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """保留真正陳述 pair relation 的 claim owner，不假造 endpoint ownership。"""
+
+    evidence = {
+        (owner, claim["claim_id"]): {
+            "owner_formal_concept_id": owner,
+            "claim_id": claim["claim_id"],
+            "evidence_ids": sorted(claim["evidence_ids"]),
+        }
+        for owner, claim in supporting
+    }
+    return [evidence[key] for key in sorted(evidence)]
+
+
 def _pair_evidence(
     left: dict[str, Any], right: dict[str, Any]
 ) -> tuple[list[dict[str, Any]], set[str], set[str]]:
@@ -165,16 +181,14 @@ def _pair_evidence(
             source, target, supporting = (
                 (left, right, forward) if forward else (right, left, reverse)
             )
-            source_evidence_ids = _evidence_ids(source, supporting)
-            target_evidence_ids = _evidence_ids(target, supporting)
-            if source_evidence_ids and target_evidence_ids:
+            relation_evidence = _relation_evidence(supporting)
+            if relation_evidence:
                 proposals.append(
                     {
                         "type": relation_type,
                         "source": source,
                         "target": target,
-                        "source_evidence_ids": source_evidence_ids,
-                        "target_evidence_ids": target_evidence_ids,
+                        "relation_evidence": relation_evidence,
                     }
                 )
             signals.add("explicit_relation")
@@ -192,8 +206,7 @@ def _pair_evidence(
                     "type": "related",
                     "source": source,
                     "target": target,
-                    "source_evidence_ids": source_evidence_ids,
-                    "target_evidence_ids": target_evidence_ids,
+                    "relation_evidence": _relation_evidence(related_support),
                 }
             )
     return proposals, conflicts, signals
@@ -373,6 +386,9 @@ def build_relation_artifact(
         else:
             diagnostics["rejected_no_evidence"] += 1
         for proposal in proposals:
+            diagnostics[f"{proposal['type']}_proposals"] += 1
+            if proposal["type"] in {"contains", "prerequisite"}:
+                diagnostics["structural_proposals"] += 1
             if proposal["type"] != "related":
                 if verifier is None:
                     diagnostics["verifier_unsupported"] += 1
@@ -382,6 +398,7 @@ def build_relation_artifact(
                 if not verifier(proposal["type"], proposal["source"], proposal["target"]):
                     diagnostics["verifier_rejected"] += 1
                     continue
+                diagnostics["verifier_accepted"] += 1
             source_id = proposal["source"]["formal_concept_id"]
             target_id = proposal["target"]["formal_concept_id"]
             accepted.append(
@@ -389,14 +406,13 @@ def build_relation_artifact(
                     "type": proposal["type"],
                     "source": alias_by_id[source_id],
                     "target": alias_by_id[target_id],
-                    "source_evidence_ids": [
-                        evidence_alias_by_id[(source_id, evidence_id)]
-                        for evidence_id in proposal["source_evidence_ids"]
-                    ],
-                    "target_evidence_ids": [
-                        evidence_alias_by_id[(target_id, evidence_id)]
-                        for evidence_id in proposal["target_evidence_ids"]
-                    ],
+                    "relation_evidence_ids": sorted({
+                        evidence_alias_by_id[
+                            (evidence["owner_formal_concept_id"], evidence_id)
+                        ]
+                        for evidence in proposal["relation_evidence"]
+                        for evidence_id in evidence["evidence_ids"]
+                    }),
                 }
             )
         diagnostics["accepted_relations"] += len(accepted)
@@ -482,8 +498,7 @@ def validate_relations(
                     "type",
                     "source",
                     "target",
-                    "source_evidence_ids",
-                    "target_evidence_ids",
+                    "relation_evidence_ids",
                 }
                 or source_relation["type"] not in RELATION_TYPES
                 or {source_relation["source"], source_relation["target"]} != allowed
@@ -494,26 +509,59 @@ def validate_relations(
             target_id = concept_aliases.get(source_relation["target"])
             if source_id is None or target_id is None:
                 raise RelationError("RELATION_ENDPOINT_INVALID")
-            source_evidence = _owned_evidence(
-                source_relation["source_evidence_ids"], source_id, evidence_aliases
-            )
-            target_evidence = _owned_evidence(
-                source_relation["target_evidence_ids"], target_id, evidence_aliases
-            )
-            if any(
-                evidence_pages.get(item)
-                not in set(formal_by_id[source_id]["source_page_refs"])
-                for item in source_evidence
-            ) or any(
-                evidence_pages.get(item)
-                not in set(formal_by_id[target_id]["source_page_refs"])
-                for item in target_evidence
+            aliases = source_relation["relation_evidence_ids"]
+            if (
+                not isinstance(aliases, list)
+                or not aliases
+                or len(aliases) != len(set(aliases))
+                or any(alias not in evidence_aliases for alias in aliases)
             ):
                 raise RelationError("RELATION_EVIDENCE_INVALID")
             relation_type = source_relation["type"]
+            expected_proposals, conflicts, _ = _pair_evidence(
+                formal_by_id[concept_aliases[expected[answer["id"]]["left"]]],
+                formal_by_id[concept_aliases[expected[answer["id"]]["right"]]],
+            )
+            matching_proposals = [
+                proposal
+                for proposal in expected_proposals
+                if proposal["type"] == relation_type
+                and proposal["source"]["formal_concept_id"] == source_id
+                and proposal["target"]["formal_concept_id"] == target_id
+            ]
+            provided_evidence = {evidence_aliases[alias] for alias in aliases}
+            if conflicts or len(matching_proposals) != 1:
+                raise RelationError("RELATION_EVIDENCE_INVALID")
+            proposal = matching_proposals[0]
+            expected_evidence = {
+                (item["owner_formal_concept_id"], evidence_id)
+                for item in proposal["relation_evidence"]
+                for evidence_id in item["evidence_ids"]
+            }
+            if provided_evidence != expected_evidence:
+                raise RelationError("RELATION_EVIDENCE_INVALID")
+            relation_evidence = proposal["relation_evidence"]
+            for item in relation_evidence:
+                owner = item["owner_formal_concept_id"]
+                claims = {
+                    claim["claim_id"]: claim for claim in formal_by_id[owner]["claims"]
+                }
+                claim = claims.get(item["claim_id"])
+                if (
+                    owner not in {source_id, target_id}
+                    or claim is None
+                    or item["evidence_ids"] != sorted(set(item["evidence_ids"]))
+                    or not item["evidence_ids"]
+                    or not set(item["evidence_ids"]) <= set(claim["evidence_ids"])
+                    or any(
+                        evidence_pages.get(evidence_id)
+                        not in set(formal_by_id[owner]["source_page_refs"])
+                        for evidence_id in item["evidence_ids"]
+                    )
+                ):
+                    raise RelationError("RELATION_EVIDENCE_INVALID")
             if relation_type in SYMMETRIC_TYPES and target_id < source_id:
                 source_id, target_id = target_id, source_id
-                source_evidence, target_evidence = target_evidence, source_evidence
             key = (relation_type, source_id, target_id)
             if key in relation_keys:
                 raise RelationError("RELATION_DUPLICATE")
@@ -526,8 +574,7 @@ def validate_relations(
                 "type": relation_type,
                 "source_formal_concept_id": source_id,
                 "target_formal_concept_id": target_id,
-                "source_evidence_ids": source_evidence,
-                "target_evidence_ids": target_evidence,
+                "relation_evidence": relation_evidence,
             }
             relations.append(
                 {
@@ -548,18 +595,3 @@ def validate_relations(
         "decision": "review",
         "reason_codes": ["RELATION_REVIEW_REQUIRED"],
     }
-
-
-def _owned_evidence(
-    aliases: Any,
-    owner_id: str,
-    evidence_aliases: dict[str, tuple[str, str]],
-) -> list[str]:
-    if (
-        not isinstance(aliases, list)
-        or not aliases
-        or len(aliases) != len(set(aliases))
-        or any(evidence_aliases.get(alias, (None,))[0] != owner_id for alias in aliases)
-    ):
-        raise RelationError("RELATION_EVIDENCE_INVALID")
-    return sorted(evidence_aliases[alias][1] for alias in aliases)

@@ -542,8 +542,8 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
         learner_id, source.material_id, created.run_id, dsn=processing_database_dsn
     )
     assert outputs.study_material_output["schema"] == "study-material-output/v4"
-    assert outputs.knowledge_map["schema"] == "knowledge-map/v5"
-    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v5"
+    assert outputs.knowledge_map["schema"] == "knowledge-map/v6"
+    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v6"
     with psycopg.connect(processing_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM study_material_outputs").fetchone() == (1,)
         assert connection.execute("SELECT count(*) FROM knowledge_maps").fetchone() == (1,)
@@ -689,10 +689,15 @@ def test_partial_page_and_semantic_status_reaches_persisted_run(
                 "formal_concept_id"
             ],
             "target_formal_concept_id": second_concept["formal_concept_id"],
-            "source_evidence_ids": [evidence["evidence_id"]],
-            "target_evidence_ids": [
-                second_concept["claims"][0]["evidence"][0]["evidence_id"]
-            ],
+            "relation_evidence": [{
+                "owner_formal_concept_id": relation_view["concepts"][0][
+                    "formal_concept_id"
+                ],
+                "claim_id": relation_view["concepts"][0]["claims"][0][
+                    "claim_id"
+                ],
+                "evidence_ids": [evidence["evidence_id"]],
+            }],
             "quality": "needs_review",
             "decision": "review",
             "reason_codes": ["RELATION_REVIEW_REQUIRED"],
@@ -701,7 +706,7 @@ def test_partial_page_and_semantic_status_reaches_persisted_run(
     ]
     KnowledgeMapView.model_validate(relation_view)
     unknown_evidence_id = "evidence:sha256:" + "0" * 64
-    relation_view["relations"][0]["target_evidence_ids"] = [
+    relation_view["relations"][0]["relation_evidence"][0]["evidence_ids"] = [
         unknown_evidence_id
     ]
     assert unknown_evidence_id not in {

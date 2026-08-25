@@ -62,7 +62,7 @@ function successfulRun() {
 function mapView() {
   const pageRef = `page:sha256:${"5".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v5",
+    schema: "knowledge-map-view/v6",
     material_ref: `material:sha256:${"6".repeat(64)}`,
     knowledge_map_revision: mapRevision,
     source_output_id: `study-material-output:sha256:${"3".repeat(64)}`,
@@ -103,8 +103,13 @@ function mapView() {
       rejected_no_evidence: 0,
       direction_conflicts: 0,
       verifier_calls: 0,
+      verifier_accepted: 0,
       verifier_rejected: 0,
       verifier_unsupported: 0,
+      structural_proposals: 0,
+      contains_proposals: 0,
+      prerequisite_proposals: 0,
+      related_proposals: 0,
       accepted_relations: 0,
     },
     resource_binding: {
@@ -141,8 +146,11 @@ function mapViewWithRelation() {
     type: "related",
     source_formal_concept_id: source.formal_concept_id,
     target_formal_concept_id: target.formal_concept_id,
-    source_evidence_ids: [source.claims[0].evidence[0].evidence_id],
-    target_evidence_ids: [target.claims[0].evidence[0].evidence_id],
+    relation_evidence: [{
+      owner_formal_concept_id: source.formal_concept_id,
+      claim_id: source.claims[0].claim_id,
+      evidence_ids: [source.claims[0].evidence[0].evidence_id],
+    }],
     quality: "needs_review",
     decision: "review",
     reason_codes: ["RELATION_REVIEW_REQUIRED"],
@@ -154,6 +162,7 @@ function mapViewWithRelation() {
     selected_pairs: 1,
     selected_signal_counts: { shared_evidence: 1 },
     evidence_gated_pairs: 1,
+    related_proposals: 1,
     accepted_relations: 1,
   });
   return view;
@@ -267,7 +276,7 @@ test("Map v4 使用 exact run/revision 並要求 claim PDF locator", async () =>
   );
 });
 
-test("Map v4 relation Evidence 必須屬於各自 endpoint", async () => {
+test("Map v6 pair-level Relation Evidence 必須保留真實 claim owner", async () => {
   let calls = 0;
   const acceptedClient = new StudydyApiClient(async () => {
     calls += 1;
@@ -279,7 +288,9 @@ test("Map v4 relation Evidence 必須屬於各自 endpoint", async () => {
     .relations.length, 1);
 
   const invalid = mapViewWithRelation();
-  invalid.relations[0].target_evidence_ids = invalid.relations[0].source_evidence_ids;
+  invalid.relations[0].relation_evidence[0].evidence_ids = [
+    invalid.concepts[1].claims[0].evidence[0].evidence_id,
+  ];
   calls = 0;
   const rejectedClient = new StudydyApiClient(async () => {
     calls += 1;
@@ -291,7 +302,7 @@ test("Map v4 relation Evidence 必須屬於各自 endpoint", async () => {
   );
 });
 
-test("Map v4 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
+test("Map v6 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
   const mutations = {
     unexpected: (view) => { view.concepts[0].unexpected_field = true; },
     duplicate: (view) => { view.concepts.push(structuredClone(view.concepts[0])); },
