@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Event, Thread
 
-from pdf_evidence.text_first_run import _agent1_lock
+from pdf_evidence.text_first_run import material_analysis_lock
 
 from .material_processing import (
     claim_next_material_processing_run,
@@ -56,7 +56,7 @@ class RuntimeWorkers:
         is_starting = True
         while not self._stop.is_set():
             try:
-                with _agent1_lock(runtime_root, wait_seconds=0):
+                with material_analysis_lock(runtime_root, wait_seconds=0):
                     recover_interrupted_material_runs(dsn=self.dsn)
                     if is_starting:
                         self._started.set()

@@ -6,10 +6,10 @@ import pytest
 import runtime.workers as worker_module
 
 
-def _hold_agent1_lock(runtime_root: str, acquired, release) -> None:
-    from pdf_evidence.text_first_run import _agent1_lock
+def _hold_material_analysis_lock(runtime_root: str, acquired, release) -> None:
+    from pdf_evidence.text_first_run import material_analysis_lock
 
-    with _agent1_lock(Path(runtime_root)):
+    with material_analysis_lock(Path(runtime_root)):
         acquired.set()
         release.wait(10)
 
@@ -22,7 +22,7 @@ def test_second_process_does_not_recover_or_claim_before_ownership(
     acquired = process_context.Event()
     release = process_context.Event()
     lock_owner = process_context.Process(
-        target=_hold_agent1_lock,
+        target=_hold_material_analysis_lock,
         args=(str(runtime_root), acquired, release),
     )
     lock_owner.start()
@@ -71,7 +71,7 @@ def test_second_process_does_not_recover_or_claim_before_ownership(
             workers.stop()
         lock_owner.join(5)
     assert lock_owner.exitcode == 0
-    with worker_module._agent1_lock(runtime_root, wait_seconds=0):
+    with worker_module.material_analysis_lock(runtime_root, wait_seconds=0):
         pass
 
 
@@ -97,5 +97,5 @@ def test_initial_recovery_failure_stops_startup_and_releases_lock(
 
     with pytest.raises(RuntimeError, match="MATERIAL_RUN_STORAGE_FAILED"):
         workers.start()
-    with worker_module._agent1_lock(runtime_root, wait_seconds=0):
+    with worker_module.material_analysis_lock(runtime_root, wait_seconds=0):
         pass

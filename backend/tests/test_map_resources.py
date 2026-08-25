@@ -335,11 +335,11 @@ def test_nonempty_context_keeps_all_source_bound_matches_under_review():
         "review",
     )
     assert context["reason_codes"] == [
-        "RESOURCE_MATCH_REQUIRES_P05_QUALIFICATION"
+        "RESOURCE_MATCH_REQUIRES_FORMAL_CONCEPT_PROMOTION"
     ]
     assert all(
         match["reason_codes"]
-        == ["RESOURCE_MATCH_REQUIRES_P05_QUALIFICATION"]
+        == ["RESOURCE_MATCH_REQUIRES_FORMAL_CONCEPT_PROMOTION"]
         and match["match_reason"] == "EXACT_NORMALIZED_LABEL"
         for match in context["matches"]
     )

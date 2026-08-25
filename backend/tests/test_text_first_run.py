@@ -663,12 +663,12 @@ def test_formal_concept_failure_closes_owned_server(tmp_path, monkeypatch):
 
 def test_formal_lock_has_bounded_busy_failure(tmp_path, monkeypatch):
     runtime_root = tmp_path / "runtime"
-    with run_module._agent1_lock(runtime_root):
+    with run_module.material_analysis_lock(runtime_root):
         moments = iter((0.0, 6.0))
         monkeypatch.setattr(run_module.time, "monotonic", lambda: next(moments))
         monkeypatch.setattr(run_module.time, "sleep", lambda _: None)
         with pytest.raises(ValueError, match="RUNTIME_BUSY"):
-            with run_module._agent1_lock(runtime_root):
+            with run_module.material_analysis_lock(runtime_root):
                 pass
 
 
@@ -680,7 +680,7 @@ def test_formal_run_reuses_worker_lock_ownership(tmp_path, monkeypatch):
         lambda request, settings, **arguments: observed.append(arguments) or {"ok": True},
     )
 
-    with run_module._agent1_lock(tmp_path / "runtime"):
+    with run_module.material_analysis_lock(tmp_path / "runtime"):
         bundle = run_module.run_full_text_first_pdf(
             {
                 "media_type": "application/pdf",
@@ -703,7 +703,9 @@ def test_formal_busy_lock_publishes_truthful_failed_bundle(tmp_path, monkeypatch
         def __exit__(self, *_arguments):
             return None
 
-    monkeypatch.setattr(run_module, "_agent1_lock", lambda _: BusyLock())
+    monkeypatch.setattr(
+        run_module, "material_analysis_lock", lambda _: BusyLock()
+    )
     run_id = "text-first-run:00000000-0000-4000-8000-000000000003"
     bundle = run_module.run_full_text_first_pdf(
         {

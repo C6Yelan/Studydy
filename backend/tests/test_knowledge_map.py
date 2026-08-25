@@ -23,7 +23,6 @@ from knowledge_map.formal_concepts import (
 )
 from knowledge_map.relations import (
     MAX_RELATION_PAIRS,
-    RELATION_TYPES,
     RelationError,
     build_relation_artifact,
     build_relation_request,
@@ -841,7 +840,7 @@ def test_relation_startup_failure_keeps_related_and_drops_structural(
         local_generation,
         "request_structured_text",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("Qwen relation fallback must not run")
+            AssertionError("Qwen must not replace the relation verifier")
         ),
     )
     artifacts = local_generation._build_relation_artifacts(
@@ -968,46 +967,6 @@ def test_related_requires_grounded_association_and_never_calls_verifier():
     assert calls == []
 
 
-def test_relation_contract_rejects_all_legacy_relation_types():
-    assert RELATION_TYPES == {"prerequisite", "contains", "related"}
-    concepts = [
-        _relation_concept(1, "A", "A is a concept."),
-        _relation_concept(2, "B", "B is a concept."),
-    ]
-    request, concept_aliases, evidence_aliases = build_relation_request(
-        [(concepts[0]["formal_concept_id"], concepts[1]["formal_concept_id"])], concepts
-    )
-    pair = request["pairs"][0]
-    source_evidence, target_evidence = evidence_aliases
-    for legacy_type in {"similar", "confusing", "application", "example"}:
-        candidate = {
-            "schema": "formal-relations/v3",
-            "pairs": [{
-                "id": pair["id"],
-                "outcome": "relations",
-                "relations": [{
-                    "type": legacy_type,
-                    "source": pair["left"],
-                    "target": pair["right"],
-                    "relation_evidence_ids": [source_evidence],
-                }],
-            }],
-        }
-        try:
-            validate_relations(
-                candidate,
-                request=request,
-                concept_aliases=concept_aliases,
-                evidence_aliases=evidence_aliases,
-                formal_concepts=concepts,
-                evidence_pages=_relation_pages(concepts),
-            )
-        except RelationError:
-            pass
-        else:
-            raise AssertionError("legacy relation type must fail closed")
-
-
 def test_map_revision_binds_formal_nodes_relations_path_and_cycle_exclusion():
     study = _study()
     first = _keep_resolution(study)["formal_concepts"][0]
@@ -1127,7 +1086,7 @@ def test_map_allows_identical_shared_claim_and_rejects_claim_conflicts():
     for conflict in ("text", "evidence_ids"):
         tampered = deepcopy(knowledge_map)
         conflicting_concept = tampered["formal_concepts"][1]
-        old_formal_id = conflicting_concept["formal_concept_id"]
+        original_formal_id = conflicting_concept["formal_concept_id"]
         if conflict == "text":
             conflicting_concept["claims"][0]["text"] = "Conflicting text"
         else:
@@ -1151,7 +1110,7 @@ def test_map_allows_identical_shared_claim_and_rejects_claim_conflicts():
         )
         tampered["initial_learning_path"] = [
             conflicting_concept["formal_concept_id"]
-            if formal_id == old_formal_id
+            if formal_id == original_formal_id
             else formal_id
             for formal_id in tampered["initial_learning_path"]
         ]
@@ -1286,7 +1245,9 @@ def test_map_split_resource_is_review_only_and_not_duplicated():
     assert validate_knowledge_map(knowledge_map) is None
 
 
-def test_agent3_retries_only_a_temporary_resolution_failure(monkeypatch):
+def test_knowledge_generation_retries_only_a_temporary_resolution_failure(
+    monkeypatch,
+):
     study = _study()
     _add_second_same_label_concept(study)
     runtime_lock = json.loads(

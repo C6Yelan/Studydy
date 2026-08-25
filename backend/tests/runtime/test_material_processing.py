@@ -591,7 +591,7 @@ def test_handoff_cleanup_failure_rolls_back_outputs_and_marks_run_failed(
     ).is_dir()
 
 
-def test_long_document_publishes_every_page_and_resolves_page_above_old_limit(
+def test_forty_page_document_publishes_every_page_and_locator(
     processing_database_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     learner_id = _learner(processing_database_dsn)
@@ -1074,7 +1074,7 @@ def test_failed_producer_publishes_zero_domain_revisions(
     _assert_downstream_zero(processing_database_dsn)
 
 
-def test_agent3_failure_is_not_success_and_keeps_only_safe_local_diagnostic(
+def test_knowledge_generation_failure_keeps_only_safe_local_diagnostic(
     processing_database_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     _, _, settings, created = _created_run(processing_database_dsn, tmp_path)

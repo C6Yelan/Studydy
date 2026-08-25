@@ -63,7 +63,7 @@ _PAGE_EXCLUSION_REASONS = {
     "INVALID_EVIDENCE_REFERENCES",
     "DUPLICATE_EVIDENCE_REFERENCE",
 }
-_AGENT1_OWNERSHIP = local()
+_MATERIAL_ANALYSIS_OWNERSHIP = local()
 
 
 def _now() -> str:
@@ -148,7 +148,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
 
 
 @contextmanager
-def _agent1_lock(runtime_root: Path, *, wait_seconds: float = 5):
+def material_analysis_lock(runtime_root: Path, *, wait_seconds: float = 5):
     """跨 process 同時只允許一個本機 OCR 與 Concept API sequence。"""
 
     if type(wait_seconds) not in {int, float} or wait_seconds < 0:
@@ -156,7 +156,7 @@ def _agent1_lock(runtime_root: Path, *, wait_seconds: float = 5):
     if runtime_root.is_symlink():
         raise ValueError("RUNTIME_BINDING_INVALID")
     runtime_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    lock_path = runtime_root / "agent1.lock"
+    lock_path = runtime_root / "material-analysis.lock"
     if lock_path.is_symlink():
         raise ValueError("RUNTIME_BINDING_INVALID")
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
@@ -170,24 +170,27 @@ def _agent1_lock(runtime_root: Path, *, wait_seconds: float = 5):
                 if time.monotonic() >= deadline:
                     raise ValueError("RUNTIME_BUSY") from None
                 time.sleep(0.05)
-        previous_root = getattr(_AGENT1_OWNERSHIP, "runtime_root", None)
-        _AGENT1_OWNERSHIP.runtime_root = runtime_root
+        previous_root = getattr(_MATERIAL_ANALYSIS_OWNERSHIP, "runtime_root", None)
+        _MATERIAL_ANALYSIS_OWNERSHIP.runtime_root = runtime_root
         try:
             yield
         finally:
             if previous_root is None:
-                del _AGENT1_OWNERSHIP.runtime_root
+                del _MATERIAL_ANALYSIS_OWNERSHIP.runtime_root
             else:
-                _AGENT1_OWNERSHIP.runtime_root = previous_root
+                _MATERIAL_ANALYSIS_OWNERSHIP.runtime_root = previous_root
     finally:
         fcntl.flock(descriptor, fcntl.LOCK_UN)
         os.close(descriptor)
 
 
-def _has_agent1_ownership(runtime_root: Path) -> bool:
+def _has_material_analysis_ownership(runtime_root: Path) -> bool:
     """只在目前 thread 已實際取得相同 runtime lock 時回傳真。"""
 
-    return getattr(_AGENT1_OWNERSHIP, "runtime_root", None) == runtime_root
+    return (
+        getattr(_MATERIAL_ANALYSIS_OWNERSHIP, "runtime_root", None)
+        == runtime_root
+    )
 
 
 def _excluded_page(
@@ -853,9 +856,9 @@ def run_full_text_first_pdf(
         )
 
     try:
-        if _has_agent1_ownership(root):
+        if _has_material_analysis_ownership(root):
             return execute()
-        with _agent1_lock(root):
+        with material_analysis_lock(root):
             return execute()
     except ValueError as error:
         if _reason(error) != "RUNTIME_BUSY":

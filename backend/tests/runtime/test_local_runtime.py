@@ -84,38 +84,19 @@ def test_sync_is_idempotent_and_explicit_rollback_restores_complete_backup(
     assert backup_root.is_dir()
 
 
-def test_sync_adds_new_relation_source_and_rollback_removes_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_sync_rejects_incomplete_installed_package(tmp_path: Path):
     config = _mirrored_config(tmp_path)
     package_root = Path(config["site_packages"]) / "studydy_local_ai"
     relation_target = package_root / "relation_process.py"
     relation_target.unlink()
-    monkeypatch.setattr(
-        local_runtime,
-        "validate_installed_local_runtime",
-        lambda _: ({"schema": "binding"}, 28),
-    )
 
-    synchronized = local_runtime.sync_local_runtime(config)
+    with pytest.raises(MaterialProcessingError) as failure:
+        local_runtime.sync_local_runtime(config)
 
-    assert synchronized == {
-        "status": "succeeded",
-        "command": "sync",
-        "files_total": 4,
-        "files_updated": 4,
-    }
-    assert relation_target.read_bytes() == _tracked_bytes()["relation_process.py"]
-    backup_root = package_root.parent / local_runtime._BACKUP_NAME
-    assert (backup_root / "relation_process.py.missing").is_file()
-
-    assert local_runtime.rollback_local_runtime(config) == {
-        "status": "succeeded",
-        "command": "rollback",
-        "files_total": 4,
-        "files_restored": 4,
-    }
+    assert failure.value.component == "ocr_package"
+    assert failure.value.reason == "LOCAL_RUNTIME_MISSING"
     assert not relation_target.exists()
+    assert not (package_root.parent / local_runtime._BACKUP_NAME).exists()
 
 
 def test_sync_rolls_back_attempted_targets_when_replace_fails(
@@ -268,7 +249,7 @@ def test_atomic_replace_fsyncs_file_then_parent(
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.write_bytes(b"new")
-    target.write_bytes(b"old")
+    target.write_bytes(b"installed-version")
     observed = []
     real_replace = local_runtime.os.replace
     real_fsync_directory = local_runtime._fsync_directory
