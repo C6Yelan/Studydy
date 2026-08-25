@@ -41,12 +41,9 @@ from runtime.storage.migrations import run_migrations
 _DOMAIN_TABLES = (
     "study_material_outputs",
     "knowledge_maps",
-    "learning_paths",
     "resource_catalogs",
     "learning_resource_results",
-    "assessments",
-    "answer_events",
-    "learning_states",
+    "study_sessions",
 )
 
 
@@ -69,6 +66,7 @@ def processing_database_dsn(
         4,
         5,
         6,
+        7,
     )
     with psycopg.connect(clean_database_dsn) as connection:
         for table in ("material_processing_runs", *_DOMAIN_TABLES):
@@ -176,7 +174,7 @@ def test_populated_migration_five_deletes_v2_terminal_runs_on_forward_upgrade(
                 ),
             )
 
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (6,)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (6, 7)
 
     with psycopg.connect(clean_database_dsn) as connection:
         remaining_run_ids = {

@@ -182,31 +182,6 @@ class KnowledgeMap(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-class LearningPath(Base):
-    __tablename__ = "learning_paths"
-    __table_args__ = (
-        PrimaryKeyConstraint("learner_id", "material_id", "path_revision"),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id", "map_revision"],
-            ["knowledge_maps.learner_id", "knowledge_maps.material_id", "knowledge_maps.map_revision"],
-        ),
-        CheckConstraint(
-            "document ? 'revision' AND document ->> 'revision' = path_revision"
-        ),
-        CheckConstraint(
-            "document ? 'knowledge_map_revision' "
-            "AND document ->> 'knowledge_map_revision' = map_revision"
-        ),
-    )
-
-    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    path_revision: Mapped[str] = mapped_column(Text)
-    map_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
 class ResourceCatalog(Base):
     __tablename__ = "resource_catalogs"
     __table_args__ = (
@@ -269,41 +244,6 @@ class LearningResourceResult(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-class Assessment(Base):
-    __tablename__ = "assessments"
-    __table_args__ = (
-        PrimaryKeyConstraint("learner_id", "material_id", "assessment_revision"),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id", "output_revision"],
-            [
-                "study_material_outputs.learner_id",
-                "study_material_outputs.material_id",
-                "study_material_outputs.output_revision",
-            ],
-        ),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id", "map_revision"],
-            ["knowledge_maps.learner_id", "knowledge_maps.material_id", "knowledge_maps.map_revision"],
-        ),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id", "path_revision"],
-            ["learning_paths.learner_id", "learning_paths.material_id", "learning_paths.path_revision"],
-        ),
-        CheckConstraint("public_document ? 'assessment_view_id'"),
-        CheckConstraint("answer_key_document ? 'assessment_id'"),
-    )
-
-    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    assessment_revision: Mapped[str] = mapped_column(Text)
-    output_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    map_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    path_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    public_document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    answer_key_document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
 class MaterialProcessingRun(Base):
     __tablename__ = "material_processing_runs"
     __table_args__ = (
@@ -354,66 +294,44 @@ class MaterialProcessingRun(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class AnswerEvent(Base):
-    __tablename__ = "answer_events"
-    __table_args__ = (
-        UniqueConstraint("learner_id", "submission_id", "question_id"),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id", "assessment_revision"],
-            ["assessments.learner_id", "assessments.material_id", "assessments.assessment_revision"],
-        ),
-        Index("idx_answer_events_stream", "learner_id", "material_id", "created_at", "answer_event_id"),
-        CheckConstraint(
-            "document ? 'answer_event_id' "
-            "AND document ->> 'answer_event_id' = answer_event_id"
-        ),
-    )
-
-    answer_event_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    submission_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
-    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
-    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
-    assessment_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    question_id: Mapped[str] = mapped_column(Text, nullable=False)
-    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
-class LearningState(Base):
-    __tablename__ = "learning_states"
+class StudySession(Base):
+    __tablename__ = "study_sessions"
     __table_args__ = (
         UniqueConstraint("learner_id", "idempotency_key_sha256"),
-        UniqueConstraint("learner_id", "submission_id"),
         ForeignKeyConstraint(
-            ["learner_id", "material_id", "map_revision"],
+            ["learner_id", "material_id", "knowledge_map_revision"],
             ["knowledge_maps.learner_id", "knowledge_maps.material_id", "knowledge_maps.map_revision"],
-        ),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id", "path_revision"],
-            ["learning_paths.learner_id", "learning_paths.material_id", "learning_paths.path_revision"],
-        ),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id", "assessment_revision"],
-            ["assessments.learner_id", "assessments.material_id", "assessments.assessment_revision"],
         ),
         CheckConstraint("octet_length(idempotency_key_sha256) = 32"),
         CheckConstraint("octet_length(request_fingerprint) = 32"),
         CheckConstraint(
-            "document ? 'revision' AND document ->> 'revision' = state_revision"
+            "current_formal_concept_id IS NULL OR "
+            "current_formal_concept_id ~ '^formal-concept:sha256:[0-9a-f]{64}$'"
+        ),
+        CheckConstraint("status IN ('active', 'completed')"),
+        CheckConstraint("last_event_number >= 0"),
+        CheckConstraint(
+            "(status = 'active' AND completed_at IS NULL) OR "
+            "(status = 'completed' AND completed_at IS NOT NULL "
+            "AND completed_at >= started_at)"
         ),
     )
 
-    state_revision: Mapped[str] = mapped_column(Text, primary_key=True)
-    submission_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    study_session_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True
+    )
     learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
     material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
-    map_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    path_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    assessment_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    knowledge_map_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    current_formal_concept_id: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_event_number: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0")
+    )
 
 
 @contextmanager
