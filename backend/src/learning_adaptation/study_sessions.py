@@ -16,7 +16,7 @@ from runtime.learner_session import TrustedLearner
 from runtime.storage.database import DatabaseConfigurationError
 from runtime.storage.tables import StudySession, database_session
 
-from .map_context import MapContextError, _read_map_context
+from .map_context import MapContext, MapContextError, _read_map_context
 
 
 _MAP_REVISION_PATTERN = re.compile(r"^knowledge-map:sha256:[0-9a-f]{64}$")
@@ -100,7 +100,7 @@ def _read_stored_row(
     return stored
 
 
-def _validate_binding(session: Session, stored: StudySession) -> None:
+def _validate_binding(session: Session, stored: StudySession) -> MapContext:
     try:
         context = _read_map_context(
             session,
@@ -118,6 +118,7 @@ def _validate_binding(session: Session, stored: StudySession) -> None:
         and stored.current_formal_concept_id not in known_concepts
     ):
         raise _error("STUDY_SESSION_UNAVAILABLE")
+    return context
 
 
 def _stored_session(stored: StudySession) -> StoredStudySession:

@@ -29,6 +29,7 @@ def artifact_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
         5,
         6,
         7,
+        8,
     )
     return clean_database_dsn
 

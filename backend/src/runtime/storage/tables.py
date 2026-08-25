@@ -298,6 +298,11 @@ class StudySession(Base):
     __tablename__ = "study_sessions"
     __table_args__ = (
         UniqueConstraint("learner_id", "idempotency_key_sha256"),
+        UniqueConstraint(
+            "study_session_id",
+            "knowledge_map_revision",
+            name="study_sessions_map_binding_unique",
+        ),
         ForeignKeyConstraint(
             ["learner_id", "material_id", "knowledge_map_revision"],
             ["knowledge_maps.learner_id", "knowledge_maps.material_id", "knowledge_maps.map_revision"],
@@ -331,6 +336,77 @@ class StudySession(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_event_number: Mapped[int] = mapped_column(
         BigInteger, nullable=False, server_default=text("0")
+    )
+
+
+class Assessment(Base):
+    __tablename__ = "assessments"
+    __table_args__ = (
+        UniqueConstraint("study_session_id", "question_id"),
+        ForeignKeyConstraint(
+            ["study_session_id", "knowledge_map_revision"],
+            [
+                "study_sessions.study_session_id",
+                "study_sessions.knowledge_map_revision",
+            ],
+        ),
+        CheckConstraint(
+            "assessment_revision ~ '^assessment:sha256:[0-9a-f]{64}$'"
+        ),
+        CheckConstraint("question_id ~ '^question:sha256:[0-9a-f]{64}$'"),
+        CheckConstraint(
+            "target_formal_concept_id ~ '^formal-concept:sha256:[0-9a-f]{64}$'"
+        ),
+        CheckConstraint("target_claim_id ~ '^claim:sha256:[0-9a-f]{64}$'"),
+        CheckConstraint(
+            "policy_revision = 'single-choice-assessment-policy/v1'"
+        ),
+        CheckConstraint(
+            "jsonb_typeof(public_document) = 'object' "
+            "AND public_document ?& ARRAY['schema', 'study_session_id', "
+            "'knowledge_map_revision', 'assessment_revision', 'question_id', "
+            "'target_formal_concept_id', 'target_claim_id', "
+            "'source_evidence_ids', 'question_type', 'prompt', 'options', "
+            "'policy_revision'] "
+            "AND public_document ->> 'schema' = "
+            "'single-choice-assessment-public/v1' "
+            "AND public_document ->> 'study_session_id' = study_session_id::text "
+            "AND public_document ->> 'knowledge_map_revision' = knowledge_map_revision "
+            "AND public_document ->> 'assessment_revision' = assessment_revision "
+            "AND public_document ->> 'question_id' = question_id "
+            "AND public_document ->> 'target_formal_concept_id' = target_formal_concept_id "
+            "AND public_document ->> 'target_claim_id' = target_claim_id "
+            "AND public_document ->> 'question_type' = 'single_choice' "
+            "AND public_document ->> 'policy_revision' = policy_revision"
+        ),
+        CheckConstraint(
+            "jsonb_typeof(private_answer_document) = 'object' "
+            "AND private_answer_document ?& ARRAY['schema', "
+            "'assessment_revision', 'question_id', 'correct_option_id', "
+            "'rationale', 'source_evidence_ids', 'private_answer_sha256'] "
+            "AND private_answer_document ->> 'schema' = "
+            "'single-choice-assessment-answer/v1' "
+            "AND private_answer_document ->> 'assessment_revision' = "
+            "assessment_revision "
+            "AND private_answer_document ->> 'question_id' = question_id"
+        ),
+    )
+
+    assessment_revision: Mapped[str] = mapped_column(Text, primary_key=True)
+    study_session_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), nullable=False
+    )
+    knowledge_map_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    question_id: Mapped[str] = mapped_column(Text, nullable=False)
+    target_formal_concept_id: Mapped[str] = mapped_column(Text, nullable=False)
+    target_claim_id: Mapped[str] = mapped_column(Text, nullable=False)
+    public_document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    private_answer_document: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False
+    )
+    policy_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
     )
 
 
