@@ -32,6 +32,12 @@ from knowledge_map.relations import (
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.concept_generation import claim_id, concept_id
 from pdf_evidence.study_material_output import build_study_material_output
+from learning_resources.map_resources import (
+    build_map_resource_context,
+    build_resource_library,
+    load_bundled_resource_library,
+    promote_resources_to_formal_concepts,
+)
 from test_study_material_output import producer_output
 
 
@@ -58,6 +64,43 @@ def _keep_resolution(study):
         concept_aliases=concepts,
         claim_aliases=claims,
         source_concepts=study["concepts"],
+    )
+
+
+def _resource_promotion(study, formal_concepts):
+    library = load_bundled_resource_library()
+    context = build_map_resource_context(study, library)
+    return promote_resources_to_formal_concepts(
+        formal_concepts, context, study, library
+    )
+
+
+def _matching_resource_library(label):
+    source_sha = "b" * 64
+    return build_resource_library(
+        [{
+            "source_sha256": source_sha,
+            "page_count": 2,
+            "title": "Reviewed supplementary notes",
+            "authors": ["Ada Student"],
+            "source_url": "https://example.edu/notes.pdf",
+            "citation": "Ada Student. Reviewed supplementary notes.",
+            "license": "CC BY 4.0 International",
+            "license_url": "https://creativecommons.org/licenses/by/4.0/",
+            "use_boundary": "Attribution required.",
+        }],
+        [{
+            "source_sha256": source_sha,
+            "page_number": 2,
+            "label": label,
+            "evidence": [{
+                "quote": "Reviewed evidence for the supplementary concept.",
+                "region": {
+                    "coordinate_space": "unrotated_pdf_points",
+                    "bbox": [20.0, 30.0, 260.0, 55.0],
+                },
+            }],
+        }],
     )
 
 
@@ -790,13 +833,14 @@ def test_map_revision_binds_formal_nodes_relations_path_and_cycle_exclusion():
             "processing": "succeeded",
             "reason_codes": ["RELATION_REVIEW_REQUIRED"],
         },
+        resource_promotion=_resource_promotion(study, nodes),
         material_runtime_binding_sha256="f" * 64,
     )
     assert all(relation["is_in_prerequisite_cycle"] for relation in knowledge_map["relations"])
     assert knowledge_map["initial_learning_path"] == [node["formal_concept_id"] for node in nodes]
     assert validate_knowledge_map(knowledge_map) is None
     view = build_knowledge_map_view(knowledge_map)
-    assert view["schema"] == "knowledge-map-view/v4"
+    assert view["schema"] == "knowledge-map-view/v5"
     assert view["relations"][0]["source_formal_concept_id"].startswith("formal-concept:")
 
     tampered = deepcopy(knowledge_map)
@@ -827,6 +871,7 @@ def test_map_allows_identical_shared_claim_and_rejects_claim_conflicts():
             "processing": "succeeded",
             "reason_codes": ["RELATION_REVIEW_REQUIRED"],
         },
+        resource_promotion=_resource_promotion(study, [first, second]),
         material_runtime_binding_sha256="f" * 64,
     )
     shared_claim_id = first["claims"][0]["claim_id"]
@@ -883,6 +928,7 @@ def test_zero_formal_concepts_stops_with_partial_reject():
         [],
         [],
         relation_pair_status={"processing": "partial", "reason_codes": ["NO_FORMAL_CONCEPT"]},
+        resource_promotion=_resource_promotion(study, []),
         material_runtime_binding_sha256="f" * 64,
     )
     assert knowledge_map["formal_concepts"] == []
@@ -897,6 +943,9 @@ def test_recomputed_revision_cannot_hide_nested_unexpected_field():
         [_keep_resolution(study)],
         [],
         relation_pair_status={"processing": "succeeded", "reason_codes": ["RELATION_REVIEW_REQUIRED"]},
+        resource_promotion=_resource_promotion(
+            study, _keep_resolution(study)["formal_concepts"]
+        ),
         material_runtime_binding_sha256="f" * 64,
     )
     knowledge_map["formal_concepts"][0]["unexpected"] = True
@@ -904,6 +953,95 @@ def test_recomputed_revision_cannot_hide_nested_unexpected_field():
     identity.pop("revision")
     knowledge_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(identity)
     assert validate_knowledge_map(knowledge_map) == "KNOWLEDGE_MAP_INVALID"
+
+
+def test_map_promotes_resource_with_provenance_and_rejects_tampering():
+    study = _study()
+    resolution = _keep_resolution(study)
+    formal = resolution["formal_concepts"]
+    library = _matching_resource_library(study["concepts"][0]["label"])
+    context = build_map_resource_context(study, library)
+    promotion = promote_resources_to_formal_concepts(formal, context, study, library)
+
+    knowledge_map = build_knowledge_map(
+        study,
+        [resolution],
+        [],
+        relation_pair_status={
+            "processing": "succeeded",
+            "reason_codes": ["RELATION_REVIEW_REQUIRED"],
+        },
+        resource_promotion=promotion,
+        material_runtime_binding_sha256="f" * 64,
+    )
+
+    resource = knowledge_map["formal_concepts"][0]["supplementary_resources"][0]
+    assert resource["match_ids"] == [context["matches"][0]["match_id"]]
+    assert resource["study_concept_ids"] == [study["concepts"][0]["concept_id"]]
+    assert knowledge_map["resource_diagnostics"]["promoted_resources"] == 1
+    assert build_knowledge_map_view(knowledge_map)["concepts"][0][
+        "supplementary_resources"
+    ] == [resource]
+
+    tampered = deepcopy(knowledge_map)
+    tampered["formal_concepts"][0]["supplementary_resources"][0]["match_ids"] = [
+        "resource-match:sha256:" + "0" * 64
+    ]
+    identity = dict(tampered)
+    identity.pop("revision")
+    tampered["revision"] = "knowledge-map:sha256:" + canonical_sha256(identity)
+    assert validate_knowledge_map(tampered) == "KNOWLEDGE_MAP_INVALID"
+
+
+def test_map_split_resource_is_review_only_and_not_duplicated():
+    study = _study()
+    request, concepts, claims = build_resolution_requests(study["concepts"])[0]
+    claim_aliases = list(claims)
+    resolution = validate_resolution(
+        {
+            "schema": "formal-concept-resolution/v1",
+            "group_id": request["group_id"],
+            "resolutions": [{
+                "operation": "SPLIT",
+                "source_ids": ["c1"],
+                "nodes": [
+                    {"label": "Part A", "claim_ids": [claim_aliases[0]]},
+                    {"label": "Part B", "claim_ids": [claim_aliases[1]]},
+                ],
+            }],
+        },
+        request=request,
+        concept_aliases=concepts,
+        claim_aliases=claims,
+        source_concepts=study["concepts"],
+    )
+    library = _matching_resource_library(study["concepts"][0]["label"])
+    context = build_map_resource_context(study, library)
+    promotion = promote_resources_to_formal_concepts(
+        resolution["formal_concepts"], context, study, library
+    )
+
+    knowledge_map = build_knowledge_map(
+        study,
+        [resolution],
+        [],
+        relation_pair_status={
+            "processing": "succeeded",
+            "reason_codes": ["RELATION_REVIEW_REQUIRED"],
+        },
+        resource_promotion=promotion,
+        material_runtime_binding_sha256="f" * 64,
+    )
+
+    assert all(
+        not concept["supplementary_resources"]
+        for concept in knowledge_map["formal_concepts"]
+    )
+    assert knowledge_map["resource_diagnostics"]["split_review_matches"] == 1
+    assert knowledge_map["resource_decisions"][0]["decision"] == "review"
+    assert knowledge_map["processing"] == "partial"
+    assert "RESOURCE_SPLIT_REVIEW_REQUIRED" in knowledge_map["reason_codes"]
+    assert validate_knowledge_map(knowledge_map) is None
 
 
 def test_agent3_retries_only_a_temporary_resolution_failure(monkeypatch):
@@ -984,6 +1122,10 @@ def test_agent3_retries_only_a_temporary_resolution_failure(monkeypatch):
             "concept_max_model_len": 8_192,
         },
         "f" * 64,
+        resource_context=build_map_resource_context(
+            study, load_bundled_resource_library()
+        ),
+        resource_library=load_bundled_resource_library(),
     )
 
     assert calls == [

@@ -81,6 +81,8 @@ _BINDING_FILES = (
     "backend/src/knowledge_map/formal_concepts.py",
     "backend/src/knowledge_map/relations.py",
     "backend/src/knowledge_map/local_generation.py",
+    "backend/src/learning_resources/map_resources.py",
+    "backend/src/learning_resources/data/resource_library_v1.json",
     "backend/src/pdf_evidence/local_ai_process.py",
     "backend/src/runtime/material_processing.py",
     "backend/src/runtime/local_app.py",

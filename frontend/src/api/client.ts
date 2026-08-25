@@ -229,16 +229,18 @@ function isRelationDiagnostics(value: unknown): boolean {
 function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
   const item = closed(value, [
     "schema", "material_ref", "knowledge_map_revision", "source_output_id", "status",
-    "concepts", "relations", "relation_diagnostics", "initial_learning_path", "excluded_pages",
+    "concepts", "relations", "relation_diagnostics", "resource_binding",
+    "resource_diagnostics", "resource_decisions", "initial_learning_path", "excluded_pages",
   ]);
   if (!item
-    || item.schema !== "knowledge-map-view/v4"
+    || item.schema !== "knowledge-map-view/v5"
     || !isRevision(item.material_ref, "material")
     || !isRevision(item.knowledge_map_revision, "knowledge-map")
     || !isRevision(item.source_output_id, "study-material-output")
     || !Array.isArray(item.concepts)
     || !Array.isArray(item.relations)
     || !isRelationDiagnostics(item.relation_diagnostics)
+    || !Array.isArray(item.resource_decisions)
     || !Array.isArray(item.initial_learning_path)
     || !Array.isArray(item.excluded_pages)) return false;
   const status = closed(item.status, ["processing", "quality", "decision", "reason_codes"]);
@@ -250,7 +252,7 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
   const conceptsAreValid = item.concepts.every((value) => {
     const concept = closed(value, [
       "formal_concept_id", "label", "claims", "source_concept_ids", "source_page_numbers",
-      "quality", "decision", "reason_codes",
+      "supplementary_resources", "quality", "decision", "reason_codes",
     ]);
     return !!concept
       && isRevision(concept.formal_concept_id, "formal-concept")
@@ -259,6 +261,30 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
       && Array.isArray(concept.source_page_numbers)
       && concept.source_page_numbers.length > 0
       && concept.source_page_numbers.every((page) => Number.isInteger(page) && Number(page) >= 1)
+      && Array.isArray(concept.supplementary_resources)
+      && concept.supplementary_resources.every((value) => {
+        const resource = closed(value, [
+          "promotion_id",
+          "resource_concept_id", "resource_id", "label", "title", "authors", "source_url",
+          "citation", "license", "license_url", "use_boundary", "page_numbers",
+          "resource_evidence_ids", "match_ids", "study_concept_ids", "match_reason",
+        ]);
+        return !!resource
+          && isRevision(resource.promotion_id, "resource-promotion")
+          && isRevision(resource.resource_concept_id, "resource-concept")
+          && isRevision(resource.resource_id, "resource")
+          && ["label", "title", "source_url", "citation", "license", "license_url", "use_boundary"]
+            .every((field) => typeof resource[field] === "string" && String(resource[field]).length > 0)
+          && isStringArray(resource.authors, 1)
+          && Array.isArray(resource.page_numbers) && resource.page_numbers.length > 0
+          && resource.page_numbers.every((page) => Number.isInteger(page) && Number(page) >= 1)
+          && isStringArray(resource.resource_evidence_ids, 1)
+          && isStringArray(resource.match_ids, 1)
+          && isStringArray(resource.study_concept_ids, 1)
+          && (resource.study_concept_ids as unknown[]).every((id) =>
+            (concept.source_concept_ids as unknown[]).includes(id))
+          && resource.match_reason === "EXACT_NORMALIZED_LABEL";
+      })
       && Array.isArray(concept.claims)
       && concept.claims.length > 0
       && concept.claims.every((value) => {
@@ -277,6 +303,26 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
   });
   if (!conceptsAreValid
     || !item.excluded_pages.every(isExcludedPage)) return false;
+  const resourceBinding = closed(item.resource_binding, [
+    "context_revision", "library_revision", "matching_policy", "promotion_policy",
+  ]);
+  const resourceDiagnostics = closed(item.resource_diagnostics, [
+    "matches", "promoted_matches", "promoted_resources", "dropped_matches",
+    "split_review_matches",
+  ]);
+  const resourceCounts = resourceDiagnostics && [
+    "matches", "promoted_matches", "promoted_resources", "dropped_matches",
+    "split_review_matches",
+  ].every((field) => Number.isInteger(resourceDiagnostics[field])
+    && Number(resourceDiagnostics[field]) >= 0);
+  if (!resourceBinding
+    || !isRevision(resourceBinding.context_revision, "map-resource-context")
+    || !isRevision(resourceBinding.library_revision, "resource-library")
+    || resourceBinding.matching_policy !== "resource-context-exact-distinct-source/v3"
+    || resourceBinding.promotion_policy !== "resource-formal-concept-promotion/v1"
+    || !resourceCounts
+    || Number(resourceDiagnostics.matches) !== Number(resourceDiagnostics.promoted_matches)
+      + Number(resourceDiagnostics.dropped_matches) + Number(resourceDiagnostics.split_review_matches)) return false;
   const conceptIds = item.concepts.map((entry) => object(entry)?.formal_concept_id);
   const evidenceByConcept = new Map(
     (item.concepts as unknown as KnowledgeMapView["concepts"]).map((concept) => [
@@ -314,9 +360,38 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
   });
   const excludedRefs = item.excluded_pages.map((entry) => object(entry)?.page_ref);
   const excludedNumbers = item.excluded_pages.map((entry) => object(entry)?.page_number);
+  const promotedMatchIds = (item.concepts as unknown as KnowledgeMapView["concepts"])
+    .flatMap((concept) => concept.supplementary_resources.flatMap((resource) => resource.match_ids));
+  const resourceDecisionsAreValid = item.resource_decisions.every((value) => {
+    const decision = closed(value, [
+      "decision_id",
+      "match_id", "study_concept_id", "resource_concept_id", "formal_concept_ids",
+      "decision", "reason_code",
+    ]);
+    return !!decision
+      && isRevision(decision.decision_id, "resource-promotion-decision")
+      && isRevision(decision.match_id, "resource-match")
+      && typeof decision.study_concept_id === "string"
+      && isRevision(decision.resource_concept_id, "resource-concept")
+      && isStringArray(decision.formal_concept_ids)
+      && (decision.formal_concept_ids as unknown[]).every((id) => conceptIds.includes(id))
+      && ((decision.decision === "reject"
+        && decision.reason_code === "RESOURCE_SOURCE_CONCEPT_DROPPED"
+        && (decision.formal_concept_ids as unknown[]).length === 0)
+        || (decision.decision === "review"
+          && decision.reason_code === "RESOURCE_SPLIT_REVIEW_REQUIRED"
+          && (decision.formal_concept_ids as unknown[]).length >= 2));
+  });
+  const decisionMatchIds = item.resource_decisions.map((entry) => object(entry)?.match_id);
   return new Set(conceptIds).size === conceptIds.length
     && relationsAreValid
     && new Set(item.relations.map((entry) => object(entry)?.relation_id)).size === item.relations.length
+    && resourceDecisionsAreValid
+    && new Set(promotedMatchIds).size === promotedMatchIds.length
+    && new Set(decisionMatchIds).size === decisionMatchIds.length
+    && promotedMatchIds.every((id) => !decisionMatchIds.includes(id))
+    && promotedMatchIds.length === Number(resourceDiagnostics.promoted_matches)
+    && promotedMatchIds.length + decisionMatchIds.length === Number(resourceDiagnostics.matches)
     && isStringArray(item.initial_learning_path)
     && item.initial_learning_path.length === conceptIds.length
     && new Set(item.initial_learning_path).size === conceptIds.length

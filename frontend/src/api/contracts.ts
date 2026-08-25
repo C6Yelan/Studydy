@@ -88,7 +88,7 @@ export type ExcludedPageView = {
 };
 
 export type KnowledgeMapView = {
-  schema: "knowledge-map-view/v4";
+  schema: "knowledge-map-view/v5";
   material_ref: string;
   knowledge_map_revision: string;
   source_output_id: string;
@@ -104,6 +104,24 @@ export type KnowledgeMapView = {
     claims: { claim_id: string; text: string; evidence: EvidenceView[] }[];
     source_concept_ids: string[];
     source_page_numbers: number[];
+    supplementary_resources: {
+      promotion_id: string;
+      resource_concept_id: string;
+      resource_id: string;
+      label: string;
+      title: string;
+      authors: string[];
+      source_url: string;
+      citation: string;
+      license: string;
+      license_url: string;
+      use_boundary: string;
+      page_numbers: number[];
+      resource_evidence_ids: string[];
+      match_ids: string[];
+      study_concept_ids: string[];
+      match_reason: "EXACT_NORMALIZED_LABEL";
+    }[];
     quality: "needs_review";
     decision: "review";
     reason_codes: string[];
@@ -133,6 +151,28 @@ export type KnowledgeMapView = {
     verifier_unsupported: number;
     accepted_relations: number;
   };
+  resource_binding: {
+    context_revision: string;
+    library_revision: string;
+    matching_policy: "resource-context-exact-distinct-source/v3";
+    promotion_policy: "resource-formal-concept-promotion/v1";
+  };
+  resource_diagnostics: {
+    matches: number;
+    promoted_matches: number;
+    promoted_resources: number;
+    dropped_matches: number;
+    split_review_matches: number;
+  };
+  resource_decisions: {
+    decision_id: string;
+    match_id: string;
+    study_concept_id: string;
+    resource_concept_id: string;
+    formal_concept_ids: string[];
+    decision: "review" | "reject";
+    reason_code: "RESOURCE_SPLIT_REVIEW_REQUIRED" | "RESOURCE_SOURCE_CONCEPT_DROPPED";
+  }[];
   initial_learning_path: string[];
   excluded_pages: ExcludedPageView[];
 };

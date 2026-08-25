@@ -7,14 +7,41 @@ from typing import Any
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.artifact_reason_codes import reason_codes_are_valid
 from pdf_evidence.study_material_output import validate_study_material_output
+from learning_resources.map_resources import MATCHING_POLICY, PROMOTION_POLICY
 
 
 RELATION_TYPES = {"prerequisite", "contains", "related"}
 SYMMETRIC_RELATION_TYPES = {"related"}
 
 
-KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v4"
-KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v4"
+KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v5"
+KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v5"
+
+_RESOURCE_DIAGNOSTIC_FIELDS = {
+    "matches",
+    "promoted_matches",
+    "promoted_resources",
+    "dropped_matches",
+    "split_review_matches",
+}
+_SUPPLEMENTARY_RESOURCE_FIELDS = {
+    "promotion_id",
+    "resource_concept_id",
+    "resource_id",
+    "label",
+    "title",
+    "authors",
+    "source_url",
+    "citation",
+    "license",
+    "license_url",
+    "use_boundary",
+    "page_numbers",
+    "resource_evidence_ids",
+    "match_ids",
+    "study_concept_ids",
+    "match_reason",
+}
 
 _RELATION_DIAGNOSTIC_FIELDS = {
     "possible_pairs",
@@ -139,6 +166,7 @@ def build_knowledge_map(
     relation_artifacts: list[dict[str, Any]],
     *,
     relation_pair_status: dict[str, Any],
+    resource_promotion: dict[str, Any],
     material_runtime_binding_sha256: str,
 ) -> dict[str, Any]:
     """只使用通過 deterministic validation 的 Formal Concept 與 Relation。"""
@@ -148,17 +176,32 @@ def build_knowledge_map(
     page_numbers = {
         page["page_ref"]: page["page_number"] for page in study_material_output["pages"]
     }
-    formal_concepts = []
+    resolved_formal_concepts = []
     for artifact in resolution_artifacts:
         for source in artifact.get("formal_concepts", []):
-            concept = deepcopy(source)
-            try:
-                concept["source_page_numbers"] = sorted(
-                    {page_numbers[page] for page in concept["source_page_refs"]}
-                )
-            except KeyError:
-                raise ValueError("KNOWLEDGE_MAP_SOURCE_INVALID") from None
-            formal_concepts.append(concept)
+            resolved_formal_concepts.append(deepcopy(source))
+    if (
+        not isinstance(resource_promotion, dict)
+        or set(resource_promotion) != {
+            "formal_concepts", "resource_binding", "resource_diagnostics",
+            "resource_decisions",
+        }
+        or not isinstance(resource_promotion["formal_concepts"], list)
+        or [
+            {key: value for key, value in concept.items() if key != "supplementary_resources"}
+            for concept in resource_promotion["formal_concepts"]
+        ]
+        != resolved_formal_concepts
+    ):
+        raise ValueError("KNOWLEDGE_MAP_RESOURCE_INVALID")
+    formal_concepts = deepcopy(resource_promotion["formal_concepts"])
+    for concept in formal_concepts:
+        try:
+            concept["source_page_numbers"] = sorted(
+                {page_numbers[page] for page in concept["source_page_refs"]}
+            )
+        except KeyError:
+            raise ValueError("KNOWLEDGE_MAP_SOURCE_INVALID") from None
     formal_ids = [concept["formal_concept_id"] for concept in formal_concepts]
     if len(formal_ids) != len(set(formal_ids)):
         raise ValueError("KNOWLEDGE_MAP_CONCEPT_INVALID")
@@ -201,6 +244,7 @@ def build_knowledge_map(
         or any(artifact.get("processing") == "partial" for artifact in resolution_artifacts)
         or relation_pair_status.get("processing") == "partial"
         or any(artifact.get("processing") == "partial" for artifact in relation_artifacts)
+        or resource_promotion["resource_diagnostics"]["split_review_matches"] > 0
     )
     reasons = {
         "KNOWLEDGE_MAP_REVIEW_REQUIRED",
@@ -216,6 +260,8 @@ def build_knowledge_map(
         reasons.add("PREREQUISITE_CYCLE")
     if has_no_formal_concept:
         reasons.add("NO_FORMAL_CONCEPT")
+    if resource_promotion["resource_diagnostics"]["split_review_matches"]:
+        reasons.add("RESOURCE_SPLIT_REVIEW_REQUIRED")
     document = {
         "schema": KNOWLEDGE_MAP_SCHEMA,
         "source_output_id": study_material_output["output_id"],
@@ -231,6 +277,9 @@ def build_knowledge_map(
         "relation_diagnostics": _relation_diagnostics(
             relation_pair_status, relation_artifacts
         ),
+        "resource_binding": deepcopy(resource_promotion["resource_binding"]),
+        "resource_diagnostics": deepcopy(resource_promotion["resource_diagnostics"]),
+        "resource_decisions": deepcopy(resource_promotion["resource_decisions"]),
         "initial_learning_path": path,
         "evidence_index": deepcopy(study_material_output["evidence_index"]),
         "excluded_pages": deepcopy(study_material_output["excluded_pages"]),
@@ -248,6 +297,7 @@ def build_knowledge_map(
 def validate_knowledge_map(knowledge_map: Any) -> str | None:
     fields = {
         "schema", "source_output_id", "source_binding", "material_ref", "formal_concepts", "relations", "relation_diagnostics",
+        "resource_binding", "resource_diagnostics", "resource_decisions",
         "initial_learning_path", "evidence_index", "excluded_pages", "processing",
         "quality", "decision", "reason_codes", "revision",
     }
@@ -308,6 +358,30 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             or diagnostics["candidate_pairs"] > diagnostics["possible_pairs"]
         ):
             return "KNOWLEDGE_MAP_INVALID"
+        resource_binding = knowledge_map["resource_binding"]
+        resource_diagnostics = knowledge_map["resource_diagnostics"]
+        resource_decisions = knowledge_map["resource_decisions"]
+        if (
+            not isinstance(resource_binding, dict)
+            or set(resource_binding) != {
+                "context_revision", "library_revision", "matching_policy", "promotion_policy"
+            }
+            or not isinstance(resource_binding["context_revision"], str)
+            or not resource_binding["context_revision"].startswith("map-resource-context:sha256:")
+            or not isinstance(resource_binding["library_revision"], str)
+            or not resource_binding["library_revision"].startswith("resource-library:sha256:")
+            or resource_binding["matching_policy"] != MATCHING_POLICY
+            or resource_binding["promotion_policy"] != PROMOTION_POLICY
+            or not isinstance(resource_diagnostics, dict)
+            or set(resource_diagnostics) != _RESOURCE_DIAGNOSTIC_FIELDS
+            or any(type(value) is not int or value < 0 for value in resource_diagnostics.values())
+            or resource_diagnostics["matches"]
+            != resource_diagnostics["promoted_matches"]
+            + resource_diagnostics["dropped_matches"]
+            + resource_diagnostics["split_review_matches"]
+            or not isinstance(resource_decisions, list)
+        ):
+            return "KNOWLEDGE_MAP_INVALID"
         formal = knowledge_map["formal_concepts"]
         formal_ids = {concept["formal_concept_id"] for concept in formal}
         if len(formal_ids) != len(formal):
@@ -350,6 +424,8 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             page_numbers[evidence["page_ref"]] = evidence["page_number"]
         formal_evidence: dict[str, set[str]] = {}
         formal_claims: dict[str, dict[str, Any]] = {}
+        promoted_match_ids: set[str] = set()
+        promoted_resource_count = 0
         for concept in formal:
             claims = concept.get("claims") if isinstance(concept, dict) else None
             if (
@@ -357,6 +433,7 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                     "formal_concept_id", "group_id", "operation", "source_concept_ids",
                     "label", "claims", "source_page_refs", "source_page_numbers",
                     "quality", "decision", "reason_codes", "resolution_order",
+                    "supplementary_resources",
                 }
                 or not concept["source_concept_ids"]
                 or len(concept["source_concept_ids"])
@@ -383,6 +460,7 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                 or len(concept["resolution_order"]) != 2
                 or any(type(item) is not int or item < 0 for item in concept["resolution_order"])
                 or not claims
+                or not isinstance(concept["supplementary_resources"], list)
                 or any(
                     set(claim) != {"claim_id", "text", "evidence_ids"}
                     or not isinstance(claim["text"], str)
@@ -410,6 +488,61 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                 )
             ):
                 return "KNOWLEDGE_MAP_INVALID"
+            resource_concept_ids: set[str] = set()
+            for resource in concept["supplementary_resources"]:
+                if (
+                    not isinstance(resource, dict)
+                    or set(resource) != _SUPPLEMENTARY_RESOURCE_FIELDS
+                    or resource["promotion_id"]
+                    != "resource-promotion:sha256:" + canonical_sha256(
+                        {key: value for key, value in resource.items() if key != "promotion_id"}
+                    )
+                    or not isinstance(resource["resource_concept_id"], str)
+                    or not resource["resource_concept_id"].startswith("resource-concept:sha256:")
+                    or resource["resource_concept_id"] in resource_concept_ids
+                    or not isinstance(resource["resource_id"], str)
+                    or not resource["resource_id"].startswith("resource:sha256:")
+                    or any(
+                        not isinstance(resource[field], str) or not resource[field]
+                        for field in (
+                            "label", "title", "source_url", "citation", "license",
+                            "license_url", "use_boundary"
+                        )
+                    )
+                    or not isinstance(resource["authors"], list)
+                    or not resource["authors"]
+                    or any(not isinstance(author, str) or not author for author in resource["authors"])
+                    or not isinstance(resource["page_numbers"], list)
+                    or not resource["page_numbers"]
+                    or resource["page_numbers"] != sorted(set(resource["page_numbers"]))
+                    or any(type(page) is not int or page < 1 for page in resource["page_numbers"])
+                    or not isinstance(resource["resource_evidence_ids"], list)
+                    or not resource["resource_evidence_ids"]
+                    or resource["resource_evidence_ids"] != sorted(set(resource["resource_evidence_ids"]))
+                    or any(
+                        not isinstance(item, str)
+                        or not item.startswith("resource-evidence:sha256:")
+                        for item in resource["resource_evidence_ids"]
+                    )
+                    or not isinstance(resource["match_ids"], list)
+                    or not resource["match_ids"]
+                    or resource["match_ids"] != sorted(set(resource["match_ids"]))
+                    or any(
+                        not isinstance(item, str)
+                        or not item.startswith("resource-match:sha256:")
+                        or item in promoted_match_ids
+                        for item in resource["match_ids"]
+                    )
+                    or not isinstance(resource["study_concept_ids"], list)
+                    or not resource["study_concept_ids"]
+                    or resource["study_concept_ids"] != sorted(set(resource["study_concept_ids"]))
+                    or not set(resource["study_concept_ids"]) <= set(concept["source_concept_ids"])
+                    or resource["match_reason"] != "EXACT_NORMALIZED_LABEL"
+                ):
+                    return "KNOWLEDGE_MAP_INVALID"
+                resource_concept_ids.add(resource["resource_concept_id"])
+                promoted_match_ids.update(resource["match_ids"])
+                promoted_resource_count += 1
             concept_claim_ids = {claim["claim_id"] for claim in claims}
             if len(concept_claim_ids) != len(claims):
                 return "KNOWLEDGE_MAP_INVALID"
@@ -423,6 +556,57 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                 for claim in claims
                 for evidence_id in claim["evidence_ids"]
             }
+        decision_match_ids: set[str] = set()
+        split_reviews = 0
+        dropped = 0
+        for item in resource_decisions:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {
+                    "decision_id",
+                    "match_id", "study_concept_id", "resource_concept_id",
+                    "formal_concept_ids", "decision", "reason_code",
+                }
+                or item["decision_id"]
+                != "resource-promotion-decision:sha256:" + canonical_sha256(
+                    {key: value for key, value in item.items() if key != "decision_id"}
+                )
+                or not isinstance(item["match_id"], str)
+                or not item["match_id"].startswith("resource-match:sha256:")
+                or item["match_id"] in promoted_match_ids
+                or item["match_id"] in decision_match_ids
+                or not isinstance(item["study_concept_id"], str)
+                or not isinstance(item["resource_concept_id"], str)
+                or not item["resource_concept_id"].startswith("resource-concept:sha256:")
+                or not isinstance(item["formal_concept_ids"], list)
+                or item["formal_concept_ids"] != sorted(set(item["formal_concept_ids"]))
+                or not set(item["formal_concept_ids"]) <= formal_ids
+            ):
+                return "KNOWLEDGE_MAP_INVALID"
+            if item["decision"] == "reject":
+                if item["reason_code"] != "RESOURCE_SOURCE_CONCEPT_DROPPED" or item["formal_concept_ids"]:
+                    return "KNOWLEDGE_MAP_INVALID"
+                dropped += 1
+            elif item["decision"] == "review":
+                if (
+                    item["reason_code"] != "RESOURCE_SPLIT_REVIEW_REQUIRED"
+                    or len(item["formal_concept_ids"]) < 2
+                ):
+                    return "KNOWLEDGE_MAP_INVALID"
+                split_reviews += 1
+            else:
+                return "KNOWLEDGE_MAP_INVALID"
+            decision_match_ids.add(item["match_id"])
+        if (
+            len(promoted_match_ids) != resource_diagnostics["promoted_matches"]
+            or promoted_resource_count != resource_diagnostics["promoted_resources"]
+            or dropped != resource_diagnostics["dropped_matches"]
+            or split_reviews != resource_diagnostics["split_review_matches"]
+            or len(promoted_match_ids | decision_match_ids) != resource_diagnostics["matches"]
+            or (split_reviews > 0) != ("RESOURCE_SPLIT_REVIEW_REQUIRED" in knowledge_map["reason_codes"])
+            or (split_reviews > 0 and knowledge_map["processing"] != "partial")
+        ):
+            return "KNOWLEDGE_MAP_INVALID"
         relation_ids = set()
         relation_keys: set[tuple[str, str, str]] = set()
         directed_pairs: set[tuple[str, str]] = set()
@@ -535,6 +719,7 @@ def build_knowledge_map_view(knowledge_map: dict[str, Any]) -> dict[str, Any]:
                 "claims": claims,
                 "source_concept_ids": deepcopy(concept["source_concept_ids"]),
                 "source_page_numbers": deepcopy(concept["source_page_numbers"]),
+                "supplementary_resources": deepcopy(concept["supplementary_resources"]),
                 "quality": concept["quality"],
                 "decision": concept["decision"],
                 "reason_codes": deepcopy(concept["reason_codes"]),
@@ -554,6 +739,9 @@ def build_knowledge_map_view(knowledge_map: dict[str, Any]) -> dict[str, Any]:
         "concepts": concepts,
         "relations": deepcopy(knowledge_map["relations"]),
         "relation_diagnostics": deepcopy(knowledge_map["relation_diagnostics"]),
+        "resource_binding": deepcopy(knowledge_map["resource_binding"]),
+        "resource_diagnostics": deepcopy(knowledge_map["resource_diagnostics"]),
+        "resource_decisions": deepcopy(knowledge_map["resource_decisions"]),
         "initial_learning_path": deepcopy(knowledge_map["initial_learning_path"]),
         "excluded_pages": deepcopy(knowledge_map["excluded_pages"]),
     }

@@ -18,6 +18,10 @@ from knowledge_map.artifacts import (
     validate_knowledge_map,
 )
 from knowledge_map.local_generation import generate_knowledge_map
+from learning_resources.map_resources import (
+    build_map_resource_context,
+    load_bundled_resource_library,
+)
 from pdf_evidence.artifact_reason_codes import formal_reason_codes, reason_codes_are_valid
 from pdf_evidence.text_first_bundle import (
     remove_producer_bundle,
@@ -177,10 +181,16 @@ def publish_material_outputs(
     except (KeyError, TypeError, ValueError):
         raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID") from None
     try:
+        resource_library = load_bundled_resource_library()
+        resource_context = build_map_resource_context(
+            study_material_output, resource_library
+        )
         knowledge_map = generate_knowledge_map(
             study_material_output,
             local_config,
             runtime_binding_sha256,
+            resource_context=resource_context,
+            resource_library=resource_library,
         )
         knowledge_map_view = build_knowledge_map_view(knowledge_map)
     except (KeyError, TypeError, ValueError):

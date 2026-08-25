@@ -24,7 +24,7 @@
 
 .review-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 20px;
   padding: 20px;
@@ -111,6 +111,24 @@
 
 .reason-code {
   display: block;
+}
+
+.supplementary-resources ul {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.supplementary-resources li {
+  display: grid;
+  gap: 3px;
+}
+
+.supplementary-resources span,
+.supplementary-resources small {
+  color: var(--muted);
 }
 
 @media (max-width: 680px) {

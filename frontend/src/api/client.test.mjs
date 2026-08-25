@@ -62,7 +62,7 @@ function successfulRun() {
 function mapView() {
   const pageRef = `page:sha256:${"5".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v4",
+    schema: "knowledge-map-view/v5",
     material_ref: `material:sha256:${"6".repeat(64)}`,
     knowledge_map_revision: mapRevision,
     source_output_id: `study-material-output:sha256:${"3".repeat(64)}`,
@@ -88,6 +88,7 @@ function mapView() {
       }],
       source_concept_ids: [`concept:sha256:${"a".repeat(64)}`],
       source_page_numbers: [40],
+      supplementary_resources: [],
       quality: "needs_review",
       decision: "review",
       reason_codes: ["SEMANTIC_REVIEW_REQUIRED"],
@@ -106,6 +107,20 @@ function mapView() {
       verifier_unsupported: 0,
       accepted_relations: 0,
     },
+    resource_binding: {
+      context_revision: `map-resource-context:sha256:${"1".repeat(64)}`,
+      library_revision: `resource-library:sha256:${"2".repeat(64)}`,
+      matching_policy: "resource-context-exact-distinct-source/v3",
+      promotion_policy: "resource-formal-concept-promotion/v1",
+    },
+    resource_diagnostics: {
+      matches: 0,
+      promoted_matches: 0,
+      promoted_resources: 0,
+      dropped_matches: 0,
+      split_review_matches: 0,
+    },
+    resource_decisions: [],
     initial_learning_path: [`formal-concept:sha256:${"7".repeat(64)}`],
     excluded_pages: [],
   };

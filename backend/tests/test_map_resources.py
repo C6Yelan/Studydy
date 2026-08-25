@@ -9,6 +9,7 @@ from learning_resources.map_resources import (
     build_map_resource_context,
     build_resource_library,
     load_bundled_resource_library,
+    promote_resources_to_formal_concepts,
     validate_map_resource_context,
     validate_resource_library,
 )
@@ -122,6 +123,40 @@ def _study_output(label, source_sha256="f" * 64):
         document
     )
     return document
+
+
+def _add_same_label_concept(document, label):
+    concept = deepcopy(document["concepts"][0])
+    concept["label"] = label
+    concept["definition"] = {
+        "text": "A second reviewed Study-side concept.",
+        "evidence_ids": deepcopy(concept["definition"]["evidence_ids"]),
+    }
+    concept["definition"]["claim_id"] = claim_id(
+        concept["page_ref"], "definition", concept["definition"]
+    )
+    concept["key_points"] = [{
+        "text": "The second source concept remains independently grounded.",
+        "evidence_ids": deepcopy(concept["key_points"][0]["evidence_ids"]),
+    }]
+    concept["key_points"][0]["claim_id"] = claim_id(
+        concept["page_ref"], "key_point", concept["key_points"][0], index=0
+    )
+    concept["concept_id"] = concept_id(
+        concept["page_ref"], concept["label"], concept["definition"], concept["key_points"]
+    )
+    document["concepts"].append(concept)
+    document.pop("output_id")
+    document["output_id"] = "study-material-output:sha256:" + canonical_sha256(document)
+    return concept
+
+
+def _formal(formal_id, operation, source_ids):
+    return {
+        "formal_concept_id": "formal-concept:sha256:" + formal_id * 64,
+        "operation": operation,
+        "source_concept_ids": source_ids,
+    }
 
 
 def _normalized_label(label):
@@ -405,3 +440,82 @@ def test_context_does_not_use_substring_matching():
 
     assert context["matches"] == []
     assert context["reason_codes"] == ["RESOURCE_NO_EXACT_LABEL_MATCH"]
+
+
+@pytest.mark.parametrize("operation", ["KEEP", "RENAME"])
+def test_resource_promotion_follows_keep_and_rename(operation):
+    source_sha256 = "a" * 64
+    library = build_resource_library([_source(source_sha256)], [_entry(source_sha256)])
+    study = _study_output("Quantum Field Theory")
+    context = build_map_resource_context(study, library)
+    formal = _formal("1", operation, [study["concepts"][0]["concept_id"]])
+
+    promotion = promote_resources_to_formal_concepts([formal], context, study, library)
+
+    resource = promotion["formal_concepts"][0]["supplementary_resources"][0]
+    assert resource["resource_concept_id"] == context["matches"][0]["resource_concept_id"]
+    assert resource["match_ids"] == [context["matches"][0]["match_id"]]
+    assert resource["study_concept_ids"] == [study["concepts"][0]["concept_id"]]
+    assert promotion["resource_diagnostics"] == {
+        "matches": 1,
+        "promoted_matches": 1,
+        "promoted_resources": 1,
+        "dropped_matches": 0,
+        "split_review_matches": 0,
+    }
+    assert promotion["resource_decisions"] == []
+
+
+def test_resource_promotion_merge_unions_and_deduplicates_resources():
+    source_sha256 = "a" * 64
+    library = build_resource_library([_source(source_sha256)], [_entry(source_sha256)])
+    study = _study_output("Quantum Field Theory")
+    second = _add_same_label_concept(study, "quantum—field theory")
+    context = build_map_resource_context(study, library)
+    source_ids = [study["concepts"][0]["concept_id"], second["concept_id"]]
+    formal = _formal("2", "MERGE", source_ids)
+
+    promotion = promote_resources_to_formal_concepts([formal], context, study, library)
+
+    resources = promotion["formal_concepts"][0]["supplementary_resources"]
+    assert len(context["matches"]) == 2
+    assert len(resources) == 1
+    assert resources[0]["match_ids"] == sorted(match["match_id"] for match in context["matches"])
+    assert resources[0]["study_concept_ids"] == sorted(source_ids)
+    assert promotion["resource_diagnostics"]["promoted_matches"] == 2
+    assert promotion["resource_diagnostics"]["promoted_resources"] == 1
+
+
+def test_resource_promotion_drop_rejects_without_map_resource():
+    source_sha256 = "a" * 64
+    library = build_resource_library([_source(source_sha256)], [_entry(source_sha256)])
+    study = _study_output("Quantum Field Theory")
+    context = build_map_resource_context(study, library)
+
+    promotion = promote_resources_to_formal_concepts([], context, study, library)
+
+    assert promotion["formal_concepts"] == []
+    assert promotion["resource_diagnostics"]["dropped_matches"] == 1
+    assert promotion["resource_decisions"][0]["decision"] == "reject"
+    assert promotion["resource_decisions"][0]["reason_code"] == "RESOURCE_SOURCE_CONCEPT_DROPPED"
+
+
+def test_resource_promotion_split_fails_closed_for_review():
+    source_sha256 = "a" * 64
+    library = build_resource_library([_source(source_sha256)], [_entry(source_sha256)])
+    study = _study_output("Quantum Field Theory")
+    context = build_map_resource_context(study, library)
+    source_id = study["concepts"][0]["concept_id"]
+    formal = [
+        _formal("3", "SPLIT", [source_id]),
+        _formal("4", "SPLIT", [source_id]),
+    ]
+
+    promotion = promote_resources_to_formal_concepts(formal, context, study, library)
+
+    assert all(not item["supplementary_resources"] for item in promotion["formal_concepts"])
+    assert promotion["resource_diagnostics"]["split_review_matches"] == 1
+    decision = promotion["resource_decisions"][0]
+    assert decision["decision"] == "review"
+    assert decision["reason_code"] == "RESOURCE_SPLIT_REVIEW_REQUIRED"
+    assert decision["formal_concept_ids"] == sorted(item["formal_concept_id"] for item in formal)

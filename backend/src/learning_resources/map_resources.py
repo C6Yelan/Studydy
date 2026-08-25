@@ -18,6 +18,7 @@ LOCATOR_POLICY = "resource-native-quote-locator/v2"
 QUALITY_POLICY = "resource-concept-full-source-review/v2"
 LABEL_NORMALIZER = "resource-label-exact-normalized/v1"
 MATCHING_POLICY = "resource-context-exact-distinct-source/v3"
+PROMOTION_POLICY = "resource-formal-concept-promotion/v1"
 
 _ACCEPTED_STATUS = ("succeeded", "accepted", "retain")
 _MATCH_STATUS = ("partial", "needs_review", "review")
@@ -667,3 +668,141 @@ def validate_map_resource_context(
         return _validate_map_resource_context(context, study_output, library)
     except (KeyError, RecursionError, TypeError, ValueError):
         return "MAP_RESOURCE_CONTEXT_INVALID"
+
+
+def promote_resources_to_formal_concepts(
+    formal_concepts: list[dict[str, Any]],
+    context: Any,
+    study_output: Any,
+    library: Any,
+) -> dict[str, Any]:
+    """依 Formal Resolution provenance promotion 已有 match，不重做 matching。"""
+
+    if validate_map_resource_context(context, study_output, library) is not None:
+        raise ValueError("RESOURCE_PROMOTION_INPUT_INVALID")
+    if not isinstance(formal_concepts, list) or any(
+        not isinstance(concept, dict)
+        or not isinstance(concept.get("formal_concept_id"), str)
+        or not isinstance(concept.get("source_concept_ids"), list)
+        or not concept["source_concept_ids"]
+        or concept.get("operation") not in {"KEEP", "MERGE", "RENAME", "SPLIT"}
+        for concept in formal_concepts
+    ):
+        raise ValueError("RESOURCE_PROMOTION_INPUT_INVALID")
+
+    concepts_by_id = {concept["concept_id"]: concept for concept in library["concepts"]}
+    evidence_by_id = {evidence["evidence_id"]: evidence for evidence in library["evidence"]}
+    sources_by_id = {source["resource_id"]: source for source in library["sources"]}
+    formal_by_source: dict[str, list[dict[str, Any]]] = {}
+    promoted_formal = deepcopy(formal_concepts)
+    for formal in promoted_formal:
+        formal["supplementary_resources"] = []
+        for source_concept_id in formal["source_concept_ids"]:
+            formal_by_source.setdefault(source_concept_id, []).append(formal)
+
+    decisions = []
+    promoted_matches = 0
+    dropped_matches = 0
+    split_review_matches = 0
+    resources_by_formal: dict[str, dict[str, dict[str, Any]]] = {
+        formal["formal_concept_id"]: {} for formal in promoted_formal
+    }
+    for match in context["matches"]:
+        target_nodes = formal_by_source.get(match["study_concept_id"], [])
+        if not target_nodes:
+            dropped_matches += 1
+            decisions.append({
+                "match_id": match["match_id"],
+                "study_concept_id": match["study_concept_id"],
+                "resource_concept_id": match["resource_concept_id"],
+                "formal_concept_ids": [],
+                "decision": "reject",
+                "reason_code": "RESOURCE_SOURCE_CONCEPT_DROPPED",
+            })
+            continue
+        if len(target_nodes) != 1 or target_nodes[0]["operation"] == "SPLIT":
+            split_review_matches += 1
+            decisions.append({
+                "match_id": match["match_id"],
+                "study_concept_id": match["study_concept_id"],
+                "resource_concept_id": match["resource_concept_id"],
+                "formal_concept_ids": sorted(
+                    formal["formal_concept_id"] for formal in target_nodes
+                ),
+                "decision": "review",
+                "reason_code": "RESOURCE_SPLIT_REVIEW_REQUIRED",
+            })
+            continue
+
+        resource_concept = concepts_by_id[match["resource_concept_id"]]
+        evidence = [
+            evidence_by_id[evidence_id]
+            for evidence_id in resource_concept["evidence_ids"]
+        ]
+        resource_ids = {item["resource_id"] for item in evidence}
+        if len(resource_ids) != 1:
+            raise ValueError("RESOURCE_PROMOTION_INPUT_INVALID")
+        resource_id = next(iter(resource_ids))
+        source = sources_by_id[resource_id]
+        formal = target_nodes[0]
+        resources = resources_by_formal[formal["formal_concept_id"]]
+        existing = resources.get(resource_concept["concept_id"])
+        if existing is None:
+            existing = {
+                "resource_concept_id": resource_concept["concept_id"],
+                "resource_id": resource_id,
+                "label": resource_concept["label"],
+                "title": source["title"],
+                "authors": deepcopy(source["authors"]),
+                "source_url": source["source_url"],
+                "citation": source["citation"],
+                "license": source["license"],
+                "license_url": source["license_url"],
+                "use_boundary": source["use_boundary"],
+                "page_numbers": sorted({item["page_number"] for item in evidence}),
+                "resource_evidence_ids": sorted(resource_concept["evidence_ids"]),
+                "match_ids": [],
+                "study_concept_ids": [],
+                "match_reason": match["match_reason"],
+            }
+            resources[resource_concept["concept_id"]] = existing
+        existing["match_ids"].append(match["match_id"])
+        existing["study_concept_ids"].append(match["study_concept_id"])
+        promoted_matches += 1
+
+    for formal in promoted_formal:
+        resources = resources_by_formal[formal["formal_concept_id"]]
+        for resource in resources.values():
+            resource["match_ids"] = sorted(set(resource["match_ids"]))
+            resource["study_concept_ids"] = sorted(set(resource["study_concept_ids"]))
+            resource["promotion_id"] = (
+                "resource-promotion:sha256:" + canonical_sha256(resource)
+            )
+        formal["supplementary_resources"] = sorted(
+            resources.values(), key=lambda resource: resource["resource_concept_id"]
+        )
+    for decision in decisions:
+        decision["decision_id"] = (
+            "resource-promotion-decision:sha256:" + canonical_sha256(decision)
+        )
+    decisions.sort(key=lambda item: item["match_id"])
+    promoted_resources = sum(
+        len(formal["supplementary_resources"]) for formal in promoted_formal
+    )
+    return {
+        "formal_concepts": promoted_formal,
+        "resource_binding": {
+            "context_revision": context["context_revision"],
+            "library_revision": library["library_revision"],
+            "matching_policy": context["matching_policy"],
+            "promotion_policy": PROMOTION_POLICY,
+        },
+        "resource_diagnostics": {
+            "matches": len(context["matches"]),
+            "promoted_matches": promoted_matches,
+            "promoted_resources": promoted_resources,
+            "dropped_matches": dropped_matches,
+            "split_review_matches": split_review_matches,
+        },
+        "resource_decisions": decisions,
+    }

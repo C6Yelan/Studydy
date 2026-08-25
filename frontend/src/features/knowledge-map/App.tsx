@@ -57,7 +57,7 @@ export default function KnowledgeMap({ apiClient, route }: {
     <section className="knowledge-review-page">
       <header className="knowledge-review-header">
         <div>
-          <p className="eyebrow">Knowledge Map v3 · review-only</p>
+          <p className="eyebrow">Knowledge Map v5 · review-only</p>
           <h1>教材概念與 Evidence 複核</h1>
           <p>Formal Concept、Relation 與初始學習路徑都保留待複核狀態。</p>
         </div>
@@ -70,6 +70,7 @@ export default function KnowledgeMap({ apiClient, route }: {
         <div><strong>{view.concepts.length}</strong><span>個待複核概念</span></div>
         <div><strong>{view.excluded_pages.length}</strong><span>個排除頁面</span></div>
         <div><strong>{view.relations.length}</strong><span>條待複核 Relation</span></div>
+        <div><strong>{view.resource_diagnostics.promoted_resources}</strong><span>份補充資源</span></div>
       </div>
 
       {view.excluded_pages.length > 0 && (
@@ -105,6 +106,18 @@ export default function KnowledgeMap({ apiClient, route }: {
                 >開啟來源 PDF 第 {claim.evidence[0].page_number} 頁</button>
               </section>
             ))}
+            {concept.supplementary_resources.length > 0 && (
+              <section className="supplementary-resources">
+                <h3>補充資源</h3>
+                <ul>{concept.supplementary_resources.map((resource) => (
+                  <li key={resource.resource_concept_id}>
+                    <a href={resource.source_url} target="_blank" rel="noreferrer">{resource.title}</a>
+                    <span>{resource.label} · 第 {resource.page_numbers.join(", ")} 頁</span>
+                    <small>{resource.citation}</small>
+                  </li>
+                ))}</ul>
+              </section>
+            )}
             <code className="reason-code">{concept.reason_codes.join(" · ")}</code>
           </article>
         ))}

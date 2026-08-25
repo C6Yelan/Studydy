@@ -136,12 +136,45 @@ class FormalClaimView(_ClosedModel):
     evidence: list[EvidenceView] = Field(min_length=1)
 
 
+class SupplementaryResourceView(_ClosedModel):
+    promotion_id: str = Field(pattern=r"^resource-promotion:sha256:[0-9a-f]{64}$")
+    resource_concept_id: str = Field(pattern=r"^resource-concept:sha256:[0-9a-f]{64}$")
+    resource_id: str = Field(pattern=r"^resource:sha256:[0-9a-f]{64}$")
+    label: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    authors: list[str] = Field(min_length=1)
+    source_url: str = Field(min_length=1)
+    citation: str = Field(min_length=1)
+    license: str = Field(min_length=1)
+    license_url: str = Field(min_length=1)
+    use_boundary: str = Field(min_length=1)
+    page_numbers: list[int] = Field(min_length=1)
+    resource_evidence_ids: list[str] = Field(min_length=1)
+    match_ids: list[str] = Field(min_length=1)
+    study_concept_ids: list[str] = Field(min_length=1)
+    match_reason: Literal["EXACT_NORMALIZED_LABEL"]
+
+    @model_validator(mode="after")
+    def validate_resource_provenance(self) -> "SupplementaryResourceView":
+        if (
+            self.page_numbers != sorted(set(self.page_numbers))
+            or any(page < 1 for page in self.page_numbers)
+            or self.resource_evidence_ids != sorted(set(self.resource_evidence_ids))
+            or self.match_ids != sorted(set(self.match_ids))
+            or self.study_concept_ids != sorted(set(self.study_concept_ids))
+            or any(not value for value in self.authors)
+        ):
+            raise ValueError("SUPPLEMENTARY_RESOURCE_INVALID")
+        return self
+
+
 class FormalConceptView(_ClosedModel):
     formal_concept_id: str = Field(pattern=r"^formal-concept:sha256:[0-9a-f]{64}$")
     label: str = Field(min_length=1)
     claims: list[FormalClaimView] = Field(min_length=1)
     source_concept_ids: list[str] = Field(min_length=1)
     source_page_numbers: list[int] = Field(min_length=1)
+    supplementary_resources: list[SupplementaryResourceView]
     quality: Literal["needs_review"]
     decision: Literal["review"]
     reason_codes: list[str] = Field(min_length=1, max_length=64)
@@ -196,6 +229,52 @@ class RelationDiagnosticsView(_ClosedModel):
         return self
 
 
+class ResourceBindingView(_ClosedModel):
+    context_revision: str = Field(pattern=r"^map-resource-context:sha256:[0-9a-f]{64}$")
+    library_revision: str = Field(pattern=r"^resource-library:sha256:[0-9a-f]{64}$")
+    matching_policy: Literal["resource-context-exact-distinct-source/v3"]
+    promotion_policy: Literal["resource-formal-concept-promotion/v1"]
+
+
+class ResourceDiagnosticsView(_ClosedModel):
+    matches: int = Field(ge=0)
+    promoted_matches: int = Field(ge=0)
+    promoted_resources: int = Field(ge=0)
+    dropped_matches: int = Field(ge=0)
+    split_review_matches: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> "ResourceDiagnosticsView":
+        if self.matches != self.promoted_matches + self.dropped_matches + self.split_review_matches:
+            raise ValueError("RESOURCE_DIAGNOSTICS_INVALID")
+        return self
+
+
+class ResourceDecisionView(_ClosedModel):
+    decision_id: str = Field(
+        pattern=r"^resource-promotion-decision:sha256:[0-9a-f]{64}$"
+    )
+    match_id: str = Field(pattern=r"^resource-match:sha256:[0-9a-f]{64}$")
+    study_concept_id: str
+    resource_concept_id: str = Field(pattern=r"^resource-concept:sha256:[0-9a-f]{64}$")
+    formal_concept_ids: list[str]
+    decision: Literal["review", "reject"]
+    reason_code: Literal[
+        "RESOURCE_SPLIT_REVIEW_REQUIRED", "RESOURCE_SOURCE_CONCEPT_DROPPED"
+    ]
+
+    @model_validator(mode="after")
+    def validate_decision(self) -> "ResourceDecisionView":
+        if self.formal_concept_ids != sorted(set(self.formal_concept_ids)):
+            raise ValueError("RESOURCE_DECISION_INVALID")
+        if self.decision == "reject":
+            if self.reason_code != "RESOURCE_SOURCE_CONCEPT_DROPPED" or self.formal_concept_ids:
+                raise ValueError("RESOURCE_DECISION_INVALID")
+        elif self.reason_code != "RESOURCE_SPLIT_REVIEW_REQUIRED" or len(self.formal_concept_ids) < 2:
+            raise ValueError("RESOURCE_DECISION_INVALID")
+        return self
+
+
 class ExcludedPageView(_ClosedModel):
     page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
     page_number: int = Field(ge=1)
@@ -215,7 +294,7 @@ class ArtifactStatusView(_ClosedModel):
 
 
 class KnowledgeMapView(_ClosedModel):
-    schema_: Literal["knowledge-map-view/v4"] = Field(alias="schema")
+    schema_: Literal["knowledge-map-view/v5"] = Field(alias="schema")
     material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
     knowledge_map_revision: str = Field(
         pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
@@ -227,6 +306,9 @@ class KnowledgeMapView(_ClosedModel):
     concepts: list[FormalConceptView]
     relations: list[FormalRelationView]
     relation_diagnostics: RelationDiagnosticsView
+    resource_binding: ResourceBindingView
+    resource_diagnostics: ResourceDiagnosticsView
+    resource_decisions: list[ResourceDecisionView]
     initial_learning_path: list[str]
     excluded_pages: list[ExcludedPageView]
 
@@ -266,6 +348,29 @@ class KnowledgeMapView(_ClosedModel):
             }
             for concept in self.concepts
         }
+        promoted_match_ids = [
+            match_id
+            for concept in self.concepts
+            for resource in concept.supplementary_resources
+            for match_id in resource.match_ids
+        ]
+        decision_match_ids = [decision.match_id for decision in self.resource_decisions]
+        if (
+            len(promoted_match_ids) != len(set(promoted_match_ids))
+            or len(decision_match_ids) != len(set(decision_match_ids))
+            or set(promoted_match_ids) & set(decision_match_ids)
+            or len(promoted_match_ids) != self.resource_diagnostics.promoted_matches
+            or sum(len(concept.supplementary_resources) for concept in self.concepts)
+            != self.resource_diagnostics.promoted_resources
+            or len(promoted_match_ids) + len(decision_match_ids)
+            != self.resource_diagnostics.matches
+            or any(
+                not set(resource.study_concept_ids) <= set(concept.source_concept_ids)
+                for concept in self.concepts
+                for resource in concept.supplementary_resources
+            )
+        ):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if any(
             not set(relation.source_evidence_ids)
             <= evidence_by_concept[relation.source_formal_concept_id]

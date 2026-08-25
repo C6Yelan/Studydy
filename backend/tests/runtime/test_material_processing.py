@@ -18,6 +18,7 @@ from pdf_evidence.concept_generation import build_semantic_request, validate_con
 from pdf_evidence.ocr_page_evidence import build_page_evidence, canonical_sha256, extract_page
 from knowledge_map.artifacts import build_knowledge_map, validate_knowledge_map
 from knowledge_map.formal_concepts import build_resolution_requests, validate_resolution
+from learning_resources.map_resources import promote_resources_to_formal_concepts
 from runtime.api.models import KnowledgeMapView
 from runtime.material_processing import (
     ClaimedMaterialProcessingRun,
@@ -287,7 +288,14 @@ def _source(dsn: str, learner_id: UUID, *, page_count: int = 1):
     )
 
 
-def _fake_knowledge_map(study_output, _settings, material_runtime_binding_sha256):
+def _fake_knowledge_map(
+    study_output,
+    _settings,
+    material_runtime_binding_sha256,
+    *,
+    resource_context,
+    resource_library,
+):
     resolutions = []
     for request, concept_aliases, claim_aliases in build_resolution_requests(
         study_output["concepts"]
@@ -316,6 +324,9 @@ def _fake_knowledge_map(study_output, _settings, material_runtime_binding_sha256
                 source_concepts=study_output["concepts"],
             )
         )
+    formal_concepts = [
+        concept for resolution in resolutions for concept in resolution["formal_concepts"]
+    ]
     return build_knowledge_map(
         study_output,
         resolutions,
@@ -324,6 +335,9 @@ def _fake_knowledge_map(study_output, _settings, material_runtime_binding_sha256
             "processing": "succeeded",
             "reason_codes": ["RELATION_REVIEW_REQUIRED"],
         },
+        resource_promotion=promote_resources_to_formal_concepts(
+            formal_concepts, resource_context, study_output, resource_library
+        ),
         material_runtime_binding_sha256=material_runtime_binding_sha256,
     )
 
@@ -528,8 +542,8 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
         learner_id, source.material_id, created.run_id, dsn=processing_database_dsn
     )
     assert outputs.study_material_output["schema"] == "study-material-output/v4"
-    assert outputs.knowledge_map["schema"] == "knowledge-map/v4"
-    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v4"
+    assert outputs.knowledge_map["schema"] == "knowledge-map/v5"
+    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v5"
     with psycopg.connect(processing_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM study_material_outputs").fetchone() == (1,)
         assert connection.execute("SELECT count(*) FROM knowledge_maps").fetchone() == (1,)
@@ -764,7 +778,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert binding["relation_verifier"] == settings["runtime_lock"][
         "relation_verifier"
     ]
-    assert len(binding["code_hashes"]) == 15
+    assert len(binding["code_hashes"]) == 17
     assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
     repository_root = Path(__file__).parents[3]
     for locked_sha256, relative_path in (

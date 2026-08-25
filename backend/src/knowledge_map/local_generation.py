@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from learning_resources.map_resources import promote_resources_to_formal_concepts
+
 from pdf_evidence.concept_api import (
     ConceptAPIError,
     request_structured_text,
@@ -261,12 +263,18 @@ def generate_knowledge_map(
     study_material_output: dict[str, Any],
     settings: dict[str, Any],
     material_runtime_binding_sha256: str,
+    *,
+    resource_context: dict[str, Any],
+    resource_library: dict[str, Any],
 ) -> dict[str, Any]:
     """同一次本機 Qwen lifecycle 完成 Resolution 與 Relation candidates。"""
 
     runtime_lock = settings["runtime_lock"]
     source_concepts = study_material_output["concepts"]
     if not source_concepts:
+        resource_promotion = promote_resources_to_formal_concepts(
+            [], resource_context, study_material_output, resource_library
+        )
         return build_knowledge_map(
             study_material_output,
             [],
@@ -277,6 +285,7 @@ def generate_knowledge_map(
                 "decision": "review",
                 "reason_codes": ["NO_FORMAL_CONCEPT"],
             },
+            resource_promotion=resource_promotion,
             material_runtime_binding_sha256=material_runtime_binding_sha256,
         )
     resolution_artifacts = []
@@ -307,11 +316,18 @@ def generate_knowledge_map(
         if server is not None:
             server.close()
 
-    formal_concepts = [
+    resolved_formal_concepts = [
         concept
         for artifact in resolution_artifacts
         for concept in artifact["formal_concepts"]
     ]
+    resource_promotion = promote_resources_to_formal_concepts(
+        resolved_formal_concepts,
+        resource_context,
+        study_material_output,
+        resource_library,
+    )
+    formal_concepts = resource_promotion["formal_concepts"]
     page_numbers = {
         page["page_ref"]: page["page_number"]
         for page in study_material_output["pages"]
@@ -329,5 +345,6 @@ def generate_knowledge_map(
         resolution_artifacts,
         relation_artifacts,
         relation_pair_status=pair_status,
+        resource_promotion=resource_promotion,
         material_runtime_binding_sha256=material_runtime_binding_sha256,
     )
