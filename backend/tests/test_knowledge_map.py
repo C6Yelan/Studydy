@@ -658,6 +658,26 @@ def test_endpoint_mention_without_relation_semantics_stays_rejected():
     assert calls == []
 
 
+def test_ambiguous_chinese_by_phrase_does_not_invent_contains_direction():
+    left = _relation_concept(
+        1, "項目甲", "項目甲由研究團隊篩選出的類型乙。"
+    )
+    right = _relation_concept(2, "類型乙", "類型乙是獨立分類。")
+    calls = []
+
+    artifact = build_relation_artifact(
+        [(left["formal_concept_id"], right["formal_concept_id"])],
+        [left, right],
+        _relation_pages([left, right]),
+        lambda *arguments: calls.append(arguments) or True,
+    )
+
+    assert artifact["relations"] == []
+    assert artifact["diagnostics"]["rejected_no_evidence"] == 1
+    assert artifact["diagnostics"].get("structural_proposals", 0) == 0
+    assert calls == []
+
+
 @pytest.mark.parametrize("supporting_endpoint", ["source", "target"])
 def test_single_grounded_contains_statement_reaches_verifier_with_true_owner(
     supporting_endpoint,

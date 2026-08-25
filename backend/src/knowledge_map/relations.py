@@ -52,7 +52,8 @@ def _directed_claims(
         patterns = (
             rf"{source_label}.{{0,80}}\b(?:contains?|includes?|comprises?)\b.{{0,80}}{target_label}",
             rf"{target_label}.{{0,80}}\b(?:is|are)\b.{{0,20}}\b(?:a |an )?(?:part|component|sub-?concept) of\b.{{0,80}}{source_label}",
-            rf"{source_label}.{{0,80}}(?:包含|包括|由).{{0,80}}{target_label}",
+            rf"{source_label}.{{0,80}}(?:包含|包括).{{0,80}}{target_label}",
+            rf"{source_label}.{{0,80}}由.{{0,80}}{target_label}.{{0,30}}(?:組成|構成)",
             rf"{target_label}.{{0,80}}是.{{0,30}}{source_label}.{{0,20}}的(?:一部分|組成部分|子概念|子觀念)",
         )
     elif relation_type == "prerequisite":
