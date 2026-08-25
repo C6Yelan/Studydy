@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from copy import deepcopy
 import json
 from typing import Any
@@ -23,6 +24,7 @@ from pdf_evidence.ocr_page_evidence import canonical_sha256
 from .artifacts import build_knowledge_map
 from .formal_concepts import (
     build_resolution_requests,
+    resolve_singleton,
     validate_resolution,
 )
 from .relations import (
@@ -288,12 +290,31 @@ def generate_knowledge_map(
             resource_promotion=resource_promotion,
             material_runtime_binding_sha256=material_runtime_binding_sha256,
         )
+    resolution_requests = build_resolution_requests(source_concepts)
     resolution_artifacts = []
     server = None
     try:
-        server = start_concept_server(settings)
-        with httpx.Client(trust_env=False, follow_redirects=False) as client:
-            for request, concept_aliases, claim_aliases in build_resolution_requests(source_concepts):
+        has_multi_source_group = any(
+            len(request["candidates"]) > 1
+            for request, _, _ in resolution_requests
+        )
+        if has_multi_source_group:
+            server = start_concept_server(settings)
+        with httpx.Client(
+            trust_env=False, follow_redirects=False
+        ) if has_multi_source_group else nullcontext() as client:
+            for request, concept_aliases, claim_aliases in resolution_requests:
+                if len(request["candidates"]) == 1:
+                    resolution_artifacts.append(
+                        resolve_singleton(
+                            request,
+                            concept_aliases,
+                            claim_aliases,
+                            source_concepts,
+                        )
+                    )
+                    continue
+                assert isinstance(client, httpx.Client)
                 model_text = _request_stage(
                     client,
                     settings,

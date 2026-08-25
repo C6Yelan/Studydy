@@ -208,3 +208,43 @@ def validate_resolution(
         "decision": "review",
         "reason_codes": ["FORMAL_CONCEPT_REVIEW_REQUIRED"],
     }
+
+
+def resolve_singleton(
+    request: dict[str, Any],
+    concept_aliases: dict[str, str],
+    claim_aliases: dict[str, str],
+    source_concepts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """單一來源不交給模型，直接以既有 label 與全部 claims 建立 KEEP。"""
+
+    candidates = request.get("candidates") if isinstance(request, dict) else None
+    if not isinstance(candidates, list) or len(candidates) != 1:
+        raise FormalConceptError("RESOLUTION_SINGLETON_REQUIRED")
+    source = candidates[0]
+    if (
+        not isinstance(source, dict)
+        or set(source) != {"id", "label", "claims"}
+        or not isinstance(source["claims"], list)
+        or not source["claims"]
+    ):
+        raise FormalConceptError("RESOLUTION_SOURCE_INVALID")
+    candidate = {
+        "schema": RESOLUTION_OUTPUT_SCHEMA,
+        "group_id": request["group_id"],
+        "resolutions": [{
+            "operation": "KEEP",
+            "source_ids": [source["id"]],
+            "nodes": [{
+                "label": source["label"],
+                "claim_ids": [claim["id"] for claim in source["claims"]],
+            }],
+        }],
+    }
+    return validate_resolution(
+        candidate,
+        request=request,
+        concept_aliases=concept_aliases,
+        claim_aliases=claim_aliases,
+        source_concepts=source_concepts,
+    )

@@ -18,6 +18,7 @@ from knowledge_map.artifacts import (
 from knowledge_map.formal_concepts import (
     FormalConceptError,
     build_resolution_requests,
+    resolve_singleton,
     validate_resolution,
 )
 from knowledge_map.relations import (
@@ -67,6 +68,41 @@ def _keep_resolution(study):
     )
 
 
+def _add_second_same_label_concept(study):
+    second = deepcopy(study["concepts"][0])
+    second["definition"] = deepcopy(second["definition"])
+    second["definition"]["text"] = "A second independently grounded definition."
+    second["definition"]["claim_id"] = claim_id(
+        second["page_ref"],
+        "definition",
+        {
+            "text": second["definition"]["text"],
+            "evidence_ids": second["definition"]["evidence_ids"],
+        },
+    )
+    second["key_points"] = deepcopy(second["key_points"])
+    second["key_points"][0]["text"] = "A second independently grounded point."
+    second["key_points"][0]["claim_id"] = claim_id(
+        second["page_ref"],
+        "key_point",
+        {
+            "text": second["key_points"][0]["text"],
+            "evidence_ids": second["key_points"][0]["evidence_ids"],
+        },
+        index=0,
+    )
+    second["concept_id"] = concept_id(
+        second["page_ref"],
+        second["label"],
+        second["definition"],
+        second["key_points"],
+    )
+    study["concepts"].append(second)
+    study.pop("output_id")
+    study["output_id"] = "study-material-output:sha256:" + canonical_sha256(study)
+    return second
+
+
 def _resource_promotion(study, formal_concepts):
     library = load_bundled_resource_library()
     context = build_map_resource_context(study, library)
@@ -114,6 +150,68 @@ def test_formal_keep_is_claim_grounded_and_exactly_covers_source():
         study["concepts"][0]["definition"]["claim_id"],
         study["concepts"][0]["key_points"][0]["claim_id"],
     ]
+
+
+def test_singleton_resolution_is_deterministic_keep_with_all_provenance():
+    study = _study()
+    request, concepts, claims = build_resolution_requests(study["concepts"])[0]
+
+    artifact = resolve_singleton(request, concepts, claims, study["concepts"])
+    repeated = resolve_singleton(request, concepts, claims, study["concepts"])
+
+    assert artifact == repeated
+    formal = artifact["formal_concepts"][0]
+    source = study["concepts"][0]
+    assert formal["operation"] == "KEEP"
+    assert formal["label"] == source["label"]
+    assert formal["source_concept_ids"] == [source["concept_id"]]
+    assert formal["source_page_refs"] == [source["page_ref"]]
+    assert formal["claims"] == [source["definition"], *source["key_points"]]
+    assert {
+        claim["claim_id"] for claim in formal["claims"]
+    } == set(claims.values())
+    assert all(claim["evidence_ids"] for claim in formal["claims"])
+    assert formal["operation"] not in {"SPLIT", "MERGE", "RENAME", "DROP"}
+
+
+def test_singleton_generation_skips_qwen_and_promotes_resource(monkeypatch):
+    study = _study()
+    library = _matching_resource_library(study["concepts"][0]["label"])
+    context = build_map_resource_context(study, library)
+    runtime_lock = json.loads(
+        (Path(__file__).parents[2] / "local_ai" / "runtime-lock.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    def unexpected_qwen(*_, **__):
+        raise AssertionError("singleton must not start or call Qwen")
+
+    monkeypatch.setattr(local_generation, "start_concept_server", unexpected_qwen)
+    monkeypatch.setattr(local_generation, "request_structured_text", unexpected_qwen)
+    knowledge_map = local_generation.generate_knowledge_map(
+        study,
+        {
+            "runtime_lock": runtime_lock,
+            "concept_api_base_url": "http://127.0.0.1:8101",
+            "concept_model": runtime_lock["semantic"]["model_id"],
+            "concept_max_model_len": 8_192,
+        },
+        "f" * 64,
+        resource_context=context,
+        resource_library=library,
+    )
+
+    formal = knowledge_map["formal_concepts"][0]
+    assert formal["operation"] == "KEEP"
+    assert formal["claims"] == [
+        study["concepts"][0]["definition"],
+        *study["concepts"][0]["key_points"],
+    ]
+    resource = formal["supplementary_resources"][0]
+    assert resource["match_ids"] == [context["matches"][0]["match_id"]]
+    assert resource["study_concept_ids"] == [study["concepts"][0]["concept_id"]]
+    assert knowledge_map["resource_diagnostics"]["promoted_matches"] == 1
 
 
 def test_resolution_rejects_claim_subset_as_missing():
@@ -1046,6 +1144,7 @@ def test_map_split_resource_is_review_only_and_not_duplicated():
 
 def test_agent3_retries_only_a_temporary_resolution_failure(monkeypatch):
     study = _study()
+    _add_second_same_label_concept(study)
     runtime_lock = json.loads(
         (Path(__file__).parents[2] / "local_ai" / "runtime-lock.json").read_text(
             encoding="utf-8"
@@ -1096,18 +1195,20 @@ def test_agent3_retries_only_a_temporary_resolution_failure(monkeypatch):
         calls.append(request_document["schema"])
         if len(calls) == 1:
             raise ConceptAPIError("CONCEPT_API_TIMEOUT")
-        source = request_document["candidates"][0]
         return json.dumps({
             "schema": "formal-concept-resolution/v1",
             "group_id": request_document["group_id"],
-            "resolutions": [{
-                "operation": "KEEP",
-                "source_ids": [source["id"]],
-                "nodes": [{
-                    "label": source["label"],
-                    "claim_ids": [claim["id"] for claim in source["claims"]],
-                }],
-            }],
+            "resolutions": [
+                {
+                    "operation": "KEEP",
+                    "source_ids": [source["id"]],
+                    "nodes": [{
+                        "label": source["label"],
+                        "claim_ids": [claim["id"] for claim in source["claims"]],
+                    }],
+                }
+                for source in request_document["candidates"]
+            ],
         })
 
     monkeypatch.setattr(local_generation, "start_concept_server", lambda _: Server())
