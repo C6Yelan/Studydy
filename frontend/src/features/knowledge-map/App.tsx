@@ -57,7 +57,7 @@ export default function KnowledgeMap({ apiClient, route }: {
     <section className="knowledge-review-page">
       <header className="knowledge-review-header">
         <div>
-          <p className="eyebrow">Knowledge Map v5 · review-only</p>
+          <p className="eyebrow">Knowledge Map v6 · review-only</p>
           <h1>教材概念與 Evidence 複核</h1>
           <p>Formal Concept、Relation 與初始學習路徑都保留待複核狀態。</p>
         </div>
