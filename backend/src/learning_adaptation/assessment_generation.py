@@ -28,6 +28,8 @@ from .assessment_items import (
     AssessmentDocuments,
     StoredAssessment,
     build_single_choice_assessment,
+    assessment_request_identity,
+    read_assessment_request,
     store_assessment,
     used_question_ids,
     validate_assessment_generation_provenance,
@@ -966,6 +968,7 @@ def generate_and_store_assessment(
     target_claim_id: str,
     local_config: dict[str, Any],
     *,
+    idempotency_key: str | None = None,
     dsn: str | None = None,
 ) -> StoredAssessment:
     """使用canonical Evidence生成、驗證並immutable儲存單選Assessment。"""
@@ -975,9 +978,20 @@ def generate_and_store_assessment(
         or not isinstance(target_claim_id, str)
         or _CLAIM_ID.fullmatch(target_claim_id) is None
         or not isinstance(local_config, dict)
+        or (idempotency_key is not None and not isinstance(idempotency_key, str))
     ):
         raise _error("ASSESSMENT_GENERATION_REQUEST_INVALID")
     try:
+        if idempotency_key is not None:
+            replay = read_assessment_request(
+                learner,
+                study_session_id,
+                target_claim_id,
+                idempotency_key,
+                dsn=dsn,
+            )
+            if replay is not None:
+                return replay
         study_session = read_study_session(
             learner, study_session_id, dsn=dsn
         )
@@ -1014,7 +1028,11 @@ def generate_and_store_assessment(
         )
     except AssessmentGenerationError:
         raise
-    except (AssessmentError, MapContextError, StudySessionError):
+    except AssessmentError as error:
+        if str(error) == "ASSESSMENT_IDEMPOTENCY_CONFLICT":
+            raise _error("ASSESSMENT_IDEMPOTENCY_CONFLICT") from None
+        raise _error("ASSESSMENT_GROUNDING_UNAVAILABLE") from None
+    except (MapContextError, StudySessionError):
         raise _error("ASSESSMENT_GROUNDING_UNAVAILABLE") from None
     except (KeyError, TypeError):
         raise _error("ASSESSMENT_CONFIGURATION_INVALID") from None
@@ -1049,6 +1067,12 @@ def generate_and_store_assessment(
         raise _error(reason) from None
 
     try:
+        request_key_digest = None
+        request_fingerprint = None
+        if idempotency_key is not None:
+            request_key_digest, request_fingerprint = assessment_request_identity(
+                study_session_id, target_claim_id, idempotency_key
+            )
         return store_assessment(
             learner,
             documents.public_document.model_dump(mode="json", by_alias=True),
@@ -1056,10 +1080,27 @@ def generate_and_store_assessment(
                 mode="json", by_alias=True
             ),
             generation_provenance=provenance,
+            request_idempotency_key_sha256=request_key_digest,
+            request_fingerprint=request_fingerprint,
             require_new=True,
             dsn=dsn,
         )
     except AssessmentError as error:
         if str(error) == "ASSESSMENT_NO_NEW_ITEM":
             raise _error("ASSESSMENT_NO_NEW_SAFE_ITEM") from None
+        if idempotency_key is not None:
+            try:
+                replay = read_assessment_request(
+                    learner,
+                    study_session_id,
+                    target_claim_id,
+                    idempotency_key,
+                    dsn=dsn,
+                )
+            except AssessmentError as replay_error:
+                if str(replay_error) == "ASSESSMENT_IDEMPOTENCY_CONFLICT":
+                    raise _error("ASSESSMENT_IDEMPOTENCY_CONFLICT") from None
+                replay = None
+            if replay is not None:
+                return replay
         raise _error("ASSESSMENT_STORAGE_FAILED") from None

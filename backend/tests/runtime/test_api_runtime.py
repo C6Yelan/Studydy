@@ -8,8 +8,17 @@ import pytest
 import runtime.api.app as app_module
 import runtime.material_processing as processing_module
 import runtime.storage.material_review_outputs as output_module
+from learning_adaptation.assessment_items import (
+    assessment_request_identity,
+    build_single_choice_assessment,
+    read_assessment_request,
+    store_assessment,
+)
+from learning_adaptation.map_context import read_map_context
+from learning_adaptation.study_sessions import read_study_session
 from runtime.api.app import ApiSettings, canonical_openapi_bytes, create_app
 from runtime.api.models import MaterialOutputBinding
+from runtime.learner_session import resolve_session
 from runtime.material_processing import (
     MaterialProcessingError,
     claim_next_material_processing_run,
@@ -17,6 +26,7 @@ from runtime.material_processing import (
 )
 from runtime.storage.migrations import run_migrations
 from test_material_processing import _fake_knowledge_map, _fake_successful_producer, _pdf
+from test_study_sessions import _insert_material_map, _knowledge_map
 
 
 class _Workers:
@@ -39,6 +49,7 @@ def api_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
         10,
         11,
         12,
+        13,
     )
     return clean_database_dsn
 
@@ -266,7 +277,9 @@ def test_success_exposes_only_review_map_with_pdf_locator(
         assert "model_text" not in encoded
 
 
-def test_openapi_has_no_deferred_downstream_routes(settings: ApiSettings):
+def test_openapi_has_phase_06_learning_routes_without_private_fields(
+    settings: ApiSettings,
+):
     app = create_app(settings)
     encoded = canonical_openapi_bytes(app)
     fixture = Path(__file__).parent / "fixtures" / "openapi-v2.json"
@@ -281,6 +294,17 @@ def test_openapi_has_no_deferred_downstream_routes(settings: ApiSettings):
         "/v1/material-processing-runs/{run_id}",
         "/v1/materials/{material_id}/knowledge-maps/{map_revision}",
         "/v1/artifacts/{artifact_id}",
+        "/v1/study-sessions",
+        "/v1/study-sessions/{study_session_id}",
+        "/v1/study-sessions/{study_session_id}/complete",
+        "/v1/study-sessions/{study_session_id}/context",
+        "/v1/study-sessions/{study_session_id}/assessments",
+        "/v1/study-sessions/{study_session_id}/assessments/{assessment_revision}",
+        "/v1/study-sessions/{study_session_id}/assessments/{assessment_revision}/submissions",
+        "/v1/study-sessions/{study_session_id}/learning-state",
+        "/v1/study-sessions/{study_session_id}/weakness",
+        "/v1/study-sessions/{study_session_id}/adaptive-plan",
+        "/v1/study-sessions/{study_session_id}/adaptive-plan/apply",
     }
     assert "HTTPValidationError" not in document["components"]["schemas"]
     assert "ValidationError" not in document["components"]["schemas"]
@@ -310,13 +334,16 @@ def test_openapi_has_no_deferred_downstream_routes(settings: ApiSettings):
         "format": "binary",
     }
     encoded_document = json.dumps(document)
-    for deferred in (
-        "learning-path",
-        "assessment",
-        "learning-state",
-        "learning-resource-result",
+    for private_field in (
+        "correct_option_id",
+        "private_answer",
+        "private_answer_sha256",
+        "generation_provenance",
+        "supporting_answer_event_ids",
+        "source_answer_event_ids",
+        "entailment",
     ):
-        assert deferred not in encoded_document
+        assert private_field not in encoded_document
 
 
 def test_owner_scope_and_safe_fixed_errors(settings: ApiSettings):
@@ -329,3 +356,250 @@ def test_owner_scope_and_safe_fixed_errors(settings: ApiSettings):
         assert response.status_code == 404
         assert response.json()["reason_code"] == "RESOURCE_NOT_FOUND"
         assert response.json()["message"] == "Request could not be completed."
+
+
+def _learning_material(client: TestClient, settings: ApiSettings):
+    assert client.post(
+        "/v1/session", headers={"Origin": settings.public_origin}
+    ).status_code == 204
+    learner = resolve_session(
+        client.cookies.get("studydy_session"), dsn=settings.dsn
+    )
+    assert learner is not None
+    knowledge_map = _knowledge_map()
+    material_id = _insert_material_map(
+        settings.dsn, learner.learner_id, knowledge_map
+    )
+    return learner, knowledge_map, material_id
+
+
+def _fake_assessment_generation(
+    learner,
+    study_session_id,
+    target_claim_id,
+    _local_config,
+    *,
+    idempotency_key,
+    dsn,
+):
+    replay = read_assessment_request(
+        learner,
+        study_session_id,
+        target_claim_id,
+        idempotency_key,
+        dsn=dsn,
+    )
+    if replay is not None:
+        return replay
+    study_session = read_study_session(learner, study_session_id, dsn=dsn)
+    context = read_map_context(
+        learner.learner_id,
+        study_session.material_id,
+        study_session.knowledge_map_revision,
+        dsn=dsn,
+    )
+    concept = next(
+        concept
+        for concept in context.formal_concepts
+        if concept.formal_concept_id
+        == study_session.current_formal_concept_id
+    )
+    claim = next(
+        claim for claim in concept.claims if claim.claim_id == target_claim_id
+    )
+    documents = build_single_choice_assessment(
+        study_session_id=study_session_id,
+        knowledge_map_revision=study_session.knowledge_map_revision,
+        target_formal_concept_id=concept.formal_concept_id,
+        target_claim_id=claim.claim_id,
+        source_evidence_ids=[claim.evidence[0].evidence_id],
+        prompt="Which option matches the selected Evidence?",
+        option_texts=[
+            "Grounded answer",
+            "First distractor",
+            "Second distractor",
+            "Third distractor",
+        ],
+        correct_option_index=0,
+        rationale="The selected Evidence supports the grounded answer.",
+    )
+    key_digest, fingerprint = assessment_request_identity(
+        study_session_id, target_claim_id, idempotency_key
+    )
+    return store_assessment(
+        learner,
+        documents.public_document,
+        documents.private_answer_document,
+        request_idempotency_key_sha256=key_digest,
+        request_fingerprint=fingerprint,
+        dsn=dsn,
+    )
+
+
+def test_learning_api_closed_public_wiring_and_safe_feedback(
+    settings: ApiSettings, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(
+        app_module,
+        "generate_and_store_assessment",
+        _fake_assessment_generation,
+    )
+    with TestClient(create_app(settings)) as client:
+        _, knowledge_map, material_id = _learning_material(client, settings)
+        target = knowledge_map["formal_concepts"][1]
+        created = client.post(
+            "/v1/study-sessions",
+            headers=_headers("study-session"),
+            json={
+                "schema": "study-session-create/v1",
+                "material_id": str(material_id),
+                "knowledge_map_revision": knowledge_map["revision"],
+                "current_formal_concept_id": target["formal_concept_id"],
+            },
+        )
+        assert created.status_code == 201
+        study_session = created.json()
+        session_id = study_session["study_session_id"]
+        assert client.get(f"/v1/study-sessions/{session_id}").json() == study_session
+
+        context = client.get(
+            f"/v1/study-sessions/{session_id}/context"
+        ).json()
+        assert context["base_knowledge_map_revision"] == knowledge_map["revision"]
+        assert [item["formal_concept_id"] for item in context["initial_learning_path"]] == knowledge_map["initial_learning_path"]
+
+        assessment_request = {
+            "schema": "assessment-create/v1",
+            "target_claim_id": target["claims"][0]["claim_id"],
+        }
+        assessment_url = f"/v1/study-sessions/{session_id}/assessments"
+        first = client.post(
+            assessment_url,
+            headers=_headers("assessment-request"),
+            json=assessment_request,
+        )
+        replay = client.post(
+            assessment_url,
+            headers=_headers("assessment-request"),
+            json=assessment_request,
+        )
+        assert first.status_code == replay.status_code == 201
+        assert first.json() == replay.json()
+        assessment = first.json()
+        encoded_assessment = json.dumps(assessment)
+        assert len(assessment["options"]) == 4
+        assert "correct_option" not in encoded_assessment
+        assert "rationale" not in encoded_assessment
+        assert "generation_provenance" not in encoded_assessment
+        assert client.get(
+            f"{assessment_url}/{assessment['assessment_revision']}"
+        ).json() == assessment
+
+        submission_url = (
+            f"{assessment_url}/{assessment['assessment_revision']}/submissions"
+        )
+        feedback = client.post(
+            submission_url,
+            headers=_headers("answer-request"),
+            json={
+                "schema": "answer-submission-create/v1",
+                "question_id": assessment["question_id"],
+                "selected_option_id": assessment["options"][1]["option_id"],
+            },
+        )
+        assert feedback.status_code == 201
+        feedback_document = feedback.json()
+        assert feedback_document["is_correct"] is False
+        assert "correct_option_id" not in json.dumps(feedback_document)
+        assert client.post(
+            submission_url,
+            headers=_headers("invalid-extra"),
+            json={
+                "schema": "answer-submission-create/v1",
+                "question_id": assessment["question_id"],
+                "selected_option_id": assessment["options"][1]["option_id"],
+                "correctness": True,
+            },
+        ).status_code == 400
+
+        state = client.get(
+            f"/v1/study-sessions/{session_id}/learning-state"
+        ).json()
+        weakness = client.get(
+            f"/v1/study-sessions/{session_id}/weakness"
+        ).json()
+        adaptive = client.get(
+            f"/v1/study-sessions/{session_id}/adaptive-plan"
+        ).json()
+        assert state["concept_states"][1]["status"] == "needs_review"
+        assert "source_answer_event_ids" not in json.dumps(state)
+        assert "supporting_answer_event_ids" not in json.dumps(weakness)
+        assert adaptive["plan"]["primary_step"]["action"] == "relearn_prerequisite"
+        assert adaptive["suggestion"]["action"] == "relearn_prerequisite"
+        applied = client.post(
+            f"/v1/study-sessions/{session_id}/adaptive-plan/apply",
+            headers={"Origin": settings.public_origin},
+            json={
+                "schema": "adaptive-plan-apply/v1",
+                "adaptive_plan_revision": adaptive["plan"]["adaptive_plan_revision"],
+            },
+        )
+        assert applied.status_code == 200
+        assert applied.json()["deferred_formal_concept_id"] == target[
+            "formal_concept_id"
+        ]
+        assert client.post(
+            f"/v1/study-sessions/{session_id}/complete",
+            headers={"Origin": settings.public_origin},
+        ).json()["status"] == "completed"
+
+
+def test_learning_api_owner_and_assessment_idempotency_conflict(
+    settings: ApiSettings, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(
+        app_module,
+        "generate_and_store_assessment",
+        _fake_assessment_generation,
+    )
+    app = create_app(settings)
+    with TestClient(app) as owner:
+        _, knowledge_map, material_id = _learning_material(owner, settings)
+        target = knowledge_map["formal_concepts"][0]
+        session = owner.post(
+            "/v1/study-sessions",
+            headers=_headers("owner-study"),
+            json={
+                "schema": "study-session-create/v1",
+                "material_id": str(material_id),
+                "knowledge_map_revision": knowledge_map["revision"],
+                "current_formal_concept_id": target["formal_concept_id"],
+            },
+        ).json()
+        session_id = session["study_session_id"]
+        first = owner.post(
+            f"/v1/study-sessions/{session_id}/assessments",
+            headers=_headers("same-key"),
+            json={
+                "schema": "assessment-create/v1",
+                "target_claim_id": target["claims"][0]["claim_id"],
+            },
+        )
+        assert first.status_code == 201
+        conflict = owner.post(
+            f"/v1/study-sessions/{session_id}/assessments",
+            headers=_headers("same-key"),
+            json={
+                "schema": "assessment-create/v1",
+                "target_claim_id": knowledge_map["formal_concepts"][1][
+                    "claims"
+                ][0]["claim_id"],
+            },
+        )
+        assert conflict.status_code == 409
+        assert conflict.json()["reason_code"] == "IDEMPOTENCY_CONFLICT"
+    with TestClient(app) as stranger:
+        stranger.post("/v1/session", headers={"Origin": settings.public_origin})
+        unavailable = stranger.get(f"/v1/study-sessions/{session_id}")
+        assert unavailable.status_code == 404
+        assert unavailable.json()["reason_code"] == "RESOURCE_NOT_FOUND"

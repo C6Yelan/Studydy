@@ -8,6 +8,18 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from learning_adaptation.adaptive_plans import (
+    AdaptiveAction,
+    AdaptivePlanSnapshot,
+    Suggestion,
+)
+from learning_adaptation.answer_events import AnswerFeedback
+from learning_adaptation.assessment_items import StoredAssessment
+from learning_adaptation.learning_states import LearningStateSnapshot
+from learning_adaptation.map_context import MapContext
+from learning_adaptation.study_sessions import StoredStudySession
+from learning_adaptation.weaknesses import WeaknessSnapshot
+
 from ..material_processing import MaterialProcessingRun
 
 
@@ -431,6 +443,218 @@ class KnowledgeMapView(_ClosedModel):
         return self
 
 
+class StudySessionCreate(_ClosedModel):
+    schema_: Literal["study-session-create/v1"] = Field(alias="schema")
+    material_id: UUID = Field(strict=False)
+    knowledge_map_revision: str = Field(
+        pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
+    )
+    current_formal_concept_id: str | None = Field(
+        default=None,
+        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$",
+    )
+
+
+class StudySessionView(_ClosedModel):
+    schema_: Literal["study-session/v1"] = Field(alias="schema")
+    study_session_id: UUID
+    material_id: UUID
+    knowledge_map_revision: str
+    current_formal_concept_id: str | None
+    deferred_formal_concept_id: str | None
+    status: Literal["active", "completed"]
+    started_at: datetime
+    completed_at: datetime | None
+    event_watermark: int = Field(ge=0)
+
+
+class StudyConceptContextView(_ClosedModel):
+    formal_concept_id: str
+    label: str = Field(min_length=1)
+    claim_ids: list[str] = Field(min_length=1)
+    supplementary_resource_promotion_ids: list[str]
+
+
+class StudyContextView(_ClosedModel):
+    schema_: Literal["study-context/v1"] = Field(alias="schema")
+    study_session_id: UUID
+    base_knowledge_map_revision: str
+    current_formal_concept_id: str | None
+    deferred_formal_concept_id: str | None
+    initial_learning_path: list[StudyConceptContextView] = Field(min_length=1)
+
+
+class AssessmentCreate(_ClosedModel):
+    schema_: Literal["assessment-create/v1"] = Field(alias="schema")
+    target_claim_id: str = Field(pattern=r"^claim:sha256:[0-9a-f]{64}$")
+
+
+class AssessmentOptionView(_ClosedModel):
+    option_id: str
+    text: str = Field(min_length=1)
+
+
+class AssessmentView(_ClosedModel):
+    schema_: Literal["single-choice-assessment-public/v1"] = Field(alias="schema")
+    study_session_id: UUID
+    knowledge_map_revision: str
+    assessment_revision: str
+    question_id: str
+    target_formal_concept_id: str
+    target_claim_id: str
+    source_evidence_ids: list[str] = Field(min_length=1)
+    question_type: Literal["single_choice"]
+    prompt: str = Field(min_length=1)
+    options: list[AssessmentOptionView] = Field(min_length=4, max_length=4)
+    policy_revision: Literal["single-choice-assessment-policy/v1"]
+
+
+class AnswerSubmissionCreate(_ClosedModel):
+    schema_: Literal["answer-submission-create/v1"] = Field(alias="schema")
+    question_id: str = Field(pattern=r"^question:sha256:[0-9a-f]{64}$")
+    selected_option_id: str = Field(pattern=r"^option:sha256:[0-9a-f]{64}$")
+
+
+class AnswerFeedbackView(_ClosedModel):
+    schema_: Literal["answer-feedback/v1"] = Field(alias="schema")
+    answer_event_id: UUID
+    study_session_id: UUID
+    assessment_revision: str
+    question_id: str
+    selected_option_id: str
+    is_correct: bool
+    rationale: str = Field(min_length=1)
+    source_evidence_ids: list[str] = Field(min_length=1)
+    event_number: int = Field(ge=1)
+    created_at: datetime
+
+
+class ConceptLearningStateView(_ClosedModel):
+    formal_concept_id: str
+    status: Literal["not_started", "learning", "needs_review", "mastered"]
+    mastery_band: Literal["no_evidence", "developing", "demonstrated"]
+    confidence: Literal["none", "limited", "supported"]
+    needs_more_data: bool
+    required_claim_ids: list[str]
+    attempted_claim_ids: list[str]
+    latest_correct_claim_ids: list[str]
+    claim_coverage_complete: bool
+    required_evidence_ids: list[str]
+    observed_evidence_ids: list[str]
+    evidence_coverage_complete: bool
+    valid_attempts: int = Field(ge=0)
+    correct_attempts: int = Field(ge=0)
+    distinct_item_attempts: int = Field(ge=0)
+    recent_result: Literal["correct", "incorrect"] | None
+    repeated_error: bool
+    post_error_improvement: bool
+    explanation: str = Field(min_length=1)
+
+
+class LearningStateView(_ClosedModel):
+    schema_: Literal["learning-state/v1"] = Field(alias="schema")
+    study_session_id: UUID
+    base_knowledge_map_revision: str
+    state_revision: str
+    event_watermark: int = Field(ge=0)
+    all_mastered: bool
+    concept_states: list[ConceptLearningStateView] = Field(min_length=1)
+
+
+class WeaknessFindingView(_ClosedModel):
+    target_formal_concept_id: str
+    target_label: str
+    category: Literal["observed_weak", "needs_review", "not_enough_data"]
+    confidence: Literal["none", "limited", "supported"]
+    claim_coverage_complete: bool
+    remediation_intent: Literal["practice", "review", "collect_more_data"]
+    reason: str
+
+
+class PrerequisiteGapView(_ClosedModel):
+    category: Literal["possible_prerequisite_gap"]
+    target_formal_concept_id: str
+    prerequisite_formal_concept_id: str
+    prerequisite_label: str
+    relation_id: str
+    prerequisite_status: Literal[
+        "not_started", "learning", "needs_review", "mastered"
+    ]
+    prerequisite_confidence: Literal["none", "limited", "supported"]
+    remediation_intent: Literal["relearn_prerequisite"]
+    reason: str
+
+
+class WeaknessView(_ClosedModel):
+    schema_: Literal["weakness/v1"] = Field(alias="schema")
+    study_session_id: UUID
+    base_knowledge_map_revision: str
+    source_learning_state_revision: str
+    event_watermark: int = Field(ge=0)
+    current_formal_concept_id: str | None
+    weakness_revision: str
+    findings: list[WeaknessFindingView]
+    immediate_prerequisite_gaps: list[PrerequisiteGapView]
+
+
+class AdaptiveRouteView(_ClosedModel):
+    study_session_id: UUID
+    formal_concept_id: str | None
+    resource_promotion_id: str | None
+
+
+class AdaptiveStepView(_ClosedModel):
+    action: AdaptiveAction
+    target_formal_concept_id: str | None
+    target_label: str | None
+    reason: str
+    confidence: Literal["none", "limited", "supported"]
+    claim_coverage_complete: bool
+    route: AdaptiveRouteView
+
+
+class AdaptivePlanView(_ClosedModel):
+    schema_: Literal["adaptive-plan/v1"] = Field(alias="schema")
+    study_session_id: UUID
+    base_knowledge_map_revision: str
+    inline_initial_learning_path_sha256: str
+    source_learning_state_revision: str
+    event_watermark: int = Field(ge=0)
+    current_formal_concept_id: str | None
+    deferred_formal_concept_id: str | None
+    primary_step: AdaptiveStepView
+    adaptive_plan_revision: str
+
+
+class SuggestionView(_ClosedModel):
+    schema_: Literal["learning-suggestion/v1"] = Field(alias="schema")
+    adaptive_plan_revision: str
+    study_session_id: UUID
+    base_knowledge_map_revision: str
+    action: AdaptiveAction
+    target_formal_concept_id: str | None
+    target_label: str | None
+    reason: str
+    confidence: Literal["none", "limited", "supported"]
+    claim_coverage_complete: bool
+    route: AdaptiveRouteView
+    fallback_action: Literal["follow_path", "collect_more_data", "no_action"]
+    fallback_reason: str
+
+
+class AdaptiveResponseView(_ClosedModel):
+    schema_: Literal["adaptive-response/v1"] = Field(alias="schema")
+    plan: AdaptivePlanView
+    suggestion: SuggestionView
+
+
+class AdaptivePlanApply(_ClosedModel):
+    schema_: Literal["adaptive-plan-apply/v1"] = Field(alias="schema")
+    adaptive_plan_revision: str = Field(
+        pattern=r"^adaptive-plan:sha256:[0-9a-f]{64}$"
+    )
+
+
 class ApiErrorView(_ClosedModel):
     schema_: Literal["api-error/v1"] = Field(alias="schema")
     request_id: UUID
@@ -454,5 +678,150 @@ def project_material_run(run: MaterialProcessingRun) -> MaterialProcessingRunVie
             "created_at": run.created_at,
             "updated_at": run.updated_at,
             "completed_at": run.completed_at,
+        }
+    )
+
+
+def project_study_session(session: StoredStudySession) -> StudySessionView:
+    return StudySessionView.model_validate(
+        {
+            "schema": "study-session/v1",
+            "study_session_id": session.study_session_id,
+            "material_id": session.material_id,
+            "knowledge_map_revision": session.knowledge_map_revision,
+            "current_formal_concept_id": session.current_formal_concept_id,
+            "deferred_formal_concept_id": session.deferred_formal_concept_id,
+            "status": session.status,
+            "started_at": session.started_at,
+            "completed_at": session.completed_at,
+            "event_watermark": session.last_event_number,
+        }
+    )
+
+
+def project_study_context(
+    session: StoredStudySession,
+    context: MapContext,
+) -> StudyContextView:
+    concepts = {
+        concept.formal_concept_id: concept
+        for concept in context.formal_concepts
+    }
+    return StudyContextView.model_validate(
+        {
+            "schema": "study-context/v1",
+            "study_session_id": session.study_session_id,
+            "base_knowledge_map_revision": context.knowledge_map_revision,
+            "current_formal_concept_id": session.current_formal_concept_id,
+            "deferred_formal_concept_id": session.deferred_formal_concept_id,
+            "initial_learning_path": [
+                {
+                    "formal_concept_id": concept_id,
+                    "label": concepts[concept_id].label,
+                    "claim_ids": [
+                        claim.claim_id for claim in concepts[concept_id].claims
+                    ],
+                    "supplementary_resource_promotion_ids": [
+                        resource.promotion_id
+                        for resource in concepts[
+                            concept_id
+                        ].supplementary_resources
+                    ],
+                }
+                for concept_id in context.initial_learning_path
+            ],
+        }
+    )
+
+
+def project_assessment(assessment: StoredAssessment) -> AssessmentView:
+    public = assessment.public_document.model_dump(mode="python", by_alias=True)
+    public["study_session_id"] = assessment.study_session_id
+    return AssessmentView.model_validate(public)
+
+
+def project_answer_feedback(feedback: AnswerFeedback) -> AnswerFeedbackView:
+    return AnswerFeedbackView.model_validate(
+        feedback.model_dump(mode="python", by_alias=True)
+    )
+
+
+def project_learning_state(state: LearningStateSnapshot) -> LearningStateView:
+    return LearningStateView.model_validate(
+        {
+            "schema": "learning-state/v1",
+            "study_session_id": state.study_session_id,
+            "base_knowledge_map_revision": state.base_knowledge_map_revision,
+            "state_revision": state.state_revision,
+            "event_watermark": state.event_watermark,
+            "all_mastered": state.all_mastered,
+            "concept_states": [
+                concept.model_dump(
+                    mode="python",
+                    exclude={
+                        "source_answer_event_ids",
+                        "source_event_numbers",
+                        "reason_code",
+                    },
+                )
+                for concept in state.concept_states
+            ],
+        }
+    )
+
+
+def project_weakness(weakness: WeaknessSnapshot) -> WeaknessView:
+    return WeaknessView.model_validate(
+        {
+            "schema": "weakness/v1",
+            "study_session_id": weakness.study_session_id,
+            "base_knowledge_map_revision": weakness.base_knowledge_map_revision,
+            "source_learning_state_revision": (
+                weakness.source_learning_state_revision
+            ),
+            "event_watermark": weakness.event_watermark,
+            "current_formal_concept_id": weakness.current_formal_concept_id,
+            "weakness_revision": weakness.weakness_revision,
+            "findings": [
+                finding.model_dump(
+                    mode="python", exclude={"supporting_answer_event_ids"}
+                )
+                for finding in weakness.findings
+            ],
+            "immediate_prerequisite_gaps": [
+                gap.model_dump(
+                    mode="python", exclude={"supporting_answer_event_ids"}
+                )
+                for gap in weakness.immediate_prerequisite_gaps
+            ],
+        }
+    )
+
+
+def project_adaptive_response(
+    plan: AdaptivePlanSnapshot,
+    suggestion: Suggestion,
+) -> AdaptiveResponseView:
+    plan_view = {
+        "schema": "adaptive-plan/v1",
+        "study_session_id": plan.study_session_id,
+        "base_knowledge_map_revision": plan.base_knowledge_map_revision,
+        "inline_initial_learning_path_sha256": (
+            plan.inline_initial_learning_path_sha256
+        ),
+        "source_learning_state_revision": plan.source_learning_state_revision,
+        "event_watermark": plan.event_watermark,
+        "current_formal_concept_id": plan.current_formal_concept_id,
+        "deferred_formal_concept_id": plan.deferred_formal_concept_id,
+        "primary_step": plan.primary_step.model_dump(
+            mode="python", exclude={"supporting_formal_concept_ids"}
+        ),
+        "adaptive_plan_revision": plan.adaptive_plan_revision,
+    }
+    return AdaptiveResponseView.model_validate(
+        {
+            "schema": "adaptive-response/v1",
+            "plan": plan_view,
+            "suggestion": suggestion.model_dump(mode="python", by_alias=True),
         }
     )

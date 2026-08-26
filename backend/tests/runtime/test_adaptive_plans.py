@@ -26,7 +26,7 @@ def adaptive_database_dsn(
 ) -> str:
     assert run_migrations(
         clean_database_dsn, migrations_dir=migrations_dir
-    ) == tuple(range(1, 13))
+    ) == tuple(range(1, 14))
     return clean_database_dsn
 
 

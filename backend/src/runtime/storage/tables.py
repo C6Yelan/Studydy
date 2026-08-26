@@ -360,6 +360,7 @@ class Assessment(Base):
             "question_id",
             name="assessments_session_revision_question_unique",
         ),
+        UniqueConstraint("study_session_id", "request_idempotency_key_sha256"),
         ForeignKeyConstraint(
             ["study_session_id", "knowledge_map_revision"],
             [
@@ -416,6 +417,12 @@ class Assessment(Base):
             "assessment_revision "
             "AND generation_provenance ->> 'question_id' = question_id)"
         ),
+        CheckConstraint(
+            "(request_idempotency_key_sha256 IS NULL AND "
+            "request_fingerprint IS NULL) OR "
+            "(octet_length(request_idempotency_key_sha256) = 32 AND "
+            "octet_length(request_fingerprint) = 32)"
+        ),
     )
 
     assessment_revision: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -431,6 +438,10 @@ class Assessment(Base):
         JSONB, nullable=False
     )
     generation_provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    request_idempotency_key_sha256: Mapped[bytes | None] = mapped_column(
+        LargeBinary
+    )
+    request_fingerprint: Mapped[bytes | None] = mapped_column(LargeBinary)
     policy_revision: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from hashlib import sha256
+import json
 import re
 import unicodedata
 from uuid import UUID
@@ -269,6 +271,10 @@ class StoredAssessment:
     )
     policy_revision: str
     created_at: datetime
+    request_idempotency_key_sha256: bytes | None = field(
+        default=None, repr=False
+    )
+    request_fingerprint: bytes | None = field(default=None, repr=False)
 
 
 def _error(reason: str) -> AssessmentError:
@@ -538,6 +544,25 @@ def _stored_assessment(row: Assessment) -> StoredAssessment:
         or row.policy_revision != public.policy_revision
     ):
         raise _error("ASSESSMENT_UNAVAILABLE")
+    request_key = (
+        None
+        if row.request_idempotency_key_sha256 is None
+        else bytes(row.request_idempotency_key_sha256)
+    )
+    request_fingerprint = (
+        None
+        if row.request_fingerprint is None
+        else bytes(row.request_fingerprint)
+    )
+    if (
+        (request_key is None) != (request_fingerprint is None)
+        or (request_key is not None and len(request_key) != 32)
+        or (
+            request_fingerprint is not None
+            and len(request_fingerprint) != 32
+        )
+    ):
+        raise _error("ASSESSMENT_UNAVAILABLE")
     return StoredAssessment(
         assessment_revision=row.assessment_revision,
         study_session_id=row.study_session_id,
@@ -550,7 +575,82 @@ def _stored_assessment(row: Assessment) -> StoredAssessment:
         generation_provenance=provenance,
         policy_revision=row.policy_revision,
         created_at=row.created_at,
+        request_idempotency_key_sha256=request_key,
+        request_fingerprint=request_fingerprint,
     )
+
+
+def assessment_request_identity(
+    study_session_id: UUID,
+    target_claim_id: str,
+    idempotency_key: str,
+) -> tuple[bytes, bytes]:
+    """建立 API assessment request 的固定 key digest 與內容 fingerprint。"""
+
+    try:
+        encoded_key = idempotency_key.encode("utf-8")
+    except (AttributeError, UnicodeError):
+        raise _error("ASSESSMENT_REQUEST_INVALID") from None
+    if (
+        not isinstance(study_session_id, UUID)
+        or not isinstance(target_claim_id, str)
+        or re.fullmatch(_CLAIM_ID, target_claim_id) is None
+        or not 1 <= len(encoded_key) <= 256
+    ):
+        raise _error("ASSESSMENT_REQUEST_INVALID")
+    request = json.dumps(
+        {
+            "study_session_id": str(study_session_id),
+            "target_claim_id": target_claim_id,
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("ascii")
+    return sha256(encoded_key).digest(), sha256(request).digest()
+
+
+def read_assessment_request(
+    learner: TrustedLearner,
+    study_session_id: UUID,
+    target_claim_id: str,
+    idempotency_key: str,
+    *,
+    dsn: str | None = None,
+) -> StoredAssessment | None:
+    """相同 request replay 既有 Assessment；同 key 不同 request 拒絕。"""
+
+    key_digest, fingerprint = assessment_request_identity(
+        study_session_id, target_claim_id, idempotency_key
+    )
+    try:
+        learner_id = _learner_id(learner)
+        with database_session(dsn) as session:
+            study_session = _read_stored_row(
+                session, learner_id, study_session_id
+            )
+            _validate_binding(session, study_session)
+            row = session.scalar(
+                select(Assessment).where(
+                    Assessment.study_session_id == study_session_id,
+                    Assessment.request_idempotency_key_sha256 == key_digest,
+                )
+            )
+            if row is None:
+                return None
+            stored = _stored_assessment(row)
+            if (
+                stored.request_fingerprint != fingerprint
+                or stored.target_claim_id != target_claim_id
+            ):
+                raise _error("ASSESSMENT_IDEMPOTENCY_CONFLICT")
+            return stored
+    except AssessmentError:
+        raise
+    except (StudySessionError, MapContextError):
+        raise _error("ASSESSMENT_UNAVAILABLE") from None
+    except (DatabaseConfigurationError, SQLAlchemyError, TypeError, ValueError):
+        raise _error("ASSESSMENT_STORAGE_FAILED") from None
 
 
 def used_question_ids(
@@ -597,12 +697,28 @@ def store_assessment(
     private_answer_document: object,
     *,
     generation_provenance: object | None = None,
+    request_idempotency_key_sha256: bytes | None = None,
+    request_fingerprint: bytes | None = None,
     require_new: bool = False,
     dsn: str | None = None,
 ) -> StoredAssessment:
     """驗證 active StudySession 與 Map grounding 後 immutable 儲存 Assessment。"""
 
     if type(require_new) is not bool:
+        raise _error("ASSESSMENT_DOCUMENT_INVALID")
+    if (
+        (request_idempotency_key_sha256 is None)
+        != (request_fingerprint is None)
+        or (
+            request_idempotency_key_sha256 is not None
+            and (
+                not isinstance(request_idempotency_key_sha256, bytes)
+                or len(request_idempotency_key_sha256) != 32
+                or not isinstance(request_fingerprint, bytes)
+                or len(request_fingerprint) != 32
+            )
+        )
+    ):
         raise _error("ASSESSMENT_DOCUMENT_INVALID")
     documents = validate_assessment_documents(
         public_document, private_answer_document
@@ -662,6 +778,16 @@ def store_assessment(
                             mode="json", by_alias=True
                         )
                     ),
+                    request_idempotency_key_sha256=(
+                        null()
+                        if request_idempotency_key_sha256 is None
+                        else request_idempotency_key_sha256
+                    ),
+                    request_fingerprint=(
+                        null()
+                        if request_fingerprint is None
+                        else request_fingerprint
+                    ),
                     policy_revision=public.policy_revision,
                     created_at=datetime.now(UTC),
                 )
@@ -683,6 +809,9 @@ def store_assessment(
                 or stored.private_answer_document
                 != documents.private_answer_document
                 or stored.generation_provenance != checked_provenance
+                or stored.request_idempotency_key_sha256
+                != request_idempotency_key_sha256
+                or stored.request_fingerprint != request_fingerprint
             ):
                 raise _error("ASSESSMENT_CONFLICT")
             return stored
