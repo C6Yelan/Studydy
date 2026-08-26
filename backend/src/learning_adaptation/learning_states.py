@@ -16,7 +16,7 @@ from .answer_events import (
     StoredAnswerEvent,
     _read_session_answer_events,
 )
-from .map_context import FormalConceptContext, MapContextError
+from .map_context import FormalConceptContext, MapContext, MapContextError
 from .study_sessions import (
     StudySessionError,
     _learner_id,
@@ -184,7 +184,12 @@ def _concept_state(
     claim_coverage_complete = not (
         required_claim_id_set - attempted_claim_ids
     )
-    needs_more_data = len(attempts) < 2 or not claim_coverage_complete
+    needs_more_data = reason_code in {
+        "NO_ASSESSMENT_EVIDENCE",
+        "MORE_ATTEMPTS_REQUIRED",
+        "CLAIM_COVERAGE_INCOMPLETE",
+        "DISTINCT_ITEM_EVIDENCE_REQUIRED",
+    }
     if not attempts:
         confidence = "none"
     elif needs_more_data:
@@ -223,6 +228,45 @@ def _concept_state(
     )
 
 
+def _learning_state_snapshot(
+    study_session_id: UUID,
+    knowledge_map_revision: str,
+    event_watermark: int,
+    context: MapContext,
+    events: tuple[StoredAnswerEvent, ...],
+) -> LearningStateSnapshot:
+    concept_states = [
+        _concept_state(concept, events) for concept in context.formal_concepts
+    ]
+    identity = {
+        "schema": "learning-state/v1",
+        "study_session_id": str(study_session_id),
+        "base_knowledge_map_revision": knowledge_map_revision,
+        "event_watermark": event_watermark,
+        "all_mastered": all(
+            state.status == "mastered" for state in concept_states
+        ),
+        "concept_states": [
+            state.model_dump(mode="json") for state in concept_states
+        ],
+    }
+    return LearningStateSnapshot.model_validate(
+        {
+            "schema": identity["schema"],
+            "study_session_id": study_session_id,
+            "base_knowledge_map_revision": identity[
+                "base_knowledge_map_revision"
+            ],
+            "event_watermark": identity["event_watermark"],
+            "all_mastered": identity["all_mastered"],
+            "concept_states": concept_states,
+            "state_revision": (
+                "learning-state:sha256:" + canonical_sha256(identity)
+            ),
+        }
+    )
+
+
 def derive_learning_state(
     learner: TrustedLearner,
     study_session_id: UUID,
@@ -241,38 +285,12 @@ def derive_learning_state(
             )
             context = _validate_binding(session, study_session)
             events = _read_session_answer_events(session, study_session)
-            concept_states = [
-                _concept_state(concept, events)
-                for concept in context.formal_concepts
-            ]
-            identity = {
-                "schema": "learning-state/v1",
-                "study_session_id": str(study_session_id),
-                "base_knowledge_map_revision": (
-                    study_session.knowledge_map_revision
-                ),
-                "event_watermark": study_session.last_event_number,
-                "all_mastered": all(
-                    state.status == "mastered" for state in concept_states
-                ),
-                "concept_states": [
-                    state.model_dump(mode="json") for state in concept_states
-                ],
-            }
-            return LearningStateSnapshot.model_validate(
-                {
-                    "schema": identity["schema"],
-                    "study_session_id": study_session_id,
-                    "base_knowledge_map_revision": identity[
-                        "base_knowledge_map_revision"
-                    ],
-                    "event_watermark": identity["event_watermark"],
-                    "all_mastered": identity["all_mastered"],
-                    "concept_states": concept_states,
-                    "state_revision": (
-                        "learning-state:sha256:" + canonical_sha256(identity)
-                    ),
-                }
+            return _learning_state_snapshot(
+                study_session_id,
+                study_session.knowledge_map_revision,
+                study_session.last_event_number,
+                context,
+                events,
             )
     except LearningStateError:
         raise

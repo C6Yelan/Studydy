@@ -248,6 +248,7 @@ def test_wrong_mixed_and_post_error_improvement_keep_history(
     ).concept_states[0]
     assert improved.status == "learning"
     assert improved.post_error_improvement is True
+    assert improved.needs_more_data is True
     assert improved.valid_attempts == 2
     assert improved.correct_attempts == 1
     assert improved.source_event_numbers == [1, 2]
