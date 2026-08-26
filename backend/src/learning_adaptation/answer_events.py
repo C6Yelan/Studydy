@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from runtime.learner_session import TrustedLearner
 from runtime.storage.database import DatabaseConfigurationError
@@ -73,6 +74,7 @@ class StoredAnswerEvent:
     question_id: str
     target_formal_concept_id: str
     target_claim_id: str
+    source_evidence_ids: tuple[str, ...]
     selected_option_id: str
     is_correct: bool
     event_number: int
@@ -168,6 +170,9 @@ def _stored_event(
         question_id=row.question_id,
         target_formal_concept_id=row.target_formal_concept_id,
         target_claim_id=row.target_claim_id,
+        source_evidence_ids=tuple(
+            assessment.public_document.source_evidence_ids
+        ),
         selected_option_id=row.selected_option_id,
         is_correct=row.is_correct,
         event_number=row.event_number,
@@ -201,7 +206,7 @@ def _feedback(
 
 
 def _read_bound_assessment(
-    session,
+    session: Session,
     study_session: StudySession,
     assessment_revision: str,
 ) -> StoredAssessment:
@@ -220,6 +225,31 @@ def _read_bound_assessment(
     if assessment.knowledge_map_revision != study_session.knowledge_map_revision:
         raise _error("ANSWER_ASSESSMENT_UNAVAILABLE")
     return assessment
+
+
+def _read_session_answer_events(
+    session: Session,
+    study_session: StudySession,
+) -> tuple[StoredAnswerEvent, ...]:
+    events = []
+    rows = session.scalars(
+        select(AnswerEvent)
+        .where(
+            AnswerEvent.study_session_id == study_session.study_session_id
+        )
+        .order_by(AnswerEvent.event_number)
+    )
+    for row in rows:
+        assessment = _read_bound_assessment(
+            session, study_session, row.assessment_revision
+        )
+        events.append(_stored_event(row, study_session, assessment))
+    if any(
+        event.event_number > study_session.last_event_number
+        for event in events
+    ):
+        raise _error("ANSWER_EVENT_UNAVAILABLE")
+    return tuple(events)
 
 
 def submit_answer(
@@ -341,20 +371,7 @@ def read_answer_events(
                 session, learner_id, study_session_id
             )
             _validate_binding(session, study_session)
-            rows = session.scalars(
-                select(AnswerEvent)
-                .where(AnswerEvent.study_session_id == study_session_id)
-                .order_by(AnswerEvent.event_number)
-            )
-            events = []
-            for row in rows:
-                assessment = _read_bound_assessment(
-                    session, study_session, row.assessment_revision
-                )
-                events.append(_stored_event(row, study_session, assessment))
-            if len(events) != study_session.last_event_number:
-                raise _error("ANSWER_EVENT_UNAVAILABLE")
-            return tuple(events)
+            return _read_session_answer_events(session, study_session)
     except AnswerSubmissionError:
         raise
     except (StudySessionError, MapContextError):

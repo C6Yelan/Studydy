@@ -268,6 +268,49 @@ def read_study_session(
         raise _error("STUDY_SESSION_STORAGE_FAILED") from None
 
 
+def set_current_study_concept(
+    learner: TrustedLearner,
+    study_session_id: UUID,
+    formal_concept_id: str,
+    *,
+    dsn: str | None = None,
+) -> StoredStudySession:
+    """以 exact Map 驗證 active StudySession 的目前學習 Concept。"""
+
+    learner_id = _learner_id(learner)
+    if (
+        not isinstance(study_session_id, UUID)
+        or not isinstance(formal_concept_id, str)
+    ):
+        raise _error("STUDY_SESSION_REQUEST_INVALID")
+    try:
+        with database_session(dsn) as session:
+            stored = _read_stored_row(
+                session, learner_id, study_session_id, for_update=True
+            )
+            context = _validate_binding(session, stored)
+            if stored.status != "active":
+                raise _error("STUDY_SESSION_LIFECYCLE_CONFLICT")
+            if formal_concept_id not in {
+                concept.formal_concept_id
+                for concept in context.formal_concepts
+            }:
+                raise _error("STUDY_SESSION_TARGET_INVALID")
+            stored.current_formal_concept_id = formal_concept_id
+            session.flush()
+            return _stored_session(stored)
+    except StudySessionError:
+        raise
+    except (
+        DatabaseConfigurationError,
+        SQLAlchemyError,
+        KeyError,
+        TypeError,
+        ValueError,
+    ):
+        raise _error("STUDY_SESSION_STORAGE_FAILED") from None
+
+
 def complete_study_session(
     learner: TrustedLearner,
     study_session_id: UUID,
