@@ -9,6 +9,7 @@ from uuid import UUID
 import psycopg
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CHAR,
     CheckConstraint,
     DateTime,
@@ -343,6 +344,12 @@ class Assessment(Base):
     __tablename__ = "assessments"
     __table_args__ = (
         UniqueConstraint("study_session_id", "question_id"),
+        UniqueConstraint(
+            "study_session_id",
+            "assessment_revision",
+            "question_id",
+            name="assessments_session_revision_question_unique",
+        ),
         ForeignKeyConstraint(
             ["study_session_id", "knowledge_map_revision"],
             [
@@ -415,6 +422,69 @@ class Assessment(Base):
     )
     generation_provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     policy_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class AnswerEvent(Base):
+    __tablename__ = "answer_events"
+    __table_args__ = (
+        UniqueConstraint("study_session_id", "assessment_revision"),
+        UniqueConstraint("study_session_id", "event_number"),
+        UniqueConstraint("study_session_id", "idempotency_key_sha256"),
+        ForeignKeyConstraint(
+            ["study_session_id", "knowledge_map_revision"],
+            [
+                "study_sessions.study_session_id",
+                "study_sessions.knowledge_map_revision",
+            ],
+        ),
+        ForeignKeyConstraint(
+            ["study_session_id", "assessment_revision", "question_id"],
+            [
+                "assessments.study_session_id",
+                "assessments.assessment_revision",
+                "assessments.question_id",
+            ],
+        ),
+        CheckConstraint(
+            "assessment_revision ~ '^assessment:sha256:[0-9a-f]{64}$'"
+        ),
+        CheckConstraint("question_id ~ '^question:sha256:[0-9a-f]{64}$'"),
+        CheckConstraint(
+            "target_formal_concept_id ~ '^formal-concept:sha256:[0-9a-f]{64}$'"
+        ),
+        CheckConstraint("target_claim_id ~ '^claim:sha256:[0-9a-f]{64}$'"),
+        CheckConstraint("selected_option_id ~ '^option:sha256:[0-9a-f]{64}$'"),
+        CheckConstraint("event_number >= 1"),
+        CheckConstraint("octet_length(idempotency_key_sha256) = 32"),
+        CheckConstraint("octet_length(request_fingerprint) = 32"),
+    )
+
+    answer_event_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True
+    )
+    study_session_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), nullable=False
+    )
+    material_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), nullable=False
+    )
+    knowledge_map_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    assessment_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    question_id: Mapped[str] = mapped_column(Text, nullable=False)
+    target_formal_concept_id: Mapped[str] = mapped_column(Text, nullable=False)
+    target_claim_id: Mapped[str] = mapped_column(Text, nullable=False)
+    selected_option_id: Mapped[str] = mapped_column(Text, nullable=False)
+    is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    event_number: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False
+    )
+    request_fingerprint: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

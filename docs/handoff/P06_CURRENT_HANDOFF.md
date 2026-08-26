@@ -4,15 +4,16 @@
 > repository state always takes precedence over SHA or status recorded here.
 
 - **Authoritative plan:** [`docs/planning/Phase_06.md`](../planning/Phase_06.md)
-- **Current task:** P06-04 ready-to-start checkpoint; implementation has not started.
-- **Last completed task:** P06-03 — Evidence-Grounded Question Generation + Qualification Gate.
+- **Current task:** P06-05 ready-to-start checkpoint.
+- **Last completed task:** P06-04 — Submission, deterministic scoring, and trusted AnswerEvent.
 - **Base branch:** `dev`
-- **Execution branch:** not yet created for P06-04; the merge source was `feature/p06-03-assessment-generation-clean-20260826`.
-- **Base SHA:** `fae9e31bdedc944924d0d9a23b2f21eb6dcbecea` (`dev` fast-forward checkpoint containing the accepted candidate and initial docs handoff)
+- **Execution branch:** `feature/p06-agent4-closed-loop-20260827`
+- **Base SHA:** `faf6cab741e3f87a590ea8f812bec5355c4dc041` (latest `dev` / `origin/dev` checkpoint at branch creation)
 - **Latest candidate SHA:** `161cf9f6761e187ba944b9b71b96ddea454f09df`
-- **Latest verification:** representative 24/30 with critical 0; high-risk holdout critical 0; multiple-supported unsafe promotion 0; P06-02 contract 29/29; selected-Evidence grounding 29/29; stability 14/14; public answer leakage 0; backend/local tests 205 passed; PostgreSQL/runtime tests 83 passed; installed local runtime 29/29.
-- **Current blockers:** none. Accepted P06-03 candidate is now in the `origin/dev` lineage. The known ~135s cold Assessment lifecycle remains a P06-08 escalation boundary, not a P06-04 blocker.
-- **Next action:** confirm the latest `dev` Git truth, create the Phase 06 execution branch from it, and implement Task 06-04 only.
+- **Latest verification:** P06-04 targeted Assessment / StudySession tests 22 passed; Assessment generation/runtime regression 18 passed; complete PostgreSQL/runtime regression 88 passed. P06-03 qualification remains representative 24/30 with critical 0, holdout critical 0, multiple-supported unsafe promotion 0, and public answer leakage 0.
+- **P06-04 result:** client input is limited to StudySession / assessment / question / selected option / idempotency identity; scoring reads the validated private answer server-side; one immutable AnswerEvent per Assessment receives a StudySession-ordered event number; exact replay returns the same event, while idempotency conflict, duplicate, stale, cross-owner, cross-session, invalid option, and tampered scoring fail closed. Safe post-submit feedback omits answer key and generation provenance.
+- **Current blockers:** none. The known ~135s cold Assessment lifecycle remains a P06-08 escalation boundary, not a downstream blocker.
+- **Next action:** implement P06-05 StudySession-scoped deterministic Learning State from trusted AnswerEvents only.
 
 ## Browser escalation / reviewer policy
 

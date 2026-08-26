@@ -37,6 +37,7 @@ def api_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
         8,
         9,
         10,
+        11,
     )
     return clean_database_dsn
 

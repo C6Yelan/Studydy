@@ -51,6 +51,7 @@ def assessment_database_dsn(
         8,
         9,
         10,
+        11,
     )
     return clean_database_dsn
 

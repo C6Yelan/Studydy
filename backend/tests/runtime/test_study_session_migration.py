@@ -171,15 +171,19 @@ def test_fresh_migrations_replace_only_empty_dormant_tables(
         8,
         9,
         10,
+        11,
     )
     with psycopg.connect(clean_database_dsn) as connection:
         assert connection.execute(
             "SELECT to_regclass('public.study_sessions')"
         ).fetchone() == ("study_sessions",)
-        for table_name in ("learning_paths", "answer_events", "learning_states"):
+        for table_name in ("learning_paths", "learning_states"):
             assert connection.execute(
                 "SELECT to_regclass(%s)", (f"public.{table_name}",)
             ).fetchone() == (None,)
+        assert connection.execute(
+            "SELECT to_regclass('public.answer_events')"
+        ).fetchone() == ("answer_events",)
         assert connection.execute(
             "SELECT to_regclass('public.assessments')"
         ).fetchone() == ("assessments",)
