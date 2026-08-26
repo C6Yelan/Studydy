@@ -17,13 +17,12 @@ from learning_adaptation.assessment_generation import (
     _repair_candidates,
     _request_document,
 )
-from learning_adaptation.assessment_items import AssessmentError, project_public_assessment
+from learning_adaptation.assessment_items import project_public_assessment
 from learning_adaptation.map_context import (
     ClaimContext,
     EvidenceLocator,
     FormalConceptContext,
 )
-from runtime.learner_session import TrustedLearner
 
 
 def _identifier(kind: str, digit: str) -> str:
@@ -619,21 +618,3 @@ def test_grounding_rejects_missing_claim_and_dropped_escape():
         AssessmentGenerationError, match="^ASSESSMENT_INPUT_UNSAFE$"
     ):
         _grounding(unsafe_concept, unsafe_claim.claim_id, policy)
-
-
-def test_generation_preserves_assessment_idempotency_conflict(monkeypatch):
-    def conflict(*_args, **_kwargs):
-        raise AssessmentError("ASSESSMENT_IDEMPOTENCY_CONFLICT")
-
-    monkeypatch.setattr(generation, "read_assessment_request", conflict)
-    with pytest.raises(
-        AssessmentGenerationError,
-        match="^ASSESSMENT_IDEMPOTENCY_CONFLICT$",
-    ):
-        generation.generate_and_store_assessment(
-            TrustedLearner(uuid4()),
-            uuid4(),
-            _identifier("claim", "3"),
-            {},
-            idempotency_key="request-key",
-        )

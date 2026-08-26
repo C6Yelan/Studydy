@@ -99,3 +99,24 @@ def test_initial_recovery_failure_stops_startup_and_releases_lock(
         workers.start()
     with worker_module.material_analysis_lock(runtime_root, wait_seconds=0):
         pass
+
+
+def test_idle_worker_releases_model_lock_for_assessment(tmp_path, monkeypatch):
+    runtime_root = tmp_path / "runtime"
+    monkeypatch.setattr(
+        worker_module, "recover_interrupted_material_runs", lambda **_: 0
+    )
+    monkeypatch.setattr(
+        worker_module, "claim_next_material_processing_run", lambda **_: None
+    )
+    workers = worker_module.RuntimeWorkers(
+        None, {"private_runtime_root": str(runtime_root)}
+    )
+    try:
+        workers.start()
+        with worker_module.material_analysis_lock(
+            runtime_root, wait_seconds=1
+        ):
+            pass
+    finally:
+        workers.stop()

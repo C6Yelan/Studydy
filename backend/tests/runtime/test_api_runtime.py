@@ -8,10 +8,9 @@ import pytest
 import runtime.api.app as app_module
 import runtime.material_processing as processing_module
 import runtime.storage.material_review_outputs as output_module
+import learning_adaptation.assessment_requests as assessment_request_module
 from learning_adaptation.assessment_items import (
-    assessment_request_identity,
     build_single_choice_assessment,
-    read_assessment_request,
     store_assessment,
     used_question_ids,
 )
@@ -380,18 +379,8 @@ def _fake_assessment_generation(
     target_claim_id,
     _local_config,
     *,
-    idempotency_key,
     dsn,
 ):
-    replay = read_assessment_request(
-        learner,
-        study_session_id,
-        target_claim_id,
-        idempotency_key,
-        dsn=dsn,
-    )
-    if replay is not None:
-        return replay
     study_session = read_study_session(learner, study_session_id, dsn=dsn)
     context = read_map_context(
         learner.learner_id,
@@ -424,15 +413,10 @@ def _fake_assessment_generation(
         correct_option_index=0,
         rationale="The selected Evidence supports the grounded answer.",
     )
-    key_digest, fingerprint = assessment_request_identity(
-        study_session_id, target_claim_id, idempotency_key
-    )
     return store_assessment(
         learner,
         documents.public_document,
         documents.private_answer_document,
-        request_idempotency_key_sha256=key_digest,
-        request_fingerprint=fingerprint,
         dsn=dsn,
     )
 
@@ -441,7 +425,7 @@ def test_learning_api_closed_public_wiring_and_safe_feedback(
     settings: ApiSettings, monkeypatch: pytest.MonkeyPatch
 ):
     monkeypatch.setattr(
-        app_module,
+        assessment_request_module,
         "generate_and_store_assessment",
         _fake_assessment_generation,
     )
@@ -559,7 +543,7 @@ def test_learning_api_owner_and_assessment_idempotency_conflict(
     settings: ApiSettings, monkeypatch: pytest.MonkeyPatch
 ):
     monkeypatch.setattr(
-        app_module,
+        assessment_request_module,
         "generate_and_store_assessment",
         _fake_assessment_generation,
     )
@@ -612,18 +596,8 @@ def _sequenced_assessment_generation(
     target_claim_id,
     _local_config,
     *,
-    idempotency_key,
     dsn,
 ):
-    replay = read_assessment_request(
-        learner,
-        study_session_id,
-        target_claim_id,
-        idempotency_key,
-        dsn=dsn,
-    )
-    if replay is not None:
-        return replay
     study_session = read_study_session(learner, study_session_id, dsn=dsn)
     context = read_map_context(
         learner.learner_id,
@@ -661,15 +635,10 @@ def _sequenced_assessment_generation(
         correct_option_index=0,
         rationale="The selected canonical Evidence supports this answer.",
     )
-    key_digest, fingerprint = assessment_request_identity(
-        study_session_id, target_claim_id, idempotency_key
-    )
     return store_assessment(
         learner,
         documents.public_document,
         documents.private_answer_document,
-        request_idempotency_key_sha256=key_digest,
-        request_fingerprint=fingerprint,
         require_new=True,
         dsn=dsn,
     )
@@ -722,7 +691,7 @@ def test_phase_06_public_api_closed_loop_matches_golden(
     settings: ApiSettings, monkeypatch: pytest.MonkeyPatch
 ):
     monkeypatch.setattr(
-        app_module,
+        assessment_request_module,
         "generate_and_store_assessment",
         _sequenced_assessment_generation,
     )

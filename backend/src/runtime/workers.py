@@ -57,21 +57,15 @@ class RuntimeWorkers:
         while not self._stop.is_set():
             try:
                 with material_analysis_lock(runtime_root, wait_seconds=0):
-                    recover_interrupted_material_runs(dsn=self.dsn)
                     if is_starting:
+                        recover_interrupted_material_runs(dsn=self.dsn)
                         self._started.set()
                         is_starting = False
-                    while not self._stop.is_set():
-                        try:
-                            claim = claim_next_material_processing_run(dsn=self.dsn)
-                            if claim is not None:
-                                execute_claimed_material_processing_run(
-                                    claim, deepcopy(self.local_config), dsn=self.dsn
-                                )
-                                continue
-                        except Exception:
-                            pass
-                        self._stop.wait(_IDLE_WAIT_SECONDS)
+                    claim = claim_next_material_processing_run(dsn=self.dsn)
+                    if claim is not None:
+                        execute_claimed_material_processing_run(
+                            claim, deepcopy(self.local_config), dsn=self.dsn
+                        )
             except ValueError as error:
                 if str(error) != "RUNTIME_BUSY" and is_starting:
                     self._startup_error = error
@@ -79,7 +73,6 @@ class RuntimeWorkers:
                     return
                 if is_starting:
                     self._started.set()
-                    is_starting = False
             except Exception as error:
                 if is_starting:
                     self._startup_error = error

@@ -50,9 +50,11 @@ from learning_adaptation.adaptive_plans import (
     project_suggestion,
 )
 from learning_adaptation.answer_events import submit_answer
-from learning_adaptation.assessment_generation import (
-    generate_and_store_assessment,
+from learning_adaptation.assessment_requests import (
+    generate_assessment_for_request,
 )
+from learning_adaptation.assessment_runtime import load_assessment_runtime_lock
+from learning_adaptation.assessment_runtime_reuse import AssessmentRuntimeReuse
 from learning_adaptation.assessment_items import read_assessment
 from learning_adaptation.learning_states import derive_learning_state
 from learning_adaptation.map_context import read_map_context
@@ -225,6 +227,7 @@ def _fixed_exception(error: Exception) -> str:
         "ANSWER_STUDY_SESSION_UNAVAILABLE",
         "ANSWER_ASSESSMENT_UNAVAILABLE",
         "ASSESSMENT_UNAVAILABLE",
+        "ASSESSMENT_REQUEST_UNAVAILABLE",
         "ASSESSMENT_GROUNDING_UNAVAILABLE",
         "ASSESSMENT_NO_NEW_SAFE_ITEM",
         "ASSESSMENT_NO_SAFE_CANDIDATE",
@@ -409,6 +412,11 @@ def create_app(settings: ApiSettings) -> FastAPI:
 
     if not isinstance(settings, ApiSettings):
         raise ValueError("API_SETTINGS_INVALID")
+    assessment_settings = {
+        **deepcopy(settings.local_config),
+        "assessment_runtime_lock": load_assessment_runtime_lock(),
+    }
+    assessment_runtime_reuse = AssessmentRuntimeReuse(assessment_settings)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -417,6 +425,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
             yield
         finally:
             workers.stop()
+            assessment_runtime_reuse.close()
 
     app = FastAPI(
         title="Studydy Material Review API",
@@ -427,6 +436,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         redoc_url=None,
         lifespan=lifespan,
     )
+    app.state.assessment_runtime_reuse = assessment_runtime_reuse
 
     @app.get("/v1/openapi.json", include_in_schema=False)
     async def openapi_document() -> Response:
@@ -671,12 +681,13 @@ def create_app(settings: ApiSettings) -> FastAPI:
         learner = _trusted_learner(request, settings)
         key = _idempotency_key(request)
         stored = await run_in_threadpool(
-            generate_and_store_assessment,
+            generate_assessment_for_request,
             learner,
             study_session_id,
             body.target_claim_id,
             deepcopy(settings.local_config),
-            idempotency_key=key,
+            key,
+            runtime_reuse=assessment_runtime_reuse,
             dsn=settings.dsn,
         )
         return project_assessment(stored)
