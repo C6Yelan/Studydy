@@ -13,6 +13,7 @@ from learning_adaptation.assessment_items import (
     build_single_choice_assessment,
     read_assessment_request,
     store_assessment,
+    used_question_ids,
 )
 from learning_adaptation.map_context import read_map_context
 from learning_adaptation.study_sessions import read_study_session
@@ -603,3 +604,354 @@ def test_learning_api_owner_and_assessment_idempotency_conflict(
         unavailable = stranger.get(f"/v1/study-sessions/{session_id}")
         assert unavailable.status_code == 404
         assert unavailable.json()["reason_code"] == "RESOURCE_NOT_FOUND"
+
+
+def _sequenced_assessment_generation(
+    learner,
+    study_session_id,
+    target_claim_id,
+    _local_config,
+    *,
+    idempotency_key,
+    dsn,
+):
+    replay = read_assessment_request(
+        learner,
+        study_session_id,
+        target_claim_id,
+        idempotency_key,
+        dsn=dsn,
+    )
+    if replay is not None:
+        return replay
+    study_session = read_study_session(learner, study_session_id, dsn=dsn)
+    context = read_map_context(
+        learner.learner_id,
+        study_session.material_id,
+        study_session.knowledge_map_revision,
+        dsn=dsn,
+    )
+    concept = next(
+        concept
+        for concept in context.formal_concepts
+        if concept.formal_concept_id
+        == study_session.current_formal_concept_id
+    )
+    claim = next(
+        claim for claim in concept.claims if claim.claim_id == target_claim_id
+    )
+    sequence = len(
+        used_question_ids(
+            learner, study_session_id, target_claim_id, dsn=dsn
+        )
+    ) + 1
+    documents = build_single_choice_assessment(
+        study_session_id=study_session_id,
+        knowledge_map_revision=study_session.knowledge_map_revision,
+        target_formal_concept_id=concept.formal_concept_id,
+        target_claim_id=claim.claim_id,
+        source_evidence_ids=[claim.evidence[0].evidence_id],
+        prompt=f"Safe reassessment item {sequence} for {concept.label}?",
+        option_texts=[
+            f"Grounded answer {sequence}",
+            f"First distractor {sequence}",
+            f"Second distractor {sequence}",
+            f"Third distractor {sequence}",
+        ],
+        correct_option_index=0,
+        rationale="The selected canonical Evidence supports this answer.",
+    )
+    key_digest, fingerprint = assessment_request_identity(
+        study_session_id, target_claim_id, idempotency_key
+    )
+    return store_assessment(
+        learner,
+        documents.public_document,
+        documents.private_answer_document,
+        request_idempotency_key_sha256=key_digest,
+        request_fingerprint=fingerprint,
+        require_new=True,
+        dsn=dsn,
+    )
+
+
+def _api_assessment(
+    client: TestClient,
+    session_id: str,
+    claim_id: str,
+    key: str,
+) -> dict:
+    response = client.post(
+        f"/v1/study-sessions/{session_id}/assessments",
+        headers=_headers(key),
+        json={
+            "schema": "assessment-create/v1",
+            "target_claim_id": claim_id,
+        },
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def _api_answer(
+    client: TestClient,
+    session_id: str,
+    assessment: dict,
+    *,
+    correct: bool,
+    key: str,
+) -> dict:
+    option_index = 0 if correct else 1
+    response = client.post(
+        f"/v1/study-sessions/{session_id}/assessments/"
+        f"{assessment['assessment_revision']}/submissions",
+        headers=_headers(key),
+        json={
+            "schema": "answer-submission-create/v1",
+            "question_id": assessment["question_id"],
+            "selected_option_id": assessment["options"][option_index][
+                "option_id"
+            ],
+        },
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_phase_06_public_api_closed_loop_matches_golden(
+    settings: ApiSettings, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(
+        app_module,
+        "generate_and_store_assessment",
+        _sequenced_assessment_generation,
+    )
+    golden = json.loads(
+        (
+            Path(__file__).parent
+            / "fixtures"
+            / "learning-loop-golden-v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    expected = {item["name"]: item for item in golden["checkpoints"]}
+    with TestClient(create_app(settings)) as client:
+        _, knowledge_map, material_id = _learning_material(client, settings)
+        prerequisite, target, next_concept = knowledge_map["formal_concepts"]
+        created = client.post(
+            "/v1/study-sessions",
+            headers=_headers("closed-loop-session"),
+            json={
+                "schema": "study-session-create/v1",
+                "material_id": str(material_id),
+                "knowledge_map_revision": knowledge_map["revision"],
+                "current_formal_concept_id": target["formal_concept_id"],
+            },
+        ).json()
+        session_id = created["study_session_id"]
+        target_claim_id = target["claims"][0]["claim_id"]
+
+        target_items = []
+        for sequence in (1, 2):
+            assessment = _api_assessment(
+                client,
+                session_id,
+                target_claim_id,
+                f"target-wrong-item-{sequence}",
+            )
+            target_items.append(assessment["question_id"])
+            feedback = _api_answer(
+                client,
+                session_id,
+                assessment,
+                correct=False,
+                key=f"target-wrong-answer-{sequence}",
+            )
+            if sequence == 1:
+                assert _api_answer(
+                    client,
+                    session_id,
+                    assessment,
+                    correct=False,
+                    key=f"target-wrong-answer-{sequence}",
+                ) == feedback
+        assert len(set(target_items)) == 2
+        state_after_errors = client.get(
+            f"/v1/study-sessions/{session_id}/learning-state"
+        ).json()
+        weakness_after_errors = client.get(
+            f"/v1/study-sessions/{session_id}/weakness"
+        ).json()
+        adaptive_after_errors = client.get(
+            f"/v1/study-sessions/{session_id}/adaptive-plan"
+        ).json()
+        target_state = next(
+            item
+            for item in state_after_errors["concept_states"]
+            if item["formal_concept_id"] == target["formal_concept_id"]
+        )
+        target_weakness = next(
+            item
+            for item in weakness_after_errors["findings"]
+            if item["target_formal_concept_id"]
+            == target["formal_concept_id"]
+        )
+        checkpoint = expected["repeated_target_errors"]
+        assert target_state["status"] == checkpoint["target_status"]
+        assert target_weakness["category"] == checkpoint["weakness_category"]
+        assert adaptive_after_errors["plan"]["primary_step"]["action"] == checkpoint["adaptive_action"]
+        assert client.post(
+            f"/v1/study-sessions/{session_id}/adaptive-plan/apply",
+            headers={"Origin": settings.public_origin},
+            json={
+                "schema": "adaptive-plan-apply/v1",
+                "adaptive_plan_revision": adaptive_after_errors["plan"][
+                    "adaptive_plan_revision"
+                ],
+            },
+        ).status_code == 200
+
+        prerequisite_items = []
+        for sequence in (1, 2):
+            assessment = _api_assessment(
+                client,
+                session_id,
+                prerequisite["claims"][0]["claim_id"],
+                f"prerequisite-item-{sequence}",
+            )
+            prerequisite_items.append(assessment["question_id"])
+            _api_answer(
+                client,
+                session_id,
+                assessment,
+                correct=True,
+                key=f"prerequisite-answer-{sequence}",
+            )
+        assert len(set(prerequisite_items)) == 2
+        state_after_prerequisite = client.get(
+            f"/v1/study-sessions/{session_id}/learning-state"
+        ).json()
+        return_adaptive = client.get(
+            f"/v1/study-sessions/{session_id}/adaptive-plan"
+        ).json()
+        prerequisite_state = next(
+            item
+            for item in state_after_prerequisite["concept_states"]
+            if item["formal_concept_id"] == prerequisite["formal_concept_id"]
+        )
+        checkpoint = expected["prerequisite_mastered"]
+        assert prerequisite_state["status"] == checkpoint["prerequisite_status"]
+        assert return_adaptive["plan"]["primary_step"]["action"] == checkpoint["adaptive_action"]
+        returned = client.post(
+            f"/v1/study-sessions/{session_id}/adaptive-plan/apply",
+            headers={"Origin": settings.public_origin},
+            json={
+                "schema": "adaptive-plan-apply/v1",
+                "adaptive_plan_revision": return_adaptive["plan"][
+                    "adaptive_plan_revision"
+                ],
+            },
+        ).json()
+        assert returned["current_formal_concept_id"] == target[
+            "formal_concept_id"
+        ]
+        assert returned["deferred_formal_concept_id"] is None
+
+        reassessment_ids = []
+        reassessments = []
+        for sequence in (3, 4):
+            assessment = _api_assessment(
+                client,
+                session_id,
+                target_claim_id,
+                f"target-correct-item-{sequence}",
+            )
+            reassessments.append(assessment)
+            reassessment_ids.append(assessment["question_id"])
+            _api_answer(
+                client,
+                session_id,
+                assessment,
+                correct=True,
+                key=f"target-correct-answer-{sequence}",
+            )
+        assert not set(reassessment_ids) & set(target_items)
+        final_state = client.get(
+            f"/v1/study-sessions/{session_id}/learning-state"
+        ).json()
+        final_adaptive = client.get(
+            f"/v1/study-sessions/{session_id}/adaptive-plan"
+        ).json()
+        target_state = next(
+            item
+            for item in final_state["concept_states"]
+            if item["formal_concept_id"] == target["formal_concept_id"]
+        )
+        checkpoint = expected["target_reassessment_mastered"]
+        assert target_state["status"] == checkpoint["target_status"]
+        assert final_adaptive["plan"]["primary_step"]["action"] == checkpoint["adaptive_action"]
+        assert final_adaptive["plan"]["primary_step"][
+            "target_formal_concept_id"
+        ] == next_concept["formal_concept_id"]
+        assert final_state["event_watermark"] == 6
+        assert final_state["state_revision"] != state_after_errors[
+            "state_revision"
+        ]
+        stale = client.post(
+            f"/v1/study-sessions/{session_id}/adaptive-plan/apply",
+            headers={"Origin": settings.public_origin},
+            json={
+                "schema": "adaptive-plan-apply/v1",
+                "adaptive_plan_revision": adaptive_after_errors["plan"][
+                    "adaptive_plan_revision"
+                ],
+            },
+        )
+        assert stale.status_code == 409
+
+        second_session = client.post(
+            "/v1/study-sessions",
+            headers=_headers("isolated-session"),
+            json={
+                "schema": "study-session-create/v1",
+                "material_id": str(material_id),
+                "knowledge_map_revision": knowledge_map["revision"],
+                "current_formal_concept_id": target["formal_concept_id"],
+            },
+        ).json()
+        isolated_state = client.get(
+            f"/v1/study-sessions/{second_session['study_session_id']}/learning-state"
+        ).json()
+        isolated_weakness = client.get(
+            f"/v1/study-sessions/{second_session['study_session_id']}/weakness"
+        ).json()
+        checkpoint = expected["new_session_isolated"]
+        isolated_target = next(
+            item
+            for item in isolated_state["concept_states"]
+            if item["formal_concept_id"] == target["formal_concept_id"]
+        )
+        isolated_finding = next(
+            item
+            for item in isolated_weakness["findings"]
+            if item["target_formal_concept_id"]
+            == target["formal_concept_id"]
+        )
+        assert isolated_state["event_watermark"] == checkpoint[
+            "event_watermark"
+        ]
+        assert isolated_target["status"] == checkpoint["target_status"]
+        assert isolated_finding["category"] == checkpoint[
+            "weakness_category"
+        ]
+
+        cross_session = client.post(
+            f"/v1/study-sessions/{second_session['study_session_id']}/assessments/"
+            f"{reassessments[0]['assessment_revision']}/submissions",
+            headers=_headers("cross-session-answer"),
+            json={
+                "schema": "answer-submission-create/v1",
+                "question_id": reassessments[0]["question_id"],
+                "selected_option_id": "option:sha256:" + "9" * 64,
+            },
+        )
+        assert cross_session.status_code == 404

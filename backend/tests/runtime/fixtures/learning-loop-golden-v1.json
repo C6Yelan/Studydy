@@ -1,0 +1,29 @@
+{
+  "schema": "learning-loop-golden/v1",
+  "checkpoints": [
+    {
+      "name": "repeated_target_errors",
+      "target_status": "needs_review",
+      "weakness_category": "observed_weak",
+      "adaptive_action": "relearn_prerequisite"
+    },
+    {
+      "name": "prerequisite_mastered",
+      "prerequisite_status": "mastered",
+      "adaptive_action": "continue",
+      "returns_deferred_target": true
+    },
+    {
+      "name": "target_reassessment_mastered",
+      "target_status": "mastered",
+      "adaptive_action": "start",
+      "advances_to_next_path_concept": true
+    },
+    {
+      "name": "new_session_isolated",
+      "event_watermark": 0,
+      "target_status": "not_started",
+      "weakness_category": "not_enough_data"
+    }
+  ]
+}
