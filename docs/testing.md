@@ -129,8 +129,13 @@ threshold、verifier protocol、selection policy 與 code hashes只存在
 但 provenance必須保存`assessment-generation-runtime-binding/v1`的hash，不能保存
 formal material binding。mDeBERTa會在inference前以`truncation=False`計算完整
 Evidence-option pair；超過384 tokens時回傳明確reject，禁止以截斷內容promotion。
+每個candidate先以selected Evidence subset驗證correct-option relative margin，再以full
+Claim Evidence驗證整體margin與multiple-supported distractor risk；private
+`assessment-generation-provenance/v2`保存兩組對齊分數，model宣告的support IDs不能單獨
+作為grounding證明。
 同一StudySession / Claim則依margin與candidate index deterministic選擇尚未儲存的
-question identity；全部safe identities已用完時fail closed。
+question identity；最高排名risky proposal的repair pool耗盡後，仍須繼續掃描較低排名的
+unused safe proposals，全部safe possibilities真正耗盡時才fail closed。
 
 真模型 qualification 必須從 Formal Concept / Claim / canonical exact Evidence 進入正式
 prompt、validation、relative-margin selection、multiple-support risk repair 與 P06-02 builder；

@@ -36,7 +36,7 @@ from .study_sessions import (
 PUBLIC_ASSESSMENT_SCHEMA = "single-choice-assessment-public/v1"
 PRIVATE_ANSWER_SCHEMA = "single-choice-assessment-answer/v1"
 ASSESSMENT_POLICY_REVISION = "single-choice-assessment-policy/v1"
-GENERATION_PROVENANCE_SCHEMA = "assessment-generation-provenance/v1"
+GENERATION_PROVENANCE_SCHEMA = "assessment-generation-provenance/v2"
 
 _ASSESSMENT_ID = r"^assessment:sha256:[0-9a-f]{64}$"
 _QUESTION_ID = r"^question:sha256:[0-9a-f]{64}$"
@@ -163,7 +163,7 @@ class AssessmentGenerationProvenance(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     schema_: str = Field(
-        alias="schema", pattern=r"^assessment-generation-provenance/v1$"
+        alias="schema", pattern=r"^assessment-generation-provenance/v2$"
     )
     assessment_revision: str = Field(pattern=_ASSESSMENT_ID)
     question_id: str = Field(pattern=_QUESTION_ID)
@@ -181,10 +181,14 @@ class AssessmentGenerationProvenance(BaseModel):
     option_entailment_probabilities: list[float] = Field(
         min_length=4, max_length=4
     )
+    selected_evidence_option_entailment_probabilities: list[float] = Field(
+        min_length=4, max_length=4
+    )
     correct_option_index: int = Field(ge=0, le=3)
     entailment_margin_threshold: float = Field(ge=0, le=1)
     multiple_support_risk_threshold: float = Field(ge=0, le=1)
     entailment_margin: float = Field(ge=0, le=1)
+    selected_evidence_entailment_margin: float = Field(ge=0, le=1)
     maximum_distractor_entailment: float = Field(ge=0, le=1)
     risk_trigger_distractor_entailment: float = Field(ge=0, le=1)
     multiple_support_risk: bool
@@ -215,7 +219,10 @@ class AssessmentGenerationProvenance(BaseModel):
             raise ValueError("GENERATION_PROVENANCE_EVIDENCE_INVALID")
         return value
 
-    @field_validator("option_entailment_probabilities")
+    @field_validator(
+        "option_entailment_probabilities",
+        "selected_evidence_option_entailment_probabilities",
+    )
     @classmethod
     def probabilities_must_be_bounded(cls, value: list[float]) -> list[float]:
         if any(probability < 0 or probability > 1 for probability in value):
@@ -355,13 +362,24 @@ def validate_assessment_generation_provenance(
         public = documents.public_document
         private = documents.private_answer_document
         probabilities = checked.option_entailment_probabilities
+        selected_probabilities = (
+            checked.selected_evidence_option_entailment_probabilities
+        )
         correct_probability = probabilities[checked.correct_option_index]
+        selected_correct_probability = selected_probabilities[
+            checked.correct_option_index
+        ]
         maximum_distractor = max(
             probability
             for index, probability in enumerate(probabilities)
             if index != checked.correct_option_index
         )
         margin = correct_probability - maximum_distractor
+        selected_margin = selected_correct_probability - max(
+            probability
+            for index, probability in enumerate(selected_probabilities)
+            if index != checked.correct_option_index
+        )
         if (
             checked.schema_ != GENERATION_PROVENANCE_SCHEMA
             or checked.provenance_sha256
@@ -375,7 +393,13 @@ def validate_assessment_generation_provenance(
             or abs(checked.maximum_distractor_entailment - maximum_distractor)
             > 1e-12
             or abs(checked.entailment_margin - margin) > 1e-12
+            or abs(
+                checked.selected_evidence_entailment_margin
+                - selected_margin
+            )
+            > 1e-12
             or margin < checked.entailment_margin_threshold
+            or selected_margin < checked.entailment_margin_threshold
             or checked.multiple_support_risk
             != (
                 checked.risk_trigger_distractor_entailment

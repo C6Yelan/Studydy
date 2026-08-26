@@ -93,7 +93,9 @@ class _Candidate:
 class _ScoredCandidate:
     candidate: _Candidate
     probabilities: tuple[float, float, float, float]
+    selected_evidence_probabilities: tuple[float, float, float, float]
     margin: float
+    selected_evidence_margin: float
     maximum_distractor: float
 
 
@@ -408,28 +410,18 @@ def _request_stage(
     raise ConceptAPIError("CONCEPT_API_UNAVAILABLE")
 
 
-def _score_candidate(
+def _verifier_probabilities(
     process: LocalAIProcess,
-    candidate: _Candidate,
-    grounding: _Grounding,
+    premise: str,
+    options: list[str],
+    request_id: str,
     timeout_seconds: float,
-) -> _ScoredCandidate:
-    options = [candidate.correct_option, *candidate.distractors]
-    request_id = canonical_sha256(
-        {
-            "claim_id": grounding.claim.claim_id,
-            "stage": candidate.stage,
-            "candidate_index": candidate.index,
-            "options": options,
-        }
-    )
+) -> tuple[float, float, float, float]:
     response = process.request(
         {
             "schema": "local-assessment-verifier-request/v1",
             "request_id": request_id,
-            "premise": "\n".join(
-                evidence.text for evidence in grounding.claim.evidence
-            ),
+            "premise": premise,
             "options": options,
         },
         timeout_seconds,
@@ -464,12 +456,57 @@ def _score_candidate(
         )
     ):
         raise _error("ASSESSMENT_VERIFIER_RESPONSE_INVALID")
-    values = tuple(float(probability) for probability in probabilities)
+    return tuple(float(probability) for probability in probabilities)
+
+
+def _score_candidate(
+    process: LocalAIProcess,
+    candidate: _Candidate,
+    grounding: _Grounding,
+    timeout_seconds: float,
+) -> _ScoredCandidate:
+    options = [candidate.correct_option, *candidate.distractors]
+    identity = {
+        "claim_id": grounding.claim.claim_id,
+        "stage": candidate.stage,
+        "candidate_index": candidate.index,
+        "options": options,
+    }
+    selected_premise = "\n".join(
+        grounding.aliases[alias][1]
+        for alias in candidate.support_aliases
+    )
+    full_premise = "\n".join(
+        evidence.text for evidence in grounding.claim.evidence
+    )
+    selected_values = _verifier_probabilities(
+        process,
+        selected_premise,
+        options,
+        canonical_sha256({**identity, "evidence_scope": "selected"}),
+        timeout_seconds,
+    )
+    values = (
+        selected_values
+        if selected_premise == full_premise
+        else _verifier_probabilities(
+            process,
+            full_premise,
+            options,
+            canonical_sha256({**identity, "evidence_scope": "full_claim"}),
+            timeout_seconds,
+        )
+    )
     maximum_distractor = max(values[1:])
+    selected_maximum_distractor = max(selected_values[1:])
     return _ScoredCandidate(
         candidate=candidate,
         probabilities=values,
+        selected_evidence_probabilities=selected_values,
         margin=values[0] - maximum_distractor,
+        selected_evidence_margin=(
+            selected_values[0] - selected_maximum_distractor
+        ),
         maximum_distractor=maximum_distractor,
     )
 
@@ -493,6 +530,8 @@ def _rank_candidates(
         candidate
         for candidate in scored
         if candidate.margin >= policy["verifier"]["entailment_margin_threshold"]
+        and candidate.selected_evidence_margin
+        >= policy["verifier"]["entailment_margin_threshold"]
     ]
     return sorted(
         passing,
@@ -556,11 +595,21 @@ def _ordered_options(
     selected: _ScoredCandidate,
     target_claim_id: str,
     policy_revision: str,
-) -> tuple[list[str], int, list[float]]:
+) -> tuple[list[str], int, list[float], list[float]]:
     values = [
-        (selected.candidate.correct_option, selected.probabilities[0], True),
+        (
+            selected.candidate.correct_option,
+            selected.probabilities[0],
+            selected.selected_evidence_probabilities[0],
+            True,
+        ),
         *[
-            (text, selected.probabilities[index], False)
+            (
+                text,
+                selected.probabilities[index],
+                selected.selected_evidence_probabilities[index],
+                False,
+            )
             for index, text in enumerate(selected.candidate.distractors, start=1)
         ],
     ]
@@ -573,11 +622,12 @@ def _ordered_options(
             }
         )
     )
-    correct_index = next(index for index, value in enumerate(values) if value[2])
+    correct_index = next(index for index, value in enumerate(values) if value[3])
     return (
         [value[0] for value in values],
         correct_index,
         [value[1] for value in values],
+        [value[2] for value in values],
     )
 
 
@@ -585,6 +635,7 @@ def _provenance(
     documents: AssessmentDocuments,
     selected: _ScoredCandidate,
     ordered_probabilities: list[float],
+    ordered_selected_evidence_probabilities: list[float],
     correct_index: int,
     evidence_ids: list[str],
     runtime_binding_sha256: str,
@@ -609,12 +660,18 @@ def _provenance(
         "selected_candidate_index": selected.candidate.index,
         "selected_evidence_ids": evidence_ids,
         "option_entailment_probabilities": ordered_probabilities,
+        "selected_evidence_option_entailment_probabilities": (
+            ordered_selected_evidence_probabilities
+        ),
         "correct_option_index": correct_index,
         "entailment_margin_threshold": verifier["entailment_margin_threshold"],
         "multiple_support_risk_threshold": verifier[
             "multiple_support_risk_threshold"
         ],
         "entailment_margin": selected.margin,
+        "selected_evidence_entailment_margin": (
+            selected.selected_evidence_margin
+        ),
         "maximum_distractor_entailment": selected.maximum_distractor,
         "risk_trigger_distractor_entailment": risk_trigger,
         "multiple_support_risk": selected.candidate.stage == "repair",
@@ -662,24 +719,32 @@ def _generate_documents(
             )
             if not ranked:
                 raise _error("ASSESSMENT_NO_SAFE_CANDIDATE")
-            choice = _first_unused_documents(
-                ranked,
-                study_session_id,
-                knowledge_map_revision,
-                grounding,
-                settings,
-                runtime_binding_sha256,
-                used_questions,
-            )
-            if choice is None:
-                raise _error("ASSESSMENT_NO_NEW_SAFE_ITEM")
-            selected, documents, provenance, risk_trigger = choice
-            if (
-                risk_trigger
-                >= assessment_lock["verifier"][
-                    "multiple_support_risk_threshold"
-                ]
-            ):
+            choice = None
+            repair_attempted = False
+            for proposal in ranked:
+                proposal_choice = _first_unused_documents(
+                    [proposal],
+                    study_session_id,
+                    knowledge_map_revision,
+                    grounding,
+                    settings,
+                    runtime_binding_sha256,
+                    used_questions,
+                )
+                if proposal_choice is None:
+                    continue
+                risk_trigger = proposal_choice[3]
+                if (
+                    risk_trigger
+                    < assessment_lock["verifier"][
+                        "multiple_support_risk_threshold"
+                    ]
+                ):
+                    choice = proposal_choice
+                    break
+                if repair_attempted:
+                    continue
+                repair_attempted = True
                 repair_text = _request_stage(
                     client,
                     settings,
@@ -690,13 +755,11 @@ def _generate_documents(
                     _response_format(list(grounding.aliases), repair=True),
                 )
                 repairs = _repair_candidates(repair_text, grounding)
-                ranked = _rank_candidates(
+                ranked_repairs = _rank_candidates(
                     repairs, verifier, grounding, assessment_lock
                 )
-                if not ranked:
-                    raise _error("ASSESSMENT_NO_SAFE_CANDIDATE")
                 choice = _first_unused_documents(
-                    ranked,
+                    ranked_repairs,
                     study_session_id,
                     knowledge_map_revision,
                     grounding,
@@ -705,9 +768,11 @@ def _generate_documents(
                     used_questions,
                     risk_trigger=risk_trigger,
                 )
-                if choice is None:
-                    raise _error("ASSESSMENT_NO_NEW_SAFE_ITEM")
-                selected, documents, provenance, _ = choice
+                if choice is not None:
+                    break
+            if choice is None:
+                raise _error("ASSESSMENT_NO_NEW_SAFE_ITEM")
+            selected, documents, provenance, _ = choice
             if provenance is None:
                 raise _error("ASSESSMENT_NO_SAFE_CANDIDATE")
             verifier.close()
@@ -748,6 +813,7 @@ def _build_documents(
     (
         documents,
         ordered_probabilities,
+        ordered_selected_evidence_probabilities,
         correct_index,
         evidence_ids,
     ) = _candidate_documents(
@@ -762,6 +828,7 @@ def _build_documents(
         documents,
         selected,
         ordered_probabilities,
+        ordered_selected_evidence_probabilities,
         correct_index,
         evidence_ids,
         runtime_binding_sha256,
@@ -777,13 +844,24 @@ def _candidate_documents(
     grounding: _Grounding,
     selected: _ScoredCandidate,
     settings: dict[str, Any],
-) -> tuple[AssessmentDocuments, list[float], int, list[str]]:
+) -> tuple[
+    AssessmentDocuments,
+    list[float],
+    list[float],
+    int,
+    list[str],
+]:
     assessment_lock = settings["assessment_runtime_lock"]
     evidence_ids = [
         grounding.aliases[alias][0]
         for alias in selected.candidate.support_aliases
     ]
-    option_texts, correct_index, ordered_probabilities = _ordered_options(
+    (
+        option_texts,
+        correct_index,
+        ordered_probabilities,
+        ordered_selected_evidence_probabilities,
+    ) = _ordered_options(
         selected,
         grounding.claim.claim_id,
         assessment_lock["policy_revision"],
@@ -810,7 +888,13 @@ def _candidate_documents(
         correct_option_index=correct_index,
         rationale=rationale,
     )
-    return documents, ordered_probabilities, correct_index, evidence_ids
+    return (
+        documents,
+        ordered_probabilities,
+        ordered_selected_evidence_probabilities,
+        correct_index,
+        evidence_ids,
+    )
 
 
 def _first_unused_documents(
@@ -838,6 +922,7 @@ def _first_unused_documents(
         (
             documents,
             ordered_probabilities,
+            ordered_selected_evidence_probabilities,
             correct_index,
             evidence_ids,
         ) = _candidate_documents(
@@ -863,6 +948,7 @@ def _first_unused_documents(
                     documents,
                     selected,
                     ordered_probabilities,
+                    ordered_selected_evidence_probabilities,
                     correct_index,
                     evidence_ids,
                     runtime_binding_sha256,

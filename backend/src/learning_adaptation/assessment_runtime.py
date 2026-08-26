@@ -15,7 +15,7 @@ from runtime.material_processing import (
 
 
 ASSESSMENT_RUNTIME_LOCK_SHA256 = (
-    "99aade78dd10bd8dcf9c99bdb3abbd5e31ca5eb1afa91e6f538ae86f3e309163"
+    "f97f40a53c9a3fa9495dd17eb43d4f9f6f156a61c8de26904e137cb03f29d692"
 )
 _CODE_PATHS = {
     "backend_assessment_generation": (
@@ -84,7 +84,7 @@ def _validate_assessment_runtime_lock(
             and assessment_lock["schema"]
             == "studydy-assessment-runtime-lock/v1"
             and assessment_lock["policy_revision"]
-            == "assessment-generation-policy/v1"
+            == "assessment-generation-policy/v2"
             and assessment_lock["shared_models"]
             == {
                 "semantic_model_id": semantic["model_id"],
@@ -128,6 +128,10 @@ def _validate_assessment_runtime_lock(
                 "decision_rule": (
                     "relative-entailment-margin-with-risk-repair/v1"
                 ),
+                "correct_grounding_scope": (
+                    "selected-evidence-relative-margin/v1"
+                ),
+                "ambiguity_risk_scope": "full-claim-evidence/v1",
                 "entailment_margin_threshold": 0.1,
                 "multiple_support_risk_threshold": 0.4,
                 "maximum_pair_tokens": 384,
@@ -145,6 +149,9 @@ def _validate_assessment_runtime_lock(
                     "study-session-target-claim-question-id/v1"
                 ),
                 "all_safe_candidates_used": "reject-no-new-safe-item/v1",
+                "repair_exhaustion": (
+                    "continue-ranked-safe-proposals/v1"
+                ),
             }
             and assessment_lock["limits"]
             == {

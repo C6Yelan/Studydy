@@ -50,6 +50,7 @@ def assessment_database_dsn(
         7,
         8,
         9,
+        10,
     )
     return clean_database_dsn
 
@@ -128,10 +129,12 @@ def _generation_provenance(documents):
         "selected_candidate_index": 1,
         "selected_evidence_ids": public.source_evidence_ids,
         "option_entailment_probabilities": probabilities,
+        "selected_evidence_option_entailment_probabilities": probabilities,
         "correct_option_index": correct_index,
         "entailment_margin_threshold": 0.1,
         "multiple_support_risk_threshold": 0.4,
         "entailment_margin": 0.8,
+        "selected_evidence_entailment_margin": 0.8,
         "maximum_distractor_entailment": 0.1,
         "risk_trigger_distractor_entailment": 0.1,
         "multiple_support_risk": False,
@@ -210,6 +213,22 @@ def test_migration_eight_preserves_valid_study_session_and_adds_only_current_fie
         "policy_revision",
         "created_at",
     ]
+
+
+def test_migration_ten_requires_selected_grounding_provenance_v2(
+    assessment_database_dsn: str,
+):
+    with psycopg.connect(assessment_database_dsn) as connection:
+        definition = connection.execute(
+            """
+            SELECT pg_get_constraintdef(oid)
+            FROM pg_constraint
+            WHERE conname = 'assessments_generation_provenance_object'
+            """
+        ).fetchone()[0]
+
+    assert "assessment-generation-provenance/v2" in definition
+    assert "assessment-generation-provenance/v1" not in definition
 
 
 def test_valid_public_private_round_trip_and_public_projection_has_no_answer_leak():

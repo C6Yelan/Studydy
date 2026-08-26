@@ -1,6 +1,6 @@
 {
   "schema": "studydy-assessment-runtime-lock/v1",
-  "policy_revision": "assessment-generation-policy/v1",
+  "policy_revision": "assessment-generation-policy/v2",
   "shared_models": {
     "semantic_model_id": "Qwen/Qwen3-14B-AWQ",
     "semantic_revision": "content-sha256:5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619",
@@ -43,6 +43,8 @@
       "ASSESSMENT_VERIFIER_MODEL_LOAD_FAILED"
     ],
     "decision_rule": "relative-entailment-margin-with-risk-repair/v1",
+    "correct_grounding_scope": "selected-evidence-relative-margin/v1",
+    "ambiguity_risk_scope": "full-claim-evidence/v1",
     "entailment_margin_threshold": 0.1,
     "multiple_support_risk_threshold": 0.4,
     "maximum_pair_tokens": 384,
@@ -54,7 +56,8 @@
   "selection": {
     "ranking": "margin-descending-candidate-index-ascending/v1",
     "used_identity_scope": "study-session-target-claim-question-id/v1",
-    "all_safe_candidates_used": "reject-no-new-safe-item/v1"
+    "all_safe_candidates_used": "reject-no-new-safe-item/v1",
+    "repair_exhaustion": "continue-ranked-safe-proposals/v1"
   },
   "limits": {
     "candidate_count": 3,
@@ -67,8 +70,8 @@
     "assessment_process.py": "1e707747e969228834a5166b9bfe667d898a34e1dfde0a9f57f2fc6f9ec75816"
   },
   "code_hashes": {
-    "backend_assessment_generation": "8e0e38a4c21f4e5cac19a4050274b7a68cd0a1b4adbf66f92c5d72131ddcd60b",
-    "backend_assessment_items": "ac7486a54d2119e77cbf4b51b0b4987443eb0104c2020cd4d9950ea22d09138b",
+    "backend_assessment_generation": "49058b84465d86704541548d95da57040254ff87a56601d8b326030ff9bbfd8f",
+    "backend_assessment_items": "a8321d3edce394825227cc94b172562017a4fe71979325309278667290eb89a3",
     "backend_map_context": "904507497d056a4d7de67d8a9df00d6b0f2fdc6d048ddd606f632de0e7335a7e",
     "backend_assessment_model_api": "5195a0f7d316f979b9c97ba0848ce3b25f98a69d5c2441bada387ada8f33d549",
     "backend_assessment_verifier": "0bcbf98a141f5de64eae3034a6e7441231584f88dc1088dc5ef2e582d787aafd",

@@ -8,10 +8,12 @@ import pytest
 import learning_adaptation.assessment_generation as generation
 from learning_adaptation.assessment_generation import (
     AssessmentGenerationError,
+    _Candidate,
     _Grounding,
     _generate_documents,
     _grounding,
     _proposal_candidates,
+    _rank_candidates,
     _repair_candidates,
     _request_document,
 )
@@ -313,6 +315,80 @@ def test_repeated_generation_selects_unused_safe_candidate_then_fails_closed(
         )
 
 
+def test_exhausted_risky_repairs_do_not_block_lower_safe_proposals(monkeypatch):
+    proposal = json.loads(_proposal_document())
+    proposal["candidates"][0]["correct_option"] = "Risky supported answer"
+    proposal["candidates"][1]["correct_option"] = "Safe lower answer 1"
+    proposal["candidates"][2]["correct_option"] = "Safe lower answer 2"
+    verifier = _Verifier(
+        {
+            "Risky supported answer": [0.99, 0.45, 0.1, 0.1],
+            "Safe lower answer 1": [0.8, 0.3, 0.1, 0.1],
+            "Safe lower answer 2": [0.75, 0.3, 0.1, 0.1],
+            "The first element is stored at stack[0].": [
+                0.99,
+                0.01,
+                0.01,
+                0.01,
+            ],
+        }
+    )
+    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
+    monkeypatch.setattr(
+        generation, "start_assessment_process", lambda *_: verifier
+    )
+    monkeypatch.setattr(
+        generation,
+        "_request_stage",
+        lambda _client, _settings, stage, *_: (
+            _repair_document()
+            if stage["prompt"] == "repair"
+            else json.dumps(proposal)
+        ),
+    )
+    session_id = uuid4()
+    used = set()
+    selected = []
+
+    for _ in range(5):
+        documents, provenance = _generate_documents(
+            session_id,
+            _identifier("knowledge-map", "8"),
+            _grounded(),
+            _settings(),
+            "9" * 64,
+            frozenset(used),
+        )
+        assert documents.public_document.question_id not in used
+        used.add(documents.public_document.question_id)
+        selected.append(
+            (
+                provenance["selected_stage"],
+                provenance["selected_candidate_index"],
+            )
+        )
+
+    assert selected == [
+        ("repair", 0),
+        ("repair", 1),
+        ("repair", 2),
+        ("proposal", 1),
+        ("proposal", 2),
+    ]
+    assert len(used) == 5
+    with pytest.raises(
+        AssessmentGenerationError, match="^ASSESSMENT_NO_NEW_SAFE_ITEM$"
+    ):
+        _generate_documents(
+            session_id,
+            _identifier("knowledge-map", "8"),
+            _grounded(),
+            _settings(),
+            "9" * 64,
+            frozenset(used),
+        )
+
+
 def test_verifier_over_token_boundary_rejects_before_selection(monkeypatch):
     class RejectingVerifier(_Verifier):
         def request(self, request, _timeout):
@@ -344,6 +420,78 @@ def test_verifier_over_token_boundary_rejects_before_selection(monkeypatch):
             "9" * 64,
             frozenset(),
         )
+
+
+def test_selected_evidence_must_independently_support_correct_option():
+    first = EvidenceLocator(
+        evidence_id=_identifier("evidence", "1"),
+        page_ref="page:sha256:" + "1" * 64,
+        page_number=1,
+        coordinate_space="unrotated_pdf_points",
+        bbox=(0, 0, 10, 10),
+        text="The unrelated value is alpha.",
+    )
+    second = EvidenceLocator(
+        evidence_id=_identifier("evidence", "2"),
+        page_ref="page:sha256:" + "2" * 64,
+        page_number=2,
+        coordinate_space="unrotated_pdf_points",
+        bbox=(0, 0, 10, 10),
+        text="The supported value is beta.",
+    )
+    claim = ClaimContext(
+        claim_id=_identifier("claim", "3"),
+        text="The supported value is beta.",
+        evidence=(first, second),
+    )
+    grounding = _Grounding(
+        concept=FormalConceptContext(
+            formal_concept_id=_identifier("formal-concept", "4"),
+            label="Two evidence claim",
+            source_page_numbers=(1, 2),
+            claims=(claim,),
+            supplementary_resources=(),
+        ),
+        claim=claim,
+        aliases={
+            "e1": (first.evidence_id, first.text),
+            "e2": (second.evidence_id, second.text),
+        },
+    )
+
+    class ScopeVerifier:
+        def request(self, request, _timeout):
+            scores = (
+                [0.1, 0.2, 0.1, 0.1]
+                if request["premise"] == first.text
+                else [0.9, 0.1, 0.1, 0.1]
+            )
+            return {
+                "schema": "local-assessment-verifier-response/v2",
+                "request_id": request["request_id"],
+                "status": "scored",
+                "entailment_probabilities": scores,
+            }
+
+    values = {
+        "stage": "proposal",
+        "index": 0,
+        "prompt": "Which value is supported?",
+        "correct_option": "The supported value is beta.",
+        "distractors": ("gamma", "delta", "epsilon"),
+    }
+    mismatched = _Candidate(support_aliases=("e1",), **values)
+    truthful = _Candidate(support_aliases=("e2",), **values)
+
+    assert _rank_candidates(
+        [mismatched], ScopeVerifier(), grounding, _policy()
+    ) == []
+    ranked = _rank_candidates(
+        [truthful], ScopeVerifier(), grounding, _policy()
+    )
+    assert len(ranked) == 1
+    assert ranked[0].selected_evidence_margin == pytest.approx(0.8)
+    assert ranked[0].margin == pytest.approx(0.8)
 
 
 def test_multiple_supported_risk_requires_passing_repair(monkeypatch):
@@ -384,7 +532,7 @@ def test_multiple_supported_risk_requires_passing_repair(monkeypatch):
     assert provenance["maximum_distractor_entailment"] == 0.01
 
 
-def test_failed_repair_rejects_instead_of_promoting_risky_proposal(monkeypatch):
+def test_failed_repair_never_promotes_risky_proposal(monkeypatch):
     responses = iter([_proposal_document(), _repair_document(valid=False)])
     verifier = _Verifier(
         {
@@ -401,8 +549,37 @@ def test_failed_repair_rejects_instead_of_promoting_risky_proposal(monkeypatch):
         generation, "_request_stage", lambda *args, **kwargs: next(responses)
     )
 
+    _, provenance = _generate_documents(
+        uuid4(),
+        _identifier("knowledge-map", "8"),
+        _grounded(),
+        _settings(),
+        "9" * 64,
+        frozenset(),
+    )
+    assert provenance["selected_stage"] == "proposal"
+    assert provenance["selected_candidate_index"] == 0
+
+
+def test_failed_repair_rejects_when_no_lower_safe_proposal(monkeypatch):
+    responses = iter([_proposal_document(), _repair_document(valid=False)])
+    verifier = _Verifier(
+        {
+            "Supported answer 0": [0.2, 0.15, 0.1, 0.1],
+            "Supported answer 1": [0.9, 0.45, 0.1, 0.1],
+            "Supported answer 2": [0.2, 0.15, 0.1, 0.1],
+        }
+    )
+    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
+    monkeypatch.setattr(
+        generation, "start_assessment_process", lambda *_: verifier
+    )
+    monkeypatch.setattr(
+        generation, "_request_stage", lambda *args, **kwargs: next(responses)
+    )
+
     with pytest.raises(
-        AssessmentGenerationError, match="^ASSESSMENT_NO_SAFE_CANDIDATE$"
+        AssessmentGenerationError, match="^ASSESSMENT_NO_NEW_SAFE_ITEM$"
     ):
         _generate_documents(
             uuid4(),
