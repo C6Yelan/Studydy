@@ -545,7 +545,12 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
     outputs = read_material_run_outputs(
         learner_id, source.material_id, created.run_id, dsn=processing_database_dsn
     )
-    assert outputs.study_material_output["schema"] == "study-material-output/v4"
+    assert outputs.study_material_output["schema"] == "study-material-output/v5"
+    assert outputs.study_material_output["evidence_text_index"]
+    assert all(
+        set(evidence) == {"evidence_id", "text"}
+        for evidence in outputs.study_material_output["evidence_text_index"]
+    )
     assert outputs.knowledge_map["schema"] == "knowledge-map/v6"
     assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v6"
     with psycopg.connect(processing_database_dsn) as connection:

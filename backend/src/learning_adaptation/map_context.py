@@ -9,8 +9,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from knowledge_map.artifacts import validate_knowledge_map
+from pdf_evidence.study_material_output import validate_study_material_output
 from runtime.storage.database import DatabaseConfigurationError
-from runtime.storage.tables import KnowledgeMap, database_session
+from runtime.storage.tables import KnowledgeMap, StudyMaterialOutput, database_session
 
 
 class MapContextError(RuntimeError):
@@ -24,6 +25,7 @@ class EvidenceLocator:
     page_number: int
     coordinate_space: str
     bbox: tuple[int | float, int | float, int | float, int | float]
+    text: str
 
 
 @dataclass(frozen=True)
@@ -95,15 +97,32 @@ def _build_context(
     material_id: UUID,
     knowledge_map_revision: str,
     knowledge_map: object,
+    study_material_output: object,
 ) -> MapContext:
-    if validate_knowledge_map(knowledge_map) is not None:
+    if (
+        validate_knowledge_map(knowledge_map) is not None
+        or validate_study_material_output(study_material_output) is not None
+    ):
         raise _unavailable()
     assert isinstance(knowledge_map, dict)
+    assert isinstance(study_material_output, dict)
     if (
         knowledge_map["revision"] != knowledge_map_revision
         or knowledge_map["decision"] == "reject"
         or not knowledge_map["formal_concepts"]
+        or knowledge_map["source_output_id"] != study_material_output["output_id"]
+        or knowledge_map["material_ref"] != study_material_output["material_ref"]
+        or knowledge_map["evidence_index"] != study_material_output["evidence_index"]
     ):
+        raise _unavailable()
+
+    evidence_texts = {
+        evidence["evidence_id"]: evidence["text"]
+        for evidence in study_material_output["evidence_text_index"]
+    }
+    if set(evidence_texts) != {
+        evidence["evidence_id"] for evidence in knowledge_map["evidence_index"]
+    }:
         raise _unavailable()
 
     evidence_by_id = {
@@ -113,6 +132,7 @@ def _build_context(
             page_number=evidence["page_number"],
             coordinate_space=evidence["region"]["coordinate_space"],
             bbox=tuple(evidence["region"]["bbox"]),
+            text=evidence_texts[evidence["evidence_id"]],
         )
         for evidence in knowledge_map["evidence_index"]
     }
@@ -193,17 +213,31 @@ def _read_map_context(
         or not isinstance(knowledge_map_revision, str)
     ):
         raise _unavailable()
-    knowledge_map = session.scalar(
-        select(KnowledgeMap.document).where(
+    row = session.execute(
+        select(KnowledgeMap.document, StudyMaterialOutput.document)
+        .join(
+            StudyMaterialOutput,
+            (StudyMaterialOutput.learner_id == KnowledgeMap.learner_id)
+            & (StudyMaterialOutput.material_id == KnowledgeMap.material_id)
+            & (
+                StudyMaterialOutput.output_revision
+                == KnowledgeMap.source_output_revision
+            ),
+        )
+        .where(
             KnowledgeMap.learner_id == learner_id,
             KnowledgeMap.material_id == material_id,
             KnowledgeMap.map_revision == knowledge_map_revision,
         )
-    )
-    if knowledge_map is None:
+    ).one_or_none()
+    if row is None:
         raise _unavailable()
     return _build_context(
-        learner_id, material_id, knowledge_map_revision, knowledge_map
+        learner_id,
+        material_id,
+        knowledge_map_revision,
+        row[0],
+        row[1],
     )
 
 

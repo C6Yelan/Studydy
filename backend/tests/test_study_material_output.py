@@ -161,10 +161,10 @@ def producer_output(*, excluded_page: bool = False):
     )
 
 
-def test_build_v4_keeps_claim_level_same_page_pdf_locator_and_image_lite():
+def test_build_v5_keeps_exact_evidence_claim_locator_and_image_lite():
     source = producer_output()
     output = build_study_material_output(source)
-    assert output["schema"] == "study-material-output/v4"
+    assert output["schema"] == "study-material-output/v5"
     assert output["processing"] == "partial"
     assert output["pages"][0]["processing"] == "partial"
     assert output["concepts"][0]["processing"] == "partial"
@@ -175,6 +175,12 @@ def test_build_v4_keeps_claim_level_same_page_pdf_locator_and_image_lite():
         "coordinate_space": "unrotated_pdf_points",
         "bbox": [72.0, 80.0, 300.0, 120.0],
     }
+    assert output["evidence_text_index"] == [
+        {
+            "evidence_id": output["evidence_index"][0]["evidence_id"],
+            "text": "Public evidence",
+        }
+    ]
     assert output["images"][0]["caption_evidence_ids"] == [
         output["evidence_index"][0]["evidence_id"]
     ]
@@ -222,6 +228,8 @@ def test_recomputed_output_identity_cannot_hide_nested_unexpected_field():
         (("evidence_index", 0, "region", "bbox", 0), float("nan")),
         (("pages", 0, "page_number"), True),
         (("concepts", 0, "definition", "evidence_ids"), []),
+        (("evidence_text_index", 0, "text"), ""),
+        (("evidence_text_index", 0, "evidence_id"), "evidence:sha256:" + "f" * 64),
     ],
 )
 def test_closed_output_rejects_nonfinite_type_count_and_reference_mutations(mutation, value):

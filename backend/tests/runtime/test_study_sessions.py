@@ -248,6 +248,72 @@ def _insert_material_map(
     stored_material_id = material_id or uuid4()
     source_artifact_id = uuid4()
     upload_key = sha256(uuid4().bytes).digest()
+    evidence_index = deepcopy(knowledge_map["evidence_index"])
+    pages = [
+        {
+            "page_ref": evidence["page_ref"],
+            "page_number": evidence["page_number"],
+            "page_evidence_id": "page-evidence:sha256:"
+            + canonical_sha256(
+                {
+                    "page_ref": evidence["page_ref"],
+                    "page_number": evidence["page_number"],
+                }
+            ),
+            "native_evidence_ref": "native-evidence:sha256:"
+            + canonical_sha256({"page_ref": evidence["page_ref"]}),
+            "processing": "succeeded",
+            "quality": "needs_review",
+            "decision": "review",
+            "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
+        }
+        for evidence in evidence_index
+    ]
+    study_material_output = {
+        "schema": "study-material-output/v5",
+        "run_id": "text-first-run:00000000-0000-4000-8000-000000000001",
+        "produced_at": "2026-08-26T00:00:00+00:00",
+        "material_ref": knowledge_map["material_ref"],
+        "source_binding": {
+            "source_sha256": knowledge_map["material_ref"].removeprefix(
+                "material:sha256:"
+            ),
+            "page_count": len(pages),
+            "producer_output_id": knowledge_map["source_binding"][
+                "producer_output_id"
+            ],
+            "runtime_binding_sha256": knowledge_map["source_binding"][
+                "producer_runtime_lock_sha256"
+            ],
+        },
+        "pages": pages,
+        "excluded_pages": [],
+        "concepts": [],
+        "evidence_index": evidence_index,
+        "evidence_text_index": [
+            {
+                "evidence_id": evidence["evidence_id"],
+                "text": f"Canonical Evidence {index}",
+            }
+            for index, evidence in enumerate(evidence_index, start=1)
+        ],
+        "images": [],
+        "processing": "succeeded",
+        "quality": "needs_review",
+        "decision": "review",
+        "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
+    }
+    study_material_output["output_id"] = (
+        "study-material-output:sha256:" + canonical_sha256(study_material_output)
+    )
+    knowledge_map["source_output_id"] = study_material_output["output_id"]
+    knowledge_map["source_binding"]["study_material_output_id"] = (
+        study_material_output["output_id"]
+    )
+    knowledge_map.pop("revision")
+    knowledge_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(
+        knowledge_map
+    )
     with psycopg.connect(dsn) as connection:
         connection.execute("SET CONSTRAINTS materials_source_artifact_fk DEFERRED")
         connection.execute(
@@ -289,8 +355,8 @@ def _insert_material_map(
             (
                 learner_id,
                 stored_material_id,
-                knowledge_map["source_output_id"],
-                Jsonb({"output_id": knowledge_map["source_output_id"]}),
+                study_material_output["output_id"],
+                Jsonb(study_material_output),
             ),
         )
         connection.execute(
@@ -344,6 +410,7 @@ def test_map_context_projects_only_validated_current_fields(
         knowledge_map["evidence_index"][0]["page_number"],
         tuple(knowledge_map["evidence_index"][0]["region"]["bbox"]),
     )
+    assert evidence.text == "Canonical Evidence 1"
     promoted = context.formal_concepts[0].supplementary_resources[0]
     assert promoted.promotion_id.startswith("resource-promotion:sha256:")
     assert promoted.resource_id.startswith("resource:sha256:")
@@ -356,6 +423,44 @@ def test_map_context_projects_only_validated_current_fields(
         "relations",
         "initial_learning_path",
     }
+
+
+def test_map_context_rejects_canonical_evidence_text_tamper(
+    study_database_dsn: str,
+):
+    owner = uuid4()
+    knowledge_map = _knowledge_map()
+    material_id = _insert_material_map(
+        study_database_dsn, owner, knowledge_map
+    )
+    with psycopg.connect(study_database_dsn) as connection:
+        document = connection.execute(
+            """
+            SELECT document FROM study_material_outputs
+            WHERE learner_id = %s AND material_id = %s AND output_revision = %s
+            """,
+            (owner, material_id, knowledge_map["source_output_id"]),
+        ).fetchone()[0]
+        document["evidence_text_index"][0]["text"] = "Tampered Evidence"
+        connection.execute(
+            """
+            UPDATE study_material_outputs SET document = %s
+            WHERE learner_id = %s AND material_id = %s AND output_revision = %s
+            """,
+            (
+                Jsonb(document),
+                owner,
+                material_id,
+                knowledge_map["source_output_id"],
+            ),
+        )
+    with pytest.raises(MapContextError, match="^KNOWLEDGE_MAP_UNAVAILABLE$"):
+        read_map_context(
+            owner,
+            material_id,
+            knowledge_map["revision"],
+            dsn=study_database_dsn,
+        )
 
 
 def test_map_context_rejects_wrong_binding_tampering_and_rejected_map(

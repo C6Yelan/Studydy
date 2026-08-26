@@ -10,7 +10,7 @@ from .concept_generation import claim_id, concept_id
 from .ocr_page_evidence import canonical_sha256
 
 
-STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v4"
+STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v5"
 
 
 def _valid_region(region: Any) -> bool:
@@ -53,8 +53,8 @@ def _string_list(
 def _shape_is_valid(document: Any) -> bool:
     fields = {
         "schema", "run_id", "produced_at", "material_ref", "source_binding", "pages",
-        "excluded_pages", "concepts", "evidence_index", "images", "processing",
-        "quality", "decision", "reason_codes", "output_id",
+        "excluded_pages", "concepts", "evidence_index", "evidence_text_index",
+        "images", "processing", "quality", "decision", "reason_codes", "output_id",
     }
     if not isinstance(document, dict) or set(document) != fields:
         return False
@@ -117,6 +117,25 @@ def _shape_is_valid(document: Any) -> bool:
         ):
             return False
         evidence_pages[evidence["evidence_id"]] = evidence["page_ref"]
+    evidence_texts: set[str] = set()
+    if (
+        not isinstance(document["evidence_text_index"], list)
+        or len(document["evidence_text_index"]) != len(evidence_pages)
+    ):
+        return False
+    for evidence in document["evidence_text_index"]:
+        if (
+            not isinstance(evidence, dict)
+            or set(evidence) != {"evidence_id", "text"}
+            or evidence["evidence_id"] not in evidence_pages
+            or evidence["evidence_id"] in evidence_texts
+            or not isinstance(evidence["text"], str)
+            or not evidence["text"]
+        ):
+            return False
+        evidence_texts.add(evidence["evidence_id"])
+    if evidence_texts != set(evidence_pages):
+        return False
     concept_fields = {
         "concept_id", "page_ref", "label", "definition", "key_points",
         "processing", "quality", "decision", "reason_codes",
@@ -245,6 +264,7 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
     material_revision = producer_output.get("material_revision")
     pages = []
     evidence_index = []
+    evidence_text_index = []
     evidence_pages: dict[str, str] = {}
     page_numbers_seen: set[int] = set()
     page_refs: set[str] = set()
@@ -310,6 +330,9 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
                     "kind": block["kind"],
                     "region": region,
                 }
+            )
+            evidence_text_index.append(
+                {"evidence_id": evidence_id, "text": block["text"]}
             )
         for image in source_page.get("images", []):
             references = image.get("caption_evidence_ids", []) + image.get(
@@ -412,6 +435,9 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
         ),
         "evidence_index": sorted(
             evidence_index, key=lambda evidence: evidence["evidence_id"]
+        ),
+        "evidence_text_index": sorted(
+            evidence_text_index, key=lambda evidence: evidence["evidence_id"]
         ),
         "images": sorted(images, key=lambda image: image["image_id"]),
         "processing": processing,

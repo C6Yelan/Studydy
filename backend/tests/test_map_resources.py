@@ -77,7 +77,7 @@ def _study_output(label, source_sha256="f" * 64):
         "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
     }
     document = {
-        "schema": "study-material-output/v4",
+        "schema": "study-material-output/v5",
         "run_id": "study-test-run",
         "produced_at": "2026-08-21T10:00:00+08:00",
         "material_ref": "material:sha256:" + source_sha256,
@@ -112,6 +112,9 @@ def _study_output(label, source_sha256="f" * 64):
                     "bbox": [20.0, 30.0, 300.0, 60.0],
                 },
             }
+        ],
+        "evidence_text_index": [
+            {"evidence_id": evidence_id, "text": "The page provides direct evidence."}
         ],
         "images": [],
         "processing": "succeeded",
