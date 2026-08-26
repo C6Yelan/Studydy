@@ -137,6 +137,13 @@ Claim Evidence驗證整體margin與multiple-supported distractor risk；private
 question identity；最高排名risky proposal的repair pool耗盡後，仍須繼續掃描較低排名的
 unused safe proposals，全部safe possibilities真正耗盡時才fail closed。
 
+正式 `/v1` app 會在第一次 Assessment request lazy 啟動 Qwen 與 Assessment verifier，
+後續 request 在同一安全 lifecycle 內 reuse ready process。reuse期間沿用既有
+`material-analysis.lock`，因此 material worker只會等待、不會同時載入另一組模型；60秒
+idle或app shutdown會回收process並釋放lock。任一 generation failure會同時丟棄Qwen與
+verifier，下一次request重新cold start，不reuse可能損壞的process。這個lifecycle不改
+Assessment runtime lock、prompt、NLI threshold、repair、Evidence Gate或selection policy。
+
 真模型 qualification 必須從 Formal Concept / Claim / canonical exact Evidence 進入正式
 prompt、validation、relative-margin selection、multiple-support risk repair 與 P06-02 builder；
 不得以 PDF-to-question shortcut 或 schema-valid 取代語意人工評估。Gate 維持
