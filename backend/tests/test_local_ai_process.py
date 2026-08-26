@@ -4,11 +4,12 @@ import shutil
 
 import pytest
 
+import learning_adaptation.assessment_verifier as assessment_verifier_module
 import pdf_evidence.local_ai_process as process_module
+from learning_adaptation.assessment_verifier import start_assessment_process
 from pdf_evidence.local_ai_process import (
     LocalAIError,
     LocalAIProcess,
-    start_assessment_process,
     start_relation_process,
 )
 
@@ -188,7 +189,9 @@ def test_relation_startup_invalid_response_and_timeout_fail_closed(
 def test_assessment_startup_invalid_response_and_timeout_fail_closed(
     tmp_path, monkeypatch, bootstrap, startup_timeout, expected_reason
 ):
-    monkeypatch.setattr(process_module, "_ASSESSMENT_BOOTSTRAP", bootstrap)
+    monkeypatch.setattr(
+        assessment_verifier_module, "_ASSESSMENT_BOOTSTRAP", bootstrap
+    )
     with pytest.raises(LocalAIError) as failure:
         start_assessment_process(
             _relation_child_settings(tmp_path), startup_timeout

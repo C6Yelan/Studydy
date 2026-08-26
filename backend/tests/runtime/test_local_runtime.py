@@ -46,8 +46,8 @@ def test_sync_is_idempotent_and_explicit_rollback_restores_complete_backup(
     original = _installed_bytes(config)
     monkeypatch.setattr(
         local_runtime,
-        "validate_installed_local_runtime",
-        lambda _: ({"schema": "binding"}, 29),
+        "_verified_runtime_files",
+        lambda _: 29,
     )
 
     synchronized = local_runtime.sync_local_runtime(config)
@@ -106,8 +106,8 @@ def test_sync_rolls_back_attempted_targets_when_replace_fails(
     original = _installed_bytes(config)
     monkeypatch.setattr(
         local_runtime,
-        "validate_installed_local_runtime",
-        lambda _: ({"schema": "binding"}, 29),
+        "_verified_runtime_files",
+        lambda _: 29,
     )
     real_replace = local_runtime._atomic_replace
     calls = 0
@@ -139,7 +139,7 @@ def test_sync_rolls_back_when_shared_post_validation_fails(
     original = _installed_bytes(config)
     monkeypatch.setattr(
         local_runtime,
-        "validate_installed_local_runtime",
+        "_verified_runtime_files",
         lambda _: (_ for _ in ()).throw(
             MaterialProcessingError(
                 "MATERIAL_CONFIGURATION_INVALID",
@@ -163,8 +163,8 @@ def test_sync_rejects_unsafe_target_and_conflicting_backup(
     config = _mirrored_config(tmp_path)
     monkeypatch.setattr(
         local_runtime,
-        "validate_installed_local_runtime",
-        lambda _: ({"schema": "binding"}, 29),
+        "_verified_runtime_files",
+        lambda _: 29,
     )
     package_root = Path(config["site_packages"]) / "studydy_local_ai"
     unsafe = package_root / "protocol.py"
@@ -199,8 +199,8 @@ def test_sync_rejects_missing_and_nonregular_targets(
         target.mkdir()
     monkeypatch.setattr(
         local_runtime,
-        "validate_installed_local_runtime",
-        lambda _: ({"schema": "binding"}, 29),
+        "_verified_runtime_files",
+        lambda _: 29,
     )
 
     with pytest.raises(MaterialProcessingError) as failure:
@@ -295,8 +295,8 @@ def test_verify_calls_shared_validator_without_filesystem_mutation(
     observed = []
     monkeypatch.setattr(
         local_runtime,
-        "validate_installed_local_runtime",
-        lambda value: observed.append(value) or ({"schema": "binding"}, 29),
+        "_verified_runtime_files",
+        lambda value: observed.append(value) or 29,
     )
     monkeypatch.setattr(
         local_runtime.os,

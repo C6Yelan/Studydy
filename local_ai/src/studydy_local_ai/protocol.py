@@ -17,11 +17,6 @@ RELATION_RESPONSE_SCHEMA = "local-relation-verifier-response/v1"
 RELATION_STARTUP_SCHEMA = "local-relation-verifier-startup/v1"
 MAX_RELATION_REQUEST_BYTES = 64 * 1024
 MAX_RELATION_RESPONSE_BYTES = 1024
-ASSESSMENT_REQUEST_SCHEMA = "local-assessment-verifier-request/v1"
-ASSESSMENT_RESPONSE_SCHEMA = "local-assessment-verifier-response/v1"
-ASSESSMENT_STARTUP_SCHEMA = "local-assessment-verifier-startup/v1"
-MAX_ASSESSMENT_REQUEST_BYTES = 128 * 1024
-MAX_ASSESSMENT_RESPONSE_BYTES = 4096
 
 _REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -157,51 +152,11 @@ def validate_relation_request(request: Any) -> dict[str, str]:
         not isinstance(premise, str)
         or not premise.strip()
         or len(premise) > 16_384
-        or any(
-            ord(character) < 32 and character not in "\n\t"
-            for character in premise
-        )
+        or any(ord(character) < 32 and character not in "\n\t" for character in premise)
     ):
         raise ProtocolError("CHILD_REQUEST_INVALID")
     return {
         "request_id": _request_id(request["request_id"]),
         "relation_type": request["relation_type"],
         "premise": premise,
-    }
-
-
-def validate_assessment_request(request: Any) -> dict[str, Any]:
-    """Assessment verifier只接受一段Evidence與exactly four bounded options。"""
-
-    if (
-        not isinstance(request, dict)
-        or set(request) != {"schema", "request_id", "premise", "options"}
-        or request.get("schema") != ASSESSMENT_REQUEST_SCHEMA
-    ):
-        raise ProtocolError("CHILD_REQUEST_INVALID")
-    premise = request.get("premise")
-    options = request.get("options")
-    if (
-        not isinstance(premise, str)
-        or not premise.strip()
-        or len(premise) > 32_768
-        or any(ord(character) < 32 and character not in "\n\t" for character in premise)
-        or not isinstance(options, list)
-        or len(options) != 4
-        or any(
-            not isinstance(option, str)
-            or not option.strip()
-            or len(option) > 4096
-            or any(
-                ord(character) < 32 and character not in "\n\t"
-                for character in option
-            )
-            for option in options
-        )
-    ):
-        raise ProtocolError("CHILD_REQUEST_INVALID")
-    return {
-        "request_id": _request_id(request["request_id"]),
-        "premise": premise,
-        "options": options,
     }

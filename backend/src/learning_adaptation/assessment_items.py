@@ -529,16 +529,57 @@ def _stored_assessment(row: Assessment) -> StoredAssessment:
     )
 
 
+def used_question_ids(
+    learner: TrustedLearner,
+    study_session_id: UUID,
+    target_claim_id: str,
+    *,
+    dsn: str | None = None,
+) -> frozenset[str]:
+    """回傳同一owning StudySession / Claim已正式儲存的question identities。"""
+
+    if (
+        not isinstance(study_session_id, UUID)
+        or not isinstance(target_claim_id, str)
+        or re.fullmatch(_CLAIM_ID, target_claim_id) is None
+    ):
+        raise _error("ASSESSMENT_UNAVAILABLE")
+    try:
+        learner_id = _learner_id(learner)
+        with database_session(dsn) as session:
+            study_session = _read_stored_row(
+                session, learner_id, study_session_id
+            )
+            _validate_binding(session, study_session)
+            return frozenset(
+                session.scalars(
+                    select(Assessment.question_id).where(
+                        Assessment.study_session_id == study_session_id,
+                        Assessment.target_claim_id == target_claim_id,
+                    )
+                )
+            )
+    except AssessmentError:
+        raise
+    except (StudySessionError, MapContextError):
+        raise _error("ASSESSMENT_UNAVAILABLE") from None
+    except (DatabaseConfigurationError, SQLAlchemyError, TypeError, ValueError):
+        raise _error("ASSESSMENT_STORAGE_FAILED") from None
+
+
 def store_assessment(
     learner: TrustedLearner,
     public_document: object,
     private_answer_document: object,
     *,
     generation_provenance: object | None = None,
+    require_new: bool = False,
     dsn: str | None = None,
 ) -> StoredAssessment:
     """驗證 active StudySession 與 Map grounding 後 immutable 儲存 Assessment。"""
 
+    if type(require_new) is not bool:
+        raise _error("ASSESSMENT_DOCUMENT_INVALID")
     documents = validate_assessment_documents(
         public_document, private_answer_document
     )
@@ -575,7 +616,7 @@ def store_assessment(
             )
             if claim_evidence is None or not set(public.source_evidence_ids) <= claim_evidence:
                 raise _error("ASSESSMENT_BINDING_INVALID")
-            session.execute(
+            inserted_revision = session.scalar(
                 insert(Assessment)
                 .values(
                     assessment_revision=public.assessment_revision,
@@ -601,7 +642,10 @@ def store_assessment(
                     created_at=datetime.now(UTC),
                 )
                 .on_conflict_do_nothing()
+                .returning(Assessment.assessment_revision)
             )
+            if require_new and inserted_revision is None:
+                raise _error("ASSESSMENT_NO_NEW_ITEM")
             row = session.scalar(
                 select(Assessment).where(
                     Assessment.assessment_revision == public.assessment_revision

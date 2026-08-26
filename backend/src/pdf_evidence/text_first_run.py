@@ -100,12 +100,11 @@ def _reason(error: Exception) -> str:
 def _validate_runtime_lock(runtime_lock: Any) -> None:
     try:
         semantic = runtime_lock["semantic"]
-        assessment = runtime_lock["assessment_generation"]
         relation_verifier = runtime_lock["relation_verifier"]
         matches = (
             isinstance(runtime_lock, dict)
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
-            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v5"
+            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v4"
             and runtime_lock["semantic"]["required_file_count"]
             == len(runtime_lock["semantic"]["required_files"])
             and runtime_lock["semantic"]["binding_manifest_sha256"]
@@ -118,95 +117,6 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
                 == runtime_lock[stage]["prompt_sha256"]
                 for stage in ("semantic", "formal_resolution")
             )
-            and all(
-                hashlib.sha256(
-                    assessment[stage]["prompt"].encode("utf-8")
-                ).hexdigest()
-                == assessment[stage]["prompt_sha256"]
-                for stage in ("proposal", "repair")
-            )
-            and assessment["policy_revision"]
-            == "assessment-generation-policy/v1"
-            and assessment["model"]
-            == {
-                "model_id": semantic["model_id"],
-                "revision": semantic["revision"],
-            }
-            and assessment["proposal"]["generation"]
-            == {"temperature": 0, "max_tokens": 2800}
-            and assessment["repair"]["generation"]
-            == {"temperature": 0, "max_tokens": 3400}
-            and assessment["proposal"]["retry"]
-            == assessment["repair"]["retry"]
-            == {
-                "max_attempts": 2,
-                "retryable_reasons": [
-                    "CONCEPT_API_TIMEOUT",
-                    "CONCEPT_API_UNAVAILABLE",
-                ],
-            }
-            and assessment["proposal"]["timeout_seconds"] == 300
-            and assessment["repair"]["timeout_seconds"] == 300
-            and assessment["proposal"]["input_serialization"]
-            == assessment["repair"]["input_serialization"]
-            == "insertion-order-compact-json/v1"
-            and assessment["verifier"]["model_id"]
-            == relation_verifier["model_id"]
-            and assessment["verifier"]["revision"]
-            == relation_verifier["revision"]
-            and assessment["verifier"]["request_schema"]
-            == "local-assessment-verifier-request/v1"
-            and assessment["verifier"]["response_schema"]
-            == "local-assessment-verifier-response/v1"
-            and assessment["verifier"]["startup_schema"]
-            == "local-assessment-verifier-startup/v1"
-            and assessment["verifier"]["startup_failure_reasons"]
-            == [
-                "ASSESSMENT_VERIFIER_DEPENDENCY_MISSING",
-                "ASSESSMENT_VERIFIER_CUDA_UNAVAILABLE",
-                "ASSESSMENT_VERIFIER_MODEL_LOAD_FAILED",
-            ]
-            and assessment["verifier"]["decision_rule"]
-            == "relative-entailment-margin-with-risk-repair/v1"
-            and assessment["verifier"]["entailment_margin_threshold"] == 0.1
-            and assessment["verifier"]["multiple_support_risk_threshold"]
-            == 0.4
-            and assessment["verifier"]["maximum_tokens"] == 384
-            and assessment["verifier"]["startup_timeout_seconds"] == 120
-            and assessment["verifier"]["request_timeout_seconds"] == 120
-            and assessment["limits"]
-            == {
-                "candidate_count": 3,
-                "proposal_distractor_count": 3,
-                "repair_distractor_proposal_count": 5,
-                "final_option_count": 4,
-                "maximum_evidence_characters": 32768,
-            }
-            and assessment["code_hashes"]
-            == {
-                "backend_assessment_generation": (
-                    "17bfb0cc1adef40be65104f4f2f963139d8284320a1238680589dbde9c556dac"
-                ),
-                "backend_assessment_items": (
-                    "f682e73c84fc6e66b6136ec52fa8755911947fc427a4afab206396477f1c9352"
-                ),
-                "backend_map_context": (
-                    "904507497d056a4d7de67d8a9df00d6b0f2fdc6d048ddd606f632de0e7335a7e"
-                ),
-                "backend_local_ai_process": (
-                    "856e19f462956b7e69ea03b93a8ba61b2a45eb06c0d50ff4c864ca152bf0cb92"
-                ),
-                "local_assessment_process": (
-                    "5dc67bcecaeac633aa2e3d5f01ffe0c24f8139f473bbd5128fbc1fb1c5f92403"
-                ),
-                "local_protocol": (
-                    "40b141c2eaea3c0c4d973bb3a7264826e5f5e2b5a642e3929d7e47885185a9ef"
-                ),
-            }
-            and assessment["failure_policy"]
-            == "reject-without-unsafe-fallback/v1"
-            and assessment["rationale_policy"]
-            == "deterministic-selected-exact-evidence/v1"
             and relation_verifier["model_id"]
             == "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
             and relation_verifier["revision"]

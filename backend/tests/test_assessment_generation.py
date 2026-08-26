@@ -53,9 +53,11 @@ def _concept() -> FormalConceptContext:
 def _policy() -> dict:
     return {
         "policy_revision": "assessment-generation-policy/v1",
-        "model": {
-            "model_id": "Qwen/Qwen3-14B-AWQ",
-            "revision": "content-sha256:" + "5" * 64,
+        "shared_models": {
+            "semantic_model_id": "Qwen/Qwen3-14B-AWQ",
+            "semantic_revision": "content-sha256:" + "5" * 64,
+            "verifier_model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+            "verifier_revision": "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c",
         },
         "proposal": {
             "prompt": "proposal",
@@ -84,8 +86,6 @@ def _policy() -> dict:
             },
         },
         "verifier": {
-            "model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
-            "revision": "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c",
             "startup_timeout_seconds": 120,
             "request_timeout_seconds": 120,
             "entailment_margin_threshold": 0.1,
@@ -97,7 +97,7 @@ def _policy() -> dict:
 
 def _settings() -> dict:
     return {
-        "runtime_lock": {"assessment_generation": _policy()},
+        "assessment_runtime_lock": _policy(),
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": "Qwen/Qwen3-14B-AWQ",
         "concept_max_model_len": 8192,
@@ -174,8 +174,9 @@ class _Verifier:
 
     def request(self, request, _timeout):
         return {
-            "schema": "local-assessment-verifier-response/v1",
+            "schema": "local-assessment-verifier-response/v2",
             "request_id": request["request_id"],
+            "status": "scored",
             "entailment_probabilities": self.scores[request["options"][0]],
         }
 
@@ -245,6 +246,7 @@ def test_safe_proposal_builds_contract_and_private_provenance(monkeypatch):
         _grounded(),
         _settings(),
         "9" * 64,
+        frozenset(),
     )
 
     assert server.closed and verifier.closed and not verifier.aborted
@@ -263,6 +265,85 @@ def test_safe_proposal_builds_contract_and_private_provenance(monkeypatch):
         "The selected Evidence states: "
         "A stack stores its first element at stack[0]."
     )
+
+
+def test_repeated_generation_selects_unused_safe_candidate_then_fails_closed(
+    monkeypatch,
+):
+    verifier = _Verifier(
+        {
+            "Supported answer 0": [0.55, 0.2, 0.1, 0.1],
+            "Supported answer 1": [0.9, 0.1, 0.1, 0.1],
+            "Supported answer 2": [0.6, 0.3, 0.2, 0.1],
+        }
+    )
+    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
+    monkeypatch.setattr(
+        generation, "start_assessment_process", lambda *_: verifier
+    )
+    monkeypatch.setattr(
+        generation, "_request_stage", lambda *args, **kwargs: _proposal_document()
+    )
+    session_id = uuid4()
+    used = set()
+
+    for expected_candidate_index in (1, 0, 2):
+        documents, provenance = _generate_documents(
+            session_id,
+            _identifier("knowledge-map", "8"),
+            _grounded(),
+            _settings(),
+            "9" * 64,
+            frozenset(used),
+        )
+        assert provenance["selected_candidate_index"] == expected_candidate_index
+        assert documents.public_document.question_id not in used
+        used.add(documents.public_document.question_id)
+
+    with pytest.raises(
+        AssessmentGenerationError, match="^ASSESSMENT_NO_NEW_SAFE_ITEM$"
+    ):
+        _generate_documents(
+            session_id,
+            _identifier("knowledge-map", "8"),
+            _grounded(),
+            _settings(),
+            "9" * 64,
+            frozenset(used),
+        )
+
+
+def test_verifier_over_token_boundary_rejects_before_selection(monkeypatch):
+    class RejectingVerifier(_Verifier):
+        def request(self, request, _timeout):
+            return {
+                "schema": "local-assessment-verifier-response/v2",
+                "request_id": request["request_id"],
+                "status": "rejected",
+                "reason_code": "ASSESSMENT_VERIFIER_INPUT_TOO_LARGE",
+            }
+
+    verifier = RejectingVerifier({})
+    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
+    monkeypatch.setattr(
+        generation, "start_assessment_process", lambda *_: verifier
+    )
+    monkeypatch.setattr(
+        generation, "_request_stage", lambda *args, **kwargs: _proposal_document()
+    )
+
+    with pytest.raises(
+        AssessmentGenerationError,
+        match="^ASSESSMENT_VERIFIER_INPUT_TOO_LARGE$",
+    ):
+        _generate_documents(
+            uuid4(),
+            _identifier("knowledge-map", "8"),
+            _grounded(),
+            _settings(),
+            "9" * 64,
+            frozenset(),
+        )
 
 
 def test_multiple_supported_risk_requires_passing_repair(monkeypatch):
@@ -294,6 +375,7 @@ def test_multiple_supported_risk_requires_passing_repair(monkeypatch):
         _grounded(),
         _settings(),
         "9" * 64,
+        frozenset(),
     )
 
     assert provenance["selected_stage"] == "repair"
@@ -328,6 +410,7 @@ def test_failed_repair_rejects_instead_of_promoting_risky_proposal(monkeypatch):
             _grounded(),
             _settings(),
             "9" * 64,
+            frozenset(),
         )
     assert verifier.aborted
 

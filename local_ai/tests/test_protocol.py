@@ -3,11 +3,11 @@ import json
 
 import pytest
 
+from studydy_local_ai.assessment_process import validate_assessment_request
 from studydy_local_ai.protocol import (
     ProtocolError,
     decode_json_object,
     validate_ocr_request,
-    validate_assessment_request,
     validate_relation_request,
 )
 

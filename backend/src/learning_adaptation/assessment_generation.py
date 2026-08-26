@@ -12,21 +12,15 @@ import httpx
 
 from pdf_evidence.concept_api import (
     ConceptAPIError,
-    request_structured_text,
     start_concept_server,
 )
 from pdf_evidence.local_ai_process import (
     LocalAIError,
     LocalAIProcess,
-    start_assessment_process,
 )
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.text_first_run import material_analysis_lock
 from runtime.learner_session import TrustedLearner
-from runtime.material_processing import (
-    MaterialProcessingError,
-    formal_runtime_preflight,
-)
 
 from .assessment_items import (
     GENERATION_PROVENANCE_SCHEMA,
@@ -35,8 +29,16 @@ from .assessment_items import (
     StoredAssessment,
     build_single_choice_assessment,
     store_assessment,
+    used_question_ids,
     validate_assessment_generation_provenance,
 )
+from .assessment_model_api import request_assessment_text
+from .assessment_runtime import (
+    AssessmentRuntimeError,
+    assessment_runtime_preflight,
+    load_assessment_runtime_lock,
+)
+from .assessment_verifier import start_assessment_process
 from .map_context import (
     ClaimContext,
     FormalConceptContext,
@@ -386,7 +388,7 @@ def _request_stage(
     retry = stage["retry"]
     for attempt in range(1, retry["max_attempts"] + 1):
         try:
-            return request_structured_text(
+            return request_assessment_text(
                 client,
                 base_url=settings["concept_api_base_url"],
                 model=settings["concept_model"],
@@ -396,8 +398,6 @@ def _request_stage(
                 max_model_len=settings["concept_max_model_len"],
                 max_tokens=stage["generation"]["max_tokens"],
                 timeout_seconds=stage["timeout_seconds"],
-                enable_thinking=False,
-                preserve_request_order=True,
             )
         except ConceptAPIError as error:
             if (
@@ -434,6 +434,14 @@ def _score_candidate(
         },
         timeout_seconds,
     )
+    rejected = {
+        "schema": "local-assessment-verifier-response/v2",
+        "request_id": request_id,
+        "status": "rejected",
+        "reason_code": "ASSESSMENT_VERIFIER_INPUT_TOO_LARGE",
+    }
+    if response == rejected:
+        raise _error("ASSESSMENT_VERIFIER_INPUT_TOO_LARGE")
     probabilities = (
         response.get("entailment_probabilities")
         if isinstance(response, dict)
@@ -441,9 +449,11 @@ def _score_candidate(
     )
     if (
         not isinstance(response, dict)
-        or set(response) != {"schema", "request_id", "entailment_probabilities"}
-        or response.get("schema") != "local-assessment-verifier-response/v1"
+        or set(response)
+        != {"schema", "request_id", "status", "entailment_probabilities"}
+        or response.get("schema") != "local-assessment-verifier-response/v2"
         or response.get("request_id") != request_id
+        or response.get("status") != "scored"
         or not isinstance(probabilities, list)
         or len(probabilities) != _FINAL_OPTION_COUNT
         or any(
@@ -464,12 +474,12 @@ def _score_candidate(
     )
 
 
-def _select_candidate(
+def _rank_candidates(
     candidates: list[_Candidate],
     process: LocalAIProcess,
     grounding: _Grounding,
     policy: dict[str, Any],
-) -> _ScoredCandidate | None:
+) -> list[_ScoredCandidate]:
     scored = [
         _score_candidate(
             process,
@@ -484,10 +494,9 @@ def _select_candidate(
         for candidate in scored
         if candidate.margin >= policy["verifier"]["entailment_margin_threshold"]
     ]
-    return (
-        max(passing, key=lambda item: (item.margin, -item.candidate.index))
-        if passing
-        else None
+    return sorted(
+        passing,
+        key=lambda item: (-item.margin, item.candidate.index),
     )
 
 
@@ -582,7 +591,7 @@ def _provenance(
     assessment_lock: dict[str, Any],
     risk_trigger: float,
 ) -> dict[str, Any]:
-    semantic = assessment_lock["model"]
+    shared_models = assessment_lock["shared_models"]
     verifier = assessment_lock["verifier"]
     value = {
         "schema": GENERATION_PROVENANCE_SCHEMA,
@@ -590,12 +599,12 @@ def _provenance(
         "question_id": documents.public_document.question_id,
         "generation_policy_revision": assessment_lock["policy_revision"],
         "runtime_binding_sha256": runtime_binding_sha256,
-        "model_id": semantic["model_id"],
-        "model_revision": semantic["revision"],
+        "model_id": shared_models["semantic_model_id"],
+        "model_revision": shared_models["semantic_revision"],
         "proposal_prompt_sha256": assessment_lock["proposal"]["prompt_sha256"],
         "repair_prompt_sha256": assessment_lock["repair"]["prompt_sha256"],
-        "verifier_model_id": verifier["model_id"],
-        "verifier_revision": verifier["revision"],
+        "verifier_model_id": shared_models["verifier_model_id"],
+        "verifier_revision": shared_models["verifier_revision"],
         "selected_stage": selected.candidate.stage,
         "selected_candidate_index": selected.candidate.index,
         "selected_evidence_ids": evidence_ids,
@@ -624,8 +633,9 @@ def _generate_documents(
     grounding: _Grounding,
     settings: dict[str, Any],
     runtime_binding_sha256: str,
+    used_questions: frozenset[str],
 ) -> tuple[AssessmentDocuments, dict[str, Any]]:
-    assessment_lock = settings["runtime_lock"]["assessment_generation"]
+    assessment_lock = settings["assessment_runtime_lock"]
     proposal_request = _request_document(
         grounding, include_output_language=False
     )
@@ -647,12 +657,23 @@ def _generate_documents(
                 settings,
                 assessment_lock["verifier"]["startup_timeout_seconds"],
             )
-            selected = _select_candidate(
+            ranked = _rank_candidates(
                 proposals, verifier, grounding, assessment_lock
             )
-            if selected is None:
+            if not ranked:
                 raise _error("ASSESSMENT_NO_SAFE_CANDIDATE")
-            risk_trigger = selected.maximum_distractor
+            choice = _first_unused_documents(
+                ranked,
+                study_session_id,
+                knowledge_map_revision,
+                grounding,
+                settings,
+                runtime_binding_sha256,
+                used_questions,
+            )
+            if choice is None:
+                raise _error("ASSESSMENT_NO_NEW_SAFE_ITEM")
+            selected, documents, provenance, risk_trigger = choice
             if (
                 risk_trigger
                 >= assessment_lock["verifier"][
@@ -669,11 +690,26 @@ def _generate_documents(
                     _response_format(list(grounding.aliases), repair=True),
                 )
                 repairs = _repair_candidates(repair_text, grounding)
-                selected = _select_candidate(
+                ranked = _rank_candidates(
                     repairs, verifier, grounding, assessment_lock
                 )
-                if selected is None:
+                if not ranked:
                     raise _error("ASSESSMENT_NO_SAFE_CANDIDATE")
+                choice = _first_unused_documents(
+                    ranked,
+                    study_session_id,
+                    knowledge_map_revision,
+                    grounding,
+                    settings,
+                    runtime_binding_sha256,
+                    used_questions,
+                    risk_trigger=risk_trigger,
+                )
+                if choice is None:
+                    raise _error("ASSESSMENT_NO_NEW_SAFE_ITEM")
+                selected, documents, provenance, _ = choice
+            if provenance is None:
+                raise _error("ASSESSMENT_NO_SAFE_CANDIDATE")
             verifier.close()
             verifier = None
         server.close()
@@ -695,15 +731,7 @@ def _generate_documents(
         if server is not None:
             server.close()
 
-    return _build_documents(
-        study_session_id,
-        knowledge_map_revision,
-        grounding,
-        selected,
-        settings,
-        runtime_binding_sha256,
-        risk_trigger,
-    )
+    return documents, provenance
 
 
 def _build_documents(
@@ -717,7 +745,40 @@ def _build_documents(
 ) -> tuple[AssessmentDocuments, dict[str, Any]]:
     """將已通過semantic gates的candidate deterministic轉成P06-02文件。"""
 
-    assessment_lock = settings["runtime_lock"]["assessment_generation"]
+    (
+        documents,
+        ordered_probabilities,
+        correct_index,
+        evidence_ids,
+    ) = _candidate_documents(
+        study_session_id,
+        knowledge_map_revision,
+        grounding,
+        selected,
+        settings,
+    )
+    assessment_lock = settings["assessment_runtime_lock"]
+    provenance = _provenance(
+        documents,
+        selected,
+        ordered_probabilities,
+        correct_index,
+        evidence_ids,
+        runtime_binding_sha256,
+        assessment_lock,
+        risk_trigger,
+    )
+    return documents, provenance
+
+
+def _candidate_documents(
+    study_session_id: UUID,
+    knowledge_map_revision: str,
+    grounding: _Grounding,
+    selected: _ScoredCandidate,
+    settings: dict[str, Any],
+) -> tuple[AssessmentDocuments, list[float], int, list[str]]:
+    assessment_lock = settings["assessment_runtime_lock"]
     evidence_ids = [
         grounding.aliases[alias][0]
         for alias in selected.candidate.support_aliases
@@ -749,17 +810,68 @@ def _build_documents(
         correct_option_index=correct_index,
         rationale=rationale,
     )
-    provenance = _provenance(
-        documents,
-        selected,
-        ordered_probabilities,
-        correct_index,
-        evidence_ids,
-        runtime_binding_sha256,
-        assessment_lock,
-        risk_trigger,
-    )
-    return documents, provenance
+    return documents, ordered_probabilities, correct_index, evidence_ids
+
+
+def _first_unused_documents(
+    ranked: list[_ScoredCandidate],
+    study_session_id: UUID,
+    knowledge_map_revision: str,
+    grounding: _Grounding,
+    settings: dict[str, Any],
+    runtime_binding_sha256: str,
+    used_questions: frozenset[str],
+    *,
+    risk_trigger: float | None = None,
+) -> tuple[
+    _ScoredCandidate,
+    AssessmentDocuments,
+    dict[str, Any] | None,
+    float,
+] | None:
+    for selected in ranked:
+        trigger = (
+            selected.maximum_distractor
+            if risk_trigger is None
+            else risk_trigger
+        )
+        (
+            documents,
+            ordered_probabilities,
+            correct_index,
+            evidence_ids,
+        ) = _candidate_documents(
+            study_session_id,
+            knowledge_map_revision,
+            grounding,
+            selected,
+            settings,
+        )
+        if documents.public_document.question_id not in used_questions:
+            assessment_lock = settings["assessment_runtime_lock"]
+            risky_proposal = (
+                selected.candidate.stage == "proposal"
+                and trigger
+                >= assessment_lock["verifier"][
+                    "multiple_support_risk_threshold"
+                ]
+            )
+            provenance = (
+                None
+                if risky_proposal
+                else _provenance(
+                    documents,
+                    selected,
+                    ordered_probabilities,
+                    correct_index,
+                    evidence_ids,
+                    runtime_binding_sha256,
+                    assessment_lock,
+                    trigger,
+                )
+            )
+            return selected, documents, provenance, trigger
+    return None
 
 
 def generate_and_store_assessment(
@@ -805,17 +917,26 @@ def generate_and_store_assessment(
         )
         if concept is None:
             raise _error("ASSESSMENT_GROUNDING_UNAVAILABLE")
-        assessment_lock = local_config["runtime_lock"]["assessment_generation"]
+        assessment_lock = load_assessment_runtime_lock()
+        settings = {**local_config, "assessment_runtime_lock": assessment_lock}
         grounding = _grounding(concept, target_claim_id, assessment_lock)
+        used_questions = used_question_ids(
+            learner,
+            study_session.study_session_id,
+            target_claim_id,
+            dsn=dsn,
+        )
     except AssessmentGenerationError:
         raise
-    except (MapContextError, StudySessionError):
+    except (AssessmentError, MapContextError, StudySessionError):
         raise _error("ASSESSMENT_GROUNDING_UNAVAILABLE") from None
     except (KeyError, TypeError):
         raise _error("ASSESSMENT_CONFIGURATION_INVALID") from None
 
     try:
-        runtime_binding = formal_runtime_preflight(local_config)
+        runtime_binding = assessment_runtime_preflight(
+            local_config, assessment_lock
+        )
         with material_analysis_lock(
             Path(local_config["private_runtime_root"])
         ):
@@ -823,12 +944,13 @@ def generate_and_store_assessment(
                 study_session.study_session_id,
                 study_session.knowledge_map_revision,
                 grounding,
-                local_config,
+                settings,
                 runtime_binding["runtime_binding_sha256"],
+                used_questions,
             )
     except AssessmentGenerationError:
         raise
-    except MaterialProcessingError:
+    except AssessmentRuntimeError:
         raise _error("ASSESSMENT_CONFIGURATION_INVALID") from None
     except (KeyError, TypeError):
         raise _error("ASSESSMENT_CONFIGURATION_INVALID") from None
@@ -848,7 +970,10 @@ def generate_and_store_assessment(
                 mode="json", by_alias=True
             ),
             generation_provenance=provenance,
+            require_new=True,
             dsn=dsn,
         )
-    except AssessmentError:
+    except AssessmentError as error:
+        if str(error) == "ASSESSMENT_NO_NEW_ITEM":
+            raise _error("ASSESSMENT_NO_NEW_SAFE_ITEM") from None
         raise _error("ASSESSMENT_STORAGE_FAILED") from None

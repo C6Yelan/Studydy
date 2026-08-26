@@ -264,7 +264,6 @@ def request_structured_text(
     max_tokens: int,
     timeout_seconds: float,
     enable_thinking: bool | None = None,
-    preserve_request_order: bool = False,
 ) -> str:
     """以同一個本機 server tokenizer 驗證 budget，再取得固定 schema JSON。"""
 
@@ -279,23 +278,9 @@ def request_structured_text(
         or not 1 <= max_tokens < max_model_len
         or not isinstance(response_format, dict)
         or (enable_thinking is not None and type(enable_thinking) is not bool)
-        or type(preserve_request_order) is not bool
     ):
         raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
-    try:
-        request_bytes = (
-            json.dumps(
-                request_document,
-                ensure_ascii=False,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
-            if preserve_request_order
-            else canonical_bytes(request_document)
-        )
-    except (RecursionError, TypeError, ValueError):
-        raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID") from None
-    prompt = f"{prompt_template}\nINPUT:\n{request_bytes.decode('utf-8')}"
+    prompt = f"{prompt_template}\nINPUT:\n{canonical_bytes(request_document).decode('utf-8')}"
     messages = [{"role": "user", "content": prompt}]
     try:
         tokenized = client.post(

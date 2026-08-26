@@ -794,7 +794,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert binding["relation_verifier"] == settings["runtime_lock"][
         "relation_verifier"
     ]
-    assert len(binding["code_hashes"]) == 20
+    assert len(binding["code_hashes"]) == 17
     assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
     repository_root = Path(__file__).parents[3]
     for locked_sha256, relative_path in (
@@ -815,6 +815,26 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
             (repository_root / relative_path).read_bytes()
         ).hexdigest()
         assert locked_sha256 == source_sha256
+
+
+def test_assessment_policy_does_not_change_material_runtime_identity(tmp_path: Path):
+    settings = _settings(tmp_path)
+    baseline = formal_runtime_binding(settings)
+    assessment_policy = json.loads(
+        (
+            Path(__file__).parents[3]
+            / "local_ai"
+            / "assessment-runtime-lock.json"
+        ).read_text(encoding="utf-8")
+    )
+    assessment_policy["proposal"]["prompt"] = "changed Assessment-only policy"
+
+    assert formal_runtime_binding(settings) == baseline
+    assert "assessment_runtime_lock" not in settings
+    assert not any(
+        "assessment" in relative_path
+        for relative_path in baseline["code_hashes"]
+    )
 
     for changed in (
         {**settings, "concept_api_base_url": "http://example.test:8101"},
@@ -923,7 +943,7 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
 
     runtime_files = processing_module._runtime_files(settings)
     relative_names = {runtime_file.path.name for runtime_file in runtime_files}
-    assert len(runtime_files) == 29
+    assert len(runtime_files) == 28
     assert {
         "python3.12",
         "vllm",
@@ -931,7 +951,6 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
         "protocol.py",
         "ocr_process.py",
         "relation_process.py",
-        "assessment_process.py",
         "model-00001-of-000001.safetensors",
         "model.safetensors.index.json",
         "special_tokens_map.json",
@@ -944,7 +963,6 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
         "protocol.py",
         "ocr_process.py",
         "relation_process.py",
-        "assessment_process.py",
     )
 
 

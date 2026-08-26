@@ -9,6 +9,11 @@ import sys
 import tempfile
 from typing import Any, Mapping
 
+from learning_adaptation.assessment_runtime import (
+    assessment_runtime_binding,
+    load_assessment_runtime_lock,
+)
+
 from .local_app import read_local_ai_config_from_environment
 from .material_processing import (
     MaterialProcessingError,
@@ -18,13 +23,16 @@ from .material_processing import (
 )
 
 
-_SOURCE_NAMES = (
+_MATERIAL_SOURCE_NAMES = (
     "__init__.py",
     "protocol.py",
     "ocr_process.py",
     "relation_process.py",
+)
+_ASSESSMENT_SOURCE_NAMES = (
     "assessment_process.py",
 )
+_SOURCE_NAMES = _MATERIAL_SOURCE_NAMES + _ASSESSMENT_SOURCE_NAMES
 _EXPECTED_RUNTIME_FILES = 29
 _BACKUP_NAME = ".studydy_local_ai-backup"
 _CHUNK = 1024 * 1024
@@ -45,11 +53,20 @@ def _source_and_target_files(
     local_config: dict[str, Any],
 ) -> tuple[tuple[Path, Path], ...]:
     try:
-        package_sources = local_config["runtime_lock"]["ocr"]["package_sources"]
+        material_sources = local_config["runtime_lock"]["ocr"][
+            "package_sources"
+        ]
+        assessment_sources = load_assessment_runtime_lock()["package_sources"]
     except (KeyError, TypeError):
         raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH") from None
-    if not isinstance(package_sources, dict) or tuple(package_sources) != _SOURCE_NAMES:
+    if (
+        not isinstance(material_sources, dict)
+        or tuple(material_sources) != _MATERIAL_SOURCE_NAMES
+        or not isinstance(assessment_sources, dict)
+        or tuple(assessment_sources) != _ASSESSMENT_SOURCE_NAMES
+    ):
         raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")
+    package_sources = {**material_sources, **assessment_sources}
     repository_root = Path(__file__).resolve().parents[3]
     source_root = repository_root / "local_ai" / "src" / "studydy_local_ai"
     target_root = Path(local_config["site_packages"]) / "studydy_local_ai"
@@ -251,7 +268,7 @@ def _restore_targets(
 
 
 def verify_local_runtime(local_config: dict[str, Any]) -> dict[str, Any]:
-    _, verified_files = validate_installed_local_runtime(local_config)
+    verified_files = _verified_runtime_files(local_config)
     if verified_files != _EXPECTED_RUNTIME_FILES:
         raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")
     return {
@@ -260,6 +277,12 @@ def verify_local_runtime(local_config: dict[str, Any]) -> dict[str, Any]:
         "verified_files": verified_files,
         "expected_files": _EXPECTED_RUNTIME_FILES,
     }
+
+
+def _verified_runtime_files(local_config: dict[str, Any]) -> int:
+    _, material_files = validate_installed_local_runtime(local_config)
+    assessment_runtime_binding(local_config, load_assessment_runtime_lock())
+    return material_files + len(_ASSESSMENT_SOURCE_NAMES)
 
 
 def sync_local_runtime(local_config: dict[str, Any]) -> dict[str, Any]:
@@ -284,7 +307,7 @@ def sync_local_runtime(local_config: dict[str, Any]) -> dict[str, Any]:
         for source, target, target_status in changed:
             attempted.add(target.name)
             _atomic_replace(source, target, stat.S_IMODE(target_status.st_mode))
-        _, verified_files = validate_installed_local_runtime(local_config)
+        verified_files = _verified_runtime_files(local_config)
         if verified_files != _EXPECTED_RUNTIME_FILES:
             raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")
     except Exception as error:

@@ -1,8 +1,20 @@
 from contextlib import nullcontext
+from io import BytesIO
+import json
 from types import SimpleNamespace
 import sys
 
-from studydy_local_ai.assessment_process import MAXIMUM_TOKENS, score_options
+import pytest
+
+from studydy_local_ai.assessment_process import (
+    ASSESSMENT_RESPONSE_SCHEMA,
+    INPUT_TOO_LARGE,
+    MAXIMUM_TOKENS,
+    AssessmentInputTooLarge,
+    score_options,
+    serve,
+)
+import studydy_local_ai.assessment_process as assessment_process
 
 
 class _Tokens(dict):
@@ -31,12 +43,18 @@ def test_scores_exactly_four_options_with_entailment_probability(monkeypatch):
             return iter([SimpleNamespace(device="cuda")])
 
         def __call__(self, **tokens):
-            assert tokens == {"input": "tokens"}
+            assert tokens == {
+                "input": "tokens",
+                "input_ids": SimpleNamespace(shape=(4, MAXIMUM_TOKENS)),
+            }
             return SimpleNamespace(logits=rows)
 
     def tokenizer(premises, options, **settings):
         calls.append((premises, options, settings))
-        return _Tokens(input="tokens")
+        return _Tokens(
+            input="tokens",
+            input_ids=SimpleNamespace(shape=(4, MAXIMUM_TOKENS)),
+        )
 
     monkeypatch.setitem(
         sys.modules,
@@ -54,10 +72,68 @@ def test_scores_exactly_four_options_with_entailment_probability(monkeypatch):
             ["Exact Evidence"] * 4,
             ["A", "B", "C", "D"],
             {
-                "max_length": MAXIMUM_TOKENS,
-                "truncation": True,
+                "truncation": False,
                 "padding": True,
                 "return_tensors": "pt",
             },
         )
     ]
+
+
+def test_rejects_complete_pair_over_token_boundary_before_model_inference(
+    monkeypatch,
+):
+    class Model:
+        def parameters(self):
+            return iter([SimpleNamespace(device="cuda")])
+
+        def __call__(self, **_tokens):
+            raise AssertionError("over-limit input must not reach inference")
+
+    def tokenizer(*_args, **settings):
+        assert settings["truncation"] is False
+        return _Tokens(
+            input_ids=SimpleNamespace(shape=(4, MAXIMUM_TOKENS + 1))
+        )
+
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace())
+
+    with pytest.raises(AssessmentInputTooLarge):
+        score_options(
+            Model(), tokenizer, 0, "long Evidence", ["A", "B", "C", "D"]
+        )
+
+
+def test_child_protocol_returns_explicit_over_limit_rejection(monkeypatch):
+    request = {
+        "schema": "local-assessment-verifier-request/v1",
+        "request_id": "long-evidence",
+        "premise": "complete Evidence",
+        "options": ["A", "B", "C", "D"],
+    }
+    input_stream = BytesIO(
+        json.dumps(request, separators=(",", ":")).encode() + b"\n"
+    )
+    output_stream = BytesIO()
+    monkeypatch.setattr(
+        assessment_process,
+        "score_options",
+        lambda *_: (_ for _ in ()).throw(AssessmentInputTooLarge()),
+    )
+    monkeypatch.setattr(
+        assessment_process,
+        "sys",
+        SimpleNamespace(
+            stdin=SimpleNamespace(buffer=input_stream),
+            stdout=SimpleNamespace(buffer=output_stream),
+        ),
+    )
+
+    serve(None, None, 0)
+
+    assert json.loads(output_stream.getvalue()) == {
+        "schema": ASSESSMENT_RESPONSE_SCHEMA,
+        "request_id": "long-evidence",
+        "status": "rejected",
+        "reason_code": INPUT_TOO_LARGE,
+    }

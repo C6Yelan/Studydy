@@ -405,6 +405,14 @@ def test_store_read_replay_conflict_and_private_document_separation(
         learner, public, private, dsn=assessment_database_dsn
     )
     assert replay == stored
+    with pytest.raises(AssessmentError, match="^ASSESSMENT_NO_NEW_ITEM$"):
+        store_assessment(
+            learner,
+            public,
+            private,
+            require_new=True,
+            dsn=assessment_database_dsn,
+        )
     assert read_assessment(
         learner, stored.assessment_revision, dsn=assessment_database_dsn
     ) == stored
@@ -537,9 +545,11 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
     }
     policy = {
         "policy_revision": "assessment-generation-policy/v1",
-        "model": {
-            "model_id": "Qwen/Qwen3-14B-AWQ",
-            "revision": "content-sha256:" + "2" * 64,
+        "shared_models": {
+            "semantic_model_id": "Qwen/Qwen3-14B-AWQ",
+            "semantic_revision": "content-sha256:" + "2" * 64,
+            "verifier_model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+            "verifier_revision": "5" * 40,
         },
         "proposal": {
             "prompt": "proposal",
@@ -568,8 +578,6 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             },
         },
         "verifier": {
-            "model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
-            "revision": "5" * 40,
             "startup_timeout_seconds": 120,
             "request_timeout_seconds": 120,
             "entailment_margin_threshold": 0.1,
@@ -578,7 +586,6 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
         "limits": {"maximum_evidence_characters": 32768},
     }
     local_config = {
-        "runtime_lock": {"assessment_generation": policy},
         "private_runtime_root": str(tmp_path / "runtime"),
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": "Qwen/Qwen3-14B-AWQ",
@@ -597,8 +604,9 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
                 "Canonical Evidence 3": [0.55, 0.2, 0.2, 0.2],
             }
             return {
-                "schema": "local-assessment-verifier-response/v1",
+                "schema": "local-assessment-verifier-response/v2",
                 "request_id": request["request_id"],
+                "status": "scored",
                 "entailment_probabilities": scores[request["options"][0]],
             }
 
@@ -611,8 +619,13 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
     starts = []
     monkeypatch.setattr(
         generation_module,
-        "formal_runtime_preflight",
-        lambda _: {"runtime_binding_sha256": "6" * 64},
+        "assessment_runtime_preflight",
+        lambda *_: {"runtime_binding_sha256": "6" * 64},
+    )
+    monkeypatch.setattr(
+        generation_module,
+        "load_assessment_runtime_lock",
+        lambda: policy,
     )
     monkeypatch.setattr(
         generation_module,
@@ -645,9 +658,48 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
     )
     assert stored.generation_provenance is not None
     assert stored.generation_provenance.selected_stage == "proposal"
+    assert stored.generation_provenance.runtime_binding_sha256 == "6" * 64
     assert "correct_option_id" not in json.dumps(
         project_public_assessment(stored), sort_keys=True
     )
+
+    second = generate_and_store_assessment(
+        learner,
+        study_session.study_session_id,
+        claim["claim_id"],
+        local_config,
+        dsn=assessment_database_dsn,
+    )
+    third = generate_and_store_assessment(
+        learner,
+        study_session.study_session_id,
+        claim["claim_id"],
+        local_config,
+        dsn=assessment_database_dsn,
+    )
+    assert len(
+        {
+            stored.question_id,
+            second.question_id,
+            third.question_id,
+        }
+    ) == 3
+    assert [
+        item.generation_provenance.selected_candidate_index
+        for item in (stored, second, third)
+    ] == [0, 1, 2]
+    with pytest.raises(
+        AssessmentGenerationError, match="^ASSESSMENT_NO_NEW_SAFE_ITEM$"
+    ):
+        generate_and_store_assessment(
+            learner,
+            study_session.study_session_id,
+            claim["claim_id"],
+            local_config,
+            dsn=assessment_database_dsn,
+        )
+    assert _assessment_count(assessment_database_dsn) == 3
+    assert starts == ["qwen", "verifier"] * 4
 
     other = TrustedLearner(uuid4())
     with pytest.raises(
@@ -660,7 +712,7 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             local_config,
             dsn=assessment_database_dsn,
         )
-    assert starts == ["qwen", "verifier"]
+    assert starts == ["qwen", "verifier"] * 4
 
 
 def test_owner_lifecycle_and_map_bindings_fail_closed_without_row(

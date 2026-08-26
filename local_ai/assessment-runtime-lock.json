@@ -1,0 +1,79 @@
+{
+  "schema": "studydy-assessment-runtime-lock/v1",
+  "policy_revision": "assessment-generation-policy/v1",
+  "shared_models": {
+    "semantic_model_id": "Qwen/Qwen3-14B-AWQ",
+    "semantic_revision": "content-sha256:5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619",
+    "verifier_model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+    "verifier_revision": "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c"
+  },
+  "proposal": {
+    "prompt": "/no_think\nCreate exactly three materially different evidence-grounded single-choice assessments. For each candidate, select the exact supplied Evidence aliases that support its correct answer. Use only those Evidence texts and the Formal Concept/Claim; if part of the Claim is unsupported or truncated, test only the supported part. Each question must have one supported correct answer and three plausible options that are clearly wrong or unsupported for that question from the selected Evidence alone. Do not use outside knowledge. Preserve escapes, symbols, operators, numbers, units, conditions, direction, and scope. If the Evidence contains only code or a formula without explaining its semantics, test recognition of the code/formula itself and do not infer what it does. Avoid semantic equivalents, trivial negation, answer cues, option labels, and all/none-of-the-above. Return JSON only.",
+    "prompt_sha256": "10c9dc60a831de7e5ae8cc7db9711c2daa84363359789f478e0602037dccc326",
+    "request_schema": "assessment-grounding-input/v1",
+    "output_schema": "assessment-grounded-multi-candidates/v1",
+    "input_serialization": "insertion-order-compact-json/v1",
+    "generation": {"temperature": 0, "max_tokens": 2800},
+    "timeout_seconds": 300,
+    "retry": {
+      "max_attempts": 2,
+      "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
+    }
+  },
+  "repair": {
+    "prompt": "/no_think\nCreate exactly three materially different evidence-grounded single-choice assessment candidates, each with exactly five distractor proposals; deterministic validation will retain three. INPUT.output_language is mandatory for every student-facing prompt, option, changed_from, and changed_to; the target Claim language must not override it. Each student-facing prompt must explicitly frame the answer as based on the supplied teaching material (for example, 根據教材內容 or According to the provided material), so unsupported counterfactuals require no outside knowledge. Each candidate must privately select the Evidence aliases supporting its correct answer, but student-facing prompt and options must never mention Evidence aliases, alias IDs such as e1/e2, or ask which Evidence supports a claim. Ask the subject-matter question directly. All options must answer the same semantic slot and use parallel wording. Every distractor proposal must be a counterfactual mutation of the correct option, not another fact listed in the Evidence and not merely an absent unrelated fact. For each distractor: support_id identifies selected Evidence containing changed_from; changed_from must occur verbatim in both the correct option and that Evidence; changed_to must occur verbatim in the distractor and must not occur anywhere in the supplied Evidence or correct option. Preserve technical terms, escapes, symbols, operators, numbers, units, conditions, direction, and scope. If Evidence is code/formula without semantic explanation, ask recognition rather than infer behavior. Avoid answer labels, semantic equivalents, trivial negation, and all/none-of-the-above. Return JSON only.",
+    "prompt_sha256": "152b5b22eadcdb28b9770f2e79a343c65b1d6c701331de9b638e1d33815082d5",
+    "request_schema": "assessment-grounding-repair-input/v1",
+    "output_schema": "assessment-grounded-mutation-candidates/v1",
+    "input_serialization": "insertion-order-compact-json/v1",
+    "generation": {"temperature": 0, "max_tokens": 3400},
+    "timeout_seconds": 300,
+    "retry": {
+      "max_attempts": 2,
+      "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
+    }
+  },
+  "verifier": {
+    "request_schema": "local-assessment-verifier-request/v1",
+    "response_schema": "local-assessment-verifier-response/v2",
+    "startup_schema": "local-assessment-verifier-startup/v1",
+    "startup_failure_reasons": [
+      "ASSESSMENT_VERIFIER_DEPENDENCY_MISSING",
+      "ASSESSMENT_VERIFIER_CUDA_UNAVAILABLE",
+      "ASSESSMENT_VERIFIER_MODEL_LOAD_FAILED"
+    ],
+    "decision_rule": "relative-entailment-margin-with-risk-repair/v1",
+    "entailment_margin_threshold": 0.1,
+    "multiple_support_risk_threshold": 0.4,
+    "maximum_pair_tokens": 384,
+    "over_limit_policy": "reject-before-inference/v1",
+    "startup_timeout_seconds": 120,
+    "request_timeout_seconds": 120,
+    "safe_loading": "safetensors-local-only-no-remote-code"
+  },
+  "selection": {
+    "ranking": "margin-descending-candidate-index-ascending/v1",
+    "used_identity_scope": "study-session-target-claim-question-id/v1",
+    "all_safe_candidates_used": "reject-no-new-safe-item/v1"
+  },
+  "limits": {
+    "candidate_count": 3,
+    "proposal_distractor_count": 3,
+    "repair_distractor_proposal_count": 5,
+    "final_option_count": 4,
+    "maximum_evidence_characters": 32768
+  },
+  "package_sources": {
+    "assessment_process.py": "1e707747e969228834a5166b9bfe667d898a34e1dfde0a9f57f2fc6f9ec75816"
+  },
+  "code_hashes": {
+    "backend_assessment_generation": "8e0e38a4c21f4e5cac19a4050274b7a68cd0a1b4adbf66f92c5d72131ddcd60b",
+    "backend_assessment_items": "ac7486a54d2119e77cbf4b51b0b4987443eb0104c2020cd4d9950ea22d09138b",
+    "backend_map_context": "904507497d056a4d7de67d8a9df00d6b0f2fdc6d048ddd606f632de0e7335a7e",
+    "backend_assessment_model_api": "5195a0f7d316f979b9c97ba0848ce3b25f98a69d5c2441bada387ada8f33d549",
+    "backend_assessment_verifier": "0bcbf98a141f5de64eae3034a6e7441231584f88dc1088dc5ef2e582d787aafd",
+    "local_assessment_process": "1e707747e969228834a5166b9bfe667d898a34e1dfde0a9f57f2fc6f9ec75816"
+  },
+  "failure_policy": "reject-without-unsafe-fallback/v1",
+  "rationale_policy": "deterministic-selected-exact-evidence/v1"
+}

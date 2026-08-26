@@ -108,17 +108,29 @@ bbox 與 runtime metadata 均留在後端完成綁定。
 
 ## Assessment generation qualification
 
-P06-03 的 deterministic gates、risk-only repair、mDeBERTa protocol、P06-02
+P06-03 的獨立 Assessment runtime binding、deterministic gates、risk-only repair、
+mDeBERTa complete-input protocol、session-scoped new-item selection、P06-02
 public/private contract 與 persistence regression 可用以下命令驗證：
 
 ```bash
 PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/python -m pytest \
   backend/tests/test_assessment_generation.py \
+  backend/tests/test_assessment_model_api.py \
+  backend/tests/test_assessment_runtime.py \
   backend/tests/test_local_ai_process.py \
   local_ai/tests/test_protocol.py \
   local_ai/tests/test_assessment_process.py \
   backend/tests/runtime/test_assessment_items.py
 ```
+
+Material / Agent 1–3 只由 `local_ai/runtime-lock.json` 綁定；Agent 4 的 prompt、
+threshold、verifier protocol、selection policy 與 code hashes只存在
+`local_ai/assessment-runtime-lock.json`。Assessment可共用同一實體Qwen與mDeBERTa安裝，
+但 provenance必須保存`assessment-generation-runtime-binding/v1`的hash，不能保存
+formal material binding。mDeBERTa會在inference前以`truncation=False`計算完整
+Evidence-option pair；超過384 tokens時回傳明確reject，禁止以截斷內容promotion。
+同一StudySession / Claim則依margin與candidate index deterministic選擇尚未儲存的
+question identity；全部safe identities已用完時fail closed。
 
 真模型 qualification 必須從 Formal Concept / Claim / canonical exact Evidence 進入正式
 prompt、validation、relative-margin selection、multiple-support risk repair 與 P06-02 builder；
