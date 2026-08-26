@@ -169,6 +169,7 @@ def test_fresh_migrations_replace_only_empty_dormant_tables(
         6,
         7,
         8,
+        9,
     )
     with psycopg.connect(clean_database_dsn) as connection:
         assert connection.execute(

@@ -23,8 +23,9 @@ _SOURCE_NAMES = (
     "protocol.py",
     "ocr_process.py",
     "relation_process.py",
+    "assessment_process.py",
 )
-_EXPECTED_RUNTIME_FILES = 28
+_EXPECTED_RUNTIME_FILES = 29
 _BACKUP_NAME = ".studydy_local_ai-backup"
 _CHUNK = 1024 * 1024
 

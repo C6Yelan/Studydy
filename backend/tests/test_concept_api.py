@@ -12,6 +12,7 @@ from pdf_evidence.concept_api import (
     ConceptAPIError,
     chat_completions_url,
     request_concept_text,
+    request_structured_text,
     start_concept_server,
 )
 from pdf_evidence.ocr_page_evidence import canonical_sha256
@@ -171,6 +172,48 @@ def test_chat_completion_uses_exact_loopback_request_and_returns_content():
         "max_tokens": 1536,
         "response_format": CONCEPT_RESPONSE_FORMAT,
     }
+
+
+def test_structured_request_can_preserve_fixed_assessment_input_order():
+    observed = []
+
+    def respond(request):
+        observed.append(request)
+        if request.url.path == "/tokenize":
+            return httpx.Response(200, json={"count": 10, "max_model_len": 100})
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": "{}"},
+                    }
+                ]
+            },
+        )
+
+    request_document = {"target_claim": "second", "evidence": "first"}
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        assert request_structured_text(
+            client,
+            base_url="http://127.0.0.1:8101",
+            model="fixed-model",
+            prompt_template="fixed prompt",
+            request_document=request_document,
+            response_format={"type": "json_schema"},
+            max_model_len=100,
+            max_tokens=20,
+            timeout_seconds=30,
+            enable_thinking=False,
+            preserve_request_order=True,
+        ) == "{}"
+
+    body = json.loads(observed[1].content)
+    assert body["messages"][0]["content"] == (
+        'fixed prompt\nINPUT:\n{"target_claim":"second","evidence":"first"}'
+    )
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 def test_tokenizer_budget_rejects_before_generation_call():

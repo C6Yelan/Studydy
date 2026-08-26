@@ -10,13 +10,20 @@ import psycopg
 from psycopg.types.json import Jsonb
 import pytest
 
+import learning_adaptation.assessment_generation as generation_module
+from learning_adaptation.assessment_generation import (
+    AssessmentGenerationError,
+    generate_and_store_assessment,
+)
 from learning_adaptation.assessment_items import (
     ASSESSMENT_POLICY_REVISION,
+    GENERATION_PROVENANCE_SCHEMA,
     AssessmentError,
     build_single_choice_assessment,
     project_public_assessment,
     read_assessment,
     store_assessment,
+    validate_assessment_generation_provenance,
     validate_assessment_documents,
 )
 from learning_adaptation.study_sessions import (
@@ -42,6 +49,7 @@ def assessment_database_dsn(
         6,
         7,
         8,
+        9,
     )
     return clean_database_dsn
 
@@ -92,6 +100,47 @@ def _documents_as_dicts(documents):
         documents.public_document.model_dump(mode="json", by_alias=True),
         documents.private_answer_document.model_dump(mode="json", by_alias=True),
     )
+
+
+def _generation_provenance(documents):
+    public = documents.public_document
+    private = documents.private_answer_document
+    correct_index = next(
+        index
+        for index, option in enumerate(public.options)
+        if option.option_id == private.correct_option_id
+    )
+    probabilities = [0.1, 0.1, 0.1, 0.1]
+    probabilities[correct_index] = 0.9
+    value = {
+        "schema": GENERATION_PROVENANCE_SCHEMA,
+        "assessment_revision": public.assessment_revision,
+        "question_id": public.question_id,
+        "generation_policy_revision": "assessment-generation-policy/v1",
+        "runtime_binding_sha256": "2" * 64,
+        "model_id": "Qwen/Qwen3-14B-AWQ",
+        "model_revision": "content-sha256:" + "3" * 64,
+        "proposal_prompt_sha256": "4" * 64,
+        "repair_prompt_sha256": "5" * 64,
+        "verifier_model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+        "verifier_revision": "6" * 40,
+        "selected_stage": "proposal",
+        "selected_candidate_index": 1,
+        "selected_evidence_ids": public.source_evidence_ids,
+        "option_entailment_probabilities": probabilities,
+        "correct_option_index": correct_index,
+        "entailment_margin_threshold": 0.1,
+        "multiple_support_risk_threshold": 0.4,
+        "entailment_margin": 0.8,
+        "maximum_distractor_entailment": 0.1,
+        "risk_trigger_distractor_entailment": 0.1,
+        "multiple_support_risk": False,
+        "provenance_sha256": "0" * 64,
+    }
+    identity = deepcopy(value)
+    identity.pop("provenance_sha256")
+    value["provenance_sha256"] = canonical_sha256(identity)
+    return value
 
 
 def _assessment_count(dsn: str) -> int:
@@ -410,6 +459,208 @@ def test_store_read_replay_conflict_and_private_document_separation(
             learner, changed_bytes, private, dsn=assessment_database_dsn
         )
     assert _assessment_count(assessment_database_dsn) == 1
+
+
+def test_generation_provenance_is_private_bound_and_tamper_evident(
+    assessment_database_dsn: str,
+):
+    learner, knowledge_map, _, study_session = _active_study_session(
+        assessment_database_dsn
+    )
+    documents = _documents(study_session, knowledge_map)
+    public, private = _documents_as_dicts(documents)
+    provenance = _generation_provenance(documents)
+
+    checked = validate_assessment_generation_provenance(
+        provenance, documents
+    )
+    stored = store_assessment(
+        learner,
+        public,
+        private,
+        generation_provenance=provenance,
+        dsn=assessment_database_dsn,
+    )
+
+    assert stored.generation_provenance == checked
+    assert "generation_provenance" not in project_public_assessment(stored)
+    with psycopg.connect(assessment_database_dsn) as connection:
+        stored_public, stored_provenance = connection.execute(
+            """
+            SELECT public_document, generation_provenance
+            FROM assessments WHERE assessment_revision = %s
+            """,
+            (stored.assessment_revision,),
+        ).fetchone()
+    assert "correct_option_id" not in stored_public
+    assert stored_provenance == provenance
+
+    tampered = deepcopy(provenance)
+    tampered["option_entailment_probabilities"][0] = 0.2
+    with psycopg.connect(assessment_database_dsn) as connection:
+        connection.execute(
+            """
+            UPDATE assessments SET generation_provenance = %s
+            WHERE assessment_revision = %s
+            """,
+            (Jsonb(tampered), stored.assessment_revision),
+        )
+    with pytest.raises(AssessmentError, match="^ASSESSMENT_DOCUMENT_INVALID$"):
+        read_assessment(
+            learner, stored.assessment_revision, dsn=assessment_database_dsn
+        )
+
+
+def test_production_generation_uses_canonical_evidence_and_stores_private_answer(
+    assessment_database_dsn: str,
+    monkeypatch,
+    tmp_path: Path,
+):
+    learner, knowledge_map, _, study_session = _active_study_session(
+        assessment_database_dsn
+    )
+    claim = knowledge_map["formal_concepts"][0]["claims"][0]
+    proposal = {
+        "candidates": [
+            {
+                "support_ids": ["e1"],
+                "prompt": f"Which statement matches grounded candidate {index}?",
+                "correct_option": f"Canonical Evidence {index + 1}",
+                "distractors": [
+                    f"Unsupported value {index}-1",
+                    f"Unsupported value {index}-2",
+                    f"Unsupported value {index}-3",
+                ],
+            }
+            for index in range(3)
+        ]
+    }
+    policy = {
+        "policy_revision": "assessment-generation-policy/v1",
+        "model": {
+            "model_id": "Qwen/Qwen3-14B-AWQ",
+            "revision": "content-sha256:" + "2" * 64,
+        },
+        "proposal": {
+            "prompt": "proposal",
+            "prompt_sha256": "3" * 64,
+            "generation": {"max_tokens": 2800},
+            "timeout_seconds": 300,
+            "retry": {
+                "max_attempts": 2,
+                "retryable_reasons": [
+                    "CONCEPT_API_TIMEOUT",
+                    "CONCEPT_API_UNAVAILABLE",
+                ],
+            },
+        },
+        "repair": {
+            "prompt": "repair",
+            "prompt_sha256": "4" * 64,
+            "generation": {"max_tokens": 3400},
+            "timeout_seconds": 300,
+            "retry": {
+                "max_attempts": 2,
+                "retryable_reasons": [
+                    "CONCEPT_API_TIMEOUT",
+                    "CONCEPT_API_UNAVAILABLE",
+                ],
+            },
+        },
+        "verifier": {
+            "model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+            "revision": "5" * 40,
+            "startup_timeout_seconds": 120,
+            "request_timeout_seconds": 120,
+            "entailment_margin_threshold": 0.1,
+            "multiple_support_risk_threshold": 0.4,
+        },
+        "limits": {"maximum_evidence_characters": 32768},
+    }
+    local_config = {
+        "runtime_lock": {"assessment_generation": policy},
+        "private_runtime_root": str(tmp_path / "runtime"),
+        "concept_api_base_url": "http://127.0.0.1:8101",
+        "concept_model": "Qwen/Qwen3-14B-AWQ",
+        "concept_max_model_len": 8192,
+    }
+
+    class Server:
+        def close(self):
+            pass
+
+    class Verifier:
+        def request(self, request, _timeout):
+            scores = {
+                "Canonical Evidence 1": [0.9, 0.1, 0.1, 0.1],
+                "Canonical Evidence 2": [0.6, 0.2, 0.2, 0.2],
+                "Canonical Evidence 3": [0.55, 0.2, 0.2, 0.2],
+            }
+            return {
+                "schema": "local-assessment-verifier-response/v1",
+                "request_id": request["request_id"],
+                "entailment_probabilities": scores[request["options"][0]],
+            }
+
+        def close(self):
+            pass
+
+        def abort(self):
+            pass
+
+    starts = []
+    monkeypatch.setattr(
+        generation_module,
+        "formal_runtime_preflight",
+        lambda _: {"runtime_binding_sha256": "6" * 64},
+    )
+    monkeypatch.setattr(
+        generation_module,
+        "start_concept_server",
+        lambda _: starts.append("qwen") or Server(),
+    )
+    monkeypatch.setattr(
+        generation_module,
+        "start_assessment_process",
+        lambda *_: starts.append("verifier") or Verifier(),
+    )
+    monkeypatch.setattr(
+        generation_module,
+        "_request_stage",
+        lambda *args, **kwargs: json.dumps(proposal),
+    )
+
+    stored = generate_and_store_assessment(
+        learner,
+        study_session.study_session_id,
+        claim["claim_id"],
+        local_config,
+        dsn=assessment_database_dsn,
+    )
+
+    assert starts == ["qwen", "verifier"]
+    assert stored.public_document.source_evidence_ids == claim["evidence_ids"]
+    assert stored.private_answer_document.rationale == (
+        "The selected Evidence states: Canonical Evidence 1"
+    )
+    assert stored.generation_provenance is not None
+    assert stored.generation_provenance.selected_stage == "proposal"
+    assert "correct_option_id" not in json.dumps(
+        project_public_assessment(stored), sort_keys=True
+    )
+
+    other = TrustedLearner(uuid4())
+    with pytest.raises(
+        AssessmentGenerationError, match="^ASSESSMENT_GROUNDING_UNAVAILABLE$"
+    ):
+        generate_and_store_assessment(
+            other,
+            study_session.study_session_id,
+            claim["claim_id"],
+            local_config,
+            dsn=assessment_database_dsn,
+        )
+    assert starts == ["qwen", "verifier"]
 
 
 def test_owner_lifecycle_and_map_bindings_fail_closed_without_row(

@@ -64,11 +64,14 @@ _CONFIG_PATH_KEYS = {
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "e40e5cb4a37b5f539f0755ccb3c528426302f9295e8f0a7ba837fac71e69bf9a",
+    "local_ai/runtime-lock.json": "123131f7e879ada660960faa2583cbb842d55dd50c597094e314658e8ea82ca3",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "69deb46b06762b82ec75eded692452329d7e364c2b3e8a4ff4b6ac1fa14e71c0",
     "backend/src/pdf_evidence/concept_generation.py": "afad7726379afaba94d5d68919e8200f80ab2bef48b888f9150fe800a60c24f4",
-    "backend/src/pdf_evidence/concept_api.py": "101baffaa34a5b440b3dd354a078c5416634c3a63321dfd567cd15f4d3882750",
-    "backend/src/pdf_evidence/local_ai_process.py": "32686d52b8ef2a472dab833fdaa15bad4c45121e7c68f62af8fc05e53799578a",
+    "backend/src/pdf_evidence/concept_api.py": "2eb06f8ba19199893f7065f789133f2f822c3739a82e5555fafef557e52c6b80",
+    "backend/src/pdf_evidence/local_ai_process.py": "856e19f462956b7e69ea03b93a8ba61b2a45eb06c0d50ff4c864ca152bf0cb92",
+    "backend/src/learning_adaptation/assessment_generation.py": "17bfb0cc1adef40be65104f4f2f963139d8284320a1238680589dbde9c556dac",
+    "backend/src/learning_adaptation/assessment_items.py": "f682e73c84fc6e66b6136ec52fa8755911947fc427a4afab206396477f1c9352",
+    "backend/src/learning_adaptation/map_context.py": "904507497d056a4d7de67d8a9df00d6b0f2fdc6d048ddd606f632de0e7335a7e",
 }
 _BINDING_FILES = (
     "backend/src/pdf_evidence/artifact_reason_codes.py",
@@ -84,6 +87,9 @@ _BINDING_FILES = (
     "backend/src/learning_resources/map_resources.py",
     "backend/src/learning_resources/data/resource_library_v1.json",
     "backend/src/pdf_evidence/local_ai_process.py",
+    "backend/src/learning_adaptation/assessment_generation.py",
+    "backend/src/learning_adaptation/assessment_items.py",
+    "backend/src/learning_adaptation/map_context.py",
     "backend/src/runtime/material_processing.py",
     "backend/src/runtime/local_app.py",
     "backend/src/pdf_evidence/source_pdf.py",

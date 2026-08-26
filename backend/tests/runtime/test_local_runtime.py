@@ -47,7 +47,7 @@ def test_sync_is_idempotent_and_explicit_rollback_restores_complete_backup(
     monkeypatch.setattr(
         local_runtime,
         "validate_installed_local_runtime",
-        lambda _: ({"schema": "binding"}, 28),
+        lambda _: ({"schema": "binding"}, 29),
     )
 
     synchronized = local_runtime.sync_local_runtime(config)
@@ -55,8 +55,8 @@ def test_sync_is_idempotent_and_explicit_rollback_restores_complete_backup(
     assert synchronized == {
         "status": "succeeded",
         "command": "sync",
-        "files_total": 4,
-        "files_updated": 4,
+        "files_total": 5,
+        "files_updated": 5,
     }
     assert _installed_bytes(config) == _tracked_bytes()
     package_root = Path(config["site_packages"]) / "studydy_local_ai"
@@ -77,8 +77,8 @@ def test_sync_is_idempotent_and_explicit_rollback_restores_complete_backup(
     assert local_runtime.rollback_local_runtime(config) == {
         "status": "succeeded",
         "command": "rollback",
-        "files_total": 4,
-        "files_restored": 4,
+        "files_total": 5,
+        "files_restored": 5,
     }
     assert _installed_bytes(config) == original
     assert backup_root.is_dir()
@@ -107,7 +107,7 @@ def test_sync_rolls_back_attempted_targets_when_replace_fails(
     monkeypatch.setattr(
         local_runtime,
         "validate_installed_local_runtime",
-        lambda _: ({"schema": "binding"}, 28),
+        lambda _: ({"schema": "binding"}, 29),
     )
     real_replace = local_runtime._atomic_replace
     calls = 0
@@ -164,7 +164,7 @@ def test_sync_rejects_unsafe_target_and_conflicting_backup(
     monkeypatch.setattr(
         local_runtime,
         "validate_installed_local_runtime",
-        lambda _: ({"schema": "binding"}, 28),
+        lambda _: ({"schema": "binding"}, 29),
     )
     package_root = Path(config["site_packages"]) / "studydy_local_ai"
     unsafe = package_root / "protocol.py"
@@ -200,7 +200,7 @@ def test_sync_rejects_missing_and_nonregular_targets(
     monkeypatch.setattr(
         local_runtime,
         "validate_installed_local_runtime",
-        lambda _: ({"schema": "binding"}, 28),
+        lambda _: ({"schema": "binding"}, 29),
     )
 
     with pytest.raises(MaterialProcessingError) as failure:
@@ -296,7 +296,7 @@ def test_verify_calls_shared_validator_without_filesystem_mutation(
     monkeypatch.setattr(
         local_runtime,
         "validate_installed_local_runtime",
-        lambda value: observed.append(value) or ({"schema": "binding"}, 28),
+        lambda value: observed.append(value) or ({"schema": "binding"}, 29),
     )
     monkeypatch.setattr(
         local_runtime.os,
@@ -314,8 +314,8 @@ def test_verify_calls_shared_validator_without_filesystem_mutation(
     assert local_runtime.verify_local_runtime(config) == {
         "status": "succeeded",
         "command": "verify",
-        "verified_files": 28,
-        "expected_files": 28,
+        "verified_files": 29,
+        "expected_files": 29,
     }
     assert observed == [config]
 
@@ -345,9 +345,9 @@ def test_cli_failure_is_fixed_safe_json(capsys, monkeypatch):
         "command": "verify",
         "component": "ocr_model",
         "reason": "LOCAL_RUNTIME_HASH_MISMATCH",
-        "files_total": 4,
+        "files_total": 5,
         "verified_files": 0,
-        "expected_files": 28,
+        "expected_files": 29,
     }
     assert "path" not in json.dumps(failure)
 

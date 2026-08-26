@@ -1,5 +1,5 @@
 {
-  "schema": "studydy-local-ai-runtime-lock/v4",
+  "schema": "studydy-local-ai-runtime-lock/v5",
   "python": {
     "version": "3.12.3",
     "executable_sha256": "4933b6c4a8521fb3aa93856701e30b3ac2626d3c47ceb22965a3b0b422e85b44"
@@ -70,9 +70,10 @@
     "grammar": "strict-det-blocks/v1",
     "package_sources": {
       "__init__.py": "c7a3ebd9b5d9dcd05a9c8a0610efb0ee5481d4733dd4101872bcf72c5ee4008c",
-      "protocol.py": "f4baccb95b53ee64ece8c0bfa785a5da55f12e947d5dc6e579a037e6bdad9e30",
+      "protocol.py": "40b141c2eaea3c0c4d973bb3a7264826e5f5e2b5a642e3929d7e47885185a9ef",
       "ocr_process.py": "a429f32b5062860bff9412588953619a970383c8ed92b374425fa33ff8e6846f",
-      "relation_process.py": "15aca1c85a34bd213ec249920fce67fcde750ecff6df0c9357ebf650e3d6a303"
+      "relation_process.py": "15aca1c85a34bd213ec249920fce67fcde750ecff6df0c9357ebf650e3d6a303",
+      "assessment_process.py": "5dc67bcecaeac633aa2e3d5f01ffe0c24f8139f473bbd5128fbc1fb1c5f92403"
     },
     "fixture_hashes": {}
   },
@@ -129,7 +130,7 @@
       "structurally_valid_decision": "review"
     },
     "code_hashes": {
-      "backend_concept_api": "101baffaa34a5b440b3dd354a078c5416634c3a63321dfd567cd15f4d3882750",
+      "backend_concept_api": "2eb06f8ba19199893f7065f789133f2f822c3739a82e5555fafef557e52c6b80",
       "backend_concept_generation": "afad7726379afaba94d5d68919e8200f80ab2bef48b888f9150fe800a60c24f4"
     },
     "fixture_hashes": {
@@ -148,6 +149,75 @@
       "max_attempts": 2,
       "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
     }
+  },
+  "assessment_generation": {
+    "policy_revision": "assessment-generation-policy/v1",
+    "model": {
+      "model_id": "Qwen/Qwen3-14B-AWQ",
+      "revision": "content-sha256:5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619"
+    },
+    "proposal": {
+      "prompt": "/no_think\nCreate exactly three materially different evidence-grounded single-choice assessments. For each candidate, select the exact supplied Evidence aliases that support its correct answer. Use only those Evidence texts and the Formal Concept/Claim; if part of the Claim is unsupported or truncated, test only the supported part. Each question must have one supported correct answer and three plausible options that are clearly wrong or unsupported for that question from the selected Evidence alone. Do not use outside knowledge. Preserve escapes, symbols, operators, numbers, units, conditions, direction, and scope. If the Evidence contains only code or a formula without explaining its semantics, test recognition of the code/formula itself and do not infer what it does. Avoid semantic equivalents, trivial negation, answer cues, option labels, and all/none-of-the-above. Return JSON only.",
+      "prompt_sha256": "10c9dc60a831de7e5ae8cc7db9711c2daa84363359789f478e0602037dccc326",
+      "request_schema": "assessment-grounding-input/v1",
+      "output_schema": "assessment-grounded-multi-candidates/v1",
+      "input_serialization": "insertion-order-compact-json/v1",
+      "generation": {"temperature": 0, "max_tokens": 2800},
+      "timeout_seconds": 300,
+      "retry": {
+        "max_attempts": 2,
+        "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
+      }
+    },
+    "repair": {
+      "prompt": "/no_think\nCreate exactly three materially different evidence-grounded single-choice assessment candidates, each with exactly five distractor proposals; deterministic validation will retain three. INPUT.output_language is mandatory for every student-facing prompt, option, changed_from, and changed_to; the target Claim language must not override it. Each student-facing prompt must explicitly frame the answer as based on the supplied teaching material (for example, 根據教材內容 or According to the provided material), so unsupported counterfactuals require no outside knowledge. Each candidate must privately select the Evidence aliases supporting its correct answer, but student-facing prompt and options must never mention Evidence aliases, alias IDs such as e1/e2, or ask which Evidence supports a claim. Ask the subject-matter question directly. All options must answer the same semantic slot and use parallel wording. Every distractor proposal must be a counterfactual mutation of the correct option, not another fact listed in the Evidence and not merely an absent unrelated fact. For each distractor: support_id identifies selected Evidence containing changed_from; changed_from must occur verbatim in both the correct option and that Evidence; changed_to must occur verbatim in the distractor and must not occur anywhere in the supplied Evidence or correct option. Preserve technical terms, escapes, symbols, operators, numbers, units, conditions, direction, and scope. If Evidence is code/formula without semantic explanation, ask recognition rather than infer behavior. Avoid answer labels, semantic equivalents, trivial negation, and all/none-of-the-above. Return JSON only.",
+      "prompt_sha256": "152b5b22eadcdb28b9770f2e79a343c65b1d6c701331de9b638e1d33815082d5",
+      "request_schema": "assessment-grounding-repair-input/v1",
+      "output_schema": "assessment-grounded-mutation-candidates/v1",
+      "input_serialization": "insertion-order-compact-json/v1",
+      "generation": {"temperature": 0, "max_tokens": 3400},
+      "timeout_seconds": 300,
+      "retry": {
+        "max_attempts": 2,
+        "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
+      }
+    },
+    "verifier": {
+      "model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+      "revision": "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c",
+      "request_schema": "local-assessment-verifier-request/v1",
+      "response_schema": "local-assessment-verifier-response/v1",
+      "startup_schema": "local-assessment-verifier-startup/v1",
+      "startup_failure_reasons": [
+        "ASSESSMENT_VERIFIER_DEPENDENCY_MISSING",
+        "ASSESSMENT_VERIFIER_CUDA_UNAVAILABLE",
+        "ASSESSMENT_VERIFIER_MODEL_LOAD_FAILED"
+      ],
+      "decision_rule": "relative-entailment-margin-with-risk-repair/v1",
+      "entailment_margin_threshold": 0.1,
+      "multiple_support_risk_threshold": 0.4,
+      "maximum_tokens": 384,
+      "startup_timeout_seconds": 120,
+      "request_timeout_seconds": 120,
+      "safe_loading": "safetensors-local-only-no-remote-code"
+    },
+    "limits": {
+      "candidate_count": 3,
+      "proposal_distractor_count": 3,
+      "repair_distractor_proposal_count": 5,
+      "final_option_count": 4,
+      "maximum_evidence_characters": 32768
+    },
+    "code_hashes": {
+      "backend_assessment_generation": "17bfb0cc1adef40be65104f4f2f963139d8284320a1238680589dbde9c556dac",
+      "backend_assessment_items": "f682e73c84fc6e66b6136ec52fa8755911947fc427a4afab206396477f1c9352",
+      "backend_map_context": "904507497d056a4d7de67d8a9df00d6b0f2fdc6d048ddd606f632de0e7335a7e",
+      "backend_local_ai_process": "856e19f462956b7e69ea03b93a8ba61b2a45eb06c0d50ff4c864ca152bf0cb92",
+      "local_assessment_process": "5dc67bcecaeac633aa2e3d5f01ffe0c24f8139f473bbd5128fbc1fb1c5f92403",
+      "local_protocol": "40b141c2eaea3c0c4d973bb3a7264826e5f5e2b5a642e3929d7e47885185a9ef"
+    },
+    "failure_policy": "reject-without-unsafe-fallback/v1",
+    "rationale_policy": "deterministic-selected-exact-evidence/v1"
   },
   "relation_verifier": {
     "model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",

@@ -105,3 +105,25 @@ PYTHONPATH=backend/src backend/.venv/bin/python -m learning_resources.resource_i
 Concept prompt 只定義於 `local_ai/runtime-lock.json`；runtime 會驗證 prompt SHA 後再
 呼叫本機 Qwen。模型每批只收到短 Evidence ID 與該批文字，正式 identity、頁面定位、
 bbox 與 runtime metadata 均留在後端完成綁定。
+
+## Assessment generation qualification
+
+P06-03 的 deterministic gates、risk-only repair、mDeBERTa protocol、P06-02
+public/private contract 與 persistence regression 可用以下命令驗證：
+
+```bash
+PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/python -m pytest \
+  backend/tests/test_assessment_generation.py \
+  backend/tests/test_local_ai_process.py \
+  local_ai/tests/test_protocol.py \
+  local_ai/tests/test_assessment_process.py \
+  backend/tests/runtime/test_assessment_items.py
+```
+
+真模型 qualification 必須從 Formal Concept / Claim / canonical exact Evidence 進入正式
+prompt、validation、relative-margin selection、multiple-support risk repair 與 P06-02 builder；
+不得以 PDF-to-question shortcut 或 schema-valid 取代語意人工評估。Gate 維持
+representative safe promotion 至少 80%、representative 與 high-risk holdout critical
+promotion 都為 0、multiple-supported challenges 觸發率 100%、unsafe stability flip 為 0，
+且 P06-02 contract 100%。Golden、raw model output 與人工標註只能保存在 ignored 的
+`.studydy-runtime/`，不得提交。

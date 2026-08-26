@@ -7,6 +7,7 @@ from studydy_local_ai.protocol import (
     ProtocolError,
     decode_json_object,
     validate_ocr_request,
+    validate_assessment_request,
     validate_relation_request,
 )
 
@@ -58,3 +59,25 @@ def test_relation_request_accepts_only_structural_type_and_bounded_premise():
     ):
         with pytest.raises(ProtocolError, match="CHILD_REQUEST_INVALID"):
             validate_relation_request(invalid)
+
+
+def test_assessment_request_requires_exactly_four_bounded_options():
+    request = {
+        "schema": "local-assessment-verifier-request/v1",
+        "request_id": "assessment-1",
+        "premise": "Exact Evidence",
+        "options": ["A", "B", "C", "D"],
+    }
+    assert validate_assessment_request(request) == {
+        "request_id": "assessment-1",
+        "premise": "Exact Evidence",
+        "options": ["A", "B", "C", "D"],
+    }
+    for invalid in (
+        {**request, "options": ["A", "B", "C"]},
+        {**request, "options": ["A", "B", "C", ""]},
+        {**request, "premise": ""},
+        {**request, "extra": True},
+    ):
+        with pytest.raises(ProtocolError, match="CHILD_REQUEST_INVALID"):
+            validate_assessment_request(invalid)

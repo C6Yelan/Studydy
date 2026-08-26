@@ -69,6 +69,7 @@ def processing_database_dsn(
         6,
         7,
         8,
+        9,
     )
     with psycopg.connect(clean_database_dsn) as connection:
         for table in ("material_processing_runs", *_DOMAIN_TABLES):
@@ -180,6 +181,7 @@ def test_populated_migration_five_deletes_v2_terminal_runs_on_forward_upgrade(
         6,
         7,
         8,
+        9,
     )
 
     with psycopg.connect(clean_database_dsn) as connection:
@@ -792,7 +794,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert binding["relation_verifier"] == settings["runtime_lock"][
         "relation_verifier"
     ]
-    assert len(binding["code_hashes"]) == 17
+    assert len(binding["code_hashes"]) == 20
     assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
     repository_root = Path(__file__).parents[3]
     for locked_sha256, relative_path in (
@@ -921,7 +923,7 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
 
     runtime_files = processing_module._runtime_files(settings)
     relative_names = {runtime_file.path.name for runtime_file in runtime_files}
-    assert len(runtime_files) == 28
+    assert len(runtime_files) == 29
     assert {
         "python3.12",
         "vllm",
@@ -929,6 +931,7 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
         "protocol.py",
         "ocr_process.py",
         "relation_process.py",
+        "assessment_process.py",
         "model-00001-of-000001.safetensors",
         "model.safetensors.index.json",
         "special_tokens_map.json",
@@ -941,6 +944,7 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
         "protocol.py",
         "ocr_process.py",
         "relation_process.py",
+        "assessment_process.py",
     )
 
 

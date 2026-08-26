@@ -8,6 +8,7 @@ import pdf_evidence.local_ai_process as process_module
 from pdf_evidence.local_ai_process import (
     LocalAIError,
     LocalAIProcess,
+    start_assessment_process,
     start_relation_process,
 )
 
@@ -108,6 +109,43 @@ def test_real_relation_child_distinguishes_startup_failures(
 
 
 @pytest.mark.parametrize(
+    ("torch_source", "transformers_source", "expected_reason"),
+    [
+        (
+            "raise ImportError('private dependency diagnostic')\n",
+            "",
+            "ASSESSMENT_VERIFIER_DEPENDENCY_MISSING",
+        ),
+        (
+            "class cuda:\n    @staticmethod\n    def is_available(): return False\n",
+            "class AutoConfig: pass\nclass AutoModelForSequenceClassification: pass\nclass AutoTokenizer: pass\n",
+            "ASSESSMENT_VERIFIER_CUDA_UNAVAILABLE",
+        ),
+        (
+            "class cuda:\n    @staticmethod\n    def is_available(): return True\n",
+            "class Broken:\n    @staticmethod\n    def from_pretrained(*args, **kwargs): raise OSError('private model diagnostic')\nAutoConfig = AutoModelForSequenceClassification = AutoTokenizer = Broken\n",
+            "ASSESSMENT_VERIFIER_MODEL_LOAD_FAILED",
+        ),
+    ],
+)
+def test_real_assessment_child_distinguishes_startup_failures(
+    tmp_path, torch_source, transformers_source, expected_reason
+):
+    settings = _relation_child_settings(tmp_path)
+    site_packages = Path(settings["site_packages"])
+    (site_packages / "torch.py").write_text(torch_source, encoding="utf-8")
+    if transformers_source:
+        (site_packages / "transformers.py").write_text(
+            transformers_source, encoding="utf-8"
+        )
+
+    with pytest.raises(LocalAIError) as failure:
+        start_assessment_process(settings, 2)
+
+    assert failure.value.reason_code == expected_reason
+
+
+@pytest.mark.parametrize(
     ("bootstrap", "startup_timeout", "expected_reason"),
     [
         (
@@ -129,4 +167,30 @@ def test_relation_startup_invalid_response_and_timeout_fail_closed(
     with pytest.raises(LocalAIError) as failure:
         start_relation_process(_relation_child_settings(tmp_path), startup_timeout)
 
+    assert failure.value.reason_code == expected_reason
+
+
+@pytest.mark.parametrize(
+    ("bootstrap", "startup_timeout", "expected_reason"),
+    [
+        (
+            "import json;print(json.dumps({'schema':'wrong'}),flush=True)",
+            2,
+            "ASSESSMENT_VERIFIER_RESPONSE_INVALID",
+        ),
+        (
+            "import time;time.sleep(10)",
+            0.02,
+            "ASSESSMENT_VERIFIER_TIMEOUT",
+        ),
+    ],
+)
+def test_assessment_startup_invalid_response_and_timeout_fail_closed(
+    tmp_path, monkeypatch, bootstrap, startup_timeout, expected_reason
+):
+    monkeypatch.setattr(process_module, "_ASSESSMENT_BOOTSTRAP", bootstrap)
+    with pytest.raises(LocalAIError) as failure:
+        start_assessment_process(
+            _relation_child_settings(tmp_path), startup_timeout
+        )
     assert failure.value.reason_code == expected_reason

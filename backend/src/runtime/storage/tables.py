@@ -390,6 +390,15 @@ class Assessment(Base):
             "assessment_revision "
             "AND private_answer_document ->> 'question_id' = question_id"
         ),
+        CheckConstraint(
+            "generation_provenance IS NULL OR ("
+            "jsonb_typeof(generation_provenance) = 'object' "
+            "AND generation_provenance ->> 'schema' = "
+            "'assessment-generation-provenance/v1' "
+            "AND generation_provenance ->> 'assessment_revision' = "
+            "assessment_revision "
+            "AND generation_provenance ->> 'question_id' = question_id)"
+        ),
     )
 
     assessment_revision: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -404,6 +413,7 @@ class Assessment(Base):
     private_answer_document: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False
     )
+    generation_provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     policy_revision: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False

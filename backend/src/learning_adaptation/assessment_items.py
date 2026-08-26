@@ -14,7 +14,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy import select
+from sqlalchemy import null, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -36,6 +36,7 @@ from .study_sessions import (
 PUBLIC_ASSESSMENT_SCHEMA = "single-choice-assessment-public/v1"
 PRIVATE_ANSWER_SCHEMA = "single-choice-assessment-answer/v1"
 ASSESSMENT_POLICY_REVISION = "single-choice-assessment-policy/v1"
+GENERATION_PROVENANCE_SCHEMA = "assessment-generation-provenance/v1"
 
 _ASSESSMENT_ID = r"^assessment:sha256:[0-9a-f]{64}$"
 _QUESTION_ID = r"^question:sha256:[0-9a-f]{64}$"
@@ -158,6 +159,70 @@ class PrivateAnswerDocument(BaseModel):
         return value
 
 
+class AssessmentGenerationProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    schema_: str = Field(
+        alias="schema", pattern=r"^assessment-generation-provenance/v1$"
+    )
+    assessment_revision: str = Field(pattern=_ASSESSMENT_ID)
+    question_id: str = Field(pattern=_QUESTION_ID)
+    generation_policy_revision: str
+    runtime_binding_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    model_id: str
+    model_revision: str
+    proposal_prompt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    repair_prompt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    verifier_model_id: str
+    verifier_revision: str
+    selected_stage: str = Field(pattern=r"^(proposal|repair)$")
+    selected_candidate_index: int = Field(ge=0, le=2)
+    selected_evidence_ids: list[str] = Field(min_length=1)
+    option_entailment_probabilities: list[float] = Field(
+        min_length=4, max_length=4
+    )
+    correct_option_index: int = Field(ge=0, le=3)
+    entailment_margin_threshold: float = Field(ge=0, le=1)
+    multiple_support_risk_threshold: float = Field(ge=0, le=1)
+    entailment_margin: float = Field(ge=0, le=1)
+    maximum_distractor_entailment: float = Field(ge=0, le=1)
+    risk_trigger_distractor_entailment: float = Field(ge=0, le=1)
+    multiple_support_risk: bool
+    provenance_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator(
+        "generation_policy_revision",
+        "model_id",
+        "model_revision",
+        "verifier_model_id",
+        "verifier_revision",
+    )
+    @classmethod
+    def provenance_text_must_not_be_blank(cls, value: str) -> str:
+        if not _normalized_text(value) or len(value) > 256:
+            raise ValueError("GENERATION_PROVENANCE_TEXT_INVALID")
+        return value
+
+    @field_validator("selected_evidence_ids")
+    @classmethod
+    def selected_evidence_ids_must_be_unique(
+        cls, value: list[str]
+    ) -> list[str]:
+        if len(value) != len(set(value)) or any(
+            re.fullmatch(_EVIDENCE_ID, evidence_id) is None
+            for evidence_id in value
+        ):
+            raise ValueError("GENERATION_PROVENANCE_EVIDENCE_INVALID")
+        return value
+
+    @field_validator("option_entailment_probabilities")
+    @classmethod
+    def probabilities_must_be_bounded(cls, value: list[float]) -> list[float]:
+        if any(probability < 0 or probability > 1 for probability in value):
+            raise ValueError("GENERATION_PROVENANCE_PROBABILITY_INVALID")
+        return value
+
+
 def _private_answer_sha256(
     private_answer_document: PrivateAnswerDocument,
 ) -> str:
@@ -165,6 +230,15 @@ def _private_answer_sha256(
         mode="json", by_alias=True, exclude={"private_answer_sha256"}
     )
     return canonical_sha256(private_identity)
+
+
+def _generation_provenance_sha256(
+    provenance: AssessmentGenerationProvenance,
+) -> str:
+    identity = provenance.model_dump(
+        mode="json", by_alias=True, exclude={"provenance_sha256"}
+    )
+    return canonical_sha256(identity)
 
 
 @dataclass(frozen=True)
@@ -183,6 +257,9 @@ class StoredAssessment:
     target_claim_id: str
     public_document: PublicAssessmentDocument
     private_answer_document: PrivateAnswerDocument = field(repr=False)
+    generation_provenance: AssessmentGenerationProvenance | None = field(
+        repr=False
+    )
     policy_revision: str
     created_at: datetime
 
@@ -264,6 +341,52 @@ def validate_assessment_documents(
             raise ValueError
         return AssessmentDocuments(public, private)
     except (ValidationError, TypeError, ValueError):
+        raise _error("ASSESSMENT_DOCUMENT_INVALID") from None
+
+
+def validate_assessment_generation_provenance(
+    provenance: object,
+    documents: AssessmentDocuments,
+) -> AssessmentGenerationProvenance:
+    """驗證server-private generation provenance與final documents完全綁定。"""
+
+    try:
+        checked = AssessmentGenerationProvenance.model_validate(provenance)
+        public = documents.public_document
+        private = documents.private_answer_document
+        probabilities = checked.option_entailment_probabilities
+        correct_probability = probabilities[checked.correct_option_index]
+        maximum_distractor = max(
+            probability
+            for index, probability in enumerate(probabilities)
+            if index != checked.correct_option_index
+        )
+        margin = correct_probability - maximum_distractor
+        if (
+            checked.schema_ != GENERATION_PROVENANCE_SCHEMA
+            or checked.provenance_sha256
+            != _generation_provenance_sha256(checked)
+            or checked.assessment_revision != public.assessment_revision
+            or checked.question_id != public.question_id
+            or checked.selected_evidence_ids != public.source_evidence_ids
+            or checked.selected_evidence_ids != private.source_evidence_ids
+            or public.options[checked.correct_option_index].option_id
+            != private.correct_option_id
+            or abs(checked.maximum_distractor_entailment - maximum_distractor)
+            > 1e-12
+            or abs(checked.entailment_margin - margin) > 1e-12
+            or margin < checked.entailment_margin_threshold
+            or checked.multiple_support_risk
+            != (
+                checked.risk_trigger_distractor_entailment
+                >= checked.multiple_support_risk_threshold
+            )
+            or checked.multiple_support_risk
+            != (checked.selected_stage == "repair")
+        ):
+            raise ValueError
+        return checked
+    except (ValidationError, IndexError, TypeError, ValueError):
         raise _error("ASSESSMENT_DOCUMENT_INVALID") from None
 
 
@@ -373,6 +496,13 @@ def _stored_assessment(row: Assessment) -> StoredAssessment:
     documents = validate_assessment_documents(
         row.public_document, row.private_answer_document
     )
+    provenance = (
+        None
+        if row.generation_provenance is None
+        else validate_assessment_generation_provenance(
+            row.generation_provenance, documents
+        )
+    )
     public = documents.public_document
     if (
         row.assessment_revision != public.assessment_revision
@@ -393,6 +523,7 @@ def _stored_assessment(row: Assessment) -> StoredAssessment:
         target_claim_id=row.target_claim_id,
         public_document=public,
         private_answer_document=documents.private_answer_document,
+        generation_provenance=provenance,
         policy_revision=row.policy_revision,
         created_at=row.created_at,
     )
@@ -403,12 +534,20 @@ def store_assessment(
     public_document: object,
     private_answer_document: object,
     *,
+    generation_provenance: object | None = None,
     dsn: str | None = None,
 ) -> StoredAssessment:
     """驗證 active StudySession 與 Map grounding 後 immutable 儲存 Assessment。"""
 
     documents = validate_assessment_documents(
         public_document, private_answer_document
+    )
+    checked_provenance = (
+        None
+        if generation_provenance is None
+        else validate_assessment_generation_provenance(
+            generation_provenance, documents
+        )
     )
     public = documents.public_document
     try:
@@ -451,6 +590,13 @@ def store_assessment(
                             mode="json", by_alias=True
                         )
                     ),
+                    generation_provenance=(
+                        null()
+                        if checked_provenance is None
+                        else checked_provenance.model_dump(
+                            mode="json", by_alias=True
+                        )
+                    ),
                     policy_revision=public.policy_revision,
                     created_at=datetime.now(UTC),
                 )
@@ -468,6 +614,7 @@ def store_assessment(
                 stored.public_document != public
                 or stored.private_answer_document
                 != documents.private_answer_document
+                or stored.generation_provenance != checked_provenance
             ):
                 raise _error("ASSESSMENT_CONFLICT")
             return stored
