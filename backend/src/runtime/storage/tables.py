@@ -314,6 +314,15 @@ class StudySession(Base):
             "current_formal_concept_id IS NULL OR "
             "current_formal_concept_id ~ '^formal-concept:sha256:[0-9a-f]{64}$'"
         ),
+        CheckConstraint(
+            "deferred_formal_concept_id IS NULL OR "
+            "deferred_formal_concept_id ~ '^formal-concept:sha256:[0-9a-f]{64}$'"
+        ),
+        CheckConstraint(
+            "deferred_formal_concept_id IS NULL OR "
+            "current_formal_concept_id IS NULL OR "
+            "deferred_formal_concept_id <> current_formal_concept_id"
+        ),
         CheckConstraint("status IN ('active', 'completed')"),
         CheckConstraint("last_event_number >= 0"),
         CheckConstraint(
@@ -330,6 +339,7 @@ class StudySession(Base):
     material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
     knowledge_map_revision: Mapped[str] = mapped_column(Text, nullable=False)
     current_formal_concept_id: Mapped[str | None] = mapped_column(Text)
+    deferred_formal_concept_id: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)

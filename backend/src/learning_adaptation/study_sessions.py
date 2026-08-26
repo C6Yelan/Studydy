@@ -33,6 +33,7 @@ class StoredStudySession:
     material_id: UUID
     knowledge_map_revision: str
     current_formal_concept_id: str | None
+    deferred_formal_concept_id: str | None
     status: str
     started_at: datetime
     completed_at: datetime | None
@@ -118,6 +119,15 @@ def _validate_binding(session: Session, stored: StudySession) -> MapContext:
         and stored.current_formal_concept_id not in known_concepts
     ):
         raise _error("STUDY_SESSION_UNAVAILABLE")
+    if (
+        stored.deferred_formal_concept_id is not None
+        and (
+            stored.deferred_formal_concept_id not in known_concepts
+            or stored.deferred_formal_concept_id
+            == stored.current_formal_concept_id
+        )
+    ):
+        raise _error("STUDY_SESSION_UNAVAILABLE")
     return context
 
 
@@ -143,6 +153,7 @@ def _stored_session(stored: StudySession) -> StoredStudySession:
         material_id=stored.material_id,
         knowledge_map_revision=stored.knowledge_map_revision,
         current_formal_concept_id=stored.current_formal_concept_id,
+        deferred_formal_concept_id=stored.deferred_formal_concept_id,
         status=stored.status,
         started_at=stored.started_at,
         completed_at=stored.completed_at,
@@ -201,6 +212,7 @@ def create_study_session(
                     material_id=material_id,
                     knowledge_map_revision=knowledge_map_revision,
                     current_formal_concept_id=current_formal_concept_id,
+                    deferred_formal_concept_id=None,
                     status="active",
                     idempotency_key_sha256=key_digest,
                     request_fingerprint=fingerprint,

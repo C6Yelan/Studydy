@@ -52,6 +52,7 @@ def assessment_database_dsn(
         9,
         10,
         11,
+        12,
     )
     return clean_database_dsn
 
@@ -165,13 +166,38 @@ def test_migration_eight_preserves_valid_study_session_and_adds_only_current_fie
     assert run_migrations(
         clean_database_dsn, migrations_dir=migration_directory
     ) == (1, 2, 3, 4, 5, 6, 7)
-    learner, knowledge_map, _, study_session = _active_study_session(
-        clean_database_dsn
+    learner = TrustedLearner(uuid4())
+    knowledge_map = _knowledge_map()
+    material_id = _insert_material_map(
+        clean_database_dsn, learner.learner_id, knowledge_map
     )
+    study_session_id = uuid4()
     with psycopg.connect(clean_database_dsn) as connection:
+        connection.execute(
+            """
+            INSERT INTO study_sessions (
+                study_session_id, learner_id, material_id,
+                knowledge_map_revision, current_formal_concept_id, status,
+                idempotency_key_sha256, request_fingerprint, started_at,
+                completed_at, last_event_number
+            ) VALUES (
+                %s, %s, %s, %s, %s, 'active', %s, %s,
+                statement_timestamp(), NULL, 0
+            )
+            """,
+            (
+                study_session_id,
+                learner.learner_id,
+                material_id,
+                knowledge_map["revision"],
+                knowledge_map["formal_concepts"][0]["formal_concept_id"],
+                b"i" * 32,
+                b"f" * 32,
+            ),
+        )
         before = connection.execute(
             "SELECT * FROM study_sessions WHERE study_session_id = %s",
-            (study_session.study_session_id,),
+            (study_session_id,),
         ).fetchone()
     shutil.copy2(
         migrations_dir / "0008_add_single_choice_assessments.sql",
@@ -184,7 +210,7 @@ def test_migration_eight_preserves_valid_study_session_and_adds_only_current_fie
     with psycopg.connect(clean_database_dsn) as connection:
         assert connection.execute(
             "SELECT * FROM study_sessions WHERE study_session_id = %s",
-            (study_session.study_session_id,),
+            (study_session_id,),
         ).fetchone() == before
         assert connection.execute("SELECT count(*) FROM assessments").fetchone() == (
             0,
@@ -200,8 +226,6 @@ def test_migration_eight_preserves_valid_study_session_and_adds_only_current_fie
                 """
             ).fetchall()
         ]
-    assert learner.learner_id == study_session.learner_id
-    assert knowledge_map["revision"] == study_session.knowledge_map_revision
     assert columns == [
         "assessment_revision",
         "study_session_id",
