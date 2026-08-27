@@ -5,7 +5,12 @@ import type { MaterialProcessingRunView } from "../../api/contracts";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
-import { automaticPollIntervalMs, materialFailureMessage, materialRunLabel } from "./material-flow";
+import {
+  automaticPollIntervalMs,
+  materialFailureMessage,
+  materialRunHasUsableMap,
+  materialRunLabel,
+} from "./material-flow";
 
 export function RunView({ apiClient, route }: {
   apiClient: StudydyApiClient;
@@ -87,6 +92,16 @@ export function RunView({ apiClient, route }: {
       />
       <code className="failure-code">{run.error_code}</code>
     </section>
+  );
+
+  if (!materialRunHasUsableMap(run)) return (
+    <StateView
+      action={<button className="primary-button" type="button" onClick={() => writeRoute({ name: "home" })}><Icon name="arrow-left" />改用其他教材</button>}
+      description="這份教材沒有產生可安全顯示的概念，因此沒有發布知識地圖。請改用包含清楚教學內容的 PDF。"
+      image="/assets/studydy/empty-disappointed.png"
+      title="目前沒有可開啟的知識地圖"
+      tone="empty"
+    />
   );
 
   const binding = run.output_binding!;

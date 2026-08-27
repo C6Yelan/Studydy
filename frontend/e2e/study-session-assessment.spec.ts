@@ -56,7 +56,7 @@ async function learningRoutes(page: Page, eventWatermark: () => number = () => 0
 async function openStudySession(page: Page) {
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}`);
   await expect(page.getByRole("heading", { name: "知識地圖", exact: true })).toBeVisible();
-  await page.locator(".concept-card").filter({ hasText: "目標概念" }).click();
+  await page.getByRole("button", { name: "相連概念：目標概念" }).click();
   await page.getByRole("button", { name: "從這個概念開始" }).click();
   await expect(page).toHaveURL(new RegExp(`/study-sessions/${studySessionId}$`));
   await expect(page.getByRole("heading", { name: "目標概念", exact: true }).first()).toBeVisible();
@@ -112,7 +112,7 @@ test("StudySession assessment：錯誤回饋、新題重評與完成", async ({ 
 
   await page.getByRole("button", { name: "完成本次學習" }).click();
   await expect(page.getByRole("heading", { name: "本次學習已完成" })).toBeVisible();
-  await expect(page.getByText(/只屬於這次 StudySession/)).toBeVisible();
+  await expect(page.getByText(/回到地圖後，可以從任何概念開始新的學習/)).toBeVisible();
   await captureAcceptance(page, "15_completed_session.png");
 });
 

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   formatFileSize,
   materialFailureMessage,
+  materialRunHasUsableMap,
   materialRunLabel,
   validatePdfFile,
 } from "./material-flow.ts";
@@ -20,4 +21,14 @@ test("v2 run labels and content failures remain truthful", () => {
   assert.equal(materialRunLabel("succeeded"), "處理完成，等待複核");
   assert.equal(materialRunLabel("partial"), "部分頁面已排除，等待複核");
   assert.equal(materialFailureMessage("NO_USABLE_EVIDENCE"), "教材沒有產生可安全回查的概念與依據。");
+});
+
+test("terminal binding with no formal concept cannot open a Map", () => {
+  const run = {
+    status: "partial",
+    output_binding: { reason_codes: ["NO_FORMAL_CONCEPT"] },
+  };
+  assert.equal(materialRunHasUsableMap(run), false);
+  run.output_binding.reason_codes = ["KNOWLEDGE_MAP_REVIEW_REQUIRED"];
+  assert.equal(materialRunHasUsableMap(run), true);
 });

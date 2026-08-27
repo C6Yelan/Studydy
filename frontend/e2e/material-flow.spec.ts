@@ -23,6 +23,30 @@ function failedRun() {
   };
 }
 
+function noConceptRun() {
+  return {
+    ...failedRun(),
+    status: "partial",
+    output_binding: {
+      schema: "material-run-output-binding/v3",
+      producer_bundle_id: `text-first-producer-bundle:sha256:${"1".repeat(64)}`,
+      producer_run_id: "text-first-run:00000000-0000-4000-8000-000000000001",
+      concept_evidence_output_id: `concept-evidence-output:sha256:${"2".repeat(64)}`,
+      study_material_output_revision: `study-material-output:sha256:${"3".repeat(64)}`,
+      knowledge_map_revision: `knowledge-map:sha256:${"4".repeat(64)}`,
+      runtime_binding_sha256: "5".repeat(64),
+      page_count: 7,
+      processing: "partial",
+      quality: "needs_review",
+      decision: "review",
+      reason_codes: ["KNOWLEDGE_MAP_REVIEW_REQUIRED", "NO_FORMAL_CONCEPT"],
+      ocr_calls: 0,
+      concept_calls: 7,
+    },
+    error_code: null,
+  };
+}
+
 test("非 PDF 在 client 端拒絕且不呼叫 material API", async ({ page }) => {
   await sessionReady(page);
   let materialCalls = 0;
@@ -53,6 +77,19 @@ test("內容無法建立 Evidence 時顯示 truthful terminal failure", async ({
   await expect(page.getByText("教材沒有產生可安全回查的概念與依據。")).toBeVisible();
   await expect(page.getByText("NO_USABLE_EVIDENCE")).toBeVisible();
   await expect(page.getByRole("button", { name: "返回上傳" })).toBeVisible();
+});
+
+test("0 Concept partial run 不顯示完成或開啟地圖", async ({ page }) => {
+  await sessionReady(page);
+  await page.route(`**/v1/material-processing-runs/${runId}`, (route) => {
+    return route.fulfill({ status: 200, json: noConceptRun() });
+  });
+
+  await page.goto(`/materials/${materialId}/runs/${runId}`);
+  await expect(page.getByRole("heading", { name: "目前沒有可開啟的知識地圖" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "改用其他教材" })).toBeVisible();
+  await expect(page.getByText("一切準備完成")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "開啟複核地圖" })).toHaveCount(0);
 });
 
 

@@ -254,6 +254,11 @@ def build_knowledge_map(
     reasons = {
         "KNOWLEDGE_MAP_REVIEW_REQUIRED",
         *study_material_output["reason_codes"],
+        *(
+            reason
+            for artifact in resolution_artifacts
+            for reason in artifact.get("reason_codes", [])
+        ),
         *relation_pair_status.get("reason_codes", []),
         *(
             reason

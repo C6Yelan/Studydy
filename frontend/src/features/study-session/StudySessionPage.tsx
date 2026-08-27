@@ -114,7 +114,7 @@ function SessionPath({ context, learningState, view }: {
               <span>{index + 1}</span>
               <div>
                 <strong>{concept.label}</strong>
-                <small>{isCurrent ? "目前" : isCompleted ? "已完成" : isNext ? "下一步" : isDeferred ? "稍後回到這裡" : learningPathReason(view, concept.formal_concept_id)}</small>
+                <small>{isCurrent ? "目前" : isCompleted ? "已完成" : isDeferred ? "稍後回到這裡" : isNext ? "下一步" : learningPathReason(view, concept.formal_concept_id)}</small>
               </div>
             </li>
           );

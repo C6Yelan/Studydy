@@ -113,9 +113,10 @@ test("prerequisite remediation 更新 overlay 並保留 canonical path", async (
   });
 
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}/study-sessions/${studySessionId}`);
-  await expect(page.getByRole("heading", { name: "本次學習狀態與弱點" })).toBeVisible();
-  await expect(page.getByText("需要先補強的正式先備概念")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "先補強正式先備概念" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "本次學習進度" })).toBeVisible();
+  await page.getByText("查看需要留意的學習觀察").click();
+  await expect(page.getByText("學習前可先補強")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "先補強先備概念" })).toBeVisible();
   await capture(page, "12_learning_state_weakness.png", ".learning-insights");
   await capture(page, "13_adaptive_next_step.png", ".adaptive-card");
 
@@ -157,6 +158,7 @@ test("新 StudySession 不繼承前一個 session 的 mastery 或 weakness", asy
 
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}/study-sessions/${studySessionId}`);
   await expect(page.getByText("本次已掌握")).toBeVisible();
+  await page.getByText("查看需要留意的學習觀察").click();
   await expect(page.getByText("已觀察到的弱點")).toBeVisible();
   await page.getByRole("button", { name: "完成本次學習" }).click();
   await page.getByRole("button", { name: /回到知識地圖/ }).click();
@@ -168,11 +170,11 @@ test("新 StudySession 不繼承前一個 session 的 mastery 或 weakness", asy
   await page.route(`**/v1/study-sessions/${newStudySessionId}/weakness`, (route) => fulfillJson(route, bindSession(weaknessView(), newStudySessionId)));
   await page.route(`**/v1/study-sessions/${newStudySessionId}/adaptive-plan`, (route) => fulfillJson(route, bindSession(adaptiveView(), newStudySessionId)));
 
-  await page.locator(".concept-card").filter({ hasText: "目標概念" }).click();
+  await page.getByRole("button", { name: "相連概念：目標概念" }).click();
   await page.getByRole("button", { name: "從這個概念開始" }).click();
   await expect(page).toHaveURL(new RegExp(`/study-sessions/${newStudySessionId}$`));
-  await expect(page.getByText("尚未開始")).toBeVisible();
-  await expect(page.getByText("目前資料不足", { exact: true })).toBeVisible();
+  await expect(page.getByText("尚未開始", { exact: true })).toBeVisible();
+  await expect(page.getByText(/另有 1 個概念尚未開始/)).toBeVisible();
   await expect(page.getByText("本次已掌握")).toHaveCount(0);
   await expect(page.getByText("已觀察到的弱點")).toHaveCount(0);
 });

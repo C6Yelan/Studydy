@@ -24,29 +24,20 @@ def normalized_label(label: str) -> str:
 def build_resolution_requests(
     source_concepts: list[dict[str, Any]],
 ) -> list[tuple[dict[str, Any], dict[str, str], dict[str, str]]]:
-    """把同批不同名稱一起交給 resolver，讓近義與跨語言名稱能傳播。"""
+    """只把同正規化 label 的來源 Concept 放在同一個判斷群組。"""
 
-    exact_label_groups: dict[str, list[dict[str, Any]]] = {}
+    groups: dict[str, list[dict[str, Any]]] = {}
     for concept in source_concepts:
         label = concept.get("label") if isinstance(concept, dict) else None
         if not isinstance(label, str) or not label:
             raise FormalConceptError("RESOLUTION_SOURCE_INVALID")
-        exact_label_groups.setdefault(normalized_label(label), []).append(concept)
-
-    groups: list[list[dict[str, Any]]] = []
-    pending: list[dict[str, Any]] = []
-    for concepts in exact_label_groups.values():
-        if len(concepts) > MAX_GROUP_CANDIDATES:
-            raise FormalConceptError("RESOLUTION_CEILING_EXCEEDED")
-        if pending and len(pending) + len(concepts) > MAX_GROUP_CANDIDATES:
-            groups.append(pending)
-            pending = []
-        pending.extend(concepts)
-    if pending:
-        groups.append(pending)
+        groups.setdefault(normalized_label(label), []).append(concept)
 
     requests = []
-    for group_index, concepts in enumerate(groups, start=1):
+    for group_index, label_key in enumerate(sorted(groups), start=1):
+        concepts = groups[label_key]
+        if len(concepts) > MAX_GROUP_CANDIDATES:
+            raise FormalConceptError("RESOLUTION_CEILING_EXCEEDED")
         concept_aliases: dict[str, str] = {}
         claim_aliases: dict[str, str] = {}
         candidates = []
@@ -216,6 +207,129 @@ def validate_resolution(
         "quality": "needs_review",
         "decision": "review",
         "reason_codes": ["FORMAL_CONCEPT_REVIEW_REQUIRED"],
+    }
+
+
+def validate_resolution_with_isolation(
+    candidate: Any,
+    *,
+    request: dict[str, Any],
+    concept_aliases: dict[str, str],
+    claim_aliases: dict[str, str],
+    source_concepts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """只隔離 shape 無效且來源歸屬明確的 resolution。"""
+
+    try:
+        return validate_resolution(
+            candidate,
+            request=request,
+            concept_aliases=concept_aliases,
+            claim_aliases=claim_aliases,
+            source_concepts=source_concepts,
+        )
+    except FormalConceptError as error:
+        if str(error) != "RESOLUTION_SHAPE_INVALID":
+            raise
+
+    if (
+        not isinstance(candidate, dict)
+        or set(candidate) != {"schema", "group_id", "resolutions"}
+        or candidate.get("schema") != RESOLUTION_OUTPUT_SCHEMA
+        or candidate.get("group_id") != request.get("group_id")
+        or not isinstance(candidate.get("resolutions"), list)
+    ):
+        raise FormalConceptError("RESOLUTION_SCHEMA_INVALID")
+
+    expected_sources = set(concept_aliases)
+    seen_sources: set[str] = set()
+    source_groups: list[tuple[dict[str, Any], list[str]]] = []
+    for resolution in candidate["resolutions"]:
+        aliases = resolution.get("source_ids") if isinstance(resolution, dict) else None
+        if (
+            not isinstance(aliases, list)
+            or not aliases
+            or len(aliases) != len(set(aliases))
+            or not set(aliases) <= expected_sources
+            or seen_sources & set(aliases)
+        ):
+            raise FormalConceptError("RESOLUTION_SCHEMA_INVALID")
+        seen_sources.update(aliases)
+        source_groups.append((resolution, aliases))
+    if seen_sources != expected_sources:
+        raise FormalConceptError("RESOLUTION_SOURCE_MISSING")
+
+    formal_concepts = []
+    dropped_source_ids: set[str] = set()
+    used_claim_ids: set[str] = set()
+    has_invalid_resolution = False
+    candidates_by_id = {
+        item["id"]: item for item in request["candidates"]
+    }
+    for resolution, aliases in source_groups:
+        selected_candidates = [candidates_by_id[alias] for alias in aliases]
+        selected_claim_aliases = {
+            claim["id"]
+            for item in selected_candidates
+            for claim in item["claims"]
+        }
+        try:
+            artifact = validate_resolution(
+                {
+                    "schema": candidate["schema"],
+                    "group_id": candidate["group_id"],
+                    "resolutions": [resolution],
+                },
+                request={
+                    "schema": request["schema"],
+                    "group_id": request["group_id"],
+                    "candidates": selected_candidates,
+                },
+                concept_aliases={
+                    alias: concept_aliases[alias] for alias in aliases
+                },
+                claim_aliases={
+                    alias: claim_aliases[alias]
+                    for alias in selected_claim_aliases
+                },
+                source_concepts=source_concepts,
+            )
+        except FormalConceptError:
+            has_invalid_resolution = True
+            continue
+        artifact_claim_ids = {
+            claim["claim_id"]
+            for concept in artifact["formal_concepts"]
+            for claim in concept["claims"]
+        }
+        if used_claim_ids & artifact_claim_ids:
+            raise FormalConceptError("RESOLUTION_CLAIM_DUPLICATE")
+        used_claim_ids.update(artifact_claim_ids)
+        formal_concepts.extend(artifact["formal_concepts"])
+        dropped_source_ids.update(artifact["dropped_source_concept_ids"])
+
+    if not has_invalid_resolution:
+        raise FormalConceptError("RESOLUTION_SHAPE_INVALID")
+    formal_concepts.sort(
+        key=lambda concept: (
+            min(concept["source_concept_ids"]),
+            concept["formal_concept_id"],
+        )
+    )
+    for resolution_order, concept in enumerate(formal_concepts):
+        concept["resolution_order"] = [resolution_order, 0]
+    return {
+        "schema": RESOLUTION_OUTPUT_SCHEMA,
+        "group_id": request["group_id"],
+        "formal_concepts": formal_concepts,
+        "dropped_source_concept_ids": sorted(dropped_source_ids),
+        "processing": "partial",
+        "quality": "needs_review",
+        "decision": "review",
+        "reason_codes": [
+            "FORMAL_CONCEPT_REVIEW_REQUIRED",
+            "MODEL_OUTPUT_INVALID",
+        ],
     }
 
 

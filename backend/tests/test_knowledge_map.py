@@ -20,6 +20,7 @@ from knowledge_map.formal_concepts import (
     build_resolution_requests,
     resolve_singleton,
     validate_resolution,
+    validate_resolution_with_isolation,
 )
 from knowledge_map.relations import (
     MAX_RELATION_PAIRS,
@@ -174,26 +175,6 @@ def test_singleton_resolution_is_deterministic_keep_with_all_provenance():
     assert formal["operation"] not in {"SPLIT", "MERGE", "RENAME", "DROP"}
 
 
-def test_resolution_groups_near_synonym_and_cross_language_labels_for_semantic_review():
-    study = _study()
-    second = deepcopy(study["concepts"][0])
-    second["label"] = "資料結構 (Data Structure)"
-    second["concept_id"] = concept_id(
-        second["page_ref"],
-        second["label"],
-        second["definition"],
-        second["key_points"],
-    )
-
-    requests = build_resolution_requests([study["concepts"][0], second])
-
-    assert len(requests) == 1
-    assert [item["label"] for item in requests[0][0]["candidates"]] == [
-        study["concepts"][0]["label"],
-        "資料結構 (Data Structure)",
-    ]
-
-
 def test_singleton_generation_skips_qwen_and_promotes_resource(monkeypatch):
     study = _study()
     library = _matching_resource_library(study["concepts"][0]["label"])
@@ -262,6 +243,93 @@ def test_resolution_rejects_claim_subset_as_missing():
         assert str(error) == "RESOLUTION_CLAIM_MISSING"
     else:
         raise AssertionError("claim subset must fail closed")
+
+
+def test_invalid_merge_shape_keeps_other_grounded_concepts_in_partial_map():
+    study = _study()
+    sources = []
+    for index in range(4):
+        concept = deepcopy(study["concepts"][0])
+        concept["label"] = "Shared Concept"
+        concept["definition"] = deepcopy(concept["definition"])
+        concept["definition"]["text"] = f"Concept {index + 1} has a grounded definition."
+        concept["definition"]["claim_id"] = claim_id(
+            concept["page_ref"], "definition", {
+                "text": concept["definition"]["text"],
+                "evidence_ids": concept["definition"]["evidence_ids"],
+            }
+        )
+        concept["key_points"] = deepcopy(concept["key_points"])
+        concept["key_points"][0]["text"] = f"Concept {index + 1} has a grounded point."
+        concept["key_points"][0]["claim_id"] = claim_id(
+            concept["page_ref"], "key_point", {
+                "text": concept["key_points"][0]["text"],
+                "evidence_ids": concept["key_points"][0]["evidence_ids"],
+            }, index=0,
+        )
+        concept["concept_id"] = concept_id(
+            concept["page_ref"], concept["label"],
+            concept["definition"], concept["key_points"],
+        )
+        sources.append(concept)
+    study["concepts"] = sources
+    study.pop("output_id")
+    study["output_id"] = "study-material-output:sha256:" + canonical_sha256(study)
+    request, concepts, claims = build_resolution_requests(sources)[0]
+    aliases_by_candidate = {
+        candidate["id"]: [claim["id"] for claim in candidate["claims"]]
+        for candidate in request["candidates"]
+    }
+    candidate = {
+        "schema": "formal-concept-resolution/v1",
+        "group_id": request["group_id"],
+        "resolutions": [
+            {
+                "operation": "KEEP",
+                "source_ids": [alias],
+                "nodes": [{
+                    "label": request["candidates"][index]["label"],
+                    "claim_ids": aliases_by_candidate[alias],
+                }],
+            }
+            for index, alias in enumerate(("c1", "c2"))
+        ] + [{
+            "operation": "MERGE",
+            "source_ids": ["c3", "c4"],
+            "nodes": [
+                {"label": "Part A", "claim_ids": aliases_by_candidate["c3"]},
+                {"label": "Part B", "claim_ids": aliases_by_candidate["c4"]},
+            ],
+        }],
+    }
+
+    artifact = validate_resolution_with_isolation(
+        candidate,
+        request=request,
+        concept_aliases=concepts,
+        claim_aliases=claims,
+        source_concepts=sources,
+    )
+    knowledge_map = build_knowledge_map(
+        study,
+        [artifact],
+        [],
+        relation_pair_status={
+            "processing": "succeeded",
+            "reason_codes": ["RELATION_REVIEW_REQUIRED"],
+        },
+        resource_promotion=_resource_promotion(study, artifact["formal_concepts"]),
+        material_runtime_binding_sha256="f" * 64,
+    )
+
+    assert artifact["processing"] == "partial"
+    assert len(artifact["formal_concepts"]) == 2
+    assert "MODEL_OUTPUT_INVALID" in artifact["reason_codes"]
+    assert knowledge_map["processing"] == "partial"
+    assert knowledge_map["decision"] == "review"
+    assert len(knowledge_map["formal_concepts"]) == 2
+    assert "MODEL_OUTPUT_INVALID" in knowledge_map["reason_codes"]
+    assert validate_knowledge_map(knowledge_map) is None
 
 
 def test_resolution_rejects_missing_duplicate_and_split_above_two():

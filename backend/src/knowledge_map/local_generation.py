@@ -25,7 +25,7 @@ from .artifacts import build_knowledge_map
 from .formal_concepts import (
     build_resolution_requests,
     resolve_singleton,
-    validate_resolution,
+    validate_resolution_with_isolation,
 )
 from .relations import (
     build_relation_artifact,
@@ -323,7 +323,7 @@ def generate_knowledge_map(
                     _resolution_format(request),
                 )
                 resolution_artifacts.append(
-                    validate_resolution(
+                    validate_resolution_with_isolation(
                         _json_document(model_text),
                         request=request,
                         concept_aliases=concept_aliases,

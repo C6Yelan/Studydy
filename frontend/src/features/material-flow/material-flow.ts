@@ -36,3 +36,8 @@ export function materialFailureMessage(errorCode: string): string {
   }
   return "教材分析未能安全完成，沒有發布知識地圖。";
 }
+
+export function materialRunHasUsableMap(run: MaterialProcessingRunView): boolean {
+  return run.output_binding !== null
+    && !run.output_binding.reason_codes.includes("NO_FORMAL_CONCEPT");
+}

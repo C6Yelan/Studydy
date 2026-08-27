@@ -289,7 +289,7 @@ export function weaknessView(options: {
   eventWatermark?: number;
   stateRevision?: string;
 } = {}): WeaknessView {
-  const category = options.category ?? "not_enough_data";
+  const category = options.category ?? "none";
   const findings = category === "none" || category === "prerequisite_gap" ? [] : [{
     target_formal_concept_id: targetConceptId,
     target_label: "目標概念",
