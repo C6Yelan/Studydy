@@ -181,11 +181,65 @@ def test_title_only_evidence_cannot_support_an_expanded_definition():
     assert artifact["processing"] == "partial"
 
 
+def test_invalid_definition_is_replaced_by_grounded_explanation():
+    request = {
+        "schema": "concept-generation-input/v3",
+        "evidence": [
+            {"id": "e1", "text": "Process Tools (1 of 8)"},
+            {
+                "id": "e2",
+                "text": (
+                    "A process description documents business logic. "
+                    "Decision tables describe combinations of conditions."
+                ),
+            },
+        ],
+    }
+    artifact = validate_concepts(
+        json.dumps({
+            "concepts": [{
+                "label": "Process Tools",
+                "definition": {
+                    "text": "Process Tools are a complete modeling framework.",
+                    "evidence_ids": ["e1"],
+                },
+                "key_points": [
+                    {
+                        "text": "A process description documents business logic.",
+                        "evidence_ids": ["e2"],
+                    },
+                    {
+                        "text": "Decision tables describe combinations of conditions.",
+                        "evidence_ids": ["e2"],
+                    },
+                ],
+            }],
+        }),
+        semantic_request=request,
+        evidence_aliases={"e1": "evidence-one", "e2": "evidence-two"},
+        page_ref="page:sha256:" + "1" * 64,
+        input_binding={"evidence_allowlist": ["evidence-one", "evidence-two"]},
+        attempt=1,
+    )
+
+    concept = artifact["concepts"][0]
+    assert concept["definition"]["text"] == (
+        "A process description documents business logic."
+    )
+    assert [point["text"] for point in concept["key_points"]] == [
+        "Decision tables describe combinations of conditions."
+    ]
+    assert concept["processing"] == "partial"
+
+
 def test_visual_index_and_scalar_fragments_are_removed_but_short_claim_survives():
     evidence_text = (
         "A circular queue stores elements in a fixed-size ring. "
         "front = 5 rear = 4 [0] [1] (a) full circular queue. "
-        "Queue is full. The rear pointer advances after insertion."
+        "Queue is full. The rear pointer advances after insertion. "
+        "Figure 5-20 Sequence Structure. "
+        "Figure 5-24 illustrates a complete decision table. "
+        "Circular queue (1 of 8)."
     )
     request = {
         "schema": "concept-generation-input/v3",
@@ -203,6 +257,18 @@ def test_visual_index_and_scalar_fragments_are_removed_but_short_claim_survives(
                     {"text": "front = 5", "evidence_ids": ["e1"]},
                     {"text": "[0] [1]", "evidence_ids": ["e1"]},
                     {"text": "(a) full circular queue", "evidence_ids": ["e1"]},
+                    {
+                        "text": "Figure 5-20 Sequence Structure",
+                        "evidence_ids": ["e1"],
+                    },
+                    {
+                        "text": "Figure 5-24 illustrates a complete decision table.",
+                        "evidence_ids": ["e1"],
+                    },
+                    {
+                        "text": "Circular queue (1 of 8)",
+                        "evidence_ids": ["e1"],
+                    },
                     {"text": "Queue is full.", "evidence_ids": ["e1"]},
                     {
                         "text": "The rear pointer advances after insertion.",
@@ -219,6 +285,7 @@ def test_visual_index_and_scalar_fragments_are_removed_but_short_claim_survives(
     )
 
     assert [point["text"] for point in artifact["concepts"][0]["key_points"]] == [
+        "Figure 5-24 illustrates a complete decision table.",
         "Queue is full.",
         "The rear pointer advances after insertion.",
     ]

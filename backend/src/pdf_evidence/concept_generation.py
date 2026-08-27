@@ -23,10 +23,18 @@ _SIMPLE_ASSIGNMENTS = re.compile(
     r"(?:\s*[,，]\s*)?)+$"
 )
 _PANEL_LABEL = re.compile(r"^\([A-Za-z0-9]+\)\s*(.+)$")
+_PAGE_SEQUENCE_SUFFIX = re.compile(
+    r"\s*\(\s*\d+\s+of\s+\d+\s*\)\s*$", re.IGNORECASE
+)
+_FIGURE_CAPTION = re.compile(
+    r"^(?:figure|fig\.?|圖)\s*[A-Za-z0-9.-]*\s*[:：-]?\s*(.+)$",
+    re.IGNORECASE,
+)
 _ENGLISH_PREDICATE = re.compile(
     r"\b(?:is|are|was|were|has|have|contains?|includes?|uses?|requires?|"
     r"provides?|describes?|represents?|becomes?|stores?|shows?|allows?|"
-    r"supports?|creates?|increases?|decreases?)\b",
+    r"supports?|creates?|increases?|decreases?|illustrates?|depicts?|"
+    r"demonstrates?|showing|follow)\b",
     re.IGNORECASE,
 )
 _CHINESE_PREDICATE = re.compile(
@@ -124,19 +132,26 @@ def _claim_is_grounded(text: str, evidence_text: str) -> bool:
 
 def _claim_is_fragment(text: str, label: str) -> bool:
     normalized = " ".join(unicodedata.normalize("NFKC", text).split())
-    if normalized.casefold() == " ".join(
+    normalized_label = " ".join(
         unicodedata.normalize("NFKC", label).split()
-    ).casefold():
+    ).casefold()
+    if normalized.casefold() == normalized_label:
+        return True
+    without_sequence = _PAGE_SEQUENCE_SUFFIX.sub("", normalized).strip()
+    if without_sequence.casefold() == normalized_label:
         return True
     if _BRACKET_INDEXES.fullmatch(normalized):
         return True
     if _SIMPLE_ASSIGNMENTS.fullmatch(normalized):
         return True
     panel = _PANEL_LABEL.fullmatch(normalized)
-    if panel is None:
+    figure = _FIGURE_CAPTION.fullmatch(normalized)
+    caption = panel.group(1) if panel is not None else (
+        figure.group(1) if figure is not None else None
+    )
+    if caption is None:
         return False
-    caption = panel.group(1)
-    return not (
+    return not bool(
         _ENGLISH_PREDICATE.search(caption)
         or _CHINESE_PREDICATE.search(caption)
     )
@@ -240,14 +255,25 @@ def _candidate_reason(
         }:
             raise SemanticOutputError("CANDIDATE_SCHEMA_INVALID")
         label = _normalized_candidate_text(candidate["label"])
-        definition = _claim(
-            candidate["definition"], evidence_aliases, evidence_by_alias, label
-        )
+        definition = None
+        definition_reason = None
+        has_rejected_point = False
+        try:
+            definition = _claim(
+                candidate["definition"], evidence_aliases, evidence_by_alias, label
+            )
+        except SemanticOutputError as error:
+            if error.reason_code not in {
+                "CLAIM_EVIDENCE_UNSUPPORTED",
+                "CLAIM_FRAGMENT_UNUSABLE",
+            }:
+                raise
+            definition_reason = error.reason_code
+            has_rejected_point = True
         key_points = candidate["key_points"]
         if not isinstance(key_points, list) or not key_points:
             raise SemanticOutputError("INVALID_KEY_POINTS")
         normalized_points = []
-        has_rejected_point = False
         for point in key_points:
             try:
                 normalized_points.append(
@@ -260,6 +286,12 @@ def _candidate_reason(
                 }:
                     raise
                 has_rejected_point = True
+        if definition is None:
+            if len(normalized_points) < 2:
+                raise SemanticOutputError(
+                    definition_reason or "INVALID_KEY_POINTS"
+                )
+            definition = normalized_points.pop(0)
         if not normalized_points:
             raise SemanticOutputError("INVALID_KEY_POINTS")
         return {

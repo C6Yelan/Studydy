@@ -48,6 +48,27 @@ def _label_pattern(label: str) -> str | None:
     return prefix + escaped + suffix
 
 
+def _related_label_patterns(label: str) -> tuple[str, ...]:
+    normalized = _text(label)
+    exact = _label_pattern(label)
+    if exact is None:
+        return ()
+    aliases = {normalized}
+    if re.fullmatch(r"[a-z0-9 -]+", normalized) and not normalized.endswith("s"):
+        aliases.add(
+            normalized[:-1] + "ies"
+            if normalized.endswith("y")
+            else normalized + "s"
+        )
+    patterns = []
+    for alias in sorted(aliases):
+        escaped = re.escape(alias)
+        prefix = r"(?<![0-9a-z])" if alias[0].isalnum() else ""
+        suffix = r"(?![0-9a-z])" if alias[-1].isalnum() else ""
+        patterns.append(prefix + escaped + suffix)
+    return tuple(patterns)
+
+
 def _is_safe_prerequisite_claim(
     claim_text: str, *, reject_non_learning_context: bool
 ) -> bool:
@@ -161,21 +182,25 @@ def _related_claims(
     supporting: list[tuple[str, dict[str, Any]]] = []
     signals: set[str] = set()
     for concept, other in ((left, right), (right, left)):
-        other_label = _label_pattern(other["label"])
-        if other_label is None:
+        other_labels = _related_label_patterns(other["label"])
+        if not other_labels:
             continue
         for claim_text, claim in _claims(concept):
-            cross_reference_patterns = (
-                rf"\b(?:see|refer to|compare with|related to|example of|application of)\b.{{0,60}}{other_label}",
-                rf"{other_label}.{{0,60}}\b(?:example|application|related topic)\b",
-                rf"(?:參見|另見|比較|相關於|例如|應用於).{{0,40}}{other_label}",
-                rf"{other_label}.{{0,40}}(?:的例子|的應用|相關主題)",
+            cross_reference_patterns = tuple(
+                pattern
+                for other_label in other_labels
+                for pattern in (
+                    rf"\b(?:see|refer to|compare with|related to|example of|application of)\b.{{0,60}}{other_label}",
+                    rf"{other_label}.{{0,60}}\b(?:example|application|related topic)\b",
+                    rf"(?:參見|另見|比較|相關於|例如|應用於).{{0,40}}{other_label}",
+                    rf"{other_label}.{{0,40}}(?:的例子|的應用|相關主題)",
+                )
             )
             if any(re.search(pattern, claim_text) for pattern in cross_reference_patterns):
                 supporting.append((concept["formal_concept_id"], claim))
                 signals.add("cross_reference")
                 continue
-            if re.search(other_label, claim_text):
+            if any(re.search(pattern, claim_text) for pattern in other_labels):
                 supporting.append((concept["formal_concept_id"], claim))
                 signals.add("label_mention")
     left_evidence = {

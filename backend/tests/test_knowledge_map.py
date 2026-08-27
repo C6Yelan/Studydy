@@ -1176,6 +1176,7 @@ def test_related_requires_grounded_association_and_never_calls_verifier():
     assert [relation["type"] for relation in initial["relations"]] == ["related"]
 
     left["claims"][0]["text"] = "See Graph Models for a visualization example."
+    right["claims"][0]["text"] = "Visualizations can show entities."
     one_sided = build_relation_artifact(
         pair, [left, right], _relation_pages([left, right]), lambda *_: True
     )
@@ -1212,6 +1213,33 @@ def test_same_label_duplicate_concepts_do_not_publish_related_edge():
     assert artifact["relations"] == []
     assert artifact["diagnostics"]["rejected_no_evidence"] == 1
     assert calls == []
+
+
+def test_grounded_plural_endpoint_mention_publishes_related():
+    tools = _relation_concept(
+        1,
+        "Process Description Tools",
+        "Process description tools include structured English, decision tables, and decision trees.",
+    )
+    decision_table = _relation_concept(
+        2,
+        "Decision Table",
+        "A decision table shows combinations of conditions and outcomes.",
+    )
+
+    artifact = build_relation_artifact(
+        [(tools["formal_concept_id"], decision_table["formal_concept_id"])],
+        [tools, decision_table],
+        _relation_pages([tools, decision_table]),
+        lambda *_: True,
+    )
+
+    assert [relation["type"] for relation in artifact["relations"]] == ["related"]
+    assert artifact["relations"][0]["relation_evidence"] == [{
+        "owner_formal_concept_id": tools["formal_concept_id"],
+        "claim_id": tools["claims"][0]["claim_id"],
+        "evidence_ids": tools["claims"][0]["evidence_ids"],
+    }]
 
 
 def test_map_revision_binds_formal_nodes_relations_path_and_cycle_exclusion():

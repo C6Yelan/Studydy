@@ -64,9 +64,9 @@ _CONFIG_PATH_KEYS = {
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "ac776825b3e8c7aa50cd9e81a9ca743e562c2e10703279494efdd531f81c4de8",
+    "local_ai/runtime-lock.json": "a08ab858d95053cae63f426da544800f1722b0d610100da2d6a175e59b7b42cf",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "69deb46b06762b82ec75eded692452329d7e364c2b3e8a4ff4b6ac1fa14e71c0",
-    "backend/src/pdf_evidence/concept_generation.py": "c5ef034a09e49a57798a8361d6eb580a1071f918602af81997531d59d590f2da",
+    "backend/src/pdf_evidence/concept_generation.py": "637d694575911ed52a145ec3fa3666dd2ac6490092b46f34134048e621986a7b",
     "backend/src/pdf_evidence/concept_api.py": "197cac723f404f31c0fc771631146f2d5fdec51b82b6a19b7e6d01c3b79cbf24",
     "backend/src/pdf_evidence/process_guard.py": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
     "backend/src/pdf_evidence/local_ai_process.py": "32686d52b8ef2a472dab833fdaa15bad4c45121e7c68f62af8fc05e53799578a",

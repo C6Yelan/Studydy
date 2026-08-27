@@ -29,7 +29,8 @@ from .assessment_items import (
     StoredAssessment,
     build_single_choice_assessment,
     store_assessment,
-    used_question_ids,
+    question_reuse_key,
+    used_question_keys,
     validate_assessment_generation_provenance,
 )
 from .assessment_model_api import request_assessment_text
@@ -954,6 +955,8 @@ def _first_unused_documents(
             settings,
         )
         if documents.public_document.question_id not in used_questions:
+            if question_reuse_key(documents.public_document) in used_questions:
+                continue
             assessment_lock = settings["assessment_runtime_lock"]
             risky_proposal = (
                 selected.candidate.stage == "proposal"
@@ -1027,10 +1030,9 @@ def generate_and_store_assessment(
         assessment_lock = load_assessment_runtime_lock()
         settings = {**local_config, "assessment_runtime_lock": assessment_lock}
         grounding = _grounding(concept, target_claim_id, assessment_lock)
-        used_questions = used_question_ids(
+        used_questions = used_question_keys(
             learner,
             study_session.study_session_id,
-            target_claim_id,
             dsn=dsn,
         )
     except AssessmentGenerationError:

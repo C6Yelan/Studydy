@@ -26,6 +26,7 @@ from learning_adaptation.assessment_items import (
     AssessmentError,
     build_single_choice_assessment,
     project_public_assessment,
+    question_reuse_key,
     read_assessment,
     store_assessment,
     validate_assessment_generation_provenance,
@@ -300,6 +301,40 @@ def test_valid_public_private_round_trip_and_public_projection_has_no_answer_lea
         "raw_material_content",
     ):
         assert forbidden not in serialized
+
+
+def test_same_semantic_question_on_alternate_claim_has_distinct_identity():
+    knowledge_map = _knowledge_map()
+    target = knowledge_map["formal_concepts"][0]
+    session_id = uuid4()
+    first = build_single_choice_assessment(
+        session_id,
+        knowledge_map["revision"],
+        target["formal_concept_id"],
+        "claim:sha256:" + "1" * 64,
+        target["claims"][0]["evidence_ids"],
+        "Which statement is grounded?",
+        ["First", "Second", "Third", "Fourth"],
+        0,
+        "The first option follows from the cited Evidence.",
+    )
+    alternate = build_single_choice_assessment(
+        session_id,
+        knowledge_map["revision"],
+        target["formal_concept_id"],
+        "claim:sha256:" + "2" * 64,
+        target["claims"][0]["evidence_ids"],
+        "Which statement is grounded?",
+        ["First", "Second", "Third", "Fourth"],
+        0,
+        "The first option follows from the cited Evidence.",
+    )
+
+    assert first.public_document.question_id != alternate.public_document.question_id
+    assert first.public_document.target_claim_id != alternate.public_document.target_claim_id
+    assert question_reuse_key(first.public_document) == question_reuse_key(
+        alternate.public_document
+    )
 
 
 def test_four_private_answers_and_predictable_rationales_have_identical_public_bytes():

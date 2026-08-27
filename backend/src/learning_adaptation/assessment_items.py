@@ -290,6 +290,23 @@ def _question_semantic_content(
     }
 
 
+def question_reuse_key(
+    public_document: PublicAssessmentDocument,
+) -> str:
+    """跨Claim比較學生實際看到的同Concept題意與選項。"""
+
+    return "question-semantic:sha256:" + canonical_sha256({
+        "knowledge_map_revision": public_document.knowledge_map_revision,
+        "target_formal_concept_id": public_document.target_formal_concept_id,
+        "question_type": public_document.question_type,
+        "prompt": _normalized_text(public_document.prompt),
+        "option_texts": sorted(
+            _normalized_text(option.text) for option in public_document.options
+        ),
+        "policy_revision": public_document.policy_revision,
+    })
+
+
 def _expected_option_ids(
     question_id: str, options: list[AssessmentOption]
 ) -> list[str]:
@@ -586,6 +603,47 @@ def used_question_ids(
     except (StudySessionError, MapContextError):
         raise _error("ASSESSMENT_UNAVAILABLE") from None
     except (DatabaseConfigurationError, SQLAlchemyError, TypeError, ValueError):
+        raise _error("ASSESSMENT_STORAGE_FAILED") from None
+
+
+def used_question_keys(
+    learner: TrustedLearner,
+    study_session_id: UUID,
+    *,
+    dsn: str | None = None,
+) -> frozenset[str]:
+    """回傳同一StudySession所有question IDs與跨Claim semantic keys。"""
+
+    if not isinstance(study_session_id, UUID):
+        raise _error("ASSESSMENT_UNAVAILABLE")
+    try:
+        learner_id = _learner_id(learner)
+        with database_session(dsn) as session:
+            study_session = _read_stored_row(
+                session, learner_id, study_session_id
+            )
+            _validate_binding(session, study_session)
+            keys: set[str] = set()
+            for question_id, public_document in session.execute(
+                select(Assessment.question_id, Assessment.public_document).where(
+                    Assessment.study_session_id == study_session_id
+                )
+            ):
+                public = PublicAssessmentDocument.model_validate(public_document)
+                keys.add(question_id)
+                keys.add(question_reuse_key(public))
+            return frozenset(keys)
+    except AssessmentError:
+        raise
+    except (StudySessionError, MapContextError):
+        raise _error("ASSESSMENT_UNAVAILABLE") from None
+    except (
+        DatabaseConfigurationError,
+        SQLAlchemyError,
+        ValidationError,
+        TypeError,
+        ValueError,
+    ):
         raise _error("ASSESSMENT_STORAGE_FAILED") from None
 
 
