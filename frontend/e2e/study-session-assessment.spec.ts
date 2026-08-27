@@ -32,10 +32,15 @@ async function fulfillJson(route: Route, json: unknown, status = 200) {
   await route.fulfill({ status, json });
 }
 
-async function learningRoutes(page: Page, eventWatermark: () => number = () => 0) {
+async function learningRoutes(
+  page: Page,
+  eventWatermark: () => number = () => 0,
+  knowledgeMap = mapView(),
+  context = contextView(),
+) {
   await page.route("**/v1/session/refresh", (route) => route.fulfill({ status: 204 }));
   await page.route(`**/v1/material-processing-runs/${runId}`, (route) => fulfillJson(route, runView()));
-  await page.route("**/v1/materials/*/knowledge-maps/**", (route) => fulfillJson(route, mapView()));
+  await page.route("**/v1/materials/*/knowledge-maps/**", (route) => fulfillJson(route, knowledgeMap));
   await page.route("**/v1/study-sessions", async (route) => {
     expect(route.request().method()).toBe("POST");
     expect(await route.request().postDataJSON()).toEqual({
@@ -47,7 +52,7 @@ async function learningRoutes(page: Page, eventWatermark: () => number = () => 0
     await fulfillJson(route, sessionView(), 201);
   });
   await page.route(`**/v1/study-sessions/${studySessionId}`, (route) => fulfillJson(route, sessionView({ event_watermark: eventWatermark() })));
-  await page.route(`**/v1/study-sessions/${studySessionId}/context`, (route) => fulfillJson(route, contextView()));
+  await page.route(`**/v1/study-sessions/${studySessionId}/context`, (route) => fulfillJson(route, context));
   await page.route(`**/v1/study-sessions/${studySessionId}/learning-state`, (route) => fulfillJson(route, learningStateView({ eventWatermark: eventWatermark() })));
   await page.route(`**/v1/study-sessions/${studySessionId}/weakness`, (route) => fulfillJson(route, weaknessView({ eventWatermark: eventWatermark() })));
   await page.route(`**/v1/study-sessions/${studySessionId}/adaptive-plan`, (route) => fulfillJson(route, adaptiveView({ eventWatermark: eventWatermark() })));
@@ -126,6 +131,41 @@ test("Assessment 沒有新安全題目時提供可理解 fallback", async ({ pag
   await page.getByRole("button", { name: "開始評量" }).click();
   await expect(page.getByRole("heading", { name: "目前沒有新的安全題目" })).toBeVisible();
   await expect(page.getByText(/先回到教材重點/)).toBeVisible();
+});
+
+test("Assessment default Claim no-safe時改試較小Evidence範圍", async ({ page }) => {
+  const knowledgeMap = mapView();
+  const target = knowledgeMap.concepts[1];
+  const fallbackClaimId = `claim:sha256:${"f".repeat(64)}`;
+  target.claims.push({
+    ...structuredClone(target.claims[0]),
+    claim_id: fallbackClaimId,
+    text: "另一個有教材依據的重點。",
+  });
+  const context = contextView();
+  context.initial_learning_path[1].claim_ids.push(fallbackClaimId);
+  await learningRoutes(page, () => 0, knowledgeMap, context);
+  let requests = 0;
+  await page.route(`**/v1/study-sessions/${studySessionId}/assessments`, async (route) => {
+    requests += 1;
+    const body = await route.request().postDataJSON();
+    if (requests === 1) {
+      expect(body.target_claim_id).toBe(knowledgeMap.concepts[1].claims[0].claim_id);
+      await fulfillJson(route, apiError("RESOURCE_NOT_FOUND"), 404);
+      return;
+    }
+    expect(body.target_claim_id).toBe(fallbackClaimId);
+    await fulfillJson(route, {
+      ...assessmentView(1),
+      target_claim_id: fallbackClaimId,
+    }, 201);
+  });
+
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}/study-sessions/${studySessionId}`);
+  await page.getByRole("button", { name: "開始評量" }).click();
+  await expect(page.getByRole("heading", { name: "哪個選項符合目標概念？" })).toBeVisible();
+  await expect(page.getByText("目前重點沒有安全題目，已改練另一個教材重點。")).toBeVisible();
+  expect(requests).toBe(2);
 });
 
 test("Assessment stale/idempotency conflict 不會在 client 端猜測結果", async ({ page }) => {
