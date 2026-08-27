@@ -15,7 +15,7 @@ import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { AssessmentPanel } from "../assessment/AssessmentPanel";
 import { AdaptiveNextStep } from "../adaptive-learning/AdaptiveNextStep";
-import { safeExternalUrl } from "../knowledge-map/knowledge-map";
+import { learningPathReason, safeExternalUrl } from "../knowledge-map/knowledge-map";
 import { LearningInsights } from "../learning-state/LearningInsights";
 import "./styles.css";
 
@@ -85,20 +85,37 @@ function assertRouteBinding(route: Extract<AppRoute, { name: "study-session" }>,
   ) throw new Error("STUDY_ROUTE_BINDING_MISMATCH");
 }
 
-function SessionPath({ context }: { context: StudyContextView }) {
+function SessionPath({ context, learningState, view }: {
+  context: StudyContextView;
+  learningState: LearningStateView;
+  view: KnowledgeMapView;
+}) {
+  const mastered = new Set(learningState.concept_states
+    .filter((state) => state.status === "mastered")
+    .map((state) => state.formal_concept_id));
+  const currentIndex = context.initial_learning_path.findIndex((concept) =>
+    concept.formal_concept_id === context.current_formal_concept_id);
+  const nextConceptId = context.initial_learning_path
+    .slice(currentIndex + 1)
+    .find((concept) => !mastered.has(concept.formal_concept_id))?.formal_concept_id;
   return (
     <section className="surface session-path" aria-labelledby="session-path-title">
-      <p className="eyebrow">Canonical map</p>
+      <p className="eyebrow">你的學習方向</p>
       <h2 id="session-path-title">教材建議學習順序</h2>
-      <p>這份順序來自 Knowledge Map，不會因本次作答而改寫。</p>
+      <p>作答會更新本次進度，但不會改寫這份教材順序。</p>
       <ol>
         {context.initial_learning_path.map((concept, index) => {
           const isCurrent = concept.formal_concept_id === context.current_formal_concept_id;
           const isDeferred = concept.formal_concept_id === context.deferred_formal_concept_id;
+          const isCompleted = mastered.has(concept.formal_concept_id);
+          const isNext = concept.formal_concept_id === nextConceptId;
           return (
-            <li className={isCurrent ? "is-current" : isDeferred ? "is-deferred" : undefined} key={concept.formal_concept_id}>
+            <li className={isCurrent ? "is-current" : isCompleted ? "is-completed" : isDeferred ? "is-deferred" : undefined} key={concept.formal_concept_id}>
               <span>{index + 1}</span>
-              <div><strong>{concept.label}</strong>{isCurrent && <small>目前概念</small>}{isDeferred && <small>稍後回到這裡</small>}</div>
+              <div>
+                <strong>{concept.label}</strong>
+                <small>{isCurrent ? "目前" : isCompleted ? "已完成" : isNext ? "下一步" : isDeferred ? "稍後回到這裡" : learningPathReason(view, concept.formal_concept_id)}</small>
+              </div>
             </li>
           );
         })}
@@ -116,7 +133,7 @@ function CompletedSession({ route }: { route: Extract<AppRoute, { name: "study-s
         runId: route.runId,
         mapRevision: route.mapRevision,
       })}>回到知識地圖<Icon name="map" /></button>}
-      description="這次學習已結束。結果只屬於這次 StudySession；回到地圖後可以開始一個全新的本次學習。"
+      description="這次學習已結束。回到地圖後，可以從任何概念開始新的學習。"
       image="/assets/studydy/success-jump.png"
       title="本次學習已完成"
       tone="success"
@@ -136,6 +153,7 @@ export function StudySessionPage({ apiClient, route }: {
   const [isRefreshingInsights, setIsRefreshingInsights] = useState(false);
   const [isApplyingPlan, setIsApplyingPlan] = useState(false);
   const [adaptiveMessage, setAdaptiveMessage] = useState<string | null>(null);
+  const [hasNoSafeItem, setHasNoSafeItem] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -202,7 +220,7 @@ export function StudySessionPage({ apiClient, route }: {
         runId: route.runId,
         mapRevision: route.mapRevision,
       })}>回到知識地圖</button>}
-      description="這個 StudySession 目前沒有可安全顯示的學習概念。"
+      description="這次學習目前沒有可安全顯示的教材概念。"
       image="/assets/studydy/empty-disappointed.png"
       title="目前沒有學習內容"
       tone="empty"
@@ -282,13 +300,13 @@ export function StudySessionPage({ apiClient, route }: {
       {completeMessage && <p className="study-error" role="alert">{completeMessage}</p>}
       {adaptiveMessage && <p className="study-error" role="alert">{adaptiveMessage}</p>}
       <div className="study-layout">
-        <SessionPath context={data.context} />
+        <SessionPath context={data.context} learningState={data.learningState} view={data.view} />
         <div className="study-main-column">
           <article className="surface current-concept-card">
             <div className="current-concept-copy">
               <p className="eyebrow">目前概念</p>
               <h2>{currentConcept.label}</h2>
-              {currentConcept.claims.map((claim) => (
+              {currentConcept.claims.slice(0, 1).map((claim) => (
                 <section className="study-claim" key={claim.claim_id}>
                   <p>{claim.text}</p>
                   <div>
@@ -307,6 +325,28 @@ export function StudySessionPage({ apiClient, route }: {
                   </div>
                 </section>
               ))}
+              {currentConcept.claims.length > 1 && (
+                <details className="additional-claims">
+                  <summary>查看另外 {currentConcept.claims.length - 1} 個教材重點</summary>
+                  {currentConcept.claims.slice(1).map((claim) => (
+                    <section className="study-claim" key={claim.claim_id}>
+                      <p>{claim.text}</p>
+                      <div>{claim.evidence.map((evidence) => (
+                        <button
+                          className="text-button"
+                          key={evidence.evidence_id}
+                          type="button"
+                          onClick={() => window.open(
+                            apiClient.sourceArtifactUrl(data.sourceArtifactId, evidence.page_number),
+                            "_blank",
+                            "noopener,noreferrer",
+                          )}
+                        >原始教材第 {evidence.page_number} 頁<Icon name="chevron-right" /></button>
+                      ))}</div>
+                    </section>
+                  ))}
+                </details>
+              )}
             </div>
             <img src="/assets/studydy/learning-guide.png" alt="" />
           </article>
@@ -324,8 +364,10 @@ export function StudySessionPage({ apiClient, route }: {
           <AdaptiveNextStep
             adaptive={data.adaptive}
             context={data.context}
+            hasNoSafeItem={hasNoSafeItem}
             isApplying={isApplyingPlan || isRefreshingInsights}
             onApply={() => void applyPlan()}
+            onReviewEvidence={() => document.getElementById("assessment-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}
           />
 
           <LearningInsights
@@ -338,6 +380,7 @@ export function StudySessionPage({ apiClient, route }: {
             <AssessmentPanel
               apiClient={apiClient}
               concept={currentConcept}
+              onNoSafeItem={setHasNoSafeItem}
               onReloadSession={() => window.location.reload()}
               onSubmitted={(_feedback: AnswerFeedbackView) => { void refreshInsights(); }}
               sourceArtifactId={data.sourceArtifactId}

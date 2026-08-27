@@ -101,6 +101,31 @@
   border-top: 1px solid var(--border-light);
 }
 
+.untouched-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-5) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-input);
+  color: var(--text-secondary);
+  background: var(--page-cool);
+}
+
+.learning-findings {
+  margin-top: var(--space-4);
+}
+
+.learning-findings summary {
+  color: var(--studydy-blue);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.learning-findings[open] summary {
+  margin-bottom: var(--space-3);
+}
+
 .weakness-card {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);

@@ -174,29 +174,29 @@ test("Knowledge Map 只呈現 published 三種 Relation，related 保持對稱",
 
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}`);
   await expect(page.getByRole("heading", { name: "知識地圖", exact: true })).toBeVisible();
-  await expect(page.locator(".concept-card")).toHaveCount(3);
+  await expect(page.locator(".focus-node")).toHaveCount(3);
   await captureAcceptance(page, "01_app_shell_desktop.png");
-  await captureAcceptance(page, "05_map_overview.png");
+  await captureAcceptance(page, "06_map_focus_concept.png");
 
-  await page.getByRole("tab", { name: "焦點探索" }).click();
+  await page.getByRole("tab", { name: "概念地圖" }).click();
   await expect(page.locator('.relation-connector.is-prerequisite[data-directional="true"]').first()).toBeVisible();
   await expect(page.locator('.relation-connector.is-contains[data-directional="true"]').first()).toBeVisible();
   await expect(page.locator('.relation-connector.is-related[data-directional="false"]').first()).toBeVisible();
   await expect(page.getByText(/similar|confusing|application|example/i)).toHaveCount(0);
   await expect(page.getByText(/candidate_pairs|verifier_calls|relation_diagnostics/i)).toHaveCount(0);
-  await captureAcceptance(page, "06_map_focus_concept.png");
-
-  await page.locator(".relation-list > button").filter({ hasText: "互相關聯" }).click();
+  await page.locator(".focus-edge.is-related").click();
   await expect(page.getByRole("heading", { name: "互相關聯" })).toBeVisible();
   await expect(page.getByText("兩個概念在教材中互有關聯，沒有單向學習箭頭。")).toBeVisible();
   await captureAcceptance(page, "07_relation_detail.png");
 
-  await page.getByRole("tab", { name: "教材順序" }).click();
+  await page.getByRole("tab", { name: "學習順序" }).click();
   await expect(page.getByRole("heading", { name: "教材建議學習順序" })).toBeVisible();
   await expect(page.locator(".learning-path li")).toHaveCount(3);
   await captureAcceptance(page, "08_initial_path.png");
 
   await page.getByRole("tab", { name: "總覽" }).click();
+  await expect(page.locator(".concept-card")).toHaveCount(3);
+  await captureAcceptance(page, "05_map_overview.png");
   await page.getByRole("button", { name: /概念甲/ }).click();
   await expect(page.getByLabel("概念詳情").getByText("概念甲 的教材重點。")).toBeVisible();
   await expect(page.getByRole("link", { name: "開啟資源" })).toHaveAttribute("href", "https://example.com/resource");

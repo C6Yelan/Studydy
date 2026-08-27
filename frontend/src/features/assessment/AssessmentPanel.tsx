@@ -33,9 +33,10 @@ function assessmentError(error: unknown): AssessmentError {
   };
 }
 
-export function AssessmentPanel({ apiClient, concept, onReloadSession, onSubmitted, sourceArtifactId, studySessionId, view }: {
+export function AssessmentPanel({ apiClient, concept, onNoSafeItem, onReloadSession, onSubmitted, sourceArtifactId, studySessionId, view }: {
   apiClient: StudydyApiClient;
   concept: Concept;
+  onNoSafeItem: (isUnavailable: boolean) => void;
   onReloadSession: () => void;
   onSubmitted: (feedback: AnswerFeedbackView) => void;
   sourceArtifactId: string;
@@ -48,6 +49,7 @@ export function AssessmentPanel({ apiClient, concept, onReloadSession, onSubmitt
   const [feedback, setFeedback] = useState<AnswerFeedbackView | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [requestError, setRequestError] = useState<AssessmentError | null>(null);
   const [submissionError, setSubmissionError] = useState<AssessmentError | null>(null);
   const assessmentIntent = useRef<{ claimId: string; key: string } | null>(null);
@@ -60,9 +62,20 @@ export function AssessmentPanel({ apiClient, concept, onReloadSession, onSubmitt
     setFeedback(null);
     setRequestError(null);
     setSubmissionError(null);
+    onNoSafeItem(false);
     assessmentIntent.current = null;
     submissionIntent.current = null;
   }, [concept.formal_concept_id, concept.claims]);
+
+  useEffect(() => {
+    if (!isLoading) return;
+    const startedAt = Date.now();
+    setElapsedSeconds(0);
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isLoading]);
 
   const requestAssessment = async (newIntent: boolean) => {
     if (isLoading) return;
@@ -70,6 +83,7 @@ export function AssessmentPanel({ apiClient, concept, onReloadSession, onSubmitt
       assessmentIntent.current = { claimId: selectedClaimId, key: crypto.randomUUID() };
     }
     setIsLoading(true);
+    onNoSafeItem(false);
     setRequestError(null);
     setAssessment(null);
     setFeedback(null);
@@ -82,7 +96,9 @@ export function AssessmentPanel({ apiClient, concept, onReloadSession, onSubmitt
       setAssessment(next);
       submissionIntent.current = null;
     } catch (error) {
-      setRequestError(assessmentError(error));
+      const nextError = assessmentError(error);
+      setRequestError(nextError);
+      onNoSafeItem(nextError.noSafeItem);
     } finally {
       setIsLoading(false);
     }
@@ -153,8 +169,33 @@ export function AssessmentPanel({ apiClient, concept, onReloadSession, onSubmitt
       <span><Icon name={requestError.noSafeItem ? "book" : "warning"} size={28} /></span>
       <h2>{requestError.noSafeItem ? "目前沒有新的安全題目" : "暫時無法建立評量"}</h2>
       <p>{requestError.message}</p>
+      {requestError.noSafeItem && (
+        <div className="evidence-review-activity">
+          <h3>改用教材回顧</h3>
+          <p>閱讀目前重點並回查教材頁面。本活動不送出答案，也不會改變你的掌握狀態。</p>
+          {concept.claims.map((claim) => (
+            <article key={claim.claim_id}>
+              <strong>{claim.text}</strong>
+              <div>
+                {claim.evidence.map((evidence) => (
+                  <button
+                    className="text-button"
+                    key={evidence.evidence_id}
+                    type="button"
+                    onClick={() => window.open(
+                      apiClient.sourceArtifactUrl(sourceArtifactId, evidence.page_number),
+                      "_blank",
+                      "noopener,noreferrer",
+                    )}
+                  >查看教材第 {evidence.page_number} 頁<Icon name="chevron-right" /></button>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
       <div className="assessment-actions">
-        <button className="secondary-button" type="button" onClick={() => setRequestError(null)}>回到教材</button>
+        <button className="secondary-button" type="button" onClick={() => setRequestError(null)}>{requestError.noSafeItem ? "完成本次回顧" : "回到教材"}</button>
         {requestError.retryable && <button className="primary-button" type="button" onClick={() => void requestAssessment(false)}>再試一次</button>}
       </div>
     </section>
@@ -163,14 +204,15 @@ export function AssessmentPanel({ apiClient, concept, onReloadSession, onSubmitt
   if (isLoading) return (
     <section className="assessment-card assessment-loading" aria-live="polite">
       <span className="loading-ring" aria-hidden="true" />
-      <h2>正在準備安全評量</h2>
-      <p>系統正在根據教材 Evidence 建立新題目；第一次可能需要較長時間。</p>
+      <h2>正在準備評量</h2>
+      <p>目前階段：後端正在根據教材內容產生並驗證題目。</p>
+      <strong className="assessment-elapsed">已等待 {elapsedSeconds} 秒</strong>
     </section>
   );
 
   if (!assessment) return (
     <section className="assessment-card assessment-ready">
-      <div><p className="eyebrow">Single-choice assessment</p><h2>用一題確認目前理解</h2><p>評分由伺服器依私人答案完成；送出前不會顯示正確選項。</p></div>
+      <div><p className="eyebrow">理解練習</p><h2>用一題確認目前理解</h2><p>送出後由系統評分，作答前不會顯示正確選項。</p></div>
       {concept.claims.length > 1 && (
         <fieldset className="claim-picker">
           <legend>選擇要練習的教材重點</legend>

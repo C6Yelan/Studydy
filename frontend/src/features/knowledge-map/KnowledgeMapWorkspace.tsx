@@ -4,7 +4,12 @@ import type { StudydyApiClient } from "../../api/client";
 import type { KnowledgeMapView } from "../../api/contracts";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
-import { relationPresentation, safeExternalUrl } from "./knowledge-map";
+import {
+  focusNeighborhood,
+  learningPathReason,
+  relationPresentation,
+  safeExternalUrl,
+} from "./knowledge-map";
 
 type Concept = KnowledgeMapView["concepts"][number];
 type Relation = KnowledgeMapView["relations"][number];
@@ -12,9 +17,9 @@ type Mode = "overview" | "path" | "focus" | "review";
 type Detail = { kind: "concept"; id: string } | { kind: "relation"; id: string };
 
 const modes: { id: Mode; label: string }[] = [
+  { id: "focus", label: "概念地圖" },
+  { id: "path", label: "學習順序" },
   { id: "overview", label: "總覽" },
-  { id: "path", label: "教材順序" },
-  { id: "focus", label: "焦點探索" },
   { id: "review", label: "內容複核" },
 ];
 
@@ -75,10 +80,10 @@ function ConceptDetail({ apiClient, concept, close, isStartingStudy, onStartStud
   return (
     <aside className="detail-panel" aria-label="概念詳情">
       <header>
-        <div><span className="detail-kicker">Concept</span><h2>{concept.label}</h2></div>
+        <div><span className="detail-kicker">教材概念</span><h2>{concept.label}</h2></div>
         <button aria-label="關閉概念詳情" className="panel-close" type="button" onClick={close}>×</button>
       </header>
-      <span className="status-badge is-review">內容待複核</span>
+      <span className="status-badge is-review">可查看教材來源</span>
       <button
         className="primary-button detail-start"
         disabled={isStartingStudy}
@@ -144,7 +149,7 @@ function RelationDetail({ apiClient, close, relation, sourceArtifactId, view }: 
   return (
     <aside className="detail-panel" aria-label="關係詳情">
       <header>
-        <div><span className="detail-kicker">Relation</span><h2>{presentation.label}</h2></div>
+        <div><span className="detail-kicker">概念連結</span><h2>{presentation.label}</h2></div>
         <button aria-label="關閉關係詳情" className="panel-close" type="button" onClick={close}>×</button>
       </header>
       <div className={`relation-detail-route ${presentation.className}`}>
@@ -179,7 +184,7 @@ function Overview({ openConcept, view }: {
 }) {
   return (
     <section aria-labelledby="overview-title">
-      <div className="view-heading"><div><h2 id="overview-title">概念總覽</h2><p>從教材正式發布的概念開始探索。</p></div></div>
+      <div className="view-heading"><div><h2 id="overview-title">概念總覽</h2><p>從已整理的教材概念開始探索。</p></div></div>
       <div className="concept-grid">
         {view.concepts.map((concept, index) => (
           <button
@@ -189,7 +194,7 @@ function Overview({ openConcept, view }: {
             onClick={() => openConcept(concept.formal_concept_id)}
           >
             <span className="concept-card__icon"><Icon name="book" /></span>
-            <span className="status-badge is-review">內容待複核</span>
+            <span className="status-badge is-review">可查看來源</span>
             <strong>{concept.label}</strong>
             <span>{concept.claims[0]?.text}</span>
             <small>{concept.claims.length} 個教材重點 · 第 {concept.source_page_numbers.join("、")} 頁</small>
@@ -209,7 +214,7 @@ function PathView({ isStartingStudy, onStartStudy, openConcept, view }: {
   return (
     <section aria-labelledby="path-title">
       <div className="view-heading">
-        <div><h2 id="path-title">教材建議學習順序</h2><p>這是 Knowledge Map 的固定起始順序，不會因本次作答而改寫。</p></div>
+        <div><h2 id="path-title">教材建議學習順序</h2><p>這是教材的固定起始順序，不會因本次作答而改寫。</p></div>
         <button
           className="primary-button"
           disabled={isStartingStudy}
@@ -224,7 +229,7 @@ function PathView({ isStartingStudy, onStartStudy, openConcept, view }: {
             <li key={id}>
               <button type="button" onClick={() => openConcept(id)}>
                 <span>{index + 1}</span>
-                <div><strong>{concept.label}</strong><small>{concept.claims.length} 個教材重點 · 第 {concept.source_page_numbers.join("、")} 頁</small></div>
+                <div><strong>{concept.label}</strong><small>{learningPathReason(view, id)}</small></div>
                 <Icon name="chevron-right" />
               </button>
             </li>
@@ -243,41 +248,110 @@ function FocusView({ openConcept, openRelation, selectedConceptId, setSelectedCo
   view: KnowledgeMapView;
 }) {
   const selected = view.concepts.find((concept) => concept.formal_concept_id === selectedConceptId) ?? view.concepts[0];
-  const adjacentRelations = view.relations.filter((relation) =>
-    relation.source_formal_concept_id === selected.formal_concept_id
-    || relation.target_formal_concept_id === selected.formal_concept_id);
+  const neighborhood = focusNeighborhood(view, selected.formal_concept_id);
+  const positions = new Map(neighborhood.nodes.map((node) => [node.conceptId, node]));
+  const fallbackConcepts = view.initial_learning_path
+    .filter((conceptId) => conceptId !== selected.formal_concept_id)
+    .slice(0, 3);
   return (
     <section aria-labelledby="focus-title">
       <div className="view-heading">
-        <div><h2 id="focus-title">焦點探索</h2><p>選擇概念或正式 Relation，查看教材依據。</p></div>
+        <div><h2 id="focus-title">概念地圖</h2><p>從目前概念查看直接相連的知識結構；箭頭由來源指向目標。</p></div>
         <label className="concept-select">焦點概念
           <select value={selected.formal_concept_id} onChange={(event) => setSelectedConceptId(event.currentTarget.value)}>
             {view.concepts.map((concept) => <option key={concept.formal_concept_id} value={concept.formal_concept_id}>{concept.label}</option>)}
           </select>
         </label>
       </div>
-      <div className="focus-center">
-        <button type="button" onClick={() => openConcept(selected.formal_concept_id)}>
-          <span>目前焦點</span><strong>{selected.label}</strong><small>{selected.claims[0]?.text}</small>
-        </button>
-      </div>
-      <div className="relation-legend" aria-label="Relation 圖例">
+      <div className="relation-legend" aria-label="概念連結圖例">
         {(["prerequisite", "contains", "related"] as const).map((type) => {
           return <RelationConnector key={type} relation={{ type }} />;
         })}
       </div>
-      {adjacentRelations.length === 0 ? (
-        <div className="surface compact-empty"><Icon name="map" /><div><strong>目前沒有已發布的 Relation</strong><p>這個概念仍可從教材重點與 Evidence 開始閱讀。</p></div></div>
-      ) : (
-        <div className="relation-list">
-          {adjacentRelations.map((relation) => (
-            <button key={relation.relation_id} type="button" onClick={() => openRelation(relation.relation_id)}>
-              <span className={relation.source_formal_concept_id === selected.formal_concept_id ? "is-selected" : ""}>{conceptLabel(view.concepts, relation.source_formal_concept_id)}</span>
-              <RelationConnector relation={relation} />
-              <span className={relation.target_formal_concept_id === selected.formal_concept_id ? "is-selected" : ""}>{conceptLabel(view.concepts, relation.target_formal_concept_id)}</span>
+      <div className="focus-graph" aria-label={`「${selected.label}」的概念連結圖`}>
+        <svg aria-label="可選擇的概念連結" preserveAspectRatio="none" viewBox="0 0 100 100">
+          <defs>
+            <marker id="focus-arrow" markerHeight="5" markerWidth="5" orient="auto" refX="4" refY="2.5">
+              <path d="M0,0 L5,2.5 L0,5 Z" />
+            </marker>
+          </defs>
+          {neighborhood.relations.map((relation) => {
+            const source = positions.get(relation.source_formal_concept_id)!;
+            const target = positions.get(relation.target_formal_concept_id)!;
+            const presentation = relationPresentation(relation.type);
+            const relationLabel = `${conceptLabel(view.concepts, relation.source_formal_concept_id)}，${presentation.label}，${conceptLabel(view.concepts, relation.target_formal_concept_id)}`;
+            return (
+              <g
+                aria-label={relationLabel}
+                className={`focus-edge ${presentation.className}`}
+                key={relation.relation_id}
+                role="button"
+                tabIndex={0}
+                onClick={() => openRelation(relation.relation_id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openRelation(relation.relation_id);
+                  }
+                }}
+              >
+                <line className="focus-edge-hit" x1={source.x} x2={target.x} y1={source.y} y2={target.y} />
+                <line
+                  markerEnd={presentation.directional ? "url(#focus-arrow)" : undefined}
+                  x1={source.x}
+                  x2={target.x}
+                  y1={source.y}
+                  y2={target.y}
+                />
+                <text x={(source.x + target.x) / 2} y={(source.y + target.y) / 2}>{presentation.label}</text>
+              </g>
+            );
+          })}
+        </svg>
+        {neighborhood.nodes.map((node) => {
+          const concept = view.concepts.find((item) => item.formal_concept_id === node.conceptId)!;
+          const isSelected = node.conceptId === selected.formal_concept_id;
+          return (
+            <button
+              aria-label={`${isSelected ? "目前焦點" : "相連概念"}：${concept.label}`}
+              className={`focus-node${isSelected ? " is-selected" : ""}`}
+              key={node.conceptId}
+              style={{ left: `${node.x}%`, top: `${node.y}%` }}
+              type="button"
+              onClick={() => openConcept(node.conceptId)}
+            >
+              <small>{isSelected ? "目前焦點" : "相連概念"}</small>
+              <strong>{concept.label}</strong>
             </button>
-          ))}
-        </div>
+          );
+        })}
+        {neighborhood.relations.length === 0 && (
+          <div className="focus-fallback">
+            <strong>目前沒有已發布的直接概念連結</strong>
+            <p>我們不會用頁面相鄰假造關係。你仍可查看教材重點，或依建議順序繼續。</p>
+            <div>
+              {fallbackConcepts.map((conceptId) => (
+                <button className="text-button" key={conceptId} type="button" onClick={() => setSelectedConceptId(conceptId)}>
+                  查看「{conceptLabel(view.concepts, conceptId)}」
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      {neighborhood.relations.length > 0 && (
+        <details className="relation-alternate">
+          <summary>以清單查看這些概念連結</summary>
+          <div className="relation-list">
+            {neighborhood.relations.map((relation) => (
+              <button key={relation.relation_id} type="button" onClick={() => openRelation(relation.relation_id)}>
+                <span className={relation.source_formal_concept_id === selected.formal_concept_id ? "is-selected" : ""}>{conceptLabel(view.concepts, relation.source_formal_concept_id)}</span>
+                <RelationConnector relation={relation} />
+                <span className={relation.target_formal_concept_id === selected.formal_concept_id ? "is-selected" : ""}>{conceptLabel(view.concepts, relation.target_formal_concept_id)}</span>
+              </button>
+            ))}
+          </div>
+        </details>
       )}
     </section>
   );
@@ -289,7 +363,7 @@ function ReviewView({ openConcept, view }: {
 }) {
   return (
     <section aria-labelledby="review-title">
-      <div className="view-heading"><div><h2 id="review-title">教材內容複核</h2><p>這裡是 Map 品質狀態，不代表你的學習弱點。</p></div></div>
+      <div className="view-heading"><div><h2 id="review-title">教材內容複核</h2><p>這裡顯示教材整理狀態，不代表你的學習弱點。</p></div></div>
       {view.excluded_pages.length > 0 && (
         <div className="surface partial-notice"><Icon name="warning" /><div><strong>{view.excluded_pages.length} 個頁面未安全納入</strong><p>其內容不會被用來建立學生看到的概念或關係。</p></div></div>
       )}
@@ -316,7 +390,7 @@ export function KnowledgeMapWorkspace({ apiClient, isStartingStudy, onReturnToRu
   view: KnowledgeMapView;
 }) {
   const initialConceptId = view.initial_learning_path[0] ?? view.concepts[0]?.formal_concept_id ?? "";
-  const [mode, setMode] = useState<Mode>("overview");
+  const [mode, setMode] = useState<Mode>("focus");
   const [selectedConceptId, setSelectedConceptId] = useState(initialConceptId);
   const [detail, setDetail] = useState<Detail | null>(null);
   const selectedConcept = useMemo(() => detail?.kind === "concept"
@@ -348,11 +422,11 @@ export function KnowledgeMapWorkspace({ apiClient, isStartingStudy, onReturnToRu
   return (
     <section className={`map-workspace${detail ? " has-detail" : ""}`}>
       <header className="map-header">
-        <div><p className="eyebrow">Knowledge Map</p><h1>知識地圖</h1><p>探索教材概念、正式 Relation、Evidence 與建議順序。</p></div>
+        <div><p className="eyebrow">你的教材地圖</p><h1>知識地圖</h1><p>從概念連結開始探索，接著查看學習順序與教材來源。</p></div>
         <div className="map-header-actions">
           <div className="map-facts" aria-label="地圖摘要">
             <span><strong>{view.concepts.length}</strong>概念</span>
-            <span><strong>{view.relations.length}</strong>Relation</span>
+            <span><strong>{view.relations.length}</strong>連結</span>
             <span><strong>{view.resource_diagnostics.promoted_resources}</strong>資源</span>
           </div>
           <button

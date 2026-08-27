@@ -34,17 +34,24 @@ export function LearningInsights({ currentConceptId, learningState, weakness }: 
 }) {
   const current = learningState.concept_states.find((state) => state.formal_concept_id === currentConceptId);
   if (!current) return null;
+  const untouchedCount = learningState.concept_states.filter((state) =>
+    state.formal_concept_id !== currentConceptId && state.status === "not_started").length;
+  const findingPriority = { observed_weak: 0, needs_review: 1, not_enough_data: 2 } as const;
+  const orderedFindings = [...weakness.findings].sort((left, right) =>
+    Number(right.target_formal_concept_id === currentConceptId)
+    - Number(left.target_formal_concept_id === currentConceptId)
+    || findingPriority[left.category] - findingPriority[right.category]);
   return (
     <section className="learning-insights" aria-labelledby="learning-insights-title">
       <div className="insights-heading">
-        <div><p className="eyebrow">StudySession only</p><h2 id="learning-insights-title">本次學習狀態與弱點</h2></div>
+        <div><p className="eyebrow">依本次作答更新</p><h2 id="learning-insights-title">本次學習進度</h2></div>
         <span className={`learning-status is-${current.status}`}>{statusCopy[current.status]}</span>
       </div>
       <div className="state-dimensions">
         <article><span><Icon name="learning" /></span><small>理解狀態</small><strong>{bandCopy[current.mastery_band]}</strong></article>
         <article><span><Icon name="check" /></span><small>判斷依據</small><strong>{confidenceCopy[current.confidence]}</strong></article>
-        <article><span><Icon name="book" /></span><small>教材重點覆蓋</small><strong>{current.claim_coverage_complete ? "已覆蓋" : "尚未完整"}</strong></article>
-        <article><span><Icon name="file" /></span><small>Evidence 覆蓋</small><strong>{current.evidence_coverage_complete ? "已覆蓋" : "尚未完整"}</strong></article>
+        <article><span><Icon name="book" /></span><small>核心重點練習</small><strong>{current.claim_coverage_complete ? "已完成" : "尚未完成"}</strong></article>
+        <article><span><Icon name="file" /></span><small>教材來源回查</small><strong>{current.evidence_coverage_complete ? "已涵蓋" : "可繼續查看"}</strong></article>
       </div>
       <p className="state-explanation">{current.explanation}</p>
       <div className="state-flags" aria-label="近期學習訊號">
@@ -54,8 +61,13 @@ export function LearningInsights({ currentConceptId, learningState, weakness }: 
         {current.post_error_improvement && <span>錯誤後已有改善</span>}
       </div>
 
-      <div className="weakness-list">
-        {weakness.findings.map((finding) => {
+      {untouchedCount > 0 && (
+        <p className="untouched-summary"><Icon name="book" />另有 {untouchedCount} 個概念尚未開始，開始練習後才會個別顯示學習觀察。</p>
+      )}
+      <details className="learning-findings">
+        <summary>查看需要留意的學習觀察</summary>
+        <div className="weakness-list">
+        {orderedFindings.map((finding) => {
           const copy = findingCopy[finding.category];
           return (
             <article className={`weakness-card is-${copy.tone}`} key={`${finding.target_formal_concept_id}:${finding.category}`}>
@@ -67,13 +79,14 @@ export function LearningInsights({ currentConceptId, learningState, weakness }: 
         {weakness.immediate_prerequisite_gaps.map((gap) => (
           <article className="weakness-card is-prerequisite" key={gap.relation_id}>
             <span><Icon name="arrow-left" /></span>
-            <div><small>需要先補強的正式先備概念</small><strong>{gap.prerequisite_label}</strong><p>{gap.reason}</p></div>
+            <div><small>學習前可先補強</small><strong>{gap.prerequisite_label}</strong><p>{gap.reason}</p></div>
           </article>
         ))}
-        {weakness.findings.length === 0 && weakness.immediate_prerequisite_gaps.length === 0 && (
-          <div className="no-weakness"><Icon name="check" /><span>目前沒有 backend 已發布的弱點；繼續依評量累積資料。</span></div>
+        {orderedFindings.length === 0 && weakness.immediate_prerequisite_gaps.length === 0 && (
+          <div className="no-weakness"><Icon name="check" /><span>目前尚未觀察到需要複習的弱點。</span></div>
         )}
-      </div>
+        </div>
+      </details>
     </section>
   );
 }

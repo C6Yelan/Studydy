@@ -165,12 +165,13 @@ test("retryable failure 可在原畫面恢復，fatal/empty/partial 狀態 truth
 test("large Map 與 narrow assessment 無 blocking overflow，tabs 支援鍵盤", async ({ page }) => {
   await publicMapRoutes(page, largeMap());
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}`);
+  await page.getByRole("tab", { name: "總覽" }).click();
   await expect(page.locator(".concept-card")).toHaveCount(30);
   const overviewTab = page.getByRole("tab", { name: "總覽" });
   await overviewTab.focus();
   await overviewTab.press("ArrowRight");
-  await expect(page.getByRole("tab", { name: "教材順序" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "map-tab-path");
+  await expect(page.getByRole("tab", { name: "內容複核" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "map-tab-review");
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("tab", { name: "總覽" }).click();

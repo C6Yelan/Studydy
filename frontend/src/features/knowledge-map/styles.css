@@ -299,40 +299,148 @@
   font: inherit;
 }
 
-.focus-center {
-  display: grid;
-  margin: var(--space-3) 0 var(--space-6);
-  place-items: center;
+.focus-graph {
+  position: relative;
+  min-height: 520px;
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-card);
+  background:
+    radial-gradient(circle at center, rgba(7, 87, 255, .09), transparent 34%),
+    linear-gradient(rgba(7, 87, 255, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(7, 87, 255, .035) 1px, transparent 1px),
+    var(--surface);
+  background-size: auto, 32px 32px, 32px 32px, auto;
 }
 
-.focus-center button {
+.focus-graph > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.focus-edge line {
+  stroke: var(--studydy-blue);
+  stroke-width: .55;
+  vector-effect: non-scaling-stroke;
+}
+
+.focus-edge {
+  cursor: pointer;
+}
+
+.focus-edge .focus-edge-hit {
+  stroke: transparent;
+  stroke-width: 10;
+}
+
+.focus-edge text {
+  fill: var(--text-secondary);
+  font-size: 2.3px;
+  font-weight: 700;
+  paint-order: stroke;
+  pointer-events: none;
+  stroke: var(--surface);
+  stroke-width: .8px;
+  text-anchor: middle;
+}
+
+.focus-edge:focus-visible line:not(.focus-edge-hit) {
+  stroke-width: 1.1;
+}
+
+.focus-edge.is-contains line:not(.focus-edge-hit) {
+  stroke: #7c4dff;
+}
+
+.focus-edge.is-related line:not(.focus-edge-hit) {
+  stroke: #009688;
+  stroke-dasharray: 2 1.5;
+}
+
+#focus-arrow path {
+  fill: var(--studydy-blue);
+}
+
+.focus-node {
+  position: absolute;
+  z-index: 2;
   display: grid;
-  width: min(420px, 100%);
-  min-height: 150px;
+  width: 150px;
+  min-height: 76px;
   align-content: center;
-  gap: var(--space-2);
-  padding: var(--space-5);
-  border: 1.5px solid var(--studydy-blue);
+  gap: var(--space-1);
+  padding: var(--space-3);
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--border);
   border-radius: var(--radius-card);
   color: var(--text-primary);
   background: var(--surface);
-  box-shadow: 0 4px 16px rgba(7, 87, 255, .12);
+  box-shadow: var(--shadow-sm);
   text-align: center;
 }
 
-.focus-center span {
+.focus-node:hover,
+.focus-node:focus-visible {
+  border-color: var(--studydy-blue);
+  box-shadow: 0 5px 18px rgba(7, 87, 255, .16);
+}
+
+.focus-node.is-selected {
+  width: 180px;
+  min-height: 96px;
+  border: 2px solid var(--studydy-blue);
+  background: var(--studydy-blue-soft);
+}
+
+.focus-node small {
   color: var(--studydy-blue);
-  font-size: .76rem;
+  font-size: .7rem;
   font-weight: 700;
 }
 
-.focus-center strong {
-  font-size: 1.3rem;
+.focus-node strong {
+  font-size: .9rem;
+  line-height: 1.3;
 }
 
-.focus-center small {
+.focus-fallback {
+  position: absolute;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  left: var(--space-5);
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
   color: var(--text-secondary);
-  line-height: 1.5;
+  text-align: center;
+}
+
+.focus-fallback strong {
+  color: var(--text-primary);
+}
+
+.focus-fallback p {
+  margin: 0;
+}
+
+.focus-fallback > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.relation-alternate {
+  margin-top: var(--space-4);
+}
+
+.relation-alternate summary {
+  margin-bottom: var(--space-3);
+  color: var(--studydy-blue);
+  cursor: pointer;
+  font-weight: 600;
 }
 
 .relation-legend {
@@ -727,6 +835,27 @@
   .relation-legend {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .focus-graph {
+    min-height: 430px;
+  }
+
+  .focus-node {
+    width: 112px;
+    min-height: 64px;
+    padding: var(--space-2);
+  }
+
+  .focus-node.is-selected {
+    width: 132px;
+    min-height: 76px;
+  }
+
+  .focus-fallback {
+    right: var(--space-3);
+    bottom: var(--space-3);
+    left: var(--space-3);
   }
 
   .relation-list > button {

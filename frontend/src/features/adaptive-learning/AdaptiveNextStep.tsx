@@ -7,7 +7,7 @@ const actionCopy: Record<AdaptiveAction, { label: string; cta: string }> = {
   continue: { label: "繼續目前概念", cta: "繼續學習" },
   practice: { label: "練習目前概念", cta: "開始練習" },
   review: { label: "複習目前概念", cta: "開始複習" },
-  relearn_prerequisite: { label: "先補強正式先備概念", cta: "前往補強" },
+  relearn_prerequisite: { label: "先補強先備概念", cta: "前往補強" },
   use_resource: { label: "使用補充資源", cta: "開啟建議資源" },
   follow_path: { label: "回到教材建議順序", cta: "依順序繼續" },
   collect_more_data: { label: "取得更多作答資料", cta: "完成更多評量" },
@@ -25,14 +25,19 @@ function contextLabel(context: StudyContextView, conceptId: string | null): stri
   return context.initial_learning_path.find((item) => item.formal_concept_id === conceptId)?.label ?? null;
 }
 
-export function AdaptiveNextStep({ adaptive, context, isApplying, onApply }: {
+export function AdaptiveNextStep({ adaptive, context, hasNoSafeItem, isApplying, onApply, onReviewEvidence }: {
   adaptive: AdaptiveResponseView;
   context: StudyContextView;
+  hasNoSafeItem: boolean;
   isApplying: boolean;
   onApply: () => void;
+  onReviewEvidence: () => void;
 }) {
   const step = adaptive.plan.primary_step;
-  const copy = actionCopy[step.action];
+  const useReviewFallback = hasNoSafeItem && step.action === "collect_more_data";
+  const copy = useReviewFallback
+    ? { label: "先回顧目前教材重點", cta: "回顧教材" }
+    : actionCopy[step.action];
   const deferredLabel = contextLabel(context, adaptive.plan.deferred_formal_concept_id);
   const currentLabel = contextLabel(context, adaptive.plan.current_formal_concept_id);
   return (
@@ -41,19 +46,19 @@ export function AdaptiveNextStep({ adaptive, context, isApplying, onApply }: {
       <div className="adaptive-copy">
         <p className="eyebrow">目前為你調整</p>
         <h2 id="adaptive-title">{copy.label}</h2>
-        <p>{step.reason}</p>
+        <p>{useReviewFallback ? "目前沒有新的安全題目，先回查教材內容，不重複要求同一項評量。" : step.reason}</p>
         <div className="adaptive-meta">
           <span>目標：{step.target_label ?? "目前沒有目標"}</span>
           <span>{confidenceCopy[step.confidence]}</span>
-          <span>{step.claim_coverage_complete ? "教材重點已覆蓋" : "教材重點尚未完整覆蓋"}</span>
+          <span>{step.claim_coverage_complete ? "核心重點已練習" : "核心重點仍可練習"}</span>
         </div>
         {deferredLabel && currentLabel && (
           <p className="deferred-copy"><Icon name="refresh" />現在先學「{currentLabel}」，完成後會回到「{deferredLabel}」。</p>
         )}
-        <small>這個建議只屬於本次學習，不會修改正式 Relation 或教材建議學習順序。</small>
+        <small>這個建議只影響本次學習，不會改寫教材的概念連結或建議順序。</small>
       </div>
       {step.action !== "no_action" && (
-        <button className="primary-button" disabled={isApplying} type="button" onClick={onApply}>
+        <button className="primary-button" disabled={isApplying} type="button" onClick={useReviewFallback ? onReviewEvidence : onApply}>
           {isApplying ? "正在調整…" : copy.cta}<Icon name="chevron-right" />
         </button>
       )}

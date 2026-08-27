@@ -110,6 +110,17 @@
   background: var(--warning-soft);
 }
 
+.session-path li.is-completed {
+  color: var(--success);
+  border-color: #b9dfcf;
+  background: var(--success-soft);
+}
+
+.session-path li.is-completed > span {
+  color: #fff;
+  background: var(--success);
+}
+
 .session-path strong,
 .session-path small {
   display: block;
@@ -173,6 +184,16 @@
 .study-claim .text-button {
   min-height: 32px;
   font-size: .8rem;
+}
+
+.additional-claims {
+  margin-top: var(--space-4);
+}
+
+.additional-claims summary {
+  color: var(--studydy-blue);
+  cursor: pointer;
+  font-weight: 600;
 }
 
 .study-resources {

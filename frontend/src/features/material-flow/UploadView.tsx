@@ -51,7 +51,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             <span className="step-number">1</span>
             <div>
               <h2>選擇 PDF 教材</h2>
-              <p>系統處理完整教材，並保留 Evidence 的來源頁面。</p>
+              <p>系統處理完整教材，並保留可回查的來源頁面。</p>
             </div>
           </div>
 
@@ -111,7 +111,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             <ol>
               <li><span>1</span><div><strong>安全接收教材</strong><p>只接受 PDF，並建立獨立處理作業。</p></div></li>
               <li><span>2</span><div><strong>整理概念與證據</strong><p>只發布能回到原始 PDF 頁面的內容。</p></div></li>
-              <li><span>3</span><div><strong>建立知識地圖</strong><p>顯示正式 Relation 與教材建議學習順序。</p></div></li>
+              <li><span>3</span><div><strong>建立知識地圖</strong><p>顯示概念連結與教材建議學習順序。</p></div></li>
             </ol>
             <img src="/assets/studydy/welcome-wave.png" alt="" />
           </section>

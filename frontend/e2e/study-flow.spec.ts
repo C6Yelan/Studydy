@@ -127,7 +127,7 @@ test("review-only Map 顯示概念、教材順序與同頁 PDF locator", async (
   await page.getByRole("button", { name: /二元樹/ }).click();
   await expect(page.getByRole("heading", { name: "二元樹" })).toBeVisible();
   await expect(page.getByText("原始教材第 1 頁")).toBeVisible();
-  await page.getByRole("tab", { name: "教材順序" }).click();
+  await page.getByRole("tab", { name: "學習順序" }).click();
   await expect(page.getByRole("heading", { name: "教材建議學習順序" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Assessment", exact: true })).toHaveCount(0);
 });

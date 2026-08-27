@@ -110,7 +110,7 @@ export function RunView({ apiClient, route }: {
             <img src="/assets/studydy/processing-complete.png" alt="" />
             <ul>
               <li><Icon name="check" />可回查的概念與 Claim</li>
-              <li><Icon name="check" />正式三種 Relation</li>
+              <li><Icon name="check" />三種概念連結</li>
               <li><Icon name="check" />教材建議學習順序</li>
             </ul>
           </section>
@@ -120,14 +120,14 @@ export function RunView({ apiClient, route }: {
           <div className="complete-progress"><strong>完成</strong><span><i /></span></div>
           <ol className="status-timeline">
             <li className="is-complete"><span><Icon name="check" /></span><div><strong>教材已接收</strong><p>檔案與處理作業完成綁定。</p></div></li>
-            <li className="is-complete"><span><Icon name="check" /></span><div><strong>來源已保留</strong><p>Evidence 可回到原始 PDF 頁面。</p></div></li>
+            <li className="is-complete"><span><Icon name="check" /></span><div><strong>來源已保留</strong><p>每個重點都可回到原始 PDF 頁面。</p></div></li>
             <li className="is-complete"><span><Icon name="check" /></span><div><strong>知識地圖已發布</strong><p>{run.status === "partial" ? "部分頁面未安全納入，地圖會清楚標示。" : "可安全複核的內容已準備完成。"}</p></div></li>
           </ol>
         </section>
       </div>
       <div className="surface completion-bar">
         <span className="completion-icon"><Icon name="check" /></span>
-        <div><strong>一切準備完成</strong><p>接著查看概念、關係、Evidence 與教材建議順序。</p></div>
+        <div><strong>一切準備完成</strong><p>接著查看概念、連結、教材來源與建議順序。</p></div>
         <button className="primary-button" type="button" onClick={() => writeRoute({
           name: "knowledge-map",
           materialId: run.material_id,

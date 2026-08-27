@@ -241,7 +241,7 @@ function isRelationDiagnostics(value: unknown): boolean {
   const signals = object(diagnostics.selected_signal_counts);
   const allowedSignals = new Set([
     "adjacent", "same_group", "same_page", "explicit_relation", "cross_reference",
-    "shared_evidence", "shared_formula",
+    "label_mention", "shared_evidence", "shared_formula",
   ]);
   return countNames.every((name) => Number.isInteger(diagnostics[name]) && Number(diagnostics[name]) >= 0)
     && !!signals
