@@ -1,0 +1,241 @@
+.app-shell {
+  min-height: 100vh;
+  background: var(--page-cool);
+}
+
+.app-header {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  height: 87px;
+  grid-template-columns: 280px minmax(0, 1fr) 280px;
+  align-items: center;
+  padding: 0 30px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--surface);
+}
+
+.brand {
+  display: inline-flex;
+  width: max-content;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  color: var(--studydy-blue);
+  background: transparent;
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: -.03em;
+}
+
+.brand img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+}
+
+.route-label {
+  color: var(--text-primary);
+  font-size: 1rem;
+  text-align: center;
+}
+
+.session-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: .84rem;
+  font-weight: 600;
+}
+
+.session-mark > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 4px var(--success-soft);
+}
+
+.session-mark.is-starting > span {
+  background: var(--text-muted);
+  box-shadow: 0 0 0 4px var(--page-cool-2);
+}
+
+.session-mark.is-failed > span {
+  background: var(--error);
+  box-shadow: 0 0 0 4px var(--error-soft);
+}
+
+.app-main {
+  min-width: 0;
+}
+
+.app-shell.is-focused .app-main {
+  width: min(1296px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: var(--space-8) 0 var(--space-12);
+}
+
+.app-shell.is-workspace {
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-rows: 87px minmax(0, 1fr);
+}
+
+.app-shell.is-workspace .app-header {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 87px;
+  display: flex;
+  height: calc(100vh - 87px);
+  min-height: 560px;
+  grid-column: 1;
+  grid-row: 2;
+  padding: var(--space-6) var(--space-5);
+  border-right: 1px solid var(--border-light);
+  background: var(--surface);
+  flex-direction: column;
+}
+
+.app-sidebar nav {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.app-sidebar nav button {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: transparent;
+  font-weight: 600;
+  text-align: left;
+}
+
+.app-sidebar nav button:hover {
+  background: var(--page-cool);
+}
+
+.app-sidebar nav button.is-active {
+  color: var(--studydy-blue);
+  background: var(--studydy-blue-soft);
+}
+
+.sidebar-helper {
+  margin-top: auto;
+  text-align: center;
+}
+
+.sidebar-helper > img {
+  width: 150px;
+  height: 150px;
+  margin: 0 auto -12px;
+  object-fit: contain;
+}
+
+.sidebar-helper > div {
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--studydy-blue-soft-2);
+  text-align: left;
+}
+
+.sidebar-helper p {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font-size: .82rem;
+  line-height: 1.55;
+}
+
+.app-shell.is-workspace .app-main {
+  grid-column: 2;
+  grid-row: 2;
+  overflow: auto;
+}
+
+@media (max-width: 900px) {
+  .app-header {
+    height: 72px;
+    grid-template-columns: 1fr auto;
+    padding: 0 var(--space-4);
+  }
+
+  .route-label {
+    display: none;
+  }
+
+  .app-shell.is-workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: 72px auto minmax(0, 1fr);
+  }
+
+  .app-shell.is-workspace .app-header {
+    grid-column: 1;
+  }
+
+  .app-sidebar {
+    position: static;
+    display: block;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    grid-column: 1;
+    grid-row: 2;
+    padding: var(--space-2) var(--space-3);
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .app-sidebar nav {
+    display: flex;
+    width: max-content;
+  }
+
+  .app-sidebar nav button {
+    min-height: 44px;
+    white-space: nowrap;
+  }
+
+  .sidebar-helper {
+    display: none;
+  }
+
+  .app-shell.is-workspace .app-main {
+    grid-column: 1;
+    grid-row: 3;
+  }
+}
+
+@media (max-width: 560px) {
+  .brand {
+    font-size: 1.4rem;
+  }
+
+  .brand img {
+    width: 30px;
+    height: 30px;
+  }
+
+  .session-mark {
+    font-size: 0;
+  }
+
+  .app-shell.is-focused .app-main {
+    width: min(100% - 24px, 1296px);
+    padding-top: var(--space-5);
+  }
+}

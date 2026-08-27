@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ApiClientError, StudydyApiClient } from "./api/client";
+import { AppShell } from "./app/AppShell";
 import { readRoute, writeRoute, type AppRoute } from "./app/routes";
 import { MaterialFlow } from "./features/material-flow/MaterialFlow";
+import { StateView } from "./ui/StateView";
 
 const apiClient = new StudydyApiClient();
 
@@ -13,13 +15,6 @@ type SessionState =
 
 function initialRoute(): AppRoute {
   return readRoute(window.location.pathname).route;
-}
-
-function routeLabel(route: AppRoute): string {
-  if (route.name === "home") return "教材上傳";
-  if (route.name === "material-run") return "教材處理狀態";
-  if (route.name === "knowledge-map") return "知識地圖";
-  return "概念與 Evidence 複核";
 }
 
 export default function App() {
@@ -55,40 +50,27 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <button className="brand" type="button" onClick={() => writeRoute({ name: "home" })} aria-label="返回 Studydy 教材上傳">
-          <span className="brand-mark" aria-hidden="true">S</span>
-          <span>Studydy</span>
-        </button>
-        <span className="route-label">{routeLabel(route)}</span>
-        <span className={`session-mark is-${session.status}`}>
-          <span aria-hidden="true" />
-          {session.status === "ready" && "安全工作階段"}
-          {session.status === "starting" && "建立工作階段中"}
-          {session.status === "failed" && "工作階段未連線"}
-        </span>
-      </header>
-      <main className={`app-main${route.name === "knowledge-map" ? " study-main" : ""}`}>
+    <AppShell route={route} sessionStatus={session.status}>
         {session.status === "starting" && (
-          <section className="state-page" aria-live="polite">
-            <div className="loading-ring" />
-            <h1>正在建立安全工作階段</h1>
-            <p>正在連線至 Studydy，請稍候。</p>
-          </section>
+          <StateView
+            description="正在連線至 Studydy，請稍候。"
+            live
+            title="正在建立安全工作階段"
+            tone="loading"
+          />
         )}
         {session.status === "ready" && (
           <MaterialFlow apiClient={apiClient} route={route} />
         )}
         {session.status === "failed" && (
-          <section className="state-page failure-page" role="alert">
-            <img className="state-illustration" src="/assets/studydy/failure-confused.png" alt="" />
-            <h1>暫時無法開始</h1>
-            <p>{session.message}</p>
-            {session.canRetry && <button className="primary-button" type="button" onClick={startSession}>再試一次</button>}
-          </section>
+          <StateView
+            action={session.canRetry && <button className="primary-button" type="button" onClick={startSession}>再試一次</button>}
+            description={session.message}
+            image="/assets/studydy/failure-confused.png"
+            title="暫時無法開始"
+            tone="failure"
+          />
         )}
-      </main>
-    </div>
+    </AppShell>
   );
 }
