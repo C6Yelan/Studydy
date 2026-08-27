@@ -4,7 +4,7 @@
 > the frozen `/v1` public contract take precedence over recorded SHAs.
 
 - **Authoritative plan:** P07 Frontend Design Alignment Frozen Execution Plan.
-- **Status:** P07-E release candidate complete; final Git audit is next.
+- **Status:** READY_FOR_REVIEW.
 - **Base SHA:** `118d3db50f7974c7197d84bdf6cfa7e3c8bb41ce`.
 - **Base branch:** `dev` / `origin/dev`.
 - **Execution branch:** `feature/p07-frontend-design-alignment-20260827`.
@@ -13,8 +13,10 @@
   signed commit `ffa4a86836f6b2cb82c344412e00d36959fe4824`; P07-C is the
   signed commit `38284d4499b1a969a9d2b28d3f3a2048c8c2cc8f`; P07-D is the
   signed commit `5a5971fedb31b75f5f6aead8ea73874cc772e9d3`; P07-E is the
-  signed commit containing this checkpoint.
-- **Current candidate:** P07-E working tree ready for its signed release-candidate commit.
+  signed commit `155fb8b7524e78f2afd6bbe696ba335518f87f7c`.
+- **Current/final candidate:** the current P07 branch tip containing this signed
+  handoff record. Use `git rev-parse HEAD`; Git truth takes precedence over a
+  copied SHA.
 - **Prerequisite integration:** the approved Agent 3 prerequisite-quality
   commits `6921219`, `d4c50c6`, and `118d3db` were explicitly authorized,
   fast-forwarded, and pushed to `dev` before this P07 branch was created.
@@ -86,7 +88,6 @@
   approved mobile visual system; static approved mascot assets; no unsupported
   account/settings/global-search capability; real-material prerequisite sample
   coverage remains upstream while the public fixture flow is automated.
-- **Next action:** create and push the signed P07-E release-candidate commit,
-  verify remote feature tip equals local candidate and `origin/dev` remains at
-  the approved base, then record final candidate Git truth and mark
-  `READY_FOR_REVIEW`.
+- **Next action:** reviewer follows [`P07_DESIGN_ACCEPTANCE.md`](P07_DESIGN_ACCEPTANCE.md),
+  inspects the local screenshot bundle and Blocking Gates, and decides whether
+  to integrate the feature branch. Do not merge `dev` or `main` unattended.
