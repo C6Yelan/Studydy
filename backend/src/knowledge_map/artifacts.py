@@ -352,6 +352,7 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                     "same_page",
                     "explicit_relation",
                     "cross_reference",
+                    "label_mention",
                     "shared_evidence",
                     "shared_formula",
                 }

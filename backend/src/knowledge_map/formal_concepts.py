@@ -24,20 +24,29 @@ def normalized_label(label: str) -> str:
 def build_resolution_requests(
     source_concepts: list[dict[str, Any]],
 ) -> list[tuple[dict[str, Any], dict[str, str], dict[str, str]]]:
-    """只把同正規化 label 的來源 Concept 放在同一個判斷群組。"""
+    """把同批不同名稱一起交給 resolver，讓近義與跨語言名稱能傳播。"""
 
-    groups: dict[str, list[dict[str, Any]]] = {}
+    exact_label_groups: dict[str, list[dict[str, Any]]] = {}
     for concept in source_concepts:
         label = concept.get("label") if isinstance(concept, dict) else None
         if not isinstance(label, str) or not label:
             raise FormalConceptError("RESOLUTION_SOURCE_INVALID")
-        groups.setdefault(normalized_label(label), []).append(concept)
+        exact_label_groups.setdefault(normalized_label(label), []).append(concept)
 
-    requests = []
-    for group_index, label_key in enumerate(sorted(groups), start=1):
-        concepts = groups[label_key]
+    groups: list[list[dict[str, Any]]] = []
+    pending: list[dict[str, Any]] = []
+    for concepts in exact_label_groups.values():
         if len(concepts) > MAX_GROUP_CANDIDATES:
             raise FormalConceptError("RESOLUTION_CEILING_EXCEEDED")
+        if pending and len(pending) + len(concepts) > MAX_GROUP_CANDIDATES:
+            groups.append(pending)
+            pending = []
+        pending.extend(concepts)
+    if pending:
+        groups.append(pending)
+
+    requests = []
+    for group_index, concepts in enumerate(groups, start=1):
         concept_aliases: dict[str, str] = {}
         claim_aliases: dict[str, str] = {}
         candidates = []

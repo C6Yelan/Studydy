@@ -104,6 +104,8 @@ def _finding(
 ) -> WeaknessFinding | None:
     if state.status == "mastered":
         return None
+    if not state.source_answer_event_ids:
+        return None
     if state.repeated_error:
         category = "observed_weak"
         remediation_intent = "practice"

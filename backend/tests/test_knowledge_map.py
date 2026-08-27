@@ -174,6 +174,26 @@ def test_singleton_resolution_is_deterministic_keep_with_all_provenance():
     assert formal["operation"] not in {"SPLIT", "MERGE", "RENAME", "DROP"}
 
 
+def test_resolution_groups_near_synonym_and_cross_language_labels_for_semantic_review():
+    study = _study()
+    second = deepcopy(study["concepts"][0])
+    second["label"] = "資料結構 (Data Structure)"
+    second["concept_id"] = concept_id(
+        second["page_ref"],
+        second["label"],
+        second["definition"],
+        second["key_points"],
+    )
+
+    requests = build_resolution_requests([study["concepts"][0], second])
+
+    assert len(requests) == 1
+    assert [item["label"] for item in requests[0][0]["candidates"]] == [
+        study["concepts"][0]["label"],
+        "資料結構 (Data Structure)",
+    ]
+
+
 def test_singleton_generation_skips_qwen_and_promotes_resource(monkeypatch):
     study = _study()
     library = _matching_resource_library(study["concepts"][0]["label"])
@@ -640,7 +660,7 @@ def test_relation_evidence_gate_skips_verifier_and_edge_without_pair_evidence():
     assert artifact["diagnostics"].get("verifier_calls", 0) == 0
 
 
-def test_endpoint_mention_without_relation_semantics_stays_rejected():
+def test_grounded_endpoint_comparison_publishes_related_without_verifier():
     left = _relation_concept(1, "Arrays", "Arrays are compared with Matrices.")
     right = _relation_concept(2, "Matrices", "Matrices store values.")
     calls = []
@@ -652,8 +672,7 @@ def test_endpoint_mention_without_relation_semantics_stays_rejected():
         lambda *arguments: calls.append(arguments) or True,
     )
 
-    assert artifact["relations"] == []
-    assert artifact["diagnostics"]["rejected_no_evidence"] == 1
+    assert [relation["type"] for relation in artifact["relations"]] == ["related"]
     assert artifact["diagnostics"].get("structural_proposals", 0) == 0
     assert calls == []
 
@@ -672,8 +691,7 @@ def test_ambiguous_chinese_by_phrase_does_not_invent_contains_direction():
         lambda *arguments: calls.append(arguments) or True,
     )
 
-    assert artifact["relations"] == []
-    assert artifact["diagnostics"]["rejected_no_evidence"] == 1
+    assert [relation["type"] for relation in artifact["relations"]] == ["related"]
     assert artifact["diagnostics"].get("structural_proposals", 0) == 0
     assert calls == []
 
@@ -1084,14 +1102,21 @@ def test_related_requires_grounded_association_and_never_calls_verifier():
     right = _relation_concept(2, "Graph Models", "Graph models can be visualized.")
     pair = [(left["formal_concept_id"], right["formal_concept_id"])]
     calls = []
-    assert build_relation_artifact(
+    initial = build_relation_artifact(
         pair, [left, right], _relation_pages([left, right]), lambda *args: calls.append(args) or True
-    )["relations"] == []
+    )
+    assert [relation["type"] for relation in initial["relations"]] == ["related"]
 
     left["claims"][0]["text"] = "See Graph Models for a visualization example."
-    assert build_relation_artifact(
+    one_sided = build_relation_artifact(
         pair, [left, right], _relation_pages([left, right]), lambda *_: True
-    )["relations"] == []
+    )
+    assert [relation["type"] for relation in one_sided["relations"]] == ["related"]
+    assert one_sided["relations"][0]["relation_evidence"] == [{
+        "owner_formal_concept_id": left["formal_concept_id"],
+        "claim_id": left["claims"][0]["claim_id"],
+        "evidence_ids": left["claims"][0]["evidence_ids"],
+    }]
     right["claims"][0]["text"] = "See Graph Model for the matching explanation."
     related = build_relation_artifact(
         pair, [left, right], _relation_pages([left, right]), lambda *args: calls.append(args) or True

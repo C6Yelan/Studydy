@@ -15,6 +15,11 @@ from learning_adaptation.assessment_generation import (
     AssessmentGenerationError,
     generate_and_store_assessment,
 )
+from learning_adaptation.map_context import (
+    ClaimContext,
+    EvidenceLocator,
+    FormalConceptContext,
+)
 from learning_adaptation.assessment_items import (
     ASSESSMENT_POLICY_REVISION,
     GENERATION_PROVENANCE_SCHEMA,
@@ -682,11 +687,13 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
         "start_assessment_process",
         lambda *_: starts.append("verifier") or Verifier(),
     )
-    monkeypatch.setattr(
-        generation_module,
-        "_request_stage",
-        lambda *args, **kwargs: json.dumps(proposal),
-    )
+    stage_calls = []
+
+    def request_stage(*args, **kwargs):
+        stage_calls.append(args[2]["prompt"])
+        return json.dumps(proposal)
+
+    monkeypatch.setattr(generation_module, "_request_stage", request_stage)
 
     stored = generate_and_store_assessment(
         learner,
@@ -745,6 +752,7 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
         )
     assert _assessment_count(assessment_database_dsn) == 3
     assert starts == ["qwen", "verifier"] * 4
+    assert stage_calls == ["proposal"] * 4 + ["repair"]
 
     other = TrustedLearner(uuid4())
     with pytest.raises(
@@ -758,6 +766,52 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             dsn=assessment_database_dsn,
         )
     assert starts == ["qwen", "verifier"] * 4
+
+
+def test_assessment_grounding_allows_unrelated_formula_tokens_in_evidence():
+    evidence = EvidenceLocator(
+        evidence_id="evidence:sha256:" + "1" * 64,
+        page_ref="page:sha256:" + "2" * 64,
+        page_number=1,
+        coordinate_space="unrotated_pdf_points",
+        bbox=(0, 0, 10, 10),
+        text=r"教材說明 \\alpha，並在下一段介紹 \\beta。",
+    )
+    claim = ClaimContext(
+        claim_id="claim:sha256:" + "3" * 64,
+        text=r"教材以 \\alpha 表示目前概念。",
+        evidence=(evidence,),
+    )
+    concept = FormalConceptContext(
+        formal_concept_id="formal-concept:sha256:" + "4" * 64,
+        label="目前概念",
+        source_page_numbers=(1,),
+        claims=(claim,),
+        supplementary_resources=(),
+    )
+
+    grounding = generation_module._grounding(
+        concept, claim.claim_id, {"limits": {"maximum_evidence_characters": 1000}}
+    )
+
+    assert grounding.claim == claim
+    invented = ClaimContext(
+        claim_id=claim.claim_id,
+        text=r"教材以 \\gamma 表示目前概念。",
+        evidence=(evidence,),
+    )
+    with pytest.raises(AssessmentGenerationError, match="^ASSESSMENT_INPUT_UNSAFE$"):
+        generation_module._grounding(
+            FormalConceptContext(
+                formal_concept_id=concept.formal_concept_id,
+                label=concept.label,
+                source_page_numbers=concept.source_page_numbers,
+                claims=(invented,),
+                supplementary_resources=(),
+            ),
+            invented.claim_id,
+            {"limits": {"maximum_evidence_characters": 1000}},
+        )
 
 
 def test_owner_lifecycle_and_map_bindings_fail_closed_without_row(

@@ -29,7 +29,7 @@ def weakness_database_dsn(
     return clean_database_dsn
 
 
-def test_no_data_is_explicit_and_does_not_guess_observed_weakness(
+def test_no_data_stays_in_learning_state_without_guessing_weakness_cards(
     weakness_database_dsn: str,
 ):
     learner, _, _, study_session = _state_session(weakness_database_dsn)
@@ -39,15 +39,7 @@ def test_no_data_is_explicit_and_does_not_guess_observed_weakness(
     assert snapshot == derive_weakness(
         learner, study_session.study_session_id, dsn=weakness_database_dsn
     )
-    assert len(snapshot.findings) == 3
-    assert {
-        finding.category for finding in snapshot.findings
-    } == {"not_enough_data"}
-    assert all(
-        not finding.supporting_answer_event_ids
-        and finding.remediation_intent == "collect_more_data"
-        for finding in snapshot.findings
-    )
+    assert snapshot.findings == []
     assert snapshot.immediate_prerequisite_gaps == []
 
 

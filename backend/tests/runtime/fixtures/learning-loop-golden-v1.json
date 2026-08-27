@@ -23,7 +23,7 @@
       "name": "new_session_isolated",
       "event_watermark": 0,
       "target_status": "not_started",
-      "weakness_category": "not_enough_data"
+      "weakness_findings": 0
     }
   ]
 }

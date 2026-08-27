@@ -34,7 +34,18 @@ def _label_pattern(label: str) -> str | None:
     normalized = _text(label)
     if len(normalized.replace(" ", "")) < 2:
         return None
-    return re.escape(normalized)
+    escaped = re.escape(normalized)
+    prefix = (
+        r"(?<![0-9a-z])"
+        if normalized[0].isascii() and normalized[0].isalnum()
+        else ""
+    )
+    suffix = (
+        r"(?![0-9a-z])"
+        if normalized[-1].isascii() and normalized[-1].isalnum()
+        else ""
+    )
+    return prefix + escaped + suffix
 
 
 def _is_safe_prerequisite_claim(
@@ -163,6 +174,10 @@ def _related_claims(
             if any(re.search(pattern, claim_text) for pattern in cross_reference_patterns):
                 supporting.append((concept["formal_concept_id"], claim))
                 signals.add("cross_reference")
+                continue
+            if re.search(other_label, claim_text):
+                supporting.append((concept["formal_concept_id"], claim))
+                signals.add("label_mention")
     left_evidence = {
         evidence_id for _, claim in _claims(left) for evidence_id in claim["evidence_ids"]
     }
@@ -194,19 +209,6 @@ def _related_claims(
         (owner, claim["claim_id"]): (owner, claim) for owner, claim in supporting
     }
     return list(unique.values()), signals
-
-
-def _evidence_ids(
-    concept: dict[str, Any],
-    supporting: list[tuple[str, dict[str, Any]]],
-) -> list[str]:
-    selected = {
-        evidence_id
-        for owner, claim in supporting
-        if owner == concept["formal_concept_id"]
-        for evidence_id in claim["evidence_ids"]
-    }
-    return sorted(selected)
 
 
 def _relation_evidence(
@@ -258,9 +260,7 @@ def _pair_evidence(
         source, target = sorted(
             (left, right), key=lambda concept: concept["formal_concept_id"]
         )
-        source_evidence_ids = _evidence_ids(source, related_support)
-        target_evidence_ids = _evidence_ids(target, related_support)
-        if source_evidence_ids and target_evidence_ids:
+        if _relation_evidence(related_support):
             proposals.append(
                 {
                     "type": "related",
@@ -318,6 +318,7 @@ def select_relation_pairs(
                     & {
                         "explicit_relation",
                         "cross_reference",
+                        "label_mention",
                         "shared_evidence",
                         "shared_formula",
                     }

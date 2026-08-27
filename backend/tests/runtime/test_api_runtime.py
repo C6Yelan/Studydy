@@ -899,18 +899,12 @@ def test_phase_06_public_api_closed_loop_matches_golden(
             for item in isolated_state["concept_states"]
             if item["formal_concept_id"] == target["formal_concept_id"]
         )
-        isolated_finding = next(
-            item
-            for item in isolated_weakness["findings"]
-            if item["target_formal_concept_id"]
-            == target["formal_concept_id"]
-        )
         assert isolated_state["event_watermark"] == checkpoint[
             "event_watermark"
         ]
         assert isolated_target["status"] == checkpoint["target_status"]
-        assert isolated_finding["category"] == checkpoint[
-            "weakness_category"
+        assert len(isolated_weakness["findings"]) == checkpoint[
+            "weakness_findings"
         ]
 
         cross_session = client.post(

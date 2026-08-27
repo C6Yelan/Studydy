@@ -592,7 +592,7 @@ def test_failed_repair_rejects_when_no_lower_safe_proposal(monkeypatch):
     assert verifier.aborted
 
 
-def test_grounding_rejects_missing_claim_and_dropped_escape():
+def test_grounding_rejects_missing_claim_and_invented_escape():
     concept = _concept()
     policy = _policy()
     with pytest.raises(
@@ -600,16 +600,10 @@ def test_grounding_rejects_missing_claim_and_dropped_escape():
     ):
         _grounding(concept, _identifier("claim", "f"), policy)
 
-    unsafe_evidence = concept.claims[0].evidence[0].__class__(
-        **{
-            **concept.claims[0].evidence[0].__dict__,
-            "text": r"The path is C:\\temp.",
-        }
-    )
     unsafe_claim = ClaimContext(
         claim_id=concept.claims[0].claim_id,
-        text="The material gives a path.",
-        evidence=(unsafe_evidence,),
+        text=r"The material invents \\gamma.",
+        evidence=concept.claims[0].evidence,
     )
     unsafe_concept = FormalConceptContext(
         **{**concept.__dict__, "claims": (unsafe_claim,)}

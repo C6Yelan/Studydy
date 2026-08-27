@@ -94,8 +94,8 @@
       "version": "0.26.0+cu129",
       "executable_sha256": "6d34800bbe39c7b1d94043fa0a7badafd894dbc422e0212f94ebe16547b2097a"
     },
-    "prompt": "Extract study concepts only from the supplied evidence. Return concepts=[] when the page teaches no concept. Each definition and each key point must separately contain non-empty evidence_ids. Return JSON only and no additional fields.",
-    "prompt_sha256": "40c9c9d39f4a8c804df942e9312f1a093d7e20dd8fe27b2b07faa58998eb3adb",
+    "prompt": "Extract student-learnable concepts only from the supplied evidence. Return concepts=[] when the page teaches no concept. Use a stable subject term as each label; when the evidence presents equivalent Chinese and English names, keep both names in one label. Every definition and key point must be a complete, independently understandable statement rather than a heading, visual line fragment, bullet continuation, or isolated phrase. Combine adjacent fragments that express one teaching point, but never invent missing meaning. Each definition and each key point must separately contain non-empty evidence_ids. Return JSON only and no additional fields.",
+    "prompt_sha256": "3793cf2598bf0f27f2e6e531cda766e477b524fe52ec4dbbda620d3d81edc357",
     "request_schema": "concept-generation-input/v3",
     "output_schema": "semantic-page-concepts/v2",
     "generation": {"temperature": 0, "max_tokens": 1536},
@@ -139,8 +139,8 @@
     }
   },
   "formal_resolution": {
-    "prompt": "/no_think\nResolve every supplied source candidate exactly once using KEEP, MERGE, RENAME, SPLIT, or DROP. Use only supplied candidate and claim aliases. KEEP and RENAME use exactly one source and one node; MERGE uses at least two sources and one node; SPLIT uses one source and exactly two nodes; DROP uses one source and no nodes. Claims are not independently droppable: for KEEP, RENAME, MERGE, and SPLIT, every claim alias owned by source_ids must appear exactly once across all output nodes; DROP must retain zero claims and is the only operation that may omit them. KEEP must preserve the supplied label exactly, and every candidate must be covered. Return JSON only.",
-    "prompt_sha256": "99bd122e8876fdb49296d1669b2f2ce1927ef08961591fbd88a1299617bce239",
+    "prompt": "/no_think\nResolve every supplied source candidate exactly once using KEEP, MERGE, RENAME, SPLIT, or DROP. Compare all candidates semantically even when their labels use different languages, singular/plural forms, abbreviations, or near-synonyms. MERGE only candidates that teach the same learnable concept; keep distinct concepts separate. Use only supplied candidate and claim aliases. KEEP and RENAME use exactly one source and one node; MERGE uses at least two sources and one node; SPLIT uses one source and exactly two nodes; DROP uses one source and no nodes. Claims are not independently droppable: for KEEP, RENAME, MERGE, and SPLIT, every claim alias owned by source_ids must appear exactly once across all output nodes; DROP must retain zero claims and is the only operation that may omit them. KEEP must preserve the supplied label exactly, and every candidate must be covered. Return JSON only.",
+    "prompt_sha256": "56a9176371d714f481b9af7ce0411a698952dd244d6ff06452d61b46b79a4785",
     "request_schema": "formal-concept-resolution-input/v1",
     "output_schema": "formal-concept-resolution/v1",
     "generation": {"temperature": 0, "max_tokens": 2048},

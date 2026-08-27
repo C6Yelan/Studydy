@@ -557,7 +557,7 @@ def _grounding(
     evidence_text = "\n".join(evidence.text for evidence in claim.evidence)
     if (
         len(evidence_text) > policy["limits"]["maximum_evidence_characters"]
-        or _escape_tokens(evidence_text) - _escape_tokens(claim.text)
+        or _escape_tokens(claim.text) - _escape_tokens(evidence_text)
     ):
         raise _error("ASSESSMENT_INPUT_UNSAFE")
     return _Grounding(concept=context_concept, claim=claim, aliases=aliases)
@@ -717,8 +717,6 @@ def _generate_documents(
             ranked = _rank_candidates(
                 proposals, verifier, grounding, assessment_lock
             )
-            if not ranked:
-                raise _error("ASSESSMENT_NO_SAFE_CANDIDATE")
             choice = None
             repair_attempted = False
             for proposal in ranked:
@@ -770,6 +768,29 @@ def _generate_documents(
                 )
                 if choice is not None:
                     break
+            if choice is None and not repair_attempted:
+                repair_text = _request_stage(
+                    client,
+                    settings,
+                    assessment_lock["repair"],
+                    _request_document(grounding, include_output_language=True),
+                    _response_format(list(grounding.aliases), repair=True),
+                )
+                ranked_repairs = _rank_candidates(
+                    _repair_candidates(repair_text, grounding),
+                    verifier,
+                    grounding,
+                    assessment_lock,
+                )
+                choice = _first_unused_documents(
+                    ranked_repairs,
+                    study_session_id,
+                    knowledge_map_revision,
+                    grounding,
+                    settings,
+                    runtime_binding_sha256,
+                    used_questions,
+                )
             if choice is None:
                 raise _error("ASSESSMENT_NO_NEW_SAFE_ITEM")
             selected, documents, provenance, _ = choice
