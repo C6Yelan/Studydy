@@ -1,0 +1,248 @@
+.study-session-page {
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-10) var(--space-12);
+}
+
+.study-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+.study-header h1,
+.study-header p {
+  margin: 0;
+}
+
+.study-header h1 {
+  font-size: clamp(1.9rem, 4vw, 2.15rem);
+}
+
+.study-header p:last-child {
+  margin-top: var(--space-2);
+  color: var(--text-secondary);
+}
+
+.study-error {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid #f1b5b5;
+  border-radius: var(--radius-input);
+  color: #a32626;
+  background: var(--error-soft);
+}
+
+.study-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-5);
+}
+
+.session-path {
+  position: sticky;
+  top: var(--space-5);
+  padding: var(--space-5);
+}
+
+.session-path h2,
+.session-path p {
+  margin: 0;
+}
+
+.session-path h2 {
+  font-size: 1.05rem;
+}
+
+.session-path > p:not(.eyebrow) {
+  margin-top: var(--space-2);
+  color: var(--text-secondary);
+  font-size: .8rem;
+}
+
+.session-path ol {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-path li {
+  display: grid;
+  min-height: 58px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-input);
+}
+
+.session-path li > span {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  background: var(--page-cool-2);
+  font-size: .78rem;
+  font-weight: 700;
+}
+
+.session-path li.is-current {
+  color: var(--studydy-blue);
+  border-color: #a9c6ff;
+  background: var(--studydy-blue-soft-2);
+}
+
+.session-path li.is-current > span {
+  color: #fff;
+  background: var(--studydy-blue);
+}
+
+.session-path li.is-deferred {
+  color: #795400;
+  border-color: #f1d57e;
+  background: var(--warning-soft);
+}
+
+.session-path strong,
+.session-path small {
+  display: block;
+}
+
+.session-path strong {
+  font-size: .84rem;
+}
+
+.session-path small {
+  margin-top: var(--space-1);
+  color: currentColor;
+  font-size: .7rem;
+}
+
+.study-main-column {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-5);
+}
+
+.current-concept-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-7);
+  background: var(--studydy-blue-soft-2);
+}
+
+.current-concept-card h2 {
+  margin: 0;
+  font-size: 1.55rem;
+}
+
+.current-concept-card > img {
+  width: 210px;
+  height: 190px;
+  object-fit: contain;
+}
+
+.study-claim {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid #dce5f6;
+}
+
+.study-claim > p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
+.study-claim > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.study-claim .text-button {
+  min-height: 32px;
+  font-size: .8rem;
+}
+
+.study-resources {
+  padding: var(--space-5);
+}
+
+.study-resources h2 {
+  margin: 0 0 var(--space-4);
+  font-size: 1.05rem;
+}
+
+.study-resources article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-light);
+}
+
+.study-resources p {
+  margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+  font-size: .82rem;
+}
+
+.study-resources a {
+  color: var(--studydy-blue);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@media (max-width: 960px) {
+  .study-session-page {
+    padding: var(--space-6) var(--space-4) var(--space-10);
+  }
+
+  .study-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .session-path {
+    position: static;
+  }
+
+  .session-path ol {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .study-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .current-concept-card {
+    grid-template-columns: 1fr;
+    padding: var(--space-5);
+  }
+
+  .current-concept-card > img {
+    width: 180px;
+    height: 160px;
+    margin: 0 auto;
+  }
+
+  .study-resources article {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+}

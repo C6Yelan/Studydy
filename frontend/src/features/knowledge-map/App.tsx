@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { KnowledgeMapView } from "../../api/contracts";
-import type { AppRoute } from "../../app/routes";
+import { writeRoute, type AppRoute } from "../../app/routes";
 import { StateView } from "../../ui/StateView";
 import { KnowledgeMapWorkspace } from "./KnowledgeMapWorkspace";
 import "./styles.css";
@@ -14,6 +14,9 @@ export default function KnowledgeMap({ apiClient, route }: {
   const [view, setView] = useState<KnowledgeMapView | null>(null);
   const [sourceArtifactId, setSourceArtifactId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [startMessage, setStartMessage] = useState<string | null>(null);
+  const [isStartingStudy, setIsStartingStudy] = useState(false);
+  const startIntent = useRef<{ conceptId: string; key: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,5 +58,40 @@ export default function KnowledgeMap({ apiClient, route }: {
       tone="loading"
     />
   );
-  return <KnowledgeMapWorkspace apiClient={apiClient} sourceArtifactId={sourceArtifactId} view={view} />;
+  const startStudy = async (conceptId: string) => {
+    if (isStartingStudy) return;
+    if (startIntent.current?.conceptId !== conceptId) {
+      startIntent.current = { conceptId, key: crypto.randomUUID() };
+    }
+    setIsStartingStudy(true);
+    setStartMessage(null);
+    try {
+      const session = await apiClient.createStudySession({
+        schema: "study-session-create/v1",
+        material_id: route.materialId,
+        knowledge_map_revision: route.mapRevision,
+        current_formal_concept_id: conceptId,
+      }, startIntent.current.key);
+      writeRoute({
+        name: "study-session",
+        materialId: route.materialId,
+        runId: route.runId,
+        mapRevision: route.mapRevision,
+        studySessionId: session.study_session_id,
+      });
+    } catch (error) {
+      setStartMessage(errorMessage(error));
+      setIsStartingStudy(false);
+    }
+  };
+  return (
+    <KnowledgeMapWorkspace
+      apiClient={apiClient}
+      isStartingStudy={isStartingStudy}
+      onStartStudy={startStudy}
+      sourceArtifactId={sourceArtifactId}
+      startMessage={startMessage}
+      view={view}
+    />
+  );
 }

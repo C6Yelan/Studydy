@@ -64,10 +64,12 @@ function EvidenceList({ apiClient, evidence, sourceArtifactId }: {
   );
 }
 
-function ConceptDetail({ apiClient, concept, close, sourceArtifactId }: {
+function ConceptDetail({ apiClient, concept, close, isStartingStudy, onStartStudy, sourceArtifactId }: {
   apiClient: StudydyApiClient;
   concept: Concept;
   close: () => void;
+  isStartingStudy: boolean;
+  onStartStudy: (conceptId: string) => void;
   sourceArtifactId: string;
 }) {
   return (
@@ -77,6 +79,12 @@ function ConceptDetail({ apiClient, concept, close, sourceArtifactId }: {
         <button aria-label="關閉概念詳情" className="panel-close" type="button" onClick={close}>×</button>
       </header>
       <span className="status-badge is-review">內容待複核</span>
+      <button
+        className="primary-button detail-start"
+        disabled={isStartingStudy}
+        type="button"
+        onClick={() => onStartStudy(concept.formal_concept_id)}
+      ><Icon name="learning" />{isStartingStudy ? "正在開始…" : "從這個概念開始"}</button>
       <section>
         <h3>教材重點</h3>
         {concept.claims.map((claim) => (
@@ -192,7 +200,9 @@ function Overview({ openConcept, view }: {
   );
 }
 
-function PathView({ openConcept, view }: {
+function PathView({ isStartingStudy, onStartStudy, openConcept, view }: {
+  isStartingStudy: boolean;
+  onStartStudy: (id: string) => void;
   openConcept: (id: string) => void;
   view: KnowledgeMapView;
 }) {
@@ -200,6 +210,12 @@ function PathView({ openConcept, view }: {
     <section aria-labelledby="path-title">
       <div className="view-heading">
         <div><h2 id="path-title">教材建議學習順序</h2><p>這是 Knowledge Map 的固定起始順序，不會因本次作答而改寫。</p></div>
+        <button
+          className="primary-button"
+          disabled={isStartingStudy}
+          type="button"
+          onClick={() => onStartStudy(view.initial_learning_path[0])}
+        ><Icon name="learning" />{isStartingStudy ? "正在開始…" : "從第一步開始"}</button>
       </div>
       <ol className="learning-path">
         {view.initial_learning_path.map((id, index) => {
@@ -290,9 +306,12 @@ function ReviewView({ openConcept, view }: {
   );
 }
 
-export function KnowledgeMapWorkspace({ apiClient, sourceArtifactId, view }: {
+export function KnowledgeMapWorkspace({ apiClient, isStartingStudy, onStartStudy, sourceArtifactId, startMessage, view }: {
   apiClient: StudydyApiClient;
+  isStartingStudy: boolean;
+  onStartStudy: (conceptId: string) => void;
   sourceArtifactId: string;
+  startMessage: string | null;
   view: KnowledgeMapView;
 }) {
   const initialConceptId = view.initial_learning_path[0] ?? view.concepts[0]?.formal_concept_id ?? "";
@@ -323,12 +342,22 @@ export function KnowledgeMapWorkspace({ apiClient, sourceArtifactId, view }: {
     <section className={`map-workspace${detail ? " has-detail" : ""}`}>
       <header className="map-header">
         <div><p className="eyebrow">Knowledge Map</p><h1>知識地圖</h1><p>探索教材概念、正式 Relation、Evidence 與建議順序。</p></div>
-        <div className="map-facts" aria-label="地圖摘要">
-          <span><strong>{view.concepts.length}</strong>概念</span>
-          <span><strong>{view.relations.length}</strong>Relation</span>
-          <span><strong>{view.resource_diagnostics.promoted_resources}</strong>資源</span>
+        <div className="map-header-actions">
+          <div className="map-facts" aria-label="地圖摘要">
+            <span><strong>{view.concepts.length}</strong>概念</span>
+            <span><strong>{view.relations.length}</strong>Relation</span>
+            <span><strong>{view.resource_diagnostics.promoted_resources}</strong>資源</span>
+          </div>
+          <button
+            className="primary-button"
+            disabled={isStartingStudy}
+            type="button"
+            onClick={() => onStartStudy(initialConceptId)}
+          ><Icon name="learning" />{isStartingStudy ? "正在開始…" : "開始本次學習"}</button>
         </div>
       </header>
+
+      {startMessage && <p className="map-start-error" role="alert">{startMessage}</p>}
 
       {view.status.processing === "partial" && (
         <div className="partial-banner" role="status"><Icon name="warning" /><span>部分教材內容未安全納入；目前畫面只顯示已發布內容。</span></div>
@@ -353,7 +382,14 @@ export function KnowledgeMapWorkspace({ apiClient, sourceArtifactId, view }: {
       <div className="map-content">
         <div className="map-view" role="tabpanel">
           {mode === "overview" && <Overview openConcept={openConcept} view={view} />}
-          {mode === "path" && <PathView openConcept={openConcept} view={view} />}
+          {mode === "path" && (
+            <PathView
+              isStartingStudy={isStartingStudy}
+              onStartStudy={onStartStudy}
+              openConcept={openConcept}
+              view={view}
+            />
+          )}
           {mode === "focus" && (
             <FocusView
               openConcept={openConcept}
@@ -366,7 +402,14 @@ export function KnowledgeMapWorkspace({ apiClient, sourceArtifactId, view }: {
           {mode === "review" && <ReviewView openConcept={openConcept} view={view} />}
         </div>
         {selectedConcept && (
-          <ConceptDetail apiClient={apiClient} close={() => setDetail(null)} concept={selectedConcept} sourceArtifactId={sourceArtifactId} />
+          <ConceptDetail
+            apiClient={apiClient}
+            close={() => setDetail(null)}
+            concept={selectedConcept}
+            isStartingStudy={isStartingStudy}
+            onStartStudy={onStartStudy}
+            sourceArtifactId={sourceArtifactId}
+          />
         )}
         {selectedRelation && (
           <RelationDetail apiClient={apiClient} close={() => setDetail(null)} relation={selectedRelation} sourceArtifactId={sourceArtifactId} view={view} />

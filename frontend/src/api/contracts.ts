@@ -190,3 +190,84 @@ export type KnowledgeMapRequest = {
   runId: string;
   mapRevision: string;
 };
+
+export type StudySessionCreate = {
+  schema: "study-session-create/v1";
+  material_id: string;
+  knowledge_map_revision: string;
+  current_formal_concept_id?: string | null;
+};
+
+export type StudySessionView = {
+  schema: "study-session/v1";
+  study_session_id: string;
+  material_id: string;
+  knowledge_map_revision: string;
+  current_formal_concept_id: string | null;
+  deferred_formal_concept_id: string | null;
+  status: "active" | "completed";
+  started_at: string;
+  completed_at: string | null;
+  event_watermark: number;
+};
+
+export type StudyConceptContextView = {
+  formal_concept_id: string;
+  label: string;
+  claim_ids: string[];
+  supplementary_resource_promotion_ids: string[];
+};
+
+export type StudyContextView = {
+  schema: "study-context/v1";
+  study_session_id: string;
+  base_knowledge_map_revision: string;
+  current_formal_concept_id: string | null;
+  deferred_formal_concept_id: string | null;
+  initial_learning_path: StudyConceptContextView[];
+};
+
+export type AssessmentCreate = {
+  schema: "assessment-create/v1";
+  target_claim_id: string;
+};
+
+export type AssessmentOptionView = {
+  option_id: string;
+  text: string;
+};
+
+export type AssessmentView = {
+  schema: "single-choice-assessment-public/v1";
+  study_session_id: string;
+  knowledge_map_revision: string;
+  assessment_revision: string;
+  question_id: string;
+  target_formal_concept_id: string;
+  target_claim_id: string;
+  source_evidence_ids: string[];
+  question_type: "single_choice";
+  prompt: string;
+  options: [AssessmentOptionView, AssessmentOptionView, AssessmentOptionView, AssessmentOptionView];
+  policy_revision: "single-choice-assessment-policy/v1";
+};
+
+export type AnswerSubmissionCreate = {
+  schema: "answer-submission-create/v1";
+  question_id: string;
+  selected_option_id: string;
+};
+
+export type AnswerFeedbackView = {
+  schema: "answer-feedback/v1";
+  answer_event_id: string;
+  study_session_id: string;
+  assessment_revision: string;
+  question_id: string;
+  selected_option_id: string;
+  is_correct: boolean;
+  rationale: string;
+  source_evidence_ids: string[];
+  event_number: number;
+  created_at: string;
+};

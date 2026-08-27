@@ -22,6 +22,21 @@
   color: var(--text-secondary);
 }
 
+.map-header-actions {
+  display: grid;
+  justify-items: end;
+  gap: var(--space-3);
+}
+
+.map-start-error {
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid #f1b5b5;
+  border-radius: var(--radius-input);
+  color: #a32626;
+  background: var(--error-soft);
+}
+
 .map-facts {
   display: flex;
   gap: var(--space-3);
@@ -522,6 +537,11 @@
   margin-top: var(--space-4);
 }
 
+.detail-start {
+  width: 100%;
+  margin-top: var(--space-4);
+}
+
 .detail-panel > section {
   margin-top: var(--space-5);
   padding-top: var(--space-5);
@@ -673,6 +693,10 @@
   .view-heading {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .map-header-actions {
+    justify-items: stretch;
   }
 
   .map-facts {

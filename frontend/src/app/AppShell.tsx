@@ -8,7 +8,8 @@ type SessionStatus = "starting" | "ready" | "failed";
 function routeTitle(route: AppRoute): string {
   if (route.name === "home") return "上傳教材";
   if (route.name === "material-run") return "教材處理";
-  return "知識地圖";
+  if (route.name === "knowledge-map") return "知識地圖";
+  return "本次學習";
 }
 
 type NavItem = {
@@ -33,8 +34,21 @@ function routeNavigation(route: AppRoute): NavItem[] {
       open: () => writeRoute({ name: "material-run", materialId: route.materialId, runId: route.runId }),
     });
   }
-  if (route.name === "knowledge-map") {
-    items.push({ icon: "map", label: "知識地圖", active: true, open: () => undefined });
+  if (route.name === "knowledge-map" || route.name === "study-session") {
+    items.push({
+      icon: "map",
+      label: "知識地圖",
+      active: route.name === "knowledge-map",
+      open: () => writeRoute({
+        name: "knowledge-map",
+        materialId: route.materialId,
+        runId: route.runId,
+        mapRevision: route.mapRevision,
+      }),
+    });
+  }
+  if (route.name === "study-session") {
+    items.push({ icon: "learning", label: "本次學習", active: true, open: () => undefined });
   }
   return items;
 }
@@ -44,7 +58,7 @@ export function AppShell({ children, route, sessionStatus }: {
   route: AppRoute;
   sessionStatus: SessionStatus;
 }) {
-  const isWorkspace = route.name === "knowledge-map";
+  const isWorkspace = route.name === "knowledge-map" || route.name === "study-session";
   const sessionCopy = sessionStatus === "ready"
     ? "安全工作階段"
     : sessionStatus === "starting" ? "連線中" : "工作階段未連線";

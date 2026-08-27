@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { ApiClientError, StudydyApiClient } from "./client.ts";
@@ -8,6 +9,10 @@ const materialId = "9f9619ff-8b86-4e3a-a2f1-2bb9424d5c72";
 const artifactId = "af9619ff-8b86-4e3a-a2f1-2bb9424d5c73";
 const runId = "bf9619ff-8b86-4e3a-a2f1-2bb9424d5c74";
 const mapRevision = `knowledge-map:sha256:${"d".repeat(64)}`;
+const phase06Fixtures = JSON.parse(readFileSync(
+  new URL("../../../backend/tests/runtime/fixtures/phase06-public-fixtures-v1.json", import.meta.url),
+  "utf8",
+));
 
 function apiError(status, reasonCode) {
   return Response.json({
@@ -313,6 +318,74 @@ test("Map v6 補充資源只接受 HTTP(S) public URL", async () => {
   );
 });
 
+test("Assessment public parser 接受四個選項並拒絕 answer leak", async () => {
+  const read = async (value) => {
+    let calls = 0;
+    const client = new StudydyApiClient(async () => {
+      calls += 1;
+      return calls === 1 ? new Response(null, { status: 204 }) : Response.json(value, { status: 201 });
+    });
+    return client.createAssessment(
+      phase06Fixtures.success.study_session_id,
+      { schema: "assessment-create/v1", target_claim_id: phase06Fixtures.success.target_claim_id },
+      "assessment-intent",
+    );
+  };
+  assert.equal((await read(phase06Fixtures.success)).options.length, 4);
+  for (const mutation of [
+    (value) => value.options.pop(),
+    (value) => { value.correct_option_id = value.options[0].option_id; },
+    (value) => { value.private_answer = { option_id: value.options[0].option_id }; },
+    (value) => { value.private_generation_provenance = { model: "private" }; },
+  ]) {
+    const invalid = structuredClone(phase06Fixtures.success);
+    mutation(invalid);
+    await assert.rejects(
+      read(invalid),
+      (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
+    );
+  }
+});
+
+test("Answer feedback parser 只接受 post-submit public fields", async () => {
+  const feedback = phase06Fixtures.reassessment;
+  let calls = 0;
+  const client = new StudydyApiClient(async () => {
+    calls += 1;
+    return calls === 1 ? new Response(null, { status: 204 }) : Response.json(feedback, { status: 201 });
+  });
+  assert.equal((await client.submitAssessmentAnswer(
+    feedback.study_session_id,
+    feedback.assessment_revision,
+    {
+      schema: "answer-submission-create/v1",
+      question_id: feedback.question_id,
+      selected_option_id: feedback.selected_option_id,
+    },
+    "answer-intent",
+  )).is_correct, true);
+
+  const leaked = { ...feedback, correct_option_id: feedback.selected_option_id };
+  calls = 0;
+  const leakedClient = new StudydyApiClient(async () => {
+    calls += 1;
+    return calls === 1 ? new Response(null, { status: 204 }) : Response.json(leaked, { status: 201 });
+  });
+  await assert.rejects(
+    leakedClient.submitAssessmentAnswer(
+      feedback.study_session_id,
+      feedback.assessment_revision,
+      {
+        schema: "answer-submission-create/v1",
+        question_id: feedback.question_id,
+        selected_option_id: feedback.selected_option_id,
+      },
+      "answer-leak-intent",
+    ),
+    (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
+  );
+});
+
 test("Map v6 pair-level Relation Evidence 必須保留真實 claim owner", async () => {
   let calls = 0;
   const acceptedClient = new StudydyApiClient(async () => {
@@ -378,9 +451,12 @@ test("Map v6 recursively rejects unexpected、duplicate、nonfinite、type 與 c
   }
 });
 
-test("client surface 不含 deferred downstream methods", () => {
+test("client surface 只公開目前 frozen downstream methods", () => {
   const client = new StudydyApiClient(async () => new Response(null, { status: 204 }));
-  for (const name of ["getAssessment", "submitLearningUpdate", "getLearningResourceResult", "getLearningState"]) {
+  for (const name of ["createStudySession", "getStudySession", "getStudyContext", "completeStudySession", "createAssessment", "getAssessment", "submitAssessmentAnswer"]) {
+    assert.equal(typeof client[name], "function");
+  }
+  for (const name of ["submitLearningUpdate", "getLearningResourceResult", "getLearningState"]) {
     assert.equal(client[name], undefined);
   }
   assert.equal(client.sourceArtifactUrl(artifactId), `/v1/artifacts/${artifactId}`);

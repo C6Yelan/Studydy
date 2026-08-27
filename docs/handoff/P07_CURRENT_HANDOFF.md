@@ -4,14 +4,15 @@
 > the frozen `/v1` public contract take precedence over recorded SHAs.
 
 - **Authoritative plan:** P07 Frontend Design Alignment Frozen Execution Plan.
-- **Status:** P07-B complete at this checkpoint; P07-C is next.
+- **Status:** P07-C complete at this checkpoint; P07-D is next.
 - **Base SHA:** `118d3db50f7974c7197d84bdf6cfa7e3c8bb41ce`.
 - **Base branch:** `dev` / `origin/dev`.
 - **Execution branch:** `feature/p07-frontend-design-alignment-20260827`.
 - **Milestone commits:** P07-00 `5d225230d3f71528538d7074e663af4b7083c218`;
   P07-A `dbf3f38227588965794e90748bf46a341832938f`; P07-B is the
+  signed commit `ffa4a86836f6b2cb82c344412e00d36959fe4824`; P07-C is the
   signed commit containing this checkpoint.
-- **Current candidate:** P07-B working tree ready for its signed milestone commit.
+- **Current candidate:** P07-C working tree ready for its signed milestone commit.
 - **Prerequisite integration:** the approved Agent 3 prerequisite-quality
   commits `6921219`, `d4c50c6`, and `118d3db` were explicitly authorized,
   fast-forwarded, and pushed to `dev` before this P07 branch was created.
@@ -19,7 +20,8 @@
   build pass; P06 public
   fixtures 1/1 at baseline; existing full-stack Playwright 5/5 with
   `MATERIAL_REVIEW_E2E_PASS` after P07-A; P07-B full-stack Playwright 6/6
-  with `MATERIAL_REVIEW_E2E_PASS`.
+  with `MATERIAL_REVIEW_E2E_PASS`; P07-C full-stack Playwright 9/9 with
+  `MATERIAL_REVIEW_E2E_PASS`.
 - **Design ingestion:** General UI guideline, correct/wrong examples, blind-test
   results, final selected PNGs, visual reference, runtime asset manifest;
   Knowledge Map guideline/examples/blind-test sources; Mascot guideline,
@@ -49,8 +51,16 @@
   empty, partial, isolated-node, and responsive fallbacks. AppShell, Overview,
   Focus, Relation Detail, and Initial Path were visually inspected from
   local-only public-fixture screenshots.
-- **Known limitations at this checkpoint:** production frontend does not yet
-  consume P06 learning APIs; P07-C through P07-E remain to be implemented.
-- **Next action:** create and push the signed P07-B commit, then implement P07-C
-  StudySession lifecycle, direct refresh recovery, public single-choice
-  Assessment, server feedback, completion, and reassessment/no-safe-item states.
+- **P07-C result:** canonical StudySession route and strict refresh recovery;
+  Map/Concept/Initial Path start actions; route/material/Map/session binding
+  checks; current Concept/Claim/Evidence view; public single-choice parser with
+  exactly four options; no private-answer fields in the client surface;
+  idempotent assessment/submission retry identity; pending, no-safe-item,
+  stale/conflict, public Feedback, new-item reassessment, and completed-session
+  states. Current Concept, Assessment, Feedback, and completed session were
+  visually inspected from local-only public-fixture screenshots.
+- **Known limitations at this checkpoint:** Learning State, Weakness, Adaptive
+  Plan, remediation routing, and final release hardening remain P07-D/P07-E.
+- **Next action:** create and push the signed P07-C commit, then implement P07-D
+  Learning State/Weakness projection, Adaptive Next Step, action routing,
+  prerequisite remediation/deferred return, and new-session isolation UI.

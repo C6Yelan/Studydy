@@ -1,12 +1,19 @@
 import type {
+  AnswerFeedbackView,
+  AnswerSubmissionCreate,
   ApiErrorView,
   ApiReasonCode,
+  AssessmentCreate,
+  AssessmentView,
   KnowledgeMapRequest,
   KnowledgeMapView,
   KnownApiReasonCode,
   MaterialProcessingCreate,
   MaterialProcessingRunView,
   MaterialView,
+  StudyContextView,
+  StudySessionCreate,
+  StudySessionView,
 } from "./contracts";
 
 type FetchRequest = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -434,6 +441,124 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     && (item.excluded_pages.length === 0 || status.processing === "partial");
 }
 
+function isDateTime(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && Number.isFinite(Date.parse(value));
+}
+
+function isStudySession(value: unknown): value is StudySessionView {
+  const item = closed(value, [
+    "schema", "study_session_id", "material_id", "knowledge_map_revision",
+    "current_formal_concept_id", "deferred_formal_concept_id", "status",
+    "started_at", "completed_at", "event_watermark",
+  ]);
+  if (!item
+    || item.schema !== "study-session/v1"
+    || !isUuid(item.study_session_id)
+    || !isUuid(item.material_id)
+    || !isRevision(item.knowledge_map_revision, "knowledge-map")
+    || !(item.current_formal_concept_id === null || isRevision(item.current_formal_concept_id, "formal-concept"))
+    || !(item.deferred_formal_concept_id === null || isRevision(item.deferred_formal_concept_id, "formal-concept"))
+    || (item.deferred_formal_concept_id !== null && item.deferred_formal_concept_id === item.current_formal_concept_id)
+    || !isDateTime(item.started_at)
+    || !Number.isInteger(item.event_watermark)
+    || Number(item.event_watermark) < 0) return false;
+  if (item.status === "active") return item.completed_at === null;
+  return item.status === "completed" && isDateTime(item.completed_at);
+}
+
+function isStudyContext(value: unknown): value is StudyContextView {
+  const item = closed(value, [
+    "schema", "study_session_id", "base_knowledge_map_revision",
+    "current_formal_concept_id", "deferred_formal_concept_id", "initial_learning_path",
+  ]);
+  if (!item
+    || item.schema !== "study-context/v1"
+    || !isUuid(item.study_session_id)
+    || !isRevision(item.base_knowledge_map_revision, "knowledge-map")
+    || !(item.current_formal_concept_id === null || isRevision(item.current_formal_concept_id, "formal-concept"))
+    || !(item.deferred_formal_concept_id === null || isRevision(item.deferred_formal_concept_id, "formal-concept"))
+    || (item.deferred_formal_concept_id !== null && item.deferred_formal_concept_id === item.current_formal_concept_id)
+    || !Array.isArray(item.initial_learning_path)
+    || item.initial_learning_path.length < 1) return false;
+  const concepts = item.initial_learning_path.map((value) => {
+    const concept = closed(value, [
+      "formal_concept_id", "label", "claim_ids", "supplementary_resource_promotion_ids",
+    ]);
+    if (!concept
+      || !isRevision(concept.formal_concept_id, "formal-concept")
+      || typeof concept.label !== "string"
+      || concept.label.length < 1
+      || !isStringArray(concept.claim_ids, 1)
+      || !(concept.claim_ids as string[]).every((id) => isRevision(id, "claim"))
+      || new Set(concept.claim_ids as string[]).size !== (concept.claim_ids as string[]).length
+      || !isStringArray(concept.supplementary_resource_promotion_ids)
+      || !(concept.supplementary_resource_promotion_ids as string[])
+        .every((id) => isRevision(id, "resource-promotion"))) return null;
+    return concept.formal_concept_id as string;
+  });
+  if (concepts.includes(null) || new Set(concepts).size !== concepts.length) return false;
+  return (item.current_formal_concept_id === null || concepts.includes(item.current_formal_concept_id))
+    && (item.deferred_formal_concept_id === null || concepts.includes(item.deferred_formal_concept_id));
+}
+
+function isAssessment(value: unknown): value is AssessmentView {
+  const item = closed(value, [
+    "schema", "study_session_id", "knowledge_map_revision", "assessment_revision",
+    "question_id", "target_formal_concept_id", "target_claim_id", "source_evidence_ids",
+    "question_type", "prompt", "options", "policy_revision",
+  ]);
+  if (!item
+    || item.schema !== "single-choice-assessment-public/v1"
+    || !isUuid(item.study_session_id)
+    || !isRevision(item.knowledge_map_revision, "knowledge-map")
+    || !isRevision(item.assessment_revision, "assessment")
+    || !isRevision(item.question_id, "question")
+    || !isRevision(item.target_formal_concept_id, "formal-concept")
+    || !isRevision(item.target_claim_id, "claim")
+    || !isStringArray(item.source_evidence_ids, 1)
+    || !(item.source_evidence_ids as string[]).every((id) => isRevision(id, "evidence"))
+    || new Set(item.source_evidence_ids as string[]).size !== (item.source_evidence_ids as string[]).length
+    || item.question_type !== "single_choice"
+    || typeof item.prompt !== "string"
+    || item.prompt.length < 1
+    || !Array.isArray(item.options)
+    || item.options.length !== 4
+    || item.policy_revision !== "single-choice-assessment-policy/v1") return false;
+  const optionIds = item.options.map((value) => {
+    const option = closed(value, ["option_id", "text"]);
+    if (!option
+      || !isRevision(option.option_id, "option")
+      || typeof option.text !== "string"
+      || option.text.length < 1) return null;
+    return option.option_id as string;
+  });
+  return !optionIds.includes(null) && new Set(optionIds).size === 4;
+}
+
+function isAnswerFeedback(value: unknown): value is AnswerFeedbackView {
+  const item = closed(value, [
+    "schema", "answer_event_id", "study_session_id", "assessment_revision",
+    "question_id", "selected_option_id", "is_correct", "rationale",
+    "source_evidence_ids", "event_number", "created_at",
+  ]);
+  return !!item
+    && item.schema === "answer-feedback/v1"
+    && isUuid(item.answer_event_id)
+    && isUuid(item.study_session_id)
+    && isRevision(item.assessment_revision, "assessment")
+    && isRevision(item.question_id, "question")
+    && isRevision(item.selected_option_id, "option")
+    && typeof item.is_correct === "boolean"
+    && typeof item.rationale === "string"
+    && item.rationale.length > 0
+    && isStringArray(item.source_evidence_ids, 1)
+    && (item.source_evidence_ids as string[]).every((id) => isRevision(id, "evidence"))
+    && new Set(item.source_evidence_ids as string[]).size === (item.source_evidence_ids as string[]).length
+    && Number.isInteger(item.event_number)
+    && Number(item.event_number) >= 1
+    && isDateTime(item.created_at);
+}
+
 function isApiError(value: unknown): value is ApiErrorView {
   const item = closed(value, ["schema", "request_id", "reason_code", "retryable", "message"]);
   return !!item
@@ -540,11 +665,25 @@ export class StudydyApiClient {
     return value;
   }
 
-  async createMaterial(pdf: Blob, idempotencyKey = crypto.randomUUID()): Promise<MaterialView> {
+  private async idempotentJson<T>(
+    path: string,
+    init: RequestInit,
+    read: (value: unknown) => value is T,
+  ): Promise<T> {
+    const request = () => this.json(path, init, read);
+    try {
+      return await request();
+    } catch (error) {
+      if (error instanceof ApiClientError && error.kind === "network") return request();
+      throw error;
+    }
+  }
+
+  async createMaterial(pdf: Blob, idempotencyKey: string = crypto.randomUUID()): Promise<MaterialView> {
     if (pdf.type !== "application/pdf" || pdf.size < 1 || pdf.size > maximumPdfBytes) {
       throw new ApiClientError("input", "請選擇 100 MiB 以內的 PDF。", { reasonCode: "REQUEST_INPUT_INVALID" });
     }
-    const request = () => this.json(
+    return this.idempotentJson(
       "/v1/materials",
       {
         method: "POST",
@@ -557,15 +696,9 @@ export class StudydyApiClient {
       },
       isMaterial,
     );
-    try {
-      return await request();
-    } catch (error) {
-      if (error instanceof ApiClientError && error.kind === "network") return request();
-      throw error;
-    }
   }
 
-  async createMaterialRun(body: MaterialProcessingCreate, idempotencyKey = crypto.randomUUID()): Promise<MaterialProcessingRunView> {
+  async createMaterialRun(body: MaterialProcessingCreate, idempotencyKey: string = crypto.randomUUID()): Promise<MaterialProcessingRunView> {
     if (
       body.schema !== "material-processing-create/v2"
       || !isUuid(body.material_id)
@@ -604,6 +737,161 @@ export class StudydyApiClient {
       throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
     }
     return view;
+  }
+
+  async createStudySession(body: StudySessionCreate, idempotencyKey: string = crypto.randomUUID()): Promise<StudySessionView> {
+    const keys = Object.keys(body);
+    if (
+      body.schema !== "study-session-create/v1"
+      || !isUuid(body.material_id)
+      || !isRevision(body.knowledge_map_revision, "knowledge-map")
+      || !(body.current_formal_concept_id === undefined
+        || body.current_formal_concept_id === null
+        || isRevision(body.current_formal_concept_id, "formal-concept"))
+      || keys.some((key) => !["schema", "material_id", "knowledge_map_revision", "current_formal_concept_id"].includes(key))
+      || keys.length < 3
+      || keys.length > 4
+    ) {
+      throw new ApiClientError("input", "本次學習請求無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    const session = await this.idempotentJson(
+      "/v1/study-sessions",
+      {
+        method: "POST",
+        headers: {
+          Origin: requestOrigin(),
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify(body),
+      },
+      isStudySession,
+    );
+    if (session.material_id !== body.material_id
+      || session.knowledge_map_revision !== body.knowledge_map_revision
+      || (body.current_formal_concept_id !== undefined
+        && session.current_formal_concept_id !== body.current_formal_concept_id)) {
+      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    }
+    return session;
+  }
+
+  async getStudySession(studySessionId: string): Promise<StudySessionView> {
+    if (!isUuid(studySessionId)) {
+      throw new ApiClientError("input", "本次學習識別資訊無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    const session = await this.json(`/v1/study-sessions/${studySessionId}`, { method: "GET" }, isStudySession);
+    if (session.study_session_id !== studySessionId) {
+      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    }
+    return session;
+  }
+
+  async getStudyContext(studySessionId: string): Promise<StudyContextView> {
+    if (!isUuid(studySessionId)) {
+      throw new ApiClientError("input", "本次學習識別資訊無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    const context = await this.json(`/v1/study-sessions/${studySessionId}/context`, { method: "GET" }, isStudyContext);
+    if (context.study_session_id !== studySessionId) {
+      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    }
+    return context;
+  }
+
+  async completeStudySession(studySessionId: string): Promise<StudySessionView> {
+    if (!isUuid(studySessionId)) {
+      throw new ApiClientError("input", "本次學習識別資訊無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    const session = await this.json(
+      `/v1/study-sessions/${studySessionId}/complete`,
+      { method: "POST", headers: { Origin: requestOrigin() } },
+      isStudySession,
+    );
+    if (session.study_session_id !== studySessionId || session.status !== "completed") {
+      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    }
+    return session;
+  }
+
+  async createAssessment(
+    studySessionId: string,
+    body: AssessmentCreate,
+    idempotencyKey: string = crypto.randomUUID(),
+  ): Promise<AssessmentView> {
+    if (!isUuid(studySessionId)
+      || body.schema !== "assessment-create/v1"
+      || !isRevision(body.target_claim_id, "claim")
+      || Object.keys(body).length !== 2) {
+      throw new ApiClientError("input", "評量請求無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    const assessment = await this.idempotentJson(
+      `/v1/study-sessions/${studySessionId}/assessments`,
+      {
+        method: "POST",
+        headers: {
+          Origin: requestOrigin(),
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify(body),
+      },
+      isAssessment,
+    );
+    if (assessment.study_session_id !== studySessionId || assessment.target_claim_id !== body.target_claim_id) {
+      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    }
+    return assessment;
+  }
+
+  async getAssessment(studySessionId: string, assessmentRevision: string): Promise<AssessmentView> {
+    if (!isUuid(studySessionId) || !isRevision(assessmentRevision, "assessment")) {
+      throw new ApiClientError("input", "評量識別資訊無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    const assessment = await this.json(
+      `/v1/study-sessions/${studySessionId}/assessments/${encodeURIComponent(assessmentRevision)}`,
+      { method: "GET" },
+      isAssessment,
+    );
+    if (assessment.study_session_id !== studySessionId || assessment.assessment_revision !== assessmentRevision) {
+      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    }
+    return assessment;
+  }
+
+  async submitAssessmentAnswer(
+    studySessionId: string,
+    assessmentRevision: string,
+    body: AnswerSubmissionCreate,
+    idempotencyKey: string = crypto.randomUUID(),
+  ): Promise<AnswerFeedbackView> {
+    if (!isUuid(studySessionId)
+      || !isRevision(assessmentRevision, "assessment")
+      || body.schema !== "answer-submission-create/v1"
+      || !isRevision(body.question_id, "question")
+      || !isRevision(body.selected_option_id, "option")
+      || Object.keys(body).length !== 3) {
+      throw new ApiClientError("input", "作答內容無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    const feedback = await this.idempotentJson(
+      `/v1/study-sessions/${studySessionId}/assessments/${encodeURIComponent(assessmentRevision)}/submissions`,
+      {
+        method: "POST",
+        headers: {
+          Origin: requestOrigin(),
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify(body),
+      },
+      isAnswerFeedback,
+    );
+    if (feedback.study_session_id !== studySessionId
+      || feedback.assessment_revision !== assessmentRevision
+      || feedback.question_id !== body.question_id
+      || feedback.selected_option_id !== body.selected_option_id) {
+      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    }
+    return feedback;
   }
 
   sourceArtifactUrl(artifactId: string, pageNumber?: number): string {
