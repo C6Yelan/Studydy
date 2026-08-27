@@ -24,6 +24,7 @@ from knowledge_map.formal_concepts import (
 from knowledge_map.relations import (
     MAX_RELATION_PAIRS,
     RelationError,
+    _is_safe_prerequisite_claim,
     build_relation_artifact,
     build_relation_request,
     select_relation_pairs,
@@ -956,6 +957,8 @@ def test_prerequisite_quality_benchmark_has_safe_direction_and_zero_false_positi
     benchmark = json.loads(fixture_path.read_text(encoding="utf-8"))
     counts = {
         "positive_cases": 0,
+        "positive_chinese_cases": 0,
+        "detected_chinese_positives": 0,
         "detected_positives": 0,
         "false_negatives": 0,
         "negative_cases": 0,
@@ -977,10 +980,13 @@ def test_prerequisite_quality_benchmark_has_safe_direction_and_zero_false_positi
             pair, [source, target], _relation_pages([source, target]), lambda *_: True
         )
         counts["positive_cases"] += 1
+        is_chinese_case = source_label == "代數"
+        counts["positive_chinese_cases"] += is_chinese_case
         if not artifact["relations"]:
             counts["false_negatives"] += 1
             continue
         counts["detected_positives"] += 1
+        counts["detected_chinese_positives"] += is_chinese_case
         relation = artifact["relations"][0]
         if relation["source_formal_concept_id"] != source["formal_concept_id"]:
             counts["direction_errors"] += 1
@@ -992,7 +998,9 @@ def test_prerequisite_quality_benchmark_has_safe_direction_and_zero_false_positi
             counts["evidence_ownership_errors"] += 1
 
     negative_cases = (
-        benchmark["negative_adjacent"] + benchmark["negative_non_learning"]
+        benchmark["negative_adjacent"]
+        + benchmark["negative_non_learning"]
+        + benchmark["negative_chinese"]
     )
     for number, (source_label, target_label, claim_text) in enumerate(
         negative_cases, start=100
@@ -1012,9 +1020,11 @@ def test_prerequisite_quality_benchmark_has_safe_direction_and_zero_false_positi
 
     assert counts == {
         "positive_cases": 24,
+        "positive_chinese_cases": 10,
+        "detected_chinese_positives": 10,
         "detected_positives": 24,
         "false_negatives": 0,
-        "negative_cases": 18,
+        "negative_cases": 23,
         "false_positives": 0,
         "direction_errors": 0,
         "endpoint_errors": 0,
@@ -1022,6 +1032,13 @@ def test_prerequisite_quality_benchmark_has_safe_direction_and_zero_false_positi
         "verifier_rejects": 0,
         "cycle_rejects": 0,
     }
+
+    assert all(
+        not _is_safe_prerequisite_claim(
+            claim_text, reject_non_learning_context=False
+        )
+        for _, _, claim_text in benchmark["negative_chinese"]
+    )
 
 
 def test_prerequisite_verifier_rejection_never_publishes():

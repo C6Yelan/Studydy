@@ -46,7 +46,7 @@ def _is_safe_prerequisite_claim(
         r"\b(?:is|are|does|do|did|was|were|has|have) not\b",
         r"\b(?:isn't|aren't|doesn't|don't|didn't|wasn't|weren't|hasn't|haven't)\b",
         r"\bno prerequisite relationship\b",
-        r"(?:不是|並非|不需要|不依賴|沒有).{0,30}(?:先備|前置|關係|需要|依賴)",
+        r"(?:不是|並非|不需要|不依賴|沒有(?:任何)?(?:先備|前置|依賴|需要))",
     )
     if any(re.search(pattern, claim_text) for pattern in negation_patterns):
         return False

@@ -47,5 +47,12 @@
     ["Python", "Project", "Project requires Python."],
     ["Library A", "Method B", "Implementation of Method B requires Library A."],
     ["Input A", "Method B", "Execution of Method B requires Input A."]
+  ],
+  "negative_chinese": [
+    ["代數", "微積分", "微積分不需要先理解代數。"],
+    ["代數", "微積分", "微積分不依賴對代數的理解。"],
+    ["代數", "微積分", "代數不是微積分的先備知識。"],
+    ["代數", "微積分", "代數並非微積分的先備概念。"],
+    ["代數", "微積分", "微積分沒有依賴代數。"]
   ]
 }

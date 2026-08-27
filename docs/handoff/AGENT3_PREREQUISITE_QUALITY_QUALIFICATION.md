@@ -20,17 +20,20 @@ source text, raw model output, and runtime artifacts are intentionally excluded.
 ## Deterministic benchmark
 
 The committed `prerequisite-quality-benchmark/v1` fixture contains 24 explicit
-positive cases and 18 negative cases. Positives cover English and Chinese
+positive cases and 23 negative cases. Positives cover English and Chinese
 direction variants. Negatives cover adjacent topics, negation, runtime,
 implementation, installation, memory, parameter, input, performance, quality,
-coursework, and project dependencies.
+coursework, and project dependencies. The negative set includes five Chinese
+negation forms covering `不需要`, `不依賴`, `不是`, `並非`, and `沒有依賴`.
 
 | Measure | Result |
 | --- | ---: |
 | Positive cases | 24 |
 | Detected positives | 24 |
+| Chinese positive cases | 10 |
+| Detected Chinese positives | 10 |
 | False negatives | 0 |
-| Negative cases | 18 |
+| Negative cases | 23 |
 | False positives | 0 |
 | Direction errors | 0 |
 | Endpoint errors | 0 |
