@@ -1,0 +1,203 @@
+import { expect, test, type Page } from "@playwright/test";
+
+import type { KnowledgeMapView } from "../src/api/contracts";
+
+const materialId = "1f9619ff-8b86-4e3a-a2f1-2bb9424d5c81";
+const artifactId = "2f9619ff-8b86-4e3a-a2f1-2bb9424d5c82";
+const runId = "3f9619ff-8b86-4e3a-a2f1-2bb9424d5c83";
+const mapRevision = `knowledge-map:sha256:${"a".repeat(64)}`;
+
+async function sessionReady(page: Page) {
+  await page.route("**/v1/session/refresh", (route) => route.fulfill({ status: 204 }));
+}
+
+async function captureAcceptance(page: Page, filename: string) {
+  if (process.env.STUDYDY_CAPTURE_ACCEPTANCE !== "1") return;
+  await page.locator("img").evaluateAll(async (images) => {
+    await Promise.all(images.map((item) => item.decode().catch(() => undefined)));
+  });
+  await page.screenshot({ path: `../docs_local/p07_acceptance/${filename}`, fullPage: true });
+}
+
+function revision(prefix: string, value: string) {
+  return `${prefix}:sha256:${value.repeat(64)}`;
+}
+
+function concept(index: number, label: string): KnowledgeMapView["concepts"][number] {
+  const value = String(index);
+  return {
+    formal_concept_id: revision("formal-concept", value),
+    label,
+    claims: [{
+      claim_id: revision("claim", value),
+      text: `${label} 的教材重點。`,
+      evidence: [{
+        evidence_id: revision("evidence", value),
+        page_ref: revision("page", value),
+        page_number: index,
+        kind: "paragraph",
+        region: { coordinate_space: "unrotated_pdf_points", bbox: [40, 50, 260, 90] },
+      }],
+    }],
+    source_concept_ids: [revision("concept", value)],
+    source_page_numbers: [index],
+    supplementary_resources: [],
+    quality: "needs_review",
+    decision: "review",
+    reason_codes: ["FORMAL_CONCEPT_REVIEW_REQUIRED"],
+  };
+}
+
+function publishedMap(): KnowledgeMapView {
+  const concepts = [concept(1, "概念甲"), concept(2, "概念乙"), concept(3, "概念丙")];
+  concepts[0].supplementary_resources.push({
+    promotion_id: revision("resource-promotion", "4"),
+    resource_concept_id: revision("resource-concept", "5"),
+    resource_id: revision("resource", "6"),
+    label: "概念甲",
+    title: "補充教材",
+    authors: ["Studydy Team"],
+    source_url: "https://example.com/resource",
+    citation: "Studydy Team. 補充教材。",
+    license: "CC BY 4.0",
+    license_url: "https://creativecommons.org/licenses/by/4.0/",
+    use_boundary: "依授權條款使用",
+    page_numbers: [1],
+    resource_evidence_ids: [revision("resource-evidence", "7")],
+    match_ids: [revision("resource-match", "8")],
+    study_concept_ids: [concepts[0].source_concept_ids[0]],
+    match_reason: "EXACT_NORMALIZED_LABEL",
+  });
+  const relation = (index: number, type: "prerequisite" | "contains" | "related", source: number, target: number) => ({
+    relation_id: revision("formal-relation", String(index + 3)),
+    type,
+    source_formal_concept_id: concepts[source].formal_concept_id,
+    target_formal_concept_id: concepts[target].formal_concept_id,
+    relation_evidence: [{
+      owner_formal_concept_id: concepts[source].formal_concept_id,
+      claim_id: concepts[source].claims[0].claim_id,
+      evidence_ids: [concepts[source].claims[0].evidence[0].evidence_id],
+    }],
+    quality: "needs_review",
+    decision: "review",
+    reason_codes: ["RELATION_REVIEW_REQUIRED"],
+    is_in_prerequisite_cycle: false,
+  });
+  return {
+    schema: "knowledge-map-view/v6",
+    material_ref: revision("material", "9"),
+    knowledge_map_revision: mapRevision,
+    source_output_id: revision("study-material-output", "b"),
+    status: {
+      processing: "succeeded",
+      quality: "needs_review",
+      decision: "review",
+      reason_codes: ["KNOWLEDGE_MAP_REVIEW_REQUIRED"],
+    },
+    concepts,
+    relations: [
+      relation(1, "prerequisite", 0, 1),
+      relation(2, "contains", 1, 2),
+      relation(3, "related", 0, 2),
+    ],
+    relation_diagnostics: {
+      possible_pairs: 3,
+      candidate_pairs: 3,
+      selected_pairs: 3,
+      selected_signal_counts: { explicit_relation: 3 },
+      evidence_gated_pairs: 3,
+      rejected_no_evidence: 0,
+      direction_conflicts: 0,
+      verifier_calls: 2,
+      verifier_accepted: 2,
+      verifier_rejected: 0,
+      verifier_unsupported: 0,
+      structural_proposals: 2,
+      contains_proposals: 1,
+      prerequisite_proposals: 1,
+      related_proposals: 1,
+      accepted_relations: 3,
+    },
+    resource_binding: {
+      context_revision: revision("map-resource-context", "c"),
+      library_revision: revision("resource-library", "d"),
+      matching_policy: "resource-context-exact-distinct-source/v3",
+      promotion_policy: "resource-formal-concept-promotion/v1",
+    },
+    resource_diagnostics: {
+      matches: 1,
+      promoted_matches: 1,
+      promoted_resources: 1,
+      dropped_matches: 0,
+      split_review_matches: 0,
+    },
+    resource_decisions: [],
+    initial_learning_path: concepts.map((item) => item.formal_concept_id),
+    excluded_pages: [],
+  };
+}
+
+function terminalRun() {
+  return {
+    schema: "material-processing-run/v2",
+    run_id: runId,
+    material_id: materialId,
+    source_artifact_id: artifactId,
+    status: "succeeded",
+    output_binding: {
+      schema: "material-run-output-binding/v3",
+      producer_bundle_id: revision("text-first-producer-bundle", "1"),
+      producer_run_id: "text-first-run:00000000-0000-4000-8000-000000000001",
+      concept_evidence_output_id: revision("concept-evidence-output", "2"),
+      study_material_output_revision: revision("study-material-output", "b"),
+      knowledge_map_revision: mapRevision,
+      runtime_binding_sha256: "3".repeat(64),
+      page_count: 3,
+      processing: "succeeded",
+      quality: "needs_review",
+      decision: "review",
+      reason_codes: ["WHOLE_DOCUMENT_REVIEW_REQUIRED"],
+      ocr_calls: 0,
+      concept_calls: 1,
+    },
+    error_code: null,
+    created_at: "2026-08-27T00:00:00Z",
+    updated_at: "2026-08-27T00:01:00Z",
+    completed_at: "2026-08-27T00:01:00Z",
+  };
+}
+
+test("Knowledge Map 只呈現 published 三種 Relation，related 保持對稱", async ({ page }) => {
+  await sessionReady(page);
+  await page.route(`**/v1/material-processing-runs/${runId}`, (route) => route.fulfill({ status: 200, json: terminalRun() }));
+  await page.route("**/v1/materials/*/knowledge-maps/**", (route) => route.fulfill({ status: 200, json: publishedMap() }));
+
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}`);
+  await expect(page.getByRole("heading", { name: "知識地圖", exact: true })).toBeVisible();
+  await expect(page.locator(".concept-card")).toHaveCount(3);
+  await captureAcceptance(page, "01_app_shell_desktop.png");
+  await captureAcceptance(page, "05_map_overview.png");
+
+  await page.getByRole("tab", { name: "焦點探索" }).click();
+  await expect(page.locator('.relation-connector.is-prerequisite[data-directional="true"]').first()).toBeVisible();
+  await expect(page.locator('.relation-connector.is-contains[data-directional="true"]').first()).toBeVisible();
+  await expect(page.locator('.relation-connector.is-related[data-directional="false"]').first()).toBeVisible();
+  await expect(page.getByText(/similar|confusing|application|example/i)).toHaveCount(0);
+  await expect(page.getByText(/candidate_pairs|verifier_calls|relation_diagnostics/i)).toHaveCount(0);
+  await captureAcceptance(page, "06_map_focus_concept.png");
+
+  await page.locator(".relation-list > button").filter({ hasText: "互相關聯" }).click();
+  await expect(page.getByRole("heading", { name: "互相關聯" })).toBeVisible();
+  await expect(page.getByText("兩個概念在教材中互有關聯，沒有單向學習箭頭。")).toBeVisible();
+  await captureAcceptance(page, "07_relation_detail.png");
+
+  await page.getByRole("tab", { name: "教材順序" }).click();
+  await expect(page.getByRole("heading", { name: "教材建議學習順序" })).toBeVisible();
+  await expect(page.locator(".learning-path li")).toHaveCount(3);
+  await captureAcceptance(page, "08_initial_path.png");
+
+  await page.getByRole("tab", { name: "總覽" }).click();
+  await page.getByRole("button", { name: /概念甲/ }).click();
+  await expect(page.getByLabel("概念詳情").getByText("概念甲 的教材重點。")).toBeVisible();
+  await expect(page.getByRole("link", { name: "開啟資源" })).toHaveAttribute("href", "https://example.com/resource");
+});

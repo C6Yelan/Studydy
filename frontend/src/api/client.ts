@@ -81,6 +81,16 @@ function isRevision(value: unknown, prefix: string): value is string {
     && sha256Pattern.test(value.slice(prefix.length + 8));
 }
 
+function isHttpUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 function isStringArray(value: unknown, minimum = 0, maximum?: number): value is string[] {
   return Array.isArray(value)
     && value.length >= minimum
@@ -281,8 +291,10 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
           && isRevision(resource.promotion_id, "resource-promotion")
           && isRevision(resource.resource_concept_id, "resource-concept")
           && isRevision(resource.resource_id, "resource")
-          && ["label", "title", "source_url", "citation", "license", "license_url", "use_boundary"]
+          && ["label", "title", "citation", "license", "use_boundary"]
             .every((field) => typeof resource[field] === "string" && String(resource[field]).length > 0)
+          && isHttpUrl(resource.source_url)
+          && isHttpUrl(resource.license_url)
           && isStringArray(resource.authors, 1)
           && Array.isArray(resource.page_numbers) && resource.page_numbers.length > 0
           && resource.page_numbers.every((page) => Number.isInteger(page) && Number(page) >= 1)

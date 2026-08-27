@@ -113,7 +113,7 @@ function reviewMap() {
   };
 }
 
-test("review-only Map 只顯示概念與同頁 PDF locator", async ({ page }) => {
+test("review-only Map 顯示概念、教材順序與同頁 PDF locator", async ({ page }) => {
   await sessionReady(page);
   await page.route(`**/v1/material-processing-runs/${runId}`, (route) => {
     return route.fulfill({ status: 200, json: terminalRun() });
@@ -123,9 +123,11 @@ test("review-only Map 只顯示概念與同頁 PDF locator", async ({ page }) =>
   });
 
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}`);
-  await expect(page.getByRole("heading", { name: "教材概念與 Evidence 複核" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "知識地圖", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /二元樹/ }).click();
   await expect(page.getByRole("heading", { name: "二元樹" })).toBeVisible();
-  await expect(page.getByText("第 1 頁 · native_text")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Learning Path", exact: true })).toHaveCount(0);
+  await expect(page.getByText("原始教材第 1 頁")).toBeVisible();
+  await page.getByRole("tab", { name: "教材順序" }).click();
+  await expect(page.getByRole("heading", { name: "教材建議學習順序" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Assessment", exact: true })).toHaveCount(0);
 });

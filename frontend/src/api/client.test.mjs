@@ -245,7 +245,7 @@ test("terminal binding 接受單頁多批 concept calls 並拒絕負數", async 
   );
 });
 
-test("Map v4 使用 exact run/revision 並要求 claim PDF locator", async () => {
+test("Map v6 使用 exact run/revision 並要求 claim PDF locator", async () => {
   const paths = [];
   const client = new StudydyApiClient(async (input) => {
     paths.push(String(input));
@@ -272,6 +272,43 @@ test("Map v4 使用 exact run/revision 並要求 claim PDF locator", async () =>
   });
   await assert.rejects(
     invalidClient.getKnowledgeMap({ materialId, runId, mapRevision }),
+    (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
+  );
+});
+
+test("Map v6 補充資源只接受 HTTP(S) public URL", async () => {
+  const invalid = mapView();
+  const sourceConceptId = invalid.concepts[0].source_concept_ids[0];
+  invalid.concepts[0].supplementary_resources.push({
+    promotion_id: `resource-promotion:sha256:${"1".repeat(64)}`,
+    resource_concept_id: `resource-concept:sha256:${"2".repeat(64)}`,
+    resource_id: `resource:sha256:${"3".repeat(64)}`,
+    label: "Public concept",
+    title: "Unsafe resource",
+    authors: ["Author"],
+    source_url: "javascript:alert(1)",
+    citation: "Citation",
+    license: "CC BY 4.0",
+    license_url: "https://creativecommons.org/licenses/by/4.0/",
+    use_boundary: "Attribution required",
+    page_numbers: [1],
+    resource_evidence_ids: [`resource-evidence:sha256:${"4".repeat(64)}`],
+    match_ids: [`resource-match:sha256:${"5".repeat(64)}`],
+    study_concept_ids: [sourceConceptId],
+    match_reason: "EXACT_NORMALIZED_LABEL",
+  });
+  Object.assign(invalid.resource_diagnostics, {
+    matches: 1,
+    promoted_matches: 1,
+    promoted_resources: 1,
+  });
+  let calls = 0;
+  const client = new StudydyApiClient(async () => {
+    calls += 1;
+    return calls === 1 ? new Response(null, { status: 204 }) : Response.json(invalid);
+  });
+  await assert.rejects(
+    client.getKnowledgeMap({ materialId, runId, mapRevision }),
     (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
   );
 });

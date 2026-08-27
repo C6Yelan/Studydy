@@ -4,19 +4,22 @@
 > the frozen `/v1` public contract take precedence over recorded SHAs.
 
 - **Authoritative plan:** P07 Frontend Design Alignment Frozen Execution Plan.
-- **Status:** P07-A complete at this checkpoint; P07-B is next.
+- **Status:** P07-B complete at this checkpoint; P07-C is next.
 - **Base SHA:** `118d3db50f7974c7197d84bdf6cfa7e3c8bb41ce`.
 - **Base branch:** `dev` / `origin/dev`.
 - **Execution branch:** `feature/p07-frontend-design-alignment-20260827`.
 - **Milestone commits:** P07-00 `5d225230d3f71528538d7074e663af4b7083c218`;
-  P07-A is the signed commit containing this checkpoint.
-- **Current candidate:** P07-A working tree ready for its signed milestone commit.
+  P07-A `dbf3f38227588965794e90748bf46a341832938f`; P07-B is the
+  signed commit containing this checkpoint.
+- **Current candidate:** P07-B working tree ready for its signed milestone commit.
 - **Prerequisite integration:** the approved Agent 3 prerequisite-quality
   commits `6921219`, `d4c50c6`, and `118d3db` were explicitly authorized,
   fast-forwarded, and pushed to `dev` before this P07 branch was created.
-- **Latest tests:** frontend unit 3/3; typecheck pass; build pass; P06 public
+- **Latest tests:** frontend test command pass (4 test files); typecheck pass;
+  build pass; P06 public
   fixtures 1/1 at baseline; existing full-stack Playwright 5/5 with
-  `MATERIAL_REVIEW_E2E_PASS` after P07-A.
+  `MATERIAL_REVIEW_E2E_PASS` after P07-A; P07-B full-stack Playwright 6/6
+  with `MATERIAL_REVIEW_E2E_PASS`.
 - **Design ingestion:** General UI guideline, correct/wrong examples, blind-test
   results, final selected PNGs, visual reference, runtime asset manifest;
   Knowledge Map guideline/examples/blind-test sources; Mascot guideline,
@@ -38,8 +41,16 @@
   MaterialFlow split into upload/run responsibilities; approved runtime PNGs
   copied byte-for-byte from the official asset pack; upload, processing, done,
   failure, and narrow viewport visually inspected from local-only screenshots.
+- **P07-B result:** data-driven Overview, canonical `教材建議學習順序`,
+  Focus, and pre-session content Review views; Concept/Claim/Evidence/resource
+  Detail; Relation Detail with only `prerequisite`, `contains`, and `related`;
+  directional markers only for directional types; symmetric dashed `related`;
+  no diagnostics in the student layer; safe HTTP(S) resource boundary; readable
+  empty, partial, isolated-node, and responsive fallbacks. AppShell, Overview,
+  Focus, Relation Detail, and Initial Path were visually inspected from
+  local-only public-fixture screenshots.
 - **Known limitations at this checkpoint:** production frontend does not yet
-  consume P06 learning APIs; P07-B through P07-E remain to be implemented.
-- **Next action:** create and push the signed P07-A commit, then implement P07-B
-  canonical Knowledge Map Overview/Path/Focus/Review, Concept/Relation Detail,
-  Evidence, resources, and the start-learning entry.
+  consume P06 learning APIs; P07-C through P07-E remain to be implemented.
+- **Next action:** create and push the signed P07-B commit, then implement P07-C
+  StudySession lifecycle, direct refresh recovery, public single-choice
+  Assessment, server feedback, completion, and reassessment/no-safe-item states.
