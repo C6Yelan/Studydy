@@ -88,6 +88,7 @@ export default function KnowledgeMap({ apiClient, route }: {
     <KnowledgeMapWorkspace
       apiClient={apiClient}
       isStartingStudy={isStartingStudy}
+      onReturnToRun={() => writeRoute({ name: "material-run", materialId: route.materialId, runId: route.runId })}
       onStartStudy={startStudy}
       sourceArtifactId={sourceArtifactId}
       startMessage={startMessage}

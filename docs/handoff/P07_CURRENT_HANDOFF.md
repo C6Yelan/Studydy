@@ -4,7 +4,7 @@
 > the frozen `/v1` public contract take precedence over recorded SHAs.
 
 - **Authoritative plan:** P07 Frontend Design Alignment Frozen Execution Plan.
-- **Status:** P07-D complete at this checkpoint; P07-E is next.
+- **Status:** P07-E release candidate complete; final Git audit is next.
 - **Base SHA:** `118d3db50f7974c7197d84bdf6cfa7e3c8bb41ce`.
 - **Base branch:** `dev` / `origin/dev`.
 - **Execution branch:** `feature/p07-frontend-design-alignment-20260827`.
@@ -12,8 +12,9 @@
   P07-A `dbf3f38227588965794e90748bf46a341832938f`; P07-B is the
   signed commit `ffa4a86836f6b2cb82c344412e00d36959fe4824`; P07-C is the
   signed commit `38284d4499b1a969a9d2b28d3f3a2048c8c2cc8f`; P07-D is the
+  signed commit `5a5971fedb31b75f5f6aead8ea73874cc772e9d3`; P07-E is the
   signed commit containing this checkpoint.
-- **Current candidate:** P07-D working tree ready for its signed milestone commit.
+- **Current candidate:** P07-E working tree ready for its signed release-candidate commit.
 - **Prerequisite integration:** the approved Agent 3 prerequisite-quality
   commits `6921219`, `d4c50c6`, and `118d3db` were explicitly authorized,
   fast-forwarded, and pushed to `dev` before this P07 branch was created.
@@ -23,7 +24,8 @@
   `MATERIAL_REVIEW_E2E_PASS` after P07-A; P07-B full-stack Playwright 6/6
   with `MATERIAL_REVIEW_E2E_PASS`; P07-C full-stack Playwright 9/9 with
   `MATERIAL_REVIEW_E2E_PASS`; P07-D full-stack Playwright 11/11 with
-  `MATERIAL_REVIEW_E2E_PASS`.
+  `MATERIAL_REVIEW_E2E_PASS`; P07-E full-stack Playwright 14/14 with
+  `MATERIAL_REVIEW_E2E_PASS`; frozen backend API runtime/public fixtures 16/16.
 - **Design ingestion:** General UI guideline, correct/wrong examples, blind-test
   results, final selected PNGs, visual reference, runtime asset manifest;
   Knowledge Map guideline/examples/blind-test sources; Mascot guideline,
@@ -71,10 +73,20 @@
   visible new-StudySession reset. Learning State/Weakness, Adaptive Next Step,
   and prerequisite remediation were visually inspected from local-only public
   fixtures.
-- **Known limitations at this checkpoint:** final state-matrix edge cases,
-  accessibility/responsive audit, acceptance documentation, complete screenshot
-  bundle, and release-candidate regression remain P07-E.
-- **Next action:** create and push the signed P07-D commit, then complete P07-E
-  state matrix, accessibility, narrow viewport, failure/recovery, stale/leak
-  audit, screenshots, public-fixture/full-stack verification, acceptance matrix,
-  and final candidate handoff.
+- **P07-E result:** state matrix covers loading, empty, success, partial,
+  insufficient, stale/conflict, retryable/fatal failure, expired app session,
+  no/active/completed/new StudySession, no-safe-item, and empty/partial/30-Concept
+  Map; session refresh is single-flight; named landmarks, keyboard Map tabs,
+  associated input errors, native radio semantics, visible focus, reduced motion,
+  and not-color-only Relations are in place; desktop and 390 px assessment/map
+  overflow checks pass; 18/18 local-only acceptance screenshots are complete.
+- **Acceptance matrix:** [`P07_DESIGN_ACCEPTANCE.md`](P07_DESIGN_ACCEPTANCE.md).
+- **Blockers:** none.
+- **Known limitations:** original PDF + exact page viewer fallback; no separate
+  approved mobile visual system; static approved mascot assets; no unsupported
+  account/settings/global-search capability; real-material prerequisite sample
+  coverage remains upstream while the public fixture flow is automated.
+- **Next action:** create and push the signed P07-E release-candidate commit,
+  verify remote feature tip equals local candidate and `origin/dev` remains at
+  the approved base, then record final candidate Git truth and mark
+  `READY_FOR_REVIEW`.

@@ -6,12 +6,13 @@ import { Icon } from "../../ui/Icon";
 import "./styles.css";
 
 type Concept = KnowledgeMapView["concepts"][number];
-type AssessmentError = { message: string; noSafeItem: boolean; retryable: boolean };
+type AssessmentError = { conflict: boolean; message: string; noSafeItem: boolean; retryable: boolean };
 
 function assessmentError(error: unknown): AssessmentError {
   if (error instanceof ApiClientError && error.reasonCode === "RESOURCE_NOT_FOUND") {
     return {
       message: "目前沒有可安全提供的新題目。你可以先回到教材重點，或稍後再試。",
+      conflict: false,
       noSafeItem: true,
       retryable: false,
     };
@@ -19,20 +20,23 @@ function assessmentError(error: unknown): AssessmentError {
   if (error instanceof ApiClientError && error.reasonCode === "IDEMPOTENCY_CONFLICT") {
     return {
       message: "這次操作與較新的學習狀態衝突，請重新整理本次學習。",
+      conflict: true,
       noSafeItem: false,
       retryable: false,
     };
   }
   return {
+    conflict: false,
     message: errorMessage(error),
     noSafeItem: false,
     retryable: error instanceof ApiClientError ? error.retryable : true,
   };
 }
 
-export function AssessmentPanel({ apiClient, concept, onSubmitted, sourceArtifactId, studySessionId, view }: {
+export function AssessmentPanel({ apiClient, concept, onReloadSession, onSubmitted, sourceArtifactId, studySessionId, view }: {
   apiClient: StudydyApiClient;
   concept: Concept;
+  onReloadSession: () => void;
   onSubmitted: (feedback: AnswerFeedbackView) => void;
   sourceArtifactId: string;
   studySessionId: string;
@@ -214,8 +218,13 @@ export function AssessmentPanel({ apiClient, concept, onSubmitted, sourceArtifac
           </label>
         ))}
       </fieldset>
-      {submissionError && <p className="assessment-error" role="alert">{submissionError.message}</p>}
-      <button className="primary-button assessment-submit" disabled={!selectedOptionId || isSubmitting} type="button" onClick={() => void submit()}>
+      {submissionError && (
+        <div className="assessment-error" role="alert">
+          <span>{submissionError.message}</span>
+          {submissionError.conflict && <button className="text-button" type="button" onClick={onReloadSession}>重新整理本次學習</button>}
+        </div>
+      )}
+      <button className="primary-button assessment-submit" disabled={!selectedOptionId || isSubmitting || submissionError?.conflict} type="button" onClick={() => void submit()}>
         {isSubmitting ? "正在送出…" : submissionError?.retryable ? "重新送出" : "送出答案"}
       </button>
     </section>

@@ -128,11 +128,19 @@
 }
 
 .assessment-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
   padding: var(--space-3);
   border: 1px solid #f1b5b5;
   border-radius: var(--radius-input);
   color: #a32626;
   background: var(--error-soft);
+}
+
+.assessment-error .text-button {
+  flex: 0 0 auto;
 }
 
 .feedback-card.is-correct .feedback-icon {
@@ -209,6 +217,11 @@
   .assessment-actions {
     width: 100%;
     align-items: stretch;
+    flex-direction: column;
+  }
+
+  .assessment-error {
+    align-items: flex-start;
     flex-direction: column;
   }
 }

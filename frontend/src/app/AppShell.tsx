@@ -82,8 +82,8 @@ export function AppShell({ children, route, sessionStatus }: {
       </header>
 
       {isWorkspace && (
-        <aside className="app-sidebar" aria-label="主要導覽">
-          <nav>
+        <aside className="app-sidebar" aria-label="學習導覽區">
+          <nav aria-label="主要導覽">
             {routeNavigation(route).map((item) => (
               <button
                 aria-current={item.active ? "page" : undefined}

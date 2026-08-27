@@ -192,6 +192,17 @@ test("protected request 的 401 會 refresh 後重送", async () => {
   ]);
 });
 
+test("parallel ensureSession 共用一個 refresh request", async () => {
+  let refreshCalls = 0;
+  const client = new StudydyApiClient(async () => {
+    refreshCalls += 1;
+    await Promise.resolve();
+    return new Response(null, { status: 204 });
+  });
+  await Promise.all([client.ensureSession(), client.ensureSession(), client.ensureSession()]);
+  assert.equal(refreshCalls, 1);
+});
+
 test("upload network retry 沿用同一 idempotency key", async () => {
   const keys = [];
   let calls = 0;

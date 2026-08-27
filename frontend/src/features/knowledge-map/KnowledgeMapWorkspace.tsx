@@ -306,9 +306,10 @@ function ReviewView({ openConcept, view }: {
   );
 }
 
-export function KnowledgeMapWorkspace({ apiClient, isStartingStudy, onStartStudy, sourceArtifactId, startMessage, view }: {
+export function KnowledgeMapWorkspace({ apiClient, isStartingStudy, onReturnToRun, onStartStudy, sourceArtifactId, startMessage, view }: {
   apiClient: StudydyApiClient;
   isStartingStudy: boolean;
+  onReturnToRun: () => void;
   onStartStudy: (conceptId: string) => void;
   sourceArtifactId: string;
   startMessage: string | null;
@@ -327,6 +328,7 @@ export function KnowledgeMapWorkspace({ apiClient, isStartingStudy, onStartStudy
 
   if (view.concepts.length === 0) return (
     <StateView
+      action={<button className="secondary-button" type="button" onClick={onReturnToRun}><Icon name="arrow-left" />查看處理狀態</button>}
       description="這份教材目前沒有可安全顯示的概念。可以返回處理狀態查看結果。"
       image="/assets/studydy/empty-disappointed.png"
       title="知識地圖目前是空的"
@@ -337,6 +339,11 @@ export function KnowledgeMapWorkspace({ apiClient, isStartingStudy, onStartStudy
   const openConcept = (id: string) => {
     setSelectedConceptId(id);
     setDetail({ kind: "concept", id });
+  };
+  const selectMode = (nextMode: Mode) => {
+    setMode(nextMode);
+    setDetail(null);
+    window.requestAnimationFrame(() => document.getElementById(`map-tab-${nextMode}`)?.focus());
   };
   return (
     <section className={`map-workspace${detail ? " has-detail" : ""}`}>
@@ -367,20 +374,37 @@ export function KnowledgeMapWorkspace({ apiClient, isStartingStudy, onStartStudy
         {modes.map((item) => (
           <button
             aria-selected={mode === item.id}
+            aria-controls={`map-panel-${item.id}`}
             className={mode === item.id ? "is-active" : undefined}
+            id={`map-tab-${item.id}`}
             key={item.id}
             role="tab"
+            tabIndex={mode === item.id ? 0 : -1}
             type="button"
-            onClick={() => {
-              setMode(item.id);
-              setDetail(null);
+            onClick={() => selectMode(item.id)}
+            onKeyDown={(event) => {
+              const currentIndex = modes.findIndex((entry) => entry.id === item.id);
+              let nextIndex = currentIndex;
+              if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % modes.length;
+              else if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + modes.length) % modes.length;
+              else if (event.key === "Home") nextIndex = 0;
+              else if (event.key === "End") nextIndex = modes.length - 1;
+              else return;
+              event.preventDefault();
+              selectMode(modes[nextIndex].id);
             }}
           >{item.label}</button>
         ))}
       </div>
 
       <div className="map-content">
-        <div className="map-view" role="tabpanel">
+        <div
+          aria-labelledby={`map-tab-${mode}`}
+          className="map-view"
+          id={`map-panel-${mode}`}
+          role="tabpanel"
+          tabIndex={0}
+        >
           {mode === "overview" && <Overview openConcept={openConcept} view={view} />}
           {mode === "path" && (
             <PathView

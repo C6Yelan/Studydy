@@ -820,6 +820,7 @@ async function apiFailure(response: Response): Promise<ApiClientError> {
 
 export class StudydyApiClient {
   private sessionChecked = false;
+  private sessionRequest: Promise<void> | null = null;
   private readonly fetchRequest: FetchRequest;
 
   constructor(fetchRequest: FetchRequest = fetch.bind(globalThis)) {
@@ -828,8 +829,12 @@ export class StudydyApiClient {
 
   async ensureSession(): Promise<void> {
     if (this.sessionChecked) return;
-    await this.refreshSession();
-    this.sessionChecked = true;
+    if (!this.sessionRequest) {
+      this.sessionRequest = this.refreshSession()
+        .then(() => { this.sessionChecked = true; })
+        .finally(() => { this.sessionRequest = null; });
+    }
+    await this.sessionRequest;
   }
 
   private async refreshSession(): Promise<void> {

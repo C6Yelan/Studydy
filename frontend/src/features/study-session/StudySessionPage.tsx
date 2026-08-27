@@ -66,6 +66,7 @@ function assertRouteBinding(route: Extract<AppRoute, { name: "study-session" }>,
     || data.weakness.base_knowledge_map_revision !== route.mapRevision
     || data.weakness.source_learning_state_revision !== data.learningState.state_revision
     || data.weakness.event_watermark !== data.learningState.event_watermark
+    || data.weakness.current_formal_concept_id !== data.session.current_formal_concept_id
     || data.adaptive.plan.study_session_id !== route.studySessionId
     || data.adaptive.plan.base_knowledge_map_revision !== route.mapRevision
     || data.adaptive.plan.source_learning_state_revision !== data.learningState.state_revision
@@ -337,6 +338,7 @@ export function StudySessionPage({ apiClient, route }: {
             <AssessmentPanel
               apiClient={apiClient}
               concept={currentConcept}
+              onReloadSession={() => window.location.reload()}
               onSubmitted={(_feedback: AnswerFeedbackView) => { void refreshInsights(); }}
               sourceArtifactId={data.sourceArtifactId}
               studySessionId={route.studySessionId}

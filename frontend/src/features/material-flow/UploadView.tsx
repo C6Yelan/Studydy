@@ -60,6 +60,8 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
               type="file"
               accept="application/pdf"
               aria-label="選擇 PDF 教材"
+              aria-describedby={message ? "upload-error" : undefined}
+              aria-invalid={message ? true : undefined}
               disabled={isSubmitting}
               onChange={(event) => {
                 const next = event.currentTarget.files?.[0] ?? null;
@@ -95,7 +97,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             </div>
           )}
 
-          {message && <p className="form-error" role="alert">{message}</p>}
+          {message && <p className="form-error" id="upload-error" role="alert">{message}</p>}
           <button className="primary-button full-button" type="button" disabled={isSubmitting} onClick={submit}>
             <Icon name="upload" size={18} />
             {isSubmitting ? "正在建立處理作業…" : "上傳並分析完整教材"}

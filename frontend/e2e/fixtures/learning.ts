@@ -285,7 +285,7 @@ export function learningStateView(options: {
 
 export function weaknessView(options: {
   category?: "none" | "not_enough_data" | "observed_weak" | "prerequisite_gap";
-  currentConceptId?: string;
+  currentConceptId?: string | null;
   eventWatermark?: number;
   stateRevision?: string;
 } = {}): WeaknessView {
@@ -316,7 +316,7 @@ export function weaknessView(options: {
     base_knowledge_map_revision: mapRevision,
     source_learning_state_revision: options.stateRevision ?? learningStateRevision,
     event_watermark: options.eventWatermark ?? 0,
-    current_formal_concept_id: options.currentConceptId ?? targetConceptId,
+    current_formal_concept_id: options.currentConceptId === undefined ? targetConceptId : options.currentConceptId,
     weakness_revision: revision("weakness", category === "prerequisite_gap" ? "b" : "a"),
     findings,
     immediate_prerequisite_gaps: gaps,
@@ -325,7 +325,7 @@ export function weaknessView(options: {
 
 export function adaptiveView(options: {
   action?: AdaptiveAction;
-  currentConceptId?: string;
+  currentConceptId?: string | null;
   deferredConceptId?: string | null;
   eventWatermark?: number;
   planValue?: string;
@@ -334,7 +334,7 @@ export function adaptiveView(options: {
   targetLabel?: string | null;
 } = {}): AdaptiveResponseView {
   const action = options.action ?? "collect_more_data";
-  const currentConceptId = options.currentConceptId ?? targetConceptId;
+  const currentConceptId = options.currentConceptId === undefined ? targetConceptId : options.currentConceptId;
   const targetId = options.targetConceptId === undefined ? currentConceptId : options.targetConceptId;
   const targetLabel = options.targetLabel === undefined
     ? targetId === prerequisiteConceptId ? "先備概念" : targetId === targetConceptId ? "目標概念" : null

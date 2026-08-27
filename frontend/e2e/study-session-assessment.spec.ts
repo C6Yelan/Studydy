@@ -139,6 +139,7 @@ test("Assessment stale/idempotency conflict 不會在 client 端猜測結果", a
   await page.getByRole("radio", { name: /選項 A/ }).check();
   await page.getByRole("button", { name: "送出答案" }).click();
   await expect(page.getByRole("alert")).toContainText("與較新的學習狀態衝突");
+  await expect(page.getByRole("button", { name: "重新整理本次學習" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "答對了" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "這題需要再想一下" })).toHaveCount(0);
 });
