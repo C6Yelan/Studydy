@@ -1,10 +1,14 @@
 import type {
+  AdaptiveAction,
+  AdaptiveResponseView,
   AnswerFeedbackView,
   AssessmentView,
   KnowledgeMapView,
+  LearningStateView,
   MaterialProcessingRunView,
   StudyContextView,
   StudySessionView,
+  WeaknessView,
 } from "../../src/api/contracts";
 
 export const materialId = "4f9619ff-8b86-4e3a-a2f1-2bb9424d5c81";
@@ -16,6 +20,7 @@ export const prerequisiteConceptId = revision("formal-concept", "1");
 export const targetConceptId = revision("formal-concept", "2");
 export const prerequisiteClaimId = revision("claim", "3");
 export const targetClaimId = revision("claim", "4");
+export const learningStateRevision = revision("learning-state", "f");
 
 export function revision(prefix: string, value: string) {
   return `${prefix}:sha256:${value.repeat(64)}`;
@@ -222,6 +227,164 @@ export function feedbackView(assessment: AssessmentView, selectedOptionId: strin
     source_evidence_ids: assessment.source_evidence_ids,
     event_number: eventNumber,
     created_at: `2026-08-27T00:0${eventNumber + 5}:00Z`,
+  };
+}
+
+function conceptState(
+  formalConceptId: string,
+  claimId: string,
+  evidenceId: string,
+  status: "not_started" | "learning" | "needs_review" | "mastered",
+) {
+  const hasEvidence = status !== "not_started";
+  const mastered = status === "mastered";
+  return {
+    formal_concept_id: formalConceptId,
+    status,
+    mastery_band: mastered ? "demonstrated" as const : hasEvidence ? "developing" as const : "no_evidence" as const,
+    confidence: mastered ? "supported" as const : hasEvidence ? "limited" as const : "none" as const,
+    needs_more_data: !mastered,
+    required_claim_ids: [claimId],
+    attempted_claim_ids: hasEvidence ? [claimId] : [],
+    latest_correct_claim_ids: mastered ? [claimId] : [],
+    claim_coverage_complete: mastered,
+    required_evidence_ids: [evidenceId],
+    observed_evidence_ids: hasEvidence ? [evidenceId] : [],
+    evidence_coverage_complete: mastered,
+    valid_attempts: hasEvidence ? 2 : 0,
+    correct_attempts: mastered ? 2 : 0,
+    distinct_item_attempts: hasEvidence ? 2 : 0,
+    recent_result: mastered ? "correct" as const : hasEvidence ? "incorrect" as const : null,
+    repeated_error: status === "needs_review",
+    post_error_improvement: mastered,
+    explanation: mastered ? "本次學習已取得足夠的可信正確作答。" : hasEvidence ? "目前結果仍需要更多練習。" : "尚未有可信作答紀錄，需要先完成評量。",
+  };
+}
+
+export function learningStateView(options: {
+  eventWatermark?: number;
+  prerequisiteStatus?: "not_started" | "learning" | "needs_review" | "mastered";
+  stateRevision?: string;
+  targetStatus?: "not_started" | "learning" | "needs_review" | "mastered";
+} = {}): LearningStateView {
+  const prerequisiteStatus = options.prerequisiteStatus ?? "not_started";
+  const targetStatus = options.targetStatus ?? "not_started";
+  return {
+    schema: "learning-state/v1",
+    study_session_id: studySessionId,
+    base_knowledge_map_revision: mapRevision,
+    state_revision: options.stateRevision ?? learningStateRevision,
+    event_watermark: options.eventWatermark ?? 0,
+    all_mastered: prerequisiteStatus === "mastered" && targetStatus === "mastered",
+    concept_states: [
+      conceptState(prerequisiteConceptId, prerequisiteClaimId, revision("evidence", "1"), prerequisiteStatus),
+      conceptState(targetConceptId, targetClaimId, revision("evidence", "2"), targetStatus),
+    ],
+  };
+}
+
+export function weaknessView(options: {
+  category?: "none" | "not_enough_data" | "observed_weak" | "prerequisite_gap";
+  currentConceptId?: string;
+  eventWatermark?: number;
+  stateRevision?: string;
+} = {}): WeaknessView {
+  const category = options.category ?? "not_enough_data";
+  const findings = category === "none" || category === "prerequisite_gap" ? [] : [{
+    target_formal_concept_id: targetConceptId,
+    target_label: "目標概念",
+    category,
+    confidence: category === "observed_weak" ? "supported" as const : "none" as const,
+    claim_coverage_complete: false,
+    remediation_intent: category === "observed_weak" ? "practice" as const : "collect_more_data" as const,
+    reason: category === "observed_weak" ? "多次可信錯誤顯示這個概念目前需要練習。" : "目前資料不足，先完成更多評量。",
+  }];
+  const gaps = category === "prerequisite_gap" ? [{
+    category: "possible_prerequisite_gap" as const,
+    target_formal_concept_id: targetConceptId,
+    prerequisite_formal_concept_id: prerequisiteConceptId,
+    prerequisite_label: "先備概念",
+    relation_id: revision("formal-relation", "7"),
+    prerequisite_status: "not_started" as const,
+    prerequisite_confidence: "none" as const,
+    remediation_intent: "relearn_prerequisite" as const,
+    reason: "先補強尚未掌握的正式 immediate prerequisite，再回到目前目標。",
+  }] : [];
+  return {
+    schema: "weakness/v1",
+    study_session_id: studySessionId,
+    base_knowledge_map_revision: mapRevision,
+    source_learning_state_revision: options.stateRevision ?? learningStateRevision,
+    event_watermark: options.eventWatermark ?? 0,
+    current_formal_concept_id: options.currentConceptId ?? targetConceptId,
+    weakness_revision: revision("weakness", category === "prerequisite_gap" ? "b" : "a"),
+    findings,
+    immediate_prerequisite_gaps: gaps,
+  };
+}
+
+export function adaptiveView(options: {
+  action?: AdaptiveAction;
+  currentConceptId?: string;
+  deferredConceptId?: string | null;
+  eventWatermark?: number;
+  planValue?: string;
+  stateRevision?: string;
+  targetConceptId?: string | null;
+  targetLabel?: string | null;
+} = {}): AdaptiveResponseView {
+  const action = options.action ?? "collect_more_data";
+  const currentConceptId = options.currentConceptId ?? targetConceptId;
+  const targetId = options.targetConceptId === undefined ? currentConceptId : options.targetConceptId;
+  const targetLabel = options.targetLabel === undefined
+    ? targetId === prerequisiteConceptId ? "先備概念" : targetId === targetConceptId ? "目標概念" : null
+    : options.targetLabel;
+  const planRevision = revision("adaptive-plan", options.planValue ?? "c");
+  const route = {
+    study_session_id: studySessionId,
+    formal_concept_id: targetId,
+    resource_promotion_id: null,
+  };
+  const step = {
+    action,
+    target_formal_concept_id: targetId,
+    target_label: targetLabel,
+    reason: action === "relearn_prerequisite"
+      ? "先補強尚未掌握的正式 immediate prerequisite，再回到目前目標。"
+      : "目前資料不足，先取得更多可信作答證據。",
+    confidence: "limited" as const,
+    claim_coverage_complete: false,
+    route,
+  };
+  return {
+    schema: "adaptive-response/v1",
+    plan: {
+      schema: "adaptive-plan/v1",
+      study_session_id: studySessionId,
+      base_knowledge_map_revision: mapRevision,
+      inline_initial_learning_path_sha256: "d".repeat(64),
+      source_learning_state_revision: options.stateRevision ?? learningStateRevision,
+      event_watermark: options.eventWatermark ?? 0,
+      current_formal_concept_id: currentConceptId,
+      deferred_formal_concept_id: options.deferredConceptId ?? null,
+      primary_step: step,
+      adaptive_plan_revision: planRevision,
+    },
+    suggestion: {
+      schema: "learning-suggestion/v1",
+      adaptive_plan_revision: planRevision,
+      study_session_id: studySessionId,
+      base_knowledge_map_revision: mapRevision,
+      action,
+      target_formal_concept_id: targetId,
+      target_label: targetLabel,
+      reason: step.reason,
+      confidence: step.confidence,
+      claim_coverage_complete: step.claim_coverage_complete,
+      route,
+      fallback_action: "collect_more_data",
+      fallback_reason: "若目前動作無法完成，先取得更多可信作答證據。",
+    },
   };
 }
 

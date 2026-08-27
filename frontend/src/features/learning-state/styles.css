@@ -1,0 +1,190 @@
+.learning-insights {
+  padding: var(--space-7);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-large-card);
+  background: var(--surface);
+  box-shadow: 0 2px 10px rgba(20, 32, 60, .05);
+}
+
+.insights-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.insights-heading h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.learning-status {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  padding: 0 var(--space-3);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--page-cool-2);
+  font-size: .8rem;
+  font-weight: 700;
+}
+
+.learning-status.is-learning {
+  color: var(--studydy-blue);
+  background: var(--studydy-blue-soft);
+}
+
+.learning-status.is-needs_review {
+  color: #795400;
+  background: var(--warning-soft);
+}
+
+.learning-status.is-mastered {
+  color: #08764c;
+  background: var(--success-soft);
+}
+
+.state-dimensions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+.state-dimensions article {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  background: var(--page-cool);
+}
+
+.state-dimensions article > span {
+  color: var(--studydy-blue);
+}
+
+.state-dimensions small {
+  color: var(--text-muted);
+}
+
+.state-dimensions strong {
+  font-size: .88rem;
+}
+
+.state-explanation {
+  margin: var(--space-4) 0 0;
+  color: var(--text-secondary);
+}
+
+.state-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.state-flags span {
+  padding: var(--space-2) var(--space-3);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--page-cool-2);
+  font-size: .74rem;
+}
+
+.weakness-list {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-light);
+}
+
+.weakness-card {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+}
+
+.weakness-card > span {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  background: var(--page-cool-2);
+}
+
+.weakness-card small,
+.weakness-card strong {
+  display: block;
+}
+
+.weakness-card small {
+  color: var(--text-muted);
+}
+
+.weakness-card strong {
+  margin-top: var(--space-1);
+}
+
+.weakness-card p {
+  margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+  font-size: .84rem;
+}
+
+.weakness-card.is-danger {
+  border-color: #f1b5b5;
+  background: var(--error-soft);
+}
+
+.weakness-card.is-danger > span {
+  color: var(--error);
+  background: #fff;
+}
+
+.weakness-card.is-warning,
+.weakness-card.is-prerequisite {
+  border-color: #f1d57e;
+  background: var(--warning-soft);
+}
+
+.weakness-card.is-warning > span,
+.weakness-card.is-prerequisite > span {
+  color: #9a6a00;
+  background: #fff;
+}
+
+.no-weakness {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--success);
+}
+
+@media (max-width: 720px) {
+  .learning-insights {
+    padding: var(--space-5);
+  }
+
+  .state-dimensions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 460px) {
+  .insights-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .state-dimensions {
+    grid-template-columns: 1fr;
+  }
+}

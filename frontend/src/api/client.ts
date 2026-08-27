@@ -1,12 +1,15 @@
 import type {
   AnswerFeedbackView,
   AnswerSubmissionCreate,
+  AdaptivePlanApply,
+  AdaptiveResponseView,
   ApiErrorView,
   ApiReasonCode,
   AssessmentCreate,
   AssessmentView,
   KnowledgeMapRequest,
   KnowledgeMapView,
+  LearningStateView,
   KnownApiReasonCode,
   MaterialProcessingCreate,
   MaterialProcessingRunView,
@@ -14,6 +17,7 @@ import type {
   StudyContextView,
   StudySessionCreate,
   StudySessionView,
+  WeaknessView,
 } from "./contracts";
 
 type FetchRequest = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -559,6 +563,218 @@ function isAnswerFeedback(value: unknown): value is AnswerFeedbackView {
     && isDateTime(item.created_at);
 }
 
+const learningStatuses = new Set(["not_started", "learning", "needs_review", "mastered"]);
+const learningConfidences = new Set(["none", "limited", "supported"]);
+const adaptiveActions = new Set([
+  "start", "continue", "practice", "review", "relearn_prerequisite",
+  "use_resource", "follow_path", "collect_more_data", "no_action",
+]);
+
+function isLearningState(value: unknown): value is LearningStateView {
+  const item = closed(value, [
+    "schema", "study_session_id", "base_knowledge_map_revision", "state_revision",
+    "event_watermark", "all_mastered", "concept_states",
+  ]);
+  if (!item
+    || item.schema !== "learning-state/v1"
+    || !isUuid(item.study_session_id)
+    || !isRevision(item.base_knowledge_map_revision, "knowledge-map")
+    || !isRevision(item.state_revision, "learning-state")
+    || !Number.isInteger(item.event_watermark)
+    || Number(item.event_watermark) < 0
+    || typeof item.all_mastered !== "boolean"
+    || !Array.isArray(item.concept_states)
+    || item.concept_states.length < 1) return false;
+  const conceptIds = item.concept_states.map((value) => {
+    const state = closed(value, [
+      "formal_concept_id", "status", "mastery_band", "confidence", "needs_more_data",
+      "required_claim_ids", "attempted_claim_ids", "latest_correct_claim_ids",
+      "claim_coverage_complete", "required_evidence_ids", "observed_evidence_ids",
+      "evidence_coverage_complete", "valid_attempts", "correct_attempts",
+      "distinct_item_attempts", "recent_result", "repeated_error",
+      "post_error_improvement", "explanation",
+    ]);
+    if (!state
+      || !isRevision(state.formal_concept_id, "formal-concept")
+      || !learningStatuses.has(String(state.status))
+      || !["no_evidence", "developing", "demonstrated"].includes(String(state.mastery_band))
+      || !learningConfidences.has(String(state.confidence))
+      || typeof state.needs_more_data !== "boolean"
+      || !isStringArray(state.required_claim_ids)
+      || !(state.required_claim_ids as string[]).every((id) => isRevision(id, "claim"))
+      || !isStringArray(state.attempted_claim_ids)
+      || !(state.attempted_claim_ids as string[]).every((id) => isRevision(id, "claim"))
+      || !isStringArray(state.latest_correct_claim_ids)
+      || !(state.latest_correct_claim_ids as string[]).every((id) => isRevision(id, "claim"))
+      || typeof state.claim_coverage_complete !== "boolean"
+      || !isStringArray(state.required_evidence_ids)
+      || !(state.required_evidence_ids as string[]).every((id) => isRevision(id, "evidence"))
+      || !isStringArray(state.observed_evidence_ids)
+      || !(state.observed_evidence_ids as string[]).every((id) => isRevision(id, "evidence"))
+      || typeof state.evidence_coverage_complete !== "boolean"
+      || !Number.isInteger(state.valid_attempts)
+      || Number(state.valid_attempts) < 0
+      || !Number.isInteger(state.correct_attempts)
+      || Number(state.correct_attempts) < 0
+      || Number(state.correct_attempts) > Number(state.valid_attempts)
+      || !Number.isInteger(state.distinct_item_attempts)
+      || Number(state.distinct_item_attempts) < 0
+      || Number(state.distinct_item_attempts) > Number(state.valid_attempts)
+      || !(state.recent_result === null || state.recent_result === "correct" || state.recent_result === "incorrect")
+      || typeof state.repeated_error !== "boolean"
+      || typeof state.post_error_improvement !== "boolean"
+      || typeof state.explanation !== "string"
+      || state.explanation.length < 1) return null;
+    const arrays = [
+      state.required_claim_ids, state.attempted_claim_ids, state.latest_correct_claim_ids,
+      state.required_evidence_ids, state.observed_evidence_ids,
+    ] as string[][];
+    if (arrays.some((values) => new Set(values).size !== values.length)) return null;
+    return state.formal_concept_id as string;
+  });
+  return !conceptIds.includes(null)
+    && new Set(conceptIds).size === conceptIds.length
+    && item.all_mastered === item.concept_states.every((state) => object(state)?.status === "mastered");
+}
+
+function isWeakness(value: unknown): value is WeaknessView {
+  const item = closed(value, [
+    "schema", "study_session_id", "base_knowledge_map_revision",
+    "source_learning_state_revision", "event_watermark", "current_formal_concept_id",
+    "weakness_revision", "findings", "immediate_prerequisite_gaps",
+  ]);
+  if (!item
+    || item.schema !== "weakness/v1"
+    || !isUuid(item.study_session_id)
+    || !isRevision(item.base_knowledge_map_revision, "knowledge-map")
+    || !isRevision(item.source_learning_state_revision, "learning-state")
+    || !Number.isInteger(item.event_watermark)
+    || Number(item.event_watermark) < 0
+    || !(item.current_formal_concept_id === null || isRevision(item.current_formal_concept_id, "formal-concept"))
+    || !isRevision(item.weakness_revision, "weakness")
+    || !Array.isArray(item.findings)
+    || !Array.isArray(item.immediate_prerequisite_gaps)) return false;
+  const findingIds = item.findings.map((value) => {
+    const finding = closed(value, [
+      "target_formal_concept_id", "target_label", "category", "confidence",
+      "claim_coverage_complete", "remediation_intent", "reason",
+    ]);
+    if (!finding
+      || !isRevision(finding.target_formal_concept_id, "formal-concept")
+      || typeof finding.target_label !== "string"
+      || finding.target_label.length < 1
+      || !["observed_weak", "needs_review", "not_enough_data"].includes(String(finding.category))
+      || !learningConfidences.has(String(finding.confidence))
+      || typeof finding.claim_coverage_complete !== "boolean"
+      || !["practice", "review", "collect_more_data"].includes(String(finding.remediation_intent))
+      || typeof finding.reason !== "string"
+      || finding.reason.length < 1) return null;
+    return finding.target_formal_concept_id as string;
+  });
+  const gapIds = item.immediate_prerequisite_gaps.map((value) => {
+    const gap = closed(value, [
+      "category", "target_formal_concept_id", "prerequisite_formal_concept_id",
+      "prerequisite_label", "relation_id", "prerequisite_status",
+      "prerequisite_confidence", "remediation_intent", "reason",
+    ]);
+    if (!gap
+      || gap.category !== "possible_prerequisite_gap"
+      || !isRevision(gap.target_formal_concept_id, "formal-concept")
+      || !isRevision(gap.prerequisite_formal_concept_id, "formal-concept")
+      || gap.target_formal_concept_id === gap.prerequisite_formal_concept_id
+      || typeof gap.prerequisite_label !== "string"
+      || gap.prerequisite_label.length < 1
+      || !isRevision(gap.relation_id, "formal-relation")
+      || !learningStatuses.has(String(gap.prerequisite_status))
+      || !learningConfidences.has(String(gap.prerequisite_confidence))
+      || gap.remediation_intent !== "relearn_prerequisite"
+      || typeof gap.reason !== "string"
+      || gap.reason.length < 1) return null;
+    return gap.relation_id as string;
+  });
+  return !findingIds.includes(null)
+    && new Set(findingIds).size === findingIds.length
+    && !gapIds.includes(null)
+    && new Set(gapIds).size === gapIds.length;
+}
+
+function readAdaptiveRoute(value: unknown, studySessionId: string): JsonObject | null {
+  const route = closed(value, ["study_session_id", "formal_concept_id", "resource_promotion_id"]);
+  return route
+    && route.study_session_id === studySessionId
+    && (route.formal_concept_id === null || isRevision(route.formal_concept_id, "formal-concept"))
+    && (route.resource_promotion_id === null || isRevision(route.resource_promotion_id, "resource-promotion"))
+    ? route
+    : null;
+}
+
+function readAdaptiveStep(value: unknown, studySessionId: string): JsonObject | null {
+  const step = closed(value, [
+    "action", "target_formal_concept_id", "target_label", "reason", "confidence",
+    "claim_coverage_complete", "route",
+  ]);
+  if (!step
+    || !adaptiveActions.has(String(step.action))
+    || !(step.target_formal_concept_id === null || isRevision(step.target_formal_concept_id, "formal-concept"))
+    || !(step.target_label === null || (typeof step.target_label === "string" && step.target_label.length > 0))
+    || typeof step.reason !== "string"
+    || step.reason.length < 1
+    || !learningConfidences.has(String(step.confidence))
+    || typeof step.claim_coverage_complete !== "boolean") return null;
+  const route = readAdaptiveRoute(step.route, studySessionId);
+  return route && route.formal_concept_id === step.target_formal_concept_id ? step : null;
+}
+
+function isAdaptiveResponse(value: unknown): value is AdaptiveResponseView {
+  const item = closed(value, ["schema", "plan", "suggestion"]);
+  if (!item || item.schema !== "adaptive-response/v1") return false;
+  const plan = closed(item.plan, [
+    "schema", "study_session_id", "base_knowledge_map_revision",
+    "inline_initial_learning_path_sha256", "source_learning_state_revision",
+    "event_watermark", "current_formal_concept_id", "deferred_formal_concept_id",
+    "primary_step", "adaptive_plan_revision",
+  ]);
+  if (!plan
+    || plan.schema !== "adaptive-plan/v1"
+    || !isUuid(plan.study_session_id)
+    || !isRevision(plan.base_knowledge_map_revision, "knowledge-map")
+    || typeof plan.inline_initial_learning_path_sha256 !== "string"
+    || !sha256Pattern.test(plan.inline_initial_learning_path_sha256)
+    || !isRevision(plan.source_learning_state_revision, "learning-state")
+    || !Number.isInteger(plan.event_watermark)
+    || Number(plan.event_watermark) < 0
+    || !(plan.current_formal_concept_id === null || isRevision(plan.current_formal_concept_id, "formal-concept"))
+    || !(plan.deferred_formal_concept_id === null || isRevision(plan.deferred_formal_concept_id, "formal-concept"))
+    || (plan.deferred_formal_concept_id !== null && plan.deferred_formal_concept_id === plan.current_formal_concept_id)
+    || !isRevision(plan.adaptive_plan_revision, "adaptive-plan")) return false;
+  const step = readAdaptiveStep(plan.primary_step, String(plan.study_session_id));
+  const suggestion = closed(item.suggestion, [
+    "schema", "adaptive_plan_revision", "study_session_id", "base_knowledge_map_revision",
+    "action", "target_formal_concept_id", "target_label", "reason", "confidence",
+    "claim_coverage_complete", "route", "fallback_action", "fallback_reason",
+  ]);
+  if (!step
+    || !suggestion
+    || suggestion.schema !== "learning-suggestion/v1"
+    || suggestion.adaptive_plan_revision !== plan.adaptive_plan_revision
+    || suggestion.study_session_id !== plan.study_session_id
+    || suggestion.base_knowledge_map_revision !== plan.base_knowledge_map_revision
+    || suggestion.action !== step.action
+    || suggestion.target_formal_concept_id !== step.target_formal_concept_id
+    || suggestion.target_label !== step.target_label
+    || suggestion.reason !== step.reason
+    || suggestion.confidence !== step.confidence
+    || suggestion.claim_coverage_complete !== step.claim_coverage_complete
+    || !["follow_path", "collect_more_data", "no_action"].includes(String(suggestion.fallback_action))
+    || typeof suggestion.fallback_reason !== "string"
+    || suggestion.fallback_reason.length < 1) return false;
+  const suggestionRoute = readAdaptiveRoute(suggestion.route, String(plan.study_session_id));
+  const stepRoute = object(step.route);
+  return !!suggestionRoute
+    && !!stepRoute
+    && JSON.stringify(suggestionRoute) === JSON.stringify(stepRoute);
+}
+
 function isApiError(value: unknown): value is ApiErrorView {
   const item = closed(value, ["schema", "request_id", "reason_code", "retryable", "message"]);
   return !!item
@@ -892,6 +1108,73 @@ export class StudydyApiClient {
       throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
     }
     return feedback;
+  }
+
+  async getLearningState(studySessionId: string): Promise<LearningStateView> {
+    if (!isUuid(studySessionId)) {
+      throw new ApiClientError("input", "本次學習識別資訊無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    const state = await this.json(
+      `/v1/study-sessions/${studySessionId}/learning-state`,
+      { method: "GET" },
+      isLearningState,
+    );
+    if (state.study_session_id !== studySessionId) {
+      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    }
+    return state;
+  }
+
+  async getWeakness(studySessionId: string): Promise<WeaknessView> {
+    if (!isUuid(studySessionId)) {
+      throw new ApiClientError("input", "本次學習識別資訊無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    const weakness = await this.json(
+      `/v1/study-sessions/${studySessionId}/weakness`,
+      { method: "GET" },
+      isWeakness,
+    );
+    if (weakness.study_session_id !== studySessionId) {
+      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    }
+    return weakness;
+  }
+
+  async getAdaptivePlan(studySessionId: string): Promise<AdaptiveResponseView> {
+    if (!isUuid(studySessionId)) {
+      throw new ApiClientError("input", "本次學習識別資訊無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    const adaptive = await this.json(
+      `/v1/study-sessions/${studySessionId}/adaptive-plan`,
+      { method: "GET" },
+      isAdaptiveResponse,
+    );
+    if (adaptive.plan.study_session_id !== studySessionId) {
+      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    }
+    return adaptive;
+  }
+
+  async applyAdaptivePlan(studySessionId: string, body: AdaptivePlanApply): Promise<StudySessionView> {
+    if (!isUuid(studySessionId)
+      || body.schema !== "adaptive-plan-apply/v1"
+      || !isRevision(body.adaptive_plan_revision, "adaptive-plan")
+      || Object.keys(body).length !== 2) {
+      throw new ApiClientError("input", "調整學習步驟的請求無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
+    }
+    const session = await this.json(
+      `/v1/study-sessions/${studySessionId}/adaptive-plan/apply`,
+      {
+        method: "POST",
+        headers: { Origin: requestOrigin(), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      isStudySession,
+    );
+    if (session.study_session_id !== studySessionId) {
+      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    }
+    return session;
   }
 
   sourceArtifactUrl(artifactId: string, pageNumber?: number): string {

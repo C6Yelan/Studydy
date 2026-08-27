@@ -271,3 +271,139 @@ export type AnswerFeedbackView = {
   event_number: number;
   created_at: string;
 };
+
+export type LearningStatus = "not_started" | "learning" | "needs_review" | "mastered";
+export type LearningConfidence = "none" | "limited" | "supported";
+
+export type ConceptLearningStateView = {
+  formal_concept_id: string;
+  status: LearningStatus;
+  mastery_band: "no_evidence" | "developing" | "demonstrated";
+  confidence: LearningConfidence;
+  needs_more_data: boolean;
+  required_claim_ids: string[];
+  attempted_claim_ids: string[];
+  latest_correct_claim_ids: string[];
+  claim_coverage_complete: boolean;
+  required_evidence_ids: string[];
+  observed_evidence_ids: string[];
+  evidence_coverage_complete: boolean;
+  valid_attempts: number;
+  correct_attempts: number;
+  distinct_item_attempts: number;
+  recent_result: "correct" | "incorrect" | null;
+  repeated_error: boolean;
+  post_error_improvement: boolean;
+  explanation: string;
+};
+
+export type LearningStateView = {
+  schema: "learning-state/v1";
+  study_session_id: string;
+  base_knowledge_map_revision: string;
+  state_revision: string;
+  event_watermark: number;
+  all_mastered: boolean;
+  concept_states: ConceptLearningStateView[];
+};
+
+export type WeaknessFindingView = {
+  target_formal_concept_id: string;
+  target_label: string;
+  category: "observed_weak" | "needs_review" | "not_enough_data";
+  confidence: LearningConfidence;
+  claim_coverage_complete: boolean;
+  remediation_intent: "practice" | "review" | "collect_more_data";
+  reason: string;
+};
+
+export type PrerequisiteGapView = {
+  category: "possible_prerequisite_gap";
+  target_formal_concept_id: string;
+  prerequisite_formal_concept_id: string;
+  prerequisite_label: string;
+  relation_id: string;
+  prerequisite_status: LearningStatus;
+  prerequisite_confidence: LearningConfidence;
+  remediation_intent: "relearn_prerequisite";
+  reason: string;
+};
+
+export type WeaknessView = {
+  schema: "weakness/v1";
+  study_session_id: string;
+  base_knowledge_map_revision: string;
+  source_learning_state_revision: string;
+  event_watermark: number;
+  current_formal_concept_id: string | null;
+  weakness_revision: string;
+  findings: WeaknessFindingView[];
+  immediate_prerequisite_gaps: PrerequisiteGapView[];
+};
+
+export type AdaptiveAction =
+  | "start"
+  | "continue"
+  | "practice"
+  | "review"
+  | "relearn_prerequisite"
+  | "use_resource"
+  | "follow_path"
+  | "collect_more_data"
+  | "no_action";
+
+export type AdaptiveRouteView = {
+  study_session_id: string;
+  formal_concept_id: string | null;
+  resource_promotion_id: string | null;
+};
+
+export type AdaptiveStepView = {
+  action: AdaptiveAction;
+  target_formal_concept_id: string | null;
+  target_label: string | null;
+  reason: string;
+  confidence: LearningConfidence;
+  claim_coverage_complete: boolean;
+  route: AdaptiveRouteView;
+};
+
+export type AdaptivePlanView = {
+  schema: "adaptive-plan/v1";
+  study_session_id: string;
+  base_knowledge_map_revision: string;
+  inline_initial_learning_path_sha256: string;
+  source_learning_state_revision: string;
+  event_watermark: number;
+  current_formal_concept_id: string | null;
+  deferred_formal_concept_id: string | null;
+  primary_step: AdaptiveStepView;
+  adaptive_plan_revision: string;
+};
+
+export type SuggestionView = {
+  schema: "learning-suggestion/v1";
+  adaptive_plan_revision: string;
+  study_session_id: string;
+  base_knowledge_map_revision: string;
+  action: AdaptiveAction;
+  target_formal_concept_id: string | null;
+  target_label: string | null;
+  reason: string;
+  confidence: LearningConfidence;
+  claim_coverage_complete: boolean;
+  route: AdaptiveRouteView;
+  fallback_action: "follow_path" | "collect_more_data" | "no_action";
+  fallback_reason: string;
+};
+
+export type AdaptiveResponseView = {
+  schema: "adaptive-response/v1";
+  plan: AdaptivePlanView;
+  suggestion: SuggestionView;
+};
+
+export type AdaptivePlanApply = {
+  schema: "adaptive-plan-apply/v1";
+  adaptive_plan_revision: string;
+};

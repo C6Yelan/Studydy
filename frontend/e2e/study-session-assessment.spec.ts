@@ -1,10 +1,12 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 import {
+  adaptiveView,
   apiError,
   assessmentView,
   contextView,
   feedbackView,
+  learningStateView,
   mapRevision,
   mapView,
   materialId,
@@ -13,6 +15,7 @@ import {
   sessionView,
   studySessionId,
   targetConceptId,
+  weaknessView,
 } from "./fixtures/learning";
 
 async function captureAcceptance(page: Page, filename: string) {
@@ -29,7 +32,7 @@ async function fulfillJson(route: Route, json: unknown, status = 200) {
   await route.fulfill({ status, json });
 }
 
-async function learningRoutes(page: Page) {
+async function learningRoutes(page: Page, eventWatermark: () => number = () => 0) {
   await page.route("**/v1/session/refresh", (route) => route.fulfill({ status: 204 }));
   await page.route(`**/v1/material-processing-runs/${runId}`, (route) => fulfillJson(route, runView()));
   await page.route("**/v1/materials/*/knowledge-maps/**", (route) => fulfillJson(route, mapView()));
@@ -43,8 +46,11 @@ async function learningRoutes(page: Page) {
     });
     await fulfillJson(route, sessionView(), 201);
   });
-  await page.route(`**/v1/study-sessions/${studySessionId}`, (route) => fulfillJson(route, sessionView()));
+  await page.route(`**/v1/study-sessions/${studySessionId}`, (route) => fulfillJson(route, sessionView({ event_watermark: eventWatermark() })));
   await page.route(`**/v1/study-sessions/${studySessionId}/context`, (route) => fulfillJson(route, contextView()));
+  await page.route(`**/v1/study-sessions/${studySessionId}/learning-state`, (route) => fulfillJson(route, learningStateView({ eventWatermark: eventWatermark() })));
+  await page.route(`**/v1/study-sessions/${studySessionId}/weakness`, (route) => fulfillJson(route, weaknessView({ eventWatermark: eventWatermark() })));
+  await page.route(`**/v1/study-sessions/${studySessionId}/adaptive-plan`, (route) => fulfillJson(route, adaptiveView({ eventWatermark: eventWatermark() })));
 }
 
 async function openStudySession(page: Page) {
@@ -57,7 +63,8 @@ async function openStudySession(page: Page) {
 }
 
 test("StudySession assessment：錯誤回饋、新題重評與完成", async ({ page }) => {
-  await learningRoutes(page);
+  let eventWatermark = 0;
+  await learningRoutes(page, () => eventWatermark);
   let assessmentRound = 0;
   await page.route(`**/v1/study-sessions/${studySessionId}/assessments`, async (route) => {
     assessmentRound += 1;
@@ -68,6 +75,7 @@ test("StudySession assessment：錯誤回饋、新題重評與完成", async ({ 
   let submissionRound = 0;
   await page.route(`**/v1/study-sessions/${studySessionId}/assessments/*/submissions`, async (route) => {
     submissionRound += 1;
+    eventWatermark = submissionRound;
     const request = await route.request().postDataJSON();
     expect(Object.keys(request).sort()).toEqual(["question_id", "schema", "selected_option_id"]);
     const assessment = assessmentView(submissionRound);

@@ -386,6 +386,33 @@ test("Answer feedback parser 只接受 post-submit public fields", async () => {
   );
 });
 
+test("StudySession-scoped learning projections 保持 revision 與 action bindings", async () => {
+  const read = async (method, value) => {
+    let calls = 0;
+    const client = new StudydyApiClient(async () => {
+      calls += 1;
+      return calls === 1 ? new Response(null, { status: 204 }) : Response.json(value);
+    });
+    return client[method](phase06Fixtures.success.study_session_id);
+  };
+  assert.equal((await read("getLearningState", phase06Fixtures.low_data)).concept_states[0].status, "not_started");
+  assert.equal((await read("getWeakness", phase06Fixtures.weakness)).findings[0].category, "observed_weak");
+  assert.equal((await read("getAdaptivePlan", phase06Fixtures.prerequisite_gap)).plan.primary_step.action, "relearn_prerequisite");
+
+  const falseMastery = structuredClone(phase06Fixtures.low_data);
+  falseMastery.all_mastered = true;
+  await assert.rejects(
+    read("getLearningState", falseMastery),
+    (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
+  );
+  const splitDecision = structuredClone(phase06Fixtures.prerequisite_gap);
+  splitDecision.suggestion.action = "practice";
+  await assert.rejects(
+    read("getAdaptivePlan", splitDecision),
+    (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
+  );
+});
+
 test("Map v6 pair-level Relation Evidence 必須保留真實 claim owner", async () => {
   let calls = 0;
   const acceptedClient = new StudydyApiClient(async () => {
@@ -453,10 +480,14 @@ test("Map v6 recursively rejects unexpected、duplicate、nonfinite、type 與 c
 
 test("client surface 只公開目前 frozen downstream methods", () => {
   const client = new StudydyApiClient(async () => new Response(null, { status: 204 }));
-  for (const name of ["createStudySession", "getStudySession", "getStudyContext", "completeStudySession", "createAssessment", "getAssessment", "submitAssessmentAnswer"]) {
+  for (const name of [
+    "createStudySession", "getStudySession", "getStudyContext", "completeStudySession",
+    "createAssessment", "getAssessment", "submitAssessmentAnswer", "getLearningState",
+    "getWeakness", "getAdaptivePlan", "applyAdaptivePlan",
+  ]) {
     assert.equal(typeof client[name], "function");
   }
-  for (const name of ["submitLearningUpdate", "getLearningResourceResult", "getLearningState"]) {
+  for (const name of ["submitLearningUpdate", "getLearningResourceResult"]) {
     assert.equal(client[name], undefined);
   }
   assert.equal(client.sourceArtifactUrl(artifactId), `/v1/artifacts/${artifactId}`);
