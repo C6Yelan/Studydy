@@ -405,8 +405,6 @@ def validate_assessment_generation_provenance(
                 checked.risk_trigger_distractor_entailment
                 >= checked.multiple_support_risk_threshold
             )
-            or checked.multiple_support_risk
-            != (checked.selected_stage == "repair")
         ):
             raise ValueError
         return checked

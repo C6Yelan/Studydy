@@ -79,26 +79,34 @@ def test_zero_concepts_is_a_valid_page_result():
     assert artifact["decision"] == "review"
 
 
-def test_cross_concept_evidence_reuse_and_no_lexical_decision():
+def test_cross_concept_evidence_reuse_requires_each_claim_grounding():
     output = {
         "concepts": [
             {
-                "label": "Unrelated label",
-                "definition": {"text": "Structurally valid unrelated definition", "evidence_ids": ["e1"]},
-                "key_points": [{"text": "No lexical matching decision", "evidence_ids": ["e1"]}],
+                "label": "Light conversion",
+                "definition": {"text": "Photosynthesis converts light energy into chemical energy.", "evidence_ids": ["e1"]},
+                "key_points": [{"text": "Plants convert light energy.", "evidence_ids": ["e1"]}],
             },
             {
-                "label": "Second concept",
-                "definition": {"text": "Second definition", "evidence_ids": ["e1"]},
-                "key_points": [{"text": "Second point", "evidence_ids": ["e1"]}],
+                "label": "Chemical energy",
+                "definition": {"text": "Chemical energy is produced from light energy in plants.", "evidence_ids": ["e1"]},
+                "key_points": [{"text": "Plants contain chemical energy.", "evidence_ids": ["e1"]}],
+            },
+            {
+                "label": "Unsupported",
+                "definition": {"text": "Database indexes accelerate unrelated queries.", "evidence_ids": ["e1"]},
+                "key_points": [{"text": "Indexes store row locations.", "evidence_ids": ["e1"]}],
             },
         ]
     }
     artifact = _validate(json.dumps(output, separators=(",", ":")))
     assert len(artifact["concepts"]) == 2
+    assert artifact["rejected_candidates"][0]["reason_codes"] == [
+        "CLAIM_EVIDENCE_UNSUPPORTED"
+    ]
     assert all(concept["decision"] == "review" for concept in artifact["concepts"])
     assert all(concept["processing"] == "succeeded" for concept in artifact["concepts"])
-    assert artifact["processing"] == "succeeded"
+    assert artifact["processing"] == "partial"
 
 
 def test_per_concept_invalid_candidate_is_rejected_without_losing_valid_candidate():
@@ -130,14 +138,92 @@ def test_candidate_text_is_normalized_before_validation():
         {
             "label": "  Ｌight   energy  ",
             "definition": {"text": "Plants\n convert\t light into chemical energy.", "evidence_ids": ["e1"]},
-            "key_points": [{"text": "  Full-width： light   becomes energy  ", "evidence_ids": ["e1"]}],
+            "key_points": [{"text": "  Light   becomes chemical energy.  ", "evidence_ids": ["e1"]}],
         }
     )
     artifact = _validate(json.dumps(output, ensure_ascii=False, separators=(",", ":")))
     concept = artifact["concepts"][0]
     assert concept["label"] == "Light energy"
     assert concept["definition"]["text"] == "Plants convert light into chemical energy."
-    assert concept["key_points"][0]["text"] == "Full-width: light becomes energy"
+    assert concept["key_points"][0]["text"] == "Light becomes chemical energy."
+
+
+def test_title_only_evidence_cannot_support_an_expanded_definition():
+    request = {
+        "schema": "concept-generation-input/v3",
+        "evidence": [{"id": "e1", "text": "Data Dictionary (8 of 8)"}],
+    }
+    artifact = validate_concepts(
+        json.dumps({
+            "concepts": [{
+                "label": "Data Dictionary",
+                "definition": {
+                    "text": "A data dictionary stores metadata about definitions and relationships.",
+                    "evidence_ids": ["e1"],
+                },
+                "key_points": [{
+                    "text": "A data dictionary provides reports.",
+                    "evidence_ids": ["e1"],
+                }],
+            }],
+        }),
+        semantic_request=request,
+        evidence_aliases={"e1": "evidence-one"},
+        page_ref="page:sha256:" + "1" * 64,
+        input_binding={"evidence_allowlist": ["evidence-one"]},
+        attempt=1,
+    )
+
+    assert artifact["concepts"] == []
+    assert artifact["rejected_candidates"][0]["reason_codes"] == [
+        "CLAIM_EVIDENCE_UNSUPPORTED"
+    ]
+    assert artifact["processing"] == "partial"
+
+
+def test_visual_index_and_scalar_fragments_are_removed_but_short_claim_survives():
+    evidence_text = (
+        "A circular queue stores elements in a fixed-size ring. "
+        "front = 5 rear = 4 [0] [1] (a) full circular queue. "
+        "Queue is full. The rear pointer advances after insertion."
+    )
+    request = {
+        "schema": "concept-generation-input/v3",
+        "evidence": [{"id": "e1", "text": evidence_text}],
+    }
+    artifact = validate_concepts(
+        json.dumps({
+            "concepts": [{
+                "label": "Circular queue",
+                "definition": {
+                    "text": "A circular queue stores elements in a fixed-size ring.",
+                    "evidence_ids": ["e1"],
+                },
+                "key_points": [
+                    {"text": "front = 5", "evidence_ids": ["e1"]},
+                    {"text": "[0] [1]", "evidence_ids": ["e1"]},
+                    {"text": "(a) full circular queue", "evidence_ids": ["e1"]},
+                    {"text": "Queue is full.", "evidence_ids": ["e1"]},
+                    {
+                        "text": "The rear pointer advances after insertion.",
+                        "evidence_ids": ["e1"],
+                    },
+                ],
+            }],
+        }),
+        semantic_request=request,
+        evidence_aliases={"e1": "evidence-one"},
+        page_ref="page:sha256:" + "1" * 64,
+        input_binding={"evidence_allowlist": ["evidence-one"]},
+        attempt=1,
+    )
+
+    assert [point["text"] for point in artifact["concepts"][0]["key_points"]] == [
+        "Queue is full.",
+        "The rear pointer advances after insertion.",
+    ]
+    assert artifact["concepts"][0]["processing"] == "partial"
+    assert artifact["processing"] == "partial"
 
 
 @pytest.mark.parametrize(

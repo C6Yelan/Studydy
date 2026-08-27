@@ -674,7 +674,9 @@ def _provenance(
         ),
         "maximum_distractor_entailment": selected.maximum_distractor,
         "risk_trigger_distractor_entailment": risk_trigger,
-        "multiple_support_risk": selected.candidate.stage == "repair",
+        "multiple_support_risk": (
+            risk_trigger >= verifier["multiple_support_risk_threshold"]
+        ),
         "provenance_sha256": "0" * 64,
     }
     identity = dict(value)
@@ -708,8 +710,6 @@ def _generate_documents(
                 _response_format(list(grounding.aliases), repair=False),
             )
             proposals = _proposal_candidates(proposal_text, grounding)
-            if not proposals:
-                raise _error("ASSESSMENT_NO_SAFE_CANDIDATE")
             verifier = start_assessment_process(
                 settings,
                 assessment_lock["verifier"]["startup_timeout_seconds"],

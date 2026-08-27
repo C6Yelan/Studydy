@@ -161,6 +161,43 @@ def producer_output(*, excluded_page: bool = False):
     )
 
 
+def test_rejected_semantic_candidate_marks_page_partial_for_downstream():
+    source = producer_output()
+    page = deepcopy(source["pages"][0])
+    page["processing"] = "succeeded"
+    page["reason_codes"] = ["CONTENT_REVIEW_REQUIRED"]
+    page_identity = dict(page)
+    page_identity.pop("page_evidence_id")
+    page["page_evidence_id"] = (
+        "page-evidence:sha256:" + canonical_sha256(page_identity)
+    )
+    output = build_output(
+        run_id=source["run_id"],
+        produced_at=source["produced_at"],
+        source_binding=source["source_binding"],
+        pages=[page],
+        semantic_pages=[{
+            "page_ref": page["page_ref"],
+            "concepts": [],
+            "rejected_candidates": [{
+                "candidate_index": 0,
+                "processing": "failed",
+                "quality": "needs_review",
+                "decision": "reject",
+                "reason_codes": ["CLAIM_EVIDENCE_UNSUPPORTED"],
+            }],
+            "processing": "partial",
+            "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
+        }],
+        runtime_binding=source["runtime_binding"],
+        run_reasons=[],
+    )
+
+    assert output["processing"] == "partial"
+    assert output["pages"][0]["processing"] == "partial"
+    assert build_study_material_output(output)["processing"] == "partial"
+
+
 def test_build_v5_keeps_exact_evidence_claim_locator_and_image_lite():
     source = producer_output()
     output = build_study_material_output(source)

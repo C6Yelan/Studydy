@@ -269,6 +269,39 @@ def test_safe_proposal_builds_contract_and_private_provenance(monkeypatch):
     )
 
 
+def test_empty_validated_proposals_use_existing_repair_stage(monkeypatch):
+    invalid_proposal = json.loads(_proposal_document())
+    for candidate in invalid_proposal["candidates"]:
+        candidate["prompt"] = "The correct answer is shown below."
+    responses = iter([json.dumps(invalid_proposal), _repair_document()])
+    server = _Server()
+    verifier = _Verifier({
+        "The first element is stored at stack[0].": [
+            0.99, 0.01, 0.01, 0.01,
+        ],
+    })
+    monkeypatch.setattr(generation, "start_concept_server", lambda _: server)
+    monkeypatch.setattr(
+        generation, "start_assessment_process", lambda *_: verifier
+    )
+    monkeypatch.setattr(
+        generation, "_request_stage", lambda *args, **kwargs: next(responses)
+    )
+
+    _, provenance = _generate_documents(
+        uuid4(),
+        _identifier("knowledge-map", "8"),
+        _grounded(),
+        _settings(),
+        "9" * 64,
+        frozenset(),
+    )
+
+    assert provenance["selected_stage"] == "repair"
+    assert provenance["multiple_support_risk"] is False
+    assert server.closed and verifier.closed and not verifier.aborted
+
+
 def test_repeated_generation_selects_unused_safe_candidate_then_fails_closed(
     monkeypatch,
 ):

@@ -16,7 +16,7 @@ from .ocr_page_evidence import canonical_bytes, canonical_sha256
 OUTPUT_SCHEMA = "concept-evidence-output/v3"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
 MAX_ARTIFACT_FILE_BYTES = 16 * 1024 * 1024
-RUNTIME_LOCK_SHA256 = "174ccce8df683c50255d769da3b2e26bdc5fb0ef8290541bc1b5e85f6e4862b5"
+RUNTIME_LOCK_SHA256 = "983a103d8b2c595e0c82e879fb450db4a4574d457e0f3bb9c11a8d6bbe5ed89a"
 
 
 def _closed(value: Any, fields: set[str]) -> bool:
@@ -373,9 +373,19 @@ def build_output(
     if not pages or not semantic_pages or len(pages) != len(semantic_pages):
         raise ValueError("ARTIFACT_INVALID")
 
+    semantic_by_page = {
+        page["page_ref"]: page for page in semantic_pages
+    }
+    if set(semantic_by_page) != {page["page_ref"] for page in pages}:
+        raise ValueError("ARTIFACT_INVALID")
     formal_pages = deepcopy(pages)
     for page in formal_pages:
-        page["reason_codes"] = formal_reason_codes(page["reason_codes"])
+        semantic_page = semantic_by_page[page["page_ref"]]
+        if semantic_page["processing"] == "partial":
+            page["processing"] = "partial"
+        page["reason_codes"] = formal_reason_codes(
+            page["reason_codes"] + semantic_page["reason_codes"]
+        )
         page.pop("page_evidence_id")
         page["page_evidence_id"] = (
             "page-evidence:sha256:" + canonical_sha256(page)

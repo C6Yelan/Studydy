@@ -230,6 +230,8 @@ def _relation_evidence(
 def _pair_evidence(
     left: dict[str, Any], right: dict[str, Any]
 ) -> tuple[list[dict[str, Any]], set[str], set[str]]:
+    if _text(left["label"]) == _text(right["label"]):
+        return [], set(), set()
     proposals = []
     conflicts: set[str] = set()
     signals: set[str] = set()

@@ -70,8 +70,8 @@
     "assessment_process.py": "1e707747e969228834a5166b9bfe667d898a34e1dfde0a9f57f2fc6f9ec75816"
   },
   "code_hashes": {
-    "backend_assessment_generation": "18f4ef57eaa784fab8fb6496ee1d273bc764f85753dd47edb9031f3df98a94f8",
-    "backend_assessment_items": "a8321d3edce394825227cc94b172562017a4fe71979325309278667290eb89a3",
+    "backend_assessment_generation": "02d198031d9ece77f564a89b053ec9345abdf31ef9c55246110ff89ef1c1f714",
+    "backend_assessment_items": "707ffbffc130734b6c7ac3f54808e44baf5394a29077253ec928f823cc008b21",
     "backend_map_context": "904507497d056a4d7de67d8a9df00d6b0f2fdc6d048ddd606f632de0e7335a7e",
     "backend_assessment_model_api": "5195a0f7d316f979b9c97ba0848ce3b25f98a69d5c2441bada387ada8f33d549",
     "backend_assessment_verifier": "0bcbf98a141f5de64eae3034a6e7441231584f88dc1088dc5ef2e582d787aafd",

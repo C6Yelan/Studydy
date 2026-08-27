@@ -1193,6 +1193,27 @@ def test_related_requires_grounded_association_and_never_calls_verifier():
     assert calls == []
 
 
+def test_same_label_duplicate_concepts_do_not_publish_related_edge():
+    left = _relation_concept(
+        1, "Circular Queue", "Circular Queue is compared with Circular Queue."
+    )
+    right = _relation_concept(
+        2, "Circular Queue", "Circular Queue stores elements in a ring."
+    )
+    calls = []
+
+    artifact = build_relation_artifact(
+        [(left["formal_concept_id"], right["formal_concept_id"])],
+        [left, right],
+        _relation_pages([left, right]),
+        lambda *arguments: calls.append(arguments) or True,
+    )
+
+    assert artifact["relations"] == []
+    assert artifact["diagnostics"]["rejected_no_evidence"] == 1
+    assert calls == []
+
+
 def test_map_revision_binds_formal_nodes_relations_path_and_cycle_exclusion():
     study = _study()
     first = _keep_resolution(study)["formal_concepts"][0]

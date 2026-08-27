@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 import unicodedata
 
@@ -9,8 +10,29 @@ from .ocr_page_evidence import canonical_sha256
 
 SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v3"
 SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v2"
-PROCESSING_POLICY = "claim-grounded-concept-review/v1"
+PROCESSING_POLICY = "claim-grounded-concept-review/v2"
 MAX_MODEL_OUTPUT_BYTES = 65_536
+
+_ENGLISH_STOP_WORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "for", "from", "in",
+    "is", "it", "of", "on", "or", "that", "the", "this", "to", "with",
+}
+_BRACKET_INDEXES = re.compile(r"^(?:\[\s*\d+\s*\]\s*)+$")
+_SIMPLE_ASSIGNMENTS = re.compile(
+    r"^(?:[A-Za-z_]\w*(?:\[[^\]]+\])?\s*=\s*[-+]?[A-Za-z_0-9.]+"
+    r"(?:\s*[,，]\s*)?)+$"
+)
+_PANEL_LABEL = re.compile(r"^\([A-Za-z0-9]+\)\s*(.+)$")
+_ENGLISH_PREDICATE = re.compile(
+    r"\b(?:is|are|was|were|has|have|contains?|includes?|uses?|requires?|"
+    r"provides?|describes?|represents?|becomes?|stores?|shows?|allows?|"
+    r"supports?|creates?|increases?|decreases?)\b",
+    re.IGNORECASE,
+)
+_CHINESE_PREDICATE = re.compile(
+    r"(?:是|為|包含|包括|表示|需要|可以|會|由|將|具有|提供|描述|建立|"
+    r"增加|減少|刪除|插入|儲存|指向|配置|形成|分為|等於)"
+)
 
 
 class SemanticOutputError(ValueError):
@@ -64,6 +86,60 @@ def _normalized_candidate_text(value: Any) -> str:
     ):
         raise SemanticOutputError("INVALID_TEXT_FIELD")
     return normalized
+
+
+def _grounding_terms(value: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    terms = {
+        token[:-1] if len(token) > 3 and token.endswith("s") else token
+        for token in re.findall(r"[a-z0-9]+", normalized)
+        if token not in _ENGLISH_STOP_WORDS
+    }
+    chinese = "".join(re.findall(r"[\u3400-\u9fff]", normalized))
+    terms.update(
+        chinese[index : index + 2]
+        for index in range(max(0, len(chinese) - 1))
+    )
+    return terms
+
+
+def _claim_is_grounded(text: str, evidence_text: str) -> bool:
+    claim = " ".join(unicodedata.normalize("NFKC", text).casefold().split())
+    evidence = " ".join(
+        unicodedata.normalize("NFKC", evidence_text).casefold().split()
+    )
+    if claim in evidence:
+        return True
+    claim_terms = _grounding_terms(claim)
+    if not claim_terms:
+        return False
+    evidence_terms = _grounding_terms(evidence)
+    shared_terms = claim_terms & evidence_terms
+    if len(shared_terms) / len(claim_terms) >= 0.5:
+        return True
+    claim_length = len(claim.replace(" ", ""))
+    evidence_length = len(evidence.replace(" ", ""))
+    return bool(shared_terms) and evidence_length >= claim_length * 0.6
+
+
+def _claim_is_fragment(text: str, label: str) -> bool:
+    normalized = " ".join(unicodedata.normalize("NFKC", text).split())
+    if normalized.casefold() == " ".join(
+        unicodedata.normalize("NFKC", label).split()
+    ).casefold():
+        return True
+    if _BRACKET_INDEXES.fullmatch(normalized):
+        return True
+    if _SIMPLE_ASSIGNMENTS.fullmatch(normalized):
+        return True
+    panel = _PANEL_LABEL.fullmatch(normalized)
+    if panel is None:
+        return False
+    caption = panel.group(1)
+    return not (
+        _ENGLISH_PREDICATE.search(caption)
+        or _CHINESE_PREDICATE.search(caption)
+    )
 
 
 def build_semantic_request(
@@ -154,6 +230,7 @@ def _decode_complete_output(model_text: Any) -> dict[str, Any]:
 def _candidate_reason(
     candidate: Any,
     evidence_aliases: dict[str, str],
+    evidence_by_alias: dict[str, dict[str, Any]],
 ) -> tuple[dict[str, Any] | None, str | None]:
     try:
         if not isinstance(candidate, dict) or set(candidate) != {
@@ -163,21 +240,44 @@ def _candidate_reason(
         }:
             raise SemanticOutputError("CANDIDATE_SCHEMA_INVALID")
         label = _normalized_candidate_text(candidate["label"])
-        definition = _claim(candidate["definition"], evidence_aliases)
+        definition = _claim(
+            candidate["definition"], evidence_aliases, evidence_by_alias, label
+        )
         key_points = candidate["key_points"]
         if not isinstance(key_points, list) or not key_points:
             raise SemanticOutputError("INVALID_KEY_POINTS")
-        normalized_points = [_claim(point, evidence_aliases) for point in key_points]
+        normalized_points = []
+        has_rejected_point = False
+        for point in key_points:
+            try:
+                normalized_points.append(
+                    _claim(point, evidence_aliases, evidence_by_alias, label)
+                )
+            except SemanticOutputError as error:
+                if error.reason_code not in {
+                    "CLAIM_EVIDENCE_UNSUPPORTED",
+                    "CLAIM_FRAGMENT_UNUSABLE",
+                }:
+                    raise
+                has_rejected_point = True
+        if not normalized_points:
+            raise SemanticOutputError("INVALID_KEY_POINTS")
         return {
             "label": label,
             "definition": definition,
             "key_points": normalized_points,
+            "is_partial": has_rejected_point,
         }, None
     except SemanticOutputError as error:
         return None, error.reason_code
 
 
-def _claim(value: Any, evidence_aliases: dict[str, str]) -> dict[str, Any]:
+def _claim(
+    value: Any,
+    evidence_aliases: dict[str, str],
+    evidence_by_alias: dict[str, dict[str, Any]],
+    label: str,
+) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != {"text", "evidence_ids"}:
         raise SemanticOutputError("CANDIDATE_SCHEMA_INVALID")
     text = _normalized_candidate_text(value["text"])
@@ -192,6 +292,13 @@ def _claim(value: Any, evidence_aliases: dict[str, str]) -> dict[str, Any]:
         raise SemanticOutputError("DUPLICATE_EVIDENCE_REFERENCE")
     if not set(references) <= set(evidence_aliases):
         raise SemanticOutputError("UNKNOWN_EVIDENCE_ID")
+    evidence_text = "\n".join(
+        evidence_by_alias[reference]["text"] for reference in references
+    )
+    if not _claim_is_grounded(text, evidence_text):
+        raise SemanticOutputError("CLAIM_EVIDENCE_UNSUPPORTED")
+    if _claim_is_fragment(text, label):
+        raise SemanticOutputError("CLAIM_FRAGMENT_UNUSABLE")
     return {
         "text": text,
         "evidence_ids": [evidence_aliases[reference] for reference in references],
@@ -220,7 +327,9 @@ def validate_concepts(
     concepts: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     for index, candidate in enumerate(candidates):
-        valid, reason = _candidate_reason(candidate, evidence_aliases)
+        valid, reason = _candidate_reason(
+            candidate, evidence_aliases, evidence_by_id
+        )
         if valid is None:
             rejected.append(
                 {
@@ -243,16 +352,21 @@ def validate_concepts(
             }
             for index, point in enumerate(valid["key_points"])
         ]
+        is_partial = valid["is_partial"]
         grounded = {"label": valid["label"], "definition": definition, "key_points": key_points}
         concepts.append(
             {
                 "concept_id": concept_id(page_ref, **grounded),
                 "page_ref": page_ref,
                 **grounded,
-                "processing": "succeeded",
+                "processing": "partial" if is_partial else "succeeded",
                 "quality": "needs_review",
                 "decision": "review",
-                "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
+                "reason_codes": (
+                    ["CONTENT_REVIEW_REQUIRED", "SEMANTIC_REVIEW_REQUIRED"]
+                    if is_partial
+                    else ["SEMANTIC_REVIEW_REQUIRED"]
+                ),
             }
         )
     return {
@@ -263,7 +377,11 @@ def validate_concepts(
         "input_binding": input_binding,
         "attempt": attempt,
         "processing_policy": PROCESSING_POLICY,
-        "processing": "partial" if rejected else "succeeded",
+        "processing": (
+            "partial"
+            if rejected or any(concept["processing"] == "partial" for concept in concepts)
+            else "succeeded"
+        ),
         "quality": "needs_review",
         "decision": "review",
         "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
@@ -306,7 +424,11 @@ def combine_semantic_batches(
         "input_binding": input_binding,
         "attempt": max(batch["attempt"] for batch in batches),
         "processing_policy": PROCESSING_POLICY,
-        "processing": "partial" if rejected else "succeeded",
+        "processing": (
+            "partial"
+            if rejected or any(concept["processing"] == "partial" for concept in concepts)
+            else "succeeded"
+        ),
         "quality": "needs_review",
         "decision": "review",
         "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],

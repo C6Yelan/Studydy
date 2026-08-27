@@ -235,7 +235,15 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
         or artifact["input_binding"] != binding
         or artifact["attempt"] not in (1, 2)
         or artifact["processing"]
-        != ("partial" if artifact["rejected_candidates"] else "succeeded")
+        != (
+            "partial"
+            if artifact["rejected_candidates"]
+            or any(
+                concept.get("processing") == "partial"
+                for concept in artifact.get("concepts", [])
+            )
+            else "succeeded"
+        )
         or artifact["decision"] != "review"
         or not isinstance(artifact["concepts"], list)
     ):
@@ -257,7 +265,7 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
                 "reason_codes",
             }
             or concept["page_ref"] != artifact["page_ref"]
-            or concept["processing"] != "succeeded"
+            or concept["processing"] not in {"succeeded", "partial"}
             or concept["decision"] != "review"
         ):
             return False
