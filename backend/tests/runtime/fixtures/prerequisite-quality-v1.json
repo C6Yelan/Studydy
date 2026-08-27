@@ -1,0 +1,51 @@
+{
+  "schema": "prerequisite-quality-benchmark/v1",
+  "positive_explicit": [
+    ["Algebra", "Calculus", "Algebra is a prerequisite of Calculus."],
+    ["Algebra", "Calculus", "Algebra is a prerequisite for Calculus."],
+    ["Algebra", "Calculus", "Algebra is required before Calculus."],
+    ["Algebra", "Calculus", "Calculus requires Algebra."],
+    ["Algebra", "Calculus", "Calculus depends on Algebra."],
+    ["Algebra", "Calculus", "Calculus assumes knowledge of Algebra."],
+    ["Algebra", "Calculus", "Understanding Algebra is required for Calculus."],
+    ["Algebra", "Calculus", "Understanding Algebra is necessary for Calculus."],
+    ["Algebra", "Calculus", "Learn Algebra before Calculus."],
+    ["Algebra", "Calculus", "Understand Algebra before Calculus."],
+    ["Algebra", "Calculus", "Master Algebra before Calculus."],
+    ["Algebra", "Calculus", "Before learning Calculus, learn Algebra."],
+    ["Algebra", "Calculus", "Calculus builds on Algebra."],
+    ["Algebra", "Calculus", "Calculus builds upon Algebra."],
+    ["代數", "微積分", "代數是微積分的先備知識。"],
+    ["代數", "微積分", "代數是微積分的先備概念。"],
+    ["代數", "微積分", "代數是學習微積分的基礎。"],
+    ["代數", "微積分", "學習微積分前需要先理解代數。"],
+    ["代數", "微積分", "微積分需要先理解代數。"],
+    ["代數", "微積分", "微積分依賴對代數的理解。"],
+    ["代數", "微積分", "先理解代數，再學習微積分。"],
+    ["代數", "微積分", "先學習代數，再學習微積分。"],
+    ["代數", "微積分", "掌握代數後再學習微積分。"],
+    ["代數", "微積分", "微積分建立在代數的基礎上。"]
+  ],
+  "negative_adjacent": [
+    ["Stack", "Queue", "Stack and Queue are linear structures."],
+    ["Insertion Sort", "Selection Sort", "Insertion Sort and Selection Sort are comparison sorts."],
+    ["Mean", "Median", "Mean and Median summarize a distribution."],
+    ["HTTP", "HTTPS", "HTTP and HTTPS overview."],
+    ["Python", "OpenCV", "Python and OpenCV introduction."]
+  ],
+  "negative_non_learning": [
+    ["Algebra", "Calculus", "Algebra is not a prerequisite of Calculus."],
+    ["Algebra", "Calculus", "Calculus does not require Algebra."],
+    ["Algebra", "Calculus", "Algebra and Calculus have no prerequisite relationship."],
+    ["O(n) memory", "Algorithm A", "Algorithm A requires O(n) memory."],
+    ["Parameter A", "Method B", "Method B requires parameter A."],
+    ["Input A", "Function B", "Function B depends on input A."],
+    ["Caching", "Performance", "Performance depends on caching."],
+    ["Sampling", "Accuracy", "Accuracy depends on sampling."],
+    ["Package A", "Installation", "Installation requires package A."],
+    ["Homework", "Course", "Course requires homework."],
+    ["Python", "Project", "Project requires Python."],
+    ["Library A", "Method B", "Implementation of Method B requires Library A."],
+    ["Input A", "Method B", "Execution of Method B requires Input A."]
+  ]
+}

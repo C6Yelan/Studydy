@@ -37,6 +37,33 @@ def _label_pattern(label: str) -> str | None:
     return re.escape(normalized)
 
 
+def _is_safe_prerequisite_claim(
+    claim_text: str, *, reject_non_learning_context: bool
+) -> bool:
+    """否定或明示為非學習 dependency 時，不提出 prerequisite。"""
+
+    negation_patterns = (
+        r"\b(?:is|are|does|do|did|was|were|has|have) not\b",
+        r"\b(?:isn't|aren't|doesn't|don't|didn't|wasn't|weren't|hasn't|haven't)\b",
+        r"\bno prerequisite relationship\b",
+        r"(?:不是|並非|不需要|不依賴|沒有).{0,30}(?:先備|前置|關係|需要|依賴)",
+    )
+    if any(re.search(pattern, claim_text) for pattern in negation_patterns):
+        return False
+
+    if not reject_non_learning_context:
+        return True
+
+    non_learning_contexts = (
+        r"\b(?:runtime|execution|implementation|installation|memory|time|space|resource|"
+        r"parameter|argument|input|package|library|dependency|dependencies|performance|"
+        r"accuracy|quality|homework|project)\b",
+        r"(?:執行期|執行時間|實作|安裝|記憶體|時間|空間|資源|參數|輸入|套件|函式庫|"
+        r"效能|準確度|品質|作業|專案)",
+    )
+    return not any(re.search(pattern, claim_text) for pattern in non_learning_contexts)
+
+
 def _directed_claims(
     source: dict[str, Any],
     target: dict[str, Any],
@@ -58,19 +85,51 @@ def _directed_claims(
         )
     elif relation_type == "prerequisite":
         patterns = (
-            rf"{target_label}.{{0,80}}\b(?:requires?|depends? on|has (?:a )?prerequisite)\b.{{0,80}}{source_label}",
-            rf"\b(?:understand|learn|master)\b.{{0,50}}{source_label}.{{0,30}}\bbefore\b.{{0,50}}{target_label}",
-            rf"{target_label}.{{0,80}}(?:需要|依賴).{{0,80}}{source_label}",
-            rf"先(?:理解|學習|掌握)?.{{0,40}}{source_label}.{{0,40}}再(?:理解|學習|掌握)?.{{0,40}}{target_label}",
+            rf"{source_label}.{{0,20}}\bis (?:a )?prerequisite (?:of|for)\b.{{0,40}}{target_label}",
+            rf"{source_label}.{{0,20}}\bis required before\b.{{0,40}}{target_label}",
+            rf"{target_label}.{{0,40}}\bassumes? knowledge of\b.{{0,40}}{source_label}",
+            rf"\bunderstanding\b.{{0,30}}{source_label}.{{0,20}}\b(?:is )?(?:required|necessary) for\b.{{0,40}}{target_label}",
+            rf"\b(?:understand|learn|master)\b.{{0,30}}{source_label}.{{0,20}}\bbefore\b.{{0,40}}{target_label}",
+            rf"\bbefore learning\b.{{0,30}}{target_label}.{{0,20}}\blearn\b.{{0,30}}{source_label}",
+            rf"{target_label}.{{0,30}}\bbuilds? (?:on|upon)\b.{{0,30}}{source_label}",
+            rf"{source_label}.{{0,20}}是.{{0,20}}{target_label}.{{0,10}}的(?:先備知識|先備概念)",
+            rf"{source_label}.{{0,20}}是(?:學習|理解).{{0,10}}{target_label}.{{0,10}}的基礎",
+            rf"(?:學習|理解).{{0,10}}{target_label}.{{0,10}}前(?:需要)?先(?:理解|學習|掌握).{{0,20}}{source_label}",
+            rf"{target_label}.{{0,20}}需要先(?:理解|學習|掌握).{{0,20}}{source_label}",
+            rf"{target_label}.{{0,20}}依賴(?:對)?.{{0,10}}{source_label}.{{0,10}}的理解",
+            rf"先(?:理解|學習|掌握).{{0,20}}{source_label}.{{0,20}}再(?:理解|學習|掌握).{{0,20}}{target_label}",
+            rf"掌握.{{0,20}}{source_label}.{{0,10}}後再學習.{{0,20}}{target_label}",
+            rf"{target_label}.{{0,20}}建立在.{{0,20}}{source_label}.{{0,10}}的基礎上",
+        )
+        ambiguous_dependency_patterns = (
+            rf"{target_label}.{{0,40}}\b(?:requires?|depends? on)\b.{{0,40}}{source_label}",
         )
     else:
         raise RelationError("RELATION_TYPE_INVALID")
-    return [
-        (concept["formal_concept_id"], claim)
-        for concept in (source, target)
-        for claim_text, claim in _claims(concept)
-        if any(re.search(pattern, claim_text) for pattern in patterns)
-    ]
+    matching_claims = []
+    for concept in (source, target):
+        for claim_text, claim in _claims(concept):
+            is_match = any(re.search(pattern, claim_text) for pattern in patterns)
+            if relation_type == "prerequisite":
+                safe_match = (
+                    is_match
+                    and _is_safe_prerequisite_claim(
+                        claim_text, reject_non_learning_context=False
+                    )
+                )
+                ambiguous_match = (
+                    any(
+                        re.search(pattern, claim_text)
+                        for pattern in ambiguous_dependency_patterns
+                    )
+                    and _is_safe_prerequisite_claim(
+                        claim_text, reject_non_learning_context=True
+                    )
+                )
+                is_match = safe_match or ambiguous_match
+            if is_match:
+                matching_claims.append((concept["formal_concept_id"], claim))
+    return matching_claims
 
 
 def _formulas(concept: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -265,6 +324,7 @@ def select_relation_pairs(
                 )
                 candidates.append(
                     (
+                        0 if "explicit_relation" in signals else 1,
                         -high_value,
                         index,
                         right_index,
@@ -272,10 +332,10 @@ def select_relation_pairs(
                         signals,
                     )
                 )
-    candidates.sort(key=lambda candidate: candidate[:3])
+    candidates.sort(key=lambda candidate: candidate[:4])
     selected = candidates[:ceiling]
     signal_counts = Counter(signal for *_, signals in selected for signal in signals)
-    pairs = [candidate[3] for candidate in selected]
+    pairs = [candidate[4] for candidate in selected]
     is_partial = len(candidates) > ceiling
     batches = [
         pairs[index : index + PAIR_BATCH_SIZE]

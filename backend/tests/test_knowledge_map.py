@@ -946,6 +946,122 @@ def test_prerequisite_requires_explicit_dependency_not_document_order():
     )["relations"] == []
 
 
+def test_prerequisite_quality_benchmark_has_safe_direction_and_zero_false_positives():
+    fixture_path = (
+        Path(__file__).parent
+        / "runtime"
+        / "fixtures"
+        / "prerequisite-quality-v1.json"
+    )
+    benchmark = json.loads(fixture_path.read_text(encoding="utf-8"))
+    counts = {
+        "positive_cases": 0,
+        "detected_positives": 0,
+        "false_negatives": 0,
+        "negative_cases": 0,
+        "false_positives": 0,
+        "direction_errors": 0,
+        "endpoint_errors": 0,
+        "evidence_ownership_errors": 0,
+        "verifier_rejects": 0,
+        "cycle_rejects": 0,
+    }
+
+    for number, (source_label, target_label, claim_text) in enumerate(
+        benchmark["positive_explicit"], start=1
+    ):
+        source = _relation_concept(number * 2, source_label, f"{source_label} is grounded.")
+        target = _relation_concept(number * 2 + 1, target_label, claim_text)
+        pair = [(source["formal_concept_id"], target["formal_concept_id"])]
+        artifact = build_relation_artifact(
+            pair, [source, target], _relation_pages([source, target]), lambda *_: True
+        )
+        counts["positive_cases"] += 1
+        if not artifact["relations"]:
+            counts["false_negatives"] += 1
+            continue
+        counts["detected_positives"] += 1
+        relation = artifact["relations"][0]
+        if relation["source_formal_concept_id"] != source["formal_concept_id"]:
+            counts["direction_errors"] += 1
+        if relation["target_formal_concept_id"] != target["formal_concept_id"]:
+            counts["endpoint_errors"] += 1
+        if relation["relation_evidence"][0]["owner_formal_concept_id"] != target[
+            "formal_concept_id"
+        ]:
+            counts["evidence_ownership_errors"] += 1
+
+    negative_cases = (
+        benchmark["negative_adjacent"] + benchmark["negative_non_learning"]
+    )
+    for number, (source_label, target_label, claim_text) in enumerate(
+        negative_cases, start=100
+    ):
+        source = _relation_concept(number * 2, source_label, claim_text)
+        target = _relation_concept(
+            number * 2 + 1, target_label, f"{target_label} is grounded."
+        )
+        pair = [(source["formal_concept_id"], target["formal_concept_id"])]
+        artifact = build_relation_artifact(
+            pair, [source, target], _relation_pages([source, target]), lambda *_: True
+        )
+        counts["negative_cases"] += 1
+        counts["false_positives"] += sum(
+            relation["type"] == "prerequisite" for relation in artifact["relations"]
+        )
+
+    assert counts == {
+        "positive_cases": 24,
+        "detected_positives": 24,
+        "false_negatives": 0,
+        "negative_cases": 18,
+        "false_positives": 0,
+        "direction_errors": 0,
+        "endpoint_errors": 0,
+        "evidence_ownership_errors": 0,
+        "verifier_rejects": 0,
+        "cycle_rejects": 0,
+    }
+
+
+def test_prerequisite_verifier_rejection_never_publishes():
+    source = _relation_concept(1, "Algebra", "Algebra is grounded.")
+    target = _relation_concept(2, "Calculus", "Calculus requires Algebra.")
+    artifact = build_relation_artifact(
+        [(source["formal_concept_id"], target["formal_concept_id"])],
+        [source, target],
+        _relation_pages([source, target]),
+        lambda *_: False,
+    )
+
+    assert artifact["relations"] == []
+    assert artifact["diagnostics"]["verifier_rejected"] == 1
+
+
+def test_relation_selector_always_ranks_explicit_prerequisite_before_ceiling():
+    concepts = [
+        _relation_concept(
+            number,
+            f"Concept {number}",
+            f"Concept {number} is grounded.",
+            page_number=number,
+            group="group:shared",
+        )
+        for number in range(1, 19)
+    ]
+    concepts[-1]["claims"][0]["text"] = "Concept 18 requires Concept 1."
+    page_numbers = {
+        concept["source_page_refs"][0]: number
+        for number, concept in enumerate(concepts, start=1)
+    }
+
+    batches, _ = select_relation_pairs(concepts, page_numbers, ceiling=1)
+
+    assert batches == [[(
+        concepts[0]["formal_concept_id"], concepts[-1]["formal_concept_id"]
+    )]]
+
+
 def test_related_requires_grounded_association_and_never_calls_verifier():
     left = _relation_concept(1, "Graph Model", "Graph models represent entities.")
     right = _relation_concept(2, "Graph Models", "Graph models can be visualized.")
