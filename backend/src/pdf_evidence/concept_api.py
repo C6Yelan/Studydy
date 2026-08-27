@@ -4,7 +4,9 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import time
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -135,7 +137,7 @@ def start_concept_server(settings: dict[str, Any]) -> LocalConceptServer:
     chat_completions_url(base_url)
     parsed = urlsplit(base_url)
     port = parsed.port or 80
-    command = [
+    model_command = [
         settings["concept_server_executable"],
         "serve",
         settings["concept_model_root"],
@@ -154,6 +156,12 @@ def start_concept_server(settings: dict[str, Any]) -> LocalConceptServer:
         "--generation-config",
         "vllm",
         "--enforce-eager",
+    ]
+    command = [
+        sys.executable,
+        str(Path(__file__).with_name("process_guard.py")),
+        str(os.getpid()),
+        *model_command,
     ]
     try:
         process = subprocess.Popen(

@@ -802,8 +802,9 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert binding["relation_verifier"] == settings["runtime_lock"][
         "relation_verifier"
     ]
-    assert len(binding["code_hashes"]) == 17
+    assert len(binding["code_hashes"]) == 18
     assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
+    assert "backend/src/pdf_evidence/process_guard.py" in binding["code_hashes"]
     repository_root = Path(__file__).parents[3]
     for locked_sha256, relative_path in (
         (
@@ -817,6 +818,12 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
                 "backend_concept_api"
             ],
             "backend/src/pdf_evidence/concept_api.py",
+        ),
+        (
+            settings["runtime_lock"]["semantic"]["code_hashes"][
+                "backend_process_guard"
+            ],
+            "backend/src/pdf_evidence/process_guard.py",
         ),
     ):
         source_sha256 = hashlib.sha256(

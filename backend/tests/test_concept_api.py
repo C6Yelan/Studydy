@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -71,14 +72,19 @@ def test_owned_vllm_server_uses_fixed_bounded_command_and_cleans_up(monkeypatch)
     server.close()
     server.close()
 
-    expected_command = (
+    expected_model_command = (
         "/runtime/bin/vllm serve /models/qwen --served-model-name "
         "Qwen/Qwen3-14B-AWQ --host 127.0.0.1 --port 8101 "
         "--kv-cache-memory-bytes 2147483648 --max-num-seqs 1 --max-model-len 8192 "
         "--generation-config vllm --enforce-eager"
     ).split()
-    assert popen.call_args.args[0] == expected_command
-    assert "--enable-log-requests" not in expected_command
+    assert popen.call_args.args[0] == [
+        sys.executable,
+        str(Path(concept_api_module.__file__).with_name("process_guard.py")),
+        str(concept_api_module.os.getpid()),
+        *expected_model_command,
+    ]
+    assert "--enable-log-requests" not in expected_model_command
     process_options = popen.call_args.kwargs
     assert process_options.pop("start_new_session") is True
     assert process_options.pop("env") == {
