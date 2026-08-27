@@ -34,8 +34,9 @@ function assessmentError(error: unknown): AssessmentError {
   };
 }
 
-export function AssessmentPanel({ apiClient, concept, onNoSafeItem, onReloadSession, onSubmitted, sourceArtifactId, studySessionId, view }: {
+export function AssessmentPanel({ apiClient, attemptedClaimIds, concept, onNoSafeItem, onReloadSession, onSubmitted, sourceArtifactId, studySessionId, view }: {
   apiClient: StudydyApiClient;
+  attemptedClaimIds: string[];
   concept: Concept;
   onNoSafeItem: (isUnavailable: boolean) => void;
   onReloadSession: () => void;
@@ -105,7 +106,9 @@ export function AssessmentPanel({ apiClient, concept, onNoSafeItem, onReloadSess
     } catch (error) {
       const nextError = assessmentError(error);
       const fallback = nextError.noSafeItem
-        ? assessmentFallbackClaim(concept.claims, selectedClaimId)
+        ? assessmentFallbackClaim(
+            concept.claims, selectedClaimId, attemptedClaimIds
+          )
         : null;
       if (fallback) {
         setSelectedClaimId(fallback.claim_id);

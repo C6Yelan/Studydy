@@ -14,5 +14,9 @@ test("no-safe fallback prefers a different Claim with smaller Evidence scope", (
     assessmentFallbackClaim(claims, "definition")?.claim_id,
     "short",
   );
+  assert.equal(
+    assessmentFallbackClaim(claims, "definition", ["short"])?.claim_id,
+    "long",
+  );
   assert.equal(assessmentFallbackClaim([claims[0]], "definition"), null);
 });

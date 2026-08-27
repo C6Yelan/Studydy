@@ -379,6 +379,8 @@ export function StudySessionPage({ apiClient, route }: {
           <div id="assessment-panel">
             <AssessmentPanel
               apiClient={apiClient}
+              attemptedClaimIds={data.learningState.concept_states.find((state) =>
+                state.formal_concept_id === currentConcept.formal_concept_id)?.attempted_claim_ids ?? []}
               concept={currentConcept}
               onNoSafeItem={setHasNoSafeItem}
               onReloadSession={() => window.location.reload()}
