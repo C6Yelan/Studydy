@@ -223,7 +223,7 @@ def _choose_primary_step(
                 study_session.study_session_id,
                 "relearn_prerequisite",
                 prerequisite,
-                "先補強尚未掌握的正式 immediate prerequisite，再回到目前目標。",
+                "先補強尚未掌握、需要先理解的基礎概念，再回到目前目標。",
                 prerequisite_state.confidence,
                 prerequisite_state.claim_coverage_complete,
                 [prerequisite.formal_concept_id],
@@ -303,7 +303,7 @@ def _choose_primary_step(
                 study_session.study_session_id,
                 "no_action",
                 None,
-                "目前 StudySession 內所有概念都已符合掌握條件。",
+                "本次學習中的所有概念都已符合掌握條件。",
                 "supported",
                 True,
                 list(context.initial_learning_path),
@@ -318,7 +318,7 @@ def _choose_primary_step(
                 study_session.study_session_id,
                 "follow_path",
                 target,
-                "目前沒有指定目標，從 canonical initial learning path 的第一個未掌握概念開始。",
+                "目前沒有指定目標，從原先建議學習順序中的第一個未掌握概念開始。",
                 target_state.confidence,
                 target_state.claim_coverage_complete,
                 [target.formal_concept_id],
@@ -343,7 +343,7 @@ def _choose_primary_step(
             study_session.study_session_id,
             "start" if target_state.status == "not_started" else "continue",
             target,
-            "依 canonical initial learning path 前往第一個尚未掌握的概念。",
+            "依原先的建議學習順序，前往第一個尚未掌握的概念。",
             target_state.confidence,
             target_state.claim_coverage_complete,
             [target.formal_concept_id],
@@ -521,7 +521,7 @@ def project_suggestion(plan: AdaptivePlanSnapshot) -> Suggestion:
         fallback_reason = "若目前動作無法完成，先取得更多可信作答證據。"
     else:
         fallback_action = "follow_path"
-        fallback_reason = "若目前路由不可用，回到 canonical initial learning path。"
+        fallback_reason = "若目前步驟無法繼續，回到原先的建議學習順序。"
     return Suggestion(
         schema="learning-suggestion/v1",
         adaptive_plan_revision=plan.adaptive_plan_revision,

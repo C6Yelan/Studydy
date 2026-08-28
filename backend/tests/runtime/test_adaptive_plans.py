@@ -118,6 +118,9 @@ def test_prerequisite_remediation_returns_deferred_target_without_map_mutation(
         learner, study_session.study_session_id, dsn=adaptive_database_dsn
     )
     assert remediation.primary_step.action == "relearn_prerequisite"
+    assert remediation.primary_step.reason == (
+        "先補強尚未掌握、需要先理解的基礎概念，再回到目前目標。"
+    )
     assert remediation.primary_step.target_formal_concept_id == prerequisite[
         "formal_concept_id"
     ]
@@ -212,10 +215,17 @@ def test_canonical_path_start_no_resource_and_stale_revision(
         learner, study_session.study_session_id, dsn=adaptive_database_dsn
     )
     assert next_concept.primary_step.action == "start"
+    assert next_concept.primary_step.reason == (
+        "依原先的建議學習順序，前往第一個尚未掌握的概念。"
+    )
     assert next_concept.primary_step.target_formal_concept_id == knowledge_map[
         "formal_concepts"
     ][1]["formal_concept_id"]
     assert next_concept.primary_step.route.resource_promotion_id is None
+    suggestion = project_suggestion(next_concept)
+    assert suggestion.fallback_reason == (
+        "若目前步驟無法繼續，回到原先的建議學習順序。"
+    )
     applied = apply_adaptive_plan(
         learner,
         study_session.study_session_id,
@@ -242,6 +252,9 @@ def test_no_current_target_follows_inline_path(adaptive_database_dsn: str):
         learner, study_session.study_session_id, dsn=adaptive_database_dsn
     )
     assert plan.primary_step.action == "follow_path"
+    assert plan.primary_step.reason == (
+        "目前沒有指定目標，從原先建議學習順序中的第一個未掌握概念開始。"
+    )
     assert plan.fallback_reason == "NO_CURRENT_TARGET_FOLLOW_PATH"
     assert plan.primary_step.target_formal_concept_id == knowledge_map[
         "initial_learning_path"
@@ -304,6 +317,7 @@ def test_all_mastered_has_no_action(adaptive_database_dsn: str):
         learner, study_session.study_session_id, dsn=adaptive_database_dsn
     )
     assert plan.primary_step.action == "no_action"
+    assert plan.primary_step.reason == "本次學習中的所有概念都已符合掌握條件。"
     assert plan.primary_step.target_formal_concept_id is None
     assert plan.fallback_reason == "ALL_CONCEPTS_MASTERED"
     suggestion = project_suggestion(plan)

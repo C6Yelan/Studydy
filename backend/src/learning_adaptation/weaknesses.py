@@ -178,7 +178,7 @@ def _immediate_prerequisite_gaps(
                 ),
                 remediation_intent="relearn_prerequisite",
                 reason=(
-                    "目前目標有一個尚未掌握的正式 immediate prerequisite。"
+                    "目前目標有一個尚未掌握、需要先理解的基礎概念。"
                 ),
             )
         )

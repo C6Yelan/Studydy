@@ -264,8 +264,7 @@ def test_safe_proposal_builds_contract_and_private_provenance(monkeypatch):
         option.option_id for option in documents.public_document.options
     }
     assert documents.private_answer_document.rationale == (
-        "The selected Evidence states: "
-        "A stack stores its first element at stack[0]."
+        "教材依據明確記載：A stack stores its first element at stack[0]."
     )
 
 

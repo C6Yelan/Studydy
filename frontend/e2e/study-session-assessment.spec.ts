@@ -104,7 +104,10 @@ test("StudySession assessment：錯誤回饋、新題重評與完成", async ({ 
   await page.getByRole("radio", { name: /選項 B/ }).check();
   await page.getByRole("button", { name: "送出答案" }).click();
   await expect(page.getByRole("heading", { name: "這題需要再想一下" })).toBeVisible();
-  await expect(page.getByText("這個選項與教材 Evidence 不一致。")).toBeVisible();
+  await expect(page.getByText("這個選項與教材依據不一致。")).toBeVisible();
+  expect(await page.locator("body").innerText()).not.toMatch(
+    /canonical(?: initial learning path| map)|formal immediate prerequisite|StudySession(?: only)?|Relation|Evidence|Single-choice/i,
+  );
   await captureAcceptance(page, "11_feedback.png");
 
   await page.getByRole("button", { name: "取得新題目" }).click();
@@ -175,7 +178,7 @@ test("Assessment second item耗盡時改試未覆蓋Claim", async ({ page }) => 
   target.claims.push({
     ...structuredClone(target.claims[0]),
     claim_id: fallbackClaimId,
-    text: "尚未覆蓋且Evidence範圍較小的重點。",
+    text: "尚未覆蓋且教材依據範圍較小的重點。",
   });
   const context = contextView();
   context.initial_learning_path[1].claim_ids.push(fallbackClaimId);

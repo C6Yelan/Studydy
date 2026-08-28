@@ -117,6 +117,9 @@ test("prerequisite remediation 更新 overlay 並保留 canonical path", async (
   await page.getByText("查看需要留意的學習觀察").click();
   await expect(page.getByText("學習前可先補強")).toBeVisible();
   await expect(page.getByRole("heading", { name: "先補強先備概念" })).toBeVisible();
+  expect(await page.locator("body").innerText()).not.toMatch(
+    /canonical(?: initial learning path| map)|formal immediate prerequisite|StudySession(?: only)?|Relation|Evidence|Single-choice/i,
+  );
   await capture(page, "12_learning_state_weakness.png", ".learning-insights");
   await capture(page, "13_adaptive_next_step.png", ".adaptive-card");
 

@@ -223,7 +223,7 @@ export function feedbackView(assessment: AssessmentView, selectedOptionId: strin
     question_id: assessment.question_id,
     selected_option_id: selectedOptionId,
     is_correct: isCorrect,
-    rationale: isCorrect ? "教材 Evidence 支持這個選項。" : "這個選項與教材 Evidence 不一致。",
+    rationale: isCorrect ? "教材依據支持這個選項。" : "這個選項與教材依據不一致。",
     source_evidence_ids: assessment.source_evidence_ids,
     event_number: eventNumber,
     created_at: `2026-08-27T00:0${eventNumber + 5}:00Z`,
@@ -308,7 +308,7 @@ export function weaknessView(options: {
     prerequisite_status: "not_started" as const,
     prerequisite_confidence: "none" as const,
     remediation_intent: "relearn_prerequisite" as const,
-    reason: "先補強尚未掌握的正式 immediate prerequisite，再回到目前目標。",
+    reason: "先補強尚未掌握、需要先理解的基礎概念，再回到目前目標。",
   }] : [];
   return {
     schema: "weakness/v1",
@@ -350,7 +350,7 @@ export function adaptiveView(options: {
     target_formal_concept_id: targetId,
     target_label: targetLabel,
     reason: action === "relearn_prerequisite"
-      ? "先補強尚未掌握的正式 immediate prerequisite，再回到目前目標。"
+      ? "先補強尚未掌握、需要先理解的基礎概念，再回到目前目標。"
       : "目前資料不足，先取得更多可信作答證據。",
     confidence: "limited" as const,
     claim_coverage_complete: false,

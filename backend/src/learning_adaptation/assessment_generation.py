@@ -892,13 +892,7 @@ def _candidate_documents(
         grounding.aliases[alias][1]
         for alias in selected.candidate.support_aliases
     )
-    rationale = (
-        f"The selected Evidence states: {support_text}"
-        if sum(character.isascii() for character in support_text)
-        / max(1, len(support_text))
-        > 0.9
-        else f"選定 Evidence 明確記載：{support_text}"
-    )
+    rationale = f"教材依據明確記載：{support_text}"
     documents = build_single_choice_assessment(
         study_session_id=study_session_id,
         knowledge_map_revision=knowledge_map_revision,

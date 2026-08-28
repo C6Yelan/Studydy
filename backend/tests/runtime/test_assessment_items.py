@@ -741,7 +741,7 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
     assert starts == ["qwen", "verifier"]
     assert stored.public_document.source_evidence_ids == claim["evidence_ids"]
     assert stored.private_answer_document.rationale == (
-        "The selected Evidence states: Canonical Evidence 1"
+        "教材依據明確記載：Canonical Evidence 1"
     )
     assert stored.generation_provenance is not None
     assert stored.generation_provenance.selected_stage == "proposal"

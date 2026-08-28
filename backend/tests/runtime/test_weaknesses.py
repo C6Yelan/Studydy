@@ -124,6 +124,7 @@ def test_only_unmastered_published_immediate_prerequisite_forms_gap(
     ]
     assert gap.prerequisite_status == "not_started"
     assert gap.supporting_answer_event_ids == []
+    assert gap.reason == "目前目標有一個尚未掌握、需要先理解的基礎概念。"
 
     for sequence in (1, 2):
         _answer(

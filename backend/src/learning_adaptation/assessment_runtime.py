@@ -15,7 +15,7 @@ from runtime.material_processing import (
 
 
 ASSESSMENT_RUNTIME_LOCK_SHA256 = (
-    "36a1c66bbe22980a59823bf8b3e5345fc01013764f25af872ed506be51f2f6b7"
+    "0650da8638b8f9ad6c6f6eda50bbf0693028490533b2d75634329bd01411bde0"
 )
 _CODE_PATHS = {
     "backend_assessment_generation": (
