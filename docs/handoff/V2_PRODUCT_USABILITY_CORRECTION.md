@@ -7,7 +7,7 @@
 - Accepted product candidate: `c1b584fb69f2b8d86b584adeb9c17a53331b7f6c`
 - Documentation candidate: this file’s eventual signed commit SHA, to be supplied by the final report after commit. The product SHA is not a claim that `dev` or `main` has been merged.
 
-This is the single acceptance handoff for the V2 usability correction. The product change is copy-boundary focused: student-facing adaptive, weakness, and assessment rationale text is readable Traditional Chinese while machine-readable action/reason codes, schemas, scoring, bindings, and canonical data remain unchanged. Semantic/model behavior was not rerun for this copy-only candidate; the accepted semantic evidence below is inherited from the preceding exact product candidate where stated.
+This is the single acceptance handoff for the full V2 usability correction: Knowledge Map topology, Relation recall, Claim granularity and grounding, Assessment supply, Weakness and Path projection, the Adaptive loop, and student copy. The final incremental commit at `c1b584fb…` is copy-boundary focused: student-facing adaptive, weakness, and assessment rationale text is readable Traditional Chinese while machine-readable action/reason codes, schemas, scoring, bindings, and canonical data remain unchanged. Semantic/model behavior was not rerun for that copy-only increment; the accepted semantic evidence below is inherited from the preceding exact product candidate where stated.
 
 ## Acceptance evidence
 
