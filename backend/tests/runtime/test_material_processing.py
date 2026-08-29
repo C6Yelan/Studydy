@@ -15,6 +15,7 @@ import runtime.storage.material_review_outputs as output_module
 from pdf_evidence.concept_evidence_output import build_output
 from pdf_evidence.text_first_bundle import build_producer_bundle, publish_run
 from pdf_evidence.concept_generation import build_semantic_request, validate_concepts
+from pdf_evidence.document_context import build_document_contexts
 from pdf_evidence.ocr_page_evidence import build_page_evidence, canonical_sha256, extract_page
 from knowledge_map.artifacts import build_knowledge_map, validate_knowledge_map
 from knowledge_map.formal_concepts import build_resolution_requests, validate_resolution
@@ -406,7 +407,10 @@ def _fake_producer(
             )
             raw_page.pop("png_bytes", None)
             raw_page.pop("native_evidence", None)
-            semantic_request, evidence_aliases = build_semantic_request(page)
+            document_context = build_document_contexts([page])[0]
+            semantic_request, evidence_aliases = build_semantic_request(
+                page, document_context
+            )
             semantic = validate_concepts(
                 json.dumps(
                     {
@@ -449,6 +453,21 @@ def _fake_producer(
     progress_callback("concept_generation", 0, page_count)
     for completed_pages in range(1, page_count + 1):
         progress_callback("concept_generation", completed_pages, page_count)
+    document_contexts = build_document_contexts(pages)
+    contexts_by_page = {
+        context["page_ref"]: context for context in document_contexts
+    }
+    for page, semantic in zip(pages, semantic_pages, strict=True):
+        semantic_request, _ = build_semantic_request(
+            page, contexts_by_page[page["page_ref"]]
+        )
+        semantic["input_binding"] = {
+            "batch_bindings": [{
+                "batch_index": 0,
+                "semantic_request_sha256": canonical_sha256(semantic_request),
+                "semantic_request": deepcopy(semantic_request),
+            }]
+        }
     output = build_output(
         run_id=run_id,
         produced_at=produced_at,
@@ -457,6 +476,8 @@ def _fake_producer(
             "page_numbers": list(range(1, page_count + 1)),
         },
         pages=pages,
+        context_pages=pages,
+        document_contexts=document_contexts,
         semantic_pages=semantic_pages,
         runtime_binding=settings["runtime_lock"],
         run_reasons=[],
@@ -581,7 +602,7 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
     outputs = read_material_run_outputs(
         learner_id, source.material_id, created.run_id, dsn=processing_database_dsn
     )
-    assert outputs.study_material_output["schema"] == "study-material-output/v5"
+    assert outputs.study_material_output["schema"] == "study-material-output/v7"
     assert outputs.study_material_output["evidence_text_index"]
     assert all(
         set(evidence) == {"evidence_id", "text"}
@@ -930,6 +951,18 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
                 "backend_process_guard"
             ],
             "backend/src/pdf_evidence/process_guard.py",
+        ),
+        (
+            settings["runtime_lock"]["semantic"]["code_hashes"][
+                "backend_document_context"
+            ],
+            "backend/src/pdf_evidence/document_context.py",
+        ),
+        (
+            settings["runtime_lock"]["semantic"]["code_hashes"][
+                "backend_study_material_output"
+            ],
+            "backend/src/pdf_evidence/study_material_output.py",
         ),
     ):
         source_sha256 = hashlib.sha256(

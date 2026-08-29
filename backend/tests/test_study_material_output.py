@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 from pdf_evidence.concept_evidence_output import build_output
-from pdf_evidence.concept_generation import claim_id, concept_id
+from pdf_evidence.concept_generation import (
+    build_semantic_request,
+    claim_id,
+    concept_id,
+)
+from pdf_evidence.document_context import build_document_contexts
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.study_material_output import (
     build_study_material_output,
@@ -71,7 +76,7 @@ def producer_output(*, excluded_page: bool = False):
                 "nearby_evidence_ids": [],
             }
         ],
-        "processing_policy": "native-first-page-evidence/v1",
+        "processing_policy": "native-first-page-evidence/v2",
         "normalizer_policy": "ocr-text-nfc-line-preserving/v1",
         "produced_at": "2026-08-19T00:00:00Z",
         "processing": "partial",
@@ -130,6 +135,15 @@ def producer_output(*, excluded_page: bool = False):
         "processing": "partial",
         "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
     }
+    document_contexts = build_document_contexts([page])
+    semantic_request, _ = build_semantic_request(page, document_contexts[0])
+    semantic_page["input_binding"] = {
+        "batch_bindings": [{
+            "batch_index": 0,
+            "semantic_request_sha256": canonical_sha256(semantic_request),
+            "semantic_request": deepcopy(semantic_request),
+        }]
+    }
     excluded = (
         [
             {
@@ -154,6 +168,8 @@ def producer_output(*, excluded_page: bool = False):
             "page_numbers": [1, 2] if excluded_page else [1],
         },
         pages=[page],
+        context_pages=[page],
+        document_contexts=document_contexts,
         semantic_pages=[semantic_page],
         runtime_binding=runtime_lock,
         run_reasons=[],
@@ -171,11 +187,15 @@ def test_rejected_semantic_candidate_marks_page_partial_for_downstream():
     page["page_evidence_id"] = (
         "page-evidence:sha256:" + canonical_sha256(page_identity)
     )
+    document_contexts = build_document_contexts([page])
+    semantic_request, _ = build_semantic_request(page, document_contexts[0])
     output = build_output(
         run_id=source["run_id"],
         produced_at=source["produced_at"],
         source_binding=source["source_binding"],
         pages=[page],
+        context_pages=[page],
+        document_contexts=document_contexts,
         semantic_pages=[{
             "page_ref": page["page_ref"],
             "concepts": [],
@@ -188,6 +208,15 @@ def test_rejected_semantic_candidate_marks_page_partial_for_downstream():
             }],
             "processing": "partial",
             "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
+            "input_binding": {
+                "batch_bindings": [{
+                    "batch_index": 0,
+                    "semantic_request_sha256": canonical_sha256(
+                        semantic_request
+                    ),
+                    "semantic_request": deepcopy(semantic_request),
+                }]
+            },
         }],
         runtime_binding=source["runtime_binding"],
         run_reasons=[],
@@ -198,10 +227,14 @@ def test_rejected_semantic_candidate_marks_page_partial_for_downstream():
     assert build_study_material_output(output)["processing"] == "partial"
 
 
-def test_build_v5_keeps_exact_evidence_claim_locator_and_image_lite():
+def test_build_v6_keeps_context_evidence_claim_locator_and_image_lite():
     source = producer_output()
     output = build_study_material_output(source)
-    assert output["schema"] == "study-material-output/v5"
+    assert output["schema"] == "study-material-output/v7"
+    assert output["document_contexts"] == source["document_contexts"]
+    assert output["document_contexts"][0]["current_blocks"][0]["block_id"] == (
+        source["pages"][0]["evidence_blocks"][0]["block_id"]
+    )
     assert output["processing"] == "partial"
     assert output["pages"][0]["processing"] == "partial"
     assert output["concepts"][0]["processing"] == "partial"
@@ -256,6 +289,26 @@ def test_recomputed_output_identity_cannot_hide_nested_unexpected_field():
     identity = dict(output)
     identity.pop("output_id")
     output["output_id"] = "study-material-output:sha256:" + canonical_sha256(identity)
+    assert validate_study_material_output(output) == "STUDY_MATERIAL_OUTPUT_INVALID"
+
+
+def test_recomputed_identity_cannot_hide_context_evidence_tamper():
+    output = build_study_material_output(producer_output())
+    context = output["document_contexts"][0]
+    context["current_blocks"][0]["evidence_id"] = (
+        "evidence:sha256:" + "f" * 64
+    )
+    context_identity = dict(context)
+    context_identity.pop("context_id")
+    context["context_id"] = (
+        "document-context:sha256:" + canonical_sha256(context_identity)
+    )
+    identity = dict(output)
+    identity.pop("output_id")
+    output["output_id"] = (
+        "study-material-output:sha256:" + canonical_sha256(identity)
+    )
+
     assert validate_study_material_output(output) == "STUDY_MATERIAL_OUTPUT_INVALID"
 
 

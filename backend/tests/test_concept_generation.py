@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import unicodedata
 
 import pytest
 
@@ -7,9 +8,12 @@ from pdf_evidence.concept_generation import (
     SemanticOutputError,
     build_semantic_request,
     combine_semantic_batches,
+    fitted_semantic_request_matches_source,
     split_semantic_request,
     validate_concepts,
 )
+from pdf_evidence.document_context import build_document_contexts
+from pdf_evidence.ocr_page_evidence import canonical_sha256
 
 
 FIXTURES = Path(__file__).parents[2] / "local_ai" / "tests" / "fixtures"
@@ -21,6 +25,39 @@ def _request():
 
 def _output():
     return json.loads((FIXTURES / "semantic_model_output.json").read_text(encoding="utf-8"))
+
+
+def _request_with_evidence(evidence):
+    request = _request()
+    request["evidence"] = [
+        {"id": item["id"], "text": item["text"]} for item in evidence
+    ]
+    request["document_context"]["current_blocks"] = [
+        {
+            "evidence_id": item["id"],
+            "kind": item.get("kind", "paragraph"),
+            "heading_ancestry_ids": [],
+            "previous_evidence_id": (
+                evidence[index - 1]["id"] if index > 0 else None
+            ),
+            "next_evidence_id": (
+                evidence[index + 1]["id"]
+                if index + 1 < len(evidence)
+                else None
+            ),
+            "continuation_ids": [],
+        }
+        for index, item in enumerate(evidence)
+    ]
+    context_identity = {
+        key: value
+        for key, value in request["document_context"].items()
+        if key != "document_context_id"
+    }
+    request["document_context"]["document_context_id"] = (
+        "concept-context:sha256:" + canonical_sha256(context_identity)
+    )
+    return request
 
 
 def _validate(model_text):
@@ -36,18 +73,27 @@ def _validate(model_text):
 
 def test_model_request_contains_only_short_alias_and_text():
     page = {
+        "schema": "page-evidence/v3",
         "material_id": "material-alpha",
         "material_revision": "revision-one",
         "section_id": "section-light",
+        "page_ref": "page:sha256:" + "1" * 64,
+        "page_number": 1,
+        "page_evidence_id": "page-evidence:sha256:" + "2" * 64,
         "evidence_blocks": [
             {
                 "evidence_id": "evidence-one",
+                "block_id": "block-one",
+                "kind": "paragraph",
                 "text": "Photosynthesis converts light energy into chemical energy in plants.",
+                "reading_order": 0,
                 "locator": {"page": 1, "block_id": "block-one", "region": [10, 20, 90, 60]},
             }
         ],
     }
-    request, aliases = build_semantic_request(page)
+    request, aliases = build_semantic_request(
+        page, build_document_contexts([page])[0]
+    )
     assert request == _request()
     assert aliases == {"e1": "evidence-one"}
     assert "material-alpha" not in json.dumps(request)
@@ -149,10 +195,9 @@ def test_candidate_text_is_normalized_before_validation():
 
 
 def test_title_only_evidence_cannot_support_an_expanded_definition():
-    request = {
-        "schema": "concept-generation-input/v3",
-        "evidence": [{"id": "e1", "text": "Data Dictionary (8 of 8)"}],
-    }
+    request = _request_with_evidence(
+        [{"id": "e1", "text": "Data Dictionary (8 of 8)"}]
+    )
     artifact = validate_concepts(
         json.dumps({
             "concepts": [{
@@ -182,9 +227,8 @@ def test_title_only_evidence_cannot_support_an_expanded_definition():
 
 
 def test_invalid_definition_is_replaced_by_grounded_explanation():
-    request = {
-        "schema": "concept-generation-input/v3",
-        "evidence": [
+    request = _request_with_evidence(
+        [
             {"id": "e1", "text": "Process Tools (1 of 8)"},
             {
                 "id": "e2",
@@ -193,8 +237,8 @@ def test_invalid_definition_is_replaced_by_grounded_explanation():
                     "Decision tables describe combinations of conditions."
                 ),
             },
-        ],
-    }
+        ]
+    )
     artifact = validate_concepts(
         json.dumps({
             "concepts": [{
@@ -241,10 +285,9 @@ def test_visual_index_and_scalar_fragments_are_removed_but_short_claim_survives(
         "Figure 5-24 illustrates a complete decision table. "
         "Circular queue (1 of 8)."
     )
-    request = {
-        "schema": "concept-generation-input/v3",
-        "evidence": [{"id": "e1", "text": evidence_text}],
-    }
+    request = _request_with_evidence(
+        [{"id": "e1", "text": evidence_text}]
+    )
     artifact = validate_concepts(
         json.dumps({
             "concepts": [{
@@ -291,6 +334,153 @@ def test_visual_index_and_scalar_fragments_are_removed_but_short_claim_survives(
     ]
     assert artifact["concepts"][0]["processing"] == "partial"
     assert artifact["processing"] == "partial"
+
+
+@pytest.mark.parametrize(
+    ("fragment", "reason_code"),
+    [
+        ("and", "CLAIM_ISOLATED_CONNECTOR"),
+        (") ;", "CLAIM_SYNTAX_TAIL"),
+        ("value =", "CLAIM_HALF_CLAUSE"),
+        ("function calculate(", "CLAIM_INCOMPLETE_DECLARATION"),
+    ],
+)
+def test_incomplete_claims_are_demoted_with_deterministic_reasons(
+    fragment, reason_code
+):
+    evidence_text = (
+        "A complete rule explains the value. A second complete point is grounded. "
+        + fragment
+    )
+    request = _request_with_evidence([{"id": "e1", "text": evidence_text}])
+    artifact = validate_concepts(
+        json.dumps({
+            "concepts": [{
+                "label": "Complete rule",
+                "definition": {
+                    "text": "A complete rule explains the value.",
+                    "evidence_ids": ["e1"],
+                },
+                "key_points": [
+                    {"text": fragment, "evidence_ids": ["e1"]},
+                    {
+                        "text": "A second complete point is grounded.",
+                        "evidence_ids": ["e1"],
+                    },
+                ],
+            }]
+        }),
+        semantic_request=request,
+        evidence_aliases={"e1": "evidence-one"},
+        page_ref="page:sha256:" + "1" * 64,
+        input_binding={"evidence_allowlist": ["evidence-one"]},
+        attempt=1,
+    )
+
+    assert [point["text"] for point in artifact["concepts"][0]["key_points"]] == [
+        "A second complete point is grounded."
+    ]
+    assert reason_code in artifact["concepts"][0]["reason_codes"]
+    assert artifact["concepts"][0]["processing"] == "partial"
+
+
+@pytest.mark.parametrize(
+    "claim_text",
+    [
+        "However, the value changes.",
+        "因此，數值會改變。",
+        "Result:",
+        "Polymorphism",
+    ],
+)
+def test_complete_connector_colon_and_short_legal_claims_remain_eligible(
+    claim_text,
+):
+    evidence_text = (
+        "A complete rule explains the value. "
+        f"{claim_text} A second complete point is grounded."
+    )
+    artifact = validate_concepts(
+        json.dumps({
+            "concepts": [{
+                "label": "Complete rule",
+                "definition": {
+                    "text": "A complete rule explains the value.",
+                    "evidence_ids": ["e1"],
+                },
+                "key_points": [
+                    {"text": claim_text, "evidence_ids": ["e1"]},
+                    {
+                        "text": "A second complete point is grounded.",
+                        "evidence_ids": ["e1"],
+                    },
+                ],
+            }]
+        }),
+        semantic_request=_request_with_evidence(
+            [{"id": "e1", "text": evidence_text}]
+        ),
+        evidence_aliases={"e1": "evidence-one"},
+        page_ref="page:sha256:" + "1" * 64,
+        input_binding={"evidence_allowlist": ["evidence-one"]},
+        attempt=1,
+    )
+
+    normalized_claim = " ".join(unicodedata.normalize("NFKC", claim_text).split())
+    assert normalized_claim in [
+        point["text"] for point in artifact["concepts"][0]["key_points"]
+    ]
+    assert artifact["concepts"][0]["processing"] == "succeeded"
+
+
+def test_backslash_zero_is_preserved_and_plain_zero_cannot_replace_it():
+    evidence_text = (
+        "The escape \\0 marks the end of this public sequence. "
+        "Readers must preserve the escape \\0 exactly."
+    )
+    request = _request_with_evidence([{"id": "e1", "text": evidence_text}])
+    valid_output = {
+        "concepts": [{
+            "label": "Escape marker",
+            "definition": {
+                "text": "The escape \\0 marks the end of this public sequence.",
+                "evidence_ids": ["e1"],
+            },
+            "key_points": [{
+                "text": "Readers must preserve the escape \\0 exactly.",
+                "evidence_ids": ["e1"],
+            }],
+        }]
+    }
+
+    artifact = validate_concepts(
+        json.dumps(valid_output),
+        semantic_request=request,
+        evidence_aliases={"e1": "evidence-one"},
+        page_ref="page:sha256:" + "1" * 64,
+        input_binding={"evidence_allowlist": ["evidence-one"]},
+        attempt=1,
+    )
+    assert artifact["concepts"][0]["definition"]["text"] == (
+        "The escape \\0 marks the end of this public sequence."
+    )
+
+    changed = json.loads(json.dumps(valid_output))
+    changed["concepts"][0]["definition"]["text"] = (
+        "The escape 0 marks the end of this public sequence."
+    )
+    rejected = validate_concepts(
+        json.dumps(changed),
+        semantic_request=request,
+        evidence_aliases={"e1": "evidence-one"},
+        page_ref="page:sha256:" + "1" * 64,
+        input_binding={"evidence_allowlist": ["evidence-one"]},
+        attempt=1,
+    )
+    assert rejected["concepts"] == []
+    assert rejected["rejected_candidates"][0]["reason_codes"] == [
+        "CLAIM_EVIDENCE_UNSUPPORTED"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -345,18 +535,31 @@ def test_semantic_request_aliases_and_evidence_references_remain_exact():
     ]
     assert len(artifact["concepts"]) == 1
 
+    request = _request()
+    request["document_context"]["current_blocks"][0].pop("kind")
+    with pytest.raises(SemanticOutputError, match="INPUT_SCHEMA_INVALID"):
+        validate_concepts(
+            json.dumps(_output()),
+            semantic_request=request,
+            evidence_aliases={"e1": "evidence-one"},
+            page_ref="page:sha256:" + "1" * 64,
+            input_binding={"evidence_allowlist": ["evidence-one"]},
+            attempt=1,
+        )
+
 
 def test_large_page_request_splits_without_losing_formal_evidence_ids():
-    request = {
-        "schema": "concept-generation-input/v3",
-        "evidence": [
+    request = _request_with_evidence(
+        [
             {"id": "e1", "text": "first concept"},
             {"id": "e2", "text": "second concept"},
-        ],
-    }
+        ]
+    )
     first, second = split_semantic_request(request)
     assert first["evidence"] == [{"id": "e1", "text": "first concept"}]
     assert second["evidence"] == [{"id": "e2", "text": "second concept"}]
+    assert first["document_context"]["current_blocks"][0]["kind"] == "paragraph"
+    assert second["document_context"]["current_blocks"][0]["kind"] == "paragraph"
 
     page_ref = "page:sha256:" + "1" * 64
     binding = {"evidence_allowlist": ["formal-one", "formal-two"]}
@@ -396,9 +599,37 @@ def test_large_page_request_splits_without_losing_formal_evidence_ids():
 
 
 def test_single_large_evidence_split_removes_only_boundary_whitespace():
-    first, second = split_semantic_request({
-        "schema": "concept-generation-input/v3",
-        "evidence": [{"id": "e1", "text": "first half   second half"}],
-    })
+    source = _request_with_evidence(
+        [{"id": "e1", "text": "first half   second half"}]
+    )
+    first, second = split_semantic_request(source)
     assert first["evidence"] == [{"id": "e1", "text": "first half"}]
     assert second["evidence"] == [{"id": "e1", "text": "second half"}]
+    assert fitted_semantic_request_matches_source(first, source)
+    assert fitted_semantic_request_matches_source(second, source)
+    first_quarter, second_quarter = split_semantic_request(first)
+    assert fitted_semantic_request_matches_source(first_quarter, source)
+    assert fitted_semantic_request_matches_source(second_quarter, source)
+
+    tampered = json.loads(json.dumps(first_quarter))
+    tampered["evidence"][0]["text"] = "not a deterministic slice"
+    assert not fitted_semantic_request_matches_source(tampered, source)
+
+
+def test_multi_source_second_evidence_recursive_quarter_matches_exact_alias():
+    source = _request_with_evidence(
+        [
+            {"id": "e1", "text": "first source"},
+            {"id": "e2", "text": "second source has four deterministic parts"},
+        ]
+    )
+    _, second = split_semantic_request(source)
+    _, second_right = split_semantic_request(second)
+    quarter, _ = split_semantic_request(second_right)
+
+    assert quarter["evidence"][0]["id"] == "e2"
+    assert fitted_semantic_request_matches_source(quarter, source)
+
+    tampered = json.loads(json.dumps(quarter))
+    tampered["evidence"][0]["text"] = "nearby but not derivable"
+    assert not fitted_semantic_request_matches_source(tampered, source)

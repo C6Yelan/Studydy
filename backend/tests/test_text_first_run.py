@@ -9,6 +9,10 @@ import pytest
 
 import pdf_evidence.text_first_run as run_module
 from pdf_evidence.source_pdf import snapshot_whole_document_request
+from pdf_evidence.study_material_output import (
+    build_study_material_output,
+    validate_study_material_output,
+)
 from pdf_evidence.text_first_bundle import read_producer_bundle
 
 
@@ -51,7 +55,7 @@ def _title_and_content_pdf(path):
     title_page.insert_text((295, 400), "Public author", fontsize=20)
     title_page.insert_text((560, 520), "Public footer", fontsize=12)
     content_page = document.new_page(width=720, height=540)
-    content_page.insert_text((280, 65), "Public topic", fontsize=32)
+    content_page.insert_text((43, 65), "Public topic", fontsize=32)
     content_page.insert_text(
         (43, 150),
         "Public grounded content explains a concrete learning rule and example.",
@@ -153,6 +157,9 @@ class FakeConceptAPI:
 
     def __call__(self, client, **arguments):
         self.state["concept"] += 1
+        self.state.setdefault("semantic_requests", []).append(
+            deepcopy(arguments["semantic_request"])
+        )
         if self.always_invalid or (self.invalid_first and self.state["concept"] == 1):
             return '{"concepts":'
         evidence_id = arguments["semantic_request"]["evidence"][0]["id"]
@@ -248,6 +255,11 @@ def no_real_concept_server(monkeypatch):
             return None
 
     monkeypatch.setattr(run_module, "start_concept_server", lambda _: FakeServer())
+    monkeypatch.setattr(
+        run_module,
+        "fit_concept_request",
+        lambda _client, **arguments: deepcopy(arguments["semantic_request"]),
+    )
 
 
 def test_sequential_product_path_and_exact_replay_zero_model_calls(tmp_path, monkeypatch):
@@ -269,6 +281,39 @@ def test_sequential_product_path_and_exact_replay_zero_model_calls(tmp_path, mon
     saved_json = "".join(
         path.read_text(encoding="utf-8")
         for path in (tmp_path / "runtime").rglob("*.json")
+    )
+    semantic_cache = json.loads(
+        next((tmp_path / "runtime" / "cache" / "semantic").glob("*.json")).read_text(
+            encoding="utf-8"
+        )
+    )
+    output = read_producer_bundle(
+        tmp_path / "runtime", first["run_id"]
+    )["output"]
+    batch_binding = semantic_cache["input_binding"]["batch_bindings"][0]
+    assert semantic_cache["cache_key"] == run_module.canonical_sha256(
+        semantic_cache["input_binding"]
+    )
+    assert semantic_cache["artifact"]["input_binding"] == (
+        semantic_cache["input_binding"]
+    )
+    assert batch_binding["semantic_request_sha256"]
+    assert batch_binding["semantic_request_sha256"] == (
+        run_module.canonical_sha256(state["semantic_requests"][0])
+    )
+    assert batch_binding["semantic_request"] == state["semantic_requests"][0]
+    assert batch_binding["semantic_request"]["document_context"][
+        "document_context_id"
+    ].startswith(
+        "concept-context:sha256:"
+    )
+    assert output["document_contexts"][0]["page_evidence_id"] != (
+        output["pages"][0]["page_evidence_id"]
+    )
+    assert output["semantic_batches"][0]["semantic_request"][
+        "document_context"
+    ]["source_context_id"] == (
+        output["document_contexts"][0]["context_id"]
     )
     assert "png_base64" not in saved_json
     assert "model_text" not in saved_json
@@ -341,6 +386,17 @@ def test_heading_only_page_keeps_evidence_without_suppressing_adjacent_content(
         block["kind"] == "heading"
         for block in output["pages"][0]["evidence_blocks"]
     )
+    assert [
+        block["kind"] for block in output["pages"][1]["evidence_blocks"]
+    ][:2] == ["heading", "paragraph"]
+    second_context = next(
+        context
+        for context in output["document_contexts"]
+        if context["page_ref"] == output["pages"][1]["page_ref"]
+    )
+    assert second_context["current_blocks"][1][
+        "heading_ancestry_block_ids"
+    ] == [output["pages"][1]["evidence_blocks"][0]["block_id"]]
     assert [concept["page_ref"] for concept in output["concepts"]] == [
         output["pages"][1]["page_ref"]
     ]
@@ -376,6 +432,22 @@ def test_oversized_page_is_split_and_all_batches_remain_grounded(tmp_path, monke
     assert bundle["excluded_page_count"] == 0
     assert bundle["concept_calls"] == len(output["concepts"])
     assert len(seen_requests) > bundle["concept_calls"]
+    assert [
+        batch["batch_index"] for batch in output["semantic_batches"]
+    ] == list(range(len(output["semantic_batches"])))
+    assert len(output["semantic_batches"]) == bundle["concept_calls"]
+    assert len({
+        batch["semantic_request_sha256"]
+        for batch in output["semantic_batches"]
+    }) == len(output["semantic_batches"])
+    assert len({
+        batch["semantic_request"]["document_context"]["document_context_id"]
+        for batch in output["semantic_batches"]
+    }) == len(output["semantic_batches"])
+    assert {
+        batch["semantic_request"]["document_context"]["source_context_id"]
+        for batch in output["semantic_batches"]
+    } == {output["document_contexts"][0]["context_id"]}
     page_evidence_ids = {
         block["evidence_id"] for block in output["pages"][0]["evidence_blocks"]
     }
@@ -385,6 +457,132 @@ def test_oversized_page_is_split_and_all_batches_remain_grounded(tmp_path, monke
         for claim in [concept["definition"], *concept["key_points"]]
         for evidence_id in claim["evidence_ids"]
     } == page_evidence_ids
+
+
+def test_recursive_single_evidence_quarters_replay_exact_batch_requests(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "public.pdf"
+    _pdf(path)
+    dispatched = []
+
+    def split_to_quarters(_client, **arguments):
+        request = deepcopy(arguments["semantic_request"])
+        dispatched.append(request)
+        if len(request["evidence"][0]["text"]) > 6:
+            raise run_module.ConceptAPIError("MODEL_INPUT_TOO_LARGE")
+        return '{"concepts":[]}'
+
+    monkeypatch.setattr(run_module, "request_concept_text", split_to_quarters)
+
+    first = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+    output = read_producer_bundle(
+        tmp_path / "runtime", first["run_id"]
+    )["output"]
+    dispatched_count = len(dispatched)
+    replay = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+
+    assert first["processing"] == "partial"
+    assert first["concept_calls"] == 4
+    assert len(output["semantic_batches"]) == 4
+    assert all(
+        batch["semantic_request_sha256"]
+        == run_module.canonical_sha256(batch["semantic_request"])
+        for batch in output["semantic_batches"]
+    )
+    assert replay["concept_calls"] == 0
+    assert replay["concept_loads"] == 0
+    assert len(dispatched) == dispatched_count
+
+
+def test_multi_source_second_evidence_quarters_keep_cache_and_durable_lineage(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "public.pdf"
+    _pdf(path)
+    dispatched = []
+
+    def split_second_source(_client, **arguments):
+        request = deepcopy(arguments["semantic_request"])
+        dispatched.append(request)
+        if len(request["evidence"]) > 1:
+            raise run_module.ConceptAPIError("MODEL_INPUT_TOO_LARGE")
+        evidence = request["evidence"][0]
+        if evidence["id"] == "e2" and len(evidence["text"]) > 5:
+            raise run_module.ConceptAPIError("MODEL_INPUT_TOO_LARGE")
+        return '{"concepts":[]}'
+
+    monkeypatch.setattr(
+        run_module,
+        "start_ocr_process",
+        lambda settings: MultipleEvidenceChild("ocr", _state()),
+    )
+    monkeypatch.setattr(run_module, "route_page", lambda page: "OCR_needed")
+    monkeypatch.setattr(run_module, "request_concept_text", split_second_source)
+
+    first = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+    output = read_producer_bundle(
+        tmp_path / "runtime", first["run_id"]
+    )["output"]
+    output["pages"][0]["processing"] = "partial"
+    output["pages"][0]["reason_codes"] = sorted(
+        set(output["pages"][0]["reason_codes"]) | {"PAGE_CONTENT_UNUSABLE"}
+    )
+    page_identity = dict(output["pages"][0])
+    page_identity.pop("page_evidence_id")
+    output["pages"][0]["page_evidence_id"] = (
+        "page-evidence:sha256:" + run_module.canonical_sha256(page_identity)
+    )
+    output_identity = dict(output)
+    output_identity.pop("output_id")
+    output["output_id"] = (
+        "concept-evidence-output:sha256:"
+        + run_module.canonical_sha256(output_identity)
+    )
+    study_output = build_study_material_output(output)
+    dispatched_count = len(dispatched)
+    replay = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+
+    second_batches = [
+        batch
+        for batch in output["semantic_batches"]
+        if batch["semantic_request"]["evidence"][0]["id"] == "e2"
+    ]
+    assert len(second_batches) == 4
+    assert validate_study_material_output(study_output, output) is None
+    assert replay["concept_calls"] == 0
+    assert replay["concept_loads"] == 0
+    assert len(dispatched) == dispatched_count
+
+    tampered = deepcopy(study_output)
+    batch = next(
+        item
+        for item in tampered["semantic_batches"]
+        if item["semantic_request"]["evidence"][0]["id"] == "e2"
+    )
+    batch["semantic_request"]["evidence"][0]["text"] = (
+        "nearby but not derivable"
+    )
+    batch["semantic_request_sha256"] = run_module.canonical_sha256(
+        batch["semantic_request"]
+    )
+    identity = dict(tampered)
+    identity.pop("output_id")
+    tampered["output_id"] = (
+        "study-material-output:sha256:"
+        + run_module.canonical_sha256(identity)
+    )
+    assert validate_study_material_output(tampered) == (
+        "STUDY_MATERIAL_OUTPUT_INVALID"
+    )
 
 
 def test_malformed_concept_output_is_one_call_and_failed(tmp_path, monkeypatch):
@@ -404,6 +602,31 @@ def test_malformed_concept_output_is_one_call_and_failed(tmp_path, monkeypatch):
     assert bundle["reason_codes"] == ["MODEL_OUTPUT_INVALID"]
     run_root = tmp_path / "runtime" / "runs" / bundle["run_id"]
     assert not (run_root / "concept-evidence-output.json").exists()
+
+
+def test_invalid_fitted_request_fails_before_chat_dispatch(tmp_path, monkeypatch):
+    path = tmp_path / "public.pdf"
+    _pdf(path)
+    chat_calls = []
+    monkeypatch.setattr(
+        run_module,
+        "fit_concept_request",
+        lambda *_args, **_kwargs: {"schema": "invalid-fitted-request"},
+    )
+    monkeypatch.setattr(
+        run_module,
+        "request_concept_text",
+        lambda *_args, **_kwargs: chat_calls.append(True) or '{"concepts":[]}',
+    )
+
+    bundle = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+
+    assert bundle["processing"] == "failed"
+    assert bundle["output_id"] is None
+    assert bundle["concept_calls"] == 0
+    assert chat_calls == []
 
 
 def test_dispatched_ocr_failure_keeps_reason_and_counts_call(
@@ -440,6 +663,53 @@ def test_invalid_semantic_cache_is_recomputed_and_reported(tmp_path, monkeypatch
     assert replay["processing"] == "succeeded"
     assert replay["ocr_calls"] == 0
     assert replay["concept_calls"] == 1
+    assert "CACHE_RECOVERED" in replay["reason_codes"]
+
+
+@pytest.mark.parametrize("mutation", ["evidence_text", "context_kind"])
+def test_recomputed_exact_request_or_context_cache_tamper_is_rejected(
+    tmp_path, monkeypatch, mutation
+):
+    path = tmp_path / "public.pdf"
+    _pdf(path)
+    state = _state()
+    monkeypatch.setattr(
+        run_module, "request_concept_text", FakeConceptAPI(state)
+    )
+    first = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+    assert first["processing"] == "succeeded"
+    cache_path = next((tmp_path / "runtime" / "cache" / "semantic").glob("*.json"))
+    record = json.loads(cache_path.read_text(encoding="utf-8"))
+    binding = record["input_binding"]
+    batch = binding["batch_bindings"][0]
+    request = batch["semantic_request"]
+    if mutation == "evidence_text":
+        request["evidence"][0]["text"] = "Changed public Evidence"
+    else:
+        request["document_context"]["current_blocks"][0]["kind"] = "list"
+        context_identity = {
+            key: value
+            for key, value in request["document_context"].items()
+            if key != "document_context_id"
+        }
+        request["document_context"]["document_context_id"] = (
+            "concept-context:sha256:"
+            + run_module.canonical_sha256(context_identity)
+        )
+    batch["semantic_request_sha256"] = run_module.canonical_sha256(request)
+    record["cache_key"] = run_module.canonical_sha256(binding)
+    record["artifact"]["input_binding"] = deepcopy(binding)
+    record["artifact_sha256"] = run_module.canonical_sha256(record["artifact"])
+    cache_path.write_bytes(run_module.canonical_bytes(record))
+
+    replay = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+
+    assert replay["processing"] == "succeeded"
+    assert state["concept"] == 2
     assert "CACHE_RECOVERED" in replay["reason_codes"]
 
 

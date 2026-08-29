@@ -4,6 +4,7 @@ from pathlib import Path
 import pymupdf
 import pytest
 
+from pdf_evidence.document_context import build_document_contexts
 from pdf_evidence.ocr_page_evidence import (
     build_native_page_evidence,
     build_page_evidence,
@@ -86,6 +87,110 @@ def test_native_text_routes_without_ocr_and_keeps_pdf_bbox_order(tmp_path):
     assert artifact["evidence_blocks"][0]["source"] == "native_text"
     assert artifact["evidence_blocks"][0]["reading_order"] == 0
     assert artifact["evidence_blocks"][0]["locator"]["page"] == 1
+
+
+def test_non_centered_native_heading_starts_stable_following_page_section(
+    tmp_path,
+):
+    path = tmp_path / "native-heading.pdf"
+    document = pymupdf.open()
+    first = document.new_page(width=612, height=792)
+    first.insert_text((72, 72), "Public Learning Objective", fontsize=20)
+    first.insert_text(
+        (72, 120),
+        "This ordinary body sentence provides enough native text for routing.",
+        fontsize=12,
+    )
+    second = document.new_page(width=612, height=792)
+    second.insert_text(
+        (72, 90),
+        "The following page continues the same public learning section.",
+        fontsize=12,
+    )
+    document.save(path)
+    document.close()
+    source_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    with pymupdf.open(path) as document:
+        pages = [
+            extract_page(document, source_sha256, page_number)
+            for page_number in (1, 2)
+        ]
+    assert [route_page(page) for page in pages] == [
+        "native_sufficient",
+        "native_sufficient",
+    ]
+    artifacts = [
+        build_native_page_evidence(
+            page,
+            input_binding={"route": "native_sufficient"},
+            produced_at="2026-08-29T00:00:00Z",
+        )
+        for page in pages
+    ]
+
+    assert [
+        block["kind"] for block in artifacts[0]["evidence_blocks"]
+    ] == ["heading", "paragraph"]
+    assert [
+        block["reading_order"] for block in artifacts[0]["evidence_blocks"]
+    ] == [0, 1]
+    assert all(
+        block["block_id"] == block["locator"]["block_id"]
+        and block["locator"]["page"] == 1
+        for block in artifacts[0]["evidence_blocks"]
+    )
+    replay = build_native_page_evidence(
+        pages[0],
+        input_binding={"route": "native_sufficient"},
+        produced_at="2026-08-29T00:00:00Z",
+    )
+    assert replay == artifacts[0]
+
+    contexts = build_document_contexts(artifacts)
+    heading_block_id = artifacts[0]["evidence_blocks"][0]["block_id"]
+    heading_section_id = contexts[0]["current_blocks"][0]["section_id"]
+    assert contexts[1]["current_blocks"][0]["heading_ancestry_block_ids"] == [
+        heading_block_id
+    ]
+    assert contexts[1]["current_blocks"][0]["section_id"] == heading_section_id
+
+
+def test_native_body_and_small_emphasis_do_not_become_headings(tmp_path):
+    path = tmp_path / "native-emphasis.pdf"
+    document = pymupdf.open()
+    page = document.new_page(width=612, height=792)
+    page.insert_text(
+        (72, 72),
+        "Ordinary body text establishes the dominant public font size.",
+        fontsize=12,
+    )
+    page.insert_text(
+        (72, 105),
+        "Important emphasized phrase",
+        fontsize=13,
+        fontname="hebo",
+    )
+    page.insert_text(
+        (72, 138),
+        "Another ordinary sentence confirms this is body content.",
+        fontsize=12,
+    )
+    document.save(path)
+    document.close()
+
+    extracted = _extract(path)
+    assert route_page(extracted) == "native_sufficient"
+    artifact = build_native_page_evidence(
+        extracted,
+        input_binding={"route": "native_sufficient"},
+        produced_at="x",
+    )
+
+    assert all(
+        block["kind"] == "paragraph"
+        for block in artifact["evidence_blocks"]
+    )
 
 
 def test_empty_and_garbled_native_text_route_to_ocr(tmp_path):

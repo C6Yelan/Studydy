@@ -49,6 +49,70 @@ def _entry(source_sha256, label="Quantum Field Theory", page_number=2, left=40.0
 def _study_output(label, source_sha256="f" * 64):
     page_ref = "page:sha256:" + "1" * 64
     evidence_id = "evidence:sha256:" + "2" * 64
+    block_id = "block:sha256:" + "3" * 64
+    material_revision = "material-revision:sha256:" + "8" * 64
+    section_id = "document-section:sha256:" + canonical_sha256(
+        {
+            "material_revision": material_revision,
+            "heading_block_id": None,
+            "unheaded_start_block_id": block_id,
+        }
+    )
+    page_evidence_id = "page-evidence:sha256:" + "6" * 64
+    material_id = "material:sha256:" + source_sha256
+    context = {
+        "schema": "document-semantic-context/v1",
+        "material_id": material_id,
+        "material_revision": material_revision,
+        "page_ref": page_ref,
+        "page_number": 1,
+        "section_ids": [section_id],
+        "page_evidence_id": page_evidence_id,
+        "current_blocks": [{
+            "evidence_id": evidence_id,
+            "block_id": block_id,
+            "reading_order": 0,
+            "section_id": section_id,
+            "heading_ancestry_block_ids": [],
+            "previous_block_id": None,
+            "next_block_id": None,
+            "continuation_block_ids": [],
+        }],
+        "context_blocks": [],
+        "token_budget": 1024,
+        "token_count": 0,
+        "token_counter": "utf8-byte-upper-bound/v1",
+        "processing_policy": "document-reading-order-context/v1",
+        "processing": "succeeded",
+        "quality": "needs_review",
+        "decision": "review",
+        "reason_codes": ["SECTION_BOUNDARY_AMBIGUOUS"],
+    }
+    context["context_id"] = "document-context:sha256:" + canonical_sha256(context)
+    context_envelope = {
+        "schema": "concept-context-envelope/v3",
+        "source_context_id": context["context_id"],
+        "current_blocks": [{
+            "evidence_id": "e1",
+            "kind": "paragraph",
+            "heading_ancestry_ids": [],
+            "previous_evidence_id": None,
+            "next_evidence_id": None,
+            "continuation_ids": [],
+        }],
+        "context_blocks": [],
+    }
+    context_envelope["document_context_id"] = (
+        "concept-context:sha256:" + canonical_sha256(context_envelope)
+    )
+    semantic_request = {
+        "schema": "concept-generation-input/v6",
+        "evidence": [{
+            "id": "e1",
+            "text": "The page provides direct evidence.",
+        }],
+        "document_context": context_envelope,
+    }
     definition = {
         "text": "A reviewed Study-side concept.",
         "evidence_ids": [evidence_id],
@@ -77,10 +141,10 @@ def _study_output(label, source_sha256="f" * 64):
         "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
     }
     document = {
-        "schema": "study-material-output/v5",
+        "schema": "study-material-output/v7",
         "run_id": "study-test-run",
         "produced_at": "2026-08-21T10:00:00+08:00",
-        "material_ref": "material:sha256:" + source_sha256,
+        "material_ref": material_id,
         "source_binding": {
             "source_sha256": source_sha256,
             "page_count": 1,
@@ -91,7 +155,7 @@ def _study_output(label, source_sha256="f" * 64):
             {
                 "page_ref": page_ref,
                 "page_number": 1,
-                "page_evidence_id": "page-evidence:sha256:" + "6" * 64,
+                "page_evidence_id": page_evidence_id,
                 "native_evidence_ref": "native-evidence:sha256:" + "7" * 64,
                 "processing": "succeeded",
                 "quality": "needs_review",
@@ -116,6 +180,13 @@ def _study_output(label, source_sha256="f" * 64):
         "evidence_text_index": [
             {"evidence_id": evidence_id, "text": "The page provides direct evidence."}
         ],
+        "document_contexts": [context],
+        "semantic_batches": [{
+            "page_ref": page_ref,
+            "batch_index": 0,
+            "semantic_request_sha256": canonical_sha256(semantic_request),
+            "semantic_request": semantic_request,
+        }],
         "images": [],
         "processing": "succeeded",
         "quality": "needs_review",

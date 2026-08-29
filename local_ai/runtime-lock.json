@@ -1,5 +1,5 @@
 {
-  "schema": "studydy-local-ai-runtime-lock/v4",
+  "schema": "studydy-local-ai-runtime-lock/v9",
   "python": {
     "version": "3.12.3",
     "executable_sha256": "4933b6c4a8521fb3aa93856701e30b3ac2626d3c47ceb22965a3b0b422e85b44"
@@ -27,10 +27,19 @@
       "operations": ["crlf_to_lf", "unicode_nfc", "remove_trailing_whitespace"]
     },
     "normalization_sha256": "7c2be4a85c07ef3a792fd1e7ba90f0c0436c83457a92cfbded7465581148b810",
-    "processing": "native-first-page-evidence/v1",
+    "processing": "native-first-page-evidence/v2",
     "normalizer": "ocr-text-nfc-line-preserving/v1",
+    "native_heading": {
+      "policy": "relative-native-typography-heading/v1",
+      "body_baseline": "visible-character-weighted-dominant-font/v1",
+      "line_font": "visible-character-weighted-median-font/v1",
+      "minimum_font_increase_points": 1.5,
+      "minimum_font_increase_ratio": 1.15,
+      "maximum_visible_characters": 160,
+      "footer_boundary_ratio": 0.9
+    },
     "code_hashes": {
-      "backend_ocr_page_evidence": "69deb46b06762b82ec75eded692452329d7e364c2b3e8a4ff4b6ac1fa14e71c0"
+      "backend_ocr_page_evidence": "13716c4f0e1429802f2fa0e28c4e87743c678adb5ad61a32c12cb6309fd55a6a"
     },
     "fixture_hashes": {}
   },
@@ -94,10 +103,10 @@
       "version": "0.26.0+cu129",
       "executable_sha256": "6d34800bbe39c7b1d94043fa0a7badafd894dbc422e0212f94ebe16547b2097a"
     },
-    "prompt": "Extract study concepts only from the supplied evidence. Return concepts=[] when the page teaches no concept. Each definition and each key point must separately contain non-empty evidence_ids. Return JSON only and no additional fields.",
-    "prompt_sha256": "40c9c9d39f4a8c804df942e9312f1a093d7e20dd8fe27b2b07faa58998eb3adb",
-    "request_schema": "concept-generation-input/v3",
-    "output_schema": "semantic-page-concepts/v2",
+    "prompt": "Extract study concepts only from the supplied current evidence. Use document_context when present only to interpret heading ancestry, adjacency, and continuation; it is not claim evidence. Use current_blocks.kind as grounded Evidence role metadata. Cite only IDs from the current evidence list, and give every definition and key point non-empty evidence_ids. Preserve exact escapes, symbols, operators, numbers, units, conditions, direction, and scope, including \\0. Do not emit isolated connectors, syntax tails, half clauses, or incomplete declarations as claims. Return concepts=[] when the current page teaches no concept. Return JSON only and no additional fields.",
+    "prompt_sha256": "801b82a181c72a9ba601423afce8ece532c5db665cb216a5cc82ca9cc39c44a4",
+    "request_schema": "concept-generation-input/v6",
+    "output_schema": "semantic-page-concepts/v3",
     "generation": {"temperature": 0, "max_tokens": 1536},
     "structured_output": {
       "type": "json_schema",
@@ -111,6 +120,20 @@
       "add_special_tokens": false,
       "maximum_input_tokens": 6656
     },
+    "document_context": {
+      "schema": "document-semantic-context/v1",
+      "concept_envelope_schema": "concept-context-envelope/v3",
+      "processing_policy": "document-reading-order-context/v1",
+      "token_budget": 1024,
+      "token_counter": "utf8-byte-upper-bound/v1",
+      "model_calls": 0,
+      "section_policy": "nearest-grounded-heading-flat-section/v1",
+      "ambiguous_hierarchy": "needs-review/v1",
+      "dispatch_fit": "evidence-only-batch-preserving/v1",
+      "batch_binding": "exact-fitted-request-lineage/v1",
+      "durable_output_schema": "concept-evidence-output/v5",
+      "study_projection_schema": "study-material-output/v7"
+    },
     "retry": {
       "max_attempts": 2,
       "fixed_retry_count": 1,
@@ -122,6 +145,9 @@
     },
     "policy": {
       "candidate_text_normalizer": "concept-text-nfkc-whitespace/v1",
+      "claim_processing_policy": "claim-grounded-concept-review/v4",
+      "exact_technical_tokens": "claim-technical-token-fidelity/v1",
+      "fragment_validation": "claim-fragment-reasons/v2",
       "cross_concept_evidence_reuse": true,
       "lexical_overlap_decision": false,
       "fenced_json": "reject",
@@ -129,12 +155,15 @@
       "structurally_valid_decision": "review"
     },
     "code_hashes": {
-      "backend_concept_api": "197cac723f404f31c0fc771631146f2d5fdec51b82b6a19b7e6d01c3b79cbf24",
+      "backend_concept_api": "b1a4f67457e8b8d1d9c4b15ff18c69c9a94be8f5d405dff329ab3eff80c292e5",
       "backend_process_guard": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
-      "backend_concept_generation": "637d694575911ed52a145ec3fa3666dd2ac6490092b46f34134048e621986a7b"
+      "backend_concept_generation": "7760cbd027f2046e4fa072fc49ecd85ea81806cfc6b665ce24bf32dddd9789cd",
+      "backend_document_context": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
+      "backend_text_first_run": "da80c0850388be06aee2769cab13b65a40a383841902f71ccd68161f7d99eaa7",
+      "backend_study_material_output": "277c44c2eb6441d538a50263587fe4b8ef96b35d3d36ce5cc9ebc19f48e68889"
     },
     "fixture_hashes": {
-      "semantic_request.json": "1f4f7cfd7c3282b2fc31243b3fb23f65f9303fe7d998ad4a086033783c695fab",
+      "semantic_request.json": "256b94884c85c4ffdb3881c5a43e67f12d52b568b3cbd240e57050c5eb9b3fef",
       "semantic_model_output.json": "b097b099d350b02fc947b2ad0b5f415e53fab96d8039400d42f370a4f5b51327"
     }
   },

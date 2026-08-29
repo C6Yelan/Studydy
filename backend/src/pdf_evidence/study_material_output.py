@@ -2,15 +2,26 @@ from __future__ import annotations
 
 from copy import deepcopy
 import math
+import re
 from typing import Any
 
 from .artifact_reason_codes import formal_reason_codes, reason_codes_are_valid
 from .concept_evidence_output import AGGREGATION_POLICY, validate_output_document
-from .concept_generation import claim_id, concept_id
+from .concept_generation import (
+    SEMANTIC_REQUEST_SCHEMA,
+    claim_id,
+    concept_id,
+    fitted_semantic_request_matches_source,
+    validate_semantic_request,
+)
+from .document_context import (
+    serialize_document_context,
+    validate_document_context_shape,
+)
 from .ocr_page_evidence import canonical_sha256
 
 
-STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v5"
+STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v7"
 
 
 def _valid_region(region: Any) -> bool:
@@ -54,7 +65,8 @@ def _shape_is_valid(document: Any) -> bool:
     fields = {
         "schema", "run_id", "produced_at", "material_ref", "source_binding", "pages",
         "excluded_pages", "concepts", "evidence_index", "evidence_text_index",
-        "images", "processing", "quality", "decision", "reason_codes", "output_id",
+        "document_contexts", "semantic_batches", "images", "processing", "quality",
+        "decision", "reason_codes", "output_id",
     }
     if not isinstance(document, dict) or set(document) != fields:
         return False
@@ -101,6 +113,7 @@ def _shape_is_valid(document: Any) -> bool:
         page_numbers.add(page["page_number"])
     evidence_fields = {"evidence_id", "page_ref", "page_number", "kind", "region"}
     evidence_pages: dict[str, str] = {}
+    evidence_by_id: dict[str, dict[str, Any]] = {}
     if not isinstance(document["evidence_index"], list):
         return False
     for evidence in document["evidence_index"]:
@@ -117,7 +130,9 @@ def _shape_is_valid(document: Any) -> bool:
         ):
             return False
         evidence_pages[evidence["evidence_id"]] = evidence["page_ref"]
+        evidence_by_id[evidence["evidence_id"]] = evidence
     evidence_texts: set[str] = set()
+    evidence_text_by_id: dict[str, str] = {}
     if (
         not isinstance(document["evidence_text_index"], list)
         or len(document["evidence_text_index"]) != len(evidence_pages)
@@ -134,7 +149,140 @@ def _shape_is_valid(document: Any) -> bool:
         ):
             return False
         evidence_texts.add(evidence["evidence_id"])
+        evidence_text_by_id[evidence["evidence_id"]] = evidence["text"]
     if evidence_texts != set(evidence_pages):
+        return False
+    contexts = document["document_contexts"]
+    if (
+        not isinstance(contexts, list)
+        or len(contexts) != len(document["pages"])
+        or any(not validate_document_context_shape(context) for context in contexts)
+        or {context["page_ref"] for context in contexts} != set(pages_by_ref)
+        or len({context["material_revision"] for context in contexts}) != 1
+    ):
+        return False
+    current_evidence_ids: set[str] = set()
+    current_blocks_by_evidence: dict[str, dict[str, Any]] = {}
+    block_ids: set[str] = set()
+    for context in contexts:
+        if (
+            context["material_id"] != document["material_ref"]
+            or context["page_number"] != pages_by_ref[context["page_ref"]]
+        ):
+            return False
+        reading_orders = [
+            block["reading_order"] for block in context["current_blocks"]
+        ]
+        if (
+            reading_orders != sorted(reading_orders)
+            or len(reading_orders) != len(set(reading_orders))
+        ):
+            return False
+        for block in context["current_blocks"]:
+            if (
+                block["evidence_id"] not in evidence_pages
+                or block["evidence_id"] in current_evidence_ids
+                or evidence_pages[block["evidence_id"]] != context["page_ref"]
+                or block["block_id"] in block_ids
+            ):
+                return False
+            current_evidence_ids.add(block["evidence_id"])
+            block_ids.add(block["block_id"])
+            current_blocks_by_evidence[block["evidence_id"]] = {
+                **block,
+                "page_ref": context["page_ref"],
+                "page_number": context["page_number"],
+            }
+    if current_evidence_ids != set(evidence_pages):
+        return False
+    excluded_context_refs = {
+        page.get("page_ref")
+        for page in document["excluded_pages"]
+        if isinstance(page, dict)
+    }
+    for context in contexts:
+        for block in context["context_blocks"]:
+            current = current_blocks_by_evidence.get(block["evidence_id"])
+            evidence = evidence_by_id.get(block["evidence_id"])
+            if current is None:
+                if block["page_ref"] not in excluded_context_refs:
+                    return False
+                continue
+            if (
+                evidence is None
+                or current["page_ref"] != block["page_ref"]
+                or current["page_number"] != block["page_number"]
+                or current["block_id"] != block["block_id"]
+                or current["section_id"] != block["section_id"]
+                or evidence["kind"] != block["kind"]
+                or evidence_text_by_id[block["evidence_id"]] != block["text"]
+            ):
+                return False
+    semantic_batches = document["semantic_batches"]
+    contexts_by_page = {context["page_ref"]: context for context in contexts}
+    if not isinstance(semantic_batches, list):
+        return False
+    indexes_by_page: dict[str, list[int]] = {
+        page_ref: [] for page_ref in pages_by_ref
+    }
+    source_requests = {}
+    for page_ref, context in contexts_by_page.items():
+        evidence = []
+        aliases = {}
+        kinds = {}
+        for index, block in enumerate(context["current_blocks"], start=1):
+            alias = f"e{index}"
+            evidence.append({
+                "id": alias,
+                "text": evidence_text_by_id[block["evidence_id"]],
+            })
+            aliases[alias] = block["evidence_id"]
+            kinds[alias] = evidence_by_id[block["evidence_id"]]["kind"]
+        source_requests[page_ref] = {
+            "schema": SEMANTIC_REQUEST_SCHEMA,
+            "evidence": evidence,
+            "document_context": serialize_document_context(
+                context, aliases, kinds
+            ),
+        }
+    for batch in semantic_batches:
+        if (
+            not isinstance(batch, dict)
+            or set(batch)
+            != {
+                "page_ref", "batch_index", "semantic_request_sha256",
+                "semantic_request",
+            }
+            or batch["page_ref"] not in pages_by_ref
+            or type(batch["batch_index"]) is not int
+            or batch["batch_index"] < 0
+            or not isinstance(batch["semantic_request_sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", batch["semantic_request_sha256"])
+            is None
+            or not isinstance(batch["semantic_request"], dict)
+            or canonical_sha256(batch["semantic_request"])
+            != batch["semantic_request_sha256"]
+        ):
+            return False
+        try:
+            if (
+                not validate_semantic_request(batch["semantic_request"])
+                or not fitted_semantic_request_matches_source(
+                    batch["semantic_request"],
+                    source_requests[batch["page_ref"]],
+                )
+                or batch["semantic_request"]["document_context"][
+                    "source_context_id"
+                ] != contexts_by_page[batch["page_ref"]]["context_id"]
+            ):
+                return False
+        except (KeyError, TypeError, ValueError):
+            return False
+        indexes_by_page[batch["page_ref"]].append(batch["batch_index"])
+    if any(
+        indexes != list(range(len(indexes)))
+        for indexes in indexes_by_page.values()
+    ):
         return False
     concept_fields = {
         "concept_id", "page_ref", "label", "definition", "key_points",
@@ -439,6 +587,8 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
         "evidence_text_index": sorted(
             evidence_text_index, key=lambda evidence: evidence["evidence_id"]
         ),
+        "document_contexts": deepcopy(producer_output["document_contexts"]),
+        "semantic_batches": deepcopy(producer_output["semantic_batches"]),
         "images": sorted(images, key=lambda image: image["image_id"]),
         "processing": processing,
         "quality": "needs_review",

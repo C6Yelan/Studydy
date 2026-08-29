@@ -12,7 +12,7 @@ import pymupdf
 
 PAGE_SCHEMA = "page-evidence/v3"
 NATIVE_SCHEMA = "page-native/v2"
-PROCESSING_POLICY = "native-first-page-evidence/v1"
+PROCESSING_POLICY = "native-first-page-evidence/v2"
 NORMALIZER_POLICY = "ocr-text-nfc-line-preserving/v1"
 RENDER_DPI = 200
 PDF_POINTS_PER_INCH = 72
@@ -215,6 +215,35 @@ def _distance(first: list[float], second: list[float]) -> float:
     return math.hypot(dx, dy)
 
 
+def _weighted_font_size(samples: list[tuple[float, int]]) -> float:
+    """以可見字元數取中位字級，避免單一 emphasized span 主導整行。"""
+
+    samples = sorted(
+        (size, weight) for size, weight in samples if size > 0 and weight > 0
+    )
+    total = sum(weight for _, weight in samples)
+    if total == 0:
+        return 0
+    accumulated = 0
+    for size, weight in samples:
+        accumulated += weight
+        if accumulated * 2 >= total:
+            return size
+    return samples[-1][0]
+
+
+def _body_font_size(blocks: list[dict[str, Any]]) -> float:
+    """以頁內最多可見文字使用的字級作為 body baseline。"""
+
+    weights: dict[float, int] = {}
+    for block in blocks:
+        size = round(block["font_size"], 1)
+        visible_count = sum(not character.isspace() for character in block["text"])
+        if size > 0 and visible_count > 0:
+            weights[size] = weights.get(size, 0) + visible_count
+    return max(weights, key=lambda size: (weights[size], -size), default=0)
+
+
 def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
     """依 PDF 原生閱讀順序取出有 bbox 的文字行。"""
 
@@ -227,7 +256,7 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
             if not isinstance(line, dict):
                 continue
             pieces = []
-            font_sizes = []
+            font_samples = []
             for span in line.get("spans", []):
                 if not isinstance(span, dict):
                     continue
@@ -243,7 +272,17 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
                     pieces.append(text)
                 size = span.get("size")
                 if type(size) in {int, float} and math.isfinite(size):
-                    font_sizes.append(float(size))
+                    font_samples.append(
+                        (
+                            float(size),
+                            sum(
+                                not character.isspace()
+                                for character in text
+                            )
+                            if isinstance(text, str)
+                            else 0,
+                        )
+                    )
             text = "".join(pieces)
             bbox = line.get("bbox")
             if (
@@ -257,7 +296,7 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
                         "type": "text",
                         "text": text,
                         "bbox": bbox,
-                        "max_font_size": max(font_sizes, default=0),
+                        "font_size": _weighted_font_size(font_samples),
                     }
                 )
     boundary = pymupdf.Rect(page["geometry"]["unrotated_points"])
@@ -268,7 +307,7 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
     ]
     is_centered_title_page = (
         bool(content_blocks)
-        and max(block["max_font_size"] for block in content_blocks) >= 30
+        and max(block["font_size"] for block in content_blocks) >= 30
         and all(
             block["bbox"][2] - block["bbox"][0] <= boundary.width * 0.35
             and boundary.x0 + boundary.width * 0.35
@@ -277,9 +316,24 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
             for block in content_blocks
         )
     )
+    body_font_size = _body_font_size(content_blocks)
     for block in blocks:
-        block["type"] = "title" if is_centered_title_page else "text"
-        del block["max_font_size"]
+        visible_text = "".join(
+            character for character in block["text"] if not character.isspace()
+        )
+        is_heading = (
+            not is_centered_title_page
+            and body_font_size > 0
+            and block["font_size"] - body_font_size
+            >= max(1.5, body_font_size * 0.15)
+            and 2 <= len(visible_text) <= 160
+            and sum(character.isalnum() for character in visible_text) >= 2
+            and block["bbox"][3] < boundary.y0 + boundary.height * 0.9
+        )
+        block["type"] = (
+            "title" if is_centered_title_page or is_heading else "text"
+        )
+        del block["font_size"]
     return blocks
 
 

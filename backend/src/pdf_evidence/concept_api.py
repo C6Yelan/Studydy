@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import os
 import signal
@@ -12,7 +13,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .ocr_page_evidence import canonical_bytes
+from .ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
 CHAT_COMPLETIONS_PATH = "/v1/chat/completions"
@@ -246,6 +247,7 @@ def request_concept_text(
     semantic_request: dict[str, Any],
     max_model_len: int,
     timeout_seconds: float,
+    already_fitted: bool = False,
 ) -> str:
     return request_structured_text(
         client,
@@ -257,7 +259,39 @@ def request_concept_text(
         max_model_len=max_model_len,
         max_tokens=MAX_TOKENS,
         timeout_seconds=timeout_seconds,
+        request_is_fitted=already_fitted,
     )
+
+
+def fit_concept_request(
+    client: httpx.Client,
+    *,
+    base_url: str,
+    model: str,
+    prompt_template: str,
+    semantic_request: dict[str, Any],
+    max_model_len: int,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    """以 server tokenizer 移除 optional context，保留完整 envelope。"""
+
+    try:
+        return _fit_request_document(
+            client,
+            base_url=base_url,
+            model=model,
+            prompt_template=prompt_template,
+            request_document=semantic_request,
+            max_model_len=max_model_len,
+            max_tokens=MAX_TOKENS,
+            timeout_seconds=timeout_seconds,
+        )
+    except httpx.TimeoutException as error:
+        raise ConceptAPIError("CONCEPT_API_TIMEOUT") from error
+    except (httpx.HTTPStatusError, httpx.RequestError) as error:
+        raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
+    except (RecursionError, UnicodeDecodeError, ValueError):
+        raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID") from None
 
 
 def request_structured_text(
@@ -272,6 +306,7 @@ def request_structured_text(
     max_tokens: int,
     timeout_seconds: float,
     enable_thinking: bool | None = None,
+    request_is_fitted: bool = False,
 ) -> str:
     """以同一個本機 server tokenizer 驗證 budget，再取得固定 schema JSON。"""
 
@@ -286,39 +321,25 @@ def request_structured_text(
         or not 1 <= max_tokens < max_model_len
         or not isinstance(response_format, dict)
         or (enable_thinking is not None and type(enable_thinking) is not bool)
+        or type(request_is_fitted) is not bool
     ):
         raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
-    prompt = f"{prompt_template}\nINPUT:\n{canonical_bytes(request_document).decode('utf-8')}"
-    messages = [{"role": "user", "content": prompt}]
     try:
-        tokenized = client.post(
-            _tokenize_url(base_url),
-            json={
-                "model": model,
-                "messages": messages,
-                "add_generation_prompt": True,
-                "add_special_tokens": False,
-            },
-            timeout=timeout_seconds,
+        fitted_request = (
+            deepcopy(request_document)
+            if request_is_fitted
+            else _fit_request_document(
+                client,
+                base_url=base_url,
+                model=model,
+                prompt_template=prompt_template,
+                request_document=request_document,
+                max_model_len=max_model_len,
+                max_tokens=max_tokens,
+                timeout_seconds=timeout_seconds,
+            )
         )
-        tokenized.raise_for_status()
-        if not tokenized.content or len(tokenized.content) > MAX_API_RESPONSE_BYTES:
-            raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
-        token_count = json.loads(
-            tokenized.content.decode("utf-8"),
-            object_pairs_hook=_without_duplicates,
-            parse_constant=_reject_constant,
-        )
-        if (
-            not isinstance(token_count, dict)
-            or type(token_count.get("count")) is not int
-            or type(token_count.get("max_model_len")) is not int
-            or token_count["count"] < 1
-            or token_count["max_model_len"] != max_model_len
-        ):
-            raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
-        if token_count["count"] + max_tokens > max_model_len:
-            raise ConceptAPIError("MODEL_INPUT_TOO_LARGE")
+        messages = _request_messages(prompt_template, fitted_request)
         request_body = {
             "model": model,
             "messages": messages,
@@ -366,3 +387,137 @@ def request_structured_text(
     if not isinstance(message, dict) or not isinstance(message.get("content"), str):
         raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
     return message["content"]
+
+
+def _request_messages(
+    prompt_template: str,
+    request_document: dict[str, Any],
+) -> list[dict[str, str]]:
+    prompt = (
+        f"{prompt_template}\nINPUT:\n"
+        f"{canonical_bytes(request_document).decode('utf-8')}"
+    )
+    return [{"role": "user", "content": prompt}]
+
+
+def _fit_request_document(
+    client: httpx.Client,
+    *,
+    base_url: str,
+    model: str,
+    prompt_template: str,
+    request_document: dict[str, Any],
+    max_model_len: int,
+    max_tokens: int,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    """只移除低優先 context；current Evidence 的 batch 邊界不變。"""
+
+    candidate = deepcopy(request_document)
+    while True:
+        messages = _request_messages(prompt_template, candidate)
+        count = _token_count(
+            client,
+            base_url=base_url,
+            model=model,
+            messages=messages,
+            max_model_len=max_model_len,
+            timeout_seconds=timeout_seconds,
+        )
+        if count + max_tokens <= max_model_len:
+            return candidate
+        context = candidate.get("document_context")
+        context_blocks = (
+            context.get("context_blocks") if isinstance(context, dict) else None
+        )
+        if isinstance(context_blocks, list) and context_blocks:
+            removed_id = context_blocks.pop(
+                _optional_context_removal_index(context_blocks)
+            )["id"]
+            for block in context["current_blocks"]:
+                block["heading_ancestry_ids"] = [
+                    reference
+                    for reference in block["heading_ancestry_ids"]
+                    if reference != removed_id
+                ]
+                block["continuation_ids"] = [
+                    reference
+                    for reference in block["continuation_ids"]
+                    if reference != removed_id
+                ]
+            _reidentify_context_envelope(context)
+            continue
+        raise ConceptAPIError("MODEL_INPUT_TOO_LARGE")
+
+
+def _optional_context_removal_index(
+    context_blocks: list[dict[str, Any]],
+) -> int:
+    """依 role priority 移除，previous/next 內再移除離 current 較遠者。"""
+
+    role_rank = {
+        "previous_page": 0,
+        "next_page": 0,
+        "continuation": 1,
+        "heading_ancestry": 2,
+    }
+    return min(
+        range(len(context_blocks)),
+        key=lambda index: (
+            role_rank[context_blocks[index]["role"]],
+            (
+                index
+                if context_blocks[index]["role"] == "previous_page"
+                else -index
+            ),
+        ),
+    )
+
+
+def _reidentify_context_envelope(context: dict[str, Any]) -> None:
+    identity = {
+        key: value
+        for key, value in context.items()
+        if key != "document_context_id"
+    }
+    context["document_context_id"] = (
+        "concept-context:sha256:" + canonical_sha256(identity)
+    )
+
+
+def _token_count(
+    client: httpx.Client,
+    *,
+    base_url: str,
+    model: str,
+    messages: list[dict[str, str]],
+    max_model_len: int,
+    timeout_seconds: float,
+) -> int:
+    tokenized = client.post(
+        _tokenize_url(base_url),
+        json={
+            "model": model,
+            "messages": messages,
+            "add_generation_prompt": True,
+            "add_special_tokens": False,
+        },
+        timeout=timeout_seconds,
+    )
+    tokenized.raise_for_status()
+    if not tokenized.content or len(tokenized.content) > MAX_API_RESPONSE_BYTES:
+        raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
+    token_count = json.loads(
+        tokenized.content.decode("utf-8"),
+        object_pairs_hook=_without_duplicates,
+        parse_constant=_reject_constant,
+    )
+    if (
+        not isinstance(token_count, dict)
+        or type(token_count.get("count")) is not int
+        or type(token_count.get("max_model_len")) is not int
+        or token_count["count"] < 1
+        or token_count["max_model_len"] != max_model_len
+    ):
+        raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
+    return token_count["count"]
