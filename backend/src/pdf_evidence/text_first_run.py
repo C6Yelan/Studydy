@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -450,6 +451,7 @@ def _process_pdf(
     run_id: str,
     produced_at: str,
     runtime_binding_sha256: str,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> dict[str, Any]:
     """依序執行整份 PDF 的 OCR 與 Concept API。"""
 
@@ -464,6 +466,11 @@ def _process_pdf(
     snapshot_directory: tempfile.TemporaryDirectory[str] | None = None
     root = Path(settings["private_runtime_root"])
     runtime_lock = settings.get("runtime_lock")
+
+    def report_progress(stage: str, completed: int, total: int) -> None:
+        if progress_callback is not None:
+            progress_callback(stage, completed, total)
+
     try:
         _validate_runtime_lock(runtime_lock)
         chat_completions_url(settings.get("concept_api_base_url"))
@@ -493,7 +500,9 @@ def _process_pdf(
         page_numbers = checked_request["page_numbers"]
         source_sha256 = checked_request["expected_source_sha256"]
         page_count = len(page_numbers)
+        report_progress("page_evidence", 0, page_count)
         page_artifacts = []
+        completed_page_evidence = 0
         ocr = None
         document = pymupdf.open(source_path)
         try:
@@ -573,6 +582,10 @@ def _process_pdf(
                 finally:
                     page.pop("png_bytes", None)
                     page.pop("native_evidence", None)
+                    completed_page_evidence += 1
+                    report_progress(
+                        "page_evidence", completed_page_evidence, page_count
+                    )
         except Exception:
             if ocr is not None:
                 ocr.abort()
@@ -583,6 +596,8 @@ def _process_pdf(
         finally:
             document.close()
 
+        completed_concepts = page_count - len(page_artifacts)
+        report_progress("concept_generation", completed_concepts, page_count)
         semantic_work = []
         for page in page_artifacts:
             try:
@@ -637,10 +652,19 @@ def _process_pdf(
                         "error": None,
                     }
                 )
+                if artifact is not None:
+                    completed_concepts += 1
+                    report_progress(
+                        "concept_generation", completed_concepts, page_count
+                    )
             except Exception as error:
                 reason_code = _reason(error)
                 if reason_code in _PAGE_EXCLUSION_REASONS:
                     excluded_pages.append(_excluded_page(page, "concept", reason_code))
+                    completed_concepts += 1
+                    report_progress(
+                        "concept_generation", completed_concepts, page_count
+                    )
                     continue
                 raise
 
@@ -744,6 +768,10 @@ def _process_pdf(
                         work["artifact"] = artifact
                         work["error"] = error
                         concept_calls += calls
+                        completed_concepts += 1
+                        report_progress(
+                            "concept_generation", completed_concepts, page_count
+                        )
         finally:
             try:
                 if concept_client is not None:
@@ -844,6 +872,7 @@ def run_full_text_first_pdf(
     run_id: str | None = None,
     produced_at: str | None = None,
     runtime_binding_sha256: str | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> dict[str, Any]:
     """鎖定全域本機模型後，處理 PDF 的精確 1..N 頁。"""
 
@@ -861,6 +890,7 @@ def run_full_text_first_pdf(
             run_id=resolved_run_id,
             produced_at=resolved_produced_at,
             runtime_binding_sha256=resolved_binding_sha256,
+            progress_callback=progress_callback,
         )
 
     try:

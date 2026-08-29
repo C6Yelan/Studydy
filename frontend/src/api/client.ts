@@ -30,6 +30,7 @@ const knownApiReasons = new Set<KnownApiReasonCode>([
   "RESOURCE_NOT_FOUND",
   "IDEMPOTENCY_CONFLICT",
   "MATERIAL_TOO_LARGE",
+  "MATERIAL_PDF_INVALID",
   "UNSUPPORTED_MEDIA_TYPE",
   "STORAGE_UNAVAILABLE",
   "INTERNAL_ERROR",
@@ -159,24 +160,42 @@ function isBinding(value: unknown): boolean {
 function isMaterialRun(value: unknown): value is MaterialProcessingRunView {
   const item = closed(value, [
     "schema", "run_id", "material_id", "source_artifact_id", "status", "output_binding",
-    "error_code", "created_at", "updated_at", "completed_at",
+    "progress_stage", "completed_pages", "total_pages", "error_code", "created_at",
+    "updated_at", "completed_at",
   ]);
-  if (!item || item.schema !== "material-processing-run/v2") return false;
+  if (!item || item.schema !== "material-processing-run/v3") return false;
   if (!isUuid(item.run_id) || !isUuid(item.material_id) || !isUuid(item.source_artifact_id)) return false;
   if (typeof item.created_at !== "string" || typeof item.updated_at !== "string") return false;
+  const stages = ["queued", "page_evidence", "concept_generation", "knowledge_map_generation", "publishing", "completed"];
+  if (!stages.includes(String(item.progress_stage)) || !Number.isInteger(item.completed_pages) || Number(item.completed_pages) < 0) return false;
+  if (item.progress_stage === "queued") {
+    if (item.completed_pages !== 0 || item.total_pages !== null) return false;
+  } else if (
+    !Number.isInteger(item.total_pages)
+    || Number(item.total_pages) < 1
+    || Number(item.completed_pages) > Number(item.total_pages)
+    || ((item.progress_stage === "knowledge_map_generation" || item.progress_stage === "publishing")
+      && item.completed_pages !== item.total_pages)
+  ) return false;
   const hasBinding = isBinding(item.output_binding);
   if (item.status === "succeeded" || item.status === "partial") {
     return hasBinding
       && object(item.output_binding)?.processing === item.status
+      && item.progress_stage === "completed"
+      && item.completed_pages === object(item.output_binding)?.page_count
+      && item.total_pages === object(item.output_binding)?.page_count
       && item.error_code === null
       && typeof item.completed_at === "string";
   }
   if (item.status === "failed") {
     return item.output_binding === null
+      && item.progress_stage !== "completed"
       && typeof item.error_code === "string"
       && typeof item.completed_at === "string";
   }
   return (item.status === "pending" || item.status === "running")
+    && item.progress_stage !== "completed"
+    && (item.status !== "pending" || item.progress_stage === "queued")
     && item.output_binding === null
     && item.error_code === null
     && item.completed_at === null;
@@ -789,6 +808,7 @@ function safeMessage(reasonCode: ApiReasonCode): string {
   if (reasonCode === "SESSION_REQUIRED") return "工作階段已失效，請重新整理後再試。";
   if (reasonCode === "RESOURCE_NOT_FOUND") return "找不到這筆資料，或你沒有權限讀取。";
   if (reasonCode === "MATERIAL_TOO_LARGE") return "PDF 不可超過 100 MiB。";
+  if (reasonCode === "MATERIAL_PDF_INVALID") return "這份 PDF 已損毀、加密或無法開啟，請改用可正常閱讀的 PDF。";
   if (reasonCode === "UNSUPPORTED_MEDIA_TYPE") return "只接受 PDF 教材。";
   if (reasonCode === "STORAGE_UNAVAILABLE") return "資料服務暫時無法使用，請稍後再試。";
   return "目前無法完成請求，請稍後再試。";

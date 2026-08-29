@@ -44,7 +44,7 @@ test("deterministic fake-producer browser wiring：upload、poll、Map 與 PDF l
   );
   await page.getByRole("button", { name: "上傳並分析完整教材" }).click();
   const run = await (await created).json();
-  expect(run.schema).toBe("material-processing-run/v2");
+  expect(run.schema).toBe("material-processing-run/v3");
   await expect(page.getByRole("heading", { name: /處理完成，等待複核|部分頁面已排除，等待複核/ })).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: "開啟複核地圖" }).click();
   await expect(page.getByRole("heading", { name: "知識地圖", exact: true })).toBeVisible();

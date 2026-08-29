@@ -139,11 +139,14 @@ function publishedMap(): KnowledgeMapView {
 
 function terminalRun() {
   return {
-    schema: "material-processing-run/v2",
+    schema: "material-processing-run/v3",
     run_id: runId,
     material_id: materialId,
     source_artifact_id: artifactId,
     status: "succeeded",
+    progress_stage: "completed",
+    completed_pages: 3,
+    total_pages: 3,
     output_binding: {
       schema: "material-run-output-binding/v3",
       producer_bundle_id: revision("text-first-producer-bundle", "1"),

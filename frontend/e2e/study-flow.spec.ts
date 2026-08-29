@@ -12,11 +12,14 @@ async function sessionReady(page: Page) {
 
 function terminalRun() {
   return {
-    schema: "material-processing-run/v2",
+    schema: "material-processing-run/v3",
     run_id: runId,
     material_id: materialId,
     source_artifact_id: artifactId,
     status: "succeeded",
+    progress_stage: "completed",
+    completed_pages: 1,
+    total_pages: 1,
     output_binding: {
       schema: "material-run-output-binding/v3",
       producer_bundle_id: `text-first-producer-bundle:sha256:${"1".repeat(64)}`,

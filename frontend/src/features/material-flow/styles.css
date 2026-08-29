@@ -97,6 +97,12 @@
   background: var(--studydy-blue-soft-2);
 }
 
+.file-drop.is-dragging {
+  border-color: var(--studydy-blue);
+  background: var(--studydy-blue-soft);
+  box-shadow: inset 0 0 0 2px rgba(7, 87, 255, .15);
+}
+
 .file-drop.is-disabled {
   cursor: wait;
   opacity: .7;
@@ -159,6 +165,17 @@
 .chosen-file small {
   display: block;
   overflow-wrap: anywhere;
+}
+
+.latest-run-button {
+  margin-top: var(--space-3);
+}
+
+.state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
 }
 
 .chosen-file small {
@@ -282,7 +299,8 @@
   padding: var(--space-6);
 }
 
-.processing-card > p {
+.processing-card > p,
+.processing-status > p {
   color: var(--text-secondary);
   line-height: 1.55;
 }
@@ -299,6 +317,28 @@
   margin: var(--space-5) 0 var(--space-4);
 }
 
+.current-stage-progress {
+  width: 100%;
+  height: 8px;
+  margin: var(--space-5) 0 var(--space-4);
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: #e9edf5;
+  accent-color: var(--studydy-blue);
+}
+
+.current-stage-progress::-webkit-progress-bar {
+  border-radius: 999px;
+  background: #e9edf5;
+}
+
+.current-stage-progress::-webkit-progress-value,
+.current-stage-progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: var(--studydy-blue);
+}
+
 .indeterminate-progress span {
   display: block;
   width: 42%;
@@ -311,6 +351,34 @@
 @keyframes processing-progress {
   from { transform: translateX(-15%); }
   to { transform: translateX(150%); }
+}
+
+.processing-times {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-5) 0;
+}
+
+.processing-times > div {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-radius: var(--radius-input);
+  background: var(--page-cool);
+}
+
+.processing-times dt {
+  color: var(--text-muted);
+  font-size: .72rem;
+}
+
+.processing-times dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: .84rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .status-timeline {
@@ -491,6 +559,17 @@
   text-align: center;
 }
 
+.failure-progress {
+  position: absolute;
+  right: 0;
+  bottom: calc(var(--space-6) + 24px);
+  left: 0;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: .82rem;
+  text-align: center;
+}
+
 @media (max-width: 920px) {
   .upload-layout,
   .processing-grid {
@@ -517,6 +596,10 @@
   .requirements-card,
   .processing-card {
     padding: var(--space-5);
+  }
+
+  .processing-times {
+    grid-template-columns: 1fr;
   }
 
   .upload-aside,

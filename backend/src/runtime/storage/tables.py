@@ -278,6 +278,37 @@ class MaterialProcessingRun(Base):
             "(status = 'failed' AND error_code IS NOT NULL "
             "AND output_binding IS NULL AND completed_at IS NOT NULL)"
         ),
+        CheckConstraint(
+            "progress_stage IN ('queued', 'page_evidence', "
+            "'concept_generation', 'knowledge_map_generation', "
+            "'publishing', 'completed')"
+        ),
+        CheckConstraint(
+            "completed_pages >= 0 AND ((progress_stage = 'queued' "
+            "AND completed_pages = 0 AND total_pages IS NULL) OR "
+            "(progress_stage <> 'queued' AND total_pages IS NOT NULL "
+            "AND total_pages >= 1 "
+            "AND completed_pages <= total_pages)) AND "
+            "(progress_stage NOT IN ('knowledge_map_generation', 'publishing') "
+            "OR completed_pages = total_pages)"
+        ),
+        CheckConstraint(
+            "(status = 'pending' AND progress_stage = 'queued' "
+            "AND completed_pages = 0 AND total_pages IS NULL) OR "
+            "(status = 'running' AND progress_stage <> 'completed') OR "
+            "(status = 'failed' AND progress_stage <> 'completed') OR "
+            "(status IN ('succeeded', 'partial') "
+            "AND progress_stage = 'completed' "
+            "AND total_pages IS NOT NULL "
+            "AND total_pages = completed_pages "
+            "AND CASE WHEN output_binding ? 'page_count' "
+            "AND jsonb_typeof(output_binding -> 'page_count') = 'number' "
+            "AND (output_binding ->> 'page_count') ~ '^[1-9][0-9]*$' "
+            "THEN CASE WHEN (output_binding ->> 'page_count')::numeric "
+            "<= 2147483647 THEN total_pages = "
+            "(output_binding ->> 'page_count')::integer ELSE FALSE END "
+            "ELSE FALSE END)"
+        ),
     )
 
     run_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
@@ -288,6 +319,9 @@ class MaterialProcessingRun(Base):
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     runtime_binding: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
+    progress_stage: Mapped[str] = mapped_column(Text, nullable=False)
+    completed_pages: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_pages: Mapped[int | None] = mapped_column(Integer)
     error_code: Mapped[str | None] = mapped_column(Text)
     output_binding: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

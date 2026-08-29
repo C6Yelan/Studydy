@@ -74,6 +74,7 @@ def processing_database_dsn(
         11,
         12,
         13,
+        14,
     )
     with psycopg.connect(clean_database_dsn) as connection:
         for table in ("material_processing_runs", *_DOMAIN_TABLES):
@@ -190,6 +191,7 @@ def test_populated_migration_five_deletes_v2_terminal_runs_on_forward_upgrade(
         11,
         12,
         13,
+        14,
     )
 
     with psycopg.connect(clean_database_dsn) as connection:
@@ -208,12 +210,12 @@ def test_populated_migration_five_deletes_v2_terminal_runs_on_forward_upgrade(
             INSERT INTO material_processing_runs (
                 run_id, learner_id, material_id, source_artifact_id,
                 idempotency_key_sha256, request_fingerprint, runtime_binding,
-                status, error_code, output_binding, created_at, updated_at,
-                completed_at
+                status, progress_stage, completed_pages, total_pages,
+                error_code, output_binding, created_at, updated_at, completed_at
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s,
-                'succeeded', NULL, %s, clock_timestamp(), clock_timestamp(),
-                clock_timestamp()
+                'succeeded', 'completed', 3, 3, NULL, %s,
+                clock_timestamp(), clock_timestamp(), clock_timestamp()
             )
             """,
             (
@@ -224,7 +226,10 @@ def test_populated_migration_five_deletes_v2_terminal_runs_on_forward_upgrade(
                 b"v" * 32,
                 b"f" * 32,
                 Jsonb({"schema": "test-runtime-binding"}),
-                Jsonb({"schema": "material-run-output-binding/v3"}),
+                Jsonb({
+                    "schema": "material-run-output-binding/v3",
+                    "page_count": 3,
+                }),
             ),
         )
         assert connection.execute(
@@ -357,7 +362,14 @@ def _fake_knowledge_map(
 
 
 def _fake_producer(
-    request, settings, *, has_partial_page, run_id, produced_at, runtime_binding_sha256
+    request,
+    settings,
+    *,
+    has_partial_page,
+    run_id,
+    produced_at,
+    runtime_binding_sha256,
+    progress_callback,
 ):
     source_path = Path(request["source_path"])
     source_sha256 = request["expected_source_sha256"]
@@ -365,6 +377,7 @@ def _fake_producer(
     semantic_pages = []
     with pymupdf.open(source_path) as document:
         page_count = document.page_count
+        progress_callback("page_evidence", 0, page_count)
         for page_number in range(1, page_count + 1):
             raw_page = extract_page(document, source_sha256, page_number)
             ocr_blocks = [
@@ -432,6 +445,10 @@ def _fake_producer(
                 semantic["processing"] = "partial"
             pages.append(page)
             semantic_pages.append(semantic)
+            progress_callback("page_evidence", page_number, page_count)
+    progress_callback("concept_generation", 0, page_count)
+    for completed_pages in range(1, page_count + 1):
+        progress_callback("concept_generation", completed_pages, page_count)
     output = build_output(
         run_id=run_id,
         produced_at=produced_at,
@@ -462,7 +479,8 @@ def _fake_producer(
 
 
 def _fake_successful_producer(
-    request, settings, *, run_id, produced_at, runtime_binding_sha256
+    request, settings, *, run_id, produced_at, runtime_binding_sha256,
+    progress_callback,
 ):
     return _fake_producer(
         request,
@@ -471,11 +489,13 @@ def _fake_successful_producer(
         run_id=run_id,
         produced_at=produced_at,
         runtime_binding_sha256=runtime_binding_sha256,
+        progress_callback=progress_callback,
     )
 
 
 def _fake_partial_producer(
-    request, settings, *, run_id, produced_at, runtime_binding_sha256
+    request, settings, *, run_id, produced_at, runtime_binding_sha256,
+    progress_callback,
 ):
     return _fake_producer(
         request,
@@ -484,6 +504,7 @@ def _fake_partial_producer(
         run_id=run_id,
         produced_at=produced_at,
         runtime_binding_sha256=runtime_binding_sha256,
+        progress_callback=progress_callback,
     )
 
 
@@ -546,6 +567,11 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
         claim, settings, dsn=processing_database_dsn
     )
     assert completed.status == "succeeded", completed.error_code
+    assert (
+        completed.progress_stage,
+        completed.completed_pages,
+        completed.total_pages,
+    ) == ("completed", 1, 1)
     assert completed.output_binding["schema"] == "material-run-output-binding/v3"
     assert not (
         Path(settings["private_runtime_root"])
@@ -566,6 +592,86 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
     with psycopg.connect(processing_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM study_material_outputs").fetchone() == (1,)
         assert connection.execute("SELECT count(*) FROM knowledge_maps").fetchone() == (1,)
+    _assert_downstream_zero(processing_database_dsn)
+
+
+def test_progress_updates_are_monotonic_and_reject_illegal_transitions(
+    processing_database_dsn: str,
+    tmp_path: Path,
+):
+    learner_id, _, _, created = _created_run(
+        processing_database_dsn, tmp_path, key="progress-transitions"
+    )
+    claim = claim_next_material_processing_run(dsn=processing_database_dsn)
+    assert claim is not None
+    record = processing_module._record_material_progress
+
+    with pytest.raises(MaterialProcessingError, match="MATERIAL_RUN_INVALID"):
+        record(created.run_id, "concept_generation", 0, 4, dsn=processing_database_dsn)
+    record(created.run_id, "page_evidence", 0, 4, dsn=processing_database_dsn)
+    record(created.run_id, "page_evidence", 2, 4, dsn=processing_database_dsn)
+    with pytest.raises(MaterialProcessingError, match="MATERIAL_RUN_INVALID"):
+        record(created.run_id, "concept_generation", 0, 4, dsn=processing_database_dsn)
+    with pytest.raises(MaterialProcessingError, match="MATERIAL_RUN_INVALID"):
+        record(created.run_id, "page_evidence", 1, 4, dsn=processing_database_dsn)
+    with pytest.raises(MaterialProcessingError, match="MATERIAL_RUN_INVALID"):
+        record(created.run_id, "page_evidence", 3, 5, dsn=processing_database_dsn)
+    with pytest.raises(MaterialProcessingError, match="MATERIAL_RUN_INVALID"):
+        record(created.run_id, "knowledge_map_generation", 4, 4, dsn=processing_database_dsn)
+    record(created.run_id, "page_evidence", 4, 4, dsn=processing_database_dsn)
+    record(created.run_id, "concept_generation", 0, 4, dsn=processing_database_dsn)
+    record(created.run_id, "concept_generation", 2, 4, dsn=processing_database_dsn)
+    with pytest.raises(MaterialProcessingError, match="MATERIAL_RUN_INVALID"):
+        record(
+            created.run_id,
+            "knowledge_map_generation",
+            4,
+            4,
+            dsn=processing_database_dsn,
+        )
+    record(created.run_id, "concept_generation", 4, 4, dsn=processing_database_dsn)
+    record(created.run_id, "knowledge_map_generation", 4, 4, dsn=processing_database_dsn)
+    record(created.run_id, "publishing", 4, 4, dsn=processing_database_dsn)
+
+    running = read_material_processing_run(
+        learner_id, created.run_id, dsn=processing_database_dsn
+    )
+    assert (
+        running.progress_stage,
+        running.completed_pages,
+        running.total_pages,
+    ) == ("publishing", 4, 4)
+    processing_module._record_run_failure(
+        created.run_id, "MATERIAL_ANALYSIS_FAILED", dsn=processing_database_dsn
+    )
+    with pytest.raises(MaterialProcessingError, match="MATERIAL_RUN_INVALID"):
+        record(created.run_id, "publishing", 4, 4, dsn=processing_database_dsn)
+
+
+def test_progress_storage_failure_marks_run_failed_without_outputs(
+    processing_database_dsn: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _, _, settings, created = _created_run(
+        processing_database_dsn, tmp_path, key="progress-storage-failure"
+    )
+    claim = claim_next_material_processing_run(dsn=processing_database_dsn)
+    assert claim is not None
+
+    def fail_progress(*_args, **_kwargs):
+        raise MaterialProcessingError("MATERIAL_RUN_STORAGE_FAILED")
+
+    monkeypatch.setattr(processing_module, "_record_material_progress", fail_progress)
+    monkeypatch.setattr(
+        processing_module, "run_full_text_first_pdf", _fake_successful_producer
+    )
+    failed = execute_claimed_material_processing_run(
+        claim, settings, dsn=processing_database_dsn
+    )
+
+    assert failed.status == "failed"
+    assert failed.output_binding is None
     _assert_downstream_zero(processing_database_dsn)
 
 
@@ -1092,7 +1198,9 @@ def test_failed_producer_publishes_zero_domain_revisions(
         run_id,
         produced_at,
         runtime_binding_sha256,
+        progress_callback,
     ):
+        progress_callback("page_evidence", 0, 40)
         bundle = build_producer_bundle(
             run_id=run_id,
             produced_at=produced_at,

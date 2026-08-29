@@ -3,19 +3,38 @@ import { useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
-import { formatFileSize, validatePdfFile } from "./material-flow";
+import {
+  formatFileSize,
+  readLatestMaterialRun,
+  rememberLatestMaterialRun,
+  validatePdfFile,
+  validatePdfSelection,
+} from "./material-flow";
 
 export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [latestRun] = useState(readLatestMaterialRun);
+  const fileInput = useRef<HTMLInputElement>(null);
   const uploadKey = useRef(crypto.randomUUID());
   const runKey = useRef(crypto.randomUUID());
+
+  const chooseFiles = (files: FileList | null) => {
+    uploadKey.current = crypto.randomUUID();
+    runKey.current = crypto.randomUUID();
+    const selection = validatePdfSelection(files);
+    const selectedFile = selection.message === null ? selection.file : null;
+    setFile(selectedFile);
+    setMessage(selection.message);
+    if (selectedFile === null && fileInput.current) fileInput.current.value = "";
+  };
 
   const submit = async () => {
     const validation = validatePdfFile(file);
     if (validation || !file) {
-      setMessage(validation);
+      setMessage(file === null ? message ?? validation : validation);
       return;
     }
     setIsSubmitting(true);
@@ -27,6 +46,8 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
         material_id: material.material_id,
         source_artifact_id: material.source_artifact_id,
       }, runKey.current);
+      const pointer = { materialId: run.material_id, runId: run.run_id };
+      rememberLatestMaterialRun(pointer);
       writeRoute({ name: "material-run", materialId: run.material_id, runId: run.run_id });
     } catch (error) {
       setMessage(errorMessage(error));
@@ -55,25 +76,36 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             </div>
           </div>
 
-          <label className={`file-drop${file ? " has-file" : ""}${isSubmitting ? " is-disabled" : ""}`}>
+          <label
+            className={`file-drop${file ? " has-file" : ""}${isSubmitting ? " is-disabled" : ""}${isDragging ? " is-dragging" : ""}`}
+            onDragEnter={(event) => {
+              event.preventDefault();
+              if (!isSubmitting) setIsDragging(true);
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              if (!isSubmitting) event.dataTransfer.dropEffect = "copy";
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setIsDragging(false);
+              if (!isSubmitting) chooseFiles(event.dataTransfer.files);
+            }}
+          >
             <input
+              ref={fileInput}
               type="file"
               accept="application/pdf"
               aria-label="選擇 PDF 教材"
               aria-describedby={message ? "upload-error" : undefined}
               aria-invalid={message ? true : undefined}
               disabled={isSubmitting}
-              onChange={(event) => {
-                const next = event.currentTarget.files?.[0] ?? null;
-                uploadKey.current = crypto.randomUUID();
-                runKey.current = crypto.randomUUID();
-                setFile(next);
-                setMessage(validatePdfFile(next));
-              }}
+              onChange={(event) => chooseFiles(event.currentTarget.files)}
             />
             <span className="file-drop__icon"><Icon name="upload" size={28} /></span>
             <strong>{file ? "更換 PDF 教材" : "將 PDF 拖放到此處"}</strong>
-            <span>或點擊選擇檔案 · 最大 100 MiB</span>
+            <span>或點擊選擇 .pdf 檔案 · 最大 100 MiB</span>
           </label>
 
           {file && (
@@ -90,6 +122,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
                 onClick={() => {
                   setFile(null);
                   setMessage(null);
+                  if (fileInput.current) fileInput.current.value = "";
                   uploadKey.current = crypto.randomUUID();
                   runKey.current = crypto.randomUUID();
                 }}
@@ -102,6 +135,13 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             <Icon name="upload" size={18} />
             {isSubmitting ? "正在建立處理作業…" : "上傳並分析完整教材"}
           </button>
+          {latestRun && (
+            <button
+              className="secondary-button full-button latest-run-button"
+              type="button"
+              onClick={() => writeRoute({ name: "material-run", ...latestRun })}
+            ><Icon name="process" size={18} />返回最近處理作業</button>
+          )}
           <p className="privacy-note"><Icon name="lock" size={14} /> 教材只交由本機 Studydy 流程處理</p>
         </section>
 
@@ -117,7 +157,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
           </section>
           <section className="surface requirements-card">
             <h2>檔案需求</h2>
-            <p><strong>格式</strong><span>僅支援 PDF</span></p>
+            <p><strong>格式</strong><span>PDF 檔案（.pdf）</span></p>
             <p><strong>檔案大小</strong><span>上限 100 MiB</span></p>
           </section>
         </aside>

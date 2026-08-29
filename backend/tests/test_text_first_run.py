@@ -275,6 +275,52 @@ def test_sequential_product_path_and_exact_replay_zero_model_calls(tmp_path, mon
     assert state["resident"] == []
 
 
+def test_progress_callback_reports_each_page_and_stage_monotonically(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "progress.pdf"
+    _title_and_content_pdf(path)
+    state = _state()
+    monkeypatch.setattr(run_module, "request_concept_text", FakeConceptAPI(state))
+    updates = []
+
+    bundle = run_module.run_full_text_first_pdf(
+        _whole_request(path),
+        _settings(tmp_path),
+        progress_callback=lambda stage, completed, total: updates.append(
+            (stage, completed, total)
+        ),
+    )
+
+    assert bundle["processing"] == "succeeded"
+    assert updates == [
+        ("page_evidence", 0, 2),
+        ("page_evidence", 1, 2),
+        ("page_evidence", 2, 2),
+        ("concept_generation", 0, 2),
+        ("concept_generation", 1, 2),
+        ("concept_generation", 2, 2),
+    ]
+
+
+def test_progress_callback_failure_produces_failed_bundle(tmp_path):
+    path = tmp_path / "progress-failure.pdf"
+    _pdf(path)
+
+    def fail_progress(_stage, _completed, _total):
+        raise RuntimeError("progress storage unavailable")
+
+    bundle = run_module.run_full_text_first_pdf(
+        _whole_request(path),
+        _settings(tmp_path),
+        progress_callback=fail_progress,
+    )
+
+    assert bundle["processing"] == "failed"
+    assert bundle["reason_codes"] == ["INTERNAL_FAILURE"]
+
+
 def test_heading_only_page_keeps_evidence_without_suppressing_adjacent_content(
     tmp_path, monkeypatch
 ):

@@ -3,6 +3,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+import pymupdf
+import psycopg
 import pytest
 
 import runtime.api.app as app_module
@@ -25,6 +27,7 @@ from runtime.material_processing import (
     execute_claimed_material_processing_run,
 )
 from runtime.storage.migrations import run_migrations
+from runtime.storage.artifacts import ArtifactError
 from test_material_processing import _fake_knowledge_map, _fake_successful_producer, _pdf
 from test_study_sessions import _insert_material_map, _knowledge_map
 
@@ -50,6 +53,7 @@ def api_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
         11,
         12,
         13,
+        14,
     )
     return clean_database_dsn
 
@@ -125,6 +129,27 @@ def _material_and_run(client: TestClient):
     )
     assert response.status_code == 202
     return material, response.json()
+
+
+def _encrypted_pdf() -> bytes:
+    document = pymupdf.open()
+    document.new_page()
+    content = document.tobytes(
+        encryption=pymupdf.PDF_ENCRYPT_AES_256,
+        owner_pw="owner-password",
+        user_pw="user-password",
+    )
+    document.close()
+    return content
+
+
+def _assert_no_material_residue(settings: ApiSettings, artifact_root: Path) -> None:
+    with psycopg.connect(settings.dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM materials").fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM artifacts").fetchone() == (0,)
+    if artifact_root.exists():
+        assert list((artifact_root / "objects").iterdir()) == []
+        assert list((artifact_root / ".staging").iterdir()) == []
 
 
 def test_api_settings_fail_closed_when_runtime_preflight_fails(
@@ -226,8 +251,13 @@ def test_output_binding_accepts_multiple_concept_batches_per_page():
 def test_create_and_poll_v2_rejects_caller_page_subset(settings: ApiSettings):
     with TestClient(create_app(settings)) as client:
         material, run = _material_and_run(client)
-        assert run["schema"] == "material-processing-run/v2"
+        assert run["schema"] == "material-processing-run/v3"
         assert run["status"] == "pending"
+        assert (run["progress_stage"], run["completed_pages"], run["total_pages"]) == (
+            "queued",
+            0,
+            None,
+        )
         assert run["output_binding"] is None
         assert client.get(f"/v1/material-processing-runs/{run['run_id']}").json() == run
         rejected = client.post(
@@ -242,6 +272,95 @@ def test_create_and_poll_v2_rejects_caller_page_subset(settings: ApiSettings):
         )
         assert rejected.status_code == 400
         assert rejected.json()["reason_code"] == "REQUEST_INVALID"
+
+
+@pytest.mark.parametrize("content", [b"not a pdf", _encrypted_pdf()])
+def test_corrupt_and_encrypted_pdf_have_specific_safe_error(
+    settings: ApiSettings,
+    content: bytes,
+):
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/session", headers={"Origin": settings.public_origin})
+        response = client.post(
+            "/v1/materials",
+            content=content,
+            headers={**_headers(f"invalid-{uuid4()}"), "Content-Type": "application/pdf"},
+        )
+        assert response.status_code == 400
+        assert response.json()["reason_code"] == "MATERIAL_PDF_INVALID"
+
+
+def test_zero_byte_pdf_is_invalid_without_material_or_storage_residue(
+    settings: ApiSettings,
+    tmp_path: Path,
+):
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/session", headers={"Origin": settings.public_origin})
+        response = client.post(
+            "/v1/materials",
+            content=b"",
+            headers={**_headers("zero-byte"), "Content-Type": "application/pdf"},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["reason_code"] == "MATERIAL_PDF_INVALID"
+    _assert_no_material_residue(settings, tmp_path / "private-artifacts")
+
+
+def test_streaming_oversize_pdf_stops_before_publish_without_residue(
+    settings: ApiSettings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    publish_was_called = False
+
+    def unexpected_publish(*_args, **_kwargs):
+        nonlocal publish_was_called
+        publish_was_called = True
+        raise AssertionError("oversize request reached artifact publishing")
+
+    def oversize_pdf_chunks():
+        first_chunk = b"%PDF-1.7\n" + b"x" * (1024 * 1024 - len(b"%PDF-1.7\n"))
+        full_chunk = b"x" * (1024 * 1024)
+        yield first_chunk
+        for _ in range(99):
+            yield full_chunk
+        yield b"x"
+
+    monkeypatch.setattr(
+        app_module, "publish_idempotent_source_pdf", unexpected_publish
+    )
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/session", headers={"Origin": settings.public_origin})
+        response = client.post(
+            "/v1/materials",
+            content=oversize_pdf_chunks(),
+            headers={**_headers("oversize"), "Content-Type": "application/pdf"},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["reason_code"] == "MATERIAL_TOO_LARGE"
+    assert publish_was_called is False
+    _assert_no_material_residue(settings, tmp_path / "private-artifacts")
+
+
+def test_material_storage_failure_remains_distinct_from_invalid_pdf(
+    settings: ApiSettings,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def fail_storage(*_args, **_kwargs):
+        raise ArtifactError("ARTIFACT_PUBLISH_FAILED")
+
+    monkeypatch.setattr(app_module, "publish_idempotent_source_pdf", fail_storage)
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/session", headers={"Origin": settings.public_origin})
+        response = client.post(
+            "/v1/materials",
+            content=_pdf(),
+            headers={**_headers("storage-failure"), "Content-Type": "application/pdf"},
+        )
+        assert response.status_code == 503
+        assert response.json()["reason_code"] == "STORAGE_UNAVAILABLE"
 
 
 def test_success_exposes_only_review_map_with_pdf_locator(
@@ -262,6 +381,11 @@ def test_success_exposes_only_review_map_with_pdf_locator(
         terminal = response.json()
         assert terminal["status"] == "succeeded"
         binding = terminal["output_binding"]
+        assert (
+            terminal["progress_stage"],
+            terminal["completed_pages"],
+            terminal["total_pages"],
+        ) == ("completed", binding["page_count"], binding["page_count"])
         map_response = client.get(
             f"/v1/materials/{material['material_id']}/knowledge-maps/{binding['knowledge_map_revision']}",
             params={"run_id": run["run_id"]},
@@ -314,6 +438,11 @@ def test_openapi_has_phase_06_learning_routes_without_private_fields(
         if schema.get("type") == "object"
     )
     schemas = document["components"]["schemas"]
+    run_schema = schemas["MaterialProcessingRunView"]
+    assert run_schema["properties"]["schema"]["const"] == "material-processing-run/v3"
+    assert {"progress_stage", "completed_pages", "total_pages"} <= set(
+        run_schema["properties"]
+    )
     for schema_name, field_name in (
         ("MaterialOutputBinding", "page_count"),
         ("MaterialOutputBinding", "ocr_calls"),

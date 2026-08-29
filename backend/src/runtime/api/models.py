@@ -30,6 +30,7 @@ ApiReasonCode = Literal[
     "RESOURCE_NOT_FOUND",
     "IDEMPOTENCY_CONFLICT",
     "MATERIAL_TOO_LARGE",
+    "MATERIAL_PDF_INVALID",
     "UNSUPPORTED_MEDIA_TYPE",
     "STORAGE_UNAVAILABLE",
     "INTERNAL_ERROR",
@@ -92,11 +93,21 @@ class MaterialOutputBinding(_ClosedModel):
 
 
 class MaterialProcessingRunView(_ClosedModel):
-    schema_: Literal["material-processing-run/v2"] = Field(alias="schema")
+    schema_: Literal["material-processing-run/v3"] = Field(alias="schema")
     run_id: UUID
     material_id: UUID
     source_artifact_id: UUID
     status: Literal["pending", "running", "succeeded", "partial", "failed"]
+    progress_stage: Literal[
+        "queued",
+        "page_evidence",
+        "concept_generation",
+        "knowledge_map_generation",
+        "publishing",
+        "completed",
+    ]
+    completed_pages: int = Field(ge=0)
+    total_pages: int | None = Field(default=None, ge=1)
     output_binding: MaterialOutputBinding | None
     error_code: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{0,99}$")
     created_at: datetime
@@ -105,18 +116,45 @@ class MaterialProcessingRunView(_ClosedModel):
 
     @model_validator(mode="after")
     def validate_status_shape(self) -> "MaterialProcessingRunView":
+        if self.progress_stage == "queued":
+            if self.completed_pages != 0 or self.total_pages is not None:
+                raise ValueError("MATERIAL_RUN_VIEW_INVALID")
+        elif (
+            self.total_pages is None
+            or self.completed_pages > self.total_pages
+            or (
+                self.progress_stage
+                in {"knowledge_map_generation", "publishing"}
+                and self.completed_pages != self.total_pages
+            )
+        ):
+            raise ValueError("MATERIAL_RUN_VIEW_INVALID")
         if self.status in {"succeeded", "partial"}:
             if (
                 self.output_binding is None
                 or self.output_binding.processing != self.status
                 or self.error_code is not None
                 or self.completed_at is None
+                or self.progress_stage != "completed"
+                or self.completed_pages != self.output_binding.page_count
+                or self.total_pages != self.output_binding.page_count
             ):
                 raise ValueError("MATERIAL_RUN_VIEW_INVALID")
         elif self.status == "failed":
-            if self.output_binding is not None or self.error_code is None or self.completed_at is None:
+            if (
+                self.output_binding is not None
+                or self.error_code is None
+                or self.completed_at is None
+                or self.progress_stage == "completed"
+            ):
                 raise ValueError("MATERIAL_RUN_VIEW_INVALID")
-        elif self.output_binding is not None or self.error_code is not None or self.completed_at is not None:
+        elif (
+            self.output_binding is not None
+            or self.error_code is not None
+            or self.completed_at is not None
+            or self.progress_stage == "completed"
+            or (self.status == "pending" and self.progress_stage != "queued")
+        ):
             raise ValueError("MATERIAL_RUN_VIEW_INVALID")
         return self
 
@@ -669,11 +707,14 @@ def project_material_run(run: MaterialProcessingRun) -> MaterialProcessingRunVie
 
     return MaterialProcessingRunView.model_validate(
         {
-            "schema": "material-processing-run/v2",
+            "schema": "material-processing-run/v3",
             "run_id": run.run_id,
             "material_id": run.material_id,
             "source_artifact_id": run.source_artifact_id,
             "status": run.status,
+            "progress_stage": run.progress_stage,
+            "completed_pages": run.completed_pages,
+            "total_pages": run.total_pages,
             "output_binding": deepcopy(run.output_binding),
             "error_code": run.error_code,
             "created_at": run.created_at,
