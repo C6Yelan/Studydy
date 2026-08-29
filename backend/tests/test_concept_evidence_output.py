@@ -3,11 +3,13 @@ from copy import deepcopy
 from pdf_evidence.artifact_reason_codes import formal_reason_code
 from pdf_evidence.concept_evidence_output import validate_output_document
 from pdf_evidence.concept_generation import claim_id, concept_id
+from pdf_evidence.document_context import build_document_contexts
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from test_study_material_output import producer_output
 
 
 def _reidentify_output(output):
+    output["document_contexts"] = build_document_contexts(output["pages"])
     identity = dict(output)
     identity.pop("output_id")
     output["output_id"] = (
@@ -32,6 +34,9 @@ def _two_page_output():
     second_page["page_number"] = 2
     second_page["input_binding"]["page_number"] = 2
     second_page["evidence_blocks"][0]["evidence_id"] = second_evidence_id
+    second_block_id = "block:sha256:" + "e" * 64
+    second_page["evidence_blocks"][0]["block_id"] = second_block_id
+    second_page["evidence_blocks"][0]["locator"]["block_id"] = second_block_id
     second_page["evidence_blocks"][0]["locator"]["page"] = 2
     second_page["images"][0]["image_id"] = "image:sha256:" + "d" * 64
     second_page["images"][0]["caption_evidence_ids"] = [second_evidence_id]
@@ -133,7 +138,11 @@ def test_evidence_ids_must_be_unique_across_included_pages():
     duplicate_block["reading_order"] = 1
     output["pages"][0]["evidence_blocks"].append(duplicate_block)
     _reidentify_page(output["pages"][0])
-    _reidentify_output(output)
+    identity = dict(output)
+    identity.pop("output_id")
+    output["output_id"] = (
+        "concept-evidence-output:sha256:" + canonical_sha256(identity)
+    )
 
     assert validate_output_document(output) is False
 
@@ -142,4 +151,22 @@ def test_output_rejects_detailed_reason_code():
     output = producer_output()
     output["reason_codes"] = ["SEMANTIC_REVIEW_REQUIRED"]
     _reidentify_output(output)
+    assert validate_output_document(output) is False
+
+
+def test_durable_context_tamper_fails_even_with_recomputed_output_identity():
+    output = producer_output()
+    context = output["document_contexts"][0]
+    context["current_blocks"][0]["block_id"] = "block:sha256:" + "f" * 64
+    context_identity = dict(context)
+    context_identity.pop("context_id")
+    context["context_id"] = (
+        "document-context:sha256:" + canonical_sha256(context_identity)
+    )
+    identity = dict(output)
+    identity.pop("output_id")
+    output["output_id"] = (
+        "concept-evidence-output:sha256:" + canonical_sha256(identity)
+    )
+
     assert validate_output_document(output) is False

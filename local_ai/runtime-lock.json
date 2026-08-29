@@ -1,5 +1,5 @@
 {
-  "schema": "studydy-local-ai-runtime-lock/v5",
+  "schema": "studydy-local-ai-runtime-lock/v6",
   "python": {
     "version": "3.12.3",
     "executable_sha256": "4933b6c4a8521fb3aa93856701e30b3ac2626d3c47ceb22965a3b0b422e85b44"
@@ -94,8 +94,8 @@
       "version": "0.26.0+cu129",
       "executable_sha256": "6d34800bbe39c7b1d94043fa0a7badafd894dbc422e0212f94ebe16547b2097a"
     },
-    "prompt": "Extract study concepts only from the supplied current evidence. Use document_context only to interpret heading ancestry, adjacency, and continuation; it is not claim evidence. Cite only IDs from the current evidence list, and give every definition and key point non-empty evidence_ids. Preserve exact escapes, symbols, operators, numbers, units, conditions, direction, and scope, including \\0. Do not emit isolated connectors, syntax tails, half clauses, or incomplete declarations as claims. Return concepts=[] when the current page teaches no concept. Return JSON only and no additional fields.",
-    "prompt_sha256": "2c0698ca067302793122e055467c2e47bed6a97f0eb1cf1e75e71b87fac4f8fc",
+    "prompt": "Extract study concepts only from the supplied current evidence. Use document_context when present only to interpret heading ancestry, adjacency, and continuation; it is not claim evidence. Cite only IDs from the current evidence list, and give every definition and key point non-empty evidence_ids. Preserve exact escapes, symbols, operators, numbers, units, conditions, direction, and scope, including \\0. Do not emit isolated connectors, syntax tails, half clauses, or incomplete declarations as claims. Return concepts=[] when the current page teaches no concept. Return JSON only and no additional fields.",
+    "prompt_sha256": "432c24a8cd8974915d6edbf56f6fa5d8fcbcc90d1ba5c06d8a36df5faf36451f",
     "request_schema": "concept-generation-input/v4",
     "output_schema": "semantic-page-concepts/v2",
     "generation": {"temperature": 0, "max_tokens": 1536},
@@ -116,7 +116,12 @@
       "processing_policy": "document-reading-order-context/v1",
       "token_budget": 1024,
       "token_counter": "utf8-byte-upper-bound/v1",
-      "model_calls": 0
+      "model_calls": 0,
+      "section_policy": "nearest-grounded-heading-flat-section/v1",
+      "ambiguous_hierarchy": "needs-review/v1",
+      "dispatch_fit": "evidence-only-batch-preserving/v1",
+      "durable_output_schema": "concept-evidence-output/v4",
+      "study_projection_schema": "study-material-output/v6"
     },
     "retry": {
       "max_attempts": 2,
@@ -138,14 +143,15 @@
       "structurally_valid_decision": "review"
     },
     "code_hashes": {
-      "backend_concept_api": "197cac723f404f31c0fc771631146f2d5fdec51b82b6a19b7e6d01c3b79cbf24",
+      "backend_concept_api": "18557207106aab9dabd75e56ee03246d40452e3fe82495f2d9c2ec8d1858b529",
       "backend_process_guard": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
       "backend_concept_generation": "68b25a33a489871fba1c445eb1b8b08056768baa5703aaf4c118deef6f5ef872",
-      "backend_document_context": "2445774dc6169cfe6368625195b49bc850ce4c906ee879fb880cce109efd939b",
-      "backend_text_first_run": "861ad5cf476436c78546ae10749b1886814203530a5cf1da3c3570507fff89e4"
+      "backend_document_context": "e8e7bb450fa45e32f6a2557e2c27fa3da8919ed0c52fa5d54d03b1bf4a49a0e2",
+      "backend_text_first_run": "ffd8d6c6bd846db86ff599267ce04762ad78931f6568fc2b76f810329f001de8",
+      "backend_study_material_output": "ff350901145b7ea4c7655d2aa1b476b97888c660b3039be5a8b2fb6abd1c161e"
     },
     "fixture_hashes": {
-      "semantic_request.json": "d72fe0eaf32539614fc302fa38b89303d072b5b6971198e7fbd389ef2fa9f82d",
+      "semantic_request.json": "0b07cc0921e13d934c47e706eaddbf72fb01cd1c76208c1d546d1adcae80e083",
       "semantic_model_output.json": "b097b099d350b02fc947b2ad0b5f415e53fab96d8039400d42f370a4f5b51327"
     }
   },

@@ -7,10 +7,14 @@ from typing import Any
 from .artifact_reason_codes import formal_reason_codes, reason_codes_are_valid
 from .concept_evidence_output import AGGREGATION_POLICY, validate_output_document
 from .concept_generation import claim_id, concept_id
+from .document_context import (
+    validate_document_context,
+    validate_document_context_shape,
+)
 from .ocr_page_evidence import canonical_sha256
 
 
-STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v5"
+STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v6"
 
 
 def _valid_region(region: Any) -> bool:
@@ -54,7 +58,8 @@ def _shape_is_valid(document: Any) -> bool:
     fields = {
         "schema", "run_id", "produced_at", "material_ref", "source_binding", "pages",
         "excluded_pages", "concepts", "evidence_index", "evidence_text_index",
-        "images", "processing", "quality", "decision", "reason_codes", "output_id",
+        "context_block_index", "document_contexts", "images", "processing", "quality",
+        "decision", "reason_codes", "output_id",
     }
     if not isinstance(document, dict) or set(document) != fields:
         return False
@@ -118,6 +123,7 @@ def _shape_is_valid(document: Any) -> bool:
             return False
         evidence_pages[evidence["evidence_id"]] = evidence["page_ref"]
     evidence_texts: set[str] = set()
+    evidence_text_by_id: dict[str, str] = {}
     if (
         not isinstance(document["evidence_text_index"], list)
         or len(document["evidence_text_index"]) != len(evidence_pages)
@@ -134,7 +140,109 @@ def _shape_is_valid(document: Any) -> bool:
         ):
             return False
         evidence_texts.add(evidence["evidence_id"])
+        evidence_text_by_id[evidence["evidence_id"]] = evidence["text"]
     if evidence_texts != set(evidence_pages):
+        return False
+    context_block_index = document["context_block_index"]
+    if (
+        not isinstance(context_block_index, list)
+        or len(context_block_index) != len(evidence_pages)
+    ):
+        return False
+    evidence_details: dict[str, dict[str, Any]] = {}
+    for block in context_block_index:
+        if (
+            not isinstance(block, dict)
+            or set(block) != {"evidence_id", "block_id", "section_id"}
+            or block["evidence_id"] not in evidence_pages
+            or block["evidence_id"] in evidence_details
+            or not isinstance(block["block_id"], str)
+            or not isinstance(block["section_id"], str)
+        ):
+            return False
+        evidence_details[block["evidence_id"]] = {
+            **block,
+            "page_ref": evidence_pages[block["evidence_id"]],
+            "page_number": pages_by_ref[evidence_pages[block["evidence_id"]]],
+        }
+    contexts = document["document_contexts"]
+    page_evidence_ids = {
+        page["page_ref"]: page["page_evidence_id"] for page in document["pages"]
+    }
+    if (
+        not isinstance(contexts, list)
+        or len(contexts) != len(document["pages"])
+        or any(not validate_document_context_shape(context) for context in contexts)
+        or {context["page_ref"] for context in contexts} != set(pages_by_ref)
+        or len({context["material_revision"] for context in contexts}) != 1
+    ):
+        return False
+    current_evidence_ids: set[str] = set()
+    for context in contexts:
+        if (
+            context["material_id"] != document["material_ref"]
+            or context["page_number"] != pages_by_ref[context["page_ref"]]
+            or context["page_evidence_id"]
+            != page_evidence_ids[context["page_ref"]]
+        ):
+            return False
+        for block in context["current_blocks"]:
+            evidence = evidence_details.get(block["evidence_id"])
+            if (
+                evidence is None
+                or block["evidence_id"] in current_evidence_ids
+                or evidence["page_ref"] != context["page_ref"]
+                or evidence["block_id"] != block["block_id"]
+                or evidence["section_id"] != block["section_id"]
+            ):
+                return False
+            current_evidence_ids.add(block["evidence_id"])
+        for block in context["context_blocks"]:
+            evidence = evidence_details.get(block["evidence_id"])
+            if (
+                evidence is None
+                or evidence["page_ref"] != block["page_ref"]
+                or evidence["page_number"] != block["page_number"]
+                or evidence["block_id"] != block["block_id"]
+                or evidence["section_id"] != block["section_id"]
+            ):
+                return False
+    if current_evidence_ids != set(evidence_pages):
+        return False
+    contexts_by_page = {context["page_ref"]: context for context in contexts}
+    material_revision = contexts[0]["material_revision"]
+    reconstructed_pages = []
+    for page in document["pages"]:
+        context = contexts_by_page[page["page_ref"]]
+        reconstructed_pages.append(
+            {
+                "schema": "page-evidence/v3",
+                "material_id": document["material_ref"],
+                "material_revision": material_revision,
+                "section_id": "page-section-not-used-by-document-context",
+                "page_ref": page["page_ref"],
+                "page_number": page["page_number"],
+                "page_evidence_id": page["page_evidence_id"],
+                "evidence_blocks": [
+                    {
+                        "evidence_id": block["evidence_id"],
+                        "block_id": block["block_id"],
+                        "kind": next(
+                            evidence["kind"]
+                            for evidence in document["evidence_index"]
+                            if evidence["evidence_id"] == block["evidence_id"]
+                        ),
+                        "text": evidence_text_by_id[block["evidence_id"]],
+                        "reading_order": block["reading_order"],
+                    }
+                    for block in context["current_blocks"]
+                ],
+            }
+        )
+    if any(
+        not validate_document_context(context, reconstructed_pages)
+        for context in contexts
+    ):
         return False
     concept_fields = {
         "concept_id", "page_ref", "label", "definition", "key_points",
@@ -266,6 +374,11 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
     evidence_index = []
     evidence_text_index = []
     evidence_pages: dict[str, str] = {}
+    context_blocks_by_evidence = {
+        block["evidence_id"]: block
+        for context in producer_output["document_contexts"]
+        for block in context["current_blocks"]
+    }
     page_numbers_seen: set[int] = set()
     page_refs: set[str] = set()
     images = []
@@ -322,6 +435,9 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
             ):
                 raise ValueError("STUDY_MATERIAL_EVIDENCE_INVALID")
             evidence_pages[evidence_id] = page_ref
+            context_block = context_blocks_by_evidence.get(evidence_id)
+            if context_block is None:
+                raise ValueError("STUDY_MATERIAL_CONTEXT_INVALID")
             evidence_index.append(
                 {
                     "evidence_id": evidence_id,
@@ -439,6 +555,18 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
         "evidence_text_index": sorted(
             evidence_text_index, key=lambda evidence: evidence["evidence_id"]
         ),
+        "context_block_index": sorted(
+            (
+                {
+                    "evidence_id": evidence_id,
+                    "block_id": context_block["block_id"],
+                    "section_id": context_block["section_id"],
+                }
+                for evidence_id, context_block in context_blocks_by_evidence.items()
+            ),
+            key=lambda block: block["evidence_id"],
+        ),
+        "document_contexts": deepcopy(producer_output["document_contexts"]),
         "images": sorted(images, key=lambda image: image["image_id"]),
         "processing": processing,
         "quality": "needs_review",

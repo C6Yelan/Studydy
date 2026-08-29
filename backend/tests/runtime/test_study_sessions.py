@@ -17,6 +17,7 @@ from learning_adaptation.study_sessions import (
     read_study_session,
 )
 from learning_resources.map_resources import MATCHING_POLICY, PROMOTION_POLICY
+from pdf_evidence.document_context import build_document_contexts
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.learner_session import (
     TrustedLearner,
@@ -255,6 +256,7 @@ def _insert_material_map(
     source_artifact_id = uuid4()
     upload_key = sha256(uuid4().bytes).digest()
     evidence_index = deepcopy(knowledge_map["evidence_index"])
+    material_revision = "material-revision:sha256:" + "9" * 64
     pages = [
         {
             "page_ref": evidence["page_ref"],
@@ -275,8 +277,39 @@ def _insert_material_map(
         }
         for evidence in evidence_index
     ]
+    context_source_pages = [
+        {
+            "schema": "page-evidence/v3",
+            "material_id": knowledge_map["material_ref"],
+            "material_revision": material_revision,
+            "section_id": "page-section-not-used-by-document-context",
+            "page_ref": page["page_ref"],
+            "page_number": page["page_number"],
+            "page_evidence_id": page["page_evidence_id"],
+            "evidence_blocks": [{
+                "evidence_id": evidence["evidence_id"],
+                "block_id": f"block:sha256:{index:064x}",
+                "kind": evidence["kind"],
+                "text": f"Canonical Evidence {index}",
+                "reading_order": 0,
+            }],
+        }
+        for index, (page, evidence) in enumerate(
+            zip(pages, evidence_index, strict=True), start=1
+        )
+    ]
+    document_contexts = build_document_contexts(context_source_pages)
+    context_block_index = [
+        {
+            "evidence_id": block["evidence_id"],
+            "block_id": block["block_id"],
+            "section_id": block["section_id"],
+        }
+        for context in document_contexts
+        for block in context["current_blocks"]
+    ]
     study_material_output = {
-        "schema": "study-material-output/v5",
+        "schema": "study-material-output/v6",
         "run_id": "text-first-run:00000000-0000-4000-8000-000000000001",
         "produced_at": "2026-08-26T00:00:00+00:00",
         "material_ref": knowledge_map["material_ref"],
@@ -303,6 +336,8 @@ def _insert_material_map(
             }
             for index, evidence in enumerate(evidence_index, start=1)
         ],
+        "context_block_index": context_block_index,
+        "document_contexts": document_contexts,
         "images": [],
         "processing": "succeeded",
         "quality": "needs_review",

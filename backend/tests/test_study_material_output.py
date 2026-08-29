@@ -198,10 +198,14 @@ def test_rejected_semantic_candidate_marks_page_partial_for_downstream():
     assert build_study_material_output(output)["processing"] == "partial"
 
 
-def test_build_v5_keeps_exact_evidence_claim_locator_and_image_lite():
+def test_build_v6_keeps_context_evidence_claim_locator_and_image_lite():
     source = producer_output()
     output = build_study_material_output(source)
-    assert output["schema"] == "study-material-output/v5"
+    assert output["schema"] == "study-material-output/v6"
+    assert output["document_contexts"] == source["document_contexts"]
+    assert output["context_block_index"][0]["block_id"] == (
+        source["pages"][0]["evidence_blocks"][0]["block_id"]
+    )
     assert output["processing"] == "partial"
     assert output["pages"][0]["processing"] == "partial"
     assert output["concepts"][0]["processing"] == "partial"
@@ -256,6 +260,27 @@ def test_recomputed_output_identity_cannot_hide_nested_unexpected_field():
     identity = dict(output)
     identity.pop("output_id")
     output["output_id"] = "study-material-output:sha256:" + canonical_sha256(identity)
+    assert validate_study_material_output(output) == "STUDY_MATERIAL_OUTPUT_INVALID"
+
+
+def test_recomputed_identity_cannot_hide_context_block_or_section_tamper():
+    output = build_study_material_output(producer_output())
+    context = output["document_contexts"][0]
+    context["current_blocks"][0]["section_id"] = (
+        "document-section:sha256:" + "f" * 64
+    )
+    context["section_ids"] = ["document-section:sha256:" + "f" * 64]
+    context_identity = dict(context)
+    context_identity.pop("context_id")
+    context["context_id"] = (
+        "document-context:sha256:" + canonical_sha256(context_identity)
+    )
+    identity = dict(output)
+    identity.pop("output_id")
+    output["output_id"] = (
+        "study-material-output:sha256:" + canonical_sha256(identity)
+    )
+
     assert validate_study_material_output(output) == "STUDY_MATERIAL_OUTPUT_INVALID"
 
 

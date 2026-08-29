@@ -109,7 +109,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         matches = (
             isinstance(runtime_lock, dict)
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
-            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v5"
+            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v6"
             and runtime_lock["semantic"]["required_file_count"]
             == len(runtime_lock["semantic"]["required_files"])
             and runtime_lock["semantic"]["binding_manifest_sha256"]
@@ -129,6 +129,11 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
                 "token_budget": 1024,
                 "token_counter": "utf8-byte-upper-bound/v1",
                 "model_calls": 0,
+                "section_policy": "nearest-grounded-heading-flat-section/v1",
+                "ambiguous_hierarchy": "needs-review/v1",
+                "dispatch_fit": "evidence-only-batch-preserving/v1",
+                "durable_output_schema": "concept-evidence-output/v4",
+                "study_projection_schema": "study-material-output/v6",
             }
             and relation_verifier["model_id"]
             == "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"

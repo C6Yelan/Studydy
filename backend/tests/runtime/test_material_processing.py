@@ -585,7 +585,7 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
     outputs = read_material_run_outputs(
         learner_id, source.material_id, created.run_id, dsn=processing_database_dsn
     )
-    assert outputs.study_material_output["schema"] == "study-material-output/v5"
+    assert outputs.study_material_output["schema"] == "study-material-output/v6"
     assert outputs.study_material_output["evidence_text_index"]
     assert all(
         set(evidence) == {"evidence_id", "text"}
@@ -940,6 +940,12 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
                 "backend_document_context"
             ],
             "backend/src/pdf_evidence/document_context.py",
+        ),
+        (
+            settings["runtime_lock"]["semantic"]["code_hashes"][
+                "backend_study_material_output"
+            ],
+            "backend/src/pdf_evidence/study_material_output.py",
         ),
     ):
         source_sha256 = hashlib.sha256(

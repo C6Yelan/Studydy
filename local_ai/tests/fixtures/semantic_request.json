@@ -8,7 +8,7 @@
   ],
   "document_context": {
     "schema": "concept-context-envelope/v1",
-    "document_context_id": "document-context:sha256:e2e9664845c7df6fb43a52d80fc367a1ce1b48796ac2011eab86bd851cec9c9b",
+    "document_context_id": "document-context:sha256:3d6979cd1ee4b2fb8fc156ef58f7daf40ec81ef5c268ba7c762e749738c8662e",
     "current_blocks": [
       {
         "evidence_id": "e1",

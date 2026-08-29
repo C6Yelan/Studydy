@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import os
 import signal
@@ -288,37 +289,17 @@ def request_structured_text(
         or (enable_thinking is not None and type(enable_thinking) is not bool)
     ):
         raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
-    prompt = f"{prompt_template}\nINPUT:\n{canonical_bytes(request_document).decode('utf-8')}"
-    messages = [{"role": "user", "content": prompt}]
     try:
-        tokenized = client.post(
-            _tokenize_url(base_url),
-            json={
-                "model": model,
-                "messages": messages,
-                "add_generation_prompt": True,
-                "add_special_tokens": False,
-            },
-            timeout=timeout_seconds,
+        messages = _messages_with_fitted_context(
+            client,
+            base_url=base_url,
+            model=model,
+            prompt_template=prompt_template,
+            request_document=request_document,
+            max_model_len=max_model_len,
+            max_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
         )
-        tokenized.raise_for_status()
-        if not tokenized.content or len(tokenized.content) > MAX_API_RESPONSE_BYTES:
-            raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
-        token_count = json.loads(
-            tokenized.content.decode("utf-8"),
-            object_pairs_hook=_without_duplicates,
-            parse_constant=_reject_constant,
-        )
-        if (
-            not isinstance(token_count, dict)
-            or type(token_count.get("count")) is not int
-            or type(token_count.get("max_model_len")) is not int
-            or token_count["count"] < 1
-            or token_count["max_model_len"] != max_model_len
-        ):
-            raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
-        if token_count["count"] + max_tokens > max_model_len:
-            raise ConceptAPIError("MODEL_INPUT_TOO_LARGE")
         request_body = {
             "model": model,
             "messages": messages,
@@ -366,3 +347,98 @@ def request_structured_text(
     if not isinstance(message, dict) or not isinstance(message.get("content"), str):
         raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
     return message["content"]
+
+
+def _messages_with_fitted_context(
+    client: httpx.Client,
+    *,
+    base_url: str,
+    model: str,
+    prompt_template: str,
+    request_document: dict[str, Any],
+    max_model_len: int,
+    max_tokens: int,
+    timeout_seconds: float,
+) -> list[dict[str, str]]:
+    """只移除低優先 context；current Evidence 的 batch 邊界不變。"""
+
+    candidate = deepcopy(request_document)
+    while True:
+        prompt = (
+            f"{prompt_template}\nINPUT:\n"
+            f"{canonical_bytes(candidate).decode('utf-8')}"
+        )
+        messages = [{"role": "user", "content": prompt}]
+        count = _token_count(
+            client,
+            base_url=base_url,
+            model=model,
+            messages=messages,
+            max_model_len=max_model_len,
+            timeout_seconds=timeout_seconds,
+        )
+        if count + max_tokens <= max_model_len:
+            return messages
+        context = candidate.get("document_context")
+        context_blocks = (
+            context.get("context_blocks") if isinstance(context, dict) else None
+        )
+        if isinstance(context_blocks, list) and context_blocks:
+            removed_id = context_blocks.pop()["id"]
+            for block in context["current_blocks"]:
+                block["heading_ancestry_ids"] = [
+                    reference
+                    for reference in block["heading_ancestry_ids"]
+                    if reference != removed_id
+                ]
+                block["continuation_ids"] = [
+                    reference
+                    for reference in block["continuation_ids"]
+                    if reference != removed_id
+                ]
+            continue
+        if "document_context" in candidate:
+            candidate = {
+                "schema": candidate["schema"],
+                "evidence": candidate["evidence"],
+            }
+            continue
+        raise ConceptAPIError("MODEL_INPUT_TOO_LARGE")
+
+
+def _token_count(
+    client: httpx.Client,
+    *,
+    base_url: str,
+    model: str,
+    messages: list[dict[str, str]],
+    max_model_len: int,
+    timeout_seconds: float,
+) -> int:
+    tokenized = client.post(
+        _tokenize_url(base_url),
+        json={
+            "model": model,
+            "messages": messages,
+            "add_generation_prompt": True,
+            "add_special_tokens": False,
+        },
+        timeout=timeout_seconds,
+    )
+    tokenized.raise_for_status()
+    if not tokenized.content or len(tokenized.content) > MAX_API_RESPONSE_BYTES:
+        raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
+    token_count = json.loads(
+        tokenized.content.decode("utf-8"),
+        object_pairs_hook=_without_duplicates,
+        parse_constant=_reject_constant,
+    )
+    if (
+        not isinstance(token_count, dict)
+        or type(token_count.get("count")) is not int
+        or type(token_count.get("max_model_len")) is not int
+        or token_count["count"] < 1
+        or token_count["max_model_len"] != max_model_len
+    ):
+        raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID")
+    return token_count["count"]

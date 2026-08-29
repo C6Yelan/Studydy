@@ -10,13 +10,17 @@ from .artifact_reason_codes import (
     reason_codes_are_valid,
 )
 from .concept_generation import claim_id, concept_id
+from .document_context import (
+    build_document_contexts,
+    validate_document_context,
+)
 from .ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
-OUTPUT_SCHEMA = "concept-evidence-output/v3"
+OUTPUT_SCHEMA = "concept-evidence-output/v4"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
 MAX_ARTIFACT_FILE_BYTES = 16 * 1024 * 1024
-RUNTIME_LOCK_SHA256 = "cb204f2c96f70602f2bfc191475cf8dcffecf5fdfad08dd3d40007c1dfde79f0"
+RUNTIME_LOCK_SHA256 = "d5e1f5316a5eeaf9f3e3b5431fae4263d18012ef50a478e2f7824979ee3606ec"
 
 
 def _closed(value: Any, fields: set[str]) -> bool:
@@ -202,8 +206,8 @@ def validate_output_document(output: Any) -> bool:
     fields = {
         "schema", "aggregation_policy", "run_id", "produced_at", "material_id",
         "material_revision", "source_binding", "pages", "excluded_pages", "concepts",
-        "rejected_candidates", "runtime_binding", "processing", "quality", "decision",
-        "reason_codes", "output_id",
+        "rejected_candidates", "document_contexts", "runtime_binding", "processing",
+        "quality", "decision", "reason_codes", "output_id",
     }
     if not _closed(output, fields) or output["schema"] != OUTPUT_SCHEMA:
         return False
@@ -245,6 +249,19 @@ def validate_output_document(output: Any) -> bool:
         return False
     page_refs = {page["page_ref"]: page["page_number"] for page in pages}
     if len(page_refs) != len(pages) or len(set(page_refs.values())) != len(pages):
+        return False
+    document_contexts = output["document_contexts"]
+    if (
+        not isinstance(document_contexts, list)
+        or len(document_contexts) != len(pages)
+        or any(not isinstance(context, dict) for context in document_contexts)
+        or {context.get("page_ref") for context in document_contexts}
+        != set(page_refs)
+        or any(
+            not validate_document_context(context, pages)
+            for context in document_contexts
+        )
+    ):
         return False
     excluded_refs: set[str] = set()
     excluded_numbers: set[int] = set()
@@ -434,6 +451,7 @@ def build_output(
         "source_binding": deepcopy(source_binding),
         "pages": formal_pages,
         "excluded_pages": excluded,
+        "document_contexts": build_document_contexts(formal_pages),
         "concepts": concepts,
         "rejected_candidates": rejected,
         "runtime_binding": deepcopy(runtime_binding),

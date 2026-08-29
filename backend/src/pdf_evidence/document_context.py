@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .ocr_page_evidence import canonical_sha256
@@ -16,6 +17,10 @@ _CONTEXT_ROLES = {
     "previous_page",
     "next_page",
     "supplementary",
+}
+_CONTEXT_REASONS = {
+    "HEADING_HIERARCHY_AMBIGUOUS",
+    "SECTION_BOUNDARY_AMBIGUOUS",
 }
 
 
@@ -99,8 +104,50 @@ def _looks_continued(left: str, right: str) -> bool:
     return left_is_open or right_is_tail
 
 
+def _section_memberships(
+    ordered_pages: list[dict[str, Any]],
+) -> tuple[dict[str, str], dict[str, str | None]]:
+    """Heading level 不可得時，只建立最近 heading 所屬的平面 section。"""
+
+    unheaded_start_block_id = ordered_pages[0]["evidence_blocks"][0]["block_id"]
+    current_heading_id: str | None = None
+    previous_page_number: int | None = None
+    section_by_block: dict[str, str] = {}
+    heading_by_section: dict[str, str | None] = {}
+    material_revision = ordered_pages[0]["material_revision"]
+    for page in ordered_pages:
+        if (
+            previous_page_number is not None
+            and page["page_number"] != previous_page_number + 1
+        ):
+            current_heading_id = None
+            unheaded_start_block_id = page["evidence_blocks"][0]["block_id"]
+        for block in page["evidence_blocks"]:
+            if block["kind"] == "heading":
+                current_heading_id = block["block_id"]
+            section_identity = {
+                "material_revision": material_revision,
+                "heading_block_id": current_heading_id,
+                "unheaded_start_block_id": (
+                    unheaded_start_block_id
+                    if current_heading_id is None
+                    else None
+                ),
+            }
+            section_id = (
+                "document-section:sha256:" + canonical_sha256(section_identity)
+            )
+            section_by_block[block["block_id"]] = section_id
+            heading_by_section[section_id] = current_heading_id
+        previous_page_number = page["page_number"]
+    return section_by_block, heading_by_section
+
+
 def _context_block(
-    page: dict[str, Any], block: dict[str, Any], role: str
+    page: dict[str, Any],
+    block: dict[str, Any],
+    role: str,
+    section_id: str,
 ) -> dict[str, Any]:
     return {
         "role": role,
@@ -108,7 +155,7 @@ def _context_block(
         "material_revision": page["material_revision"],
         "page_ref": page["page_ref"],
         "page_number": page["page_number"],
-        "section_id": page["section_id"],
+        "section_id": section_id,
         "evidence_id": block["evidence_id"],
         "block_id": block["block_id"],
         "reading_order": block["reading_order"],
@@ -122,18 +169,43 @@ def _make_context(
 ) -> dict[str, Any]:
     current_page = ordered_pages[current_index]
     current_blocks = current_page["evidence_blocks"]
+    section_by_block, heading_by_section = _section_memberships(ordered_pages)
+    blocks_by_id = {
+        block["block_id"]: (page, block)
+        for page in ordered_pages
+        for block in page["evidence_blocks"]
+    }
     previous_page = ordered_pages[current_index - 1] if current_index > 0 else None
+    if (
+        previous_page is not None
+        and previous_page["page_number"] != current_page["page_number"] - 1
+    ):
+        previous_page = None
     next_page = (
         ordered_pages[current_index + 1]
         if current_index + 1 < len(ordered_pages)
         else None
     )
+    if (
+        next_page is not None
+        and next_page["page_number"] != current_page["page_number"] + 1
+    ):
+        next_page = None
 
     candidates: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
-    for page in reversed(ordered_pages[:current_index]):
-        for block in reversed(page["evidence_blocks"]):
-            if block["kind"] == "heading":
-                candidates.append(("heading_ancestry", page, block))
+    current_block_ids = {block["block_id"] for block in current_blocks}
+    ancestry_heading_ids = []
+    for block in current_blocks:
+        heading_id = heading_by_section[section_by_block[block["block_id"]]]
+        if (
+            heading_id is not None
+            and heading_id not in current_block_ids
+            and heading_id not in ancestry_heading_ids
+        ):
+            ancestry_heading_ids.append(heading_id)
+    for heading_id in ancestry_heading_ids:
+        page, block = blocks_by_id[heading_id]
+        candidates.append(("heading_ancestry", page, block))
 
     if previous_page is not None and _looks_continued(
         previous_page["evidence_blocks"][-1]["text"], current_blocks[0]["text"]
@@ -182,30 +254,32 @@ def _make_context(
         block_tokens = len(block["text"].encode("utf-8"))
         if token_count + block_tokens > MAX_CONTEXT_TOKENS:
             continue
-        selected.append(_context_block(page, block, role))
+        selected.append(
+            _context_block(
+                page,
+                block,
+                role,
+                section_by_block[block["block_id"]],
+            )
+        )
         selected_ids.add(block["evidence_id"])
         token_count += block_tokens
 
     selected_block_ids = {block["block_id"] for block in selected}
-    document_prefix = ordered_pages[: current_index + 1]
     current_entries = []
     for block_index, block in enumerate(current_blocks):
-        preceding_headings = [
-            candidate["block_id"]
-            for page in document_prefix
-            for candidate in page["evidence_blocks"]
-            if (
-                candidate["kind"] == "heading"
-                and (
-                    page["page_ref"] != current_page["page_ref"]
-                    or candidate["reading_order"] < block["reading_order"]
-                )
-                and (
-                    page["page_ref"] == current_page["page_ref"]
-                    or candidate["block_id"] in selected_block_ids
-                )
+        section_id = section_by_block[block["block_id"]]
+        heading_id = heading_by_section[section_id]
+        preceding_headings = (
+            [heading_id]
+            if heading_id is not None
+            and heading_id != block["block_id"]
+            and (
+                heading_id in current_block_ids
+                or heading_id in selected_block_ids
             )
-        ]
+            else []
+        )
         continuation_ids = []
         if block_index > 0 and _looks_continued(
             current_blocks[block_index - 1]["text"], block["text"]
@@ -232,6 +306,7 @@ def _make_context(
                 "evidence_id": block["evidence_id"],
                 "block_id": block["block_id"],
                 "reading_order": block["reading_order"],
+                "section_id": section_id,
                 "heading_ancestry_block_ids": preceding_headings,
                 "previous_block_id": (
                     current_blocks[block_index - 1]["block_id"]
@@ -247,13 +322,28 @@ def _make_context(
             }
         )
 
+    section_ids = list(
+        dict.fromkeys(entry["section_id"] for entry in current_entries)
+    )
+    reasons = []
+    if any(heading_by_section[section_id] is None for section_id in section_ids):
+        reasons.append("SECTION_BOUNDARY_AMBIGUOUS")
+    heading_count = sum(
+        block["kind"] == "heading"
+        for page in ordered_pages
+        for block in page["evidence_blocks"]
+    )
+    if heading_count > 1:
+        reasons.append("HEADING_HIERARCHY_AMBIGUOUS")
+    reasons.sort()
+    quality = "needs_review" if reasons else "accepted"
     context = {
         "schema": CONTEXT_SCHEMA,
         "material_id": current_page["material_id"],
         "material_revision": current_page["material_revision"],
         "page_ref": current_page["page_ref"],
         "page_number": current_page["page_number"],
-        "section_id": current_page["section_id"],
+        "section_ids": section_ids,
         "page_evidence_id": current_page["page_evidence_id"],
         "current_blocks": current_entries,
         "context_blocks": selected,
@@ -261,6 +351,10 @@ def _make_context(
         "token_count": token_count,
         "token_counter": CONTEXT_TOKEN_COUNTER,
         "processing_policy": CONTEXT_POLICY,
+        "processing": "succeeded",
+        "quality": quality,
+        "decision": "review" if reasons else "retain",
+        "reason_codes": reasons,
     }
     context["context_id"] = (
         "document-context:sha256:" + canonical_sha256(context)
@@ -345,6 +439,22 @@ def validate_document_context(
 
     try:
         ordered = _ordered_pages(pages)
+        if not validate_document_context_shape(context):
+            return False
+        current_index = next(
+            index
+            for index, page in enumerate(ordered)
+            if page["page_ref"] == context["page_ref"]
+        )
+        return context == _make_context(ordered, current_index)
+    except (AttributeError, KeyError, StopIteration, TypeError, ValueError):
+        return False
+
+
+def validate_document_context_shape(context: Any) -> bool:
+    """供 durable consumer 重驗 closed schema、identity 與內部 references。"""
+
+    try:
         if not isinstance(context, dict) or set(context) != {
             "schema",
             "context_id",
@@ -352,7 +462,7 @@ def validate_document_context(
             "material_revision",
             "page_ref",
             "page_number",
-            "section_id",
+            "section_ids",
             "page_evidence_id",
             "current_blocks",
             "context_blocks",
@@ -360,20 +470,163 @@ def validate_document_context(
             "token_count",
             "token_counter",
             "processing_policy",
+            "processing",
+            "quality",
+            "decision",
+            "reason_codes",
         }:
             return False
-        if context["schema"] != CONTEXT_SCHEMA:
+        if (
+            context["schema"] != CONTEXT_SCHEMA
+            or re.fullmatch(r"material:sha256:[0-9a-f]{64}", context["material_id"])
+            is None
+            or re.fullmatch(
+                r"material-revision:sha256:[0-9a-f]{64}",
+                context["material_revision"],
+            )
+            is None
+            or re.fullmatch(r"page:sha256:[0-9a-f]{64}", context["page_ref"])
+            is None
+            or type(context["page_number"]) is not int
+            or context["page_number"] < 1
+            or not isinstance(context["section_ids"], list)
+            or not context["section_ids"]
+            or len(context["section_ids"]) != len(set(context["section_ids"]))
+            or any(
+                re.fullmatch(r"document-section:sha256:[0-9a-f]{64}", section_id)
+                is None
+                for section_id in context["section_ids"]
+            )
+            or re.fullmatch(
+                r"page-evidence:sha256:[0-9a-f]{64}",
+                context["page_evidence_id"],
+            )
+            is None
+            or not isinstance(context["current_blocks"], list)
+            or not context["current_blocks"]
+            or not isinstance(context["context_blocks"], list)
+            or context["token_budget"] != MAX_CONTEXT_TOKENS
+            or context["token_counter"] != CONTEXT_TOKEN_COUNTER
+            or context["processing_policy"] != CONTEXT_POLICY
+            or context["processing"] != "succeeded"
+            or not isinstance(context["reason_codes"], list)
+            or context["reason_codes"] != sorted(set(context["reason_codes"]))
+            or not set(context["reason_codes"]) <= _CONTEXT_REASONS
+            or (context["quality"] == "needs_review")
+            != bool(context["reason_codes"])
+            or context["quality"] not in {"accepted", "needs_review"}
+            or context["decision"]
+            != ("review" if context["reason_codes"] else "retain")
+        ):
             return False
-        current_index = next(
-            index
-            for index, page in enumerate(ordered)
-            if page["page_ref"] == context["page_ref"]
+        current_fields = {
+            "evidence_id",
+            "block_id",
+            "reading_order",
+            "section_id",
+            "heading_ancestry_block_ids",
+            "previous_block_id",
+            "next_block_id",
+            "continuation_block_ids",
+        }
+        context_fields = {
+            "role",
+            "material_id",
+            "material_revision",
+            "page_ref",
+            "page_number",
+            "section_id",
+            "evidence_id",
+            "block_id",
+            "reading_order",
+            "kind",
+            "text",
+        }
+        if any(
+            not isinstance(block, dict)
+            or set(block) != current_fields
+            or re.fullmatch(r"evidence:sha256:[0-9a-f]{64}", block["evidence_id"])
+            is None
+            or re.fullmatch(r"block:sha256:[0-9a-f]{64}", block["block_id"])
+            is None
+            or type(block["reading_order"]) is not int
+            or block["reading_order"] < 0
+            or block["section_id"] not in context["section_ids"]
+            or not isinstance(block["heading_ancestry_block_ids"], list)
+            or not isinstance(block["continuation_block_ids"], list)
+            for block in context["current_blocks"]
+        ):
+            return False
+        if any(
+            not isinstance(block, dict)
+            or set(block) != context_fields
+            or block["role"] not in _CONTEXT_ROLES
+            or block["material_id"] != context["material_id"]
+            or block["material_revision"] != context["material_revision"]
+            or re.fullmatch(r"page:sha256:[0-9a-f]{64}", block["page_ref"])
+            is None
+            or type(block["page_number"]) is not int
+            or block["page_number"] < 1
+            or re.fullmatch(
+                r"document-section:sha256:[0-9a-f]{64}", block["section_id"]
+            )
+            is None
+            or type(block["reading_order"]) is not int
+            or block["reading_order"] < 0
+            or re.fullmatch(r"evidence:sha256:[0-9a-f]{64}", block["evidence_id"])
+            is None
+            or re.fullmatch(r"block:sha256:[0-9a-f]{64}", block["block_id"])
+            is None
+            or not isinstance(block["kind"], str)
+            or not isinstance(block["text"], str)
+            or not block["text"]
+            for block in context["context_blocks"]
+        ):
+            return False
+        current_ids = {block["block_id"] for block in context["current_blocks"]}
+        context_ids = {block["block_id"] for block in context["context_blocks"]}
+        if (
+            len(current_ids) != len(context["current_blocks"])
+            or len(context_ids) != len(context["context_blocks"])
+            or current_ids & context_ids
+            or context["section_ids"]
+            != list(
+                dict.fromkeys(
+                    block["section_id"] for block in context["current_blocks"]
+                )
+            )
+        ):
+            return False
+        known_ids = current_ids | context_ids
+        references = [
+            reference
+            for block in context["current_blocks"]
+            for reference in [
+                *block["heading_ancestry_block_ids"],
+                block["previous_block_id"],
+                block["next_block_id"],
+                *block["continuation_block_ids"],
+            ]
+            if reference is not None
+        ]
+        if any(reference not in known_ids for reference in references):
+            return False
+        token_count = sum(
+            len(block["text"].encode("utf-8"))
+            for block in context["context_blocks"]
         )
+        identity = dict(context)
+        context_id = identity.pop("context_id")
         if any(
             block.get("role") not in _CONTEXT_ROLES
             for block in context["context_blocks"]
         ):
             return False
-        return context == _make_context(ordered, current_index)
+        return (
+            context["token_count"] == token_count
+            and token_count <= MAX_CONTEXT_TOKENS
+            and context_id
+            == "document-context:sha256:" + canonical_sha256(identity)
+        )
     except (AttributeError, KeyError, StopIteration, TypeError, ValueError):
         return False

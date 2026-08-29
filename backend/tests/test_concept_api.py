@@ -37,13 +37,18 @@ def _semantic_request():
     )
 
 
-def _request(client, *, base_url="http://localhost:8101"):
+def _request(
+    client,
+    *,
+    base_url="http://localhost:8101",
+    semantic_request=None,
+):
     return request_concept_text(
         client,
         base_url=base_url,
         model="fixed-model",
         prompt_template=RUNTIME_LOCK["semantic"]["prompt"],
-        semantic_request=_semantic_request(),
+        semantic_request=semantic_request or _semantic_request(),
         max_model_len=8_192,
         timeout_seconds=300,
     )
@@ -200,7 +205,55 @@ def test_tokenizer_budget_rejects_before_generation_call():
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
         with pytest.raises(ConceptAPIError, match="MODEL_INPUT_TOO_LARGE"):
             _request(client)
-    assert observed_paths == ["/tokenize"]
+    assert observed_paths == ["/tokenize", "/tokenize"]
+
+
+def test_optional_context_overflow_keeps_evidence_in_one_generation_call():
+    semantic_request = _semantic_request()
+    semantic_request["document_context"]["context_blocks"] = [
+        {"id": "c1", "role": "heading_ancestry", "text": "High priority heading"},
+        {"id": "c2", "role": "supplementary", "text": "Low priority detail"},
+    ]
+    current = semantic_request["document_context"]["current_blocks"][0]
+    current["heading_ancestry_ids"] = ["c1"]
+    current["continuation_ids"] = ["c2"]
+    tokenized_documents = []
+    generation_bodies = []
+
+    def respond(request):
+        body = json.loads(request.content)
+        if request.url.path == "/tokenize":
+            encoded = body["messages"][0]["content"].split("\nINPUT:\n", 1)[1]
+            document = json.loads(encoded)
+            tokenized_documents.append(document)
+            count = 6_700 if "document_context" in document else 6_500
+            return httpx.Response(200, json={"count": count, "max_model_len": 8_192})
+        generation_bodies.append(body)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{
+                    "finish_reason": "stop",
+                    "message": {"content": '{"concepts":[]}'},
+                }]
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        assert _request(client, semantic_request=semantic_request) == '{"concepts":[]}'
+
+    assert len(generation_bodies) == 1
+    assert [
+        [block["id"] for block in document["document_context"]["context_blocks"]]
+        if "document_context" in document
+        else []
+        for document in tokenized_documents
+    ] == [["c1", "c2"], ["c1"], [], []]
+    dispatched = json.loads(
+        generation_bodies[0]["messages"][0]["content"].split("\nINPUT:\n", 1)[1]
+    )
+    assert dispatched["evidence"] == semantic_request["evidence"]
+    assert "document_context" not in dispatched
 
 
 @pytest.mark.parametrize(
