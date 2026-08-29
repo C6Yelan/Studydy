@@ -71,7 +71,7 @@ def producer_output(*, excluded_page: bool = False):
                 "nearby_evidence_ids": [],
             }
         ],
-        "processing_policy": "native-first-page-evidence/v1",
+        "processing_policy": "native-first-page-evidence/v2",
         "normalizer_policy": "ocr-text-nfc-line-preserving/v1",
         "produced_at": "2026-08-19T00:00:00Z",
         "processing": "partial",

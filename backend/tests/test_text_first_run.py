@@ -51,7 +51,7 @@ def _title_and_content_pdf(path):
     title_page.insert_text((295, 400), "Public author", fontsize=20)
     title_page.insert_text((560, 520), "Public footer", fontsize=12)
     content_page = document.new_page(width=720, height=540)
-    content_page.insert_text((280, 65), "Public topic", fontsize=32)
+    content_page.insert_text((43, 65), "Public topic", fontsize=32)
     content_page.insert_text(
         (43, 150),
         "Public grounded content explains a concrete learning rule and example.",
@@ -349,6 +349,17 @@ def test_heading_only_page_keeps_evidence_without_suppressing_adjacent_content(
         block["kind"] == "heading"
         for block in output["pages"][0]["evidence_blocks"]
     )
+    assert [
+        block["kind"] for block in output["pages"][1]["evidence_blocks"]
+    ][:2] == ["heading", "paragraph"]
+    second_context = next(
+        context
+        for context in output["document_contexts"]
+        if context["page_ref"] == output["pages"][1]["page_ref"]
+    )
+    assert second_context["current_blocks"][1][
+        "heading_ancestry_block_ids"
+    ] == [output["pages"][1]["evidence_blocks"][0]["block_id"]]
     assert [concept["page_ref"] for concept in output["concepts"]] == [
         output["pages"][1]["page_ref"]
     ]
