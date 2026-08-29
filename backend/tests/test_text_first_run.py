@@ -9,6 +9,10 @@ import pytest
 
 import pdf_evidence.text_first_run as run_module
 from pdf_evidence.source_pdf import snapshot_whole_document_request
+from pdf_evidence.study_material_output import (
+    build_study_material_output,
+    validate_study_material_output,
+)
 from pdf_evidence.text_first_bundle import read_producer_bundle
 
 
@@ -493,6 +497,92 @@ def test_recursive_single_evidence_quarters_replay_exact_batch_requests(
     assert replay["concept_calls"] == 0
     assert replay["concept_loads"] == 0
     assert len(dispatched) == dispatched_count
+
+
+def test_multi_source_second_evidence_quarters_keep_cache_and_durable_lineage(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "public.pdf"
+    _pdf(path)
+    dispatched = []
+
+    def split_second_source(_client, **arguments):
+        request = deepcopy(arguments["semantic_request"])
+        dispatched.append(request)
+        if len(request["evidence"]) > 1:
+            raise run_module.ConceptAPIError("MODEL_INPUT_TOO_LARGE")
+        evidence = request["evidence"][0]
+        if evidence["id"] == "e2" and len(evidence["text"]) > 5:
+            raise run_module.ConceptAPIError("MODEL_INPUT_TOO_LARGE")
+        return '{"concepts":[]}'
+
+    monkeypatch.setattr(
+        run_module,
+        "start_ocr_process",
+        lambda settings: MultipleEvidenceChild("ocr", _state()),
+    )
+    monkeypatch.setattr(run_module, "route_page", lambda page: "OCR_needed")
+    monkeypatch.setattr(run_module, "request_concept_text", split_second_source)
+
+    first = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+    output = read_producer_bundle(
+        tmp_path / "runtime", first["run_id"]
+    )["output"]
+    output["pages"][0]["processing"] = "partial"
+    output["pages"][0]["reason_codes"] = sorted(
+        set(output["pages"][0]["reason_codes"]) | {"PAGE_CONTENT_UNUSABLE"}
+    )
+    page_identity = dict(output["pages"][0])
+    page_identity.pop("page_evidence_id")
+    output["pages"][0]["page_evidence_id"] = (
+        "page-evidence:sha256:" + run_module.canonical_sha256(page_identity)
+    )
+    output_identity = dict(output)
+    output_identity.pop("output_id")
+    output["output_id"] = (
+        "concept-evidence-output:sha256:"
+        + run_module.canonical_sha256(output_identity)
+    )
+    study_output = build_study_material_output(output)
+    dispatched_count = len(dispatched)
+    replay = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+
+    second_batches = [
+        batch
+        for batch in output["semantic_batches"]
+        if batch["semantic_request"]["evidence"][0]["id"] == "e2"
+    ]
+    assert len(second_batches) == 4
+    assert validate_study_material_output(study_output, output) is None
+    assert replay["concept_calls"] == 0
+    assert replay["concept_loads"] == 0
+    assert len(dispatched) == dispatched_count
+
+    tampered = deepcopy(study_output)
+    batch = next(
+        item
+        for item in tampered["semantic_batches"]
+        if item["semantic_request"]["evidence"][0]["id"] == "e2"
+    )
+    batch["semantic_request"]["evidence"][0]["text"] = (
+        "nearby but not derivable"
+    )
+    batch["semantic_request_sha256"] = run_module.canonical_sha256(
+        batch["semantic_request"]
+    )
+    identity = dict(tampered)
+    identity.pop("output_id")
+    tampered["output_id"] = (
+        "study-material-output:sha256:"
+        + run_module.canonical_sha256(identity)
+    )
+    assert validate_study_material_output(tampered) == (
+        "STUDY_MATERIAL_OUTPUT_INVALID"
+    )
 
 
 def test_malformed_concept_output_is_one_call_and_failed(tmp_path, monkeypatch):

@@ -536,10 +536,17 @@ def _single_evidence_slice_matches(
     fitted_request: dict[str, Any],
     source_request: dict[str, Any],
 ) -> bool:
-    if len(fitted_request["evidence"]) != 1 or len(source_request["evidence"]) != 1:
+    if len(fitted_request["evidence"]) != 1:
         return False
-    source = source_request["evidence"][0]
-    if evidence["id"] != source["id"] or len(source["text"]) < 2:
+    source = next(
+        (
+            source_evidence
+            for source_evidence in source_request["evidence"]
+            if source_evidence["id"] == evidence["id"]
+        ),
+        None,
+    )
+    if source is None or len(source["text"]) < 2:
         return False
     candidate_text = evidence["text"]
     frontier = [source["text"]]

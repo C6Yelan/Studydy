@@ -614,3 +614,22 @@ def test_single_large_evidence_split_removes_only_boundary_whitespace():
     tampered = json.loads(json.dumps(first_quarter))
     tampered["evidence"][0]["text"] = "not a deterministic slice"
     assert not fitted_semantic_request_matches_source(tampered, source)
+
+
+def test_multi_source_second_evidence_recursive_quarter_matches_exact_alias():
+    source = _request_with_evidence(
+        [
+            {"id": "e1", "text": "first source"},
+            {"id": "e2", "text": "second source has four deterministic parts"},
+        ]
+    )
+    _, second = split_semantic_request(source)
+    _, second_right = split_semantic_request(second)
+    quarter, _ = split_semantic_request(second_right)
+
+    assert quarter["evidence"][0]["id"] == "e2"
+    assert fitted_semantic_request_matches_source(quarter, source)
+
+    tampered = json.loads(json.dumps(quarter))
+    tampered["evidence"][0]["text"] = "nearby but not derivable"
+    assert not fitted_semantic_request_matches_source(tampered, source)
