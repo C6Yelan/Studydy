@@ -455,6 +455,46 @@ def test_oversized_page_is_split_and_all_batches_remain_grounded(tmp_path, monke
     } == page_evidence_ids
 
 
+def test_recursive_single_evidence_quarters_replay_exact_batch_requests(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "public.pdf"
+    _pdf(path)
+    dispatched = []
+
+    def split_to_quarters(_client, **arguments):
+        request = deepcopy(arguments["semantic_request"])
+        dispatched.append(request)
+        if len(request["evidence"][0]["text"]) > 6:
+            raise run_module.ConceptAPIError("MODEL_INPUT_TOO_LARGE")
+        return '{"concepts":[]}'
+
+    monkeypatch.setattr(run_module, "request_concept_text", split_to_quarters)
+
+    first = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+    output = read_producer_bundle(
+        tmp_path / "runtime", first["run_id"]
+    )["output"]
+    dispatched_count = len(dispatched)
+    replay = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+
+    assert first["processing"] == "partial"
+    assert first["concept_calls"] == 4
+    assert len(output["semantic_batches"]) == 4
+    assert all(
+        batch["semantic_request_sha256"]
+        == run_module.canonical_sha256(batch["semantic_request"])
+        for batch in output["semantic_batches"]
+    )
+    assert replay["concept_calls"] == 0
+    assert replay["concept_loads"] == 0
+    assert len(dispatched) == dispatched_count
+
+
 def test_malformed_concept_output_is_one_call_and_failed(tmp_path, monkeypatch):
     path = tmp_path / "public.pdf"
     _pdf(path)
@@ -472,6 +512,31 @@ def test_malformed_concept_output_is_one_call_and_failed(tmp_path, monkeypatch):
     assert bundle["reason_codes"] == ["MODEL_OUTPUT_INVALID"]
     run_root = tmp_path / "runtime" / "runs" / bundle["run_id"]
     assert not (run_root / "concept-evidence-output.json").exists()
+
+
+def test_invalid_fitted_request_fails_before_chat_dispatch(tmp_path, monkeypatch):
+    path = tmp_path / "public.pdf"
+    _pdf(path)
+    chat_calls = []
+    monkeypatch.setattr(
+        run_module,
+        "fit_concept_request",
+        lambda *_args, **_kwargs: {"schema": "invalid-fitted-request"},
+    )
+    monkeypatch.setattr(
+        run_module,
+        "request_concept_text",
+        lambda *_args, **_kwargs: chat_calls.append(True) or '{"concepts":[]}',
+    )
+
+    bundle = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+
+    assert bundle["processing"] == "failed"
+    assert bundle["output_id"] is None
+    assert bundle["concept_calls"] == 0
+    assert chat_calls == []
 
 
 def test_dispatched_ocr_failure_keeps_reason_and_counts_call(

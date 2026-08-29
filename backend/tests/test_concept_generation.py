@@ -607,3 +607,10 @@ def test_single_large_evidence_split_removes_only_boundary_whitespace():
     assert second["evidence"] == [{"id": "e1", "text": "second half"}]
     assert fitted_semantic_request_matches_source(first, source)
     assert fitted_semantic_request_matches_source(second, source)
+    first_quarter, second_quarter = split_semantic_request(first)
+    assert fitted_semantic_request_matches_source(first_quarter, source)
+    assert fitted_semantic_request_matches_source(second_quarter, source)
+
+    tampered = json.loads(json.dumps(first_quarter))
+    tampered["evidence"][0]["text"] = "not a deterministic slice"
+    assert not fitted_semantic_request_matches_source(tampered, source)

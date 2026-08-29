@@ -800,6 +800,7 @@ def _process_pdf(
                                     max_model_len=settings["concept_max_model_len"],
                                     timeout_seconds=retry_policy["timeout_seconds"],
                                 )
+                                validate_semantic_request(fitted_request)
                                 batch_binding = {
                                     "batch_index": len(batch_bindings),
                                     "semantic_request_sha256": canonical_sha256(

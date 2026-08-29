@@ -541,11 +541,23 @@ def _single_evidence_slice_matches(
     source = source_request["evidence"][0]
     if evidence["id"] != source["id"] or len(source["text"]) < 2:
         return False
-    middle = len(source["text"]) // 2
-    return evidence["text"] in {
-        source["text"][:middle].strip(),
-        source["text"][middle:].strip(),
-    }
+    candidate_text = evidence["text"]
+    frontier = [source["text"]]
+    for _ in range(32):
+        children = []
+        for text in frontier:
+            if candidate_text == text:
+                return True
+            if len(text) < 2:
+                continue
+            middle = len(text) // 2
+            for child in (text[:middle].strip(), text[middle:].strip()):
+                if child and candidate_text in child:
+                    children.append(child)
+        if not children:
+            return False
+        frontier = children
+    return candidate_text in frontier
 
 
 def _decode_complete_output(model_text: Any) -> dict[str, Any]:
