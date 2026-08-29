@@ -26,11 +26,14 @@ function apiError(status, reasonCode) {
 
 function pendingRun() {
   return {
-    schema: "material-processing-run/v2",
+    schema: "material-processing-run/v3",
     run_id: runId,
     material_id: materialId,
     source_artifact_id: artifactId,
     status: "pending",
+    progress_stage: "queued",
+    completed_pages: 0,
+    total_pages: null,
     output_binding: null,
     error_code: null,
     created_at: "2026-08-19T00:00:00Z",
@@ -43,6 +46,9 @@ function successfulRun() {
   return {
     ...pendingRun(),
     status: "succeeded",
+    progress_stage: "completed",
+    completed_pages: 40,
+    total_pages: 40,
     output_binding: {
       schema: "material-run-output-binding/v3",
       producer_bundle_id: `text-first-producer-bundle:sha256:${"1".repeat(64)}`,
@@ -223,6 +229,34 @@ test("upload network retry 沿用同一 idempotency key", async () => {
   assert.deepEqual(keys, ["same-intent", "same-intent"]);
 });
 
+test("upload invalid PDF, network and storage failures keep distinct messages", async () => {
+  for (const [status, reasonCode, message] of [
+    [400, "MATERIAL_PDF_INVALID", /損毀、加密或無法開啟/],
+    [503, "STORAGE_UNAVAILABLE", /資料服務暫時無法使用/],
+  ]) {
+    let calls = 0;
+    const client = new StudydyApiClient(async () => {
+      calls += 1;
+      return calls === 1 ? new Response(null, { status: 204 }) : apiError(status, reasonCode);
+    });
+    await assert.rejects(
+      client.createMaterial(new Blob(["%PDF-1.7"], { type: "application/pdf" }), `failure-${reasonCode}`),
+      (error) => error instanceof ApiClientError && message.test(error.message),
+    );
+  }
+
+  const networkClient = new StudydyApiClient(async (input) => {
+    if (String(input).endsWith("/refresh")) return new Response(null, { status: 204 });
+    throw new TypeError("offline");
+  });
+  await assert.rejects(
+    networkClient.createMaterial(new Blob(["%PDF-1.7"], { type: "application/pdf" }), "network-failure"),
+    (error) => error instanceof ApiClientError
+      && error.reasonCode === "NETWORK_ERROR"
+      && /網路連線失敗/.test(error.message),
+  );
+});
+
 test("terminal binding 不完整時拒絕假成功", async () => {
   const invalid = { ...successfulRun(), output_binding: { ...successfulRun().output_binding, quality: "accepted" } };
   let calls = 0;
@@ -239,6 +273,8 @@ test("terminal binding 不完整時拒絕假成功", async () => {
 test("terminal binding 接受單頁多批 concept calls 並拒絕負數", async () => {
   const accepted = successfulRun();
   accepted.output_binding.page_count = 1;
+  accepted.completed_pages = 1;
+  accepted.total_pages = 1;
   accepted.output_binding.ocr_calls = 1;
   accepted.output_binding.concept_calls = 3;
   let calls = 0;
@@ -259,6 +295,26 @@ test("terminal binding 接受單頁多批 concept calls 並拒絕負數", async 
     rejectedClient.getMaterialRun(runId),
     (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
   );
+});
+
+test("run v3 closed progress shape rejects v2, decreasing bounds and fake terminal", async () => {
+  const invalidRuns = [
+    { ...pendingRun(), schema: "material-processing-run/v2" },
+    { ...pendingRun(), status: "running", progress_stage: "page_evidence", completed_pages: 3, total_pages: 2 },
+    { ...pendingRun(), status: "running", progress_stage: "publishing", completed_pages: 1, total_pages: 2 },
+    { ...successfulRun(), completed_pages: 39 },
+  ];
+  for (const invalid of invalidRuns) {
+    let calls = 0;
+    const client = new StudydyApiClient(async () => {
+      calls += 1;
+      return calls === 1 ? new Response(null, { status: 204 }) : Response.json(invalid);
+    });
+    await assert.rejects(
+      client.getMaterialRun(runId),
+      (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
+    );
+  }
 });
 
 test("Map v6 使用 exact run/revision 並要求 claim PDF locator", async () => {

@@ -5,6 +5,7 @@ export type KnownApiReasonCode =
   | "RESOURCE_NOT_FOUND"
   | "IDEMPOTENCY_CONFLICT"
   | "MATERIAL_TOO_LARGE"
+  | "MATERIAL_PDF_INVALID"
   | "UNSUPPORTED_MEDIA_TYPE"
   | "STORAGE_UNAVAILABLE"
   | "INTERNAL_ERROR";
@@ -51,11 +52,14 @@ export type MaterialOutputBinding = {
 };
 
 export type MaterialProcessingRunView = {
-  schema: "material-processing-run/v2";
+  schema: "material-processing-run/v3";
   run_id: string;
   material_id: string;
   source_artifact_id: string;
   status: "pending" | "running" | "succeeded" | "partial" | "failed";
+  progress_stage: "queued" | "page_evidence" | "concept_generation" | "knowledge_map_generation" | "publishing" | "completed";
+  completed_pages: number;
+  total_pages: number | null;
   output_binding: MaterialOutputBinding | null;
   error_code: string | null;
   created_at: string;

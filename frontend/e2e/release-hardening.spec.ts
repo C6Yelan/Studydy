@@ -131,7 +131,15 @@ test("retryable failure 可在原畫面恢復，fatal/empty/partial 狀態 truth
   await page.route(`**/v1/material-processing-runs/${runId}`, (route) => {
     runCalls += 1;
     return recover
-      ? fulfillJson(route, { ...runView(), status: "running", output_binding: null, completed_at: null })
+      ? fulfillJson(route, {
+          ...runView(),
+          status: "running",
+          progress_stage: "concept_generation",
+          completed_pages: 1,
+          total_pages: 2,
+          output_binding: null,
+          completed_at: null,
+        })
       : fulfillJson(route, apiError("STORAGE_UNAVAILABLE", true), 503);
   });
   await page.goto(`/materials/${materialId}/runs/${runId}`);

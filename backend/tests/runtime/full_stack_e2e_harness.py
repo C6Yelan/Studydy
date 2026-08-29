@@ -174,7 +174,7 @@ class FullStackHarness:
                 "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public'"
             ).fetchone() != (0,):
                 raise HarnessFailure("E2E_DATABASE_NOT_EMPTY")
-        if run_migrations(self.database_dsn, migrations_dir=DEFAULT_MIGRATIONS_DIR) != (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13):
+        if run_migrations(self.database_dsn, migrations_dir=DEFAULT_MIGRATIONS_DIR) != (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
             raise HarnessFailure("E2E_FRESH_MIGRATION_FAILED")
         with psycopg.connect(self.database_dsn) as connection:
             for table in (
@@ -377,7 +377,10 @@ def _backend_child() -> int:
     from runtime.local_app import run_local_app
     from test_material_processing import _fake_knowledge_map, _fake_successful_producer
 
-    def deterministic_producer(request, settings, *, run_id, produced_at, runtime_binding_sha256):
+    def deterministic_producer(
+        request, settings, *, run_id, produced_at, runtime_binding_sha256,
+        progress_callback,
+    ):
         """Browser wiring 使用 deterministic fake，不宣稱執行真實 OCR/Qwen。"""
         return _fake_successful_producer(
             request,
@@ -385,6 +388,7 @@ def _backend_child() -> int:
             run_id=run_id,
             produced_at=produced_at,
             runtime_binding_sha256=runtime_binding_sha256,
+            progress_callback=progress_callback,
         )
 
     app_module.formal_runtime_preflight = processing_module.formal_runtime_binding

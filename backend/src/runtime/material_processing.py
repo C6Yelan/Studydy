@@ -157,6 +157,9 @@ class MaterialProcessingRun:
     source_artifact_id: UUID
     runtime_binding: dict[str, Any] = field(repr=False)
     status: str
+    progress_stage: str
+    completed_pages: int
+    total_pages: int | None
     error_code: str | None
     output_binding: dict[str, Any] | None = field(repr=False)
     created_at: datetime
@@ -205,6 +208,9 @@ def _row(row: MaterialProcessingRunRow) -> MaterialProcessingRun:
         source_artifact_id=row.source_artifact_id,
         runtime_binding=deepcopy(row.runtime_binding),
         status=row.status,
+        progress_stage=row.progress_stage,
+        completed_pages=row.completed_pages,
+        total_pages=row.total_pages,
         error_code=row.error_code,
         output_binding=deepcopy(row.output_binding),
         created_at=row.created_at,
@@ -712,6 +718,9 @@ def create_material_processing_run(
                 request_fingerprint=fingerprint,
                 runtime_binding=runtime_binding,
                 status="pending",
+                progress_stage="queued",
+                completed_pages=0,
+                total_pages=None,
                 created_at=created,
                 updated_at=created,
             )
@@ -794,6 +803,67 @@ def claim_next_material_processing_run(
         raise MaterialProcessingError("MATERIAL_RUN_STORAGE_FAILED") from None
 
 
+_NEXT_PROGRESS_STAGE = {
+    "queued": "page_evidence",
+    "page_evidence": "concept_generation",
+    "concept_generation": "knowledge_map_generation",
+    "knowledge_map_generation": "publishing",
+}
+
+
+def _record_material_progress(
+    run_id: UUID,
+    stage: str,
+    completed_pages: int,
+    total_pages: int,
+    *,
+    dsn: str | None,
+) -> None:
+    """只更新目前 running run 的真實 stage 與已完成頁數。"""
+
+    if (
+        not isinstance(run_id, UUID)
+        or stage not in set(_NEXT_PROGRESS_STAGE.values())
+        or type(completed_pages) is not int
+        or type(total_pages) is not int
+        or total_pages < 1
+        or not 0 <= completed_pages <= total_pages
+        or (
+            stage in {"knowledge_map_generation", "publishing"}
+            and completed_pages != total_pages
+        )
+    ):
+        raise MaterialProcessingError("MATERIAL_RUN_INVALID")
+    try:
+        with database_session(dsn) as session:
+            row = session.scalar(
+                select(MaterialProcessingRunRow)
+                .where(
+                    MaterialProcessingRunRow.run_id == run_id,
+                    MaterialProcessingRunRow.status == "running",
+                )
+                .with_for_update()
+            )
+            if row is None:
+                raise MaterialProcessingError("MATERIAL_RUN_INVALID")
+            if row.total_pages is not None and row.total_pages != total_pages:
+                raise MaterialProcessingError("MATERIAL_RUN_INVALID")
+            if stage == row.progress_stage:
+                if completed_pages < row.completed_pages:
+                    raise MaterialProcessingError("MATERIAL_RUN_INVALID")
+            elif _NEXT_PROGRESS_STAGE.get(row.progress_stage) != stage:
+                raise MaterialProcessingError("MATERIAL_RUN_INVALID")
+            row.progress_stage = stage
+            row.completed_pages = completed_pages
+            row.total_pages = total_pages
+            row.updated_at = session.scalar(select(func.clock_timestamp()))
+            session.flush()
+    except MaterialProcessingError:
+        raise
+    except Exception:
+        raise MaterialProcessingError("MATERIAL_RUN_STORAGE_FAILED") from None
+
+
 def _record_run_failure(run_id: UUID, reason: str, *, dsn: str | None) -> None:
     safe_reason = (
         reason
@@ -833,6 +903,16 @@ def execute_claimed_material_processing_run(
     if not isinstance(claim, ClaimedMaterialProcessingRun):
         raise MaterialProcessingError("MATERIAL_RUN_CLAIM_INVALID")
     run = claim.run
+
+    def progress_callback(stage: str, completed: int, total: int) -> None:
+        _record_material_progress(
+            run.run_id,
+            stage,
+            completed,
+            total,
+            dsn=dsn,
+        )
+
     try:
         if formal_runtime_preflight(local_config) != run.runtime_binding:
             raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
@@ -862,6 +942,7 @@ def execute_claimed_material_processing_run(
                 runtime_binding_sha256=run.runtime_binding[
                     "runtime_binding_sha256"
                 ],
+                progress_callback=progress_callback,
             )
         producer_bundle = read_producer_bundle(
             Path(local_config["private_runtime_root"]), producer_run_id
@@ -876,6 +957,8 @@ def execute_claimed_material_processing_run(
                 dsn=dsn,
             )
             return read_material_processing_run(run.learner_id, run.run_id, dsn=dsn)
+        page_count = bundle["page_count"]
+        progress_callback("knowledge_map_generation", page_count, page_count)
         publish_material_outputs(
             run.learner_id,
             run.material_id,
@@ -885,6 +968,7 @@ def execute_claimed_material_processing_run(
             producer_bundle,
             local_config=deepcopy(local_config),
             runtime_root=Path(local_config["private_runtime_root"]),
+            progress_callback=progress_callback,
             dsn=dsn,
         )
     except OSError as error:

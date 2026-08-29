@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -165,6 +166,7 @@ def publish_material_outputs(
     *,
     local_config: dict[str, Any],
     runtime_root: Path,
+    progress_callback: Callable[[str, int, int], None] | None = None,
     dsn: str | None = None,
 ) -> MaterialRunOutputs:
     """在單一 transaction 內保存 Output、Map，清理 handoff 後才發布 terminal。"""
@@ -227,6 +229,8 @@ def publish_material_outputs(
     }
     if not _binding_is_valid(binding):
         raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID")
+    if progress_callback is not None:
+        progress_callback("publishing", bundle["page_count"], bundle["page_count"])
     try:
         with database_session(dsn) as session:
             run_row = session.execute(
@@ -238,6 +242,7 @@ def publish_material_outputs(
                     MaterialProcessingRun.material_id == material_id,
                     MaterialProcessingRun.run_id == run_id,
                     MaterialProcessingRun.status == "running",
+                    MaterialProcessingRun.progress_stage == "publishing",
                 )
             ).one_or_none()
             if run_row is None or not isinstance(run_row[1], dict):
@@ -296,9 +301,13 @@ def publish_material_outputs(
                     MaterialProcessingRun.material_id == material_id,
                     MaterialProcessingRun.run_id == run_id,
                     MaterialProcessingRun.status == "running",
+                    MaterialProcessingRun.progress_stage == "publishing",
                 )
                 .values(
                     status=status,
+                    progress_stage="completed",
+                    completed_pages=bundle["page_count"],
+                    total_pages=bundle["page_count"],
                     output_binding=binding,
                     completed_at=func.clock_timestamp(),
                     updated_at=func.clock_timestamp(),

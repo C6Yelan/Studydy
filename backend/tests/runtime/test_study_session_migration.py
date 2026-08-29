@@ -174,6 +174,7 @@ def test_fresh_migrations_replace_only_empty_dormant_tables(
         11,
         12,
         13,
+        14,
     )
     with psycopg.connect(clean_database_dsn) as connection:
         assert connection.execute(
@@ -245,3 +246,230 @@ def test_nonempty_dormant_table_rolls_back_schema_and_ledger_without_output(
             assert connection.execute(
                 f"SELECT count(*) FROM {table_name}"
             ).fetchone() == (1,)
+
+
+def test_progress_migration_backfills_existing_runs_and_enforces_constraints(
+    clean_database_dsn: str,
+    migrations_dir: Path,
+    tmp_path: Path,
+):
+    through_thirteen = tmp_path / "through-thirteen"
+    _copy_migrations(migrations_dir, through_thirteen, 13)
+    assert run_migrations(
+        clean_database_dsn, migrations_dir=through_thirteen
+    ) == tuple(range(1, 14))
+
+    learner_id = uuid4()
+    material_id = uuid4()
+    artifact_id = uuid4()
+    run_ids = {status: uuid4() for status in (
+        "pending", "running", "succeeded", "partial", "failed"
+    )}
+    with psycopg.connect(clean_database_dsn) as connection:
+        connection.execute("SET CONSTRAINTS ALL DEFERRED")
+        connection.execute(
+            "INSERT INTO learners VALUES (%s, clock_timestamp())",
+            (learner_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO materials (
+                material_id, learner_id, source_artifact_id,
+                upload_idempotency_key_sha256, upload_request_fingerprint,
+                created_at
+            ) VALUES (%s, %s, %s, %s, %s, clock_timestamp())
+            """,
+            (material_id, learner_id, artifact_id, b"m" * 32, b"r" * 32),
+        )
+        connection.execute(
+            """
+            INSERT INTO artifacts (
+                artifact_id, learner_id, material_id, kind, media_type,
+                sha256, size_bytes, created_at
+            ) VALUES (%s, %s, %s, 'source_pdf', 'application/pdf', %s, 1,
+                clock_timestamp())
+            """,
+            (artifact_id, learner_id, material_id, b"s" * 32),
+        )
+        for index, (status, run_id) in enumerate(run_ids.items(), start=1):
+            page_count = 4 if status == "succeeded" else 2
+            is_success = status in {"succeeded", "partial"}
+            is_failed = status == "failed"
+            connection.execute(
+                """
+                INSERT INTO material_processing_runs (
+                    run_id, learner_id, material_id, source_artifact_id,
+                    idempotency_key_sha256, request_fingerprint,
+                    runtime_binding, status, error_code, output_binding,
+                    created_at, updated_at, completed_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s,
+                    CASE WHEN %s THEN 'MATERIAL_ANALYSIS_FAILED' ELSE NULL END,
+                    %s, clock_timestamp(), clock_timestamp(),
+                    CASE WHEN %s OR %s THEN clock_timestamp() ELSE NULL END
+                )
+                """,
+                (
+                    run_id,
+                    learner_id,
+                    material_id,
+                    artifact_id,
+                    bytes([index]) * 32,
+                    bytes([index + 10]) * 32,
+                    Jsonb({"schema": "runtime-binding"}),
+                    status,
+                    is_failed,
+                    Jsonb({
+                        "schema": "material-run-output-binding/v3",
+                        "page_count": page_count,
+                    }) if is_success else None,
+                    is_success,
+                    is_failed,
+                ),
+            )
+
+    shutil.copy2(
+        migrations_dir / "0014_add_material_processing_progress.sql",
+        through_thirteen,
+    )
+    assert run_migrations(
+        clean_database_dsn, migrations_dir=through_thirteen
+    ) == (14,)
+
+    with psycopg.connect(clean_database_dsn) as connection:
+        rows = connection.execute(
+            """
+            SELECT status, progress_stage, completed_pages, total_pages
+            FROM material_processing_runs
+            ORDER BY status
+            """
+        ).fetchall()
+        assert rows == [
+            ("failed", "queued", 0, None),
+            ("partial", "completed", 2, 2),
+            ("pending", "queued", 0, None),
+            ("running", "queued", 0, None),
+            ("succeeded", "completed", 4, 4),
+        ]
+
+        connection.execute(
+            """
+            UPDATE material_processing_runs
+            SET progress_stage = 'page_evidence', completed_pages = 1, total_pages = 2
+            WHERE run_id = %s
+            """,
+            (run_ids["running"],),
+        )
+        connection.execute(
+            """
+            UPDATE material_processing_runs
+            SET progress_stage = 'concept_generation', completed_pages = 1, total_pages = 2
+            WHERE run_id = %s
+            """,
+            (run_ids["failed"],),
+        )
+        assert connection.execute(
+            """
+            SELECT status, progress_stage, completed_pages, total_pages
+            FROM material_processing_runs
+            WHERE run_id IN (%s, %s)
+            ORDER BY status
+            """,
+            (run_ids["running"], run_ids["failed"]),
+        ).fetchall() == [
+            ("failed", "concept_generation", 1, 2),
+            ("running", "page_evidence", 1, 2),
+        ]
+
+    invalid_updates = (
+        ("progress_stage = 'unknown'", run_ids["running"]),
+        ("progress_stage = 'page_evidence', completed_pages = -1, total_pages = 4", run_ids["running"]),
+        ("progress_stage = 'page_evidence', completed_pages = 5, total_pages = 4", run_ids["running"]),
+        ("progress_stage = 'page_evidence', completed_pages = 0, total_pages = NULL", run_ids["running"]),
+        ("progress_stage = 'publishing', completed_pages = 3, total_pages = 4", run_ids["running"]),
+    )
+    for assignment, run_id in invalid_updates:
+        with psycopg.connect(clean_database_dsn) as connection:
+            with pytest.raises(psycopg.errors.CheckViolation):
+                connection.execute(
+                    f"UPDATE material_processing_runs SET {assignment} WHERE run_id = %s",
+                    (run_id,),
+                )
+
+    invalid_terminal_bindings = (
+        {"schema": "material-run-output-binding/v3"},
+        {"schema": "material-run-output-binding/v3", "page_count": None},
+        {"schema": "material-run-output-binding/v3", "page_count": "4"},
+        {"schema": "material-run-output-binding/v3", "page_count": 4.5},
+        {"schema": "material-run-output-binding/v3", "page_count": 2147483648},
+    )
+    for binding in invalid_terminal_bindings:
+        with psycopg.connect(clean_database_dsn) as connection:
+            with pytest.raises(psycopg.errors.CheckViolation):
+                connection.execute(
+                    """
+                    UPDATE material_processing_runs
+                    SET output_binding = %s
+                    WHERE run_id = %s
+                    """,
+                    (Jsonb(binding), run_ids["succeeded"]),
+                )
+
+
+def test_progress_migration_failure_rolls_back_columns_and_ledger(
+    clean_database_dsn: str,
+    migrations_dir: Path,
+    tmp_path: Path,
+):
+    migration_directory = tmp_path / "progress-rollback"
+    _copy_migrations(migrations_dir, migration_directory, 13)
+    assert run_migrations(
+        clean_database_dsn, migrations_dir=migration_directory
+    ) == tuple(range(1, 14))
+    with psycopg.connect(clean_database_dsn) as connection:
+        connection.execute("SET session_replication_role = replica")
+        connection.execute(
+            """
+            INSERT INTO material_processing_runs (
+                run_id, learner_id, material_id, source_artifact_id,
+                idempotency_key_sha256, request_fingerprint,
+                runtime_binding, status, error_code, output_binding,
+                created_at, updated_at, completed_at
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s,
+                'succeeded', NULL, %s,
+                clock_timestamp(), clock_timestamp(), clock_timestamp()
+            )
+            """,
+            (
+                uuid4(), uuid4(), uuid4(), uuid4(), b"i" * 32, b"f" * 32,
+                Jsonb({"schema": "runtime-binding"}),
+                Jsonb({
+                    "schema": "material-run-output-binding/v3",
+                    "page_count": "not-an-integer",
+                }),
+            ),
+        )
+        connection.execute("SET session_replication_role = origin")
+        before = _schema_signature(connection)
+    shutil.copy2(
+        migrations_dir / "0014_add_material_processing_progress.sql",
+        migration_directory,
+    )
+
+    with pytest.raises(MigrationSqlError, match="^MIGRATION_SQL_FAILED$"):
+        run_migrations(clean_database_dsn, migrations_dir=migration_directory)
+
+    with psycopg.connect(clean_database_dsn) as connection:
+        assert _schema_signature(connection) == before
+        assert connection.execute(
+            """
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'material_processing_runs'
+              AND column_name IN ('progress_stage', 'completed_pages', 'total_pages')
+            """
+        ).fetchall() == []
+        assert connection.execute(
+            "SELECT count(*) FROM material_processing_runs"
+        ).fetchone() == (1,)

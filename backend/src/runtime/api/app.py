@@ -96,6 +96,7 @@ _ERROR_STATUS = {
     "RESOURCE_NOT_FOUND": (404, False),
     "IDEMPOTENCY_CONFLICT": (409, False),
     "MATERIAL_TOO_LARGE": (413, False),
+    "MATERIAL_PDF_INVALID": (400, False),
     "UNSUPPORTED_MEDIA_TYPE": (415, False),
     "STORAGE_UNAVAILABLE": (503, True),
     "INTERNAL_ERROR": (500, False),
@@ -238,7 +239,6 @@ def _fixed_exception(error: Exception) -> str:
         return "RESOURCE_NOT_FOUND"
     if reason in {
         "ARTIFACT_REQUEST_INVALID",
-        "ARTIFACT_PDF_INVALID",
         "MATERIAL_RUN_INVALID",
         "STUDY_SESSION_REQUEST_INVALID",
         "STUDY_SESSION_TARGET_INVALID",
@@ -251,6 +251,8 @@ def _fixed_exception(error: Exception) -> str:
         "ADAPTIVE_PLAN_REQUEST_INVALID",
     }:
         return "REQUEST_INVALID"
+    if reason == "ARTIFACT_PDF_INVALID":
+        return "MATERIAL_PDF_INVALID"
     if "STORAGE" in reason or reason in {
         "SESSION_CREATE_FAILED",
         "ARTIFACT_PUBLISH_FAILED",
