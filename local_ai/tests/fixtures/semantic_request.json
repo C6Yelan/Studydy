@@ -1,5 +1,5 @@
 {
-  "schema": "concept-generation-input/v5",
+  "schema": "concept-generation-input/v6",
   "evidence": [
     {
       "id": "e1",
@@ -7,8 +7,9 @@
     }
   ],
   "document_context": {
-    "schema": "concept-context-envelope/v2",
-    "document_context_id": "document-context:sha256:3d6979cd1ee4b2fb8fc156ef58f7daf40ec81ef5c268ba7c762e749738c8662e",
+    "schema": "concept-context-envelope/v3",
+    "source_context_id": "document-context:sha256:3d6979cd1ee4b2fb8fc156ef58f7daf40ec81ef5c268ba7c762e749738c8662e",
+    "document_context_id": "concept-context:sha256:652c4cdca1f075c4a6602bee0edad77899f0484e0d1472ad93311dfc47c89cad",
     "current_blocks": [
       {
         "evidence_id": "e1",

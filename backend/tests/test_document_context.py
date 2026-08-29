@@ -86,6 +86,27 @@ def test_context_budget_drops_whole_lower_priority_blocks_not_current_evidence()
     assert current_evidence not in str(context["context_blocks"])
 
 
+def test_selected_adjacent_context_serializes_in_document_source_order():
+    pages = [
+        _page(
+            1,
+            [
+                ("heading", "Public heading"),
+                ("paragraph", "Previous public detail"),
+            ],
+        ),
+        _page(2, [("paragraph", "Current public detail")]),
+        _page(3, [("paragraph", "Next public detail")]),
+    ]
+
+    context = build_document_contexts(pages)[1]
+
+    assert [
+        (block["page_number"], block["reading_order"])
+        for block in context["context_blocks"]
+    ] == [(1, 0), (1, 1), (3, 0)]
+
+
 def test_context_validation_rejects_changed_text_or_identity():
     pages = [
         _page(1, [("heading", "Public heading")]),
@@ -132,12 +153,25 @@ def test_ambiguous_heading_hierarchy_and_unheaded_section_need_review():
     ]
     second = build_document_contexts(pages)[1]
 
-    assert second["quality"] == "needs_review"
-    assert second["decision"] == "review"
-    assert second["reason_codes"] == ["HEADING_HIERARCHY_AMBIGUOUS"]
+    assert second["quality"] == "accepted"
+    assert second["decision"] == "retain"
+    assert second["reason_codes"] == []
     assert second["current_blocks"][1]["heading_ancestry_block_ids"] == [
         pages[1]["evidence_blocks"][0]["block_id"]
     ]
+
+    ambiguous = build_document_contexts([
+        _page(
+            1,
+            [
+                ("heading", "Broad heading"),
+                ("heading", "Nested or sibling heading"),
+                ("paragraph", "Public detail"),
+            ],
+        )
+    ])[0]
+    assert ambiguous["quality"] == "needs_review"
+    assert ambiguous["reason_codes"] == ["HEADING_HIERARCHY_AMBIGUOUS"]
 
     unheaded = build_document_contexts(
         [_page(1, [("paragraph", "Public detail without heading")])]

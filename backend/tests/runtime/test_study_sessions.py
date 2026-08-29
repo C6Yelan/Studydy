@@ -300,7 +300,7 @@ def _insert_material_map(
     ]
     document_contexts = build_document_contexts(context_source_pages)
     study_material_output = {
-        "schema": "study-material-output/v6",
+        "schema": "study-material-output/v7",
         "run_id": "text-first-run:00000000-0000-4000-8000-000000000001",
         "produced_at": "2026-08-26T00:00:00+00:00",
         "material_ref": knowledge_map["material_ref"],
@@ -328,6 +328,21 @@ def _insert_material_map(
             for index, evidence in enumerate(evidence_index, start=1)
         ],
         "document_contexts": document_contexts,
+        "semantic_batches": [
+            {
+                "page_ref": context["page_ref"],
+                "batch_index": 0,
+                "semantic_request_sha256": canonical_sha256(
+                    {"context_id": context["context_id"], "kind": "request"}
+                ),
+                "document_context_id": "concept-context:sha256:"
+                + canonical_sha256(
+                    {"context_id": context["context_id"], "kind": "envelope"}
+                ),
+                "source_context_id": context["context_id"],
+            }
+            for context in document_contexts
+        ],
         "images": [],
         "processing": "succeeded",
         "quality": "needs_review",

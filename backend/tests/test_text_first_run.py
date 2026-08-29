@@ -153,6 +153,9 @@ class FakeConceptAPI:
 
     def __call__(self, client, **arguments):
         self.state["concept"] += 1
+        self.state.setdefault("semantic_requests", []).append(
+            deepcopy(arguments["semantic_request"])
+        )
         if self.always_invalid or (self.invalid_first and self.state["concept"] == 1):
             return '{"concepts":'
         evidence_id = arguments["semantic_request"]["evidence"][0]["id"]
@@ -248,6 +251,11 @@ def no_real_concept_server(monkeypatch):
             return None
 
     monkeypatch.setattr(run_module, "start_concept_server", lambda _: FakeServer())
+    monkeypatch.setattr(
+        run_module,
+        "fit_concept_request",
+        lambda _client, **arguments: deepcopy(arguments["semantic_request"]),
+    )
 
 
 def test_sequential_product_path_and_exact_replay_zero_model_calls(tmp_path, monkeypatch):
@@ -275,8 +283,28 @@ def test_sequential_product_path_and_exact_replay_zero_model_calls(tmp_path, mon
             encoding="utf-8"
         )
     )
-    assert semantic_cache["input_binding"]["document_context"]["schema"] == (
-        "document-semantic-context/v1"
+    output = read_producer_bundle(
+        tmp_path / "runtime", first["run_id"]
+    )["output"]
+    batch_binding = semantic_cache["input_binding"]["batch_bindings"][0]
+    assert semantic_cache["cache_key"] == run_module.canonical_sha256(
+        semantic_cache["input_binding"]
+    )
+    assert semantic_cache["artifact"]["input_binding"] == (
+        semantic_cache["input_binding"]
+    )
+    assert batch_binding["semantic_request_sha256"]
+    assert batch_binding["semantic_request_sha256"] == (
+        run_module.canonical_sha256(state["semantic_requests"][0])
+    )
+    assert batch_binding["document_context_id"].startswith(
+        "concept-context:sha256:"
+    )
+    assert output["document_contexts"][0]["page_evidence_id"] != (
+        output["pages"][0]["page_evidence_id"]
+    )
+    assert output["semantic_batches"][0]["source_context_id"] == (
+        output["document_contexts"][0]["context_id"]
     )
     assert "png_base64" not in saved_json
     assert "model_text" not in saved_json
@@ -395,6 +423,21 @@ def test_oversized_page_is_split_and_all_batches_remain_grounded(tmp_path, monke
     assert bundle["excluded_page_count"] == 0
     assert bundle["concept_calls"] == len(output["concepts"])
     assert len(seen_requests) > bundle["concept_calls"]
+    assert [
+        batch["batch_index"] for batch in output["semantic_batches"]
+    ] == list(range(len(output["semantic_batches"])))
+    assert len(output["semantic_batches"]) == bundle["concept_calls"]
+    assert len({
+        batch["semantic_request_sha256"]
+        for batch in output["semantic_batches"]
+    }) == len(output["semantic_batches"])
+    assert len({
+        batch["document_context_id"]
+        for batch in output["semantic_batches"]
+    }) == len(output["semantic_batches"])
+    assert {
+        batch["source_context_id"] for batch in output["semantic_batches"]
+    } == {output["document_contexts"][0]["context_id"]}
     page_evidence_ids = {
         block["evidence_id"] for block in output["pages"][0]["evidence_blocks"]
     }

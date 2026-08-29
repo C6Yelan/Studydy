@@ -1,5 +1,5 @@
 {
-  "schema": "studydy-local-ai-runtime-lock/v8",
+  "schema": "studydy-local-ai-runtime-lock/v9",
   "python": {
     "version": "3.12.3",
     "executable_sha256": "4933b6c4a8521fb3aa93856701e30b3ac2626d3c47ceb22965a3b0b422e85b44"
@@ -105,8 +105,8 @@
     },
     "prompt": "Extract study concepts only from the supplied current evidence. Use document_context when present only to interpret heading ancestry, adjacency, and continuation; it is not claim evidence. Use current_blocks.kind as grounded Evidence role metadata. Cite only IDs from the current evidence list, and give every definition and key point non-empty evidence_ids. Preserve exact escapes, symbols, operators, numbers, units, conditions, direction, and scope, including \\0. Do not emit isolated connectors, syntax tails, half clauses, or incomplete declarations as claims. Return concepts=[] when the current page teaches no concept. Return JSON only and no additional fields.",
     "prompt_sha256": "801b82a181c72a9ba601423afce8ece532c5db665cb216a5cc82ca9cc39c44a4",
-    "request_schema": "concept-generation-input/v5",
-    "output_schema": "semantic-page-concepts/v2",
+    "request_schema": "concept-generation-input/v6",
+    "output_schema": "semantic-page-concepts/v3",
     "generation": {"temperature": 0, "max_tokens": 1536},
     "structured_output": {
       "type": "json_schema",
@@ -122,7 +122,7 @@
     },
     "document_context": {
       "schema": "document-semantic-context/v1",
-      "concept_envelope_schema": "concept-context-envelope/v2",
+      "concept_envelope_schema": "concept-context-envelope/v3",
       "processing_policy": "document-reading-order-context/v1",
       "token_budget": 1024,
       "token_counter": "utf8-byte-upper-bound/v1",
@@ -130,8 +130,9 @@
       "section_policy": "nearest-grounded-heading-flat-section/v1",
       "ambiguous_hierarchy": "needs-review/v1",
       "dispatch_fit": "evidence-only-batch-preserving/v1",
-      "durable_output_schema": "concept-evidence-output/v4",
-      "study_projection_schema": "study-material-output/v6"
+      "batch_binding": "exact-fitted-request-lineage/v1",
+      "durable_output_schema": "concept-evidence-output/v5",
+      "study_projection_schema": "study-material-output/v7"
     },
     "retry": {
       "max_attempts": 2,
@@ -144,7 +145,7 @@
     },
     "policy": {
       "candidate_text_normalizer": "concept-text-nfkc-whitespace/v1",
-      "claim_processing_policy": "claim-grounded-concept-review/v4",
+      "claim_processing_policy": "claim-grounded-concept-review/v5",
       "exact_technical_tokens": "claim-technical-token-fidelity/v1",
       "fragment_validation": "claim-fragment-reasons/v2",
       "cross_concept_evidence_reuse": true,
@@ -154,15 +155,15 @@
       "structurally_valid_decision": "review"
     },
     "code_hashes": {
-      "backend_concept_api": "18557207106aab9dabd75e56ee03246d40452e3fe82495f2d9c2ec8d1858b529",
+      "backend_concept_api": "b1a4f67457e8b8d1d9c4b15ff18c69c9a94be8f5d405dff329ab3eff80c292e5",
       "backend_process_guard": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
-      "backend_concept_generation": "ef27148b9be138d260bee0dcb539e50987e102c5684d2fca340c13280e344199",
-      "backend_document_context": "137a76c8832153328bafc610fff42d50d45fcab13a1711b61705ff6c40fd7486",
-      "backend_text_first_run": "31a3c45a32ed8493a52c4e07b95945e53591c9c62f668f3cf8f0dd15aed88ef1",
-      "backend_study_material_output": "79bc309c15d76d6a3bcfc0116016f1bbfc19b6a088110ffba1e35cb1b4be509a"
+      "backend_concept_generation": "a747942d2cff6bbd90222efa947edaf477b73177022ba6cb1e61f79d9ce69498",
+      "backend_document_context": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
+      "backend_text_first_run": "3a6a8106e8c91c8ff7c8ae0468000180e8f57ebcd68af92c8250c206b0d2cad9",
+      "backend_study_material_output": "1aef243505c5d18e68b9aa3f10cdd9aa447c6af2fab4c663269e5b1daae9b6b5"
     },
     "fixture_hashes": {
-      "semantic_request.json": "70626fa74a8b04fe4fc449f8a58954dab47a4179c6a4956f9f5cdd7715f5b119",
+      "semantic_request.json": "256b94884c85c4ffdb3881c5a43e67f12d52b568b3cbd240e57050c5eb9b3fef",
       "semantic_model_output.json": "b097b099d350b02fc947b2ad0b5f415e53fab96d8039400d42f370a4f5b51327"
     }
   },

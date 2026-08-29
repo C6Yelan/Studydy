@@ -117,7 +117,7 @@ def _study_output(label, source_sha256="f" * 64):
         "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
     }
     document = {
-        "schema": "study-material-output/v6",
+        "schema": "study-material-output/v7",
         "run_id": "study-test-run",
         "produced_at": "2026-08-21T10:00:00+08:00",
         "material_ref": material_id,
@@ -157,6 +157,13 @@ def _study_output(label, source_sha256="f" * 64):
             {"evidence_id": evidence_id, "text": "The page provides direct evidence."}
         ],
         "document_contexts": [context],
+        "semantic_batches": [{
+            "page_ref": page_ref,
+            "batch_index": 0,
+            "semantic_request_sha256": "9" * 64,
+            "document_context_id": "concept-context:sha256:" + "a" * 64,
+            "source_context_id": context["context_id"],
+        }],
         "images": [],
         "processing": "succeeded",
         "quality": "needs_review",

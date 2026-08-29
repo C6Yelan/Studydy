@@ -12,6 +12,7 @@ from pdf_evidence.concept_generation import (
     validate_concepts,
 )
 from pdf_evidence.document_context import build_document_contexts
+from pdf_evidence.ocr_page_evidence import canonical_sha256
 
 
 FIXTURES = Path(__file__).parents[2] / "local_ai" / "tests" / "fixtures"
@@ -47,6 +48,14 @@ def _request_with_evidence(evidence):
         }
         for index, item in enumerate(evidence)
     ]
+    context_identity = {
+        key: value
+        for key, value in request["document_context"].items()
+        if key != "document_context_id"
+    }
+    request["document_context"]["document_context_id"] = (
+        "concept-context:sha256:" + canonical_sha256(context_identity)
+    )
     return request
 
 

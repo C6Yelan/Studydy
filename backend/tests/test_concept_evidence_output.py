@@ -10,6 +10,13 @@ from test_study_material_output import producer_output
 
 def _reidentify_output(output):
     output["document_contexts"] = build_document_contexts(output["pages"])
+    contexts_by_page = {
+        context["page_ref"]: context for context in output["document_contexts"]
+    }
+    for batch in output["semantic_batches"]:
+        batch["source_context_id"] = contexts_by_page[batch["page_ref"]][
+            "context_id"
+        ]
     identity = dict(output)
     identity.pop("output_id")
     output["output_id"] = (
@@ -71,6 +78,15 @@ def _two_page_output():
     )
     output["pages"].append(second_page)
     output["concepts"].append(second_concept)
+    output["semantic_batches"].append(
+        {
+            "page_ref": second_page_ref,
+            "batch_index": 0,
+            "semantic_request_sha256": "e" * 64,
+            "document_context_id": "concept-context:sha256:" + "d" * 64,
+            "source_context_id": "document-context:sha256:" + "c" * 64,
+        }
+    )
     output["source_binding"]["page_numbers"] = [1, 2]
     _reidentify_output(output)
     return output
@@ -145,6 +161,53 @@ def test_evidence_ids_must_be_unique_across_included_pages():
     )
 
     assert validate_output_document(output) is False
+
+
+def test_presemantic_context_keeps_excluded_sibling_lineage():
+    output = _two_page_output()
+    first_page, second_page = output["pages"]
+    first_context = build_document_contexts([first_page, second_page])[0]
+    output["pages"] = [first_page]
+    output["concepts"] = [
+        concept
+        for concept in output["concepts"]
+        if concept["page_ref"] == first_page["page_ref"]
+    ]
+    output["document_contexts"] = [first_context]
+    output["semantic_batches"] = [
+        batch
+        for batch in output["semantic_batches"]
+        if batch["page_ref"] == first_page["page_ref"]
+    ]
+    output["semantic_batches"][0]["source_context_id"] = first_context[
+        "context_id"
+    ]
+    output["excluded_pages"] = [{
+        "page_ref": second_page["page_ref"],
+        "page_number": second_page["page_number"],
+        "page_evidence_id": second_page["page_evidence_id"],
+        "last_stage": "concept",
+        "processing": "failed",
+        "quality": "needs_review",
+        "decision": "reject",
+        "reason_codes": ["PAGE_CONTENT_UNUSABLE"],
+    }]
+    output["processing"] = "partial"
+    output["reason_codes"] = [
+        "CONTENT_REVIEW_REQUIRED",
+        "PAGE_CONTENT_EXCLUDED",
+    ]
+    identity = dict(output)
+    identity.pop("output_id")
+    output["output_id"] = (
+        "concept-evidence-output:sha256:" + canonical_sha256(identity)
+    )
+
+    assert validate_output_document(output) is True
+    assert any(
+        block["page_ref"] == second_page["page_ref"]
+        for block in output["document_contexts"][0]["context_blocks"]
+    )
 
 
 def test_output_rejects_detailed_reason_code():

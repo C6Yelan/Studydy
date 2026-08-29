@@ -453,6 +453,26 @@ def _fake_producer(
     progress_callback("concept_generation", 0, page_count)
     for completed_pages in range(1, page_count + 1):
         progress_callback("concept_generation", completed_pages, page_count)
+    document_contexts = build_document_contexts(pages)
+    contexts_by_page = {
+        context["page_ref"]: context for context in document_contexts
+    }
+    for page, semantic in zip(pages, semantic_pages, strict=True):
+        semantic_request, _ = build_semantic_request(
+            page, contexts_by_page[page["page_ref"]]
+        )
+        semantic["input_binding"] = {
+            "batch_bindings": [{
+                "batch_index": 0,
+                "semantic_request_sha256": canonical_sha256(semantic_request),
+                "document_context_id": semantic_request["document_context"][
+                    "document_context_id"
+                ],
+                "source_context_id": contexts_by_page[page["page_ref"]][
+                    "context_id"
+                ],
+            }]
+        }
     output = build_output(
         run_id=run_id,
         produced_at=produced_at,
@@ -461,6 +481,8 @@ def _fake_producer(
             "page_numbers": list(range(1, page_count + 1)),
         },
         pages=pages,
+        context_pages=pages,
+        document_contexts=document_contexts,
         semantic_pages=semantic_pages,
         runtime_binding=settings["runtime_lock"],
         run_reasons=[],
@@ -585,7 +607,7 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
     outputs = read_material_run_outputs(
         learner_id, source.material_id, created.run_id, dsn=processing_database_dsn
     )
-    assert outputs.study_material_output["schema"] == "study-material-output/v6"
+    assert outputs.study_material_output["schema"] == "study-material-output/v7"
     assert outputs.study_material_output["evidence_text_index"]
     assert all(
         set(evidence) == {"evidence_id", "text"}

@@ -11,16 +11,16 @@ from .artifact_reason_codes import (
 )
 from .concept_generation import claim_id, concept_id
 from .document_context import (
-    build_document_contexts,
     validate_document_context,
+    validate_document_context_shape,
 )
 from .ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
-OUTPUT_SCHEMA = "concept-evidence-output/v4"
+OUTPUT_SCHEMA = "concept-evidence-output/v5"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
 MAX_ARTIFACT_FILE_BYTES = 16 * 1024 * 1024
-RUNTIME_LOCK_SHA256 = "52fc28f6195f3db402c9b1acac197f1c00d84553a5c5f1a5dce9c3e51843379e"
+RUNTIME_LOCK_SHA256 = "f009559139cbfaf361243de21f75781d95f6047a727b651c69d5888ca52b6563"
 
 
 def _closed(value: Any, fields: set[str]) -> bool:
@@ -206,8 +206,9 @@ def validate_output_document(output: Any) -> bool:
     fields = {
         "schema", "aggregation_policy", "run_id", "produced_at", "material_id",
         "material_revision", "source_binding", "pages", "excluded_pages", "concepts",
-        "rejected_candidates", "document_contexts", "runtime_binding", "processing",
-        "quality", "decision", "reason_codes", "output_id",
+        "rejected_candidates", "document_contexts", "semantic_batches",
+        "runtime_binding", "processing", "quality", "decision", "reason_codes",
+        "output_id",
     }
     if not _closed(output, fields) or output["schema"] != OUTPUT_SCHEMA:
         return False
@@ -257,10 +258,7 @@ def validate_output_document(output: Any) -> bool:
         or any(not isinstance(context, dict) for context in document_contexts)
         or {context.get("page_ref") for context in document_contexts}
         != set(page_refs)
-        or any(
-            not validate_document_context(context, pages)
-            for context in document_contexts
-        )
+        or any(not validate_document_context_shape(context) for context in document_contexts)
     ):
         return False
     excluded_refs: set[str] = set()
@@ -288,12 +286,112 @@ def validate_output_document(output: Any) -> bool:
     if set(page_refs.values()) | excluded_numbers != set(page_numbers):
         return False
     evidence_pages: dict[str, str] = {}
+    evidence_blocks: dict[str, dict[str, Any]] = {}
     for page in pages:
         for block in page["evidence_blocks"]:
             evidence_id = block["evidence_id"]
             if evidence_id in evidence_pages:
                 return False
             evidence_pages[evidence_id] = page["page_ref"]
+            evidence_blocks[evidence_id] = block
+    contexts_by_page = {
+        context["page_ref"]: context for context in document_contexts
+    }
+    current_blocks: dict[str, dict[str, Any]] = {}
+    for page_ref, context in contexts_by_page.items():
+        if (
+            context["material_id"] != output["material_id"]
+            or context["material_revision"] != output["material_revision"]
+            or context["page_number"] != page_refs[page_ref]
+        ):
+            return False
+        reading_orders = [
+            block["reading_order"] for block in context["current_blocks"]
+        ]
+        if (
+            reading_orders != sorted(reading_orders)
+            or len(reading_orders) != len(set(reading_orders))
+        ):
+            return False
+        for current in context["current_blocks"]:
+            source = evidence_blocks.get(current["evidence_id"])
+            if (
+                source is None
+                or evidence_pages[current["evidence_id"]] != page_ref
+                or source["block_id"] != current["block_id"]
+                or source["reading_order"] != current["reading_order"]
+                or current["evidence_id"] in current_blocks
+            ):
+                return False
+            current_blocks[current["evidence_id"]] = {
+                **current,
+                "page_ref": page_ref,
+                "page_number": context["page_number"],
+            }
+    if set(current_blocks) != set(evidence_blocks):
+        return False
+    for context in document_contexts:
+        for block in context["context_blocks"]:
+            current = current_blocks.get(block["evidence_id"])
+            source = evidence_blocks.get(block["evidence_id"])
+            if current is None:
+                if block["page_ref"] not in excluded_refs:
+                    return False
+                continue
+            if (
+                source is None
+                or current["page_ref"] != block["page_ref"]
+                or current["page_number"] != block["page_number"]
+                or current["block_id"] != block["block_id"]
+                or current["section_id"] != block["section_id"]
+                or source["reading_order"] != block["reading_order"]
+                or source["kind"] != block["kind"]
+                or source["text"] != block["text"]
+            ):
+                return False
+    semantic_batches = output["semantic_batches"]
+    if not isinstance(semantic_batches, list):
+        return False
+    batch_indexes: dict[str, list[int]] = {page_ref: [] for page_ref in page_refs}
+    batch_identities: set[tuple[str, str]] = set()
+    for batch in semantic_batches:
+        if (
+            not _closed(
+                batch,
+                {
+                    "page_ref", "batch_index", "semantic_request_sha256",
+                    "document_context_id", "source_context_id",
+                },
+            )
+            or batch["page_ref"] not in page_refs
+            or type(batch["batch_index"]) is not int
+            or batch["batch_index"] < 0
+            or not isinstance(batch["semantic_request_sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", batch["semantic_request_sha256"])
+            is None
+            or not isinstance(batch["document_context_id"], str)
+            or re.fullmatch(
+                r"concept-context:sha256:[0-9a-f]{64}",
+                batch["document_context_id"],
+            )
+            is None
+            or batch["source_context_id"]
+            != contexts_by_page[batch["page_ref"]]["context_id"]
+            or (
+                batch["semantic_request_sha256"], batch["document_context_id"]
+            )
+            in batch_identities
+        ):
+            return False
+        batch_indexes[batch["page_ref"]].append(batch["batch_index"])
+        batch_identities.add(
+            (batch["semantic_request_sha256"], batch["document_context_id"])
+        )
+    if any(
+        indexes != list(range(len(indexes)))
+        for indexes in batch_indexes.values()
+    ):
+        return False
     concept_ids: set[str] = set()
     concept_page_refs: set[str] = set()
     has_partial_concept = False
@@ -381,6 +479,8 @@ def build_output(
     produced_at: str,
     source_binding: dict[str, Any],
     pages: list[dict[str, Any]],
+    context_pages: list[dict[str, Any]],
+    document_contexts: list[dict[str, Any]],
     semantic_pages: list[dict[str, Any]],
     runtime_binding: dict[str, Any],
     run_reasons: list[str],
@@ -393,7 +493,19 @@ def build_output(
     semantic_by_page = {
         page["page_ref"]: page for page in semantic_pages
     }
-    if set(semantic_by_page) != {page["page_ref"] for page in pages}:
+    contexts_by_page = {
+        context["page_ref"]: context for context in document_contexts
+    }
+    page_refs = {page["page_ref"] for page in pages}
+    if (
+        set(semantic_by_page) != page_refs
+        or set(contexts_by_page) != page_refs
+        or any(
+            not validate_document_context_shape(context)
+            or not validate_document_context(context, context_pages)
+            for context in document_contexts
+        )
+    ):
         raise ValueError("ARTIFACT_INVALID")
     formal_pages = deepcopy(pages)
     for page in formal_pages:
@@ -441,6 +553,19 @@ def build_output(
         reasons.append("PAGE_CONTENT_EXCLUDED")
     if not concepts:
         reasons.append("NO_USABLE_CONCEPT")
+    semantic_batches = [
+        {
+            "page_ref": semantic_page["page_ref"],
+            **deepcopy(batch),
+        }
+        for semantic_page in semantic_pages
+        for batch in semantic_page["input_binding"]["batch_bindings"]
+    ]
+    semantic_batches.sort(
+        key=lambda batch: (
+            page_numbers[batch["page_ref"]], batch["batch_index"]
+        )
+    )
     output = {
         "schema": OUTPUT_SCHEMA,
         "aggregation_policy": AGGREGATION_POLICY,
@@ -451,7 +576,11 @@ def build_output(
         "source_binding": deepcopy(source_binding),
         "pages": formal_pages,
         "excluded_pages": excluded,
-        "document_contexts": build_document_contexts(formal_pages),
+        "document_contexts": [
+            deepcopy(contexts_by_page[page["page_ref"]])
+            for page in formal_pages
+        ],
+        "semantic_batches": semantic_batches,
         "concepts": concepts,
         "rejected_candidates": rejected,
         "runtime_binding": deepcopy(runtime_binding),

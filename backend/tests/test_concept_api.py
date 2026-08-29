@@ -205,7 +205,7 @@ def test_tokenizer_budget_rejects_before_generation_call():
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
         with pytest.raises(ConceptAPIError, match="MODEL_INPUT_TOO_LARGE"):
             _request(client)
-    assert observed_paths == ["/tokenize", "/tokenize"]
+    assert observed_paths == ["/tokenize"]
 
 
 def test_optional_context_overflow_keeps_evidence_in_one_generation_call():
@@ -217,6 +217,14 @@ def test_optional_context_overflow_keeps_evidence_in_one_generation_call():
     current = semantic_request["document_context"]["current_blocks"][0]
     current["heading_ancestry_ids"] = ["c1"]
     current["continuation_ids"] = ["c2"]
+    context_identity = {
+        key: value
+        for key, value in semantic_request["document_context"].items()
+        if key != "document_context_id"
+    }
+    semantic_request["document_context"]["document_context_id"] = (
+        "concept-context:sha256:" + canonical_sha256(context_identity)
+    )
     tokenized_documents = []
     generation_bodies = []
 
@@ -226,7 +234,8 @@ def test_optional_context_overflow_keeps_evidence_in_one_generation_call():
             encoded = body["messages"][0]["content"].split("\nINPUT:\n", 1)[1]
             document = json.loads(encoded)
             tokenized_documents.append(document)
-            count = 6_700 if "document_context" in document else 6_500
+            context_count = len(document["document_context"]["context_blocks"])
+            count = {2: 6_700, 1: 6_680, 0: 6_500}[context_count]
             return httpx.Response(200, json={"count": count, "max_model_len": 8_192})
         generation_bodies.append(body)
         return httpx.Response(
@@ -248,7 +257,7 @@ def test_optional_context_overflow_keeps_evidence_in_one_generation_call():
         if "document_context" in document
         else []
         for document in tokenized_documents
-    ] == [["c1", "c2"], ["c1"], [], []]
+    ] == [["c1", "c2"], ["c1"], []]
     assert all(
         document["document_context"]["current_blocks"][0]["kind"]
         == "paragraph"
@@ -259,7 +268,27 @@ def test_optional_context_overflow_keeps_evidence_in_one_generation_call():
         generation_bodies[0]["messages"][0]["content"].split("\nINPUT:\n", 1)[1]
     )
     assert dispatched["evidence"] == semantic_request["evidence"]
-    assert "document_context" not in dispatched
+    dispatched_current = dispatched["document_context"]["current_blocks"][0]
+    source_current = semantic_request["document_context"]["current_blocks"][0]
+    assert {
+        key: dispatched_current[key]
+        for key in (
+            "evidence_id", "kind", "previous_evidence_id", "next_evidence_id"
+        )
+    } == {
+        key: source_current[key]
+        for key in (
+            "evidence_id", "kind", "previous_evidence_id", "next_evidence_id"
+        )
+    }
+    assert dispatched["document_context"]["context_blocks"] == []
+    assert dispatched["document_context"]["source_context_id"] == (
+        semantic_request["document_context"]["source_context_id"]
+    )
+    assert len({
+        document["document_context"]["document_context_id"]
+        for document in tokenized_documents
+    }) == 3
 
 
 @pytest.mark.parametrize(

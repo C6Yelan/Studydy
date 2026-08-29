@@ -250,6 +250,13 @@ def _make_context(
         selected_ids.add(block["evidence_id"])
         token_count += block_tokens
 
+    selected.sort(
+        key=lambda block: (
+            block["page_number"],
+            block["reading_order"],
+            block["block_id"],
+        )
+    )
     selected_block_ids = {block["block_id"] for block in selected}
     current_entries = []
     for block_index, block in enumerate(current_blocks):
@@ -313,12 +320,12 @@ def _make_context(
     reasons = []
     if any(heading_by_section[section_id] is None for section_id in section_ids):
         reasons.append("SECTION_BOUNDARY_AMBIGUOUS")
-    heading_count = sum(
-        block["kind"] == "heading"
-        for page in ordered_pages
-        for block in page["evidence_blocks"]
-    )
-    if heading_count > 1:
+    if any(
+        current_blocks[index - 1]["kind"] == "heading"
+        and block["kind"] == "heading"
+        for index, block in enumerate(current_blocks)
+        if index > 0
+    ):
         reasons.append("HEADING_HIERARCHY_AMBIGUOUS")
     reasons.sort()
     quality = "needs_review" if reasons else "accepted"
@@ -390,9 +397,9 @@ def serialize_document_context(
             raise ValueError("DOCUMENT_CONTEXT_INVALID")
         return resolved
 
-    return {
-        "schema": "concept-context-envelope/v2",
-        "document_context_id": context["context_id"],
+    envelope = {
+        "schema": "concept-context-envelope/v3",
+        "source_context_id": context["context_id"],
         "current_blocks": [
             {
                 "evidence_id": evidence_alias_by_id[block["evidence_id"]],
@@ -421,6 +428,10 @@ def serialize_document_context(
             for block in context["context_blocks"]
         ],
     }
+    envelope["document_context_id"] = (
+        "concept-context:sha256:" + canonical_sha256(envelope)
+    )
+    return envelope
 
 
 def validate_document_context(

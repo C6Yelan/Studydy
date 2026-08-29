@@ -9,9 +9,9 @@ from .ocr_page_evidence import canonical_sha256
 from .document_context import serialize_document_context
 
 
-SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v5"
-SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v2"
-PROCESSING_POLICY = "claim-grounded-concept-review/v4"
+SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v6"
+SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v3"
+PROCESSING_POLICY = "claim-grounded-concept-review/v5"
 MAX_MODEL_OUTPUT_BYTES = 65_536
 
 _ENGLISH_STOP_WORDS = {
@@ -282,6 +282,7 @@ def validate_semantic_request(request: Any) -> dict[str, dict[str, Any]]:
 def _validate_document_context_envelope(context: Any) -> dict[str, str]:
     fields = {
         "schema",
+        "source_context_id",
         "document_context_id",
         "current_blocks",
         "context_blocks",
@@ -289,10 +290,16 @@ def _validate_document_context_envelope(context: Any) -> dict[str, str]:
     if (
         not isinstance(context, dict)
         or set(context) != fields
-        or context["schema"] != "concept-context-envelope/v2"
-        or not isinstance(context["document_context_id"], str)
+        or context["schema"] != "concept-context-envelope/v3"
+        or not isinstance(context["source_context_id"], str)
         or re.fullmatch(
             r"document-context:sha256:[0-9a-f]{64}",
+            context["source_context_id"],
+        )
+        is None
+        or not isinstance(context["document_context_id"], str)
+        or re.fullmatch(
+            r"concept-context:sha256:[0-9a-f]{64}",
             context["document_context_id"],
         )
         is None
@@ -369,6 +376,15 @@ def _validate_document_context_envelope(context: Any) -> dict[str, str]:
     )
     if context_tokens > 1_024:
         raise SemanticOutputError("INPUT_SCHEMA_INVALID")
+    identity = {
+        key: value
+        for key, value in context.items()
+        if key != "document_context_id"
+    }
+    if context["document_context_id"] != (
+        "concept-context:sha256:" + canonical_sha256(identity)
+    ):
+        raise SemanticOutputError("INPUT_SCHEMA_INVALID")
     return {
         block["evidence_id"]: block["kind"]
         for block in context["current_blocks"]
@@ -424,7 +440,7 @@ def _context_for_evidence(
     def kept(reference: str | None) -> str | None:
         return reference if reference in allowed_ids else None
 
-    return {
+    child = {
         **context,
         "current_blocks": [
             {
@@ -446,6 +462,15 @@ def _context_for_evidence(
             if block["evidence_id"] in evidence_ids
         ],
     }
+    identity = {
+        key: value
+        for key, value in child.items()
+        if key != "document_context_id"
+    }
+    child["document_context_id"] = (
+        "concept-context:sha256:" + canonical_sha256(identity)
+    )
+    return child
 
 
 def _decode_complete_output(model_text: Any) -> dict[str, Any]:

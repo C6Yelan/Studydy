@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 from threading import local
 import time
@@ -22,6 +23,7 @@ import pymupdf
 from .concept_api import (
     ConceptAPIError,
     chat_completions_url,
+    fit_concept_request,
     request_concept_text,
     start_concept_server,
 )
@@ -109,7 +111,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         matches = (
             isinstance(runtime_lock, dict)
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
-            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v8"
+            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v9"
             and runtime_lock["semantic"]["required_file_count"]
             == len(runtime_lock["semantic"]["required_files"])
             and runtime_lock["semantic"]["binding_manifest_sha256"]
@@ -125,7 +127,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
             and runtime_lock["semantic"]["document_context"]
             == {
                 "schema": "document-semantic-context/v1",
-                "concept_envelope_schema": "concept-context-envelope/v2",
+                "concept_envelope_schema": "concept-context-envelope/v3",
                 "processing_policy": "document-reading-order-context/v1",
                 "token_budget": 1024,
                 "token_counter": "utf8-byte-upper-bound/v1",
@@ -133,8 +135,9 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
                 "section_policy": "nearest-grounded-heading-flat-section/v1",
                 "ambiguous_hierarchy": "needs-review/v1",
                 "dispatch_fit": "evidence-only-batch-preserving/v1",
-                "durable_output_schema": "concept-evidence-output/v4",
-                "study_projection_schema": "study-material-output/v6",
+                "batch_binding": "exact-fitted-request-lineage/v1",
+                "durable_output_schema": "concept-evidence-output/v5",
+                "study_projection_schema": "study-material-output/v7",
             }
             and relation_verifier["model_id"]
             == "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
@@ -250,7 +253,7 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
     if (
         not isinstance(artifact, dict)
         or set(artifact) != fields
-        or artifact["schema"] != "semantic-page-concepts/v2"
+        or artifact["schema"] != "semantic-page-concepts/v3"
         or artifact["input_binding"] != binding
         or artifact["attempt"] not in (1, 2)
         or artifact["processing"]
@@ -265,6 +268,37 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
         )
         or artifact["decision"] != "review"
         or not isinstance(artifact["concepts"], list)
+    ):
+        return False
+    batch_bindings = binding.get("batch_bindings")
+    if (
+        not isinstance(batch_bindings, list)
+        or any(
+            not isinstance(batch, dict)
+            or set(batch)
+            != {
+                "batch_index", "semantic_request_sha256", "document_context_id",
+                "source_context_id",
+            }
+            or batch["batch_index"] != index
+            or not isinstance(batch["semantic_request_sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", batch["semantic_request_sha256"])
+            is None
+            or not isinstance(batch["document_context_id"], str)
+            or re.fullmatch(
+                r"concept-context:sha256:[0-9a-f]{64}",
+                batch["document_context_id"],
+            )
+            is None
+            or not isinstance(batch["source_context_id"], str)
+            or re.fullmatch(
+                r"document-context:sha256:[0-9a-f]{64}",
+                batch["source_context_id"],
+            )
+            is None
+            or batch["source_context_id"] != binding.get("source_context_id")
+            for index, batch in enumerate(batch_bindings)
+        )
     ):
         return False
     allowed = set(binding["evidence_allowlist"])
@@ -369,11 +403,15 @@ def _read_cache(
         valid = (
             isinstance(record, dict)
             and set(record)
-            == {"schema", "operation", "cache_key", "input_binding", "artifact_sha256", "artifact"}
-            and record["schema"] == "text-first-verified-cache/v1"
+            == {
+                "schema", "operation", "lookup_key", "lookup_binding",
+                "cache_key", "input_binding", "artifact_sha256", "artifact",
+            }
+            and record["schema"] == "text-first-verified-cache/v2"
             and record["operation"] == operation
-            and record["cache_key"] == key
-            and record["input_binding"] == binding
+            and record["lookup_key"] == key
+            and record["lookup_binding"] == binding
+            and record["cache_key"] == canonical_sha256(record["input_binding"])
             and record["artifact_sha256"] == canonical_sha256(record["artifact"])
         )
         if valid and operation == "page":
@@ -387,7 +425,9 @@ def _read_cache(
                 formal_reasons=False,
             )
         elif valid and operation == "semantic":
-            valid = _semantic_artifact_valid(record["artifact"], binding)
+            valid = _semantic_artifact_valid(
+                record["artifact"], record["input_binding"]
+            )
         else:
             valid = False
     except (KeyError, TypeError, ValueError):
@@ -427,15 +467,19 @@ def _write_cache(
     artifact: dict[str, Any],
     *,
     replace_invalid: bool,
+    input_binding: dict[str, Any] | None = None,
 ) -> None:
     if path.parent.is_symlink() or path.is_symlink():
         raise OSError("CACHE_WRITE_FAILED")
     path.parent.mkdir(parents=True, exist_ok=True)
+    exact_binding = input_binding or binding
     record = {
-        "schema": "text-first-verified-cache/v1",
+        "schema": "text-first-verified-cache/v2",
         "operation": operation,
-        "cache_key": key,
-        "input_binding": binding,
+        "lookup_key": key,
+        "lookup_binding": binding,
+        "cache_key": canonical_sha256(exact_binding),
+        "input_binding": exact_binding,
         "artifact_sha256": canonical_sha256(artifact),
         "artifact": artifact,
     }
@@ -637,10 +681,11 @@ def _process_pdf(
                 semantic_request, evidence_aliases = build_semantic_request(
                     page, document_context
                 )
-                binding = {
+                source_binding = {
                     "page_evidence_sha256": canonical_sha256(page),
-                    "document_context": document_context,
-                    "semantic_request_sha256": canonical_sha256(semantic_request),
+                    "source_context_id": document_context["context_id"],
+                    "source_context_sha256": canonical_sha256(document_context),
+                    "unfitted_request_sha256": canonical_sha256(semantic_request),
                     "evidence_allowlist": list(evidence_aliases.values()),
                     "semantic": runtime_lock["semantic"],
                     "concept_api": {
@@ -651,37 +696,42 @@ def _process_pdf(
                         "max_model_len": settings["concept_max_model_len"],
                     },
                 }
-                key = canonical_sha256(binding)
+                key = canonical_sha256(source_binding)
                 artifact, invalid = _read_cache(
                     _cache_path(root, "semantic", key),
                     "semantic",
                     key,
-                    binding,
+                    source_binding,
                 )
                 cache_invalid = cache_invalid or invalid
                 if artifact is None and _is_heading_only_page(page):
+                    exact_binding = {
+                        **source_binding,
+                        "batch_bindings": [],
+                    }
                     artifact = validate_concepts(
                         '{"concepts":[]}',
                         semantic_request=semantic_request,
                         evidence_aliases=evidence_aliases,
                         page_ref=page["page_ref"],
-                        input_binding=binding,
+                        input_binding=exact_binding,
                         attempt=1,
                     )
                     _write_cache(
                         _cache_path(root, "semantic", key),
                         "semantic",
                         key,
-                        binding,
+                        source_binding,
                         artifact,
                         replace_invalid=invalid,
+                        input_binding=exact_binding,
                     )
                 semantic_work.append(
                     {
                         "page": page,
                         "semantic_request": semantic_request,
                         "evidence_aliases": evidence_aliases,
-                        "binding": binding,
+                        "source_binding": source_binding,
                         "key": key,
                         "replace_invalid": invalid,
                         "artifact": artifact,
@@ -728,17 +778,14 @@ def _process_pdf(
                     retryable_reasons = set(retry_policy["retryable_reasons"])
                     pending = [work["semantic_request"]]
                     batches = []
+                    batch_bindings = []
                     while pending:
                         request = pending.pop(0)
-                        aliases = {
-                            item["id"]: work["evidence_aliases"][item["id"]]
-                            for item in request["evidence"]
-                        }
                         artifact = None
                         for attempt in range(1, max_attempts + 1):
                             try:
                                 assert concept_client is not None
-                                model_text = request_concept_text(
+                                fitted_request = fit_concept_request(
                                     concept_client,
                                     base_url=settings["concept_api_base_url"],
                                     model=settings["concept_model"],
@@ -747,15 +794,45 @@ def _process_pdf(
                                     max_model_len=settings["concept_max_model_len"],
                                     timeout_seconds=retry_policy["timeout_seconds"],
                                 )
+                                batch_binding = {
+                                    "batch_index": len(batch_bindings),
+                                    "semantic_request_sha256": canonical_sha256(
+                                        fitted_request
+                                    ),
+                                    "document_context_id": fitted_request[
+                                        "document_context"
+                                    ]["document_context_id"],
+                                    "source_context_id": fitted_request[
+                                        "document_context"
+                                    ]["source_context_id"],
+                                }
+                                model_text = request_concept_text(
+                                    concept_client,
+                                    base_url=settings["concept_api_base_url"],
+                                    model=settings["concept_model"],
+                                    prompt_template=runtime_lock["semantic"]["prompt"],
+                                    semantic_request=fitted_request,
+                                    max_model_len=settings["concept_max_model_len"],
+                                    timeout_seconds=retry_policy["timeout_seconds"],
+                                    already_fitted=True,
+                                )
                                 calls += 1
+                                aliases = {
+                                    item["id"]: work["evidence_aliases"][item["id"]]
+                                    for item in fitted_request["evidence"]
+                                }
                                 artifact = validate_concepts(
                                     model_text,
-                                    semantic_request=request,
+                                    semantic_request=fitted_request,
                                     evidence_aliases=aliases,
                                     page_ref=work["page"]["page_ref"],
-                                    input_binding=work["binding"],
+                                    input_binding={
+                                        **work["source_binding"],
+                                        "batch_bindings": [batch_binding],
+                                    },
                                     attempt=attempt,
                                 )
+                                batch_bindings.append(batch_binding)
                                 break
                             except ConceptAPIError as error:
                                 if error.reason_code == "MODEL_INPUT_TOO_LARGE":
@@ -776,18 +853,23 @@ def _process_pdf(
                                     raise
                         if artifact is not None:
                             batches.append(artifact)
+                    exact_binding = {
+                        **work["source_binding"],
+                        "batch_bindings": batch_bindings,
+                    }
                     artifact = combine_semantic_batches(
                         batches,
                         page_ref=work["page"]["page_ref"],
-                        input_binding=work["binding"],
+                        input_binding=exact_binding,
                     )
                     _write_cache(
                         _cache_path(root, "semantic", work["key"]),
                         "semantic",
                         work["key"],
-                        work["binding"],
+                        work["source_binding"],
                         artifact,
                         replace_invalid=work["replace_invalid"],
+                        input_binding=exact_binding,
                     )
                     return artifact, calls, None
                 except Exception as error:
@@ -856,6 +938,11 @@ def _process_pdf(
             produced_at=produced_at,
             source_binding={"source_sha256": source_sha256, "page_numbers": page_numbers},
             pages=included_pages,
+            context_pages=page_artifacts,
+            document_contexts=[
+                contexts_by_page[page["page_ref"]]
+                for page in included_pages
+            ],
             semantic_pages=semantic_pages,
             runtime_binding=runtime_lock,
             run_reasons=["CACHE_INVALID"] if cache_invalid else [],

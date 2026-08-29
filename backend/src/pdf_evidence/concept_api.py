@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .ocr_page_evidence import canonical_bytes
+from .ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
 CHAT_COMPLETIONS_PATH = "/v1/chat/completions"
@@ -247,6 +247,7 @@ def request_concept_text(
     semantic_request: dict[str, Any],
     max_model_len: int,
     timeout_seconds: float,
+    already_fitted: bool = False,
 ) -> str:
     return request_structured_text(
         client,
@@ -258,7 +259,39 @@ def request_concept_text(
         max_model_len=max_model_len,
         max_tokens=MAX_TOKENS,
         timeout_seconds=timeout_seconds,
+        request_is_fitted=already_fitted,
     )
+
+
+def fit_concept_request(
+    client: httpx.Client,
+    *,
+    base_url: str,
+    model: str,
+    prompt_template: str,
+    semantic_request: dict[str, Any],
+    max_model_len: int,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    """以 server tokenizer 移除 optional context，保留完整 envelope。"""
+
+    try:
+        return _fit_request_document(
+            client,
+            base_url=base_url,
+            model=model,
+            prompt_template=prompt_template,
+            request_document=semantic_request,
+            max_model_len=max_model_len,
+            max_tokens=MAX_TOKENS,
+            timeout_seconds=timeout_seconds,
+        )
+    except httpx.TimeoutException as error:
+        raise ConceptAPIError("CONCEPT_API_TIMEOUT") from error
+    except (httpx.HTTPStatusError, httpx.RequestError) as error:
+        raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
+    except (RecursionError, UnicodeDecodeError, ValueError):
+        raise ConceptAPIError("CONCEPT_API_RESPONSE_INVALID") from None
 
 
 def request_structured_text(
@@ -273,6 +306,7 @@ def request_structured_text(
     max_tokens: int,
     timeout_seconds: float,
     enable_thinking: bool | None = None,
+    request_is_fitted: bool = False,
 ) -> str:
     """以同一個本機 server tokenizer 驗證 budget，再取得固定 schema JSON。"""
 
@@ -287,19 +321,25 @@ def request_structured_text(
         or not 1 <= max_tokens < max_model_len
         or not isinstance(response_format, dict)
         or (enable_thinking is not None and type(enable_thinking) is not bool)
+        or type(request_is_fitted) is not bool
     ):
         raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
     try:
-        messages = _messages_with_fitted_context(
-            client,
-            base_url=base_url,
-            model=model,
-            prompt_template=prompt_template,
-            request_document=request_document,
-            max_model_len=max_model_len,
-            max_tokens=max_tokens,
-            timeout_seconds=timeout_seconds,
+        fitted_request = (
+            deepcopy(request_document)
+            if request_is_fitted
+            else _fit_request_document(
+                client,
+                base_url=base_url,
+                model=model,
+                prompt_template=prompt_template,
+                request_document=request_document,
+                max_model_len=max_model_len,
+                max_tokens=max_tokens,
+                timeout_seconds=timeout_seconds,
+            )
         )
+        messages = _request_messages(prompt_template, fitted_request)
         request_body = {
             "model": model,
             "messages": messages,
@@ -349,7 +389,18 @@ def request_structured_text(
     return message["content"]
 
 
-def _messages_with_fitted_context(
+def _request_messages(
+    prompt_template: str,
+    request_document: dict[str, Any],
+) -> list[dict[str, str]]:
+    prompt = (
+        f"{prompt_template}\nINPUT:\n"
+        f"{canonical_bytes(request_document).decode('utf-8')}"
+    )
+    return [{"role": "user", "content": prompt}]
+
+
+def _fit_request_document(
     client: httpx.Client,
     *,
     base_url: str,
@@ -359,16 +410,12 @@ def _messages_with_fitted_context(
     max_model_len: int,
     max_tokens: int,
     timeout_seconds: float,
-) -> list[dict[str, str]]:
+) -> dict[str, Any]:
     """只移除低優先 context；current Evidence 的 batch 邊界不變。"""
 
     candidate = deepcopy(request_document)
     while True:
-        prompt = (
-            f"{prompt_template}\nINPUT:\n"
-            f"{canonical_bytes(candidate).decode('utf-8')}"
-        )
-        messages = [{"role": "user", "content": prompt}]
+        messages = _request_messages(prompt_template, candidate)
         count = _token_count(
             client,
             base_url=base_url,
@@ -378,13 +425,15 @@ def _messages_with_fitted_context(
             timeout_seconds=timeout_seconds,
         )
         if count + max_tokens <= max_model_len:
-            return messages
+            return candidate
         context = candidate.get("document_context")
         context_blocks = (
             context.get("context_blocks") if isinstance(context, dict) else None
         )
         if isinstance(context_blocks, list) and context_blocks:
-            removed_id = context_blocks.pop()["id"]
+            removed_id = context_blocks.pop(
+                _optional_context_removal_index(context_blocks)
+            )["id"]
             for block in context["current_blocks"]:
                 block["heading_ancestry_ids"] = [
                     reference
@@ -396,14 +445,44 @@ def _messages_with_fitted_context(
                     for reference in block["continuation_ids"]
                     if reference != removed_id
                 ]
-            continue
-        if "document_context" in candidate:
-            candidate = {
-                "schema": candidate["schema"],
-                "evidence": candidate["evidence"],
-            }
+            _reidentify_context_envelope(context)
             continue
         raise ConceptAPIError("MODEL_INPUT_TOO_LARGE")
+
+
+def _optional_context_removal_index(
+    context_blocks: list[dict[str, Any]],
+) -> int:
+    """依 role priority 移除，previous/next 內再移除離 current 較遠者。"""
+
+    role_rank = {
+        "previous_page": 0,
+        "next_page": 0,
+        "continuation": 1,
+        "heading_ancestry": 2,
+    }
+    return min(
+        range(len(context_blocks)),
+        key=lambda index: (
+            role_rank[context_blocks[index]["role"]],
+            (
+                index
+                if context_blocks[index]["role"] == "previous_page"
+                else -index
+            ),
+        ),
+    )
+
+
+def _reidentify_context_envelope(context: dict[str, Any]) -> None:
+    identity = {
+        key: value
+        for key, value in context.items()
+        if key != "document_context_id"
+    }
+    context["document_context_id"] = (
+        "concept-context:sha256:" + canonical_sha256(identity)
+    )
 
 
 def _token_count(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import math
+import re
 from typing import Any
 
 from .artifact_reason_codes import formal_reason_codes, reason_codes_are_valid
@@ -11,7 +12,7 @@ from .document_context import validate_document_context_shape
 from .ocr_page_evidence import canonical_sha256
 
 
-STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v6"
+STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v7"
 
 
 def _valid_region(region: Any) -> bool:
@@ -55,8 +56,8 @@ def _shape_is_valid(document: Any) -> bool:
     fields = {
         "schema", "run_id", "produced_at", "material_ref", "source_binding", "pages",
         "excluded_pages", "concepts", "evidence_index", "evidence_text_index",
-        "document_contexts", "images", "processing", "quality", "decision",
-        "reason_codes", "output_id",
+        "document_contexts", "semantic_batches", "images", "processing", "quality",
+        "decision", "reason_codes", "output_id",
     }
     if not isinstance(document, dict) or set(document) != fields:
         return False
@@ -143,9 +144,6 @@ def _shape_is_valid(document: Any) -> bool:
     if evidence_texts != set(evidence_pages):
         return False
     contexts = document["document_contexts"]
-    page_evidence_ids = {
-        page["page_ref"]: page["page_evidence_id"] for page in document["pages"]
-    }
     if (
         not isinstance(contexts, list)
         or len(contexts) != len(document["pages"])
@@ -161,8 +159,6 @@ def _shape_is_valid(document: Any) -> bool:
         if (
             context["material_id"] != document["material_ref"]
             or context["page_number"] != pages_by_ref[context["page_ref"]]
-            or context["page_evidence_id"]
-            != page_evidence_ids[context["page_ref"]]
         ):
             return False
         reading_orders = [
@@ -190,13 +186,21 @@ def _shape_is_valid(document: Any) -> bool:
             }
     if current_evidence_ids != set(evidence_pages):
         return False
+    excluded_context_refs = {
+        page.get("page_ref")
+        for page in document["excluded_pages"]
+        if isinstance(page, dict)
+    }
     for context in contexts:
         for block in context["context_blocks"]:
             current = current_blocks_by_evidence.get(block["evidence_id"])
             evidence = evidence_by_id.get(block["evidence_id"])
+            if current is None:
+                if block["page_ref"] not in excluded_context_refs:
+                    return False
+                continue
             if (
-                current is None
-                or evidence is None
+                evidence is None
                 or current["page_ref"] != block["page_ref"]
                 or current["page_number"] != block["page_number"]
                 or current["block_id"] != block["block_id"]
@@ -205,6 +209,43 @@ def _shape_is_valid(document: Any) -> bool:
                 or evidence_text_by_id[block["evidence_id"]] != block["text"]
             ):
                 return False
+    semantic_batches = document["semantic_batches"]
+    contexts_by_page = {context["page_ref"]: context for context in contexts}
+    if not isinstance(semantic_batches, list):
+        return False
+    indexes_by_page: dict[str, list[int]] = {
+        page_ref: [] for page_ref in pages_by_ref
+    }
+    for batch in semantic_batches:
+        if (
+            not isinstance(batch, dict)
+            or set(batch)
+            != {
+                "page_ref", "batch_index", "semantic_request_sha256",
+                "document_context_id", "source_context_id",
+            }
+            or batch["page_ref"] not in pages_by_ref
+            or type(batch["batch_index"]) is not int
+            or batch["batch_index"] < 0
+            or not isinstance(batch["semantic_request_sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", batch["semantic_request_sha256"])
+            is None
+            or not isinstance(batch["document_context_id"], str)
+            or re.fullmatch(
+                r"concept-context:sha256:[0-9a-f]{64}",
+                batch["document_context_id"],
+            )
+            is None
+            or batch["source_context_id"]
+            != contexts_by_page[batch["page_ref"]]["context_id"]
+        ):
+            return False
+        indexes_by_page[batch["page_ref"]].append(batch["batch_index"])
+    if any(
+        indexes != list(range(len(indexes)))
+        for indexes in indexes_by_page.values()
+    ):
+        return False
     concept_fields = {
         "concept_id", "page_ref", "label", "definition", "key_points",
         "processing", "quality", "decision", "reason_codes",
@@ -509,6 +550,7 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
             evidence_text_index, key=lambda evidence: evidence["evidence_id"]
         ),
         "document_contexts": deepcopy(producer_output["document_contexts"]),
+        "semantic_batches": deepcopy(producer_output["semantic_batches"]),
         "images": sorted(images, key=lambda image: image["image_id"]),
         "processing": processing,
         "quality": "needs_review",
