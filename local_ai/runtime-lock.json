@@ -1,5 +1,5 @@
 {
-  "schema": "studydy-local-ai-runtime-lock/v4",
+  "schema": "studydy-local-ai-runtime-lock/v5",
   "python": {
     "version": "3.12.3",
     "executable_sha256": "4933b6c4a8521fb3aa93856701e30b3ac2626d3c47ceb22965a3b0b422e85b44"
@@ -94,9 +94,9 @@
       "version": "0.26.0+cu129",
       "executable_sha256": "6d34800bbe39c7b1d94043fa0a7badafd894dbc422e0212f94ebe16547b2097a"
     },
-    "prompt": "Extract study concepts only from the supplied evidence. Return concepts=[] when the page teaches no concept. Each definition and each key point must separately contain non-empty evidence_ids. Return JSON only and no additional fields.",
-    "prompt_sha256": "40c9c9d39f4a8c804df942e9312f1a093d7e20dd8fe27b2b07faa58998eb3adb",
-    "request_schema": "concept-generation-input/v3",
+    "prompt": "Extract study concepts only from the supplied current evidence. Use document_context only to interpret heading ancestry, adjacency, and continuation; it is not claim evidence. Cite only IDs from the current evidence list, and give every definition and key point non-empty evidence_ids. Preserve exact escapes, symbols, operators, numbers, units, conditions, direction, and scope, including \\0. Do not emit isolated connectors, syntax tails, half clauses, or incomplete declarations as claims. Return concepts=[] when the current page teaches no concept. Return JSON only and no additional fields.",
+    "prompt_sha256": "2c0698ca067302793122e055467c2e47bed6a97f0eb1cf1e75e71b87fac4f8fc",
+    "request_schema": "concept-generation-input/v4",
     "output_schema": "semantic-page-concepts/v2",
     "generation": {"temperature": 0, "max_tokens": 1536},
     "structured_output": {
@@ -111,6 +111,13 @@
       "add_special_tokens": false,
       "maximum_input_tokens": 6656
     },
+    "document_context": {
+      "schema": "document-semantic-context/v1",
+      "processing_policy": "document-reading-order-context/v1",
+      "token_budget": 1024,
+      "token_counter": "utf8-byte-upper-bound/v1",
+      "model_calls": 0
+    },
     "retry": {
       "max_attempts": 2,
       "fixed_retry_count": 1,
@@ -122,6 +129,8 @@
     },
     "policy": {
       "candidate_text_normalizer": "concept-text-nfkc-whitespace/v1",
+      "exact_technical_tokens": "claim-technical-token-fidelity/v1",
+      "fragment_validation": "claim-fragment-reasons/v1",
       "cross_concept_evidence_reuse": true,
       "lexical_overlap_decision": false,
       "fenced_json": "reject",
@@ -131,10 +140,12 @@
     "code_hashes": {
       "backend_concept_api": "197cac723f404f31c0fc771631146f2d5fdec51b82b6a19b7e6d01c3b79cbf24",
       "backend_process_guard": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
-      "backend_concept_generation": "637d694575911ed52a145ec3fa3666dd2ac6490092b46f34134048e621986a7b"
+      "backend_concept_generation": "68b25a33a489871fba1c445eb1b8b08056768baa5703aaf4c118deef6f5ef872",
+      "backend_document_context": "2445774dc6169cfe6368625195b49bc850ce4c906ee879fb880cce109efd939b",
+      "backend_text_first_run": "861ad5cf476436c78546ae10749b1886814203530a5cf1da3c3570507fff89e4"
     },
     "fixture_hashes": {
-      "semantic_request.json": "1f4f7cfd7c3282b2fc31243b3fb23f65f9303fe7d998ad4a086033783c695fab",
+      "semantic_request.json": "d72fe0eaf32539614fc302fa38b89303d072b5b6971198e7fbd389ef2fa9f82d",
       "semantic_model_output.json": "b097b099d350b02fc947b2ad0b5f415e53fab96d8039400d42f370a4f5b51327"
     }
   },

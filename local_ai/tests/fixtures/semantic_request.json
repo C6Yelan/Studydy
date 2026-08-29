@@ -1,9 +1,23 @@
 {
-  "schema": "concept-generation-input/v3",
+  "schema": "concept-generation-input/v4",
   "evidence": [
     {
       "id": "e1",
       "text": "Photosynthesis converts light energy into chemical energy in plants."
     }
-  ]
+  ],
+  "document_context": {
+    "schema": "concept-context-envelope/v1",
+    "document_context_id": "document-context:sha256:e2e9664845c7df6fb43a52d80fc367a1ce1b48796ac2011eab86bd851cec9c9b",
+    "current_blocks": [
+      {
+        "evidence_id": "e1",
+        "heading_ancestry_ids": [],
+        "previous_evidence_id": null,
+        "next_evidence_id": null,
+        "continuation_ids": []
+      }
+    ],
+    "context_blocks": []
+  }
 }

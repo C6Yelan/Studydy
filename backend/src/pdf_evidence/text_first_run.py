@@ -38,6 +38,10 @@ from .concept_generation import (
     split_semantic_request,
     validate_concepts,
 )
+from .document_context import (
+    build_document_contexts,
+    validate_document_context,
+)
 from .local_ai_process import LocalAIError, start_ocr_process
 from .ocr_page_evidence import (
     build_native_page_evidence,
@@ -105,7 +109,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         matches = (
             isinstance(runtime_lock, dict)
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
-            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v4"
+            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v5"
             and runtime_lock["semantic"]["required_file_count"]
             == len(runtime_lock["semantic"]["required_files"])
             and runtime_lock["semantic"]["binding_manifest_sha256"]
@@ -118,6 +122,14 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
                 == runtime_lock[stage]["prompt_sha256"]
                 for stage in ("semantic", "formal_resolution")
             )
+            and runtime_lock["semantic"]["document_context"]
+            == {
+                "schema": "document-semantic-context/v1",
+                "processing_policy": "document-reading-order-context/v1",
+                "token_budget": 1024,
+                "token_counter": "utf8-byte-upper-bound/v1",
+                "model_calls": 0,
+            }
             and relation_verifier["model_id"]
             == "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
             and relation_verifier["revision"]
@@ -598,12 +610,30 @@ def _process_pdf(
 
         completed_concepts = page_count - len(page_artifacts)
         report_progress("concept_generation", completed_concepts, page_count)
+        document_contexts = (
+            build_document_contexts(page_artifacts) if page_artifacts else []
+        )
+        contexts_by_page = {
+            context["page_ref"]: context for context in document_contexts
+        }
+        if (
+            len(contexts_by_page) != len(page_artifacts)
+            or any(
+                not validate_document_context(context, page_artifacts)
+                for context in document_contexts
+            )
+        ):
+            raise ValueError("PRODUCER_BUNDLE_INVALID")
         semantic_work = []
         for page in page_artifacts:
             try:
-                semantic_request, evidence_aliases = build_semantic_request(page)
+                document_context = contexts_by_page[page["page_ref"]]
+                semantic_request, evidence_aliases = build_semantic_request(
+                    page, document_context
+                )
                 binding = {
                     "page_evidence_sha256": canonical_sha256(page),
+                    "document_context": document_context,
                     "semantic_request_sha256": canonical_sha256(semantic_request),
                     "evidence_allowlist": list(evidence_aliases.values()),
                     "semantic": runtime_lock["semantic"],

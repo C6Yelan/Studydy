@@ -270,6 +270,14 @@ def test_sequential_product_path_and_exact_replay_zero_model_calls(tmp_path, mon
         path.read_text(encoding="utf-8")
         for path in (tmp_path / "runtime").rglob("*.json")
     )
+    semantic_cache = json.loads(
+        next((tmp_path / "runtime" / "cache" / "semantic").glob("*.json")).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert semantic_cache["input_binding"]["document_context"]["schema"] == (
+        "document-semantic-context/v1"
+    )
     assert "png_base64" not in saved_json
     assert "model_text" not in saved_json
     assert state["resident"] == []

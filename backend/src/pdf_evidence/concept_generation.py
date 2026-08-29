@@ -6,11 +6,12 @@ from typing import Any
 import unicodedata
 
 from .ocr_page_evidence import canonical_sha256
+from .document_context import serialize_document_context
 
 
-SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v3"
+SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v4"
 SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v2"
-PROCESSING_POLICY = "claim-grounded-concept-review/v2"
+PROCESSING_POLICY = "claim-grounded-concept-review/v3"
 MAX_MODEL_OUTPUT_BYTES = 65_536
 
 _ENGLISH_STOP_WORDS = {
@@ -41,6 +42,33 @@ _CHINESE_PREDICATE = re.compile(
     r"(?:是|為|包含|包括|表示|需要|可以|會|由|將|具有|提供|描述|建立|"
     r"增加|減少|刪除|插入|儲存|指向|配置|形成|分為|等於)"
 )
+_ISOLATED_CONNECTOR = re.compile(
+    r"^(?:and|or|but|because|therefore|however|then|以及|與|和|或|但|因為|"
+    r"所以|因此|然後)[,，;；:]?$",
+    re.IGNORECASE,
+)
+_LEADING_CONNECTOR = re.compile(
+    r"^(?:and|or|but|because|therefore|however|以及|與|和|或|但|因為|"
+    r"所以|因此)(?:\s|[,，])",
+    re.IGNORECASE,
+)
+_INCOMPLETE_DECLARATION = re.compile(
+    r"^(?:(?:class|def|function|let|const|var|int|float|double|char|str|string)\s+)?"
+    r"[A-Za-z_]\w*(?:\([^)]*)?\s*(?:[:=({\[])?$"
+)
+_TECHNICAL_TOKEN = re.compile(
+    r"\\(?:[0abfnrtv'\"?\\]|x[0-9A-Fa-f]{1,8}|u[0-9A-Fa-f]{4,8}|[0-7]{1,3})"
+    r"|===|!==|==|!=|<=|>=|->|=>|\+\+|--|&&|\|\|"
+    r"|(?<![\\\w])(?:0[xX][0-9A-Fa-f]+|\d+(?:\.\d+)?(?:%|[A-Za-z]+)?)(?!\w)"
+)
+
+_CLAIM_FRAGMENT_REASONS = {
+    "CLAIM_FRAGMENT_UNUSABLE",
+    "CLAIM_ISOLATED_CONNECTOR",
+    "CLAIM_SYNTAX_TAIL",
+    "CLAIM_HALF_CLAUSE",
+    "CLAIM_INCOMPLETE_DECLARATION",
+}
 
 
 class SemanticOutputError(ValueError):
@@ -116,6 +144,10 @@ def _claim_is_grounded(text: str, evidence_text: str) -> bool:
     evidence = " ".join(
         unicodedata.normalize("NFKC", evidence_text).casefold().split()
     )
+    claim_tokens = set(_TECHNICAL_TOKEN.findall(text))
+    evidence_tokens = set(_TECHNICAL_TOKEN.findall(evidence_text))
+    if not claim_tokens <= evidence_tokens:
+        return False
     if claim in evidence:
         return True
     claim_terms = _grounding_terms(claim)
@@ -130,37 +162,73 @@ def _claim_is_grounded(text: str, evidence_text: str) -> bool:
     return bool(shared_terms) and evidence_length >= claim_length * 0.6
 
 
-def _claim_is_fragment(text: str, label: str) -> bool:
+def _claim_fragment_reason(text: str, label: str) -> str | None:
     normalized = " ".join(unicodedata.normalize("NFKC", text).split())
     normalized_label = " ".join(
         unicodedata.normalize("NFKC", label).split()
     ).casefold()
     if normalized.casefold() == normalized_label:
-        return True
+        return "CLAIM_FRAGMENT_UNUSABLE"
     without_sequence = _PAGE_SEQUENCE_SUFFIX.sub("", normalized).strip()
     if without_sequence.casefold() == normalized_label:
-        return True
+        return "CLAIM_FRAGMENT_UNUSABLE"
+    if _ISOLATED_CONNECTOR.fullmatch(normalized):
+        return "CLAIM_ISOLATED_CONNECTOR"
     if _BRACKET_INDEXES.fullmatch(normalized):
-        return True
+        return "CLAIM_SYNTAX_TAIL"
     if _SIMPLE_ASSIGNMENTS.fullmatch(normalized):
-        return True
+        return "CLAIM_INCOMPLETE_DECLARATION"
+    if (
+        normalized.startswith((")", "]", "}", ",", "，", ";", "；"))
+        or all(
+            character in ")]},，;；:+-*/=" or character.isspace()
+            for character in normalized
+        )
+    ):
+        return "CLAIM_SYNTAX_TAIL"
+    if _LEADING_CONNECTOR.search(normalized) or normalized.endswith(
+        (",", "，", ":", "：", ";", "；", "-", "—", "=", "+", "*", "/")
+    ):
+        return "CLAIM_HALF_CLAUSE"
+    if (
+        normalized.endswith(("(", "[", "{"))
+        or _INCOMPLETE_DECLARATION.fullmatch(normalized)
+    ):
+        return "CLAIM_INCOMPLETE_DECLARATION"
     panel = _PANEL_LABEL.fullmatch(normalized)
     figure = _FIGURE_CAPTION.fullmatch(normalized)
     caption = panel.group(1) if panel is not None else (
         figure.group(1) if figure is not None else None
     )
     if caption is None:
-        return False
-    return not bool(
+        return None
+    if not bool(
         _ENGLISH_PREDICATE.search(caption)
         or _CHINESE_PREDICATE.search(caption)
-    )
+    ):
+        return "CLAIM_FRAGMENT_UNUSABLE"
+    return None
 
 
 def build_semantic_request(
     page_evidence: dict[str, Any],
+    document_context: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, str]]:
-    """模型只取得短 alias 與文字；正式 Evidence identity 留在後端。"""
+    """Evidence 使用短 alias；文脈保留可重算的 block grounding。"""
+    if (
+        document_context.get("page_ref") != page_evidence.get("page_ref")
+        or document_context.get("page_evidence_id")
+        != page_evidence.get("page_evidence_id")
+        or {
+            block.get("evidence_id")
+            for block in document_context.get("current_blocks", [])
+        }
+        != {
+            block.get("evidence_id")
+            for block in page_evidence.get("evidence_blocks", [])
+        }
+    ):
+        raise SemanticOutputError("INPUT_SCHEMA_INVALID")
     evidence = []
     evidence_aliases = {}
     for index, block in enumerate(page_evidence["evidence_blocks"], start=1):
@@ -170,13 +238,16 @@ def build_semantic_request(
     request = {
         "schema": SEMANTIC_REQUEST_SCHEMA,
         "evidence": evidence,
+        "document_context": serialize_document_context(
+            document_context, evidence_aliases
+        ),
     }
     validate_semantic_request(request)
     return request, evidence_aliases
 
 
 def validate_semantic_request(request: Any) -> dict[str, dict[str, Any]]:
-    expected = {"schema", "evidence"}
+    expected = {"schema", "evidence", "document_context"}
     if not isinstance(request, dict) or set(request) != expected or request["schema"] != SEMANTIC_REQUEST_SCHEMA:
         raise SemanticOutputError("INPUT_SCHEMA_INVALID")
     evidence_items = request["evidence"]
@@ -191,7 +262,104 @@ def validate_semantic_request(request: Any) -> dict[str, dict[str, Any]]:
             raise SemanticOutputError("DUPLICATE_EVIDENCE_ID")
         _exact_evidence_text(evidence["text"])
         evidence_by_id[evidence_id] = evidence
+    current_evidence_ids = _validate_document_context_envelope(
+        request["document_context"]
+    )
+    if current_evidence_ids != set(evidence_by_id):
+        raise SemanticOutputError("INPUT_SCHEMA_INVALID")
     return evidence_by_id
+
+
+def _validate_document_context_envelope(context: Any) -> set[str]:
+    fields = {
+        "schema",
+        "document_context_id",
+        "current_blocks",
+        "context_blocks",
+    }
+    if (
+        not isinstance(context, dict)
+        or set(context) != fields
+        or context["schema"] != "concept-context-envelope/v1"
+        or not isinstance(context["document_context_id"], str)
+        or re.fullmatch(
+            r"document-context:sha256:[0-9a-f]{64}",
+            context["document_context_id"],
+        )
+        is None
+        or not isinstance(context["current_blocks"], list)
+        or not context["current_blocks"]
+        or not isinstance(context["context_blocks"], list)
+    ):
+        raise SemanticOutputError("INPUT_SCHEMA_INVALID")
+    current_fields = {
+        "evidence_id",
+        "heading_ancestry_ids",
+        "previous_evidence_id",
+        "next_evidence_id",
+        "continuation_ids",
+    }
+    context_fields = {
+        "id",
+        "role",
+        "text",
+    }
+    if any(
+        not isinstance(block, dict)
+        or set(block) != current_fields
+        or re.fullmatch(r"e[1-9][0-9]*", str(block["evidence_id"])) is None
+        or not isinstance(block["heading_ancestry_ids"], list)
+        or not isinstance(block["continuation_ids"], list)
+        for block in context["current_blocks"]
+    ):
+        raise SemanticOutputError("INPUT_SCHEMA_INVALID")
+    if any(
+        not isinstance(block, dict)
+        or set(block) != context_fields
+        or re.fullmatch(r"c[1-9][0-9]*", str(block["id"])) is None
+        or block["role"]
+        not in {
+            "heading_ancestry",
+            "continuation",
+            "previous_page",
+            "next_page",
+            "supplementary",
+        }
+        or not isinstance(block["text"], str)
+        or not block["text"]
+        for block in context["context_blocks"]
+    ):
+        raise SemanticOutputError("INPUT_SCHEMA_INVALID")
+    current_ids = {
+        block["evidence_id"] for block in context["current_blocks"]
+    }
+    context_ids = {block["id"] for block in context["context_blocks"]}
+    if (
+        len(current_ids) != len(context["current_blocks"])
+        or len(context_ids) != len(context["context_blocks"])
+    ):
+        raise SemanticOutputError("INPUT_SCHEMA_INVALID")
+    allowed_ids = current_ids | context_ids
+    references = [
+        reference
+        for block in context["current_blocks"]
+        for reference in [
+            *block["heading_ancestry_ids"],
+            block["previous_evidence_id"],
+            block["next_evidence_id"],
+            *block["continuation_ids"],
+        ]
+        if reference is not None
+    ]
+    if any(reference not in allowed_ids for reference in references):
+        raise SemanticOutputError("INPUT_SCHEMA_INVALID")
+    context_tokens = sum(
+        len(block["text"].encode("utf-8"))
+        for block in context["context_blocks"]
+    )
+    if context_tokens > 1_024:
+        raise SemanticOutputError("INPUT_SCHEMA_INVALID")
+    return current_ids
 
 
 def split_semantic_request(
@@ -214,12 +382,54 @@ def split_semantic_request(
             raise SemanticOutputError("MODEL_INPUT_TOO_LARGE")
         groups = ([{"id": item["id"], "text": left}], [{"id": item["id"], "text": right}])
     requests = tuple(
-        {"schema": SEMANTIC_REQUEST_SCHEMA, "evidence": group}
+        {
+            "schema": SEMANTIC_REQUEST_SCHEMA,
+            "evidence": group,
+            "document_context": _context_for_evidence(
+                request["document_context"],
+                {item["id"] for item in group},
+            ),
+        }
         for group in groups
     )
     for child in requests:
         validate_semantic_request(child)
     return requests
+
+
+def _context_for_evidence(
+    context: dict[str, Any], evidence_ids: set[str]
+) -> dict[str, Any]:
+    """切 request 時只保留該批 current Evidence 的關係。"""
+
+    context_ids = {block["id"] for block in context["context_blocks"]}
+    allowed_ids = evidence_ids | context_ids
+
+    def kept(reference: str | None) -> str | None:
+        return reference if reference in allowed_ids else None
+
+    return {
+        **context,
+        "current_blocks": [
+            {
+                **block,
+                "heading_ancestry_ids": [
+                    reference
+                    for reference in block["heading_ancestry_ids"]
+                    if reference in allowed_ids
+                ],
+                "previous_evidence_id": kept(block["previous_evidence_id"]),
+                "next_evidence_id": kept(block["next_evidence_id"]),
+                "continuation_ids": [
+                    reference
+                    for reference in block["continuation_ids"]
+                    if reference in allowed_ids
+                ],
+            }
+            for block in context["current_blocks"]
+            if block["evidence_id"] in evidence_ids
+        ],
+    }
 
 
 def _decode_complete_output(model_text: Any) -> dict[str, Any]:
@@ -257,7 +467,7 @@ def _candidate_reason(
         label = _normalized_candidate_text(candidate["label"])
         definition = None
         definition_reason = None
-        has_rejected_point = False
+        rejected_claim_reasons = []
         try:
             definition = _claim(
                 candidate["definition"], evidence_aliases, evidence_by_alias, label
@@ -265,11 +475,11 @@ def _candidate_reason(
         except SemanticOutputError as error:
             if error.reason_code not in {
                 "CLAIM_EVIDENCE_UNSUPPORTED",
-                "CLAIM_FRAGMENT_UNUSABLE",
+                *_CLAIM_FRAGMENT_REASONS,
             }:
                 raise
             definition_reason = error.reason_code
-            has_rejected_point = True
+            rejected_claim_reasons.append(error.reason_code)
         key_points = candidate["key_points"]
         if not isinstance(key_points, list) or not key_points:
             raise SemanticOutputError("INVALID_KEY_POINTS")
@@ -282,10 +492,10 @@ def _candidate_reason(
             except SemanticOutputError as error:
                 if error.reason_code not in {
                     "CLAIM_EVIDENCE_UNSUPPORTED",
-                    "CLAIM_FRAGMENT_UNUSABLE",
+                    *_CLAIM_FRAGMENT_REASONS,
                 }:
                     raise
-                has_rejected_point = True
+                rejected_claim_reasons.append(error.reason_code)
         if definition is None:
             if len(normalized_points) < 2:
                 raise SemanticOutputError(
@@ -298,7 +508,7 @@ def _candidate_reason(
             "label": label,
             "definition": definition,
             "key_points": normalized_points,
-            "is_partial": has_rejected_point,
+            "rejected_claim_reasons": sorted(set(rejected_claim_reasons)),
         }, None
     except SemanticOutputError as error:
         return None, error.reason_code
@@ -327,10 +537,11 @@ def _claim(
     evidence_text = "\n".join(
         evidence_by_alias[reference]["text"] for reference in references
     )
+    fragment_reason = _claim_fragment_reason(text, label)
+    if fragment_reason is not None:
+        raise SemanticOutputError(fragment_reason)
     if not _claim_is_grounded(text, evidence_text):
         raise SemanticOutputError("CLAIM_EVIDENCE_UNSUPPORTED")
-    if _claim_is_fragment(text, label):
-        raise SemanticOutputError("CLAIM_FRAGMENT_UNUSABLE")
     return {
         "text": text,
         "evidence_ids": [evidence_aliases[reference] for reference in references],
@@ -384,7 +595,8 @@ def validate_concepts(
             }
             for index, point in enumerate(valid["key_points"])
         ]
-        is_partial = valid["is_partial"]
+        rejected_claim_reasons = valid["rejected_claim_reasons"]
+        is_partial = bool(rejected_claim_reasons)
         grounded = {"label": valid["label"], "definition": definition, "key_points": key_points}
         concepts.append(
             {
@@ -394,10 +606,11 @@ def validate_concepts(
                 "processing": "partial" if is_partial else "succeeded",
                 "quality": "needs_review",
                 "decision": "review",
-                "reason_codes": (
-                    ["CONTENT_REVIEW_REQUIRED", "SEMANTIC_REVIEW_REQUIRED"]
-                    if is_partial
-                    else ["SEMANTIC_REVIEW_REQUIRED"]
+                "reason_codes": sorted(
+                    set(
+                        rejected_claim_reasons
+                        + ["SEMANTIC_REVIEW_REQUIRED"]
+                    )
                 ),
             }
         )

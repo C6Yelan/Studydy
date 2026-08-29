@@ -26,10 +26,15 @@ RUNTIME_LOCK = json.loads(
 
 
 def _semantic_request():
-    return {
-        "schema": "concept-generation-input/v2",
-        "evidence": [],
-    }
+    return json.loads(
+        (
+            Path(__file__).parents[2]
+            / "local_ai"
+            / "tests"
+            / "fixtures"
+            / "semantic_request.json"
+        ).read_text(encoding="utf-8")
+    )
 
 
 def _request(client, *, base_url="http://localhost:8101"):
@@ -170,7 +175,13 @@ def test_chat_completion_uses_exact_loopback_request_and_returns_content():
             {
                 "role": "user",
                 "content": f"{RUNTIME_LOCK['semantic']['prompt']}\nINPUT:\n"
-                '{"evidence":[],"schema":"concept-generation-input/v2"}',
+                + json.dumps(
+                    _semantic_request(),
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
             }
         ],
         "temperature": 0,
