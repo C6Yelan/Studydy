@@ -156,11 +156,6 @@ def _study_output(label, source_sha256="f" * 64):
         "evidence_text_index": [
             {"evidence_id": evidence_id, "text": "The page provides direct evidence."}
         ],
-        "context_block_index": [{
-            "evidence_id": evidence_id,
-            "block_id": block_id,
-            "section_id": section_id,
-        }],
         "document_contexts": [context],
         "images": [],
         "processing": "succeeded",

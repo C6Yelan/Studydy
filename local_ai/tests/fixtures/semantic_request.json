@@ -1,5 +1,5 @@
 {
-  "schema": "concept-generation-input/v4",
+  "schema": "concept-generation-input/v5",
   "evidence": [
     {
       "id": "e1",
@@ -7,11 +7,12 @@
     }
   ],
   "document_context": {
-    "schema": "concept-context-envelope/v1",
+    "schema": "concept-context-envelope/v2",
     "document_context_id": "document-context:sha256:3d6979cd1ee4b2fb8fc156ef58f7daf40ec81ef5c268ba7c762e749738c8662e",
     "current_blocks": [
       {
         "evidence_id": "e1",
+        "kind": "paragraph",
         "heading_ancestry_ids": [],
         "previous_evidence_id": null,
         "next_evidence_id": null,

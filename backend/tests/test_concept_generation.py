@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import unicodedata
 
 import pytest
 
@@ -26,10 +27,13 @@ def _output():
 
 def _request_with_evidence(evidence):
     request = _request()
-    request["evidence"] = evidence
+    request["evidence"] = [
+        {"id": item["id"], "text": item["text"]} for item in evidence
+    ]
     request["document_context"]["current_blocks"] = [
         {
             "evidence_id": item["id"],
+            "kind": item.get("kind", "paragraph"),
             "heading_ancestry_ids": [],
             "previous_evidence_id": (
                 evidence[index - 1]["id"] if index > 0 else None
@@ -327,7 +331,6 @@ def test_visual_index_and_scalar_fragments_are_removed_but_short_claim_survives(
     [
         ("and", "CLAIM_ISOLATED_CONNECTOR"),
         (") ;", "CLAIM_SYNTAX_TAIL"),
-        ("because the value changes", "CLAIM_HALF_CLAUSE"),
         ("value =", "CLAIM_HALF_CLAUSE"),
         ("function calculate(", "CLAIM_INCOMPLETE_DECLARATION"),
     ],
@@ -369,6 +372,55 @@ def test_incomplete_claims_are_demoted_with_deterministic_reasons(
     ]
     assert reason_code in artifact["concepts"][0]["reason_codes"]
     assert artifact["concepts"][0]["processing"] == "partial"
+
+
+@pytest.mark.parametrize(
+    "claim_text",
+    [
+        "However, the value changes.",
+        "因此，數值會改變。",
+        "Result:",
+        "Polymorphism",
+    ],
+)
+def test_complete_connector_colon_and_short_legal_claims_remain_eligible(
+    claim_text,
+):
+    evidence_text = (
+        "A complete rule explains the value. "
+        f"{claim_text} A second complete point is grounded."
+    )
+    artifact = validate_concepts(
+        json.dumps({
+            "concepts": [{
+                "label": "Complete rule",
+                "definition": {
+                    "text": "A complete rule explains the value.",
+                    "evidence_ids": ["e1"],
+                },
+                "key_points": [
+                    {"text": claim_text, "evidence_ids": ["e1"]},
+                    {
+                        "text": "A second complete point is grounded.",
+                        "evidence_ids": ["e1"],
+                    },
+                ],
+            }]
+        }),
+        semantic_request=_request_with_evidence(
+            [{"id": "e1", "text": evidence_text}]
+        ),
+        evidence_aliases={"e1": "evidence-one"},
+        page_ref="page:sha256:" + "1" * 64,
+        input_binding={"evidence_allowlist": ["evidence-one"]},
+        attempt=1,
+    )
+
+    normalized_claim = " ".join(unicodedata.normalize("NFKC", claim_text).split())
+    assert normalized_claim in [
+        point["text"] for point in artifact["concepts"][0]["key_points"]
+    ]
+    assert artifact["concepts"][0]["processing"] == "succeeded"
 
 
 def test_backslash_zero_is_preserved_and_plain_zero_cannot_replace_it():
@@ -473,6 +525,18 @@ def test_semantic_request_aliases_and_evidence_references_remain_exact():
     ]
     assert len(artifact["concepts"]) == 1
 
+    request = _request()
+    request["document_context"]["current_blocks"][0].pop("kind")
+    with pytest.raises(SemanticOutputError, match="INPUT_SCHEMA_INVALID"):
+        validate_concepts(
+            json.dumps(_output()),
+            semantic_request=request,
+            evidence_aliases={"e1": "evidence-one"},
+            page_ref="page:sha256:" + "1" * 64,
+            input_binding={"evidence_allowlist": ["evidence-one"]},
+            attempt=1,
+        )
+
 
 def test_large_page_request_splits_without_losing_formal_evidence_ids():
     request = _request_with_evidence(
@@ -484,6 +548,8 @@ def test_large_page_request_splits_without_losing_formal_evidence_ids():
     first, second = split_semantic_request(request)
     assert first["evidence"] == [{"id": "e1", "text": "first concept"}]
     assert second["evidence"] == [{"id": "e2", "text": "second concept"}]
+    assert first["document_context"]["current_blocks"][0]["kind"] == "paragraph"
+    assert second["document_context"]["current_blocks"][0]["kind"] == "paragraph"
 
     page_ref = "page:sha256:" + "1" * 64
     binding = {"evidence_allowlist": ["formal-one", "formal-two"]}

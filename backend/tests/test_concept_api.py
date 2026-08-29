@@ -212,7 +212,7 @@ def test_optional_context_overflow_keeps_evidence_in_one_generation_call():
     semantic_request = _semantic_request()
     semantic_request["document_context"]["context_blocks"] = [
         {"id": "c1", "role": "heading_ancestry", "text": "High priority heading"},
-        {"id": "c2", "role": "supplementary", "text": "Low priority detail"},
+        {"id": "c2", "role": "next_page", "text": "Low priority detail"},
     ]
     current = semantic_request["document_context"]["current_blocks"][0]
     current["heading_ancestry_ids"] = ["c1"]
@@ -249,6 +249,12 @@ def test_optional_context_overflow_keeps_evidence_in_one_generation_call():
         else []
         for document in tokenized_documents
     ] == [["c1", "c2"], ["c1"], [], []]
+    assert all(
+        document["document_context"]["current_blocks"][0]["kind"]
+        == "paragraph"
+        for document in tokenized_documents
+        if "document_context" in document
+    )
     dispatched = json.loads(
         generation_bodies[0]["messages"][0]["content"].split("\nINPUT:\n", 1)[1]
     )

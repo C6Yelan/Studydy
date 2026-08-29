@@ -299,15 +299,6 @@ def _insert_material_map(
         )
     ]
     document_contexts = build_document_contexts(context_source_pages)
-    context_block_index = [
-        {
-            "evidence_id": block["evidence_id"],
-            "block_id": block["block_id"],
-            "section_id": block["section_id"],
-        }
-        for context in document_contexts
-        for block in context["current_blocks"]
-    ]
     study_material_output = {
         "schema": "study-material-output/v6",
         "run_id": "text-first-run:00000000-0000-4000-8000-000000000001",
@@ -336,7 +327,6 @@ def _insert_material_map(
             }
             for index, evidence in enumerate(evidence_index, start=1)
         ],
-        "context_block_index": context_block_index,
         "document_contexts": document_contexts,
         "images": [],
         "processing": "succeeded",

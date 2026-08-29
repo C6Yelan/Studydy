@@ -64,12 +64,12 @@ _CONFIG_PATH_KEYS = {
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "f460b8628c7f67dbcf75b95106e4c2f851bce75f97ad8dcccff892364a0a910d",
+    "local_ai/runtime-lock.json": "75be6a5d127bde451fade66d8bedfe4f1558b628d2637ce5e5de092de1aaffe8",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "13716c4f0e1429802f2fa0e28c4e87743c678adb5ad61a32c12cb6309fd55a6a",
-    "backend/src/pdf_evidence/concept_generation.py": "68b25a33a489871fba1c445eb1b8b08056768baa5703aaf4c118deef6f5ef872",
-    "backend/src/pdf_evidence/document_context.py": "e8e7bb450fa45e32f6a2557e2c27fa3da8919ed0c52fa5d54d03b1bf4a49a0e2",
+    "backend/src/pdf_evidence/concept_generation.py": "ef27148b9be138d260bee0dcb539e50987e102c5684d2fca340c13280e344199",
+    "backend/src/pdf_evidence/document_context.py": "137a76c8832153328bafc610fff42d50d45fcab13a1711b61705ff6c40fd7486",
     "backend/src/pdf_evidence/concept_api.py": "18557207106aab9dabd75e56ee03246d40452e3fe82495f2d9c2ec8d1858b529",
-    "backend/src/pdf_evidence/study_material_output.py": "ff350901145b7ea4c7655d2aa1b476b97888c660b3039be5a8b2fb6abd1c161e",
+    "backend/src/pdf_evidence/study_material_output.py": "79bc309c15d76d6a3bcfc0116016f1bbfc19b6a088110ffba1e35cb1b4be509a",
     "backend/src/pdf_evidence/process_guard.py": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
     "backend/src/pdf_evidence/local_ai_process.py": "32686d52b8ef2a472dab833fdaa15bad4c45121e7c68f62af8fc05e53799578a",
 }

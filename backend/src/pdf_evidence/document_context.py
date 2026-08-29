@@ -16,7 +16,6 @@ _CONTEXT_ROLES = {
     "continuation",
     "previous_page",
     "next_page",
-    "supplementary",
 }
 _CONTEXT_REASONS = {
     "HEADING_HIERARCHY_AMBIGUOUS",
@@ -231,20 +230,6 @@ def _make_context(
             for block in next_page["evidence_blocks"]
         )
 
-    adjacent_refs = {
-        page["page_ref"]
-        for page in (previous_page, current_page, next_page)
-        if page is not None
-    }
-    for page in ordered_pages:
-        if page["page_ref"] in adjacent_refs:
-            continue
-        candidates.extend(
-            ("supplementary", page, block)
-            for block in page["evidence_blocks"]
-            if block["kind"] in {"heading", "caption"}
-        )
-
     selected: list[dict[str, Any]] = []
     selected_ids: set[str] = set()
     token_count = 0
@@ -372,7 +357,9 @@ def build_document_contexts(
 
 
 def serialize_document_context(
-    context: dict[str, Any], evidence_aliases: dict[str, str]
+    context: dict[str, Any],
+    evidence_aliases: dict[str, str],
+    evidence_kinds: dict[str, str],
 ) -> dict[str, Any]:
     """只把短 alias、關係與文字送入既有 Concept request。"""
 
@@ -391,6 +378,7 @@ def serialize_document_context(
     if (
         None in current_alias_by_block.values()
         or len(evidence_alias_by_id) != len(context["current_blocks"])
+        or set(evidence_kinds) != set(evidence_aliases)
     ):
         raise ValueError("DOCUMENT_CONTEXT_INVALID")
 
@@ -403,11 +391,14 @@ def serialize_document_context(
         return resolved
 
     return {
-        "schema": "concept-context-envelope/v1",
+        "schema": "concept-context-envelope/v2",
         "document_context_id": context["context_id"],
         "current_blocks": [
             {
                 "evidence_id": evidence_alias_by_id[block["evidence_id"]],
+                "kind": evidence_kinds[
+                    evidence_alias_by_id[block["evidence_id"]]
+                ],
                 "heading_ancestry_ids": [
                     alias(block_id)
                     for block_id in block["heading_ancestry_block_ids"]

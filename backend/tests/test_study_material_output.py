@@ -203,7 +203,7 @@ def test_build_v6_keeps_context_evidence_claim_locator_and_image_lite():
     output = build_study_material_output(source)
     assert output["schema"] == "study-material-output/v6"
     assert output["document_contexts"] == source["document_contexts"]
-    assert output["context_block_index"][0]["block_id"] == (
+    assert output["document_contexts"][0]["current_blocks"][0]["block_id"] == (
         source["pages"][0]["evidence_blocks"][0]["block_id"]
     )
     assert output["processing"] == "partial"
@@ -263,13 +263,12 @@ def test_recomputed_output_identity_cannot_hide_nested_unexpected_field():
     assert validate_study_material_output(output) == "STUDY_MATERIAL_OUTPUT_INVALID"
 
 
-def test_recomputed_identity_cannot_hide_context_block_or_section_tamper():
+def test_recomputed_identity_cannot_hide_context_evidence_tamper():
     output = build_study_material_output(producer_output())
     context = output["document_contexts"][0]
-    context["current_blocks"][0]["section_id"] = (
-        "document-section:sha256:" + "f" * 64
+    context["current_blocks"][0]["evidence_id"] = (
+        "evidence:sha256:" + "f" * 64
     )
-    context["section_ids"] = ["document-section:sha256:" + "f" * 64]
     context_identity = dict(context)
     context_identity.pop("context_id")
     context["context_id"] = (

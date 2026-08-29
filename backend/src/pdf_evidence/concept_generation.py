@@ -9,9 +9,9 @@ from .ocr_page_evidence import canonical_sha256
 from .document_context import serialize_document_context
 
 
-SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v4"
+SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v5"
 SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v2"
-PROCESSING_POLICY = "claim-grounded-concept-review/v3"
+PROCESSING_POLICY = "claim-grounded-concept-review/v4"
 MAX_MODEL_OUTPUT_BYTES = 65_536
 
 _ENGLISH_STOP_WORDS = {
@@ -47,13 +47,8 @@ _ISOLATED_CONNECTOR = re.compile(
     r"所以|因此|然後)[,，;；:]?$",
     re.IGNORECASE,
 )
-_LEADING_CONNECTOR = re.compile(
-    r"^(?:and|or|but|because|therefore|however|以及|與|和|或|但|因為|"
-    r"所以|因此)(?:\s|[,，])",
-    re.IGNORECASE,
-)
 _INCOMPLETE_DECLARATION = re.compile(
-    r"^(?:(?:class|def|function|let|const|var|int|float|double|char|str|string)\s+)?"
+    r"^(?:class|def|function|let|const|var|int|float|double|char|str|string)\s+"
     r"[A-Za-z_]\w*(?:\([^)]*)?\s*(?:[:=({\[])?$"
 )
 _TECHNICAL_TOKEN = re.compile(
@@ -68,6 +63,15 @@ _CLAIM_FRAGMENT_REASONS = {
     "CLAIM_SYNTAX_TAIL",
     "CLAIM_HALF_CLAUSE",
     "CLAIM_INCOMPLETE_DECLARATION",
+}
+_EVIDENCE_KINDS = {
+    "heading",
+    "paragraph",
+    "list",
+    "code",
+    "caption",
+    "image_text",
+    "other",
 }
 
 
@@ -186,9 +190,7 @@ def _claim_fragment_reason(text: str, label: str) -> str | None:
         )
     ):
         return "CLAIM_SYNTAX_TAIL"
-    if _LEADING_CONNECTOR.search(normalized) or normalized.endswith(
-        (",", "，", ":", "：", ";", "；", "-", "—", "=", "+", "*", "/")
-    ):
+    if normalized.endswith((",", "，", "-", "—", "=", "+", "*", "/")):
         return "CLAIM_HALF_CLAUSE"
     if (
         normalized.endswith(("(", "[", "{"))
@@ -231,15 +233,17 @@ def build_semantic_request(
         raise SemanticOutputError("INPUT_SCHEMA_INVALID")
     evidence = []
     evidence_aliases = {}
+    evidence_kinds = {}
     for index, block in enumerate(page_evidence["evidence_blocks"], start=1):
         alias = f"e{index}"
         evidence.append({"id": alias, "text": block["text"]})
         evidence_aliases[alias] = block["evidence_id"]
+        evidence_kinds[alias] = block["kind"]
     request = {
         "schema": SEMANTIC_REQUEST_SCHEMA,
         "evidence": evidence,
         "document_context": serialize_document_context(
-            document_context, evidence_aliases
+            document_context, evidence_aliases, evidence_kinds
         ),
     }
     validate_semantic_request(request)
@@ -262,15 +266,20 @@ def validate_semantic_request(request: Any) -> dict[str, dict[str, Any]]:
             raise SemanticOutputError("DUPLICATE_EVIDENCE_ID")
         _exact_evidence_text(evidence["text"])
         evidence_by_id[evidence_id] = evidence
-    current_evidence_ids = _validate_document_context_envelope(
+    current_evidence_kinds = _validate_document_context_envelope(
         request["document_context"]
     )
-    if current_evidence_ids != set(evidence_by_id):
+    if set(current_evidence_kinds) != set(evidence_by_id):
         raise SemanticOutputError("INPUT_SCHEMA_INVALID")
+    for evidence_id, kind in current_evidence_kinds.items():
+        evidence_by_id[evidence_id] = {
+            **evidence_by_id[evidence_id],
+            "kind": kind,
+        }
     return evidence_by_id
 
 
-def _validate_document_context_envelope(context: Any) -> set[str]:
+def _validate_document_context_envelope(context: Any) -> dict[str, str]:
     fields = {
         "schema",
         "document_context_id",
@@ -280,7 +289,7 @@ def _validate_document_context_envelope(context: Any) -> set[str]:
     if (
         not isinstance(context, dict)
         or set(context) != fields
-        or context["schema"] != "concept-context-envelope/v1"
+        or context["schema"] != "concept-context-envelope/v2"
         or not isinstance(context["document_context_id"], str)
         or re.fullmatch(
             r"document-context:sha256:[0-9a-f]{64}",
@@ -294,6 +303,7 @@ def _validate_document_context_envelope(context: Any) -> set[str]:
         raise SemanticOutputError("INPUT_SCHEMA_INVALID")
     current_fields = {
         "evidence_id",
+        "kind",
         "heading_ancestry_ids",
         "previous_evidence_id",
         "next_evidence_id",
@@ -308,6 +318,7 @@ def _validate_document_context_envelope(context: Any) -> set[str]:
         not isinstance(block, dict)
         or set(block) != current_fields
         or re.fullmatch(r"e[1-9][0-9]*", str(block["evidence_id"])) is None
+        or block["kind"] not in _EVIDENCE_KINDS
         or not isinstance(block["heading_ancestry_ids"], list)
         or not isinstance(block["continuation_ids"], list)
         for block in context["current_blocks"]
@@ -323,7 +334,6 @@ def _validate_document_context_envelope(context: Any) -> set[str]:
             "continuation",
             "previous_page",
             "next_page",
-            "supplementary",
         }
         or not isinstance(block["text"], str)
         or not block["text"]
@@ -359,7 +369,10 @@ def _validate_document_context_envelope(context: Any) -> set[str]:
     )
     if context_tokens > 1_024:
         raise SemanticOutputError("INPUT_SCHEMA_INVALID")
-    return current_ids
+    return {
+        block["evidence_id"]: block["kind"]
+        for block in context["current_blocks"]
+    }
 
 
 def split_semantic_request(
@@ -367,7 +380,10 @@ def split_semantic_request(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """依原頁面順序切半；單一超長 Evidence 則只切它的文字。"""
 
-    evidence = list(validate_semantic_request(request).values())
+    evidence = [
+        {"id": item["id"], "text": item["text"]}
+        for item in validate_semantic_request(request).values()
+    ]
     if len(evidence) > 1:
         middle = len(evidence) // 2
         groups = (evidence[:middle], evidence[middle:])
