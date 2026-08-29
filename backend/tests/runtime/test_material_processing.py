@@ -465,12 +465,7 @@ def _fake_producer(
             "batch_bindings": [{
                 "batch_index": 0,
                 "semantic_request_sha256": canonical_sha256(semantic_request),
-                "document_context_id": semantic_request["document_context"][
-                    "document_context_id"
-                ],
-                "source_context_id": contexts_by_page[page["page_ref"]][
-                    "context_id"
-                ],
+                "semantic_request": deepcopy(semantic_request),
             }]
         }
     output = build_output(

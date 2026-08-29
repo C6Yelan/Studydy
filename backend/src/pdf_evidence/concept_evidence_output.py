@@ -9,7 +9,13 @@ from .artifact_reason_codes import (
     formal_reason_codes,
     reason_codes_are_valid,
 )
-from .concept_generation import claim_id, concept_id
+from .concept_generation import (
+    build_semantic_request,
+    claim_id,
+    concept_id,
+    fitted_semantic_request_matches_source,
+    validate_semantic_request,
+)
 from .document_context import (
     validate_document_context,
     validate_document_context_shape,
@@ -20,7 +26,7 @@ from .ocr_page_evidence import canonical_bytes, canonical_sha256
 OUTPUT_SCHEMA = "concept-evidence-output/v5"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
 MAX_ARTIFACT_FILE_BYTES = 16 * 1024 * 1024
-RUNTIME_LOCK_SHA256 = "f009559139cbfaf361243de21f75781d95f6047a727b651c69d5888ca52b6563"
+RUNTIME_LOCK_SHA256 = "6482506a1453cc04fd326dfa578cf29f38017245c9688d821f7c9504f5267331"
 
 
 def _closed(value: Any, fields: set[str]) -> bool:
@@ -44,6 +50,13 @@ def _box(value: Any) -> bool:
         and value[0] < value[2]
         and value[1] < value[3]
     )
+
+
+def _semantic_request_valid(request: Any) -> bool:
+    try:
+        return bool(validate_semantic_request(request))
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def _claim_is_valid(
@@ -354,13 +367,21 @@ def validate_output_document(output: Any) -> bool:
         return False
     batch_indexes: dict[str, list[int]] = {page_ref: [] for page_ref in page_refs}
     batch_identities: set[tuple[str, str]] = set()
+    pages_by_ref = {page["page_ref"]: page for page in pages}
+    source_requests = {}
+    for page_ref, context in contexts_by_page.items():
+        source_page = deepcopy(pages_by_ref[page_ref])
+        source_page["page_evidence_id"] = context["page_evidence_id"]
+        source_requests[page_ref], _ = build_semantic_request(
+            source_page, context
+        )
     for batch in semantic_batches:
         if (
             not _closed(
                 batch,
                 {
                     "page_ref", "batch_index", "semantic_request_sha256",
-                    "document_context_id", "source_context_id",
+                    "semantic_request",
                 },
             )
             or batch["page_ref"] not in page_refs
@@ -369,23 +390,33 @@ def validate_output_document(output: Any) -> bool:
             or not isinstance(batch["semantic_request_sha256"], str)
             or re.fullmatch(r"[0-9a-f]{64}", batch["semantic_request_sha256"])
             is None
-            or not isinstance(batch["document_context_id"], str)
-            or re.fullmatch(
-                r"concept-context:sha256:[0-9a-f]{64}",
-                batch["document_context_id"],
+            or not isinstance(batch["semantic_request"], dict)
+            or canonical_sha256(batch["semantic_request"])
+            != batch["semantic_request_sha256"]
+            or not _semantic_request_valid(batch["semantic_request"])
+            or not fitted_semantic_request_matches_source(
+                batch["semantic_request"], source_requests[batch["page_ref"]]
             )
-            is None
-            or batch["source_context_id"]
-            != contexts_by_page[batch["page_ref"]]["context_id"]
+            or batch["semantic_request"]["document_context"][
+                "source_context_id"
+            ] != contexts_by_page[batch["page_ref"]]["context_id"]
             or (
-                batch["semantic_request_sha256"], batch["document_context_id"]
+                batch["semantic_request_sha256"],
+                batch["semantic_request"]["document_context"][
+                    "document_context_id"
+                ],
             )
             in batch_identities
         ):
             return False
         batch_indexes[batch["page_ref"]].append(batch["batch_index"])
         batch_identities.add(
-            (batch["semantic_request_sha256"], batch["document_context_id"])
+            (
+                batch["semantic_request_sha256"],
+                batch["semantic_request"]["document_context"][
+                    "document_context_id"
+                ],
+            )
         )
     if any(
         indexes != list(range(len(indexes)))

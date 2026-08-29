@@ -297,13 +297,18 @@ def test_sequential_product_path_and_exact_replay_zero_model_calls(tmp_path, mon
     assert batch_binding["semantic_request_sha256"] == (
         run_module.canonical_sha256(state["semantic_requests"][0])
     )
-    assert batch_binding["document_context_id"].startswith(
+    assert batch_binding["semantic_request"] == state["semantic_requests"][0]
+    assert batch_binding["semantic_request"]["document_context"][
+        "document_context_id"
+    ].startswith(
         "concept-context:sha256:"
     )
     assert output["document_contexts"][0]["page_evidence_id"] != (
         output["pages"][0]["page_evidence_id"]
     )
-    assert output["semantic_batches"][0]["source_context_id"] == (
+    assert output["semantic_batches"][0]["semantic_request"][
+        "document_context"
+    ]["source_context_id"] == (
         output["document_contexts"][0]["context_id"]
     )
     assert "png_base64" not in saved_json
@@ -432,11 +437,12 @@ def test_oversized_page_is_split_and_all_batches_remain_grounded(tmp_path, monke
         for batch in output["semantic_batches"]
     }) == len(output["semantic_batches"])
     assert len({
-        batch["document_context_id"]
+        batch["semantic_request"]["document_context"]["document_context_id"]
         for batch in output["semantic_batches"]
     }) == len(output["semantic_batches"])
     assert {
-        batch["source_context_id"] for batch in output["semantic_batches"]
+        batch["semantic_request"]["document_context"]["source_context_id"]
+        for batch in output["semantic_batches"]
     } == {output["document_contexts"][0]["context_id"]}
     page_evidence_ids = {
         block["evidence_id"] for block in output["pages"][0]["evidence_blocks"]
@@ -502,6 +508,53 @@ def test_invalid_semantic_cache_is_recomputed_and_reported(tmp_path, monkeypatch
     assert replay["processing"] == "succeeded"
     assert replay["ocr_calls"] == 0
     assert replay["concept_calls"] == 1
+    assert "CACHE_RECOVERED" in replay["reason_codes"]
+
+
+@pytest.mark.parametrize("mutation", ["evidence_text", "context_kind"])
+def test_recomputed_exact_request_or_context_cache_tamper_is_rejected(
+    tmp_path, monkeypatch, mutation
+):
+    path = tmp_path / "public.pdf"
+    _pdf(path)
+    state = _state()
+    monkeypatch.setattr(
+        run_module, "request_concept_text", FakeConceptAPI(state)
+    )
+    first = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+    assert first["processing"] == "succeeded"
+    cache_path = next((tmp_path / "runtime" / "cache" / "semantic").glob("*.json"))
+    record = json.loads(cache_path.read_text(encoding="utf-8"))
+    binding = record["input_binding"]
+    batch = binding["batch_bindings"][0]
+    request = batch["semantic_request"]
+    if mutation == "evidence_text":
+        request["evidence"][0]["text"] = "Changed public Evidence"
+    else:
+        request["document_context"]["current_blocks"][0]["kind"] = "list"
+        context_identity = {
+            key: value
+            for key, value in request["document_context"].items()
+            if key != "document_context_id"
+        }
+        request["document_context"]["document_context_id"] = (
+            "concept-context:sha256:"
+            + run_module.canonical_sha256(context_identity)
+        )
+    batch["semantic_request_sha256"] = run_module.canonical_sha256(request)
+    record["cache_key"] = run_module.canonical_sha256(binding)
+    record["artifact"]["input_binding"] = deepcopy(binding)
+    record["artifact_sha256"] = run_module.canonical_sha256(record["artifact"])
+    cache_path.write_bytes(run_module.canonical_bytes(record))
+
+    replay = run_module.run_full_text_first_pdf(
+        _whole_request(path), _settings(tmp_path)
+    )
+
+    assert replay["processing"] == "succeeded"
+    assert state["concept"] == 2
     assert "CACHE_RECOVERED" in replay["reason_codes"]
 
 

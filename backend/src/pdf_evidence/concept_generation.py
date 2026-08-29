@@ -11,7 +11,7 @@ from .document_context import serialize_document_context
 
 SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v6"
 SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v3"
-PROCESSING_POLICY = "claim-grounded-concept-review/v5"
+PROCESSING_POLICY = "claim-grounded-concept-review/v4"
 MAX_MODEL_OUTPUT_BYTES = 65_536
 
 _ENGLISH_STOP_WORDS = {
@@ -471,6 +471,81 @@ def _context_for_evidence(
         "concept-context:sha256:" + canonical_sha256(identity)
     )
     return child
+
+
+def fitted_semantic_request_matches_source(
+    fitted_request: dict[str, Any],
+    source_request: dict[str, Any],
+) -> bool:
+    """Fitted request 只能保留 source Evidence slice 與 optional context 子集。"""
+
+    source_evidence = {
+        evidence["id"]: evidence for evidence in source_request["evidence"]
+    }
+    if (
+        not fitted_request["evidence"]
+        or any(
+            source_evidence.get(evidence["id"]) != evidence
+            and not _single_evidence_slice_matches(
+                evidence, fitted_request, source_request
+            )
+            for evidence in fitted_request["evidence"]
+        )
+    ):
+        return False
+    fitted_context = fitted_request["document_context"]
+    source_context = source_request["document_context"]
+    if fitted_context["source_context_id"] != source_context["source_context_id"]:
+        return False
+    source_current = {
+        block["evidence_id"]: block
+        for block in source_context["current_blocks"]
+    }
+    if len(fitted_context["current_blocks"]) != len(fitted_request["evidence"]):
+        return False
+    source_optional = {
+        block["id"]: block for block in source_context["context_blocks"]
+    }
+    if any(
+        source_optional.get(block["id"]) != block
+        for block in fitted_context["context_blocks"]
+    ):
+        return False
+    for fitted in fitted_context["current_blocks"]:
+        source = source_current.get(fitted["evidence_id"])
+        if source is None:
+            return False
+        for field in ("evidence_id", "kind"):
+            if fitted[field] != source[field]:
+                return False
+        for field in ("previous_evidence_id", "next_evidence_id"):
+            if fitted[field] not in {None, source[field]}:
+                return False
+        if (
+            not set(fitted["heading_ancestry_ids"])
+            <= set(source["heading_ancestry_ids"])
+            or not set(fitted["continuation_ids"])
+            <= set(source["continuation_ids"])
+        ):
+            return False
+    return True
+
+
+def _single_evidence_slice_matches(
+    evidence: dict[str, Any],
+    fitted_request: dict[str, Any],
+    source_request: dict[str, Any],
+) -> bool:
+    if len(fitted_request["evidence"]) != 1 or len(source_request["evidence"]) != 1:
+        return False
+    source = source_request["evidence"][0]
+    if evidence["id"] != source["id"] or len(source["text"]) < 2:
+        return False
+    middle = len(source["text"]) // 2
+    return evidence["text"] in {
+        source["text"][:middle].strip(),
+        source["text"][middle:].strip(),
+    }
 
 
 def _decode_complete_output(model_text: Any) -> dict[str, Any]:

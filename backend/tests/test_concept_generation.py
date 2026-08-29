@@ -8,6 +8,7 @@ from pdf_evidence.concept_generation import (
     SemanticOutputError,
     build_semantic_request,
     combine_semantic_batches,
+    fitted_semantic_request_matches_source,
     split_semantic_request,
     validate_concepts,
 )
@@ -598,10 +599,11 @@ def test_large_page_request_splits_without_losing_formal_evidence_ids():
 
 
 def test_single_large_evidence_split_removes_only_boundary_whitespace():
-    first, second = split_semantic_request(
-        _request_with_evidence(
-            [{"id": "e1", "text": "first half   second half"}]
-        )
+    source = _request_with_evidence(
+        [{"id": "e1", "text": "first half   second half"}]
     )
+    first, second = split_semantic_request(source)
     assert first["evidence"] == [{"id": "e1", "text": "first half"}]
     assert second["evidence"] == [{"id": "e1", "text": "second half"}]
+    assert fitted_semantic_request_matches_source(first, source)
+    assert fitted_semantic_request_matches_source(second, source)

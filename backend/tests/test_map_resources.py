@@ -89,6 +89,30 @@ def _study_output(label, source_sha256="f" * 64):
         "reason_codes": ["SECTION_BOUNDARY_AMBIGUOUS"],
     }
     context["context_id"] = "document-context:sha256:" + canonical_sha256(context)
+    context_envelope = {
+        "schema": "concept-context-envelope/v3",
+        "source_context_id": context["context_id"],
+        "current_blocks": [{
+            "evidence_id": "e1",
+            "kind": "paragraph",
+            "heading_ancestry_ids": [],
+            "previous_evidence_id": None,
+            "next_evidence_id": None,
+            "continuation_ids": [],
+        }],
+        "context_blocks": [],
+    }
+    context_envelope["document_context_id"] = (
+        "concept-context:sha256:" + canonical_sha256(context_envelope)
+    )
+    semantic_request = {
+        "schema": "concept-generation-input/v6",
+        "evidence": [{
+            "id": "e1",
+            "text": "The page provides direct evidence.",
+        }],
+        "document_context": context_envelope,
+    }
     definition = {
         "text": "A reviewed Study-side concept.",
         "evidence_ids": [evidence_id],
@@ -160,9 +184,8 @@ def _study_output(label, source_sha256="f" * 64):
         "semantic_batches": [{
             "page_ref": page_ref,
             "batch_index": 0,
-            "semantic_request_sha256": "9" * 64,
-            "document_context_id": "concept-context:sha256:" + "a" * 64,
-            "source_context_id": context["context_id"],
+            "semantic_request_sha256": canonical_sha256(semantic_request),
+            "semantic_request": semantic_request,
         }],
         "images": [],
         "processing": "succeeded",

@@ -17,6 +17,7 @@ from learning_adaptation.study_sessions import (
     read_study_session,
 )
 from learning_resources.map_resources import MATCHING_POLICY, PROMOTION_POLICY
+from pdf_evidence.concept_generation import build_semantic_request
 from pdf_evidence.document_context import build_document_contexts
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.learner_session import (
@@ -332,16 +333,13 @@ def _insert_material_map(
             {
                 "page_ref": context["page_ref"],
                 "batch_index": 0,
-                "semantic_request_sha256": canonical_sha256(
-                    {"context_id": context["context_id"], "kind": "request"}
-                ),
-                "document_context_id": "concept-context:sha256:"
-                + canonical_sha256(
-                    {"context_id": context["context_id"], "kind": "envelope"}
-                ),
-                "source_context_id": context["context_id"],
+                "semantic_request_sha256": canonical_sha256(semantic_request),
+                "semantic_request": semantic_request,
             }
-            for context in document_contexts
+            for page, context in zip(
+                context_source_pages, document_contexts, strict=True
+            )
+            for semantic_request, _ in [build_semantic_request(page, context)]
         ],
         "images": [],
         "processing": "succeeded",

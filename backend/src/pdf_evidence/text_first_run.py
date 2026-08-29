@@ -4,6 +4,7 @@ import base64
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from copy import deepcopy
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -37,7 +38,9 @@ from .concept_generation import (
     SemanticOutputError,
     build_semantic_request,
     combine_semantic_batches,
+    fitted_semantic_request_matches_source,
     split_semantic_request,
+    validate_semantic_request,
     validate_concepts,
 )
 from .document_context import (
@@ -271,35 +274,7 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
     ):
         return False
     batch_bindings = binding.get("batch_bindings")
-    if (
-        not isinstance(batch_bindings, list)
-        or any(
-            not isinstance(batch, dict)
-            or set(batch)
-            != {
-                "batch_index", "semantic_request_sha256", "document_context_id",
-                "source_context_id",
-            }
-            or batch["batch_index"] != index
-            or not isinstance(batch["semantic_request_sha256"], str)
-            or re.fullmatch(r"[0-9a-f]{64}", batch["semantic_request_sha256"])
-            is None
-            or not isinstance(batch["document_context_id"], str)
-            or re.fullmatch(
-                r"concept-context:sha256:[0-9a-f]{64}",
-                batch["document_context_id"],
-            )
-            is None
-            or not isinstance(batch["source_context_id"], str)
-            or re.fullmatch(
-                r"document-context:sha256:[0-9a-f]{64}",
-                batch["source_context_id"],
-            )
-            is None
-            or batch["source_context_id"] != binding.get("source_context_id")
-            for index, batch in enumerate(batch_bindings)
-        )
-    ):
+    if not _semantic_batch_bindings_valid(batch_bindings, binding):
         return False
     allowed = set(binding["evidence_allowlist"])
     for concept in artifact["concepts"]:
@@ -360,6 +335,38 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
         }
         if concept["concept_id"] != f"concept:sha256:{canonical_sha256(identity)}":
             return False
+    return True
+
+
+def _semantic_batch_bindings_valid(
+    batch_bindings: Any,
+    binding: dict[str, Any],
+) -> bool:
+    if not isinstance(batch_bindings, list):
+        return False
+    try:
+        source_request = binding["source_semantic_request"]
+        if not validate_semantic_request(source_request):
+            return False
+        for index, batch in enumerate(batch_bindings):
+            if (
+                not isinstance(batch, dict)
+                or set(batch)
+                != {"batch_index", "semantic_request_sha256", "semantic_request"}
+                or batch["batch_index"] != index
+                or not isinstance(batch["semantic_request_sha256"], str)
+                or re.fullmatch(r"[0-9a-f]{64}", batch["semantic_request_sha256"])
+                is None
+                or canonical_sha256(batch["semantic_request"])
+                != batch["semantic_request_sha256"]
+                or not validate_semantic_request(batch["semantic_request"])
+                or not fitted_semantic_request_matches_source(
+                    batch["semantic_request"], source_request
+                )
+            ):
+                return False
+    except (KeyError, TypeError, ValueError):
+        return False
     return True
 
 
@@ -683,9 +690,8 @@ def _process_pdf(
                 )
                 source_binding = {
                     "page_evidence_sha256": canonical_sha256(page),
-                    "source_context_id": document_context["context_id"],
                     "source_context_sha256": canonical_sha256(document_context),
-                    "unfitted_request_sha256": canonical_sha256(semantic_request),
+                    "source_semantic_request": deepcopy(semantic_request),
                     "evidence_allowlist": list(evidence_aliases.values()),
                     "semantic": runtime_lock["semantic"],
                     "concept_api": {
@@ -799,12 +805,7 @@ def _process_pdf(
                                     "semantic_request_sha256": canonical_sha256(
                                         fitted_request
                                     ),
-                                    "document_context_id": fitted_request[
-                                        "document_context"
-                                    ]["document_context_id"],
-                                    "source_context_id": fitted_request[
-                                        "document_context"
-                                    ]["source_context_id"],
+                                    "semantic_request": deepcopy(fitted_request),
                                 }
                                 model_text = request_concept_text(
                                     concept_client,

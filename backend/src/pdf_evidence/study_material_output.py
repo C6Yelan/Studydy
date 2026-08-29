@@ -7,8 +7,17 @@ from typing import Any
 
 from .artifact_reason_codes import formal_reason_codes, reason_codes_are_valid
 from .concept_evidence_output import AGGREGATION_POLICY, validate_output_document
-from .concept_generation import claim_id, concept_id
-from .document_context import validate_document_context_shape
+from .concept_generation import (
+    SEMANTIC_REQUEST_SCHEMA,
+    claim_id,
+    concept_id,
+    fitted_semantic_request_matches_source,
+    validate_semantic_request,
+)
+from .document_context import (
+    serialize_document_context,
+    validate_document_context_shape,
+)
 from .ocr_page_evidence import canonical_sha256
 
 
@@ -216,13 +225,33 @@ def _shape_is_valid(document: Any) -> bool:
     indexes_by_page: dict[str, list[int]] = {
         page_ref: [] for page_ref in pages_by_ref
     }
+    source_requests = {}
+    for page_ref, context in contexts_by_page.items():
+        evidence = []
+        aliases = {}
+        kinds = {}
+        for index, block in enumerate(context["current_blocks"], start=1):
+            alias = f"e{index}"
+            evidence.append({
+                "id": alias,
+                "text": evidence_text_by_id[block["evidence_id"]],
+            })
+            aliases[alias] = block["evidence_id"]
+            kinds[alias] = evidence_by_id[block["evidence_id"]]["kind"]
+        source_requests[page_ref] = {
+            "schema": SEMANTIC_REQUEST_SCHEMA,
+            "evidence": evidence,
+            "document_context": serialize_document_context(
+                context, aliases, kinds
+            ),
+        }
     for batch in semantic_batches:
         if (
             not isinstance(batch, dict)
             or set(batch)
             != {
                 "page_ref", "batch_index", "semantic_request_sha256",
-                "document_context_id", "source_context_id",
+                "semantic_request",
             }
             or batch["page_ref"] not in pages_by_ref
             or type(batch["batch_index"]) is not int
@@ -230,15 +259,24 @@ def _shape_is_valid(document: Any) -> bool:
             or not isinstance(batch["semantic_request_sha256"], str)
             or re.fullmatch(r"[0-9a-f]{64}", batch["semantic_request_sha256"])
             is None
-            or not isinstance(batch["document_context_id"], str)
-            or re.fullmatch(
-                r"concept-context:sha256:[0-9a-f]{64}",
-                batch["document_context_id"],
-            )
-            is None
-            or batch["source_context_id"]
-            != contexts_by_page[batch["page_ref"]]["context_id"]
+            or not isinstance(batch["semantic_request"], dict)
+            or canonical_sha256(batch["semantic_request"])
+            != batch["semantic_request_sha256"]
         ):
+            return False
+        try:
+            if (
+                not validate_semantic_request(batch["semantic_request"])
+                or not fitted_semantic_request_matches_source(
+                    batch["semantic_request"],
+                    source_requests[batch["page_ref"]],
+                )
+                or batch["semantic_request"]["document_context"][
+                    "source_context_id"
+                ] != contexts_by_page[batch["page_ref"]]["context_id"]
+            ):
+                return False
+        except (KeyError, TypeError, ValueError):
             return False
         indexes_by_page[batch["page_ref"]].append(batch["batch_index"])
     if any(

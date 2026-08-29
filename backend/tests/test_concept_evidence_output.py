@@ -14,9 +14,20 @@ def _reidentify_output(output):
         context["page_ref"]: context for context in output["document_contexts"]
     }
     for batch in output["semantic_batches"]:
-        batch["source_context_id"] = contexts_by_page[batch["page_ref"]][
+        request = batch["semantic_request"]
+        envelope = request["document_context"]
+        envelope["source_context_id"] = contexts_by_page[batch["page_ref"]][
             "context_id"
         ]
+        envelope_identity = {
+            key: value
+            for key, value in envelope.items()
+            if key != "document_context_id"
+        }
+        envelope["document_context_id"] = (
+            "concept-context:sha256:" + canonical_sha256(envelope_identity)
+        )
+        batch["semantic_request_sha256"] = canonical_sha256(request)
     identity = dict(output)
     identity.pop("output_id")
     output["output_id"] = (
@@ -83,8 +94,9 @@ def _two_page_output():
             "page_ref": second_page_ref,
             "batch_index": 0,
             "semantic_request_sha256": "e" * 64,
-            "document_context_id": "concept-context:sha256:" + "d" * 64,
-            "source_context_id": "document-context:sha256:" + "c" * 64,
+            "semantic_request": deepcopy(
+                output["semantic_batches"][0]["semantic_request"]
+            ),
         }
     )
     output["source_binding"]["page_numbers"] = [1, 2]
@@ -179,9 +191,19 @@ def test_presemantic_context_keeps_excluded_sibling_lineage():
         for batch in output["semantic_batches"]
         if batch["page_ref"] == first_page["page_ref"]
     ]
-    output["semantic_batches"][0]["source_context_id"] = first_context[
-        "context_id"
-    ]
+    request = output["semantic_batches"][0]["semantic_request"]
+    request["document_context"]["source_context_id"] = first_context["context_id"]
+    envelope_identity = {
+        key: value
+        for key, value in request["document_context"].items()
+        if key != "document_context_id"
+    }
+    request["document_context"]["document_context_id"] = (
+        "concept-context:sha256:" + canonical_sha256(envelope_identity)
+    )
+    output["semantic_batches"][0]["semantic_request_sha256"] = (
+        canonical_sha256(request)
+    )
     output["excluded_pages"] = [{
         "page_ref": second_page["page_ref"],
         "page_number": second_page["page_number"],
@@ -225,6 +247,24 @@ def test_durable_context_tamper_fails_even_with_recomputed_output_identity():
     context_identity.pop("context_id")
     context["context_id"] = (
         "document-context:sha256:" + canonical_sha256(context_identity)
+    )
+    identity = dict(output)
+    identity.pop("output_id")
+    output["output_id"] = (
+        "concept-evidence-output:sha256:" + canonical_sha256(identity)
+    )
+
+    assert validate_output_document(output) is False
+
+
+def test_durable_fitted_request_tamper_fails_with_recomputed_lineage():
+    output = producer_output()
+    batch = output["semantic_batches"][0]
+    batch["semantic_request"]["evidence"][0]["text"] = (
+        "Changed public Evidence"
+    )
+    batch["semantic_request_sha256"] = canonical_sha256(
+        batch["semantic_request"]
     )
     identity = dict(output)
     identity.pop("output_id")

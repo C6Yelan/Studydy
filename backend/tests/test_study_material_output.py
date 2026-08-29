@@ -141,10 +141,7 @@ def producer_output(*, excluded_page: bool = False):
         "batch_bindings": [{
             "batch_index": 0,
             "semantic_request_sha256": canonical_sha256(semantic_request),
-            "document_context_id": semantic_request["document_context"][
-                "document_context_id"
-            ],
-            "source_context_id": document_contexts[0]["context_id"],
+            "semantic_request": deepcopy(semantic_request),
         }]
     }
     excluded = (
@@ -217,10 +214,7 @@ def test_rejected_semantic_candidate_marks_page_partial_for_downstream():
                     "semantic_request_sha256": canonical_sha256(
                         semantic_request
                     ),
-                    "document_context_id": semantic_request[
-                        "document_context"
-                    ]["document_context_id"],
-                    "source_context_id": document_contexts[0]["context_id"],
+                    "semantic_request": deepcopy(semantic_request),
                 }]
             },
         }],
