@@ -853,6 +853,14 @@ def _record_material_progress(
                     raise MaterialProcessingError("MATERIAL_RUN_INVALID")
             elif _NEXT_PROGRESS_STAGE.get(row.progress_stage) != stage:
                 raise MaterialProcessingError("MATERIAL_RUN_INVALID")
+            elif (
+                row.progress_stage != "queued"
+                and (
+                    row.total_pages is None
+                    or row.completed_pages != row.total_pages
+                )
+            ):
+                raise MaterialProcessingError("MATERIAL_RUN_INVALID")
             row.progress_stage = stage
             row.completed_pages = completed_pages
             row.total_pages = total_pages

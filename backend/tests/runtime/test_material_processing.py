@@ -611,6 +611,8 @@ def test_progress_updates_are_monotonic_and_reject_illegal_transitions(
     record(created.run_id, "page_evidence", 0, 4, dsn=processing_database_dsn)
     record(created.run_id, "page_evidence", 2, 4, dsn=processing_database_dsn)
     with pytest.raises(MaterialProcessingError, match="MATERIAL_RUN_INVALID"):
+        record(created.run_id, "concept_generation", 0, 4, dsn=processing_database_dsn)
+    with pytest.raises(MaterialProcessingError, match="MATERIAL_RUN_INVALID"):
         record(created.run_id, "page_evidence", 1, 4, dsn=processing_database_dsn)
     with pytest.raises(MaterialProcessingError, match="MATERIAL_RUN_INVALID"):
         record(created.run_id, "page_evidence", 3, 5, dsn=processing_database_dsn)
@@ -618,6 +620,15 @@ def test_progress_updates_are_monotonic_and_reject_illegal_transitions(
         record(created.run_id, "knowledge_map_generation", 4, 4, dsn=processing_database_dsn)
     record(created.run_id, "page_evidence", 4, 4, dsn=processing_database_dsn)
     record(created.run_id, "concept_generation", 0, 4, dsn=processing_database_dsn)
+    record(created.run_id, "concept_generation", 2, 4, dsn=processing_database_dsn)
+    with pytest.raises(MaterialProcessingError, match="MATERIAL_RUN_INVALID"):
+        record(
+            created.run_id,
+            "knowledge_map_generation",
+            4,
+            4,
+            dsn=processing_database_dsn,
+        )
     record(created.run_id, "concept_generation", 4, 4, dsn=processing_database_dsn)
     record(created.run_id, "knowledge_map_generation", 4, 4, dsn=processing_database_dsn)
     record(created.run_id, "publishing", 4, 4, dsn=processing_database_dsn)

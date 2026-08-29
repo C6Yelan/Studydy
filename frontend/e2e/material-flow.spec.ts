@@ -103,8 +103,14 @@ test("非 PDF 在 client 端拒絕且不呼叫 material API", async ({ page }) =
 test("drop 與 file input 共用 PDF、multiple 與 type validation", async ({ page }) => {
   await sessionReady(page);
   await page.goto("/");
+  const input = page.getByLabel("選擇 PDF 教材");
+  const lesson = {
+    name: "lesson.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4"),
+  };
 
-  await dropFiles(page, [{ name: "lesson.pdf", type: "application/pdf", content: "%PDF-1.4" }]);
+  await input.setInputFiles(lesson);
   await expect(page.getByLabel("已選擇的檔案")).toContainText("lesson.pdf");
   await expect(page.getByLabel("已選擇的檔案")).toContainText("準備上傳");
 
@@ -113,9 +119,24 @@ test("drop 與 file input 共用 PDF、multiple 與 type validation", async ({ p
     { name: "two.pdf", type: "application/pdf", content: "%PDF-1.4" },
   ]);
   await expect(page.getByRole("alert")).toContainText("一次只能處理一份 PDF");
+  await expect(page.getByLabel("已選擇的檔案")).toHaveCount(0);
+  await expect(input).toHaveValue("");
 
-  await dropFiles(page, [{ name: "notes.txt", type: "text/plain", content: "notes" }]);
+  await input.setInputFiles(lesson);
+  await expect(page.getByLabel("已選擇的檔案")).toContainText("lesson.pdf");
+
+  await input.setInputFiles({
+    name: "notes.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("notes"),
+  });
   await expect(page.getByRole("alert")).toContainText("這不是可用的 PDF");
+  await expect(page.getByLabel("已選擇的檔案")).toHaveCount(0);
+  await expect(input).toHaveValue("");
+
+  await input.setInputFiles(lesson);
+  await expect(page.getByLabel("已選擇的檔案")).toContainText("lesson.pdf");
+  await expect(page.getByLabel("已選擇的檔案")).toContainText("準備上傳");
 });
 
 test("內容無法建立 Evidence 時顯示 truthful terminal failure", async ({ page }) => {
@@ -153,6 +174,15 @@ test("處理頁顯示 current-stage 真實頁數、排隊與估算中", async ({
   const pageProgress = page.getByRole("progressbar", { name: /整理頁面與教材來源 2 \/ 7 頁/ });
   await expect(pageProgress).toHaveAttribute("max", "7", { timeout: 6_000 });
   await expect(pageProgress).toHaveAttribute("value", "2");
+  const statusRegion = page.locator(".processing-status");
+  await expect(statusRegion).toHaveAttribute("aria-live", "polite");
+  await expect(statusRegion).toContainText("目前階段已完成 2 / 7 頁");
+  await expect(statusRegion.getByText("已經過")).toHaveCount(0);
+  await expect(page.locator(".processing-times").getByText("已經過")).toBeVisible();
+  await expect(
+    page.locator(".processing-times").locator("xpath=ancestor::*[@aria-live]")
+  ).toHaveCount(0);
+  await expect(page.locator("section.processing-page")).not.toHaveAttribute("aria-live", "polite");
   await expect(page.getByText("建立知識地圖", { exact: true }).first()).toBeVisible({ timeout: 6_000 });
   await expect(page.locator('.indeterminate-progress[aria-label*="建立知識地圖"]')).toBeVisible();
   await expect(page.getByText(/%|預計.*分鐘|剩餘.*分鐘/)).toHaveCount(0);

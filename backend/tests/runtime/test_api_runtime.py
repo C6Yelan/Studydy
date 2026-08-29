@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 import pymupdf
+import psycopg
 import pytest
 
 import runtime.api.app as app_module
@@ -142,6 +143,15 @@ def _encrypted_pdf() -> bytes:
     return content
 
 
+def _assert_no_material_residue(settings: ApiSettings, artifact_root: Path) -> None:
+    with psycopg.connect(settings.dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM materials").fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM artifacts").fetchone() == (0,)
+    if artifact_root.exists():
+        assert list((artifact_root / "objects").iterdir()) == []
+        assert list((artifact_root / ".staging").iterdir()) == []
+
+
 def test_api_settings_fail_closed_when_runtime_preflight_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -278,6 +288,60 @@ def test_corrupt_and_encrypted_pdf_have_specific_safe_error(
         )
         assert response.status_code == 400
         assert response.json()["reason_code"] == "MATERIAL_PDF_INVALID"
+
+
+def test_zero_byte_pdf_is_invalid_without_material_or_storage_residue(
+    settings: ApiSettings,
+    tmp_path: Path,
+):
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/session", headers={"Origin": settings.public_origin})
+        response = client.post(
+            "/v1/materials",
+            content=b"",
+            headers={**_headers("zero-byte"), "Content-Type": "application/pdf"},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["reason_code"] == "MATERIAL_PDF_INVALID"
+    _assert_no_material_residue(settings, tmp_path / "private-artifacts")
+
+
+def test_streaming_oversize_pdf_stops_before_publish_without_residue(
+    settings: ApiSettings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    publish_was_called = False
+
+    def unexpected_publish(*_args, **_kwargs):
+        nonlocal publish_was_called
+        publish_was_called = True
+        raise AssertionError("oversize request reached artifact publishing")
+
+    def oversize_pdf_chunks():
+        first_chunk = b"%PDF-1.7\n" + b"x" * (1024 * 1024 - len(b"%PDF-1.7\n"))
+        full_chunk = b"x" * (1024 * 1024)
+        yield first_chunk
+        for _ in range(99):
+            yield full_chunk
+        yield b"x"
+
+    monkeypatch.setattr(
+        app_module, "publish_idempotent_source_pdf", unexpected_publish
+    )
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/session", headers={"Origin": settings.public_origin})
+        response = client.post(
+            "/v1/materials",
+            content=oversize_pdf_chunks(),
+            headers={**_headers("oversize"), "Content-Type": "application/pdf"},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["reason_code"] == "MATERIAL_TOO_LARGE"
+    assert publish_was_called is False
+    _assert_no_material_residue(settings, tmp_path / "private-artifacts")
 
 
 def test_material_storage_failure_remains_distinct_from_invalid_pdf(

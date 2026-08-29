@@ -299,7 +299,8 @@
   padding: var(--space-6);
 }
 
-.processing-card > p {
+.processing-card > p,
+.processing-status > p {
   color: var(--text-secondary);
   line-height: 1.55;
 }

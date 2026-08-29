@@ -96,7 +96,7 @@ export function RunView({ apiClient, route }: {
       || run.progress_stage === "concept_generation"
     ) && run.total_pages !== null;
     return (
-    <section className="processing-page" aria-live="polite">
+    <section className="processing-page">
       <header className="processing-hero">
         <img src="/assets/studydy/processing-laptop.png" alt="" />
         <p className="eyebrow">Material Processing</p>
@@ -106,18 +106,20 @@ export function RunView({ apiClient, route }: {
       <div className="processing-grid">
         <section className="surface processing-card">
           <h2>目前狀態</h2>
-          {hasPageProgress ? (
-            <progress
-              aria-label={`${materialProgressStageLabel(run.progress_stage)} ${run.completed_pages} / ${run.total_pages} 頁`}
-              className="current-stage-progress"
-              max={run.total_pages!}
-              value={run.completed_pages}
-            />
-          ) : (
-            <div className="indeterminate-progress" aria-label={`${materialProgressStageLabel(run.progress_stage)}，進度估算中`}><span /></div>
-          )}
-          <strong>{materialProgressStageLabel(run.progress_stage)}</strong>
-          {hasPageProgress && <p>目前階段已完成 {run.completed_pages} / {run.total_pages} 頁。</p>}
+          <div className="processing-status" aria-live="polite">
+            {hasPageProgress ? (
+              <progress
+                aria-label={`${materialProgressStageLabel(run.progress_stage)} ${run.completed_pages} / ${run.total_pages} 頁`}
+                className="current-stage-progress"
+                max={run.total_pages!}
+                value={run.completed_pages}
+              />
+            ) : (
+              <div className="indeterminate-progress" aria-label={`${materialProgressStageLabel(run.progress_stage)}，進度估算中`}><span /></div>
+            )}
+            <strong>{materialProgressStageLabel(run.progress_stage)}</strong>
+            {hasPageProgress && <p>目前階段已完成 {run.completed_pages} / {run.total_pages} 頁。</p>}
+          </div>
           <dl className="processing-times">
             <div><dt>已經過</dt><dd>{materialElapsedLabel(run.created_at, now)}</dd></div>
             <div><dt>剩餘時間</dt><dd>估算中</dd></div>

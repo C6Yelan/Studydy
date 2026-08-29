@@ -25,14 +25,16 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
     uploadKey.current = crypto.randomUUID();
     runKey.current = crypto.randomUUID();
     const selection = validatePdfSelection(files);
-    setFile(selection.file);
+    const selectedFile = selection.message === null ? selection.file : null;
+    setFile(selectedFile);
     setMessage(selection.message);
+    if (selectedFile === null && fileInput.current) fileInput.current.value = "";
   };
 
   const submit = async () => {
     const validation = validatePdfFile(file);
     if (validation || !file) {
-      setMessage(validation);
+      setMessage(file === null ? message ?? validation : validation);
       return;
     }
     setIsSubmitting(true);
