@@ -17,15 +17,21 @@ from pdf_evidence.concept_api import (
 from pdf_evidence.local_ai_process import (
     LocalAIError,
     LocalAIProcess,
+    start_equivalence_process,
     start_relation_process,
 )
 from pdf_evidence.ocr_page_evidence import canonical_sha256
+from pdf_evidence.artifact_reason_codes import formal_reason_code
 
 from .artifacts import build_knowledge_map
 from .formal_concepts import (
-    build_resolution_requests,
-    resolve_singleton,
-    validate_resolution_with_isolation,
+    DEDUPLICATION_OUTPUT_SCHEMA,
+    FormalConceptError,
+    build_deduplication_request,
+    build_verifier_texts,
+    canonicalize_concepts,
+    uncertain_pair_decisions,
+    validate_pair_decisions,
 )
 from .relations import (
     build_relation_artifact,
@@ -35,38 +41,27 @@ from .relations import (
 )
 
 
-_RESOLUTION_FORMAT = {
+_DEDUPLICATION_FORMAT = {
     "type": "json_schema",
     "json_schema": {
-        "name": "studydy_formal_concept_resolution",
+        "name": "studydy_concept_deduplication",
         "strict": True,
         "schema": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["schema", "group_id", "resolutions"],
+            "required": ["schema", "pairs"],
             "properties": {
-                "schema": {"const": "formal-concept-resolution/v1"},
-                "group_id": {"type": "string"},
-                "resolutions": {
+                "schema": {"const": "concept-deduplication/v1"},
+                "pairs": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "additionalProperties": False,
-                        "required": ["operation", "source_ids", "nodes"],
+                        "required": ["id", "decision"],
                         "properties": {
-                            "operation": {"enum": ["KEEP", "MERGE", "RENAME", "SPLIT", "DROP"]},
-                            "source_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-                            "nodes": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "additionalProperties": False,
-                                    "required": ["label", "claim_ids"],
-                                    "properties": {
-                                        "label": {"type": "string", "minLength": 1},
-                                        "claim_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-                                    },
-                                },
+                            "id": {"type": "string"},
+                            "decision": {
+                                "enum": ["SAME", "DISTINCT", "UNCERTAIN"]
                             },
                         },
                     },
@@ -75,31 +70,16 @@ _RESOLUTION_FORMAT = {
         },
     },
 }
-def _resolution_format(request: dict[str, Any]) -> dict[str, Any]:
-    """讓 structured output 只能選目前群組實際存在的 alias。"""
+def _deduplication_format(request: dict[str, Any]) -> dict[str, Any]:
+    """讓 structured output 只能回覆目前送出的 pair ID。"""
 
-    candidate_aliases = [candidate["id"] for candidate in request["candidates"]]
-    claim_aliases = [
-        claim["id"]
-        for candidate in request["candidates"]
-        for claim in candidate["claims"]
-    ]
-    response_format = deepcopy(_RESOLUTION_FORMAT)
+    pair_ids = [pair["id"] for pair in request["pairs"]]
+    response_format = deepcopy(_DEDUPLICATION_FORMAT)
     schema = response_format["json_schema"]["schema"]
-    schema["properties"]["group_id"] = {"const": request["group_id"]}
-    resolutions = schema["properties"]["resolutions"]
-    resolutions["minItems"] = 1
-    resolutions["maxItems"] = len(candidate_aliases)
-    resolution = resolutions["items"]["properties"]
-    resolution["source_ids"]["maxItems"] = len(candidate_aliases)
-    resolution["source_ids"]["items"] = {"enum": candidate_aliases}
-    resolution["nodes"]["maxItems"] = 2
-    resolution["nodes"]["items"]["properties"]["claim_ids"]["maxItems"] = len(
-        claim_aliases
-    )
-    resolution["nodes"]["items"]["properties"]["claim_ids"]["items"] = {
-        "enum": claim_aliases
-    }
+    pairs = schema["properties"]["pairs"]
+    pairs["minItems"] = len(pair_ids)
+    pairs["maxItems"] = len(pair_ids)
+    pairs["items"]["properties"]["id"] = {"enum": pair_ids}
     return response_format
 
 
@@ -152,6 +132,164 @@ def _request_stage(
             ):
                 raise
     raise ConceptAPIError("CONCEPT_API_UNAVAILABLE")
+
+
+def _verification_diagnostics(
+    proposals: list[dict[str, str]],
+) -> dict[str, int]:
+    return {
+        "qwen_same_pairs": sum(pair["decision"] == "SAME" for pair in proposals),
+        "qwen_distinct_pairs": sum(
+            pair["decision"] == "DISTINCT" for pair in proposals
+        ),
+        "qwen_uncertain_pairs": sum(
+            pair["decision"] == "UNCERTAIN" for pair in proposals
+        ),
+        "verifier_requested_pairs": 0,
+        "verifier_scored_pairs": 0,
+        "verifier_allowed_pairs": 0,
+        "verifier_vetoed_pairs": 0,
+        "verifier_unsupported_pairs": 0,
+        "verifier_failed_pairs": 0,
+    }
+
+
+def _direction_is_valid(direction: Any) -> bool:
+    return (
+        isinstance(direction, dict)
+        and set(direction)
+        == {"entailment_probability", "argmax_label", "token_length"}
+        and type(direction["entailment_probability"]) is float
+        and 0 <= direction["entailment_probability"] <= 1
+        and direction["argmax_label"]
+        in {"entailment", "neutral", "contradiction"}
+        and type(direction["token_length"]) is int
+        and 1 <= direction["token_length"] <= 384
+    )
+
+
+def _verify_same_pairs(
+    request: dict[str, Any],
+    proposals: list[dict[str, str]],
+    verifier_texts: dict[str, str],
+    settings: dict[str, Any],
+) -> tuple[list[dict[str, str]], dict[str, int], str | None]:
+    """只有 Qwen SAME 進入固定雙向 verifier；任何失敗都保留來源。"""
+
+    diagnostics = _verification_diagnostics(proposals)
+    same_ids = {pair["id"] for pair in proposals if pair["decision"] == "SAME"}
+    diagnostics["verifier_requested_pairs"] = len(same_ids)
+    if not same_ids:
+        return proposals, diagnostics, None
+    pairs_by_id = {pair["id"]: pair for pair in request["pairs"]}
+    process = None
+    final_decisions = []
+    timeout_seconds = settings["runtime_lock"]["concept_equivalence"][
+        "timeout_seconds"
+    ]
+    try:
+        process = start_equivalence_process(settings, timeout_seconds)
+        for proposal in proposals:
+            if proposal["decision"] != "SAME":
+                final_decisions.append(deepcopy(proposal))
+                continue
+            pair = pairs_by_id[proposal["id"]]
+            request_id = canonical_sha256({
+                "request_sha256": canonical_sha256(request),
+                "pair_id": pair["id"],
+            })
+            try:
+                response = process.request(
+                    {
+                        "schema": "local-concept-equivalence-request/v1",
+                        "request_id": request_id,
+                        "left_text": verifier_texts[pair["left"]],
+                        "right_text": verifier_texts[pair["right"]],
+                    },
+                    timeout_seconds,
+                )
+            except LocalAIError as error:
+                if error.reason_code == "CHILD_TIMEOUT":
+                    raise LocalAIError(
+                        "CONCEPT_EQUIVALENCE_VERIFIER_TIMEOUT"
+                    ) from None
+                if error.reason_code == "CHILD_RESPONSE_INVALID":
+                    raise LocalAIError(
+                        "CONCEPT_EQUIVALENCE_VERIFIER_RESPONSE_INVALID"
+                    ) from None
+                raise LocalAIError(
+                    "CONCEPT_EQUIVALENCE_VERIFIER_UNAVAILABLE"
+                ) from None
+            if (
+                isinstance(response, dict)
+                and set(response)
+                == {"schema", "request_id", "status", "reason_code", "token_lengths"}
+                and response.get("schema")
+                == "local-concept-equivalence-response/v1"
+                and response.get("request_id") == request_id
+                and response.get("status") == "unsupported"
+                and response.get("reason_code") == "VERIFIER_INPUT_TOO_LARGE"
+                and isinstance(response.get("token_lengths"), list)
+                and len(response["token_lengths"]) == 2
+                and all(
+                    type(length) is int and length > 0
+                    for length in response["token_lengths"]
+                )
+                and any(length > 384 for length in response["token_lengths"])
+            ):
+                diagnostics["verifier_unsupported_pairs"] += 1
+                final_decisions.append({"id": pair["id"], "decision": "UNCERTAIN"})
+                continue
+            if (
+                not isinstance(response, dict)
+                or set(response)
+                != {"schema", "request_id", "status", "a_to_b", "b_to_a"}
+                or response.get("schema")
+                != "local-concept-equivalence-response/v1"
+                or response.get("request_id") != request_id
+                or response.get("status") != "scored"
+                or not _direction_is_valid(response.get("a_to_b"))
+                or not _direction_is_valid(response.get("b_to_a"))
+            ):
+                raise LocalAIError(
+                    "CONCEPT_EQUIVALENCE_VERIFIER_RESPONSE_INVALID"
+                )
+            diagnostics["verifier_scored_pairs"] += 1
+            allowed = all(
+                direction["argmax_label"] == "entailment"
+                and direction["entailment_probability"] >= 0.8
+                for direction in (response["a_to_b"], response["b_to_a"])
+            )
+            diagnostics[
+                "verifier_allowed_pairs" if allowed else "verifier_vetoed_pairs"
+            ] += 1
+            final_decisions.append({
+                "id": pair["id"],
+                "decision": "SAME" if allowed else "UNCERTAIN",
+            })
+        process.close()
+        process = None
+        return final_decisions, diagnostics, None
+    except LocalAIError as error:
+        if process is not None:
+            process.abort()
+        diagnostics.update({
+            "verifier_scored_pairs": 0,
+            "verifier_allowed_pairs": 0,
+            "verifier_vetoed_pairs": 0,
+            "verifier_unsupported_pairs": 0,
+            "verifier_failed_pairs": len(same_ids),
+        })
+        return [
+            {
+                "id": proposal["id"],
+                "decision": (
+                    "UNCERTAIN" if proposal["decision"] == "SAME"
+                    else proposal["decision"]
+                ),
+            }
+            for proposal in proposals
+        ], diagnostics, error.reason_code
 
 
 def _verify_relation(
@@ -290,52 +428,71 @@ def generate_knowledge_map(
             resource_promotion=resource_promotion,
             material_runtime_binding_sha256=material_runtime_binding_sha256,
         )
-    resolution_requests = build_resolution_requests(source_concepts)
-    resolution_artifacts = []
+    deduplication_request, concept_aliases = build_deduplication_request(
+        study_material_output
+    )
     server = None
+    failure_reason = None
     try:
-        has_multi_source_group = any(
-            len(request["candidates"]) > 1
-            for request, _, _ in resolution_requests
-        )
-        if has_multi_source_group:
+        if deduplication_request["pairs"]:
             server = start_concept_server(settings)
         with httpx.Client(
             trust_env=False, follow_redirects=False
-        ) if has_multi_source_group else nullcontext() as client:
-            for request, concept_aliases, claim_aliases in resolution_requests:
-                if len(request["candidates"]) == 1:
-                    resolution_artifacts.append(
-                        resolve_singleton(
-                            request,
-                            concept_aliases,
-                            claim_aliases,
-                            source_concepts,
-                        )
-                    )
-                    continue
+        ) if deduplication_request["pairs"] else nullcontext() as client:
+            if deduplication_request["pairs"]:
                 assert isinstance(client, httpx.Client)
                 model_text = _request_stage(
                     client,
                     settings,
                     runtime_lock["formal_resolution"],
-                    request,
-                    _resolution_format(request),
+                    deduplication_request,
+                    _deduplication_format(deduplication_request),
                 )
-                resolution_artifacts.append(
-                    validate_resolution_with_isolation(
-                        _json_document(model_text),
-                        request=request,
-                        concept_aliases=concept_aliases,
-                        claim_aliases=claim_aliases,
-                        source_concepts=source_concepts,
-                    )
+                pair_decisions = validate_pair_decisions(
+                    _json_document(model_text), deduplication_request
                 )
-    except (ConceptAPIError, KeyError, TypeError, ValueError):
-        raise ValueError("KNOWLEDGE_GENERATION_FAILED") from None
+            else:
+                pair_decisions = []
+    except ConceptAPIError as error:
+        pair_decisions = uncertain_pair_decisions(deduplication_request)
+        failure_reason = formal_reason_code(error.reason_code)
+    except (FormalConceptError, KeyError, TypeError, ValueError):
+        pair_decisions = uncertain_pair_decisions(deduplication_request)
+        failure_reason = "MODEL_OUTPUT_INVALID"
     finally:
         if server is not None:
             server.close()
+
+    if failure_reason is None:
+        try:
+            pair_decisions, verification_diagnostics, verifier_failure = (
+                _verify_same_pairs(
+                    deduplication_request,
+                    pair_decisions,
+                    build_verifier_texts(
+                        study_material_output, concept_aliases
+                    ),
+                    settings,
+                )
+            )
+            failure_reason = verifier_failure
+        except (FormalConceptError, KeyError, TypeError, ValueError):
+            pair_decisions = uncertain_pair_decisions(deduplication_request)
+            verification_diagnostics = _verification_diagnostics(pair_decisions)
+            failure_reason = "MODEL_OUTPUT_INVALID"
+    else:
+        verification_diagnostics = _verification_diagnostics(pair_decisions)
+
+    resolution_artifacts = [
+        canonicalize_concepts(
+            study_material_output,
+            deduplication_request,
+            concept_aliases,
+            pair_decisions,
+            verification_diagnostics=verification_diagnostics,
+            failure_reason=failure_reason,
+        )
+    ]
 
     resolved_formal_concepts = [
         concept

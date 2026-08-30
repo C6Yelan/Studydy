@@ -685,7 +685,7 @@ def promote_resources_to_formal_concepts(
         or not isinstance(concept.get("formal_concept_id"), str)
         or not isinstance(concept.get("source_concept_ids"), list)
         or not concept["source_concept_ids"]
-        or concept.get("operation") not in {"KEEP", "MERGE", "RENAME", "SPLIT"}
+        or concept.get("operation") not in {"KEEP", "MERGE"}
         for concept in formal_concepts
     ):
         raise ValueError("RESOURCE_PROMOTION_INPUT_INVALID")
@@ -709,30 +709,8 @@ def promote_resources_to_formal_concepts(
     }
     for match in context["matches"]:
         target_nodes = formal_by_source.get(match["study_concept_id"], [])
-        if not target_nodes:
-            dropped_matches += 1
-            decisions.append({
-                "match_id": match["match_id"],
-                "study_concept_id": match["study_concept_id"],
-                "resource_concept_id": match["resource_concept_id"],
-                "formal_concept_ids": [],
-                "decision": "reject",
-                "reason_code": "RESOURCE_SOURCE_CONCEPT_DROPPED",
-            })
-            continue
-        if len(target_nodes) != 1 or target_nodes[0]["operation"] == "SPLIT":
-            split_review_matches += 1
-            decisions.append({
-                "match_id": match["match_id"],
-                "study_concept_id": match["study_concept_id"],
-                "resource_concept_id": match["resource_concept_id"],
-                "formal_concept_ids": sorted(
-                    formal["formal_concept_id"] for formal in target_nodes
-                ),
-                "decision": "review",
-                "reason_code": "RESOURCE_SPLIT_REVIEW_REQUIRED",
-            })
-            continue
+        if len(target_nodes) != 1:
+            raise ValueError("RESOURCE_PROMOTION_INPUT_INVALID")
 
         resource_concept = concepts_by_id[match["resource_concept_id"]]
         evidence = [

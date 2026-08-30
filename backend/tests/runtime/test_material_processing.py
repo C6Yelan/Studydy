@@ -18,7 +18,11 @@ from pdf_evidence.concept_generation import build_semantic_request, validate_con
 from pdf_evidence.document_context import build_document_contexts
 from pdf_evidence.ocr_page_evidence import build_page_evidence, canonical_sha256, extract_page
 from knowledge_map.artifacts import build_knowledge_map, validate_knowledge_map
-from knowledge_map.formal_concepts import build_resolution_requests, validate_resolution
+from knowledge_map.formal_concepts import (
+    build_deduplication_request,
+    canonicalize_concepts,
+    uncertain_pair_decisions,
+)
 from learning_resources.map_resources import promote_resources_to_formal_concepts
 from runtime.api.models import KnowledgeMapView
 from runtime.material_processing import (
@@ -316,34 +320,25 @@ def _fake_knowledge_map(
     resource_context,
     resource_library,
 ):
-    resolutions = []
-    for request, concept_aliases, claim_aliases in build_resolution_requests(
-        study_output["concepts"]
-    ):
-        candidate = {
-            "schema": "formal-concept-resolution/v1",
-            "group_id": request["group_id"],
-            "resolutions": [
-                {
-                    "operation": "KEEP",
-                    "source_ids": [source["id"]],
-                    "nodes": [{
-                        "label": source["label"],
-                        "claim_ids": [claim["id"] for claim in source["claims"]],
-                    }],
-                }
-                for source in request["candidates"]
-            ],
-        }
-        resolutions.append(
-            validate_resolution(
-                candidate,
-                request=request,
-                concept_aliases=concept_aliases,
-                claim_aliases=claim_aliases,
-                source_concepts=study_output["concepts"],
-            )
-        )
+    request, concept_aliases = build_deduplication_request(study_output)
+    decisions = uncertain_pair_decisions(request)
+    resolutions = [canonicalize_concepts(
+        study_output,
+        request,
+        concept_aliases,
+        decisions,
+        verification_diagnostics={
+            "qwen_same_pairs": 0,
+            "qwen_distinct_pairs": 0,
+            "qwen_uncertain_pairs": len(decisions),
+            "verifier_requested_pairs": 0,
+            "verifier_scored_pairs": 0,
+            "verifier_allowed_pairs": 0,
+            "verifier_vetoed_pairs": 0,
+            "verifier_unsupported_pairs": 0,
+            "verifier_failed_pairs": 0,
+        },
+    )]
     formal_concepts = [
         concept for resolution in resolutions for concept in resolution["formal_concepts"]
     ]
@@ -608,8 +603,8 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
         set(evidence) == {"evidence_id", "text"}
         for evidence in outputs.study_material_output["evidence_text_index"]
     )
-    assert outputs.knowledge_map["schema"] == "knowledge-map/v6"
-    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v6"
+    assert outputs.knowledge_map["schema"] == "knowledge-map/v7"
+    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v7"
     with psycopg.connect(processing_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM study_material_outputs").fetchone() == (1,)
         assert connection.execute("SELECT count(*) FROM knowledge_maps").fetchone() == (1,)
@@ -896,6 +891,9 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
         "ocr_calls_per_page": 1,
         "ocr_initial_loads": 1,
         "concept_initial_loads": 2,
+        "concept_equivalence_initial_loads": 1,
+        "concept_equivalence_pairs_per_material": 16,
+        "concept_equivalence_directions_per_material": 32,
         "relation_verifier_initial_loads": 1,
         "relation_verifier_calls_per_material": 128,
     }
@@ -905,6 +903,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
         "concept_attempt": 300,
         "concept_server_ready": 300,
         "relation_verifier": 120,
+        "concept_equivalence": 120,
     }
     assert binding["retry_policy"]["concept_attempts"] == 2
     encoded = json.dumps(binding)
@@ -928,6 +927,9 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     }
     assert binding["relation_verifier"] == settings["runtime_lock"][
         "relation_verifier"
+    ]
+    assert binding["concept_equivalence"] == settings["runtime_lock"][
+        "concept_equivalence"
     ]
     assert len(binding["code_hashes"]) == 18
     assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
@@ -1097,7 +1099,7 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
 
     runtime_files = processing_module._runtime_files(settings)
     relative_names = {runtime_file.path.name for runtime_file in runtime_files}
-    assert len(runtime_files) == 28
+    assert len(runtime_files) == 29
     assert {
         "python3.12",
         "vllm",
@@ -1105,6 +1107,7 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
         "protocol.py",
         "ocr_process.py",
         "relation_process.py",
+        "equivalence_process.py",
         "model-00001-of-000001.safetensors",
         "model.safetensors.index.json",
         "special_tokens_map.json",
@@ -1118,6 +1121,10 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
         "ocr_process.py",
         "relation_process.py",
     )
+    assert settings["runtime_lock"]["concept_equivalence"]["package_source"] == {
+        "name": "equivalence_process.py",
+        "sha256": "588383aeb52638a7dd23a91c5d400229845c859d897b21bef5c8d06e06ffa56c",
+    }
 
 
 def test_distribution_versions_require_one_exact_metadata_record_per_package(

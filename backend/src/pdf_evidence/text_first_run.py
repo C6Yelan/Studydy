@@ -111,6 +111,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
     try:
         semantic = runtime_lock["semantic"]
         relation_verifier = runtime_lock["relation_verifier"]
+        concept_equivalence = runtime_lock["concept_equivalence"]
         matches = (
             isinstance(runtime_lock, dict)
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
@@ -165,6 +166,29 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
             == "entailment-threshold-and-argmax/v1"
             and relation_verifier["entailment_threshold"] == 0.8
             and relation_verifier["maximum_tokens"] == 384
+            and concept_equivalence
+            == {
+                "model_id": relation_verifier["model_id"],
+                "revision": relation_verifier["revision"],
+                "request_schema": "local-concept-equivalence-request/v1",
+                "response_schema": "local-concept-equivalence-response/v1",
+                "startup_schema": "local-concept-equivalence-startup/v1",
+                "representation": "label-claims-evidence-headings/v1",
+                "decision_rule": (
+                    "bidirectional-entailment-threshold-and-argmax/v1"
+                ),
+                "entailment_threshold": 0.8,
+                "maximum_tokens": 384,
+                "timeout_seconds": 120,
+                "failure_policy": "veto-and-retain/v1",
+                "safe_loading": "safetensors-local-only-no-remote-code",
+                "package_source": {
+                    "name": "equivalence_process.py",
+                    "sha256": (
+                        "588383aeb52638a7dd23a91c5d400229845c859d897b21bef5c8d06e06ffa56c"
+                    ),
+                },
+            }
         )
     except (KeyError, RecursionError, TypeError, ValueError):
         matches = False

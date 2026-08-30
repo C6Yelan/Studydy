@@ -10,6 +10,7 @@ from learning_adaptation.assessment_verifier import start_assessment_process
 from pdf_evidence.local_ai_process import (
     LocalAIError,
     LocalAIProcess,
+    start_equivalence_process,
     start_relation_process,
 )
 
@@ -115,6 +116,38 @@ def test_real_relation_child_distinguishes_startup_failures(
         (
             "raise ImportError('private dependency diagnostic')\n",
             "",
+            "CONCEPT_EQUIVALENCE_VERIFIER_DEPENDENCY_MISSING",
+        ),
+        (
+            "class cuda:\n    @staticmethod\n    def is_available(): return False\n",
+            "class AutoConfig: pass\nclass AutoModelForSequenceClassification: pass\nclass AutoTokenizer: pass\n",
+            "CONCEPT_EQUIVALENCE_VERIFIER_CUDA_UNAVAILABLE",
+        ),
+    ],
+)
+def test_real_equivalence_child_distinguishes_startup_failures(
+    tmp_path, torch_source, transformers_source, expected_reason
+):
+    settings = _relation_child_settings(tmp_path)
+    site_packages = Path(settings["site_packages"])
+    (site_packages / "torch.py").write_text(torch_source, encoding="utf-8")
+    if transformers_source:
+        (site_packages / "transformers.py").write_text(
+            transformers_source, encoding="utf-8"
+        )
+
+    with pytest.raises(LocalAIError) as failure:
+        start_equivalence_process(settings, 2)
+
+    assert failure.value.reason_code == expected_reason
+
+
+@pytest.mark.parametrize(
+    ("torch_source", "transformers_source", "expected_reason"),
+    [
+        (
+            "raise ImportError('private dependency diagnostic')\n",
+            "",
             "ASSESSMENT_VERIFIER_DEPENDENCY_MISSING",
         ),
         (
@@ -167,6 +200,33 @@ def test_relation_startup_invalid_response_and_timeout_fail_closed(
     monkeypatch.setattr(process_module, "_RELATION_BOOTSTRAP", bootstrap)
     with pytest.raises(LocalAIError) as failure:
         start_relation_process(_relation_child_settings(tmp_path), startup_timeout)
+
+    assert failure.value.reason_code == expected_reason
+
+
+@pytest.mark.parametrize(
+    ("bootstrap", "startup_timeout", "expected_reason"),
+    [
+        (
+            "import json;print(json.dumps({'schema':'wrong'}),flush=True)",
+            2,
+            "CONCEPT_EQUIVALENCE_VERIFIER_RESPONSE_INVALID",
+        ),
+        (
+            "import time;time.sleep(10)",
+            0.02,
+            "CONCEPT_EQUIVALENCE_VERIFIER_TIMEOUT",
+        ),
+    ],
+)
+def test_equivalence_startup_invalid_response_and_timeout_fail_closed(
+    tmp_path, monkeypatch, bootstrap, startup_timeout, expected_reason
+):
+    monkeypatch.setattr(process_module, "_EQUIVALENCE_BOOTSTRAP", bootstrap)
+    with pytest.raises(LocalAIError) as failure:
+        start_equivalence_process(
+            _relation_child_settings(tmp_path), startup_timeout
+        )
 
     assert failure.value.reason_code == expected_reason
 

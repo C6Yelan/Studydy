@@ -88,6 +88,7 @@ function largeMap() {
     return {
       formal_concept_id: longRevision("formal-concept", number),
       label: `大型地圖概念 ${number}`,
+      aliases: [],
       claims: [{
         claim_id: longRevision("claim", number),
         text: `大型地圖概念 ${number} 的教材重點。`,
@@ -108,6 +109,13 @@ function largeMap() {
     };
   });
   view.relations = [];
+  Object.assign(view.concept_diagnostics, {
+    possible_pairs: 435,
+    source_concepts_before: 30,
+    canonical_concepts_after: 30,
+    coverage_before: 30,
+    coverage_after: 30,
+  });
   view.initial_learning_path = view.concepts.map((concept) => concept.formal_concept_id);
   Object.assign(view.relation_diagnostics, {
     possible_pairs: 435,

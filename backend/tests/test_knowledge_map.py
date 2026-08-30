@@ -16,11 +16,13 @@ from knowledge_map.artifacts import (
     validate_knowledge_map,
 )
 from knowledge_map.formal_concepts import (
+    DEDUPLICATION_OUTPUT_SCHEMA,
     FormalConceptError,
-    build_resolution_requests,
-    resolve_singleton,
-    validate_resolution,
-    validate_resolution_with_isolation,
+    build_deduplication_request,
+    build_verifier_texts,
+    canonicalize_concepts,
+    uncertain_pair_decisions,
+    validate_pair_decisions,
 )
 from knowledge_map.relations import (
     MAX_RELATION_PAIRS,
@@ -47,25 +49,35 @@ def _study():
     return build_study_material_output(producer_output())
 
 
-def _keep_resolution(study):
-    request, concepts, claims = build_resolution_requests(study["concepts"])[0]
-    source = study["concepts"][0]
-    claim_aliases = list(claims)
-    candidate = {
-        "schema": "formal-concept-resolution/v1",
-        "group_id": request["group_id"],
-        "resolutions": [{
-            "operation": "KEEP",
-            "source_ids": ["c1"],
-            "nodes": [{"label": source["label"], "claim_ids": claim_aliases}],
-        }],
+def _verification_diagnostics(proposals, *, allowed=0, unsupported=0, failed=0):
+    same = sum(pair["decision"] == "SAME" for pair in proposals)
+    scored = same - unsupported - failed
+    return {
+        "qwen_same_pairs": same,
+        "qwen_distinct_pairs": sum(
+            pair["decision"] == "DISTINCT" for pair in proposals
+        ),
+        "qwen_uncertain_pairs": sum(
+            pair["decision"] == "UNCERTAIN" for pair in proposals
+        ),
+        "verifier_requested_pairs": same,
+        "verifier_scored_pairs": scored,
+        "verifier_allowed_pairs": allowed,
+        "verifier_vetoed_pairs": scored - allowed,
+        "verifier_unsupported_pairs": unsupported,
+        "verifier_failed_pairs": failed,
     }
-    return validate_resolution(
-        candidate,
-        request=request,
-        concept_aliases=concepts,
-        claim_aliases=claims,
-        source_concepts=study["concepts"],
+
+
+def _keep_resolution(study):
+    request, aliases = build_deduplication_request(study)
+    decisions = uncertain_pair_decisions(request)
+    return canonicalize_concepts(
+        study,
+        request,
+        aliases,
+        decisions,
+        verification_diagnostics=_verification_diagnostics(decisions),
     )
 
 
@@ -155,10 +167,8 @@ def test_formal_keep_is_claim_grounded_and_exactly_covers_source():
 
 def test_singleton_resolution_is_deterministic_keep_with_all_provenance():
     study = _study()
-    request, concepts, claims = build_resolution_requests(study["concepts"])[0]
-
-    artifact = resolve_singleton(request, concepts, claims, study["concepts"])
-    repeated = resolve_singleton(request, concepts, claims, study["concepts"])
+    artifact = _keep_resolution(study)
+    repeated = _keep_resolution(study)
 
     assert artifact == repeated
     formal = artifact["formal_concepts"][0]
@@ -170,9 +180,16 @@ def test_singleton_resolution_is_deterministic_keep_with_all_provenance():
     assert formal["claims"] == [source["definition"], *source["key_points"]]
     assert {
         claim["claim_id"] for claim in formal["claims"]
-    } == set(claims.values())
+    } == {
+        source["definition"]["claim_id"],
+        *(point["claim_id"] for point in source["key_points"]),
+    }
     assert all(claim["evidence_ids"] for claim in formal["claims"])
-    assert formal["operation"] not in {"SPLIT", "MERGE", "RENAME", "DROP"}
+    assert formal["operation"] == "KEEP"
+    assert formal["aliases"] == []
+    assert formal["source_members"][0]["document_context_id"].startswith(
+        "document-context:sha256:"
+    )
 
 
 def test_singleton_generation_skips_qwen_and_promotes_resource(monkeypatch):
@@ -215,270 +232,237 @@ def test_singleton_generation_skips_qwen_and_promotes_resource(monkeypatch):
     assert knowledge_map["resource_diagnostics"]["promoted_matches"] == 1
 
 
-def test_resolution_rejects_claim_subset_as_missing():
+def test_pair_decision_rejects_missing_pair_without_losing_source_coverage():
     study = _study()
-    request, concepts, claims = build_resolution_requests(study["concepts"])[0]
-    candidate = {
-        "schema": "formal-concept-resolution/v1",
-        "group_id": request["group_id"],
-        "resolutions": [{
-            "operation": "KEEP",
-            "source_ids": ["c1"],
-            "nodes": [{
-                "label": study["concepts"][0]["label"],
-                "claim_ids": [next(iter(claims))],
-            }],
-        }],
-    }
+    _add_second_same_label_concept(study)
+    request, aliases = build_deduplication_request(study)
 
-    try:
-        validate_resolution(
-            candidate,
-            request=request,
-            concept_aliases=concepts,
-            claim_aliases=claims,
-            source_concepts=study["concepts"],
+    with pytest.raises(FormalConceptError):
+        validate_pair_decisions(
+            {"schema": DEDUPLICATION_OUTPUT_SCHEMA, "pairs": []}, request
         )
-    except FormalConceptError as error:
-        assert str(error) == "RESOLUTION_CLAIM_MISSING"
-    else:
-        raise AssertionError("claim subset must fail closed")
 
-
-def test_invalid_merge_shape_keeps_other_grounded_concepts_in_partial_map():
-    study = _study()
-    sources = []
-    for index in range(4):
-        concept = deepcopy(study["concepts"][0])
-        concept["label"] = "Shared Concept"
-        concept["definition"] = deepcopy(concept["definition"])
-        concept["definition"]["text"] = f"Concept {index + 1} has a grounded definition."
-        concept["definition"]["claim_id"] = claim_id(
-            concept["page_ref"], "definition", {
-                "text": concept["definition"]["text"],
-                "evidence_ids": concept["definition"]["evidence_ids"],
-            }
-        )
-        concept["key_points"] = deepcopy(concept["key_points"])
-        concept["key_points"][0]["text"] = f"Concept {index + 1} has a grounded point."
-        concept["key_points"][0]["claim_id"] = claim_id(
-            concept["page_ref"], "key_point", {
-                "text": concept["key_points"][0]["text"],
-                "evidence_ids": concept["key_points"][0]["evidence_ids"],
-            }, index=0,
-        )
-        concept["concept_id"] = concept_id(
-            concept["page_ref"], concept["label"],
-            concept["definition"], concept["key_points"],
-        )
-        sources.append(concept)
-    study["concepts"] = sources
-    study.pop("output_id")
-    study["output_id"] = "study-material-output:sha256:" + canonical_sha256(study)
-    request, concepts, claims = build_resolution_requests(sources)[0]
-    aliases_by_candidate = {
-        candidate["id"]: [claim["id"] for claim in candidate["claims"]]
-        for candidate in request["candidates"]
-    }
-    candidate = {
-        "schema": "formal-concept-resolution/v1",
-        "group_id": request["group_id"],
-        "resolutions": [
-            {
-                "operation": "KEEP",
-                "source_ids": [alias],
-                "nodes": [{
-                    "label": request["candidates"][index]["label"],
-                    "claim_ids": aliases_by_candidate[alias],
-                }],
-            }
-            for index, alias in enumerate(("c1", "c2"))
-        ] + [{
-            "operation": "MERGE",
-            "source_ids": ["c3", "c4"],
-            "nodes": [
-                {"label": "Part A", "claim_ids": aliases_by_candidate["c3"]},
-                {"label": "Part B", "claim_ids": aliases_by_candidate["c4"]},
-            ],
-        }],
-    }
-
-    artifact = validate_resolution_with_isolation(
-        candidate,
-        request=request,
-        concept_aliases=concepts,
-        claim_aliases=claims,
-        source_concepts=sources,
-    )
-    knowledge_map = build_knowledge_map(
+    artifact = canonicalize_concepts(
         study,
-        [artifact],
-        [],
-        relation_pair_status={
-            "processing": "succeeded",
-            "reason_codes": ["RELATION_REVIEW_REQUIRED"],
-        },
-        resource_promotion=_resource_promotion(study, artifact["formal_concepts"]),
-        material_runtime_binding_sha256="f" * 64,
+        request,
+        aliases,
+        uncertain_pair_decisions(request),
+        verification_diagnostics=_verification_diagnostics(
+            uncertain_pair_decisions(request)
+        ),
+        failure_reason="MODEL_OUTPUT_INVALID",
     )
+    assert artifact["processing"] == "partial"
+    assert len(artifact["formal_concepts"]) == len(study["concepts"])
+    assert artifact["diagnostics"]["coverage_before"] == 2
+    assert artifact["diagnostics"]["coverage_after"] == 2
 
+
+def test_invalid_model_output_keeps_every_grounded_concept():
+    study = _study()
+    _add_second_same_label_concept(study)
+    request, aliases = build_deduplication_request(study)
+    artifact = canonicalize_concepts(
+        study, request, aliases, uncertain_pair_decisions(request),
+        verification_diagnostics=_verification_diagnostics(
+            uncertain_pair_decisions(request)
+        ),
+        failure_reason="MODEL_OUTPUT_INVALID",
+    )
     assert artifact["processing"] == "partial"
     assert len(artifact["formal_concepts"]) == 2
-    assert "MODEL_OUTPUT_INVALID" in artifact["reason_codes"]
-    assert knowledge_map["processing"] == "partial"
-    assert knowledge_map["decision"] == "review"
-    assert len(knowledge_map["formal_concepts"]) == 2
-    assert "MODEL_OUTPUT_INVALID" in knowledge_map["reason_codes"]
-    assert validate_knowledge_map(knowledge_map) is None
 
 
-def test_resolution_rejects_missing_duplicate_and_split_above_two():
+def test_pair_output_allows_only_three_non_destructive_decisions():
     study = _study()
-    request, concepts, claims = build_resolution_requests(study["concepts"])[0]
-    base = {
-        "schema": "formal-concept-resolution/v1",
-        "group_id": request["group_id"],
-        "resolutions": [],
-    }
-    for candidate in (
-        base,
-        {
-            **base,
-            "resolutions": [
+    _add_second_same_label_concept(study)
+    request, _ = build_deduplication_request(study)
+    pair_id = request["pairs"][0]["id"]
+    for invalid in ("DROP", "SPLIT", "SUPPORT_ONLY", "MERGE"):
+        with pytest.raises(FormalConceptError):
+            validate_pair_decisions(
                 {
-                    "operation": "KEEP",
-                    "source_ids": ["c1"],
-                    "nodes": [{
-                        "label": study["concepts"][0]["label"],
-                        "claim_ids": list(claims),
-                    }],
+                    "schema": DEDUPLICATION_OUTPUT_SCHEMA,
+                    "pairs": [{"id": pair_id, "decision": invalid}],
                 },
-                {"operation": "DROP", "source_ids": ["c1"], "nodes": []},
-            ],
-        },
-        {
-            **base,
-            "resolutions": [{
-                "operation": "KEEP",
-                "source_ids": ["c1"],
-                "nodes": [{
-                    "label": study["concepts"][0]["label"],
-                    "claim_ids": ["invented"],
-                }],
-            }],
-        },
-        {
-            **base,
-            "resolutions": [{
-                "operation": "SPLIT",
-                "source_ids": ["c1"],
-                "nodes": [
-                    {"label": "A", "claim_ids": [list(claims)[0]]},
-                    {"label": "B", "claim_ids": [list(claims)[1]]},
-                    {"label": "C", "claim_ids": [list(claims)[1]]},
-                ],
-            }],
-        },
-    ):
-        try:
-            validate_resolution(
-                candidate,
-                request=request,
-                concept_aliases=concepts,
-                claim_aliases=claims,
-                source_concepts=study["concepts"],
+                request,
             )
-        except FormalConceptError:
-            pass
-        else:
-            raise AssertionError("invalid resolution must fail closed")
 
 
-def test_resolution_accepts_merge_rename_split_and_drop_shapes():
+def test_same_canonicalizes_array_alias_and_preserves_lineage():
     study = _study()
-    source = study["concepts"][0]
-    request, concepts, claims = build_resolution_requests([source])[0]
-    claim_aliases = list(claims)
-    candidates = [
-        {
-            "operation": "RENAME",
-            "source_ids": ["c1"],
-            "nodes": [{"label": "Renamed concept", "claim_ids": claim_aliases}],
-        },
-        {
-            "operation": "SPLIT",
-            "source_ids": ["c1"],
-            "nodes": [
-                {"label": "Part A", "claim_ids": [claim_aliases[0]]},
-                {"label": "Part B", "claim_ids": [claim_aliases[1]]},
-            ],
-        },
-        {"operation": "DROP", "source_ids": ["c1"], "nodes": []},
-    ]
-    for resolution in candidates:
-        artifact = validate_resolution(
-            {
-                "schema": "formal-concept-resolution/v1",
-                "group_id": request["group_id"],
-                "resolutions": [resolution],
-            },
-            request=request,
-            concept_aliases=concepts,
-            claim_aliases=claims,
-            source_concepts=[source],
-        )
-        assert len(artifact["formal_concepts"]) == len(resolution["nodes"])
-
-    second = deepcopy(source)
-    second["definition"] = deepcopy(source["definition"])
-    second["definition"]["text"] = "Second definition"
-    second["definition"]["claim_id"] = claim_id(
-        second["page_ref"],
-        "definition",
-        {
-            "text": second["definition"]["text"],
-            "evidence_ids": second["definition"]["evidence_ids"],
-        },
+    first = study["concepts"][0]
+    first["label"] = "Array"
+    first["concept_id"] = concept_id(
+        first["page_ref"], first["label"], first["definition"], first["key_points"]
     )
-    second["key_points"] = deepcopy(source["key_points"])
-    second["key_points"][0]["text"] = "Second point"
-    second["key_points"][0]["claim_id"] = claim_id(
-        second["page_ref"],
-        "key_point",
-        {
-            "text": second["key_points"][0]["text"],
-            "evidence_ids": second["key_points"][0]["evidence_ids"],
-        },
-        index=0,
-    )
+    second = _add_second_same_label_concept(study)
+    second["label"] = "陣列"
     second["concept_id"] = concept_id(
-        second["page_ref"],
-        second["label"],
-        second["definition"],
-        second["key_points"],
+        second["page_ref"], second["label"], second["definition"], second["key_points"]
     )
-    request, concepts, claims = build_resolution_requests([source, second])[0]
-    artifact = validate_resolution(
-        {
-            "schema": "formal-concept-resolution/v1",
-            "group_id": request["group_id"],
-            "resolutions": [{
-                "operation": "MERGE",
-                "source_ids": ["c2", "c1"],
-                "nodes": [{
-                    "label": source["label"],
-                    "claim_ids": list(reversed(claims)),
-                }],
-            }],
-        },
-        request=request,
-        concept_aliases=concepts,
-        claim_aliases=claims,
-        source_concepts=[source, second],
+    request, aliases = build_deduplication_request(study)
+    decisions = [{"id": request["pairs"][0]["id"], "decision": "SAME"}]
+    artifact = canonicalize_concepts(
+        study,
+        request,
+        aliases,
+        decisions,
+        verification_diagnostics=_verification_diagnostics(decisions, allowed=1),
     )
-    assert artifact["formal_concepts"][0]["source_concept_ids"] == sorted(
-        [source["concept_id"], second["concept_id"]]
+    formal = artifact["formal_concepts"][0]
+    assert len(artifact["formal_concepts"]) == 1
+    assert {formal["label"], *formal["aliases"]} == {"Array", "陣列"}
+    assert len(formal["source_members"]) == 2
+    assert {
+        claim_id for member in formal["source_members"] for claim_id in member["claim_ids"]
+    } == {claim["claim_id"] for claim in formal["claims"]}
+    assert artifact["diagnostics"]["duplicate_delta"] == 1
+    assert artifact["diagnostics"]["coverage_before"] == 2
+    assert artifact["diagnostics"]["coverage_after"] == 2
+
+
+def test_verifier_text_uses_semantics_without_identity_or_retrieval_metadata():
+    study = _study()
+    _add_second_same_label_concept(study)
+    request, aliases = build_deduplication_request(study)
+
+    texts = build_verifier_texts(study, aliases)
+
+    assert set(texts) == set(aliases)
+    encoded = "\n".join(texts.values())
+    assert "Concept label:" in encoded
+    assert "Claims:" in encoded
+    assert "Evidence:" in encoded
+    assert "Semantic headings:" in encoded
+    assert all(value not in encoded for value in aliases.values())
+    assert all(pair["id"] not in encoded for pair in request["pairs"])
+    assert "retrieval_signals" not in encoded
+
+
+@pytest.mark.parametrize(
+    ("response_kind", "expected_decision", "diagnostic_field"),
+    [
+        ("allowed", "SAME", "verifier_allowed_pairs"),
+        ("vetoed", "UNCERTAIN", "verifier_vetoed_pairs"),
+        ("overflow", "UNCERTAIN", "verifier_unsupported_pairs"),
+    ],
+)
+def test_qwen_same_requires_bidirectional_verifier(
+    monkeypatch, response_kind, expected_decision, diagnostic_field
+):
+    study = _study()
+    _add_second_same_label_concept(study)
+    request, aliases = build_deduplication_request(study)
+    proposals = [{"id": request["pairs"][0]["id"], "decision": "SAME"}]
+
+    class Process:
+        def request(self, verifier_request, _timeout):
+            base = {
+                "schema": "local-concept-equivalence-response/v1",
+                "request_id": verifier_request["request_id"],
+            }
+            if response_kind == "overflow":
+                return {
+                    **base,
+                    "status": "unsupported",
+                    "reason_code": "VERIFIER_INPUT_TOO_LARGE",
+                    "token_lengths": [385, 120],
+                }
+            return {
+                **base,
+                "status": "scored",
+                "a_to_b": {
+                    "entailment_probability": 0.91,
+                    "argmax_label": (
+                        "entailment" if response_kind == "allowed" else "neutral"
+                    ),
+                    "token_length": 120,
+                },
+                "b_to_a": {
+                    "entailment_probability": 0.89,
+                    "argmax_label": "entailment",
+                    "token_length": 121,
+                },
+            }
+
+        def close(self):
+            pass
+
+        def abort(self):
+            pass
+
+    monkeypatch.setattr(
+        local_generation, "start_equivalence_process", lambda *_: Process()
     )
+    decisions, diagnostics, failure = local_generation._verify_same_pairs(
+        request,
+        proposals,
+        build_verifier_texts(study, aliases),
+        {"runtime_lock": {"concept_equivalence": {"timeout_seconds": 1}}},
+    )
+
+    assert decisions == [{"id": proposals[0]["id"], "decision": expected_decision}]
+    assert diagnostics[diagnostic_field] == 1
+    assert failure is None
+
+
+def test_verifier_failure_vetoes_every_same_proposal(monkeypatch):
+    study = _study()
+    _add_second_same_label_concept(study)
+    request, aliases = build_deduplication_request(study)
+    proposals = [{"id": request["pairs"][0]["id"], "decision": "SAME"}]
+
+    class Process:
+        def request(self, *_):
+            raise LocalAIError("CHILD_TIMEOUT")
+
+        def abort(self):
+            pass
+
+    monkeypatch.setattr(
+        local_generation, "start_equivalence_process", lambda *_: Process()
+    )
+    decisions, diagnostics, failure = local_generation._verify_same_pairs(
+        request,
+        proposals,
+        build_verifier_texts(study, aliases),
+        {"runtime_lock": {"concept_equivalence": {"timeout_seconds": 1}}},
+    )
+
+    assert decisions == [{"id": proposals[0]["id"], "decision": "UNCERTAIN"}]
+    assert diagnostics["verifier_failed_pairs"] == 1
+    assert failure == "CONCEPT_EQUIVALENCE_VERIFIER_TIMEOUT"
+
+
+@pytest.mark.parametrize("decision", ["DISTINCT", "UNCERTAIN"])
+def test_distinct_and_uncertain_keep_tree_and_graph_traversal(decision):
+    study = _study()
+    first = study["concepts"][0]
+    first["label"] = "Tree Traversal"
+    first["concept_id"] = concept_id(
+        first["page_ref"], first["label"], first["definition"], first["key_points"]
+    )
+    second = _add_second_same_label_concept(study)
+    second["label"] = "Graph Traversal"
+    second["concept_id"] = concept_id(
+        second["page_ref"], second["label"], second["definition"], second["key_points"]
+    )
+    request, aliases = build_deduplication_request(study)
+    decisions = [{"id": request["pairs"][0]["id"], "decision": decision}]
+    artifact = canonicalize_concepts(
+        study,
+        request,
+        aliases,
+        decisions,
+        verification_diagnostics=_verification_diagnostics(decisions),
+    )
+    assert len(artifact["formal_concepts"]) == 2
+    assert {concept["label"] for concept in artifact["formal_concepts"]} == {
+        "Tree Traversal", "Graph Traversal"
+    }
+    assert artifact["diagnostics"]["duplicate_delta"] == 0
+    assert artifact["diagnostics"]["coverage_after"] == 2
 
 
 def test_relation_aliases_are_formal_and_wrong_evidence_owner_fails():
@@ -1244,26 +1228,33 @@ def test_grounded_plural_endpoint_mention_publishes_related():
 
 def test_map_revision_binds_formal_nodes_relations_path_and_cycle_exclusion():
     study = _study()
-    first = _keep_resolution(study)["formal_concepts"][0]
-    nodes = []
-    for index in range(3):
-        node = deepcopy(first)
-        node["source_concept_ids"] = ["concept:sha256:" + str(index + 1) * 64]
-        node["resolution_order"] = [index, 0]
-        node["claims"] = [deepcopy(first["claims"][0])]
-        node["claims"][0]["claim_id"] = "claim:sha256:" + str(index + 1) * 64
-        node["claims"][0]["text"] = f"Cycle concept {index + 1}"
-        formal_identity = {
-            "group_id": node["group_id"],
-            "operation": node["operation"],
-            "source_concept_ids": node["source_concept_ids"],
-            "label": node["label"],
-            "claims": node["claims"],
-        }
-        node["formal_concept_id"] = (
-            "formal-concept:sha256:" + canonical_sha256(formal_identity)
+    for index in range(2):
+        source = deepcopy(study["concepts"][0])
+        source["label"] = f"Cycle concept {index + 2}"
+        source["definition"] = deepcopy(source["definition"])
+        source["definition"]["text"] = f"Cycle definition {index + 2}"
+        source["definition"]["claim_id"] = claim_id(
+            source["page_ref"], "definition", {
+                "text": source["definition"]["text"],
+                "evidence_ids": source["definition"]["evidence_ids"],
+            }
         )
-        nodes.append(node)
+        source["concept_id"] = concept_id(
+            source["page_ref"], source["label"], source["definition"], source["key_points"]
+        )
+        study["concepts"].append(source)
+    study.pop("output_id")
+    study["output_id"] = "study-material-output:sha256:" + canonical_sha256(study)
+    request, aliases = build_deduplication_request(study)
+    decisions = uncertain_pair_decisions(request)
+    resolution = canonicalize_concepts(
+        study,
+        request,
+        aliases,
+        decisions,
+        verification_diagnostics=_verification_diagnostics(decisions),
+    )
+    nodes = resolution["formal_concepts"]
     relations = []
     for source, target in ((0, 1), (1, 2), (2, 0)):
         identity = {
@@ -1273,7 +1264,7 @@ def test_map_revision_binds_formal_nodes_relations_path_and_cycle_exclusion():
             "relation_evidence": [{
                 "owner_formal_concept_id": nodes[source]["formal_concept_id"],
                 "claim_id": nodes[source]["claims"][0]["claim_id"],
-                "evidence_ids": [study["evidence_index"][0]["evidence_id"]],
+                "evidence_ids": nodes[source]["claims"][0]["evidence_ids"],
             }],
         }
         relations.append({
@@ -1285,7 +1276,7 @@ def test_map_revision_binds_formal_nodes_relations_path_and_cycle_exclusion():
         })
     knowledge_map = build_knowledge_map(
         study,
-        [{"formal_concepts": nodes}],
+        [resolution],
         [{"relations": relations, "processing": "succeeded"}],
         relation_pair_status={
             "processing": "succeeded",
@@ -1298,7 +1289,9 @@ def test_map_revision_binds_formal_nodes_relations_path_and_cycle_exclusion():
     assert knowledge_map["initial_learning_path"] == [node["formal_concept_id"] for node in nodes]
     assert validate_knowledge_map(knowledge_map) is None
     view = build_knowledge_map_view(knowledge_map)
-    assert view["schema"] == "knowledge-map-view/v6"
+    assert resolution["schema"] == "formal-concept-resolution/v2"
+    assert knowledge_map["schema"] == "knowledge-map/v7"
+    assert view["schema"] == "knowledge-map-view/v7"
     assert view["relations"][0]["source_formal_concept_id"].startswith("formal-concept:")
 
     tampered = deepcopy(knowledge_map)
@@ -1324,81 +1317,31 @@ def test_map_revision_binds_formal_nodes_relations_path_and_cycle_exclusion():
     assert validate_knowledge_map(tampered) == "KNOWLEDGE_MAP_INVALID"
 
 
-def test_map_allows_identical_shared_claim_and_rejects_claim_conflicts():
+def test_map_rejects_duplicate_source_ownership():
     study = _study()
     first = _keep_resolution(study)["formal_concepts"][0]
-    second = deepcopy(first)
-    second["label"] = "Related concept"
-    second["resolution_order"] = [1, 0]
-    second["formal_concept_id"] = "formal-concept:sha256:" + canonical_sha256(
-        {
-            "group_id": second["group_id"],
-            "operation": second["operation"],
-            "source_concept_ids": second["source_concept_ids"],
-            "label": second["label"],
-            "claims": second["claims"],
-        }
-    )
-    knowledge_map = build_knowledge_map(
-        study,
-        [{"formal_concepts": [first, second]}],
-        [],
-        relation_pair_status={
-            "processing": "succeeded",
-            "reason_codes": ["RELATION_REVIEW_REQUIRED"],
-        },
-        resource_promotion=_resource_promotion(study, [first, second]),
-        material_runtime_binding_sha256="f" * 64,
-    )
-    shared_claim_id = first["claims"][0]["claim_id"]
-    assert sum(
-        claim["claim_id"] == shared_claim_id
-        for concept in knowledge_map["formal_concepts"]
-        for claim in concept["claims"]
-    ) == 2
-    assert validate_knowledge_map(knowledge_map) is None
-
-    for conflict in ("text", "evidence_ids"):
-        tampered = deepcopy(knowledge_map)
-        conflicting_concept = tampered["formal_concepts"][1]
-        original_formal_id = conflicting_concept["formal_concept_id"]
-        if conflict == "text":
-            conflicting_concept["claims"][0]["text"] = "Conflicting text"
-        else:
-            alternate_evidence = deepcopy(tampered["evidence_index"][0])
-            alternate_evidence["evidence_id"] = "evidence:sha256:" + "9" * 64
-            tampered["evidence_index"].append(alternate_evidence)
-            conflicting_concept["claims"][0]["evidence_ids"] = [
-                alternate_evidence["evidence_id"]
-            ]
-        conflicting_concept["formal_concept_id"] = (
-            "formal-concept:sha256:"
-            + canonical_sha256(
-                {
-                    "group_id": conflicting_concept["group_id"],
-                    "operation": conflicting_concept["operation"],
-                    "source_concept_ids": conflicting_concept["source_concept_ids"],
-                    "label": conflicting_concept["label"],
-                    "claims": conflicting_concept["claims"],
-                }
-            )
+    duplicate = deepcopy(first)
+    duplicate["formal_concept_id"] = "formal-concept:sha256:" + "f" * 64
+    duplicate["resolution_order"] = [1, 0]
+    with pytest.raises(ValueError, match="KNOWLEDGE_MAP_CONCEPT_INVALID"):
+        build_knowledge_map(
+            study,
+            [{"formal_concepts": [first, duplicate]}],
+            [],
+            relation_pair_status={
+                "processing": "succeeded",
+                "reason_codes": ["RELATION_REVIEW_REQUIRED"],
+            },
+            resource_promotion=_resource_promotion(study, [first, duplicate]),
+            material_runtime_binding_sha256="f" * 64,
         )
-        tampered["initial_learning_path"] = [
-            conflicting_concept["formal_concept_id"]
-            if formal_id == original_formal_id
-            else formal_id
-            for formal_id in tampered["initial_learning_path"]
-        ]
-        revision_input = dict(tampered)
-        revision_input.pop("revision")
-        tampered["revision"] = (
-            "knowledge-map:sha256:" + canonical_sha256(revision_input)
-        )
-        assert validate_knowledge_map(tampered) == "KNOWLEDGE_MAP_INVALID"
 
 
 def test_zero_formal_concepts_stops_with_partial_reject():
     study = _study()
+    study["concepts"] = []
+    study.pop("output_id")
+    study["output_id"] = "study-material-output:sha256:" + canonical_sha256(study)
     knowledge_map = build_knowledge_map(
         study,
         [],
@@ -1469,55 +1412,21 @@ def test_map_promotes_resource_with_provenance_and_rejects_tampering():
     assert validate_knowledge_map(tampered) == "KNOWLEDGE_MAP_INVALID"
 
 
-def test_map_split_resource_is_review_only_and_not_duplicated():
+def test_resource_promotion_requires_exactly_one_canonical_owner():
     study = _study()
-    request, concepts, claims = build_resolution_requests(study["concepts"])[0]
-    claim_aliases = list(claims)
-    resolution = validate_resolution(
-        {
-            "schema": "formal-concept-resolution/v1",
-            "group_id": request["group_id"],
-            "resolutions": [{
-                "operation": "SPLIT",
-                "source_ids": ["c1"],
-                "nodes": [
-                    {"label": "Part A", "claim_ids": [claim_aliases[0]]},
-                    {"label": "Part B", "claim_ids": [claim_aliases[1]]},
-                ],
-            }],
-        },
-        request=request,
-        concept_aliases=concepts,
-        claim_aliases=claims,
-        source_concepts=study["concepts"],
-    )
+    resolution = _keep_resolution(study)
     library = _matching_resource_library(study["concepts"][0]["label"])
     context = build_map_resource_context(study, library)
-    promotion = promote_resources_to_formal_concepts(
-        resolution["formal_concepts"], context, study, library
-    )
+    duplicate_owner = deepcopy(resolution["formal_concepts"][0])
+    duplicate_owner["formal_concept_id"] = "formal-concept:sha256:" + "f" * 64
 
-    knowledge_map = build_knowledge_map(
-        study,
-        [resolution],
-        [],
-        relation_pair_status={
-            "processing": "succeeded",
-            "reason_codes": ["RELATION_REVIEW_REQUIRED"],
-        },
-        resource_promotion=promotion,
-        material_runtime_binding_sha256="f" * 64,
-    )
-
-    assert all(
-        not concept["supplementary_resources"]
-        for concept in knowledge_map["formal_concepts"]
-    )
-    assert knowledge_map["resource_diagnostics"]["split_review_matches"] == 1
-    assert knowledge_map["resource_decisions"][0]["decision"] == "review"
-    assert knowledge_map["processing"] == "partial"
-    assert "RESOURCE_SPLIT_REVIEW_REQUIRED" in knowledge_map["reason_codes"]
-    assert validate_knowledge_map(knowledge_map) is None
+    with pytest.raises(ValueError, match="RESOURCE_PROMOTION_INPUT_INVALID"):
+        promote_resources_to_formal_concepts(
+            [resolution["formal_concepts"][0], duplicate_owner],
+            context,
+            study,
+            library,
+        )
 
 
 def test_knowledge_generation_retries_only_a_temporary_resolution_failure(
@@ -1532,11 +1441,8 @@ def test_knowledge_generation_retries_only_a_temporary_resolution_failure(
     )
     resolution_prompt = runtime_lock["formal_resolution"]["prompt"]
     assert resolution_prompt.startswith("/no_think\n")
-    assert "Claims are not independently droppable" in resolution_prompt
-    assert (
-        "every claim alias owned by source_ids must appear exactly once across all "
-        "output nodes"
-    ) in resolution_prompt
+    assert "only SAME, DISTINCT, or UNCERTAIN" in resolution_prompt
+    assert "Retrieval signals are comparison hints, never merge proof" in resolution_prompt
     assert sha256(resolution_prompt.encode("utf-8")).hexdigest() == (
         runtime_lock["formal_resolution"]["prompt_sha256"]
     )
@@ -1560,40 +1466,58 @@ def test_knowledge_generation_retries_only_a_temporary_resolution_failure(
         def __exit__(self, *_):
             return None
 
+    class EquivalenceProcess:
+        def request(self, verifier_request, _timeout):
+            return {
+                "schema": "local-concept-equivalence-response/v1",
+                "request_id": verifier_request["request_id"],
+                "status": "scored",
+                "a_to_b": {
+                    "entailment_probability": 0.91,
+                    "argmax_label": "entailment",
+                    "token_length": 120,
+                },
+                "b_to_a": {
+                    "entailment_probability": 0.90,
+                    "argmax_label": "entailment",
+                    "token_length": 121,
+                },
+            }
+
+        def close(self):
+            pass
+
+        def abort(self):
+            pass
+
     calls = []
 
     def request_text(*_, request_document, **__):
         assert __["enable_thinking"] is False
         response_schema = __["response_format"]["json_schema"]["schema"]
-        assert response_schema["properties"]["group_id"] == {
-            "const": request_document["group_id"]
-        }
-        source_items = response_schema["properties"]["resolutions"]["items"]
-        assert source_items["properties"]["source_ids"]["items"] == {
-            "enum": [candidate["id"] for candidate in request_document["candidates"]]
+        pair_items = response_schema["properties"]["pairs"]["items"]
+        assert pair_items["properties"]["id"] == {
+            "enum": [pair["id"] for pair in request_document["pairs"]]
         }
         calls.append(request_document["schema"])
         if len(calls) == 1:
             raise ConceptAPIError("CONCEPT_API_TIMEOUT")
         return json.dumps({
-            "schema": "formal-concept-resolution/v1",
-            "group_id": request_document["group_id"],
-            "resolutions": [
-                {
-                    "operation": "KEEP",
-                    "source_ids": [source["id"]],
-                    "nodes": [{
-                        "label": source["label"],
-                        "claim_ids": [claim["id"] for claim in source["claims"]],
-                    }],
-                }
-                for source in request_document["candidates"]
+            "schema": "concept-deduplication/v1",
+            "pairs": [
+                {"id": pair["id"], "decision": "SAME"}
+                for pair in request_document["pairs"]
             ],
         })
 
     monkeypatch.setattr(local_generation, "start_concept_server", lambda _: Server())
     monkeypatch.setattr(local_generation.httpx, "Client", Client)
     monkeypatch.setattr(local_generation, "request_structured_text", request_text)
+    monkeypatch.setattr(
+        local_generation,
+        "start_equivalence_process",
+        lambda *_: EquivalenceProcess(),
+    )
     knowledge_map = local_generation.generate_knowledge_map(
         study,
         {
@@ -1610,8 +1534,62 @@ def test_knowledge_generation_retries_only_a_temporary_resolution_failure(
     )
 
     assert calls == [
-        "formal-concept-resolution-input/v1",
-        "formal-concept-resolution-input/v1",
+        "concept-deduplication-input/v1",
+        "concept-deduplication-input/v1",
     ]
     assert closed == [True]
-    assert knowledge_map["formal_concepts"]
+    assert len(knowledge_map["formal_concepts"]) == 1
+    assert knowledge_map["concept_diagnostics"]["verifier_allowed_pairs"] == 1
+
+
+def test_invalid_deduplication_output_keeps_both_concepts_in_partial_map(
+    monkeypatch,
+):
+    study = _study()
+    _add_second_same_label_concept(study)
+    runtime_lock = json.loads(
+        (Path(__file__).parents[2] / "local_ai" / "runtime-lock.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    class Server:
+        def close(self):
+            return None
+
+    class Client:
+        def __init__(self, **_):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return None
+
+    monkeypatch.setattr(local_generation, "start_concept_server", lambda _: Server())
+    monkeypatch.setattr(local_generation.httpx, "Client", Client)
+    monkeypatch.setattr(
+        local_generation,
+        "request_structured_text",
+        lambda *_, **__: json.dumps({
+            "schema": "concept-deduplication/v1", "pairs": []
+        }),
+    )
+    knowledge_map = local_generation.generate_knowledge_map(
+        study,
+        {
+            "runtime_lock": runtime_lock,
+            "concept_api_base_url": "http://127.0.0.1:8101",
+            "concept_model": runtime_lock["semantic"]["model_id"],
+            "concept_max_model_len": 8_192,
+        },
+        "f" * 64,
+        resource_context=build_map_resource_context(
+            study, load_bundled_resource_library()
+        ),
+        resource_library=load_bundled_resource_library(),
+    )
+    assert len(knowledge_map["formal_concepts"]) == 2
+    assert knowledge_map["processing"] == "partial"
+    assert "MODEL_OUTPUT_INVALID" in knowledge_map["reason_codes"]

@@ -73,7 +73,7 @@ function successfulRun() {
 function mapView() {
   const pageRef = `page:sha256:${"5".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v6",
+    schema: "knowledge-map-view/v7",
     material_ref: `material:sha256:${"6".repeat(64)}`,
     knowledge_map_revision: mapRevision,
     source_output_id: `study-material-output:sha256:${"3".repeat(64)}`,
@@ -86,6 +86,7 @@ function mapView() {
     concepts: [{
       formal_concept_id: `formal-concept:sha256:${"7".repeat(64)}`,
       label: "Public concept",
+      aliases: [],
       claims: [{
         claim_id: `claim:sha256:${"9".repeat(64)}`,
         text: "Public definition",
@@ -104,6 +105,26 @@ function mapView() {
       decision: "review",
       reason_codes: ["SEMANTIC_REVIEW_REQUIRED"],
     }],
+    concept_diagnostics: {
+      possible_pairs: 0,
+      candidate_pairs: 0,
+      selected_pairs: 0,
+      pair_ceiling: 16,
+      qwen_same_pairs: 0,
+      qwen_distinct_pairs: 0,
+      qwen_uncertain_pairs: 0,
+      verifier_requested_pairs: 0,
+      verifier_scored_pairs: 0,
+      verifier_allowed_pairs: 0,
+      verifier_vetoed_pairs: 0,
+      verifier_unsupported_pairs: 0,
+      verifier_failed_pairs: 0,
+      source_concepts_before: 1,
+      canonical_concepts_after: 1,
+      duplicate_delta: 0,
+      coverage_before: 1,
+      coverage_after: 1,
+    },
     relations: [],
     relation_diagnostics: {
       possible_pairs: 0,
@@ -317,7 +338,7 @@ test("run v3 closed progress shape rejects v2, decreasing bounds and fake termin
   }
 });
 
-test("Map v6 使用 exact run/revision 並要求 claim PDF locator", async () => {
+test("Map v7 使用 exact run/revision 並要求 claim PDF locator", async () => {
   const paths = [];
   const client = new StudydyApiClient(async (input) => {
     paths.push(String(input));
@@ -348,7 +369,7 @@ test("Map v6 使用 exact run/revision 並要求 claim PDF locator", async () =>
   );
 });
 
-test("Map v6 補充資源只接受 HTTP(S) public URL", async () => {
+test("Map v7 補充資源只接受 HTTP(S) public URL", async () => {
   const invalid = mapView();
   const sourceConceptId = invalid.concepts[0].source_concept_ids[0];
   invalid.concepts[0].supplementary_resources.push({
@@ -480,7 +501,7 @@ test("StudySession-scoped learning projections 保持 revision 與 action bindin
   );
 });
 
-test("Map v6 pair-level Relation Evidence 必須保留真實 claim owner", async () => {
+test("Map v7 pair-level Relation Evidence 必須保留真實 claim owner", async () => {
   let calls = 0;
   const acceptedClient = new StudydyApiClient(async () => {
     calls += 1;
@@ -506,7 +527,7 @@ test("Map v6 pair-level Relation Evidence 必須保留真實 claim owner", async
   );
 });
 
-test("Map v6 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
+test("Map v7 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
   const mutations = {
     unexpected: (view) => { view.concepts[0].unexpected_field = true; },
     duplicate: (view) => { view.concepts.push(structuredClone(view.concepts[0])); },

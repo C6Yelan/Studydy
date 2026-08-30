@@ -103,6 +103,12 @@ function ConceptDetail({ apiClient, concept, close, isStartingStudy, onStartStud
         <h3>來源頁面</h3>
         <p className="page-list">第 {concept.source_page_numbers.join("、")} 頁</p>
       </section>
+      {concept.aliases.length > 0 && (
+        <section>
+          <h3>教材中的其他名稱</h3>
+          <p className="page-list">{concept.aliases.join("、")}</p>
+        </section>
+      )}
       <section>
         <h3>補充資源</h3>
         {concept.supplementary_resources.length === 0 ? (

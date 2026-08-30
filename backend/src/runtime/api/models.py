@@ -221,6 +221,7 @@ class SupplementaryResourceView(_ClosedModel):
 class FormalConceptView(_ClosedModel):
     formal_concept_id: str = Field(pattern=r"^formal-concept:sha256:[0-9a-f]{64}$")
     label: str = Field(min_length=1)
+    aliases: list[str]
     claims: list[FormalClaimView] = Field(min_length=1)
     source_concept_ids: list[str] = Field(min_length=1)
     source_page_numbers: list[int] = Field(min_length=1)
@@ -228,6 +229,17 @@ class FormalConceptView(_ClosedModel):
     quality: Literal["needs_review"]
     decision: Literal["review"]
     reason_codes: list[str] = Field(min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_lineage(self) -> "FormalConceptView":
+        if (
+            self.aliases != sorted(set(self.aliases))
+            or self.label in self.aliases
+            or self.source_concept_ids != sorted(set(self.source_concept_ids))
+            or self.source_page_numbers != sorted(set(self.source_page_numbers))
+        ):
+            raise ValueError("FORMAL_CONCEPT_VIEW_INVALID")
+        return self
 
 
 class RelationEvidenceView(_ClosedModel):
@@ -254,6 +266,50 @@ class FormalRelationView(_ClosedModel):
     decision: Literal["review"]
     reason_codes: list[str] = Field(min_length=1)
     is_in_prerequisite_cycle: bool
+
+
+class ConceptDiagnosticsView(_ClosedModel):
+    possible_pairs: int = Field(ge=0)
+    candidate_pairs: int = Field(ge=0)
+    selected_pairs: int = Field(ge=0)
+    pair_ceiling: int = Field(ge=0)
+    qwen_same_pairs: int = Field(ge=0)
+    qwen_distinct_pairs: int = Field(ge=0)
+    qwen_uncertain_pairs: int = Field(ge=0)
+    verifier_requested_pairs: int = Field(ge=0)
+    verifier_scored_pairs: int = Field(ge=0)
+    verifier_allowed_pairs: int = Field(ge=0)
+    verifier_vetoed_pairs: int = Field(ge=0)
+    verifier_unsupported_pairs: int = Field(ge=0)
+    verifier_failed_pairs: int = Field(ge=0)
+    source_concepts_before: int = Field(ge=0)
+    canonical_concepts_after: int = Field(ge=0)
+    duplicate_delta: int = Field(ge=0)
+    coverage_before: int = Field(ge=0)
+    coverage_after: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> "ConceptDiagnosticsView":
+        if (
+            self.selected_pairs > self.candidate_pairs
+            or self.candidate_pairs > self.possible_pairs
+            or self.selected_pairs
+            != self.qwen_same_pairs
+            + self.qwen_distinct_pairs
+            + self.qwen_uncertain_pairs
+            or self.verifier_requested_pairs != self.qwen_same_pairs
+            or self.verifier_requested_pairs
+            != self.verifier_scored_pairs
+            + self.verifier_unsupported_pairs
+            + self.verifier_failed_pairs
+            or self.verifier_scored_pairs
+            != self.verifier_allowed_pairs + self.verifier_vetoed_pairs
+            or self.duplicate_delta
+            != self.source_concepts_before - self.canonical_concepts_after
+            or self.coverage_before != self.coverage_after
+        ):
+            raise ValueError("CONCEPT_DIAGNOSTICS_INVALID")
+        return self
 
 
 class RelationDiagnosticsView(_ClosedModel):
@@ -366,7 +422,7 @@ class ArtifactStatusView(_ClosedModel):
 
 
 class KnowledgeMapView(_ClosedModel):
-    schema_: Literal["knowledge-map-view/v6"] = Field(alias="schema")
+    schema_: Literal["knowledge-map-view/v7"] = Field(alias="schema")
     material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
     knowledge_map_revision: str = Field(
         pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
@@ -376,6 +432,7 @@ class KnowledgeMapView(_ClosedModel):
     )
     status: ArtifactStatusView
     concepts: list[FormalConceptView]
+    concept_diagnostics: ConceptDiagnosticsView
     relations: list[FormalRelationView]
     relation_diagnostics: RelationDiagnosticsView
     resource_binding: ResourceBindingView
