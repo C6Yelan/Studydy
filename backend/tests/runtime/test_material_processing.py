@@ -3,7 +3,6 @@ import hashlib
 import io
 import json
 from pathlib import Path
-import shutil
 from uuid import UUID, uuid4
 
 import psycopg
@@ -41,7 +40,7 @@ from runtime.storage.material_review_outputs import (
     MaterialRunOutputError,
     read_material_run_outputs,
 )
-from runtime.storage.migrations import MigrationSqlError, run_migrations
+from runtime.storage.migrations import run_migrations
 
 
 _DOMAIN_TABLES = (
@@ -81,7 +80,6 @@ def processing_database_dsn(
         12,
         13,
         14,
-        15,
     )
     with psycopg.connect(clean_database_dsn) as connection:
         for table in ("material_processing_runs", *_DOMAIN_TABLES):
@@ -199,7 +197,6 @@ def test_populated_migration_five_deletes_v2_terminal_runs_on_forward_upgrade(
         12,
         13,
         14,
-        15,
     )
 
     with psycopg.connect(clean_database_dsn) as connection:
@@ -546,260 +543,6 @@ def _assert_downstream_zero(dsn: str) -> None:
     with psycopg.connect(dsn) as connection:
         for table in _DOMAIN_TABLES[2:]:
             assert connection.execute(f"SELECT count(*) FROM {table}").fetchone() == (0,)
-
-
-def _knowledge_map_v6_from_2c9b5eaf(
-    current_map: dict,
-) -> dict:
-    """重建 exact base 2c9b5eaf 會保存的 v6 Map shape。"""
-
-    old_map = deepcopy(current_map)
-    old_map["schema"] = "knowledge-map/v6"
-    old_map.pop("concept_diagnostics")
-    old_ids = {}
-    for concept in old_map["formal_concepts"]:
-        new_id = concept["formal_concept_id"]
-        concept.pop("aliases")
-        concept.pop("source_members")
-        old_id = "formal-concept:sha256:" + canonical_sha256({
-            "group_id": concept["group_id"],
-            "operation": concept["operation"],
-            "source_concept_ids": concept["source_concept_ids"],
-            "label": concept["label"],
-            "claims": concept["claims"],
-        })
-        old_ids[new_id] = old_id
-        concept["formal_concept_id"] = old_id
-    for relation in old_map["relations"]:
-        relation["source_formal_concept_id"] = old_ids[
-            relation["source_formal_concept_id"]
-        ]
-        relation["target_formal_concept_id"] = old_ids[
-            relation["target_formal_concept_id"]
-        ]
-        for evidence in relation["relation_evidence"]:
-            evidence["owner_formal_concept_id"] = old_ids[
-                evidence["owner_formal_concept_id"]
-            ]
-        relation["relation_id"] = "formal-relation:sha256:" + canonical_sha256({
-            "type": relation["type"],
-            "source_formal_concept_id": relation["source_formal_concept_id"],
-            "target_formal_concept_id": relation["target_formal_concept_id"],
-            "relation_evidence": relation["relation_evidence"],
-        })
-    for decision in old_map["resource_decisions"]:
-        decision["formal_concept_ids"] = [
-            old_ids[concept_id] for concept_id in decision["formal_concept_ids"]
-        ]
-        decision["decision_id"] = (
-            "resource-promotion-decision:sha256:"
-            + canonical_sha256({
-                key: value
-                for key, value in decision.items()
-                if key != "decision_id"
-            })
-        )
-    old_map["initial_learning_path"] = [
-        old_ids[concept_id] for concept_id in old_map["initial_learning_path"]
-    ]
-    old_map["revision"] = "knowledge-map:sha256:" + canonical_sha256({
-        key: value for key, value in old_map.items() if key != "revision"
-    })
-    return old_map
-
-
-def test_v6_map_upgrade_retires_only_rebuildable_outputs_and_reprocesses(
-    clean_database_dsn: str,
-    migrations_dir: Path,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    through_fourteen = tmp_path / "through-fourteen"
-    through_fourteen.mkdir()
-    for source_path in sorted(migrations_dir.glob("*.sql")):
-        if int(source_path.name[:4]) <= 14:
-            shutil.copy2(source_path, through_fourteen / source_path.name)
-    assert run_migrations(
-        clean_database_dsn, migrations_dir=through_fourteen
-    ) == tuple(range(1, 15))
-    monkeypatch.setattr(
-        processing_module,
-        "formal_runtime_preflight",
-        processing_module.formal_runtime_binding,
-    )
-    monkeypatch.setattr(output_module, "generate_knowledge_map", _fake_knowledge_map)
-    monkeypatch.setattr(
-        processing_module, "run_full_text_first_pdf", _fake_successful_producer
-    )
-
-    learner_id, source, settings, created = _created_run(
-        clean_database_dsn, tmp_path, key="old-v6"
-    )
-    claim = claim_next_material_processing_run(dsn=clean_database_dsn)
-    assert claim is not None
-    completed = execute_claimed_material_processing_run(
-        claim, settings, dsn=clean_database_dsn
-    )
-    old_outputs = read_material_run_outputs(
-        learner_id, source.material_id, created.run_id, dsn=clean_database_dsn
-    )
-    old_v6_map = _knowledge_map_v6_from_2c9b5eaf(old_outputs.knowledge_map)
-    old_binding = deepcopy(completed.output_binding)
-    old_binding["knowledge_map_revision"] = old_v6_map["revision"]
-    with psycopg.connect(clean_database_dsn) as connection:
-        connection.execute(
-            """
-            UPDATE knowledge_maps
-            SET map_revision = %s, document = %s
-            WHERE learner_id = %s AND material_id = %s AND map_revision = %s
-            """,
-            (
-                old_v6_map["revision"],
-                Jsonb(old_v6_map),
-                learner_id,
-                source.material_id,
-                old_outputs.knowledge_map_revision,
-            ),
-        )
-        connection.execute(
-            "UPDATE material_processing_runs SET output_binding = %s WHERE run_id = %s",
-            (Jsonb(old_binding), created.run_id),
-        )
-
-    current_source = _source(clean_database_dsn, learner_id)
-    current_run = create_material_processing_run(
-        learner_id,
-        current_source.material_id,
-        current_source.artifact_id,
-        "current-v7",
-        settings,
-        dsn=clean_database_dsn,
-    )
-    current_claim = claim_next_material_processing_run(dsn=clean_database_dsn)
-    assert current_claim is not None
-    assert execute_claimed_material_processing_run(
-        current_claim, settings, dsn=clean_database_dsn
-    ).status == "succeeded"
-    current_outputs = read_material_run_outputs(
-        learner_id,
-        current_source.material_id,
-        current_run.run_id,
-        dsn=clean_database_dsn,
-    )
-
-    study_session_id = uuid4()
-    with psycopg.connect(clean_database_dsn) as connection:
-        connection.execute(
-            """
-            INSERT INTO study_sessions (
-                study_session_id, learner_id, material_id,
-                knowledge_map_revision, current_formal_concept_id,
-                deferred_formal_concept_id, status,
-                idempotency_key_sha256, request_fingerprint,
-                started_at, completed_at, last_event_number
-            ) VALUES (
-                %s, %s, %s, %s, NULL, NULL, 'active',
-                %s, %s, clock_timestamp(), NULL, 0
-            )
-            """,
-            (
-                study_session_id,
-                learner_id,
-                source.material_id,
-                old_v6_map["revision"],
-                b"s" * 32,
-                b"r" * 32,
-            ),
-        )
-    shutil.copy2(
-        migrations_dir / "0015_retire_knowledge_map_v6.sql",
-        through_fourteen,
-    )
-    with pytest.raises(MigrationSqlError, match="^MIGRATION_SQL_FAILED$"):
-        run_migrations(clean_database_dsn, migrations_dir=through_fourteen)
-    with psycopg.connect(clean_database_dsn) as connection:
-        assert connection.execute(
-            "SELECT count(*) FROM knowledge_maps WHERE map_revision = %s",
-            (old_v6_map["revision"],),
-        ).fetchone() == (1,)
-        assert connection.execute(
-            "SELECT status FROM material_processing_runs WHERE run_id = %s",
-            (created.run_id,),
-        ).fetchone() == ("succeeded",)
-        connection.execute(
-            "DELETE FROM study_sessions WHERE study_session_id = %s",
-            (study_session_id,),
-        )
-
-    assert run_migrations(
-        clean_database_dsn, migrations_dir=through_fourteen
-    ) == (15,)
-    retired = read_material_processing_run(
-        learner_id, created.run_id, dsn=clean_database_dsn
-    )
-    assert retired.status == "failed"
-    assert retired.progress_stage == "knowledge_map_generation"
-    assert retired.error_code == "KNOWLEDGE_MAP_SCHEMA_RETIRED"
-    assert retired.output_binding is None
-    with psycopg.connect(clean_database_dsn) as connection:
-        assert connection.execute(
-            "SELECT count(*) FROM knowledge_maps WHERE map_revision = %s",
-            (old_v6_map["revision"],),
-        ).fetchone() == (0,)
-        assert connection.execute(
-            "SELECT count(*) FROM knowledge_maps WHERE map_revision = %s",
-            (current_outputs.knowledge_map_revision,),
-        ).fetchone() == (1,)
-        assert connection.execute(
-            "SELECT count(*) FROM materials WHERE learner_id = %s",
-            (learner_id,),
-        ).fetchone() == (2,)
-        assert connection.execute(
-            "SELECT count(*) FROM artifacts WHERE learner_id = %s",
-            (learner_id,),
-        ).fetchone() == (2,)
-        preserved_study_output = connection.execute(
-            """
-            SELECT document FROM study_material_outputs
-            WHERE learner_id = %s AND material_id = %s
-              AND output_revision = %s
-            """,
-            (
-                learner_id,
-                source.material_id,
-                old_outputs.study_material_output_revision,
-            ),
-        ).fetchone()
-    assert preserved_study_output == (old_outputs.study_material_output,)
-    assert read_material_run_outputs(
-        learner_id,
-        current_source.material_id,
-        current_run.run_id,
-        dsn=clean_database_dsn,
-    ).knowledge_map["schema"] == "knowledge-map/v7"
-
-    regenerated = create_material_processing_run(
-        learner_id,
-        source.material_id,
-        source.artifact_id,
-        "regenerated-v7",
-        settings,
-        dsn=clean_database_dsn,
-    )
-    regeneration_claim = claim_next_material_processing_run(dsn=clean_database_dsn)
-    assert regeneration_claim is not None
-    assert execute_claimed_material_processing_run(
-        regeneration_claim, settings, dsn=clean_database_dsn
-    ).status == "succeeded"
-    regenerated_outputs = read_material_run_outputs(
-        learner_id,
-        source.material_id,
-        regenerated.run_id,
-        dsn=clean_database_dsn,
-    )
-    assert regenerated_outputs.knowledge_map["schema"] == "knowledge-map/v7"
-    assert regenerated_outputs.knowledge_map_revision != old_v6_map["revision"]
-    KnowledgeMapView.model_validate(regenerated_outputs.knowledge_map_view)
 
 
 def test_create_replay_claim_execute_and_publish_only_output_and_map(

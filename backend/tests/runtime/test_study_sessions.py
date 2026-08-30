@@ -46,7 +46,6 @@ def study_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
         12,
         13,
         14,
-        15,
     )
     return clean_database_dsn
 
