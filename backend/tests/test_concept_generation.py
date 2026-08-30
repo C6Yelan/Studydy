@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from pathlib import Path
 import unicodedata
 
@@ -11,6 +12,7 @@ from pdf_evidence.concept_generation import (
     fitted_semantic_request_matches_source,
     split_semantic_request,
     validate_concepts,
+    validate_semantic_request,
 )
 from pdf_evidence.document_context import build_document_contexts
 from pdf_evidence.ocr_page_evidence import canonical_sha256
@@ -71,6 +73,41 @@ def _validate(model_text):
     )
 
 
+def _page_with_blocks(blocks):
+    return {
+        "schema": "page-evidence/v3",
+        "material_id": "material-alpha",
+        "material_revision": "revision-one",
+        "section_id": "section-public",
+        "page_ref": "page:sha256:" + "1" * 64,
+        "page_number": 1,
+        "page_evidence_id": "page-evidence:sha256:" + "2" * 64,
+        "evidence_blocks": [
+            {
+                "evidence_id": f"evidence-{index}",
+                "block_id": f"block-{index}",
+                "kind": kind,
+                "text": text,
+                "reading_order": index,
+            }
+            for index, (kind, text) in enumerate(blocks)
+        ],
+    }
+
+
+def _unkeyed_question_page(include_normal_detail=False):
+    blocks = [
+        ("paragraph", "Which statement is correct? (Choose one)"),
+        ("paragraph", "(K) Rivers always flow uphill."),
+        ("paragraph", "(L) Rivers never carry sediment."),
+        ("paragraph", "(M) Rivers always have equal depth."),
+        ("paragraph", "(N) Rivers can transport sediment."),
+    ]
+    if include_normal_detail:
+        blocks.append(("paragraph", "River flow transports sediment downstream."))
+    return _page_with_blocks(blocks)
+
+
 def test_model_request_contains_only_short_alias_and_text():
     page = {
         "schema": "page-evidence/v3",
@@ -98,6 +135,164 @@ def test_model_request_contains_only_short_alias_and_text():
     assert aliases == {"e1": "evidence-one"}
     assert "material-alpha" not in json.dumps(request)
     assert "block-one" not in json.dumps(request)
+
+
+def test_unkeyed_question_keeps_grouping_and_rejects_option_claims():
+    page = _unkeyed_question_page()
+    context = build_document_contexts([page])[0]
+    request, aliases = build_semantic_request(page, context)
+
+    assert request["schema"] == "concept-generation-input/v7"
+    assert request["document_context"]["source_context_id"] == context["context_id"]
+    assert request["assessment_groups"] == [{
+        "assessment_id": request["assessment_groups"][0]["assessment_id"],
+        "question_evidence_id": "e1",
+        "option_evidence_ids": ["e2", "e3", "e4", "e5"],
+        "has_reliable_answer": False,
+    }]
+    assert request["assessment_groups"][0]["assessment_id"].startswith(
+        "assessment-context:sha256:"
+    )
+    assert aliases == {
+        f"e{index}": f"evidence-{index - 1}" for index in range(1, 6)
+    }
+    assert len(request["evidence"]) == 5
+
+    model_output = {
+        "concepts": [{
+            "label": "River choices",
+            "definition": {
+                "text": "Rivers can transport sediment.",
+                "evidence_ids": ["e5"],
+            },
+            "key_points": [
+                {
+                    "text": "Rivers always flow uphill.",
+                    "evidence_ids": ["e2"],
+                },
+                {
+                    "text": "Rivers never carry sediment.",
+                    "evidence_ids": ["e3"],
+                },
+                {
+                    "text": "Rivers always have equal depth.",
+                    "evidence_ids": ["e4"],
+                },
+            ],
+        }]
+    }
+    artifact = validate_concepts(
+        json.dumps(model_output),
+        semantic_request=request,
+        evidence_aliases=aliases,
+        page_ref=page["page_ref"],
+        input_binding={"evidence_allowlist": list(aliases.values())},
+        attempt=1,
+    )
+
+    assert artifact["concepts"] == []
+    assert artifact["rejected_candidates"][0]["reason_codes"] == [
+        "CLAIM_UNKEYED_ASSESSMENT_OPTION"
+    ]
+    assert artifact["processing"] == "partial"
+
+
+def test_missing_or_fabricated_assessment_context_is_invalid():
+    page = _unkeyed_question_page()
+    request, _ = build_semantic_request(
+        page, build_document_contexts([page])[0]
+    )
+
+    missing = deepcopy(request)
+    missing["assessment_groups"] = []
+    with pytest.raises(SemanticOutputError, match="INPUT_SCHEMA_INVALID"):
+        validate_semantic_request(missing)
+
+    fabricated = deepcopy(request)
+    fabricated["assessment_groups"][0]["option_evidence_ids"][-1] = "e99"
+    with pytest.raises(SemanticOutputError, match="INPUT_SCHEMA_INVALID"):
+        validate_semantic_request(fabricated)
+
+
+def test_normal_heading_definition_examples_and_bullets_remain_factual():
+    page = _page_with_blocks([
+        ("heading", "River transport"),
+        ("paragraph", "River transport moves sediment downstream."),
+        ("list", "Definition: Sediment is material carried by water."),
+        ("list", "(K) An example shows rivers carrying sand."),
+        ("list", "(L) Another example shows rivers carrying silt."),
+        ("list", "(M) A final example shows rivers carrying clay."),
+    ])
+    request, aliases = build_semantic_request(
+        page, build_document_contexts([page])[0]
+    )
+
+    assert request["assessment_groups"] == []
+    assert [block["kind"] for block in request["document_context"]["current_blocks"]] == [
+        "heading",
+        "paragraph",
+        "list",
+        "list",
+        "list",
+        "list",
+    ]
+    artifact = validate_concepts(
+        json.dumps({
+            "concepts": [{
+                "label": "River transport",
+                "definition": {
+                    "text": "River transport moves sediment downstream.",
+                    "evidence_ids": ["e2"],
+                },
+                "key_points": [
+                    {
+                        "text": "Sediment is material carried by water.",
+                        "evidence_ids": ["e3"],
+                    },
+                    {
+                        "text": "An example shows rivers carrying sand.",
+                        "evidence_ids": ["e4"],
+                    },
+                ],
+            }]
+        }),
+        semantic_request=request,
+        evidence_aliases=aliases,
+        page_ref=page["page_ref"],
+        input_binding={"evidence_allowlist": list(aliases.values())},
+        attempt=1,
+    )
+
+    assert len(artifact["concepts"]) == 1
+    assert artifact["concepts"][0]["processing"] == "succeeded"
+
+
+def test_request_split_keeps_question_and_options_together():
+    page = _unkeyed_question_page(include_normal_detail=True)
+    request, _ = build_semantic_request(
+        page, build_document_contexts([page])[0]
+    )
+
+    question_batch, normal_batch = split_semantic_request(request)
+
+    assert [item["id"] for item in question_batch["evidence"]] == [
+        "e1", "e2", "e3", "e4", "e5"
+    ]
+    assert len(question_batch["assessment_groups"]) == 1
+    assert normal_batch["evidence"] == [{
+        "id": "e6",
+        "text": "River flow transports sediment downstream.",
+    }]
+    assert normal_batch["assessment_groups"] == []
+    assert fitted_semantic_request_matches_source(question_batch, request)
+    assert fitted_semantic_request_matches_source(normal_batch, request)
+
+    question_only = _unkeyed_question_page()
+    question_request, _ = build_semantic_request(
+        question_only, build_document_contexts([question_only])[0]
+    )
+    with pytest.raises(SemanticOutputError, match="MODEL_INPUT_TOO_LARGE"):
+        split_semantic_request(question_request)
 
 
 @pytest.mark.parametrize(

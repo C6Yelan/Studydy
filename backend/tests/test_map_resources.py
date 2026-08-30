@@ -106,12 +106,13 @@ def _study_output(label, source_sha256="f" * 64):
         "concept-context:sha256:" + canonical_sha256(context_envelope)
     )
     semantic_request = {
-        "schema": "concept-generation-input/v6",
+        "schema": "concept-generation-input/v7",
         "evidence": [{
             "id": "e1",
             "text": "The page provides direct evidence.",
         }],
         "document_context": context_envelope,
+        "assessment_groups": [],
     }
     definition = {
         "text": "A reviewed Study-side concept.",

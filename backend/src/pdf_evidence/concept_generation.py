@@ -9,9 +9,9 @@ from .ocr_page_evidence import canonical_sha256
 from .document_context import serialize_document_context
 
 
-SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v6"
+SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v7"
 SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v3"
-PROCESSING_POLICY = "claim-grounded-concept-review/v4"
+PROCESSING_POLICY = "claim-grounded-concept-review/v5"
 MAX_MODEL_OUTPUT_BYTES = 65_536
 
 _ENGLISH_STOP_WORDS = {
@@ -73,6 +73,15 @@ _EVIDENCE_KINDS = {
     "image_text",
     "other",
 }
+_ASSESSMENT_STEM_END = re.compile(
+    r"[?？]\s*(?:[(（][^()（）\n]{1,32}[)）])?\s*$"
+)
+_PARENTHESIZED_OPTION = re.compile(
+    r"^\s*[(（](?P<label>[A-Za-z])[)）]\s+\S"
+)
+_PLAIN_OPTION = re.compile(
+    r"^\s*(?P<label>[A-Za-z])(?P<suffix>[.)：:、])\s+\S"
+)
 
 
 class SemanticOutputError(ValueError):
@@ -212,6 +221,92 @@ def _claim_fragment_reason(text: str, label: str) -> str | None:
     return None
 
 
+def _option_marker(text: str) -> tuple[str, int] | None:
+    """只辨識有一致前綴且可驗證順序的短選項標記。"""
+
+    parenthesized = _PARENTHESIZED_OPTION.match(text)
+    plain = _PLAIN_OPTION.match(text)
+    match = parenthesized or plain
+    if match is None:
+        return None
+    label = match.group("label")
+    marker_value = ord(label.casefold()) - ord("a") + 1
+    marker_style = (
+        "parenthesized"
+        if parenthesized is not None
+        else f"suffix:{match.group('suffix')}"
+    )
+    return marker_style, marker_value
+
+
+def _assessment_id(
+    source_context_id: str,
+    question_evidence_id: str,
+    option_evidence_ids: list[str],
+) -> str:
+    identity = {
+        "source_context_id": source_context_id,
+        "question_evidence_id": question_evidence_id,
+        "option_evidence_ids": option_evidence_ids,
+    }
+    return "assessment-context:sha256:" + canonical_sha256(identity)
+
+
+def _find_unkeyed_assessments(
+    blocks: list[dict[str, Any]], source_context_id: str
+) -> list[dict[str, Any]]:
+    """以相鄰 block 的問句與連續標記保留無答案鍵題組。"""
+
+    groups = []
+    block_index = 0
+    while block_index < len(blocks):
+        question = blocks[block_index]
+        if (
+            question.get("kind") != "paragraph"
+            or _ASSESSMENT_STEM_END.search(question.get("text", "")) is None
+        ):
+            block_index += 1
+            continue
+
+        options = []
+        option_markers = []
+        for block in blocks[block_index + 1 :]:
+            if block.get("kind") not in {"paragraph", "list"}:
+                break
+            marker = _option_marker(block.get("text", ""))
+            if marker is None:
+                break
+            options.append(block)
+            option_markers.append(marker)
+        if (
+            len(options) < 3
+            or len({marker[0] for marker in option_markers}) != 1
+            or any(
+                marker[1] != option_markers[0][1] + index
+                for index, marker in enumerate(option_markers)
+            )
+        ):
+            block_index += 1
+            continue
+
+        question_evidence_id = question["id"]
+        option_evidence_ids = [option["id"] for option in options]
+        groups.append(
+            {
+                "assessment_id": _assessment_id(
+                    source_context_id,
+                    question_evidence_id,
+                    option_evidence_ids,
+                ),
+                "question_evidence_id": question_evidence_id,
+                "option_evidence_ids": option_evidence_ids,
+                "has_reliable_answer": False,
+            }
+        )
+        block_index += len(options) + 1
+    return groups
+
+
 def build_semantic_request(
     page_evidence: dict[str, Any],
     document_context: dict[str, Any],
@@ -239,11 +334,23 @@ def build_semantic_request(
         evidence.append({"id": alias, "text": block["text"]})
         evidence_aliases[alias] = block["evidence_id"]
         evidence_kinds[alias] = block["kind"]
+    document_context_envelope = serialize_document_context(
+        document_context, evidence_aliases, evidence_kinds
+    )
     request = {
         "schema": SEMANTIC_REQUEST_SCHEMA,
         "evidence": evidence,
-        "document_context": serialize_document_context(
-            document_context, evidence_aliases, evidence_kinds
+        "document_context": document_context_envelope,
+        "assessment_groups": _find_unkeyed_assessments(
+            [
+                {
+                    "id": item["id"],
+                    "text": item["text"],
+                    "kind": evidence_kinds[item["id"]],
+                }
+                for item in evidence
+            ],
+            document_context_envelope["source_context_id"],
         ),
     }
     validate_semantic_request(request)
@@ -251,7 +358,12 @@ def build_semantic_request(
 
 
 def validate_semantic_request(request: Any) -> dict[str, dict[str, Any]]:
-    expected = {"schema", "evidence", "document_context"}
+    expected = {
+        "schema",
+        "evidence",
+        "document_context",
+        "assessment_groups",
+    }
     if not isinstance(request, dict) or set(request) != expected or request["schema"] != SEMANTIC_REQUEST_SCHEMA:
         raise SemanticOutputError("INPUT_SCHEMA_INVALID")
     evidence_items = request["evidence"]
@@ -275,6 +387,22 @@ def validate_semantic_request(request: Any) -> dict[str, dict[str, Any]]:
         evidence_by_id[evidence_id] = {
             **evidence_by_id[evidence_id],
             "kind": kind,
+        }
+    expected_assessments = _find_unkeyed_assessments(
+        list(evidence_by_id.values()),
+        request["document_context"]["source_context_id"],
+    )
+    if request["assessment_groups"] != expected_assessments:
+        raise SemanticOutputError("INPUT_SCHEMA_INVALID")
+    option_ids = {
+        evidence_id
+        for group in expected_assessments
+        for evidence_id in group["option_evidence_ids"]
+    }
+    for evidence_id in option_ids:
+        evidence_by_id[evidence_id] = {
+            **evidence_by_id[evidence_id],
+            "is_unkeyed_option": True,
         }
     return evidence_by_id
 
@@ -394,16 +522,46 @@ def _validate_document_context_envelope(context: Any) -> dict[str, str]:
 def split_semantic_request(
     request: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """依原頁面順序切半；單一超長 Evidence 則只切它的文字。"""
+    """依原頁面順序切半，題幹與無答案鍵選項不可拆散。"""
 
+    checked_evidence = validate_semantic_request(request)
     evidence = [
         {"id": item["id"], "text": item["text"]}
-        for item in validate_semantic_request(request).values()
+        for item in checked_evidence.values()
     ]
-    if len(evidence) > 1:
-        middle = len(evidence) // 2
-        groups = (evidence[:middle], evidence[middle:])
+    assessment_by_question = {
+        group["question_evidence_id"]: group
+        for group in request["assessment_groups"]
+    }
+    evidence_by_id = {item["id"]: item for item in evidence}
+    units = []
+    used_ids = set()
+    for item in evidence:
+        if item["id"] in used_ids:
+            continue
+        assessment = assessment_by_question.get(item["id"])
+        if assessment is None:
+            units.append([item])
+            used_ids.add(item["id"])
+            continue
+        assessment_ids = [
+            assessment["question_evidence_id"],
+            *assessment["option_evidence_ids"],
+        ]
+        units.append(
+            [evidence_by_id[evidence_id] for evidence_id in assessment_ids]
+        )
+        used_ids.update(assessment_ids)
+
+    if len(units) > 1:
+        middle = len(units) // 2
+        groups = (
+            [item for unit in units[:middle] for item in unit],
+            [item for unit in units[middle:] for item in unit],
+        )
     else:
+        if request["assessment_groups"]:
+            raise SemanticOutputError("MODEL_INPUT_TOO_LARGE")
         item = evidence[0]
         text = item["text"]
         if len(text) < 2:
@@ -421,6 +579,15 @@ def split_semantic_request(
                 request["document_context"],
                 {item["id"] for item in group},
             ),
+            "assessment_groups": [
+                assessment
+                for assessment in request["assessment_groups"]
+                if {
+                    assessment["question_evidence_id"],
+                    *assessment["option_evidence_ids"],
+                }
+                <= {item["id"] for item in group}
+            ],
         }
         for group in groups
     )
@@ -496,6 +663,21 @@ def fitted_semantic_request_matches_source(
     fitted_context = fitted_request["document_context"]
     source_context = source_request["document_context"]
     if fitted_context["source_context_id"] != source_context["source_context_id"]:
+        return False
+    fitted_evidence_ids = {
+        evidence["id"] for evidence in fitted_request["evidence"]
+    }
+    expected_assessments = []
+    for assessment in source_request["assessment_groups"]:
+        assessment_ids = {
+            assessment["question_evidence_id"],
+            *assessment["option_evidence_ids"],
+        }
+        if assessment_ids & fitted_evidence_ids:
+            if not assessment_ids <= fitted_evidence_ids:
+                return False
+            expected_assessments.append(assessment)
+    if fitted_request["assessment_groups"] != expected_assessments:
         return False
     source_current = {
         block["evidence_id"]: block
@@ -610,6 +792,7 @@ def _candidate_reason(
         except SemanticOutputError as error:
             if error.reason_code not in {
                 "CLAIM_EVIDENCE_UNSUPPORTED",
+                "CLAIM_UNKEYED_ASSESSMENT_OPTION",
                 *_CLAIM_FRAGMENT_REASONS,
             }:
                 raise
@@ -627,6 +810,7 @@ def _candidate_reason(
             except SemanticOutputError as error:
                 if error.reason_code not in {
                     "CLAIM_EVIDENCE_UNSUPPORTED",
+                    "CLAIM_UNKEYED_ASSESSMENT_OPTION",
                     *_CLAIM_FRAGMENT_REASONS,
                 }:
                     raise
@@ -669,6 +853,11 @@ def _claim(
         raise SemanticOutputError("DUPLICATE_EVIDENCE_REFERENCE")
     if not set(references) <= set(evidence_aliases):
         raise SemanticOutputError("UNKNOWN_EVIDENCE_ID")
+    if any(
+        evidence_by_alias[reference].get("is_unkeyed_option") is True
+        for reference in references
+    ):
+        raise SemanticOutputError("CLAIM_UNKEYED_ASSESSMENT_OPTION")
     evidence_text = "\n".join(
         evidence_by_alias[reference]["text"] for reference in references
     )

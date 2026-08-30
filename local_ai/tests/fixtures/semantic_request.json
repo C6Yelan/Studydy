@@ -1,5 +1,5 @@
 {
-  "schema": "concept-generation-input/v6",
+  "schema": "concept-generation-input/v7",
   "evidence": [
     {
       "id": "e1",
@@ -21,5 +21,6 @@
       }
     ],
     "context_blocks": []
-  }
+  },
+  "assessment_groups": []
 }
