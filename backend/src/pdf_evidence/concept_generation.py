@@ -11,7 +11,7 @@ from .document_context import serialize_document_context
 
 SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v7"
 SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v3"
-PROCESSING_POLICY = "claim-grounded-concept-review/v5"
+PROCESSING_POLICY = "claim-grounded-concept-review/v6"
 MAX_MODEL_OUTPUT_BYTES = 65_536
 
 _ENGLISH_STOP_WORDS = {
@@ -122,6 +122,20 @@ def _exact_evidence_text(value: Any) -> str:
     if normalized != value or any(ord(character) < 32 and character not in "\n\t" for character in value):
         raise SemanticOutputError("INVALID_TEXT_FIELD")
     return value
+
+
+def _semantic_evidence_text(value: Any) -> str:
+    """只在模型輸入副本以空白分隔無語意 C0 control。"""
+
+    if not isinstance(value, str):
+        raise SemanticOutputError("INVALID_TEXT_FIELD")
+    separated = "".join(
+        " " if ord(character) < 32 and character not in "\n\t" else character
+        for character in value
+    )
+    normalized = unicodedata.normalize("NFC", separated)
+    normalized = "\n".join(line.rstrip() for line in normalized.split("\n"))
+    return _exact_evidence_text(normalized)
 
 
 def _normalized_candidate_text(value: Any) -> str:
@@ -331,7 +345,9 @@ def build_semantic_request(
     evidence_kinds = {}
     for index, block in enumerate(page_evidence["evidence_blocks"], start=1):
         alias = f"e{index}"
-        evidence.append({"id": alias, "text": block["text"]})
+        evidence.append(
+            {"id": alias, "text": _semantic_evidence_text(block["text"])}
+        )
         evidence_aliases[alias] = block["evidence_id"]
         evidence_kinds[alias] = block["kind"]
     document_context_envelope = serialize_document_context(

@@ -137,6 +137,104 @@ def test_model_request_contains_only_short_alias_and_text():
     assert "block-one" not in json.dumps(request)
 
 
+def test_semantic_evidence_normalizes_controls_without_changing_page():
+    source_text = "Price\x01equals P\\0\twhen x>=2.\nNext\x1fline.\x07"
+    page = _page_with_blocks([("paragraph", source_text)])
+    unchanged_page = deepcopy(page)
+    context = build_document_contexts([page])[0]
+
+    request, aliases = build_semantic_request(page, context)
+
+    assert request["evidence"] == [{
+        "id": "e1",
+        "text": "Price equals P\\0\twhen x>=2.\nNext line.",
+    }]
+    assert aliases == {"e1": "evidence-0"}
+    assert request["document_context"]["source_context_id"] == context["context_id"]
+    assert page == unchanged_page
+    assert page["evidence_blocks"][0]["text"] == source_text
+    assert page["page_evidence_id"] == unchanged_page["page_evidence_id"]
+
+
+def test_every_disallowed_c0_control_becomes_a_word_separator():
+    controls = "".join(
+        chr(codepoint)
+        for codepoint in range(32)
+        if chr(codepoint) not in "\n\t"
+    )
+    page = _page_with_blocks([("paragraph", f"left{controls}right")])
+
+    request, _ = build_semantic_request(
+        page, build_document_contexts([page])[0]
+    )
+
+    assert request["evidence"][0]["text"] == (
+        "left" + " " * len(controls) + "right"
+    )
+
+
+def test_control_only_evidence_and_direct_control_in_request_fail_closed():
+    page = _page_with_blocks([("paragraph", "\x01\x02")])
+    with pytest.raises(SemanticOutputError, match="INVALID_TEXT_FIELD"):
+        build_semantic_request(page, build_document_contexts([page])[0])
+
+    request = _request_with_evidence([
+        {"id": "e1", "text": "Unsafe\x01request"}
+    ])
+    with pytest.raises(SemanticOutputError, match="INVALID_TEXT_FIELD"):
+        validate_semantic_request(request)
+
+
+def test_control_normalization_reaches_grouping_and_keeps_normal_claims():
+    page = _page_with_blocks([
+        ("paragraph", "Which statement is correct? (Choose one)"),
+        ("paragraph", "(K) Rivers always flow uphill."),
+        ("paragraph", "(L) Rivers never carry sediment."),
+        ("paragraph", "(M) Rivers always have equal depth."),
+        ("paragraph", "(N) Rivers can transport sediment."),
+        ("paragraph", "Marginal\x01revenue equals marginal cost."),
+        ("paragraph", "Profit\x02is maximized at that quantity."),
+    ])
+    unchanged_page = deepcopy(page)
+    request, aliases = build_semantic_request(
+        page, build_document_contexts([page])[0]
+    )
+
+    assert request["assessment_groups"][0]["question_evidence_id"] == "e1"
+    assert request["assessment_groups"][0]["option_evidence_ids"] == [
+        "e2", "e3", "e4", "e5"
+    ]
+    assert request["assessment_groups"][0]["has_reliable_answer"] is False
+    assert request["evidence"][5:] == [
+        {"id": "e6", "text": "Marginal revenue equals marginal cost."},
+        {"id": "e7", "text": "Profit is maximized at that quantity."},
+    ]
+    assert page == unchanged_page
+
+    normal_artifact = validate_concepts(
+        json.dumps({
+            "concepts": [{
+                "label": "Profit maximization",
+                "definition": {
+                    "text": "Marginal revenue equals marginal cost.",
+                    "evidence_ids": ["e6"],
+                },
+                "key_points": [{
+                    "text": "Profit is maximized at that quantity.",
+                    "evidence_ids": ["e7"],
+                }],
+            }]
+        }),
+        semantic_request=request,
+        evidence_aliases=aliases,
+        page_ref=page["page_ref"],
+        input_binding={"evidence_allowlist": list(aliases.values())},
+        attempt=1,
+    )
+    assert len(normal_artifact["concepts"]) == 1
+    assert normal_artifact["concepts"][0]["processing"] == "succeeded"
+
+
 def test_unkeyed_question_keeps_grouping_and_rejects_option_claims():
     page = _unkeyed_question_page()
     context = build_document_contexts([page])[0]
