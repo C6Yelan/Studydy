@@ -49,6 +49,9 @@ def _multi_claim_map() -> dict:
             "evidence_ids": concepts[0]["claims"][0]["evidence_ids"],
         }
     )
+    concepts[0]["source_members"][0]["claim_ids"] = sorted(
+        claim["claim_id"] for claim in concepts[0]["claims"]
+    )
     concepts[0]["formal_concept_id"] = _formal_id(concepts[0])
     related_source, related_target = sorted(
         concepts[1:], key=lambda concept: concept["formal_concept_id"]

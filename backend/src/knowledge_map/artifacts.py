@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import math
+import unicodedata
 from typing import Any
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
@@ -60,6 +61,15 @@ _RELATION_DIAGNOSTIC_FIELDS = {
     "prerequisite_proposals",
     "related_proposals",
     "accepted_relations",
+}
+_CONCEPT_DIAGNOSTIC_FIELDS = {
+    "possible_pairs", "candidate_pairs", "selected_pairs", "pair_ceiling",
+    "qwen_same_pairs", "qwen_distinct_pairs", "qwen_uncertain_pairs",
+    "verifier_requested_pairs", "verifier_scored_pairs",
+    "verifier_allowed_pairs", "verifier_vetoed_pairs",
+    "verifier_unsupported_pairs", "verifier_failed_pairs",
+    "source_concepts_before", "canonical_concepts_after", "duplicate_delta",
+    "coverage_before", "coverage_after",
 }
 
 
@@ -165,6 +175,23 @@ def _relation_diagnostics(
     return diagnostics
 
 
+def _concept_diagnostics(
+    resolution_artifacts: list[dict[str, Any]],
+) -> dict[str, int]:
+    diagnostics = {field: 0 for field in _CONCEPT_DIAGNOSTIC_FIELDS}
+    for artifact in resolution_artifacts:
+        source = artifact.get("diagnostics", {})
+        for field in _CONCEPT_DIAGNOSTIC_FIELDS:
+            value = source.get(field, 0)
+            if type(value) is not int or value < 0:
+                raise ValueError("KNOWLEDGE_MAP_CONCEPT_INVALID")
+            if field == "pair_ceiling":
+                diagnostics[field] = max(diagnostics[field], value)
+            else:
+                diagnostics[field] += value
+    return diagnostics
+
+
 def build_knowledge_map(
     study_material_output: dict[str, Any],
     resolution_artifacts: list[dict[str, Any]],
@@ -185,6 +212,50 @@ def build_knowledge_map(
     for artifact in resolution_artifacts:
         for source in artifact.get("formal_concepts", []):
             resolved_formal_concepts.append(deepcopy(source))
+    source_concept_ids = {
+        concept["concept_id"] for concept in study_material_output["concepts"]
+    }
+    covered_source_ids = [
+        source_id
+        for concept in resolved_formal_concepts
+        for source_id in concept.get("source_concept_ids", [])
+    ]
+    if (
+        set(covered_source_ids) != source_concept_ids
+        or len(covered_source_ids) != len(set(covered_source_ids))
+    ):
+        raise ValueError("KNOWLEDGE_MAP_CONCEPT_INVALID")
+    contexts_by_page = {
+        context["page_ref"]: context
+        for context in study_material_output["document_contexts"]
+    }
+    expected_members = {}
+    for source in study_material_output["concepts"]:
+        claims = [source["definition"], *source["key_points"]]
+        context = contexts_by_page[source["page_ref"]]
+        expected_members[source["concept_id"]] = {
+            "source_concept_id": source["concept_id"],
+            "label": " ".join(
+                unicodedata.normalize("NFKC", source["label"]).split()
+            ),
+            "claim_ids": sorted(claim["claim_id"] for claim in claims),
+            "evidence_ids": sorted({
+                evidence_id
+                for claim in claims
+                for evidence_id in claim["evidence_ids"]
+            }),
+            "page_ref": source["page_ref"],
+            "document_context_id": context["context_id"],
+            "section_ids": sorted(context["section_ids"]),
+        }
+    actual_members = {
+        member.get("source_concept_id"): member
+        for concept in resolved_formal_concepts
+        for member in concept.get("source_members", [])
+        if isinstance(member, dict)
+    }
+    if actual_members != expected_members:
+        raise ValueError("KNOWLEDGE_MAP_CONCEPT_INVALID")
     if (
         not isinstance(resource_promotion, dict)
         or set(resource_promotion) != {
@@ -283,6 +354,7 @@ def build_knowledge_map(
         },
         "material_ref": study_material_output["material_ref"],
         "formal_concepts": formal_concepts,
+        "concept_diagnostics": _concept_diagnostics(resolution_artifacts),
         "relations": relations,
         "relation_diagnostics": _relation_diagnostics(
             relation_pair_status, relation_artifacts
@@ -306,7 +378,7 @@ def build_knowledge_map(
 
 def validate_knowledge_map(knowledge_map: Any) -> str | None:
     fields = {
-        "schema", "source_output_id", "source_binding", "material_ref", "formal_concepts", "relations", "relation_diagnostics",
+        "schema", "source_output_id", "source_binding", "material_ref", "formal_concepts", "concept_diagnostics", "relations", "relation_diagnostics",
         "resource_binding", "resource_diagnostics", "resource_decisions",
         "initial_learning_path", "evidence_index", "excluded_pages", "processing",
         "quality", "decision", "reason_codes", "revision",
@@ -372,6 +444,38 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             or diagnostics["structural_proposals"]
             != diagnostics["contains_proposals"]
             + diagnostics["prerequisite_proposals"]
+        ):
+            return "KNOWLEDGE_MAP_INVALID"
+        concept_diagnostics = knowledge_map["concept_diagnostics"]
+        if (
+            not isinstance(concept_diagnostics, dict)
+            or set(concept_diagnostics) != _CONCEPT_DIAGNOSTIC_FIELDS
+            or any(
+                type(value) is not int or value < 0
+                for value in concept_diagnostics.values()
+            )
+            or concept_diagnostics["selected_pairs"]
+            > concept_diagnostics["candidate_pairs"]
+            or concept_diagnostics["candidate_pairs"]
+            > concept_diagnostics["possible_pairs"]
+            or concept_diagnostics["selected_pairs"]
+            != concept_diagnostics["qwen_same_pairs"]
+            + concept_diagnostics["qwen_distinct_pairs"]
+            + concept_diagnostics["qwen_uncertain_pairs"]
+            or concept_diagnostics["verifier_requested_pairs"]
+            != concept_diagnostics["qwen_same_pairs"]
+            or concept_diagnostics["verifier_requested_pairs"]
+            != concept_diagnostics["verifier_scored_pairs"]
+            + concept_diagnostics["verifier_unsupported_pairs"]
+            + concept_diagnostics["verifier_failed_pairs"]
+            or concept_diagnostics["verifier_scored_pairs"]
+            != concept_diagnostics["verifier_allowed_pairs"]
+            + concept_diagnostics["verifier_vetoed_pairs"]
+            or concept_diagnostics["duplicate_delta"]
+            != concept_diagnostics["source_concepts_before"]
+            - concept_diagnostics["canonical_concepts_after"]
+            or concept_diagnostics["coverage_before"]
+            != concept_diagnostics["coverage_after"]
         ):
             return "KNOWLEDGE_MAP_INVALID"
         resource_binding = knowledge_map["resource_binding"]
@@ -447,7 +551,8 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             if (
                 set(concept) != {
                     "formal_concept_id", "group_id", "operation", "source_concept_ids",
-                    "label", "claims", "source_page_refs", "source_page_numbers",
+                    "label", "aliases", "claims", "source_members",
+                    "source_page_refs", "source_page_numbers",
                     "quality", "decision", "reason_codes", "resolution_order",
                     "supplementary_resources",
                 }
@@ -457,17 +562,21 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                 or not concept["source_page_refs"]
                 or len(concept["source_page_refs"])
                 != len(set(concept["source_page_refs"]))
-                or concept["operation"] not in {"KEEP", "MERGE", "RENAME", "SPLIT"}
+                or concept["operation"] not in {"KEEP", "MERGE"}
                 or (
                     concept["operation"] == "MERGE"
                     and len(concept["source_concept_ids"]) < 2
                 )
                 or (
-                    concept["operation"] in {"KEEP", "RENAME", "SPLIT"}
+                    concept["operation"] == "KEEP"
                     and len(concept["source_concept_ids"]) != 1
                 )
                 or not isinstance(concept["label"], str)
                 or not concept["label"]
+                or not isinstance(concept["aliases"], list)
+                or concept["aliases"] != sorted(set(concept["aliases"]))
+                or concept["label"] in concept["aliases"]
+                or any(not isinstance(alias, str) or not alias for alias in concept["aliases"])
                 or concept["quality"] != "needs_review"
                 or concept["decision"] != "review"
                 or not reason_codes_are_valid(concept["reason_codes"], formal=True)
@@ -499,9 +608,59 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                         "operation": concept["operation"],
                         "source_concept_ids": concept["source_concept_ids"],
                         "label": concept["label"],
+                        "aliases": concept["aliases"],
                         "claims": claims,
+                        "source_members": concept["source_members"],
                     }
                 )
+            ):
+                return "KNOWLEDGE_MAP_INVALID"
+            members = concept["source_members"]
+            if (
+                not isinstance(members, list)
+                or not members
+                or {member.get("source_concept_id") for member in members}
+                != set(concept["source_concept_ids"])
+                or len({member.get("source_concept_id") for member in members})
+                != len(members)
+                or any(
+                    not isinstance(member, dict)
+                    or set(member) != {
+                        "source_concept_id", "label", "claim_ids", "evidence_ids",
+                        "page_ref", "document_context_id", "section_ids",
+                    }
+                    or not isinstance(member["label"], str)
+                    or not member["label"]
+                    or member["label"] not in {concept["label"], *concept["aliases"]}
+                    or member["claim_ids"] != sorted(set(member["claim_ids"]))
+                    or not member["claim_ids"]
+                    or member["evidence_ids"] != sorted(set(member["evidence_ids"]))
+                    or not member["evidence_ids"]
+                    or member["page_ref"] not in concept["source_page_refs"]
+                    or not isinstance(member["document_context_id"], str)
+                    or not member["document_context_id"].startswith("document-context:sha256:")
+                    or member["section_ids"] != sorted(set(member["section_ids"]))
+                    or not member["section_ids"]
+                    for member in members
+                )
+                or {claim_id for member in members for claim_id in member["claim_ids"]}
+                != {claim["claim_id"] for claim in claims}
+                or any(
+                    set(member["evidence_ids"])
+                    != {
+                        evidence_id
+                        for claim in claims
+                        if claim["claim_id"] in member["claim_ids"]
+                        for evidence_id in claim["evidence_ids"]
+                    }
+                    or any(
+                        evidence_pages.get(evidence_id) != member["page_ref"]
+                        for evidence_id in member["evidence_ids"]
+                    )
+                    for member in members
+                )
+                or {member["page_ref"] for member in members}
+                != set(concept["source_page_refs"])
             ):
                 return "KNOWLEDGE_MAP_INVALID"
             resource_concept_ids: set[str] = set()
@@ -745,6 +904,7 @@ def build_knowledge_map_view(knowledge_map: dict[str, Any]) -> dict[str, Any]:
             {
                 "formal_concept_id": concept["formal_concept_id"],
                 "label": concept["label"],
+                "aliases": deepcopy(concept["aliases"]),
                 "claims": claims,
                 "source_concept_ids": deepcopy(concept["source_concept_ids"]),
                 "source_page_numbers": deepcopy(concept["source_page_numbers"]),
@@ -766,6 +926,7 @@ def build_knowledge_map_view(knowledge_map: dict[str, Any]) -> dict[str, Any]:
             "reason_codes": deepcopy(knowledge_map["reason_codes"]),
         },
         "concepts": concepts,
+        "concept_diagnostics": deepcopy(knowledge_map["concept_diagnostics"]),
         "relations": deepcopy(knowledge_map["relations"]),
         "relation_diagnostics": deepcopy(knowledge_map["relation_diagnostics"]),
         "resource_binding": deepcopy(knowledge_map["resource_binding"]),

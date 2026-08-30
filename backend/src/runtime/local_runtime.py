@@ -29,11 +29,16 @@ _MATERIAL_SOURCE_NAMES = (
     "ocr_process.py",
     "relation_process.py",
 )
+_EQUIVALENCE_SOURCE_NAMES = ("equivalence_process.py",)
 _ASSESSMENT_SOURCE_NAMES = (
     "assessment_process.py",
 )
-_SOURCE_NAMES = _MATERIAL_SOURCE_NAMES + _ASSESSMENT_SOURCE_NAMES
-_EXPECTED_RUNTIME_FILES = 29
+_SOURCE_NAMES = (
+    _MATERIAL_SOURCE_NAMES
+    + _EQUIVALENCE_SOURCE_NAMES
+    + _ASSESSMENT_SOURCE_NAMES
+)
+_EXPECTED_RUNTIME_FILES = 30
 _BACKUP_NAME = ".studydy_local_ai-backup"
 _CHUNK = 1024 * 1024
 
@@ -56,17 +61,27 @@ def _source_and_target_files(
         material_sources = local_config["runtime_lock"]["ocr"][
             "package_sources"
         ]
+        equivalence_source = local_config["runtime_lock"][
+            "concept_equivalence"
+        ]["package_source"]
         assessment_sources = load_assessment_runtime_lock()["package_sources"]
     except (KeyError, TypeError):
         raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH") from None
     if (
         not isinstance(material_sources, dict)
         or tuple(material_sources) != _MATERIAL_SOURCE_NAMES
+        or not isinstance(equivalence_source, dict)
+        or equivalence_source.get("name") != _EQUIVALENCE_SOURCE_NAMES[0]
+        or set(equivalence_source) != {"name", "sha256"}
         or not isinstance(assessment_sources, dict)
         or tuple(assessment_sources) != _ASSESSMENT_SOURCE_NAMES
     ):
         raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")
-    package_sources = {**material_sources, **assessment_sources}
+    package_sources = {
+        **material_sources,
+        equivalence_source["name"]: equivalence_source["sha256"],
+        **assessment_sources,
+    }
     repository_root = Path(__file__).resolve().parents[3]
     source_root = repository_root / "local_ai" / "src" / "studydy_local_ai"
     target_root = Path(local_config["site_packages"]) / "studydy_local_ai"

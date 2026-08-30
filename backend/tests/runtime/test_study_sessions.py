@@ -57,7 +57,9 @@ def _formal_id(concept: dict) -> str:
             "operation": concept["operation"],
             "source_concept_ids": concept["source_concept_ids"],
             "label": concept["label"],
+            "aliases": concept["aliases"],
             "claims": concept["claims"],
+            "source_members": concept["source_members"],
         }
     )
 
@@ -105,7 +107,17 @@ def _knowledge_map() -> dict:
                 "concept:sha256:" + str(index + 1) * 64
             ],
             "label": label,
+            "aliases": [],
             "claims": [claim],
+            "source_members": [{
+                "source_concept_id": "concept:sha256:" + str(index + 1) * 64,
+                "label": label,
+                "claim_ids": [claim["claim_id"]],
+                "evidence_ids": [evidence_id],
+                "page_ref": "page:sha256:" + "1" * 64,
+                "document_context_id": "document-context:sha256:" + str(index + 1) * 64,
+                "section_ids": ["section:sha256:" + str(index + 1) * 64],
+            }],
             "source_page_refs": ["page:sha256:" + "1" * 64],
             "source_page_numbers": [1],
             "quality": "needs_review",
@@ -158,6 +170,26 @@ def _knowledge_map() -> dict:
         },
         "material_ref": "material:sha256:" + "1" * 64,
         "formal_concepts": concepts,
+        "concept_diagnostics": {
+            "possible_pairs": 3,
+            "candidate_pairs": 0,
+            "selected_pairs": 0,
+            "pair_ceiling": 16,
+            "qwen_same_pairs": 0,
+            "qwen_distinct_pairs": 0,
+            "qwen_uncertain_pairs": 0,
+            "verifier_requested_pairs": 0,
+            "verifier_scored_pairs": 0,
+            "verifier_allowed_pairs": 0,
+            "verifier_vetoed_pairs": 0,
+            "verifier_unsupported_pairs": 0,
+            "verifier_failed_pairs": 0,
+            "source_concepts_before": 3,
+            "canonical_concepts_after": 3,
+            "duplicate_delta": 0,
+            "coverage_before": 3,
+            "coverage_after": 3,
+        },
         "relations": relations,
         "relation_diagnostics": {
             "possible_pairs": 3,
@@ -225,6 +257,9 @@ def _rejected_knowledge_map() -> dict:
     knowledge_map = _knowledge_map()
     knowledge_map["formal_concepts"] = []
     knowledge_map["relations"] = []
+    knowledge_map["concept_diagnostics"] = {
+        key: 0 for key in knowledge_map["concept_diagnostics"]
+    }
     knowledge_map["relation_diagnostics"] = {
         key: {} if key == "selected_signal_counts" else 0
         for key in knowledge_map["relation_diagnostics"]

@@ -274,10 +274,36 @@ function isRelationDiagnostics(value: unknown): boolean {
       + Number(diagnostics.prerequisite_proposals);
 }
 
+function isConceptDiagnostics(value: unknown): boolean {
+  const names = [
+    "possible_pairs", "candidate_pairs", "selected_pairs", "pair_ceiling",
+    "qwen_same_pairs", "qwen_distinct_pairs", "qwen_uncertain_pairs",
+    "verifier_requested_pairs", "verifier_scored_pairs", "verifier_allowed_pairs",
+    "verifier_vetoed_pairs", "verifier_unsupported_pairs", "verifier_failed_pairs",
+    "source_concepts_before", "canonical_concepts_after", "duplicate_delta",
+    "coverage_before", "coverage_after",
+  ];
+  const diagnostics = closed(value, names);
+  return !!diagnostics
+    && names.every((name) => Number.isInteger(diagnostics[name]) && Number(diagnostics[name]) >= 0)
+    && Number(diagnostics.selected_pairs) <= Number(diagnostics.candidate_pairs)
+    && Number(diagnostics.candidate_pairs) <= Number(diagnostics.possible_pairs)
+    && Number(diagnostics.selected_pairs) === Number(diagnostics.qwen_same_pairs)
+      + Number(diagnostics.qwen_distinct_pairs) + Number(diagnostics.qwen_uncertain_pairs)
+    && Number(diagnostics.verifier_requested_pairs) === Number(diagnostics.qwen_same_pairs)
+    && Number(diagnostics.verifier_requested_pairs) === Number(diagnostics.verifier_scored_pairs)
+      + Number(diagnostics.verifier_unsupported_pairs) + Number(diagnostics.verifier_failed_pairs)
+    && Number(diagnostics.verifier_scored_pairs) === Number(diagnostics.verifier_allowed_pairs)
+      + Number(diagnostics.verifier_vetoed_pairs)
+    && Number(diagnostics.duplicate_delta) === Number(diagnostics.source_concepts_before)
+      - Number(diagnostics.canonical_concepts_after)
+    && diagnostics.coverage_before === diagnostics.coverage_after;
+}
+
 function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
   const item = closed(value, [
     "schema", "material_ref", "knowledge_map_revision", "source_output_id", "status",
-    "concepts", "relations", "relation_diagnostics", "resource_binding",
+    "concepts", "concept_diagnostics", "relations", "relation_diagnostics", "resource_binding",
     "resource_diagnostics", "resource_decisions", "initial_learning_path", "excluded_pages",
   ]);
   if (!item
@@ -286,6 +312,7 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     || !isRevision(item.knowledge_map_revision, "knowledge-map")
     || !isRevision(item.source_output_id, "study-material-output")
     || !Array.isArray(item.concepts)
+    || !isConceptDiagnostics(item.concept_diagnostics)
     || !Array.isArray(item.relations)
     || !isRelationDiagnostics(item.relation_diagnostics)
     || !Array.isArray(item.resource_decisions)
@@ -300,11 +327,13 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
   const conceptsAreValid = item.concepts.every((value) => {
     const concept = closed(value, [
       "formal_concept_id", "label", "claims", "source_concept_ids", "source_page_numbers",
-      "supplementary_resources", "quality", "decision", "reason_codes",
+      "aliases", "supplementary_resources", "quality", "decision", "reason_codes",
     ]);
     return !!concept
       && isRevision(concept.formal_concept_id, "formal-concept")
       && typeof concept.label === "string" && concept.label.length >= 1
+      && isSortedUniqueStrings(concept.aliases, 0)
+      && !(concept.aliases as unknown[]).includes(concept.label)
       && isStringArray(concept.source_concept_ids, 1)
       && Array.isArray(concept.source_page_numbers)
       && concept.source_page_numbers.length > 0

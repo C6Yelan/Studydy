@@ -64,14 +64,14 @@ _CONFIG_PATH_KEYS = {
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "e89cd9dffc0fe803542031082b464b65bff8ea6a0ab4d800c50b60137bb78432",
+    "local_ai/runtime-lock.json": "b486d8e195395d1bcf9080f3a5954cbed184ec0c22236e5354a8973560a8b60d",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "13716c4f0e1429802f2fa0e28c4e87743c678adb5ad61a32c12cb6309fd55a6a",
     "backend/src/pdf_evidence/concept_generation.py": "7760cbd027f2046e4fa072fc49ecd85ea81806cfc6b665ce24bf32dddd9789cd",
     "backend/src/pdf_evidence/document_context.py": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
     "backend/src/pdf_evidence/concept_api.py": "b1a4f67457e8b8d1d9c4b15ff18c69c9a94be8f5d405dff329ab3eff80c292e5",
     "backend/src/pdf_evidence/study_material_output.py": "277c44c2eb6441d538a50263587fe4b8ef96b35d3d36ce5cc9ebc19f48e68889",
     "backend/src/pdf_evidence/process_guard.py": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
-    "backend/src/pdf_evidence/local_ai_process.py": "32686d52b8ef2a472dab833fdaa15bad4c45121e7c68f62af8fc05e53799578a",
+    "backend/src/pdf_evidence/local_ai_process.py": "3cc563a14f6e82421d402cf5fa37bfc9f236c71d93e46e514357d69167b05539",
 }
 _BINDING_FILES = (
     "backend/src/pdf_evidence/artifact_reason_codes.py",
@@ -347,6 +347,20 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
             for name, expected_sha256 in runtime_lock["ocr"]["reviewed_code"].items()
         ),
     ]
+    equivalence_source = runtime_lock["concept_equivalence"]["package_source"]
+    if (
+        not isinstance(equivalence_source, dict)
+        or set(equivalence_source) != {"name", "sha256"}
+        or equivalence_source["name"] != "equivalence_process.py"
+    ):
+        raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")
+    files.append(
+        _RuntimeFile(
+            package_root / equivalence_source["name"],
+            equivalence_source["sha256"],
+            "equivalence_package",
+        )
+    )
     for required_file in runtime_lock["ocr"]["required_files"]:
         name = required_file["name"]
         if Path(name).name != name:
@@ -597,6 +611,9 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
             "ocr_calls_per_page": 1,
             "ocr_initial_loads": 1,
             "concept_initial_loads": 2,
+            "concept_equivalence_initial_loads": 1,
+            "concept_equivalence_pairs_per_material": 16,
+            "concept_equivalence_directions_per_material": 32,
             "relation_verifier_initial_loads": 1,
             "relation_verifier_calls_per_material": MAX_RELATION_PAIRS,
         },
@@ -607,6 +624,9 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
             "concept_server_ready": CONCEPT_SERVER_READY_TIMEOUT_SECONDS,
             "relation_verifier": local_config["runtime_lock"][
                 "relation_verifier"
+            ]["timeout_seconds"],
+            "concept_equivalence": local_config["runtime_lock"][
+                "concept_equivalence"
             ]["timeout_seconds"],
         },
         "retry_policy": {
@@ -631,9 +651,12 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         "relation_verifier": deepcopy(
             local_config["runtime_lock"]["relation_verifier"]
         ),
+        "concept_equivalence": deepcopy(
+            local_config["runtime_lock"]["concept_equivalence"]
+        ),
         "residency_policy": (
             "ocr-child-then-owned-loopback-concept-server-"
-            "then-relation-verifier/v4"
+            "then-concept-equivalence-then-relation-verifier/v5"
         ),
         "network_policy": "loopback-concept-api-no-credentials/v1",
         "retention_policy": {

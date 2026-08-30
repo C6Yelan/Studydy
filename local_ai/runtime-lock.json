@@ -168,15 +168,33 @@
     }
   },
   "formal_resolution": {
-    "prompt": "/no_think\nResolve every supplied source candidate exactly once using KEEP, MERGE, RENAME, SPLIT, or DROP. Use only supplied candidate and claim aliases. KEEP and RENAME use exactly one source and one node; MERGE uses at least two sources and one node; SPLIT uses one source and exactly two nodes; DROP uses one source and no nodes. Claims are not independently droppable: for KEEP, RENAME, MERGE, and SPLIT, every claim alias owned by source_ids must appear exactly once across all output nodes; DROP must retain zero claims and is the only operation that may omit them. KEEP must preserve the supplied label exactly, and every candidate must be covered. Return JSON only.",
-    "prompt_sha256": "99bd122e8876fdb49296d1669b2f2ce1927ef08961591fbd88a1299617bce239",
-    "request_schema": "formal-concept-resolution-input/v1",
-    "output_schema": "formal-concept-resolution/v1",
-    "generation": {"temperature": 0, "max_tokens": 2048},
+    "prompt": "/no_think\nFor every supplied candidate pair, decide only SAME, DISTINCT, or UNCERTAIN. SAME means genuine aliases or duplicates that teach the same concept; surface similarity alone is insufficient. DISTINCT means both concepts should remain separate, including related concepts with different learning objectives. Use only supplied labels, claims, Evidence, and document context. Retrieval signals are comparison hints, never merge proof. When evidence is insufficient choose UNCERTAIN. Return every pair id exactly once as JSON and no extra fields.",
+    "prompt_sha256": "20dca1040d4ead4bde162b92022b78cecb74c6cfab7188f19f3e726df0105677",
+    "request_schema": "concept-deduplication-input/v1",
+    "output_schema": "concept-deduplication/v1",
+    "generation": {"temperature": 0, "max_tokens": 512},
     "timeout_seconds": 300,
     "retry": {
       "max_attempts": 2,
       "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
+    }
+  },
+  "concept_equivalence": {
+    "model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+    "revision": "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c",
+    "request_schema": "local-concept-equivalence-request/v1",
+    "response_schema": "local-concept-equivalence-response/v1",
+    "startup_schema": "local-concept-equivalence-startup/v1",
+    "representation": "label-claims-evidence-headings/v1",
+    "decision_rule": "bidirectional-entailment-threshold-and-argmax/v1",
+    "entailment_threshold": 0.8,
+    "maximum_tokens": 384,
+    "timeout_seconds": 120,
+    "failure_policy": "veto-and-retain/v1",
+    "safe_loading": "safetensors-local-only-no-remote-code",
+    "package_source": {
+      "name": "equivalence_process.py",
+      "sha256": "588383aeb52638a7dd23a91c5d400229845c859d897b21bef5c8d06e06ffa56c"
     }
   },
   "relation_verifier": {

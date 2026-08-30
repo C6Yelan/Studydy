@@ -516,13 +516,12 @@ def test_context_does_not_use_substring_matching():
     assert context["reason_codes"] == ["RESOURCE_NO_EXACT_LABEL_MATCH"]
 
 
-@pytest.mark.parametrize("operation", ["KEEP", "RENAME"])
-def test_resource_promotion_follows_keep_and_rename(operation):
+def test_resource_promotion_follows_canonical_keep():
     source_sha256 = "a" * 64
     library = build_resource_library([_source(source_sha256)], [_entry(source_sha256)])
     study = _study_output("Quantum Field Theory")
     context = build_map_resource_context(study, library)
-    formal = _formal("1", operation, [study["concepts"][0]["concept_id"]])
+    formal = _formal("1", "KEEP", [study["concepts"][0]["concept_id"]])
 
     promotion = promote_resources_to_formal_concepts([formal], context, study, library)
 
@@ -560,36 +559,24 @@ def test_resource_promotion_merge_unions_and_deduplicates_resources():
     assert promotion["resource_diagnostics"]["promoted_resources"] == 1
 
 
-def test_resource_promotion_drop_rejects_without_map_resource():
+def test_resource_promotion_rejects_missing_canonical_owner():
     source_sha256 = "a" * 64
     library = build_resource_library([_source(source_sha256)], [_entry(source_sha256)])
     study = _study_output("Quantum Field Theory")
     context = build_map_resource_context(study, library)
 
-    promotion = promote_resources_to_formal_concepts([], context, study, library)
-
-    assert promotion["formal_concepts"] == []
-    assert promotion["resource_diagnostics"]["dropped_matches"] == 1
-    assert promotion["resource_decisions"][0]["decision"] == "reject"
-    assert promotion["resource_decisions"][0]["reason_code"] == "RESOURCE_SOURCE_CONCEPT_DROPPED"
+    with pytest.raises(ValueError, match="RESOURCE_PROMOTION_INPUT_INVALID"):
+        promote_resources_to_formal_concepts([], context, study, library)
 
 
-def test_resource_promotion_split_fails_closed_for_review():
+@pytest.mark.parametrize("operation", ["RENAME", "SPLIT", "DROP"])
+def test_resource_promotion_rejects_destructive_resolution_operations(operation):
     source_sha256 = "a" * 64
     library = build_resource_library([_source(source_sha256)], [_entry(source_sha256)])
     study = _study_output("Quantum Field Theory")
     context = build_map_resource_context(study, library)
     source_id = study["concepts"][0]["concept_id"]
-    formal = [
-        _formal("3", "SPLIT", [source_id]),
-        _formal("4", "SPLIT", [source_id]),
-    ]
+    formal = [_formal("3", operation, [source_id])]
 
-    promotion = promote_resources_to_formal_concepts(formal, context, study, library)
-
-    assert all(not item["supplementary_resources"] for item in promotion["formal_concepts"])
-    assert promotion["resource_diagnostics"]["split_review_matches"] == 1
-    decision = promotion["resource_decisions"][0]
-    assert decision["decision"] == "review"
-    assert decision["reason_code"] == "RESOURCE_SPLIT_REVIEW_REQUIRED"
-    assert decision["formal_concept_ids"] == sorted(item["formal_concept_id"] for item in formal)
+    with pytest.raises(ValueError, match="RESOURCE_PROMOTION_INPUT_INVALID"):
+        promote_resources_to_formal_concepts(formal, context, study, library)
