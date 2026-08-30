@@ -422,7 +422,7 @@ class ArtifactStatusView(_ClosedModel):
 
 
 class KnowledgeMapView(_ClosedModel):
-    schema_: Literal["knowledge-map-view/v6"] = Field(alias="schema")
+    schema_: Literal["knowledge-map-view/v7"] = Field(alias="schema")
     material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
     knowledge_map_revision: str = Field(
         pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"

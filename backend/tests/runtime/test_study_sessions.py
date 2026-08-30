@@ -46,6 +46,7 @@ def study_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
         12,
         13,
         14,
+        15,
     )
     return clean_database_dsn
 
@@ -160,7 +161,7 @@ def _knowledge_map() -> dict:
         _relation("related", related_source, related_target),
     ]
     knowledge_map = {
-        "schema": "knowledge-map/v6",
+        "schema": "knowledge-map/v7",
         "source_output_id": "study-material-output:sha256:" + "1" * 64,
         "source_binding": {
             "study_material_output_id": "study-material-output:sha256:" + "1" * 64,

@@ -85,7 +85,7 @@ function publishedMap(): KnowledgeMapView {
     is_in_prerequisite_cycle: false,
   });
   return {
-    schema: "knowledge-map-view/v6",
+    schema: "knowledge-map-view/v7",
     material_ref: revision("material", "9"),
     knowledge_map_revision: mapRevision,
     source_output_id: revision("study-material-output", "b"),

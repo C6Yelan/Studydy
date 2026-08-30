@@ -47,7 +47,7 @@ function reviewMap() {
   const pageRef = `page:sha256:${"4".repeat(64)}`;
   const formalConceptId = `formal-concept:sha256:${"6".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v6",
+    schema: "knowledge-map-view/v7",
     material_ref: `material:sha256:${"5".repeat(64)}`,
     knowledge_map_revision: mapRevision,
     source_output_id: outputRevision,

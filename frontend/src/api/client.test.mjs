@@ -73,7 +73,7 @@ function successfulRun() {
 function mapView() {
   const pageRef = `page:sha256:${"5".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v6",
+    schema: "knowledge-map-view/v7",
     material_ref: `material:sha256:${"6".repeat(64)}`,
     knowledge_map_revision: mapRevision,
     source_output_id: `study-material-output:sha256:${"3".repeat(64)}`,
@@ -338,7 +338,7 @@ test("run v3 closed progress shape rejects v2, decreasing bounds and fake termin
   }
 });
 
-test("Map v6 使用 exact run/revision 並要求 claim PDF locator", async () => {
+test("Map v7 使用 exact run/revision 並要求 claim PDF locator", async () => {
   const paths = [];
   const client = new StudydyApiClient(async (input) => {
     paths.push(String(input));
@@ -369,7 +369,7 @@ test("Map v6 使用 exact run/revision 並要求 claim PDF locator", async () =>
   );
 });
 
-test("Map v6 補充資源只接受 HTTP(S) public URL", async () => {
+test("Map v7 補充資源只接受 HTTP(S) public URL", async () => {
   const invalid = mapView();
   const sourceConceptId = invalid.concepts[0].source_concept_ids[0];
   invalid.concepts[0].supplementary_resources.push({
@@ -501,7 +501,7 @@ test("StudySession-scoped learning projections 保持 revision 與 action bindin
   );
 });
 
-test("Map v6 pair-level Relation Evidence 必須保留真實 claim owner", async () => {
+test("Map v7 pair-level Relation Evidence 必須保留真實 claim owner", async () => {
   let calls = 0;
   const acceptedClient = new StudydyApiClient(async () => {
     calls += 1;
@@ -527,7 +527,7 @@ test("Map v6 pair-level Relation Evidence 必須保留真實 claim owner", async
   );
 });
 
-test("Map v6 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
+test("Map v7 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
   const mutations = {
     unexpected: (view) => { view.concepts[0].unexpected_field = true; },
     duplicate: (view) => { view.concepts.push(structuredClone(view.concepts[0])); },

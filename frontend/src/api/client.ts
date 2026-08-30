@@ -307,7 +307,7 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     "resource_diagnostics", "resource_decisions", "initial_learning_path", "excluded_pages",
   ]);
   if (!item
-    || item.schema !== "knowledge-map-view/v6"
+    || item.schema !== "knowledge-map-view/v7"
     || !isRevision(item.material_ref, "material")
     || !isRevision(item.knowledge_map_revision, "knowledge-map")
     || !isRevision(item.source_output_id, "study-material-output")

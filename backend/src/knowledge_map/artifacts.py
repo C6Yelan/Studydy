@@ -15,8 +15,8 @@ RELATION_TYPES = {"prerequisite", "contains", "related"}
 SYMMETRIC_RELATION_TYPES = {"related"}
 
 
-KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v6"
-KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v6"
+KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v7"
+KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v7"
 
 _RESOURCE_DIAGNOSTIC_FIELDS = {
     "matches",

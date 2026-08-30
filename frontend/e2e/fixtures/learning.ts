@@ -56,7 +56,7 @@ export function mapView(): KnowledgeMapView {
   const prerequisite = concept(prerequisiteConceptId, prerequisiteClaimId, "先備概念", 1);
   const target = concept(targetConceptId, targetClaimId, "目標概念", 2);
   return {
-    schema: "knowledge-map-view/v6",
+    schema: "knowledge-map-view/v7",
     material_ref: revision("material", "5"),
     knowledge_map_revision: mapRevision,
     source_output_id: revision("study-material-output", "6"),

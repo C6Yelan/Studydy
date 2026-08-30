@@ -54,6 +54,7 @@ def api_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
         12,
         13,
         14,
+        15,
     )
     return clean_database_dsn
 
@@ -392,7 +393,7 @@ def test_success_exposes_only_review_map_with_pdf_locator(
         )
         assert map_response.status_code == 200
         view = map_response.json()
-        assert view["schema"] == "knowledge-map-view/v6"
+        assert view["schema"] == "knowledge-map-view/v7"
         assert view["status"]["decision"] == "review"
         assert view["concepts"][0]["claims"][0]["evidence"][0]["page_number"] == 1
         encoded = json.dumps(view)

@@ -92,7 +92,7 @@ export type ExcludedPageView = {
 };
 
 export type KnowledgeMapView = {
-  schema: "knowledge-map-view/v6";
+  schema: "knowledge-map-view/v7";
   material_ref: string;
   knowledge_map_revision: string;
   source_output_id: string;

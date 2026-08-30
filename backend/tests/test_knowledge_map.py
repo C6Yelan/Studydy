@@ -1289,7 +1289,9 @@ def test_map_revision_binds_formal_nodes_relations_path_and_cycle_exclusion():
     assert knowledge_map["initial_learning_path"] == [node["formal_concept_id"] for node in nodes]
     assert validate_knowledge_map(knowledge_map) is None
     view = build_knowledge_map_view(knowledge_map)
-    assert view["schema"] == "knowledge-map-view/v6"
+    assert resolution["schema"] == "formal-concept-resolution/v2"
+    assert knowledge_map["schema"] == "knowledge-map/v7"
+    assert view["schema"] == "knowledge-map-view/v7"
     assert view["relations"][0]["source_formal_concept_id"].startswith("formal-concept:")
 
     tampered = deepcopy(knowledge_map)
