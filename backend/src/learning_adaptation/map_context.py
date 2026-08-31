@@ -277,7 +277,15 @@ def _read_map_context(
         run[1].get("study_material_output_revision")
         != study_material_output.get("output_id")
         or run[1].get("knowledge_map_revision") != knowledge_map_revision
+        or run[1].get("concept_evidence_output_id")
+        != study_material_output.get("source_binding", {}).get(
+            "producer_output_id"
+        )
         or run[1].get("runtime_binding_sha256") != material_runtime
+        or run[0].get("runtime_lock_sha256")
+        != study_material_output.get("source_binding", {}).get(
+            "runtime_binding_sha256"
+        )
     ):
         raise _unavailable()
     return _build_context(

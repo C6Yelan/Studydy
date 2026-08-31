@@ -813,6 +813,57 @@ def test_map_context_rejects_rehashed_source_binding_tamper(
         )
 
 
+@pytest.mark.parametrize(
+    ("run_binding", "field", "tampered_value"),
+    (
+        (
+            "output_binding",
+            "concept_evidence_output_id",
+            "concept-evidence-output:sha256:" + "a" * 64,
+        ),
+        ("runtime_binding", "runtime_lock_sha256", "b" * 64),
+    ),
+    ids=("concept-evidence-output", "runtime-lock"),
+)
+def test_map_context_rejects_persisted_run_authority_tamper(
+    study_database_dsn: str,
+    run_binding: str,
+    field: str,
+    tampered_value: str,
+):
+    owner = uuid4()
+    knowledge_map = _knowledge_map()
+    material_id = _insert_material_map(study_database_dsn, owner, knowledge_map)
+    with psycopg.connect(study_database_dsn) as connection:
+        runtime_binding, output_binding = connection.execute(
+            """
+            SELECT runtime_binding, output_binding FROM material_processing_runs
+            WHERE learner_id = %s AND material_id = %s
+            """,
+            (owner, material_id),
+        ).fetchone()
+        binding = (
+            output_binding if run_binding == "output_binding" else runtime_binding
+        )
+        binding[field] = tampered_value
+        connection.execute(
+            """
+            UPDATE material_processing_runs
+            SET runtime_binding = %s, output_binding = %s
+            WHERE learner_id = %s AND material_id = %s
+            """,
+            (Jsonb(runtime_binding), Jsonb(output_binding), owner, material_id),
+        )
+
+    with pytest.raises(MapContextError, match="^KNOWLEDGE_MAP_UNAVAILABLE$"):
+        read_map_context(
+            owner,
+            material_id,
+            knowledge_map["revision"],
+            dsn=study_database_dsn,
+        )
+
+
 def test_map_context_rejects_wrong_binding_tampering_and_rejected_map(
     study_database_dsn: str,
 ):
