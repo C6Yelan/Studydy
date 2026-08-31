@@ -295,6 +295,58 @@ def test_unkeyed_question_keeps_grouping_and_rejects_option_claims():
     assert artifact["processing"] == "partial"
 
 
+@pytest.mark.parametrize(
+    ("claim_text", "evidence_ids"),
+    [
+        ("Which statement is correct?", ["e1"]),
+        (
+            "Which statement is correct? Rivers can transport sediment.",
+            ["e1", "e5"],
+        ),
+    ],
+    ids=["stem-only", "stem-and-option"],
+)
+def test_unkeyed_assessment_stem_cannot_bypass_claim_rejection(
+    claim_text, evidence_ids
+):
+    page = _unkeyed_question_page()
+    request, aliases = build_semantic_request(
+        page, build_document_contexts([page])[0]
+    )
+
+    artifact = validate_concepts(
+        json.dumps({
+            "concepts": [{
+                "label": "River question",
+                "definition": {
+                    "text": claim_text,
+                    "evidence_ids": evidence_ids,
+                },
+                "key_points": [{
+                    "text": claim_text,
+                    "evidence_ids": evidence_ids,
+                }],
+            }]
+        }),
+        semantic_request=request,
+        evidence_aliases=aliases,
+        page_ref=page["page_ref"],
+        input_binding={"evidence_allowlist": list(aliases.values())},
+        attempt=1,
+    )
+
+    assert artifact["concepts"] == []
+    assert artifact["rejected_candidates"][0]["reason_codes"] == [
+        "CLAIM_UNKEYED_ASSESSMENT_OPTION"
+    ]
+    combined = combine_semantic_batches(
+        [artifact],
+        page_ref=page["page_ref"],
+        input_binding={"evidence_allowlist": list(aliases.values())},
+    )
+    assert combined["concepts"] == []
+
+
 def test_missing_or_fabricated_assessment_context_is_invalid():
     page = _unkeyed_question_page()
     request, _ = build_semantic_request(

@@ -11,7 +11,7 @@ from .document_context import serialize_document_context
 
 SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v7"
 SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v3"
-PROCESSING_POLICY = "claim-grounded-concept-review/v6"
+PROCESSING_POLICY = "claim-grounded-concept-review/v7"
 MAX_MODEL_OUTPUT_BYTES = 65_536
 
 _ENGLISH_STOP_WORDS = {
@@ -410,15 +410,18 @@ def validate_semantic_request(request: Any) -> dict[str, dict[str, Any]]:
     )
     if request["assessment_groups"] != expected_assessments:
         raise SemanticOutputError("INPUT_SCHEMA_INVALID")
-    option_ids = {
+    assessment_member_ids = {
         evidence_id
         for group in expected_assessments
-        for evidence_id in group["option_evidence_ids"]
+        for evidence_id in (
+            group["question_evidence_id"],
+            *group["option_evidence_ids"],
+        )
     }
-    for evidence_id in option_ids:
+    for evidence_id in assessment_member_ids:
         evidence_by_id[evidence_id] = {
             **evidence_by_id[evidence_id],
-            "is_unkeyed_option": True,
+            "is_unkeyed_assessment_member": True,
         }
     return evidence_by_id
 
@@ -870,7 +873,7 @@ def _claim(
     if not set(references) <= set(evidence_aliases):
         raise SemanticOutputError("UNKNOWN_EVIDENCE_ID")
     if any(
-        evidence_by_alias[reference].get("is_unkeyed_option") is True
+        evidence_by_alias[reference].get("is_unkeyed_assessment_member") is True
         for reference in references
     ):
         raise SemanticOutputError("CLAIM_UNKEYED_ASSESSMENT_OPTION")
