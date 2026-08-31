@@ -4,6 +4,7 @@ export type KnownApiReasonCode =
   | "ORIGIN_NOT_ALLOWED"
   | "RESOURCE_NOT_FOUND"
   | "IDEMPOTENCY_CONFLICT"
+  | "NO_SAFE_ASSESSMENT"
   | "MATERIAL_TOO_LARGE"
   | "MATERIAL_PDF_INVALID"
   | "UNSUPPORTED_MEDIA_TYPE"
@@ -287,7 +288,8 @@ export type StudySessionView = {
   knowledge_map_revision: string;
   current_formal_concept_id: string | null;
   deferred_formal_concept_id: string | null;
-  status: "active" | "completed";
+  no_safe_deferred_formal_concept_ids: string[];
+  status: "active" | "completed" | "no_safe";
   started_at: string;
   completed_at: string | null;
   event_watermark: number;
@@ -306,6 +308,7 @@ export type StudyContextView = {
   base_knowledge_map_revision: string;
   current_formal_concept_id: string | null;
   deferred_formal_concept_id: string | null;
+  no_safe_deferred_formal_concept_ids: string[];
   initial_learning_path: StudyConceptContextView[];
 };
 
@@ -432,6 +435,8 @@ export type AdaptiveAction =
   | "use_resource"
   | "follow_path"
   | "collect_more_data"
+  | "defer"
+  | "resume"
   | "no_action";
 
 export type AdaptiveRouteView = {
@@ -459,6 +464,7 @@ export type AdaptivePlanView = {
   event_watermark: number;
   current_formal_concept_id: string | null;
   deferred_formal_concept_id: string | null;
+  no_safe_deferred_formal_concept_ids: string[];
   primary_step: AdaptiveStepView;
   adaptive_plan_revision: string;
 };

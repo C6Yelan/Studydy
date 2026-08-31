@@ -127,13 +127,38 @@ test("StudySession assessment：錯誤回饋、新題重評與完成", async ({ 
 test("Assessment 沒有新安全題目時提供可理解 fallback", async ({ page }) => {
   await learningRoutes(page);
   await page.route(`**/v1/study-sessions/${studySessionId}/assessments`, (route) =>
-    fulfillJson(route, apiError("RESOURCE_NOT_FOUND"), 404));
+    fulfillJson(route, apiError("NO_SAFE_ASSESSMENT"), 422));
 
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}/study-sessions/${studySessionId}`);
   await expect(page.getByRole("heading", { name: "目標概念", exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "開始評量" }).click();
   await expect(page.getByRole("heading", { name: "目前沒有新的安全題目" })).toBeVisible();
   await expect(page.getByText(/先回到教材重點/)).toBeVisible();
+});
+
+test("沒有可前往重點的狀態會保存並在桌面與窄螢幕清楚結束", async ({ page }) => {
+  await learningRoutes(page);
+  let isNoSafe = false;
+  await page.route(`**/v1/study-sessions/${studySessionId}`, (route) =>
+    fulfillJson(route, sessionView(isNoSafe ? { status: "no_safe" } : {})));
+  await page.route(`**/v1/study-sessions/${studySessionId}/assessments`, async (route) => {
+    isNoSafe = true;
+    await fulfillJson(route, apiError("NO_SAFE_ASSESSMENT"), 422);
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}/study-sessions/${studySessionId}`);
+  await page.getByRole("button", { name: "開始評量" }).click();
+  await expect(page.getByRole("heading", { name: "目前沒有可繼續的練習" })).toBeVisible();
+  await expect(page.getByText("目前沒有其他可安全前往的教材重點，這次進度已保留。")).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "目前沒有可繼續的練習" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /回到知識地圖/ })).toBeVisible();
+  expect(await page.locator("body").innerText()).not.toMatch(
+    /no[-_ ]safe|canonical|StudySession|Formal Concept|AnswerEvent/i,
+  );
 });
 
 test("Assessment default Claim no-safe時改試較小Evidence範圍", async ({ page }) => {
@@ -154,7 +179,7 @@ test("Assessment default Claim no-safe時改試較小Evidence範圍", async ({ p
     const body = await route.request().postDataJSON();
     if (requests === 1) {
       expect(body.target_claim_id).toBe(knowledgeMap.concepts[1].claims[0].claim_id);
-      await fulfillJson(route, apiError("RESOURCE_NOT_FOUND"), 404);
+      await fulfillJson(route, apiError("NO_SAFE_ASSESSMENT"), 422);
       return;
     }
     expect(body.target_claim_id).toBe(fallbackClaimId);
@@ -192,7 +217,7 @@ test("Assessment second item耗盡時改試未覆蓋Claim", async ({ page }) => 
       await fulfillJson(route, assessmentView(1), 201);
     } else if (assessmentRequests === 2) {
       expect(body.target_claim_id).toBe(target.claims[0].claim_id);
-      await fulfillJson(route, apiError("RESOURCE_NOT_FOUND"), 404);
+      await fulfillJson(route, apiError("NO_SAFE_ASSESSMENT"), 422);
     } else {
       expect(body.target_claim_id).toBe(fallbackClaimId);
       await fulfillJson(route, {

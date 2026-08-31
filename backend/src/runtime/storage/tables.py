@@ -8,6 +8,7 @@ from uuid import UUID
 
 import psycopg
 from sqlalchemy import (
+    ARRAY,
     BigInteger,
     Boolean,
     CHAR,
@@ -353,14 +354,37 @@ class StudySession(Base):
             "deferred_formal_concept_id ~ '^formal-concept:sha256:[0-9a-f]{64}$'"
         ),
         CheckConstraint(
+            "array_position(no_safe_claim_ids, NULL) IS NULL AND "
+            "(array_to_string(no_safe_claim_ids, ',') = '' OR "
+            "array_to_string(no_safe_claim_ids, ',') ~ "
+            "'^claim:sha256:[0-9a-f]{64}(,claim:sha256:[0-9a-f]{64})*$')"
+        ),
+        CheckConstraint(
+            "array_position(no_safe_deferred_formal_concept_ids, NULL) "
+            "IS NULL AND (array_to_string("
+            "no_safe_deferred_formal_concept_ids, ',') = '' OR "
+            "array_to_string(no_safe_deferred_formal_concept_ids, ',') ~ "
+            "'^formal-concept:sha256:[0-9a-f]{64}"
+            "(,formal-concept:sha256:[0-9a-f]{64})*$')"
+        ),
+        CheckConstraint(
+            "(last_applied_adaptive_plan_revision IS NULL AND "
+            "last_applied_session_state_sha256 IS NULL) OR "
+            "(last_applied_adaptive_plan_revision IS NOT NULL AND "
+            "last_applied_session_state_sha256 IS NOT NULL AND "
+            "last_applied_adaptive_plan_revision ~ "
+            "'^adaptive-plan:sha256:[0-9a-f]{64}$' AND "
+            "last_applied_session_state_sha256 ~ '^[0-9a-f]{64}$')"
+        ),
+        CheckConstraint(
             "deferred_formal_concept_id IS NULL OR "
             "current_formal_concept_id IS NULL OR "
             "deferred_formal_concept_id <> current_formal_concept_id"
         ),
-        CheckConstraint("status IN ('active', 'completed')"),
+        CheckConstraint("status IN ('active', 'completed', 'no_safe')"),
         CheckConstraint("last_event_number >= 0"),
         CheckConstraint(
-            "(status = 'active' AND completed_at IS NULL) OR "
+            "(status IN ('active', 'no_safe') AND completed_at IS NULL) OR "
             "(status = 'completed' AND completed_at IS NOT NULL "
             "AND completed_at >= started_at)"
         ),
@@ -374,6 +398,14 @@ class StudySession(Base):
     knowledge_map_revision: Mapped[str] = mapped_column(Text, nullable=False)
     current_formal_concept_id: Mapped[str | None] = mapped_column(Text)
     deferred_formal_concept_id: Mapped[str | None] = mapped_column(Text)
+    no_safe_claim_ids: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("ARRAY[]::text[]")
+    )
+    no_safe_deferred_formal_concept_ids: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("ARRAY[]::text[]")
+    )
+    last_applied_adaptive_plan_revision: Mapped[str | None] = mapped_column(Text)
+    last_applied_session_state_sha256: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)

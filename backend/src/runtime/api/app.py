@@ -95,6 +95,7 @@ _ERROR_STATUS = {
     "ORIGIN_NOT_ALLOWED": (403, False),
     "RESOURCE_NOT_FOUND": (404, False),
     "IDEMPOTENCY_CONFLICT": (409, False),
+    "NO_SAFE_ASSESSMENT": (422, False),
     "MATERIAL_TOO_LARGE": (413, False),
     "MATERIAL_PDF_INVALID": (400, False),
     "UNSUPPORTED_MEDIA_TYPE": (415, False),
@@ -230,13 +231,16 @@ def _fixed_exception(error: Exception) -> str:
         "ASSESSMENT_UNAVAILABLE",
         "ASSESSMENT_REQUEST_UNAVAILABLE",
         "ASSESSMENT_GROUNDING_UNAVAILABLE",
-        "ASSESSMENT_NO_NEW_SAFE_ITEM",
-        "ASSESSMENT_NO_SAFE_CANDIDATE",
         "LEARNING_STATE_UNAVAILABLE",
         "WEAKNESS_UNAVAILABLE",
         "ADAPTIVE_PLAN_UNAVAILABLE",
     }:
         return "RESOURCE_NOT_FOUND"
+    if reason in {
+        "ASSESSMENT_NO_NEW_SAFE_ITEM",
+        "ASSESSMENT_NO_SAFE_CANDIDATE",
+    }:
+        return "NO_SAFE_ASSESSMENT"
     if reason in {
         "ARTIFACT_REQUEST_INVALID",
         "MATERIAL_RUN_INVALID",

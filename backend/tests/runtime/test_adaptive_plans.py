@@ -11,12 +11,16 @@ from learning_adaptation.adaptive_plans import (
     apply_adaptive_plan,
     derive_adaptive_plan,
     project_suggestion,
+    record_no_safe_assessment,
 )
 from learning_adaptation.study_sessions import (
+    complete_study_session,
     create_study_session,
     set_current_study_concept,
 )
+from learning_adaptation.learning_states import derive_learning_state
 from runtime.storage.migrations import run_migrations
+from runtime.learner_session import TrustedLearner
 from test_learning_states import _answer, _state_session
 
 
@@ -26,7 +30,7 @@ def adaptive_database_dsn(
 ) -> str:
     assert run_migrations(
         clean_database_dsn, migrations_dir=migrations_dir
-    ) == tuple(range(1, 15))
+    ) == tuple(range(1, 16))
     return clean_database_dsn
 
 
@@ -140,13 +144,13 @@ def test_prerequisite_remediation_returns_deferred_target_without_map_mutation(
     assert applied.study_session.deferred_formal_concept_id == deferred_target[
         "formal_concept_id"
     ]
-    with pytest.raises(AdaptivePlanError, match="ADAPTIVE_PLAN_STALE"):
-        apply_adaptive_plan(
-            learner,
-            study_session.study_session_id,
-            remediation.adaptive_plan_revision,
-            dsn=adaptive_database_dsn,
-        )
+    replay = apply_adaptive_plan(
+        learner,
+        study_session.study_session_id,
+        remediation.adaptive_plan_revision,
+        dsn=adaptive_database_dsn,
+    )
+    assert replay.study_session == applied.study_session
 
     for sequence in (1, 2):
         _answer(
@@ -323,3 +327,187 @@ def test_all_mastered_has_no_action(adaptive_database_dsn: str):
     suggestion = project_suggestion(plan)
     assert suggestion.action == "no_action"
     assert suggestion.fallback_action == "no_action"
+
+
+def test_apply_rejects_invalid_foreign_wrong_session_and_completed(
+    adaptive_database_dsn: str,
+):
+    learner, knowledge_map, material_id, study_session = _state_session(
+        adaptive_database_dsn
+    )
+    plan = derive_adaptive_plan(
+        learner, study_session.study_session_id, dsn=adaptive_database_dsn
+    )
+    with pytest.raises(AdaptivePlanError, match="ADAPTIVE_PLAN_REQUEST_INVALID"):
+        apply_adaptive_plan(
+            learner,
+            study_session.study_session_id,
+            "not-a-plan-revision",
+            dsn=adaptive_database_dsn,
+        )
+    foreign_session = create_study_session(
+        learner,
+        material_id,
+        knowledge_map["revision"],
+        str(uuid4()),
+        current_formal_concept_id=study_session.current_formal_concept_id,
+        dsn=adaptive_database_dsn,
+    )
+    with pytest.raises(AdaptivePlanError, match="ADAPTIVE_PLAN_STALE"):
+        apply_adaptive_plan(
+            learner,
+            foreign_session.study_session_id,
+            plan.adaptive_plan_revision,
+            dsn=adaptive_database_dsn,
+        )
+    with pytest.raises(AdaptivePlanError, match="ADAPTIVE_PLAN_UNAVAILABLE"):
+        apply_adaptive_plan(
+            TrustedLearner(uuid4()),
+            study_session.study_session_id,
+            plan.adaptive_plan_revision,
+            dsn=adaptive_database_dsn,
+        )
+    apply_adaptive_plan(
+        learner,
+        study_session.study_session_id,
+        plan.adaptive_plan_revision,
+        dsn=adaptive_database_dsn,
+    )
+    changed_current_id = knowledge_map["formal_concepts"][1][
+        "formal_concept_id"
+    ]
+    with psycopg.connect(adaptive_database_dsn) as connection:
+        connection.execute(
+            "UPDATE study_sessions SET current_formal_concept_id=%s "
+            "WHERE study_session_id=%s",
+            (changed_current_id, study_session.study_session_id),
+        )
+    with pytest.raises(AdaptivePlanError, match="ADAPTIVE_PLAN_STALE"):
+        apply_adaptive_plan(
+            learner,
+            study_session.study_session_id,
+            plan.adaptive_plan_revision,
+            dsn=adaptive_database_dsn,
+        )
+    complete_study_session(
+        learner, study_session.study_session_id, dsn=adaptive_database_dsn
+    )
+    with pytest.raises(AdaptivePlanError, match="ADAPTIVE_PLAN_STALE"):
+        apply_adaptive_plan(
+            learner,
+            study_session.study_session_id,
+            plan.adaptive_plan_revision,
+            dsn=adaptive_database_dsn,
+        )
+
+
+def test_no_safe_defer_and_resume_preserve_events_and_canonical_map(
+    adaptive_database_dsn: str,
+):
+    learner, knowledge_map, _, study_session = _state_session(
+        adaptive_database_dsn
+    )
+    for sequence in (1, 2):
+        _answer(
+            adaptive_database_dsn,
+            learner,
+            knowledge_map,
+            study_session,
+            concept_index=0,
+            correct=True,
+            sequence=sequence,
+        )
+    current = knowledge_map["formal_concepts"][1]
+    next_concept = knowledge_map["formal_concepts"][2]
+    set_current_study_concept(
+        learner,
+        study_session.study_session_id,
+        current["formal_concept_id"],
+        dsn=adaptive_database_dsn,
+    )
+    with psycopg.connect(adaptive_database_dsn) as connection:
+        before = connection.execute(
+            "SELECT document FROM knowledge_maps WHERE map_revision=%s",
+            (knowledge_map["revision"],),
+        ).fetchone()[0]
+        event_count = connection.execute(
+            "SELECT count(*) FROM answer_events WHERE study_session_id=%s",
+            (study_session.study_session_id,),
+        ).fetchone()[0]
+    before_learning_state = derive_learning_state(
+        learner, study_session.study_session_id, dsn=adaptive_database_dsn
+    )
+
+    for claim in current["claims"]:
+        recorded = record_no_safe_assessment(
+            learner,
+            study_session.study_session_id,
+            claim["claim_id"],
+            current["formal_concept_id"],
+            2,
+            dsn=adaptive_database_dsn,
+        )
+    assert recorded.status == "active"
+    plan = derive_adaptive_plan(
+        learner, study_session.study_session_id, dsn=adaptive_database_dsn
+    )
+    assert plan.primary_step.action == "defer"
+    assert plan.primary_step.target_formal_concept_id == next_concept[
+        "formal_concept_id"
+    ]
+    applied = apply_adaptive_plan(
+        learner,
+        study_session.study_session_id,
+        plan.adaptive_plan_revision,
+        dsn=adaptive_database_dsn,
+    )
+    assert applied.study_session.last_event_number == 2
+    assert derive_learning_state(
+        learner, study_session.study_session_id, dsn=adaptive_database_dsn
+    ) == before_learning_state
+    assert applied.study_session.no_safe_deferred_formal_concept_ids == (
+        current["formal_concept_id"],
+    )
+    assert apply_adaptive_plan(
+        learner,
+        study_session.study_session_id,
+        plan.adaptive_plan_revision,
+        dsn=adaptive_database_dsn,
+    ).study_session == applied.study_session
+
+    for sequence in (3, 4):
+        _answer(
+            adaptive_database_dsn,
+            learner,
+            knowledge_map,
+            study_session,
+            concept_index=2,
+            correct=True,
+            sequence=sequence,
+        )
+    resume = derive_adaptive_plan(
+        learner, study_session.study_session_id, dsn=adaptive_database_dsn
+    )
+    assert resume.primary_step.action == "resume"
+    assert resume.primary_step.target_formal_concept_id == current[
+        "formal_concept_id"
+    ]
+    returned = apply_adaptive_plan(
+        learner,
+        study_session.study_session_id,
+        resume.adaptive_plan_revision,
+        dsn=adaptive_database_dsn,
+    )
+    assert returned.study_session.no_safe_deferred_formal_concept_ids == ()
+    assert returned.study_session.current_formal_concept_id == current[
+        "formal_concept_id"
+    ]
+    with psycopg.connect(adaptive_database_dsn) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM answer_events WHERE study_session_id=%s",
+            (study_session.study_session_id,),
+        ).fetchone()[0] == event_count + 2
+        assert connection.execute(
+            "SELECT document FROM knowledge_maps WHERE map_revision=%s",
+            (knowledge_map["revision"],),
+        ).fetchone()[0] == before

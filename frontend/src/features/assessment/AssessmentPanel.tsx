@@ -10,7 +10,7 @@ type Concept = KnowledgeMapView["concepts"][number];
 type AssessmentError = { conflict: boolean; message: string; noSafeItem: boolean; retryable: boolean };
 
 function assessmentError(error: unknown): AssessmentError {
-  if (error instanceof ApiClientError && error.reasonCode === "RESOURCE_NOT_FOUND") {
+  if (error instanceof ApiClientError && error.reasonCode === "NO_SAFE_ASSESSMENT") {
     return {
       message: "目前沒有可安全提供的新題目。你可以先回到教材重點，或稍後再試。",
       conflict: false,
@@ -99,32 +99,41 @@ export function AssessmentPanel({ apiClient, attemptedClaimIds, concept, onNoSaf
         target_claim_id: claimId,
       }, assessmentIntent.current.key);
     };
+    let claimId = selectedClaimId;
+    const noSafeClaimIds = new Set<string>();
     try {
-      const next = await createForClaim(selectedClaimId, newIntent);
-      setAssessment(next);
-      submissionIntent.current = null;
-    } catch (error) {
-      const nextError = assessmentError(error);
-      const fallback = nextError.noSafeItem
-        ? assessmentFallbackClaim(
-            concept.claims, selectedClaimId, attemptedClaimIds
-          )
-        : null;
-      if (fallback) {
-        setSelectedClaimId(fallback.claim_id);
-        setTargetMessage("目前重點沒有安全題目，已改練另一個教材重點。");
+      while (true) {
         try {
-          const next = await createForClaim(fallback.claim_id, true);
+          const next = await createForClaim(
+            claimId, newIntent || noSafeClaimIds.size > 0
+          );
           setAssessment(next);
           submissionIntent.current = null;
-        } catch (fallbackError) {
-          const fallbackRequestError = assessmentError(fallbackError);
-          setRequestError(fallbackRequestError);
-          onNoSafeItem(fallbackRequestError.noSafeItem);
+          break;
+        } catch (error) {
+          const nextError = assessmentError(error);
+          if (!nextError.noSafeItem) {
+            setRequestError(nextError);
+            onNoSafeItem(false);
+            break;
+          }
+          noSafeClaimIds.add(claimId);
+          const fallback = assessmentFallbackClaim(
+            concept.claims.filter(
+              (claim) => !noSafeClaimIds.has(claim.claim_id)
+            ),
+            claimId,
+            attemptedClaimIds,
+          );
+          if (!fallback) {
+            setRequestError(nextError);
+            onNoSafeItem(true);
+            break;
+          }
+          claimId = fallback.claim_id;
+          setSelectedClaimId(claimId);
+          setTargetMessage("目前重點沒有安全題目，已改練另一個教材重點。");
         }
-      } else {
-        setRequestError(nextError);
-        onNoSafeItem(nextError.noSafeItem);
       }
     } finally {
       setIsLoading(false);

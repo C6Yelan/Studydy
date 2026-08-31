@@ -11,6 +11,8 @@ const actionCopy: Record<AdaptiveAction, { label: string; cta: string }> = {
   use_resource: { label: "使用補充資源", cta: "開啟建議資源" },
   follow_path: { label: "回到教材建議順序", cta: "依順序繼續" },
   collect_more_data: { label: "取得更多作答資料", cta: "完成更多評量" },
+  defer: { label: "先前往下一個教材重點", cta: "前往下一個重點" },
+  resume: { label: "回到先前的教材重點", cta: "回到暫緩重點" },
   no_action: { label: "目前沒有下一個動作", cta: "" },
 };
 

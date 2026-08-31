@@ -23,6 +23,7 @@ from .assessment_items import (
     _stored_assessment,
 )
 from .assessment_runtime_reuse import AssessmentRuntimeReuse
+from .adaptive_plans import record_no_safe_assessment
 from .map_context import MapContextError
 from .study_sessions import (
     StudySessionError,
@@ -142,6 +143,8 @@ def generate_assessment_for_request(
     key_digest, fingerprint = assessment_request_identity(
         study_session_id, target_claim_id, idempotency_key
     )
+    expected_formal_concept_id: str | None = None
+    expected_event_number: int | None = None
     try:
         learner_id = _learner_id(learner)
         advisory_key = int.from_bytes(key_digest[:8], "big", signed=True)
@@ -154,6 +157,16 @@ def generate_assessment_for_request(
                 session, learner_id, study_session_id
             )
             _validate_binding(session, study_session)
+            if study_session.status == "no_safe":
+                raise AssessmentGenerationError(
+                    "ASSESSMENT_NO_NEW_SAFE_ITEM"
+                )
+            if study_session.status != "active":
+                raise _error("ASSESSMENT_REQUEST_UNAVAILABLE")
+            expected_formal_concept_id = (
+                study_session.current_formal_concept_id
+            )
+            expected_event_number = study_session.last_event_number
             replay = _existing_request(
                 session,
                 study_session_id,
@@ -163,6 +176,10 @@ def generate_assessment_for_request(
             )
             if replay is not None:
                 return replay
+            if target_claim_id in study_session.no_safe_claim_ids:
+                raise AssessmentGenerationError(
+                    "ASSESSMENT_NO_NEW_SAFE_ITEM"
+                )
             operation = lambda: generate_and_store_assessment(
                 learner, study_session_id, target_claim_id, local_config, dsn=dsn
             )
@@ -191,7 +208,23 @@ def generate_assessment_for_request(
             row.request_fingerprint = fingerprint
             session.flush()
             return _stored_assessment(row)
-    except (AssessmentRequestError, AssessmentGenerationError):
+    except AssessmentGenerationError as error:
+        if (
+            str(error)
+            in {"ASSESSMENT_NO_NEW_SAFE_ITEM", "ASSESSMENT_NO_SAFE_CANDIDATE"}
+            and expected_formal_concept_id is not None
+            and expected_event_number is not None
+        ):
+            record_no_safe_assessment(
+                learner,
+                study_session_id,
+                target_claim_id,
+                expected_formal_concept_id,
+                expected_event_number,
+                dsn=dsn,
+            )
+        raise
+    except AssessmentRequestError:
         raise
     except (AssessmentError, StudySessionError, MapContextError):
         raise _error("ASSESSMENT_REQUEST_UNAVAILABLE") from None

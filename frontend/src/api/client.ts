@@ -29,6 +29,7 @@ const knownApiReasons = new Set<KnownApiReasonCode>([
   "ORIGIN_NOT_ALLOWED",
   "RESOURCE_NOT_FOUND",
   "IDEMPOTENCY_CONFLICT",
+  "NO_SAFE_ASSESSMENT",
   "MATERIAL_TOO_LARGE",
   "MATERIAL_PDF_INVALID",
   "UNSUPPORTED_MEDIA_TYPE",
@@ -673,7 +674,8 @@ function isDateTime(value: unknown): value is string {
 function isStudySession(value: unknown): value is StudySessionView {
   const item = closed(value, [
     "schema", "study_session_id", "material_id", "knowledge_map_revision",
-    "current_formal_concept_id", "deferred_formal_concept_id", "status",
+    "current_formal_concept_id", "deferred_formal_concept_id",
+    "no_safe_deferred_formal_concept_ids", "status",
     "started_at", "completed_at", "event_watermark",
   ]);
   if (!item
@@ -684,17 +686,23 @@ function isStudySession(value: unknown): value is StudySessionView {
     || !(item.current_formal_concept_id === null || isRevision(item.current_formal_concept_id, "formal-concept"))
     || !(item.deferred_formal_concept_id === null || isRevision(item.deferred_formal_concept_id, "formal-concept"))
     || (item.deferred_formal_concept_id !== null && item.deferred_formal_concept_id === item.current_formal_concept_id)
+    || !isStringArray(item.no_safe_deferred_formal_concept_ids)
+    || !(item.no_safe_deferred_formal_concept_ids as string[])
+      .every((id) => isRevision(id, "formal-concept"))
+    || new Set(item.no_safe_deferred_formal_concept_ids as string[]).size
+      !== (item.no_safe_deferred_formal_concept_ids as string[]).length
     || !isDateTime(item.started_at)
     || !Number.isInteger(item.event_watermark)
     || Number(item.event_watermark) < 0) return false;
-  if (item.status === "active") return item.completed_at === null;
+  if (item.status === "active" || item.status === "no_safe") return item.completed_at === null;
   return item.status === "completed" && isDateTime(item.completed_at);
 }
 
 function isStudyContext(value: unknown): value is StudyContextView {
   const item = closed(value, [
     "schema", "study_session_id", "base_knowledge_map_revision",
-    "current_formal_concept_id", "deferred_formal_concept_id", "initial_learning_path",
+    "current_formal_concept_id", "deferred_formal_concept_id",
+    "no_safe_deferred_formal_concept_ids", "initial_learning_path",
   ]);
   if (!item
     || item.schema !== "study-context/v1"
@@ -703,6 +711,9 @@ function isStudyContext(value: unknown): value is StudyContextView {
     || !(item.current_formal_concept_id === null || isRevision(item.current_formal_concept_id, "formal-concept"))
     || !(item.deferred_formal_concept_id === null || isRevision(item.deferred_formal_concept_id, "formal-concept"))
     || (item.deferred_formal_concept_id !== null && item.deferred_formal_concept_id === item.current_formal_concept_id)
+    || !isStringArray(item.no_safe_deferred_formal_concept_ids)
+    || !(item.no_safe_deferred_formal_concept_ids as string[])
+      .every((id) => isRevision(id, "formal-concept"))
     || !Array.isArray(item.initial_learning_path)
     || item.initial_learning_path.length < 1) return false;
   const concepts = item.initial_learning_path.map((value) => {
@@ -723,7 +734,11 @@ function isStudyContext(value: unknown): value is StudyContextView {
   });
   if (concepts.includes(null) || new Set(concepts).size !== concepts.length) return false;
   return (item.current_formal_concept_id === null || concepts.includes(item.current_formal_concept_id))
-    && (item.deferred_formal_concept_id === null || concepts.includes(item.deferred_formal_concept_id));
+    && (item.deferred_formal_concept_id === null || concepts.includes(item.deferred_formal_concept_id))
+    && new Set(item.no_safe_deferred_formal_concept_ids as string[]).size
+      === (item.no_safe_deferred_formal_concept_ids as string[]).length
+    && (item.no_safe_deferred_formal_concept_ids as string[])
+      .every((id) => concepts.includes(id));
 }
 
 function isAssessment(value: unknown): value is AssessmentView {
@@ -788,7 +803,7 @@ const learningStatuses = new Set(["not_started", "learning", "needs_review", "ma
 const learningConfidences = new Set(["none", "limited", "supported"]);
 const adaptiveActions = new Set([
   "start", "continue", "practice", "review", "relearn_prerequisite",
-  "use_resource", "follow_path", "collect_more_data", "no_action",
+  "use_resource", "follow_path", "collect_more_data", "defer", "resume", "no_action",
 ]);
 
 function isLearningState(value: unknown): value is LearningStateView {
@@ -953,7 +968,7 @@ function isAdaptiveResponse(value: unknown): value is AdaptiveResponseView {
     "schema", "study_session_id", "base_knowledge_map_revision",
     "inline_initial_learning_path_sha256", "source_learning_state_revision",
     "event_watermark", "current_formal_concept_id", "deferred_formal_concept_id",
-    "primary_step", "adaptive_plan_revision",
+    "no_safe_deferred_formal_concept_ids", "primary_step", "adaptive_plan_revision",
   ]);
   if (!plan
     || plan.schema !== "adaptive-plan/v1"
@@ -967,6 +982,11 @@ function isAdaptiveResponse(value: unknown): value is AdaptiveResponseView {
     || !(plan.current_formal_concept_id === null || isRevision(plan.current_formal_concept_id, "formal-concept"))
     || !(plan.deferred_formal_concept_id === null || isRevision(plan.deferred_formal_concept_id, "formal-concept"))
     || (plan.deferred_formal_concept_id !== null && plan.deferred_formal_concept_id === plan.current_formal_concept_id)
+    || !isStringArray(plan.no_safe_deferred_formal_concept_ids)
+    || !(plan.no_safe_deferred_formal_concept_ids as string[])
+      .every((id) => isRevision(id, "formal-concept"))
+    || new Set(plan.no_safe_deferred_formal_concept_ids as string[]).size
+      !== (plan.no_safe_deferred_formal_concept_ids as string[]).length
     || !isRevision(plan.adaptive_plan_revision, "adaptive-plan")) return false;
   const step = readAdaptiveStep(plan.primary_step, String(plan.study_session_id));
   const suggestion = closed(item.suggestion, [
@@ -1009,6 +1029,7 @@ function isApiError(value: unknown): value is ApiErrorView {
 function safeMessage(reasonCode: ApiReasonCode): string {
   if (reasonCode === "SESSION_REQUIRED") return "工作階段已失效，請重新整理後再試。";
   if (reasonCode === "RESOURCE_NOT_FOUND") return "找不到這筆資料，或你沒有權限讀取。";
+  if (reasonCode === "NO_SAFE_ASSESSMENT") return "目前沒有可安全提供的新題目。";
   if (reasonCode === "MATERIAL_TOO_LARGE") return "PDF 不可超過 100 MiB。";
   if (reasonCode === "MATERIAL_PDF_INVALID") return "這份 PDF 已損毀、加密或無法開啟，請改用可正常閱讀的 PDF。";
   if (reasonCode === "UNSUPPORTED_MEDIA_TYPE") return "只接受 PDF 教材。";

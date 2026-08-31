@@ -59,6 +59,8 @@ function assertRouteBinding(route: Extract<AppRoute, { name: "study-session" }>,
     || data.view.knowledge_map_revision !== route.mapRevision
     || data.context.current_formal_concept_id !== data.session.current_formal_concept_id
     || data.context.deferred_formal_concept_id !== data.session.deferred_formal_concept_id
+    || JSON.stringify(data.context.no_safe_deferred_formal_concept_ids)
+      !== JSON.stringify(data.session.no_safe_deferred_formal_concept_ids)
     || data.learningState.study_session_id !== route.studySessionId
     || data.learningState.base_knowledge_map_revision !== route.mapRevision
     || data.learningState.event_watermark !== data.session.event_watermark
@@ -71,6 +73,8 @@ function assertRouteBinding(route: Extract<AppRoute, { name: "study-session" }>,
     || data.adaptive.plan.base_knowledge_map_revision !== route.mapRevision
     || data.adaptive.plan.source_learning_state_revision !== data.learningState.state_revision
     || data.adaptive.plan.event_watermark !== data.learningState.event_watermark
+    || JSON.stringify(data.adaptive.plan.no_safe_deferred_formal_concept_ids)
+      !== JSON.stringify(data.session.no_safe_deferred_formal_concept_ids)
     || JSON.stringify(contextIds) !== JSON.stringify(
       data.view.initial_learning_path.map((step) => step.formal_concept_id),
     )
@@ -95,6 +99,7 @@ function SessionPath({ context, learningState, view }: {
   const mastered = new Set(learningState.concept_states
     .filter((state) => state.status === "mastered")
     .map((state) => state.formal_concept_id));
+  const deferredNoSafe = new Set(context.no_safe_deferred_formal_concept_ids);
   const currentIndex = context.initial_learning_path.findIndex((concept) =>
     concept.formal_concept_id === context.current_formal_concept_id);
   const nextConceptId = context.initial_learning_path
@@ -109,16 +114,17 @@ function SessionPath({ context, learningState, view }: {
         {context.initial_learning_path.map((concept, index) => {
           const isCurrent = concept.formal_concept_id === context.current_formal_concept_id;
           const isDeferred = concept.formal_concept_id === context.deferred_formal_concept_id;
+          const isNoSafeDeferred = deferredNoSafe.has(concept.formal_concept_id);
           const isCompleted = mastered.has(concept.formal_concept_id);
           const isNext = concept.formal_concept_id === nextConceptId;
           const placementReason = view.initial_learning_path.find((step) =>
             step.formal_concept_id === concept.formal_concept_id)?.placement_reason;
           return (
-            <li className={isCurrent ? "is-current" : isCompleted ? "is-completed" : isDeferred ? "is-deferred" : undefined} key={concept.formal_concept_id}>
+            <li className={isCurrent ? "is-current" : isCompleted ? "is-completed" : isDeferred || isNoSafeDeferred ? "is-deferred" : undefined} key={concept.formal_concept_id}>
               <span>{index + 1}</span>
               <div>
                 <strong>{concept.label}</strong>
-                <small>{isCurrent ? "目前" : isCompleted ? "已完成" : isDeferred ? "稍後回到這裡" : isNext ? "下一步" : placementReason}</small>
+                <small>{isCurrent ? "目前" : isCompleted ? "已完成" : isDeferred || isNoSafeDeferred ? "稍後回到這裡" : isNext ? "下一步" : placementReason}</small>
               </div>
             </li>
           );
@@ -141,6 +147,23 @@ function CompletedSession({ route }: { route: Extract<AppRoute, { name: "study-s
       image="/assets/studydy/success-jump.png"
       title="本次學習已完成"
       tone="success"
+    />
+  );
+}
+
+function NoSafeSession({ route }: { route: Extract<AppRoute, { name: "study-session" }> }) {
+  return (
+    <StateView
+      action={<button className="primary-button" type="button" onClick={() => writeRoute({
+        name: "knowledge-map",
+        materialId: route.materialId,
+        runId: route.runId,
+        mapRevision: route.mapRevision,
+      })}>回到知識地圖<Icon name="map" /></button>}
+      description="目前沒有其他可安全前往的教材重點，這次進度已保留。"
+      image="/assets/studydy/empty-disappointed.png"
+      title="目前沒有可繼續的練習"
+      tone="empty"
     />
   );
 }
@@ -213,6 +236,7 @@ export function StudySessionPage({ apiClient, route }: {
     />
   );
   if (data.session.status === "completed") return <CompletedSession route={route} />;
+  if (data.session.status === "no_safe") return <NoSafeSession route={route} />;
 
   const currentConcept = data.view.concepts.find((concept) =>
     concept.formal_concept_id === data.session.current_formal_concept_id);
@@ -283,7 +307,7 @@ export function StudySessionPage({ apiClient, route }: {
         const url = resource && safeExternalUrl(resource.source_url);
         if (url) window.open(url, "_blank", "noopener,noreferrer");
       }
-      if (["practice", "review", "collect_more_data", "continue", "start"].includes(step.action)) {
+      if (["practice", "review", "collect_more_data", "continue", "start", "defer", "resume"].includes(step.action)) {
         window.setTimeout(() => document.getElementById("assessment-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
       }
     } catch (error) {
@@ -386,7 +410,10 @@ export function StudySessionPage({ apiClient, route }: {
               attemptedClaimIds={data.learningState.concept_states.find((state) =>
                 state.formal_concept_id === currentConcept.formal_concept_id)?.attempted_claim_ids ?? []}
               concept={currentConcept}
-              onNoSafeItem={setHasNoSafeItem}
+              onNoSafeItem={(isUnavailable) => {
+                setHasNoSafeItem(isUnavailable);
+                if (isUnavailable) void refreshInsights();
+              }}
               onReloadSession={() => window.location.reload()}
               onSubmitted={(_feedback: AnswerFeedbackView) => { void refreshInsights(); }}
               sourceArtifactId={data.sourceArtifactId}

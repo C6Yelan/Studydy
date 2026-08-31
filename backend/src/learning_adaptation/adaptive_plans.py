@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Literal
 from uuid import UUID
 
@@ -47,8 +48,14 @@ AdaptiveAction = Literal[
     "use_resource",
     "follow_path",
     "collect_more_data",
+    "defer",
+    "resume",
     "no_action",
 ]
+
+_ADAPTIVE_PLAN_REVISION_PATTERN = re.compile(
+    r"^adaptive-plan:sha256:[0-9a-f]{64}$"
+)
 
 
 class AdaptivePlanError(RuntimeError):
@@ -96,6 +103,7 @@ class AdaptivePlanSnapshot(BaseModel):
     event_watermark: int = Field(ge=0)
     current_formal_concept_id: str | None
     deferred_formal_concept_id: str | None
+    no_safe_deferred_formal_concept_ids: list[str]
     primary_step: AdaptiveStep
     fallback_reason: Literal[
         "UNMASTERED_IMMEDIATE_PREREQUISITE",
@@ -106,6 +114,10 @@ class AdaptivePlanSnapshot(BaseModel):
         "CANONICAL_PATH_FIRST_NOT_MASTERED",
         "NO_CURRENT_TARGET_FOLLOW_PATH",
         "ALL_CONCEPTS_MASTERED",
+        "NO_SAFE_ADVANCE",
+        "NO_SAFE_PREREQUISITE_BLOCKED",
+        "NO_SAFE_TARGET_AVAILABLE",
+        "RETURN_NO_SAFE_DEFERRED_TARGET",
     ]
     adaptive_plan_revision: str = Field(
         pattern=r"^adaptive-plan:sha256:[0-9a-f]{64}$"
@@ -140,6 +152,25 @@ class AppliedAdaptivePlan:
 
 def _error(reason: str) -> AdaptivePlanError:
     return AdaptivePlanError(reason)
+
+
+def _study_session_state_sha256(study_session: StudySession) -> str:
+    return canonical_sha256(
+        {
+            "status": study_session.status,
+            "current_formal_concept_id": (
+                study_session.current_formal_concept_id
+            ),
+            "deferred_formal_concept_id": (
+                study_session.deferred_formal_concept_id
+            ),
+            "no_safe_claim_ids": list(study_session.no_safe_claim_ids),
+            "no_safe_deferred_formal_concept_ids": list(
+                study_session.no_safe_deferred_formal_concept_ids
+            ),
+            "event_watermark": study_session.last_event_number,
+        }
+    )
 
 
 def _concepts(context: MapContext) -> dict[str, FormalConceptContext]:
@@ -233,6 +264,103 @@ def _choose_primary_step(
         )
 
     current_id = study_session.current_formal_concept_id
+    no_safe_claim_ids = set(study_session.no_safe_claim_ids)
+    no_safe_concept_ids = {
+        concept.formal_concept_id
+        for concept in context.formal_concepts
+        if {claim.claim_id for claim in concept.claims} <= no_safe_claim_ids
+    }
+    deferred_no_safe_ids = set(
+        study_session.no_safe_deferred_formal_concept_ids
+    )
+
+    def prerequisites_are_mastered(concept_id: str) -> bool:
+        return all(
+            states[relation.source_formal_concept_id].status == "mastered"
+            for relation in context.relations
+            if relation.relation_type == "prerequisite"
+            and not relation.is_in_prerequisite_cycle
+            and relation.target_formal_concept_id == concept_id
+        )
+
+    if current_id in no_safe_concept_ids:
+        current_index = context.initial_learning_path.index(current_id)
+        next_id = next(
+            (
+                concept_id
+                for concept_id in context.initial_learning_path[
+                    current_index + 1 :
+                ]
+                if states[concept_id].status != "mastered"
+                and concept_id not in deferred_no_safe_ids
+                and concept_id not in no_safe_concept_ids
+            ),
+            None,
+        )
+        if next_id is None:
+            resume_id = next(
+                (
+                    concept_id
+                    for concept_id in context.initial_learning_path
+                    if concept_id in deferred_no_safe_ids
+                ),
+                None,
+            )
+            if resume_id is not None and prerequisites_are_mastered(resume_id):
+                resumed = concepts[resume_id]
+                resumed_state = states[resume_id]
+                return (
+                    _step(
+                        study_session.study_session_id,
+                        "resume",
+                        resumed,
+                        "目前重點仍沒有安全題目，回到先前暫緩的教材重點。",
+                        resumed_state.confidence,
+                        resumed_state.claim_coverage_complete,
+                        [current_id, resume_id],
+                    ),
+                    "RETURN_NO_SAFE_DEFERRED_TARGET",
+                )
+            return (
+                _step(
+                    study_session.study_session_id,
+                    "no_action",
+                    None,
+                    "目前沒有其他可安全前往的教材重點。",
+                    "none",
+                    False,
+                    [current_id],
+                ),
+                "NO_SAFE_TARGET_AVAILABLE",
+            )
+        if not prerequisites_are_mastered(next_id):
+            return (
+                _step(
+                    study_session.study_session_id,
+                    "no_action",
+                    None,
+                    "下一個教材重點仍有尚未掌握的先備概念，現在不能略過。",
+                    "supported",
+                    False,
+                    [current_id],
+                ),
+                "NO_SAFE_PREREQUISITE_BLOCKED",
+            )
+        target = concepts[next_id]
+        target_state = states[next_id]
+        return (
+            _step(
+                study_session.study_session_id,
+                "defer",
+                target,
+                "目前重點沒有可安全提供的題目，先依教材建議順序前往下一個重點。",
+                target_state.confidence,
+                target_state.claim_coverage_complete,
+                [current_id, next_id],
+            ),
+            "NO_SAFE_ADVANCE",
+        )
+
     current_finding = next(
         (
             finding
@@ -276,6 +404,30 @@ def _choose_primary_step(
         None,
     )
     current_state = states.get(current_id) if current_id is not None else None
+    if current_state is not None and current_state.status == "mastered":
+        resume_id = next(
+            (
+                concept_id
+                for concept_id in context.initial_learning_path
+                if concept_id in deferred_no_safe_ids
+            ),
+            None,
+        )
+        if resume_id is not None and prerequisites_are_mastered(resume_id):
+            resumed = concepts[resume_id]
+            resumed_state = states[resume_id]
+            return (
+                _step(
+                    study_session.study_session_id,
+                    "resume",
+                    resumed,
+                    "目前步驟已掌握，回到先前暫緩的教材重點。",
+                    resumed_state.confidence,
+                    resumed_state.claim_coverage_complete,
+                    [current_id, resume_id],
+                ),
+                "RETURN_NO_SAFE_DEFERRED_TARGET",
+            )
     deferred_id = study_session.deferred_formal_concept_id
     if (
         deferred_id is not None
@@ -377,6 +529,9 @@ def _adaptive_plan_snapshot(
         "event_watermark": learning_state.event_watermark,
         "current_formal_concept_id": study_session.current_formal_concept_id,
         "deferred_formal_concept_id": study_session.deferred_formal_concept_id,
+        "no_safe_deferred_formal_concept_ids": list(
+            study_session.no_safe_deferred_formal_concept_ids
+        ),
         "primary_step": primary_step.model_dump(mode="json"),
         "fallback_reason": fallback_reason,
     }
@@ -447,6 +602,81 @@ def derive_adaptive_plan(
         raise _error("ADAPTIVE_PLAN_STORAGE_FAILED") from None
 
 
+def record_no_safe_assessment(
+    learner: TrustedLearner,
+    study_session_id: UUID,
+    target_claim_id: str,
+    expected_formal_concept_id: str,
+    expected_event_number: int,
+    *,
+    dsn: str | None = None,
+) -> StoredStudySession:
+    """只記錄 server 已確認無安全題目的 exact-current request。"""
+
+    if (
+        not isinstance(study_session_id, UUID)
+        or not isinstance(target_claim_id, str)
+        or not isinstance(expected_formal_concept_id, str)
+        or type(expected_event_number) is not int
+        or expected_event_number < 0
+    ):
+        raise _error("ADAPTIVE_PLAN_REQUEST_INVALID")
+    try:
+        learner_id = _learner_id(learner)
+        with database_session(dsn) as session:
+            study_session = _read_stored_row(
+                session, learner_id, study_session_id, for_update=True
+            )
+            if study_session.status != "active":
+                raise _error("ADAPTIVE_PLAN_STALE")
+            context = _validate_binding(session, study_session)
+            if (
+                study_session.current_formal_concept_id
+                != expected_formal_concept_id
+                or study_session.last_event_number != expected_event_number
+            ):
+                raise _error("ADAPTIVE_PLAN_STALE")
+            current = next(
+                (
+                    concept
+                    for concept in context.formal_concepts
+                    if concept.formal_concept_id
+                    == expected_formal_concept_id
+                ),
+                None,
+            )
+            if current is None or target_claim_id not in {
+                claim.claim_id for claim in current.claims
+            }:
+                raise _error("ADAPTIVE_PLAN_REQUEST_INVALID")
+            study_session.no_safe_claim_ids = sorted(
+                {*study_session.no_safe_claim_ids, target_claim_id}
+            )
+            study_session.last_applied_adaptive_plan_revision = None
+            study_session.last_applied_session_state_sha256 = None
+            plan = _derive_in_session(session, study_session)
+            if plan.fallback_reason in {
+                "NO_SAFE_PREREQUISITE_BLOCKED",
+                "NO_SAFE_TARGET_AVAILABLE",
+            }:
+                study_session.status = "no_safe"
+            session.flush()
+            _validate_binding(session, study_session)
+            return _stored_session(study_session)
+    except AdaptivePlanError:
+        raise
+    except (
+        StudySessionError,
+        AnswerSubmissionError,
+        LearningStateError,
+        WeaknessError,
+        MapContextError,
+    ):
+        raise _error("ADAPTIVE_PLAN_UNAVAILABLE") from None
+    except (DatabaseConfigurationError, SQLAlchemyError, TypeError, ValueError):
+        raise _error("ADAPTIVE_PLAN_STORAGE_FAILED") from None
+
+
 def apply_adaptive_plan(
     learner: TrustedLearner,
     study_session_id: UUID,
@@ -459,6 +689,9 @@ def apply_adaptive_plan(
     if (
         not isinstance(study_session_id, UUID)
         or not isinstance(adaptive_plan_revision, str)
+        or _ADAPTIVE_PLAN_REVISION_PATTERN.fullmatch(
+            adaptive_plan_revision
+        ) is None
     ):
         raise _error("ADAPTIVE_PLAN_REQUEST_INVALID")
     try:
@@ -469,6 +702,18 @@ def apply_adaptive_plan(
             )
             if study_session.status != "active":
                 raise _error("ADAPTIVE_PLAN_STALE")
+            if (
+                study_session.last_applied_adaptive_plan_revision
+                == adaptive_plan_revision
+            ):
+                if study_session.last_applied_session_state_sha256 != (
+                    _study_session_state_sha256(study_session)
+                ):
+                    raise _error("ADAPTIVE_PLAN_STALE")
+                replay_plan = _derive_in_session(session, study_session)
+                return AppliedAdaptivePlan(
+                    replay_plan, _stored_session(study_session)
+                )
             plan = _derive_in_session(session, study_session)
             if plan.adaptive_plan_revision != adaptive_plan_revision:
                 raise _error("ADAPTIVE_PLAN_STALE")
@@ -479,6 +724,59 @@ def apply_adaptive_plan(
                         plan.current_formal_concept_id
                     )
                 study_session.current_formal_concept_id = target_id
+            elif plan.primary_step.action == "defer":
+                if target_id is None or plan.current_formal_concept_id is None:
+                    raise _error("ADAPTIVE_PLAN_UNAVAILABLE")
+                deferred_ids = list(
+                    study_session.no_safe_deferred_formal_concept_ids
+                )
+                if plan.current_formal_concept_id not in deferred_ids:
+                    deferred_ids.append(plan.current_formal_concept_id)
+                study_session.no_safe_deferred_formal_concept_ids = deferred_ids
+                study_session.current_formal_concept_id = target_id
+            elif plan.primary_step.action == "resume":
+                if target_id is None:
+                    raise _error("ADAPTIVE_PLAN_UNAVAILABLE")
+                study_session.no_safe_deferred_formal_concept_ids = [
+                    concept_id
+                    for concept_id in (
+                        study_session.no_safe_deferred_formal_concept_ids
+                    )
+                    if concept_id != target_id
+                ]
+                context = _validate_binding(session, study_session)
+                current = next(
+                    (
+                        concept
+                        for concept in context.formal_concepts
+                        if concept.formal_concept_id
+                        == plan.current_formal_concept_id
+                    ),
+                    None,
+                )
+                if current is not None and {
+                    claim.claim_id for claim in current.claims
+                } <= set(study_session.no_safe_claim_ids):
+                    deferred_ids = list(
+                        study_session.no_safe_deferred_formal_concept_ids
+                    )
+                    if current.formal_concept_id not in deferred_ids:
+                        deferred_ids.append(current.formal_concept_id)
+                    study_session.no_safe_deferred_formal_concept_ids = (
+                        deferred_ids
+                    )
+                target_claim_ids = {
+                    claim.claim_id
+                    for concept in context.formal_concepts
+                    if concept.formal_concept_id == target_id
+                    for claim in concept.claims
+                }
+                study_session.no_safe_claim_ids = [
+                    claim_id
+                    for claim_id in study_session.no_safe_claim_ids
+                    if claim_id not in target_claim_ids
+                ]
+                study_session.current_formal_concept_id = target_id
             elif (
                 target_id is not None
                 and target_id != study_session.current_formal_concept_id
@@ -486,6 +784,12 @@ def apply_adaptive_plan(
                 study_session.current_formal_concept_id = target_id
                 if target_id == study_session.deferred_formal_concept_id:
                     study_session.deferred_formal_concept_id = None
+            study_session.last_applied_adaptive_plan_revision = (
+                adaptive_plan_revision
+            )
+            study_session.last_applied_session_state_sha256 = (
+                _study_session_state_sha256(study_session)
+            )
             session.flush()
             _validate_binding(session, study_session)
             return AppliedAdaptivePlan(plan, _stored_session(study_session))
@@ -516,6 +820,7 @@ def project_suggestion(plan: AdaptivePlanSnapshot) -> Suggestion:
         "practice",
         "review",
         "relearn_prerequisite",
+        "defer",
     }:
         fallback_action = "collect_more_data"
         fallback_reason = "若目前動作無法完成，先取得更多可信作答證據。"

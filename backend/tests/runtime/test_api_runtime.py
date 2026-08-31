@@ -16,6 +16,7 @@ from learning_adaptation.assessment_items import (
     store_assessment,
     used_question_ids,
 )
+from learning_adaptation.assessment_generation import AssessmentGenerationError
 from learning_adaptation.map_context import read_map_context
 from learning_adaptation.study_sessions import read_study_session
 from runtime.api.app import ApiSettings, canonical_openapi_bytes, create_app
@@ -54,6 +55,7 @@ def api_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
         12,
         13,
         14,
+        15,
     )
     return clean_database_dsn
 
@@ -722,6 +724,56 @@ def test_learning_api_owner_and_assessment_idempotency_conflict(
         unavailable = stranger.get(f"/v1/study-sessions/{session_id}")
         assert unavailable.status_code == 404
         assert unavailable.json()["reason_code"] == "RESOURCE_NOT_FOUND"
+
+
+def test_no_safe_assessment_has_durable_distinct_terminal_state(
+    settings: ApiSettings, monkeypatch: pytest.MonkeyPatch
+):
+    def no_safe(*args, **kwargs):
+        raise AssessmentGenerationError("ASSESSMENT_NO_NEW_SAFE_ITEM")
+
+    monkeypatch.setattr(
+        assessment_request_module, "generate_and_store_assessment", no_safe
+    )
+    app = create_app(settings)
+    with TestClient(app) as owner:
+        _, knowledge_map, material_id = _learning_material(owner, settings)
+        target = knowledge_map["formal_concepts"][-1]
+        session = owner.post(
+            "/v1/study-sessions",
+            headers=_headers("no-safe-session"),
+            json={
+                "schema": "study-session-create/v1",
+                "material_id": str(material_id),
+                "knowledge_map_revision": knowledge_map["revision"],
+                "current_formal_concept_id": target["formal_concept_id"],
+            },
+        ).json()
+        response = owner.post(
+            f"/v1/study-sessions/{session['study_session_id']}/assessments",
+            headers=_headers("no-safe-assessment"),
+            json={
+                "schema": "assessment-create/v1",
+                "target_claim_id": target["claims"][0]["claim_id"],
+            },
+        )
+        assert response.status_code == 422
+        assert response.json()["reason_code"] == "NO_SAFE_ASSESSMENT"
+        persisted = owner.get(
+            f"/v1/study-sessions/{session['study_session_id']}"
+        ).json()
+        assert persisted["status"] == "no_safe"
+        assert persisted["event_watermark"] == 0
+
+        with TestClient(app) as stranger:
+            assert stranger.post(
+                "/v1/session", headers={"Origin": settings.public_origin}
+            ).status_code == 204
+            unavailable = stranger.get(
+                f"/v1/study-sessions/{session['study_session_id']}"
+            )
+            assert unavailable.status_code == 404
+            assert unavailable.json()["reason_code"] == "RESOURCE_NOT_FOUND"
 
 
 def _sequenced_assessment_generation(

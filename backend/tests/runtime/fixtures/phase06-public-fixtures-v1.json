@@ -78,6 +78,7 @@
       "event_watermark": 2,
       "current_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
       "deferred_formal_concept_id": null,
+      "no_safe_deferred_formal_concept_ids": [],
       "primary_step": {
         "action": "relearn_prerequisite",
         "target_formal_concept_id": "formal-concept:sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
@@ -133,6 +134,7 @@
     "knowledge_map_revision": "knowledge-map:sha256:1111111111111111111111111111111111111111111111111111111111111111",
     "current_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
     "deferred_formal_concept_id": null,
+    "no_safe_deferred_formal_concept_ids": [],
     "status": "completed",
     "started_at": "2026-08-27T00:00:00Z",
     "completed_at": "2026-08-27T00:30:00Z",

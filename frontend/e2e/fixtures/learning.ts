@@ -246,6 +246,7 @@ export function sessionView(overrides: Partial<StudySessionView> = {}): StudySes
     knowledge_map_revision: mapRevision,
     current_formal_concept_id: targetConceptId,
     deferred_formal_concept_id: null,
+    no_safe_deferred_formal_concept_ids: [],
     status: "active",
     started_at: "2026-08-27T00:05:00Z",
     completed_at: null,
@@ -261,6 +262,7 @@ export function contextView(overrides: Partial<StudyContextView> = {}): StudyCon
     base_knowledge_map_revision: mapRevision,
     current_formal_concept_id: targetConceptId,
     deferred_formal_concept_id: null,
+    no_safe_deferred_formal_concept_ids: [],
     initial_learning_path: [
       {
         formal_concept_id: prerequisiteConceptId,
@@ -457,6 +459,7 @@ export function adaptiveView(options: {
       event_watermark: options.eventWatermark ?? 0,
       current_formal_concept_id: currentConceptId,
       deferred_formal_concept_id: options.deferredConceptId ?? null,
+      no_safe_deferred_formal_concept_ids: [],
       primary_step: step,
       adaptive_plan_revision: planRevision,
     },
