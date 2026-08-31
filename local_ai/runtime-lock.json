@@ -208,7 +208,7 @@
     "batch_size": 16,
     "code_hashes": {
       "backend_relations": "dd63ed988ee16c530bd4b283707e6101665101289f2b84ccaa3e459fe90a41e5",
-      "backend_local_generation": "f7bc1613e8e0310fd0350ba9ca6bbad9c3b47bfe69d5008c8cefa26470a67ed1"
+      "backend_local_generation": "0f1f05a5a376327e252aced21a069d93474bc18cd7d3e5eca4751c978a1cd969"
     },
     "retry": {
       "max_attempts": 2,

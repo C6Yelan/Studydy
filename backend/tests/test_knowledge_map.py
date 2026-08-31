@@ -655,6 +655,51 @@ def test_bad_ownership_rejects_pair_but_safe_pair_remains():
     ]
 
 
+def test_relation_response_schema_avoids_unsupported_uniqueness_keyword():
+    concepts = [
+        _relation_concept(1, "One", "One is grounded."),
+        _relation_concept(2, "Two", "Two is grounded."),
+    ]
+    request, _ = _relation_request(concepts)
+    response_schema = local_generation._relation_format(request)
+
+    assert "uniqueItems" not in json.dumps(response_schema)
+    basis = response_schema["json_schema"]["schema"]["properties"]["pairs"][
+        "items"
+    ]["properties"]["inference_basis"]
+    assert set(basis["properties"]) == {
+        "kind", "claim_ids", "evidence_ids", "context_ids"
+    }
+
+
+@pytest.mark.parametrize("field", ["claim_ids", "evidence_ids", "context_ids"])
+def test_backend_rejects_duplicate_relation_aliases(field):
+    concepts = [
+        _relation_concept(1, "One", "One is grounded."),
+        _relation_concept(2, "Two", "Two is grounded."),
+    ]
+    request, bindings = _relation_request(concepts)
+    candidate = _proposal(request, "contains")
+    aliases = candidate["pairs"][0]["inference_basis"][field]
+    aliases.append(aliases[0])
+
+    artifact = validate_relation_proposals(
+        candidate,
+        request=request,
+        bindings=bindings,
+        formal_concepts=concepts,
+        evidence_pages=_relation_pages(concepts),
+        verifier=None,
+        prior_relations=[],
+    )
+
+    assert artifact["relations"] == []
+    assert artifact["processing"] == "failed"
+    assert artifact["rejected_pairs"][0]["reason_codes"] == [
+        "RELATION_EVIDENCE_INVALID"
+    ]
+
+
 def test_reverse_conflict_and_cycles_are_rejected_deterministically():
     concepts = [
         _relation_concept(1, "One", "One is grounded."),

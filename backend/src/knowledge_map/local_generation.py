@@ -108,9 +108,9 @@ def _relation_format(request: dict[str, Any]) -> dict[str, Any]:
         "required": ["kind", "claim_ids", "evidence_ids", "context_ids"],
         "properties": {
             "kind": {"enum": ["claim_semantics", "document_structure", "combined"]},
-            "claim_ids": {"type": "array", "items": {"enum": claim_ids}, "uniqueItems": True},
-            "evidence_ids": {"type": "array", "items": {"enum": evidence_ids}, "uniqueItems": True},
-            "context_ids": {"type": "array", "items": {"enum": context_ids}, "uniqueItems": True},
+            "claim_ids": {"type": "array", "items": {"enum": claim_ids}},
+            "evidence_ids": {"type": "array", "items": {"enum": evidence_ids}},
+            "context_ids": {"type": "array", "items": {"enum": context_ids}},
         },
     }
     return {

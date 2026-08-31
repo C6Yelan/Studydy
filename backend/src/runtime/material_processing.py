@@ -64,7 +64,7 @@ _CONFIG_PATH_KEYS = {
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "0c4ec7e5684535daf984ca186cdf3dfa397c6829f828a64b2785927511d57b7d",
+    "local_ai/runtime-lock.json": "c9045788c221a90523058e19fcd225e745d91b5bab35198da6182c2babfe015a",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "13716c4f0e1429802f2fa0e28c4e87743c678adb5ad61a32c12cb6309fd55a6a",
     "backend/src/pdf_evidence/concept_generation.py": "390cecca7cb143c2a939acb9beffab0920482c556614f06ba25ec40b454a4835",
     "backend/src/pdf_evidence/document_context.py": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
@@ -73,7 +73,7 @@ _LOCKED_FILES = {
     "backend/src/pdf_evidence/process_guard.py": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
     "backend/src/pdf_evidence/local_ai_process.py": "3cc563a14f6e82421d402cf5fa37bfc9f236c71d93e46e514357d69167b05539",
     "backend/src/knowledge_map/relations.py": "dd63ed988ee16c530bd4b283707e6101665101289f2b84ccaa3e459fe90a41e5",
-    "backend/src/knowledge_map/local_generation.py": "f7bc1613e8e0310fd0350ba9ca6bbad9c3b47bfe69d5008c8cefa26470a67ed1",
+    "backend/src/knowledge_map/local_generation.py": "0f1f05a5a376327e252aced21a069d93474bc18cd7d3e5eca4751c978a1cd969",
 }
 _BINDING_FILES = (
     "backend/src/pdf_evidence/artifact_reason_codes.py",
