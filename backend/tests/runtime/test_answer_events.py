@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 from pathlib import Path
 from uuid import uuid4
@@ -168,7 +169,7 @@ def test_submission_fails_closed_for_owner_session_question_option_and_lifecycle
     )
     outsider = TrustedLearner(uuid4())
     _insert_material_map(
-        answer_database_dsn, outsider.learner_id, knowledge_map
+        answer_database_dsn, outsider.learner_id, deepcopy(knowledge_map)
     )
     selected = assessment.private_answer_document.correct_option_id
 
