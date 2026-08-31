@@ -244,23 +244,25 @@ function isExcludedPage(value: unknown): boolean {
 function isRelationDiagnostics(value: unknown): boolean {
   const diagnostics = closed(value, [
     "possible_pairs", "candidate_pairs", "selected_pairs", "selected_signal_counts",
-    "evidence_gated_pairs", "rejected_no_evidence", "direction_conflicts",
+    "model_calls", "model_no_relation_pairs", "model_contains_pairs",
+    "model_prerequisite_pairs", "model_related_pairs", "model_review_pairs",
+    "unexpected_pairs", "invalid_pairs", "canonical_rejections",
     "verifier_calls", "verifier_accepted", "verifier_rejected", "verifier_unsupported",
-    "structural_proposals", "contains_proposals", "prerequisite_proposals",
-    "related_proposals", "accepted_relations",
+    "verifier_failures", "accepted_relations",
   ]);
   if (!diagnostics) return false;
   const countNames = [
-    "possible_pairs", "candidate_pairs", "selected_pairs", "evidence_gated_pairs",
-    "rejected_no_evidence", "direction_conflicts", "verifier_calls", "verifier_accepted",
-    "verifier_rejected", "verifier_unsupported", "structural_proposals",
-    "contains_proposals", "prerequisite_proposals", "related_proposals",
+    "possible_pairs", "candidate_pairs", "selected_pairs", "model_calls",
+    "model_no_relation_pairs", "model_contains_pairs", "model_prerequisite_pairs",
+    "model_related_pairs", "model_review_pairs", "unexpected_pairs", "invalid_pairs",
+    "canonical_rejections", "verifier_calls", "verifier_accepted",
+    "verifier_rejected", "verifier_unsupported", "verifier_failures",
     "accepted_relations",
   ];
   const signals = object(diagnostics.selected_signal_counts);
   const allowedSignals = new Set([
-    "adjacent", "same_group", "same_page", "explicit_relation", "cross_reference",
-    "label_mention", "shared_evidence", "shared_formula",
+    "adjacent", "same_group", "same_page", "same_context", "same_section",
+    "explicit_relation", "label_mention", "shared_evidence", "shared_formula",
   ]);
   return countNames.every((name) => Number.isInteger(diagnostics[name]) && Number(diagnostics[name]) >= 0)
     && !!signals
@@ -270,8 +272,9 @@ function isRelationDiagnostics(value: unknown): boolean {
     && Number(diagnostics.candidate_pairs) <= Number(diagnostics.possible_pairs)
     && Number(diagnostics.verifier_accepted) + Number(diagnostics.verifier_rejected)
       <= Number(diagnostics.verifier_calls)
-    && Number(diagnostics.structural_proposals) === Number(diagnostics.contains_proposals)
-      + Number(diagnostics.prerequisite_proposals);
+    && Number(diagnostics.selected_pairs) === Number(diagnostics.model_no_relation_pairs)
+      + Number(diagnostics.model_contains_pairs) + Number(diagnostics.model_prerequisite_pairs)
+      + Number(diagnostics.model_related_pairs) + Number(diagnostics.invalid_pairs);
 }
 
 function isConceptDiagnostics(value: unknown): boolean {
@@ -307,7 +310,7 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     "resource_diagnostics", "resource_decisions", "initial_learning_path", "excluded_pages",
   ]);
   if (!item
-    || item.schema !== "knowledge-map-view/v7"
+    || item.schema !== "knowledge-map-view/v8"
     || !isRevision(item.material_ref, "material")
     || !isRevision(item.knowledge_map_revision, "knowledge-map")
     || !isRevision(item.source_output_id, "study-material-output")
@@ -415,7 +418,8 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
   const relationsAreValid = item.relations.every((value) => {
     const relation = closed(value, [
       "relation_id", "type", "source_formal_concept_id", "target_formal_concept_id",
-      "relation_evidence", "quality", "decision",
+      "reason", "inference_basis", "relation_evidence", "relation_context",
+      "needs_review", "quality", "decision",
       "reason_codes", "is_in_prerequisite_cycle",
     ]);
     return !!relation
@@ -424,6 +428,8 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
       && conceptIds.includes(relation.source_formal_concept_id)
       && conceptIds.includes(relation.target_formal_concept_id)
       && relation.source_formal_concept_id !== relation.target_formal_concept_id
+      && typeof relation.reason === "string" && relation.reason.length >= 4
+      && ["claim_semantics", "document_structure", "combined"].includes(String(relation.inference_basis))
       && Array.isArray(relation.relation_evidence)
       && relation.relation_evidence.length > 0
       && relation.relation_evidence.every((value) => {
@@ -445,6 +451,24 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
       && new Set((relation.relation_evidence as unknown as Array<Record<string, unknown>>)
         .map((evidence) => `${String(evidence.owner_formal_concept_id)}:${String(evidence.claim_id)}`))
         .size === relation.relation_evidence.length
+      && Array.isArray(relation.relation_context)
+      && relation.relation_context.every((value) => {
+        const context = closed(value, [
+          "owner_formal_concept_id", "document_context_id", "page_ref", "section_ids",
+        ]);
+        return !!context
+          && [relation.source_formal_concept_id, relation.target_formal_concept_id]
+            .includes(context.owner_formal_concept_id)
+          && isRevision(context.document_context_id, "document-context")
+          && isRevision(context.page_ref, "page")
+          && isSortedUniqueStrings(context.section_ids, 1);
+      })
+      && new Set((relation.relation_context as unknown as Array<Record<string, unknown>>)
+        .map((context) => `${String(context.owner_formal_concept_id)}:${String(context.document_context_id)}`))
+        .size === relation.relation_context.length
+      && (!["document_structure", "combined"].includes(String(relation.inference_basis))
+        || relation.relation_context.length > 0)
+      && typeof relation.needs_review === "boolean"
       && relation.quality === "needs_review"
       && relation.decision === "review"
       && isSortedUniqueStrings(relation.reason_codes)

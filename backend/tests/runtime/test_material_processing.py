@@ -603,8 +603,8 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
         set(evidence) == {"evidence_id", "text"}
         for evidence in outputs.study_material_output["evidence_text_index"]
     )
-    assert outputs.knowledge_map["schema"] == "knowledge-map/v7"
-    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v7"
+    assert outputs.knowledge_map["schema"] == "knowledge-map/v8"
+    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v8"
     with psycopg.connect(processing_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM study_material_outputs").fetchone() == (1,)
         assert connection.execute("SELECT count(*) FROM knowledge_maps").fetchone() == (1,)
@@ -829,7 +829,9 @@ def test_partial_page_and_semantic_status_reaches_persisted_run(
             "source_formal_concept_id": relation_view["concepts"][0][
                 "formal_concept_id"
             ],
-            "target_formal_concept_id": second_concept["formal_concept_id"],
+                "target_formal_concept_id": second_concept["formal_concept_id"],
+                "reason": "These concepts share a grounded learning relationship.",
+                "inference_basis": "claim_semantics",
             "relation_evidence": [{
                 "owner_formal_concept_id": relation_view["concepts"][0][
                     "formal_concept_id"
@@ -838,7 +840,9 @@ def test_partial_page_and_semantic_status_reaches_persisted_run(
                     "claim_id"
                 ],
                 "evidence_ids": [evidence["evidence_id"]],
-            }],
+                }],
+                "relation_context": [],
+                "needs_review": False,
             "quality": "needs_review",
             "decision": "review",
             "reason_codes": ["RELATION_REVIEW_REQUIRED"],
@@ -890,7 +894,8 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert binding["call_ceilings"] == {
         "ocr_calls_per_page": 1,
         "ocr_initial_loads": 1,
-        "concept_initial_loads": 2,
+        "concept_initial_loads": 3,
+        "relation_model_batches_per_material": 8,
         "concept_equivalence_initial_loads": 1,
         "concept_equivalence_pairs_per_material": 16,
         "concept_equivalence_directions_per_material": 32,
@@ -1034,7 +1039,7 @@ def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
     )
 
     binding = processing_module.formal_runtime_preflight(settings)
-    assert binding["schema"] == "formal-material-runtime-binding/v6"
+    assert binding["schema"] == "formal-material-runtime-binding/v7"
     runtime_root = Path(settings["private_runtime_root"])
     assert runtime_root.stat().st_mode & 0o777 == 0o700
 

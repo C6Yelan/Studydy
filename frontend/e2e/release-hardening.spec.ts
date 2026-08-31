@@ -51,11 +51,11 @@ function emptyMap() {
     candidate_pairs: 0,
     selected_pairs: 0,
     selected_signal_counts: {},
-    evidence_gated_pairs: 0,
+    model_calls: 0,
     verifier_calls: 0,
     verifier_accepted: 0,
-    structural_proposals: 0,
-    prerequisite_proposals: 0,
+    model_contains_pairs: 0,
+    model_related_pairs: 0,
     accepted_relations: 0,
   });
   return view;
@@ -122,11 +122,11 @@ function largeMap() {
     candidate_pairs: 0,
     selected_pairs: 0,
     selected_signal_counts: {},
-    evidence_gated_pairs: 0,
+    model_calls: 0,
     verifier_calls: 0,
     verifier_accepted: 0,
-    structural_proposals: 0,
-    prerequisite_proposals: 0,
+    model_contains_pairs: 0,
+    model_related_pairs: 0,
     accepted_relations: 0,
   });
   return view;

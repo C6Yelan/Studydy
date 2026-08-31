@@ -73,7 +73,7 @@ function successfulRun() {
 function mapView() {
   const pageRef = `page:sha256:${"5".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v7",
+    schema: "knowledge-map-view/v8",
     material_ref: `material:sha256:${"6".repeat(64)}`,
     knowledge_map_revision: mapRevision,
     source_output_id: `study-material-output:sha256:${"3".repeat(64)}`,
@@ -131,17 +131,20 @@ function mapView() {
       candidate_pairs: 0,
       selected_pairs: 0,
       selected_signal_counts: {},
-      evidence_gated_pairs: 0,
-      rejected_no_evidence: 0,
-      direction_conflicts: 0,
+      model_calls: 0,
+      model_no_relation_pairs: 0,
+      model_contains_pairs: 0,
+      model_prerequisite_pairs: 0,
+      model_related_pairs: 0,
+      model_review_pairs: 0,
+      unexpected_pairs: 0,
+      invalid_pairs: 0,
+      canonical_rejections: 0,
       verifier_calls: 0,
       verifier_accepted: 0,
       verifier_rejected: 0,
       verifier_unsupported: 0,
-      structural_proposals: 0,
-      contains_proposals: 0,
-      prerequisite_proposals: 0,
-      related_proposals: 0,
+      verifier_failures: 0,
       accepted_relations: 0,
     },
     resource_binding: {
@@ -178,11 +181,15 @@ function mapViewWithRelation() {
     type: "related",
     source_formal_concept_id: source.formal_concept_id,
     target_formal_concept_id: target.formal_concept_id,
+    reason: "These concepts share a grounded learning application.",
+    inference_basis: "claim_semantics",
     relation_evidence: [{
       owner_formal_concept_id: source.formal_concept_id,
       claim_id: source.claims[0].claim_id,
       evidence_ids: [source.claims[0].evidence[0].evidence_id],
     }],
+    relation_context: [],
+    needs_review: false,
     quality: "needs_review",
     decision: "review",
     reason_codes: ["RELATION_REVIEW_REQUIRED"],
@@ -193,8 +200,8 @@ function mapViewWithRelation() {
     candidate_pairs: 1,
     selected_pairs: 1,
     selected_signal_counts: { shared_evidence: 1 },
-    evidence_gated_pairs: 1,
-    related_proposals: 1,
+    model_calls: 1,
+    model_related_pairs: 1,
     accepted_relations: 1,
   });
   return view;
@@ -338,7 +345,7 @@ test("run v3 closed progress shape rejects v2, decreasing bounds and fake termin
   }
 });
 
-test("Map v7 使用 exact run/revision 並要求 claim PDF locator", async () => {
+test("Map v8 使用 exact run/revision 並要求 claim PDF locator", async () => {
   const paths = [];
   const client = new StudydyApiClient(async (input) => {
     paths.push(String(input));
@@ -369,7 +376,7 @@ test("Map v7 使用 exact run/revision 並要求 claim PDF locator", async () =>
   );
 });
 
-test("Map v7 補充資源只接受 HTTP(S) public URL", async () => {
+test("Map v8 補充資源只接受 HTTP(S) public URL", async () => {
   const invalid = mapView();
   const sourceConceptId = invalid.concepts[0].source_concept_ids[0];
   invalid.concepts[0].supplementary_resources.push({
@@ -501,7 +508,7 @@ test("StudySession-scoped learning projections 保持 revision 與 action bindin
   );
 });
 
-test("Map v7 pair-level Relation Evidence 必須保留真實 claim owner", async () => {
+test("Map v8 pair-level Relation Evidence 必須保留真實 claim owner", async () => {
   let calls = 0;
   const acceptedClient = new StudydyApiClient(async () => {
     calls += 1;
@@ -527,7 +534,7 @@ test("Map v7 pair-level Relation Evidence 必須保留真實 claim owner", async
   );
 });
 
-test("Map v7 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
+test("Map v8 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
   const mutations = {
     unexpected: (view) => { view.concepts[0].unexpected_field = true; },
     duplicate: (view) => { view.concepts.push(structuredClone(view.concepts[0])); },

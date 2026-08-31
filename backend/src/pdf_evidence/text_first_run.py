@@ -115,7 +115,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
         matches = (
             isinstance(runtime_lock, dict)
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
-            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v9"
+            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v10"
             and runtime_lock["semantic"]["required_file_count"]
             == len(runtime_lock["semantic"]["required_files"])
             and runtime_lock["semantic"]["binding_manifest_sha256"]
@@ -126,7 +126,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
             and all(
                 hashlib.sha256(runtime_lock[stage]["prompt"].encode("utf-8")).hexdigest()
                 == runtime_lock[stage]["prompt_sha256"]
-                for stage in ("semantic", "formal_resolution")
+                for stage in ("semantic", "formal_resolution", "formal_relation")
             )
             and runtime_lock["semantic"]["document_context"]
             == {
