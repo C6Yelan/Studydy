@@ -55,6 +55,7 @@ function emptyMap() {
     verifier_calls: 0,
     verifier_accepted: 0,
     model_contains_pairs: 0,
+    model_prerequisite_pairs: 0,
     model_related_pairs: 0,
     accepted_relations: 0,
   });
@@ -126,6 +127,7 @@ function largeMap() {
     verifier_calls: 0,
     verifier_accepted: 0,
     model_contains_pairs: 0,
+    model_prerequisite_pairs: 0,
     model_related_pairs: 0,
     accepted_relations: 0,
   });
