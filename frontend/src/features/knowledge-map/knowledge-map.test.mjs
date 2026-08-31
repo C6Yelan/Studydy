@@ -56,6 +56,10 @@ test("hierarchy layout uses backend depths instead of deriving radial semantics"
         { formal_concept_id: "b", depth: 1, primary_parent_formal_concept_id: "a", flat_group_id: "g1" },
         { formal_concept_id: "c", depth: 0, primary_parent_formal_concept_id: null, flat_group_id: "g2" },
       ],
+      flat_groups: [
+        { flat_group_id: "g1" },
+        { flat_group_id: "g2" },
+      ],
     },
     relations: [
       { relation_id: "ab", type: "prerequisite", source_formal_concept_id: "a", target_formal_concept_id: "b", is_in_prerequisite_cycle: false },
@@ -67,8 +71,8 @@ test("hierarchy layout uses backend depths instead of deriving radial semantics"
 
   assert.deepEqual(nodes.map((node) => [node.conceptId, node.x, node.y]), [
     ["a", 0, 0],
-    ["c", 240, 0],
     ["b", 0, 150],
+    ["c", 260, 0],
   ]);
 });
 

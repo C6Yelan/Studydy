@@ -475,11 +475,29 @@ class KnowledgeMapTopologyNodeView(_ClosedModel):
     primary_parent_formal_concept_id: str | None = Field(
         pattern=r"^formal-concept:sha256:[0-9a-f]{64}$",
     )
-    flat_group_id: str = Field(min_length=1)
+    flat_group_id: str = Field(
+        pattern=r"^document-section:sha256:[0-9a-f]{64}$"
+    )
+    flat_group_anchor: "FlatGroupSourceView"
+
+
+class FlatGroupSourceView(_ClosedModel):
+    evidence_id: str = Field(pattern=r"^evidence:sha256:[0-9a-f]{64}$")
+    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
+    page_number: int = Field(ge=1)
+    reading_order: int = Field(ge=0)
 
 
 class KnowledgeMapFlatGroupView(_ClosedModel):
-    flat_group_id: str = Field(min_length=1)
+    flat_group_id: str = Field(
+        pattern=r"^document-section:sha256:[0-9a-f]{64}$"
+    )
+    label: str = Field(min_length=1, max_length=120)
+    label_source: Literal["heading", "unheaded_fallback"]
+    heading_evidence_id: str | None = Field(
+        pattern=r"^evidence:sha256:[0-9a-f]{64}$"
+    )
+    source_order: FlatGroupSourceView
     formal_concept_ids: list[str] = Field(min_length=1)
 
 
@@ -580,11 +598,38 @@ class KnowledgeMapView(_ClosedModel):
         group_by_id = {
             group.flat_group_id: group for group in self.topology.flat_groups
         }
-        if len(group_by_id) != len(self.topology.flat_groups) or any(
-            node.flat_group_id not in group_by_id
-            or node.formal_concept_id
-            not in group_by_id[node.flat_group_id].formal_concept_ids
-            for node in self.topology.nodes
+        if (
+            len(group_by_id) != len(self.topology.flat_groups)
+            or self.topology.flat_groups != sorted(
+                self.topology.flat_groups,
+                key=lambda group: (
+                    group.source_order.page_number,
+                    group.source_order.reading_order,
+                    group.source_order.evidence_id,
+                    group.flat_group_id,
+                ),
+            )
+            or any(
+                node.flat_group_id not in group_by_id
+                or node.formal_concept_id
+                not in group_by_id[node.flat_group_id].formal_concept_ids
+                for node in self.topology.nodes
+            )
+            or any(
+                (
+                    group.label_source == "heading"
+                    and group.heading_evidence_id is None
+                )
+                or (
+                    group.label_source == "unheaded_fallback"
+                    and (
+                        group.heading_evidence_id is not None
+                        or group.label
+                        != f"第 {group.source_order.page_number} 頁未命名段落"
+                    )
+                )
+                for group in self.topology.flat_groups
+            )
         ):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         concepts_by_id = {
@@ -602,6 +647,22 @@ class KnowledgeMapView(_ClosedModel):
                 != sorted(set(step.order_basis.prerequisite_formal_concept_ids))
                 or step.order_basis.parent_formal_concept_ids
                 != sorted(set(step.order_basis.parent_formal_concept_ids))
+            ):
+                raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        for node in self.topology.nodes:
+            concept = concepts_by_id[node.formal_concept_id]
+            matching_evidence = [
+                evidence
+                for claim in concept.claims
+                for evidence in claim.evidence
+                if evidence.evidence_id == node.flat_group_anchor.evidence_id
+            ]
+            if (
+                not matching_evidence
+                or matching_evidence[0].page_ref
+                != node.flat_group_anchor.page_ref
+                or matching_evidence[0].page_number
+                != node.flat_group_anchor.page_number
             ):
                 raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if len({page.page_ref for page in self.excluded_pages}) != len(self.excluded_pages):

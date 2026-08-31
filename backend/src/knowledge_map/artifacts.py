@@ -17,6 +17,7 @@ SYMMETRIC_RELATION_TYPES = {"related"}
 
 KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v9"
 KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v9"
+MAX_FLAT_GROUP_LABEL_LENGTH = 120
 
 _RESOURCE_DIAGNOSTIC_FIELDS = {
     "matches",
@@ -132,9 +133,136 @@ def _can_reach(
     return False
 
 
+def _bounded_group_label(text: str, page_number: int) -> tuple[str, str]:
+    """保留既有 heading；沒有 heading 時只說明來源頁，不猜測名稱。"""
+
+    label = " ".join(unicodedata.normalize("NFKC", text).split())
+    if not label:
+        return f"第 {page_number} 頁未命名段落", "unheaded_fallback"
+    if len(label) > MAX_FLAT_GROUP_LABEL_LENGTH:
+        label = label[: MAX_FLAT_GROUP_LABEL_LENGTH - 1].rstrip() + "…"
+    return label, "heading"
+
+
+def _build_flat_group_context(
+    study_material_output: dict[str, Any],
+    formal_concepts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """以 Concept 自己的 Claim Evidence 找到平面 section，不使用 section hash 排序。"""
+
+    evidence_by_id = {
+        evidence["evidence_id"]: evidence
+        for evidence in study_material_output["evidence_index"]
+    }
+    text_by_evidence = {
+        evidence["evidence_id"]: evidence["text"]
+        for evidence in study_material_output["evidence_text_index"]
+    }
+    current_by_evidence = {}
+    current_by_section: dict[str, list[dict[str, Any]]] = {}
+    for context in study_material_output["document_contexts"]:
+        for block in context["current_blocks"]:
+            source = {
+                "evidence_id": block["evidence_id"],
+                "page_ref": context["page_ref"],
+                "page_number": context["page_number"],
+                "reading_order": block["reading_order"],
+                "flat_group_id": block["section_id"],
+            }
+            current_by_evidence[block["evidence_id"]] = source
+            current_by_section.setdefault(block["section_id"], []).append(source)
+
+    anchors = []
+    for concept in formal_concepts:
+        claim_evidence_ids = {
+            evidence_id
+            for claim in concept["claims"]
+            for evidence_id in claim["evidence_ids"]
+        }
+        candidates = []
+        for evidence_id in claim_evidence_ids:
+            source = current_by_evidence.get(evidence_id)
+            if source is None or not any(
+                member["page_ref"] == source["page_ref"]
+                and evidence_id in member["evidence_ids"]
+                and source["flat_group_id"] in member["section_ids"]
+                for member in concept["source_members"]
+            ):
+                raise ValueError("KNOWLEDGE_MAP_GROUP_INVALID")
+            candidates.append(source)
+        if not candidates:
+            raise ValueError("KNOWLEDGE_MAP_GROUP_INVALID")
+        anchor = min(
+            candidates,
+            key=lambda item: (
+                item["page_number"],
+                item["reading_order"],
+                item["evidence_id"],
+            ),
+        )
+        anchors.append(
+            {
+                "formal_concept_id": concept["formal_concept_id"],
+                **anchor,
+            }
+        )
+
+    groups = []
+    for flat_group_id in {anchor["flat_group_id"] for anchor in anchors}:
+        section_blocks = sorted(
+            current_by_section[flat_group_id],
+            key=lambda item: (
+                item["page_number"],
+                item["reading_order"],
+                item["evidence_id"],
+            ),
+        )
+        source_order = section_blocks[0]
+        headings = [
+            block
+            for block in section_blocks
+            if evidence_by_id[block["evidence_id"]]["kind"] == "heading"
+        ]
+        heading = headings[0] if headings else None
+        label, label_source = _bounded_group_label(
+            text_by_evidence[heading["evidence_id"]] if heading else "",
+            source_order["page_number"],
+        )
+        groups.append(
+            {
+                "flat_group_id": flat_group_id,
+                "label": label,
+                "label_source": label_source,
+                "heading_evidence_id": (
+                    heading["evidence_id"] if heading is not None else None
+                ),
+                "source_order": {
+                    key: value
+                    for key, value in source_order.items()
+                    if key != "flat_group_id"
+                },
+            }
+        )
+    return {
+        "concept_anchors": sorted(
+            anchors, key=lambda item: item["formal_concept_id"]
+        ),
+        "groups": sorted(
+            groups,
+            key=lambda item: (
+                item["source_order"]["page_number"],
+                item["source_order"]["reading_order"],
+                item["source_order"]["evidence_id"],
+                item["flat_group_id"],
+            ),
+        ),
+    }
+
+
 def _topology_and_learning_path(
     formal_concepts: list[dict[str, Any]],
     relations: list[dict[str, Any]],
+    flat_group_context: dict[str, Any],
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, int]]:
     """用已發布關係與平面 section 建立唯一的地圖拓撲及學習順序。"""
 
@@ -147,25 +275,112 @@ def _topology_and_learning_path(
         concept_id: min(concept["source_page_numbers"])
         for concept_id, concept in nodes.items()
     }
-    flat_group_by_node = {
-        concept_id: min(
-            section_id
-            for member in concept["source_members"]
-            for section_id in member["section_ids"]
-        )
-        for concept_id, concept in nodes.items()
+    if (
+        not isinstance(flat_group_context, dict)
+        or set(flat_group_context) != {"concept_anchors", "groups"}
+        or not isinstance(flat_group_context["concept_anchors"], list)
+        or not isinstance(flat_group_context["groups"], list)
+    ):
+        raise ValueError("KNOWLEDGE_MAP_GROUP_INVALID")
+    anchor_by_node = {
+        anchor.get("formal_concept_id"): anchor
+        for anchor in flat_group_context["concept_anchors"]
+        if isinstance(anchor, dict)
     }
-    flat_group_ids = sorted(
-        set(flat_group_by_node.values()),
-        key=lambda group_id: (
-            min(
-                source_page[concept_id]
-                for concept_id, candidate in flat_group_by_node.items()
-                if candidate == group_id
-            ),
-            group_id,
+    groups_by_id = {
+        group.get("flat_group_id"): group
+        for group in flat_group_context["groups"]
+        if isinstance(group, dict)
+    }
+    if (
+        set(anchor_by_node) != set(nodes)
+        or len(anchor_by_node) != len(flat_group_context["concept_anchors"])
+        or len(groups_by_id) != len(flat_group_context["groups"])
+    ):
+        raise ValueError("KNOWLEDGE_MAP_GROUP_INVALID")
+    anchor_fields = {
+        "formal_concept_id", "flat_group_id", "evidence_id", "page_ref",
+        "page_number", "reading_order",
+    }
+    for node, anchor in anchor_by_node.items():
+        concept = nodes[node]
+        if (
+            set(anchor) != anchor_fields
+            or anchor["evidence_id"] not in {
+                evidence_id
+                for claim in concept["claims"]
+                for evidence_id in claim["evidence_ids"]
+            }
+            or type(anchor["page_number"]) is not int
+            or anchor["page_number"] < 1
+            or type(anchor["reading_order"]) is not int
+            or anchor["reading_order"] < 0
+            or not any(
+                member["page_ref"] == anchor["page_ref"]
+                and anchor["evidence_id"] in member["evidence_ids"]
+                and anchor["flat_group_id"] in member["section_ids"]
+                for member in concept["source_members"]
+            )
+            or anchor["page_number"] not in concept["source_page_numbers"]
+        ):
+            raise ValueError("KNOWLEDGE_MAP_GROUP_INVALID")
+    group_fields = {
+        "flat_group_id", "label", "label_source", "heading_evidence_id",
+        "source_order",
+    }
+    source_order_fields = {
+        "evidence_id", "page_ref", "page_number", "reading_order",
+    }
+    if set(groups_by_id) != {
+        anchor["flat_group_id"] for anchor in anchor_by_node.values()
+    }:
+        raise ValueError("KNOWLEDGE_MAP_GROUP_INVALID")
+    for group in groups_by_id.values():
+        source_order = group.get("source_order")
+        if (
+            set(group) != group_fields
+            or not isinstance(group["label"], str)
+            or not 1 <= len(group["label"]) <= MAX_FLAT_GROUP_LABEL_LENGTH
+            or group["label_source"] not in {"heading", "unheaded_fallback"}
+            or not isinstance(source_order, dict)
+            or set(source_order) != source_order_fields
+            or not isinstance(source_order["evidence_id"], str)
+            or not isinstance(source_order["page_ref"], str)
+            or type(source_order["page_number"]) is not int
+            or source_order["page_number"] < 1
+            or type(source_order["reading_order"]) is not int
+            or source_order["reading_order"] < 0
+            or (
+                group["label_source"] == "heading"
+                and not isinstance(group["heading_evidence_id"], str)
+            )
+            or (
+                group["label_source"] == "unheaded_fallback"
+                and (
+                    group["heading_evidence_id"] is not None
+                    or group["label"]
+                    != f"第 {source_order['page_number']} 頁未命名段落"
+                )
+            )
+        ):
+            raise ValueError("KNOWLEDGE_MAP_GROUP_INVALID")
+    flat_group_by_node = {
+        node: anchor["flat_group_id"] for node, anchor in anchor_by_node.items()
+    }
+    flat_group_ids = [group["flat_group_id"] for group in flat_group_context["groups"]]
+    if flat_group_context["concept_anchors"] != sorted(
+        flat_group_context["concept_anchors"],
+        key=lambda item: item["formal_concept_id"],
+    ) or flat_group_context["groups"] != sorted(
+        flat_group_context["groups"],
+        key=lambda item: (
+            item["source_order"]["page_number"],
+            item["source_order"]["reading_order"],
+            item["source_order"]["evidence_id"],
+            item["flat_group_id"],
         ),
-    )
+    ):
+        raise ValueError("KNOWLEDGE_MAP_GROUP_INVALID")
     flat_group_rank = {
         group_id: index for index, group_id in enumerate(flat_group_ids)
     }
@@ -232,12 +447,21 @@ def _topology_and_learning_path(
                 "depth": depth[node],
                 "primary_parent_formal_concept_id": primary_parent[node],
                 "flat_group_id": flat_group_by_node[node],
+                "flat_group_anchor": {
+                    key: value
+                    for key, value in anchor_by_node[node].items()
+                    if key not in {"formal_concept_id", "flat_group_id"}
+                },
             }
             for node in topology_order
         ],
         "flat_groups": [
             {
                 "flat_group_id": group_id,
+                "label": groups_by_id[group_id]["label"],
+                "label_source": groups_by_id[group_id]["label_source"],
+                "heading_evidence_id": groups_by_id[group_id]["heading_evidence_id"],
+                "source_order": deepcopy(groups_by_id[group_id]["source_order"]),
                 "formal_concept_ids": [
                     node
                     for node in topology_order
@@ -540,8 +764,11 @@ def build_knowledge_map(
         )
     )
     relations.sort(key=lambda relation: relation["relation_id"])
+    flat_group_context = _build_flat_group_context(
+        study_material_output, formal_concepts
+    )
     topology, path, topology_diagnostics = _topology_and_learning_path(
-        formal_concepts, relations
+        formal_concepts, relations, flat_group_context
     )
     has_no_formal_concept = not formal_concepts
     is_partial = (
@@ -590,6 +817,7 @@ def build_knowledge_map(
         "resource_binding": deepcopy(resource_promotion["resource_binding"]),
         "resource_diagnostics": deepcopy(resource_promotion["resource_diagnostics"]),
         "resource_decisions": deepcopy(resource_promotion["resource_decisions"]),
+        "flat_group_context": flat_group_context,
         "topology": topology,
         "topology_diagnostics": topology_diagnostics,
         "initial_learning_path": path,
@@ -610,7 +838,8 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
     fields = {
         "schema", "source_output_id", "source_binding", "material_ref", "formal_concepts", "concept_diagnostics", "relations", "relation_diagnostics",
         "resource_binding", "resource_diagnostics", "resource_decisions",
-        "topology", "topology_diagnostics", "initial_learning_path",
+        "flat_group_context", "topology", "topology_diagnostics",
+        "initial_learning_path",
         "evidence_index", "excluded_pages", "processing",
         "quality", "decision", "reason_codes", "revision",
     }
@@ -742,6 +971,7 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
         if len(formal_ids) != len(formal):
             return "KNOWLEDGE_MAP_INVALID"
         evidence_pages: dict[str, str] = {}
+        evidence_kinds: dict[str, str] = {}
         page_numbers: dict[str, int] = {}
         for evidence in knowledge_map["evidence_index"]:
             region = evidence.get("region") if isinstance(evidence, dict) else None
@@ -776,6 +1006,7 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             ):
                 return "KNOWLEDGE_MAP_INVALID"
             evidence_pages[evidence["evidence_id"]] = evidence["page_ref"]
+            evidence_kinds[evidence["evidence_id"]] = evidence["kind"]
             page_numbers[evidence["page_ref"]] = evidence["page_number"]
         claims_by_formal: dict[str, dict[str, dict[str, Any]]] = {}
         formal_claims: dict[str, dict[str, Any]] = {}
@@ -1154,8 +1385,29 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             knowledge_map["relations"], relation_type="contains"
         ):
             return "KNOWLEDGE_MAP_INVALID"
+        group_evidence = [
+            *knowledge_map["flat_group_context"]["concept_anchors"],
+            *(
+                group["source_order"]
+                for group in knowledge_map["flat_group_context"]["groups"]
+            ),
+        ]
+        if any(
+            evidence_pages.get(item["evidence_id"]) != item["page_ref"]
+            or page_numbers.get(item["page_ref"]) != item["page_number"]
+            for item in group_evidence
+        ) or any(
+            group["heading_evidence_id"] is not None
+            and evidence_kinds.get(group["heading_evidence_id"]) != "heading"
+            for group in knowledge_map["flat_group_context"]["groups"]
+        ):
+            return "KNOWLEDGE_MAP_INVALID"
         expected_topology, expected_path, expected_topology_diagnostics = (
-            _topology_and_learning_path(formal, knowledge_map["relations"])
+            _topology_and_learning_path(
+                formal,
+                knowledge_map["relations"],
+                knowledge_map["flat_group_context"],
+            )
         )
         if (
             knowledge_map["topology"] != expected_topology

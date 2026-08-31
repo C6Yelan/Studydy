@@ -50,19 +50,21 @@ export function safeExternalUrl(value: string): string | null {
 }
 
 export function hierarchyLayout(view: KnowledgeMapView): MapNode[] {
-  const nodesByDepth = new Map<number, KnowledgeMapView["topology"]["nodes"]>();
-  for (const node of view.topology.nodes) {
-    const level = nodesByDepth.get(node.depth) ?? [];
-    level.push(node);
-    nodesByDepth.set(node.depth, level);
-  }
-  return [...nodesByDepth.entries()].flatMap(([depth, level]) =>
-    level.map((node, index) => ({
+  const groupIndex = new Map(view.topology.flat_groups.map((group, index) => [
+    group.flat_group_id, index,
+  ]));
+  const levelCounts = new Map<string, number>();
+  return view.topology.nodes.map((node) => {
+    const levelKey = `${node.flat_group_id}:${node.depth}`;
+    const index = levelCounts.get(levelKey) ?? 0;
+    levelCounts.set(levelKey, index + 1);
+    return {
       conceptId: node.formal_concept_id,
-      x: index * 240,
-      y: depth * 150,
+      x: Number(groupIndex.get(node.flat_group_id)) * 260 + index * 210,
+      y: node.depth * 150,
       ...mapNodeSize,
-    })));
+    };
+  });
 }
 
 export function isPrimaryHierarchyRelation(

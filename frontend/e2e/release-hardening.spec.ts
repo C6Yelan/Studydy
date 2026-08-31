@@ -131,9 +131,24 @@ function largeMap() {
       depth: 0,
       primary_parent_formal_concept_id: null,
       flat_group_id: longRevision("document-section", index + 1),
+      flat_group_anchor: {
+        evidence_id: concept.claims[0].evidence[0].evidence_id,
+        page_ref: concept.claims[0].evidence[0].page_ref,
+        page_number: concept.source_page_numbers[0],
+        reading_order: 0,
+      },
     })),
     flat_groups: view.concepts.map((concept, index) => ({
       flat_group_id: longRevision("document-section", index + 1),
+      label: `大型教材單元 ${index + 1}`,
+      label_source: "heading",
+      heading_evidence_id: concept.claims[0].evidence[0].evidence_id,
+      source_order: {
+        evidence_id: concept.claims[0].evidence[0].evidence_id,
+        page_ref: concept.claims[0].evidence[0].page_ref,
+        page_number: concept.source_page_numbers[0],
+        reading_order: 0,
+      },
       formal_concept_ids: [concept.formal_concept_id],
     })),
   };

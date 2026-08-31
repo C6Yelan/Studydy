@@ -290,9 +290,10 @@ function PathView({ isStartingStudy, onStartStudy, openConcept, view }: {
   );
 }
 
-function SemanticMapFallback({ openConcept, openRelation, view }: {
+function SemanticMapFallback({ openConcept, openRelation, selectedConceptId, view }: {
   openConcept: (id: string) => void;
   openRelation: (id: string) => void;
+  selectedConceptId: string;
   view: KnowledgeMapView;
 }) {
   const orderedNodes: KnowledgeMapView["topology"]["nodes"] = [];
@@ -309,20 +310,37 @@ function SemanticMapFallback({ openConcept, openRelation, view }: {
     !isPrimaryHierarchyRelation(view, relation));
   return (
     <div className="semantic-map-fallback" aria-label="概念階層清單">
-      <ul className="semantic-tree" role="tree">
-        {orderedNodes.map((node) => (
-          <li aria-level={node.depth + 1} key={node.formal_concept_id} role="treeitem">
-            <button
-              style={{ marginInlineStart: `${node.depth * 18}px` }}
-              type="button"
-              onClick={() => openConcept(node.formal_concept_id)}
-            >
-              <small>{node.depth === 0 ? "根概念" : `第 ${node.depth + 1} 層`}</small>
-              <strong>{conceptLabel(view.concepts, node.formal_concept_id)}</strong>
-            </button>
-          </li>
-        ))}
-      </ul>
+      {view.topology.flat_groups.map((group) => {
+        const groupNodes = orderedNodes.filter((node) =>
+          node.flat_group_id === group.flat_group_id);
+        const isCurrentGroup = group.formal_concept_ids.includes(selectedConceptId);
+        return (
+          <section className={`semantic-group${isCurrentGroup ? " is-current" : ""}`} key={group.flat_group_id}>
+            <header>
+              <div><small>教材平面段落</small><h3>{group.label}</h3></div>
+              <span>第 {group.source_order.page_number} 頁</span>
+            </header>
+            <ul className="semantic-tree" role="tree">
+              {groupNodes.map((node) => {
+                const isCurrent = node.formal_concept_id === selectedConceptId;
+                return (
+                  <li aria-level={node.depth + 1} key={node.formal_concept_id} role="treeitem">
+                    <button
+                      aria-current={isCurrent ? "true" : undefined}
+                      style={{ marginInlineStart: `${node.depth * 18}px` }}
+                      type="button"
+                      onClick={() => openConcept(node.formal_concept_id)}
+                    >
+                      <small>{isCurrent ? "目前位置" : node.depth === 0 ? "根概念" : `第 ${node.depth + 1} 層`}</small>
+                      <strong>{conceptLabel(view.concepts, node.formal_concept_id)}</strong>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })}
       {secondaryRelations.length > 0 && (
         <div className="semantic-links">
           <h3>其他教材連結</h3>
@@ -389,11 +407,13 @@ function FocusView({ openConcept, openRelation, selectedConceptId, setSelectedCo
     const isFocus = node.conceptId === selected.formal_concept_id;
     const topologyNode = view.topology.nodes.find((item) =>
       item.formal_concept_id === node.conceptId)!;
+    const flatGroup = view.topology.flat_groups.find((group) =>
+      group.flat_group_id === topologyNode.flat_group_id)!;
     return {
       id: node.conceptId,
       position: { x: node.x, y: node.y },
       data: {
-        label: <><small>{isFocus ? "目前焦點" : topologyNode.depth === 0 ? "根概念" : `第 ${topologyNode.depth + 1} 層`}</small><strong>{concept.label}</strong></>,
+        label: <><small>{isFocus ? "目前位置" : flatGroup.label}</small><strong>{concept.label}</strong></>,
       },
       width: node.width,
       height: node.height,
@@ -451,6 +471,20 @@ function FocusView({ openConcept, openRelation, selectedConceptId, setSelectedCo
         <RelationConnector label="先備順序" relation={{ type: "prerequisite" }} />
         <RelationConnector label="相關連結" relation={{ type: "related" }} />
       </div>
+      <div className="flat-group-list" aria-label="教材平面段落">
+        {view.topology.flat_groups.map((group) => {
+          const currentIndex = group.formal_concept_ids.indexOf(selected.formal_concept_id);
+          return (
+            <article className={currentIndex >= 0 ? "is-current" : undefined} key={group.flat_group_id}>
+              <small>教材第 {group.source_order.page_number} 頁</small>
+              <strong>{group.label}</strong>
+              <span>{currentIndex >= 0
+                ? `目前位於本段第 ${currentIndex + 1} 個概念`
+                : `${group.formal_concept_ids.length} 個概念`}</span>
+            </article>
+          );
+        })}
+      </div>
       <div className="focus-graph" ref={graphElement} aria-label={`「${selected.label}」所在的概念階層圖`}>
         <ReactFlow
           aria-label="可平移、縮放、選擇與置中的概念階層圖"
@@ -476,7 +510,12 @@ function FocusView({ openConcept, openRelation, selectedConceptId, setSelectedCo
           <Controls aria-label="概念地圖縮放與置中控制" showInteractive={false} />
         </ReactFlow>
       </div>
-      <SemanticMapFallback openConcept={openConcept} openRelation={openRelation} view={view} />
+      <SemanticMapFallback
+        openConcept={openConcept}
+        openRelation={openRelation}
+        selectedConceptId={selected.formal_concept_id}
+        view={view}
+      />
     </section>
   );
 }

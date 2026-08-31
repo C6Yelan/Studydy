@@ -225,9 +225,24 @@ export type KnowledgeMapView = {
       depth: number;
       primary_parent_formal_concept_id: string | null;
       flat_group_id: string;
+      flat_group_anchor: {
+        evidence_id: string;
+        page_ref: string;
+        page_number: number;
+        reading_order: number;
+      };
     }[];
     flat_groups: {
       flat_group_id: string;
+      label: string;
+      label_source: "heading" | "unheaded_fallback";
+      heading_evidence_id: string | null;
+      source_order: {
+        evidence_id: string;
+        page_ref: string;
+        page_number: number;
+        reading_order: number;
+      };
       formal_concept_ids: string[];
     }[];
   };

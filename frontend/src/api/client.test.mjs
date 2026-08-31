@@ -168,9 +168,24 @@ function mapView() {
         depth: 0,
         primary_parent_formal_concept_id: null,
         flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
+        flat_group_anchor: {
+          evidence_id: `evidence:sha256:${"8".repeat(64)}`,
+          page_ref: pageRef,
+          page_number: 40,
+          reading_order: 0,
+        },
       }],
       flat_groups: [{
         flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
+        label: "第 40 頁未命名段落",
+        label_source: "unheaded_fallback",
+        heading_evidence_id: null,
+        source_order: {
+          evidence_id: `evidence:sha256:${"8".repeat(64)}`,
+          page_ref: pageRef,
+          page_number: 40,
+          reading_order: 0,
+        },
         formal_concept_ids: [`formal-concept:sha256:${"7".repeat(64)}`],
       }],
     },
@@ -211,6 +226,12 @@ function mapViewWithRelation() {
     depth: 0,
     primary_parent_formal_concept_id: null,
     flat_group_id: view.topology.flat_groups[0].flat_group_id,
+    flat_group_anchor: {
+      evidence_id: target.claims[0].evidence[0].evidence_id,
+      page_ref: target.claims[0].evidence[0].page_ref,
+      page_number: target.claims[0].evidence[0].page_number,
+      reading_order: 1,
+    },
   });
   view.topology.flat_groups[0].formal_concept_ids.push(target.formal_concept_id);
   view.topology_diagnostics.component_count += 1;
@@ -594,6 +615,10 @@ test("Map v9 recursively rejects unexpected、duplicate、nonfinite、type 與 c
     count: (view) => { view.concepts[0].claims = []; },
     reference: (view) => { view.concepts[0].claims[0].evidence[0].page_number = 41; },
     topology: (view) => { view.topology.nodes[0].depth = 1; },
+    group_anchor: (view) => {
+      view.topology.nodes[0].flat_group_anchor.evidence_id = `evidence:sha256:${"0".repeat(64)}`;
+    },
+    group_label: (view) => { view.topology.flat_groups[0].label = "猜測的段落名稱"; },
     path: (view) => { view.initial_learning_path[0].placement_reason = ""; },
     excluded: (view) => {
       view.status.processing = "succeeded";

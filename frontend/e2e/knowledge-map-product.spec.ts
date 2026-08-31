@@ -168,9 +168,24 @@ function publishedMap(): KnowledgeMapView {
         primary_parent_formal_concept_id: index === 2
           ? concepts[1].formal_concept_id : null,
         flat_group_id: revision("document-section", String(index + 1)),
+        flat_group_anchor: {
+          evidence_id: item.claims[0].evidence[0].evidence_id,
+          page_ref: item.claims[0].evidence[0].page_ref,
+          page_number: item.source_page_numbers[0],
+          reading_order: index,
+        },
       })),
       flat_groups: concepts.map((item, index) => ({
         flat_group_id: revision("document-section", String(index + 1)),
+        label: `教材單元 ${index + 1}`,
+        label_source: "heading",
+        heading_evidence_id: item.claims[0].evidence[0].evidence_id,
+        source_order: {
+          evidence_id: item.claims[0].evidence[0].evidence_id,
+          page_ref: item.claims[0].evidence[0].page_ref,
+          page_number: item.source_page_numbers[0],
+          reading_order: index,
+        },
         formal_concept_ids: [item.formal_concept_id],
       })),
     },
@@ -244,6 +259,9 @@ test("Knowledge Map 只呈現 published 三種 Relation，related 保持對稱",
   await expect(page.getByRole("heading", { name: "知識地圖", exact: true })).toBeVisible();
   await expect(page.locator(".react-flow__node")).toHaveCount(3);
   await expect(page.locator(".react-flow__controls")).toBeVisible();
+  await expect(page.getByLabel("教材平面段落").locator("article")).toHaveCount(3);
+  await expect(page.getByLabel("教材平面段落").getByText("教材單元 1", { exact: true })).toBeVisible();
+  await expect(page.getByText("目前位於本段第 1 個概念", { exact: true })).toBeVisible();
   await captureAcceptance(page, "01_app_shell_desktop.png");
   await captureAcceptance(page, "06_map_focus_concept.png");
 
@@ -255,6 +273,7 @@ test("Knowledge Map 只呈現 published 三種 Relation，related 保持對稱",
   await expect(page.getByText(/candidate_pairs|verifier_calls|relation_diagnostics/i)).toHaveCount(0);
   await page.getByLabel("焦點概念").selectOption({ label: "概念乙" });
   await expect(page.locator(".concept-flow-node.is-focus")).toContainText("概念乙");
+  await expect(page.getByLabel("教材平面段落").getByText("教材單元 2", { exact: true })).toBeVisible();
   const viewport = page.locator(".react-flow__viewport");
   const beforeZoom = await viewport.getAttribute("style");
   await page.locator(".react-flow__controls-zoomin").click();
@@ -302,5 +321,7 @@ test("390px 使用可讀的語意階層與連結清單", async ({ page }) => {
   await expect(page.locator(".focus-graph")).toBeHidden();
   await expect(page.getByLabel("概念階層清單")).toBeVisible();
   await expect(page.getByRole("treeitem")).toHaveCount(3);
+  await expect(page.getByLabel("概念階層清單").getByRole("heading", { name: "教材單元 1" })).toBeVisible();
+  await expect(page.getByRole("treeitem").first().getByText("目前位置", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "其他教材連結" })).toBeVisible();
 });

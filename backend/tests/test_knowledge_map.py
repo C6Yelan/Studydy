@@ -11,6 +11,8 @@ from pdf_evidence.local_ai_process import LocalAIError
 import knowledge_map.local_generation as local_generation
 
 from knowledge_map.artifacts import (
+    _build_flat_group_context,
+    _revision,
     _topology_and_learning_path,
     build_knowledge_map,
     build_knowledge_map_view,
@@ -1049,6 +1051,60 @@ def test_map_v9_and_view_v9_bind_topology_and_relation_contract():
     assert validate_knowledge_map(knowledge_map) is None
 
 
+def _topology_group_context(concepts):
+    anchors = []
+    for index, concept in enumerate(concepts):
+        evidence_id = f"evidence-{concept['formal_concept_id']}"
+        page_ref = f"page-{concept['formal_concept_id']}"
+        flat_group_id = concept["source_members"][0]["section_ids"][0]
+        concept["claims"] = [{"evidence_ids": [evidence_id]}]
+        concept["source_members"][0].update({
+            "page_ref": page_ref,
+            "evidence_ids": [evidence_id],
+        })
+        anchors.append({
+            "formal_concept_id": concept["formal_concept_id"],
+            "flat_group_id": flat_group_id,
+            "evidence_id": evidence_id,
+            "page_ref": page_ref,
+            "page_number": concept["source_page_numbers"][0],
+            "reading_order": index,
+        })
+    groups = []
+    for flat_group_id in {anchor["flat_group_id"] for anchor in anchors}:
+        source = min(
+            (anchor for anchor in anchors if anchor["flat_group_id"] == flat_group_id),
+            key=lambda item: (
+                item["page_number"], item["reading_order"], item["evidence_id"]
+            ),
+        )
+        groups.append({
+            "flat_group_id": flat_group_id,
+            "label": f"第 {source['page_number']} 頁未命名段落",
+            "label_source": "unheaded_fallback",
+            "heading_evidence_id": None,
+            "source_order": {
+                key: value
+                for key, value in source.items()
+                if key not in {"formal_concept_id", "flat_group_id"}
+            },
+        })
+    return {
+        "concept_anchors": sorted(
+            anchors, key=lambda item: item["formal_concept_id"]
+        ),
+        "groups": sorted(
+            groups,
+            key=lambda item: (
+                item["source_order"]["page_number"],
+                item["source_order"]["reading_order"],
+                item["source_order"]["evidence_id"],
+                item["flat_group_id"],
+            ),
+        ),
+    }
+
+
 def test_topology_path_priority_is_deterministic_and_related_never_orders():
     concepts = [
         {
@@ -1089,11 +1145,16 @@ def test_topology_path_priority_is_deterministic_and_related_never_orders():
         },
     ]
 
-    topology, path, diagnostics = _topology_and_learning_path(concepts, relations)
-    repeated = _topology_and_learning_path(
-        list(reversed(concepts)), list(reversed(relations))
+    group_context = _topology_group_context(concepts)
+    topology, path, diagnostics = _topology_and_learning_path(
+        concepts, relations, group_context
     )
-    without_related = _topology_and_learning_path(concepts, relations[:2])
+    repeated = _topology_and_learning_path(
+        list(reversed(concepts)), list(reversed(relations)), group_context
+    )
+    without_related = _topology_and_learning_path(
+        concepts, relations[:2], group_context
+    )
 
     assert (topology, path, diagnostics) == repeated
     assert [step["formal_concept_id"] for step in path] == ["c", "d", "a", "b"]
@@ -1108,6 +1169,12 @@ def test_topology_path_priority_is_deterministic_and_related_never_orders():
         "depth": 1,
         "primary_parent_formal_concept_id": "a",
         "flat_group_id": "section-1",
+        "flat_group_anchor": {
+            "evidence_id": "evidence-b",
+            "page_ref": "page-b",
+            "page_number": 1,
+            "reading_order": 1,
+        },
     }
     assert path[-1]["order_basis"]["parent_formal_concept_ids"] == ["a"]
     assert diagnostics == {
@@ -1149,12 +1216,130 @@ def test_prerequisite_stays_hard_when_parent_before_child_would_conflict():
         },
     ]
 
-    _, path, diagnostics = _topology_and_learning_path(concepts, relations)
+    _, path, diagnostics = _topology_and_learning_path(
+        concepts, relations, _topology_group_context(concepts)
+    )
 
     assert [step["formal_concept_id"] for step in path] == ["child", "parent"]
     assert diagnostics["skipped_parent_before_child_count"] == 1
     assert path[0]["placement_reason"] == (
         "此步先遵守先備關係，避免形成相互等待的學習順序。"
+    )
+
+
+def test_multi_section_group_uses_claim_evidence_not_opaque_section_hash():
+    page_ref = "page:sha256:" + "1" * 64
+    evidence_ids = {
+        name: "evidence:sha256:" + value * 64
+        for name, value in (
+            ("first_heading", "1"),
+            ("first_claim", "2"),
+            ("second_heading", "3"),
+            ("second_claim", "4"),
+        )
+    }
+    first_section = "document-section:sha256:" + "f" * 64
+    second_section = "document-section:sha256:" + "0" * 64
+
+    def documents(section_one, section_two):
+        blocks = [
+            ("first_heading", 0, section_one, "heading"),
+            ("first_claim", 1, section_one, "paragraph"),
+            ("second_heading", 2, section_two, "heading"),
+            ("second_claim", 3, section_two, "paragraph"),
+        ]
+        study = {
+            "evidence_index": [
+                {"evidence_id": evidence_ids[name], "kind": kind}
+                for name, _, _, kind in blocks
+            ],
+            "evidence_text_index": [
+                {
+                    "evidence_id": evidence_ids[name],
+                    "text": {
+                        "first_heading": "First grounded section",
+                        "first_claim": "First claim",
+                        "second_heading": "Second grounded section",
+                        "second_claim": "Second claim",
+                    }[name],
+                }
+                for name, _, _, _ in blocks
+            ],
+            "document_contexts": [{
+                "page_ref": page_ref,
+                "page_number": 1,
+                "current_blocks": [
+                    {
+                        "evidence_id": evidence_ids[name],
+                        "reading_order": reading_order,
+                        "section_id": section_id,
+                    }
+                    for name, reading_order, section_id, _ in blocks
+                ],
+            }],
+        }
+        concepts = [
+            {
+                "formal_concept_id": concept_id,
+                "label": label,
+                "decision": "review",
+                "source_page_numbers": [1],
+                "claims": [{"evidence_ids": [evidence_ids[evidence_name]]}],
+                "source_members": [{
+                    "page_ref": page_ref,
+                    "evidence_ids": [evidence_ids[evidence_name]],
+                    "section_ids": [section_one, section_two],
+                }],
+            }
+            for concept_id, label, evidence_name in (
+                ("first", "First", "first_claim"),
+                ("second", "Second", "second_claim"),
+            )
+        ]
+        return study, concepts
+
+    study, concepts = documents(first_section, second_section)
+    context = _build_flat_group_context(study, concepts)
+    related = [{
+        "relation_id": "related",
+        "type": "related",
+        "source_formal_concept_id": "first",
+        "target_formal_concept_id": "second",
+        "is_in_prerequisite_cycle": False,
+    }]
+    topology, path, diagnostics = _topology_and_learning_path(
+        concepts, related, context
+    )
+    repeated = _topology_and_learning_path(
+        list(reversed(concepts)), list(reversed(related)), context
+    )
+
+    assert (topology, path, diagnostics) == repeated
+    assert [group["label"] for group in topology["flat_groups"]] == [
+        "First grounded section", "Second grounded section"
+    ]
+    assert [step["formal_concept_id"] for step in path] == ["first", "second"]
+    assert topology["nodes"][0]["flat_group_anchor"]["evidence_id"] == (
+        evidence_ids["first_claim"]
+    )
+    assert topology["nodes"][1]["flat_group_anchor"]["evidence_id"] == (
+        evidence_ids["second_claim"]
+    )
+
+    renamed_study, renamed_concepts = documents(second_section, first_section)
+    renamed_context = _build_flat_group_context(renamed_study, renamed_concepts)
+    renamed_topology, renamed_path, renamed_diagnostics = (
+        _topology_and_learning_path(renamed_concepts, related, renamed_context)
+    )
+    assert [group["label"] for group in renamed_topology["flat_groups"]] == [
+        "First grounded section", "Second grounded section"
+    ]
+    assert [step["formal_concept_id"] for step in renamed_path] == [
+        "first", "second"
+    ]
+    assert renamed_diagnostics == diagnostics
+    assert _revision({"flat_group_context": context}) != _revision(
+        {"flat_group_context": renamed_context}
     )
 
 

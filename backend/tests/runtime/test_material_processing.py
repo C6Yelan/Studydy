@@ -837,6 +837,18 @@ def test_partial_page_and_semantic_status_reaches_persisted_run(
         "depth": 0,
         "primary_parent_formal_concept_id": None,
         "flat_group_id": flat_group_id,
+        "flat_group_anchor": {
+            "evidence_id": second_concept["claims"][0]["evidence"][0][
+                "evidence_id"
+            ],
+            "page_ref": second_concept["claims"][0]["evidence"][0][
+                "page_ref"
+            ],
+            "page_number": second_concept["claims"][0]["evidence"][0][
+                "page_number"
+            ],
+            "reading_order": 0,
+        },
     })
     relation_view["topology"]["flat_groups"][0][
         "formal_concept_ids"

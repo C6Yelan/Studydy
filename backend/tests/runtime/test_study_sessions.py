@@ -65,6 +65,48 @@ def _formal_id(concept: dict) -> str:
     )
 
 
+def _flat_group_context(concepts: list[dict]) -> dict:
+    anchors = [
+        {
+            "formal_concept_id": concept["formal_concept_id"],
+            "flat_group_id": concept["source_members"][0]["section_ids"][0],
+            "evidence_id": concept["claims"][0]["evidence_ids"][0],
+            "page_ref": concept["source_members"][0]["page_ref"],
+            "page_number": concept["source_page_numbers"][0],
+            "reading_order": index,
+        }
+        for index, concept in enumerate(concepts)
+    ]
+    groups = [
+        {
+            "flat_group_id": anchor["flat_group_id"],
+            "label": f"第 {anchor['page_number']} 頁未命名段落",
+            "label_source": "unheaded_fallback",
+            "heading_evidence_id": None,
+            "source_order": {
+                key: value
+                for key, value in anchor.items()
+                if key not in {"formal_concept_id", "flat_group_id"}
+            },
+        }
+        for anchor in anchors
+    ]
+    return {
+        "concept_anchors": sorted(
+            anchors, key=lambda item: item["formal_concept_id"]
+        ),
+        "groups": sorted(
+            groups,
+            key=lambda item: (
+                item["source_order"]["page_number"],
+                item["source_order"]["reading_order"],
+                item["source_order"]["evidence_id"],
+                item["flat_group_id"],
+            ),
+        ),
+    }
+
+
 def _relation(relation_type: str, source: dict, target: dict) -> dict:
     relation_evidence = [
         {
@@ -126,7 +168,9 @@ def _knowledge_map() -> dict:
                 "evidence_ids": [evidence_id],
                 "page_ref": "page:sha256:" + "1" * 64,
                 "document_context_id": "document-context:sha256:" + str(index + 1) * 64,
-                "section_ids": ["section:sha256:" + str(index + 1) * 64],
+                "section_ids": [
+                    "document-section:sha256:" + str(index + 1) * 64
+                ],
             }],
             "source_page_refs": ["page:sha256:" + "1" * 64],
             "source_page_numbers": [1],
@@ -257,11 +301,14 @@ def _knowledge_map() -> dict:
             "RELATION_REVIEW_REQUIRED",
         ],
     }
+    knowledge_map["flat_group_context"] = _flat_group_context(concepts)
     (
         knowledge_map["topology"],
         knowledge_map["initial_learning_path"],
         knowledge_map["topology_diagnostics"],
-    ) = _topology_and_learning_path(concepts, relations)
+    ) = _topology_and_learning_path(
+        concepts, relations, knowledge_map["flat_group_context"]
+    )
     knowledge_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(
         knowledge_map
     )
@@ -283,6 +330,10 @@ def _rejected_knowledge_map() -> dict:
         key: 0 for key in knowledge_map["resource_diagnostics"]
     }
     knowledge_map["topology"] = {"roots": [], "nodes": [], "flat_groups": []}
+    knowledge_map["flat_group_context"] = {
+        "concept_anchors": [],
+        "groups": [],
+    }
     knowledge_map["topology_diagnostics"] = {
         "component_count": 0,
         "orphan_concept_count": 0,
