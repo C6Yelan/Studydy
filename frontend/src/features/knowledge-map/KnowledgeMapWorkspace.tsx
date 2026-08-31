@@ -165,7 +165,15 @@ function RelationDetail({ apiClient, close, relation, sourceArtifactId, view }: 
       </div>
       <section>
         <h3>關係說明</h3>
-        <p>{presentation.explanation}</p>
+        <p>{relation.reason}</p>
+        <p className="detail-meta">推論依據：{{
+          claim_semantics: "教材敘述",
+          document_structure: "教材結構",
+          combined: "教材敘述與結構",
+        }[relation.inference_basis]}</p>
+        {relation.needs_review && (
+          <p className="inline-warning"><Icon name="warning" />此關係需要進一步複核。</p>
+        )}
         {relation.is_in_prerequisite_cycle && (
           <p className="inline-warning"><Icon name="warning" />這條先備關係位於待複核循環中。</p>
         )}

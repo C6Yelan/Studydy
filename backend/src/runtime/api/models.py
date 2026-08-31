@@ -256,16 +256,54 @@ class RelationEvidenceView(_ClosedModel):
         return self
 
 
+class RelationContextView(_ClosedModel):
+    owner_formal_concept_id: str = Field(
+        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$"
+    )
+    document_context_id: str = Field(
+        pattern=r"^document-context:sha256:[0-9a-f]{64}$"
+    )
+    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
+    section_ids: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_sections(self) -> "RelationContextView":
+        if self.section_ids != sorted(set(self.section_ids)):
+            raise ValueError("RELATION_CONTEXT_INVALID")
+        return self
+
+
 class FormalRelationView(_ClosedModel):
     relation_id: str = Field(pattern=r"^formal-relation:sha256:[0-9a-f]{64}$")
     type: Literal["prerequisite", "contains", "related"]
     source_formal_concept_id: str
     target_formal_concept_id: str
+    reason: str = Field(min_length=4, max_length=500)
+    inference_basis: Literal[
+        "claim_semantics", "document_structure", "combined"
+    ]
     relation_evidence: list[RelationEvidenceView] = Field(min_length=1)
+    relation_context: list[RelationContextView]
+    needs_review: bool
     quality: Literal["needs_review"]
     decision: Literal["review"]
     reason_codes: list[str] = Field(min_length=1)
     is_in_prerequisite_cycle: bool
+
+    @model_validator(mode="after")
+    def validate_grounding(self) -> "FormalRelationView":
+        context_keys = [
+            (item.owner_formal_concept_id, item.document_context_id)
+            for item in self.relation_context
+        ]
+        if (
+            context_keys != sorted(set(context_keys))
+            or self.inference_basis in {"document_structure", "combined"}
+            and not self.relation_context
+            or self.is_in_prerequisite_cycle
+        ):
+            raise ValueError("FORMAL_RELATION_INVALID")
+        return self
 
 
 class ConceptDiagnosticsView(_ClosedModel):
@@ -317,17 +355,20 @@ class RelationDiagnosticsView(_ClosedModel):
     candidate_pairs: int = Field(ge=0)
     selected_pairs: int = Field(ge=0)
     selected_signal_counts: dict[str, int]
-    evidence_gated_pairs: int = Field(ge=0)
-    rejected_no_evidence: int = Field(ge=0)
-    direction_conflicts: int = Field(ge=0)
+    model_calls: int = Field(ge=0)
+    model_no_relation_pairs: int = Field(ge=0)
+    model_contains_pairs: int = Field(ge=0)
+    model_prerequisite_pairs: int = Field(ge=0)
+    model_related_pairs: int = Field(ge=0)
+    model_review_pairs: int = Field(ge=0)
+    unexpected_pairs: int = Field(ge=0)
+    invalid_pairs: int = Field(ge=0)
+    canonical_rejections: int = Field(ge=0)
     verifier_calls: int = Field(ge=0)
     verifier_accepted: int = Field(ge=0)
     verifier_rejected: int = Field(ge=0)
     verifier_unsupported: int = Field(ge=0)
-    structural_proposals: int = Field(ge=0)
-    contains_proposals: int = Field(ge=0)
-    prerequisite_proposals: int = Field(ge=0)
-    related_proposals: int = Field(ge=0)
+    verifier_failures: int = Field(ge=0)
     accepted_relations: int = Field(ge=0)
 
     @model_validator(mode="after")
@@ -336,8 +377,9 @@ class RelationDiagnosticsView(_ClosedModel):
             "adjacent",
             "same_group",
             "same_page",
+            "same_context",
+            "same_section",
             "explicit_relation",
-            "cross_reference",
             "label_mention",
             "shared_evidence",
             "shared_formula",
@@ -346,8 +388,12 @@ class RelationDiagnosticsView(_ClosedModel):
             self.selected_pairs > self.candidate_pairs
             or self.candidate_pairs > self.possible_pairs
             or self.verifier_accepted + self.verifier_rejected > self.verifier_calls
-            or self.structural_proposals
-            != self.contains_proposals + self.prerequisite_proposals
+            or self.selected_pairs
+            != self.model_no_relation_pairs
+            + self.model_contains_pairs
+            + self.model_prerequisite_pairs
+            + self.model_related_pairs
+            + self.invalid_pairs
             or any(
                 signal not in allowed_signals or count < 0
                 for signal, count in self.selected_signal_counts.items()
@@ -422,7 +468,7 @@ class ArtifactStatusView(_ClosedModel):
 
 
 class KnowledgeMapView(_ClosedModel):
-    schema_: Literal["knowledge-map-view/v7"] = Field(alias="schema")
+    schema_: Literal["knowledge-map-view/v8"] = Field(alias="schema")
     material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
     knowledge_map_revision: str = Field(
         pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"

@@ -1,5 +1,5 @@
 {
-  "schema": "studydy-local-ai-runtime-lock/v9",
+  "schema": "studydy-local-ai-runtime-lock/v10",
   "python": {
     "version": "3.12.3",
     "executable_sha256": "4933b6c4a8521fb3aa93856701e30b3ac2626d3c47ceb22965a3b0b422e85b44"
@@ -159,7 +159,7 @@
       "backend_process_guard": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
       "backend_concept_generation": "390cecca7cb143c2a939acb9beffab0920482c556614f06ba25ec40b454a4835",
       "backend_document_context": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
-      "backend_text_first_run": "9438a153779715b5f60557c7a88b449a6c4f9593d8f112b30ffa29497e1fc26e",
+      "backend_text_first_run": "a1f637d6233bce02380355b49063d8a7589b3141e5040ffb9c2fee76aec79399",
       "backend_study_material_output": "967271f356c5da7c2e1ab87b7086f629787838ea7437e236749bb1a4b8651a49"
     },
     "fixture_hashes": {
@@ -195,6 +195,24 @@
     "package_source": {
       "name": "equivalence_process.py",
       "sha256": "588383aeb52638a7dd23a91c5d400229845c859d897b21bef5c8d06e06ffa56c"
+    }
+  },
+  "formal_relation": {
+    "prompt": "/no_think\nFor every supplied pair, return exactly one outcome: no_relation, contains, prerequisite, or related. contains means source is the broader whole and target is its component. prerequisite means learners should understand source before target for concrete learning reasons; page order or adjacency alone is never proof. related requires a specific meaningful learning association and is never an uncertainty fallback. Use no_relation when the grounded content does not establish one of the three relations. Retrieval signals are hints only. Cite only supplied Claim, Evidence, and context aliases; use document_structure or combined only with context refs. Give a concise learner-readable reason that states the actual learning semantics. Set needs_review when support is indirect, conflicting, or limited. Return every pair id exactly once as JSON and no extra fields.",
+    "prompt_sha256": "03d9f7434d72ad49204b7bbcdf094be63cb7f31f74d1a92b04b627cbb9c3a83a",
+    "request_schema": "formal-relation-input/v3",
+    "output_schema": "formal-relation-proposals/v1",
+    "generation": {"temperature": 0, "max_tokens": 3072},
+    "timeout_seconds": 300,
+    "pair_ceiling": 128,
+    "batch_size": 16,
+    "code_hashes": {
+      "backend_relations": "dd63ed988ee16c530bd4b283707e6101665101289f2b84ccaa3e459fe90a41e5",
+      "backend_local_generation": "0f1f05a5a376327e252aced21a069d93474bc18cd7d3e5eca4751c978a1cd969"
+    },
+    "retry": {
+      "max_attempts": 2,
+      "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
     }
   },
   "relation_verifier": {

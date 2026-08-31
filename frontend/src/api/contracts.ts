@@ -92,7 +92,7 @@ export type ExcludedPageView = {
 };
 
 export type KnowledgeMapView = {
-  schema: "knowledge-map-view/v7";
+  schema: "knowledge-map-view/v8";
   material_ref: string;
   knowledge_map_revision: string;
   source_output_id: string;
@@ -156,11 +156,20 @@ export type KnowledgeMapView = {
     type: "prerequisite" | "contains" | "related";
     source_formal_concept_id: string;
     target_formal_concept_id: string;
+    reason: string;
+    inference_basis: "claim_semantics" | "document_structure" | "combined";
     relation_evidence: {
       owner_formal_concept_id: string;
       claim_id: string;
       evidence_ids: string[];
     }[];
+    relation_context: {
+      owner_formal_concept_id: string;
+      document_context_id: string;
+      page_ref: string;
+      section_ids: string[];
+    }[];
+    needs_review: boolean;
     quality: "needs_review";
     decision: "review";
     reason_codes: string[];
@@ -171,17 +180,20 @@ export type KnowledgeMapView = {
     candidate_pairs: number;
     selected_pairs: number;
     selected_signal_counts: Record<string, number>;
-    evidence_gated_pairs: number;
-    rejected_no_evidence: number;
-    direction_conflicts: number;
+    model_calls: number;
+    model_no_relation_pairs: number;
+    model_contains_pairs: number;
+    model_prerequisite_pairs: number;
+    model_related_pairs: number;
+    model_review_pairs: number;
+    unexpected_pairs: number;
+    invalid_pairs: number;
+    canonical_rejections: number;
     verifier_calls: number;
     verifier_accepted: number;
     verifier_rejected: number;
     verifier_unsupported: number;
-    structural_proposals: number;
-    contains_proposals: number;
-    prerequisite_proposals: number;
-    related_proposals: number;
+    verifier_failures: number;
     accepted_relations: number;
   };
   resource_binding: {

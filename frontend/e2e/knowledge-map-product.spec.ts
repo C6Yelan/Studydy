@@ -74,18 +74,22 @@ function publishedMap(): KnowledgeMapView {
     type,
     source_formal_concept_id: concepts[source].formal_concept_id,
     target_formal_concept_id: concepts[target].formal_concept_id,
+    reason: "兩個概念共享一個具體的教材應用。",
+    inference_basis: "claim_semantics",
     relation_evidence: [{
       owner_formal_concept_id: concepts[source].formal_concept_id,
       claim_id: concepts[source].claims[0].claim_id,
       evidence_ids: [concepts[source].claims[0].evidence[0].evidence_id],
     }],
+    relation_context: [],
+    needs_review: false,
     quality: "needs_review",
     decision: "review",
     reason_codes: ["RELATION_REVIEW_REQUIRED"],
     is_in_prerequisite_cycle: false,
   });
   return {
-    schema: "knowledge-map-view/v7",
+    schema: "knowledge-map-view/v8",
     material_ref: revision("material", "9"),
     knowledge_map_revision: mapRevision,
     source_output_id: revision("study-material-output", "b"),
@@ -126,17 +130,20 @@ function publishedMap(): KnowledgeMapView {
       candidate_pairs: 3,
       selected_pairs: 3,
       selected_signal_counts: { explicit_relation: 3 },
-      evidence_gated_pairs: 3,
-      rejected_no_evidence: 0,
-      direction_conflicts: 0,
+      model_calls: 1,
+      model_no_relation_pairs: 0,
+      model_review_pairs: 0,
+      unexpected_pairs: 0,
+      canonical_rejections: 0,
       verifier_calls: 2,
       verifier_accepted: 2,
       verifier_rejected: 0,
       verifier_unsupported: 0,
-      structural_proposals: 2,
-      contains_proposals: 1,
-      prerequisite_proposals: 1,
-      related_proposals: 1,
+      model_contains_pairs: 1,
+      model_prerequisite_pairs: 1,
+      model_related_pairs: 1,
+      invalid_pairs: 0,
+      verifier_failures: 0,
       accepted_relations: 3,
     },
     resource_binding: {
@@ -210,7 +217,8 @@ test("Knowledge Map 只呈現 published 三種 Relation，related 保持對稱",
   await expect(page.getByText(/candidate_pairs|verifier_calls|relation_diagnostics/i)).toHaveCount(0);
   await page.locator(".focus-edge.is-related").click();
   await expect(page.getByRole("heading", { name: "互相關聯" })).toBeVisible();
-  await expect(page.getByText("兩個概念在教材中互有關聯，沒有單向學習箭頭。")).toBeVisible();
+  await expect(page.getByText("兩個概念共享一個具體的教材應用。")).toBeVisible();
+  await expect(page.getByText("推論依據：教材敘述")).toBeVisible();
   await captureAcceptance(page, "07_relation_detail.png");
 
   await page.getByRole("tab", { name: "學習順序" }).click();

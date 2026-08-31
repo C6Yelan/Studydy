@@ -15,8 +15,8 @@ RELATION_TYPES = {"prerequisite", "contains", "related"}
 SYMMETRIC_RELATION_TYPES = {"related"}
 
 
-KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v7"
-KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v7"
+KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v8"
+KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v8"
 
 _RESOURCE_DIAGNOSTIC_FIELDS = {
     "matches",
@@ -49,17 +49,20 @@ _RELATION_DIAGNOSTIC_FIELDS = {
     "candidate_pairs",
     "selected_pairs",
     "selected_signal_counts",
-    "evidence_gated_pairs",
-    "rejected_no_evidence",
-    "direction_conflicts",
+    "model_calls",
+    "model_no_relation_pairs",
+    "model_contains_pairs",
+    "model_prerequisite_pairs",
+    "model_related_pairs",
+    "model_review_pairs",
+    "unexpected_pairs",
+    "invalid_pairs",
+    "canonical_rejections",
     "verifier_calls",
     "verifier_accepted",
     "verifier_rejected",
     "verifier_unsupported",
-    "structural_proposals",
-    "contains_proposals",
-    "prerequisite_proposals",
-    "related_proposals",
+    "verifier_failures",
     "accepted_relations",
 }
 _CONCEPT_DIAGNOSTIC_FIELDS = {
@@ -78,11 +81,13 @@ def _revision(document: dict[str, Any]) -> str:
     return "knowledge-map:sha256:" + canonical_sha256(content)
 
 
-def _cycle_relation_ids(relations: list[dict[str, Any]]) -> set[str]:
+def _cycle_relation_ids(
+    relations: list[dict[str, Any]], *, relation_type: str = "prerequisite"
+) -> set[str]:
     adjacency: dict[str, set[str]] = {}
     prerequisite = []
     for relation in relations:
-        if relation["type"] == "prerequisite":
+        if relation["type"] == relation_type:
             source = relation["source_formal_concept_id"]
             target = relation["target_formal_concept_id"]
             adjacency.setdefault(source, set()).add(target)
@@ -291,6 +296,9 @@ def build_knowledge_map(
     if len(relation_ids) != len(set(relation_ids)):
         raise ValueError("KNOWLEDGE_MAP_RELATION_INVALID")
     cycle_ids = _cycle_relation_ids(relations)
+    contains_cycle_ids = _cycle_relation_ids(relations, relation_type="contains")
+    if cycle_ids or contains_cycle_ids:
+        raise ValueError("KNOWLEDGE_MAP_RELATION_INVALID")
     for relation in relations:
         if (
             relation["source_formal_concept_id"] not in formal_ids
@@ -298,11 +306,7 @@ def build_knowledge_map(
             or relation["source_formal_concept_id"] == relation["target_formal_concept_id"]
         ):
             raise ValueError("KNOWLEDGE_MAP_RELATION_INVALID")
-        relation["is_in_prerequisite_cycle"] = relation["relation_id"] in cycle_ids
-        if relation["is_in_prerequisite_cycle"]:
-            relation["reason_codes"] = sorted(
-                set(relation["reason_codes"]) | {"PREREQUISITE_CYCLE"}
-            )
+        relation["is_in_prerequisite_cycle"] = False
 
     formal_concepts.sort(
         key=lambda concept: (
@@ -337,8 +341,6 @@ def build_knowledge_map(
             for reason in artifact.get("reason_codes", [])
         ),
     }
-    if cycle_ids:
-        reasons.add("PREREQUISITE_CYCLE")
     if has_no_formal_concept:
         reasons.add("NO_FORMAL_CONCEPT")
     if resource_promotion["resource_diagnostics"]["split_review_matches"]:
@@ -427,8 +429,9 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                     "adjacent",
                     "same_group",
                     "same_page",
+                    "same_context",
+                    "same_section",
                     "explicit_relation",
-                    "cross_reference",
                     "label_mention",
                     "shared_evidence",
                     "shared_formula",
@@ -441,9 +444,12 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             or diagnostics["candidate_pairs"] > diagnostics["possible_pairs"]
             or diagnostics["verifier_accepted"] + diagnostics["verifier_rejected"]
             > diagnostics["verifier_calls"]
-            or diagnostics["structural_proposals"]
-            != diagnostics["contains_proposals"]
-            + diagnostics["prerequisite_proposals"]
+            or diagnostics["selected_pairs"]
+            != diagnostics["model_no_relation_pairs"]
+            + diagnostics["model_contains_pairs"]
+            + diagnostics["model_prerequisite_pairs"]
+            + diagnostics["model_related_pairs"]
+            + diagnostics["invalid_pairs"]
         ):
             return "KNOWLEDGE_MAP_INVALID"
         concept_diagnostics = knowledge_map["concept_diagnostics"]
@@ -783,12 +789,22 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
         relation_ids = set()
         relation_keys: set[tuple[str, str, str]] = set()
         directed_pairs: set[tuple[str, str]] = set()
+        contexts_by_formal = {
+            concept["formal_concept_id"]: {
+                member["document_context_id"]: member
+                for member in concept["source_members"]
+            }
+            for concept in formal
+        }
         for relation in knowledge_map["relations"]:
             identity = {
                 "type": relation.get("type"),
                 "source_formal_concept_id": relation.get("source_formal_concept_id"),
                 "target_formal_concept_id": relation.get("target_formal_concept_id"),
+                "reason": relation.get("reason"),
+                "inference_basis": relation.get("inference_basis"),
                 "relation_evidence": relation.get("relation_evidence"),
+                "relation_context": relation.get("relation_context"),
             }
             relation_key = (
                 relation.get("type"),
@@ -798,7 +814,8 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             if (
                 set(relation) != {
                     "relation_id", "type", "source_formal_concept_id",
-                    "target_formal_concept_id", "relation_evidence",
+                    "target_formal_concept_id", "reason", "inference_basis",
+                    "relation_evidence", "relation_context", "needs_review",
                     "quality", "decision", "reason_codes",
                     "is_in_prerequisite_cycle",
                 }
@@ -807,16 +824,28 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                 or relation["target_formal_concept_id"] not in formal_ids
                 or relation["source_formal_concept_id"] == relation["target_formal_concept_id"]
                 or relation["type"] not in RELATION_TYPES
+                or not isinstance(relation["reason"], str)
+                or not relation["reason"]
+                or relation["inference_basis"]
+                not in {"claim_semantics", "document_structure", "combined"}
+                or type(relation["needs_review"]) is not bool
                 or relation["quality"] != "needs_review"
                 or relation["decision"] != "review"
                 or not reason_codes_are_valid(relation["reason_codes"], formal=True)
                 or relation["reason_codes"] != sorted(set(relation["reason_codes"]))
                 or type(relation["is_in_prerequisite_cycle"]) is not bool
+                or relation["is_in_prerequisite_cycle"]
                 or relation["relation_id"]
                 != "formal-relation:sha256:" + canonical_sha256(identity)
                 or relation_key in relation_keys
                 or not isinstance(relation["relation_evidence"], list)
                 or not relation["relation_evidence"]
+                or not isinstance(relation["relation_context"], list)
+                or (
+                    relation["inference_basis"]
+                    in {"document_structure", "combined"}
+                    and not relation["relation_context"]
+                )
                 or (
                     relation["type"] in SYMMETRIC_RELATION_TYPES
                     and relation["target_formal_concept_id"]
@@ -855,6 +884,33 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
                 relation_evidence_keys.append((owner, item["claim_id"]))
             if relation_evidence_keys != sorted(set(relation_evidence_keys)):
                 return "KNOWLEDGE_MAP_INVALID"
+            context_keys = []
+            for item in relation["relation_context"]:
+                if (
+                    not isinstance(item, dict)
+                    or set(item) != {
+                        "owner_formal_concept_id", "document_context_id",
+                        "page_ref", "section_ids",
+                    }
+                    or item["owner_formal_concept_id"] not in {
+                        relation["source_formal_concept_id"],
+                        relation["target_formal_concept_id"],
+                    }
+                ):
+                    return "KNOWLEDGE_MAP_INVALID"
+                owner = item["owner_formal_concept_id"]
+                member = contexts_by_formal[owner].get(
+                    item["document_context_id"]
+                )
+                if (
+                    member is None
+                    or item["page_ref"] != member["page_ref"]
+                    or item["section_ids"] != member["section_ids"]
+                ):
+                    return "KNOWLEDGE_MAP_INVALID"
+                context_keys.append((owner, item["document_context_id"]))
+            if context_keys != sorted(set(context_keys)):
+                return "KNOWLEDGE_MAP_INVALID"
             relation_ids.add(relation["relation_id"])
             relation_keys.add(relation_key)
             directed_pairs.add(
@@ -867,11 +923,8 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             return "KNOWLEDGE_MAP_INVALID"
         if set(knowledge_map["initial_learning_path"]) != formal_ids:
             return "KNOWLEDGE_MAP_INVALID"
-        expected_cycles = _cycle_relation_ids(knowledge_map["relations"])
-        if any(
-            relation["is_in_prerequisite_cycle"]
-            != (relation["relation_id"] in expected_cycles)
-            for relation in knowledge_map["relations"]
+        if _cycle_relation_ids(knowledge_map["relations"]) or _cycle_relation_ids(
+            knowledge_map["relations"], relation_type="contains"
         ):
             return "KNOWLEDGE_MAP_INVALID"
         if knowledge_map["initial_learning_path"] != _learning_path(formal, knowledge_map["relations"]):

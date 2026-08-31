@@ -34,10 +34,12 @@ from .formal_concepts import (
     validate_pair_decisions,
 )
 from .relations import (
-    build_relation_artifact,
-    has_structural_relation_evidence,
+    RELATION_PROPOSAL_SCHEMA,
+    build_relation_request,
+    failed_relation_artifact,
     relation_premise,
     select_relation_pairs,
+    validate_relation_proposals,
 )
 
 
@@ -81,6 +83,73 @@ def _deduplication_format(request: dict[str, Any]) -> dict[str, Any]:
     pairs["maxItems"] = len(pair_ids)
     pairs["items"]["properties"]["id"] = {"enum": pair_ids}
     return response_format
+
+
+def _relation_format(request: dict[str, Any]) -> dict[str, Any]:
+    """Relation structured output 只能引用目前 pair 與 aliases。"""
+
+    pair_ids = [pair["id"] for pair in request["pairs"]]
+    node_ids = [node["id"] for node in request["nodes"]]
+    claim_ids = [claim["id"] for node in request["nodes"] for claim in node["claims"]]
+    evidence_ids = sorted({
+        evidence_id
+        for node in request["nodes"]
+        for claim in node["claims"]
+        for evidence_id in claim["evidence_ids"]
+    })
+    context_ids = [
+        context["id"]
+        for node in request["nodes"]
+        for context in node["contexts"]
+    ]
+    basis = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["kind", "claim_ids", "evidence_ids", "context_ids"],
+        "properties": {
+            "kind": {"enum": ["claim_semantics", "document_structure", "combined"]},
+            "claim_ids": {"type": "array", "items": {"enum": claim_ids}},
+            "evidence_ids": {"type": "array", "items": {"enum": evidence_ids}},
+            "context_ids": {"type": "array", "items": {"enum": context_ids}},
+        },
+    }
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "studydy_formal_relations",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["schema", "pairs"],
+                "properties": {
+                    "schema": {"const": RELATION_PROPOSAL_SCHEMA},
+                    "pairs": {
+                        "type": "array",
+                        "minItems": len(pair_ids),
+                        "maxItems": len(pair_ids),
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": [
+                                "id", "outcome", "source", "target", "reason",
+                                "inference_basis", "needs_review",
+                            ],
+                            "properties": {
+                                "id": {"enum": pair_ids},
+                                "outcome": {"enum": ["no_relation", "contains", "prerequisite", "related"]},
+                                "source": {"enum": node_ids},
+                                "target": {"enum": node_ids},
+                                "reason": {"type": "string", "minLength": 4, "maxLength": 500},
+                                "inference_basis": basis,
+                                "needs_review": {"type": "boolean"},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
 
 
 def _json_document(model_text: str) -> dict[str, Any]:
@@ -333,70 +402,114 @@ def _verify_relation(
 
 
 def _build_relation_artifacts(
-    batches: list[list[tuple[str, str]]],
+    batches: list[list[dict[str, Any]]],
     formal_concepts: list[dict[str, Any]],
     evidence_pages: dict[str, str],
+    page_numbers: dict[str, int],
     settings: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Verifier 任一 startup/runtime failure 都重建為無 structural edge。"""
+    """Qwen 每批提案；NLI 只增加 review risk，不刪除 grounded Relation。"""
 
-    needs_verifier = any(
-        has_structural_relation_evidence(pairs, formal_concepts)
-        for pairs in batches
-    )
+    if not batches:
+        return []
+    server = None
     relation_process = None
-    timeout_seconds = settings["runtime_lock"]["relation_verifier"][
-        "timeout_seconds"
+    verifier_failure: str | None = None
+    timeout_seconds = settings["runtime_lock"]["relation_verifier"]["timeout_seconds"]
+    known_reasons = {
+        "RELATION_VERIFIER_DEPENDENCY_MISSING",
+        "RELATION_VERIFIER_CUDA_UNAVAILABLE",
+        "RELATION_VERIFIER_MODEL_LOAD_FAILED",
+        "RELATION_VERIFIER_TIMEOUT",
+        "RELATION_VERIFIER_RESPONSE_INVALID",
+    }
+
+    def verifier(
+        relation_type: str,
+        source: dict[str, Any],
+        target: dict[str, Any],
+    ) -> tuple[bool | None, str | None]:
+        nonlocal relation_process, verifier_failure
+        if verifier_failure is not None:
+            return None, verifier_failure
+        try:
+            if relation_process is None:
+                relation_process = start_relation_process(settings, timeout_seconds)
+            return (
+                _verify_relation(
+                    relation_process, relation_type, source, target, timeout_seconds
+                ),
+                None,
+            )
+        except LocalAIError as error:
+            if relation_process is not None:
+                relation_process.abort()
+                relation_process = None
+            verifier_failure = (
+                error.reason_code
+                if error.reason_code in known_reasons
+                else "RELATION_VERIFIER_UNAVAILABLE"
+            )
+            return None, verifier_failure
+
+    requests = [
+        build_relation_request(batch, formal_concepts, page_numbers)
+        for batch in batches
     ]
+    artifacts = []
+    accepted_relations: list[dict[str, Any]] = []
+    relation_process = None
     try:
-        if needs_verifier:
-            relation_process = start_relation_process(settings, timeout_seconds)
-        verifier = (
-            None
-            if relation_process is None
-            else lambda relation_type, source, target: _verify_relation(
-                relation_process,
-                relation_type,
-                source,
-                target,
-                timeout_seconds,
-            )
-        )
-        artifacts = [
-            build_relation_artifact(
-                pairs, formal_concepts, evidence_pages, verifier
-            )
-            for pairs in batches
-        ]
+        server = start_concept_server(settings)
+        with httpx.Client(trust_env=False, follow_redirects=False) as client:
+            for request, bindings in requests:
+                try:
+                    model_text = _request_stage(
+                        client,
+                        settings,
+                        settings["runtime_lock"]["formal_relation"],
+                        request,
+                        _relation_format(request),
+                    )
+                    artifact = validate_relation_proposals(
+                        _json_document(model_text),
+                        request=request,
+                        bindings=bindings,
+                        formal_concepts=formal_concepts,
+                        evidence_pages=evidence_pages,
+                        verifier=verifier,
+                        prior_relations=accepted_relations,
+                    )
+                    if verifier_failure is not None and artifact["processing"] != "failed":
+                        artifact["processing"] = "partial"
+                        artifact["reason_codes"] = sorted({
+                            *artifact["reason_codes"], verifier_failure
+                        })
+                except ConceptAPIError as error:
+                    artifact = failed_relation_artifact(
+                        request, formal_reason_code(error.reason_code)
+                    )
+                except (KeyError, TypeError, ValueError):
+                    artifact = failed_relation_artifact(
+                        request, "MODEL_OUTPUT_INVALID"
+                    )
+                artifacts.append(artifact)
+                accepted_relations.extend(artifact["relations"])
         if relation_process is not None:
             relation_process.close()
             relation_process = None
         return artifacts
-    except LocalAIError as error:
+    except ConceptAPIError as error:
+        reason = formal_reason_code(error.reason_code)
+        return [
+            failed_relation_artifact(request, reason)
+            for request, _ in requests
+        ]
+    finally:
         if relation_process is not None:
             relation_process.abort()
-        known_reasons = {
-            "RELATION_VERIFIER_DEPENDENCY_MISSING",
-            "RELATION_VERIFIER_CUDA_UNAVAILABLE",
-            "RELATION_VERIFIER_MODEL_LOAD_FAILED",
-            "RELATION_VERIFIER_TIMEOUT",
-            "RELATION_VERIFIER_RESPONSE_INVALID",
-        }
-        failure_reason = (
-            error.reason_code
-            if error.reason_code in known_reasons
-            else "RELATION_VERIFIER_UNAVAILABLE"
-        )
-        return [
-            build_relation_artifact(
-                pairs,
-                formal_concepts,
-                evidence_pages,
-                None,
-                verifier_failure_reason=failure_reason,
-            )
-            for pairs in batches
-        ]
+        if server is not None:
+            server.close()
 
 
 def generate_knowledge_map(
@@ -407,7 +520,7 @@ def generate_knowledge_map(
     resource_context: dict[str, Any],
     resource_library: dict[str, Any],
 ) -> dict[str, Any]:
-    """同一次本機 Qwen lifecycle 完成 Resolution 與 Relation candidates。"""
+    """以固定本機 Qwen 完成 Resolution 與 bounded Relation proposals。"""
 
     runtime_lock = settings["runtime_lock"]
     source_concepts = study_material_output["concepts"]
@@ -516,7 +629,7 @@ def generate_knowledge_map(
         for evidence in study_material_output["evidence_index"]
     }
     relation_artifacts = _build_relation_artifacts(
-        batches, formal_concepts, evidence_pages, settings
+        batches, formal_concepts, evidence_pages, page_numbers, settings
     )
     return build_knowledge_map(
         study_material_output,

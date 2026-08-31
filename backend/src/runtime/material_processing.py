@@ -64,7 +64,7 @@ _CONFIG_PATH_KEYS = {
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "2172e987a96489e4dc16e8af1037b644049c14d50a01d861290c5bffecfb1946",
+    "local_ai/runtime-lock.json": "c9045788c221a90523058e19fcd225e745d91b5bab35198da6182c2babfe015a",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "13716c4f0e1429802f2fa0e28c4e87743c678adb5ad61a32c12cb6309fd55a6a",
     "backend/src/pdf_evidence/concept_generation.py": "390cecca7cb143c2a939acb9beffab0920482c556614f06ba25ec40b454a4835",
     "backend/src/pdf_evidence/document_context.py": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
@@ -72,6 +72,8 @@ _LOCKED_FILES = {
     "backend/src/pdf_evidence/study_material_output.py": "967271f356c5da7c2e1ab87b7086f629787838ea7437e236749bb1a4b8651a49",
     "backend/src/pdf_evidence/process_guard.py": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
     "backend/src/pdf_evidence/local_ai_process.py": "3cc563a14f6e82421d402cf5fa37bfc9f236c71d93e46e514357d69167b05539",
+    "backend/src/knowledge_map/relations.py": "dd63ed988ee16c530bd4b283707e6101665101289f2b84ccaa3e459fe90a41e5",
+    "backend/src/knowledge_map/local_generation.py": "0f1f05a5a376327e252aced21a069d93474bc18cd7d3e5eca4751c978a1cd969",
 }
 _BINDING_FILES = (
     "backend/src/pdf_evidence/artifact_reason_codes.py",
@@ -602,7 +604,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         for relative_path in _BINDING_FILES
     }
     binding = {
-        "schema": "formal-material-runtime-binding/v6",
+        "schema": "formal-material-runtime-binding/v7",
         "runtime_lock_sha256": canonical_sha256(local_config["runtime_lock"]),
         "code_hashes": code_hashes,
         "document_policy": "whole-document-review-aggregation/v1",
@@ -610,7 +612,8 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         "call_ceilings": {
             "ocr_calls_per_page": 1,
             "ocr_initial_loads": 1,
-            "concept_initial_loads": 2,
+            "concept_initial_loads": 3,
+            "relation_model_batches_per_material": 8,
             "concept_equivalence_initial_loads": 1,
             "concept_equivalence_pairs_per_material": 16,
             "concept_equivalence_directions_per_material": 32,
@@ -656,7 +659,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         ),
         "residency_policy": (
             "ocr-child-then-owned-loopback-concept-server-"
-            "then-concept-equivalence-then-relation-verifier/v5"
+            "then-concept-equivalence-then-relation-model-then-relation-verifier/v6"
         ),
         "network_policy": "loopback-concept-api-no-credentials/v1",
         "retention_policy": {
