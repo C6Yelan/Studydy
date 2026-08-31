@@ -8,16 +8,13 @@ from typing import Any
 from .artifact_reason_codes import formal_reason_codes, reason_codes_are_valid
 from .concept_evidence_output import AGGREGATION_POLICY, validate_output_document
 from .concept_generation import (
-    SEMANTIC_REQUEST_SCHEMA,
+    build_semantic_request,
     claim_id,
     concept_id,
     fitted_semantic_request_matches_source,
     validate_semantic_request,
 )
-from .document_context import (
-    serialize_document_context,
-    validate_document_context_shape,
-)
+from .document_context import validate_document_context_shape
 from .ocr_page_evidence import canonical_sha256
 
 
@@ -227,24 +224,24 @@ def _shape_is_valid(document: Any) -> bool:
     }
     source_requests = {}
     for page_ref, context in contexts_by_page.items():
-        evidence = []
-        aliases = {}
-        kinds = {}
-        for index, block in enumerate(context["current_blocks"], start=1):
-            alias = f"e{index}"
-            evidence.append({
-                "id": alias,
-                "text": evidence_text_by_id[block["evidence_id"]],
-            })
-            aliases[alias] = block["evidence_id"]
-            kinds[alias] = evidence_by_id[block["evidence_id"]]["kind"]
-        source_requests[page_ref] = {
-            "schema": SEMANTIC_REQUEST_SCHEMA,
-            "evidence": evidence,
-            "document_context": serialize_document_context(
-                context, aliases, kinds
-            ),
-        }
+        try:
+            source_requests[page_ref], _ = build_semantic_request(
+                {
+                    "page_ref": page_ref,
+                    "page_evidence_id": context["page_evidence_id"],
+                    "evidence_blocks": [
+                        {
+                            "evidence_id": block["evidence_id"],
+                            "kind": evidence_by_id[block["evidence_id"]]["kind"],
+                            "text": evidence_text_by_id[block["evidence_id"]],
+                        }
+                        for block in context["current_blocks"]
+                    ],
+                },
+                context,
+            )
+        except (KeyError, TypeError, ValueError):
+            return False
     for batch in semantic_batches:
         if (
             not isinstance(batch, dict)

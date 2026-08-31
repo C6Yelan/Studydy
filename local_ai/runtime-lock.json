@@ -103,9 +103,9 @@
       "version": "0.26.0+cu129",
       "executable_sha256": "6d34800bbe39c7b1d94043fa0a7badafd894dbc422e0212f94ebe16547b2097a"
     },
-    "prompt": "Extract study concepts only from the supplied current evidence. Use document_context when present only to interpret heading ancestry, adjacency, and continuation; it is not claim evidence. Use current_blocks.kind as grounded Evidence role metadata. Cite only IDs from the current evidence list, and give every definition and key point non-empty evidence_ids. Preserve exact escapes, symbols, operators, numbers, units, conditions, direction, and scope, including \\0. Do not emit isolated connectors, syntax tails, half clauses, or incomplete declarations as claims. Return concepts=[] when the current page teaches no concept. Return JSON only and no additional fields.",
-    "prompt_sha256": "801b82a181c72a9ba601423afce8ece532c5db665cb216a5cc82ca9cc39c44a4",
-    "request_schema": "concept-generation-input/v6",
+    "prompt": "Extract study concepts only from the supplied current evidence. Use document_context when present only to interpret heading ancestry, adjacency, and continuation; it is not claim evidence. Use current_blocks.kind as grounded Evidence role metadata. assessment_groups preserves a question stem with its options; when has_reliable_answer is false, do not infer an answer or emit any proposition from the question stem or its options as a factual claim. Cite only IDs from the current evidence list, and give every definition and key point non-empty evidence_ids. Preserve exact escapes, symbols, operators, numbers, units, conditions, direction, and scope, including \\0. Do not emit isolated connectors, syntax tails, half clauses, or incomplete declarations as claims. Return concepts=[] when the current page teaches no concept. Return JSON only and no additional fields.",
+    "prompt_sha256": "0c3656bc6a4136a122b8c04a9dd1807f687f87fa9c3958987bd1df32800c536f",
+    "request_schema": "concept-generation-input/v7",
     "output_schema": "semantic-page-concepts/v3",
     "generation": {"temperature": 0, "max_tokens": 1536},
     "structured_output": {
@@ -145,7 +145,7 @@
     },
     "policy": {
       "candidate_text_normalizer": "concept-text-nfkc-whitespace/v1",
-      "claim_processing_policy": "claim-grounded-concept-review/v4",
+      "claim_processing_policy": "claim-grounded-concept-review/v7",
       "exact_technical_tokens": "claim-technical-token-fidelity/v1",
       "fragment_validation": "claim-fragment-reasons/v2",
       "cross_concept_evidence_reuse": true,
@@ -157,13 +157,13 @@
     "code_hashes": {
       "backend_concept_api": "b1a4f67457e8b8d1d9c4b15ff18c69c9a94be8f5d405dff329ab3eff80c292e5",
       "backend_process_guard": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
-      "backend_concept_generation": "7760cbd027f2046e4fa072fc49ecd85ea81806cfc6b665ce24bf32dddd9789cd",
+      "backend_concept_generation": "390cecca7cb143c2a939acb9beffab0920482c556614f06ba25ec40b454a4835",
       "backend_document_context": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
-      "backend_text_first_run": "da80c0850388be06aee2769cab13b65a40a383841902f71ccd68161f7d99eaa7",
-      "backend_study_material_output": "277c44c2eb6441d538a50263587fe4b8ef96b35d3d36ce5cc9ebc19f48e68889"
+      "backend_text_first_run": "9438a153779715b5f60557c7a88b449a6c4f9593d8f112b30ffa29497e1fc26e",
+      "backend_study_material_output": "967271f356c5da7c2e1ab87b7086f629787838ea7437e236749bb1a4b8651a49"
     },
     "fixture_hashes": {
-      "semantic_request.json": "256b94884c85c4ffdb3881c5a43e67f12d52b568b3cbd240e57050c5eb9b3fef",
+      "semantic_request.json": "3330613a3c72590b604623a175594dc1b3952050ebfb9dc38b9780fa22a30b80",
       "semantic_model_output.json": "b097b099d350b02fc947b2ad0b5f415e53fab96d8039400d42f370a4f5b51327"
     }
   },
