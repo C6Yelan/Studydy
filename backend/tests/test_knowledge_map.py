@@ -11,6 +11,7 @@ from pdf_evidence.local_ai_process import LocalAIError
 import knowledge_map.local_generation as local_generation
 
 from knowledge_map.artifacts import (
+    _topology_and_learning_path,
     build_knowledge_map,
     build_knowledge_map_view,
     validate_knowledge_map,
@@ -113,6 +114,42 @@ def _add_second_same_label_concept(study):
     study.pop("output_id")
     study["output_id"] = "study-material-output:sha256:" + canonical_sha256(study)
     return second
+
+
+def _add_third_distinct_concept(study):
+    third = deepcopy(study["concepts"][0])
+    third["label"] = "Third grounded concept"
+    third["definition"] = deepcopy(third["definition"])
+    third["definition"]["text"] = "A third independently grounded definition."
+    third["definition"]["claim_id"] = claim_id(
+        third["page_ref"],
+        "definition",
+        {
+            "text": third["definition"]["text"],
+            "evidence_ids": third["definition"]["evidence_ids"],
+        },
+    )
+    third["key_points"] = deepcopy(third["key_points"])
+    third["key_points"][0]["text"] = "A third independently grounded point."
+    third["key_points"][0]["claim_id"] = claim_id(
+        third["page_ref"],
+        "key_point",
+        {
+            "text": third["key_points"][0]["text"],
+            "evidence_ids": third["key_points"][0]["evidence_ids"],
+        },
+        index=0,
+    )
+    third["concept_id"] = concept_id(
+        third["page_ref"],
+        third["label"],
+        third["definition"],
+        third["key_points"],
+    )
+    study["concepts"].append(third)
+    study.pop("output_id")
+    study["output_id"] = "study-material-output:sha256:" + canonical_sha256(study)
+    return third
 
 
 def _resource_promotion(study, formal_concepts):
@@ -947,7 +984,7 @@ def test_relation_model_invalid_output_fails_without_false_success(monkeypatch):
     assert artifacts[0]["reason_codes"] == ["MODEL_OUTPUT_INVALID"]
 
 
-def test_map_v8_and_view_v8_bind_current_relation_contract():
+def test_map_v9_and_view_v9_bind_topology_and_relation_contract():
     study = _study()
     first = study["concepts"][0]
     first["label"] = "Broad topic"
@@ -1002,11 +1039,197 @@ def test_map_v8_and_view_v8_bind_current_relation_contract():
     )
     view = build_knowledge_map_view(knowledge_map)
 
-    assert knowledge_map["schema"] == "knowledge-map/v8"
-    assert view["schema"] == "knowledge-map-view/v8"
+    assert knowledge_map["schema"] == "knowledge-map/v9"
+    assert view["schema"] == "knowledge-map-view/v9"
+    assert view["topology"]["roots"]
+    assert [step["step_number"] for step in view["initial_learning_path"]] == [1, 2]
+    assert all(step["placement_reason"] for step in view["initial_learning_path"])
     assert view["relations"][0]["reason"]
     assert view["relations"][0]["relation_context"]
     assert validate_knowledge_map(knowledge_map) is None
+
+
+def test_topology_path_priority_is_deterministic_and_related_never_orders():
+    concepts = [
+        {
+            "formal_concept_id": concept_id,
+            "label": label,
+            "decision": "review",
+            "source_page_numbers": [page_number],
+            "source_members": [{"section_ids": [section_id]}],
+        }
+        for concept_id, label, page_number, section_id in (
+            ("a", "Parent", 5, "section-2"),
+            ("b", "Child", 1, "section-1"),
+            ("c", "Prerequisite", 2, "section-1"),
+            ("d", "Independent", 1, "section-3"),
+        )
+    ]
+    relations = [
+        {
+            "relation_id": "contains-a-b",
+            "type": "contains",
+            "source_formal_concept_id": "a",
+            "target_formal_concept_id": "b",
+            "is_in_prerequisite_cycle": False,
+        },
+        {
+            "relation_id": "prerequisite-c-a",
+            "type": "prerequisite",
+            "source_formal_concept_id": "c",
+            "target_formal_concept_id": "a",
+            "is_in_prerequisite_cycle": False,
+        },
+        {
+            "relation_id": "related-b-d",
+            "type": "related",
+            "source_formal_concept_id": "b",
+            "target_formal_concept_id": "d",
+            "is_in_prerequisite_cycle": False,
+        },
+    ]
+
+    topology, path, diagnostics = _topology_and_learning_path(concepts, relations)
+    repeated = _topology_and_learning_path(
+        list(reversed(concepts)), list(reversed(relations))
+    )
+    without_related = _topology_and_learning_path(concepts, relations[:2])
+
+    assert (topology, path, diagnostics) == repeated
+    assert [step["formal_concept_id"] for step in path] == ["c", "d", "a", "b"]
+    assert [step["formal_concept_id"] for step in without_related[1]] == [
+        "c", "d", "a", "b"
+    ]
+    assert topology["roots"] == ["c", "d", "a"]
+    assert next(
+        node for node in topology["nodes"] if node["formal_concept_id"] == "b"
+    ) == {
+        "formal_concept_id": "b",
+        "depth": 1,
+        "primary_parent_formal_concept_id": "a",
+        "flat_group_id": "section-1",
+    }
+    assert path[-1]["order_basis"]["parent_formal_concept_ids"] == ["a"]
+    assert diagnostics == {
+        "component_count": 3,
+        "orphan_concept_count": 2,
+        "secondary_parent_count": 0,
+        "skipped_parent_before_child_count": 0,
+    }
+
+
+def test_prerequisite_stays_hard_when_parent_before_child_would_conflict():
+    concepts = [
+        {
+            "formal_concept_id": concept_id,
+            "label": label,
+            "decision": "review",
+            "source_page_numbers": [page_number],
+            "source_members": [{"section_ids": ["section"]}],
+        }
+        for concept_id, label, page_number in (
+            ("parent", "Parent", 1),
+            ("child", "Child", 2),
+        )
+    ]
+    relations = [
+        {
+            "relation_id": "contains",
+            "type": "contains",
+            "source_formal_concept_id": "parent",
+            "target_formal_concept_id": "child",
+            "is_in_prerequisite_cycle": False,
+        },
+        {
+            "relation_id": "prerequisite",
+            "type": "prerequisite",
+            "source_formal_concept_id": "child",
+            "target_formal_concept_id": "parent",
+            "is_in_prerequisite_cycle": False,
+        },
+    ]
+
+    _, path, diagnostics = _topology_and_learning_path(concepts, relations)
+
+    assert [step["formal_concept_id"] for step in path] == ["child", "parent"]
+    assert diagnostics["skipped_parent_before_child_count"] == 1
+    assert path[0]["placement_reason"] == (
+        "此步先遵守先備關係，避免形成相互等待的學習順序。"
+    )
+
+
+def test_concept_and_relation_input_permutation_keeps_map_revision_identical():
+    study = _study()
+    _add_second_same_label_concept(study)
+    _add_third_distinct_concept(study)
+    request, aliases = build_deduplication_request(study)
+    decisions = uncertain_pair_decisions(request)
+    resolution = canonicalize_concepts(
+        study,
+        request,
+        aliases,
+        decisions,
+        verification_diagnostics=_verification_diagnostics(decisions),
+    )
+    nodes = resolution["formal_concepts"]
+    relation_request, bindings = _relation_request(nodes, [
+        {
+            "left": nodes[0]["formal_concept_id"],
+            "right": nodes[1]["formal_concept_id"],
+            "signals": ["same_section"],
+        },
+        {
+            "left": nodes[1]["formal_concept_id"],
+            "right": nodes[2]["formal_concept_id"],
+            "signals": ["same_section"],
+        },
+    ])
+    proposals = [
+        _proposal({**relation_request, "pairs": [pair]}, "related")["pairs"][0]
+        for pair in relation_request["pairs"]
+    ]
+    relation_artifact = validate_relation_proposals(
+        {"schema": "formal-relation-proposals/v1", "pairs": proposals},
+        request=relation_request,
+        bindings=bindings,
+        formal_concepts=nodes,
+        evidence_pages=_relation_pages(nodes),
+        verifier=None,
+        prior_relations=[],
+    )
+    relation_status = {
+        "processing": "succeeded",
+        "reason_codes": ["RELATION_REVIEW_REQUIRED"],
+        "diagnostics": {
+            "possible_pairs": 3,
+            "candidate_pairs": 2,
+            "selected_pairs": 2,
+            "selected_signal_counts": {"same_section": 2},
+        },
+    }
+    resource_promotion = _resource_promotion(study, nodes)
+    first = build_knowledge_map(
+        study,
+        [resolution],
+        [relation_artifact],
+        relation_pair_status=relation_status,
+        resource_promotion=resource_promotion,
+        material_runtime_binding_sha256="f" * 64,
+    )
+    permuted_resolution = deepcopy(resolution)
+    permuted_resolution["formal_concepts"].reverse()
+    permuted_relation_artifact = deepcopy(relation_artifact)
+    permuted_relation_artifact["relations"].reverse()
+    second = build_knowledge_map(
+        study,
+        [permuted_resolution],
+        [permuted_relation_artifact],
+        relation_pair_status=relation_status,
+        resource_promotion=resource_promotion,
+        material_runtime_binding_sha256="f" * 64,
+    )
+
+    assert first == second
 
 
 def test_map_rejects_duplicate_source_ownership():

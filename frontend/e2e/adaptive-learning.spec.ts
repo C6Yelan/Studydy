@@ -173,7 +173,7 @@ test("新 StudySession 不繼承前一個 session 的 mastery 或 weakness", asy
   await page.route(`**/v1/study-sessions/${newStudySessionId}/weakness`, (route) => fulfillJson(route, bindSession(weaknessView(), newStudySessionId)));
   await page.route(`**/v1/study-sessions/${newStudySessionId}/adaptive-plan`, (route) => fulfillJson(route, bindSession(adaptiveView(), newStudySessionId)));
 
-  await page.getByRole("button", { name: "相連概念：目標概念" }).click();
+  await page.getByRole("button", { name: "教材概念：目標概念" }).click();
   await page.getByRole("button", { name: "從這個概念開始" }).click();
   await expect(page).toHaveURL(new RegExp(`/study-sessions/${newStudySessionId}$`));
   await expect(page.getByText("尚未開始", { exact: true })).toBeVisible();

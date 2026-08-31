@@ -89,7 +89,7 @@ function publishedMap(): KnowledgeMapView {
     is_in_prerequisite_cycle: false,
   });
   return {
-    schema: "knowledge-map-view/v8",
+    schema: "knowledge-map-view/v9",
     material_ref: revision("material", "9"),
     knowledge_map_revision: mapRevision,
     source_output_id: revision("study-material-output", "b"),
@@ -160,7 +160,44 @@ function publishedMap(): KnowledgeMapView {
       split_review_matches: 0,
     },
     resource_decisions: [],
-    initial_learning_path: concepts.map((item) => item.formal_concept_id),
+    topology: {
+      roots: [concepts[0].formal_concept_id, concepts[1].formal_concept_id],
+      nodes: concepts.map((item, index) => ({
+        formal_concept_id: item.formal_concept_id,
+        depth: index === 2 ? 1 : 0,
+        primary_parent_formal_concept_id: index === 2
+          ? concepts[1].formal_concept_id : null,
+        flat_group_id: revision("document-section", String(index + 1)),
+      })),
+      flat_groups: concepts.map((item, index) => ({
+        flat_group_id: revision("document-section", String(index + 1)),
+        formal_concept_ids: [item.formal_concept_id],
+      })),
+    },
+    topology_diagnostics: {
+      component_count: 2,
+      orphan_concept_count: 1,
+      secondary_parent_count: 0,
+      skipped_parent_before_child_count: 0,
+    },
+    initial_learning_path: concepts.map((item, index) => ({
+      step_number: index + 1,
+      formal_concept_id: item.formal_concept_id,
+      placement_reason: index === 0
+        ? "依教材第 1 頁的首次出現位置安排。"
+        : index === 1
+          ? "先理解「概念甲」，再進入這個概念。"
+          : "先建立上層概念「概念乙」，再學習這個子概念。",
+      order_basis: {
+        prerequisite_formal_concept_ids: index === 1
+          ? [concepts[0].formal_concept_id] : [],
+        parent_formal_concept_ids: index === 2
+          ? [concepts[1].formal_concept_id] : [],
+        flat_group_id: revision("document-section", String(index + 1)),
+        hierarchy_depth: index === 2 ? 1 : 0,
+        source_page_number: index + 1,
+      },
+    })),
     excluded_pages: [],
   };
 }
@@ -205,7 +242,8 @@ test("Knowledge Map 只呈現 published 三種 Relation，related 保持對稱",
 
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}`);
   await expect(page.getByRole("heading", { name: "知識地圖", exact: true })).toBeVisible();
-  await expect(page.locator(".focus-node")).toHaveCount(3);
+  await expect(page.locator(".react-flow__node")).toHaveCount(3);
+  await expect(page.locator(".react-flow__controls")).toBeVisible();
   await captureAcceptance(page, "01_app_shell_desktop.png");
   await captureAcceptance(page, "06_map_focus_concept.png");
 
@@ -215,7 +253,24 @@ test("Knowledge Map 只呈現 published 三種 Relation，related 保持對稱",
   await expect(page.locator('.relation-connector.is-related[data-directional="false"]').first()).toBeVisible();
   await expect(page.getByText(/similar|confusing|application|example/i)).toHaveCount(0);
   await expect(page.getByText(/candidate_pairs|verifier_calls|relation_diagnostics/i)).toHaveCount(0);
-  await page.locator(".focus-edge.is-related").click();
+  await page.getByLabel("焦點概念").selectOption({ label: "概念乙" });
+  await expect(page.locator(".concept-flow-node.is-focus")).toContainText("概念乙");
+  const viewport = page.locator(".react-flow__viewport");
+  const beforeZoom = await viewport.getAttribute("style");
+  await page.locator(".react-flow__controls-zoomin").click();
+  await expect.poll(() => viewport.getAttribute("style")).not.toBe(beforeZoom);
+  await page.locator(".react-flow__controls-fitview").click();
+  const pane = page.locator(".react-flow__pane");
+  const paneBox = await pane.boundingBox();
+  expect(paneBox).not.toBeNull();
+  const beforePan = await viewport.getAttribute("style");
+  await page.mouse.move(paneBox!.x + paneBox!.width - 30, paneBox!.y + paneBox!.height - 30);
+  await page.mouse.down();
+  await page.mouse.move(paneBox!.x + paneBox!.width - 90, paneBox!.y + paneBox!.height - 70, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => viewport.getAttribute("style")).not.toBe(beforePan);
+  await page.locator(".concept-flow-edge.is-related").focus();
+  await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "互相關聯" })).toBeVisible();
   await expect(page.getByText("兩個概念共享一個具體的教材應用。")).toBeVisible();
   await expect(page.getByText("推論依據：教材敘述")).toBeVisible();
@@ -224,6 +279,7 @@ test("Knowledge Map 只呈現 published 三種 Relation，related 保持對稱",
   await page.getByRole("tab", { name: "學習順序" }).click();
   await expect(page.getByRole("heading", { name: "教材建議學習順序" })).toBeVisible();
   await expect(page.locator(".learning-path li")).toHaveCount(3);
+  await expect(page.getByText("先理解「概念甲」，再進入這個概念。", { exact: true })).toBeVisible();
   await captureAcceptance(page, "08_initial_path.png");
 
   await page.getByRole("tab", { name: "總覽" }).click();
@@ -232,4 +288,19 @@ test("Knowledge Map 只呈現 published 三種 Relation，related 保持對稱",
   await page.getByRole("button", { name: /概念甲/ }).click();
   await expect(page.getByLabel("概念詳情").getByText("概念甲 的教材重點。")).toBeVisible();
   await expect(page.getByRole("link", { name: "開啟資源" })).toHaveAttribute("href", "https://example.com/resource");
+});
+
+test("390px 使用可讀的語意階層與連結清單", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await sessionReady(page);
+  await page.route(`**/v1/material-processing-runs/${runId}`, (route) =>
+    route.fulfill({ status: 200, json: terminalRun() }));
+  await page.route("**/v1/materials/*/knowledge-maps/**", (route) =>
+    route.fulfill({ status: 200, json: publishedMap() }));
+
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}`);
+  await expect(page.locator(".focus-graph")).toBeHidden();
+  await expect(page.getByLabel("概念階層清單")).toBeVisible();
+  await expect(page.getByRole("treeitem")).toHaveCount(3);
+  await expect(page.getByRole("heading", { name: "其他教材連結" })).toBeVisible();
 });

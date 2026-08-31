@@ -1,12 +1,22 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  Background,
+  Controls,
+  MarkerType,
+  ReactFlow,
+  type Edge,
+  type Node,
+  type ReactFlowInstance,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 
 import type { StudydyApiClient } from "../../api/client";
 import type { KnowledgeMapView } from "../../api/contracts";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import {
-  focusNeighborhood,
-  learningPathReason,
+  hierarchyLayout,
+  isPrimaryHierarchyRelation,
   relationPresentation,
   safeExternalUrl,
 } from "./knowledge-map";
@@ -27,16 +37,41 @@ function conceptLabel(concepts: Concept[], id: string): string {
   return concepts.find((concept) => concept.formal_concept_id === id)?.label ?? "未知概念";
 }
 
-function RelationConnector({ relation }: { relation: Pick<Relation, "type"> }) {
+function nodeKeyboardAction(open: () => void) {
+  return {
+    title: "按 Enter 或空白鍵查看概念",
+    onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      open();
+    },
+  };
+}
+
+function edgeKeyboardAction(open: () => void) {
+  return {
+    onKeyDown: (event: KeyboardEvent<SVGGElement>) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      open();
+    },
+  };
+}
+
+function RelationConnector({ relation, label }: {
+  relation: Pick<Relation, "type">;
+  label?: string;
+}) {
   const presentation = relationPresentation(relation.type);
+  const visibleLabel = label ?? presentation.label;
   return (
     <span
-      aria-label={`${presentation.label}，${presentation.directional ? "有方向" : "雙向"}`}
+      aria-label={`${visibleLabel}，${presentation.directional ? "有方向" : "雙向"}`}
       className={`relation-connector ${presentation.className}`}
       data-directional={String(presentation.directional)}
     >
       <i aria-hidden="true" />
-      <span>{presentation.label}</span>
+      <span>{visibleLabel}</span>
     </span>
   );
 }
@@ -233,17 +268,18 @@ function PathView({ isStartingStudy, onStartStudy, openConcept, view }: {
           className="primary-button"
           disabled={isStartingStudy}
           type="button"
-          onClick={() => onStartStudy(view.initial_learning_path[0])}
+          onClick={() => onStartStudy(view.initial_learning_path[0].formal_concept_id)}
         ><Icon name="learning" />{isStartingStudy ? "正在開始…" : "從第一步開始"}</button>
       </div>
       <ol className="learning-path">
-        {view.initial_learning_path.map((id, index) => {
-          const concept = view.concepts.find((item) => item.formal_concept_id === id)!;
+        {view.initial_learning_path.map((step) => {
+          const concept = view.concepts.find((item) =>
+            item.formal_concept_id === step.formal_concept_id)!;
           return (
-            <li key={id}>
-              <button type="button" onClick={() => openConcept(id)}>
-                <span>{index + 1}</span>
-                <div><strong>{concept.label}</strong><small>{learningPathReason(view, id)}</small></div>
+            <li key={step.formal_concept_id}>
+              <button type="button" onClick={() => openConcept(step.formal_concept_id)}>
+                <span>{step.step_number}</span>
+                <div><strong>{concept.label}</strong><small>{step.placement_reason}</small></div>
                 <Icon name="chevron-right" />
               </button>
             </li>
@@ -254,6 +290,60 @@ function PathView({ isStartingStudy, onStartStudy, openConcept, view }: {
   );
 }
 
+function SemanticMapFallback({ openConcept, openRelation, view }: {
+  openConcept: (id: string) => void;
+  openRelation: (id: string) => void;
+  view: KnowledgeMapView;
+}) {
+  const orderedNodes: KnowledgeMapView["topology"]["nodes"] = [];
+  const visit = (conceptId: string) => {
+    const node = view.topology.nodes.find((item) => item.formal_concept_id === conceptId);
+    if (!node) return;
+    orderedNodes.push(node);
+    view.topology.nodes
+      .filter((item) => item.primary_parent_formal_concept_id === conceptId)
+      .forEach((child) => visit(child.formal_concept_id));
+  };
+  view.topology.roots.forEach(visit);
+  const secondaryRelations = view.relations.filter((relation) =>
+    !isPrimaryHierarchyRelation(view, relation));
+  return (
+    <div className="semantic-map-fallback" aria-label="概念階層清單">
+      <ul className="semantic-tree" role="tree">
+        {orderedNodes.map((node) => (
+          <li aria-level={node.depth + 1} key={node.formal_concept_id} role="treeitem">
+            <button
+              style={{ marginInlineStart: `${node.depth * 18}px` }}
+              type="button"
+              onClick={() => openConcept(node.formal_concept_id)}
+            >
+              <small>{node.depth === 0 ? "根概念" : `第 ${node.depth + 1} 層`}</small>
+              <strong>{conceptLabel(view.concepts, node.formal_concept_id)}</strong>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {secondaryRelations.length > 0 && (
+        <div className="semantic-links">
+          <h3>其他教材連結</h3>
+          {secondaryRelations.map((relation) => {
+            const label = relation.type === "prerequisite"
+              ? "先備順序"
+              : relation.type === "contains" ? "次要組成" : "相關連結";
+            return (
+              <button key={relation.relation_id} type="button" onClick={() => openRelation(relation.relation_id)}>
+                <span>{conceptLabel(view.concepts, relation.source_formal_concept_id)}</span>
+                <RelationConnector label={label} relation={relation} />
+                <span>{conceptLabel(view.concepts, relation.target_formal_concept_id)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FocusView({ openConcept, openRelation, selectedConceptId, setSelectedConceptId, view }: {
   openConcept: (id: string) => void;
   openRelation: (id: string) => void;
@@ -261,16 +351,95 @@ function FocusView({ openConcept, openRelation, selectedConceptId, setSelectedCo
   setSelectedConceptId: (id: string) => void;
   view: KnowledgeMapView;
 }) {
-  const selected = view.concepts.find((concept) => concept.formal_concept_id === selectedConceptId) ?? view.concepts[0];
-  const neighborhood = focusNeighborhood(view, selected.formal_concept_id);
-  const positions = new Map(neighborhood.nodes.map((node) => [node.conceptId, node]));
-  const fallbackConcepts = view.initial_learning_path
-    .filter((conceptId) => conceptId !== selected.formal_concept_id)
-    .slice(0, 3);
+  const selected = view.concepts.find((concept) =>
+    concept.formal_concept_id === selectedConceptId) ?? view.concepts[0];
+  const layout = hierarchyLayout(view);
+  const graphElement = useRef<HTMLDivElement>(null);
+  const graphInstance = useRef<ReactFlowInstance | null>(null);
+  useEffect(() => {
+    const element = graphElement.current;
+    if (!element) return;
+    let animationFrame = 0;
+    const fitGraph = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        void graphInstance.current?.fitView({ padding: 0.16, maxZoom: 1 });
+      });
+    };
+    const observer = new ResizeObserver(fitGraph);
+    observer.observe(element);
+    fitGraph();
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+    };
+  }, [layout.length]);
+  useEffect(() => {
+    const node = layout.find((item) => item.conceptId === selected.formal_concept_id);
+    if (node && graphInstance.current) {
+      void graphInstance.current.setCenter(
+        node.x + node.width / 2,
+        node.y + node.height / 2,
+        { zoom: 1.2, duration: 280 },
+      );
+    }
+  }, [selected.formal_concept_id]);
+  const graphNodes: Node[] = layout.map((node) => {
+    const concept = view.concepts.find((item) => item.formal_concept_id === node.conceptId)!;
+    const isFocus = node.conceptId === selected.formal_concept_id;
+    const topologyNode = view.topology.nodes.find((item) =>
+      item.formal_concept_id === node.conceptId)!;
+    return {
+      id: node.conceptId,
+      position: { x: node.x, y: node.y },
+      data: {
+        label: <><small>{isFocus ? "目前焦點" : topologyNode.depth === 0 ? "根概念" : `第 ${topologyNode.depth + 1} 層`}</small><strong>{concept.label}</strong></>,
+      },
+      width: node.width,
+      height: node.height,
+      style: { width: node.width, height: node.height },
+      className: `concept-flow-node${isFocus ? " is-focus" : ""}`,
+      ariaLabel: `${isFocus ? "目前焦點" : "教材概念"}：${concept.label}`,
+      ariaRole: "button",
+      domAttributes: nodeKeyboardAction(() => openConcept(node.conceptId)),
+      draggable: false,
+      selectable: true,
+      focusable: true,
+    };
+  });
+  const graphEdges: Edge[] = view.relations.map((relation) => {
+    const presentation = relationPresentation(relation.type);
+    const isPrimary = isPrimaryHierarchyRelation(view, relation);
+    const label = relation.type === "prerequisite"
+      ? "先備順序"
+      : relation.type === "contains"
+        ? isPrimary ? "主要階層" : "次要組成"
+        : "相關連結";
+    const color = relation.type === "prerequisite"
+      ? "#0757ff"
+      : relation.type === "contains" ? isPrimary ? "#00845c" : "#b15c00" : "#7c3aed";
+    return {
+      id: relation.relation_id,
+      source: relation.source_formal_concept_id,
+      target: relation.target_formal_concept_id,
+      label,
+      type: "smoothstep",
+      className: `concept-flow-edge ${presentation.className}${isPrimary ? " is-primary-hierarchy" : relation.type === "contains" ? " is-secondary-contains" : ""}`,
+      ariaLabel: `${conceptLabel(view.concepts, relation.source_formal_concept_id)}，${label}，${conceptLabel(view.concepts, relation.target_formal_concept_id)}`,
+      ariaRole: "button",
+      domAttributes: edgeKeyboardAction(() => openRelation(relation.relation_id)),
+      markerEnd: presentation.directional ? { type: MarkerType.ArrowClosed, color } : undefined,
+      style: { stroke: color },
+      labelStyle: { fill: color, fontWeight: 700 },
+      interactionWidth: 24,
+      focusable: true,
+      selectable: true,
+    };
+  });
   return (
     <section aria-labelledby="focus-title">
       <div className="view-heading">
-        <div><h2 id="focus-title">概念地圖</h2><p>從目前概念查看直接相連的知識結構；箭頭由來源指向目標。</p></div>
+        <div><h2 id="focus-title">概念地圖</h2><p>主要階層由上往下排列；先備順序與其他教材連結保留不同線型。</p></div>
         <label className="concept-select">焦點概念
           <select value={selected.formal_concept_id} onChange={(event) => setSelectedConceptId(event.currentTarget.value)}>
             {view.concepts.map((concept) => <option key={concept.formal_concept_id} value={concept.formal_concept_id}>{concept.label}</option>)}
@@ -278,95 +447,36 @@ function FocusView({ openConcept, openRelation, selectedConceptId, setSelectedCo
         </label>
       </div>
       <div className="relation-legend" aria-label="概念連結圖例">
-        {(["prerequisite", "contains", "related"] as const).map((type) => {
-          return <RelationConnector key={type} relation={{ type }} />;
-        })}
+        <RelationConnector label="主要階層" relation={{ type: "contains" }} />
+        <RelationConnector label="先備順序" relation={{ type: "prerequisite" }} />
+        <RelationConnector label="相關連結" relation={{ type: "related" }} />
       </div>
-      <div className="focus-graph" aria-label={`「${selected.label}」的概念連結圖`}>
-        <svg aria-label="可選擇的概念連結" preserveAspectRatio="none" viewBox="0 0 100 100">
-          <defs>
-            <marker id="focus-arrow" markerHeight="5" markerWidth="5" orient="auto" refX="4" refY="2.5">
-              <path d="M0,0 L5,2.5 L0,5 Z" />
-            </marker>
-          </defs>
-          {neighborhood.relations.map((relation) => {
-            const source = positions.get(relation.source_formal_concept_id)!;
-            const target = positions.get(relation.target_formal_concept_id)!;
-            const presentation = relationPresentation(relation.type);
-            const relationLabel = `${conceptLabel(view.concepts, relation.source_formal_concept_id)}，${presentation.label}，${conceptLabel(view.concepts, relation.target_formal_concept_id)}`;
-            return (
-              <g
-                aria-label={relationLabel}
-                className={`focus-edge ${presentation.className}`}
-                key={relation.relation_id}
-                role="button"
-                tabIndex={0}
-                onClick={() => openRelation(relation.relation_id)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    openRelation(relation.relation_id);
-                  }
-                }}
-              >
-                <line className="focus-edge-hit" x1={source.x} x2={target.x} y1={source.y} y2={target.y} />
-                <line
-                  markerEnd={presentation.directional ? "url(#focus-arrow)" : undefined}
-                  x1={source.x}
-                  x2={target.x}
-                  y1={source.y}
-                  y2={target.y}
-                />
-                <text x={(source.x + target.x) / 2} y={(source.y + target.y) / 2}>{presentation.label}</text>
-              </g>
-            );
-          })}
-        </svg>
-        {neighborhood.nodes.map((node) => {
-          const concept = view.concepts.find((item) => item.formal_concept_id === node.conceptId)!;
-          const isSelected = node.conceptId === selected.formal_concept_id;
-          return (
-            <button
-              aria-label={`${isSelected ? "目前焦點" : "相連概念"}：${concept.label}`}
-              className={`focus-node${isSelected ? " is-selected" : ""}`}
-              key={node.conceptId}
-              style={{ left: `${node.x}%`, top: `${node.y}%` }}
-              type="button"
-              onClick={() => openConcept(node.conceptId)}
-            >
-              <small>{isSelected ? "目前焦點" : "相連概念"}</small>
-              <strong>{concept.label}</strong>
-            </button>
-          );
-        })}
-        {neighborhood.relations.length === 0 && (
-          <div className="focus-fallback">
-            <strong>目前沒有已發布的直接概念連結</strong>
-            <p>我們不會用頁面相鄰假造關係。你仍可查看教材重點，或依建議順序繼續。</p>
-            <div>
-              {fallbackConcepts.map((conceptId) => (
-                <button className="text-button" key={conceptId} type="button" onClick={() => setSelectedConceptId(conceptId)}>
-                  查看「{conceptLabel(view.concepts, conceptId)}」
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+      <div className="focus-graph" ref={graphElement} aria-label={`「${selected.label}」所在的概念階層圖`}>
+        <ReactFlow
+          aria-label="可平移、縮放、選擇與置中的概念階層圖"
+          autoPanOnNodeFocus={false}
+          edges={graphEdges}
+          edgesReconnectable={false}
+          elementsSelectable
+          fitView
+          fitViewOptions={{ padding: 0.16, maxZoom: 1 }}
+          maxZoom={1.8}
+          minZoom={0.2}
+          nodes={graphNodes}
+          nodesConnectable={false}
+          nodesDraggable={false}
+          onEdgeClick={(_, edge) => openRelation(edge.id)}
+          onInit={(instance) => {
+            graphInstance.current = instance;
+            void instance.fitView({ padding: 0.16, maxZoom: 1 });
+          }}
+          onNodeClick={(_, node) => openConcept(node.id)}
+        >
+          <Background color="#dfe8fb" gap={32} size={1} />
+          <Controls aria-label="概念地圖縮放與置中控制" showInteractive={false} />
+        </ReactFlow>
       </div>
-      {neighborhood.relations.length > 0 && (
-        <details className="relation-alternate">
-          <summary>以清單查看這些概念連結</summary>
-          <div className="relation-list">
-            {neighborhood.relations.map((relation) => (
-              <button key={relation.relation_id} type="button" onClick={() => openRelation(relation.relation_id)}>
-                <span className={relation.source_formal_concept_id === selected.formal_concept_id ? "is-selected" : ""}>{conceptLabel(view.concepts, relation.source_formal_concept_id)}</span>
-                <RelationConnector relation={relation} />
-                <span className={relation.target_formal_concept_id === selected.formal_concept_id ? "is-selected" : ""}>{conceptLabel(view.concepts, relation.target_formal_concept_id)}</span>
-              </button>
-            ))}
-          </div>
-        </details>
-      )}
+      <SemanticMapFallback openConcept={openConcept} openRelation={openRelation} view={view} />
     </section>
   );
 }
@@ -403,7 +513,8 @@ export function KnowledgeMapWorkspace({ apiClient, isStartingStudy, onReturnToRu
   startMessage: string | null;
   view: KnowledgeMapView;
 }) {
-  const initialConceptId = view.initial_learning_path[0] ?? view.concepts[0]?.formal_concept_id ?? "";
+  const initialConceptId = view.initial_learning_path[0]?.formal_concept_id
+    ?? view.concepts[0]?.formal_concept_id ?? "";
   const [mode, setMode] = useState<Mode>("focus");
   const [selectedConceptId, setSelectedConceptId] = useState(initialConceptId);
   const [detail, setDetail] = useState<Detail | null>(null);

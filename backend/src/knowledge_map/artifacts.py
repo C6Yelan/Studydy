@@ -15,8 +15,8 @@ RELATION_TYPES = {"prerequisite", "contains", "related"}
 SYMMETRIC_RELATION_TYPES = {"related"}
 
 
-KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v8"
-KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v8"
+KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v9"
+KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v9"
 
 _RESOURCE_DIAGNOSTIC_FIELDS = {
     "matches",
@@ -116,47 +116,257 @@ def _cycle_relation_ids(
     }
 
 
-def _learning_path(
+def _can_reach(
+    outgoing: dict[str, set[str]], start: str, target: str
+) -> bool:
+    pending = [start]
+    seen = set()
+    while pending:
+        node = pending.pop()
+        if node == target:
+            return True
+        if node in seen:
+            continue
+        seen.add(node)
+        pending.extend(outgoing.get(node, ()))
+    return False
+
+
+def _topology_and_learning_path(
     formal_concepts: list[dict[str, Any]],
     relations: list[dict[str, Any]],
-) -> list[str]:
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, int]]:
+    """用已發布關係與平面 section 建立唯一的地圖拓撲及學習順序。"""
+
     nodes = {
         concept["formal_concept_id"]: concept
         for concept in formal_concepts
         if concept["decision"] != "reject"
     }
-    outgoing = {node: set() for node in nodes}
-    incoming = {node: 0 for node in nodes}
+    source_page = {
+        concept_id: min(concept["source_page_numbers"])
+        for concept_id, concept in nodes.items()
+    }
+    flat_group_by_node = {
+        concept_id: min(
+            section_id
+            for member in concept["source_members"]
+            for section_id in member["section_ids"]
+        )
+        for concept_id, concept in nodes.items()
+    }
+    flat_group_ids = sorted(
+        set(flat_group_by_node.values()),
+        key=lambda group_id: (
+            min(
+                source_page[concept_id]
+                for concept_id, candidate in flat_group_by_node.items()
+                if candidate == group_id
+            ),
+            group_id,
+        ),
+    )
+    flat_group_rank = {
+        group_id: index for index, group_id in enumerate(flat_group_ids)
+    }
+
+    contains_outgoing = {node: set() for node in nodes}
+    contains_incoming = {node: set() for node in nodes}
+    for relation in relations:
+        if relation["type"] != "contains":
+            continue
+        source = relation["source_formal_concept_id"]
+        target = relation["target_formal_concept_id"]
+        if source in nodes and target in nodes:
+            contains_outgoing[source].add(target)
+            contains_incoming[target].add(source)
+
+    contains_degree = {
+        node: len(contains_incoming[node]) for node in nodes
+    }
+    hierarchy_ready = sorted(
+        (node for node, count in contains_degree.items() if count == 0),
+        key=lambda node: (source_page[node], node),
+    )
+    hierarchy_order = []
+    depth = {node: 0 for node in nodes}
+    while hierarchy_ready:
+        node = hierarchy_ready.pop(0)
+        hierarchy_order.append(node)
+        for child in sorted(contains_outgoing[node], key=lambda item: (source_page[item], item)):
+            depth[child] = max(depth[child], depth[node] + 1)
+            contains_degree[child] -= 1
+            if contains_degree[child] == 0:
+                hierarchy_ready.append(child)
+                hierarchy_ready.sort(key=lambda item: (source_page[item], item))
+    if len(hierarchy_order) != len(nodes):
+        raise ValueError("KNOWLEDGE_MAP_CYCLE_INVALID")
+
+    primary_parent = {}
+    for node in hierarchy_order:
+        parents = contains_incoming[node]
+        primary_parent[node] = (
+            min(
+                parents,
+                key=lambda parent: (-depth[parent], source_page[parent], parent),
+            )
+            if parents
+            else None
+        )
+
+    topology_order = sorted(
+        nodes,
+        key=lambda node: (
+            flat_group_rank[flat_group_by_node[node]],
+            depth[node],
+            source_page[node],
+            node,
+        ),
+    )
+    roots = [node for node in topology_order if primary_parent[node] is None]
+    topology = {
+        "roots": roots,
+        "nodes": [
+            {
+                "formal_concept_id": node,
+                "depth": depth[node],
+                "primary_parent_formal_concept_id": primary_parent[node],
+                "flat_group_id": flat_group_by_node[node],
+            }
+            for node in topology_order
+        ],
+        "flat_groups": [
+            {
+                "flat_group_id": group_id,
+                "formal_concept_ids": [
+                    node
+                    for node in topology_order
+                    if flat_group_by_node[node] == group_id
+                ],
+            }
+            for group_id in flat_group_ids
+        ],
+    }
+
+    constraint_outgoing = {node: set() for node in nodes}
+    prerequisite_incoming = {node: set() for node in nodes}
+    teachable_parent_incoming = {node: set() for node in nodes}
     for relation in relations:
         if relation["type"] != "prerequisite" or relation["is_in_prerequisite_cycle"]:
             continue
         source = relation["source_formal_concept_id"]
         target = relation["target_formal_concept_id"]
-        if source in nodes and target in nodes and target not in outgoing[source]:
-            outgoing[source].add(target)
-            incoming[target] += 1
+        if source in nodes and target in nodes:
+            constraint_outgoing[source].add(target)
+            prerequisite_incoming[target].add(source)
+
+    skipped_parent_before_child_count = 0
+    for relation in sorted(relations, key=lambda item: item["relation_id"]):
+        if relation["type"] != "contains":
+            continue
+        source = relation["source_formal_concept_id"]
+        target = relation["target_formal_concept_id"]
+        if target in constraint_outgoing[source]:
+            teachable_parent_incoming[target].add(source)
+        elif _can_reach(constraint_outgoing, target, source):
+            skipped_parent_before_child_count += 1
+        else:
+            constraint_outgoing[source].add(target)
+            teachable_parent_incoming[target].add(source)
+
+    incoming_count = {node: 0 for node in nodes}
+    for targets in constraint_outgoing.values():
+        for target in targets:
+            incoming_count[target] += 1
 
     def order(node_id: str) -> tuple[Any, ...]:
-        concept = nodes[node_id]
         return (
-            min(concept["source_page_numbers"]),
-            concept["resolution_order"],
+            flat_group_rank[flat_group_by_node[node_id]],
+            depth[node_id],
+            source_page[node_id],
             node_id,
         )
 
-    ready = sorted((node for node, count in incoming.items() if count == 0), key=order)
-    path = []
+    ready = sorted((node for node, count in incoming_count.items() if count == 0), key=order)
+    path_ids = []
     while ready:
         node = ready.pop(0)
-        path.append(node)
-        for target in sorted(outgoing[node], key=order):
-            incoming[target] -= 1
-            if incoming[target] == 0:
+        path_ids.append(node)
+        for target in sorted(constraint_outgoing[node], key=order):
+            incoming_count[target] -= 1
+            if incoming_count[target] == 0:
                 ready.append(target)
                 ready.sort(key=order)
-    if len(path) != len(nodes):
+    if len(path_ids) != len(nodes):
         raise ValueError("KNOWLEDGE_MAP_CYCLE_INVALID")
-    return path
+
+    labels = {node: concept["label"] for node, concept in nodes.items()}
+    path = []
+    previous_group: str | None = None
+    for step_number, node in enumerate(path_ids, start=1):
+        prerequisites = sorted(prerequisite_incoming[node])
+        parents = sorted(teachable_parent_incoming[node])
+        group_id = flat_group_by_node[node]
+        if prerequisites:
+            reason = (
+                f"先理解「{labels[prerequisites[0]]}」，再進入這個概念。"
+                if len(prerequisites) == 1
+                else f"先完成 {len(prerequisites)} 個先備概念，再進入這個概念。"
+            )
+        elif parents:
+            reason_parent = (
+                primary_parent[node]
+                if primary_parent[node] in parents
+                else parents[0]
+            )
+            reason = f"先建立上層概念「{labels[reason_parent]}」，再學習這個子概念。"
+        elif previous_group == group_id:
+            reason = "接續教材同一節的平面概念順序。"
+        elif contains_incoming[node]:
+            reason = "此步先遵守先備關係，避免形成相互等待的學習順序。"
+        else:
+            reason = f"依教材第 {source_page[node]} 頁的首次出現位置安排。"
+        path.append(
+            {
+                "step_number": step_number,
+                "formal_concept_id": node,
+                "placement_reason": reason,
+                "order_basis": {
+                    "prerequisite_formal_concept_ids": prerequisites,
+                    "parent_formal_concept_ids": parents,
+                    "flat_group_id": group_id,
+                    "hierarchy_depth": depth[node],
+                    "source_page_number": source_page[node],
+                },
+            }
+        )
+        previous_group = group_id
+
+    undirected = {node: set() for node in nodes}
+    for source, targets in contains_outgoing.items():
+        for target in targets:
+            undirected[source].add(target)
+            undirected[target].add(source)
+    component_count = 0
+    remaining = set(nodes)
+    while remaining:
+        component_count += 1
+        pending = [min(remaining)]
+        while pending:
+            node = pending.pop()
+            if node not in remaining:
+                continue
+            remaining.remove(node)
+            pending.extend(undirected[node])
+    diagnostics = {
+        "component_count": component_count,
+        "orphan_concept_count": sum(not neighbors for neighbors in undirected.values()),
+        "secondary_parent_count": sum(
+            max(0, len(parents) - 1) for parents in contains_incoming.values()
+        ),
+        "skipped_parent_before_child_count": skipped_parent_before_child_count,
+    }
+    return topology, path, diagnostics
 
 
 def _relation_diagnostics(
@@ -268,11 +478,26 @@ def build_knowledge_map(
             "resource_decisions",
         }
         or not isinstance(resource_promotion["formal_concepts"], list)
-        or [
-            {key: value for key, value in concept.items() if key != "supplementary_resources"}
+        or len(resource_promotion["formal_concepts"]) != len(resolved_formal_concepts)
+        or len({
+            concept.get("formal_concept_id")
+            for concept in resolved_formal_concepts
+            if isinstance(concept, dict)
+        }) != len(resolved_formal_concepts)
+        or {
+            concept.get("formal_concept_id"): {
+                key: value
+                for key, value in concept.items()
+                if key != "supplementary_resources"
+            }
             for concept in resource_promotion["formal_concepts"]
-        ]
-        != resolved_formal_concepts
+            if isinstance(concept, dict)
+        }
+        != {
+            concept.get("formal_concept_id"): concept
+            for concept in resolved_formal_concepts
+            if isinstance(concept, dict)
+        }
     ):
         raise ValueError("KNOWLEDGE_MAP_RESOURCE_INVALID")
     formal_concepts = deepcopy(resource_promotion["formal_concepts"])
@@ -311,12 +536,13 @@ def build_knowledge_map(
     formal_concepts.sort(
         key=lambda concept: (
             min(concept["source_page_numbers"]),
-            concept["resolution_order"],
             concept["formal_concept_id"],
         )
     )
     relations.sort(key=lambda relation: relation["relation_id"])
-    path = _learning_path(formal_concepts, relations)
+    topology, path, topology_diagnostics = _topology_and_learning_path(
+        formal_concepts, relations
+    )
     has_no_formal_concept = not formal_concepts
     is_partial = (
         has_no_formal_concept
@@ -364,6 +590,8 @@ def build_knowledge_map(
         "resource_binding": deepcopy(resource_promotion["resource_binding"]),
         "resource_diagnostics": deepcopy(resource_promotion["resource_diagnostics"]),
         "resource_decisions": deepcopy(resource_promotion["resource_decisions"]),
+        "topology": topology,
+        "topology_diagnostics": topology_diagnostics,
         "initial_learning_path": path,
         "evidence_index": deepcopy(study_material_output["evidence_index"]),
         "excluded_pages": deepcopy(study_material_output["excluded_pages"]),
@@ -382,7 +610,8 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
     fields = {
         "schema", "source_output_id", "source_binding", "material_ref", "formal_concepts", "concept_diagnostics", "relations", "relation_diagnostics",
         "resource_binding", "resource_diagnostics", "resource_decisions",
-        "initial_learning_path", "evidence_index", "excluded_pages", "processing",
+        "topology", "topology_diagnostics", "initial_learning_path",
+        "evidence_index", "excluded_pages", "processing",
         "quality", "decision", "reason_codes", "revision",
     }
     try:
@@ -921,13 +1150,19 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             )
         if (knowledge_map["decision"] == "reject") != (not formal):
             return "KNOWLEDGE_MAP_INVALID"
-        if set(knowledge_map["initial_learning_path"]) != formal_ids:
-            return "KNOWLEDGE_MAP_INVALID"
         if _cycle_relation_ids(knowledge_map["relations"]) or _cycle_relation_ids(
             knowledge_map["relations"], relation_type="contains"
         ):
             return "KNOWLEDGE_MAP_INVALID"
-        if knowledge_map["initial_learning_path"] != _learning_path(formal, knowledge_map["relations"]):
+        expected_topology, expected_path, expected_topology_diagnostics = (
+            _topology_and_learning_path(formal, knowledge_map["relations"])
+        )
+        if (
+            knowledge_map["topology"] != expected_topology
+            or knowledge_map["topology_diagnostics"]
+            != expected_topology_diagnostics
+            or knowledge_map["initial_learning_path"] != expected_path
+        ):
             return "KNOWLEDGE_MAP_INVALID"
     except (KeyError, TypeError, ValueError):
         return "KNOWLEDGE_MAP_INVALID"
@@ -985,6 +1220,8 @@ def build_knowledge_map_view(knowledge_map: dict[str, Any]) -> dict[str, Any]:
         "resource_binding": deepcopy(knowledge_map["resource_binding"]),
         "resource_diagnostics": deepcopy(knowledge_map["resource_diagnostics"]),
         "resource_decisions": deepcopy(knowledge_map["resource_decisions"]),
+        "topology": deepcopy(knowledge_map["topology"]),
+        "topology_diagnostics": deepcopy(knowledge_map["topology_diagnostics"]),
         "initial_learning_path": deepcopy(knowledge_map["initial_learning_path"]),
         "excluded_pages": deepcopy(knowledge_map["excluded_pages"]),
     }

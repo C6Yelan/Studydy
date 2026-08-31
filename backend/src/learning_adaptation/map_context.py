@@ -197,7 +197,10 @@ def _build_context(
         knowledge_map_revision=knowledge_map_revision,
         formal_concepts=formal_concepts,
         relations=relations,
-        initial_learning_path=tuple(knowledge_map["initial_learning_path"]),
+        initial_learning_path=tuple(
+            step["formal_concept_id"]
+            for step in knowledge_map["initial_learning_path"]
+        ),
     )
 
 

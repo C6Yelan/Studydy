@@ -61,7 +61,7 @@ async function learningRoutes(
 async function openStudySession(page: Page) {
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}`);
   await expect(page.getByRole("heading", { name: "知識地圖", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "相連概念：目標概念" }).click();
+  await page.getByRole("button", { name: "教材概念：目標概念" }).click();
   await page.getByRole("button", { name: "從這個概念開始" }).click();
   await expect(page).toHaveURL(new RegExp(`/study-sessions/${studySessionId}$`));
   await expect(page.getByRole("heading", { name: "目標概念", exact: true }).first()).toBeVisible();

@@ -258,7 +258,7 @@ def test_no_current_target_follows_inline_path(adaptive_database_dsn: str):
     assert plan.fallback_reason == "NO_CURRENT_TARGET_FOLLOW_PATH"
     assert plan.primary_step.target_formal_concept_id == knowledge_map[
         "initial_learning_path"
-    ][0]
+    ][0]["formal_concept_id"]
 
 
 def test_nested_immediate_remediation_preserves_original_deferred_target(

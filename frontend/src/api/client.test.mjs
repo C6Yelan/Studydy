@@ -73,7 +73,7 @@ function successfulRun() {
 function mapView() {
   const pageRef = `page:sha256:${"5".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v8",
+    schema: "knowledge-map-view/v9",
     material_ref: `material:sha256:${"6".repeat(64)}`,
     knowledge_map_revision: mapRevision,
     source_output_id: `study-material-output:sha256:${"3".repeat(64)}`,
@@ -161,7 +161,37 @@ function mapView() {
       split_review_matches: 0,
     },
     resource_decisions: [],
-    initial_learning_path: [`formal-concept:sha256:${"7".repeat(64)}`],
+    topology: {
+      roots: [`formal-concept:sha256:${"7".repeat(64)}`],
+      nodes: [{
+        formal_concept_id: `formal-concept:sha256:${"7".repeat(64)}`,
+        depth: 0,
+        primary_parent_formal_concept_id: null,
+        flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
+      }],
+      flat_groups: [{
+        flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
+        formal_concept_ids: [`formal-concept:sha256:${"7".repeat(64)}`],
+      }],
+    },
+    topology_diagnostics: {
+      component_count: 1,
+      orphan_concept_count: 1,
+      secondary_parent_count: 0,
+      skipped_parent_before_child_count: 0,
+    },
+    initial_learning_path: [{
+      step_number: 1,
+      formal_concept_id: `formal-concept:sha256:${"7".repeat(64)}`,
+      placement_reason: "依教材第 40 頁的首次出現位置安排。",
+      order_basis: {
+        prerequisite_formal_concept_ids: [],
+        parent_formal_concept_ids: [],
+        flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
+        hierarchy_depth: 0,
+        source_page_number: 40,
+      },
+    }],
     excluded_pages: [],
   };
 }
@@ -175,7 +205,28 @@ function mapViewWithRelation() {
   target.claims[0].evidence[0].evidence_id = `evidence:sha256:${"e".repeat(64)}`;
   target.source_concept_ids = [`concept:sha256:${"f".repeat(64)}`];
   view.concepts.push(target);
-  view.initial_learning_path.push(target.formal_concept_id);
+  view.topology.roots.push(target.formal_concept_id);
+  view.topology.nodes.push({
+    formal_concept_id: target.formal_concept_id,
+    depth: 0,
+    primary_parent_formal_concept_id: null,
+    flat_group_id: view.topology.flat_groups[0].flat_group_id,
+  });
+  view.topology.flat_groups[0].formal_concept_ids.push(target.formal_concept_id);
+  view.topology_diagnostics.component_count += 1;
+  view.topology_diagnostics.orphan_concept_count += 1;
+  view.initial_learning_path.push({
+    step_number: 2,
+    formal_concept_id: target.formal_concept_id,
+    placement_reason: "接續教材同一節的平面概念順序。",
+    order_basis: {
+      prerequisite_formal_concept_ids: [],
+      parent_formal_concept_ids: [],
+      flat_group_id: view.topology.flat_groups[0].flat_group_id,
+      hierarchy_depth: 0,
+      source_page_number: 40,
+    },
+  });
   view.relations.push({
     relation_id: `formal-relation:sha256:${"a".repeat(64)}`,
     type: "related",
@@ -345,7 +396,7 @@ test("run v3 closed progress shape rejects v2, decreasing bounds and fake termin
   }
 });
 
-test("Map v8 使用 exact run/revision 並要求 claim PDF locator", async () => {
+test("Map v9 使用 exact run/revision 並要求 topology、path 與 claim PDF locator", async () => {
   const paths = [];
   const client = new StudydyApiClient(async (input) => {
     paths.push(String(input));
@@ -376,7 +427,7 @@ test("Map v8 使用 exact run/revision 並要求 claim PDF locator", async () =>
   );
 });
 
-test("Map v8 補充資源只接受 HTTP(S) public URL", async () => {
+test("Map v9 補充資源只接受 HTTP(S) public URL", async () => {
   const invalid = mapView();
   const sourceConceptId = invalid.concepts[0].source_concept_ids[0];
   invalid.concepts[0].supplementary_resources.push({
@@ -508,7 +559,7 @@ test("StudySession-scoped learning projections 保持 revision 與 action bindin
   );
 });
 
-test("Map v8 pair-level Relation Evidence 必須保留真實 claim owner", async () => {
+test("Map v9 pair-level Relation Evidence 必須保留真實 claim owner", async () => {
   let calls = 0;
   const acceptedClient = new StudydyApiClient(async () => {
     calls += 1;
@@ -534,7 +585,7 @@ test("Map v8 pair-level Relation Evidence 必須保留真實 claim owner", async
   );
 });
 
-test("Map v8 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
+test("Map v9 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
   const mutations = {
     unexpected: (view) => { view.concepts[0].unexpected_field = true; },
     duplicate: (view) => { view.concepts.push(structuredClone(view.concepts[0])); },
@@ -542,6 +593,8 @@ test("Map v8 recursively rejects unexpected、duplicate、nonfinite、type 與 c
     type: (view) => { view.concepts[0].claims[0].evidence[0].page_number = true; },
     count: (view) => { view.concepts[0].claims = []; },
     reference: (view) => { view.concepts[0].claims[0].evidence[0].page_number = 41; },
+    topology: (view) => { view.topology.nodes[0].depth = 1; },
+    path: (view) => { view.initial_learning_path[0].placement_reason = ""; },
     excluded: (view) => {
       view.status.processing = "succeeded";
       view.excluded_pages = [{

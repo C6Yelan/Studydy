@@ -17,6 +17,7 @@ from learning_adaptation.study_sessions import (
     read_study_session,
 )
 from learning_resources.map_resources import MATCHING_POLICY, PROMOTION_POLICY
+from knowledge_map.artifacts import _topology_and_learning_path
 from pdf_evidence.concept_generation import build_semantic_request
 from pdf_evidence.document_context import build_document_contexts
 from pdf_evidence.ocr_page_evidence import canonical_sha256
@@ -169,7 +170,7 @@ def _knowledge_map() -> dict:
         _relation("related", related_source, related_target),
     ]
     knowledge_map = {
-        "schema": "knowledge-map/v8",
+        "schema": "knowledge-map/v9",
         "source_output_id": "study-material-output:sha256:" + "1" * 64,
         "source_binding": {
             "study_material_output_id": "study-material-output:sha256:" + "1" * 64,
@@ -235,9 +236,6 @@ def _knowledge_map() -> dict:
             "split_review_matches": 0,
         },
         "resource_decisions": [],
-        "initial_learning_path": [
-            concept["formal_concept_id"] for concept in concepts
-        ],
         "evidence_index": [
             {
                 "evidence_id": evidence_id,
@@ -259,6 +257,11 @@ def _knowledge_map() -> dict:
             "RELATION_REVIEW_REQUIRED",
         ],
     }
+    (
+        knowledge_map["topology"],
+        knowledge_map["initial_learning_path"],
+        knowledge_map["topology_diagnostics"],
+    ) = _topology_and_learning_path(concepts, relations)
     knowledge_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(
         knowledge_map
     )
@@ -278,6 +281,13 @@ def _rejected_knowledge_map() -> dict:
     }
     knowledge_map["resource_diagnostics"] = {
         key: 0 for key in knowledge_map["resource_diagnostics"]
+    }
+    knowledge_map["topology"] = {"roots": [], "nodes": [], "flat_groups": []}
+    knowledge_map["topology_diagnostics"] = {
+        "component_count": 0,
+        "orphan_concept_count": 0,
+        "secondary_parent_count": 0,
+        "skipped_parent_before_child_count": 0,
     }
     knowledge_map["initial_learning_path"] = []
     knowledge_map["processing"] = "partial"
@@ -485,7 +495,8 @@ def test_map_context_projects_only_validated_current_fields(
     )
 
     assert context.initial_learning_path == tuple(
-        knowledge_map["initial_learning_path"]
+        step["formal_concept_id"]
+        for step in knowledge_map["initial_learning_path"]
     )
     assert {relation.relation_type for relation in context.relations} == {
         "prerequisite",
@@ -645,7 +656,7 @@ def test_create_read_complete_replay_conflict_and_session_isolation(
     assert created.status == "active"
     assert created.last_event_number == second.last_event_number == 0
 
-    target = knowledge_map["initial_learning_path"][0]
+    target = knowledge_map["initial_learning_path"][0]["formal_concept_id"]
     with pytest.raises(
         StudySessionError, match="^STUDY_SESSION_IDEMPOTENCY_CONFLICT$"
     ):
@@ -731,7 +742,9 @@ def test_read_revalidates_stored_current_concept_binding(
         material_id,
         knowledge_map["revision"],
         "tamper-target",
-        current_formal_concept_id=knowledge_map["initial_learning_path"][0],
+        current_formal_concept_id=knowledge_map["initial_learning_path"][0][
+            "formal_concept_id"
+        ],
         dsn=study_database_dsn,
     )
     with psycopg.connect(study_database_dsn) as connection:
