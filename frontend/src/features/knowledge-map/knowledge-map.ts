@@ -18,6 +18,8 @@ export type MapNode = {
 };
 
 const mapNodeSize = { width: 190, height: 88 };
+const nodeGap = 20;
+const groupGap = 70;
 
 export function relationPresentation(type: RelationType): RelationPresentation {
   if (type === "prerequisite") return {
@@ -50,17 +52,50 @@ export function safeExternalUrl(value: string): string | null {
 }
 
 export function hierarchyLayout(view: KnowledgeMapView): MapNode[] {
-  const groupIndex = new Map(view.topology.flat_groups.map((group, index) => [
+  const groupOrder = new Map(view.topology.flat_groups.map((group, index) => [
     group.flat_group_id, index,
   ]));
+  const orderedNodes = [...view.topology.nodes].sort((left, right) => {
+    const groupDifference = Number(groupOrder.get(left.flat_group_id))
+      - Number(groupOrder.get(right.flat_group_id));
+    if (groupDifference !== 0) return groupDifference;
+    if (left.depth !== right.depth) return left.depth - right.depth;
+    if (left.flat_group_anchor.page_number !== right.flat_group_anchor.page_number) {
+      return left.flat_group_anchor.page_number - right.flat_group_anchor.page_number;
+    }
+    if (left.flat_group_anchor.reading_order !== right.flat_group_anchor.reading_order) {
+      return left.flat_group_anchor.reading_order - right.flat_group_anchor.reading_order;
+    }
+    if (left.flat_group_anchor.evidence_id !== right.flat_group_anchor.evidence_id) {
+      return left.flat_group_anchor.evidence_id.localeCompare(
+        right.flat_group_anchor.evidence_id,
+      );
+    }
+    return left.formal_concept_id.localeCompare(right.formal_concept_id);
+  });
+  const groupOffsets = new Map<string, number>();
+  let nextGroupX = 0;
+  for (const group of view.topology.flat_groups) {
+    groupOffsets.set(group.flat_group_id, nextGroupX);
+    const levelCounts = new Map<number, number>();
+    for (const node of orderedNodes) {
+      if (node.flat_group_id !== group.flat_group_id) continue;
+      levelCounts.set(node.depth, (levelCounts.get(node.depth) ?? 0) + 1);
+    }
+    const widestLevel = Math.max(1, ...levelCounts.values());
+    const occupiedWidth = widestLevel * mapNodeSize.width
+      + (widestLevel - 1) * nodeGap;
+    nextGroupX += occupiedWidth + groupGap;
+  }
   const levelCounts = new Map<string, number>();
-  return view.topology.nodes.map((node) => {
+  return orderedNodes.map((node) => {
     const levelKey = `${node.flat_group_id}:${node.depth}`;
     const index = levelCounts.get(levelKey) ?? 0;
     levelCounts.set(levelKey, index + 1);
     return {
       conceptId: node.formal_concept_id,
-      x: Number(groupIndex.get(node.flat_group_id)) * 260 + index * 210,
+      x: Number(groupOffsets.get(node.flat_group_id))
+        + index * (mapNodeSize.width + nodeGap),
       y: node.depth * 150,
       ...mapNodeSize,
     };

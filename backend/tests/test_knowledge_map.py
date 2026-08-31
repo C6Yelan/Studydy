@@ -1039,7 +1039,7 @@ def test_map_v9_and_view_v9_bind_topology_and_relation_contract():
         resource_promotion=_resource_promotion(study, nodes),
         material_runtime_binding_sha256="f" * 64,
     )
-    view = build_knowledge_map_view(knowledge_map)
+    view = build_knowledge_map_view(knowledge_map, study)
 
     assert knowledge_map["schema"] == "knowledge-map/v9"
     assert view["schema"] == "knowledge-map-view/v9"
@@ -1048,7 +1048,7 @@ def test_map_v9_and_view_v9_bind_topology_and_relation_contract():
     assert all(step["placement_reason"] for step in view["initial_learning_path"])
     assert view["relations"][0]["reason"]
     assert view["relations"][0]["relation_context"]
-    assert validate_knowledge_map(knowledge_map) is None
+    assert validate_knowledge_map(knowledge_map, study) is None
 
 
 def _topology_group_context(concepts):
@@ -1056,11 +1056,13 @@ def _topology_group_context(concepts):
     for index, concept in enumerate(concepts):
         evidence_id = f"evidence-{concept['formal_concept_id']}"
         page_ref = f"page-{concept['formal_concept_id']}"
+        document_context_id = f"context-{concept['formal_concept_id']}"
         flat_group_id = concept["source_members"][0]["section_ids"][0]
         concept["claims"] = [{"evidence_ids": [evidence_id]}]
         concept["source_members"][0].update({
             "page_ref": page_ref,
             "evidence_ids": [evidence_id],
+            "document_context_id": document_context_id,
         })
         anchors.append({
             "formal_concept_id": concept["formal_concept_id"],
@@ -1069,6 +1071,7 @@ def _topology_group_context(concepts):
             "page_ref": page_ref,
             "page_number": concept["source_page_numbers"][0],
             "reading_order": index,
+            "document_context_id": document_context_id,
         })
     groups = []
     for flat_group_id in {anchor["flat_group_id"] for anchor in anchors}:
@@ -1266,6 +1269,7 @@ def test_multi_section_group_uses_claim_evidence_not_opaque_section_hash():
                 for name, _, _, _ in blocks
             ],
             "document_contexts": [{
+                "context_id": "document-context:sha256:" + "9" * 64,
                 "page_ref": page_ref,
                 "page_number": 1,
                 "current_blocks": [
@@ -1287,6 +1291,7 @@ def test_multi_section_group_uses_claim_evidence_not_opaque_section_hash():
                 "claims": [{"evidence_ids": [evidence_ids[evidence_name]]}],
                 "source_members": [{
                     "page_ref": page_ref,
+                    "document_context_id": "document-context:sha256:" + "9" * 64,
                     "evidence_ids": [evidence_ids[evidence_name]],
                     "section_ids": [section_one, section_two],
                 }],
@@ -1341,6 +1346,57 @@ def test_multi_section_group_uses_claim_evidence_not_opaque_section_hash():
     assert _revision({"flat_group_context": context}) != _revision(
         {"flat_group_context": renamed_context}
     )
+
+
+def test_source_bound_validation_rejects_rehashed_group_provenance_tamper():
+    study = _study()
+    resolution = _keep_resolution(study)
+    knowledge_map = build_knowledge_map(
+        study,
+        [resolution],
+        [],
+        relation_pair_status={
+            "processing": "succeeded",
+            "reason_codes": ["RELATION_REVIEW_REQUIRED"],
+        },
+        resource_promotion=_resource_promotion(
+            study, resolution["formal_concepts"]
+        ),
+        material_runtime_binding_sha256="f" * 64,
+    )
+
+    anchor_tamper = deepcopy(knowledge_map)
+    anchor_tamper["flat_group_context"]["concept_anchors"][0][
+        "reading_order"
+    ] += 17
+    anchor_tamper["topology"]["nodes"][0]["flat_group_anchor"][
+        "reading_order"
+    ] += 17
+    anchor_tamper["revision"] = _revision(anchor_tamper)
+    assert validate_knowledge_map(
+        anchor_tamper, study
+    ) == "KNOWLEDGE_MAP_INVALID"
+
+    group_tamper = deepcopy(knowledge_map)
+    group_tamper["flat_group_context"]["groups"][0]["source_order"][
+        "reading_order"
+    ] += 23
+    group_tamper["topology"]["flat_groups"][0]["source_order"][
+        "reading_order"
+    ] += 23
+    group_tamper["revision"] = _revision(group_tamper)
+    assert validate_knowledge_map(
+        group_tamper, study
+    ) == "KNOWLEDGE_MAP_INVALID"
+
+    context_tamper = deepcopy(knowledge_map)
+    context_tamper["flat_group_context"]["concept_anchors"][0][
+        "document_context_id"
+    ] = "document-context:sha256:" + "0" * 64
+    context_tamper["revision"] = _revision(context_tamper)
+    assert validate_knowledge_map(
+        context_tamper, study
+    ) == "KNOWLEDGE_MAP_INVALID"
 
 
 def test_concept_and_relation_input_permutation_keeps_map_revision_identical():
@@ -1471,7 +1527,7 @@ def test_recomputed_revision_cannot_hide_nested_unexpected_field():
     identity = dict(knowledge_map)
     identity.pop("revision")
     knowledge_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(identity)
-    assert validate_knowledge_map(knowledge_map) == "KNOWLEDGE_MAP_INVALID"
+    assert validate_knowledge_map(knowledge_map, study) == "KNOWLEDGE_MAP_INVALID"
 
 
 def test_map_promotes_resource_with_provenance_and_rejects_tampering():
@@ -1498,7 +1554,7 @@ def test_map_promotes_resource_with_provenance_and_rejects_tampering():
     assert resource["match_ids"] == [context["matches"][0]["match_id"]]
     assert resource["study_concept_ids"] == [study["concepts"][0]["concept_id"]]
     assert knowledge_map["resource_diagnostics"]["promoted_resources"] == 1
-    assert build_knowledge_map_view(knowledge_map)["concepts"][0][
+    assert build_knowledge_map_view(knowledge_map, study)["concepts"][0][
         "supplementary_resources"
     ] == [resource]
 
@@ -1509,7 +1565,7 @@ def test_map_promotes_resource_with_provenance_and_rejects_tampering():
     identity = dict(tampered)
     identity.pop("revision")
     tampered["revision"] = "knowledge-map:sha256:" + canonical_sha256(identity)
-    assert validate_knowledge_map(tampered) == "KNOWLEDGE_MAP_INVALID"
+    assert validate_knowledge_map(tampered, study) == "KNOWLEDGE_MAP_INVALID"
 
 
 def test_resource_promotion_requires_exactly_one_canonical_owner():

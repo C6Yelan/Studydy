@@ -52,9 +52,9 @@ test("hierarchy layout uses backend depths instead of deriving radial semantics"
     ],
     topology: {
       nodes: [
-        { formal_concept_id: "a", depth: 0, primary_parent_formal_concept_id: null, flat_group_id: "g1" },
-        { formal_concept_id: "b", depth: 1, primary_parent_formal_concept_id: "a", flat_group_id: "g1" },
-        { formal_concept_id: "c", depth: 0, primary_parent_formal_concept_id: null, flat_group_id: "g2" },
+        { formal_concept_id: "a", depth: 0, primary_parent_formal_concept_id: null, flat_group_id: "g1", flat_group_anchor: { page_number: 1, reading_order: 0, evidence_id: "ea" } },
+        { formal_concept_id: "b", depth: 1, primary_parent_formal_concept_id: "a", flat_group_id: "g1", flat_group_anchor: { page_number: 1, reading_order: 1, evidence_id: "eb" } },
+        { formal_concept_id: "c", depth: 0, primary_parent_formal_concept_id: null, flat_group_id: "g2", flat_group_anchor: { page_number: 2, reading_order: 0, evidence_id: "ec" } },
       ],
       flat_groups: [
         { flat_group_id: "g1" },
@@ -74,6 +74,31 @@ test("hierarchy layout uses backend depths instead of deriving radial semantics"
     ["b", 0, 150],
     ["c", 260, 0],
   ]);
+});
+
+test("group offsets use occupied width and stay deterministic under node permutation", () => {
+  const nodes = [
+    { formal_concept_id: "a", depth: 0, flat_group_id: "g1", flat_group_anchor: { page_number: 1, reading_order: 0, evidence_id: "ea" } },
+    { formal_concept_id: "b", depth: 0, flat_group_id: "g1", flat_group_anchor: { page_number: 1, reading_order: 1, evidence_id: "eb" } },
+    { formal_concept_id: "c", depth: 0, flat_group_id: "g2", flat_group_anchor: { page_number: 2, reading_order: 0, evidence_id: "ec" } },
+  ];
+  const view = {
+    topology: {
+      nodes,
+      flat_groups: [{ flat_group_id: "g1" }, { flat_group_id: "g2" }],
+    },
+  };
+
+  const layout = hierarchyLayout(view);
+  const repeated = hierarchyLayout({
+    topology: { ...view.topology, nodes: [...nodes].reverse() },
+  });
+
+  assert.deepEqual(layout, repeated);
+  assert.deepEqual(layout.map((node) => [node.conceptId, node.x]), [
+    ["a", 0], ["b", 210], ["c", 470],
+  ]);
+  assert.ok(layout[1].x + layout[1].width <= layout[2].x);
 });
 
 test("primary hierarchy relation follows the canonical backend parent", () => {

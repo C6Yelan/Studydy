@@ -1392,12 +1392,22 @@ def test_owner_scope_and_tampered_map_read_fail_closed(
         )
     with psycopg.connect(processing_database_dsn) as connection:
         stored = connection.execute("SELECT document FROM knowledge_maps").fetchone()[0]
+        stored_source = connection.execute(
+            "SELECT document FROM study_material_outputs"
+        ).fetchone()[0]
         forged = deepcopy(stored)
-        forged["formal_concepts"][0]["label"] = "Forged but self-rehashed label"
+        forged["flat_group_context"]["concept_anchors"][0][
+            "reading_order"
+        ] += 17
+        forged["topology"]["nodes"][0]["flat_group_anchor"][
+            "reading_order"
+        ] += 17
         forged["revision"] = "knowledge-map:sha256:" + canonical_sha256(
             {key: value for key, value in forged.items() if key != "revision"}
         )
-        assert validate_knowledge_map(forged) == "KNOWLEDGE_MAP_INVALID"
+        assert validate_knowledge_map(
+            forged, stored_source
+        ) == "KNOWLEDGE_MAP_INVALID"
         connection.execute(
             "UPDATE knowledge_maps SET map_revision=%s, document=%s",
             (forged["revision"], Jsonb(forged)),

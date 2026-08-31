@@ -168,6 +168,7 @@ def _build_flat_group_context(
                 "page_number": context["page_number"],
                 "reading_order": block["reading_order"],
                 "flat_group_id": block["section_id"],
+                "document_context_id": context["context_id"],
             }
             current_by_evidence[block["evidence_id"]] = source
             current_by_section.setdefault(block["section_id"], []).append(source)
@@ -184,6 +185,8 @@ def _build_flat_group_context(
             source = current_by_evidence.get(evidence_id)
             if source is None or not any(
                 member["page_ref"] == source["page_ref"]
+                and member["document_context_id"]
+                == source["document_context_id"]
                 and evidence_id in member["evidence_ids"]
                 and source["flat_group_id"] in member["section_ids"]
                 for member in concept["source_members"]
@@ -300,7 +303,7 @@ def _topology_and_learning_path(
         raise ValueError("KNOWLEDGE_MAP_GROUP_INVALID")
     anchor_fields = {
         "formal_concept_id", "flat_group_id", "evidence_id", "page_ref",
-        "page_number", "reading_order",
+        "page_number", "reading_order", "document_context_id",
     }
     for node, anchor in anchor_by_node.items():
         concept = nodes[node]
@@ -317,6 +320,8 @@ def _topology_and_learning_path(
             or anchor["reading_order"] < 0
             or not any(
                 member["page_ref"] == anchor["page_ref"]
+                and member["document_context_id"]
+                == anchor["document_context_id"]
                 and anchor["evidence_id"] in member["evidence_ids"]
                 and anchor["flat_group_id"] in member["section_ids"]
                 for member in concept["source_members"]
@@ -330,6 +335,7 @@ def _topology_and_learning_path(
     }
     source_order_fields = {
         "evidence_id", "page_ref", "page_number", "reading_order",
+        "document_context_id",
     }
     if set(groups_by_id) != {
         anchor["flat_group_id"] for anchor in anchor_by_node.values()
@@ -346,6 +352,7 @@ def _topology_and_learning_path(
             or set(source_order) != source_order_fields
             or not isinstance(source_order["evidence_id"], str)
             or not isinstance(source_order["page_ref"], str)
+            or not isinstance(source_order["document_context_id"], str)
             or type(source_order["page_number"]) is not int
             or source_order["page_number"] < 1
             or type(source_order["reading_order"]) is not int
@@ -448,9 +455,10 @@ def _topology_and_learning_path(
                 "primary_parent_formal_concept_id": primary_parent[node],
                 "flat_group_id": flat_group_by_node[node],
                 "flat_group_anchor": {
-                    key: value
-                    for key, value in anchor_by_node[node].items()
-                    if key not in {"formal_concept_id", "flat_group_id"}
+                    key: anchor_by_node[node][key]
+                    for key in (
+                        "evidence_id", "page_ref", "page_number", "reading_order"
+                    )
                 },
             }
             for node in topology_order
@@ -461,7 +469,12 @@ def _topology_and_learning_path(
                 "label": groups_by_id[group_id]["label"],
                 "label_source": groups_by_id[group_id]["label_source"],
                 "heading_evidence_id": groups_by_id[group_id]["heading_evidence_id"],
-                "source_order": deepcopy(groups_by_id[group_id]["source_order"]),
+                "source_order": {
+                    key: groups_by_id[group_id]["source_order"][key]
+                    for key in (
+                        "evidence_id", "page_ref", "page_number", "reading_order"
+                    )
+                },
                 "formal_concept_ids": [
                     node
                     for node in topology_order
@@ -829,12 +842,14 @@ def build_knowledge_map(
         "reason_codes": sorted(reasons),
     }
     document["revision"] = _revision(document)
-    if validate_knowledge_map(document) is not None:
+    if validate_knowledge_map(document, study_material_output) is not None:
         raise ValueError("KNOWLEDGE_MAP_INVALID")
     return document
 
 
-def validate_knowledge_map(knowledge_map: Any) -> str | None:
+def validate_knowledge_map(
+    knowledge_map: Any, study_material_output: Any
+) -> str | None:
     fields = {
         "schema", "source_output_id", "source_binding", "material_ref", "formal_concepts", "concept_diagnostics", "relations", "relation_diagnostics",
         "resource_binding", "resource_diagnostics", "resource_decisions",
@@ -845,7 +860,8 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
     }
     try:
         if (
-            not isinstance(knowledge_map, dict)
+            validate_study_material_output(study_material_output) is not None
+            or not isinstance(knowledge_map, dict)
             or set(knowledge_map) != fields
             or knowledge_map["schema"] != KNOWLEDGE_MAP_SCHEMA
             or knowledge_map["revision"] != _revision(knowledge_map)
@@ -858,6 +874,14 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             or knowledge_map["decision"] not in {"review", "reject"}
             or knowledge_map["source_output_id"]
             != knowledge_map["source_binding"]["study_material_output_id"]
+            or knowledge_map["source_output_id"]
+            != study_material_output["output_id"]
+            or knowledge_map["material_ref"]
+            != study_material_output["material_ref"]
+            or knowledge_map["evidence_index"]
+            != study_material_output["evidence_index"]
+            or knowledge_map["excluded_pages"]
+            != study_material_output["excluded_pages"]
             or any(
                 not isinstance(knowledge_map["source_binding"][field], str)
                 or len(knowledge_map["source_binding"][field]) != 64
@@ -1410,7 +1434,9 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
             )
         )
         if (
-            knowledge_map["topology"] != expected_topology
+            knowledge_map["flat_group_context"]
+            != _build_flat_group_context(study_material_output, formal)
+            or knowledge_map["topology"] != expected_topology
             or knowledge_map["topology_diagnostics"]
             != expected_topology_diagnostics
             or knowledge_map["initial_learning_path"] != expected_path
@@ -1421,10 +1447,12 @@ def validate_knowledge_map(knowledge_map: Any) -> str | None:
     return None
 
 
-def build_knowledge_map_view(knowledge_map: dict[str, Any]) -> dict[str, Any]:
+def build_knowledge_map_view(
+    knowledge_map: dict[str, Any], study_material_output: dict[str, Any]
+) -> dict[str, Any]:
     """公開 view 只提供 claim locator，不含教材全文或 runtime 設定。"""
 
-    if validate_knowledge_map(knowledge_map) is not None:
+    if validate_knowledge_map(knowledge_map, study_material_output) is not None:
         raise ValueError("KNOWLEDGE_MAP_INVALID")
     evidence_by_id = {
         evidence["evidence_id"]: evidence for evidence in knowledge_map["evidence_index"]

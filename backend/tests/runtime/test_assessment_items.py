@@ -883,7 +883,9 @@ def test_owner_lifecycle_and_map_bindings_fail_closed_without_row(
         learner, completed.study_session_id, dsn=assessment_database_dsn
     )
     different_map = deepcopy(knowledge_map)
-    different_map["material_ref"] = "material:sha256:" + "2" * 64
+    different_map["source_binding"]["material_runtime_binding_sha256"] = (
+        "3" * 64
+    )
     different_map.pop("revision")
     different_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(
         different_map

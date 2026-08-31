@@ -9,7 +9,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from knowledge_map.artifacts import validate_knowledge_map
-from pdf_evidence.study_material_output import validate_study_material_output
 from runtime.storage.database import DatabaseConfigurationError
 from runtime.storage.tables import KnowledgeMap, StudyMaterialOutput, database_session
 
@@ -100,8 +99,7 @@ def _build_context(
     study_material_output: object,
 ) -> MapContext:
     if (
-        validate_knowledge_map(knowledge_map) is not None
-        or validate_study_material_output(study_material_output) is not None
+        validate_knowledge_map(knowledge_map, study_material_output) is not None
     ):
         raise _unavailable()
     assert isinstance(knowledge_map, dict)

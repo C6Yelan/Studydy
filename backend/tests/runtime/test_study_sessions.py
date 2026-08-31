@@ -73,24 +73,32 @@ def _flat_group_context(concepts: list[dict]) -> dict:
             "evidence_id": concept["claims"][0]["evidence_ids"][0],
             "page_ref": concept["source_members"][0]["page_ref"],
             "page_number": concept["source_page_numbers"][0],
-            "reading_order": index,
+            "reading_order": 0,
+            "document_context_id": concept["source_members"][0][
+                "document_context_id"
+            ],
         }
-        for index, concept in enumerate(concepts)
+        for concept in concepts
     ]
-    groups = [
-        {
-            "flat_group_id": anchor["flat_group_id"],
-            "label": f"第 {anchor['page_number']} 頁未命名段落",
+    groups = []
+    for flat_group_id in {anchor["flat_group_id"] for anchor in anchors}:
+        source = min(
+            (anchor for anchor in anchors if anchor["flat_group_id"] == flat_group_id),
+            key=lambda item: (
+                item["page_number"], item["reading_order"], item["evidence_id"]
+            ),
+        )
+        groups.append({
+            "flat_group_id": flat_group_id,
+            "label": f"第 {source['page_number']} 頁未命名段落",
             "label_source": "unheaded_fallback",
             "heading_evidence_id": None,
             "source_order": {
                 key: value
-                for key, value in anchor.items()
+                for key, value in source.items()
                 if key not in {"formal_concept_id", "flat_group_id"}
             },
-        }
-        for anchor in anchors
-    ]
+        })
     return {
         "concept_anchors": sorted(
             anchors, key=lambda item: item["formal_concept_id"]
@@ -142,6 +150,26 @@ def _relation(relation_type: str, source: dict, target: dict) -> dict:
 
 def _knowledge_map() -> dict:
     evidence_id = "evidence:sha256:" + "1" * 64
+    page_ref = "page:sha256:" + "1" * 64
+    page_evidence_id = "page-evidence:sha256:" + canonical_sha256(
+        {"page_ref": page_ref, "page_number": 1}
+    )
+    context = build_document_contexts([{
+        "schema": "page-evidence/v3",
+        "material_id": "material:sha256:" + "1" * 64,
+        "material_revision": "material-revision:sha256:" + "9" * 64,
+        "section_id": "page-section-not-used-by-document-context",
+        "page_ref": page_ref,
+        "page_number": 1,
+        "page_evidence_id": page_evidence_id,
+        "evidence_blocks": [{
+            "evidence_id": evidence_id,
+            "block_id": f"block:sha256:{1:064x}",
+            "kind": "paragraph",
+            "text": "Canonical Evidence 1",
+            "reading_order": 0,
+        }],
+    }])[0]
     concepts = []
     for index, label in enumerate(
         ("Core concept", "Applied concept", "Related concept")
@@ -166,13 +194,11 @@ def _knowledge_map() -> dict:
                 "label": label,
                 "claim_ids": [claim["claim_id"]],
                 "evidence_ids": [evidence_id],
-                "page_ref": "page:sha256:" + "1" * 64,
-                "document_context_id": "document-context:sha256:" + str(index + 1) * 64,
-                "section_ids": [
-                    "document-section:sha256:" + str(index + 1) * 64
-                ],
+                "page_ref": page_ref,
+                "document_context_id": context["context_id"],
+                "section_ids": context["section_ids"],
             }],
-            "source_page_refs": ["page:sha256:" + "1" * 64],
+            "source_page_refs": [page_ref],
             "source_page_numbers": [1],
             "quality": "needs_review",
             "decision": "review",
@@ -612,6 +638,41 @@ def test_map_context_rejects_canonical_evidence_text_tamper(
             owner,
             material_id,
             knowledge_map["revision"],
+            dsn=study_database_dsn,
+        )
+
+
+def test_map_context_rejects_rehashed_group_source_order_tamper(
+    study_database_dsn: str,
+):
+    owner = uuid4()
+    knowledge_map = _knowledge_map()
+    material_id = _insert_material_map(
+        study_database_dsn, owner, knowledge_map
+    )
+    forged = deepcopy(knowledge_map)
+    forged["flat_group_context"]["groups"][0]["source_order"][
+        "reading_order"
+    ] += 23
+    forged["topology"]["flat_groups"][0]["source_order"][
+        "reading_order"
+    ] += 23
+    forged.pop("revision")
+    forged["revision"] = "knowledge-map:sha256:" + canonical_sha256(forged)
+    with psycopg.connect(study_database_dsn) as connection:
+        connection.execute(
+            """
+            UPDATE knowledge_maps SET map_revision = %s, document = %s
+            WHERE learner_id = %s AND material_id = %s
+            """,
+            (forged["revision"], Jsonb(forged), owner, material_id),
+        )
+
+    with pytest.raises(MapContextError, match="^KNOWLEDGE_MAP_UNAVAILABLE$"):
+        read_map_context(
+            owner,
+            material_id,
+            forged["revision"],
             dsn=study_database_dsn,
         )
 
