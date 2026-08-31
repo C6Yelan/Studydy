@@ -603,8 +603,8 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
         set(evidence) == {"evidence_id", "text"}
         for evidence in outputs.study_material_output["evidence_text_index"]
     )
-    assert outputs.knowledge_map["schema"] == "knowledge-map/v8"
-    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v8"
+    assert outputs.knowledge_map["schema"] == "knowledge-map/v9"
+    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v9"
     with psycopg.connect(processing_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM study_material_outputs").fetchone() == (1,)
         assert connection.execute("SELECT count(*) FROM knowledge_maps").fetchone() == (1,)
@@ -810,6 +810,16 @@ def test_partial_page_and_semantic_status_reaches_persisted_run(
     assert api_view["status"]["processing"] == "partial"
     assert api_view["excluded_pages"] == []
     assert api_view["concepts"][0]["claims"][0]["evidence"][0] == evidence
+    invalid_topology = deepcopy(api_view)
+    invalid_topology["topology"]["nodes"][0]["depth"] = 1
+    with pytest.raises(ValueError, match="KNOWLEDGE_MAP_VIEW_INVALID"):
+        KnowledgeMapView.model_validate(invalid_topology)
+    invalid_path = deepcopy(api_view)
+    invalid_path["initial_learning_path"][0]["order_basis"][
+        "source_page_number"
+    ] += 1
+    with pytest.raises(ValueError, match="KNOWLEDGE_MAP_VIEW_INVALID"):
+        KnowledgeMapView.model_validate(invalid_path)
     relation_view = deepcopy(outputs.knowledge_map_view)
     second_concept = deepcopy(relation_view["concepts"][0])
     second_concept["formal_concept_id"] = "formal-concept:sha256:" + "c" * 64
@@ -819,9 +829,44 @@ def test_partial_page_and_semantic_status_reaches_persisted_run(
     )
     second_concept["source_concept_ids"] = ["concept:sha256:" + "f" * 64]
     relation_view["concepts"].append(second_concept)
-    relation_view["initial_learning_path"].append(
-        second_concept["formal_concept_id"]
-    )
+    second_id = second_concept["formal_concept_id"]
+    flat_group_id = relation_view["topology"]["nodes"][0]["flat_group_id"]
+    relation_view["topology"]["roots"].append(second_id)
+    relation_view["topology"]["nodes"].append({
+        "formal_concept_id": second_id,
+        "depth": 0,
+        "primary_parent_formal_concept_id": None,
+        "flat_group_id": flat_group_id,
+        "flat_group_anchor": {
+            "evidence_id": second_concept["claims"][0]["evidence"][0][
+                "evidence_id"
+            ],
+            "page_ref": second_concept["claims"][0]["evidence"][0][
+                "page_ref"
+            ],
+            "page_number": second_concept["claims"][0]["evidence"][0][
+                "page_number"
+            ],
+            "reading_order": 0,
+        },
+    })
+    relation_view["topology"]["flat_groups"][0][
+        "formal_concept_ids"
+    ].append(second_id)
+    relation_view["topology_diagnostics"]["component_count"] += 1
+    relation_view["topology_diagnostics"]["orphan_concept_count"] += 1
+    relation_view["initial_learning_path"].append({
+        "step_number": 2,
+        "formal_concept_id": second_id,
+        "placement_reason": "接續教材同一節的平面概念順序。",
+        "order_basis": {
+            "prerequisite_formal_concept_ids": [],
+            "parent_formal_concept_ids": [],
+            "flat_group_id": flat_group_id,
+            "hierarchy_depth": 0,
+            "source_page_number": min(second_concept["source_page_numbers"]),
+        },
+    })
     relation_view["relations"] = [
         {
             "relation_id": "formal-relation:sha256:" + "a" * 64,
@@ -1347,12 +1392,22 @@ def test_owner_scope_and_tampered_map_read_fail_closed(
         )
     with psycopg.connect(processing_database_dsn) as connection:
         stored = connection.execute("SELECT document FROM knowledge_maps").fetchone()[0]
+        stored_source = connection.execute(
+            "SELECT document FROM study_material_outputs"
+        ).fetchone()[0]
         forged = deepcopy(stored)
-        forged["formal_concepts"][0]["label"] = "Forged but self-rehashed label"
+        forged["flat_group_context"]["concept_anchors"][0][
+            "reading_order"
+        ] += 17
+        forged["topology"]["nodes"][0]["flat_group_anchor"][
+            "reading_order"
+        ] += 17
         forged["revision"] = "knowledge-map:sha256:" + canonical_sha256(
             {key: value for key, value in forged.items() if key != "revision"}
         )
-        assert validate_knowledge_map(forged) == "KNOWLEDGE_MAP_INVALID"
+        assert validate_knowledge_map(
+            forged, stored_source
+        ) == "KNOWLEDGE_MAP_INVALID"
         connection.execute(
             "UPDATE knowledge_maps SET map_revision=%s, document=%s",
             (forged["revision"], Jsonb(forged)),

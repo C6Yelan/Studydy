@@ -29,10 +29,7 @@ from pdf_evidence.text_first_bundle import (
     validate_bundle_documents,
 )
 from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
-from pdf_evidence.study_material_output import (
-    build_study_material_output,
-    validate_study_material_output,
-)
+from pdf_evidence.study_material_output import build_study_material_output
 
 from .artifacts import open_verified_source_pdf
 from .tables import (
@@ -194,7 +191,9 @@ def publish_material_outputs(
             resource_context=resource_context,
             resource_library=resource_library,
         )
-        knowledge_map_view = build_knowledge_map_view(knowledge_map)
+        knowledge_map_view = build_knowledge_map_view(
+            knowledge_map, study_material_output
+        )
     except (KeyError, TypeError, ValueError):
         try:
             _write_stage_failure(runtime_root, run_id, "KNOWLEDGE_GENERATION_FAILED")
@@ -434,8 +433,9 @@ def read_material_run_outputs(
                 else "succeeded"
             )
             or study_material_output.get("run_id") != binding["producer_run_id"]
-            or validate_study_material_output(study_material_output) is not None
-            or validate_knowledge_map(knowledge_map) is not None
+            or validate_knowledge_map(
+                knowledge_map, study_material_output
+            ) is not None
         ):
             raise MaterialRunOutputError("MATERIAL_OUTPUT_UNAVAILABLE")
         with open_verified_source_pdf(learner_id, source_artifact_id, dsn=dsn) as source:
@@ -452,7 +452,7 @@ def read_material_run_outputs(
             knowledge_map["revision"],
             deepcopy(study_material_output),
             deepcopy(knowledge_map),
-            build_knowledge_map_view(knowledge_map),
+            build_knowledge_map_view(knowledge_map, study_material_output),
         )
     except MaterialRunOutputError:
         raise

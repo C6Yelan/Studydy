@@ -56,7 +56,7 @@ export function mapView(): KnowledgeMapView {
   const prerequisite = concept(prerequisiteConceptId, prerequisiteClaimId, "先備概念", 1);
   const target = concept(targetConceptId, targetClaimId, "目標概念", 2);
   return {
-    schema: "knowledge-map-view/v8",
+    schema: "knowledge-map-view/v9",
     material_ref: revision("material", "5"),
     knowledge_map_revision: mapRevision,
     source_output_id: revision("study-material-output", "6"),
@@ -141,7 +141,66 @@ export function mapView(): KnowledgeMapView {
       split_review_matches: 0,
     },
     resource_decisions: [],
-    initial_learning_path: [prerequisiteConceptId, targetConceptId],
+    topology: {
+      roots: [prerequisiteConceptId, targetConceptId],
+      nodes: [prerequisite, target].map((item, index) => ({
+        formal_concept_id: item.formal_concept_id,
+        depth: 0,
+        primary_parent_formal_concept_id: null,
+        flat_group_id: revision("document-section", String(index + 1)),
+        flat_group_anchor: {
+          evidence_id: item.claims[0].evidence[0].evidence_id,
+          page_ref: item.claims[0].evidence[0].page_ref,
+          page_number: item.source_page_numbers[0],
+          reading_order: index,
+        },
+      })),
+      flat_groups: [prerequisite, target].map((item, index) => ({
+        flat_group_id: revision("document-section", String(index + 1)),
+        label: index === 0 ? "先備概念" : "目標概念",
+        label_source: "heading",
+        heading_evidence_id: item.claims[0].evidence[0].evidence_id,
+        source_order: {
+          evidence_id: item.claims[0].evidence[0].evidence_id,
+          page_ref: item.claims[0].evidence[0].page_ref,
+          page_number: item.source_page_numbers[0],
+          reading_order: index,
+        },
+        formal_concept_ids: [item.formal_concept_id],
+      })),
+    },
+    topology_diagnostics: {
+      component_count: 2,
+      orphan_concept_count: 2,
+      secondary_parent_count: 0,
+      skipped_parent_before_child_count: 0,
+    },
+    initial_learning_path: [
+      {
+        step_number: 1,
+        formal_concept_id: prerequisiteConceptId,
+        placement_reason: "依教材第 1 頁的首次出現位置安排。",
+        order_basis: {
+          prerequisite_formal_concept_ids: [],
+          parent_formal_concept_ids: [],
+          flat_group_id: revision("document-section", "1"),
+          hierarchy_depth: 0,
+          source_page_number: 1,
+        },
+      },
+      {
+        step_number: 2,
+        formal_concept_id: targetConceptId,
+        placement_reason: "先理解「先備概念」，再進入這個概念。",
+        order_basis: {
+          prerequisite_formal_concept_ids: [prerequisiteConceptId],
+          parent_formal_concept_ids: [],
+          flat_group_id: revision("document-section", "2"),
+          hierarchy_depth: 0,
+          source_page_number: 2,
+        },
+      },
+    ],
     excluded_pages: [],
   };
 }

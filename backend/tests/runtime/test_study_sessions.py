@@ -17,6 +17,7 @@ from learning_adaptation.study_sessions import (
     read_study_session,
 )
 from learning_resources.map_resources import MATCHING_POLICY, PROMOTION_POLICY
+from knowledge_map.artifacts import _topology_and_learning_path
 from pdf_evidence.concept_generation import build_semantic_request
 from pdf_evidence.document_context import build_document_contexts
 from pdf_evidence.ocr_page_evidence import canonical_sha256
@@ -64,6 +65,56 @@ def _formal_id(concept: dict) -> str:
     )
 
 
+def _flat_group_context(concepts: list[dict]) -> dict:
+    anchors = [
+        {
+            "formal_concept_id": concept["formal_concept_id"],
+            "flat_group_id": concept["source_members"][0]["section_ids"][0],
+            "evidence_id": concept["claims"][0]["evidence_ids"][0],
+            "page_ref": concept["source_members"][0]["page_ref"],
+            "page_number": concept["source_page_numbers"][0],
+            "reading_order": 0,
+            "document_context_id": concept["source_members"][0][
+                "document_context_id"
+            ],
+        }
+        for concept in concepts
+    ]
+    groups = []
+    for flat_group_id in {anchor["flat_group_id"] for anchor in anchors}:
+        source = min(
+            (anchor for anchor in anchors if anchor["flat_group_id"] == flat_group_id),
+            key=lambda item: (
+                item["page_number"], item["reading_order"], item["evidence_id"]
+            ),
+        )
+        groups.append({
+            "flat_group_id": flat_group_id,
+            "label": f"第 {source['page_number']} 頁未命名段落",
+            "label_source": "unheaded_fallback",
+            "heading_evidence_id": None,
+            "source_order": {
+                key: value
+                for key, value in source.items()
+                if key not in {"formal_concept_id", "flat_group_id"}
+            },
+        })
+    return {
+        "concept_anchors": sorted(
+            anchors, key=lambda item: item["formal_concept_id"]
+        ),
+        "groups": sorted(
+            groups,
+            key=lambda item: (
+                item["source_order"]["page_number"],
+                item["source_order"]["reading_order"],
+                item["source_order"]["evidence_id"],
+                item["flat_group_id"],
+            ),
+        ),
+    }
+
+
 def _relation(relation_type: str, source: dict, target: dict) -> dict:
     relation_evidence = [
         {
@@ -99,6 +150,26 @@ def _relation(relation_type: str, source: dict, target: dict) -> dict:
 
 def _knowledge_map() -> dict:
     evidence_id = "evidence:sha256:" + "1" * 64
+    page_ref = "page:sha256:" + "1" * 64
+    page_evidence_id = "page-evidence:sha256:" + canonical_sha256(
+        {"page_ref": page_ref, "page_number": 1}
+    )
+    context = build_document_contexts([{
+        "schema": "page-evidence/v3",
+        "material_id": "material:sha256:" + "1" * 64,
+        "material_revision": "material-revision:sha256:" + "9" * 64,
+        "section_id": "page-section-not-used-by-document-context",
+        "page_ref": page_ref,
+        "page_number": 1,
+        "page_evidence_id": page_evidence_id,
+        "evidence_blocks": [{
+            "evidence_id": evidence_id,
+            "block_id": f"block:sha256:{1:064x}",
+            "kind": "paragraph",
+            "text": "Canonical Evidence 1",
+            "reading_order": 0,
+        }],
+    }])[0]
     concepts = []
     for index, label in enumerate(
         ("Core concept", "Applied concept", "Related concept")
@@ -123,11 +194,11 @@ def _knowledge_map() -> dict:
                 "label": label,
                 "claim_ids": [claim["claim_id"]],
                 "evidence_ids": [evidence_id],
-                "page_ref": "page:sha256:" + "1" * 64,
-                "document_context_id": "document-context:sha256:" + str(index + 1) * 64,
-                "section_ids": ["section:sha256:" + str(index + 1) * 64],
+                "page_ref": page_ref,
+                "document_context_id": context["context_id"],
+                "section_ids": context["section_ids"],
             }],
-            "source_page_refs": ["page:sha256:" + "1" * 64],
+            "source_page_refs": [page_ref],
             "source_page_numbers": [1],
             "quality": "needs_review",
             "decision": "review",
@@ -169,7 +240,7 @@ def _knowledge_map() -> dict:
         _relation("related", related_source, related_target),
     ]
     knowledge_map = {
-        "schema": "knowledge-map/v8",
+        "schema": "knowledge-map/v9",
         "source_output_id": "study-material-output:sha256:" + "1" * 64,
         "source_binding": {
             "study_material_output_id": "study-material-output:sha256:" + "1" * 64,
@@ -235,9 +306,6 @@ def _knowledge_map() -> dict:
             "split_review_matches": 0,
         },
         "resource_decisions": [],
-        "initial_learning_path": [
-            concept["formal_concept_id"] for concept in concepts
-        ],
         "evidence_index": [
             {
                 "evidence_id": evidence_id,
@@ -259,6 +327,14 @@ def _knowledge_map() -> dict:
             "RELATION_REVIEW_REQUIRED",
         ],
     }
+    knowledge_map["flat_group_context"] = _flat_group_context(concepts)
+    (
+        knowledge_map["topology"],
+        knowledge_map["initial_learning_path"],
+        knowledge_map["topology_diagnostics"],
+    ) = _topology_and_learning_path(
+        concepts, relations, knowledge_map["flat_group_context"]
+    )
     knowledge_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(
         knowledge_map
     )
@@ -278,6 +354,17 @@ def _rejected_knowledge_map() -> dict:
     }
     knowledge_map["resource_diagnostics"] = {
         key: 0 for key in knowledge_map["resource_diagnostics"]
+    }
+    knowledge_map["topology"] = {"roots": [], "nodes": [], "flat_groups": []}
+    knowledge_map["flat_group_context"] = {
+        "concept_anchors": [],
+        "groups": [],
+    }
+    knowledge_map["topology_diagnostics"] = {
+        "component_count": 0,
+        "orphan_concept_count": 0,
+        "secondary_parent_count": 0,
+        "skipped_parent_before_child_count": 0,
     }
     knowledge_map["initial_learning_path"] = []
     knowledge_map["processing"] = "partial"
@@ -299,9 +386,11 @@ def _insert_material_map(
     knowledge_map: dict,
     *,
     material_id: UUID | None = None,
+    persist_material_run: bool = True,
 ) -> UUID:
     stored_material_id = material_id or uuid4()
     source_artifact_id = uuid4()
+    run_id = uuid4()
     upload_key = sha256(uuid4().bytes).digest()
     evidence_index = deepcopy(knowledge_map["evidence_index"])
     material_revision = "material-revision:sha256:" + "9" * 64
@@ -349,7 +438,7 @@ def _insert_material_map(
     document_contexts = build_document_contexts(context_source_pages)
     study_material_output = {
         "schema": "study-material-output/v7",
-        "run_id": "text-first-run:00000000-0000-4000-8000-000000000001",
+        "run_id": f"text-first-run:{run_id}",
         "produced_at": "2026-08-26T00:00:00+00:00",
         "material_ref": knowledge_map["material_ref"],
         "source_binding": {
@@ -405,6 +494,28 @@ def _insert_material_map(
     knowledge_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(
         knowledge_map
     )
+    page_count = len(pages)
+    material_runtime_binding_sha256 = knowledge_map["source_binding"][
+        "material_runtime_binding_sha256"
+    ]
+    output_binding = {
+        "schema": "material-run-output-binding/v3",
+        "producer_bundle_id": "text-first-producer-bundle:sha256:" + "1" * 64,
+        "producer_run_id": study_material_output["run_id"],
+        "concept_evidence_output_id": knowledge_map["source_binding"][
+            "producer_output_id"
+        ],
+        "study_material_output_revision": study_material_output["output_id"],
+        "knowledge_map_revision": knowledge_map["revision"],
+        "runtime_binding_sha256": material_runtime_binding_sha256,
+        "page_count": page_count,
+        "processing": "succeeded",
+        "quality": "needs_review",
+        "decision": "review",
+        "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
+        "ocr_calls": page_count,
+        "concept_calls": 1,
+    }
     with psycopg.connect(dsn) as connection:
         connection.execute("SET CONSTRAINTS materials_source_artifact_fk DEFERRED")
         connection.execute(
@@ -465,6 +576,38 @@ def _insert_material_map(
                 Jsonb(knowledge_map),
             ),
         )
+        if persist_material_run:
+            connection.execute(
+                """
+                INSERT INTO material_processing_runs (
+                    run_id, learner_id, material_id, source_artifact_id,
+                    idempotency_key_sha256, request_fingerprint, runtime_binding,
+                    status, progress_stage, completed_pages, total_pages,
+                    output_binding, created_at, updated_at, completed_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, 'succeeded', 'completed',
+                    %s, %s, %s, clock_timestamp(), clock_timestamp(),
+                    clock_timestamp()
+                )
+                """,
+                (
+                    run_id,
+                    learner_id,
+                    stored_material_id,
+                    source_artifact_id,
+                    sha256(run_id.bytes).digest(),
+                    sha256(stored_material_id.bytes + run_id.bytes).digest(),
+                    Jsonb({
+                        "runtime_lock_sha256": knowledge_map["source_binding"][
+                            "producer_runtime_lock_sha256"
+                        ],
+                        "runtime_binding_sha256": material_runtime_binding_sha256,
+                    }),
+                    page_count,
+                    page_count,
+                    Jsonb(output_binding),
+                ),
+            )
     return stored_material_id
 
 
@@ -485,7 +628,30 @@ def test_map_context_projects_only_validated_current_fields(
     )
 
     assert context.initial_learning_path == tuple(
-        knowledge_map["initial_learning_path"]
+        step["formal_concept_id"]
+        for step in knowledge_map["initial_learning_path"]
+    )
+    assert tuple(
+        concept.formal_concept_id for concept in context.formal_concepts
+    ) == tuple(
+        concept["formal_concept_id"] for concept in knowledge_map["formal_concepts"]
+    )
+    assert tuple(
+        (
+            relation.relation_id,
+            relation.relation_type,
+            relation.source_formal_concept_id,
+            relation.target_formal_concept_id,
+        )
+        for relation in context.relations
+    ) == tuple(
+        (
+            relation["relation_id"],
+            relation["type"],
+            relation["source_formal_concept_id"],
+            relation["target_formal_concept_id"],
+        )
+        for relation in knowledge_map["relations"]
     )
     assert {relation.relation_type for relation in context.relations} == {
         "prerequisite",
@@ -545,6 +711,150 @@ def test_map_context_rejects_canonical_evidence_text_tamper(
                 knowledge_map["source_output_id"],
             ),
         )
+    with pytest.raises(MapContextError, match="^KNOWLEDGE_MAP_UNAVAILABLE$"):
+        read_map_context(
+            owner,
+            material_id,
+            knowledge_map["revision"],
+            dsn=study_database_dsn,
+        )
+
+
+def test_map_context_rejects_rehashed_group_source_order_tamper(
+    study_database_dsn: str,
+):
+    owner = uuid4()
+    knowledge_map = _knowledge_map()
+    material_id = _insert_material_map(
+        study_database_dsn, owner, knowledge_map
+    )
+    forged = deepcopy(knowledge_map)
+    forged["flat_group_context"]["groups"][0]["source_order"][
+        "reading_order"
+    ] += 23
+    forged["topology"]["flat_groups"][0]["source_order"][
+        "reading_order"
+    ] += 23
+    forged.pop("revision")
+    forged["revision"] = "knowledge-map:sha256:" + canonical_sha256(forged)
+    with psycopg.connect(study_database_dsn) as connection:
+        connection.execute(
+            """
+            UPDATE knowledge_maps SET map_revision = %s, document = %s
+            WHERE learner_id = %s AND material_id = %s
+            """,
+            (forged["revision"], Jsonb(forged), owner, material_id),
+        )
+
+    with pytest.raises(MapContextError, match="^KNOWLEDGE_MAP_UNAVAILABLE$"):
+        read_map_context(
+            owner,
+            material_id,
+            forged["revision"],
+            dsn=study_database_dsn,
+        )
+
+
+@pytest.mark.parametrize(
+    "tampered_bindings",
+    (
+        {"producer_output_id": "concept-evidence-output:sha256:" + "a" * 64},
+        {"producer_runtime_lock_sha256": "b" * 64},
+        {"material_runtime_binding_sha256": "c" * 64},
+        {
+            "producer_output_id": "concept-evidence-output:sha256:" + "a" * 64,
+            "producer_runtime_lock_sha256": "b" * 64,
+            "material_runtime_binding_sha256": "c" * 64,
+        },
+    ),
+    ids=("producer-output", "producer-runtime", "material-runtime", "combined"),
+)
+def test_map_context_rejects_rehashed_source_binding_tamper(
+    study_database_dsn: str,
+    tampered_bindings: dict[str, str],
+):
+    owner = uuid4()
+    knowledge_map = _knowledge_map()
+    material_id = _insert_material_map(study_database_dsn, owner, knowledge_map)
+    forged = deepcopy(knowledge_map)
+    forged["source_binding"].update(tampered_bindings)
+    forged.pop("revision")
+    forged["revision"] = "knowledge-map:sha256:" + canonical_sha256(forged)
+    with psycopg.connect(study_database_dsn) as connection:
+        connection.execute(
+            """
+            UPDATE knowledge_maps SET map_revision = %s, document = %s
+            WHERE learner_id = %s AND material_id = %s
+            """,
+            (forged["revision"], Jsonb(forged), owner, material_id),
+        )
+        run_binding = connection.execute(
+            """
+            SELECT output_binding FROM material_processing_runs
+            WHERE learner_id = %s AND material_id = %s
+            """,
+            (owner, material_id),
+        ).fetchone()[0]
+        run_binding["knowledge_map_revision"] = forged["revision"]
+        connection.execute(
+            """
+            UPDATE material_processing_runs SET output_binding = %s
+            WHERE learner_id = %s AND material_id = %s
+            """,
+            (Jsonb(run_binding), owner, material_id),
+        )
+
+    with pytest.raises(MapContextError, match="^KNOWLEDGE_MAP_UNAVAILABLE$"):
+        read_map_context(
+            owner,
+            material_id,
+            forged["revision"],
+            dsn=study_database_dsn,
+        )
+
+
+@pytest.mark.parametrize(
+    ("run_binding", "field", "tampered_value"),
+    (
+        (
+            "output_binding",
+            "concept_evidence_output_id",
+            "concept-evidence-output:sha256:" + "a" * 64,
+        ),
+        ("runtime_binding", "runtime_lock_sha256", "b" * 64),
+    ),
+    ids=("concept-evidence-output", "runtime-lock"),
+)
+def test_map_context_rejects_persisted_run_authority_tamper(
+    study_database_dsn: str,
+    run_binding: str,
+    field: str,
+    tampered_value: str,
+):
+    owner = uuid4()
+    knowledge_map = _knowledge_map()
+    material_id = _insert_material_map(study_database_dsn, owner, knowledge_map)
+    with psycopg.connect(study_database_dsn) as connection:
+        runtime_binding, output_binding = connection.execute(
+            """
+            SELECT runtime_binding, output_binding FROM material_processing_runs
+            WHERE learner_id = %s AND material_id = %s
+            """,
+            (owner, material_id),
+        ).fetchone()
+        binding = (
+            output_binding if run_binding == "output_binding" else runtime_binding
+        )
+        binding[field] = tampered_value
+        connection.execute(
+            """
+            UPDATE material_processing_runs
+            SET runtime_binding = %s, output_binding = %s
+            WHERE learner_id = %s AND material_id = %s
+            """,
+            (Jsonb(runtime_binding), Jsonb(output_binding), owner, material_id),
+        )
+
     with pytest.raises(MapContextError, match="^KNOWLEDGE_MAP_UNAVAILABLE$"):
         read_map_context(
             owner,
@@ -645,7 +955,7 @@ def test_create_read_complete_replay_conflict_and_session_isolation(
     assert created.status == "active"
     assert created.last_event_number == second.last_event_number == 0
 
-    target = knowledge_map["initial_learning_path"][0]
+    target = knowledge_map["initial_learning_path"][0]["formal_concept_id"]
     with pytest.raises(
         StudySessionError, match="^STUDY_SESSION_IDEMPOTENCY_CONFLICT$"
     ):
@@ -731,7 +1041,9 @@ def test_read_revalidates_stored_current_concept_binding(
         material_id,
         knowledge_map["revision"],
         "tamper-target",
-        current_formal_concept_id=knowledge_map["initial_learning_path"][0],
+        current_formal_concept_id=knowledge_map["initial_learning_path"][0][
+            "formal_concept_id"
+        ],
         dsn=study_database_dsn,
     )
     with psycopg.connect(study_database_dsn) as connection:

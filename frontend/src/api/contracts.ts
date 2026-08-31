@@ -92,7 +92,7 @@ export type ExcludedPageView = {
 };
 
 export type KnowledgeMapView = {
-  schema: "knowledge-map-view/v8";
+  schema: "knowledge-map-view/v9";
   material_ref: string;
   knowledge_map_revision: string;
   source_output_id: string;
@@ -218,7 +218,52 @@ export type KnowledgeMapView = {
     decision: "review" | "reject";
     reason_code: "RESOURCE_SPLIT_REVIEW_REQUIRED" | "RESOURCE_SOURCE_CONCEPT_DROPPED";
   }[];
-  initial_learning_path: string[];
+  topology: {
+    roots: string[];
+    nodes: {
+      formal_concept_id: string;
+      depth: number;
+      primary_parent_formal_concept_id: string | null;
+      flat_group_id: string;
+      flat_group_anchor: {
+        evidence_id: string;
+        page_ref: string;
+        page_number: number;
+        reading_order: number;
+      };
+    }[];
+    flat_groups: {
+      flat_group_id: string;
+      label: string;
+      label_source: "heading" | "unheaded_fallback";
+      heading_evidence_id: string | null;
+      source_order: {
+        evidence_id: string;
+        page_ref: string;
+        page_number: number;
+        reading_order: number;
+      };
+      formal_concept_ids: string[];
+    }[];
+  };
+  topology_diagnostics: {
+    component_count: number;
+    orphan_concept_count: number;
+    secondary_parent_count: number;
+    skipped_parent_before_child_count: number;
+  };
+  initial_learning_path: {
+    step_number: number;
+    formal_concept_id: string;
+    placement_reason: string;
+    order_basis: {
+      prerequisite_formal_concept_ids: string[];
+      parent_formal_concept_ids: string[];
+      flat_group_id: string;
+      hierarchy_depth: number;
+      source_page_number: number;
+    };
+  }[];
   excluded_pages: ExcludedPageView[];
 };
 

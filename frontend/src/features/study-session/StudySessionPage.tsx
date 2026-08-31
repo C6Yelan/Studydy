@@ -15,7 +15,7 @@ import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { AssessmentPanel } from "../assessment/AssessmentPanel";
 import { AdaptiveNextStep } from "../adaptive-learning/AdaptiveNextStep";
-import { learningPathReason, safeExternalUrl } from "../knowledge-map/knowledge-map";
+import { safeExternalUrl } from "../knowledge-map/knowledge-map";
 import { LearningInsights } from "../learning-state/LearningInsights";
 import "./styles.css";
 
@@ -71,7 +71,9 @@ function assertRouteBinding(route: Extract<AppRoute, { name: "study-session" }>,
     || data.adaptive.plan.base_knowledge_map_revision !== route.mapRevision
     || data.adaptive.plan.source_learning_state_revision !== data.learningState.state_revision
     || data.adaptive.plan.event_watermark !== data.learningState.event_watermark
-    || JSON.stringify(contextIds) !== JSON.stringify(data.view.initial_learning_path)
+    || JSON.stringify(contextIds) !== JSON.stringify(
+      data.view.initial_learning_path.map((step) => step.formal_concept_id),
+    )
     || !contextMatchesMap
     || new Set(stateIds).size !== conceptIds.length
     || !conceptIds.every((id) => stateIds.includes(id))
@@ -109,12 +111,14 @@ function SessionPath({ context, learningState, view }: {
           const isDeferred = concept.formal_concept_id === context.deferred_formal_concept_id;
           const isCompleted = mastered.has(concept.formal_concept_id);
           const isNext = concept.formal_concept_id === nextConceptId;
+          const placementReason = view.initial_learning_path.find((step) =>
+            step.formal_concept_id === concept.formal_concept_id)?.placement_reason;
           return (
             <li className={isCurrent ? "is-current" : isCompleted ? "is-completed" : isDeferred ? "is-deferred" : undefined} key={concept.formal_concept_id}>
               <span>{index + 1}</span>
               <div>
                 <strong>{concept.label}</strong>
-                <small>{isCurrent ? "目前" : isCompleted ? "已完成" : isDeferred ? "稍後回到這裡" : isNext ? "下一步" : learningPathReason(view, concept.formal_concept_id)}</small>
+                <small>{isCurrent ? "目前" : isCompleted ? "已完成" : isDeferred ? "稍後回到這裡" : isNext ? "下一步" : placementReason}</small>
               </div>
             </li>
           );

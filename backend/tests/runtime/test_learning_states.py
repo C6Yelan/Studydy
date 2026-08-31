@@ -18,11 +18,14 @@ from learning_adaptation.study_sessions import (
     create_study_session,
     set_current_study_concept,
 )
+from knowledge_map.artifacts import _topology_and_learning_path
+from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.learner_session import TrustedLearner
 from runtime.storage.migrations import run_migrations
 from test_assessment_items import _documents
 from test_study_sessions import (
     _formal_id,
+    _flat_group_context,
     _insert_material_map,
     _knowledge_map,
     _relation,
@@ -61,9 +64,20 @@ def _multi_claim_map() -> dict:
         _relation("contains", concepts[0], concepts[2]),
         _relation("related", related_source, related_target),
     ]
-    knowledge_map["initial_learning_path"] = [
-        concept["formal_concept_id"] for concept in concepts
-    ]
+    knowledge_map["flat_group_context"] = _flat_group_context(concepts)
+    (
+        knowledge_map["topology"],
+        knowledge_map["initial_learning_path"],
+        knowledge_map["topology_diagnostics"],
+    ) = _topology_and_learning_path(
+        concepts,
+        knowledge_map["relations"],
+        knowledge_map["flat_group_context"],
+    )
+    knowledge_map.pop("revision")
+    knowledge_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(
+        knowledge_map
+    )
     return knowledge_map
 
 

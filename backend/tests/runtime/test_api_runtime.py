@@ -392,7 +392,7 @@ def test_success_exposes_only_review_map_with_pdf_locator(
         )
         assert map_response.status_code == 200
         view = map_response.json()
-        assert view["schema"] == "knowledge-map-view/v8"
+        assert view["schema"] == "knowledge-map-view/v9"
         assert view["status"]["decision"] == "review"
         assert view["concepts"][0]["claims"][0]["evidence"][0]["page_number"] == 1
         encoded = json.dumps(view)
@@ -580,7 +580,12 @@ def test_learning_api_closed_public_wiring_and_safe_feedback(
             f"/v1/study-sessions/{session_id}/context"
         ).json()
         assert context["base_knowledge_map_revision"] == knowledge_map["revision"]
-        assert [item["formal_concept_id"] for item in context["initial_learning_path"]] == knowledge_map["initial_learning_path"]
+        assert [
+            item["formal_concept_id"] for item in context["initial_learning_path"]
+        ] == [
+            step["formal_concept_id"]
+            for step in knowledge_map["initial_learning_path"]
+        ]
 
         assessment_request = {
             "schema": "assessment-create/v1",

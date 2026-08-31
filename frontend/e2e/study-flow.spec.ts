@@ -47,7 +47,7 @@ function reviewMap() {
   const pageRef = `page:sha256:${"4".repeat(64)}`;
   const formalConceptId = `formal-concept:sha256:${"6".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v8",
+    schema: "knowledge-map-view/v9",
     material_ref: `material:sha256:${"5".repeat(64)}`,
     knowledge_map_revision: mapRevision,
     source_output_id: outputRevision,
@@ -135,7 +135,52 @@ function reviewMap() {
       split_review_matches: 0,
     },
     resource_decisions: [],
-    initial_learning_path: [formalConceptId],
+    topology: {
+      roots: [formalConceptId],
+      nodes: [{
+        formal_concept_id: formalConceptId,
+        depth: 0,
+        primary_parent_formal_concept_id: null,
+        flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
+        flat_group_anchor: {
+          evidence_id: `evidence:sha256:${"7".repeat(64)}`,
+          page_ref: pageRef,
+          page_number: 1,
+          reading_order: 0,
+        },
+      }],
+      flat_groups: [{
+        flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
+        label: "二元樹",
+        label_source: "heading",
+        heading_evidence_id: `evidence:sha256:${"7".repeat(64)}`,
+        source_order: {
+          evidence_id: `evidence:sha256:${"7".repeat(64)}`,
+          page_ref: pageRef,
+          page_number: 1,
+          reading_order: 0,
+        },
+        formal_concept_ids: [formalConceptId],
+      }],
+    },
+    topology_diagnostics: {
+      component_count: 1,
+      orphan_concept_count: 1,
+      secondary_parent_count: 0,
+      skipped_parent_before_child_count: 0,
+    },
+    initial_learning_path: [{
+      step_number: 1,
+      formal_concept_id: formalConceptId,
+      placement_reason: "依教材第 1 頁的首次出現位置安排。",
+      order_basis: {
+        prerequisite_formal_concept_ids: [],
+        parent_formal_concept_ids: [],
+        flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
+        hierarchy_depth: 0,
+        source_page_number: 1,
+      },
+    }],
     excluded_pages: [],
   };
 }

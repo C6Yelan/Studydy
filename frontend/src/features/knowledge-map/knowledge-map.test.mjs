@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  focusNeighborhood,
-  learningPathReason,
+  hierarchyLayout,
+  isPrimaryHierarchyRelation,
   relationPresentation,
   safeExternalUrl,
 } from "./knowledge-map.ts";
@@ -43,38 +43,76 @@ test("resource links only allow HTTP(S)", () => {
   assert.equal(safeExternalUrl("not a URL"), null);
 });
 
-test("focus neighborhood keeps typed published edges around the selected node", () => {
+test("hierarchy layout uses backend depths instead of deriving radial semantics", () => {
   const view = {
     concepts: [
       { formal_concept_id: "a", label: "A", source_page_numbers: [1] },
       { formal_concept_id: "b", label: "B", source_page_numbers: [2] },
       { formal_concept_id: "c", label: "C", source_page_numbers: [3] },
     ],
+    topology: {
+      nodes: [
+        { formal_concept_id: "a", depth: 0, primary_parent_formal_concept_id: null, flat_group_id: "g1", flat_group_anchor: { page_number: 1, reading_order: 0, evidence_id: "ea" } },
+        { formal_concept_id: "b", depth: 1, primary_parent_formal_concept_id: "a", flat_group_id: "g1", flat_group_anchor: { page_number: 1, reading_order: 1, evidence_id: "eb" } },
+        { formal_concept_id: "c", depth: 0, primary_parent_formal_concept_id: null, flat_group_id: "g2", flat_group_anchor: { page_number: 2, reading_order: 0, evidence_id: "ec" } },
+      ],
+      flat_groups: [
+        { flat_group_id: "g1" },
+        { flat_group_id: "g2" },
+      ],
+    },
     relations: [
       { relation_id: "ab", type: "prerequisite", source_formal_concept_id: "a", target_formal_concept_id: "b", is_in_prerequisite_cycle: false },
       { relation_id: "bc", type: "related", source_formal_concept_id: "b", target_formal_concept_id: "c", is_in_prerequisite_cycle: false },
     ],
   };
 
-  const neighborhood = focusNeighborhood(view, "b");
+  const nodes = hierarchyLayout(view);
 
-  assert.deepEqual(neighborhood.nodes.map((node) => node.conceptId), ["b", "a", "c"]);
-  assert.deepEqual(neighborhood.relations.map((relation) => relation.relation_id), ["ab", "bc"]);
-  assert.deepEqual(neighborhood.nodes[0], { conceptId: "b", x: 50, y: 50 });
+  assert.deepEqual(nodes.map((node) => [node.conceptId, node.x, node.y]), [
+    ["a", 0, 0],
+    ["b", 0, 150],
+    ["c", 260, 0],
+  ]);
 });
 
-test("learning path reason uses prerequisite or names the pedagogical fallback", () => {
+test("group offsets use occupied width and stay deterministic under node permutation", () => {
+  const nodes = [
+    { formal_concept_id: "a", depth: 0, flat_group_id: "g1", flat_group_anchor: { page_number: 1, reading_order: 0, evidence_id: "ea" } },
+    { formal_concept_id: "b", depth: 0, flat_group_id: "g1", flat_group_anchor: { page_number: 1, reading_order: 1, evidence_id: "eb" } },
+    { formal_concept_id: "c", depth: 0, flat_group_id: "g2", flat_group_anchor: { page_number: 2, reading_order: 0, evidence_id: "ec" } },
+  ];
   const view = {
-    concepts: [
-      { formal_concept_id: "a", label: "基礎", source_page_numbers: [1] },
-      { formal_concept_id: "b", label: "進階", source_page_numbers: [7] },
-      { formal_concept_id: "c", label: "補充", source_page_numbers: [9] },
-    ],
+    topology: {
+      nodes,
+      flat_groups: [{ flat_group_id: "g1" }, { flat_group_id: "g2" }],
+    },
+  };
+
+  const layout = hierarchyLayout(view);
+  const repeated = hierarchyLayout({
+    topology: { ...view.topology, nodes: [...nodes].reverse() },
+  });
+
+  assert.deepEqual(layout, repeated);
+  assert.deepEqual(layout.map((node) => [node.conceptId, node.x]), [
+    ["a", 0], ["b", 210], ["c", 470],
+  ]);
+  assert.ok(layout[1].x + layout[1].width <= layout[2].x);
+});
+
+test("primary hierarchy relation follows the canonical backend parent", () => {
+  const view = {
+    topology: { nodes: [
+      { formal_concept_id: "a", primary_parent_formal_concept_id: null },
+      { formal_concept_id: "b", primary_parent_formal_concept_id: "a" },
+    ] },
     relations: [
-      { type: "prerequisite", source_formal_concept_id: "a", target_formal_concept_id: "b", is_in_prerequisite_cycle: false },
+      { type: "contains", source_formal_concept_id: "a", target_formal_concept_id: "b" },
+      { type: "contains", source_formal_concept_id: "c", target_formal_concept_id: "b" },
     ],
   };
 
-  assert.equal(learningPathReason(view, "b"), "先理解「基礎」，再進入這個概念。");
-  assert.match(learningPathReason(view, "c"), /沒有可用的非循環先備關係.*第 9 頁/);
+  assert.equal(isPrimaryHierarchyRelation(view, view.relations[0]), true);
+  assert.equal(isPrimaryHierarchyRelation(view, view.relations[1]), false);
 });

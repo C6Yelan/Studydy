@@ -307,10 +307,11 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
   const item = closed(value, [
     "schema", "material_ref", "knowledge_map_revision", "source_output_id", "status",
     "concepts", "concept_diagnostics", "relations", "relation_diagnostics", "resource_binding",
-    "resource_diagnostics", "resource_decisions", "initial_learning_path", "excluded_pages",
+    "resource_diagnostics", "resource_decisions", "topology", "topology_diagnostics",
+    "initial_learning_path", "excluded_pages",
   ]);
   if (!item
-    || item.schema !== "knowledge-map-view/v8"
+    || item.schema !== "knowledge-map-view/v9"
     || !isRevision(item.material_ref, "material")
     || !isRevision(item.knowledge_map_revision, "knowledge-map")
     || !isRevision(item.source_output_id, "study-material-output")
@@ -405,7 +406,101 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     || !resourceCounts
     || Number(resourceDiagnostics.matches) !== Number(resourceDiagnostics.promoted_matches)
       + Number(resourceDiagnostics.dropped_matches) + Number(resourceDiagnostics.split_review_matches)) return false;
-  const conceptIds = item.concepts.map((entry) => object(entry)?.formal_concept_id);
+  const conceptItems = item.concepts as unknown[];
+  const conceptIds = conceptItems.map((entry) => object(entry)?.formal_concept_id);
+  const topology = closed(item.topology, ["roots", "nodes", "flat_groups"]);
+  const topologyDiagnostics = closed(item.topology_diagnostics, [
+    "component_count", "orphan_concept_count", "secondary_parent_count",
+    "skipped_parent_before_child_count",
+  ]);
+  if (!topology
+    || !isStringArray(topology.roots)
+    || !Array.isArray(topology.nodes)
+    || !Array.isArray(topology.flat_groups)
+    || !topologyDiagnostics
+    || !Object.values(topologyDiagnostics).every((count) =>
+      Number.isInteger(count) && Number(count) >= 0)) return false;
+  const topologyNodes = topology.nodes.map((value) => closed(value, [
+    "formal_concept_id", "depth", "primary_parent_formal_concept_id", "flat_group_id",
+    "flat_group_anchor",
+  ]));
+  if (topologyNodes.some((node) => !node)
+    || topologyNodes.length !== conceptIds.length
+    || new Set(topologyNodes.map((node) => node?.formal_concept_id)).size !== conceptIds.length
+    || topologyNodes.some((node) => !conceptIds.includes(node?.formal_concept_id)
+      || !Number.isInteger(node?.depth) || Number(node?.depth) < 0
+      || !(node?.primary_parent_formal_concept_id === null
+        || conceptIds.includes(node?.primary_parent_formal_concept_id))
+      || node?.primary_parent_formal_concept_id === node?.formal_concept_id
+      || !isRevision(node?.flat_group_id, "document-section")
+      || !closed(node.flat_group_anchor, [
+        "evidence_id", "page_ref", "page_number", "reading_order",
+      ]))
+    || JSON.stringify(topology.roots) !== JSON.stringify(
+      topologyNodes.filter((node) => node?.depth === 0).map((node) => node?.formal_concept_id),
+    )) return false;
+  const flatGroups = topology.flat_groups.map((value) => closed(value, [
+    "flat_group_id", "label", "label_source", "heading_evidence_id",
+    "source_order", "formal_concept_ids",
+  ]));
+  const groupedIds = flatGroups.flatMap((group) =>
+    Array.isArray(group?.formal_concept_ids) ? group.formal_concept_ids : []);
+  if (flatGroups.some((group) => !group
+      || !isRevision(group.flat_group_id, "document-section")
+      || typeof group.label !== "string" || group.label.length < 1 || group.label.length > 120
+      || !["heading", "unheaded_fallback"].includes(String(group.label_source))
+      || !(group.heading_evidence_id === null || isRevision(group.heading_evidence_id, "evidence"))
+      || !closed(group.source_order, [
+        "evidence_id", "page_ref", "page_number", "reading_order",
+      ])
+      || !isStringArray(group.formal_concept_ids, 1))
+    || new Set(flatGroups.map((group) => group?.flat_group_id)).size !== flatGroups.length
+    || groupedIds.length !== conceptIds.length
+    || new Set(groupedIds).size !== conceptIds.length
+    || groupedIds.some((id) => !conceptIds.includes(id))
+    || topologyNodes.some((node) => !flatGroups.some((group) =>
+      group !== null && group.flat_group_id === node?.flat_group_id
+      && (group.formal_concept_ids as unknown[]).includes(node?.formal_concept_id)))
+    || flatGroups.some((group) => {
+      if (!group) return true;
+      const source = object(group.source_order);
+      return !source
+        || !isRevision(source.evidence_id, "evidence")
+        || !isRevision(source.page_ref, "page")
+        || !Number.isInteger(source.page_number) || Number(source.page_number) < 1
+        || !Number.isInteger(source.reading_order) || Number(source.reading_order) < 0
+        || (group.label_source === "heading" && group.heading_evidence_id === null)
+        || (group.label_source === "unheaded_fallback"
+          && (group.heading_evidence_id !== null
+            || group.label !== `第 ${source.page_number} 頁未命名段落`));
+    })) return false;
+  const pathSteps = item.initial_learning_path.map((value) => closed(value, [
+    "step_number", "formal_concept_id", "placement_reason", "order_basis",
+  ]));
+  const pathIds = pathSteps.map((step) => step?.formal_concept_id);
+  if (pathSteps.length !== conceptIds.length
+    || new Set(pathIds).size !== conceptIds.length
+    || pathIds.some((id) => !conceptIds.includes(id))
+    || pathSteps.some((step, index) => {
+      const basis = closed(step?.order_basis, [
+        "prerequisite_formal_concept_ids", "parent_formal_concept_ids",
+        "flat_group_id", "hierarchy_depth", "source_page_number",
+      ]);
+      const node = topologyNodes.find((candidate) =>
+        candidate?.formal_concept_id === step?.formal_concept_id);
+      const concept = conceptItems.find((candidate) =>
+        object(candidate)?.formal_concept_id === step?.formal_concept_id) as Record<string, unknown> | undefined;
+      return !step || step.step_number !== index + 1
+        || typeof step.placement_reason !== "string" || step.placement_reason.length < 1
+        || !basis
+        || !isSortedUniqueStrings(basis.prerequisite_formal_concept_ids, 0)
+        || !isSortedUniqueStrings(basis.parent_formal_concept_ids, 0)
+        || !(basis.prerequisite_formal_concept_ids as unknown[]).every((id) => conceptIds.includes(id))
+        || !(basis.parent_formal_concept_ids as unknown[]).every((id) => conceptIds.includes(id))
+        || basis.flat_group_id !== node?.flat_group_id
+        || basis.hierarchy_depth !== node?.depth
+        || basis.source_page_number !== Math.min(...(concept?.source_page_numbers as number[]));
+    })) return false;
   const claimsByConcept = new Map(
     (item.concepts as unknown as KnowledgeMapView["concepts"]).map((concept) => [
       concept.formal_concept_id,
@@ -499,6 +594,61 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
           && (decision.formal_concept_ids as unknown[]).length >= 2));
   });
   const decisionMatchIds = item.resource_decisions.map((entry) => object(entry)?.match_id);
+  const typedRelations = item.relations as unknown as KnowledgeMapView["relations"];
+  const typedTopologyNodes = topology.nodes as unknown as KnowledgeMapView["topology"]["nodes"];
+  const typedFlatGroups = topology.flat_groups as unknown as KnowledgeMapView["topology"]["flat_groups"];
+  const containsPairs = new Set(typedRelations
+    .filter((relation) => relation.type === "contains")
+    .map((relation) => `${relation.source_formal_concept_id}:${relation.target_formal_concept_id}`));
+  const topologyRelationsAreValid = typedTopologyNodes.every((node) => {
+    const concept = (item.concepts as unknown as KnowledgeMapView["concepts"])
+      .find((candidate) => candidate.formal_concept_id === node.formal_concept_id);
+    const anchorEvidence = concept?.claims
+      .flatMap((claim) => claim.evidence)
+      .find((evidence) => evidence.evidence_id === node.flat_group_anchor.evidence_id);
+    if (!anchorEvidence
+      || anchorEvidence.page_ref !== node.flat_group_anchor.page_ref
+      || anchorEvidence.page_number !== node.flat_group_anchor.page_number
+      || !Number.isInteger(node.flat_group_anchor.reading_order)
+      || node.flat_group_anchor.reading_order < 0) return false;
+    if (node.primary_parent_formal_concept_id === null) return node.depth === 0;
+    const parent = typedTopologyNodes.find((candidate) =>
+      candidate.formal_concept_id === node.primary_parent_formal_concept_id);
+    return !!parent
+      && containsPairs.has(`${parent.formal_concept_id}:${node.formal_concept_id}`)
+      && parent.depth + 1 === node.depth;
+  });
+  const flatGroupOrderIsValid = typedFlatGroups.every((group, index, groups) => {
+    if (index === 0) return true;
+    const previous = groups[index - 1];
+    if (previous.source_order.page_number !== group.source_order.page_number) {
+      return previous.source_order.page_number < group.source_order.page_number;
+    }
+    if (previous.source_order.reading_order !== group.source_order.reading_order) {
+      return previous.source_order.reading_order < group.source_order.reading_order;
+    }
+    if (previous.source_order.evidence_id !== group.source_order.evidence_id) {
+      return previous.source_order.evidence_id < group.source_order.evidence_id;
+    }
+    return previous.flat_group_id < group.flat_group_id;
+  });
+  const pathIndex = new Map(pathIds.map((id, index) => [id, index]));
+  const pathRelationsAreValid = pathSteps.every((step) => {
+    const basis = object(step?.order_basis)!;
+    const expectedPrerequisites = typedRelations
+      .filter((relation) => relation.type === "prerequisite"
+        && relation.target_formal_concept_id === step?.formal_concept_id)
+      .map((relation) => relation.source_formal_concept_id)
+      .sort();
+    const parents = basis.parent_formal_concept_ids as string[];
+    return JSON.stringify(basis.prerequisite_formal_concept_ids) === JSON.stringify(expectedPrerequisites)
+      && parents.every((parentId) => typedRelations.some((relation) =>
+        relation.type === "contains"
+        && relation.source_formal_concept_id === parentId
+        && relation.target_formal_concept_id === step?.formal_concept_id))
+      && [...expectedPrerequisites, ...parents].every((predecessor) =>
+        Number(pathIndex.get(predecessor)) < Number(pathIndex.get(step?.formal_concept_id)));
+  });
   return new Set(conceptIds).size === conceptIds.length
     && relationsAreValid
     && new Set(item.relations.map((entry) => object(entry)?.relation_id)).size === item.relations.length
@@ -508,10 +658,9 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     && promotedMatchIds.every((id) => !decisionMatchIds.includes(id))
     && promotedMatchIds.length === Number(resourceDiagnostics.promoted_matches)
     && promotedMatchIds.length + decisionMatchIds.length === Number(resourceDiagnostics.matches)
-    && isStringArray(item.initial_learning_path)
-    && item.initial_learning_path.length === conceptIds.length
-    && new Set(item.initial_learning_path).size === conceptIds.length
-    && item.initial_learning_path.every((id) => conceptIds.includes(id))
+    && topologyRelationsAreValid
+    && flatGroupOrderIsValid
+    && pathRelationsAreValid
     && new Set(excludedRefs).size === excludedRefs.length
     && new Set(excludedNumbers).size === excludedNumbers.length
     && (item.excluded_pages.length === 0 || status.processing === "partial");

@@ -9,9 +9,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from knowledge_map.artifacts import validate_knowledge_map
-from pdf_evidence.study_material_output import validate_study_material_output
 from runtime.storage.database import DatabaseConfigurationError
-from runtime.storage.tables import KnowledgeMap, StudyMaterialOutput, database_session
+from runtime.storage.tables import (
+    KnowledgeMap,
+    MaterialProcessingRun,
+    StudyMaterialOutput,
+    database_session,
+)
 
 
 class MapContextError(RuntimeError):
@@ -98,19 +102,27 @@ def _build_context(
     knowledge_map_revision: str,
     knowledge_map: object,
     study_material_output: object,
+    material_runtime_binding_sha256: object,
 ) -> MapContext:
     if (
-        validate_knowledge_map(knowledge_map) is not None
-        or validate_study_material_output(study_material_output) is not None
+        validate_knowledge_map(knowledge_map, study_material_output) is not None
     ):
         raise _unavailable()
     assert isinstance(knowledge_map, dict)
     assert isinstance(study_material_output, dict)
+    map_source = knowledge_map["source_binding"]
+    material_source = study_material_output["source_binding"]
     if (
         knowledge_map["revision"] != knowledge_map_revision
         or knowledge_map["decision"] == "reject"
         or not knowledge_map["formal_concepts"]
         or knowledge_map["source_output_id"] != study_material_output["output_id"]
+        or map_source["producer_output_id"]
+        != material_source["producer_output_id"]
+        or map_source["producer_runtime_lock_sha256"]
+        != material_source["runtime_binding_sha256"]
+        or map_source["material_runtime_binding_sha256"]
+        != material_runtime_binding_sha256
         or knowledge_map["material_ref"] != study_material_output["material_ref"]
         or knowledge_map["evidence_index"] != study_material_output["evidence_index"]
     ):
@@ -197,7 +209,10 @@ def _build_context(
         knowledge_map_revision=knowledge_map_revision,
         formal_concepts=formal_concepts,
         relations=relations,
-        initial_learning_path=tuple(knowledge_map["initial_learning_path"]),
+        initial_learning_path=tuple(
+            step["formal_concept_id"]
+            for step in knowledge_map["initial_learning_path"]
+        ),
     )
 
 
@@ -232,12 +247,54 @@ def _read_map_context(
     ).one_or_none()
     if row is None:
         raise _unavailable()
+    study_material_output = row[1]
+    if not isinstance(study_material_output, dict):
+        raise _unavailable()
+    producer_run_id = study_material_output.get("run_id")
+    if not isinstance(producer_run_id, str) or not producer_run_id.startswith(
+        "text-first-run:"
+    ):
+        raise _unavailable()
+    try:
+        run_id = UUID(producer_run_id.removeprefix("text-first-run:"))
+    except ValueError:
+        raise _unavailable() from None
+    run = session.execute(
+        select(
+            MaterialProcessingRun.runtime_binding,
+            MaterialProcessingRun.output_binding,
+        ).where(
+            MaterialProcessingRun.learner_id == learner_id,
+            MaterialProcessingRun.material_id == material_id,
+            MaterialProcessingRun.run_id == run_id,
+            MaterialProcessingRun.status.in_(("succeeded", "partial")),
+        )
+    ).one_or_none()
+    if run is None or not isinstance(run[0], dict) or not isinstance(run[1], dict):
+        raise _unavailable()
+    material_runtime = run[0].get("runtime_binding_sha256")
+    if (
+        run[1].get("study_material_output_revision")
+        != study_material_output.get("output_id")
+        or run[1].get("knowledge_map_revision") != knowledge_map_revision
+        or run[1].get("concept_evidence_output_id")
+        != study_material_output.get("source_binding", {}).get(
+            "producer_output_id"
+        )
+        or run[1].get("runtime_binding_sha256") != material_runtime
+        or run[0].get("runtime_lock_sha256")
+        != study_material_output.get("source_binding", {}).get(
+            "runtime_binding_sha256"
+        )
+    ):
+        raise _unavailable()
     return _build_context(
         learner_id,
         material_id,
         knowledge_map_revision,
         row[0],
-        row[1],
+        study_material_output,
+        material_runtime,
     )
 
 

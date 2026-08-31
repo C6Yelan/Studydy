@@ -467,8 +467,72 @@ class ArtifactStatusView(_ClosedModel):
     reason_codes: list[str] = Field(min_length=1, max_length=64)
 
 
+class KnowledgeMapTopologyNodeView(_ClosedModel):
+    formal_concept_id: str = Field(
+        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$"
+    )
+    depth: int = Field(ge=0)
+    primary_parent_formal_concept_id: str | None = Field(
+        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$",
+    )
+    flat_group_id: str = Field(
+        pattern=r"^document-section:sha256:[0-9a-f]{64}$"
+    )
+    flat_group_anchor: "FlatGroupSourceView"
+
+
+class FlatGroupSourceView(_ClosedModel):
+    evidence_id: str = Field(pattern=r"^evidence:sha256:[0-9a-f]{64}$")
+    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
+    page_number: int = Field(ge=1)
+    reading_order: int = Field(ge=0)
+
+
+class KnowledgeMapFlatGroupView(_ClosedModel):
+    flat_group_id: str = Field(
+        pattern=r"^document-section:sha256:[0-9a-f]{64}$"
+    )
+    label: str = Field(min_length=1, max_length=120)
+    label_source: Literal["heading", "unheaded_fallback"]
+    heading_evidence_id: str | None = Field(
+        pattern=r"^evidence:sha256:[0-9a-f]{64}$"
+    )
+    source_order: FlatGroupSourceView
+    formal_concept_ids: list[str] = Field(min_length=1)
+
+
+class KnowledgeMapTopologyView(_ClosedModel):
+    roots: list[str]
+    nodes: list[KnowledgeMapTopologyNodeView]
+    flat_groups: list[KnowledgeMapFlatGroupView]
+
+
+class KnowledgeMapTopologyDiagnosticsView(_ClosedModel):
+    component_count: int = Field(ge=0)
+    orphan_concept_count: int = Field(ge=0)
+    secondary_parent_count: int = Field(ge=0)
+    skipped_parent_before_child_count: int = Field(ge=0)
+
+
+class LearningPathOrderBasisView(_ClosedModel):
+    prerequisite_formal_concept_ids: list[str]
+    parent_formal_concept_ids: list[str]
+    flat_group_id: str = Field(min_length=1)
+    hierarchy_depth: int = Field(ge=0)
+    source_page_number: int = Field(ge=1)
+
+
+class InitialLearningPathStepView(_ClosedModel):
+    step_number: int = Field(ge=1)
+    formal_concept_id: str = Field(
+        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$"
+    )
+    placement_reason: str = Field(min_length=1)
+    order_basis: LearningPathOrderBasisView
+
+
 class KnowledgeMapView(_ClosedModel):
-    schema_: Literal["knowledge-map-view/v8"] = Field(alias="schema")
+    schema_: Literal["knowledge-map-view/v9"] = Field(alias="schema")
     material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
     knowledge_map_revision: str = Field(
         pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
@@ -484,7 +548,9 @@ class KnowledgeMapView(_ClosedModel):
     resource_binding: ResourceBindingView
     resource_diagnostics: ResourceDiagnosticsView
     resource_decisions: list[ResourceDecisionView]
-    initial_learning_path: list[str]
+    topology: KnowledgeMapTopologyView
+    topology_diagnostics: KnowledgeMapTopologyDiagnosticsView
+    initial_learning_path: list[InitialLearningPathStepView]
     excluded_pages: list[ExcludedPageView]
 
     @model_validator(mode="after")
@@ -500,8 +566,105 @@ class KnowledgeMapView(_ClosedModel):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if len(concept_ids) != len(self.concepts):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if set(self.initial_learning_path) != concept_ids:
+        path_ids = [step.formal_concept_id for step in self.initial_learning_path]
+        topology_ids = [node.formal_concept_id for node in self.topology.nodes]
+        if set(path_ids) != concept_ids or len(path_ids) != len(concept_ids):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        if [step.step_number for step in self.initial_learning_path] != list(
+            range(1, len(path_ids) + 1)
+        ):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        if set(topology_ids) != concept_ids or len(topology_ids) != len(concept_ids):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        nodes_by_id = {node.formal_concept_id: node for node in self.topology.nodes}
+        if (
+            self.topology.roots
+            != [node.formal_concept_id for node in self.topology.nodes if node.depth == 0]
+            or any(
+                node.primary_parent_formal_concept_id not in concept_ids
+                or node.primary_parent_formal_concept_id == node.formal_concept_id
+                for node in self.topology.nodes
+                if node.primary_parent_formal_concept_id is not None
+            )
+        ):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        grouped_ids = [
+            concept_id
+            for group in self.topology.flat_groups
+            for concept_id in group.formal_concept_ids
+        ]
+        if set(grouped_ids) != concept_ids or len(grouped_ids) != len(concept_ids):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        group_by_id = {
+            group.flat_group_id: group for group in self.topology.flat_groups
+        }
+        if (
+            len(group_by_id) != len(self.topology.flat_groups)
+            or self.topology.flat_groups != sorted(
+                self.topology.flat_groups,
+                key=lambda group: (
+                    group.source_order.page_number,
+                    group.source_order.reading_order,
+                    group.source_order.evidence_id,
+                    group.flat_group_id,
+                ),
+            )
+            or any(
+                node.flat_group_id not in group_by_id
+                or node.formal_concept_id
+                not in group_by_id[node.flat_group_id].formal_concept_ids
+                for node in self.topology.nodes
+            )
+            or any(
+                (
+                    group.label_source == "heading"
+                    and group.heading_evidence_id is None
+                )
+                or (
+                    group.label_source == "unheaded_fallback"
+                    and (
+                        group.heading_evidence_id is not None
+                        or group.label
+                        != f"第 {group.source_order.page_number} 頁未命名段落"
+                    )
+                )
+                for group in self.topology.flat_groups
+            )
+        ):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        concepts_by_id = {
+            concept.formal_concept_id: concept for concept in self.concepts
+        }
+        for step in self.initial_learning_path:
+            node = nodes_by_id[step.formal_concept_id]
+            concept = concepts_by_id[step.formal_concept_id]
+            if (
+                step.order_basis.hierarchy_depth != node.depth
+                or step.order_basis.flat_group_id != node.flat_group_id
+                or step.order_basis.source_page_number
+                != min(concept.source_page_numbers)
+                or step.order_basis.prerequisite_formal_concept_ids
+                != sorted(set(step.order_basis.prerequisite_formal_concept_ids))
+                or step.order_basis.parent_formal_concept_ids
+                != sorted(set(step.order_basis.parent_formal_concept_ids))
+            ):
+                raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        for node in self.topology.nodes:
+            concept = concepts_by_id[node.formal_concept_id]
+            matching_evidence = [
+                evidence
+                for claim in concept.claims
+                for evidence in claim.evidence
+                if evidence.evidence_id == node.flat_group_anchor.evidence_id
+            ]
+            if (
+                not matching_evidence
+                or matching_evidence[0].page_ref
+                != node.flat_group_anchor.page_ref
+                or matching_evidence[0].page_number
+                != node.flat_group_anchor.page_number
+            ):
+                raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if len({page.page_ref for page in self.excluded_pages}) != len(self.excluded_pages):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if len({page.page_number for page in self.excluded_pages}) != len(self.excluded_pages):
@@ -515,6 +678,72 @@ class KnowledgeMapView(_ClosedModel):
             for relation in self.relations
         ):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        contains_pairs = {
+            (
+                relation.source_formal_concept_id,
+                relation.target_formal_concept_id,
+            )
+            for relation in self.relations
+            if relation.type == "contains"
+        }
+        neighbors = {concept_id: set() for concept_id in concept_ids}
+        contains_parents = {concept_id: set() for concept_id in concept_ids}
+        for parent_id, child_id in contains_pairs:
+            neighbors[parent_id].add(child_id)
+            neighbors[child_id].add(parent_id)
+            contains_parents[child_id].add(parent_id)
+        remaining = set(concept_ids)
+        component_count = 0
+        while remaining:
+            component_count += 1
+            pending = [next(iter(remaining))]
+            while pending:
+                concept_id = pending.pop()
+                if concept_id not in remaining:
+                    continue
+                remaining.remove(concept_id)
+                pending.extend(neighbors[concept_id])
+        if (
+            self.topology_diagnostics.component_count != component_count
+            or self.topology_diagnostics.orphan_concept_count
+            != sum(not linked for linked in neighbors.values())
+            or self.topology_diagnostics.secondary_parent_count
+            != sum(max(0, len(parents) - 1) for parents in contains_parents.values())
+            or self.topology_diagnostics.skipped_parent_before_child_count
+            > len(contains_pairs)
+        ):
+            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        path_index = {concept_id: index for index, concept_id in enumerate(path_ids)}
+        for node in self.topology.nodes:
+            parent_id = node.primary_parent_formal_concept_id
+            if parent_id is not None and (
+                (parent_id, node.formal_concept_id) not in contains_pairs
+                or nodes_by_id[parent_id].depth + 1 != node.depth
+            ):
+                raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
+        for step in self.initial_learning_path:
+            expected_prerequisites = sorted(
+                relation.source_formal_concept_id
+                for relation in self.relations
+                if relation.type == "prerequisite"
+                and relation.target_formal_concept_id == step.formal_concept_id
+            )
+            if (
+                step.order_basis.prerequisite_formal_concept_ids
+                != expected_prerequisites
+                or any(
+                    (parent_id, step.formal_concept_id) not in contains_pairs
+                    for parent_id in step.order_basis.parent_formal_concept_ids
+                )
+                or any(
+                    path_index[predecessor] >= path_index[step.formal_concept_id]
+                    for predecessor in [
+                        *step.order_basis.prerequisite_formal_concept_ids,
+                        *step.order_basis.parent_formal_concept_ids,
+                    ]
+                )
+            ):
+                raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         claims_by_concept = {
             concept.formal_concept_id: {
                 claim.claim_id: {

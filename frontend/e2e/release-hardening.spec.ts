@@ -45,6 +45,13 @@ function emptyMap() {
   };
   view.concepts = [];
   view.relations = [];
+  view.topology = { roots: [], nodes: [], flat_groups: [] };
+  view.topology_diagnostics = {
+    component_count: 0,
+    orphan_concept_count: 0,
+    secondary_parent_count: 0,
+    skipped_parent_before_child_count: 0,
+  };
   view.initial_learning_path = [];
   Object.assign(view.relation_diagnostics, {
     possible_pairs: 0,
@@ -117,7 +124,52 @@ function largeMap() {
     coverage_before: 30,
     coverage_after: 30,
   });
-  view.initial_learning_path = view.concepts.map((concept) => concept.formal_concept_id);
+  view.topology = {
+    roots: view.concepts.map((concept) => concept.formal_concept_id),
+    nodes: view.concepts.map((concept, index) => ({
+      formal_concept_id: concept.formal_concept_id,
+      depth: 0,
+      primary_parent_formal_concept_id: null,
+      flat_group_id: longRevision("document-section", index + 1),
+      flat_group_anchor: {
+        evidence_id: concept.claims[0].evidence[0].evidence_id,
+        page_ref: concept.claims[0].evidence[0].page_ref,
+        page_number: concept.source_page_numbers[0],
+        reading_order: 0,
+      },
+    })),
+    flat_groups: view.concepts.map((concept, index) => ({
+      flat_group_id: longRevision("document-section", index + 1),
+      label: `大型教材單元 ${index + 1}`,
+      label_source: "heading",
+      heading_evidence_id: concept.claims[0].evidence[0].evidence_id,
+      source_order: {
+        evidence_id: concept.claims[0].evidence[0].evidence_id,
+        page_ref: concept.claims[0].evidence[0].page_ref,
+        page_number: concept.source_page_numbers[0],
+        reading_order: 0,
+      },
+      formal_concept_ids: [concept.formal_concept_id],
+    })),
+  };
+  view.topology_diagnostics = {
+    component_count: 30,
+    orphan_concept_count: 30,
+    secondary_parent_count: 0,
+    skipped_parent_before_child_count: 0,
+  };
+  view.initial_learning_path = view.concepts.map((concept, index) => ({
+    step_number: index + 1,
+    formal_concept_id: concept.formal_concept_id,
+    placement_reason: `依教材第 ${index + 1} 頁的首次出現位置安排。`,
+    order_basis: {
+      prerequisite_formal_concept_ids: [],
+      parent_formal_concept_ids: [],
+      flat_group_id: longRevision("document-section", index + 1),
+      hierarchy_depth: 0,
+      source_page_number: index + 1,
+    },
+  }));
   Object.assign(view.relation_diagnostics, {
     possible_pairs: 435,
     candidate_pairs: 0,

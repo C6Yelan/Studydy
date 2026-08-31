@@ -177,7 +177,10 @@ def test_migration_eight_preserves_valid_study_session_and_adds_only_current_fie
     learner = TrustedLearner(uuid4())
     knowledge_map = _knowledge_map()
     material_id = _insert_material_map(
-        clean_database_dsn, learner.learner_id, knowledge_map
+        clean_database_dsn,
+        learner.learner_id,
+        knowledge_map,
+        persist_material_run=False,
     )
     study_session_id = uuid4()
     with psycopg.connect(clean_database_dsn) as connection:
@@ -883,7 +886,9 @@ def test_owner_lifecycle_and_map_bindings_fail_closed_without_row(
         learner, completed.study_session_id, dsn=assessment_database_dsn
     )
     different_map = deepcopy(knowledge_map)
-    different_map["material_ref"] = "material:sha256:" + "2" * 64
+    different_map["source_binding"]["material_runtime_binding_sha256"] = (
+        "3" * 64
+    )
     different_map.pop("revision")
     different_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(
         different_map
