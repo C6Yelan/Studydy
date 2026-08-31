@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "e2e:install": "playwright install chromium",
-    "test": "node --test src/api/client.test.mjs src/app/routes.test.mjs src/features/material-flow/material-flow.test.mjs src/features/knowledge-map/knowledge-map.test.mjs src/features/assessment/assessment-claims.test.mjs",
+    "test": "node --test src/api/client.test.mjs src/app/routes.test.mjs src/features/material-flow/material-flow.test.mjs src/features/knowledge-map/knowledge-map.test.mjs",
     "typecheck": "tsc -b --pretty false",
     "preview": "vite preview"
   },

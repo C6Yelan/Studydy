@@ -511,3 +511,158 @@ def test_no_safe_defer_and_resume_preserve_events_and_canonical_map(
             "SELECT document FROM knowledge_maps WHERE map_revision=%s",
             (knowledge_map["revision"],),
         ).fetchone()[0] == before
+
+
+def test_multiple_no_safe_defers_follow_path_and_exclude_active_deferred(
+    adaptive_database_dsn: str,
+):
+    learner, knowledge_map, material_id, study_session = _state_session(
+        adaptive_database_dsn
+    )
+    path_ids = [
+        step["formal_concept_id"]
+        for step in knowledge_map["initial_learning_path"]
+    ]
+    concepts = {
+        concept["formal_concept_id"]: concept
+        for concept in knowledge_map["formal_concepts"]
+    }
+    for sequence in (1, 2):
+        _answer(
+            adaptive_database_dsn,
+            learner,
+            knowledge_map,
+            study_session,
+            concept_index=0,
+            correct=True,
+            sequence=sequence,
+        )
+    with psycopg.connect(adaptive_database_dsn) as connection:
+        before_map = connection.execute(
+            "SELECT document FROM knowledge_maps WHERE map_revision=%s",
+            (knowledge_map["revision"],),
+        ).fetchone()[0]
+
+    path_hash = None
+    for current_id, next_id in zip(path_ids[:2], path_ids[1:]):
+        current = concepts[current_id]
+        for claim in current["claims"]:
+            record_no_safe_assessment(
+                learner,
+                study_session.study_session_id,
+                claim["claim_id"],
+                current_id,
+                2,
+                dsn=adaptive_database_dsn,
+            )
+        plan = derive_adaptive_plan(
+            learner,
+            study_session.study_session_id,
+            dsn=adaptive_database_dsn,
+        )
+        assert plan.primary_step.action == "defer"
+        assert plan.primary_step.target_formal_concept_id == next_id
+        if path_hash is None:
+            path_hash = plan.inline_initial_learning_path_sha256
+        else:
+            assert plan.inline_initial_learning_path_sha256 == path_hash
+        applied = apply_adaptive_plan(
+            learner,
+            study_session.study_session_id,
+            plan.adaptive_plan_revision,
+            dsn=adaptive_database_dsn,
+        )
+        assert applied.study_session.current_formal_concept_id == next_id
+
+    assert applied.study_session.no_safe_deferred_formal_concept_ids == tuple(
+        path_ids[:2]
+    )
+    last = concepts[path_ids[2]]
+    for claim in last["claims"]:
+        record_no_safe_assessment(
+            learner,
+            study_session.study_session_id,
+            claim["claim_id"],
+            last["formal_concept_id"],
+            2,
+            dsn=adaptive_database_dsn,
+        )
+    resume = derive_adaptive_plan(
+        learner, study_session.study_session_id, dsn=adaptive_database_dsn
+    )
+    assert resume.primary_step.action == "resume"
+    assert resume.primary_step.target_formal_concept_id == path_ids[0]
+    resumed = apply_adaptive_plan(
+        learner,
+        study_session.study_session_id,
+        resume.adaptive_plan_revision,
+        dsn=adaptive_database_dsn,
+    )
+    assert resumed.study_session.current_formal_concept_id == path_ids[0]
+    assert resumed.study_session.no_safe_deferred_formal_concept_ids == (
+        path_ids[1],
+        path_ids[2],
+    )
+    assert resumed.study_session.last_event_number == 2
+    for claim in concepts[path_ids[0]]["claims"]:
+        record_no_safe_assessment(
+            learner,
+            study_session.study_session_id,
+            claim["claim_id"],
+            path_ids[0],
+            2,
+            dsn=adaptive_database_dsn,
+        )
+    active_deferred_excluded = derive_adaptive_plan(
+        learner, study_session.study_session_id, dsn=adaptive_database_dsn
+    )
+    assert active_deferred_excluded.primary_step.action == "resume"
+    assert active_deferred_excluded.primary_step.target_formal_concept_id == (
+        path_ids[1]
+    )
+    resumed_again = apply_adaptive_plan(
+        learner,
+        study_session.study_session_id,
+        active_deferred_excluded.adaptive_plan_revision,
+        dsn=adaptive_database_dsn,
+    )
+    assert resumed_again.study_session.no_safe_deferred_formal_concept_ids == (
+        path_ids[0],
+        path_ids[2],
+    )
+
+    blocked = create_study_session(
+        learner,
+        material_id,
+        knowledge_map["revision"],
+        str(uuid4()),
+        current_formal_concept_id=path_ids[0],
+        dsn=adaptive_database_dsn,
+    )
+    first = concepts[path_ids[0]]
+    for claim in first["claims"]:
+        blocked = record_no_safe_assessment(
+            learner,
+            blocked.study_session_id,
+            claim["claim_id"],
+            first["formal_concept_id"],
+            0,
+            dsn=adaptive_database_dsn,
+        )
+    assert blocked.status == "no_safe"
+    blocked_plan = derive_adaptive_plan(
+        learner, blocked.study_session_id, dsn=adaptive_database_dsn
+    )
+    assert blocked_plan.fallback_reason == "NO_SAFE_PREREQUISITE_BLOCKED"
+    assert blocked_plan.primary_step.action == "no_action"
+    assert blocked_plan.primary_step.target_formal_concept_id is None
+
+    with psycopg.connect(adaptive_database_dsn) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM answer_events WHERE study_session_id=%s",
+            (study_session.study_session_id,),
+        ).fetchone() == (2,)
+        assert connection.execute(
+            "SELECT document FROM knowledge_maps WHERE map_revision=%s",
+            (knowledge_map["revision"],),
+        ).fetchone()[0] == before_map

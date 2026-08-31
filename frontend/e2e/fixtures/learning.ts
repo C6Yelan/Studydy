@@ -419,6 +419,7 @@ export function adaptiveView(options: {
   action?: AdaptiveAction;
   currentConceptId?: string | null;
   deferredConceptId?: string | null;
+  noSafeDeferredConceptIds?: string[];
   eventWatermark?: number;
   planValue?: string;
   stateRevision?: string;
@@ -459,7 +460,7 @@ export function adaptiveView(options: {
       event_watermark: options.eventWatermark ?? 0,
       current_formal_concept_id: currentConceptId,
       deferred_formal_concept_id: options.deferredConceptId ?? null,
-      no_safe_deferred_formal_concept_ids: [],
+      no_safe_deferred_formal_concept_ids: options.noSafeDeferredConceptIds ?? [],
       primary_step: step,
       adaptive_plan_revision: planRevision,
     },

@@ -161,7 +161,7 @@ test("沒有可前往重點的狀態會保存並在桌面與窄螢幕清楚結�
   );
 });
 
-test("Assessment default Claim no-safe時改試較小Evidence範圍", async ({ page }) => {
+test("Assessment no-safe 不會自動產生其他 Claim 題目", async ({ page }) => {
   const knowledgeMap = mapView();
   const target = knowledgeMap.concepts[1];
   const fallbackClaimId = `claim:sha256:${"f".repeat(64)}`;
@@ -177,74 +177,22 @@ test("Assessment default Claim no-safe時改試較小Evidence範圍", async ({ p
   await page.route(`**/v1/study-sessions/${studySessionId}/assessments`, async (route) => {
     requests += 1;
     const body = await route.request().postDataJSON();
-    if (requests === 1) {
-      expect(body.target_claim_id).toBe(knowledgeMap.concepts[1].claims[0].claim_id);
-      await fulfillJson(route, apiError("NO_SAFE_ASSESSMENT"), 422);
-      return;
-    }
-    expect(body.target_claim_id).toBe(fallbackClaimId);
-    await fulfillJson(route, {
-      ...assessmentView(1),
-      target_claim_id: fallbackClaimId,
-    }, 201);
-  });
-
-  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}/study-sessions/${studySessionId}`);
-  await page.getByRole("button", { name: "開始評量" }).click();
-  await expect(page.getByRole("heading", { name: "哪個選項符合目標概念？" })).toBeVisible();
-  await expect(page.getByText("目前重點沒有安全題目，已改練另一個教材重點。")).toBeVisible();
-  expect(requests).toBe(2);
-});
-
-test("Assessment second item耗盡時改試未覆蓋Claim", async ({ page }) => {
-  const knowledgeMap = mapView();
-  const target = knowledgeMap.concepts[1];
-  const fallbackClaimId = `claim:sha256:${"e".repeat(64)}`;
-  target.claims.push({
-    ...structuredClone(target.claims[0]),
-    claim_id: fallbackClaimId,
-    text: "尚未覆蓋且教材依據範圍較小的重點。",
-  });
-  const context = contextView();
-  context.initial_learning_path[1].claim_ids.push(fallbackClaimId);
-  await learningRoutes(page, () => 1, knowledgeMap, context);
-  let assessmentRequests = 0;
-  await page.route(`**/v1/study-sessions/${studySessionId}/assessments`, async (route) => {
-    assessmentRequests += 1;
-    const body = await route.request().postDataJSON();
-    if (assessmentRequests === 1) {
-      expect(body.target_claim_id).toBe(target.claims[0].claim_id);
-      await fulfillJson(route, assessmentView(1), 201);
-    } else if (assessmentRequests === 2) {
-      expect(body.target_claim_id).toBe(target.claims[0].claim_id);
-      await fulfillJson(route, apiError("NO_SAFE_ASSESSMENT"), 422);
-    } else {
-      expect(body.target_claim_id).toBe(fallbackClaimId);
-      await fulfillJson(route, {
-        ...assessmentView(2),
-        target_claim_id: fallbackClaimId,
-      }, 201);
-    }
-  });
-  await page.route(`**/v1/study-sessions/${studySessionId}/assessments/*/submissions`, async (route) => {
-    const assessment = assessmentView(1);
-    const body = await route.request().postDataJSON();
-    await fulfillJson(
-      route,
-      feedbackView(assessment, body.selected_option_id, false, 1),
-      201,
+    expect(body.target_claim_id).toBe(
+      requests === 1 ? knowledgeMap.concepts[1].claims[0].claim_id : fallbackClaimId,
     );
+    await fulfillJson(route, apiError("NO_SAFE_ASSESSMENT"), 422);
   });
 
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}/study-sessions/${studySessionId}`);
   await page.getByRole("button", { name: "開始評量" }).click();
-  await page.getByRole("radio", { name: /選項 B/ }).check();
-  await page.getByRole("button", { name: "送出答案" }).click();
-  await expect(page.getByRole("heading", { name: "這題需要再想一下" })).toBeVisible();
-  await page.getByRole("button", { name: "取得新題目" }).click();
-  await expect(page.getByRole("heading", { name: "重新評量：哪個敘述符合教材？" })).toBeVisible();
-  await expect(page.getByText("目前重點沒有安全題目，已改練另一個教材重點。")).toBeVisible();
-  expect(assessmentRequests).toBe(3);
+  await expect(page.getByRole("heading", { name: "目前沒有新的安全題目" })).toBeVisible();
+  expect(requests).toBe(1);
+
+  await page.getByRole("button", { name: "完成本次回顧" }).click();
+  await page.getByRole("radio", { name: /另一個有教材依據的重點/ }).check();
+  await page.getByRole("button", { name: "開始評量" }).click();
+  await expect(page.getByRole("heading", { name: "目前沒有新的安全題目" })).toBeVisible();
+  expect(requests).toBe(2);
 });
 
 test("Assessment stale/idempotency conflict 不會在 client 端猜測結果", async ({ page }) => {

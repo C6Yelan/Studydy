@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { AnswerFeedbackView, AssessmentView, KnowledgeMapView } from "../../api/contracts";
 import { Icon } from "../../ui/Icon";
-import { assessmentFallbackClaim } from "./assessment-claims";
 import "./styles.css";
 
 type Concept = KnowledgeMapView["concepts"][number];
@@ -34,9 +33,8 @@ function assessmentError(error: unknown): AssessmentError {
   };
 }
 
-export function AssessmentPanel({ apiClient, attemptedClaimIds, concept, onNoSafeItem, onReloadSession, onSubmitted, sourceArtifactId, studySessionId, view }: {
+export function AssessmentPanel({ apiClient, concept, onNoSafeItem, onReloadSession, onSubmitted, sourceArtifactId, studySessionId, view }: {
   apiClient: StudydyApiClient;
-  attemptedClaimIds: string[];
   concept: Concept;
   onNoSafeItem: (isUnavailable: boolean) => void;
   onReloadSession: () => void;
@@ -54,7 +52,6 @@ export function AssessmentPanel({ apiClient, attemptedClaimIds, concept, onNoSaf
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [requestError, setRequestError] = useState<AssessmentError | null>(null);
   const [submissionError, setSubmissionError] = useState<AssessmentError | null>(null);
-  const [targetMessage, setTargetMessage] = useState<string | null>(null);
   const assessmentIntent = useRef<{ claimId: string; key: string } | null>(null);
   const submissionIntent = useRef<{ optionId: string; key: string } | null>(null);
 
@@ -65,7 +62,6 @@ export function AssessmentPanel({ apiClient, attemptedClaimIds, concept, onNoSaf
     setFeedback(null);
     setRequestError(null);
     setSubmissionError(null);
-    setTargetMessage(null);
     onNoSafeItem(false);
     assessmentIntent.current = null;
     submissionIntent.current = null;
@@ -89,7 +85,6 @@ export function AssessmentPanel({ apiClient, attemptedClaimIds, concept, onNoSaf
     setAssessment(null);
     setFeedback(null);
     setSelectedOptionId(null);
-    setTargetMessage(null);
     const createForClaim = async (claimId: string, forceNewIntent: boolean) => {
       if (forceNewIntent || assessmentIntent.current?.claimId !== claimId) {
         assessmentIntent.current = { claimId, key: crypto.randomUUID() };
@@ -99,42 +94,14 @@ export function AssessmentPanel({ apiClient, attemptedClaimIds, concept, onNoSaf
         target_claim_id: claimId,
       }, assessmentIntent.current.key);
     };
-    let claimId = selectedClaimId;
-    const noSafeClaimIds = new Set<string>();
     try {
-      while (true) {
-        try {
-          const next = await createForClaim(
-            claimId, newIntent || noSafeClaimIds.size > 0
-          );
-          setAssessment(next);
-          submissionIntent.current = null;
-          break;
-        } catch (error) {
-          const nextError = assessmentError(error);
-          if (!nextError.noSafeItem) {
-            setRequestError(nextError);
-            onNoSafeItem(false);
-            break;
-          }
-          noSafeClaimIds.add(claimId);
-          const fallback = assessmentFallbackClaim(
-            concept.claims.filter(
-              (claim) => !noSafeClaimIds.has(claim.claim_id)
-            ),
-            claimId,
-            attemptedClaimIds,
-          );
-          if (!fallback) {
-            setRequestError(nextError);
-            onNoSafeItem(true);
-            break;
-          }
-          claimId = fallback.claim_id;
-          setSelectedClaimId(claimId);
-          setTargetMessage("目前重點沒有安全題目，已改練另一個教材重點。");
-        }
-      }
+      const next = await createForClaim(selectedClaimId, newIntent);
+      setAssessment(next);
+      submissionIntent.current = null;
+    } catch (error) {
+      const nextError = assessmentError(error);
+      setRequestError(nextError);
+      onNoSafeItem(nextError.noSafeItem);
     } finally {
       setIsLoading(false);
     }
@@ -274,7 +241,6 @@ export function AssessmentPanel({ apiClient, attemptedClaimIds, concept, onNoSaf
 
   return (
     <section className="assessment-card" aria-labelledby="assessment-question">
-      {targetMessage && <p className="assessment-target-note" role="status">{targetMessage}</p>}
       <p className="eyebrow">單選評量</p>
       <h2 id="assessment-question">{assessment.prompt}</h2>
       <fieldset className="assessment-options" disabled={isSubmitting}>

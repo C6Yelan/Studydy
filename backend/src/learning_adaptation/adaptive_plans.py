@@ -784,6 +784,15 @@ def apply_adaptive_plan(
                 study_session.current_formal_concept_id = target_id
                 if target_id == study_session.deferred_formal_concept_id:
                     study_session.deferred_formal_concept_id = None
+            context = _validate_binding(session, study_session)
+            deferred_no_safe_ids = set(
+                study_session.no_safe_deferred_formal_concept_ids
+            )
+            study_session.no_safe_deferred_formal_concept_ids = [
+                concept_id
+                for concept_id in context.initial_learning_path
+                if concept_id in deferred_no_safe_ids
+            ]
             study_session.last_applied_adaptive_plan_revision = (
                 adaptive_plan_revision
             )

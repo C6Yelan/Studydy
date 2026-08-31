@@ -69,14 +69,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.assessment-target-note {
-  margin: 0 0 var(--space-3);
-  padding: var(--space-3);
-  border-radius: var(--radius-input);
-  color: var(--text-secondary);
-  background: var(--studydy-blue-soft-2);
-}
-
 .evidence-review-activity {
   display: grid;
   width: min(680px, 100%);

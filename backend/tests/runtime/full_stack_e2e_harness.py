@@ -174,7 +174,9 @@ class FullStackHarness:
                 "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public'"
             ).fetchone() != (0,):
                 raise HarnessFailure("E2E_DATABASE_NOT_EMPTY")
-        if run_migrations(self.database_dsn, migrations_dir=DEFAULT_MIGRATIONS_DIR) != (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
+        if run_migrations(
+            self.database_dsn, migrations_dir=DEFAULT_MIGRATIONS_DIR
+        ) != tuple(range(1, 16)):
             raise HarnessFailure("E2E_FRESH_MIGRATION_FAILED")
         with psycopg.connect(self.database_dsn) as connection:
             for table in (
