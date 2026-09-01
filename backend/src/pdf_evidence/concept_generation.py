@@ -11,7 +11,7 @@ from .document_context import serialize_document_context
 
 SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v7"
 SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v4"
-PROCESSING_POLICY = "claim-grounded-concept-review/v8"
+PROCESSING_POLICY = "claim-grounded-concept-review/v9"
 MAX_MODEL_OUTPUT_BYTES = 65_536
 
 _BRACKET_INDEXES = re.compile(r"^(?:\[\s*\d+\s*\]\s*)+$")
@@ -753,8 +753,7 @@ def _claim(
         or any(not isinstance(reference, str) for reference in references)
     ):
         raise SemanticOutputError("INVALID_EVIDENCE_REFERENCES")
-    if len(set(references)) != len(references):
-        raise SemanticOutputError("DUPLICATE_EVIDENCE_REFERENCE")
+    references = list(dict.fromkeys(references))
     if not set(references) <= set(evidence_aliases):
         raise SemanticOutputError("UNKNOWN_EVIDENCE_ID")
     if any(

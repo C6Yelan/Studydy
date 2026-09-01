@@ -138,7 +138,7 @@ def test_unkeyed_assessment_cannot_publish_a_fact():
             "label": "River answer",
             "claims": [{
                 "text": "Rivers always flow uphill.",
-                "evidence_ids": ["e2"],
+                "evidence_ids": ["e2", "e2"],
             }],
         }],
         blocks,
@@ -160,7 +160,7 @@ def test_unknown_evidence_rejects_only_that_candidate():
         },
         {
             "label": "Invalid",
-            "claims": [{"text": "Unknown", "evidence_ids": ["e9"]}],
+            "claims": [{"text": "Unknown", "evidence_ids": ["e9", "e9"]}],
         },
     ])
     assert [concept["label"] for concept in artifact["concepts"]] == ["Valid"]
@@ -177,7 +177,7 @@ def test_exact_technical_token_fabrication_remains_blocked():
             "label": "Escape marker",
             "claims": [{
                 "text": "Readers must preserve the escape 0 exactly.",
-                "evidence_ids": ["e1"],
+                "evidence_ids": ["e1", "e1"],
             }],
         }],
         [("code", "Readers must preserve the escape \\0 exactly.")],
@@ -186,6 +186,41 @@ def test_exact_technical_token_fabrication_remains_blocked():
     assert artifact["rejected_candidates"][0]["reason_codes"] == [
         "CLAIM_EVIDENCE_UNSUPPORTED"
     ]
+
+
+def test_duplicate_evidence_references_normalize_before_identity():
+    concepts = [{
+        "label": "Energy transfer",
+        "claims": [{
+            "text": "Light energy becomes stored chemical energy.",
+            "evidence_ids": ["e2", "e1", "e2"],
+        }],
+    }]
+    blocks = [
+        ("paragraph", "Light energy becomes stored chemical energy."),
+        ("paragraph", "Stored chemical energy comes from light energy."),
+    ]
+    duplicated = _validate(concepts, blocks)
+    normalized = _validate(
+        [{
+            **concepts[0],
+            "claims": [{
+                **concepts[0]["claims"][0],
+                "evidence_ids": ["e2", "e1"],
+            }],
+        }],
+        blocks,
+    )
+    duplicated_concept = duplicated["concepts"][0]
+    normalized_concept = normalized["concepts"][0]
+    assert duplicated_concept["claims"][0]["evidence_ids"] == [
+        "evidence-1",
+        "evidence-0",
+    ]
+    assert duplicated_concept["claims"][0]["claim_id"] == (
+        normalized_concept["claims"][0]["claim_id"]
+    )
+    assert duplicated_concept["concept_id"] == normalized_concept["concept_id"]
 
 
 def test_batch_rejection_does_not_downgrade_valid_concept():

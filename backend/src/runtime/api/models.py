@@ -3,7 +3,6 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime
 import math
-import re
 from typing import Literal
 from uuid import UUID
 
@@ -359,7 +358,6 @@ class DocumentTreeView(_ClosedModel):
 
 
 class LearningPathOrderBasisView(_ClosedModel):
-    prerequisite_constraint_ids: list[str]
     section_id: str = Field(pattern=r"^document-section:sha256:[0-9a-f]{64}$")
     page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
     page_number: int = Field(ge=1)
@@ -386,7 +384,7 @@ class InitialLearningPathStepView(_ClosedModel):
 
 
 class KnowledgeMapView(_ClosedModel):
-    schema_: Literal["knowledge-map-view/v10"] = Field(alias="schema")
+    schema_: Literal["knowledge-map-view/v11"] = Field(alias="schema")
     material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
     knowledge_map_revision: str = Field(
         pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
@@ -457,16 +455,6 @@ class KnowledgeMapView(_ClosedModel):
             )
             if (
                 evidence is None
-                or step.order_basis.prerequisite_constraint_ids
-                != sorted(set(step.order_basis.prerequisite_constraint_ids))
-                or any(
-                    re.fullmatch(
-                        r"prerequisite-constraint:sha256:[0-9a-f]{64}",
-                        constraint_id,
-                    )
-                    is None
-                    for constraint_id in step.order_basis.prerequisite_constraint_ids
-                )
                 or evidence.page_ref != step.order_basis.page_ref
                 or evidence.page_number != step.order_basis.page_number
             ):
@@ -612,22 +600,6 @@ class WeaknessFindingView(_ClosedModel):
     reason: str
 
 
-class PrerequisiteGapView(_ClosedModel):
-    category: Literal["possible_prerequisite_gap"]
-    target_formal_concept_id: str
-    prerequisite_formal_concept_id: str
-    prerequisite_label: str
-    prerequisite_constraint_id: str = Field(
-        pattern=r"^prerequisite-constraint:sha256:[0-9a-f]{64}$"
-    )
-    prerequisite_status: Literal[
-        "not_started", "learning", "needs_review", "mastered"
-    ]
-    prerequisite_confidence: Literal["none", "limited", "supported"]
-    remediation_intent: Literal["relearn_prerequisite"]
-    reason: str
-
-
 class WeaknessView(_ClosedModel):
     schema_: Literal["weakness/v1"] = Field(alias="schema")
     study_session_id: UUID
@@ -637,7 +609,6 @@ class WeaknessView(_ClosedModel):
     current_formal_concept_id: str | None
     weakness_revision: str
     findings: list[WeaknessFindingView]
-    immediate_prerequisite_gaps: list[PrerequisiteGapView]
 
 
 class AdaptiveRouteView(_ClosedModel):
@@ -840,12 +811,6 @@ def project_weakness(weakness: WeaknessSnapshot) -> WeaknessView:
                     mode="python", exclude={"supporting_answer_event_ids"}
                 )
                 for finding in weakness.findings
-            ],
-            "immediate_prerequisite_gaps": [
-                gap.model_dump(
-                    mode="python", exclude={"supporting_answer_event_ids"}
-                )
-                for gap in weakness.immediate_prerequisite_gaps
             ],
         }
     )

@@ -24,7 +24,7 @@ test("Knowledge Map renders the grounded document tree without semantic edges", 
   await expect(page.locator(".react-flow__edge")).toHaveCount(4);
   await expect(page.locator(".concept-flow-edge.is-structural")).toHaveCount(4);
   await expect(page.locator(".react-flow__controls")).toBeVisible();
-  await expect(page.getByText(/關係詳情|先備關係|互相關聯/)).toHaveCount(0);
+  await expect(page.getByText(/關係詳情|互相關聯/)).toHaveCount(0);
 
   await page.getByLabel("焦點概念").selectOption({ label: "目標概念" });
   await expect(page.locator(".concept-flow-node.is-focus")).toContainText("目標概念");
@@ -52,6 +52,6 @@ test("mobile fallback keeps sections keyboard-accessible", async ({ page }) => {
   await expect(page.getByLabel("教材概念階層清單")).toBeVisible();
   await expect(page.getByRole("button", { name: /收合/ }).first()).toBeVisible();
   const fallback = page.getByLabel("教材概念階層清單");
-  await expect(fallback.getByRole("heading", { name: "先備概念" })).toBeVisible();
+  await expect(fallback.getByRole("heading", { name: "第一個概念" })).toBeVisible();
   await expect(fallback.getByRole("heading", { name: "目標概念" })).toBeVisible();
 });

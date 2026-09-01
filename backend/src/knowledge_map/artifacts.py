@@ -9,11 +9,8 @@ from pdf_evidence.artifact_reason_codes import reason_codes_are_valid
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.study_material_output import validate_study_material_output
 
-from .prerequisites import prerequisite_constraints_are_valid
-
-
-KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v10"
-KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v10"
+KNOWLEDGE_MAP_SCHEMA = "knowledge-map/v11"
+KNOWLEDGE_MAP_VIEW_SCHEMA = "knowledge-map-view/v11"
 MAX_SECTION_LABEL_LENGTH = 120
 
 _CONCEPT_DIAGNOSTIC_FIELDS = {
@@ -76,7 +73,6 @@ def _concept_diagnostics(
 def _document_tree_and_learning_path(
     study_material_output: dict[str, Any],
     formal_concepts: list[dict[str, Any]],
-    prerequisite_constraints: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """以 Claim Evidence 的首次位置建立 flat Section 與獨立 Path。"""
 
@@ -197,56 +193,20 @@ def _document_tree_and_learning_path(
     anchor_by_concept = {
         anchor["formal_concept_id"]: anchor for anchor in concept_anchors
     }
-    baseline_ids = [
+    ordered_ids = [
         concept_id for section in sections for concept_id in section["concept_ids"]
     ]
-    baseline_index = {
-        concept_id: index for index, concept_id in enumerate(baseline_ids)
-    }
-    incoming = {concept_id: 0 for concept_id in baseline_ids}
-    outgoing = {concept_id: set() for concept_id in baseline_ids}
-    constraints_by_target: dict[str, list[dict[str, Any]]] = {
-        concept_id: [] for concept_id in baseline_ids
-    }
-    for constraint in prerequisite_constraints:
-        source = constraint["source_formal_concept_id"]
-        target = constraint["target_formal_concept_id"]
-        outgoing[source].add(target)
-        incoming[target] += 1
-        constraints_by_target[target].append(constraint)
-    ready = sorted(
-        (concept_id for concept_id, count in incoming.items() if count == 0),
-        key=baseline_index.__getitem__,
-    )
-    ordered_ids = []
-    while ready:
-        concept_id = ready.pop(0)
-        ordered_ids.append(concept_id)
-        for target in sorted(outgoing[concept_id], key=baseline_index.__getitem__):
-            incoming[target] -= 1
-            if incoming[target] == 0:
-                ready.append(target)
-                ready.sort(key=baseline_index.__getitem__)
-    if len(ordered_ids) != len(baseline_ids):
-        raise ValueError("KNOWLEDGE_MAP_PATH_INVALID")
     path = []
     for step_number, formal_concept_id in enumerate(ordered_ids, start=1):
         anchor = anchor_by_concept[formal_concept_id]
-        constraint_ids = sorted(
-            constraint["prerequisite_constraint_id"]
-            for constraint in constraints_by_target[formal_concept_id]
-        )
         path.append(
             {
                 "step_number": step_number,
                 "formal_concept_id": formal_concept_id,
                 "placement_reason": (
-                    "依已正向驗證的先備條件調整學習順序。"
-                    if constraint_ids
-                    else f"依教材第 {anchor['page_number']} 頁的首次 Claim Evidence 安排。"
+                    f"依教材第 {anchor['page_number']} 頁的首次 Claim Evidence 安排。"
                 ),
                 "order_basis": {
-                    "prerequisite_constraint_ids": constraint_ids,
                     "section_id": anchor["section_id"],
                     "page_ref": anchor["page_ref"],
                     "page_number": anchor["page_number"],
@@ -322,7 +282,6 @@ def build_knowledge_map(
     *,
     material_runtime_binding_sha256: str,
     resource_promotion: dict[str, Any] | None = None,
-    prerequisite_constraints: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """先建立完整 Concepts、Document Tree 與 Path，再附加 optional resources。"""
 
@@ -357,11 +316,8 @@ def build_knowledge_map(
         concept["source_page_numbers"] = sorted(
             {page_numbers[page_ref] for page_ref in concept["source_page_refs"]}
         )
-    constraints = deepcopy(prerequisite_constraints or [])
-    if not prerequisite_constraints_are_valid(constraints, formal_concepts):
-        raise ValueError("KNOWLEDGE_MAP_PREREQUISITE_INVALID")
     document_tree, initial_learning_path = _document_tree_and_learning_path(
-        study_material_output, formal_concepts, constraints
+        study_material_output, formal_concepts
     )
     has_no_concept = not formal_concepts
     reasons = {
@@ -386,7 +342,6 @@ def build_knowledge_map(
         "formal_concepts": formal_concepts,
         "concept_diagnostics": _concept_diagnostics(resolution_artifacts),
         "document_tree": document_tree,
-        "prerequisite_constraints": constraints,
         "initial_learning_path": initial_learning_path,
         "supplementary_resources": supplementary_resources,
         "evidence_index": deepcopy(study_material_output["evidence_index"]),
@@ -538,8 +493,7 @@ def validate_knowledge_map(
     fields = {
         "schema", "source_output_id", "source_binding", "material_ref",
         "formal_concepts", "concept_diagnostics", "document_tree",
-        "prerequisite_constraints", "initial_learning_path",
-        "supplementary_resources", "evidence_index",
+        "initial_learning_path", "supplementary_resources", "evidence_index",
         "excluded_pages", "processing", "quality", "decision", "reason_codes",
         "revision",
     }
@@ -593,15 +547,9 @@ def validate_knowledge_map(
             return "KNOWLEDGE_MAP_INVALID"
         if not _formal_concepts_are_valid(knowledge_map["formal_concepts"], study_material_output):
             return "KNOWLEDGE_MAP_INVALID"
-        if not prerequisite_constraints_are_valid(
-            knowledge_map["prerequisite_constraints"],
-            knowledge_map["formal_concepts"],
-        ):
-            return "KNOWLEDGE_MAP_INVALID"
         expected_tree, expected_path = _document_tree_and_learning_path(
             study_material_output,
             knowledge_map["formal_concepts"],
-            knowledge_map["prerequisite_constraints"],
         )
         if knowledge_map["document_tree"] != expected_tree or knowledge_map["initial_learning_path"] != expected_path:
             return "KNOWLEDGE_MAP_INVALID"

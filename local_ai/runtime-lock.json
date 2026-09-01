@@ -144,7 +144,7 @@
     },
     "policy": {
       "candidate_text_normalizer": "concept-text-nfkc-whitespace/v1",
-      "claim_processing_policy": "claim-grounded-concept-review/v8",
+      "claim_processing_policy": "claim-grounded-concept-review/v9",
       "exact_technical_tokens": "claim-technical-token-fidelity/v1",
       "fragment_validation": "objective-junk-only/v1",
       "cross_concept_evidence_reuse": true,
@@ -156,9 +156,9 @@
     "code_hashes": {
       "backend_concept_api": "277aa9baf9638899df2d5e003011320ba8674557c90489d12bdd16f424435bad",
       "backend_process_guard": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
-      "backend_concept_generation": "1d25b9ddb6e1b2e3f6a8f43d129a48443503457a425765db59deb3b1ad8f5c05",
+      "backend_concept_generation": "4a7c1ac816ab69a82a12df8fa2c1db16ad98c07c9c9bf4a44bc042925372274f",
       "backend_document_context": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
-      "backend_text_first_run": "fb95d226242dc61557733e958acca38057e142f3cbf0b5a38ee4154059f8919d",
+      "backend_text_first_run": "d9eddc0d9cf8417ec57a0e643b3f01723556ccf34a3290ac4576c75f0d4578a7",
       "backend_study_material_output": "88efd57be086464d6fae7c127b81add392088d20b7c05548862f046d73693419"
     },
     "fixture_hashes": {

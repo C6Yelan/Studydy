@@ -106,7 +106,7 @@ test("StudySession assessment：錯誤回饋、新題重評與完成", async ({ 
   await expect(page.getByRole("heading", { name: "這題需要再想一下" })).toBeVisible();
   await expect(page.getByText("這個選項與教材依據不一致。")).toBeVisible();
   expect(await page.locator("body").innerText()).not.toMatch(
-    /canonical(?: initial learning path| map)|formal immediate prerequisite|StudySession(?: only)?|Relation|Evidence|Single-choice/i,
+    /canonical(?: initial learning path| map)|StudySession(?: only)?|Relation|Single-choice/i,
   );
   await captureAcceptance(page, "11_feedback.png");
 

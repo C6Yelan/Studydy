@@ -33,13 +33,6 @@ function assertRouteBinding(route: Extract<AppRoute, { name: "study-session" }>,
   const conceptIds = data.view.concepts.map((concept) => concept.formal_concept_id);
   const contextIds = data.context.initial_learning_path.map((concept) => concept.formal_concept_id);
   const stateIds = data.learningState.concept_states.map((state) => state.formal_concept_id);
-  const prerequisiteConstraintIds = data.view.initial_learning_path.flatMap(
-    (step) => step.order_basis.prerequisite_constraint_ids,
-  );
-  const gapsUsePublishedConstraints = data.weakness.immediate_prerequisite_gaps.every((gap) =>
-    prerequisiteConstraintIds.includes(gap.prerequisite_constraint_id)
-    && conceptIds.includes(gap.prerequisite_formal_concept_id)
-    && conceptIds.includes(gap.target_formal_concept_id));
   const contextMatchesMap = data.context.initial_learning_path.every((contextConcept) => {
     const mapConcept = data.view.concepts.find((concept) => concept.formal_concept_id === contextConcept.formal_concept_id);
     return !!mapConcept
@@ -84,7 +77,6 @@ function assertRouteBinding(route: Extract<AppRoute, { name: "study-session" }>,
     || (data.session.current_formal_concept_id !== null && !conceptIds.includes(data.session.current_formal_concept_id))
     || (data.session.deferred_formal_concept_id !== null && !conceptIds.includes(data.session.deferred_formal_concept_id))
     || data.weakness.findings.some((finding) => !conceptIds.includes(finding.target_formal_concept_id))
-    || !gapsUsePublishedConstraints
     || (adaptiveTarget !== null && !conceptIds.includes(adaptiveTarget))
     || (adaptiveResource !== null && !data.view.concepts.some((concept) =>
       concept.supplementary_resources.some((resource) => resource.promotion_id === adaptiveResource)))

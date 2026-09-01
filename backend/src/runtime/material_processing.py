@@ -63,9 +63,9 @@ _CONFIG_PATH_KEYS = {
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "5ee88128b598deb53c28a50b67940162763b391be3767e63b2711916eb281c5e",
+    "local_ai/runtime-lock.json": "1a83fdb93dd58363d65d9164d829ff19383c8f90a9e25c9f178f7385b8e242d6",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "13716c4f0e1429802f2fa0e28c4e87743c678adb5ad61a32c12cb6309fd55a6a",
-    "backend/src/pdf_evidence/concept_generation.py": "1d25b9ddb6e1b2e3f6a8f43d129a48443503457a425765db59deb3b1ad8f5c05",
+    "backend/src/pdf_evidence/concept_generation.py": "4a7c1ac816ab69a82a12df8fa2c1db16ad98c07c9c9bf4a44bc042925372274f",
     "backend/src/pdf_evidence/document_context.py": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
     "backend/src/pdf_evidence/concept_api.py": "277aa9baf9638899df2d5e003011320ba8674557c90489d12bdd16f424435bad",
     "backend/src/pdf_evidence/study_material_output.py": "88efd57be086464d6fae7c127b81add392088d20b7c05548862f046d73693419",
@@ -83,7 +83,6 @@ _BINDING_FILES = (
     "backend/src/pdf_evidence/study_material_output.py",
     "backend/src/knowledge_map/artifacts.py",
     "backend/src/knowledge_map/formal_concepts.py",
-    "backend/src/knowledge_map/prerequisites.py",
     "backend/src/knowledge_map/local_generation.py",
     "backend/src/learning_resources/map_resources.py",
     "backend/src/learning_resources/data/resource_library_v1.json",

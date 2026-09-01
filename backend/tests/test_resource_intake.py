@@ -12,6 +12,7 @@ from learning_resources.map_resources import (
     validate_resource_library,
 )
 from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
+from pdf_evidence.concept_generation import concept_id
 from pdf_evidence.text_first_bundle import build_producer_bundle, publish_run
 from runtime.material_processing import MaterialProcessingError
 from test_study_material_output import producer_output
@@ -81,7 +82,12 @@ def _write_library(path: Path, extra: tuple[str, str] | None = None) -> None:
     path.write_bytes(canonical_bytes(library))
 
 
-def _install_producer(monkeypatch, runtime_root: Path, calls: list[dict]) -> None:
+def _install_producer(
+    monkeypatch,
+    runtime_root: Path,
+    calls: list[dict],
+    output_mutator=None,
+) -> None:
     monkeypatch.setattr(
         resource_intake,
         "formal_runtime_preflight",
@@ -92,6 +98,8 @@ def _install_producer(monkeypatch, runtime_root: Path, calls: list[dict]) -> Non
         calls.append(deepcopy(request))
         output = producer_output()
         output["concepts"][0]["processing"] = "succeeded"
+        if output_mutator is not None:
+            output_mutator(output)
         identity = dict(output)
         identity.pop("output_id")
         output["output_id"] = (
@@ -138,7 +146,14 @@ def test_runtime_summary_preserves_only_fixed_runtime_stage(monkeypatch):
     assert failure.value.runtime_reason == "LOCAL_RUNTIME_HASH_MISMATCH"
 
 
-def _analyze(tmp_path, monkeypatch, capsys):
+def _analyze(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    *,
+    output_mutator=None,
+    expected_return=0,
+):
     candidates = tmp_path / "candidates"
     runtime_root = tmp_path / "runtime"
     metadata_path = tmp_path / "source-secret-name.json"
@@ -149,12 +164,16 @@ def _analyze(tmp_path, monkeypatch, capsys):
     _write_library(library_path)
     calls: list[dict] = []
     monkeypatch.setattr(resource_intake, "CANDIDATE_ROOT", candidates)
-    _install_producer(monkeypatch, runtime_root, calls)
+    _install_producer(
+        monkeypatch, runtime_root, calls, output_mutator=output_mutator
+    )
     arguments = [
         "analyze", str(pdf_path), "--metadata", str(metadata_path),
         "--library-file", str(library_path),
     ]
-    assert resource_intake.main(arguments, _environment(runtime_root)) == 0
+    assert resource_intake.main(arguments, _environment(runtime_root)) == (
+        expected_return
+    )
     first = json.loads(capsys.readouterr().out)
     return first, arguments, pdf_path, library_path, runtime_root, candidates, calls
 
@@ -207,7 +226,6 @@ def test_analyze_writes_immutable_bundle_and_exact_replay_uses_no_model(
     )
     assert candidate["publishable_proposals"][0]["label"] == "Public concept"
     assert candidate["processing"] == "partial"
-    assert candidate["critical_blockers"] == []
     assert (directory.stat().st_mode & 0o777) == 0o700
     assert ((directory / "candidate.json").stat().st_mode & 0o777) == 0o600
     assert ((directory / "review.md").stat().st_mode & 0o777) == 0o600
@@ -392,21 +410,40 @@ def test_replace_failure_and_candidate_tamper_never_overwrite_library(
     assert library_path.read_bytes() == original
 
 
-def test_projection_omits_unsupported_and_marks_grounding_blockers():
+def test_projection_isolates_unsupported_proposals():
     output = producer_output()
     uncertain = deepcopy(output)
     uncertain["concepts"][0]["processing"] = "partial"
-    proposals, omitted, blockers = resource_intake._project_output(uncertain)
+    proposals, omitted = resource_intake._project_output(uncertain)
     assert proposals == []
     assert omitted[0]["reason_code"] == "RESOURCE_PROPOSAL_UNCERTAIN"
-    assert blockers == []
 
     missing = deepcopy(output)
     missing["concepts"][0]["claims"][0]["evidence_ids"] = []
-    proposals, omitted, blockers = resource_intake._project_output(missing)
+    proposals, omitted = resource_intake._project_output(missing)
     assert proposals == []
     assert omitted[0]["reason_code"] == "RESOURCE_EVIDENCE_MISSING"
-    assert blockers == ["RESOURCE_EVIDENCE_MISSING"]
+
+    wrong_page = deepcopy(output)
+    second_page = deepcopy(wrong_page["pages"][0])
+    second_page["page_ref"] = "page:sha256:" + "9" * 64
+    second_page["page_number"] = 2
+    second_page["evidence_blocks"][0]["evidence_id"] = (
+        "evidence:sha256:" + "9" * 64
+    )
+    wrong_page["pages"].append(second_page)
+    wrong_page["concepts"][0]["page_ref"] = second_page["page_ref"]
+    proposals, omitted = resource_intake._project_output(wrong_page)
+    assert proposals == []
+    assert omitted[0]["reason_code"] == "RESOURCE_EVIDENCE_WRONG_PAGE"
+
+    not_grounded = deepcopy(output)
+    not_grounded["pages"][0]["evidence_blocks"][0]["locator"]["region"] = [
+        0, 0, 0, 1,
+    ]
+    proposals, omitted = resource_intake._project_output(not_grounded)
+    assert proposals == []
+    assert omitted[0]["reason_code"] == "RESOURCE_EVIDENCE_NOT_GROUNDED"
 
     multiple = deepcopy(output)
     multiple["concepts"][0]["processing"] = "succeeded"
@@ -419,13 +456,12 @@ def test_projection_omits_unsupported_and_marks_grounding_blockers():
     multiple["concepts"][0]["claims"][0]["evidence_ids"].append(
         second_evidence["evidence_id"]
     )
-    proposals, omitted, blockers = resource_intake._project_output(multiple)
+    proposals, omitted = resource_intake._project_output(multiple)
     assert [item["source_evidence_id"] for item in proposals[0]["evidence"]] == [
         output["concepts"][0]["claims"][0]["evidence_ids"][0],
         second_evidence["evidence_id"],
     ]
     assert omitted == []
-    assert blockers == []
 
     rejected = deepcopy(output)
     rejected["rejected_candidates"] = [{
@@ -436,8 +472,59 @@ def test_projection_omits_unsupported_and_marks_grounding_blockers():
         "decision": "reject",
         "reason_codes": ["MODEL_OUTPUT_INVALID"],
     }]
-    _, omitted, _ = resource_intake._project_output(rejected)
+    _, omitted = resource_intake._project_output(rejected)
     assert omitted[0]["reason_code"] == "RESOURCE_PROPOSAL_UNCERTAIN"
+
+
+def test_analyze_keeps_valid_sibling_when_one_proposal_is_uncertain(
+    tmp_path, monkeypatch, capsys
+):
+    def add_invalid_sibling(output):
+        invalid = deepcopy(output["concepts"][0])
+        invalid["label"] = "Invalid sibling"
+        invalid["concept_id"] = concept_id(
+            invalid["page_ref"], invalid["label"], invalid["claims"]
+        )
+        invalid["processing"] = "partial"
+        output["concepts"].append(invalid)
+
+    analyzed, _, _, _, _, candidates, _ = _analyze(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        output_mutator=add_invalid_sibling,
+    )
+    candidate = json.loads(
+        (candidates / analyzed["candidate_id"] / "candidate.json").read_bytes()
+    )
+    assert len(candidate["publishable_proposals"]) == 1
+    assert candidate["omitted_items"] == [{
+        "concept_id": candidate["omitted_items"][0]["concept_id"],
+        "page_number": 1,
+        "reason_code": "RESOURCE_PROPOSAL_UNCERTAIN",
+        "processing": "failed",
+        "quality": "needs_review",
+        "decision": "reject",
+    }]
+
+
+def test_analyze_truthfully_rejects_when_every_proposal_is_invalid(
+    tmp_path, monkeypatch, capsys
+):
+    def mark_uncertain(output):
+        output["concepts"][0]["processing"] = "partial"
+
+    failure, *_ = _analyze(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        output_mutator=mark_uncertain,
+        expected_return=1,
+    )
+    assert failure == {
+        "reason_code": "RESOURCE_CANDIDATE_NOT_PUBLISHABLE",
+        "status": "failed",
+    }
 
 
 @pytest.mark.parametrize(

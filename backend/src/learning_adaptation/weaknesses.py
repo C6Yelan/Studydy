@@ -51,25 +51,6 @@ class WeaknessFinding(BaseModel):
     reason: str = Field(min_length=1)
 
 
-class ImmediatePrerequisiteGap(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    category: Literal["possible_prerequisite_gap"]
-    target_formal_concept_id: str
-    prerequisite_formal_concept_id: str
-    prerequisite_label: str = Field(min_length=1)
-    prerequisite_constraint_id: str = Field(
-        pattern=r"^prerequisite-constraint:sha256:[0-9a-f]{64}$"
-    )
-    prerequisite_status: Literal[
-        "not_started", "learning", "needs_review", "mastered"
-    ]
-    prerequisite_confidence: Literal["none", "limited", "supported"]
-    supporting_answer_event_ids: list[UUID]
-    remediation_intent: Literal["relearn_prerequisite"]
-    reason: str = Field(min_length=1)
-
-
 class WeaknessSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -87,7 +68,6 @@ class WeaknessSnapshot(BaseModel):
         pattern=r"^weakness:sha256:[0-9a-f]{64}$"
     )
     findings: list[WeaknessFinding]
-    immediate_prerequisite_gaps: list[ImmediatePrerequisiteGap]
 
 
 def _error(reason: str) -> WeaknessError:
@@ -128,50 +108,6 @@ def _finding(
     )
 
 
-def _immediate_prerequisite_gaps(
-    context: MapContext,
-    learning_state: LearningStateSnapshot,
-    current_formal_concept_id: str | None,
-) -> list[ImmediatePrerequisiteGap]:
-    if current_formal_concept_id is None:
-        return []
-    concepts = {
-        concept.formal_concept_id: concept for concept in context.formal_concepts
-    }
-    states = {
-        state.formal_concept_id: state for state in learning_state.concept_states
-    }
-    gaps = []
-    for constraint in context.prerequisite_constraints:
-        if constraint.target_formal_concept_id != current_formal_concept_id:
-            continue
-        prerequisite = concepts[constraint.source_formal_concept_id]
-        prerequisite_state = states[constraint.source_formal_concept_id]
-        if prerequisite_state.status == "mastered":
-            continue
-        gaps.append(
-            ImmediatePrerequisiteGap(
-                category="possible_prerequisite_gap",
-                target_formal_concept_id=current_formal_concept_id,
-                prerequisite_formal_concept_id=prerequisite.formal_concept_id,
-                prerequisite_label=prerequisite.label,
-                prerequisite_constraint_id=constraint.prerequisite_constraint_id,
-                prerequisite_status=prerequisite_state.status,
-                prerequisite_confidence=prerequisite_state.confidence,
-                supporting_answer_event_ids=prerequisite_state.source_answer_event_ids,
-                remediation_intent="relearn_prerequisite",
-                reason="目前目標有一個尚未掌握、已正向驗證的先備概念。",
-            )
-        )
-    return sorted(
-        gaps,
-        key=lambda gap: (
-            gap.prerequisite_formal_concept_id,
-            gap.prerequisite_constraint_id,
-        ),
-    )
-
-
 def _weakness_snapshot(
     study_session_id: UUID,
     current_formal_concept_id: str | None,
@@ -190,9 +126,6 @@ def _weakness_snapshot(
         finding = _finding(concept.label, state)
         if finding is not None:
             findings.append(finding)
-    gaps = _immediate_prerequisite_gaps(
-        context, learning_state, current_formal_concept_id
-    )
     identity = {
         "schema": "weakness/v1",
         "study_session_id": str(study_session_id),
@@ -201,16 +134,12 @@ def _weakness_snapshot(
         "event_watermark": learning_state.event_watermark,
         "current_formal_concept_id": current_formal_concept_id,
         "findings": [finding.model_dump(mode="json") for finding in findings],
-        "immediate_prerequisite_gaps": [
-            gap.model_dump(mode="json") for gap in gaps
-        ],
     }
     return WeaknessSnapshot.model_validate(
         {
             **identity,
             "study_session_id": study_session_id,
             "findings": findings,
-            "immediate_prerequisite_gaps": gaps,
             "weakness_revision": (
                 "weakness:sha256:" + canonical_sha256(identity)
             ),

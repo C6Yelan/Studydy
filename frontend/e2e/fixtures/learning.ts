@@ -16,9 +16,9 @@ export const artifactId = "5f9619ff-8b86-4e3a-a2f1-2bb9424d5c82";
 export const runId = "6f9619ff-8b86-4e3a-a2f1-2bb9424d5c83";
 export const studySessionId = "7f9619ff-8b86-4e3a-a2f1-2bb9424d5c84";
 export const mapRevision = `knowledge-map:sha256:${"a".repeat(64)}`;
-export const prerequisiteConceptId = revision("formal-concept", "1");
+export const firstConceptId = revision("formal-concept", "1");
 export const targetConceptId = revision("formal-concept", "2");
-export const prerequisiteClaimId = revision("claim", "3");
+export const firstClaimId = revision("claim", "3");
 export const targetClaimId = revision("claim", "4");
 export const learningStateRevision = revision("learning-state", "f");
 
@@ -53,10 +53,10 @@ function concept(id: string, claimId: string, label: string, pageNumber: number)
 }
 
 export function mapView(): KnowledgeMapView {
-  const prerequisite = concept(prerequisiteConceptId, prerequisiteClaimId, "先備概念", 1);
+  const first = concept(firstConceptId, firstClaimId, "第一個概念", 1);
   const target = concept(targetConceptId, targetClaimId, "目標概念", 2);
   return {
-    schema: "knowledge-map-view/v10",
+    schema: "knowledge-map-view/v11",
     material_ref: revision("material", "5"),
     knowledge_map_revision: mapRevision,
     source_output_id: revision("study-material-output", "6"),
@@ -66,7 +66,7 @@ export function mapView(): KnowledgeMapView {
       decision: "review",
       reason_codes: ["KNOWLEDGE_MAP_REVIEW_REQUIRED"],
     },
-    concepts: [prerequisite, target],
+    concepts: [first, target],
     concept_diagnostics: {
       possible_pairs: 1,
       candidate_pairs: 0,
@@ -112,9 +112,9 @@ export function mapView(): KnowledgeMapView {
           revision("document-section", "2"),
         ],
       },
-      sections: [prerequisite, target].map((item, index) => ({
+      sections: [first, target].map((item, index) => ({
         section_id: revision("document-section", String(index + 1)),
-        label: index === 0 ? "先備概念" : "目標概念",
+        label: index === 0 ? "第一個概念" : "目標概念",
         label_source: "heading",
         heading_evidence_id: item.claims[0].evidence[0].evidence_id,
         source_order: {
@@ -129,15 +129,14 @@ export function mapView(): KnowledgeMapView {
     initial_learning_path: [
       {
         step_number: 1,
-        formal_concept_id: prerequisiteConceptId,
+        formal_concept_id: firstConceptId,
         placement_reason: "依教材第 1 頁的首次 Claim Evidence 安排。",
         order_basis: {
-          prerequisite_constraint_ids: [],
           section_id: revision("document-section", "1"),
-          page_ref: prerequisite.claims[0].evidence[0].page_ref,
+          page_ref: first.claims[0].evidence[0].page_ref,
           page_number: 1,
           reading_order: 0,
-          evidence_id: prerequisite.claims[0].evidence[0].evidence_id,
+          evidence_id: first.claims[0].evidence[0].evidence_id,
         },
       },
       {
@@ -145,7 +144,6 @@ export function mapView(): KnowledgeMapView {
         formal_concept_id: targetConceptId,
         placement_reason: "依教材第 2 頁的首次 Claim Evidence 安排。",
         order_basis: {
-          prerequisite_constraint_ids: [],
           section_id: revision("document-section", "2"),
           page_ref: target.claims[0].evidence[0].page_ref,
           page_number: 2,
@@ -218,9 +216,9 @@ export function contextView(overrides: Partial<StudyContextView> = {}): StudyCon
     no_safe_deferred_formal_concept_ids: [],
     initial_learning_path: [
       {
-        formal_concept_id: prerequisiteConceptId,
-        label: "先備概念",
-        claim_ids: [prerequisiteClaimId],
+        formal_concept_id: firstConceptId,
+        label: "第一個概念",
+        claim_ids: [firstClaimId],
         supplementary_resource_promotion_ids: [],
       },
       {
@@ -308,11 +306,11 @@ function conceptState(
 
 export function learningStateView(options: {
   eventWatermark?: number;
-  prerequisiteStatus?: "not_started" | "learning" | "needs_review" | "mastered";
+  firstStatus?: "not_started" | "learning" | "needs_review" | "mastered";
   stateRevision?: string;
   targetStatus?: "not_started" | "learning" | "needs_review" | "mastered";
 } = {}): LearningStateView {
-  const prerequisiteStatus = options.prerequisiteStatus ?? "not_started";
+  const firstStatus = options.firstStatus ?? "not_started";
   const targetStatus = options.targetStatus ?? "not_started";
   return {
     schema: "learning-state/v1",
@@ -320,9 +318,9 @@ export function learningStateView(options: {
     base_knowledge_map_revision: mapRevision,
     state_revision: options.stateRevision ?? learningStateRevision,
     event_watermark: options.eventWatermark ?? 0,
-    all_mastered: prerequisiteStatus === "mastered" && targetStatus === "mastered",
+    all_mastered: firstStatus === "mastered" && targetStatus === "mastered",
     concept_states: [
-      conceptState(prerequisiteConceptId, prerequisiteClaimId, revision("evidence", "1"), prerequisiteStatus),
+      conceptState(firstConceptId, firstClaimId, revision("evidence", "1"), firstStatus),
       conceptState(targetConceptId, targetClaimId, revision("evidence", "2"), targetStatus),
     ],
   };
@@ -353,7 +351,6 @@ export function weaknessView(options: {
     current_formal_concept_id: options.currentConceptId === undefined ? targetConceptId : options.currentConceptId,
     weakness_revision: revision("weakness", "a"),
     findings,
-    immediate_prerequisite_gaps: [],
   };
 }
 
@@ -372,7 +369,7 @@ export function adaptiveView(options: {
   const currentConceptId = options.currentConceptId === undefined ? targetConceptId : options.currentConceptId;
   const targetId = options.targetConceptId === undefined ? currentConceptId : options.targetConceptId;
   const targetLabel = options.targetLabel === undefined
-    ? targetId === prerequisiteConceptId ? "先備概念" : targetId === targetConceptId ? "目標概念" : null
+    ? targetId === firstConceptId ? "第一個概念" : targetId === targetConceptId ? "目標概念" : null
     : options.targetLabel;
   const planRevision = revision("adaptive-plan", options.planValue ?? "c");
   const route = {

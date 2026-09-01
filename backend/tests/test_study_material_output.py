@@ -138,7 +138,7 @@ def producer_output(*, excluded_page: bool = False):
         "decision": "review",
         "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
         "attempt": 1,
-        "processing_policy": "claim-grounded-concept-review/v8",
+        "processing_policy": "claim-grounded-concept-review/v9",
     }
     document_contexts = build_document_contexts([page])
     semantic_request, _ = build_semantic_request(page, document_contexts[0])
@@ -217,7 +217,7 @@ def test_rejected_semantic_candidate_marks_page_partial_for_downstream():
                 "decision": "review",
                 "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
                 "attempt": 1,
-                "processing_policy": "claim-grounded-concept-review/v8",
+                "processing_policy": "claim-grounded-concept-review/v9",
             "input_binding": {
                 "batch_bindings": [{
                     "batch_index": 0,

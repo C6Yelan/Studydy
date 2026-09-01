@@ -138,7 +138,6 @@ function largeMap() {
     formal_concept_id: concept.formal_concept_id,
     placement_reason: `依教材第 ${index + 1} 頁的首次 Claim Evidence 安排。`,
     order_basis: {
-      prerequisite_constraint_ids: [],
       section_id: longRevision("document-section", index + 1),
       page_ref: concept.claims[0].evidence[0].page_ref,
       page_number: index + 1,

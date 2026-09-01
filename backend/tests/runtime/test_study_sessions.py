@@ -103,7 +103,6 @@ def _tree_and_path(concepts: list[dict], material_ref: str) -> tuple[dict, list]
             "formal_concept_id": concept["formal_concept_id"],
             "placement_reason": "依教材第 1 頁的首次 Claim Evidence 安排。",
             "order_basis": {
-                "prerequisite_constraint_ids": [],
                 "section_id": section_id,
                 "page_ref": page_ref,
                 "page_number": 1,
@@ -203,7 +202,7 @@ def _knowledge_map() -> dict:
         concepts, "material:sha256:" + "1" * 64
     )
     knowledge_map = {
-        "schema": "knowledge-map/v10",
+        "schema": "knowledge-map/v11",
         "source_output_id": "study-material-output:sha256:" + "1" * 64,
         "source_binding": {
             "study_material_output_id": "study-material-output:sha256:" + "1" * 64,
@@ -234,7 +233,6 @@ def _knowledge_map() -> dict:
             "coverage_after": 3,
         },
         "document_tree": document_tree,
-        "prerequisite_constraints": [],
         "initial_learning_path": initial_learning_path,
         "supplementary_resources": {
             "processing": "succeeded",
@@ -451,7 +449,6 @@ def _insert_material_map(
     ) = _document_tree_and_learning_path(
         study_material_output,
         knowledge_map["formal_concepts"],
-        knowledge_map["prerequisite_constraints"],
     )
     knowledge_map.pop("revision")
     knowledge_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(
@@ -464,7 +461,6 @@ def _insert_material_map(
     assert _document_tree_and_learning_path(
         study_material_output,
         knowledge_map["formal_concepts"],
-        knowledge_map["prerequisite_constraints"],
     ) == (
         knowledge_map["document_tree"],
         knowledge_map["initial_learning_path"],
@@ -632,7 +628,6 @@ def test_map_context_projects_only_validated_current_fields(
         "material_id",
         "knowledge_map_revision",
         "formal_concepts",
-        "prerequisite_constraints",
         "initial_learning_path",
     }
 

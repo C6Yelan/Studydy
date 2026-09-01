@@ -275,7 +275,7 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     "supplementary_resources", "excluded_pages",
   ]);
   if (!item
-    || item.schema !== "knowledge-map-view/v10"
+    || item.schema !== "knowledge-map-view/v11"
     || !isRevision(item.material_ref, "material")
     || !isRevision(item.knowledge_map_revision, "knowledge-map")
     || !isRevision(item.source_output_id, "study-material-output")
@@ -369,7 +369,7 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     || pathIds.some((conceptId) => !conceptIds.includes(String(conceptId)))
     || path.some((step, index) => {
       const basis = step && closed(step.order_basis, [
-        "prerequisite_constraint_ids", "section_id", "page_ref", "page_number",
+        "section_id", "page_ref", "page_number",
         "reading_order", "evidence_id",
       ]);
       const concept = concepts.find((candidate) =>
@@ -381,9 +381,6 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
         || !isRevision(basis.section_id, "document-section")
         || !isRevision(basis.page_ref, "page")
         || !isRevision(basis.evidence_id, "evidence")
-        || !isSortedUniqueStrings(basis.prerequisite_constraint_ids, 0)
-        || !(basis.prerequisite_constraint_ids as string[]).every((id) =>
-          isRevision(id, "prerequisite-constraint"))
         || !Number.isInteger(basis.page_number) || Number(basis.page_number) < 1
         || !Number.isInteger(basis.reading_order) || Number(basis.reading_order) < 0
         || anchor.page_ref !== basis.page_ref
@@ -547,7 +544,7 @@ function isAnswerFeedback(value: unknown): value is AnswerFeedbackView {
 const learningStatuses = new Set(["not_started", "learning", "needs_review", "mastered"]);
 const learningConfidences = new Set(["none", "limited", "supported"]);
 const adaptiveActions = new Set([
-  "start", "continue", "practice", "review", "relearn_prerequisite",
+  "start", "continue", "practice", "review",
   "use_resource", "follow_path", "collect_more_data", "defer", "resume", "no_action",
 ]);
 
@@ -622,7 +619,7 @@ function isWeakness(value: unknown): value is WeaknessView {
   const item = closed(value, [
     "schema", "study_session_id", "base_knowledge_map_revision",
     "source_learning_state_revision", "event_watermark", "current_formal_concept_id",
-    "weakness_revision", "findings", "immediate_prerequisite_gaps",
+    "weakness_revision", "findings",
   ]);
   if (!item
     || item.schema !== "weakness/v1"
@@ -633,8 +630,7 @@ function isWeakness(value: unknown): value is WeaknessView {
     || Number(item.event_watermark) < 0
     || !(item.current_formal_concept_id === null || isRevision(item.current_formal_concept_id, "formal-concept"))
     || !isRevision(item.weakness_revision, "weakness")
-    || !Array.isArray(item.findings)
-    || !Array.isArray(item.immediate_prerequisite_gaps)) return false;
+    || !Array.isArray(item.findings)) return false;
   const findingIds = item.findings.map((value) => {
     const finding = closed(value, [
       "target_formal_concept_id", "target_label", "category", "confidence",
@@ -652,31 +648,8 @@ function isWeakness(value: unknown): value is WeaknessView {
       || finding.reason.length < 1) return null;
     return finding.target_formal_concept_id as string;
   });
-  const gapIds = item.immediate_prerequisite_gaps.map((value) => {
-    const gap = closed(value, [
-      "category", "target_formal_concept_id", "prerequisite_formal_concept_id",
-      "prerequisite_label", "prerequisite_constraint_id", "prerequisite_status",
-      "prerequisite_confidence", "remediation_intent", "reason",
-    ]);
-    if (!gap
-      || gap.category !== "possible_prerequisite_gap"
-      || !isRevision(gap.target_formal_concept_id, "formal-concept")
-      || !isRevision(gap.prerequisite_formal_concept_id, "formal-concept")
-      || gap.target_formal_concept_id === gap.prerequisite_formal_concept_id
-      || typeof gap.prerequisite_label !== "string"
-      || gap.prerequisite_label.length < 1
-      || !isRevision(gap.prerequisite_constraint_id, "prerequisite-constraint")
-      || !learningStatuses.has(String(gap.prerequisite_status))
-      || !learningConfidences.has(String(gap.prerequisite_confidence))
-      || gap.remediation_intent !== "relearn_prerequisite"
-      || typeof gap.reason !== "string"
-      || gap.reason.length < 1) return null;
-    return gap.prerequisite_constraint_id as string;
-  });
   return !findingIds.includes(null)
-    && new Set(findingIds).size === findingIds.length
-    && !gapIds.includes(null)
-    && new Set(gapIds).size === gapIds.length;
+    && new Set(findingIds).size === findingIds.length;
 }
 
 function readAdaptiveRoute(value: unknown, studySessionId: string): JsonObject | null {

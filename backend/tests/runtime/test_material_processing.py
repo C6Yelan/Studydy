@@ -598,8 +598,8 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
         set(evidence) == {"evidence_id", "text"}
         for evidence in outputs.study_material_output["evidence_text_index"]
     )
-    assert outputs.knowledge_map["schema"] == "knowledge-map/v10"
-    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v10"
+    assert outputs.knowledge_map["schema"] == "knowledge-map/v11"
+    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v11"
     with psycopg.connect(processing_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM study_material_outputs").fetchone() == (1,)
         assert connection.execute("SELECT count(*) FROM knowledge_maps").fetchone() == (1,)
@@ -886,7 +886,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert binding["concept_equivalence"] == settings["runtime_lock"][
         "concept_equivalence"
     ]
-    assert len(binding["code_hashes"]) == 18
+    assert len(binding["code_hashes"]) == 17
     assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
     assert "backend/src/pdf_evidence/process_guard.py" in binding["code_hashes"]
     repository_root = Path(__file__).parents[3]
