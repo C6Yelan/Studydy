@@ -61,15 +61,13 @@ Canonical Map / inline `initial_learning_path` 必須保持可回溯；個人化
 
 ## 為什麼現在做
 
-Phase 05 後，Knowledge Map 已不是舊六類 Relation 假設，而是正式發布的：
+Phase 05 後，Knowledge Map 已更新為正式發布的 **Map v10 Document Tree**；
+`initial_learning_path` 是獨立的已發布路徑，prerequisite 依賴則以 positive-only
+`prerequisite_constraints` 表達。
 
-- `prerequisite`
-- `contains`
-- `related`
-
-且 Formal Relation 已帶 relation evidence / provenance，`initial_learning_path` 由正式 `prerequisite` 關係產生並避開 prerequisite cycle。
-
-因此 Agent 4 必須改成直接消費**已發布的 Knowledge Map contract**，不能再依賴舊規劃中的 six-relation taxonomy、raw relation candidate、verifier diagnostics 或自行推論新的 dependency。
+因此 Agent 4 必須直接消費已發布的 Map v10 Document Tree、獨立
+`initial_learning_path` 與 `prerequisite_constraints`，不能消費 `related` / `contains`、
+Relation graph、raw relation candidate、verifier diagnostics，或自行推論新的 dependency。
 
 同時，舊 V1 每 Concept 題目供給與 mastery confidence 規則不足，若沒有可信 learner signals，就無法真正做到「依使用者學習狀況調整後續學習」。
 
@@ -77,14 +75,15 @@ Phase 05 後，Knowledge Map 已不是舊六類 Relation 假設，而是正式�
 
 ### Agent 4 可以做
 
-- 讀取 Formal Concept、Claim、Evidence、published Relation、`initial_learning_path`。
+- 讀取 Map v10 Document Tree、Formal Concept、Claim、Evidence、獨立
+  `initial_learning_path` 與 positive-only `prerequisite_constraints`。
 - 建立 / 消費 server-bound `StudySession` context。
 - 根據 Concept / Claim / Evidence 產生 `single_choice` 單選題與 distractors，並經 validator 後發布。
 - 執行 server-side deterministic scoring，產生 trusted assessment event。
 - 讀取 learner-scoped trusted events。
 - 計算 Concept learning state / mastery / confidence。
 - 判斷 observed weakness。
-- 使用正式 `prerequisite` 檢查 prerequisite gap。
+- 只使用 positive-only `prerequisite_constraints` 檢查 prerequisite gap。
 - 建立 learner-specific adaptive plan overlay。
 - 選擇下一個 Concept / review / practice / resource action。
 - 解釋「為什麼現在建議做這件事」。
@@ -111,17 +110,15 @@ Agent 4 只使用正式 public/product artifact：
 - Formal Concepts。
 - Concept claims / Evidence / source pages。
 - promoted `supplementary_resources`。
-- Formal Relations：`prerequisite` / `contains` / `related`。
-- `is_in_prerequisite_cycle`。
-- canonical `initial_learning_path`。
+- Map v10 Document Tree。
+- 獨立的 `initial_learning_path`。
+- positive-only `prerequisite_constraints`。
 - Knowledge Map revision / material identity。
 
 使用規則：
 
-- **`prerequisite`**：唯一可作為 hard learning dependency / prerequisite-gap 依據的 Relation。
-- **`contains`**：只作 hierarchical context、範圍理解與 UI grouping；不得當 prerequisite。
-- **`related`**：只作關聯探索或比較上下文；不得自行升格成 prerequisite，也不得還原成舊 relation taxonomy。
-- prerequisite cycle edge 不可作 hard routing dependency。
+- **`prerequisite_constraints`**：唯一可作為 hard learning dependency / prerequisite-gap 依據的 positive-only constraints。
+- `related` / `contains` 與 Relation graph 不進 Agent 4 consumer path。
 - raw relation candidates / diagnostics 不進 learner decision path。
 
 ### B. StudySession contract
