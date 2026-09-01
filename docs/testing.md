@@ -110,9 +110,12 @@ bbox 與 runtime metadata 均留在後端完成綁定。
 
 P06-03 的獨立 Assessment runtime binding、deterministic gates、risk-only repair、
 mDeBERTa complete-input protocol、session-scoped new-item selection、P06-02
-public/private contract 與 persistence regression 可用以下命令驗證：
+public/private contract、semantic novelty 與 persistence regression 可用以下命令驗證：
 
 ```bash
+PYTHONPATH=backend/src backend/.venv/bin/python -m runtime.local_runtime verify
+PYTHONPATH=backend/src backend/.venv/bin/python -c \
+  'from runtime.storage.migrations import run_migrations; print(run_migrations())'
 PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/python -m pytest \
   backend/tests/test_assessment_generation.py \
   backend/tests/test_assessment_model_api.py \
@@ -133,9 +136,18 @@ Evidence-option pair；超過384 tokens時回傳明確reject，禁止以截斷�
 Claim Evidence驗證整體margin與multiple-supported distractor risk；private
 `assessment-generation-provenance/v2`保存兩組對齊分數，model宣告的support IDs不能單獨
 作為grounding證明。
-同一StudySession / Claim則依margin與candidate index deterministic選擇尚未儲存的
-question identity；最高排名risky proposal的repair pool耗盡後，仍須繼續掃描較低排名的
-unused safe proposals，全部safe possibilities真正耗盡時才fail closed。
+Novelty authority不是`question_id`或Claim identity：`question_id`是由學生可見題目內容
+建立的內容 identity；跨 Claim 的 novelty identity則由 normalized student-visible prompt
+與 private correct answer 的 semantic focus 建立。每次比較都必須對所有既有 semantic
+identities 通過 conservative `entailment-or-unproven-neutral-reject/v3`決策，任一
+entailment、unproven neutral 或方向不足即拒絕該candidate；不得以單一相似度分數放行。
+資料庫另以`(study_session_id, semantic_identity)`唯一約束作為最後防線。
+同一StudySession依margin與candidate index deterministic選擇尚未儲存的semantic
+identity；最高排名risky proposal的repair pool耗盡後，仍須繼續掃描較低排名的
+unused safe proposals。全部safe possibilities真正耗盡時，沿用PR-05 no-safe handoff
+記錄該claim的no-safe狀態，回傳`NO_SAFE_ASSESSMENT`／`ASSESSMENT_NO_NEW_SAFE_ITEM`，
+再由既有 adaptive-plan defer/resume flow 尋找下一個可行重點；不建立新的Assessment
+或AnswerEvent，也不推測答案或降低任何安全gate。
 
 正式 `/v1` app 會在第一次 Assessment request lazy 啟動 Qwen 與 Assessment verifier，
 後續 request 在同一安全 lifecycle 內 reuse ready process。reuse期間沿用既有
@@ -143,6 +155,10 @@ unused safe proposals，全部safe possibilities真正耗盡時才fail closed。
 idle或app shutdown會回收process並釋放lock。任一 generation failure會同時丟棄Qwen與
 verifier，下一次request重新cold start，不reuse可能損壞的process。這個lifecycle不改
 Assessment runtime lock、prompt、NLI threshold、repair、Evidence Gate或selection policy。
+fresh disposable database 應由上述 migration command 套用連續的 1–16 版 migration；
+再次執行必須回傳空 tuple 並驗證 ledger checksum。`runtime.local_runtime verify`
+必須同時驗證 assessment package source hashes、model revisions、prompt hashes 與
+novelty/selection policy；lock 或 migration checksum 不符時應 fail closed。
 
 真模型 qualification 必須從 Formal Concept / Claim / canonical exact Evidence 進入正式
 prompt、validation、relative-margin selection、multiple-support risk repair 與 P06-02 builder；
