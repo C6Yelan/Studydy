@@ -94,8 +94,10 @@ def _policy() -> dict:
             "multiple_support_risk_threshold": 0.4,
         },
         "novelty": {
-            "decision_rule": "bidirectional-entailment-equivalence/v1",
-            "bidirectional_entailment_threshold": 0.8,
+            "decision_rule": "entailment-or-unproven-neutral-reject/v3",
+            "novel_requirement": (
+                "each-prior-no-entailment-and-directional-contradiction/v1"
+            ),
             "maximum_prior_items": 32,
             "request_timeout_seconds": 120,
         },
@@ -179,10 +181,14 @@ class _Verifier:
         self,
         scores: dict[str, list[float]],
         *,
-        novelty_score: float = 0.1,
+        novelty_probabilities: tuple[float, float] = (0.1, 0.1),
+        novelty_entailments: tuple[bool, bool] = (False, False),
+        novelty_contradictions: tuple[bool, bool] = (True, False),
     ) -> None:
         self.scores = scores
-        self.novelty_score = novelty_score
+        self.novelty_probabilities = novelty_probabilities
+        self.novelty_entailments = novelty_entailments
+        self.novelty_contradictions = novelty_contradictions
         self.novelty_requests = 0
         self.closed = False
         self.aborted = False
@@ -196,8 +202,16 @@ class _Verifier:
                 "status": "scored",
                 "comparisons": [
                     {
-                        "candidate_to_prior": self.novelty_score,
-                        "prior_to_candidate": self.novelty_score,
+                        "candidate_to_prior": self.novelty_probabilities[0],
+                        "prior_to_candidate": self.novelty_probabilities[1],
+                        "candidate_entails_prior": self.novelty_entailments[0],
+                        "prior_entails_candidate": self.novelty_entailments[1],
+                        "candidate_contradicts_prior": (
+                            self.novelty_contradictions[0]
+                        ),
+                        "prior_contradicts_candidate": (
+                            self.novelty_contradictions[1]
+                        ),
                     }
                     for _ in request["prior_focuses"]
                 ],
@@ -482,7 +496,7 @@ def test_verifier_over_token_boundary_rejects_before_selection(monkeypatch):
         )
 
 
-def test_semantic_duplicate_is_rejected_before_selection_and_calls_are_bounded(
+def test_dup_stack_order_is_rejected_on_one_directional_entailment(
     monkeypatch,
 ):
     scores = {
@@ -514,7 +528,12 @@ def test_semantic_duplicate_is_rejected_before_selection_and_calls_are_bounded(
         frozenset(),
     )
 
-    duplicate_verifier = _Verifier(scores, novelty_score=0.8)
+    duplicate_verifier = _Verifier(
+        scores,
+        novelty_probabilities=(0.554235, 0.133799),
+        novelty_entailments=(True, False),
+        novelty_contradictions=(False, True),
+    )
     monkeypatch.setattr(
         generation, "start_assessment_process", lambda *_: duplicate_verifier
     )
@@ -550,7 +569,8 @@ def test_semantically_distinct_candidate_remains_selectable(monkeypatch):
             "Supported answer 1": [0.9, 0.1, 0.1, 0.1],
             "Supported answer 2": [0.6, 0.3, 0.2, 0.1],
         },
-        novelty_score=0.79,
+        novelty_probabilities=(0.021863, 0.003729),
+        novelty_contradictions=(True, False),
     )
     monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
     monkeypatch.setattr(
@@ -582,7 +602,71 @@ def test_semantically_distinct_candidate_remains_selectable(monkeypatch):
         documents.public_document.question_id
         != first_documents.public_document.question_id
     )
-    assert novelty.maximum_equivalence_score == 0.79
+    assert novelty.maximum_equivalence_score == 0.003729
+
+
+def test_dup_matrix_neutral_pair_is_unproven_and_fails_closed(monkeypatch):
+    scores = {
+        "Supported answer 0": [0.55, 0.2, 0.1, 0.1],
+        "Supported answer 1": [0.9, 0.1, 0.1, 0.1],
+        "Supported answer 2": [0.6, 0.3, 0.2, 0.1],
+        "The first element is stored at stack[0].": [
+            0.99,
+            0.01,
+            0.01,
+            0.01,
+        ],
+    }
+    first_verifier = _Verifier(scores)
+    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
+    monkeypatch.setattr(
+        generation, "start_assessment_process", lambda *_: first_verifier
+    )
+    monkeypatch.setattr(
+        generation, "_request_stage", lambda *args, **kwargs: _proposal_document()
+    )
+    session_id = uuid4()
+    _, _, first_novelty = _generate_documents(
+        session_id,
+        _identifier("knowledge-map", "8"),
+        _grounded(),
+        _settings(),
+        "9" * 64,
+        frozenset(),
+    )
+
+    ambiguous_verifier = _Verifier(
+        scores,
+        novelty_probabilities=(0.018247, 0.012273),
+        novelty_entailments=(False, False),
+        novelty_contradictions=(False, False),
+    )
+    monkeypatch.setattr(
+        generation, "start_assessment_process", lambda *_: ambiguous_verifier
+    )
+    monkeypatch.setattr(
+        generation,
+        "_request_stage",
+        lambda _client, _settings, stage, *_: (
+            _repair_document()
+            if stage["prompt"] == "repair"
+            else _proposal_document()
+        ),
+    )
+
+    with pytest.raises(
+        AssessmentGenerationError, match="^ASSESSMENT_NO_NEW_SAFE_ITEM$"
+    ):
+        _generate_documents(
+            session_id,
+            _identifier("knowledge-map", "8"),
+            _grounded(),
+            _settings(),
+            "9" * 64,
+            frozenset(),
+            (first_novelty,),
+        )
+    assert ambiguous_verifier.novelty_requests <= 6
 
 
 def test_selected_evidence_must_independently_support_correct_option():

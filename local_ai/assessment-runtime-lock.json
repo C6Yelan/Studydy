@@ -1,6 +1,6 @@
 {
   "schema": "studydy-assessment-runtime-lock/v1",
-  "policy_revision": "assessment-generation-policy/v3",
+  "policy_revision": "assessment-generation-policy/v5",
   "shared_models": {
     "semantic_model_id": "Qwen/Qwen3-14B-AWQ",
     "semantic_revision": "content-sha256:5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619",
@@ -56,8 +56,8 @@
   "novelty": {
     "request_schema": "local-assessment-novelty-request/v1",
     "response_schema": "local-assessment-novelty-response/v1",
-    "decision_rule": "bidirectional-entailment-equivalence/v1",
-    "bidirectional_entailment_threshold": 0.8,
+    "decision_rule": "entailment-or-unproven-neutral-reject/v3",
+    "novel_requirement": "each-prior-no-entailment-and-directional-contradiction/v1",
     "maximum_prior_items": 32,
     "maximum_pair_tokens": 384,
     "over_limit_policy": "reject-before-inference/v1",
@@ -77,15 +77,15 @@
     "maximum_evidence_characters": 32768
   },
   "package_sources": {
-    "assessment_process.py": "fe86003626968f606a3aa2bbefefafd235fa6ef10108d42d5922a5b5b58f035f"
+    "assessment_process.py": "5e315d73f85cc2f0d068cbc13bf923e45bcd70d004857b2a523ae8f528ac1c10"
   },
   "code_hashes": {
-    "backend_assessment_generation": "bcaee0e64fca50c4620f74d065bd80c8fb04783c4eaabface0274acf8611dfc0",
-    "backend_assessment_items": "87f310875e1805eefa8748a8e934b55f1817f29753c5c810a7789f4fcdbdc15e",
+    "backend_assessment_generation": "120e9d5320e11046bd97dd1fdd3966a0ac2e53c4ba0c2a239a519245ad0d35aa",
+    "backend_assessment_items": "1af3afccfcc19da4775b58b7e1a13b250ae85532650da000e99c0ca3e591991b",
     "backend_map_context": "3291d410bf3c8eaeaf48efe593534e44ba216c937a1644aec823309dbe0be159",
     "backend_assessment_model_api": "5195a0f7d316f979b9c97ba0848ce3b25f98a69d5c2441bada387ada8f33d549",
     "backend_assessment_verifier": "0bcbf98a141f5de64eae3034a6e7441231584f88dc1088dc5ef2e582d787aafd",
-    "local_assessment_process": "fe86003626968f606a3aa2bbefefafd235fa6ef10108d42d5922a5b5b58f035f"
+    "local_assessment_process": "5e315d73f85cc2f0d068cbc13bf923e45bcd70d004857b2a523ae8f528ac1c10"
   },
   "failure_policy": "reject-without-unsafe-fallback/v1",
   "rationale_policy": "deterministic-selected-exact-evidence/v1"

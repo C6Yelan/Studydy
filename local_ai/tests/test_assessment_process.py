@@ -28,6 +28,9 @@ class _Rows(list):
     def cpu(self):
         return self
 
+    def tolist(self):
+        return list(self)
+
 
 def test_scores_exactly_four_options_with_entailment_probability(monkeypatch):
     calls = []
@@ -160,7 +163,7 @@ def test_novelty_scores_every_prior_in_both_directions(monkeypatch):
                         [0.91, 0.05, 0.04],
                         [0.25, 0.70, 0.05],
                         [0.89, 0.06, 0.05],
-                        [0.30, 0.65, 0.05],
+                        [0.30, 0.05, 0.65],
                     ]
                 )
             )
@@ -181,8 +184,22 @@ def test_novelty_scores_every_prior_in_both_directions(monkeypatch):
     assert score_novelty(
         Model(), tokenizer, 0, "Candidate", ["Prior A", "Prior B"]
     ) == [
-        {"candidate_to_prior": 0.91, "prior_to_candidate": 0.89},
-        {"candidate_to_prior": 0.25, "prior_to_candidate": 0.30},
+        {
+            "candidate_to_prior": 0.91,
+            "prior_to_candidate": 0.89,
+            "candidate_entails_prior": True,
+            "prior_entails_candidate": True,
+            "candidate_contradicts_prior": False,
+            "prior_contradicts_candidate": False,
+        },
+        {
+            "candidate_to_prior": 0.25,
+            "prior_to_candidate": 0.30,
+            "candidate_entails_prior": False,
+            "prior_entails_candidate": False,
+            "candidate_contradicts_prior": False,
+            "prior_contradicts_candidate": True,
+        },
     ]
     assert calls == [
         (

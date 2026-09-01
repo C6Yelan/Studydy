@@ -29,6 +29,7 @@ MODEL_LOAD_FAILED = "ASSESSMENT_VERIFIER_MODEL_LOAD_FAILED"
 INPUT_TOO_LARGE = "ASSESSMENT_VERIFIER_INPUT_TOO_LARGE"
 NOVELTY_INPUT_TOO_LARGE = "ASSESSMENT_NOVELTY_INPUT_TOO_LARGE"
 MAXIMUM_PRIOR_SEMANTIC_FOCUSES = 32
+CONTRADICTION_LABEL_INDEX = 2
 _REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
 
@@ -194,7 +195,7 @@ def score_novelty(
     entailment_index: int,
     candidate_focus: str,
     prior_focuses: list[str],
-) -> list[dict[str, float]]:
+) -> list[dict[str, float | bool]]:
     """一次 bounded batch 比較候選與所有既有題意的雙向 entailment。"""
 
     import torch
@@ -218,19 +219,40 @@ def score_novelty(
         raise AssessmentInputTooLarge
     tokens = tokens.to(next(model.parameters()).device)
     with torch.inference_mode():
-        probabilities = torch.softmax(model(**tokens).logits, dim=-1).cpu()
-    entailments = [float(row[entailment_index]) for row in probabilities]
-    if len(entailments) != pair_count * 2 or any(
-        value < 0 or value > 1 for value in entailments
+        probability_rows = torch.softmax(
+            model(**tokens).logits, dim=-1
+        ).cpu().tolist()
+    if len(probability_rows) != pair_count * 2 or any(
+        not isinstance(row, list)
+        or entailment_index >= len(row)
+        or any(value < 0 or value > 1 for value in row)
+        for row in probability_rows
     ):
         raise ValueError("MODEL_OUTPUT_INVALID")
-    return [
-        {
-            "candidate_to_prior": entailments[index],
-            "prior_to_candidate": entailments[index + pair_count],
-        }
-        for index in range(pair_count)
-    ]
+
+    def direction(row: list[float]) -> tuple[float, bool, bool]:
+        predicted_index = max(range(len(row)), key=row.__getitem__)
+        return (
+            float(row[entailment_index]),
+            predicted_index == entailment_index,
+            predicted_index == CONTRADICTION_LABEL_INDEX,
+        )
+
+    comparisons = []
+    for index in range(pair_count):
+        candidate_to_prior = direction(probability_rows[index])
+        prior_to_candidate = direction(
+            probability_rows[index + pair_count]
+        )
+        comparisons.append({
+            "candidate_to_prior": candidate_to_prior[0],
+            "prior_to_candidate": prior_to_candidate[0],
+            "candidate_entails_prior": candidate_to_prior[1],
+            "prior_entails_candidate": prior_to_candidate[1],
+            "candidate_contradicts_prior": candidate_to_prior[2],
+            "prior_contradicts_candidate": prior_to_candidate[2],
+        })
+    return comparisons
 
 
 def _write_startup(*, reason_code: str | None = None) -> None:

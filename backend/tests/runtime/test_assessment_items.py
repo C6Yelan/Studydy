@@ -381,11 +381,10 @@ def test_semantic_identity_ignores_claim_evidence_formatting_and_option_order():
     )
     arguments = {
         "comparison_policy_revision": (
-            "bidirectional-entailment-equivalence/v1"
+            "entailment-or-unproven-neutral-reject/v3"
         ),
         "verifier_model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
         "verifier_revision": "8" * 40,
-        "entailment_threshold": 0.8,
         "compared_semantic_identities": [],
         "maximum_equivalence_score": None,
     }
@@ -861,8 +860,10 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             "multiple_support_risk_threshold": 0.4,
         },
         "novelty": {
-            "decision_rule": "bidirectional-entailment-equivalence/v1",
-            "bidirectional_entailment_threshold": 0.8,
+            "decision_rule": "entailment-or-unproven-neutral-reject/v3",
+            "novel_requirement": (
+                "each-prior-no-entailment-and-directional-contradiction/v1"
+            ),
             "maximum_prior_items": 32,
             "request_timeout_seconds": 120,
         },
@@ -890,6 +891,10 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
                         {
                             "candidate_to_prior": 0.1,
                             "prior_to_candidate": 0.1,
+                            "candidate_entails_prior": False,
+                            "prior_entails_candidate": False,
+                            "candidate_contradicts_prior": True,
+                            "prior_contradicts_candidate": False,
                         }
                         for _ in request["prior_focuses"]
                     ],

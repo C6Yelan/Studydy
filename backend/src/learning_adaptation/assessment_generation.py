@@ -102,6 +102,12 @@ class _ScoredCandidate:
     maximum_distractor: float
 
 
+@dataclass(frozen=True)
+class _NoveltyComparison:
+    equivalence_score: float
+    is_proven_distinct: bool
+
+
 def _error(reason: str) -> AssessmentGenerationError:
     return AssessmentGenerationError(reason)
 
@@ -462,13 +468,13 @@ def _verifier_probabilities(
     return tuple(float(probability) for probability in probabilities)
 
 
-def _novelty_scores(
+def _novelty_comparisons(
     process: LocalAIProcess,
     candidate_focus: str,
     prior_novelties: tuple[AssessmentSemanticNovelty, ...],
     request_id: str,
     timeout_seconds: float,
-) -> tuple[float, ...]:
+) -> tuple[_NoveltyComparison, ...]:
     response = process.request(
         {
             "schema": "local-assessment-novelty-request/v1",
@@ -488,7 +494,9 @@ def _novelty_scores(
     }
     if response == rejected:
         raise _error("ASSESSMENT_NOVELTY_INPUT_TOO_LARGE")
-    comparisons = response.get("comparisons") if isinstance(response, dict) else None
+    comparisons = (
+        response.get("comparisons") if isinstance(response, dict) else None
+    )
     if (
         not isinstance(response, dict)
         or set(response) != {"schema", "request_id", "status", "comparisons"}
@@ -499,11 +507,15 @@ def _novelty_scores(
         or len(comparisons) != len(prior_novelties)
     ):
         raise _error("ASSESSMENT_VERIFIER_RESPONSE_INVALID")
-    scores = []
+    checked_comparisons = []
     for comparison in comparisons:
         if not isinstance(comparison, dict) or set(comparison) != {
             "candidate_to_prior",
             "prior_to_candidate",
+            "candidate_entails_prior",
+            "prior_entails_candidate",
+            "candidate_contradicts_prior",
+            "prior_contradicts_candidate",
         }:
             raise _error("ASSESSMENT_VERIFIER_RESPONSE_INVALID")
         directions = (
@@ -517,8 +529,33 @@ def _novelty_scores(
             for probability in directions
         ):
             raise _error("ASSESSMENT_VERIFIER_RESPONSE_INVALID")
-        scores.append(min(float(probability) for probability in directions))
-    return tuple(scores)
+        entailment_decisions = (
+            comparison["candidate_entails_prior"],
+            comparison["prior_entails_candidate"],
+        )
+        if any(type(decision) is not bool for decision in entailment_decisions):
+            raise _error("ASSESSMENT_VERIFIER_RESPONSE_INVALID")
+        contradiction_decisions = (
+            comparison["candidate_contradicts_prior"],
+            comparison["prior_contradicts_candidate"],
+        )
+        if any(
+            type(decision) is not bool
+            for decision in contradiction_decisions
+        ):
+            raise _error("ASSESSMENT_VERIFIER_RESPONSE_INVALID")
+        checked_comparisons.append(
+            _NoveltyComparison(
+                equivalence_score=min(
+                    float(probability) for probability in directions
+                ),
+                is_proven_distinct=(
+                    not any(entailment_decisions)
+                    and any(contradiction_decisions)
+                ),
+            )
+        )
+    return tuple(checked_comparisons)
 
 
 def _score_candidate(
@@ -995,9 +1032,6 @@ def _first_unused_documents(
                 verifier_revision=settings["assessment_runtime_lock"][
                     "shared_models"
                 ]["verifier_revision"],
-                entailment_threshold=novelty_policy[
-                    "bidirectional_entailment_threshold"
-                ],
                 compared_semantic_identities=[],
                 maximum_equivalence_score=None,
                 runtime_binding_sha256=runtime_binding_sha256,
@@ -1011,7 +1045,7 @@ def _first_unused_documents(
                 raise _error("ASSESSMENT_NO_NEW_SAFE_ITEM")
             maximum_equivalence_score = None
             if prior_novelties:
-                equivalence_scores = _novelty_scores(
+                comparisons = _novelty_comparisons(
                     process=semantic_verifier,
                     candidate_focus=provisional_novelty.semantic_focus,
                     prior_novelties=prior_novelties,
@@ -1023,10 +1057,14 @@ def _first_unused_documents(
                     }),
                     timeout_seconds=novelty_policy["request_timeout_seconds"],
                 )
-                maximum_equivalence_score = max(equivalence_scores)
-                if maximum_equivalence_score >= novelty_policy[
-                    "bidirectional_entailment_threshold"
-                ]:
+                maximum_equivalence_score = max(
+                    comparison.equivalence_score
+                    for comparison in comparisons
+                )
+                if any(
+                    not comparison.is_proven_distinct
+                    for comparison in comparisons
+                ):
                     continue
             novelty = build_assessment_semantic_novelty(
                 documents,
@@ -1037,9 +1075,6 @@ def _first_unused_documents(
                 verifier_revision=settings["assessment_runtime_lock"][
                     "shared_models"
                 ]["verifier_revision"],
-                entailment_threshold=novelty_policy[
-                    "bidirectional_entailment_threshold"
-                ],
                 compared_semantic_identities=[
                     prior.semantic_identity for prior in prior_novelties
                 ],

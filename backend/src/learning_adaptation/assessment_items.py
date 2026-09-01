@@ -245,7 +245,6 @@ class AssessmentSemanticNovelty(BaseModel):
     comparison_policy_revision: str
     verifier_model_id: str
     verifier_revision: str
-    entailment_threshold: float = Field(ge=0, le=1)
     compared_semantic_identities: list[str]
     maximum_equivalence_score: float | None = Field(default=None, ge=0, le=1)
     runtime_binding_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -276,19 +275,15 @@ class AssessmentSemanticNovelty(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def accepted_novelty_must_be_below_threshold(
+    def comparison_score_must_match_compared_identities(
         self,
     ) -> AssessmentSemanticNovelty:
         if bool(self.compared_semantic_identities) != (
             self.maximum_equivalence_score is not None
         ):
             raise ValueError("ASSESSMENT_NOVELTY_SCORE_INVALID")
-        if (
-            self.maximum_equivalence_score is not None
-            and self.maximum_equivalence_score >= self.entailment_threshold
-        ):
-            raise ValueError("ASSESSMENT_NOVELTY_DUPLICATED")
         return self
+
 
 def _private_answer_sha256(
     private_answer_document: PrivateAnswerDocument,
@@ -403,7 +398,6 @@ def build_assessment_semantic_novelty(
     comparison_policy_revision: str,
     verifier_model_id: str,
     verifier_revision: str,
-    entailment_threshold: float,
     compared_semantic_identities: list[str],
     maximum_equivalence_score: float | None,
     runtime_binding_sha256: str,
@@ -420,7 +414,6 @@ def build_assessment_semantic_novelty(
         "comparison_policy_revision": comparison_policy_revision,
         "verifier_model_id": verifier_model_id,
         "verifier_revision": verifier_revision,
-        "entailment_threshold": entailment_threshold,
         "compared_semantic_identities": compared_semantic_identities,
         "maximum_equivalence_score": maximum_equivalence_score,
         "runtime_binding_sha256": runtime_binding_sha256,
@@ -874,7 +867,6 @@ def store_assessment(
             comparison_policy_revision="normalized-exact-focus/v1",
             verifier_model_id="deterministic-normalization",
             verifier_revision="normalized-exact-focus/v1",
-            entailment_threshold=1.0,
             compared_semantic_identities=[],
             maximum_equivalence_score=None,
             runtime_binding_sha256="0" * 64,

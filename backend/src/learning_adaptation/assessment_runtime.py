@@ -15,7 +15,7 @@ from runtime.material_processing import (
 
 
 ASSESSMENT_RUNTIME_LOCK_SHA256 = (
-    "64062958a7f47f6335d653bb422894d3aa08b0bc2b2e69626037dce47576e141"
+    "091e5e20ff0213cf1dd733394318fca930f957baa450255dfeafa04e4d3b4371"
 )
 _CODE_PATHS = {
     "backend_assessment_generation": (
@@ -84,7 +84,7 @@ def _validate_assessment_runtime_lock(
             and assessment_lock["schema"]
             == "studydy-assessment-runtime-lock/v1"
             and assessment_lock["policy_revision"]
-            == "assessment-generation-policy/v3"
+            == "assessment-generation-policy/v5"
             and assessment_lock["shared_models"]
             == {
                 "semantic_model_id": semantic["model_id"],
@@ -158,9 +158,11 @@ def _validate_assessment_runtime_lock(
                 "request_schema": "local-assessment-novelty-request/v1",
                 "response_schema": "local-assessment-novelty-response/v1",
                 "decision_rule": (
-                    "bidirectional-entailment-equivalence/v1"
+                    "entailment-or-unproven-neutral-reject/v3"
                 ),
-                "bidirectional_entailment_threshold": 0.8,
+                "novel_requirement": (
+                    "each-prior-no-entailment-and-directional-contradiction/v1"
+                ),
                 "maximum_prior_items": 32,
                 "maximum_pair_tokens": 384,
                 "over_limit_policy": "reject-before-inference/v1",
