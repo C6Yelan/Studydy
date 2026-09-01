@@ -737,7 +737,7 @@ Frozen結果：
 
 **Routing priority 固定**
 
-1. current target有未掌握 published non-cycle immediate prerequisite → `relearn_prerequisite`。
+1. current target 有未掌握的 published、positive-only immediate `prerequisite_constraints` → `relearn_prerequisite`。
 2. 否則 current Concept有可信 weakness → `review` / `practice`。
 3. 否則沿 canonical inline `initial_learning_path` 找 first not-mastered Concept。
 4. evidence不足 → `collect_more_data` / `follow_path`。
