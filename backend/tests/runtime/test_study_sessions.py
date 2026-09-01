@@ -251,10 +251,7 @@ def _knowledge_map() -> dict:
                 "matches": 1,
                 "promoted_matches": 1,
                 "promoted_resources": 1,
-                "dropped_matches": 0,
-                "split_review_matches": 0,
             },
-            "decisions": [],
         },
         "evidence_index": [
             {

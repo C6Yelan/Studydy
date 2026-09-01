@@ -700,10 +700,7 @@ def promote_resources_to_formal_concepts(
         for source_concept_id in formal["source_concept_ids"]:
             formal_by_source.setdefault(source_concept_id, []).append(formal)
 
-    decisions = []
     promoted_matches = 0
-    dropped_matches = 0
-    split_review_matches = 0
     resources_by_formal: dict[str, dict[str, dict[str, Any]]] = {
         formal["formal_concept_id"]: {} for formal in promoted_formal
     }
@@ -759,11 +756,6 @@ def promote_resources_to_formal_concepts(
         formal["supplementary_resources"] = sorted(
             resources.values(), key=lambda resource: resource["resource_concept_id"]
         )
-    for decision in decisions:
-        decision["decision_id"] = (
-            "resource-promotion-decision:sha256:" + canonical_sha256(decision)
-        )
-    decisions.sort(key=lambda item: item["match_id"])
     promoted_resources = sum(
         len(formal["supplementary_resources"]) for formal in promoted_formal
     )
@@ -779,8 +771,5 @@ def promote_resources_to_formal_concepts(
             "matches": len(context["matches"]),
             "promoted_matches": promoted_matches,
             "promoted_resources": promoted_resources,
-            "dropped_matches": dropped_matches,
-            "split_review_matches": split_review_matches,
         },
-        "resource_decisions": decisions,
     }

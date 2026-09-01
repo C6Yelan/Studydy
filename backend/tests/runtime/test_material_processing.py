@@ -805,10 +805,10 @@ def test_partial_page_and_semantic_status_reaches_persisted_run(
     assert api_view["status"]["processing"] == "partial"
     assert api_view["excluded_pages"] == []
     assert api_view["concepts"][0]["claims"][0]["evidence"][0] == evidence
-    invalid_topology = deepcopy(api_view)
-    invalid_topology["document_tree"]["root"]["section_ids"] = []
+    invalid_tree = deepcopy(api_view)
+    invalid_tree["document_tree"]["root"]["section_ids"] = []
     with pytest.raises(ValueError, match="KNOWLEDGE_MAP_VIEW_INVALID"):
-        KnowledgeMapView.model_validate(invalid_topology)
+        KnowledgeMapView.model_validate(invalid_tree)
     invalid_path = deepcopy(api_view)
     invalid_path["initial_learning_path"][0]["order_basis"][
             "page_number"

@@ -140,10 +140,7 @@ function mapView() {
         matches: 0,
         promoted_matches: 0,
         promoted_resources: 0,
-        dropped_matches: 0,
-        split_review_matches: 0,
       },
-      decisions: [],
     },
     document_tree: {
       root: {
@@ -179,6 +176,46 @@ function mapView() {
     }],
     excluded_pages: [],
   };
+}
+
+function reorderedMapView() {
+  const view = mapView();
+  const first = view.concepts[0];
+  const second = structuredClone(first);
+  second.formal_concept_id = `formal-concept:sha256:${"b".repeat(64)}`;
+  second.claims[0].claim_id = `claim:sha256:${"c".repeat(64)}`;
+  second.claims[0].evidence[0].evidence_id = `evidence:sha256:${"d".repeat(64)}`;
+  second.source_concept_ids = [`concept:sha256:${"e".repeat(64)}`];
+  view.concepts.push(second);
+  view.concept_diagnostics.source_concepts_before = 2;
+  view.concept_diagnostics.canonical_concepts_after = 2;
+  view.concept_diagnostics.coverage_before = 2;
+  view.concept_diagnostics.coverage_after = 2;
+  view.document_tree.sections[0].concept_ids.push(second.formal_concept_id);
+  const firstStep = view.initial_learning_path[0];
+  view.initial_learning_path = [
+    {
+      ...structuredClone(firstStep),
+      step_number: 1,
+      formal_concept_id: second.formal_concept_id,
+      order_basis: {
+        ...structuredClone(firstStep.order_basis),
+        evidence_id: second.claims[0].evidence[0].evidence_id,
+      },
+    },
+    {
+      ...firstStep,
+      step_number: 2,
+      placement_reason: "依已正向驗證的先備條件調整學習順序。",
+      order_basis: {
+        ...firstStep.order_basis,
+        prerequisite_constraint_ids: [
+          `prerequisite-constraint:sha256:${"f".repeat(64)}`,
+        ],
+      },
+    },
+  ];
+  return view;
 }
 
 test("protected request 的 401 會 refresh 後重送", async () => {
@@ -350,6 +387,34 @@ test("Map v10 使用 exact run/revision 並要求 tree、path 與 claim PDF loca
   );
 });
 
+test("Map v10 接受與 Tree 同 Concept set 但不同 order 的 positive Path", async () => {
+  const read = async (value) => {
+    let calls = 0;
+    const client = new StudydyApiClient(async () => {
+      calls += 1;
+      return calls === 1 ? new Response(null, { status: 204 }) : Response.json(value);
+    });
+    return client.getKnowledgeMap({ materialId, runId, mapRevision });
+  };
+  const accepted = await read(reorderedMapView());
+  assert.notDeepEqual(
+    accepted.document_tree.sections[0].concept_ids,
+    accepted.initial_learning_path.map((step) => step.formal_concept_id),
+  );
+  for (const mutate of [
+    (view) => { view.initial_learning_path.pop(); },
+    (view) => { view.initial_learning_path[1] = structuredClone(view.initial_learning_path[0]); },
+  ]) {
+    const invalid = reorderedMapView();
+    mutate(invalid);
+    await assert.rejects(
+      read(invalid),
+      (error) => error instanceof ApiClientError
+        && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
+    );
+  }
+});
+
 test("Map v10 補充資源只接受 HTTP(S) public URL", async () => {
   const invalid = mapView();
   const sourceConceptId = invalid.concepts[0].source_concept_ids[0];
@@ -506,7 +571,7 @@ test("Map v10 recursively rejects unexpected、duplicate、nonfinite、type 與 
     type: (view) => { view.concepts[0].claims[0].evidence[0].page_number = true; },
     count: (view) => { view.concepts[0].claims = []; },
     reference: (view) => { view.concepts[0].claims[0].evidence[0].page_number = 41; },
-    topology: (view) => { view.document_tree.root.section_ids = []; },
+    tree: (view) => { view.document_tree.root.section_ids = []; },
     group_anchor: (view) => {
       view.initial_learning_path[0].order_basis.evidence_id = `evidence:sha256:${"0".repeat(64)}`;
     },

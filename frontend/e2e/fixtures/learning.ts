@@ -102,10 +102,7 @@ export function mapView(): KnowledgeMapView {
         matches: 0,
         promoted_matches: 0,
         promoted_resources: 0,
-        dropped_matches: 0,
-        split_review_matches: 0,
       },
-      decisions: [],
     },
     document_tree: {
       root: {

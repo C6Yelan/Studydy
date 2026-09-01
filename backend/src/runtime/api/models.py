@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime
 import math
+import re
 from typing import Literal
 from uuid import UUID
 
@@ -298,38 +299,14 @@ class ResourceDiagnosticsView(_ClosedModel):
     matches: int = Field(ge=0)
     promoted_matches: int = Field(ge=0)
     promoted_resources: int = Field(ge=0)
-    dropped_matches: int = Field(ge=0)
-    split_review_matches: int = Field(ge=0)
 
     @model_validator(mode="after")
     def validate_counts(self) -> "ResourceDiagnosticsView":
-        if self.matches != self.promoted_matches + self.dropped_matches + self.split_review_matches:
+        if (
+            self.matches != self.promoted_matches
+            or self.promoted_resources > self.promoted_matches
+        ):
             raise ValueError("RESOURCE_DIAGNOSTICS_INVALID")
-        return self
-
-
-class ResourceDecisionView(_ClosedModel):
-    decision_id: str = Field(
-        pattern=r"^resource-promotion-decision:sha256:[0-9a-f]{64}$"
-    )
-    match_id: str = Field(pattern=r"^resource-match:sha256:[0-9a-f]{64}$")
-    study_concept_id: str
-    resource_concept_id: str = Field(pattern=r"^resource-concept:sha256:[0-9a-f]{64}$")
-    formal_concept_ids: list[str]
-    decision: Literal["review", "reject"]
-    reason_code: Literal[
-        "RESOURCE_SPLIT_REVIEW_REQUIRED", "RESOURCE_SOURCE_CONCEPT_DROPPED"
-    ]
-
-    @model_validator(mode="after")
-    def validate_decision(self) -> "ResourceDecisionView":
-        if self.formal_concept_ids != sorted(set(self.formal_concept_ids)):
-            raise ValueError("RESOURCE_DECISION_INVALID")
-        if self.decision == "reject":
-            if self.reason_code != "RESOURCE_SOURCE_CONCEPT_DROPPED" or self.formal_concept_ids:
-                raise ValueError("RESOURCE_DECISION_INVALID")
-        elif self.reason_code != "RESOURCE_SPLIT_REVIEW_REQUIRED" or len(self.formal_concept_ids) < 2:
-            raise ValueError("RESOURCE_DECISION_INVALID")
         return self
 
 
@@ -397,7 +374,6 @@ class SupplementaryResourcesView(_ClosedModel):
     reason_codes: list[str] = Field(max_length=64)
     binding: ResourceBindingView | None
     diagnostics: ResourceDiagnosticsView
-    decisions: list[ResourceDecisionView]
 
 
 class InitialLearningPathStepView(_ClosedModel):
@@ -456,7 +432,6 @@ class KnowledgeMapView(_ClosedModel):
             != [section.section_id for section in self.document_tree.sections]
             or set(tree_ids) != concept_ids
             or len(tree_ids) != len(concept_ids)
-            or path_ids != tree_ids
             or any(
                 step.order_basis.section_id
                 != next(

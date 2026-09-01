@@ -1,5 +1,7 @@
 from copy import deepcopy
 
+import pytest
+
 from knowledge_map.artifacts import (
     build_knowledge_map,
     build_knowledge_map_view,
@@ -14,6 +16,7 @@ from knowledge_map.prerequisites import build_prerequisite_constraints
 from pdf_evidence.concept_generation import claim_id, concept_id
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.study_material_output import build_study_material_output
+from runtime.api.models import KnowledgeMapView
 from test_study_material_output import producer_output
 
 
@@ -181,6 +184,27 @@ def test_only_positive_constraint_can_change_baseline_path():
     assert constrained["initial_learning_path"][1]["order_basis"][
         "prerequisite_constraint_ids"
     ] == [constraints[0]["prerequisite_constraint_id"]]
+    view = build_knowledge_map_view(constrained, study)
+    tree_ids = [
+        concept_id
+        for section in view["document_tree"]["sections"]
+        for concept_id in section["concept_ids"]
+    ]
+    path_ids = [
+        step["formal_concept_id"] for step in view["initial_learning_path"]
+    ]
+    assert tree_ids != path_ids
+    assert KnowledgeMapView.model_validate(view).initial_learning_path
+    for mutate in (
+        lambda invalid: invalid["initial_learning_path"].pop(),
+        lambda invalid: invalid["initial_learning_path"].__setitem__(
+            1, deepcopy(invalid["initial_learning_path"][0])
+        ),
+    ):
+        invalid = deepcopy(view)
+        mutate(invalid)
+        with pytest.raises(ValueError, match="KNOWLEDGE_MAP_VIEW_INVALID"):
+            KnowledgeMapView.model_validate(invalid)
 
     rejected, rejected_diagnostics = build_prerequisite_constraints(
         [proposal],
@@ -235,7 +259,6 @@ def test_missing_resources_yields_partial_sidecar_without_blocking_core():
     sidecar = knowledge_map["supplementary_resources"]
     assert sidecar["processing"] == "partial"
     assert sidecar["binding"] is None
-    assert sidecar["decisions"] == []
     assert all(
         concept["supplementary_resources"] == []
         for concept in knowledge_map["formal_concepts"]

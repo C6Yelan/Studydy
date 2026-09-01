@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { mapView as sharedMapView } from "./fixtures/learning";
+
 const materialId = "6f9619ff-8b86-4e3a-a2f1-2bb9424d5c81";
 const artifactId = "7f9619ff-8b86-4e3a-a2f1-2bb9424d5c82";
 const runId = "8f9619ff-8b86-4e3a-a2f1-2bb9424d5c83";
@@ -44,145 +46,29 @@ function terminalRun() {
 }
 
 function reviewMap() {
-  const pageRef = `page:sha256:${"4".repeat(64)}`;
-  const formalConceptId = `formal-concept:sha256:${"6".repeat(64)}`;
-  return {
-    schema: "knowledge-map-view/v9",
-    material_ref: `material:sha256:${"5".repeat(64)}`,
-    knowledge_map_revision: mapRevision,
-    source_output_id: outputRevision,
-    status: {
-      processing: "succeeded",
-      quality: "needs_review",
-      decision: "review",
-      reason_codes: ["WHOLE_DOCUMENT_REVIEW_REQUIRED"],
-    },
-    concepts: [{
-      formal_concept_id: formalConceptId,
-      label: "二元樹",
-      aliases: [],
-      claims: [{
-        claim_id: `claim:sha256:${"8".repeat(64)}`,
-        text: "每個節點最多有兩個子節點的樹。",
-        evidence: [{
-          evidence_id: `evidence:sha256:${"7".repeat(64)}`,
-          page_ref: pageRef,
-          page_number: 1,
-          kind: "native_text",
-          region: { coordinate_space: "unrotated_pdf_points", bbox: [40, 50, 220, 82] },
-        }],
-      }],
-      source_concept_ids: [`concept:sha256:${"9".repeat(64)}`],
-      source_page_numbers: [1],
-      supplementary_resources: [],
-      quality: "needs_review",
-      decision: "review",
-      reason_codes: ["FORMAL_CONCEPT_REVIEW_REQUIRED"],
-    }],
-    concept_diagnostics: {
-      possible_pairs: 0,
-      candidate_pairs: 0,
-      selected_pairs: 0,
-      pair_ceiling: 16,
-      qwen_same_pairs: 0,
-      qwen_distinct_pairs: 0,
-      qwen_uncertain_pairs: 0,
-      verifier_requested_pairs: 0,
-      verifier_scored_pairs: 0,
-      verifier_allowed_pairs: 0,
-      verifier_vetoed_pairs: 0,
-      verifier_unsupported_pairs: 0,
-      verifier_failed_pairs: 0,
-      source_concepts_before: 1,
-      canonical_concepts_after: 1,
-      duplicate_delta: 0,
-      coverage_before: 1,
-      coverage_after: 1,
-    },
-    relations: [],
-    relation_diagnostics: {
-      possible_pairs: 0,
-      candidate_pairs: 0,
-      selected_pairs: 0,
-      selected_signal_counts: {},
-      model_calls: 0,
-      model_no_relation_pairs: 0,
-      model_review_pairs: 0,
-      unexpected_pairs: 0,
-      canonical_rejections: 0,
-      verifier_calls: 0,
-      verifier_accepted: 0,
-      verifier_rejected: 0,
-      verifier_unsupported: 0,
-      model_contains_pairs: 0,
-      model_prerequisite_pairs: 0,
-      model_related_pairs: 0,
-      invalid_pairs: 0,
-      verifier_failures: 0,
-      accepted_relations: 0,
-    },
-    resource_binding: {
-      context_revision: `map-resource-context:sha256:${"1".repeat(64)}`,
-      library_revision: `resource-library:sha256:${"2".repeat(64)}`,
-      matching_policy: "resource-context-exact-distinct-source/v3",
-      promotion_policy: "resource-formal-concept-promotion/v1",
-    },
-    resource_diagnostics: {
-      matches: 0,
-      promoted_matches: 0,
-      promoted_resources: 0,
-      dropped_matches: 0,
-      split_review_matches: 0,
-    },
-    resource_decisions: [],
-    topology: {
-      roots: [formalConceptId],
-      nodes: [{
-        formal_concept_id: formalConceptId,
-        depth: 0,
-        primary_parent_formal_concept_id: null,
-        flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
-        flat_group_anchor: {
-          evidence_id: `evidence:sha256:${"7".repeat(64)}`,
-          page_ref: pageRef,
-          page_number: 1,
-          reading_order: 0,
-        },
-      }],
-      flat_groups: [{
-        flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
-        label: "二元樹",
-        label_source: "heading",
-        heading_evidence_id: `evidence:sha256:${"7".repeat(64)}`,
-        source_order: {
-          evidence_id: `evidence:sha256:${"7".repeat(64)}`,
-          page_ref: pageRef,
-          page_number: 1,
-          reading_order: 0,
-        },
-        formal_concept_ids: [formalConceptId],
-      }],
-    },
-    topology_diagnostics: {
-      component_count: 1,
-      orphan_concept_count: 1,
-      secondary_parent_count: 0,
-      skipped_parent_before_child_count: 0,
-    },
-    initial_learning_path: [{
-      step_number: 1,
-      formal_concept_id: formalConceptId,
-      placement_reason: "依教材第 1 頁的首次出現位置安排。",
-      order_basis: {
-        prerequisite_formal_concept_ids: [],
-        parent_formal_concept_ids: [],
-        flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
-        hierarchy_depth: 0,
-        source_page_number: 1,
-      },
-    }],
-    excluded_pages: [],
-  };
+  const view = structuredClone(sharedMapView());
+  const concept = view.concepts[0];
+  concept.label = "二元樹";
+  concept.claims[0].text = "每個節點最多有兩個子節點的樹。";
+  concept.claims[0].evidence[0].kind = "native_text";
+  view.knowledge_map_revision = mapRevision;
+  view.source_output_id = outputRevision;
+  view.concepts = [concept];
+  view.concept_diagnostics.possible_pairs = 0;
+  view.concept_diagnostics.source_concepts_before = 1;
+  view.concept_diagnostics.canonical_concepts_after = 1;
+  view.concept_diagnostics.coverage_before = 1;
+  view.concept_diagnostics.coverage_after = 1;
+  const section = view.document_tree.sections[0];
+  section.label = "二元樹";
+  section.concept_ids = [concept.formal_concept_id];
+  view.document_tree.root.section_ids = [section.section_id];
+  view.document_tree.sections = [section];
+  view.initial_learning_path = [{
+    ...view.initial_learning_path[0],
+    formal_concept_id: concept.formal_concept_id,
+  }];
+  return view;
 }
 
 test("review-only Map 顯示概念、教材順序與同頁 PDF locator", async ({ page }) => {
@@ -196,7 +82,7 @@ test("review-only Map 顯示概念、教材順序與同頁 PDF locator", async (
 
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}`);
   await expect(page.getByRole("heading", { name: "知識地圖", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: /二元樹/ }).click();
+  await page.getByRole("button", { name: "教材概念：二元樹" }).click();
   await expect(page.getByRole("heading", { name: "二元樹" })).toBeVisible();
   await expect(page.getByText("原始教材第 1 頁")).toBeVisible();
   await page.getByRole("tab", { name: "學習順序" }).click();

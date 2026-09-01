@@ -164,21 +164,10 @@ export type KnowledgeMapView = {
     promotion_policy: "resource-formal-concept-promotion/v1";
     } | null;
     diagnostics: {
-    matches: number;
-    promoted_matches: number;
-    promoted_resources: number;
-    dropped_matches: number;
-    split_review_matches: number;
+      matches: number;
+      promoted_matches: number;
+      promoted_resources: number;
     };
-    decisions: {
-    decision_id: string;
-    match_id: string;
-    study_concept_id: string;
-    resource_concept_id: string;
-    formal_concept_ids: string[];
-    decision: "review" | "reject";
-    reason_code: "RESOURCE_SPLIT_REVIEW_REQUIRED" | "RESOURCE_SOURCE_CONCEPT_DROPPED";
-    }[];
   };
   document_tree: {
     root: {

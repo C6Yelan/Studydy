@@ -364,7 +364,9 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
     "step_number", "formal_concept_id", "placement_reason", "order_basis",
   ]));
   const pathIds = path.map((step) => step?.formal_concept_id);
-  if (JSON.stringify(pathIds) !== JSON.stringify(treeConceptIds)
+  if (pathIds.length !== conceptIds.length
+    || new Set(pathIds).size !== conceptIds.length
+    || pathIds.some((conceptId) => !conceptIds.includes(String(conceptId)))
     || path.some((step, index) => {
       const basis = step && closed(step.order_basis, [
         "prerequisite_constraint_ids", "section_id", "page_ref", "page_number",
@@ -392,18 +394,17 @@ function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
 
   const resources = closed(item.supplementary_resources, [
     "processing", "quality", "decision", "reason_codes", "binding", "diagnostics",
-    "decisions",
   ]);
   const diagnostics = resources && closed(resources.diagnostics, [
-    "matches", "promoted_matches", "promoted_resources", "dropped_matches",
-    "split_review_matches",
+    "matches", "promoted_matches", "promoted_resources",
   ]);
   if (!resources || !diagnostics
     || !["succeeded", "partial"].includes(String(resources.processing))
     || resources.quality !== "needs_review" || resources.decision !== "review"
     || !isSortedUniqueStrings(resources.reason_codes, 0)
-    || !Array.isArray(resources.decisions)
     || !Object.values(diagnostics).every((count) => Number.isInteger(count) && Number(count) >= 0)
+    || diagnostics.matches !== diagnostics.promoted_matches
+    || Number(diagnostics.promoted_resources) > Number(diagnostics.promoted_matches)
     || !(resources.binding === null || !!closed(resources.binding, [
       "context_revision", "library_revision", "matching_policy", "promotion_policy",
     ]))) return false;

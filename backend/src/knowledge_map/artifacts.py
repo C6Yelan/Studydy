@@ -26,8 +26,7 @@ _CONCEPT_DIAGNOSTIC_FIELDS = {
     "coverage_before", "coverage_after",
 }
 _RESOURCE_DIAGNOSTIC_FIELDS = {
-    "matches", "promoted_matches", "promoted_resources", "dropped_matches",
-    "split_review_matches",
+    "matches", "promoted_matches", "promoted_resources",
 }
 _SUPPLEMENTARY_RESOURCE_FIELDS = {
     "promotion_id", "resource_concept_id", "resource_id", "label", "title",
@@ -267,7 +266,6 @@ def _empty_resources() -> dict[str, Any]:
         "reason_codes": ["SUPPLEMENTARY_RESOURCES_UNAVAILABLE"],
         "binding": None,
         "diagnostics": {field: 0 for field in _RESOURCE_DIAGNOSTIC_FIELDS},
-        "decisions": [],
     }
 
 
@@ -282,7 +280,6 @@ def _attach_resources(
         return concepts, _empty_resources()
     expected_fields = {
         "formal_concepts", "resource_binding", "resource_diagnostics",
-        "resource_decisions",
     }
     if not isinstance(resource_promotion, dict) or set(resource_promotion) != expected_fields:
         raise ValueError("KNOWLEDGE_MAP_RESOURCE_INVALID")
@@ -305,17 +302,17 @@ def _attach_resources(
         not isinstance(diagnostics, dict)
         or set(diagnostics) != _RESOURCE_DIAGNOSTIC_FIELDS
         or any(type(value) is not int or value < 0 for value in diagnostics.values())
+        or diagnostics["matches"] != diagnostics["promoted_matches"]
+        or diagnostics["promoted_resources"] > diagnostics["promoted_matches"]
     ):
         raise ValueError("KNOWLEDGE_MAP_RESOURCE_INVALID")
-    has_review = diagnostics["split_review_matches"] > 0
     return deepcopy(promoted), {
-        "processing": "partial" if has_review else "succeeded",
+        "processing": "succeeded",
         "quality": "needs_review",
         "decision": "review",
-        "reason_codes": ["RESOURCE_SPLIT_REVIEW_REQUIRED"] if has_review else [],
+        "reason_codes": [],
         "binding": deepcopy(resource_promotion["resource_binding"]),
         "diagnostics": deepcopy(diagnostics),
-        "decisions": deepcopy(resource_promotion["resource_decisions"]),
     }
 
 
@@ -613,7 +610,7 @@ def validate_knowledge_map(
             not isinstance(sidecar, dict)
             or set(sidecar) != {
                 "processing", "quality", "decision", "reason_codes", "binding",
-                "diagnostics", "decisions",
+                "diagnostics",
             }
             or sidecar["processing"] not in {"succeeded", "partial"}
             or sidecar["quality"] != "needs_review" or sidecar["decision"] != "review"
@@ -625,7 +622,10 @@ def validate_knowledge_map(
             or not isinstance(sidecar["diagnostics"], dict)
             or set(sidecar["diagnostics"]) != _RESOURCE_DIAGNOSTIC_FIELDS
             or any(type(value) is not int or value < 0 for value in sidecar["diagnostics"].values())
-            or not isinstance(sidecar["decisions"], list)
+            or sidecar["diagnostics"]["matches"]
+            != sidecar["diagnostics"]["promoted_matches"]
+            or sidecar["diagnostics"]["promoted_resources"]
+            > sidecar["diagnostics"]["promoted_matches"]
         ):
             return "KNOWLEDGE_MAP_INVALID"
         has_no_concept = not knowledge_map["formal_concepts"]

@@ -541,10 +541,7 @@ def test_resource_promotion_follows_canonical_keep():
         "matches": 1,
         "promoted_matches": 1,
         "promoted_resources": 1,
-        "dropped_matches": 0,
-        "split_review_matches": 0,
     }
-    assert promotion["resource_decisions"] == []
 
 
 def test_resource_promotion_merge_unions_and_deduplicates_resources():
