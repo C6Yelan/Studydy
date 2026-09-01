@@ -578,6 +578,63 @@ def derive_learner_progress(
         raise _error("LEARNER_PROGRESS_STORAGE_FAILED") from None
 
 
+def _record_no_safe_assessment_in_session(
+    session: Session,
+    learner_id: UUID,
+    study_session_id: UUID,
+    target_claim_id: str,
+    expected_formal_concept_id: str,
+    expected_event_number: int,
+) -> StoredStudySession:
+    """在 caller 提供的 transaction 內完成 NO_SAFE row lock 與寫入。"""
+
+    if (
+        not isinstance(session, Session)
+        or not isinstance(learner_id, UUID)
+        or not isinstance(study_session_id, UUID)
+        or not isinstance(target_claim_id, str)
+        or not isinstance(expected_formal_concept_id, str)
+        or type(expected_event_number) is not int
+        or expected_event_number < 0
+    ):
+        raise _error("LEARNER_PROGRESS_REQUEST_INVALID")
+    study_session = _read_stored_row(
+        session, learner_id, study_session_id, for_update=True
+    )
+    if study_session.status != "active":
+        raise _error("LEARNER_PROGRESS_STALE")
+    context = _validate_binding(session, study_session)
+    if (
+        study_session.current_formal_concept_id
+        != expected_formal_concept_id
+        or study_session.last_event_number != expected_event_number
+    ):
+        raise _error("LEARNER_PROGRESS_STALE")
+    current = next(
+        (
+            concept
+            for concept in context.formal_concepts
+            if concept.formal_concept_id == expected_formal_concept_id
+        ),
+        None,
+    )
+    if current is None or target_claim_id not in {
+        claim.claim_id for claim in current.claims
+    }:
+        raise _error("LEARNER_PROGRESS_REQUEST_INVALID")
+    study_session.no_safe_claim_ids = sorted(
+        {*study_session.no_safe_claim_ids, target_claim_id}
+    )
+    study_session.last_applied_guidance_revision = None
+    study_session.last_applied_progress_state_sha256 = None
+    progress = _derive_in_session(session, study_session)
+    if progress.fallback_reason == "NO_SAFE_TARGET_AVAILABLE":
+        study_session.status = "no_safe"
+    session.flush()
+    _validate_binding(session, study_session)
+    return _stored_session(study_session)
+
+
 def record_no_safe_assessment(
     learner: TrustedLearner,
     study_session_id: UUID,
@@ -589,53 +646,17 @@ def record_no_safe_assessment(
 ) -> StoredStudySession:
     """只記錄 server 已確認無安全題目的 exact-current request。"""
 
-    if (
-        not isinstance(study_session_id, UUID)
-        or not isinstance(target_claim_id, str)
-        or not isinstance(expected_formal_concept_id, str)
-        or type(expected_event_number) is not int
-        or expected_event_number < 0
-    ):
-        raise _error("LEARNER_PROGRESS_REQUEST_INVALID")
     try:
         learner_id = _learner_id(learner)
         with database_session(dsn) as session:
-            study_session = _read_stored_row(
-                session, learner_id, study_session_id, for_update=True
+            return _record_no_safe_assessment_in_session(
+                session,
+                learner_id,
+                study_session_id,
+                target_claim_id,
+                expected_formal_concept_id,
+                expected_event_number,
             )
-            if study_session.status != "active":
-                raise _error("LEARNER_PROGRESS_STALE")
-            context = _validate_binding(session, study_session)
-            if (
-                study_session.current_formal_concept_id
-                != expected_formal_concept_id
-                or study_session.last_event_number != expected_event_number
-            ):
-                raise _error("LEARNER_PROGRESS_STALE")
-            current = next(
-                (
-                    concept
-                    for concept in context.formal_concepts
-                    if concept.formal_concept_id
-                    == expected_formal_concept_id
-                ),
-                None,
-            )
-            if current is None or target_claim_id not in {
-                claim.claim_id for claim in current.claims
-            }:
-                raise _error("LEARNER_PROGRESS_REQUEST_INVALID")
-            study_session.no_safe_claim_ids = sorted(
-                {*study_session.no_safe_claim_ids, target_claim_id}
-            )
-            study_session.last_applied_guidance_revision = None
-            study_session.last_applied_progress_state_sha256 = None
-            progress = _derive_in_session(session, study_session)
-            if progress.fallback_reason == "NO_SAFE_TARGET_AVAILABLE":
-                study_session.status = "no_safe"
-            session.flush()
-            _validate_binding(session, study_session)
-            return _stored_session(study_session)
     except LearnerProgressError:
         raise
     except (

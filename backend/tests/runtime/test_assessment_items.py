@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import shutil
+from threading import Event
 from uuid import uuid4
 
 import psycopg
@@ -721,6 +722,94 @@ def test_concurrent_requests_publish_at_most_one_session_semantic_identity(
     assert state.qualified_distinct_correct_items == 0
     assert state.observed_evidence_ids == []
     assert state.post_error_improvement is False
+
+
+def test_no_safe_write_serializes_overlapping_safe_generation(
+    assessment_database_dsn: str,
+    monkeypatch,
+):
+    learner, knowledge_map, _, study_session = _active_study_session(
+        assessment_database_dsn
+    )
+    target = knowledge_map["formal_concepts"][0]
+    target_claim_id = target["claims"][0]["claim_id"]
+    documents = _documents(study_session, knowledge_map)
+    no_safe_write_started = Event()
+    second_request_entered = Event()
+    safe_generation_started = Event()
+    first_generation_failed = Event()
+    allow_no_safe_write = Event()
+    original_record = requests_module._record_no_safe_assessment_in_session
+
+    def pause_before_no_safe_write(*args):
+        no_safe_write_started.set()
+        assert allow_no_safe_write.wait(timeout=5)
+        return original_record(*args)
+
+    def fail_then_offer_safe_candidate(*_args, **_kwargs):
+        if not first_generation_failed.is_set():
+            first_generation_failed.set()
+            raise AssessmentGenerationError("ASSESSMENT_NO_NEW_SAFE_ITEM")
+        safe_generation_started.set()
+        return store_assessment(
+            learner,
+            documents.public_document,
+            documents.private_answer_document,
+            require_new=True,
+            dsn=assessment_database_dsn,
+        )
+
+    monkeypatch.setattr(
+        requests_module,
+        "_record_no_safe_assessment_in_session",
+        pause_before_no_safe_write,
+    )
+    monkeypatch.setattr(
+        requests_module,
+        "generate_and_store_assessment",
+        fail_then_offer_safe_candidate,
+    )
+
+    def request(key: str):
+        if key == "request-b":
+            second_request_entered.set()
+        try:
+            return generate_assessment_for_request(
+                learner,
+                study_session.study_session_id,
+                target_claim_id,
+                {},
+                key,
+                dsn=assessment_database_dsn,
+            )
+        except AssessmentGenerationError as error:
+            return str(error)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(request, "request-a")
+        assert no_safe_write_started.wait(timeout=5)
+        second = executor.submit(request, "request-b")
+        assert second_request_entered.wait(timeout=5)
+        try:
+            assert not safe_generation_started.wait(timeout=1)
+        finally:
+            allow_no_safe_write.set()
+        outcomes = [first.result(timeout=5), second.result(timeout=5)]
+
+    assert outcomes == [
+        "ASSESSMENT_NO_NEW_SAFE_ITEM",
+        "ASSESSMENT_NO_NEW_SAFE_ITEM",
+    ]
+    assert safe_generation_started.is_set() is False
+    assert _assessment_count(assessment_database_dsn) == 0
+    with psycopg.connect(assessment_database_dsn) as connection:
+        assert connection.execute(
+            """
+            SELECT status, no_safe_claim_ids
+            FROM study_sessions WHERE study_session_id = %s
+            """,
+            (study_session.study_session_id,),
+        ).fetchone() == ("active", [target_claim_id])
 
 
 def test_generation_provenance_is_private_bound_and_tamper_evident(
