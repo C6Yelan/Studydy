@@ -2,7 +2,7 @@
 
 - **文件定位：** Phase 06 的 authoritative product / execution plan。P06-00～03 已完成並凍結；P06-04～10 依本文件與最新 `dev` 真實程式碼繼續實作。
 - **目前 frozen baseline：** P06-03 accepted candidate `161cf9f6761e187ba944b9b71b96ddea454f09df`。P06-04 long-run 只可在該 candidate 正式合回最新 `dev` 後開始；若實際 `dev` 已不同，先確認差異來源。
-- **前置依賴：** Phase 05 已發布的正式 Knowledge Map / Formal Concept / Formal Relation / inline `initial_learning_path` contract；Phase 03 stable Evidence；Phase 04 promoted supplementary resources。
+- **前置依賴：** Phase 05 已發布的 Map v10 Document Tree、獨立 `initial_learning_path` 與 positive-only `prerequisite_constraints` contract；Phase 03 stable Evidence；Phase 04 promoted supplementary resources。
 - **核心原則：** Agent 4 不重建 Knowledge Map、不創造新的 Relation、不覆寫 Agent 3 canonical `initial_learning_path`；以 evidence-grounded 單選題建立可信 assessment signal，再建立 StudySession-scoped learner state、weakness 與 adaptive next-step overlay。
 - **Assessment scope：** V2 第一版固定只支援 `single_choice`，**exactly 4 options**；free-response、複選、程式題與 AI semantic grading 全部延後。
 - **Assessment grounding：** 第一版題目固定為 **Formal Concept / Claim / canonical exact Evidence-grounded**；不新增 Relation-question contract。
@@ -10,7 +10,7 @@
 - **命名凍結：** `LearnerSession` = cookie/auth session；學習循環 production entity = `StudySession` / `study_sessions`，不得混用。
 - **Mastery 原則：** claim-aware、deterministic、conservative；單題答對永遠不得直接 mastered，confidence / coverage 與 mastery 分離。
 - **訊號限制：** V2 **不使用 dwell time / engagement duration 作 learner-state signal**；不足時使用 `needs_more_data`、`collect_more_data` 或 canonical path fallback。
-- **Prerequisite 原則：** 只使用 published、non-cycle `prerequisite`，且 V2 只看 **immediate prerequisite**；`contains` / `related` 永不作 hard dependency。
+- **Prerequisite 原則：** 只使用 positive-only `prerequisite_constraints`；`contains` / `related` 永不作 Agent 4 consumer input。
 - **Adaptive output：** 一次只輸出 **one primary adaptive step**；Suggestion 只是 Adaptive Plan projection，不建立第二套 recommendation engine。
 - **Execution mode：** P06-04～10 可在同一 Codex App conversation / long-run Goal 連續執行，但每個 Task 必須獨立 test → commit → push → checkpoint；重大 contract / architecture 衝突才升級給 planner/reviewer。
 
@@ -54,7 +54,7 @@ Canonical Map / inline `initial_learning_path` 必須保持可回溯；個人化
 - Learning State 只由 StudySession 內可信事件 deterministic 推導；不使用 dwell time。
 - claim-aware Mastery 必須符合 frozen conservative rule，不以單題或低 coverage 假裝 mastered。
 - 找出 observed weakness / needs review / not enough data / possible immediate prerequisite gap。
-- 依正式 non-cycle `prerequisite` 與 inline `initial_learning_path` 建立 learner-specific Adaptive Plan overlay。
+- 依 positive-only `prerequisite_constraints` 與獨立 `initial_learning_path` 建立 learner-specific Adaptive Plan overlay。
 - Adaptive Plan 一次只輸出 one primary step；Suggestion 只做學生可理解 projection。
 - 新 StudySession 預設從 `not_started` / `needs_more_data` 開始，不沿用前一 session 的 Mastery / Weakness / Adaptive Plan。
 - 資料、Relation 或 Resource 不足時明確 fallback，不猜測、不建立虛假 precision。
@@ -285,7 +285,7 @@ Concept 只有在以下條件**全部**成立時才可 `mastered`：
 - **observed weak**：由多次錯誤、低表現或 remediation 後仍錯等可信訊號支持。
 - **needs review**：存在近期錯誤或尚不穩定，但未必足以宣稱 persistent weakness。
 - **not enough data**：沒有足夠 evidence 判斷。
-- **possible prerequisite gap**：目前 target 的 published **immediate** `prerequisite` 尚未掌握，且該 edge 不在 prerequisite cycle。
+- **possible prerequisite gap**：目前 target 的 positive-only `prerequisite_constraints` 尚未掌握。
 
 Weakness output 至少包含：
 
@@ -369,7 +369,7 @@ Frozen action enum：
 
 - P06-01～03 已建立 StudySession / Assessment / canonical Evidence contract；P06-04～10 直接消費 frozen contract，不重新定義。
 - 將 `single_choice` evidence-grounded generation + deterministic scoring 鎖為 V2 第一版正式 assessment contract。
-- 對 current Knowledge Map public contract 建立 consumer fixture，固定 `prerequisite` / `contains` / `related` semantics。
+- 對 current Map v10 Document Tree 建立 consumer fixture，固定 `prerequisite_constraints` 與獨立 `initial_learning_path` semantics。
 - 建立 session-scoped trusted learner-event persistence 與 idempotency。
 - 建立 transparent Learning State / confidence / coverage logic。
 - 建立 weakness / prerequisite-gap derivation。
@@ -416,9 +416,9 @@ Frozen action enum：
 - answer key / private scoring fields 永不進 public API / frontend。
 - V2 assessment 只允許 `single_choice`；question / distractor 必須 Formal Concept / Claim / canonical Evidence-bound，不可憑模型常識出題。
 - data 不足不得標 high-confidence personalized / mastered。
-- Agent 4 不改 Knowledge Map、Formal Relation 或 canonical `initial_learning_path`。
-- hard prerequisite 只來自 published `prerequisite`，且不得使用 cycle edge。
-- `contains` / `related` 不得被偷偷當 prerequisite。
+- Agent 4 不改 Map v10 Document Tree、`prerequisite_constraints` 或獨立 `initial_learning_path`。
+- hard prerequisite 只來自 positive-only `prerequisite_constraints`。
+- `contains` / `related` 不得進入 Agent 4 consumer path。
 - raw relation candidate / diagnostics / verifier rejected output 不進 Agent 4 learner decision。
 - state 只能由 trusted learner/server-scored events 計算。
 - client 不傳 score、mastery、learner ID、suggestion decision。
@@ -432,9 +432,8 @@ Frozen action enum：
 
 ### Knowledge Map consumption
 
-- 只讀正式 published Map artifact。
-- prerequisite / contains / related 行為符合 contract。
-- cycle prerequisite 不作 routing dependency。
+- 只讀正式 published Map v10 Document Tree、獨立 `initial_learning_path` 與 `prerequisite_constraints` artifact。
+- `prerequisite_constraints` 與獨立 `initial_learning_path` 行為符合 contract。
 - raw candidate / diagnostics 無法進 learner decision path。
 - stale Knowledge Map revision 會被偵測，不靜默沿用舊 adaptive plan。
 
@@ -474,9 +473,8 @@ Frozen action enum：
 
 - observed repeated error。
 - insufficient data。
-- unmet immediate prerequisite。
-- contains / related 不誤判 prerequisite。
-- prerequisite cycle 不作 remediation dependency。
+- unmet `prerequisite_constraints`。
+- contains / related 不進 consumer path。
 
 ### Adaptive plan / Suggestion
 
@@ -561,7 +559,7 @@ read latest repo / previous frozen contract
 Frozen結果：
 
 - integration branch = `dev`。
-- Agent 3 canonical Map contract = `knowledge-map/v6`，Relation只有 `prerequisite` / `contains` / `related`，inline `initial_learning_path`。
+- Agent 3 canonical Map contract = `knowledge-map/v6`，Relation只有 `prerequisite` / `contains` / `related`，inline `initial_learning_path`；此為 Plan01 前歷史 baseline，已由 Map v10 Document Tree 取代。
 - `LearnerSession`保留 auth/cookie責任，不承載學習進度。
 - 沒有證據需要為 hypothetical legacy建立 compatibility facade。
 
@@ -708,9 +706,9 @@ Frozen結果：
 **Frozen規則**
 
 - observed weakness只能由 trusted assessment / practice / review evidence支持。
-- prerequisite gap只能讀 published、non-cycle **immediate `prerequisite`**。
+- prerequisite gap只能讀 positive-only `prerequisite_constraints`。
 - 不做 prerequisite ancestry / recursive closure。
-- `contains` / `related` 永不作 hard dependency。
+- `contains` / `related` 永不進 Agent 4 consumer path。
 - raw relation candidate、diagnostics、rejected verifier output不進 learner decision。
 - no data不猜 weakness。
 
@@ -720,7 +718,7 @@ Frozen結果：
 - weakness category。
 - supporting event refs。
 - confidence / coverage。
-- immediate prerequisite context（若有）。
+- prerequisite constraint context（若有）。
 - remediation intent；完整 routing留給06-07。
 
 **完成條件**
@@ -907,7 +905,7 @@ P06-01～03 已完成。剩餘 P06-04～10 可作為一個「完成 Agent 4 clos
 - AnswerEvent成為 downstream assessment truth source，idempotent / lineage / session binding成立。
 - Mastery符合 frozen claim-aware rule；confidence / coverage與 mastery分離。
 - observed weak / needs review / not enough data / immediate prerequisite gap可區分。
-- prerequisite gap只由 published non-cycle immediate `prerequisite`推導；contains / related不作 hard dependency。
+- prerequisite gap只由 positive-only `prerequisite_constraints` 推導；contains / related不進 Agent 4 consumer path。
 - learner-specific Adaptive Plan以 one primary step在不修改 canonical Map / inline path下調整下一步。
 - Suggestion只做 Adaptive Plan projection，提供 frozen action / target / reason / route。
 - data不足退回 `collect_more_data` / `follow_path` / canonical path，不強行 personalize。

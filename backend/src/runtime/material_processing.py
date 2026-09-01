@@ -279,7 +279,7 @@ def _prepare_private_runtime_root(value: str) -> None:
 
 
 def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
-    """把 runtime lock 對應到 OCR、Relation model 與 Qwen 本機檔案。"""
+    """把 runtime lock 對應到 OCR、Qwen 與本機 verifier 檔案。"""
 
     runtime_lock = local_config["runtime_lock"]
     python_executable = _absolute_runtime_path(
