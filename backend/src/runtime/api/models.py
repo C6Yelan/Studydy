@@ -29,6 +29,7 @@ ApiReasonCode = Literal[
     "ORIGIN_NOT_ALLOWED",
     "RESOURCE_NOT_FOUND",
     "IDEMPOTENCY_CONFLICT",
+    "NO_SAFE_ASSESSMENT",
     "MATERIAL_TOO_LARGE",
     "MATERIAL_PDF_INVALID",
     "UNSUPPORTED_MEDIA_TYPE",
@@ -833,7 +834,8 @@ class StudySessionView(_ClosedModel):
     knowledge_map_revision: str
     current_formal_concept_id: str | None
     deferred_formal_concept_id: str | None
-    status: Literal["active", "completed"]
+    no_safe_deferred_formal_concept_ids: list[str]
+    status: Literal["active", "completed", "no_safe"]
     started_at: datetime
     completed_at: datetime | None
     event_watermark: int = Field(ge=0)
@@ -852,6 +854,7 @@ class StudyContextView(_ClosedModel):
     base_knowledge_map_revision: str
     current_formal_concept_id: str | None
     deferred_formal_concept_id: str | None
+    no_safe_deferred_formal_concept_ids: list[str]
     initial_learning_path: list[StudyConceptContextView] = Field(min_length=1)
 
 
@@ -993,6 +996,7 @@ class AdaptivePlanView(_ClosedModel):
     event_watermark: int = Field(ge=0)
     current_formal_concept_id: str | None
     deferred_formal_concept_id: str | None
+    no_safe_deferred_formal_concept_ids: list[str]
     primary_step: AdaptiveStepView
     adaptive_plan_revision: str
 
@@ -1065,6 +1069,9 @@ def project_study_session(session: StoredStudySession) -> StudySessionView:
             "knowledge_map_revision": session.knowledge_map_revision,
             "current_formal_concept_id": session.current_formal_concept_id,
             "deferred_formal_concept_id": session.deferred_formal_concept_id,
+            "no_safe_deferred_formal_concept_ids": list(
+                session.no_safe_deferred_formal_concept_ids
+            ),
             "status": session.status,
             "started_at": session.started_at,
             "completed_at": session.completed_at,
@@ -1088,6 +1095,9 @@ def project_study_context(
             "base_knowledge_map_revision": context.knowledge_map_revision,
             "current_formal_concept_id": session.current_formal_concept_id,
             "deferred_formal_concept_id": session.deferred_formal_concept_id,
+            "no_safe_deferred_formal_concept_ids": list(
+                session.no_safe_deferred_formal_concept_ids
+            ),
             "initial_learning_path": [
                 {
                     "formal_concept_id": concept_id,
@@ -1187,6 +1197,9 @@ def project_adaptive_response(
         "event_watermark": plan.event_watermark,
         "current_formal_concept_id": plan.current_formal_concept_id,
         "deferred_formal_concept_id": plan.deferred_formal_concept_id,
+        "no_safe_deferred_formal_concept_ids": (
+            plan.no_safe_deferred_formal_concept_ids
+        ),
         "primary_step": plan.primary_step.model_dump(
             mode="python", exclude={"supporting_formal_concept_ids"}
         ),

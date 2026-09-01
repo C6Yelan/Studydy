@@ -301,7 +301,8 @@ def submit_answer(
                 return AnswerSubmission(event, _feedback(event, assessment))
 
             if (
-                _stored_session(study_session).status != "active"
+                _stored_session(study_session).status
+                not in {"active", "no_safe"}
                 or assessment.question_id != question_id
                 or study_session.current_formal_concept_id
                 != assessment.target_formal_concept_id

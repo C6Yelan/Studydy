@@ -38,7 +38,7 @@ def state_database_dsn(
 ) -> str:
     assert run_migrations(
         clean_database_dsn, migrations_dir=migrations_dir
-    ) == tuple(range(1, 15))
+    ) == tuple(range(1, 16))
     return clean_database_dsn
 
 

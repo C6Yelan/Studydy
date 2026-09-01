@@ -34,6 +34,8 @@ class StoredStudySession:
     knowledge_map_revision: str
     current_formal_concept_id: str | None
     deferred_formal_concept_id: str | None
+    no_safe_claim_ids: tuple[str, ...]
+    no_safe_deferred_formal_concept_ids: tuple[str, ...]
     status: str
     started_at: datetime
     completed_at: datetime | None
@@ -114,6 +116,11 @@ def _validate_binding(session: Session, stored: StudySession) -> MapContext:
     known_concepts = {
         concept.formal_concept_id for concept in context.formal_concepts
     }
+    known_claims = {
+        claim.claim_id
+        for concept in context.formal_concepts
+        for claim in concept.claims
+    }
     if (
         stored.current_formal_concept_id is not None
         and stored.current_formal_concept_id not in known_concepts
@@ -128,11 +135,17 @@ def _validate_binding(session: Session, stored: StudySession) -> MapContext:
         )
     ):
         raise _error("STUDY_SESSION_UNAVAILABLE")
+    if (
+        not set(stored.no_safe_claim_ids) <= known_claims
+        or not set(stored.no_safe_deferred_formal_concept_ids)
+        <= known_concepts
+    ):
+        raise _error("STUDY_SESSION_UNAVAILABLE")
     return context
 
 
 def _stored_session(stored: StudySession) -> StoredStudySession:
-    if stored.status == "active":
+    if stored.status in {"active", "no_safe"}:
         if stored.completed_at is not None:
             raise _error("STUDY_SESSION_LIFECYCLE_CONFLICT")
     elif stored.status == "completed":
@@ -147,6 +160,13 @@ def _stored_session(stored: StudySession) -> StoredStudySession:
         or len(bytes(stored.request_fingerprint)) != 32
     ):
         raise _error("STUDY_SESSION_UNAVAILABLE")
+    no_safe_claim_ids = tuple(stored.no_safe_claim_ids)
+    no_safe_deferred_ids = tuple(stored.no_safe_deferred_formal_concept_ids)
+    if (
+        len(no_safe_claim_ids) != len(set(no_safe_claim_ids))
+        or len(no_safe_deferred_ids) != len(set(no_safe_deferred_ids))
+    ):
+        raise _error("STUDY_SESSION_UNAVAILABLE")
     return StoredStudySession(
         study_session_id=stored.study_session_id,
         learner_id=stored.learner_id,
@@ -154,6 +174,8 @@ def _stored_session(stored: StudySession) -> StoredStudySession:
         knowledge_map_revision=stored.knowledge_map_revision,
         current_formal_concept_id=stored.current_formal_concept_id,
         deferred_formal_concept_id=stored.deferred_formal_concept_id,
+        no_safe_claim_ids=no_safe_claim_ids,
+        no_safe_deferred_formal_concept_ids=no_safe_deferred_ids,
         status=stored.status,
         started_at=stored.started_at,
         completed_at=stored.completed_at,
@@ -213,6 +235,10 @@ def create_study_session(
                     knowledge_map_revision=knowledge_map_revision,
                     current_formal_concept_id=current_formal_concept_id,
                     deferred_formal_concept_id=None,
+                    no_safe_claim_ids=[],
+                    no_safe_deferred_formal_concept_ids=[],
+                    last_applied_adaptive_plan_revision=None,
+                    last_applied_session_state_sha256=None,
                     status="active",
                     idempotency_key_sha256=key_digest,
                     request_fingerprint=fingerprint,
@@ -309,6 +335,8 @@ def set_current_study_concept(
             }:
                 raise _error("STUDY_SESSION_TARGET_INVALID")
             stored.current_formal_concept_id = formal_concept_id
+            stored.last_applied_adaptive_plan_revision = None
+            stored.last_applied_session_state_sha256 = None
             session.flush()
             return _stored_session(stored)
     except StudySessionError:
