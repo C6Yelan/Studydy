@@ -22,7 +22,7 @@ from pdf_evidence.concept_generation import claim_id, concept_id
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.learner_session import TrustedLearner
 from runtime.storage.migrations import run_migrations
-from test_assessment_items import _documents
+from test_assessment_items import _documents, _qualified_novelty
 from test_study_sessions import (
     _formal_id,
     _insert_material_map,
@@ -107,6 +107,7 @@ def _answer(
     claim_index: int = 0,
     correct: bool,
     sequence: int,
+    qualified: bool = True,
 ):
     concept = knowledge_map["formal_concepts"][concept_index]
     claim = concept["claims"][claim_index]
@@ -128,6 +129,9 @@ def _answer(
         learner,
         documents.public_document,
         documents.private_answer_document,
+        semantic_novelty=(
+            _qualified_novelty(documents) if qualified else None
+        ),
         dsn=dsn,
     )
     selected_option_id = assessment.private_answer_document.correct_option_id
@@ -224,8 +228,42 @@ def test_single_claim_requires_two_distinct_correct_items(
     assert current.confidence == "supported"
     assert current.needs_more_data is False
     assert current.valid_attempts == current.correct_attempts == 2
-    assert current.distinct_item_attempts == 2
+    assert current.qualified_distinct_correct_items == 2
     assert current.reason_code == "MASTERY_DEMONSTRATED"
+
+
+@pytest.mark.parametrize(
+    ("qualified_answers", "qualified_count"),
+    [((False, False), 0), ((True, False), 1)],
+)
+def test_unqualified_correct_answers_update_history_without_false_mastery(
+    state_database_dsn: str,
+    qualified_answers: tuple[bool, bool],
+    qualified_count: int,
+):
+    learner, knowledge_map, _, study_session = _state_session(
+        state_database_dsn
+    )
+    for sequence, qualified in enumerate(qualified_answers, start=1):
+        _answer(
+            state_database_dsn,
+            learner,
+            knowledge_map,
+            study_session,
+            correct=True,
+            sequence=sequence,
+            qualified=qualified,
+        )
+
+    current = derive_learning_state(
+        learner, study_session.study_session_id, dsn=state_database_dsn
+    ).concept_states[0]
+    assert current.status == "learning"
+    assert current.reason_code == "DISTINCT_ITEM_EVIDENCE_REQUIRED"
+    assert current.valid_attempts == current.correct_attempts == 2
+    assert current.latest_correct_claim_ids == current.attempted_claim_ids
+    assert current.claim_coverage_complete is True
+    assert current.qualified_distinct_correct_items == qualified_count
 
 
 def test_wrong_mixed_and_post_error_improvement_keep_history(

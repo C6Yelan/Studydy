@@ -33,7 +33,6 @@ from learning_adaptation.assessment_items import (
     build_assessment_semantic_novelty,
     build_single_choice_assessment,
     project_public_assessment,
-    question_reuse_key,
     read_assessment,
     store_assessment,
     validate_assessment_generation_provenance,
@@ -119,6 +118,18 @@ def _documents_as_dicts(documents):
     return (
         documents.public_document.model_dump(mode="json", by_alias=True),
         documents.private_answer_document.model_dump(mode="json", by_alias=True),
+    )
+
+
+def _qualified_novelty(documents):
+    return build_assessment_semantic_novelty(
+        documents,
+        comparison_policy_revision="distinct-mastery-evidence:no-prior/v1",
+        verifier_model_id="test-verifier",
+        verifier_revision="test-verifier/v1",
+        compared_semantic_identities=[],
+        maximum_equivalence_score=None,
+        runtime_binding_sha256="9" * 64,
     )
 
 
@@ -317,40 +328,6 @@ def test_valid_public_private_round_trip_and_public_projection_has_no_answer_lea
         "semantic_novelty",
     ):
         assert forbidden not in serialized
-
-
-def test_same_semantic_question_on_alternate_claim_has_distinct_identity():
-    knowledge_map = _knowledge_map()
-    target = knowledge_map["formal_concepts"][0]
-    session_id = uuid4()
-    first = build_single_choice_assessment(
-        session_id,
-        knowledge_map["revision"],
-        target["formal_concept_id"],
-        "claim:sha256:" + "1" * 64,
-        target["claims"][0]["evidence_ids"],
-        "Which statement is grounded?",
-        ["First", "Second", "Third", "Fourth"],
-        0,
-        "The first option follows from the cited Evidence.",
-    )
-    alternate = build_single_choice_assessment(
-        session_id,
-        knowledge_map["revision"],
-        target["formal_concept_id"],
-        "claim:sha256:" + "2" * 64,
-        target["claims"][0]["evidence_ids"],
-        "Which statement is grounded?",
-        ["First", "Second", "Third", "Fourth"],
-        0,
-        "The first option follows from the cited Evidence.",
-    )
-
-    assert first.public_document.question_id != alternate.public_document.question_id
-    assert first.public_document.target_claim_id != alternate.public_document.target_claim_id
-    assert question_reuse_key(first.public_document) == question_reuse_key(
-        alternate.public_document
-    )
 
 
 def test_semantic_identity_ignores_claim_evidence_formatting_and_option_order():
@@ -740,7 +717,7 @@ def test_concurrent_requests_publish_at_most_one_session_semantic_identity(
         dsn=assessment_database_dsn,
     ).concept_states[0]
     assert state.valid_attempts == 0
-    assert state.distinct_item_attempts == 0
+    assert state.qualified_distinct_correct_items == 0
     assert state.observed_evidence_ids == []
     assert state.post_error_improvement is False
 
@@ -860,10 +837,26 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             "multiple_support_risk_threshold": 0.4,
         },
         "novelty": {
-            "decision_rule": "entailment-or-unproven-neutral-reject/v3",
+            "decision_rule": (
+                "publication-independent-mastery-qualification/v1"
+            ),
             "novel_requirement": (
                 "each-prior-no-entailment-and-directional-contradiction/v1"
             ),
+            "qualification_outcomes": {
+                "no_prior": "distinct-mastery-evidence:no-prior/v1",
+                "verified_distinct": (
+                    "distinct-mastery-evidence:verified-distinct/v1"
+                ),
+                "neutral": "distinct-mastery-evidence:neutral/v1",
+                "timeout": "distinct-mastery-evidence:timeout/v1",
+                "invalid_response": (
+                    "distinct-mastery-evidence:invalid-response/v1"
+                ),
+                "unavailable": "distinct-mastery-evidence:unavailable/v1",
+                "unsupported": "distinct-mastery-evidence:unsupported/v1",
+                "over_limit": "distinct-mastery-evidence:over-limit/v1",
+            },
             "maximum_prior_items": 32,
             "request_timeout_seconds": 120,
         },
