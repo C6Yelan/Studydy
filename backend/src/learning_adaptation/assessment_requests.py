@@ -147,11 +147,18 @@ def generate_assessment_for_request(
     expected_event_number: int | None = None
     try:
         learner_id = _learner_id(learner)
-        advisory_key = int.from_bytes(key_digest[:8], "big", signed=True)
+        semantic_lock_key = int.from_bytes(
+            sha256(
+                b"assessment-semantic-novelty:"
+                + study_session_id.bytes
+            ).digest()[:8],
+            "big",
+            signed=True,
+        )
         with database_session(dsn) as session:
             session.execute(
                 text("SELECT pg_advisory_xact_lock(:key)"),
-                {"key": advisory_key},
+                {"key": semantic_lock_key},
             )
             study_session = _read_stored_row(
                 session, learner_id, study_session_id

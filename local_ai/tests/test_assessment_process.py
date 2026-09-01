@@ -11,6 +11,8 @@ from studydy_local_ai.assessment_process import (
     INPUT_TOO_LARGE,
     MAXIMUM_TOKENS,
     AssessmentInputTooLarge,
+    score_novelty,
+    validate_novelty_request,
     score_options,
     serve,
 )
@@ -25,6 +27,9 @@ class _Tokens(dict):
 class _Rows(list):
     def cpu(self):
         return self
+
+    def tolist(self):
+        return list(self)
 
 
 def test_scores_exactly_four_options_with_entailment_probability(monkeypatch):
@@ -137,3 +142,95 @@ def test_child_protocol_returns_explicit_over_limit_rejection(monkeypatch):
         "status": "rejected",
         "reason_code": INPUT_TOO_LARGE,
     }
+
+
+def test_novelty_scores_every_prior_in_both_directions(monkeypatch):
+    calls = []
+
+    class AttentionMask:
+        def sum(self, dim):
+            assert dim == 1
+            return [20, 21, 22, 23]
+
+    class Model:
+        def parameters(self):
+            return iter([SimpleNamespace(device="cuda")])
+
+        def __call__(self, **_tokens):
+            return SimpleNamespace(
+                logits=_Rows(
+                    [
+                        [0.91, 0.05, 0.04],
+                        [0.25, 0.70, 0.05],
+                        [0.89, 0.06, 0.05],
+                        [0.30, 0.05, 0.65],
+                    ]
+                )
+            )
+
+    def tokenizer(left, right, **settings):
+        calls.append((left, right, settings))
+        return _Tokens(attention_mask=AttentionMask())
+
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(
+            inference_mode=nullcontext,
+            softmax=lambda values, dim: values,
+        ),
+    )
+
+    assert score_novelty(
+        Model(), tokenizer, 0, "Candidate", ["Prior A", "Prior B"]
+    ) == [
+        {
+            "candidate_to_prior": 0.91,
+            "prior_to_candidate": 0.89,
+            "candidate_entails_prior": True,
+            "prior_entails_candidate": True,
+            "candidate_contradicts_prior": False,
+            "prior_contradicts_candidate": False,
+        },
+        {
+            "candidate_to_prior": 0.25,
+            "prior_to_candidate": 0.30,
+            "candidate_entails_prior": False,
+            "prior_entails_candidate": False,
+            "candidate_contradicts_prior": False,
+            "prior_contradicts_candidate": True,
+        },
+    ]
+    assert calls == [
+        (
+            ["Candidate", "Candidate", "Prior A", "Prior B"],
+            ["Prior A", "Prior B", "Candidate", "Candidate"],
+            {
+                "truncation": False,
+                "padding": True,
+                "return_tensors": "pt",
+            },
+        )
+    ]
+
+
+def test_novelty_request_is_bounded_and_closed():
+    request = {
+        "schema": "local-assessment-novelty-request/v1",
+        "request_id": "novelty-1",
+        "candidate_focus": "Question and correct answer A",
+        "prior_focuses": ["Question and correct answer B"],
+    }
+    assert validate_novelty_request(request) == {
+        "request_id": "novelty-1",
+        "candidate_focus": "Question and correct answer A",
+        "prior_focuses": ["Question and correct answer B"],
+    }
+    for invalid in (
+        {**request, "candidate_focus": ""},
+        {**request, "prior_focuses": []},
+        {**request, "prior_focuses": ["prior"] * 33},
+        {**request, "semantic_identity": "private"},
+    ):
+        with pytest.raises(assessment_process.ProtocolError):
+            validate_novelty_request(invalid)

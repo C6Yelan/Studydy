@@ -504,6 +504,8 @@ test("Assessment public parser 接受四個選項並拒絕 answer leak", async (
     (value) => { value.correct_option_id = value.options[0].option_id; },
     (value) => { value.private_answer = { option_id: value.options[0].option_id }; },
     (value) => { value.private_generation_provenance = { model: "private" }; },
+    (value) => { value.semantic_identity = "assessment-semantic:sha256:private"; },
+    (value) => { value.semantic_focus = "private answer-bearing focus"; },
   ]) {
     const invalid = structuredClone(phase06Fixtures.success);
     mutation(invalid);

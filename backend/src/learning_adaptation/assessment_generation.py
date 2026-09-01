@@ -26,10 +26,12 @@ from .assessment_items import (
     GENERATION_PROVENANCE_SCHEMA,
     AssessmentError,
     AssessmentDocuments,
+    AssessmentSemanticNovelty,
     StoredAssessment,
+    build_assessment_semantic_novelty,
     build_single_choice_assessment,
     store_assessment,
-    question_reuse_key,
+    used_semantic_novelties,
     used_question_keys,
     validate_assessment_generation_provenance,
 )
@@ -98,6 +100,12 @@ class _ScoredCandidate:
     margin: float
     selected_evidence_margin: float
     maximum_distractor: float
+
+
+@dataclass(frozen=True)
+class _NoveltyComparison:
+    equivalence_score: float
+    is_proven_distinct: bool
 
 
 def _error(reason: str) -> AssessmentGenerationError:
@@ -460,6 +468,96 @@ def _verifier_probabilities(
     return tuple(float(probability) for probability in probabilities)
 
 
+def _novelty_comparisons(
+    process: LocalAIProcess,
+    candidate_focus: str,
+    prior_novelties: tuple[AssessmentSemanticNovelty, ...],
+    request_id: str,
+    timeout_seconds: float,
+) -> tuple[_NoveltyComparison, ...]:
+    response = process.request(
+        {
+            "schema": "local-assessment-novelty-request/v1",
+            "request_id": request_id,
+            "candidate_focus": candidate_focus,
+            "prior_focuses": [
+                novelty.semantic_focus for novelty in prior_novelties
+            ],
+        },
+        timeout_seconds,
+    )
+    rejected = {
+        "schema": "local-assessment-novelty-response/v1",
+        "request_id": request_id,
+        "status": "rejected",
+        "reason_code": "ASSESSMENT_NOVELTY_INPUT_TOO_LARGE",
+    }
+    if response == rejected:
+        raise _error("ASSESSMENT_NOVELTY_INPUT_TOO_LARGE")
+    comparisons = (
+        response.get("comparisons") if isinstance(response, dict) else None
+    )
+    if (
+        not isinstance(response, dict)
+        or set(response) != {"schema", "request_id", "status", "comparisons"}
+        or response.get("schema") != "local-assessment-novelty-response/v1"
+        or response.get("request_id") != request_id
+        or response.get("status") != "scored"
+        or not isinstance(comparisons, list)
+        or len(comparisons) != len(prior_novelties)
+    ):
+        raise _error("ASSESSMENT_VERIFIER_RESPONSE_INVALID")
+    checked_comparisons = []
+    for comparison in comparisons:
+        if not isinstance(comparison, dict) or set(comparison) != {
+            "candidate_to_prior",
+            "prior_to_candidate",
+            "candidate_entails_prior",
+            "prior_entails_candidate",
+            "candidate_contradicts_prior",
+            "prior_contradicts_candidate",
+        }:
+            raise _error("ASSESSMENT_VERIFIER_RESPONSE_INVALID")
+        directions = (
+            comparison["candidate_to_prior"],
+            comparison["prior_to_candidate"],
+        )
+        if any(
+            type(probability) not in {int, float}
+            or probability < 0
+            or probability > 1
+            for probability in directions
+        ):
+            raise _error("ASSESSMENT_VERIFIER_RESPONSE_INVALID")
+        entailment_decisions = (
+            comparison["candidate_entails_prior"],
+            comparison["prior_entails_candidate"],
+        )
+        if any(type(decision) is not bool for decision in entailment_decisions):
+            raise _error("ASSESSMENT_VERIFIER_RESPONSE_INVALID")
+        contradiction_decisions = (
+            comparison["candidate_contradicts_prior"],
+            comparison["prior_contradicts_candidate"],
+        )
+        if any(
+            type(decision) is not bool
+            for decision in contradiction_decisions
+        ):
+            raise _error("ASSESSMENT_VERIFIER_RESPONSE_INVALID")
+        checked_comparisons.append(
+            _NoveltyComparison(
+                equivalence_score=min(
+                    float(probability) for probability in directions
+                ),
+                is_proven_distinct=(
+                    not any(entailment_decisions)
+                    and any(contradiction_decisions)
+                ),
+            )
+        )
+    return tuple(checked_comparisons)
+
+
 def _score_candidate(
     process: LocalAIProcess,
     candidate: _Candidate,
@@ -694,7 +792,12 @@ def _generate_documents(
     settings: dict[str, Any],
     runtime_binding_sha256: str,
     used_questions: frozenset[str],
-) -> tuple[AssessmentDocuments, dict[str, Any]]:
+    prior_novelties: tuple[AssessmentSemanticNovelty, ...] = (),
+) -> tuple[
+    AssessmentDocuments,
+    dict[str, Any],
+    AssessmentSemanticNovelty,
+]:
     assessment_lock = settings["assessment_runtime_lock"]
     proposal_request = _request_document(
         grounding, include_output_language=False
@@ -729,6 +832,8 @@ def _generate_documents(
                     settings,
                     runtime_binding_sha256,
                     used_questions,
+                    prior_novelties,
+                    verifier,
                 )
                 if proposal_choice is None:
                     continue
@@ -765,6 +870,8 @@ def _generate_documents(
                     settings,
                     runtime_binding_sha256,
                     used_questions,
+                    prior_novelties,
+                    verifier,
                     risk_trigger=risk_trigger,
                 )
                 if choice is not None:
@@ -791,10 +898,12 @@ def _generate_documents(
                     settings,
                     runtime_binding_sha256,
                     used_questions,
+                    prior_novelties,
+                    verifier,
                 )
             if choice is None:
                 raise _error("ASSESSMENT_NO_NEW_SAFE_ITEM")
-            selected, documents, provenance, _ = choice
+            _, documents, provenance, _, novelty = choice
             if provenance is None:
                 raise _error("ASSESSMENT_NO_SAFE_CANDIDATE")
             verifier.close()
@@ -818,46 +927,7 @@ def _generate_documents(
         if server is not None:
             server.close()
 
-    return documents, provenance
-
-
-def _build_documents(
-    study_session_id: UUID,
-    knowledge_map_revision: str,
-    grounding: _Grounding,
-    selected: _ScoredCandidate,
-    settings: dict[str, Any],
-    runtime_binding_sha256: str,
-    risk_trigger: float,
-) -> tuple[AssessmentDocuments, dict[str, Any]]:
-    """將已通過semantic gates的candidate deterministic轉成P06-02文件。"""
-
-    (
-        documents,
-        ordered_probabilities,
-        ordered_selected_evidence_probabilities,
-        correct_index,
-        evidence_ids,
-    ) = _candidate_documents(
-        study_session_id,
-        knowledge_map_revision,
-        grounding,
-        selected,
-        settings,
-    )
-    assessment_lock = settings["assessment_runtime_lock"]
-    provenance = _provenance(
-        documents,
-        selected,
-        ordered_probabilities,
-        ordered_selected_evidence_probabilities,
-        correct_index,
-        evidence_ids,
-        runtime_binding_sha256,
-        assessment_lock,
-        risk_trigger,
-    )
-    return documents, provenance
+    return documents, provenance, novelty
 
 
 def _candidate_documents(
@@ -921,6 +991,8 @@ def _first_unused_documents(
     settings: dict[str, Any],
     runtime_binding_sha256: str,
     used_questions: frozenset[str],
+    prior_novelties: tuple[AssessmentSemanticNovelty, ...],
+    semantic_verifier: LocalAIProcess,
     *,
     risk_trigger: float | None = None,
 ) -> tuple[
@@ -928,6 +1000,7 @@ def _first_unused_documents(
     AssessmentDocuments,
     dict[str, Any] | None,
     float,
+    AssessmentSemanticNovelty,
 ] | None:
     for selected in ranked:
         trigger = (
@@ -949,8 +1022,65 @@ def _first_unused_documents(
             settings,
         )
         if documents.public_document.question_id not in used_questions:
-            if question_reuse_key(documents.public_document) in used_questions:
+            novelty_policy = settings["assessment_runtime_lock"]["novelty"]
+            provisional_novelty = build_assessment_semantic_novelty(
+                documents,
+                comparison_policy_revision=novelty_policy["decision_rule"],
+                verifier_model_id=settings["assessment_runtime_lock"][
+                    "shared_models"
+                ]["verifier_model_id"],
+                verifier_revision=settings["assessment_runtime_lock"][
+                    "shared_models"
+                ]["verifier_revision"],
+                compared_semantic_identities=[],
+                maximum_equivalence_score=None,
+                runtime_binding_sha256=runtime_binding_sha256,
+            )
+            if any(
+                prior.semantic_identity == provisional_novelty.semantic_identity
+                for prior in prior_novelties
+            ):
                 continue
+            if len(prior_novelties) > novelty_policy["maximum_prior_items"]:
+                raise _error("ASSESSMENT_NO_NEW_SAFE_ITEM")
+            maximum_equivalence_score = None
+            if prior_novelties:
+                comparisons = _novelty_comparisons(
+                    process=semantic_verifier,
+                    candidate_focus=provisional_novelty.semantic_focus,
+                    prior_novelties=prior_novelties,
+                    request_id=canonical_sha256({
+                        "semantic_identity": provisional_novelty.semantic_identity,
+                        "prior_semantic_identities": [
+                            prior.semantic_identity for prior in prior_novelties
+                        ],
+                    }),
+                    timeout_seconds=novelty_policy["request_timeout_seconds"],
+                )
+                maximum_equivalence_score = max(
+                    comparison.equivalence_score
+                    for comparison in comparisons
+                )
+                if any(
+                    not comparison.is_proven_distinct
+                    for comparison in comparisons
+                ):
+                    continue
+            novelty = build_assessment_semantic_novelty(
+                documents,
+                comparison_policy_revision=novelty_policy["decision_rule"],
+                verifier_model_id=settings["assessment_runtime_lock"][
+                    "shared_models"
+                ]["verifier_model_id"],
+                verifier_revision=settings["assessment_runtime_lock"][
+                    "shared_models"
+                ]["verifier_revision"],
+                compared_semantic_identities=[
+                    prior.semantic_identity for prior in prior_novelties
+                ],
+                maximum_equivalence_score=maximum_equivalence_score,
+                runtime_binding_sha256=runtime_binding_sha256,
+            )
             assessment_lock = settings["assessment_runtime_lock"]
             risky_proposal = (
                 selected.candidate.stage == "proposal"
@@ -974,7 +1104,7 @@ def _first_unused_documents(
                     trigger,
                 )
             )
-            return selected, documents, provenance, trigger
+            return selected, documents, provenance, trigger, novelty
     return None
 
 
@@ -1029,6 +1159,11 @@ def generate_and_store_assessment(
             study_session.study_session_id,
             dsn=dsn,
         )
+        prior_novelties = used_semantic_novelties(
+            learner,
+            study_session.study_session_id,
+            dsn=dsn,
+        )
     except AssessmentGenerationError:
         raise
     except (AssessmentError, MapContextError, StudySessionError):
@@ -1043,13 +1178,14 @@ def generate_and_store_assessment(
         with material_analysis_lock(
             Path(local_config["private_runtime_root"])
         ):
-            documents, provenance = _generate_documents(
+            documents, provenance, novelty = _generate_documents(
                 study_session.study_session_id,
                 study_session.knowledge_map_revision,
                 grounding,
                 settings,
                 runtime_binding["runtime_binding_sha256"],
                 used_questions,
+                prior_novelties,
             )
     except AssessmentGenerationError:
         raise
@@ -1073,6 +1209,7 @@ def generate_and_store_assessment(
                 mode="json", by_alias=True
             ),
             generation_provenance=provenance,
+            semantic_novelty=novelty,
             require_new=True,
             dsn=dsn,
         )

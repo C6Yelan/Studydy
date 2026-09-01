@@ -15,7 +15,7 @@ from runtime.material_processing import (
 
 
 ASSESSMENT_RUNTIME_LOCK_SHA256 = (
-    "0650da8638b8f9ad6c6f6eda50bbf0693028490533b2d75634329bd01411bde0"
+    "091e5e20ff0213cf1dd733394318fca930f957baa450255dfeafa04e4d3b4371"
 )
 _CODE_PATHS = {
     "backend_assessment_generation": (
@@ -84,7 +84,7 @@ def _validate_assessment_runtime_lock(
             and assessment_lock["schema"]
             == "studydy-assessment-runtime-lock/v1"
             and assessment_lock["policy_revision"]
-            == "assessment-generation-policy/v2"
+            == "assessment-generation-policy/v5"
             and assessment_lock["shared_models"]
             == {
                 "semantic_model_id": semantic["model_id"],
@@ -146,12 +146,27 @@ def _validate_assessment_runtime_lock(
                     "margin-descending-candidate-index-ascending/v1"
                 ),
                 "used_identity_scope": (
-                    "study-session-target-claim-question-id/v1"
+                    "study-session-semantic-identity/v2"
                 ),
                 "all_safe_candidates_used": "reject-no-new-safe-item/v1",
                 "repair_exhaustion": (
                     "continue-ranked-safe-proposals/v1"
                 ),
+            }
+            and assessment_lock["novelty"]
+            == {
+                "request_schema": "local-assessment-novelty-request/v1",
+                "response_schema": "local-assessment-novelty-response/v1",
+                "decision_rule": (
+                    "entailment-or-unproven-neutral-reject/v3"
+                ),
+                "novel_requirement": (
+                    "each-prior-no-entailment-and-directional-contradiction/v1"
+                ),
+                "maximum_prior_items": 32,
+                "maximum_pair_tokens": 384,
+                "over_limit_policy": "reject-before-inference/v1",
+                "request_timeout_seconds": 120,
             }
             and assessment_lock["limits"]
             == {

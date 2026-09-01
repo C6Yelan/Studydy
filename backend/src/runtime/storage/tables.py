@@ -422,9 +422,21 @@ class Assessment(Base):
         UniqueConstraint("study_session_id", "question_id"),
         UniqueConstraint(
             "study_session_id",
+            "semantic_identity",
+            name="assessments_session_semantic_identity_unique",
+        ),
+        UniqueConstraint(
+            "study_session_id",
             "assessment_revision",
             "question_id",
             name="assessments_session_revision_question_unique",
+        ),
+        UniqueConstraint(
+            "study_session_id",
+            "assessment_revision",
+            "question_id",
+            "semantic_identity",
+            name="assessments_session_revision_question_semantic_unique",
         ),
         UniqueConstraint("study_session_id", "request_idempotency_key_sha256"),
         ForeignKeyConstraint(
@@ -438,6 +450,10 @@ class Assessment(Base):
             "assessment_revision ~ '^assessment:sha256:[0-9a-f]{64}$'"
         ),
         CheckConstraint("question_id ~ '^question:sha256:[0-9a-f]{64}$'"),
+        CheckConstraint(
+            "semantic_identity ~ "
+            "'^assessment-semantic:sha256:[0-9a-f]{64}$'"
+        ),
         CheckConstraint(
             "target_formal_concept_id ~ '^formal-concept:sha256:[0-9a-f]{64}$'"
         ),
@@ -484,6 +500,16 @@ class Assessment(Base):
             "AND generation_provenance ->> 'question_id' = question_id)"
         ),
         CheckConstraint(
+            "jsonb_typeof(semantic_novelty) = 'object' "
+            "AND semantic_novelty ->> 'schema' = "
+            "'assessment-semantic-novelty/v1' "
+            "AND semantic_novelty ->> 'assessment_revision' = "
+            "assessment_revision "
+            "AND semantic_novelty ->> 'question_id' = question_id "
+            "AND semantic_novelty ->> 'semantic_identity' = "
+            "semantic_identity"
+        ),
+        CheckConstraint(
             "(request_idempotency_key_sha256 IS NULL AND "
             "request_fingerprint IS NULL) OR "
             "(octet_length(request_idempotency_key_sha256) = 32 AND "
@@ -497,6 +523,7 @@ class Assessment(Base):
     )
     knowledge_map_revision: Mapped[str] = mapped_column(Text, nullable=False)
     question_id: Mapped[str] = mapped_column(Text, nullable=False)
+    semantic_identity: Mapped[str] = mapped_column(Text, nullable=False)
     target_formal_concept_id: Mapped[str] = mapped_column(Text, nullable=False)
     target_claim_id: Mapped[str] = mapped_column(Text, nullable=False)
     public_document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
@@ -504,6 +531,9 @@ class Assessment(Base):
         JSONB, nullable=False
     )
     generation_provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    semantic_novelty: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False
+    )
     request_idempotency_key_sha256: Mapped[bytes | None] = mapped_column(
         LargeBinary
     )
@@ -528,17 +558,28 @@ class AnswerEvent(Base):
             ],
         ),
         ForeignKeyConstraint(
-            ["study_session_id", "assessment_revision", "question_id"],
+            [
+                "study_session_id",
+                "assessment_revision",
+                "question_id",
+                "semantic_identity",
+            ],
             [
                 "assessments.study_session_id",
                 "assessments.assessment_revision",
                 "assessments.question_id",
+                "assessments.semantic_identity",
             ],
+            name="answer_events_assessment_semantic_binding",
         ),
         CheckConstraint(
             "assessment_revision ~ '^assessment:sha256:[0-9a-f]{64}$'"
         ),
         CheckConstraint("question_id ~ '^question:sha256:[0-9a-f]{64}$'"),
+        CheckConstraint(
+            "semantic_identity ~ "
+            "'^assessment-semantic:sha256:[0-9a-f]{64}$'"
+        ),
         CheckConstraint(
             "target_formal_concept_id ~ '^formal-concept:sha256:[0-9a-f]{64}$'"
         ),
@@ -561,6 +602,7 @@ class AnswerEvent(Base):
     knowledge_map_revision: Mapped[str] = mapped_column(Text, nullable=False)
     assessment_revision: Mapped[str] = mapped_column(Text, nullable=False)
     question_id: Mapped[str] = mapped_column(Text, nullable=False)
+    semantic_identity: Mapped[str] = mapped_column(Text, nullable=False)
     target_formal_concept_id: Mapped[str] = mapped_column(Text, nullable=False)
     target_claim_id: Mapped[str] = mapped_column(Text, nullable=False)
     selected_option_id: Mapped[str] = mapped_column(Text, nullable=False)

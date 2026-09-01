@@ -54,7 +54,7 @@ def test_assessment_binding_owns_policy_without_material_prompt_identity(
     )
 
     assert binding["schema"] == "assessment-generation-runtime-binding/v1"
-    assert binding["policy_revision"] == "assessment-generation-policy/v2"
+    assert binding["policy_revision"] == "assessment-generation-policy/v5"
     assert binding["assessment_runtime_lock_sha256"] == (
         runtime.ASSESSMENT_RUNTIME_LOCK_SHA256
     )

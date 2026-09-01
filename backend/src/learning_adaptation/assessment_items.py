@@ -37,6 +37,7 @@ PUBLIC_ASSESSMENT_SCHEMA = "single-choice-assessment-public/v1"
 PRIVATE_ANSWER_SCHEMA = "single-choice-assessment-answer/v1"
 ASSESSMENT_POLICY_REVISION = "single-choice-assessment-policy/v1"
 GENERATION_PROVENANCE_SCHEMA = "assessment-generation-provenance/v2"
+SEMANTIC_NOVELTY_SCHEMA = "assessment-semantic-novelty/v1"
 
 _ASSESSMENT_ID = r"^assessment:sha256:[0-9a-f]{64}$"
 _QUESTION_ID = r"^question:sha256:[0-9a-f]{64}$"
@@ -45,6 +46,7 @@ _MAP_ID = r"^knowledge-map:sha256:[0-9a-f]{64}$"
 _CONCEPT_ID = r"^formal-concept:sha256:[0-9a-f]{64}$"
 _CLAIM_ID = r"^claim:sha256:[0-9a-f]{64}$"
 _EVIDENCE_ID = r"^evidence:sha256:[0-9a-f]{64}$"
+_SEMANTIC_ID = r"^assessment-semantic:sha256:[0-9a-f]{64}$"
 
 
 class AssessmentError(RuntimeError):
@@ -230,6 +232,59 @@ class AssessmentGenerationProvenance(BaseModel):
         return value
 
 
+class AssessmentSemanticNovelty(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    schema_: str = Field(
+        alias="schema", pattern=r"^assessment-semantic-novelty/v1$"
+    )
+    assessment_revision: str = Field(pattern=_ASSESSMENT_ID)
+    question_id: str = Field(pattern=_QUESTION_ID)
+    semantic_identity: str = Field(pattern=_SEMANTIC_ID)
+    semantic_focus: str
+    comparison_policy_revision: str
+    verifier_model_id: str
+    verifier_revision: str
+    compared_semantic_identities: list[str]
+    maximum_equivalence_score: float | None = Field(default=None, ge=0, le=1)
+    runtime_binding_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    novelty_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator(
+        "semantic_focus",
+        "comparison_policy_revision",
+        "verifier_model_id",
+        "verifier_revision",
+    )
+    @classmethod
+    def novelty_text_must_not_be_blank(cls, value: str) -> str:
+        if not _normalized_text(value) or len(value) > 4096:
+            raise ValueError("ASSESSMENT_NOVELTY_TEXT_INVALID")
+        return value
+
+    @field_validator("compared_semantic_identities")
+    @classmethod
+    def compared_identities_must_be_unique(
+        cls, value: list[str]
+    ) -> list[str]:
+        if len(value) != len(set(value)) or any(
+            re.fullmatch(_SEMANTIC_ID, semantic_identity) is None
+            for semantic_identity in value
+        ):
+            raise ValueError("ASSESSMENT_NOVELTY_IDENTITIES_INVALID")
+        return value
+
+    @model_validator(mode="after")
+    def comparison_score_must_match_compared_identities(
+        self,
+    ) -> AssessmentSemanticNovelty:
+        if bool(self.compared_semantic_identities) != (
+            self.maximum_equivalence_score is not None
+        ):
+            raise ValueError("ASSESSMENT_NOVELTY_SCORE_INVALID")
+        return self
+
+
 def _private_answer_sha256(
     private_answer_document: PrivateAnswerDocument,
 ) -> str:
@@ -248,6 +303,13 @@ def _generation_provenance_sha256(
     return canonical_sha256(identity)
 
 
+def _semantic_novelty_sha256(novelty: AssessmentSemanticNovelty) -> str:
+    identity = novelty.model_dump(
+        mode="json", by_alias=True, exclude={"novelty_sha256"}
+    )
+    return canonical_sha256(identity)
+
+
 @dataclass(frozen=True)
 class AssessmentDocuments:
     public_document: PublicAssessmentDocument
@@ -260,6 +322,7 @@ class StoredAssessment:
     study_session_id: UUID
     knowledge_map_revision: str
     question_id: str
+    semantic_identity: str
     target_formal_concept_id: str
     target_claim_id: str
     public_document: PublicAssessmentDocument
@@ -267,6 +330,7 @@ class StoredAssessment:
     generation_provenance: AssessmentGenerationProvenance | None = field(
         repr=False
     )
+    semantic_novelty: AssessmentSemanticNovelty = field(repr=False)
     policy_revision: str
     created_at: datetime
 
@@ -305,6 +369,87 @@ def question_reuse_key(
         ),
         "policy_revision": public_document.policy_revision,
     })
+
+
+def _semantic_focus(documents: AssessmentDocuments) -> str:
+    public = documents.public_document
+    private = documents.private_answer_document
+    correct_text = next(
+        option.text
+        for option in public.options
+        if option.option_id == private.correct_option_id
+    )
+    return (
+        f"Question: {_normalized_text(public.prompt)}\n"
+        f"Correct answer: {_normalized_text(correct_text)}"
+    )
+
+
+def _semantic_identity(semantic_focus: str) -> str:
+    normalized_focus = _normalized_text(semantic_focus).casefold()
+    return "assessment-semantic:sha256:" + canonical_sha256(
+        {"semantic_focus": normalized_focus}
+    )
+
+
+def build_assessment_semantic_novelty(
+    documents: AssessmentDocuments,
+    *,
+    comparison_policy_revision: str,
+    verifier_model_id: str,
+    verifier_revision: str,
+    compared_semantic_identities: list[str],
+    maximum_equivalence_score: float | None,
+    runtime_binding_sha256: str,
+) -> AssessmentSemanticNovelty:
+    """建立綁定 private 正解、且不受 Claim 或選項順序影響的題意證據。"""
+
+    focus = _semantic_focus(documents)
+    value = {
+        "schema": SEMANTIC_NOVELTY_SCHEMA,
+        "assessment_revision": documents.public_document.assessment_revision,
+        "question_id": documents.public_document.question_id,
+        "semantic_identity": _semantic_identity(focus),
+        "semantic_focus": focus,
+        "comparison_policy_revision": comparison_policy_revision,
+        "verifier_model_id": verifier_model_id,
+        "verifier_revision": verifier_revision,
+        "compared_semantic_identities": compared_semantic_identities,
+        "maximum_equivalence_score": maximum_equivalence_score,
+        "runtime_binding_sha256": runtime_binding_sha256,
+        "novelty_sha256": "0" * 64,
+    }
+    novelty = AssessmentSemanticNovelty.model_validate(value)
+    novelty = novelty.model_copy(
+        update={"novelty_sha256": _semantic_novelty_sha256(novelty)}
+    )
+    return validate_assessment_semantic_novelty(novelty, documents)
+
+
+def validate_assessment_semantic_novelty(
+    novelty: object,
+    documents: AssessmentDocuments,
+) -> AssessmentSemanticNovelty:
+    """驗證 private semantic focus、identity 與 Assessment 正解完全綁定。"""
+
+    try:
+        checked = AssessmentSemanticNovelty.model_validate(novelty)
+        public = documents.public_document
+        expected_focus = _semantic_focus(documents)
+        if (
+            checked.schema_ != SEMANTIC_NOVELTY_SCHEMA
+            or checked.assessment_revision != public.assessment_revision
+            or checked.question_id != public.question_id
+            or checked.semantic_focus != expected_focus
+            or checked.semantic_identity != _semantic_identity(expected_focus)
+            or checked.semantic_identity
+            in checked.compared_semantic_identities
+            or checked.novelty_sha256 != _semantic_novelty_sha256(checked)
+        ):
+            raise ValueError
+        return checked
+    except (StopIteration, ValidationError, TypeError, ValueError):
+        raise _error("ASSESSMENT_DOCUMENT_INVALID") from None
 
 
 def _expected_option_ids(
@@ -542,12 +687,16 @@ def _stored_assessment(row: Assessment) -> StoredAssessment:
             row.generation_provenance, documents
         )
     )
+    novelty = validate_assessment_semantic_novelty(
+        row.semantic_novelty, documents
+    )
     public = documents.public_document
     if (
         row.assessment_revision != public.assessment_revision
         or row.study_session_id != UUID(public.study_session_id)
         or row.knowledge_map_revision != public.knowledge_map_revision
         or row.question_id != public.question_id
+        or row.semantic_identity != novelty.semantic_identity
         or row.target_formal_concept_id != public.target_formal_concept_id
         or row.target_claim_id != public.target_claim_id
         or row.policy_revision != public.policy_revision
@@ -558,11 +707,13 @@ def _stored_assessment(row: Assessment) -> StoredAssessment:
         study_session_id=row.study_session_id,
         knowledge_map_revision=row.knowledge_map_revision,
         question_id=row.question_id,
+        semantic_identity=row.semantic_identity,
         target_formal_concept_id=row.target_formal_concept_id,
         target_claim_id=row.target_claim_id,
         public_document=public,
         private_answer_document=documents.private_answer_document,
         generation_provenance=provenance,
+        semantic_novelty=novelty,
         policy_revision=row.policy_revision,
         created_at=row.created_at,
     )
@@ -647,12 +798,52 @@ def used_question_keys(
         raise _error("ASSESSMENT_STORAGE_FAILED") from None
 
 
+def used_semantic_novelties(
+    learner: TrustedLearner,
+    study_session_id: UUID,
+    *,
+    dsn: str | None = None,
+) -> tuple[AssessmentSemanticNovelty, ...]:
+    """回傳同一 StudySession 已發布題目的 private semantic evidence。"""
+
+    if not isinstance(study_session_id, UUID):
+        raise _error("ASSESSMENT_UNAVAILABLE")
+    try:
+        learner_id = _learner_id(learner)
+        with database_session(dsn) as session:
+            study_session = _read_stored_row(
+                session, learner_id, study_session_id
+            )
+            _validate_binding(session, study_session)
+            return tuple(
+                _stored_assessment(row).semantic_novelty
+                for row in session.scalars(
+                    select(Assessment)
+                    .where(Assessment.study_session_id == study_session_id)
+                    .order_by(Assessment.created_at, Assessment.assessment_revision)
+                )
+            )
+    except AssessmentError:
+        raise
+    except (StudySessionError, MapContextError):
+        raise _error("ASSESSMENT_UNAVAILABLE") from None
+    except (
+        DatabaseConfigurationError,
+        SQLAlchemyError,
+        ValidationError,
+        TypeError,
+        ValueError,
+    ):
+        raise _error("ASSESSMENT_STORAGE_FAILED") from None
+
+
 def store_assessment(
     learner: TrustedLearner,
     public_document: object,
     private_answer_document: object,
     *,
     generation_provenance: object | None = None,
+    semantic_novelty: object | None = None,
     require_new: bool = False,
     dsn: str | None = None,
 ) -> StoredAssessment:
@@ -668,6 +859,21 @@ def store_assessment(
         if generation_provenance is None
         else validate_assessment_generation_provenance(
             generation_provenance, documents
+        )
+    )
+    checked_novelty = (
+        build_assessment_semantic_novelty(
+            documents,
+            comparison_policy_revision="normalized-exact-focus/v1",
+            verifier_model_id="deterministic-normalization",
+            verifier_revision="normalized-exact-focus/v1",
+            compared_semantic_identities=[],
+            maximum_equivalence_score=None,
+            runtime_binding_sha256="0" * 64,
+        )
+        if semantic_novelty is None
+        else validate_assessment_semantic_novelty(
+            semantic_novelty, documents
         )
     )
     public = documents.public_document
@@ -703,6 +909,7 @@ def store_assessment(
                     study_session_id=study_session_id,
                     knowledge_map_revision=public.knowledge_map_revision,
                     question_id=public.question_id,
+                    semantic_identity=checked_novelty.semantic_identity,
                     target_formal_concept_id=public.target_formal_concept_id,
                     target_claim_id=public.target_claim_id,
                     public_document=public.model_dump(mode="json", by_alias=True),
@@ -717,6 +924,9 @@ def store_assessment(
                         else checked_provenance.model_dump(
                             mode="json", by_alias=True
                         )
+                    ),
+                    semantic_novelty=checked_novelty.model_dump(
+                        mode="json", by_alias=True
                     ),
                     policy_revision=public.policy_revision,
                     created_at=datetime.now(UTC),
@@ -739,6 +949,7 @@ def store_assessment(
                 or stored.private_answer_document
                 != documents.private_answer_document
                 or stored.generation_provenance != checked_provenance
+                or stored.semantic_novelty != checked_novelty
             ):
                 raise _error("ASSESSMENT_CONFLICT")
             return stored

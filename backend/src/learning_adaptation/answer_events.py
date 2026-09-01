@@ -72,6 +72,7 @@ class StoredAnswerEvent:
     knowledge_map_revision: str
     assessment_revision: str
     question_id: str
+    semantic_identity: str
     target_formal_concept_id: str
     target_claim_id: str
     source_evidence_ids: tuple[str, ...]
@@ -149,6 +150,7 @@ def _stored_event(
         or row.knowledge_map_revision != study_session.knowledge_map_revision
         or row.assessment_revision != assessment.assessment_revision
         or row.question_id != assessment.question_id
+        or row.semantic_identity != assessment.semantic_identity
         or row.target_formal_concept_id
         != assessment.target_formal_concept_id
         or row.target_claim_id != assessment.target_claim_id
@@ -168,6 +170,7 @@ def _stored_event(
         knowledge_map_revision=row.knowledge_map_revision,
         assessment_revision=row.assessment_revision,
         question_id=row.question_id,
+        semantic_identity=row.semantic_identity,
         target_formal_concept_id=row.target_formal_concept_id,
         target_claim_id=row.target_claim_id,
         source_evidence_ids=tuple(
@@ -331,6 +334,7 @@ def submit_answer(
                 knowledge_map_revision=study_session.knowledge_map_revision,
                 assessment_revision=assessment.assessment_revision,
                 question_id=assessment.question_id,
+                semantic_identity=assessment.semantic_identity,
                 target_formal_concept_id=assessment.target_formal_concept_id,
                 target_claim_id=assessment.target_claim_id,
                 selected_option_id=selected_option_id,
