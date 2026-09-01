@@ -112,7 +112,7 @@ def _mastery_reason(
             "至少一項必要概念主張的最近一次作答不正確，需要複習。",
         )
     if len(required_claim_ids) == 1 and len(
-        {event.question_id for event in attempts if event.is_correct}
+        {event.semantic_identity for event in attempts if event.is_correct}
     ) < 2:
         return (
             "DISTINCT_ITEM_EVIDENCE_REQUIRED",
@@ -213,7 +213,9 @@ def _concept_state(
         evidence_coverage_complete=required_evidence_ids <= observed_evidence_ids,
         valid_attempts=len(attempts),
         correct_attempts=sum(event.is_correct for event in attempts),
-        distinct_item_attempts=len({event.question_id for event in attempts}),
+        distinct_item_attempts=len(
+            {event.semantic_identity for event in attempts}
+        ),
         recent_result=(
             None
             if not attempts

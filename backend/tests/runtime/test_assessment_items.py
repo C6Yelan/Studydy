@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import shutil
@@ -11,19 +12,25 @@ from psycopg.types.json import Jsonb
 import pytest
 
 import learning_adaptation.assessment_generation as generation_module
+import learning_adaptation.assessment_requests as requests_module
 from learning_adaptation.assessment_generation import (
     AssessmentGenerationError,
     generate_and_store_assessment,
+)
+from learning_adaptation.assessment_requests import (
+    generate_assessment_for_request,
 )
 from learning_adaptation.map_context import (
     ClaimContext,
     EvidenceLocator,
     FormalConceptContext,
 )
+from learning_adaptation.learning_states import derive_learning_state
 from learning_adaptation.assessment_items import (
     ASSESSMENT_POLICY_REVISION,
     GENERATION_PROVENANCE_SCHEMA,
     AssessmentError,
+    build_assessment_semantic_novelty,
     build_single_choice_assessment,
     project_public_assessment,
     question_reuse_key,
@@ -62,6 +69,7 @@ def assessment_database_dsn(
         13,
         14,
         15,
+        16,
     )
     return clean_database_dsn
 
@@ -304,6 +312,9 @@ def test_valid_public_private_round_trip_and_public_projection_has_no_answer_lea
         "prompt_internals",
         "db_path",
         "raw_material_content",
+        "semantic_focus",
+        "semantic_identity",
+        "semantic_novelty",
     ):
         assert forbidden not in serialized
 
@@ -340,6 +351,54 @@ def test_same_semantic_question_on_alternate_claim_has_distinct_identity():
     assert question_reuse_key(first.public_document) == question_reuse_key(
         alternate.public_document
     )
+
+
+def test_semantic_identity_ignores_claim_evidence_formatting_and_option_order():
+    knowledge_map = _knowledge_map()
+    target = knowledge_map["formal_concepts"][0]
+    session_id = uuid4()
+    first = build_single_choice_assessment(
+        session_id,
+        knowledge_map["revision"],
+        target["formal_concept_id"],
+        "claim:sha256:" + "1" * 64,
+        ["evidence:sha256:" + "1" * 64],
+        "  Which statement is grounded?  ",
+        ["Grounded", "Second", "Third", "Fourth"],
+        0,
+        "Grounded is correct.",
+    )
+    alternate = build_single_choice_assessment(
+        session_id,
+        knowledge_map["revision"],
+        target["formal_concept_id"],
+        "claim:sha256:" + "2" * 64,
+        ["evidence:sha256:" + "2" * 64],
+        "which statement is grounded?",
+        ["Fourth", "Third", "Grounded", "Second"],
+        2,
+        "Grounded is correct.",
+    )
+    arguments = {
+        "comparison_policy_revision": (
+            "bidirectional-entailment-equivalence/v1"
+        ),
+        "verifier_model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
+        "verifier_revision": "8" * 40,
+        "entailment_threshold": 0.8,
+        "compared_semantic_identities": [],
+        "maximum_equivalence_score": None,
+    }
+    first_novelty = build_assessment_semantic_novelty(
+        first, runtime_binding_sha256="3" * 64, **arguments
+    )
+    alternate_novelty = build_assessment_semantic_novelty(
+        alternate, runtime_binding_sha256="4" * 64, **arguments
+    )
+
+    assert first.public_document.question_id != alternate.public_document.question_id
+    assert first_novelty.semantic_identity == alternate_novelty.semantic_identity
+    assert first_novelty.novelty_sha256 != alternate_novelty.novelty_sha256
 
 
 def test_four_private_answers_and_predictable_rationales_have_identical_public_bytes():
@@ -559,6 +618,134 @@ def test_store_read_replay_conflict_and_private_document_separation(
     assert _assessment_count(assessment_database_dsn) == 1
 
 
+def test_database_allows_only_one_semantic_identity_per_study_session(
+    assessment_database_dsn: str,
+):
+    learner, knowledge_map, _, study_session = _active_study_session(
+        assessment_database_dsn
+    )
+    first = _documents(study_session, knowledge_map)
+    first_public, first_private = _documents_as_dicts(first)
+    stored = store_assessment(
+        learner,
+        first_public,
+        first_private,
+        require_new=True,
+        dsn=assessment_database_dsn,
+    )
+    reordered = _documents(
+        study_session,
+        knowledge_map,
+        prompt="  which statement matches the grounded claim? ",
+        option_texts=[
+            "Opposite distractor",
+            "Grounded answer",
+            "Unrelated distractor",
+            "Plausible distractor",
+        ],
+        correct_option_index=1,
+    )
+    reordered_public, reordered_private = _documents_as_dicts(reordered)
+
+    assert stored.question_id != reordered.public_document.question_id
+    with pytest.raises(AssessmentError, match="^ASSESSMENT_NO_NEW_ITEM$"):
+        store_assessment(
+            learner,
+            reordered_public,
+            reordered_private,
+            require_new=True,
+            dsn=assessment_database_dsn,
+        )
+    assert _assessment_count(assessment_database_dsn) == 1
+
+    other_learner, other_map, _, other_session = _active_study_session(
+        assessment_database_dsn
+    )
+    other = _documents(other_session, other_map)
+    other_public, other_private = _documents_as_dicts(other)
+    assert store_assessment(
+        other_learner,
+        other_public,
+        other_private,
+        require_new=True,
+        dsn=assessment_database_dsn,
+    ).semantic_identity == stored.semantic_identity
+    assert _assessment_count(assessment_database_dsn) == 2
+
+
+def test_concurrent_requests_publish_at_most_one_session_semantic_identity(
+    assessment_database_dsn: str,
+    monkeypatch,
+):
+    learner, knowledge_map, _, study_session = _active_study_session(
+        assessment_database_dsn
+    )
+    documents = _documents(study_session, knowledge_map)
+    public, private = _documents_as_dicts(documents)
+
+    def store_same_candidate(*_args, **_kwargs):
+        try:
+            return store_assessment(
+                learner,
+                public,
+                private,
+                require_new=True,
+                dsn=assessment_database_dsn,
+            )
+        except AssessmentError as error:
+            if str(error) == "ASSESSMENT_NO_NEW_ITEM":
+                raise AssessmentGenerationError(
+                    "ASSESSMENT_NO_NEW_SAFE_ITEM"
+                ) from None
+            raise
+
+    monkeypatch.setattr(
+        requests_module,
+        "generate_and_store_assessment",
+        store_same_candidate,
+    )
+
+    def request(key: str):
+        try:
+            return generate_assessment_for_request(
+                learner,
+                study_session.study_session_id,
+                knowledge_map["formal_concepts"][0]["claims"][0]["claim_id"],
+                {},
+                key,
+                dsn=assessment_database_dsn,
+            )
+        except AssessmentGenerationError as error:
+            return str(error)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(request, ("request-a", "request-b")))
+
+    assert sum(not isinstance(outcome, str) for outcome in outcomes) == 1
+    assert outcomes.count("ASSESSMENT_NO_NEW_SAFE_ITEM") == 1
+    assert _assessment_count(assessment_database_dsn) == 1
+    with psycopg.connect(assessment_database_dsn) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM answer_events"
+        ).fetchone() == (0,)
+        assert connection.execute(
+            """
+            SELECT last_event_number
+            FROM study_sessions WHERE study_session_id = %s
+            """,
+            (study_session.study_session_id,),
+        ).fetchone() == (0,)
+    state = derive_learning_state(
+        learner,
+        study_session.study_session_id,
+        dsn=assessment_database_dsn,
+    ).concept_states[0]
+    assert state.valid_attempts == 0
+    assert state.distinct_item_attempts == 0
+    assert state.observed_evidence_ids == []
+    assert state.post_error_improvement is False
+
+
 def test_generation_provenance_is_private_bound_and_tamper_evident(
     assessment_database_dsn: str,
 ):
@@ -673,6 +860,12 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             "entailment_margin_threshold": 0.1,
             "multiple_support_risk_threshold": 0.4,
         },
+        "novelty": {
+            "decision_rule": "bidirectional-entailment-equivalence/v1",
+            "bidirectional_entailment_threshold": 0.8,
+            "maximum_prior_items": 32,
+            "request_timeout_seconds": 120,
+        },
         "limits": {"maximum_evidence_characters": 32768},
     }
     local_config = {
@@ -688,6 +881,19 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
 
     class Verifier:
         def request(self, request, _timeout):
+            if request["schema"] == "local-assessment-novelty-request/v1":
+                return {
+                    "schema": "local-assessment-novelty-response/v1",
+                    "request_id": request["request_id"],
+                    "status": "scored",
+                    "comparisons": [
+                        {
+                            "candidate_to_prior": 0.1,
+                            "prior_to_candidate": 0.1,
+                        }
+                        for _ in request["prior_focuses"]
+                    ],
+                }
             scores = {
                 "Canonical Evidence 1": [0.9, 0.1, 0.1, 0.1],
                 "Canonical Evidence 2": [0.6, 0.2, 0.2, 0.2],

@@ -81,6 +81,7 @@ def processing_database_dsn(
         13,
         14,
         15,
+        16,
     )
     with psycopg.connect(clean_database_dsn) as connection:
         for table in ("material_processing_runs", *_DOMAIN_TABLES):
@@ -199,6 +200,7 @@ def test_populated_migration_five_deletes_v2_terminal_runs_on_forward_upgrade(
         13,
         14,
         15,
+        16,
     )
 
     with psycopg.connect(clean_database_dsn) as connection:

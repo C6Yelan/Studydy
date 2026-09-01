@@ -30,7 +30,7 @@ def answer_database_dsn(
 ) -> str:
     assert run_migrations(
         clean_database_dsn, migrations_dir=migrations_dir
-    ) == tuple(range(1, 16))
+) == tuple(range(1, 17))
     return clean_database_dsn
 
 
@@ -82,6 +82,7 @@ def test_submission_scores_server_side_and_feedback_keeps_answer_private(
     assert submitted.event.knowledge_map_revision == study_session.knowledge_map_revision
     assert submitted.event.target_formal_concept_id == assessment.target_formal_concept_id
     assert submitted.event.target_claim_id == assessment.target_claim_id
+    assert submitted.event.semantic_identity == assessment.semantic_identity
     assert submitted.event.is_correct is True
     assert submitted.event.event_number == 1
     feedback = submitted.feedback.model_dump(mode="json", by_alias=True)
@@ -91,6 +92,8 @@ def test_submission_scores_server_side_and_feedback_keeps_answer_private(
     assert "correct_option_id" not in json.dumps(feedback)
     assert "private_answer_sha256" not in json.dumps(feedback)
     assert "generation_provenance" not in json.dumps(feedback)
+    assert "semantic_identity" not in json.dumps(feedback)
+    assert "semantic_focus" not in json.dumps(feedback)
     assert len(read_answer_events(
         learner, study_session.study_session_id, dsn=answer_database_dsn
     )) == 1
@@ -277,12 +280,13 @@ def test_database_rejects_event_assessment_and_sequence_mismatch(
                 """
                 INSERT INTO answer_events (
                     answer_event_id, study_session_id, material_id,
-                    knowledge_map_revision, assessment_revision, question_id,
-                    target_formal_concept_id, target_claim_id,
+                        knowledge_map_revision, assessment_revision, question_id,
+                        semantic_identity,
+                        target_formal_concept_id, target_claim_id,
                     selected_option_id, is_correct, event_number,
                     idempotency_key_sha256, request_fingerprint, created_at
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, true, 1,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, true, 1,
                     decode(%s, 'hex'), decode(%s, 'hex'), statement_timestamp()
                 )
                 """,
@@ -292,7 +296,8 @@ def test_database_rejects_event_assessment_and_sequence_mismatch(
                     material_id,
                     study_session.knowledge_map_revision,
                     assessment.assessment_revision,
-                    "question:sha256:" + "9" * 64,
+                        "question:sha256:" + "9" * 64,
+                        assessment.semantic_identity,
                     assessment.target_formal_concept_id,
                     assessment.target_claim_id,
                     assessment.private_answer_document.correct_option_id,

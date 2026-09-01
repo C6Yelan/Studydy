@@ -93,6 +93,12 @@ def _policy() -> dict:
             "entailment_margin_threshold": 0.1,
             "multiple_support_risk_threshold": 0.4,
         },
+        "novelty": {
+            "decision_rule": "bidirectional-entailment-equivalence/v1",
+            "bidirectional_entailment_threshold": 0.8,
+            "maximum_prior_items": 32,
+            "request_timeout_seconds": 120,
+        },
         "limits": {"maximum_evidence_characters": 32768},
     }
 
@@ -169,12 +175,33 @@ class _Server:
 
 
 class _Verifier:
-    def __init__(self, scores: dict[str, list[float]]) -> None:
+    def __init__(
+        self,
+        scores: dict[str, list[float]],
+        *,
+        novelty_score: float = 0.1,
+    ) -> None:
         self.scores = scores
+        self.novelty_score = novelty_score
+        self.novelty_requests = 0
         self.closed = False
         self.aborted = False
 
     def request(self, request, _timeout):
+        if request["schema"] == "local-assessment-novelty-request/v1":
+            self.novelty_requests += 1
+            return {
+                "schema": "local-assessment-novelty-response/v1",
+                "request_id": request["request_id"],
+                "status": "scored",
+                "comparisons": [
+                    {
+                        "candidate_to_prior": self.novelty_score,
+                        "prior_to_candidate": self.novelty_score,
+                    }
+                    for _ in request["prior_focuses"]
+                ],
+            }
         return {
             "schema": "local-assessment-verifier-response/v2",
             "request_id": request["request_id"],
@@ -242,7 +269,7 @@ def test_safe_proposal_builds_contract_and_private_provenance(monkeypatch):
         generation, "_request_stage", lambda *args, **kwargs: _proposal_document()
     )
 
-    documents, provenance = _generate_documents(
+    documents, provenance, novelty = _generate_documents(
         uuid4(),
         _identifier("knowledge-map", "8"),
         _grounded(),
@@ -255,6 +282,7 @@ def test_safe_proposal_builds_contract_and_private_provenance(monkeypatch):
     assert provenance["selected_stage"] == "proposal"
     assert provenance["selected_candidate_index"] == 1
     assert provenance["multiple_support_risk"] is False
+    assert novelty.compared_semantic_identities == []
     assert documents.public_document.source_evidence_ids == [
         _identifier("evidence", "1")
     ]
@@ -287,7 +315,7 @@ def test_empty_validated_proposals_use_existing_repair_stage(monkeypatch):
         generation, "_request_stage", lambda *args, **kwargs: next(responses)
     )
 
-    _, provenance = _generate_documents(
+    _, provenance, _ = _generate_documents(
         uuid4(),
         _identifier("knowledge-map", "8"),
         _grounded(),
@@ -322,7 +350,7 @@ def test_repeated_generation_selects_unused_safe_candidate_then_fails_closed(
     used = set()
 
     for expected_candidate_index in (1, 0, 2):
-        documents, provenance = _generate_documents(
+        documents, provenance, _ = _generate_documents(
             session_id,
             _identifier("knowledge-map", "8"),
             _grounded(),
@@ -383,7 +411,7 @@ def test_exhausted_risky_repairs_do_not_block_lower_safe_proposals(monkeypatch):
     selected = []
 
     for _ in range(5):
-        documents, provenance = _generate_documents(
+        documents, provenance, _ = _generate_documents(
             session_id,
             _identifier("knowledge-map", "8"),
             _grounded(),
@@ -452,6 +480,109 @@ def test_verifier_over_token_boundary_rejects_before_selection(monkeypatch):
             "9" * 64,
             frozenset(),
         )
+
+
+def test_semantic_duplicate_is_rejected_before_selection_and_calls_are_bounded(
+    monkeypatch,
+):
+    scores = {
+        "Supported answer 0": [0.55, 0.2, 0.1, 0.1],
+        "Supported answer 1": [0.9, 0.1, 0.1, 0.1],
+        "Supported answer 2": [0.6, 0.3, 0.2, 0.1],
+        "The first element is stored at stack[0].": [
+            0.99,
+            0.01,
+            0.01,
+            0.01,
+        ],
+    }
+    first_verifier = _Verifier(scores)
+    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
+    monkeypatch.setattr(
+        generation, "start_assessment_process", lambda *_: first_verifier
+    )
+    monkeypatch.setattr(
+        generation, "_request_stage", lambda *args, **kwargs: _proposal_document()
+    )
+    session_id = uuid4()
+    _, _, first_novelty = _generate_documents(
+        session_id,
+        _identifier("knowledge-map", "8"),
+        _grounded(),
+        _settings(),
+        "9" * 64,
+        frozenset(),
+    )
+
+    duplicate_verifier = _Verifier(scores, novelty_score=0.8)
+    monkeypatch.setattr(
+        generation, "start_assessment_process", lambda *_: duplicate_verifier
+    )
+    monkeypatch.setattr(
+        generation,
+        "_request_stage",
+        lambda _client, _settings, stage, *_: (
+            _repair_document()
+            if stage["prompt"] == "repair"
+            else _proposal_document()
+        ),
+    )
+    with pytest.raises(
+        AssessmentGenerationError, match="^ASSESSMENT_NO_NEW_SAFE_ITEM$"
+    ):
+        _generate_documents(
+            session_id,
+            _identifier("knowledge-map", "8"),
+            _grounded(),
+            _settings(),
+            "9" * 64,
+            frozenset(),
+            (first_novelty,),
+        )
+
+    assert duplicate_verifier.novelty_requests <= 6
+
+
+def test_semantically_distinct_candidate_remains_selectable(monkeypatch):
+    verifier = _Verifier(
+        {
+            "Supported answer 0": [0.55, 0.2, 0.1, 0.1],
+            "Supported answer 1": [0.9, 0.1, 0.1, 0.1],
+            "Supported answer 2": [0.6, 0.3, 0.2, 0.1],
+        },
+        novelty_score=0.79,
+    )
+    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
+    monkeypatch.setattr(
+        generation, "start_assessment_process", lambda *_: verifier
+    )
+    monkeypatch.setattr(
+        generation, "_request_stage", lambda *args, **kwargs: _proposal_document()
+    )
+    session_id = uuid4()
+    first_documents, _, first_novelty = _generate_documents(
+        session_id,
+        _identifier("knowledge-map", "8"),
+        _grounded(),
+        _settings(),
+        "9" * 64,
+        frozenset(),
+    )
+    documents, _, novelty = _generate_documents(
+        session_id,
+        _identifier("knowledge-map", "8"),
+        _grounded(),
+        _settings(),
+        "9" * 64,
+        frozenset({first_documents.public_document.question_id}),
+        (first_novelty,),
+    )
+
+    assert (
+        documents.public_document.question_id
+        != first_documents.public_document.question_id
+    )
+    assert novelty.maximum_equivalence_score == 0.79
 
 
 def test_selected_evidence_must_independently_support_correct_option():
@@ -549,7 +680,7 @@ def test_multiple_supported_risk_requires_passing_repair(monkeypatch):
         generation, "_request_stage", lambda *args, **kwargs: next(responses)
     )
 
-    _, provenance = _generate_documents(
+    _, provenance, _ = _generate_documents(
         uuid4(),
         _identifier("knowledge-map", "8"),
         _grounded(),
@@ -581,7 +712,7 @@ def test_failed_repair_never_promotes_risky_proposal(monkeypatch):
         generation, "_request_stage", lambda *args, **kwargs: next(responses)
     )
 
-    _, provenance = _generate_documents(
+    _, provenance, _ = _generate_documents(
         uuid4(),
         _identifier("knowledge-map", "8"),
         _grounded(),

@@ -19,12 +19,16 @@ MAXIMUM_TOKENS = 384
 ASSESSMENT_REQUEST_SCHEMA = "local-assessment-verifier-request/v1"
 ASSESSMENT_RESPONSE_SCHEMA = "local-assessment-verifier-response/v2"
 ASSESSMENT_STARTUP_SCHEMA = "local-assessment-verifier-startup/v1"
+NOVELTY_REQUEST_SCHEMA = "local-assessment-novelty-request/v1"
+NOVELTY_RESPONSE_SCHEMA = "local-assessment-novelty-response/v1"
 MAX_ASSESSMENT_REQUEST_BYTES = 128 * 1024
 MAX_ASSESSMENT_RESPONSE_BYTES = 4096
 DEPENDENCY_MISSING = "ASSESSMENT_VERIFIER_DEPENDENCY_MISSING"
 CUDA_UNAVAILABLE = "ASSESSMENT_VERIFIER_CUDA_UNAVAILABLE"
 MODEL_LOAD_FAILED = "ASSESSMENT_VERIFIER_MODEL_LOAD_FAILED"
 INPUT_TOO_LARGE = "ASSESSMENT_VERIFIER_INPUT_TOO_LARGE"
+NOVELTY_INPUT_TOO_LARGE = "ASSESSMENT_NOVELTY_INPUT_TOO_LARGE"
+MAXIMUM_PRIOR_SEMANTIC_FOCUSES = 32
 _REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
 
@@ -74,6 +78,39 @@ def validate_assessment_request(request: Any) -> dict[str, Any]:
         "request_id": request["request_id"],
         "premise": premise,
         "options": options,
+    }
+
+
+def validate_novelty_request(request: Any) -> dict[str, Any]:
+    if (
+        not isinstance(request, dict)
+        or set(request)
+        != {"schema", "request_id", "candidate_focus", "prior_focuses"}
+        or request.get("schema") != NOVELTY_REQUEST_SCHEMA
+        or not isinstance(request.get("request_id"), str)
+        or _REQUEST_ID.fullmatch(request["request_id"]) is None
+    ):
+        raise ProtocolError("CHILD_REQUEST_INVALID")
+    candidate_focus = request.get("candidate_focus")
+    prior_focuses = request.get("prior_focuses")
+    if (
+        not isinstance(candidate_focus, str)
+        or not candidate_focus.strip()
+        or len(candidate_focus) > 4096
+        or not isinstance(prior_focuses, list)
+        or not 1 <= len(prior_focuses) <= MAXIMUM_PRIOR_SEMANTIC_FOCUSES
+        or any(
+            not isinstance(focus, str)
+            or not focus.strip()
+            or len(focus) > 4096
+            for focus in prior_focuses
+        )
+    ):
+        raise ProtocolError("CHILD_REQUEST_INVALID")
+    return {
+        "request_id": request["request_id"],
+        "candidate_focus": candidate_focus,
+        "prior_focuses": prior_focuses,
     }
 
 
@@ -151,6 +188,51 @@ def score_options(
     return values
 
 
+def score_novelty(
+    model: Any,
+    tokenizer: Any,
+    entailment_index: int,
+    candidate_focus: str,
+    prior_focuses: list[str],
+) -> list[dict[str, float]]:
+    """一次 bounded batch 比較候選與所有既有題意的雙向 entailment。"""
+
+    import torch
+
+    pair_count = len(prior_focuses)
+    tokens = tokenizer(
+        [candidate_focus] * pair_count + prior_focuses,
+        prior_focuses + [candidate_focus] * pair_count,
+        truncation=False,
+        padding=True,
+        return_tensors="pt",
+    )
+    try:
+        token_lengths = [
+            int(length)
+            for length in tokens["attention_mask"].sum(dim=1)
+        ]
+    except (AttributeError, KeyError, TypeError, ValueError):
+        raise ValueError("MODEL_OUTPUT_INVALID") from None
+    if any(length > MAXIMUM_TOKENS for length in token_lengths):
+        raise AssessmentInputTooLarge
+    tokens = tokens.to(next(model.parameters()).device)
+    with torch.inference_mode():
+        probabilities = torch.softmax(model(**tokens).logits, dim=-1).cpu()
+    entailments = [float(row[entailment_index]) for row in probabilities]
+    if len(entailments) != pair_count * 2 or any(
+        value < 0 or value > 1 for value in entailments
+    ):
+        raise ValueError("MODEL_OUTPUT_INVALID")
+    return [
+        {
+            "candidate_to_prior": entailments[index],
+            "prior_to_candidate": entailments[index + pair_count],
+        }
+        for index in range(pair_count)
+    ]
+
+
 def _write_startup(*, reason_code: str | None = None) -> None:
     response = {
         "schema": ASSESSMENT_STARTUP_SCHEMA,
@@ -166,27 +248,55 @@ def serve(model: Any, tokenizer: Any, entailment_index: int) -> None:
         request = read_ndjson(sys.stdin.buffer, MAX_ASSESSMENT_REQUEST_BYTES)
         if request is None:
             return
-        checked = validate_assessment_request(request)
+        is_novelty = request.get("schema") == NOVELTY_REQUEST_SCHEMA
+        checked = (
+            validate_novelty_request(request)
+            if is_novelty
+            else validate_assessment_request(request)
+        )
         try:
-            probabilities = score_options(
-                model,
-                tokenizer,
-                entailment_index,
-                checked["premise"],
-                checked["options"],
-            )
-            response = {
-                "schema": ASSESSMENT_RESPONSE_SCHEMA,
-                "request_id": checked["request_id"],
-                "status": "scored",
-                "entailment_probabilities": probabilities,
-            }
+            if is_novelty:
+                comparisons = score_novelty(
+                    model,
+                    tokenizer,
+                    entailment_index,
+                    checked["candidate_focus"],
+                    checked["prior_focuses"],
+                )
+                response = {
+                    "schema": NOVELTY_RESPONSE_SCHEMA,
+                    "request_id": checked["request_id"],
+                    "status": "scored",
+                    "comparisons": comparisons,
+                }
+            else:
+                probabilities = score_options(
+                    model,
+                    tokenizer,
+                    entailment_index,
+                    checked["premise"],
+                    checked["options"],
+                )
+                response = {
+                    "schema": ASSESSMENT_RESPONSE_SCHEMA,
+                    "request_id": checked["request_id"],
+                    "status": "scored",
+                    "entailment_probabilities": probabilities,
+                }
         except AssessmentInputTooLarge:
             response = {
-                "schema": ASSESSMENT_RESPONSE_SCHEMA,
+                "schema": (
+                    NOVELTY_RESPONSE_SCHEMA
+                    if is_novelty
+                    else ASSESSMENT_RESPONSE_SCHEMA
+                ),
                 "request_id": checked["request_id"],
                 "status": "rejected",
-                "reason_code": INPUT_TOO_LARGE,
+                "reason_code": (
+                    NOVELTY_INPUT_TOO_LARGE
+                    if is_novelty
+                    else INPUT_TOO_LARGE
+                ),
             }
         write_ndjson(
             sys.stdout.buffer, response, MAX_ASSESSMENT_RESPONSE_BYTES
