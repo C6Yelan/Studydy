@@ -44,7 +44,6 @@ AdaptiveAction = Literal[
     "continue",
     "practice",
     "review",
-    "relearn_prerequisite",
     "use_resource",
     "follow_path",
     "collect_more_data",
@@ -106,7 +105,6 @@ class AdaptivePlanSnapshot(BaseModel):
     no_safe_deferred_formal_concept_ids: list[str]
     primary_step: AdaptiveStep
     fallback_reason: Literal[
-        "UNMASTERED_IMMEDIATE_PREREQUISITE",
         "CURRENT_OBSERVED_WEAKNESS",
         "CURRENT_NEEDS_REVIEW",
         "RETURN_DEFERRED_TARGET",
@@ -115,7 +113,6 @@ class AdaptivePlanSnapshot(BaseModel):
         "NO_CURRENT_TARGET_FOLLOW_PATH",
         "ALL_CONCEPTS_MASTERED",
         "NO_SAFE_ADVANCE",
-        "NO_SAFE_PREREQUISITE_BLOCKED",
         "NO_SAFE_TARGET_AVAILABLE",
         "RETURN_NO_SAFE_DEFERRED_TARGET",
     ]
@@ -235,34 +232,6 @@ def _choose_primary_step(
         state.formal_concept_id: state
         for state in learning_state.concept_states
     }
-    path_order = {
-        concept_id: index
-        for index, concept_id in enumerate(context.initial_learning_path)
-    }
-    if weakness.immediate_prerequisite_gaps:
-        gap = min(
-            weakness.immediate_prerequisite_gaps,
-            key=lambda item: (
-                path_order.get(item.prerequisite_formal_concept_id, 10**9),
-                item.prerequisite_formal_concept_id,
-            ),
-        )
-        prerequisite = concepts[gap.prerequisite_formal_concept_id]
-        prerequisite_state = states[prerequisite.formal_concept_id]
-        return (
-            _step(
-                study_session.study_session_id,
-                "relearn_prerequisite",
-                prerequisite,
-                "先補強尚未掌握、需要先理解的基礎概念，再回到目前目標。",
-                prerequisite_state.confidence,
-                prerequisite_state.claim_coverage_complete,
-                [prerequisite.formal_concept_id],
-                include_resource=True,
-            ),
-            "UNMASTERED_IMMEDIATE_PREREQUISITE",
-        )
-
     current_id = study_session.current_formal_concept_id
     no_safe_claim_ids = set(study_session.no_safe_claim_ids)
     no_safe_concept_ids = {
@@ -273,15 +242,6 @@ def _choose_primary_step(
     deferred_no_safe_ids = set(
         study_session.no_safe_deferred_formal_concept_ids
     )
-
-    def prerequisites_are_mastered(concept_id: str) -> bool:
-        return all(
-            states[relation.source_formal_concept_id].status == "mastered"
-            for relation in context.relations
-            if relation.relation_type == "prerequisite"
-            and not relation.is_in_prerequisite_cycle
-            and relation.target_formal_concept_id == concept_id
-        )
 
     if current_id in no_safe_concept_ids:
         current_index = context.initial_learning_path.index(current_id)
@@ -306,7 +266,7 @@ def _choose_primary_step(
                 ),
                 None,
             )
-            if resume_id is not None and prerequisites_are_mastered(resume_id):
+            if resume_id is not None:
                 resumed = concepts[resume_id]
                 resumed_state = states[resume_id]
                 return (
@@ -332,19 +292,6 @@ def _choose_primary_step(
                     [current_id],
                 ),
                 "NO_SAFE_TARGET_AVAILABLE",
-            )
-        if not prerequisites_are_mastered(next_id):
-            return (
-                _step(
-                    study_session.study_session_id,
-                    "no_action",
-                    None,
-                    "下一個教材重點仍有尚未掌握的先備概念，現在不能略過。",
-                    "supported",
-                    False,
-                    [current_id],
-                ),
-                "NO_SAFE_PREREQUISITE_BLOCKED",
             )
         target = concepts[next_id]
         target_state = states[next_id]
@@ -414,7 +361,7 @@ def _choose_primary_step(
             ),
             None,
         )
-        if resume_id is not None and prerequisites_are_mastered(resume_id):
+        if resume_id is not None:
             resumed = concepts[resume_id]
             resumed_state = states[resume_id]
             return (
@@ -443,7 +390,7 @@ def _choose_primary_step(
                 study_session.study_session_id,
                 "continue",
                 deferred,
-                "先修概念已掌握，現在回到原本暫緩的學習目標。",
+                "目前概念已掌握，現在回到原本暫緩的學習目標。",
                 deferred_state.confidence,
                 deferred_state.claim_coverage_complete,
                 [current_id, deferred_id],
@@ -466,12 +413,12 @@ def _choose_primary_step(
                     study_session.study_session_id,
                     "no_action",
                     None,
-                    "先前暫緩的教材重點仍有尚未掌握的先備概念，現在不能返回。",
+                    "先前暫緩的教材重點目前無法安全返回。",
                     "supported",
                     False,
                     [current_id, blocked_deferred_id],
                 ),
-                "NO_SAFE_PREREQUISITE_BLOCKED",
+                "NO_SAFE_TARGET_AVAILABLE",
             )
         return (
             _step(
@@ -682,10 +629,7 @@ def record_no_safe_assessment(
             study_session.last_applied_adaptive_plan_revision = None
             study_session.last_applied_session_state_sha256 = None
             plan = _derive_in_session(session, study_session)
-            if plan.fallback_reason in {
-                "NO_SAFE_PREREQUISITE_BLOCKED",
-                "NO_SAFE_TARGET_AVAILABLE",
-            }:
+            if plan.fallback_reason == "NO_SAFE_TARGET_AVAILABLE":
                 study_session.status = "no_safe"
             session.flush()
             _validate_binding(session, study_session)
@@ -745,13 +689,7 @@ def apply_adaptive_plan(
             if plan.adaptive_plan_revision != adaptive_plan_revision:
                 raise _error("ADAPTIVE_PLAN_STALE")
             target_id = plan.primary_step.target_formal_concept_id
-            if plan.primary_step.action == "relearn_prerequisite":
-                if study_session.deferred_formal_concept_id is None:
-                    study_session.deferred_formal_concept_id = (
-                        plan.current_formal_concept_id
-                    )
-                study_session.current_formal_concept_id = target_id
-            elif plan.primary_step.action == "defer":
+            if plan.primary_step.action == "defer":
                 if target_id is None or plan.current_formal_concept_id is None:
                     raise _error("ADAPTIVE_PLAN_UNAVAILABLE")
                 deferred_ids = list(
@@ -855,7 +793,6 @@ def project_suggestion(plan: AdaptivePlanSnapshot) -> Suggestion:
         "collect_more_data",
         "practice",
         "review",
-        "relearn_prerequisite",
         "defer",
     }:
         fallback_action = "collect_more_data"

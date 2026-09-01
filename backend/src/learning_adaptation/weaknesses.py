@@ -31,7 +31,7 @@ from .study_sessions import (
 
 
 class WeaknessError(RuntimeError):
-    """Weakness 或 immediate prerequisite evidence 無法安全推導。"""
+    """Weakness 無法安全推導。"""
 
 
 class WeaknessFinding(BaseModel):
@@ -48,29 +48,6 @@ class WeaknessFinding(BaseModel):
     claim_coverage_complete: bool
     supporting_answer_event_ids: list[UUID]
     remediation_intent: Literal["practice", "review", "collect_more_data"]
-    reason: str = Field(min_length=1)
-
-
-class ImmediatePrerequisiteGap(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    category: Literal["possible_prerequisite_gap"]
-    target_formal_concept_id: str = Field(
-        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$"
-    )
-    prerequisite_formal_concept_id: str = Field(
-        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$"
-    )
-    prerequisite_label: str = Field(min_length=1)
-    relation_id: str = Field(
-        pattern=r"^formal-relation:sha256:[0-9a-f]{64}$"
-    )
-    prerequisite_status: Literal[
-        "not_started", "learning", "needs_review", "mastered"
-    ]
-    prerequisite_confidence: Literal["none", "limited", "supported"]
-    supporting_answer_event_ids: list[UUID]
-    remediation_intent: Literal["relearn_prerequisite"]
     reason: str = Field(min_length=1)
 
 
@@ -91,7 +68,6 @@ class WeaknessSnapshot(BaseModel):
         pattern=r"^weakness:sha256:[0-9a-f]{64}$"
     )
     findings: list[WeaknessFinding]
-    immediate_prerequisite_gaps: list[ImmediatePrerequisiteGap]
 
 
 def _error(reason: str) -> WeaknessError:
@@ -132,65 +108,6 @@ def _finding(
     )
 
 
-def _immediate_prerequisite_gaps(
-    context: MapContext,
-    learning_state: LearningStateSnapshot,
-    current_formal_concept_id: str | None,
-) -> list[ImmediatePrerequisiteGap]:
-    if current_formal_concept_id is None:
-        return []
-    concepts = {
-        concept.formal_concept_id: concept
-        for concept in context.formal_concepts
-    }
-    states = {
-        state.formal_concept_id: state
-        for state in learning_state.concept_states
-    }
-    gaps = []
-    for relation in context.relations:
-        if (
-            relation.relation_type != "prerequisite"
-            or relation.is_in_prerequisite_cycle
-            or relation.target_formal_concept_id
-            != current_formal_concept_id
-        ):
-            continue
-        prerequisite = concepts.get(relation.source_formal_concept_id)
-        prerequisite_state = states.get(relation.source_formal_concept_id)
-        if prerequisite is None or prerequisite_state is None:
-            raise _error("WEAKNESS_PREREQUISITE_BINDING_INVALID")
-        if prerequisite_state.status == "mastered":
-            continue
-        gaps.append(
-            ImmediatePrerequisiteGap(
-                category="possible_prerequisite_gap",
-                target_formal_concept_id=current_formal_concept_id,
-                prerequisite_formal_concept_id=(
-                    prerequisite.formal_concept_id
-                ),
-                prerequisite_label=prerequisite.label,
-                relation_id=relation.relation_id,
-                prerequisite_status=prerequisite_state.status,
-                prerequisite_confidence=prerequisite_state.confidence,
-                supporting_answer_event_ids=(
-                    prerequisite_state.source_answer_event_ids
-                ),
-                remediation_intent="relearn_prerequisite",
-                reason=(
-                    "目前目標有一個尚未掌握、需要先理解的基礎概念。"
-                ),
-            )
-        )
-    return sorted(
-        gaps,
-        key=lambda gap: (
-            gap.prerequisite_formal_concept_id,
-            gap.relation_id,
-        ),
-    )
-
-
 def _weakness_snapshot(
     study_session_id: UUID,
     current_formal_concept_id: str | None,
@@ -209,9 +126,6 @@ def _weakness_snapshot(
         finding = _finding(concept.label, state)
         if finding is not None:
             findings.append(finding)
-    gaps = _immediate_prerequisite_gaps(
-        context, learning_state, current_formal_concept_id
-    )
     identity = {
         "schema": "weakness/v1",
         "study_session_id": str(study_session_id),
@@ -220,16 +134,12 @@ def _weakness_snapshot(
         "event_watermark": learning_state.event_watermark,
         "current_formal_concept_id": current_formal_concept_id,
         "findings": [finding.model_dump(mode="json") for finding in findings],
-        "immediate_prerequisite_gaps": [
-            gap.model_dump(mode="json") for gap in gaps
-        ],
     }
     return WeaknessSnapshot.model_validate(
         {
             **identity,
             "study_session_id": study_session_id,
             "findings": findings,
-            "immediate_prerequisite_gaps": gaps,
             "weakness_revision": (
                 "weakness:sha256:" + canonical_sha256(identity)
             ),
@@ -243,7 +153,7 @@ def derive_weakness(
     *,
     dsn: str | None = None,
 ) -> WeaknessSnapshot:
-    """由同 session Learning State 與正式 immediate prerequisite 推導。"""
+    """由同 session Learning State 推導學習弱點。"""
 
     if not isinstance(study_session_id, UUID):
         raise _error("WEAKNESS_REQUEST_INVALID")

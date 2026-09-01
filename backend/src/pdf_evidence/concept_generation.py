@@ -10,46 +10,15 @@ from .document_context import serialize_document_context
 
 
 SEMANTIC_REQUEST_SCHEMA = "concept-generation-input/v7"
-SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v3"
-PROCESSING_POLICY = "claim-grounded-concept-review/v7"
+SEMANTIC_ARTIFACT_SCHEMA = "semantic-page-concepts/v4"
+PROCESSING_POLICY = "claim-grounded-concept-review/v9"
 MAX_MODEL_OUTPUT_BYTES = 65_536
 
-_ENGLISH_STOP_WORDS = {
-    "a", "an", "and", "are", "as", "at", "be", "for", "from", "in",
-    "is", "it", "of", "on", "or", "that", "the", "this", "to", "with",
-}
 _BRACKET_INDEXES = re.compile(r"^(?:\[\s*\d+\s*\]\s*)+$")
-_SIMPLE_ASSIGNMENTS = re.compile(
-    r"^(?:[A-Za-z_]\w*(?:\[[^\]]+\])?\s*=\s*[-+]?[A-Za-z_0-9.]+"
-    r"(?:\s*[,，]\s*)?)+$"
-)
-_PANEL_LABEL = re.compile(r"^\([A-Za-z0-9]+\)\s*(.+)$")
-_PAGE_SEQUENCE_SUFFIX = re.compile(
-    r"\s*\(\s*\d+\s+of\s+\d+\s*\)\s*$", re.IGNORECASE
-)
-_FIGURE_CAPTION = re.compile(
-    r"^(?:figure|fig\.?|圖)\s*[A-Za-z0-9.-]*\s*[:：-]?\s*(.+)$",
-    re.IGNORECASE,
-)
-_ENGLISH_PREDICATE = re.compile(
-    r"\b(?:is|are|was|were|has|have|contains?|includes?|uses?|requires?|"
-    r"provides?|describes?|represents?|becomes?|stores?|shows?|allows?|"
-    r"supports?|creates?|increases?|decreases?|illustrates?|depicts?|"
-    r"demonstrates?|showing|follow)\b",
-    re.IGNORECASE,
-)
-_CHINESE_PREDICATE = re.compile(
-    r"(?:是|為|包含|包括|表示|需要|可以|會|由|將|具有|提供|描述|建立|"
-    r"增加|減少|刪除|插入|儲存|指向|配置|形成|分為|等於)"
-)
 _ISOLATED_CONNECTOR = re.compile(
     r"^(?:and|or|but|because|therefore|however|then|以及|與|和|或|但|因為|"
     r"所以|因此|然後)[,，;；:]?$",
     re.IGNORECASE,
-)
-_INCOMPLETE_DECLARATION = re.compile(
-    r"^(?:class|def|function|let|const|var|int|float|double|char|str|string)\s+"
-    r"[A-Za-z_]\w*(?:\([^)]*)?\s*(?:[:=({\[])?$"
 )
 _TECHNICAL_TOKEN = re.compile(
     r"\\(?:[0abfnrtv'\"?\\]|x[0-9A-Fa-f]{1,8}|u[0-9A-Fa-f]{4,8}|[0-7]{1,3})"
@@ -58,11 +27,8 @@ _TECHNICAL_TOKEN = re.compile(
 )
 
 _CLAIM_FRAGMENT_REASONS = {
-    "CLAIM_FRAGMENT_UNUSABLE",
     "CLAIM_ISOLATED_CONNECTOR",
     "CLAIM_SYNTAX_TAIL",
-    "CLAIM_HALF_CLAUSE",
-    "CLAIM_INCOMPLETE_DECLARATION",
 }
 _EVIDENCE_KINDS = {
     "heading",
@@ -151,60 +117,22 @@ def _normalized_candidate_text(value: Any) -> str:
     return normalized
 
 
-def _grounding_terms(value: str) -> set[str]:
-    normalized = unicodedata.normalize("NFKC", value).casefold()
-    terms = {
-        token[:-1] if len(token) > 3 and token.endswith("s") else token
-        for token in re.findall(r"[a-z0-9]+", normalized)
-        if token not in _ENGLISH_STOP_WORDS
-    }
-    chinese = "".join(re.findall(r"[\u3400-\u9fff]", normalized))
-    terms.update(
-        chinese[index : index + 2]
-        for index in range(max(0, len(chinese) - 1))
-    )
-    return terms
+def _claim_has_safe_technical_tokens(text: str, evidence_text: str) -> bool:
+    """模型不得在 Claim 憑空加入精確技術符號或數值。"""
 
-
-def _claim_is_grounded(text: str, evidence_text: str) -> bool:
-    claim = " ".join(unicodedata.normalize("NFKC", text).casefold().split())
-    evidence = " ".join(
-        unicodedata.normalize("NFKC", evidence_text).casefold().split()
-    )
     claim_tokens = set(_TECHNICAL_TOKEN.findall(text))
     evidence_tokens = set(_TECHNICAL_TOKEN.findall(evidence_text))
-    if not claim_tokens <= evidence_tokens:
-        return False
-    if claim in evidence:
-        return True
-    claim_terms = _grounding_terms(claim)
-    if not claim_terms:
-        return False
-    evidence_terms = _grounding_terms(evidence)
-    shared_terms = claim_terms & evidence_terms
-    if len(shared_terms) / len(claim_terms) >= 0.5:
-        return True
-    claim_length = len(claim.replace(" ", ""))
-    evidence_length = len(evidence.replace(" ", ""))
-    return bool(shared_terms) and evidence_length >= claim_length * 0.6
+    return claim_tokens <= evidence_tokens
 
 
 def _claim_fragment_reason(text: str, label: str) -> str | None:
+    """只拒絕客觀上不是內容的連接詞或純符號殘片。"""
+
     normalized = " ".join(unicodedata.normalize("NFKC", text).split())
-    normalized_label = " ".join(
-        unicodedata.normalize("NFKC", label).split()
-    ).casefold()
-    if normalized.casefold() == normalized_label:
-        return "CLAIM_FRAGMENT_UNUSABLE"
-    without_sequence = _PAGE_SEQUENCE_SUFFIX.sub("", normalized).strip()
-    if without_sequence.casefold() == normalized_label:
-        return "CLAIM_FRAGMENT_UNUSABLE"
     if _ISOLATED_CONNECTOR.fullmatch(normalized):
         return "CLAIM_ISOLATED_CONNECTOR"
     if _BRACKET_INDEXES.fullmatch(normalized):
         return "CLAIM_SYNTAX_TAIL"
-    if _SIMPLE_ASSIGNMENTS.fullmatch(normalized):
-        return "CLAIM_INCOMPLETE_DECLARATION"
     if (
         normalized.startswith((")", "]", "}", ",", "，", ";", "；"))
         or all(
@@ -213,25 +141,6 @@ def _claim_fragment_reason(text: str, label: str) -> str | None:
         )
     ):
         return "CLAIM_SYNTAX_TAIL"
-    if normalized.endswith((",", "，", "-", "—", "=", "+", "*", "/")):
-        return "CLAIM_HALF_CLAUSE"
-    if (
-        normalized.endswith(("(", "[", "{"))
-        or _INCOMPLETE_DECLARATION.fullmatch(normalized)
-    ):
-        return "CLAIM_INCOMPLETE_DECLARATION"
-    panel = _PANEL_LABEL.fullmatch(normalized)
-    figure = _FIGURE_CAPTION.fullmatch(normalized)
-    caption = panel.group(1) if panel is not None else (
-        figure.group(1) if figure is not None else None
-    )
-    if caption is None:
-        return None
-    if not bool(
-        _ENGLISH_PREDICATE.search(caption)
-        or _CHINESE_PREDICATE.search(caption)
-    ):
-        return "CLAIM_FRAGMENT_UNUSABLE"
     return None
 
 
@@ -794,37 +703,18 @@ def _candidate_reason(
     evidence_by_alias: dict[str, dict[str, Any]],
 ) -> tuple[dict[str, Any] | None, str | None]:
     try:
-        if not isinstance(candidate, dict) or set(candidate) != {
-            "label",
-            "definition",
-            "key_points",
-        }:
+        if not isinstance(candidate, dict) or set(candidate) != {"label", "claims"}:
             raise SemanticOutputError("CANDIDATE_SCHEMA_INVALID")
         label = _normalized_candidate_text(candidate["label"])
-        definition = None
-        definition_reason = None
         rejected_claim_reasons = []
-        try:
-            definition = _claim(
-                candidate["definition"], evidence_aliases, evidence_by_alias, label
-            )
-        except SemanticOutputError as error:
-            if error.reason_code not in {
-                "CLAIM_EVIDENCE_UNSUPPORTED",
-                "CLAIM_UNKEYED_ASSESSMENT_OPTION",
-                *_CLAIM_FRAGMENT_REASONS,
-            }:
-                raise
-            definition_reason = error.reason_code
-            rejected_claim_reasons.append(error.reason_code)
-        key_points = candidate["key_points"]
-        if not isinstance(key_points, list) or not key_points:
-            raise SemanticOutputError("INVALID_KEY_POINTS")
-        normalized_points = []
-        for point in key_points:
+        source_claims = candidate["claims"]
+        if not isinstance(source_claims, list) or not source_claims:
+            raise SemanticOutputError("INVALID_CLAIMS")
+        claims = []
+        for source_claim in source_claims:
             try:
-                normalized_points.append(
-                    _claim(point, evidence_aliases, evidence_by_alias, label)
+                claims.append(
+                    _claim(source_claim, evidence_aliases, evidence_by_alias, label)
                 )
             except SemanticOutputError as error:
                 if error.reason_code not in {
@@ -834,18 +724,13 @@ def _candidate_reason(
                 }:
                     raise
                 rejected_claim_reasons.append(error.reason_code)
-        if definition is None:
-            if len(normalized_points) < 2:
-                raise SemanticOutputError(
-                    definition_reason or "INVALID_KEY_POINTS"
-                )
-            definition = normalized_points.pop(0)
-        if not normalized_points:
-            raise SemanticOutputError("INVALID_KEY_POINTS")
+        if not claims:
+            raise SemanticOutputError(
+                rejected_claim_reasons[0] if rejected_claim_reasons else "INVALID_CLAIMS"
+            )
         return {
             "label": label,
-            "definition": definition,
-            "key_points": normalized_points,
+            "claims": claims,
             "rejected_claim_reasons": sorted(set(rejected_claim_reasons)),
         }, None
     except SemanticOutputError as error:
@@ -868,8 +753,7 @@ def _claim(
         or any(not isinstance(reference, str) for reference in references)
     ):
         raise SemanticOutputError("INVALID_EVIDENCE_REFERENCES")
-    if len(set(references)) != len(references):
-        raise SemanticOutputError("DUPLICATE_EVIDENCE_REFERENCE")
+    references = list(dict.fromkeys(references))
     if not set(references) <= set(evidence_aliases):
         raise SemanticOutputError("UNKNOWN_EVIDENCE_ID")
     if any(
@@ -883,7 +767,7 @@ def _claim(
     fragment_reason = _claim_fragment_reason(text, label)
     if fragment_reason is not None:
         raise SemanticOutputError(fragment_reason)
-    if not _claim_is_grounded(text, evidence_text):
+    if not _claim_has_safe_technical_tokens(text, evidence_text):
         raise SemanticOutputError("CLAIM_EVIDENCE_UNSUPPORTED")
     return {
         "text": text,
@@ -927,20 +811,16 @@ def validate_concepts(
                 }
             )
             continue
-        definition = {
-            "claim_id": claim_id(page_ref, "definition", valid["definition"]),
-            **valid["definition"],
-        }
-        key_points = [
+        claims = [
             {
-                "claim_id": claim_id(page_ref, "key_point", point, index=index),
-                **point,
+                "claim_id": claim_id(page_ref, claim, index=index),
+                **claim,
             }
-            for index, point in enumerate(valid["key_points"])
+            for index, claim in enumerate(valid["claims"])
         ]
         rejected_claim_reasons = valid["rejected_claim_reasons"]
         is_partial = bool(rejected_claim_reasons)
-        grounded = {"label": valid["label"], "definition": definition, "key_points": key_points}
+        grounded = {"label": valid["label"], "claims": claims}
         concepts.append(
             {
                 "concept_id": concept_id(page_ref, **grounded),
@@ -1023,18 +903,38 @@ def combine_semantic_batches(
     }
 
 
+def failed_semantic_page(
+    *,
+    page_ref: str,
+    input_binding: dict[str, Any],
+    reason_code: str,
+) -> dict[str, Any]:
+    """保留來源頁面並明確記錄本頁 Concept 階段失敗。"""
+
+    return {
+        "schema": SEMANTIC_ARTIFACT_SCHEMA,
+        "page_ref": page_ref,
+        "concepts": [],
+        "rejected_candidates": [],
+        "input_binding": input_binding,
+        "attempt": 1,
+        "processing_policy": PROCESSING_POLICY,
+        "processing": "failed",
+        "quality": "needs_review",
+        "decision": "reject",
+        "reason_codes": [reason_code],
+    }
+
+
 def claim_id(
     page_ref: str,
-    kind: str,
     claim: dict[str, Any],
     *,
-    index: int | None = None,
+    index: int,
 ) -> str:
-    """以頁面、claim 類型與內容建立不可混頁的穩定 ID。"""
+    """以頁面、順序與內容建立不可混頁的穩定 Claim ID。"""
 
-    identity = {"page_ref": page_ref, "kind": kind}
-    if index is not None:
-        identity["index"] = index
+    identity = {"page_ref": page_ref, "index": index}
     identity.update(claim)
     return f"claim:sha256:{canonical_sha256(identity)}"
 
@@ -1042,15 +942,13 @@ def claim_id(
 def concept_id(
     page_ref: str,
     label: str,
-    definition: dict[str, Any],
-    key_points: list[dict[str, Any]],
+    claims: list[dict[str, Any]],
 ) -> str:
     """以完整 claim-level 內容建立 Concept 穩定 ID。"""
 
     identity = {
         "page_ref": page_ref,
         "label": label,
-        "definition": definition,
-        "key_points": key_points,
+        "claims": claims,
     }
     return f"concept:sha256:{canonical_sha256(identity)}"

@@ -41,13 +41,6 @@ function assertRouteBinding(route: Extract<AppRoute, { name: "study-session" }>,
       && JSON.stringify(mapConcept.supplementary_resources.map((resource) => resource.promotion_id))
         === JSON.stringify(contextConcept.supplementary_resource_promotion_ids);
   });
-  const gapsUsePublishedPrerequisites = data.weakness.immediate_prerequisite_gaps.every((gap) => {
-    const relation = data.view.relations.find((item) => item.relation_id === gap.relation_id);
-    return relation?.type === "prerequisite"
-      && relation.source_formal_concept_id === gap.prerequisite_formal_concept_id
-      && relation.target_formal_concept_id === gap.target_formal_concept_id
-      && !relation.is_in_prerequisite_cycle;
-  });
   const adaptiveTarget = data.adaptive.plan.primary_step.target_formal_concept_id;
   const adaptiveResource = data.adaptive.plan.primary_step.route.resource_promotion_id;
   if (
@@ -84,7 +77,6 @@ function assertRouteBinding(route: Extract<AppRoute, { name: "study-session" }>,
     || (data.session.current_formal_concept_id !== null && !conceptIds.includes(data.session.current_formal_concept_id))
     || (data.session.deferred_formal_concept_id !== null && !conceptIds.includes(data.session.deferred_formal_concept_id))
     || data.weakness.findings.some((finding) => !conceptIds.includes(finding.target_formal_concept_id))
-    || !gapsUsePublishedPrerequisites
     || (adaptiveTarget !== null && !conceptIds.includes(adaptiveTarget))
     || (adaptiveResource !== null && !data.view.concepts.some((concept) =>
       concept.supplementary_resources.some((resource) => resource.promotion_id === adaptiveResource)))

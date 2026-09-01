@@ -27,7 +27,6 @@ _MATERIAL_SOURCE_NAMES = (
     "__init__.py",
     "protocol.py",
     "ocr_process.py",
-    "relation_process.py",
 )
 _EQUIVALENCE_SOURCE_NAMES = ("equivalence_process.py",)
 _ASSESSMENT_SOURCE_NAMES = (
@@ -38,7 +37,7 @@ _SOURCE_NAMES = (
     + _EQUIVALENCE_SOURCE_NAMES
     + _ASSESSMENT_SOURCE_NAMES
 )
-_EXPECTED_RUNTIME_FILES = 30
+_EXPECTED_RUNTIME_FILES = 28
 _BACKUP_NAME = ".studydy_local_ai-backup"
 _CHUNK = 1024 * 1024
 

@@ -26,8 +26,8 @@ from .map_resources import build_resource_library, validate_resource_library
 
 
 METADATA_SCHEMA = "resource-source-metadata/v1"
-CANDIDATE_SCHEMA = "resource-intake-candidate/v2"
-CANDIDATE_POLICY = "resource-intake-multi-evidence/v2"
+CANDIDATE_SCHEMA = "resource-intake-candidate/v3"
+CANDIDATE_POLICY = "resource-intake-retained-proposals/v4"
 REVIEW_REASON = "RESOURCE_HUMAN_REVIEW_REQUIRED"
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -41,7 +41,7 @@ _METADATA_FIELDS = {
 _CANDIDATE_FIELDS = {
     "schema", "candidate_policy", "candidate_id", "candidate_content_sha256",
     "source", "base", "runtime", "producer",
-    "publishable_proposals", "omitted_items", "critical_blockers",
+    "publishable_proposals", "omitted_items",
     "processing", "quality", "decision", "reason_codes", "telemetry",
 }
 _SOURCE_FIELDS = {"source_sha256", "page_count", "metadata"}
@@ -269,7 +269,9 @@ def _valid_bbox(value: Any) -> bool:
     )
 
 
-def _project_output(output: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+def _project_output(
+    output: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     pages_by_ref = {page["page_ref"]: page for page in output["pages"]}
     evidence_by_id = {
         block["evidence_id"]: (page, block)
@@ -278,10 +280,9 @@ def _project_output(output: dict[str, Any]) -> tuple[list[dict[str, Any]], list[
     }
     proposals = []
     omitted = []
-    blockers: set[str] = set()
     for concept in output["concepts"]:
         reason = None
-        claims = [concept.get("definition"), *concept.get("key_points", [])]
+        claims = concept.get("claims", [])
         references = sorted(
             {
                 evidence_id
@@ -316,15 +317,7 @@ def _project_output(output: dict[str, Any]) -> tuple[list[dict[str, Any]], list[
                 for page, block in resolved
             ) or not _nonempty_text(concept.get("label")):
                 reason = "RESOURCE_EVIDENCE_NOT_GROUNDED"
-            elif concept.get("processing") != "succeeded":
-                reason = "RESOURCE_PROPOSAL_UNCERTAIN"
         if reason is not None:
-            if reason in {
-                "RESOURCE_EVIDENCE_MISSING",
-                "RESOURCE_EVIDENCE_WRONG_PAGE",
-                "RESOURCE_EVIDENCE_NOT_GROUNDED",
-            }:
-                blockers.add(reason)
             page_number = pages_by_ref.get(concept.get("page_ref"), {}).get("page_number")
             omitted.append({
                 "concept_id": concept.get("concept_id"),
@@ -379,7 +372,7 @@ def _project_output(output: dict[str, Any]) -> tuple[list[dict[str, Any]], list[
         })
     proposals.sort(key=lambda item: (item["page_number"], item["proposal_id"]))
     omitted.sort(key=lambda item: (item["page_number"] or 0, str(item["concept_id"])))
-    return proposals, omitted, sorted(blockers)
+    return proposals, omitted
 
 
 def _producer_summary(bundle: dict[str, Any]) -> dict[str, Any]:
@@ -457,14 +450,10 @@ def _review_text(candidate: dict[str, Any], candidate_sha256: str) -> str:
         lines.append(f"- `{item['concept_id']}`: {item['reason_code']}")
     if not candidate["omitted_items"]:
         lines.append("- None")
-    lines.extend(["", "## Critical blockers", ""])
-    lines.extend(f"- {reason}" for reason in candidate["critical_blockers"])
-    if not candidate["critical_blockers"]:
-        lines.append("- None")
     lines.extend([
         "", "## Publish", "",
         "Do not publish if any page, Evidence, label, license, or attribution is wrong.",
-        "V1 has no partial acceptance or correction.", "",
+        "Only the publishable proposals above can enter review; omitted items stay rejected.", "",
         "```text",
         f"python -m learning_resources.resource_intake publish {candidate['candidate_id']} \\",
         f"  --candidate-sha256 {candidate_sha256} \\",
@@ -521,7 +510,6 @@ def _candidate_is_valid(
             or candidate["quality"] != "needs_review"
             or candidate["decision"] != "review"
             or candidate["reason_codes"] != [REVIEW_REASON]
-            or candidate["critical_blockers"] != []
             or encoded != _candidate_bytes(candidate)
         ):
             return False
@@ -739,13 +727,12 @@ def _validated_producer(candidate: dict[str, Any], local_config: dict[str, Any])
         != candidate["runtime"]["producer_runtime_binding_sha256"]
     ):
         _fail("RESOURCE_PRODUCER_INVALID")
-    proposals, omitted, blockers = _project_output(output)
+    proposals, omitted = _project_output(output)
     if (
         output["source_binding"]["source_sha256"] != candidate["source"]["source_sha256"]
         or len(output["source_binding"]["page_numbers"]) != candidate["source"]["page_count"]
         or proposals != candidate["publishable_proposals"]
         or omitted != candidate["omitted_items"]
-        or blockers != candidate["critical_blockers"]
     ):
         _fail("RESOURCE_PRODUCER_INVALID")
     return output
@@ -795,15 +782,15 @@ def analyze(arguments: argparse.Namespace, environment: Mapping[str, str]) -> di
         or bundle["concept_loads"] > 1
     ):
         _fail("RESOURCE_PRODUCER_FAILED")
-    proposals, omitted, blockers = _project_output(output)
-    if not proposals or blockers:
+    proposals, omitted = _project_output(output)
+    if not proposals:
         _fail("RESOURCE_CANDIDATE_NOT_PUBLISHABLE")
     candidate = {
         "schema": CANDIDATE_SCHEMA, "candidate_policy": CANDIDATE_POLICY,
         "candidate_id": candidate_id, "source": source, "base": base, "runtime": runtime,
         "producer": _producer_summary(bundle),
         "publishable_proposals": proposals, "omitted_items": omitted,
-        "critical_blockers": blockers, "processing": "partial", "quality": "needs_review",
+        "processing": "partial", "quality": "needs_review",
         "decision": "review", "reason_codes": [REVIEW_REASON],
         "telemetry": {
             **telemetry_binding,

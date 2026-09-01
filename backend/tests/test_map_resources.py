@@ -119,7 +119,7 @@ def _study_output(label, source_sha256="f" * 64):
         "evidence_ids": [evidence_id],
     }
     definition = {
-        "claim_id": claim_id(page_ref, "definition", definition),
+        "claim_id": claim_id(page_ref, definition, index=0),
         **definition,
     }
     point = {
@@ -127,22 +127,21 @@ def _study_output(label, source_sha256="f" * 64):
         "evidence_ids": [evidence_id],
     }
     point = {
-        "claim_id": claim_id(page_ref, "key_point", point, index=0),
+        "claim_id": claim_id(page_ref, point, index=1),
         **point,
     }
     concept = {
-        "concept_id": concept_id(page_ref, label, definition, [point]),
+        "concept_id": concept_id(page_ref, label, [definition, point]),
         "page_ref": page_ref,
         "label": label,
-        "definition": definition,
-        "key_points": [point],
+        "claims": [definition, point],
         "processing": "succeeded",
         "quality": "needs_review",
         "decision": "review",
         "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
     }
     document = {
-        "schema": "study-material-output/v7",
+        "schema": "study-material-output/v8",
         "run_id": "study-test-run",
         "produced_at": "2026-08-21T10:00:00+08:00",
         "material_ref": material_id,
@@ -188,6 +187,13 @@ def _study_output(label, source_sha256="f" * 64):
             "semantic_request_sha256": canonical_sha256(semantic_request),
             "semantic_request": semantic_request,
         }],
+        "semantic_page_outcomes": [{
+            "page_ref": page_ref,
+            "processing": "succeeded",
+            "quality": "needs_review",
+            "decision": "review",
+            "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
+        }],
         "images": [],
         "processing": "succeeded",
         "quality": "needs_review",
@@ -203,22 +209,23 @@ def _study_output(label, source_sha256="f" * 64):
 def _add_same_label_concept(document, label):
     concept = deepcopy(document["concepts"][0])
     concept["label"] = label
-    concept["definition"] = {
+    first_claim = {
         "text": "A second reviewed Study-side concept.",
-        "evidence_ids": deepcopy(concept["definition"]["evidence_ids"]),
+        "evidence_ids": deepcopy(concept["claims"][0]["evidence_ids"]),
     }
-    concept["definition"]["claim_id"] = claim_id(
-        concept["page_ref"], "definition", concept["definition"]
+    first_claim["claim_id"] = claim_id(
+        concept["page_ref"], first_claim, index=0
     )
-    concept["key_points"] = [{
+    second_claim = {
         "text": "The second source concept remains independently grounded.",
-        "evidence_ids": deepcopy(concept["key_points"][0]["evidence_ids"]),
-    }]
-    concept["key_points"][0]["claim_id"] = claim_id(
-        concept["page_ref"], "key_point", concept["key_points"][0], index=0
+        "evidence_ids": deepcopy(concept["claims"][1]["evidence_ids"]),
+    }
+    second_claim["claim_id"] = claim_id(
+        concept["page_ref"], second_claim, index=1
     )
+    concept["claims"] = [first_claim, second_claim]
     concept["concept_id"] = concept_id(
-        concept["page_ref"], concept["label"], concept["definition"], concept["key_points"]
+        concept["page_ref"], concept["label"], concept["claims"]
     )
     document["concepts"].append(concept)
     document.pop("output_id")
@@ -534,10 +541,7 @@ def test_resource_promotion_follows_canonical_keep():
         "matches": 1,
         "promoted_matches": 1,
         "promoted_resources": 1,
-        "dropped_matches": 0,
-        "split_review_matches": 0,
     }
-    assert promotion["resource_decisions"] == []
 
 
 def test_resource_promotion_merge_unions_and_deduplicates_resources():

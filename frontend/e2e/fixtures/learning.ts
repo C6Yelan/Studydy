@@ -16,9 +16,9 @@ export const artifactId = "5f9619ff-8b86-4e3a-a2f1-2bb9424d5c82";
 export const runId = "6f9619ff-8b86-4e3a-a2f1-2bb9424d5c83";
 export const studySessionId = "7f9619ff-8b86-4e3a-a2f1-2bb9424d5c84";
 export const mapRevision = `knowledge-map:sha256:${"a".repeat(64)}`;
-export const prerequisiteConceptId = revision("formal-concept", "1");
+export const firstConceptId = revision("formal-concept", "1");
 export const targetConceptId = revision("formal-concept", "2");
-export const prerequisiteClaimId = revision("claim", "3");
+export const firstClaimId = revision("claim", "3");
 export const targetClaimId = revision("claim", "4");
 export const learningStateRevision = revision("learning-state", "f");
 
@@ -53,10 +53,10 @@ function concept(id: string, claimId: string, label: string, pageNumber: number)
 }
 
 export function mapView(): KnowledgeMapView {
-  const prerequisite = concept(prerequisiteConceptId, prerequisiteClaimId, "先備概念", 1);
+  const first = concept(firstConceptId, firstClaimId, "第一個概念", 1);
   const target = concept(targetConceptId, targetClaimId, "目標概念", 2);
   return {
-    schema: "knowledge-map-view/v9",
+    schema: "knowledge-map-view/v11",
     material_ref: revision("material", "5"),
     knowledge_map_revision: mapRevision,
     source_output_id: revision("study-material-output", "6"),
@@ -66,7 +66,7 @@ export function mapView(): KnowledgeMapView {
       decision: "review",
       reason_codes: ["KNOWLEDGE_MAP_REVIEW_REQUIRED"],
     },
-    concepts: [prerequisite, target],
+    concepts: [first, target],
     concept_diagnostics: {
       possible_pairs: 1,
       candidate_pairs: 0,
@@ -87,77 +87,34 @@ export function mapView(): KnowledgeMapView {
       coverage_before: 2,
       coverage_after: 2,
     },
-    relations: [{
-      relation_id: revision("formal-relation", "7"),
-      type: "prerequisite",
-      source_formal_concept_id: prerequisiteConceptId,
-      target_formal_concept_id: targetConceptId,
-      reason: "The prerequisite supports learning the target concept.",
-      inference_basis: "claim_semantics",
-      relation_evidence: [{
-        owner_formal_concept_id: prerequisiteConceptId,
-        claim_id: prerequisiteClaimId,
-        evidence_ids: [prerequisite.claims[0].evidence[0].evidence_id],
-      }],
-      relation_context: [],
-      needs_review: false,
+    supplementary_resources: {
+      processing: "succeeded",
       quality: "needs_review",
       decision: "review",
-      reason_codes: ["RELATION_REVIEW_REQUIRED"],
-      is_in_prerequisite_cycle: false,
-    }],
-    relation_diagnostics: {
-      possible_pairs: 1,
-      candidate_pairs: 1,
-      selected_pairs: 1,
-      selected_signal_counts: { explicit_relation: 1 },
-      model_calls: 1,
-      model_no_relation_pairs: 0,
-      model_review_pairs: 0,
-      unexpected_pairs: 0,
-      canonical_rejections: 0,
-      verifier_calls: 1,
-      verifier_accepted: 1,
-      verifier_rejected: 0,
-      verifier_unsupported: 0,
-      model_contains_pairs: 0,
-      model_prerequisite_pairs: 1,
-      model_related_pairs: 0,
-      invalid_pairs: 0,
-      verifier_failures: 0,
-      accepted_relations: 1,
+      reason_codes: [],
+      binding: {
+        context_revision: revision("map-resource-context", "8"),
+        library_revision: revision("resource-library", "9"),
+        matching_policy: "resource-context-exact-distinct-source/v3",
+        promotion_policy: "resource-formal-concept-promotion/v1",
+      },
+      diagnostics: {
+        matches: 0,
+        promoted_matches: 0,
+        promoted_resources: 0,
+      },
     },
-    resource_binding: {
-      context_revision: revision("map-resource-context", "8"),
-      library_revision: revision("resource-library", "9"),
-      matching_policy: "resource-context-exact-distinct-source/v3",
-      promotion_policy: "resource-formal-concept-promotion/v1",
-    },
-    resource_diagnostics: {
-      matches: 0,
-      promoted_matches: 0,
-      promoted_resources: 0,
-      dropped_matches: 0,
-      split_review_matches: 0,
-    },
-    resource_decisions: [],
-    topology: {
-      roots: [prerequisiteConceptId, targetConceptId],
-      nodes: [prerequisite, target].map((item, index) => ({
-        formal_concept_id: item.formal_concept_id,
-        depth: 0,
-        primary_parent_formal_concept_id: null,
-        flat_group_id: revision("document-section", String(index + 1)),
-        flat_group_anchor: {
-          evidence_id: item.claims[0].evidence[0].evidence_id,
-          page_ref: item.claims[0].evidence[0].page_ref,
-          page_number: item.source_page_numbers[0],
-          reading_order: index,
-        },
-      })),
-      flat_groups: [prerequisite, target].map((item, index) => ({
-        flat_group_id: revision("document-section", String(index + 1)),
-        label: index === 0 ? "先備概念" : "目標概念",
+    document_tree: {
+      root: {
+        material_ref: revision("material", "5"),
+        section_ids: [
+          revision("document-section", "1"),
+          revision("document-section", "2"),
+        ],
+      },
+      sections: [first, target].map((item, index) => ({
+        section_id: revision("document-section", String(index + 1)),
+        label: index === 0 ? "第一個概念" : "目標概念",
         label_source: "heading",
         heading_evidence_id: item.claims[0].evidence[0].evidence_id,
         source_order: {
@@ -166,38 +123,32 @@ export function mapView(): KnowledgeMapView {
           page_number: item.source_page_numbers[0],
           reading_order: index,
         },
-        formal_concept_ids: [item.formal_concept_id],
+        concept_ids: [item.formal_concept_id],
       })),
-    },
-    topology_diagnostics: {
-      component_count: 2,
-      orphan_concept_count: 2,
-      secondary_parent_count: 0,
-      skipped_parent_before_child_count: 0,
     },
     initial_learning_path: [
       {
         step_number: 1,
-        formal_concept_id: prerequisiteConceptId,
-        placement_reason: "依教材第 1 頁的首次出現位置安排。",
+        formal_concept_id: firstConceptId,
+        placement_reason: "依教材第 1 頁的首次 Claim Evidence 安排。",
         order_basis: {
-          prerequisite_formal_concept_ids: [],
-          parent_formal_concept_ids: [],
-          flat_group_id: revision("document-section", "1"),
-          hierarchy_depth: 0,
-          source_page_number: 1,
+          section_id: revision("document-section", "1"),
+          page_ref: first.claims[0].evidence[0].page_ref,
+          page_number: 1,
+          reading_order: 0,
+          evidence_id: first.claims[0].evidence[0].evidence_id,
         },
       },
       {
         step_number: 2,
         formal_concept_id: targetConceptId,
-        placement_reason: "先理解「先備概念」，再進入這個概念。",
+        placement_reason: "依教材第 2 頁的首次 Claim Evidence 安排。",
         order_basis: {
-          prerequisite_formal_concept_ids: [prerequisiteConceptId],
-          parent_formal_concept_ids: [],
-          flat_group_id: revision("document-section", "2"),
-          hierarchy_depth: 0,
-          source_page_number: 2,
+          section_id: revision("document-section", "2"),
+          page_ref: target.claims[0].evidence[0].page_ref,
+          page_number: 2,
+          reading_order: 1,
+          evidence_id: target.claims[0].evidence[0].evidence_id,
         },
       },
     ],
@@ -265,9 +216,9 @@ export function contextView(overrides: Partial<StudyContextView> = {}): StudyCon
     no_safe_deferred_formal_concept_ids: [],
     initial_learning_path: [
       {
-        formal_concept_id: prerequisiteConceptId,
-        label: "先備概念",
-        claim_ids: [prerequisiteClaimId],
+        formal_concept_id: firstConceptId,
+        label: "第一個概念",
+        claim_ids: [firstClaimId],
         supplementary_resource_promotion_ids: [],
       },
       {
@@ -355,11 +306,11 @@ function conceptState(
 
 export function learningStateView(options: {
   eventWatermark?: number;
-  prerequisiteStatus?: "not_started" | "learning" | "needs_review" | "mastered";
+  firstStatus?: "not_started" | "learning" | "needs_review" | "mastered";
   stateRevision?: string;
   targetStatus?: "not_started" | "learning" | "needs_review" | "mastered";
 } = {}): LearningStateView {
-  const prerequisiteStatus = options.prerequisiteStatus ?? "not_started";
+  const firstStatus = options.firstStatus ?? "not_started";
   const targetStatus = options.targetStatus ?? "not_started";
   return {
     schema: "learning-state/v1",
@@ -367,22 +318,22 @@ export function learningStateView(options: {
     base_knowledge_map_revision: mapRevision,
     state_revision: options.stateRevision ?? learningStateRevision,
     event_watermark: options.eventWatermark ?? 0,
-    all_mastered: prerequisiteStatus === "mastered" && targetStatus === "mastered",
+    all_mastered: firstStatus === "mastered" && targetStatus === "mastered",
     concept_states: [
-      conceptState(prerequisiteConceptId, prerequisiteClaimId, revision("evidence", "1"), prerequisiteStatus),
+      conceptState(firstConceptId, firstClaimId, revision("evidence", "1"), firstStatus),
       conceptState(targetConceptId, targetClaimId, revision("evidence", "2"), targetStatus),
     ],
   };
 }
 
 export function weaknessView(options: {
-  category?: "none" | "not_enough_data" | "observed_weak" | "prerequisite_gap";
+  category?: "none" | "not_enough_data" | "observed_weak";
   currentConceptId?: string | null;
   eventWatermark?: number;
   stateRevision?: string;
 } = {}): WeaknessView {
   const category = options.category ?? "none";
-  const findings = category === "none" || category === "prerequisite_gap" ? [] : [{
+  const findings = category === "none" ? [] : [{
     target_formal_concept_id: targetConceptId,
     target_label: "目標概念",
     category,
@@ -391,17 +342,6 @@ export function weaknessView(options: {
     remediation_intent: category === "observed_weak" ? "practice" as const : "collect_more_data" as const,
     reason: category === "observed_weak" ? "多次可信錯誤顯示這個概念目前需要練習。" : "目前資料不足，先完成更多評量。",
   }];
-  const gaps = category === "prerequisite_gap" ? [{
-    category: "possible_prerequisite_gap" as const,
-    target_formal_concept_id: targetConceptId,
-    prerequisite_formal_concept_id: prerequisiteConceptId,
-    prerequisite_label: "先備概念",
-    relation_id: revision("formal-relation", "7"),
-    prerequisite_status: "not_started" as const,
-    prerequisite_confidence: "none" as const,
-    remediation_intent: "relearn_prerequisite" as const,
-    reason: "先補強尚未掌握、需要先理解的基礎概念，再回到目前目標。",
-  }] : [];
   return {
     schema: "weakness/v1",
     study_session_id: studySessionId,
@@ -409,9 +349,8 @@ export function weaknessView(options: {
     source_learning_state_revision: options.stateRevision ?? learningStateRevision,
     event_watermark: options.eventWatermark ?? 0,
     current_formal_concept_id: options.currentConceptId === undefined ? targetConceptId : options.currentConceptId,
-    weakness_revision: revision("weakness", category === "prerequisite_gap" ? "b" : "a"),
+    weakness_revision: revision("weakness", "a"),
     findings,
-    immediate_prerequisite_gaps: gaps,
   };
 }
 
@@ -430,7 +369,7 @@ export function adaptiveView(options: {
   const currentConceptId = options.currentConceptId === undefined ? targetConceptId : options.currentConceptId;
   const targetId = options.targetConceptId === undefined ? currentConceptId : options.targetConceptId;
   const targetLabel = options.targetLabel === undefined
-    ? targetId === prerequisiteConceptId ? "先備概念" : targetId === targetConceptId ? "目標概念" : null
+    ? targetId === firstConceptId ? "第一個概念" : targetId === targetConceptId ? "目標概念" : null
     : options.targetLabel;
   const planRevision = revision("adaptive-plan", options.planValue ?? "c");
   const route = {
@@ -442,9 +381,7 @@ export function adaptiveView(options: {
     action,
     target_formal_concept_id: targetId,
     target_label: targetLabel,
-    reason: action === "relearn_prerequisite"
-      ? "先補強尚未掌握、需要先理解的基礎概念，再回到目前目標。"
-      : "目前資料不足，先取得更多可信作答證據。",
+    reason: "目前資料不足，先取得更多可信作答證據。",
     confidence: "limited" as const,
     claim_coverage_complete: false,
     route,

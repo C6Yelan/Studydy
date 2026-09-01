@@ -243,70 +243,6 @@ class FormalConceptView(_ClosedModel):
         return self
 
 
-class RelationEvidenceView(_ClosedModel):
-    owner_formal_concept_id: str = Field(
-        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$"
-    )
-    claim_id: str = Field(pattern=r"^claim:sha256:[0-9a-f]{64}$")
-    evidence_ids: list[str] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_evidence_ids(self) -> "RelationEvidenceView":
-        if self.evidence_ids != sorted(set(self.evidence_ids)):
-            raise ValueError("RELATION_EVIDENCE_INVALID")
-        return self
-
-
-class RelationContextView(_ClosedModel):
-    owner_formal_concept_id: str = Field(
-        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$"
-    )
-    document_context_id: str = Field(
-        pattern=r"^document-context:sha256:[0-9a-f]{64}$"
-    )
-    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
-    section_ids: list[str] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_sections(self) -> "RelationContextView":
-        if self.section_ids != sorted(set(self.section_ids)):
-            raise ValueError("RELATION_CONTEXT_INVALID")
-        return self
-
-
-class FormalRelationView(_ClosedModel):
-    relation_id: str = Field(pattern=r"^formal-relation:sha256:[0-9a-f]{64}$")
-    type: Literal["prerequisite", "contains", "related"]
-    source_formal_concept_id: str
-    target_formal_concept_id: str
-    reason: str = Field(min_length=4, max_length=500)
-    inference_basis: Literal[
-        "claim_semantics", "document_structure", "combined"
-    ]
-    relation_evidence: list[RelationEvidenceView] = Field(min_length=1)
-    relation_context: list[RelationContextView]
-    needs_review: bool
-    quality: Literal["needs_review"]
-    decision: Literal["review"]
-    reason_codes: list[str] = Field(min_length=1)
-    is_in_prerequisite_cycle: bool
-
-    @model_validator(mode="after")
-    def validate_grounding(self) -> "FormalRelationView":
-        context_keys = [
-            (item.owner_formal_concept_id, item.document_context_id)
-            for item in self.relation_context
-        ]
-        if (
-            context_keys != sorted(set(context_keys))
-            or self.inference_basis in {"document_structure", "combined"}
-            and not self.relation_context
-            or self.is_in_prerequisite_cycle
-        ):
-            raise ValueError("FORMAL_RELATION_INVALID")
-        return self
-
-
 class ConceptDiagnosticsView(_ClosedModel):
     possible_pairs: int = Field(ge=0)
     candidate_pairs: int = Field(ge=0)
@@ -351,59 +287,6 @@ class ConceptDiagnosticsView(_ClosedModel):
         return self
 
 
-class RelationDiagnosticsView(_ClosedModel):
-    possible_pairs: int = Field(ge=0)
-    candidate_pairs: int = Field(ge=0)
-    selected_pairs: int = Field(ge=0)
-    selected_signal_counts: dict[str, int]
-    model_calls: int = Field(ge=0)
-    model_no_relation_pairs: int = Field(ge=0)
-    model_contains_pairs: int = Field(ge=0)
-    model_prerequisite_pairs: int = Field(ge=0)
-    model_related_pairs: int = Field(ge=0)
-    model_review_pairs: int = Field(ge=0)
-    unexpected_pairs: int = Field(ge=0)
-    invalid_pairs: int = Field(ge=0)
-    canonical_rejections: int = Field(ge=0)
-    verifier_calls: int = Field(ge=0)
-    verifier_accepted: int = Field(ge=0)
-    verifier_rejected: int = Field(ge=0)
-    verifier_unsupported: int = Field(ge=0)
-    verifier_failures: int = Field(ge=0)
-    accepted_relations: int = Field(ge=0)
-
-    @model_validator(mode="after")
-    def validate_counts(self) -> "RelationDiagnosticsView":
-        allowed_signals = {
-            "adjacent",
-            "same_group",
-            "same_page",
-            "same_context",
-            "same_section",
-            "explicit_relation",
-            "label_mention",
-            "shared_evidence",
-            "shared_formula",
-        }
-        if (
-            self.selected_pairs > self.candidate_pairs
-            or self.candidate_pairs > self.possible_pairs
-            or self.verifier_accepted + self.verifier_rejected > self.verifier_calls
-            or self.selected_pairs
-            != self.model_no_relation_pairs
-            + self.model_contains_pairs
-            + self.model_prerequisite_pairs
-            + self.model_related_pairs
-            + self.invalid_pairs
-            or any(
-                signal not in allowed_signals or count < 0
-                for signal, count in self.selected_signal_counts.items()
-            )
-        ):
-            raise ValueError("RELATION_DIAGNOSTICS_INVALID")
-        return self
-
-
 class ResourceBindingView(_ClosedModel):
     context_revision: str = Field(pattern=r"^map-resource-context:sha256:[0-9a-f]{64}$")
     library_revision: str = Field(pattern=r"^resource-library:sha256:[0-9a-f]{64}$")
@@ -415,38 +298,14 @@ class ResourceDiagnosticsView(_ClosedModel):
     matches: int = Field(ge=0)
     promoted_matches: int = Field(ge=0)
     promoted_resources: int = Field(ge=0)
-    dropped_matches: int = Field(ge=0)
-    split_review_matches: int = Field(ge=0)
 
     @model_validator(mode="after")
     def validate_counts(self) -> "ResourceDiagnosticsView":
-        if self.matches != self.promoted_matches + self.dropped_matches + self.split_review_matches:
+        if (
+            self.matches != self.promoted_matches
+            or self.promoted_resources > self.promoted_matches
+        ):
             raise ValueError("RESOURCE_DIAGNOSTICS_INVALID")
-        return self
-
-
-class ResourceDecisionView(_ClosedModel):
-    decision_id: str = Field(
-        pattern=r"^resource-promotion-decision:sha256:[0-9a-f]{64}$"
-    )
-    match_id: str = Field(pattern=r"^resource-match:sha256:[0-9a-f]{64}$")
-    study_concept_id: str
-    resource_concept_id: str = Field(pattern=r"^resource-concept:sha256:[0-9a-f]{64}$")
-    formal_concept_ids: list[str]
-    decision: Literal["review", "reject"]
-    reason_code: Literal[
-        "RESOURCE_SPLIT_REVIEW_REQUIRED", "RESOURCE_SOURCE_CONCEPT_DROPPED"
-    ]
-
-    @model_validator(mode="after")
-    def validate_decision(self) -> "ResourceDecisionView":
-        if self.formal_concept_ids != sorted(set(self.formal_concept_ids)):
-            raise ValueError("RESOURCE_DECISION_INVALID")
-        if self.decision == "reject":
-            if self.reason_code != "RESOURCE_SOURCE_CONCEPT_DROPPED" or self.formal_concept_ids:
-                raise ValueError("RESOURCE_DECISION_INVALID")
-        elif self.reason_code != "RESOURCE_SPLIT_REVIEW_REQUIRED" or len(self.formal_concept_ids) < 2:
-            raise ValueError("RESOURCE_DECISION_INVALID")
         return self
 
 
@@ -468,29 +327,15 @@ class ArtifactStatusView(_ClosedModel):
     reason_codes: list[str] = Field(min_length=1, max_length=64)
 
 
-class KnowledgeMapTopologyNodeView(_ClosedModel):
-    formal_concept_id: str = Field(
-        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$"
-    )
-    depth: int = Field(ge=0)
-    primary_parent_formal_concept_id: str | None = Field(
-        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$",
-    )
-    flat_group_id: str = Field(
-        pattern=r"^document-section:sha256:[0-9a-f]{64}$"
-    )
-    flat_group_anchor: "FlatGroupSourceView"
-
-
-class FlatGroupSourceView(_ClosedModel):
+class DocumentTreeSourceView(_ClosedModel):
     evidence_id: str = Field(pattern=r"^evidence:sha256:[0-9a-f]{64}$")
     page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
     page_number: int = Field(ge=1)
     reading_order: int = Field(ge=0)
 
 
-class KnowledgeMapFlatGroupView(_ClosedModel):
-    flat_group_id: str = Field(
+class DocumentTreeSectionView(_ClosedModel):
+    section_id: str = Field(
         pattern=r"^document-section:sha256:[0-9a-f]{64}$"
     )
     label: str = Field(min_length=1, max_length=120)
@@ -498,29 +343,35 @@ class KnowledgeMapFlatGroupView(_ClosedModel):
     heading_evidence_id: str | None = Field(
         pattern=r"^evidence:sha256:[0-9a-f]{64}$"
     )
-    source_order: FlatGroupSourceView
-    formal_concept_ids: list[str] = Field(min_length=1)
+    source_order: DocumentTreeSourceView
+    concept_ids: list[str] = Field(min_length=1)
 
 
-class KnowledgeMapTopologyView(_ClosedModel):
-    roots: list[str]
-    nodes: list[KnowledgeMapTopologyNodeView]
-    flat_groups: list[KnowledgeMapFlatGroupView]
+class DocumentTreeRootView(_ClosedModel):
+    material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
+    section_ids: list[str]
 
 
-class KnowledgeMapTopologyDiagnosticsView(_ClosedModel):
-    component_count: int = Field(ge=0)
-    orphan_concept_count: int = Field(ge=0)
-    secondary_parent_count: int = Field(ge=0)
-    skipped_parent_before_child_count: int = Field(ge=0)
+class DocumentTreeView(_ClosedModel):
+    root: DocumentTreeRootView
+    sections: list[DocumentTreeSectionView]
 
 
 class LearningPathOrderBasisView(_ClosedModel):
-    prerequisite_formal_concept_ids: list[str]
-    parent_formal_concept_ids: list[str]
-    flat_group_id: str = Field(min_length=1)
-    hierarchy_depth: int = Field(ge=0)
-    source_page_number: int = Field(ge=1)
+    section_id: str = Field(pattern=r"^document-section:sha256:[0-9a-f]{64}$")
+    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
+    page_number: int = Field(ge=1)
+    reading_order: int = Field(ge=0)
+    evidence_id: str = Field(pattern=r"^evidence:sha256:[0-9a-f]{64}$")
+
+
+class SupplementaryResourcesView(_ClosedModel):
+    processing: Literal["succeeded", "partial"]
+    quality: Literal["needs_review"]
+    decision: Literal["review"]
+    reason_codes: list[str] = Field(max_length=64)
+    binding: ResourceBindingView | None
+    diagnostics: ResourceDiagnosticsView
 
 
 class InitialLearningPathStepView(_ClosedModel):
@@ -533,7 +384,7 @@ class InitialLearningPathStepView(_ClosedModel):
 
 
 class KnowledgeMapView(_ClosedModel):
-    schema_: Literal["knowledge-map-view/v9"] = Field(alias="schema")
+    schema_: Literal["knowledge-map-view/v11"] = Field(alias="schema")
     material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
     knowledge_map_revision: str = Field(
         pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
@@ -544,14 +395,9 @@ class KnowledgeMapView(_ClosedModel):
     status: ArtifactStatusView
     concepts: list[FormalConceptView]
     concept_diagnostics: ConceptDiagnosticsView
-    relations: list[FormalRelationView]
-    relation_diagnostics: RelationDiagnosticsView
-    resource_binding: ResourceBindingView
-    resource_diagnostics: ResourceDiagnosticsView
-    resource_decisions: list[ResourceDecisionView]
-    topology: KnowledgeMapTopologyView
-    topology_diagnostics: KnowledgeMapTopologyDiagnosticsView
+    document_tree: DocumentTreeView
     initial_learning_path: list[InitialLearningPathStepView]
+    supplementary_resources: SupplementaryResourcesView
     excluded_pages: list[ExcludedPageView]
 
     @model_validator(mode="after")
@@ -560,76 +406,37 @@ class KnowledgeMapView(_ClosedModel):
         reason_lists = [
             self.status.reason_codes,
             *(concept.reason_codes for concept in self.concepts),
-            *(relation.reason_codes for relation in self.relations),
             *(page.reason_codes for page in self.excluded_pages),
+            self.supplementary_resources.reason_codes,
         ]
         if any(reasons != sorted(set(reasons)) for reasons in reason_lists):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if len(concept_ids) != len(self.concepts):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         path_ids = [step.formal_concept_id for step in self.initial_learning_path]
-        topology_ids = [node.formal_concept_id for node in self.topology.nodes]
         if set(path_ids) != concept_ids or len(path_ids) != len(concept_ids):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if [step.step_number for step in self.initial_learning_path] != list(
             range(1, len(path_ids) + 1)
         ):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if set(topology_ids) != concept_ids or len(topology_ids) != len(concept_ids):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        nodes_by_id = {node.formal_concept_id: node for node in self.topology.nodes}
-        if (
-            self.topology.roots
-            != [node.formal_concept_id for node in self.topology.nodes if node.depth == 0]
-            or any(
-                node.primary_parent_formal_concept_id not in concept_ids
-                or node.primary_parent_formal_concept_id == node.formal_concept_id
-                for node in self.topology.nodes
-                if node.primary_parent_formal_concept_id is not None
-            )
-        ):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        grouped_ids = [
-            concept_id
-            for group in self.topology.flat_groups
-            for concept_id in group.formal_concept_ids
+        tree_ids = [
+            concept_id for section in self.document_tree.sections
+            for concept_id in section.concept_ids
         ]
-        if set(grouped_ids) != concept_ids or len(grouped_ids) != len(concept_ids):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        group_by_id = {
-            group.flat_group_id: group for group in self.topology.flat_groups
-        }
         if (
-            len(group_by_id) != len(self.topology.flat_groups)
-            or self.topology.flat_groups != sorted(
-                self.topology.flat_groups,
-                key=lambda group: (
-                    group.source_order.page_number,
-                    group.source_order.reading_order,
-                    group.source_order.evidence_id,
-                    group.flat_group_id,
-                ),
-            )
+            self.document_tree.root.material_ref != self.material_ref
+            or self.document_tree.root.section_ids
+            != [section.section_id for section in self.document_tree.sections]
+            or set(tree_ids) != concept_ids
+            or len(tree_ids) != len(concept_ids)
             or any(
-                node.flat_group_id not in group_by_id
-                or node.formal_concept_id
-                not in group_by_id[node.flat_group_id].formal_concept_ids
-                for node in self.topology.nodes
-            )
-            or any(
-                (
-                    group.label_source == "heading"
-                    and group.heading_evidence_id is None
+                step.order_basis.section_id
+                != next(
+                    section.section_id for section in self.document_tree.sections
+                    if step.formal_concept_id in section.concept_ids
                 )
-                or (
-                    group.label_source == "unheaded_fallback"
-                    and (
-                        group.heading_evidence_id is not None
-                        or group.label
-                        != f"第 {group.source_order.page_number} 頁未命名段落"
-                    )
-                )
-                for group in self.topology.flat_groups
+                for step in self.initial_learning_path
             )
         ):
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
@@ -637,172 +444,21 @@ class KnowledgeMapView(_ClosedModel):
             concept.formal_concept_id: concept for concept in self.concepts
         }
         for step in self.initial_learning_path:
-            node = nodes_by_id[step.formal_concept_id]
-            concept = concepts_by_id[step.formal_concept_id]
-            if (
-                step.order_basis.hierarchy_depth != node.depth
-                or step.order_basis.flat_group_id != node.flat_group_id
-                or step.order_basis.source_page_number
-                != min(concept.source_page_numbers)
-                or step.order_basis.prerequisite_formal_concept_ids
-                != sorted(set(step.order_basis.prerequisite_formal_concept_ids))
-                or step.order_basis.parent_formal_concept_ids
-                != sorted(set(step.order_basis.parent_formal_concept_ids))
-            ):
-                raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        for node in self.topology.nodes:
-            concept = concepts_by_id[node.formal_concept_id]
-            matching_evidence = [
-                evidence
-                for claim in concept.claims
-                for evidence in claim.evidence
-                if evidence.evidence_id == node.flat_group_anchor.evidence_id
-            ]
-            if (
-                not matching_evidence
-                or matching_evidence[0].page_ref
-                != node.flat_group_anchor.page_ref
-                or matching_evidence[0].page_number
-                != node.flat_group_anchor.page_number
-            ):
-                raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if len({page.page_ref for page in self.excluded_pages}) != len(self.excluded_pages):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if len({page.page_number for page in self.excluded_pages}) != len(self.excluded_pages):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if len({relation.relation_id for relation in self.relations}) != len(self.relations):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if any(
-            relation.source_formal_concept_id not in concept_ids
-            or relation.target_formal_concept_id not in concept_ids
-            or relation.source_formal_concept_id == relation.target_formal_concept_id
-            for relation in self.relations
-        ):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        contains_pairs = {
-            (
-                relation.source_formal_concept_id,
-                relation.target_formal_concept_id,
-            )
-            for relation in self.relations
-            if relation.type == "contains"
-        }
-        neighbors = {concept_id: set() for concept_id in concept_ids}
-        contains_parents = {concept_id: set() for concept_id in concept_ids}
-        for parent_id, child_id in contains_pairs:
-            neighbors[parent_id].add(child_id)
-            neighbors[child_id].add(parent_id)
-            contains_parents[child_id].add(parent_id)
-        remaining = set(concept_ids)
-        component_count = 0
-        while remaining:
-            component_count += 1
-            pending = [next(iter(remaining))]
-            while pending:
-                concept_id = pending.pop()
-                if concept_id not in remaining:
-                    continue
-                remaining.remove(concept_id)
-                pending.extend(neighbors[concept_id])
-        if (
-            self.topology_diagnostics.component_count != component_count
-            or self.topology_diagnostics.orphan_concept_count
-            != sum(not linked for linked in neighbors.values())
-            or self.topology_diagnostics.secondary_parent_count
-            != sum(max(0, len(parents) - 1) for parents in contains_parents.values())
-            or self.topology_diagnostics.skipped_parent_before_child_count
-            > len(contains_pairs)
-        ):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        path_index = {concept_id: index for index, concept_id in enumerate(path_ids)}
-        for node in self.topology.nodes:
-            parent_id = node.primary_parent_formal_concept_id
-            if parent_id is not None and (
-                (parent_id, node.formal_concept_id) not in contains_pairs
-                or nodes_by_id[parent_id].depth + 1 != node.depth
-            ):
-                raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        for step in self.initial_learning_path:
-            expected_prerequisites = sorted(
-                relation.source_formal_concept_id
-                for relation in self.relations
-                if relation.type == "prerequisite"
-                and relation.target_formal_concept_id == step.formal_concept_id
+            evidence = next(
+                (
+                    evidence
+                    for claim in concepts_by_id[step.formal_concept_id].claims
+                    for evidence in claim.evidence
+                    if evidence.evidence_id == step.order_basis.evidence_id
+                ),
+                None,
             )
             if (
-                step.order_basis.prerequisite_formal_concept_ids
-                != expected_prerequisites
-                or any(
-                    (parent_id, step.formal_concept_id) not in contains_pairs
-                    for parent_id in step.order_basis.parent_formal_concept_ids
-                )
-                or any(
-                    path_index[predecessor] >= path_index[step.formal_concept_id]
-                    for predecessor in [
-                        *step.order_basis.prerequisite_formal_concept_ids,
-                        *step.order_basis.parent_formal_concept_ids,
-                    ]
-                )
+                evidence is None
+                or evidence.page_ref != step.order_basis.page_ref
+                or evidence.page_number != step.order_basis.page_number
             ):
                 raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        claims_by_concept = {
-            concept.formal_concept_id: {
-                claim.claim_id: {
-                    evidence.evidence_id for evidence in claim.evidence
-                }
-                for claim in concept.claims
-            }
-            for concept in self.concepts
-        }
-        promoted_match_ids = [
-            match_id
-            for concept in self.concepts
-            for resource in concept.supplementary_resources
-            for match_id in resource.match_ids
-        ]
-        decision_match_ids = [decision.match_id for decision in self.resource_decisions]
-        if (
-            len(promoted_match_ids) != len(set(promoted_match_ids))
-            or len(decision_match_ids) != len(set(decision_match_ids))
-            or set(promoted_match_ids) & set(decision_match_ids)
-            or len(promoted_match_ids) != self.resource_diagnostics.promoted_matches
-            or sum(len(concept.supplementary_resources) for concept in self.concepts)
-            != self.resource_diagnostics.promoted_resources
-            or len(promoted_match_ids) + len(decision_match_ids)
-            != self.resource_diagnostics.matches
-            or any(
-                not set(resource.study_concept_ids) <= set(concept.source_concept_ids)
-                for concept in self.concepts
-                for resource in concept.supplementary_resources
-            )
-        ):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if any(
-            evidence.owner_formal_concept_id not in {
-                relation.source_formal_concept_id,
-                relation.target_formal_concept_id,
-            }
-            or evidence.claim_id not in claims_by_concept[
-                evidence.owner_formal_concept_id
-            ]
-            or not set(evidence.evidence_ids)
-            <= claims_by_concept[evidence.owner_formal_concept_id][evidence.claim_id]
-            for relation in self.relations
-            for evidence in relation.relation_evidence
-        ):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if any(
-            [
-                (item.owner_formal_concept_id, item.claim_id)
-                for item in relation.relation_evidence
-            ]
-            != sorted({
-                (item.owner_formal_concept_id, item.claim_id)
-                for item in relation.relation_evidence
-            })
-            for relation in self.relations
-        ):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         if any(
             evidence.page_number not in concept.source_page_numbers
             for concept in self.concepts
@@ -813,7 +469,6 @@ class KnowledgeMapView(_ClosedModel):
         if self.excluded_pages and self.status.processing != "partial":
             raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
         return self
-
 
 class StudySessionCreate(_ClosedModel):
     schema_: Literal["study-session-create/v1"] = Field(alias="schema")
@@ -945,20 +600,6 @@ class WeaknessFindingView(_ClosedModel):
     reason: str
 
 
-class PrerequisiteGapView(_ClosedModel):
-    category: Literal["possible_prerequisite_gap"]
-    target_formal_concept_id: str
-    prerequisite_formal_concept_id: str
-    prerequisite_label: str
-    relation_id: str
-    prerequisite_status: Literal[
-        "not_started", "learning", "needs_review", "mastered"
-    ]
-    prerequisite_confidence: Literal["none", "limited", "supported"]
-    remediation_intent: Literal["relearn_prerequisite"]
-    reason: str
-
-
 class WeaknessView(_ClosedModel):
     schema_: Literal["weakness/v1"] = Field(alias="schema")
     study_session_id: UUID
@@ -968,7 +609,6 @@ class WeaknessView(_ClosedModel):
     current_formal_concept_id: str | None
     weakness_revision: str
     findings: list[WeaknessFindingView]
-    immediate_prerequisite_gaps: list[PrerequisiteGapView]
 
 
 class AdaptiveRouteView(_ClosedModel):
@@ -1171,12 +811,6 @@ def project_weakness(weakness: WeaknessSnapshot) -> WeaknessView:
                     mode="python", exclude={"supporting_answer_event_ids"}
                 )
                 for finding in weakness.findings
-            ],
-            "immediate_prerequisite_gaps": [
-                gap.model_dump(
-                    mode="python", exclude={"supporting_answer_event_ids"}
-                )
-                for gap in weakness.immediate_prerequisite_gaps
             ],
         }
     )

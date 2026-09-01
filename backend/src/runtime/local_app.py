@@ -95,7 +95,7 @@ def read_local_ai_config_from_environment(
             root / "vllm" / "lib" / "python3.12" / "site-packages"
         ),
         "ocr_model_root": str(root / "models" / "unlimited-ocr"),
-        "relation_model_root": str(
+        "verifier_model_root": str(
             root / "models" / "mdeberta-v3-base-mnli-xnli"
         ),
         "concept_api_base_url": "http://127.0.0.1:8101",

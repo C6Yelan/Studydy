@@ -10,7 +10,7 @@ from pdf_evidence.ocr_page_evidence import canonical_sha256
 
 DEDUPLICATION_REQUEST_SCHEMA = "concept-deduplication-input/v1"
 DEDUPLICATION_OUTPUT_SCHEMA = "concept-deduplication/v1"
-RESOLUTION_OUTPUT_SCHEMA = "formal-concept-resolution/v2"
+RESOLUTION_OUTPUT_SCHEMA = "formal-concept-resolution/v3"
 RETRIEVAL_POLICY = "grounded-concept-pair-retrieval/v2"
 PAIR_DECISIONS = {"SAME", "DISTINCT", "UNCERTAIN"}
 VERIFICATION_DIAGNOSTIC_FIELDS = {
@@ -59,7 +59,7 @@ def _search_terms(text: str) -> set[str]:
 
 
 def _source_claims(concept: dict[str, Any]) -> list[dict[str, Any]]:
-    return [concept["definition"], *concept["key_points"]]
+    return concept["claims"]
 
 
 def _context_headings(context: dict[str, Any]) -> list[str]:
@@ -493,7 +493,7 @@ def canonicalize_concepts(
         for page in study_material_output["pages"]
     }
     formal_concepts = []
-    for resolution_index, source_group in enumerate(groups):
+    for source_group in groups:
         ordered_sources = sorted(
             (source_by_id[source_id] for source_id in source_group),
             key=lambda concept: (
@@ -538,7 +538,6 @@ def canonicalize_concepts(
         )
         operation = "MERGE" if len(source_group) > 1 else "KEEP"
         identity = {
-            "group_id": "g1",
             "operation": operation,
             "source_concept_ids": source_group,
             "label": label,
@@ -558,7 +557,6 @@ def canonicalize_concepts(
                 "quality": "needs_review",
                 "decision": "review",
                 "reason_codes": ["FORMAL_CONCEPT_REVIEW_REQUIRED"],
-                "resolution_order": [resolution_index, 0],
             }
         )
     covered_sources = [
@@ -575,7 +573,6 @@ def canonicalize_concepts(
         reason_codes.append(failure_reason)
     return {
         "schema": RESOLUTION_OUTPUT_SCHEMA,
-        "group_id": "g1",
         "input_binding": {
             "request_sha256": canonical_sha256(request),
             "request_schema": DEDUPLICATION_REQUEST_SCHEMA,

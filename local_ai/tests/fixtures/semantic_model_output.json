@@ -2,12 +2,8 @@
   "concepts": [
     {
       "label": "Photosynthesis",
-      "definition": {
+      "claims": [{
         "text": "Photosynthesis converts light energy into chemical energy.",
-        "evidence_ids": ["e1"]
-      },
-      "key_points": [{
-        "text": "Plants convert light energy.",
         "evidence_ids": ["e1"]
       }]
     }

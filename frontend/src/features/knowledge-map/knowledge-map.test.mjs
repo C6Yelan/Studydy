@@ -2,117 +2,46 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  documentTreeConnectors,
   hierarchyLayout,
-  isPrimaryHierarchyRelation,
-  relationPresentation,
   safeExternalUrl,
 } from "./knowledge-map.ts";
 
-test("production Relation presentation contains only the frozen three types", () => {
-  assert.deepEqual(
-    ["prerequisite", "contains", "related"].map((type) => ({ type, ...relationPresentation(type) })),
-    [
-      {
-        type: "prerequisite",
-        className: "is-prerequisite",
-        directional: true,
-        label: "先備關係",
-        explanation: "來源概念需要先學，再進入目標概念。",
-      },
-      {
-        type: "contains",
-        className: "is-contains",
-        directional: true,
-        label: "組成關係",
-        explanation: "來源概念包含目標概念作為內容的一部分。",
-      },
-      {
-        type: "related",
-        className: "is-related",
-        directional: false,
-        label: "互相關聯",
-        explanation: "兩個概念在教材中互有關聯，沒有單向學習箭頭。",
-      },
-    ],
-  );
+const view = {
+  concepts: [
+    { formal_concept_id: "concept-a" },
+    { formal_concept_id: "concept-b" },
+  ],
+  document_tree: {
+    root: { material_ref: "material-root", section_ids: ["section-a"] },
+    sections: [{
+      section_id: "section-a",
+      concept_ids: ["concept-a", "concept-b"],
+    }],
+  },
+};
+
+test("display connectors derive only from the canonical document tree", () => {
+  assert.deepEqual(documentTreeConnectors(view), [
+    { id: "root:section-a", source: "material-root", target: "section-a" },
+    { id: "section:section-a:concept-a", source: "section-a", target: "concept-a" },
+    { id: "section:section-a:concept-b", source: "section-a", target: "concept-b" },
+  ]);
+});
+
+test("Dagre layout is deterministic and includes each tree node once", () => {
+  const first = hierarchyLayout(view);
+  const second = hierarchyLayout(view);
+  assert.deepEqual(first, second);
+  assert.deepEqual(first.map((node) => node.id).sort(), [
+    "concept-a", "concept-b", "material-root", "section-a",
+  ]);
+  assert.ok(first.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y)));
 });
 
 test("resource links only allow HTTP(S)", () => {
-  assert.equal(safeExternalUrl("https://example.com/resource"), "https://example.com/resource");
+  assert.equal(safeExternalUrl("https://example.test/resource"), "https://example.test/resource");
+  assert.equal(safeExternalUrl("http://example.test/resource"), "http://example.test/resource");
   assert.equal(safeExternalUrl("javascript:alert(1)"), null);
-  assert.equal(safeExternalUrl("not a URL"), null);
-});
-
-test("hierarchy layout uses backend depths instead of deriving radial semantics", () => {
-  const view = {
-    concepts: [
-      { formal_concept_id: "a", label: "A", source_page_numbers: [1] },
-      { formal_concept_id: "b", label: "B", source_page_numbers: [2] },
-      { formal_concept_id: "c", label: "C", source_page_numbers: [3] },
-    ],
-    topology: {
-      nodes: [
-        { formal_concept_id: "a", depth: 0, primary_parent_formal_concept_id: null, flat_group_id: "g1", flat_group_anchor: { page_number: 1, reading_order: 0, evidence_id: "ea" } },
-        { formal_concept_id: "b", depth: 1, primary_parent_formal_concept_id: "a", flat_group_id: "g1", flat_group_anchor: { page_number: 1, reading_order: 1, evidence_id: "eb" } },
-        { formal_concept_id: "c", depth: 0, primary_parent_formal_concept_id: null, flat_group_id: "g2", flat_group_anchor: { page_number: 2, reading_order: 0, evidence_id: "ec" } },
-      ],
-      flat_groups: [
-        { flat_group_id: "g1" },
-        { flat_group_id: "g2" },
-      ],
-    },
-    relations: [
-      { relation_id: "ab", type: "prerequisite", source_formal_concept_id: "a", target_formal_concept_id: "b", is_in_prerequisite_cycle: false },
-      { relation_id: "bc", type: "related", source_formal_concept_id: "b", target_formal_concept_id: "c", is_in_prerequisite_cycle: false },
-    ],
-  };
-
-  const nodes = hierarchyLayout(view);
-
-  assert.deepEqual(nodes.map((node) => [node.conceptId, node.x, node.y]), [
-    ["a", 0, 0],
-    ["b", 0, 150],
-    ["c", 260, 0],
-  ]);
-});
-
-test("group offsets use occupied width and stay deterministic under node permutation", () => {
-  const nodes = [
-    { formal_concept_id: "a", depth: 0, flat_group_id: "g1", flat_group_anchor: { page_number: 1, reading_order: 0, evidence_id: "ea" } },
-    { formal_concept_id: "b", depth: 0, flat_group_id: "g1", flat_group_anchor: { page_number: 1, reading_order: 1, evidence_id: "eb" } },
-    { formal_concept_id: "c", depth: 0, flat_group_id: "g2", flat_group_anchor: { page_number: 2, reading_order: 0, evidence_id: "ec" } },
-  ];
-  const view = {
-    topology: {
-      nodes,
-      flat_groups: [{ flat_group_id: "g1" }, { flat_group_id: "g2" }],
-    },
-  };
-
-  const layout = hierarchyLayout(view);
-  const repeated = hierarchyLayout({
-    topology: { ...view.topology, nodes: [...nodes].reverse() },
-  });
-
-  assert.deepEqual(layout, repeated);
-  assert.deepEqual(layout.map((node) => [node.conceptId, node.x]), [
-    ["a", 0], ["b", 210], ["c", 470],
-  ]);
-  assert.ok(layout[1].x + layout[1].width <= layout[2].x);
-});
-
-test("primary hierarchy relation follows the canonical backend parent", () => {
-  const view = {
-    topology: { nodes: [
-      { formal_concept_id: "a", primary_parent_formal_concept_id: null },
-      { formal_concept_id: "b", primary_parent_formal_concept_id: "a" },
-    ] },
-    relations: [
-      { type: "contains", source_formal_concept_id: "a", target_formal_concept_id: "b" },
-      { type: "contains", source_formal_concept_id: "c", target_formal_concept_id: "b" },
-    ],
-  };
-
-  assert.equal(isPrimaryHierarchyRelation(view, view.relations[0]), true);
-  assert.equal(isPrimaryHierarchyRelation(view, view.relations[1]), false);
+  assert.equal(safeExternalUrl("not a url"), null);
 });

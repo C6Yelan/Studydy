@@ -38,6 +38,7 @@ from .concept_generation import (
     SemanticOutputError,
     build_semantic_request,
     combine_semantic_batches,
+    failed_semantic_page,
     fitted_semantic_request_matches_source,
     split_semantic_request,
     validate_semantic_request,
@@ -62,6 +63,8 @@ from .text_first_bundle import build_producer_bundle, publish_run
 
 _PAGE_EXCLUSION_REASONS = {
     "NO_USABLE_EVIDENCE",
+}
+_CONCEPT_FAILURE_REASONS = {
     "NO_USABLE_CONCEPT",
     "MODEL_OUTPUT_TOO_LARGE",
     "MODEL_OUTPUT_INVALID_JSON",
@@ -69,9 +72,11 @@ _PAGE_EXCLUSION_REASONS = {
     "CANDIDATE_SCHEMA_INVALID",
     "INVALID_CONCEPT_COUNT",
     "INVALID_TEXT_FIELD",
-    "INVALID_KEY_POINTS",
+    "INVALID_CLAIMS",
     "INVALID_EVIDENCE_REFERENCES",
-    "DUPLICATE_EVIDENCE_REFERENCE",
+    "CONCEPT_API_RESPONSE_INVALID",
+    "CONCEPT_API_TIMEOUT",
+    "CONCEPT_API_UNAVAILABLE",
 }
 _MATERIAL_ANALYSIS_OWNERSHIP = local()
 
@@ -110,10 +115,14 @@ def _reason(error: Exception) -> str:
 def _validate_runtime_lock(runtime_lock: Any) -> None:
     try:
         semantic = runtime_lock["semantic"]
-        relation_verifier = runtime_lock["relation_verifier"]
+        verifier_model = runtime_lock["verifier_model"]
         concept_equivalence = runtime_lock["concept_equivalence"]
         matches = (
             isinstance(runtime_lock, dict)
+            and set(runtime_lock) == {
+                "schema", "python", "packages", "page", "ocr", "semantic",
+                "formal_resolution", "concept_equivalence", "verifier_model",
+            }
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
             and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v10"
             and runtime_lock["semantic"]["required_file_count"]
@@ -126,7 +135,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
             and all(
                 hashlib.sha256(runtime_lock[stage]["prompt"].encode("utf-8")).hexdigest()
                 == runtime_lock[stage]["prompt_sha256"]
-                for stage in ("semantic", "formal_resolution", "formal_relation")
+                for stage in ("semantic", "formal_resolution")
             )
             and runtime_lock["semantic"]["document_context"]
             == {
@@ -140,36 +149,21 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
                 "ambiguous_hierarchy": "needs-review/v1",
                 "dispatch_fit": "evidence-only-batch-preserving/v1",
                 "batch_binding": "exact-fitted-request-lineage/v1",
-                "durable_output_schema": "concept-evidence-output/v5",
-                "study_projection_schema": "study-material-output/v7",
+                "durable_output_schema": "concept-evidence-output/v6",
+                "study_projection_schema": "study-material-output/v8",
             }
-            and relation_verifier["model_id"]
+            and verifier_model["model_id"]
             == "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
-            and relation_verifier["revision"]
+            and verifier_model["revision"]
             == "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c"
-            and relation_verifier["required_file_count"]
-            == len(relation_verifier["required_files"])
-            and relation_verifier["startup_schema"]
-            == "local-relation-verifier-startup/v1"
-            and relation_verifier["startup_failure_reasons"]
-            == [
-                "RELATION_VERIFIER_DEPENDENCY_MISSING",
-                "RELATION_VERIFIER_CUDA_UNAVAILABLE",
-                "RELATION_VERIFIER_MODEL_LOAD_FAILED",
-            ]
-            and relation_verifier["hypotheses"]
-            == {
-                "prerequisite": "Understanding B requires prior understanding of A.",
-                "contains": "B is a subordinate concept, sub-concept, or component of A.",
-            }
-            and relation_verifier["decision_rule"]
-            == "entailment-threshold-and-argmax/v1"
-            and relation_verifier["entailment_threshold"] == 0.8
-            and relation_verifier["maximum_tokens"] == 384
+            and verifier_model["required_file_count"]
+            == len(verifier_model["required_files"])
+            and verifier_model["safe_loading"]
+            == "safetensors-local-only-no-remote-code"
             and concept_equivalence
             == {
-                "model_id": relation_verifier["model_id"],
-                "revision": relation_verifier["revision"],
+                "model_id": verifier_model["model_id"],
+                "revision": verifier_model["revision"],
                 "request_schema": "local-concept-equivalence-request/v1",
                 "response_schema": "local-concept-equivalence-response/v1",
                 "startup_schema": "local-concept-equivalence-startup/v1",
@@ -185,7 +179,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
                 "package_source": {
                     "name": "equivalence_process.py",
                     "sha256": (
-                        "588383aeb52638a7dd23a91c5d400229845c859d897b21bef5c8d06e06ffa56c"
+                        "2d56949bf2499514e64edc38fa257d9b54221c12e387ae677a5443cd510512a1"
                     ),
                 },
             }
@@ -280,7 +274,7 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
     if (
         not isinstance(artifact, dict)
         or set(artifact) != fields
-        or artifact["schema"] != "semantic-page-concepts/v3"
+        or artifact["schema"] != "semantic-page-concepts/v4"
         or artifact["input_binding"] != binding
         or artifact["attempt"] not in (1, 2)
         or artifact["processing"]
@@ -309,8 +303,7 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
                 "concept_id",
                 "page_ref",
                 "label",
-                "definition",
-                "key_points",
+                "claims",
                 "processing",
                 "quality",
                 "decision",
@@ -321,7 +314,7 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
             or concept["decision"] != "review"
         ):
             return False
-        claims = [concept["definition"], *concept["key_points"]]
+        claims = concept["claims"]
         if any(
             not isinstance(claim, dict)
             or set(claim) != {"claim_id", "text", "evidence_ids"}
@@ -331,31 +324,20 @@ def _semantic_artifact_valid(artifact: Any, binding: dict[str, Any]) -> bool:
             for claim in claims
         ):
             return False
-        if concept["definition"]["claim_id"] != claim_id(
-            artifact["page_ref"],
-            "definition",
-            {
-                "text": concept["definition"]["text"],
-                "evidence_ids": concept["definition"]["evidence_ids"],
-            },
-        ):
-            return False
         if any(
-            point["claim_id"]
+            claim["claim_id"]
             != claim_id(
                 artifact["page_ref"],
-                "key_point",
-                {"text": point["text"], "evidence_ids": point["evidence_ids"]},
+                {"text": claim["text"], "evidence_ids": claim["evidence_ids"]},
                 index=index,
             )
-            for index, point in enumerate(concept["key_points"])
+            for index, claim in enumerate(claims)
         ):
             return False
         identity = {
             "page_ref": artifact["page_ref"],
             "label": concept["label"],
-            "definition": concept["definition"],
-            "key_points": concept["key_points"],
+            "claims": concept["claims"],
         }
         if concept["concept_id"] != f"concept:sha256:{canonical_sha256(identity)}":
             return False
@@ -775,8 +757,18 @@ def _process_pdf(
                     )
             except Exception as error:
                 reason_code = _reason(error)
-                if reason_code in _PAGE_EXCLUSION_REASONS:
-                    excluded_pages.append(_excluded_page(page, "concept", reason_code))
+                if reason_code in _CONCEPT_FAILURE_REASONS:
+                    semantic_work.append(
+                        {
+                            "page": page,
+                            "artifact": failed_semantic_page(
+                                page_ref=page["page_ref"],
+                                input_binding={"batch_bindings": []},
+                                reason_code=reason_code,
+                            ),
+                            "error": None,
+                        }
+                    )
                     completed_concepts += 1
                     report_progress(
                         "concept_generation", completed_concepts, page_count
@@ -930,10 +922,18 @@ def _process_pdf(
             error = work["error"]
             if error is not None:
                 reason_code = _reason(error)
-                if reason_code in _PAGE_EXCLUSION_REASONS:
-                    excluded_pages.append(
-                        _excluded_page(work["page"], "concept", reason_code)
+                if reason_code in _CONCEPT_FAILURE_REASONS:
+                    semantic_pages.append(
+                        failed_semantic_page(
+                            page_ref=work["page"]["page_ref"],
+                            input_binding={
+                                **work["source_binding"],
+                                "batch_bindings": [],
+                            },
+                            reason_code=reason_code,
+                        )
                     )
+                    included_pages.append(work["page"])
                     continue
                 raise error
             semantic_pages.append(work["artifact"])

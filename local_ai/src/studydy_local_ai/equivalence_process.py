@@ -12,7 +12,6 @@ from .protocol import (
     read_ndjson,
     write_ndjson,
 )
-from .relation_process import RelationRuntimeError, load_relation_model
 
 
 MAXIMUM_TOKENS = 384
@@ -22,6 +21,62 @@ EQUIVALENCE_RESPONSE_SCHEMA = "local-concept-equivalence-response/v1"
 EQUIVALENCE_STARTUP_SCHEMA = "local-concept-equivalence-startup/v1"
 MAX_EQUIVALENCE_REQUEST_BYTES = 64 * 1024
 MAX_EQUIVALENCE_RESPONSE_BYTES = 2 * 1024
+
+
+class EquivalenceRuntimeError(RuntimeError):
+    """只攜帶 Concept equivalence startup 的固定 reason code。"""
+
+    def __init__(self, reason_code: str) -> None:
+        super().__init__(reason_code)
+        self.reason_code = reason_code
+
+
+def load_equivalence_model(model_root: Path) -> tuple[Any, Any, dict[str, int]]:
+    """只載入 runtime lock 固定的本機 safetensors checkpoint。"""
+
+    try:
+        import torch
+        from transformers import (
+            AutoConfig,
+            AutoModelForSequenceClassification,
+            AutoTokenizer,
+        )
+    except ImportError:
+        raise EquivalenceRuntimeError(
+            "CONCEPT_EQUIVALENCE_VERIFIER_DEPENDENCY_MISSING"
+        ) from None
+    try:
+        has_cuda = torch.cuda.is_available()
+    except RuntimeError:
+        has_cuda = False
+    if not has_cuda:
+        raise EquivalenceRuntimeError(
+            "CONCEPT_EQUIVALENCE_VERIFIER_CUDA_UNAVAILABLE"
+        )
+    try:
+        configuration = AutoConfig.from_pretrained(
+            model_root, local_files_only=True, trust_remote_code=False
+        )
+        labels = {
+            str(label).casefold(): int(index)
+            for index, label in configuration.id2label.items()
+        }
+        if labels != {"entailment": 0, "neutral": 1, "contradiction": 2}:
+            raise ValueError("MODEL_OUTPUT_INVALID")
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_root, local_files_only=True, trust_remote_code=False, use_fast=True
+        )
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_root,
+            local_files_only=True,
+            trust_remote_code=False,
+            use_safetensors=True,
+        ).eval().cuda()
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+        raise EquivalenceRuntimeError(
+            "CONCEPT_EQUIVALENCE_VERIFIER_MODEL_LOAD_FAILED"
+        ) from None
+    return model, tokenizer, labels
 
 
 def validate_equivalence_request(request: Any) -> dict[str, str]:
@@ -137,7 +192,7 @@ def main() -> int:
         return 2
     model = tokenizer = None
     try:
-        model, tokenizer, label_ids = load_relation_model(Path(sys.argv[1]))
+        model, tokenizer, label_ids = load_equivalence_model(Path(sys.argv[1]))
         write_ndjson(
             sys.stdout.buffer,
             {"schema": EQUIVALENCE_STARTUP_SCHEMA, "status": "ready"},
@@ -145,7 +200,7 @@ def main() -> int:
         )
         serve(model, tokenizer, label_ids)
         return 0
-    except RelationRuntimeError as error:
+    except EquivalenceRuntimeError as error:
         try:
             write_ndjson(
                 sys.stdout.buffer,

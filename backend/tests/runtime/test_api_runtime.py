@@ -92,7 +92,7 @@ def settings(
         "site_packages": str(root / "ocr/runtime/lib/python3.12/site-packages"),
         "concept_site_packages": str(root / "vllm/lib/python3.12/site-packages"),
         "ocr_model_root": str(root / "models/unlimited-ocr"),
-        "relation_model_root": str(root / "models/mdeberta-v3-base-mnli-xnli"),
+        "verifier_model_root": str(root / "models/mdeberta-v3-base-mnli-xnli"),
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
         "concept_server_executable": str(root / "vllm/bin/vllm"),
@@ -395,11 +395,11 @@ def test_success_exposes_only_review_map_with_pdf_locator(
         )
         assert map_response.status_code == 200
         view = map_response.json()
-        assert view["schema"] == "knowledge-map-view/v9"
+        assert view["schema"] == "knowledge-map-view/v11"
         assert view["status"]["decision"] == "review"
         assert view["concepts"][0]["claims"][0]["evidence"][0]["page_number"] == 1
         encoded = json.dumps(view)
-        assert "Public evidence" not in encoded
+        assert "evidence_text_index" not in encoded
         assert "runtime_binding" not in encoded
         assert "model_text" not in encoded
 
@@ -460,8 +460,9 @@ def test_openapi_has_phase_06_learning_routes_without_private_fields(
         ("ExcludedPageView", "page_number"),
     ):
         assert "maximum" not in schemas[schema_name]["properties"][field_name]
-    for field_name in ("concepts", "relations", "initial_learning_path", "excluded_pages"):
+    for field_name in ("concepts", "initial_learning_path", "excluded_pages"):
         assert "maxItems" not in schemas["KnowledgeMapView"]["properties"][field_name]
+    assert "relations" not in schemas["KnowledgeMapView"]["properties"]
     assert "maxItems" not in schemas["FormalConceptView"]["properties"]["claims"]
     assert "maxLength" not in schemas["FormalConceptView"]["properties"]["label"]
     assert "maxItems" not in schemas["FormalClaimView"]["properties"]["evidence"]
@@ -662,8 +663,8 @@ def test_learning_api_closed_public_wiring_and_safe_feedback(
         assert state["concept_states"][1]["status"] == "needs_review"
         assert "source_answer_event_ids" not in json.dumps(state)
         assert "supporting_answer_event_ids" not in json.dumps(weakness)
-        assert adaptive["plan"]["primary_step"]["action"] == "relearn_prerequisite"
-        assert adaptive["suggestion"]["action"] == "relearn_prerequisite"
+        assert adaptive["plan"]["primary_step"]["action"] == "review"
+        assert adaptive["suggestion"]["action"] == "review"
         applied = client.post(
             f"/v1/study-sessions/{session_id}/adaptive-plan/apply",
             headers={"Origin": settings.public_origin},
@@ -673,7 +674,8 @@ def test_learning_api_closed_public_wiring_and_safe_feedback(
             },
         )
         assert applied.status_code == 200
-        assert applied.json()["deferred_formal_concept_id"] == target[
+        assert applied.json()["deferred_formal_concept_id"] is None
+        assert applied.json()["current_formal_concept_id"] == target[
             "formal_concept_id"
         ]
         assert client.post(
@@ -934,7 +936,6 @@ def _api_assessment(
     assert response.status_code == 201
     return response.json()
 
-
 def _api_answer(
     client: TestClient,
     session_id: str,
@@ -958,236 +959,3 @@ def _api_answer(
     )
     assert response.status_code == 201
     return response.json()
-
-
-def test_phase_06_public_api_closed_loop_matches_golden(
-    settings: ApiSettings, monkeypatch: pytest.MonkeyPatch
-):
-    monkeypatch.setattr(
-        assessment_request_module,
-        "generate_and_store_assessment",
-        _sequenced_assessment_generation,
-    )
-    golden = json.loads(
-        (
-            Path(__file__).parent
-            / "fixtures"
-            / "learning-loop-golden-v1.json"
-        ).read_text(encoding="utf-8")
-    )
-    expected = {item["name"]: item for item in golden["checkpoints"]}
-    with TestClient(create_app(settings)) as client:
-        _, knowledge_map, material_id = _learning_material(client, settings)
-        prerequisite, target, next_concept = knowledge_map["formal_concepts"]
-        created = client.post(
-            "/v1/study-sessions",
-            headers=_headers("closed-loop-session"),
-            json={
-                "schema": "study-session-create/v1",
-                "material_id": str(material_id),
-                "knowledge_map_revision": knowledge_map["revision"],
-                "current_formal_concept_id": target["formal_concept_id"],
-            },
-        ).json()
-        session_id = created["study_session_id"]
-        target_claim_id = target["claims"][0]["claim_id"]
-
-        target_items = []
-        for sequence in (1, 2):
-            assessment = _api_assessment(
-                client,
-                session_id,
-                target_claim_id,
-                f"target-wrong-item-{sequence}",
-            )
-            target_items.append(assessment["question_id"])
-            feedback = _api_answer(
-                client,
-                session_id,
-                assessment,
-                correct=False,
-                key=f"target-wrong-answer-{sequence}",
-            )
-            if sequence == 1:
-                assert _api_answer(
-                    client,
-                    session_id,
-                    assessment,
-                    correct=False,
-                    key=f"target-wrong-answer-{sequence}",
-                ) == feedback
-        assert len(set(target_items)) == 2
-        state_after_errors = client.get(
-            f"/v1/study-sessions/{session_id}/learning-state"
-        ).json()
-        weakness_after_errors = client.get(
-            f"/v1/study-sessions/{session_id}/weakness"
-        ).json()
-        adaptive_after_errors = client.get(
-            f"/v1/study-sessions/{session_id}/adaptive-plan"
-        ).json()
-        target_state = next(
-            item
-            for item in state_after_errors["concept_states"]
-            if item["formal_concept_id"] == target["formal_concept_id"]
-        )
-        target_weakness = next(
-            item
-            for item in weakness_after_errors["findings"]
-            if item["target_formal_concept_id"]
-            == target["formal_concept_id"]
-        )
-        checkpoint = expected["repeated_target_errors"]
-        assert target_state["status"] == checkpoint["target_status"]
-        assert target_weakness["category"] == checkpoint["weakness_category"]
-        assert adaptive_after_errors["plan"]["primary_step"]["action"] == checkpoint["adaptive_action"]
-        assert client.post(
-            f"/v1/study-sessions/{session_id}/adaptive-plan/apply",
-            headers={"Origin": settings.public_origin},
-            json={
-                "schema": "adaptive-plan-apply/v1",
-                "adaptive_plan_revision": adaptive_after_errors["plan"][
-                    "adaptive_plan_revision"
-                ],
-            },
-        ).status_code == 200
-
-        prerequisite_items = []
-        for sequence in (1, 2):
-            assessment = _api_assessment(
-                client,
-                session_id,
-                prerequisite["claims"][0]["claim_id"],
-                f"prerequisite-item-{sequence}",
-            )
-            prerequisite_items.append(assessment["question_id"])
-            _api_answer(
-                client,
-                session_id,
-                assessment,
-                correct=True,
-                key=f"prerequisite-answer-{sequence}",
-            )
-        assert len(set(prerequisite_items)) == 2
-        state_after_prerequisite = client.get(
-            f"/v1/study-sessions/{session_id}/learning-state"
-        ).json()
-        return_adaptive = client.get(
-            f"/v1/study-sessions/{session_id}/adaptive-plan"
-        ).json()
-        prerequisite_state = next(
-            item
-            for item in state_after_prerequisite["concept_states"]
-            if item["formal_concept_id"] == prerequisite["formal_concept_id"]
-        )
-        checkpoint = expected["prerequisite_mastered"]
-        assert prerequisite_state["status"] == checkpoint["prerequisite_status"]
-        assert return_adaptive["plan"]["primary_step"]["action"] == checkpoint["adaptive_action"]
-        returned = client.post(
-            f"/v1/study-sessions/{session_id}/adaptive-plan/apply",
-            headers={"Origin": settings.public_origin},
-            json={
-                "schema": "adaptive-plan-apply/v1",
-                "adaptive_plan_revision": return_adaptive["plan"][
-                    "adaptive_plan_revision"
-                ],
-            },
-        ).json()
-        assert returned["current_formal_concept_id"] == target[
-            "formal_concept_id"
-        ]
-        assert returned["deferred_formal_concept_id"] is None
-
-        reassessment_ids = []
-        reassessments = []
-        for sequence in (3, 4):
-            assessment = _api_assessment(
-                client,
-                session_id,
-                target_claim_id,
-                f"target-correct-item-{sequence}",
-            )
-            reassessments.append(assessment)
-            reassessment_ids.append(assessment["question_id"])
-            _api_answer(
-                client,
-                session_id,
-                assessment,
-                correct=True,
-                key=f"target-correct-answer-{sequence}",
-            )
-        assert not set(reassessment_ids) & set(target_items)
-        final_state = client.get(
-            f"/v1/study-sessions/{session_id}/learning-state"
-        ).json()
-        final_adaptive = client.get(
-            f"/v1/study-sessions/{session_id}/adaptive-plan"
-        ).json()
-        target_state = next(
-            item
-            for item in final_state["concept_states"]
-            if item["formal_concept_id"] == target["formal_concept_id"]
-        )
-        checkpoint = expected["target_reassessment_mastered"]
-        assert target_state["status"] == checkpoint["target_status"]
-        assert final_adaptive["plan"]["primary_step"]["action"] == checkpoint["adaptive_action"]
-        assert final_adaptive["plan"]["primary_step"][
-            "target_formal_concept_id"
-        ] == next_concept["formal_concept_id"]
-        assert final_state["event_watermark"] == 6
-        assert final_state["state_revision"] != state_after_errors[
-            "state_revision"
-        ]
-        stale = client.post(
-            f"/v1/study-sessions/{session_id}/adaptive-plan/apply",
-            headers={"Origin": settings.public_origin},
-            json={
-                "schema": "adaptive-plan-apply/v1",
-                "adaptive_plan_revision": adaptive_after_errors["plan"][
-                    "adaptive_plan_revision"
-                ],
-            },
-        )
-        assert stale.status_code == 409
-
-        second_session = client.post(
-            "/v1/study-sessions",
-            headers=_headers("isolated-session"),
-            json={
-                "schema": "study-session-create/v1",
-                "material_id": str(material_id),
-                "knowledge_map_revision": knowledge_map["revision"],
-                "current_formal_concept_id": target["formal_concept_id"],
-            },
-        ).json()
-        isolated_state = client.get(
-            f"/v1/study-sessions/{second_session['study_session_id']}/learning-state"
-        ).json()
-        isolated_weakness = client.get(
-            f"/v1/study-sessions/{second_session['study_session_id']}/weakness"
-        ).json()
-        checkpoint = expected["new_session_isolated"]
-        isolated_target = next(
-            item
-            for item in isolated_state["concept_states"]
-            if item["formal_concept_id"] == target["formal_concept_id"]
-        )
-        assert isolated_state["event_watermark"] == checkpoint[
-            "event_watermark"
-        ]
-        assert isolated_target["status"] == checkpoint["target_status"]
-        assert len(isolated_weakness["findings"]) == checkpoint[
-            "weakness_findings"
-        ]
-
-        cross_session = client.post(
-            f"/v1/study-sessions/{second_session['study_session_id']}/assessments/"
-            f"{reassessments[0]['assessment_revision']}/submissions",
-            headers=_headers("cross-session-answer"),
-            json={
-                "schema": "answer-submission-create/v1",
-                "question_id": reassessments[0]["question_id"],
-                "selected_option_id": "option:sha256:" + "9" * 64,
-            },
-        )
-        assert cross_session.status_code == 404

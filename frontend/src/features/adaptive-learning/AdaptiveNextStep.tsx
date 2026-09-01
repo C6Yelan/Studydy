@@ -7,7 +7,6 @@ const actionCopy: Record<AdaptiveAction, { label: string; cta: string }> = {
   continue: { label: "繼續目前概念", cta: "繼續學習" },
   practice: { label: "練習目前概念", cta: "開始練習" },
   review: { label: "複習目前概念", cta: "開始複習" },
-  relearn_prerequisite: { label: "先補強先備概念", cta: "前往補強" },
   use_resource: { label: "使用補充資源", cta: "開啟建議資源" },
   follow_path: { label: "回到教材建議順序", cta: "依順序繼續" },
   collect_more_data: { label: "取得更多作答資料", cta: "完成更多評量" },

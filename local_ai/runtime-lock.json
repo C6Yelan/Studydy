@@ -79,9 +79,8 @@
     "grammar": "strict-det-blocks/v1",
     "package_sources": {
       "__init__.py": "c7a3ebd9b5d9dcd05a9c8a0610efb0ee5481d4733dd4101872bcf72c5ee4008c",
-      "protocol.py": "f4baccb95b53ee64ece8c0bfa785a5da55f12e947d5dc6e579a037e6bdad9e30",
-      "ocr_process.py": "a429f32b5062860bff9412588953619a970383c8ed92b374425fa33ff8e6846f",
-      "relation_process.py": "15aca1c85a34bd213ec249920fce67fcde750ecff6df0c9357ebf650e3d6a303"
+      "protocol.py": "a785181371733846ef4774e32ba2fa9caff1d558b9c61b56cacab54a3b13d93f",
+      "ocr_process.py": "a429f32b5062860bff9412588953619a970383c8ed92b374425fa33ff8e6846f"
     },
     "fixture_hashes": {}
   },
@@ -103,16 +102,16 @@
       "version": "0.26.0+cu129",
       "executable_sha256": "6d34800bbe39c7b1d94043fa0a7badafd894dbc422e0212f94ebe16547b2097a"
     },
-    "prompt": "Extract study concepts only from the supplied current evidence. Use document_context when present only to interpret heading ancestry, adjacency, and continuation; it is not claim evidence. Use current_blocks.kind as grounded Evidence role metadata. assessment_groups preserves a question stem with its options; when has_reliable_answer is false, do not infer an answer or emit any proposition from the question stem or its options as a factual claim. Cite only IDs from the current evidence list, and give every definition and key point non-empty evidence_ids. Preserve exact escapes, symbols, operators, numbers, units, conditions, direction, and scope, including \\0. Do not emit isolated connectors, syntax tails, half clauses, or incomplete declarations as claims. Return concepts=[] when the current page teaches no concept. Return JSON only and no additional fields.",
-    "prompt_sha256": "0c3656bc6a4136a122b8c04a9dd1807f687f87fa9c3958987bd1df32800c536f",
+    "prompt": "Extract learner-worthy study concepts only from the supplied current evidence. Use document_context only to interpret heading ancestry, adjacency, and continuation; it is not claim evidence. assessment_groups preserves a question stem with its options; when has_reliable_answer is false, do not infer an answer or emit a factual claim from the group. Return each concept as label plus one or more grounded claims. Cite only IDs from the current evidence list and give every claim non-empty evidence_ids. Preserve exact escapes, symbols, operators, numbers, units, conditions, direction, and scope, including \\0. Keep grounded single claims, code, declarations, formulas, captions, and partial clauses when they carry study content. Do not emit isolated connectors or pure symbol junk. Return concepts=[] when the current page teaches no concept. Return JSON only and no additional fields.",
+    "prompt_sha256": "47d1abca48ea2b500663d6cd9e44574a78eb2f1d03ffe3c429cbfd6f2f12065c",
     "request_schema": "concept-generation-input/v7",
-    "output_schema": "semantic-page-concepts/v3",
+    "output_schema": "semantic-page-concepts/v4",
     "generation": {"temperature": 0, "max_tokens": 1536},
     "structured_output": {
       "type": "json_schema",
       "name": "studydy_page_concepts",
       "strict": true,
-      "schema_sha256": "0c0e36cde1f8d4a3cdf6733c4228c8c56937d825836c1e983ab860d26c3b591e"
+      "schema_sha256": "732ad8896148ab8ea690e01188ae29aaf49166fff6ab42eca2a35b9bba3d245f"
     },
     "input_token_budget": {
       "api_path": "/tokenize",
@@ -131,8 +130,8 @@
       "ambiguous_hierarchy": "needs-review/v1",
       "dispatch_fit": "evidence-only-batch-preserving/v1",
       "batch_binding": "exact-fitted-request-lineage/v1",
-      "durable_output_schema": "concept-evidence-output/v5",
-      "study_projection_schema": "study-material-output/v7"
+      "durable_output_schema": "concept-evidence-output/v6",
+      "study_projection_schema": "study-material-output/v8"
     },
     "retry": {
       "max_attempts": 2,
@@ -145,9 +144,9 @@
     },
     "policy": {
       "candidate_text_normalizer": "concept-text-nfkc-whitespace/v1",
-      "claim_processing_policy": "claim-grounded-concept-review/v7",
+      "claim_processing_policy": "claim-grounded-concept-review/v9",
       "exact_technical_tokens": "claim-technical-token-fidelity/v1",
-      "fragment_validation": "claim-fragment-reasons/v2",
+      "fragment_validation": "objective-junk-only/v1",
       "cross_concept_evidence_reuse": true,
       "lexical_overlap_decision": false,
       "fenced_json": "reject",
@@ -155,16 +154,16 @@
       "structurally_valid_decision": "review"
     },
     "code_hashes": {
-      "backend_concept_api": "b1a4f67457e8b8d1d9c4b15ff18c69c9a94be8f5d405dff329ab3eff80c292e5",
+      "backend_concept_api": "277aa9baf9638899df2d5e003011320ba8674557c90489d12bdd16f424435bad",
       "backend_process_guard": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
-      "backend_concept_generation": "390cecca7cb143c2a939acb9beffab0920482c556614f06ba25ec40b454a4835",
+      "backend_concept_generation": "4a7c1ac816ab69a82a12df8fa2c1db16ad98c07c9c9bf4a44bc042925372274f",
       "backend_document_context": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
-      "backend_text_first_run": "a1f637d6233bce02380355b49063d8a7589b3141e5040ffb9c2fee76aec79399",
-      "backend_study_material_output": "967271f356c5da7c2e1ab87b7086f629787838ea7437e236749bb1a4b8651a49"
+      "backend_text_first_run": "d9eddc0d9cf8417ec57a0e643b3f01723556ccf34a3290ac4576c75f0d4578a7",
+      "backend_study_material_output": "88efd57be086464d6fae7c127b81add392088d20b7c05548862f046d73693419"
     },
     "fixture_hashes": {
       "semantic_request.json": "3330613a3c72590b604623a175594dc1b3952050ebfb9dc38b9780fa22a30b80",
-      "semantic_model_output.json": "b097b099d350b02fc947b2ad0b5f415e53fab96d8039400d42f370a4f5b51327"
+      "semantic_model_output.json": "b67e92398642ecee7b20c9c46954d755db0973cf41a7238bef9d2d7d99890e48"
     }
   },
   "formal_resolution": {
@@ -194,28 +193,10 @@
     "safe_loading": "safetensors-local-only-no-remote-code",
     "package_source": {
       "name": "equivalence_process.py",
-      "sha256": "588383aeb52638a7dd23a91c5d400229845c859d897b21bef5c8d06e06ffa56c"
+      "sha256": "2d56949bf2499514e64edc38fa257d9b54221c12e387ae677a5443cd510512a1"
     }
   },
-  "formal_relation": {
-    "prompt": "/no_think\nFor every supplied pair, return exactly one outcome: no_relation, contains, prerequisite, or related. contains means source is the broader whole and target is its component. prerequisite means learners should understand source before target for concrete learning reasons; page order or adjacency alone is never proof. related requires a specific meaningful learning association and is never an uncertainty fallback. Use no_relation when the grounded content does not establish one of the three relations. Retrieval signals are hints only. Cite only supplied Claim, Evidence, and context aliases; use document_structure or combined only with context refs. Give a concise learner-readable reason that states the actual learning semantics. Set needs_review when support is indirect, conflicting, or limited. Return every pair id exactly once as JSON and no extra fields.",
-    "prompt_sha256": "03d9f7434d72ad49204b7bbcdf094be63cb7f31f74d1a92b04b627cbb9c3a83a",
-    "request_schema": "formal-relation-input/v3",
-    "output_schema": "formal-relation-proposals/v1",
-    "generation": {"temperature": 0, "max_tokens": 3072},
-    "timeout_seconds": 300,
-    "pair_ceiling": 128,
-    "batch_size": 16,
-    "code_hashes": {
-      "backend_relations": "dd63ed988ee16c530bd4b283707e6101665101289f2b84ccaa3e459fe90a41e5",
-      "backend_local_generation": "0f1f05a5a376327e252aced21a069d93474bc18cd7d3e5eca4751c978a1cd969"
-    },
-    "retry": {
-      "max_attempts": 2,
-      "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
-    }
-  },
-  "relation_verifier": {
+  "verifier_model": {
     "model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
     "revision": "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c",
     "license": "MIT",
@@ -229,22 +210,6 @@
       {"name": "special_tokens_map.json", "size": 286, "sha256": "9463f61e1b109a8eb4688b829260d7c6b1e6dff04c98ff7269bb89e2b92369b9"},
       {"name": "added_tokens.json", "size": 23, "sha256": "fb697283833d25e2c711f1bc37730ecd8b20f4bd5f015db1d84aefe0adc9155a"}
     ],
-    "request_schema": "local-relation-verifier-request/v1",
-    "response_schema": "local-relation-verifier-response/v1",
-    "startup_schema": "local-relation-verifier-startup/v1",
-    "startup_failure_reasons": [
-      "RELATION_VERIFIER_DEPENDENCY_MISSING",
-      "RELATION_VERIFIER_CUDA_UNAVAILABLE",
-      "RELATION_VERIFIER_MODEL_LOAD_FAILED"
-    ],
-    "hypotheses": {
-      "prerequisite": "Understanding B requires prior understanding of A.",
-      "contains": "B is a subordinate concept, sub-concept, or component of A."
-    },
-    "decision_rule": "entailment-threshold-and-argmax/v1",
-    "entailment_threshold": 0.8,
-    "maximum_tokens": 384,
-    "timeout_seconds": 120,
     "safe_loading": "safetensors-local-only-no-remote-code"
   }
 }

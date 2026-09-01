@@ -174,14 +174,12 @@
   background: #fff;
 }
 
-.weakness-card.is-warning,
-.weakness-card.is-prerequisite {
+.weakness-card.is-warning {
   border-color: #f1d57e;
   background: var(--warning-soft);
 }
 
-.weakness-card.is-warning > span,
-.weakness-card.is-prerequisite > span {
+.weakness-card.is-warning > span {
   color: #9a6a00;
   background: #fff;
 }

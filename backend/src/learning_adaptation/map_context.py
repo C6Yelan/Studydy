@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import select
@@ -66,29 +65,11 @@ class FormalConceptContext:
 
 
 @dataclass(frozen=True)
-class RelationEvidenceContext:
-    owner_formal_concept_id: str
-    claim_id: str
-    evidence_ids: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class PublishedRelationContext:
-    relation_id: str
-    relation_type: Literal["prerequisite", "contains", "related"]
-    source_formal_concept_id: str
-    target_formal_concept_id: str
-    is_in_prerequisite_cycle: bool
-    relation_evidence: tuple[RelationEvidenceContext, ...]
-
-
-@dataclass(frozen=True)
 class MapContext:
     learner_id: UUID
     material_id: UUID
     knowledge_map_revision: str
     formal_concepts: tuple[FormalConceptContext, ...]
-    relations: tuple[PublishedRelationContext, ...]
     initial_learning_path: tuple[str, ...]
 
 
@@ -185,30 +166,11 @@ def _build_context(
         )
         for concept in knowledge_map["formal_concepts"]
     )
-    relations = tuple(
-        PublishedRelationContext(
-            relation_id=relation["relation_id"],
-            relation_type=relation["type"],
-            source_formal_concept_id=relation["source_formal_concept_id"],
-            target_formal_concept_id=relation["target_formal_concept_id"],
-            is_in_prerequisite_cycle=relation["is_in_prerequisite_cycle"],
-            relation_evidence=tuple(
-                RelationEvidenceContext(
-                    owner_formal_concept_id=item["owner_formal_concept_id"],
-                    claim_id=item["claim_id"],
-                    evidence_ids=tuple(item["evidence_ids"]),
-                )
-                for item in relation["relation_evidence"]
-            ),
-        )
-        for relation in knowledge_map["relations"]
-    )
     return MapContext(
         learner_id=learner_id,
         material_id=material_id,
         knowledge_map_revision=knowledge_map_revision,
         formal_concepts=formal_concepts,
-        relations=relations,
         initial_learning_path=tuple(
             step["formal_concept_id"]
             for step in knowledge_map["initial_learning_path"]

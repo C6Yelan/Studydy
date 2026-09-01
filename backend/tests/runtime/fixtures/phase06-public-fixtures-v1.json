@@ -64,10 +64,9 @@
       "claim_coverage_complete": true,
       "remediation_intent": "practice",
       "reason": "多次可信作答錯誤顯示這個概念目前是明確弱點。"
-    }],
-    "immediate_prerequisite_gaps": []
+    }]
   },
-  "prerequisite_gap": {
+  "review_needed": {
     "schema": "adaptive-response/v1",
     "plan": {
       "schema": "adaptive-plan/v1",
@@ -80,15 +79,15 @@
       "deferred_formal_concept_id": null,
       "no_safe_deferred_formal_concept_ids": [],
       "primary_step": {
-        "action": "relearn_prerequisite",
-        "target_formal_concept_id": "formal-concept:sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-        "target_label": "先修概念",
-        "reason": "先補強尚未掌握的正式 immediate prerequisite，再回到目前目標。",
+        "action": "review",
+        "target_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "target_label": "目標概念",
+        "reason": "近期作答仍不穩定，建議先複習再重新評量。",
         "confidence": "limited",
         "claim_coverage_complete": false,
         "route": {
           "study_session_id": "00000000-0000-4000-8000-000000000001",
-          "formal_concept_id": "formal-concept:sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
           "resource_promotion_id": null
         }
       },
@@ -99,15 +98,15 @@
       "adaptive_plan_revision": "adaptive-plan:sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       "study_session_id": "00000000-0000-4000-8000-000000000001",
       "base_knowledge_map_revision": "knowledge-map:sha256:1111111111111111111111111111111111111111111111111111111111111111",
-      "action": "relearn_prerequisite",
-      "target_formal_concept_id": "formal-concept:sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-      "target_label": "先修概念",
-      "reason": "先補強尚未掌握的正式 immediate prerequisite，再回到目前目標。",
+      "action": "review",
+      "target_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "target_label": "目標概念",
+      "reason": "近期作答仍不穩定，建議先複習再重新評量。",
       "confidence": "limited",
       "claim_coverage_complete": false,
       "route": {
         "study_session_id": "00000000-0000-4000-8000-000000000001",
-        "formal_concept_id": "formal-concept:sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
         "resource_promotion_id": null
       },
       "fallback_action": "collect_more_data",

@@ -37,25 +37,10 @@ CONCEPT_RESPONSE_FORMAT = {
                     "items": {
                         "type": "object",
                         "additionalProperties": False,
-                        "required": [
-                            "label", "definition", "key_points"
-                        ],
+                        "required": ["label", "claims"],
                         "properties": {
                             "label": {"type": "string", "minLength": 1},
-                            "definition": {
-                                "type": "object",
-                                "additionalProperties": False,
-                                "required": ["text", "evidence_ids"],
-                                "properties": {
-                                    "text": {"type": "string", "minLength": 1},
-                                    "evidence_ids": {
-                                        "type": "array",
-                                        "minItems": 1,
-                                        "items": {"type": "string", "minLength": 1},
-                                    },
-                                },
-                            },
-                            "key_points": {
+                            "claims": {
                                 "type": "array",
                                 "minItems": 1,
                                 "items": {

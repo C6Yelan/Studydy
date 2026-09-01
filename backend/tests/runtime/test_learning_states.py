@@ -18,17 +18,16 @@ from learning_adaptation.study_sessions import (
     create_study_session,
     set_current_study_concept,
 )
-from knowledge_map.artifacts import _topology_and_learning_path
+from pdf_evidence.concept_generation import claim_id, concept_id
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.learner_session import TrustedLearner
 from runtime.storage.migrations import run_migrations
 from test_assessment_items import _documents
 from test_study_sessions import (
     _formal_id,
-    _flat_group_context,
     _insert_material_map,
     _knowledge_map,
-    _relation,
+    _tree_and_path,
 )
 
 
@@ -45,35 +44,33 @@ def state_database_dsn(
 def _multi_claim_map() -> dict:
     knowledge_map = _knowledge_map()
     concepts = knowledge_map["formal_concepts"]
-    concepts[0]["claims"].append(
-        {
-            "claim_id": "claim:sha256:" + "4" * 64,
-            "text": "A second required grounded claim",
-            "evidence_ids": concepts[0]["claims"][0]["evidence_ids"],
-        }
+    added_claim = {
+        "text": "A second required grounded claim",
+        "evidence_ids": concepts[0]["claims"][0]["evidence_ids"],
+    }
+    added_claim = {
+        "claim_id": claim_id(
+            concepts[0]["source_page_refs"][0], added_claim, index=1
+        ),
+        **added_claim,
+    }
+    concepts[0]["claims"].append(added_claim)
+    source_id = concept_id(
+        concepts[0]["source_page_refs"][0],
+        concepts[0]["label"],
+        concepts[0]["claims"],
     )
+    concepts[0]["source_concept_ids"] = [source_id]
+    concepts[0]["source_members"][0]["source_concept_id"] = source_id
     concepts[0]["source_members"][0]["claim_ids"] = sorted(
         claim["claim_id"] for claim in concepts[0]["claims"]
     )
     concepts[0]["formal_concept_id"] = _formal_id(concepts[0])
-    related_source, related_target = sorted(
-        concepts[1:], key=lambda concept: concept["formal_concept_id"]
-    )
-    knowledge_map["relations"] = [
-        _relation("prerequisite", concepts[0], concepts[1]),
-        _relation("contains", concepts[0], concepts[2]),
-        _relation("related", related_source, related_target),
-    ]
-    knowledge_map["flat_group_context"] = _flat_group_context(concepts)
+    concepts.sort(key=lambda concept: concept["formal_concept_id"])
     (
-        knowledge_map["topology"],
+        knowledge_map["document_tree"],
         knowledge_map["initial_learning_path"],
-        knowledge_map["topology_diagnostics"],
-    ) = _topology_and_learning_path(
-        concepts,
-        knowledge_map["relations"],
-        knowledge_map["flat_group_context"],
-    )
+    ) = _tree_and_path(concepts, knowledge_map["material_ref"])
     knowledge_map.pop("revision")
     knowledge_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(
         knowledge_map
