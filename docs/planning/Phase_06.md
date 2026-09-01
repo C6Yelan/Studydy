@@ -57,7 +57,7 @@ Canonical Map / inline `initial_learning_path` 必須保持可回溯；個人化
 - 依 positive-only `prerequisite_constraints` 與獨立 `initial_learning_path` 建立 learner-specific Adaptive Plan overlay。
 - Adaptive Plan 一次只輸出 one primary step；Suggestion 只做學生可理解 projection。
 - 新 StudySession 預設從 `not_started` / `needs_more_data` 開始，不沿用前一 session 的 Mastery / Weakness / Adaptive Plan。
-- 資料、Relation 或 Resource 不足時明確 fallback，不猜測、不建立虛假 precision。
+- Map、Concept、Evidence、Resource 或 `prerequisite_constraints` 資料不足時明確 fallback，不猜測、不建立虛假 precision。
 
 ## 為什麼現在做
 
@@ -322,7 +322,7 @@ Adaptive artifact 至少包含：
 
 Routing priority **凍結**：
 
-1. current target 有未掌握 published non-cycle **immediate prerequisite** → `relearn_prerequisite`。
+1. current target 有未掌握 published、positive-only **immediate `prerequisite_constraints`** → `relearn_prerequisite`。
 2. 否則 current Concept 有可信 weakness → `review` / `practice`。
 3. 否則沿 canonical inline `initial_learning_path` 找 first not-mastered Concept。
 4. evidence不足 → `collect_more_data` / `follow_path`，不強行 reorder。
@@ -391,7 +391,7 @@ Frozen action enum：
 - Mastery使用本文件 Frozen claim-aware rule；不沿用 opaque V1 weights、不做 psychometric precision。
 - status enum固定 `not_started` / `learning` / `needs_review` / `mastered`；資料不足用 `needs_more_data`，不新增 `unknown` status。
 - V2不使用 dwell time / engagement duration。
-- prerequisite gap只看 published non-cycle **immediate prerequisite**。
+- prerequisite gap只看 published、positive-only **immediate `prerequisite_constraints`**。
 - Adaptive Plan只保留 one primary adaptive step。
 - Suggestion action enum固定。
 - canonical `initial_learning_path` inline於 Knowledge Map；不建立 standalone LearningPath producer / DB domain。

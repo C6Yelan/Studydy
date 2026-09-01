@@ -2,7 +2,7 @@
 
 ## Material review browser regression
 
-此 regression 不攔截產品 API，會用 harness 產生的安全 PDF 經真 local backend 建立 material 與 persisted `material_processing_run`，並驗證 API、資料庫與 frontend wiring。OCR、Concept 與 Knowledge Map producer 使用 deterministic test implementation，因此不宣稱驗證真實 OCR、Qwen、Relation Evidence Gate 或 mDeBERTa；真 local AI 必須另外執行下方測試與 production smoke。
+此 regression 不攔截產品 API，會用 harness 產生的安全 PDF 經真 local backend 建立 material 與 persisted `material_processing_run`，並驗證 API、資料庫與 frontend wiring。OCR、Concept 與 Knowledge Map producer 使用 deterministic test implementation，因此不宣稱驗證真實 OCR、Qwen 或其他 local AI；真 local AI 必須另外執行下方測試與 production smoke。
 
 先從 `frontend/` 安裝前端套件與 Playwright Chromium：
 
