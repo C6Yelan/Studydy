@@ -93,7 +93,7 @@ export type ExcludedPageView = {
 };
 
 export type KnowledgeMapView = {
-  schema: "knowledge-map-view/v9";
+  schema: "knowledge-map-view/v10";
   material_ref: string;
   knowledge_map_revision: string;
   source_output_id: string;
@@ -152,65 +152,25 @@ export type KnowledgeMapView = {
     coverage_before: number;
     coverage_after: number;
   };
-  relations: {
-    relation_id: string;
-    type: "prerequisite" | "contains" | "related";
-    source_formal_concept_id: string;
-    target_formal_concept_id: string;
-    reason: string;
-    inference_basis: "claim_semantics" | "document_structure" | "combined";
-    relation_evidence: {
-      owner_formal_concept_id: string;
-      claim_id: string;
-      evidence_ids: string[];
-    }[];
-    relation_context: {
-      owner_formal_concept_id: string;
-      document_context_id: string;
-      page_ref: string;
-      section_ids: string[];
-    }[];
-    needs_review: boolean;
+  supplementary_resources: {
+    processing: "succeeded" | "partial";
     quality: "needs_review";
     decision: "review";
     reason_codes: string[];
-    is_in_prerequisite_cycle: boolean;
-  }[];
-  relation_diagnostics: {
-    possible_pairs: number;
-    candidate_pairs: number;
-    selected_pairs: number;
-    selected_signal_counts: Record<string, number>;
-    model_calls: number;
-    model_no_relation_pairs: number;
-    model_contains_pairs: number;
-    model_prerequisite_pairs: number;
-    model_related_pairs: number;
-    model_review_pairs: number;
-    unexpected_pairs: number;
-    invalid_pairs: number;
-    canonical_rejections: number;
-    verifier_calls: number;
-    verifier_accepted: number;
-    verifier_rejected: number;
-    verifier_unsupported: number;
-    verifier_failures: number;
-    accepted_relations: number;
-  };
-  resource_binding: {
+    binding: {
     context_revision: string;
     library_revision: string;
     matching_policy: "resource-context-exact-distinct-source/v3";
     promotion_policy: "resource-formal-concept-promotion/v1";
-  };
-  resource_diagnostics: {
+    } | null;
+    diagnostics: {
     matches: number;
     promoted_matches: number;
     promoted_resources: number;
     dropped_matches: number;
     split_review_matches: number;
-  };
-  resource_decisions: {
+    };
+    decisions: {
     decision_id: string;
     match_id: string;
     study_concept_id: string;
@@ -218,23 +178,15 @@ export type KnowledgeMapView = {
     formal_concept_ids: string[];
     decision: "review" | "reject";
     reason_code: "RESOURCE_SPLIT_REVIEW_REQUIRED" | "RESOURCE_SOURCE_CONCEPT_DROPPED";
-  }[];
-  topology: {
-    roots: string[];
-    nodes: {
-      formal_concept_id: string;
-      depth: number;
-      primary_parent_formal_concept_id: string | null;
-      flat_group_id: string;
-      flat_group_anchor: {
-        evidence_id: string;
-        page_ref: string;
-        page_number: number;
-        reading_order: number;
-      };
     }[];
-    flat_groups: {
-      flat_group_id: string;
+  };
+  document_tree: {
+    root: {
+      material_ref: string;
+      section_ids: string[];
+    };
+    sections: {
+      section_id: string;
       label: string;
       label_source: "heading" | "unheaded_fallback";
       heading_evidence_id: string | null;
@@ -244,25 +196,19 @@ export type KnowledgeMapView = {
         page_number: number;
         reading_order: number;
       };
-      formal_concept_ids: string[];
+      concept_ids: string[];
     }[];
-  };
-  topology_diagnostics: {
-    component_count: number;
-    orphan_concept_count: number;
-    secondary_parent_count: number;
-    skipped_parent_before_child_count: number;
   };
   initial_learning_path: {
     step_number: number;
     formal_concept_id: string;
     placement_reason: string;
     order_basis: {
-      prerequisite_formal_concept_ids: string[];
-      parent_formal_concept_ids: string[];
-      flat_group_id: string;
-      hierarchy_depth: number;
-      source_page_number: number;
+      section_id: string;
+      page_ref: string;
+      page_number: number;
+      reading_order: number;
+      evidence_id: string;
     };
   }[];
   excluded_pages: ExcludedPageView[];
@@ -402,18 +348,6 @@ export type WeaknessFindingView = {
   reason: string;
 };
 
-export type PrerequisiteGapView = {
-  category: "possible_prerequisite_gap";
-  target_formal_concept_id: string;
-  prerequisite_formal_concept_id: string;
-  prerequisite_label: string;
-  relation_id: string;
-  prerequisite_status: LearningStatus;
-  prerequisite_confidence: LearningConfidence;
-  remediation_intent: "relearn_prerequisite";
-  reason: string;
-};
-
 export type WeaknessView = {
   schema: "weakness/v1";
   study_session_id: string;
@@ -423,7 +357,6 @@ export type WeaknessView = {
   current_formal_concept_id: string | null;
   weakness_revision: string;
   findings: WeaknessFindingView[];
-  immediate_prerequisite_gaps: PrerequisiteGapView[];
 };
 
 export type AdaptiveAction =
@@ -431,7 +364,6 @@ export type AdaptiveAction =
   | "continue"
   | "practice"
   | "review"
-  | "relearn_prerequisite"
   | "use_resource"
   | "follow_path"
   | "collect_more_data"

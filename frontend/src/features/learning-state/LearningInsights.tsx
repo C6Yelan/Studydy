@@ -76,13 +76,7 @@ export function LearningInsights({ currentConceptId, learningState, weakness }: 
             </article>
           );
         })}
-        {weakness.immediate_prerequisite_gaps.map((gap) => (
-          <article className="weakness-card is-prerequisite" key={gap.relation_id}>
-            <span><Icon name="arrow-left" /></span>
-            <div><small>學習前可先補強</small><strong>{gap.prerequisite_label}</strong><p>{gap.reason}</p></div>
-          </article>
-        ))}
-        {orderedFindings.length === 0 && weakness.immediate_prerequisite_gaps.length === 0 && (
+        {orderedFindings.length === 0 && (
           <div className="no-weakness"><Icon name="check" /><span>目前尚未觀察到需要複習的弱點。</span></div>
         )}
         </div>

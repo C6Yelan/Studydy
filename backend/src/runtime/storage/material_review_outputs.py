@@ -179,11 +179,17 @@ def publish_material_outputs(
         study_material_output = build_study_material_output(producer_output)
     except (KeyError, TypeError, ValueError):
         raise MaterialRunOutputError("MATERIAL_OUTPUT_INVALID") from None
+    resource_library = None
+    resource_context = None
     try:
         resource_library = load_bundled_resource_library()
         resource_context = build_map_resource_context(
             study_material_output, resource_library
         )
+    except (KeyError, TypeError, ValueError):
+        resource_library = None
+        resource_context = None
+    try:
         knowledge_map = generate_knowledge_map(
             study_material_output,
             local_config,
@@ -385,8 +391,7 @@ def read_material_run_outputs(
         }
         formal_claims_match_source = all(
             any(
-                claim == source_concept["definition"]
-                or claim in source_concept["key_points"]
+                claim in source_concept["claims"]
                 for source_id in formal_concept.get("source_concept_ids", [])
                 if (source_concept := source_concepts.get(source_id)) is not None
             )

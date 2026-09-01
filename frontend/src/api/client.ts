@@ -242,42 +242,6 @@ function isExcludedPage(value: unknown): boolean {
     && isSortedUniqueStrings(page.reason_codes);
 }
 
-function isRelationDiagnostics(value: unknown): boolean {
-  const diagnostics = closed(value, [
-    "possible_pairs", "candidate_pairs", "selected_pairs", "selected_signal_counts",
-    "model_calls", "model_no_relation_pairs", "model_contains_pairs",
-    "model_prerequisite_pairs", "model_related_pairs", "model_review_pairs",
-    "unexpected_pairs", "invalid_pairs", "canonical_rejections",
-    "verifier_calls", "verifier_accepted", "verifier_rejected", "verifier_unsupported",
-    "verifier_failures", "accepted_relations",
-  ]);
-  if (!diagnostics) return false;
-  const countNames = [
-    "possible_pairs", "candidate_pairs", "selected_pairs", "model_calls",
-    "model_no_relation_pairs", "model_contains_pairs", "model_prerequisite_pairs",
-    "model_related_pairs", "model_review_pairs", "unexpected_pairs", "invalid_pairs",
-    "canonical_rejections", "verifier_calls", "verifier_accepted",
-    "verifier_rejected", "verifier_unsupported", "verifier_failures",
-    "accepted_relations",
-  ];
-  const signals = object(diagnostics.selected_signal_counts);
-  const allowedSignals = new Set([
-    "adjacent", "same_group", "same_page", "same_context", "same_section",
-    "explicit_relation", "label_mention", "shared_evidence", "shared_formula",
-  ]);
-  return countNames.every((name) => Number.isInteger(diagnostics[name]) && Number(diagnostics[name]) >= 0)
-    && !!signals
-    && Object.entries(signals).every(([name, count]) => allowedSignals.has(name)
-      && Number.isInteger(count) && Number(count) >= 0)
-    && Number(diagnostics.selected_pairs) <= Number(diagnostics.candidate_pairs)
-    && Number(diagnostics.candidate_pairs) <= Number(diagnostics.possible_pairs)
-    && Number(diagnostics.verifier_accepted) + Number(diagnostics.verifier_rejected)
-      <= Number(diagnostics.verifier_calls)
-    && Number(diagnostics.selected_pairs) === Number(diagnostics.model_no_relation_pairs)
-      + Number(diagnostics.model_contains_pairs) + Number(diagnostics.model_prerequisite_pairs)
-      + Number(diagnostics.model_related_pairs) + Number(diagnostics.invalid_pairs);
-}
-
 function isConceptDiagnostics(value: unknown): boolean {
   const names = [
     "possible_pairs", "candidate_pairs", "selected_pairs", "pair_ceiling",
@@ -307,363 +271,139 @@ function isConceptDiagnostics(value: unknown): boolean {
 function isKnowledgeMap(value: unknown): value is KnowledgeMapView {
   const item = closed(value, [
     "schema", "material_ref", "knowledge_map_revision", "source_output_id", "status",
-    "concepts", "concept_diagnostics", "relations", "relation_diagnostics", "resource_binding",
-    "resource_diagnostics", "resource_decisions", "topology", "topology_diagnostics",
-    "initial_learning_path", "excluded_pages",
+    "concepts", "concept_diagnostics", "document_tree", "initial_learning_path",
+    "supplementary_resources", "excluded_pages",
   ]);
   if (!item
-    || item.schema !== "knowledge-map-view/v9"
+    || item.schema !== "knowledge-map-view/v10"
     || !isRevision(item.material_ref, "material")
     || !isRevision(item.knowledge_map_revision, "knowledge-map")
     || !isRevision(item.source_output_id, "study-material-output")
     || !Array.isArray(item.concepts)
     || !isConceptDiagnostics(item.concept_diagnostics)
-    || !Array.isArray(item.relations)
-    || !isRelationDiagnostics(item.relation_diagnostics)
-    || !Array.isArray(item.resource_decisions)
     || !Array.isArray(item.initial_learning_path)
     || !Array.isArray(item.excluded_pages)) return false;
   const status = closed(item.status, ["processing", "quality", "decision", "reason_codes"]);
   if (!status
     || !["succeeded", "partial", "failed"].includes(String(status.processing))
     || status.quality !== "needs_review"
-    || (status.decision !== "review" && status.decision !== "reject")
+    || !["review", "reject"].includes(String(status.decision))
     || !isSortedUniqueStrings(status.reason_codes)) return false;
-  const conceptsAreValid = item.concepts.every((value) => {
-    const concept = closed(value, [
-      "formal_concept_id", "label", "claims", "source_concept_ids", "source_page_numbers",
-      "aliases", "supplementary_resources", "quality", "decision", "reason_codes",
+
+  const concepts = item.concepts as unknown as KnowledgeMapView["concepts"];
+  if (!concepts.every((concept) => {
+    const closedConcept = closed(concept, [
+      "formal_concept_id", "label", "aliases", "claims", "source_concept_ids",
+      "source_page_numbers", "supplementary_resources", "quality", "decision",
+      "reason_codes",
     ]);
-    return !!concept
+    return !!closedConcept
       && isRevision(concept.formal_concept_id, "formal-concept")
-      && typeof concept.label === "string" && concept.label.length >= 1
+      && typeof concept.label === "string" && concept.label.length > 0
       && isSortedUniqueStrings(concept.aliases, 0)
-      && !(concept.aliases as unknown[]).includes(concept.label)
       && isStringArray(concept.source_concept_ids, 1)
-      && Array.isArray(concept.source_page_numbers)
-      && concept.source_page_numbers.length > 0
-      && concept.source_page_numbers.every((page) => Number.isInteger(page) && Number(page) >= 1)
-      && Array.isArray(concept.supplementary_resources)
-      && concept.supplementary_resources.every((value) => {
-        const resource = closed(value, [
-          "promotion_id",
-          "resource_concept_id", "resource_id", "label", "title", "authors", "source_url",
-          "citation", "license", "license_url", "use_boundary", "page_numbers",
-          "resource_evidence_ids", "match_ids", "study_concept_ids", "match_reason",
-        ]);
-        return !!resource
-          && isRevision(resource.promotion_id, "resource-promotion")
-          && isRevision(resource.resource_concept_id, "resource-concept")
-          && isRevision(resource.resource_id, "resource")
-          && ["label", "title", "citation", "license", "use_boundary"]
-            .every((field) => typeof resource[field] === "string" && String(resource[field]).length > 0)
-          && isHttpUrl(resource.source_url)
-          && isHttpUrl(resource.license_url)
-          && isStringArray(resource.authors, 1)
-          && Array.isArray(resource.page_numbers) && resource.page_numbers.length > 0
-          && resource.page_numbers.every((page) => Number.isInteger(page) && Number(page) >= 1)
-          && isStringArray(resource.resource_evidence_ids, 1)
-          && isStringArray(resource.match_ids, 1)
-          && isStringArray(resource.study_concept_ids, 1)
-          && (resource.study_concept_ids as unknown[]).every((id) =>
-            (concept.source_concept_ids as unknown[]).includes(id))
-          && resource.match_reason === "EXACT_NORMALIZED_LABEL";
-      })
-      && Array.isArray(concept.claims)
-      && concept.claims.length > 0
-      && concept.claims.every((value) => {
-        const claim = closed(value, ["claim_id", "text", "evidence"]);
-        return !!claim
+      && Array.isArray(concept.source_page_numbers) && concept.source_page_numbers.length > 0
+      && concept.source_page_numbers.every((page) => Number.isInteger(page) && page >= 1)
+      && Array.isArray(concept.claims) && concept.claims.length > 0
+      && concept.claims.every((claim) => {
+        const closedClaim = closed(claim, ["claim_id", "text", "evidence"]);
+        return !!closedClaim
           && isRevision(claim.claim_id, "claim")
           && typeof claim.text === "string" && claim.text.length > 0
           && Array.isArray(claim.evidence) && claim.evidence.length > 0
-          && new Set(claim.evidence.map((evidence) => object(evidence)?.evidence_id)).size === claim.evidence.length
           && claim.evidence.every((evidence) => isEvidence(evidence)
-            && (concept.source_page_numbers as unknown[]).includes(object(evidence)?.page_number));
+            && concept.source_page_numbers.includes(evidence.page_number));
       })
-      && concept.quality === "needs_review"
-      && concept.decision === "review"
+      && Array.isArray(concept.supplementary_resources)
+      && concept.supplementary_resources.every((resource) =>
+        isRevision(resource.promotion_id, "resource-promotion")
+        && isRevision(resource.resource_concept_id, "resource-concept")
+        && isRevision(resource.resource_id, "resource")
+        && isHttpUrl(resource.source_url) && isHttpUrl(resource.license_url))
+      && concept.quality === "needs_review" && concept.decision === "review"
       && isSortedUniqueStrings(concept.reason_codes);
-  });
-  if (!conceptsAreValid
-    || !item.excluded_pages.every(isExcludedPage)) return false;
-  const resourceBinding = closed(item.resource_binding, [
-    "context_revision", "library_revision", "matching_policy", "promotion_policy",
-  ]);
-  const resourceDiagnostics = closed(item.resource_diagnostics, [
-    "matches", "promoted_matches", "promoted_resources", "dropped_matches",
-    "split_review_matches",
-  ]);
-  const resourceCounts = resourceDiagnostics && [
-    "matches", "promoted_matches", "promoted_resources", "dropped_matches",
-    "split_review_matches",
-  ].every((field) => Number.isInteger(resourceDiagnostics[field])
-    && Number(resourceDiagnostics[field]) >= 0);
-  if (!resourceBinding
-    || !isRevision(resourceBinding.context_revision, "map-resource-context")
-    || !isRevision(resourceBinding.library_revision, "resource-library")
-    || resourceBinding.matching_policy !== "resource-context-exact-distinct-source/v3"
-    || resourceBinding.promotion_policy !== "resource-formal-concept-promotion/v1"
-    || !resourceCounts
-    || Number(resourceDiagnostics.matches) !== Number(resourceDiagnostics.promoted_matches)
-      + Number(resourceDiagnostics.dropped_matches) + Number(resourceDiagnostics.split_review_matches)) return false;
-  const conceptItems = item.concepts as unknown[];
-  const conceptIds = conceptItems.map((entry) => object(entry)?.formal_concept_id);
-  const topology = closed(item.topology, ["roots", "nodes", "flat_groups"]);
-  const topologyDiagnostics = closed(item.topology_diagnostics, [
-    "component_count", "orphan_concept_count", "secondary_parent_count",
-    "skipped_parent_before_child_count",
-  ]);
-  if (!topology
-    || !isStringArray(topology.roots)
-    || !Array.isArray(topology.nodes)
-    || !Array.isArray(topology.flat_groups)
-    || !topologyDiagnostics
-    || !Object.values(topologyDiagnostics).every((count) =>
-      Number.isInteger(count) && Number(count) >= 0)) return false;
-  const topologyNodes = topology.nodes.map((value) => closed(value, [
-    "formal_concept_id", "depth", "primary_parent_formal_concept_id", "flat_group_id",
-    "flat_group_anchor",
+  })) return false;
+  const conceptIds = concepts.map((concept) => concept.formal_concept_id);
+  if (new Set(conceptIds).size !== conceptIds.length) return false;
+
+  const tree = closed(item.document_tree, ["root", "sections"]);
+  const root = tree && closed(tree.root, ["material_ref", "section_ids"]);
+  if (!tree || !root || root.material_ref !== item.material_ref
+    || !isStringArray(root.section_ids)
+    || !Array.isArray(tree.sections)) return false;
+  const sections = tree.sections.map((section) => closed(section, [
+    "section_id", "label", "label_source", "heading_evidence_id", "source_order",
+    "concept_ids",
   ]));
-  if (topologyNodes.some((node) => !node)
-    || topologyNodes.length !== conceptIds.length
-    || new Set(topologyNodes.map((node) => node?.formal_concept_id)).size !== conceptIds.length
-    || topologyNodes.some((node) => !conceptIds.includes(node?.formal_concept_id)
-      || !Number.isInteger(node?.depth) || Number(node?.depth) < 0
-      || !(node?.primary_parent_formal_concept_id === null
-        || conceptIds.includes(node?.primary_parent_formal_concept_id))
-      || node?.primary_parent_formal_concept_id === node?.formal_concept_id
-      || !isRevision(node?.flat_group_id, "document-section")
-      || !closed(node.flat_group_anchor, [
-        "evidence_id", "page_ref", "page_number", "reading_order",
-      ]))
-    || JSON.stringify(topology.roots) !== JSON.stringify(
-      topologyNodes.filter((node) => node?.depth === 0).map((node) => node?.formal_concept_id),
-    )) return false;
-  const flatGroups = topology.flat_groups.map((value) => closed(value, [
-    "flat_group_id", "label", "label_source", "heading_evidence_id",
-    "source_order", "formal_concept_ids",
-  ]));
-  const groupedIds = flatGroups.flatMap((group) =>
-    Array.isArray(group?.formal_concept_ids) ? group.formal_concept_ids : []);
-  if (flatGroups.some((group) => !group
-      || !isRevision(group.flat_group_id, "document-section")
-      || typeof group.label !== "string" || group.label.length < 1 || group.label.length > 120
-      || !["heading", "unheaded_fallback"].includes(String(group.label_source))
-      || !(group.heading_evidence_id === null || isRevision(group.heading_evidence_id, "evidence"))
-      || !closed(group.source_order, [
-        "evidence_id", "page_ref", "page_number", "reading_order",
-      ])
-      || !isStringArray(group.formal_concept_ids, 1))
-    || new Set(flatGroups.map((group) => group?.flat_group_id)).size !== flatGroups.length
-    || groupedIds.length !== conceptIds.length
-    || new Set(groupedIds).size !== conceptIds.length
-    || groupedIds.some((id) => !conceptIds.includes(id))
-    || topologyNodes.some((node) => !flatGroups.some((group) =>
-      group !== null && group.flat_group_id === node?.flat_group_id
-      && (group.formal_concept_ids as unknown[]).includes(node?.formal_concept_id)))
-    || flatGroups.some((group) => {
-      if (!group) return true;
-      const source = object(group.source_order);
-      return !source
-        || !isRevision(source.evidence_id, "evidence")
-        || !isRevision(source.page_ref, "page")
-        || !Number.isInteger(source.page_number) || Number(source.page_number) < 1
-        || !Number.isInteger(source.reading_order) || Number(source.reading_order) < 0
-        || (group.label_source === "heading" && group.heading_evidence_id === null)
-        || (group.label_source === "unheaded_fallback"
-          && (group.heading_evidence_id !== null
-            || group.label !== `第 ${source.page_number} 頁未命名段落`));
-    })) return false;
-  const pathSteps = item.initial_learning_path.map((value) => closed(value, [
+  const treeConceptIds = sections.flatMap((section) =>
+    Array.isArray(section?.concept_ids) ? section.concept_ids : []);
+  if (sections.some((section) => {
+    const source = section && closed(section.source_order, [
+      "page_ref", "page_number", "reading_order", "evidence_id",
+    ]);
+    return !section || !source
+      || !isRevision(section.section_id, "document-section")
+      || typeof section.label !== "string" || section.label.length < 1
+      || !["heading", "unheaded_fallback"].includes(String(section.label_source))
+      || !(section.heading_evidence_id === null
+        || isRevision(section.heading_evidence_id, "evidence"))
+      || !isStringArray(section.concept_ids, 1)
+      || !isRevision(source.page_ref, "page")
+      || !isRevision(source.evidence_id, "evidence")
+      || !Number.isInteger(source.page_number) || Number(source.page_number) < 1
+      || !Number.isInteger(source.reading_order) || Number(source.reading_order) < 0;
+  })
+    || JSON.stringify(root.section_ids) !== JSON.stringify(
+      sections.map((section) => section?.section_id),
+    )
+    || treeConceptIds.length !== conceptIds.length
+    || new Set(treeConceptIds).size !== conceptIds.length
+    || treeConceptIds.some((conceptId) => !conceptIds.includes(String(conceptId)))) return false;
+
+  const path = item.initial_learning_path.map((step) => closed(step, [
     "step_number", "formal_concept_id", "placement_reason", "order_basis",
   ]));
-  const pathIds = pathSteps.map((step) => step?.formal_concept_id);
-  if (pathSteps.length !== conceptIds.length
-    || new Set(pathIds).size !== conceptIds.length
-    || pathIds.some((id) => !conceptIds.includes(id))
-    || pathSteps.some((step, index) => {
-      const basis = closed(step?.order_basis, [
-        "prerequisite_formal_concept_ids", "parent_formal_concept_ids",
-        "flat_group_id", "hierarchy_depth", "source_page_number",
+  const pathIds = path.map((step) => step?.formal_concept_id);
+  if (JSON.stringify(pathIds) !== JSON.stringify(treeConceptIds)
+    || path.some((step, index) => {
+      const basis = step && closed(step.order_basis, [
+        "section_id", "page_ref", "page_number", "reading_order", "evidence_id",
       ]);
-      const node = topologyNodes.find((candidate) =>
-        candidate?.formal_concept_id === step?.formal_concept_id);
-      const concept = conceptItems.find((candidate) =>
-        object(candidate)?.formal_concept_id === step?.formal_concept_id) as Record<string, unknown> | undefined;
-      return !step || step.step_number !== index + 1
+      const concept = concepts.find((candidate) =>
+        candidate.formal_concept_id === step?.formal_concept_id);
+      const anchor = concept?.claims.flatMap((claim) => claim.evidence)
+        .find((evidence) => evidence.evidence_id === basis?.evidence_id);
+      return !step || !basis || !anchor || step.step_number !== index + 1
         || typeof step.placement_reason !== "string" || step.placement_reason.length < 1
-        || !basis
-        || !isSortedUniqueStrings(basis.prerequisite_formal_concept_ids, 0)
-        || !isSortedUniqueStrings(basis.parent_formal_concept_ids, 0)
-        || !(basis.prerequisite_formal_concept_ids as unknown[]).every((id) => conceptIds.includes(id))
-        || !(basis.parent_formal_concept_ids as unknown[]).every((id) => conceptIds.includes(id))
-        || basis.flat_group_id !== node?.flat_group_id
-        || basis.hierarchy_depth !== node?.depth
-        || basis.source_page_number !== Math.min(...(concept?.source_page_numbers as number[]));
+        || !isRevision(basis.section_id, "document-section")
+        || !isRevision(basis.page_ref, "page")
+        || !isRevision(basis.evidence_id, "evidence")
+        || !Number.isInteger(basis.page_number) || Number(basis.page_number) < 1
+        || !Number.isInteger(basis.reading_order) || Number(basis.reading_order) < 0
+        || anchor.page_ref !== basis.page_ref
+        || anchor.page_number !== basis.page_number
+        || !sections.some((section) => section?.section_id === basis.section_id
+          && (section?.concept_ids as unknown[]).includes(step.formal_concept_id));
     })) return false;
-  const claimsByConcept = new Map(
-    (item.concepts as unknown as KnowledgeMapView["concepts"]).map((concept) => [
-      concept.formal_concept_id,
-      new Map(concept.claims.map((claim) => [
-        claim.claim_id,
-        new Set(claim.evidence.map((evidence) => evidence.evidence_id)),
-      ])),
-    ]),
-  );
-  const relationsAreValid = item.relations.every((value) => {
-    const relation = closed(value, [
-      "relation_id", "type", "source_formal_concept_id", "target_formal_concept_id",
-      "reason", "inference_basis", "relation_evidence", "relation_context",
-      "needs_review", "quality", "decision",
-      "reason_codes", "is_in_prerequisite_cycle",
-    ]);
-    return !!relation
-      && isRevision(relation.relation_id, "formal-relation")
-      && ["prerequisite", "contains", "related"].includes(String(relation.type))
-      && conceptIds.includes(relation.source_formal_concept_id)
-      && conceptIds.includes(relation.target_formal_concept_id)
-      && relation.source_formal_concept_id !== relation.target_formal_concept_id
-      && typeof relation.reason === "string" && relation.reason.length >= 4
-      && ["claim_semantics", "document_structure", "combined"].includes(String(relation.inference_basis))
-      && Array.isArray(relation.relation_evidence)
-      && relation.relation_evidence.length > 0
-      && relation.relation_evidence.every((value) => {
-        const evidence = closed(value, [
-          "owner_formal_concept_id", "claim_id", "evidence_ids",
-        ]);
-        return !!evidence
-          && [relation.source_formal_concept_id, relation.target_formal_concept_id]
-            .includes(evidence.owner_formal_concept_id)
-          && isRevision(evidence.claim_id, "claim")
-          && isStringArray(evidence.evidence_ids, 1)
-          && (evidence.evidence_ids as string[]).every(
-            (item, index, items) => index === 0 || items[index - 1] < item,
-          )
-          && (evidence.evidence_ids as unknown[]).every((evidenceId) =>
-            claimsByConcept.get(String(evidence.owner_formal_concept_id))
-              ?.get(String(evidence.claim_id))?.has(String(evidenceId)) === true);
-      })
-      && new Set((relation.relation_evidence as unknown as Array<Record<string, unknown>>)
-        .map((evidence) => `${String(evidence.owner_formal_concept_id)}:${String(evidence.claim_id)}`))
-        .size === relation.relation_evidence.length
-      && Array.isArray(relation.relation_context)
-      && relation.relation_context.every((value) => {
-        const context = closed(value, [
-          "owner_formal_concept_id", "document_context_id", "page_ref", "section_ids",
-        ]);
-        return !!context
-          && [relation.source_formal_concept_id, relation.target_formal_concept_id]
-            .includes(context.owner_formal_concept_id)
-          && isRevision(context.document_context_id, "document-context")
-          && isRevision(context.page_ref, "page")
-          && isSortedUniqueStrings(context.section_ids, 1);
-      })
-      && new Set((relation.relation_context as unknown as Array<Record<string, unknown>>)
-        .map((context) => `${String(context.owner_formal_concept_id)}:${String(context.document_context_id)}`))
-        .size === relation.relation_context.length
-      && (!["document_structure", "combined"].includes(String(relation.inference_basis))
-        || relation.relation_context.length > 0)
-      && typeof relation.needs_review === "boolean"
-      && relation.quality === "needs_review"
-      && relation.decision === "review"
-      && isSortedUniqueStrings(relation.reason_codes)
-      && typeof relation.is_in_prerequisite_cycle === "boolean";
-  });
-  const excludedRefs = item.excluded_pages.map((entry) => object(entry)?.page_ref);
-  const excludedNumbers = item.excluded_pages.map((entry) => object(entry)?.page_number);
-  const promotedMatchIds = (item.concepts as unknown as KnowledgeMapView["concepts"])
-    .flatMap((concept) => concept.supplementary_resources.flatMap((resource) => resource.match_ids));
-  const resourceDecisionsAreValid = item.resource_decisions.every((value) => {
-    const decision = closed(value, [
-      "decision_id",
-      "match_id", "study_concept_id", "resource_concept_id", "formal_concept_ids",
-      "decision", "reason_code",
-    ]);
-    return !!decision
-      && isRevision(decision.decision_id, "resource-promotion-decision")
-      && isRevision(decision.match_id, "resource-match")
-      && typeof decision.study_concept_id === "string"
-      && isRevision(decision.resource_concept_id, "resource-concept")
-      && isStringArray(decision.formal_concept_ids)
-      && (decision.formal_concept_ids as unknown[]).every((id) => conceptIds.includes(id))
-      && ((decision.decision === "reject"
-        && decision.reason_code === "RESOURCE_SOURCE_CONCEPT_DROPPED"
-        && (decision.formal_concept_ids as unknown[]).length === 0)
-        || (decision.decision === "review"
-          && decision.reason_code === "RESOURCE_SPLIT_REVIEW_REQUIRED"
-          && (decision.formal_concept_ids as unknown[]).length >= 2));
-  });
-  const decisionMatchIds = item.resource_decisions.map((entry) => object(entry)?.match_id);
-  const typedRelations = item.relations as unknown as KnowledgeMapView["relations"];
-  const typedTopologyNodes = topology.nodes as unknown as KnowledgeMapView["topology"]["nodes"];
-  const typedFlatGroups = topology.flat_groups as unknown as KnowledgeMapView["topology"]["flat_groups"];
-  const containsPairs = new Set(typedRelations
-    .filter((relation) => relation.type === "contains")
-    .map((relation) => `${relation.source_formal_concept_id}:${relation.target_formal_concept_id}`));
-  const topologyRelationsAreValid = typedTopologyNodes.every((node) => {
-    const concept = (item.concepts as unknown as KnowledgeMapView["concepts"])
-      .find((candidate) => candidate.formal_concept_id === node.formal_concept_id);
-    const anchorEvidence = concept?.claims
-      .flatMap((claim) => claim.evidence)
-      .find((evidence) => evidence.evidence_id === node.flat_group_anchor.evidence_id);
-    if (!anchorEvidence
-      || anchorEvidence.page_ref !== node.flat_group_anchor.page_ref
-      || anchorEvidence.page_number !== node.flat_group_anchor.page_number
-      || !Number.isInteger(node.flat_group_anchor.reading_order)
-      || node.flat_group_anchor.reading_order < 0) return false;
-    if (node.primary_parent_formal_concept_id === null) return node.depth === 0;
-    const parent = typedTopologyNodes.find((candidate) =>
-      candidate.formal_concept_id === node.primary_parent_formal_concept_id);
-    return !!parent
-      && containsPairs.has(`${parent.formal_concept_id}:${node.formal_concept_id}`)
-      && parent.depth + 1 === node.depth;
-  });
-  const flatGroupOrderIsValid = typedFlatGroups.every((group, index, groups) => {
-    if (index === 0) return true;
-    const previous = groups[index - 1];
-    if (previous.source_order.page_number !== group.source_order.page_number) {
-      return previous.source_order.page_number < group.source_order.page_number;
-    }
-    if (previous.source_order.reading_order !== group.source_order.reading_order) {
-      return previous.source_order.reading_order < group.source_order.reading_order;
-    }
-    if (previous.source_order.evidence_id !== group.source_order.evidence_id) {
-      return previous.source_order.evidence_id < group.source_order.evidence_id;
-    }
-    return previous.flat_group_id < group.flat_group_id;
-  });
-  const pathIndex = new Map(pathIds.map((id, index) => [id, index]));
-  const pathRelationsAreValid = pathSteps.every((step) => {
-    const basis = object(step?.order_basis)!;
-    const expectedPrerequisites = typedRelations
-      .filter((relation) => relation.type === "prerequisite"
-        && relation.target_formal_concept_id === step?.formal_concept_id)
-      .map((relation) => relation.source_formal_concept_id)
-      .sort();
-    const parents = basis.parent_formal_concept_ids as string[];
-    return JSON.stringify(basis.prerequisite_formal_concept_ids) === JSON.stringify(expectedPrerequisites)
-      && parents.every((parentId) => typedRelations.some((relation) =>
-        relation.type === "contains"
-        && relation.source_formal_concept_id === parentId
-        && relation.target_formal_concept_id === step?.formal_concept_id))
-      && [...expectedPrerequisites, ...parents].every((predecessor) =>
-        Number(pathIndex.get(predecessor)) < Number(pathIndex.get(step?.formal_concept_id)));
-  });
-  return new Set(conceptIds).size === conceptIds.length
-    && relationsAreValid
-    && new Set(item.relations.map((entry) => object(entry)?.relation_id)).size === item.relations.length
-    && resourceDecisionsAreValid
-    && new Set(promotedMatchIds).size === promotedMatchIds.length
-    && new Set(decisionMatchIds).size === decisionMatchIds.length
-    && promotedMatchIds.every((id) => !decisionMatchIds.includes(id))
-    && promotedMatchIds.length === Number(resourceDiagnostics.promoted_matches)
-    && promotedMatchIds.length + decisionMatchIds.length === Number(resourceDiagnostics.matches)
-    && topologyRelationsAreValid
-    && flatGroupOrderIsValid
-    && pathRelationsAreValid
-    && new Set(excludedRefs).size === excludedRefs.length
-    && new Set(excludedNumbers).size === excludedNumbers.length
+
+  const resources = closed(item.supplementary_resources, [
+    "processing", "quality", "decision", "reason_codes", "binding", "diagnostics",
+    "decisions",
+  ]);
+  const diagnostics = resources && closed(resources.diagnostics, [
+    "matches", "promoted_matches", "promoted_resources", "dropped_matches",
+    "split_review_matches",
+  ]);
+  if (!resources || !diagnostics
+    || !["succeeded", "partial"].includes(String(resources.processing))
+    || resources.quality !== "needs_review" || resources.decision !== "review"
+    || !isSortedUniqueStrings(resources.reason_codes, 0)
+    || !Array.isArray(resources.decisions)
+    || !Object.values(diagnostics).every((count) => Number.isInteger(count) && Number(count) >= 0)
+    || !(resources.binding === null || !!closed(resources.binding, [
+      "context_revision", "library_revision", "matching_policy", "promotion_policy",
+    ]))) return false;
+  return item.excluded_pages.every(isExcludedPage)
     && (item.excluded_pages.length === 0 || status.processing === "partial");
 }
 
@@ -802,7 +542,7 @@ function isAnswerFeedback(value: unknown): value is AnswerFeedbackView {
 const learningStatuses = new Set(["not_started", "learning", "needs_review", "mastered"]);
 const learningConfidences = new Set(["none", "limited", "supported"]);
 const adaptiveActions = new Set([
-  "start", "continue", "practice", "review", "relearn_prerequisite",
+  "start", "continue", "practice", "review",
   "use_resource", "follow_path", "collect_more_data", "defer", "resume", "no_action",
 ]);
 
@@ -877,7 +617,7 @@ function isWeakness(value: unknown): value is WeaknessView {
   const item = closed(value, [
     "schema", "study_session_id", "base_knowledge_map_revision",
     "source_learning_state_revision", "event_watermark", "current_formal_concept_id",
-    "weakness_revision", "findings", "immediate_prerequisite_gaps",
+    "weakness_revision", "findings",
   ]);
   if (!item
     || item.schema !== "weakness/v1"
@@ -888,8 +628,7 @@ function isWeakness(value: unknown): value is WeaknessView {
     || Number(item.event_watermark) < 0
     || !(item.current_formal_concept_id === null || isRevision(item.current_formal_concept_id, "formal-concept"))
     || !isRevision(item.weakness_revision, "weakness")
-    || !Array.isArray(item.findings)
-    || !Array.isArray(item.immediate_prerequisite_gaps)) return false;
+    || !Array.isArray(item.findings)) return false;
   const findingIds = item.findings.map((value) => {
     const finding = closed(value, [
       "target_formal_concept_id", "target_label", "category", "confidence",
@@ -907,31 +646,8 @@ function isWeakness(value: unknown): value is WeaknessView {
       || finding.reason.length < 1) return null;
     return finding.target_formal_concept_id as string;
   });
-  const gapIds = item.immediate_prerequisite_gaps.map((value) => {
-    const gap = closed(value, [
-      "category", "target_formal_concept_id", "prerequisite_formal_concept_id",
-      "prerequisite_label", "relation_id", "prerequisite_status",
-      "prerequisite_confidence", "remediation_intent", "reason",
-    ]);
-    if (!gap
-      || gap.category !== "possible_prerequisite_gap"
-      || !isRevision(gap.target_formal_concept_id, "formal-concept")
-      || !isRevision(gap.prerequisite_formal_concept_id, "formal-concept")
-      || gap.target_formal_concept_id === gap.prerequisite_formal_concept_id
-      || typeof gap.prerequisite_label !== "string"
-      || gap.prerequisite_label.length < 1
-      || !isRevision(gap.relation_id, "formal-relation")
-      || !learningStatuses.has(String(gap.prerequisite_status))
-      || !learningConfidences.has(String(gap.prerequisite_confidence))
-      || gap.remediation_intent !== "relearn_prerequisite"
-      || typeof gap.reason !== "string"
-      || gap.reason.length < 1) return null;
-    return gap.relation_id as string;
-  });
   return !findingIds.includes(null)
-    && new Set(findingIds).size === findingIds.length
-    && !gapIds.includes(null)
-    && new Set(gapIds).size === gapIds.length;
+    && new Set(findingIds).size === findingIds.length;
 }
 
 function readAdaptiveRoute(value: unknown, studySessionId: string): JsonObject | null {

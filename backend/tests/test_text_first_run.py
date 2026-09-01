@@ -28,7 +28,7 @@ def _settings(tmp_path):
         "site_packages": str(root / "ocr/runtime/lib/python3.12/site-packages"),
         "concept_site_packages": str(root / "vllm/lib/python3.12/site-packages"),
         "ocr_model_root": str(root / "models/unlimited-ocr"),
-        "relation_model_root": str(root / "models/mdeberta-v3-base-mnli-xnli"),
+        "verifier_model_root": str(root / "models/mdeberta-v3-base-mnli-xnli"),
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
         "concept_server_executable": str(root / "vllm/bin/vllm"),
@@ -168,8 +168,7 @@ class FakeConceptAPI:
                 "concepts": [
                     {
                         "label": "Public concept",
-                        "definition": {"text": "Public definition", "evidence_ids": [evidence_id]},
-                        "key_points": [{"text": "Public point", "evidence_ids": [evidence_id]}],
+                        "claims": [{"text": "Public evidence", "evidence_ids": [evidence_id]}],
                     }
                 ]
             },
@@ -454,7 +453,7 @@ def test_oversized_page_is_split_and_all_batches_remain_grounded(tmp_path, monke
     assert {
         evidence_id
         for concept in output["concepts"]
-        for claim in [concept["definition"], *concept["key_points"]]
+        for claim in concept["claims"]
         for evidence_id in claim["evidence_ids"]
     } == page_evidence_ids
 
@@ -585,7 +584,7 @@ def test_multi_source_second_evidence_quarters_keep_cache_and_durable_lineage(
     )
 
 
-def test_malformed_concept_output_is_one_call_and_failed(tmp_path, monkeypatch):
+def test_malformed_concept_output_keeps_page_evidence_and_reports_partial(tmp_path, monkeypatch):
     path = tmp_path / "public.pdf"
     _pdf(path)
     state = _state()
@@ -596,12 +595,17 @@ def test_malformed_concept_output_is_one_call_and_failed(tmp_path, monkeypatch):
         FakeConceptAPI(state, invalid_first=True),
     )
     bundle = run_module.run_full_text_first_pdf(_whole_request(path), _settings(tmp_path))
-    assert bundle["processing"] == "failed"
-    assert bundle["output_id"] is None
+    assert bundle["processing"] == "partial"
+    assert bundle["output_id"] is not None
     assert bundle["concept_calls"] == 1
-    assert bundle["reason_codes"] == ["MODEL_OUTPUT_INVALID"]
+    assert "MODEL_OUTPUT_INVALID" in bundle["reason_codes"]
     run_root = tmp_path / "runtime" / "runs" / bundle["run_id"]
-    assert not (run_root / "concept-evidence-output.json").exists()
+    output = read_producer_bundle(
+        tmp_path / "runtime", bundle["run_id"]
+    )["output"]
+    assert output["pages"] and output["document_contexts"]
+    assert output["concepts"] == []
+    assert output["semantic_page_outcomes"][0]["processing"] == "failed"
 
 
 def test_invalid_fitted_request_fails_before_chat_dispatch(tmp_path, monkeypatch):
@@ -970,8 +974,8 @@ def test_formal_concept_failure_closes_owned_server(tmp_path, monkeypatch):
         _settings(tmp_path),
     )
 
-    assert bundle["processing"] == "failed"
-    assert bundle["reason_codes"] == ["PROCESS_FAILED"]
+    assert bundle["processing"] == "partial"
+    assert "PROCESS_FAILED" in bundle["reason_codes"]
     assert bundle["concept_calls"] == 2
     assert len(servers) == 1 and servers[0].is_closed
     assert state["resident"] == []

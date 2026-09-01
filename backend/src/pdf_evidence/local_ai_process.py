@@ -16,10 +16,6 @@ _OCR_BOOTSTRAP = (
     "import sys;sys.path.insert(0,sys.argv.pop(1));"
     "from studydy_local_ai.ocr_process import main;raise SystemExit(main())"
 )
-_RELATION_BOOTSTRAP = (
-    "import sys;sys.path.insert(0,sys.argv.pop(1));"
-    "from studydy_local_ai.relation_process import main;raise SystemExit(main())"
-)
 _EQUIVALENCE_BOOTSTRAP = (
     "import sys;sys.path.insert(0,sys.argv.pop(1));"
     "from studydy_local_ai.equivalence_process import main;raise SystemExit(main())"
@@ -138,7 +134,7 @@ class LocalAIProcess:
             return future.result(timeout=timeout_seconds)
         except FutureTimeout as error:
             self.abort()
-            raise LocalAIError("RELATION_VERIFIER_TIMEOUT") from error
+            raise LocalAIError("CHILD_TIMEOUT") from error
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 
@@ -193,55 +189,6 @@ def start_ocr_process(settings: dict[str, Any]) -> LocalAIProcess:
     )
 
 
-def start_relation_process(
-    settings: dict[str, Any], startup_timeout_seconds: float
-) -> LocalAIProcess:
-    """以 OCR runtime 既有 Python/torch 啟動固定本機 NLI child。"""
-
-    process = LocalAIProcess(
-        [
-            settings["python_executable"],
-            "-I",
-            "-c",
-            _RELATION_BOOTSTRAP,
-            settings["site_packages"],
-            settings["relation_model_root"],
-        ],
-        request_limit=64 * 1024,
-        response_limit=1024,
-    )
-    try:
-        startup = process.read_startup_response(startup_timeout_seconds)
-    except LocalAIError as error:
-        process.abort()
-        if error.reason_code == "RELATION_VERIFIER_TIMEOUT":
-            raise
-        if error.reason_code == "CHILD_RESPONSE_INVALID":
-            raise LocalAIError("RELATION_VERIFIER_RESPONSE_INVALID") from None
-        raise LocalAIError("RELATION_VERIFIER_UNAVAILABLE") from None
-    ready = {
-        "schema": "local-relation-verifier-startup/v1",
-        "status": "ready",
-    }
-    failure_reasons = {
-        "RELATION_VERIFIER_DEPENDENCY_MISSING",
-        "RELATION_VERIFIER_CUDA_UNAVAILABLE",
-        "RELATION_VERIFIER_MODEL_LOAD_FAILED",
-    }
-    if startup == ready:
-        return process
-    if (
-        set(startup) == {"schema", "status", "reason_code"}
-        and startup.get("schema") == ready["schema"]
-        and startup.get("status") == "failed"
-        and startup.get("reason_code") in failure_reasons
-    ):
-        process.abort()
-        raise LocalAIError(startup["reason_code"])
-    process.abort()
-    raise LocalAIError("RELATION_VERIFIER_RESPONSE_INVALID")
-
-
 def start_equivalence_process(
     settings: dict[str, Any], startup_timeout_seconds: float
 ) -> LocalAIProcess:
@@ -254,7 +201,7 @@ def start_equivalence_process(
             "-c",
             _EQUIVALENCE_BOOTSTRAP,
             settings["site_packages"],
-            settings["relation_model_root"],
+            settings["verifier_model_root"],
         ],
         request_limit=64 * 1024,
         response_limit=2 * 1024,
@@ -263,7 +210,7 @@ def start_equivalence_process(
         startup = process.read_startup_response(startup_timeout_seconds)
     except LocalAIError as error:
         process.abort()
-        if error.reason_code == "RELATION_VERIFIER_TIMEOUT":
+        if error.reason_code == "CHILD_TIMEOUT":
             raise LocalAIError("CONCEPT_EQUIVALENCE_VERIFIER_TIMEOUT") from None
         if error.reason_code == "CHILD_RESPONSE_INVALID":
             raise LocalAIError(
@@ -272,15 +219,9 @@ def start_equivalence_process(
         raise LocalAIError("CONCEPT_EQUIVALENCE_VERIFIER_UNAVAILABLE") from None
     ready = {"schema": "local-concept-equivalence-startup/v1", "status": "ready"}
     failure_reasons = {
-        "RELATION_VERIFIER_DEPENDENCY_MISSING": (
-            "CONCEPT_EQUIVALENCE_VERIFIER_DEPENDENCY_MISSING"
-        ),
-        "RELATION_VERIFIER_CUDA_UNAVAILABLE": (
-            "CONCEPT_EQUIVALENCE_VERIFIER_CUDA_UNAVAILABLE"
-        ),
-        "RELATION_VERIFIER_MODEL_LOAD_FAILED": (
-            "CONCEPT_EQUIVALENCE_VERIFIER_MODEL_LOAD_FAILED"
-        ),
+        "CONCEPT_EQUIVALENCE_VERIFIER_DEPENDENCY_MISSING",
+        "CONCEPT_EQUIVALENCE_VERIFIER_CUDA_UNAVAILABLE",
+        "CONCEPT_EQUIVALENCE_VERIFIER_MODEL_LOAD_FAILED",
     }
     if startup == ready:
         return process
@@ -291,6 +232,6 @@ def start_equivalence_process(
         and startup.get("reason_code") in failure_reasons
     ):
         process.abort()
-        raise LocalAIError(failure_reasons[startup["reason_code"]])
+        raise LocalAIError(startup["reason_code"])
     process.abort()
     raise LocalAIError("CONCEPT_EQUIVALENCE_VERIFIER_RESPONSE_INVALID")

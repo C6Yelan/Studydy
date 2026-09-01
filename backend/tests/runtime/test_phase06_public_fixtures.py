@@ -22,7 +22,7 @@ def test_phase06_public_fixtures_are_strict_and_contain_no_private_fields():
         "success": AssessmentView,
         "low_data": LearningStateView,
         "weakness": WeaknessView,
-        "prerequisite_gap": AdaptiveResponseView,
+        "review_needed": AdaptiveResponseView,
         "reassessment": AnswerFeedbackView,
         "completed": StudySessionView,
         "stale": ApiErrorView,

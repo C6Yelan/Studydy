@@ -402,7 +402,7 @@ def test_projection_omits_unsupported_and_marks_grounding_blockers():
     assert blockers == []
 
     missing = deepcopy(output)
-    missing["concepts"][0]["definition"]["evidence_ids"] = []
+    missing["concepts"][0]["claims"][0]["evidence_ids"] = []
     proposals, omitted, blockers = resource_intake._project_output(missing)
     assert proposals == []
     assert omitted[0]["reason_code"] == "RESOURCE_EVIDENCE_MISSING"
@@ -416,12 +416,12 @@ def test_projection_omits_unsupported_and_marks_grounding_blockers():
     second_evidence["locator"]["block_id"] = second_evidence["block_id"]
     second_evidence["text"] = "Additional public evidence"
     multiple["pages"][0]["evidence_blocks"].append(second_evidence)
-    multiple["concepts"][0]["definition"]["evidence_ids"].append(
+    multiple["concepts"][0]["claims"][0]["evidence_ids"].append(
         second_evidence["evidence_id"]
     )
     proposals, omitted, blockers = resource_intake._project_output(multiple)
     assert [item["source_evidence_id"] for item in proposals[0]["evidence"]] == [
-        output["concepts"][0]["definition"]["evidence_ids"][0],
+        output["concepts"][0]["claims"][0]["evidence_ids"][0],
         second_evidence["evidence_id"],
     ]
     assert omitted == []

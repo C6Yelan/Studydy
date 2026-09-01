@@ -281,7 +281,7 @@ def _project_output(output: dict[str, Any]) -> tuple[list[dict[str, Any]], list[
     blockers: set[str] = set()
     for concept in output["concepts"]:
         reason = None
-        claims = [concept.get("definition"), *concept.get("key_points", [])]
+        claims = concept.get("claims", [])
         references = sorted(
             {
                 evidence_id

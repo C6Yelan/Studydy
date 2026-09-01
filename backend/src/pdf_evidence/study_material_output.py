@@ -18,7 +18,7 @@ from .document_context import validate_document_context_shape
 from .ocr_page_evidence import canonical_sha256
 
 
-STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v7"
+STUDY_MATERIAL_OUTPUT_SCHEMA = "study-material-output/v8"
 
 
 def _valid_region(region: Any) -> bool:
@@ -62,7 +62,8 @@ def _shape_is_valid(document: Any) -> bool:
     fields = {
         "schema", "run_id", "produced_at", "material_ref", "source_binding", "pages",
         "excluded_pages", "concepts", "evidence_index", "evidence_text_index",
-        "document_contexts", "semantic_batches", "images", "processing", "quality",
+        "document_contexts", "semantic_batches", "semantic_page_outcomes", "images",
+        "processing", "quality",
         "decision", "reason_codes", "output_id",
     }
     if not isinstance(document, dict) or set(document) != fields:
@@ -281,9 +282,32 @@ def _shape_is_valid(document: Any) -> bool:
         for indexes in indexes_by_page.values()
     ):
         return False
+    semantic_page_outcomes = document["semantic_page_outcomes"]
+    outcome_fields = {
+        "page_ref", "processing", "quality", "decision", "reason_codes",
+    }
+    if (
+        not isinstance(semantic_page_outcomes, list)
+        or len(semantic_page_outcomes) != len(pages_by_ref)
+        or {outcome.get("page_ref") for outcome in semantic_page_outcomes}
+        != set(pages_by_ref)
+    ):
+        return False
+    for outcome in semantic_page_outcomes:
+        expected_decision = "reject" if outcome.get("processing") == "failed" else "review"
+        if (
+            not isinstance(outcome, dict)
+            or set(outcome) != outcome_fields
+            or outcome["processing"] not in {"succeeded", "partial", "failed"}
+            or outcome["quality"] != "needs_review"
+            or outcome["decision"] != expected_decision
+            or not _string_list(outcome["reason_codes"], minimum=1)
+            or not reason_codes_are_valid(outcome["reason_codes"], formal=True)
+        ):
+            return False
     concept_fields = {
-        "concept_id", "page_ref", "label", "definition", "key_points",
-        "processing", "quality", "decision", "reason_codes",
+        "concept_id", "page_ref", "label", "claims", "processing", "quality",
+        "decision", "reason_codes",
     }
     concept_ids: set[str] = set()
     if not isinstance(document["concepts"], list):
@@ -297,26 +321,21 @@ def _shape_is_valid(document: Any) -> bool:
             or concept["page_ref"] not in pages_by_ref
             or not isinstance(concept["label"], str)
             or not concept["label"]
-            or not _claim_is_valid(
-                concept["definition"], concept["page_ref"], evidence_pages, "definition"
-            )
-            or not isinstance(concept["key_points"], list)
-            or not concept["key_points"]
+            or not isinstance(concept["claims"], list)
+            or not concept["claims"]
             or any(
                 not _claim_is_valid(
-                    point,
+                    claim,
                     concept["page_ref"],
                     evidence_pages,
-                    "key_point",
                     index=index,
                 )
-                for index, point in enumerate(concept["key_points"])
+                for index, claim in enumerate(concept["claims"])
             )
             or concept["concept_id"] != concept_id(
                 concept["page_ref"],
                 concept["label"],
-                concept["definition"],
-                concept["key_points"],
+                concept["claims"],
             )
             or concept["processing"] not in {"succeeded", "partial"}
             or (concept["quality"], concept["decision"])
@@ -380,6 +399,10 @@ def _shape_is_valid(document: Any) -> bool:
         bool(document["excluded_pages"])
         or any(page["processing"] == "partial" for page in document["pages"])
         or any(concept["processing"] == "partial" for concept in document["concepts"])
+        or any(
+            outcome["processing"] != "succeeded"
+            for outcome in semantic_page_outcomes
+        )
     )
     return (
         page_numbers | excluded_numbers == set(range(1, binding["page_count"] + 1))
@@ -508,23 +531,16 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
         page_ref = source_concept.get("page_ref") if isinstance(source_concept, dict) else None
         if (
             page_ref not in page_refs
-            or not _claim_is_valid(
-                source_concept.get("definition"),
-                page_ref,
-                evidence_pages,
-                "definition",
-            )
-            or not isinstance(source_concept.get("key_points"), list)
-            or not source_concept["key_points"]
+            or not isinstance(source_concept.get("claims"), list)
+            or not source_concept["claims"]
             or any(
                 not _claim_is_valid(
-                    point,
+                    claim,
                     page_ref,
                     evidence_pages,
-                    "key_point",
                     index=index,
                 )
-                for index, point in enumerate(source_concept["key_points"])
+                for index, claim in enumerate(source_concept["claims"])
             )
             or (
                 source_concept.get("processing"),
@@ -586,6 +602,9 @@ def build_study_material_output(producer_output: dict[str, Any]) -> dict[str, An
         ),
         "document_contexts": deepcopy(producer_output["document_contexts"]),
         "semantic_batches": deepcopy(producer_output["semantic_batches"]),
+        "semantic_page_outcomes": deepcopy(
+            producer_output["semantic_page_outcomes"]
+        ),
         "images": sorted(images, key=lambda image: image["image_id"]),
         "processing": processing,
         "quality": "needs_review",
@@ -605,9 +624,8 @@ def _claim_is_valid(
     claim: Any,
     page_ref: str,
     evidence_pages: dict[str, str],
-    kind: str,
     *,
-    index: int | None = None,
+    index: int,
 ) -> bool:
     if not isinstance(claim, dict) or set(claim) != {"claim_id", "text", "evidence_ids"}:
         return False
@@ -616,7 +634,6 @@ def _claim_is_valid(
         claim["claim_id"]
         == claim_id(
             page_ref,
-            kind,
             {"text": claim["text"], "evidence_ids": references},
             index=index,
         )

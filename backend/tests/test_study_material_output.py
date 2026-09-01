@@ -98,33 +98,34 @@ def producer_output(*, excluded_page: bool = False):
         "ocr": runtime_lock["ocr"],
     }
     page["page_evidence_id"] = "page-evidence:sha256:" + canonical_sha256(page)
-    definition = {
+    first_claim = {
         "text": "Public definition",
         "evidence_ids": [evidence_id],
     }
-    definition = {
-        "claim_id": claim_id(page_ref, "definition", definition),
-        **definition,
+    first_claim = {
+        "claim_id": claim_id(page_ref, first_claim, index=0),
+        **first_claim,
     }
     point = {
         "text": "Public key point",
         "evidence_ids": [evidence_id],
     }
     point = {
-        "claim_id": claim_id(page_ref, "key_point", point, index=0),
+        "claim_id": claim_id(page_ref, point, index=1),
         **point,
     }
+    claims = [first_claim, point]
     semantic_page = {
+        "schema": "semantic-page-concepts/v4",
         "page_ref": page_ref,
         "concepts": [
             {
                 "concept_id": concept_id(
-                    page_ref, "Public concept", definition, [point]
+                    page_ref, "Public concept", claims
                 ),
                 "page_ref": page_ref,
                 "label": "Public concept",
-                "definition": definition,
-                "key_points": [point],
+                "claims": claims,
                 "processing": "partial",
                 "quality": "needs_review",
                 "decision": "review",
@@ -133,7 +134,11 @@ def producer_output(*, excluded_page: bool = False):
         ],
         "rejected_candidates": [],
         "processing": "partial",
+        "quality": "needs_review",
+        "decision": "review",
         "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
+        "attempt": 1,
+        "processing_policy": "claim-grounded-concept-review/v8",
     }
     document_contexts = build_document_contexts([page])
     semantic_request, _ = build_semantic_request(page, document_contexts[0])
@@ -196,8 +201,9 @@ def test_rejected_semantic_candidate_marks_page_partial_for_downstream():
         pages=[page],
         context_pages=[page],
         document_contexts=document_contexts,
-        semantic_pages=[{
-            "page_ref": page["page_ref"],
+            semantic_pages=[{
+                "schema": "semantic-page-concepts/v4",
+                "page_ref": page["page_ref"],
             "concepts": [],
             "rejected_candidates": [{
                 "candidate_index": 0,
@@ -206,8 +212,12 @@ def test_rejected_semantic_candidate_marks_page_partial_for_downstream():
                 "decision": "reject",
                 "reason_codes": ["CLAIM_EVIDENCE_UNSUPPORTED"],
             }],
-            "processing": "partial",
-            "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
+                "processing": "partial",
+                "quality": "needs_review",
+                "decision": "review",
+                "reason_codes": ["SEMANTIC_REVIEW_REQUIRED"],
+                "attempt": 1,
+                "processing_policy": "claim-grounded-concept-review/v8",
             "input_binding": {
                 "batch_bindings": [{
                     "batch_index": 0,
@@ -227,10 +237,10 @@ def test_rejected_semantic_candidate_marks_page_partial_for_downstream():
     assert build_study_material_output(output)["processing"] == "partial"
 
 
-def test_build_v6_keeps_context_evidence_claim_locator_and_image_lite():
+def test_build_v8_keeps_context_evidence_claim_locator_and_image_lite():
     source = producer_output()
     output = build_study_material_output(source)
-    assert output["schema"] == "study-material-output/v7"
+    assert output["schema"] == "study-material-output/v8"
     assert output["document_contexts"] == source["document_contexts"]
     assert output["document_contexts"][0]["current_blocks"][0]["block_id"] == (
         source["pages"][0]["evidence_blocks"][0]["block_id"]
@@ -238,7 +248,7 @@ def test_build_v6_keeps_context_evidence_claim_locator_and_image_lite():
     assert output["processing"] == "partial"
     assert output["pages"][0]["processing"] == "partial"
     assert output["concepts"][0]["processing"] == "partial"
-    assert output["concepts"][0]["definition"]["evidence_ids"] == [
+    assert output["concepts"][0]["claims"][0]["evidence_ids"] == [
         output["evidence_index"][0]["evidence_id"]
     ]
     assert output["evidence_index"][0]["region"] == {
@@ -271,7 +281,7 @@ def test_excluded_page_is_partial_review_reject_without_silent_truncation():
 
 def test_cross_page_or_unknown_evidence_fails_closed():
     source = producer_output()
-    source["concepts"][0]["definition"]["evidence_ids"] = ["evidence:sha256:" + "f" * 64]
+    source["concepts"][0]["claims"][0]["evidence_ids"] = ["evidence:sha256:" + "f" * 64]
     with pytest.raises(ValueError, match="STUDY_MATERIAL_SOURCE_INVALID"):
         build_study_material_output(source)
 
@@ -279,7 +289,7 @@ def test_cross_page_or_unknown_evidence_fails_closed():
 def test_output_identity_tamper_is_rejected():
     output = build_study_material_output(producer_output())
     tampered = deepcopy(output)
-    tampered["concepts"][0]["definition"]["text"] = "Changed"
+    tampered["concepts"][0]["claims"][0]["text"] = "Changed"
     assert validate_study_material_output(tampered) == "STUDY_MATERIAL_OUTPUT_INVALID"
 
 
@@ -317,7 +327,7 @@ def test_recomputed_identity_cannot_hide_context_evidence_tamper():
     [
         (("evidence_index", 0, "region", "bbox", 0), float("nan")),
         (("pages", 0, "page_number"), True),
-        (("concepts", 0, "definition", "evidence_ids"), []),
+        (("concepts", 0, "claims", 0, "evidence_ids"), []),
         (("evidence_text_index", 0, "text"), ""),
         (("evidence_text_index", 0, "evidence_id"), "evidence:sha256:" + "f" * 64),
     ],

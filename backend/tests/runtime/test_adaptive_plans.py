@@ -98,96 +98,6 @@ def test_current_needs_review_then_observed_weak_routes_review_then_practice(
     assert practice.adaptive_plan_revision != review.adaptive_plan_revision
 
 
-def test_prerequisite_remediation_returns_deferred_target_without_map_mutation(
-    adaptive_database_dsn: str,
-):
-    learner, knowledge_map, _, study_session = _state_session(
-        adaptive_database_dsn
-    )
-    prerequisite = knowledge_map["formal_concepts"][0]
-    deferred_target = knowledge_map["formal_concepts"][1]
-    set_current_study_concept(
-        learner,
-        study_session.study_session_id,
-        deferred_target["formal_concept_id"],
-        dsn=adaptive_database_dsn,
-    )
-    with psycopg.connect(adaptive_database_dsn) as connection:
-        before_map = connection.execute(
-            "SELECT document FROM knowledge_maps WHERE map_revision=%s",
-            (knowledge_map["revision"],),
-        ).fetchone()[0]
-
-    remediation = derive_adaptive_plan(
-        learner, study_session.study_session_id, dsn=adaptive_database_dsn
-    )
-    assert remediation.primary_step.action == "relearn_prerequisite"
-    assert remediation.primary_step.reason == (
-        "先補強尚未掌握、需要先理解的基礎概念，再回到目前目標。"
-    )
-    assert remediation.primary_step.target_formal_concept_id == prerequisite[
-        "formal_concept_id"
-    ]
-    assert remediation.current_formal_concept_id == deferred_target[
-        "formal_concept_id"
-    ]
-    assert remediation.primary_step.route.resource_promotion_id is not None
-    applied = apply_adaptive_plan(
-        learner,
-        study_session.study_session_id,
-        remediation.adaptive_plan_revision,
-        dsn=adaptive_database_dsn,
-    )
-    assert applied.study_session.current_formal_concept_id == prerequisite[
-        "formal_concept_id"
-    ]
-    assert applied.study_session.deferred_formal_concept_id == deferred_target[
-        "formal_concept_id"
-    ]
-    replay = apply_adaptive_plan(
-        learner,
-        study_session.study_session_id,
-        remediation.adaptive_plan_revision,
-        dsn=adaptive_database_dsn,
-    )
-    assert replay.study_session == applied.study_session
-
-    for sequence in (1, 2):
-        _answer(
-            adaptive_database_dsn,
-            learner,
-            knowledge_map,
-            study_session,
-            concept_index=0,
-            correct=True,
-            sequence=sequence,
-        )
-    return_plan = derive_adaptive_plan(
-        learner, study_session.study_session_id, dsn=adaptive_database_dsn
-    )
-    assert return_plan.primary_step.action == "continue"
-    assert return_plan.fallback_reason == "RETURN_DEFERRED_TARGET"
-    assert return_plan.primary_step.target_formal_concept_id == deferred_target[
-        "formal_concept_id"
-    ]
-    returned = apply_adaptive_plan(
-        learner,
-        study_session.study_session_id,
-        return_plan.adaptive_plan_revision,
-        dsn=adaptive_database_dsn,
-    )
-    assert returned.study_session.current_formal_concept_id == deferred_target[
-        "formal_concept_id"
-    ]
-    assert returned.study_session.deferred_formal_concept_id is None
-    with psycopg.connect(adaptive_database_dsn) as connection:
-        after_map = connection.execute(
-            "SELECT document FROM knowledge_maps WHERE map_revision=%s",
-            (knowledge_map["revision"],),
-        ).fetchone()[0]
-    assert after_map == before_map
-
-
 def test_canonical_path_start_no_resource_and_stale_revision(
     adaptive_database_dsn: str,
 ):
@@ -263,41 +173,6 @@ def test_no_current_target_follows_inline_path(adaptive_database_dsn: str):
     assert plan.primary_step.target_formal_concept_id == knowledge_map[
         "initial_learning_path"
     ][0]["formal_concept_id"]
-
-
-def test_nested_immediate_remediation_preserves_original_deferred_target(
-    adaptive_database_dsn: str,
-):
-    learner, knowledge_map, _, study_session = _state_session(
-        adaptive_database_dsn
-    )
-    current = knowledge_map["formal_concepts"][1]["formal_concept_id"]
-    original_deferred = knowledge_map["formal_concepts"][2][
-        "formal_concept_id"
-    ]
-    set_current_study_concept(
-        learner,
-        study_session.study_session_id,
-        current,
-        dsn=adaptive_database_dsn,
-    )
-    with psycopg.connect(adaptive_database_dsn) as connection:
-        connection.execute(
-            "UPDATE study_sessions SET deferred_formal_concept_id=%s "
-            "WHERE study_session_id=%s",
-            (original_deferred, study_session.study_session_id),
-        )
-    plan = derive_adaptive_plan(
-        learner, study_session.study_session_id, dsn=adaptive_database_dsn
-    )
-    assert plan.primary_step.action == "relearn_prerequisite"
-    applied = apply_adaptive_plan(
-        learner,
-        study_session.study_session_id,
-        plan.adaptive_plan_revision,
-        dsn=adaptive_database_dsn,
-    )
-    assert applied.study_session.deferred_formal_concept_id == original_deferred
 
 
 def test_all_mastered_has_no_action(adaptive_database_dsn: str):
@@ -700,13 +575,13 @@ def test_multiple_no_safe_defers_follow_path_and_exclude_active_deferred(
             0,
             dsn=adaptive_database_dsn,
         )
-    assert blocked.status == "no_safe"
+    assert blocked.status == "active"
     blocked_plan = derive_adaptive_plan(
         learner, blocked.study_session_id, dsn=adaptive_database_dsn
     )
-    assert blocked_plan.fallback_reason == "NO_SAFE_PREREQUISITE_BLOCKED"
-    assert blocked_plan.primary_step.action == "no_action"
-    assert blocked_plan.primary_step.target_formal_concept_id is None
+    assert blocked_plan.fallback_reason == "NO_SAFE_ADVANCE"
+    assert blocked_plan.primary_step.action == "defer"
+    assert blocked_plan.primary_step.target_formal_concept_id == path_ids[1]
 
     with psycopg.connect(adaptive_database_dsn) as connection:
         assert connection.execute(

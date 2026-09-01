@@ -23,10 +23,10 @@ from .document_context import (
 from .ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
-OUTPUT_SCHEMA = "concept-evidence-output/v5"
+OUTPUT_SCHEMA = "concept-evidence-output/v6"
 AGGREGATION_POLICY = "whole-document-review-aggregation/v1"
 MAX_ARTIFACT_FILE_BYTES = 16 * 1024 * 1024
-RUNTIME_LOCK_SHA256 = "1b9590cfd1c65dafb156659a9db7dc452f275a6f153f509613c7767dad18a331"
+RUNTIME_LOCK_SHA256 = "90135cc32f9f24e1a37968ec598b1aefcf85c0c060223c1cc1b32908341dc82a"
 
 
 def _closed(value: Any, fields: set[str]) -> bool:
@@ -63,9 +63,8 @@ def _claim_is_valid(
     claim: Any,
     page_ref: str,
     evidence_pages: dict[str, str],
-    kind: str,
     *,
-    index: int | None = None,
+    index: int,
 ) -> bool:
     if not _closed(claim, {"claim_id", "text", "evidence_ids"}):
         return False
@@ -74,7 +73,6 @@ def _claim_is_valid(
         claim["claim_id"]
         == claim_id(
             page_ref,
-            kind,
             {"text": claim["text"], "evidence_ids": references},
             index=index,
         )
@@ -220,6 +218,7 @@ def validate_output_document(output: Any) -> bool:
         "schema", "aggregation_policy", "run_id", "produced_at", "material_id",
         "material_revision", "source_binding", "pages", "excluded_pages", "concepts",
         "rejected_candidates", "document_contexts", "semantic_batches",
+        "semantic_page_outcomes",
         "runtime_binding", "processing", "quality", "decision", "reason_codes",
         "output_id",
     }
@@ -423,12 +422,33 @@ def validate_output_document(output: Any) -> bool:
         for indexes in batch_indexes.values()
     ):
         return False
+    semantic_page_outcomes = output["semantic_page_outcomes"]
+    outcome_fields = {
+        "page_ref", "processing", "quality", "decision", "reason_codes",
+    }
+    if (
+        not isinstance(semantic_page_outcomes, list)
+        or len(semantic_page_outcomes) != len(page_refs)
+        or {outcome.get("page_ref") for outcome in semantic_page_outcomes}
+        != set(page_refs)
+    ):
+        return False
+    for outcome in semantic_page_outcomes:
+        expected_decision = "reject" if outcome.get("processing") == "failed" else "review"
+        if (
+            not _closed(outcome, outcome_fields)
+            or outcome["processing"] not in {"succeeded", "partial", "failed"}
+            or outcome["quality"] != "needs_review"
+            or outcome["decision"] != expected_decision
+            or not _reasons(outcome["reason_codes"], formal=True)
+        ):
+            return False
     concept_ids: set[str] = set()
     concept_page_refs: set[str] = set()
     has_partial_concept = False
     concept_fields = {
-        "concept_id", "page_ref", "label", "definition", "key_points",
-        "processing", "quality", "decision", "reason_codes",
+        "concept_id", "page_ref", "label", "claims", "processing", "quality",
+        "decision", "reason_codes",
     }
     if not isinstance(output["concepts"], list):
         return False
@@ -438,26 +458,21 @@ def validate_output_document(output: Any) -> bool:
         if (
             concept["concept_id"] in concept_ids
             or concept["page_ref"] not in page_refs
-            or not _claim_is_valid(
-                concept["definition"], concept["page_ref"], evidence_pages, "definition"
-            )
-            or not isinstance(concept["key_points"], list)
-            or not concept["key_points"]
+            or not isinstance(concept["claims"], list)
+            or not concept["claims"]
             or any(
                 not _claim_is_valid(
-                    point,
+                    claim,
                     concept["page_ref"],
                     evidence_pages,
-                    "key_point",
                     index=index,
                 )
-                for index, point in enumerate(concept["key_points"])
+                for index, claim in enumerate(concept["claims"])
             )
             or concept["concept_id"] != concept_id(
                 concept["page_ref"],
                 concept["label"],
-                concept["definition"],
-                concept["key_points"],
+                concept["claims"],
             )
             or concept["processing"] not in {"succeeded", "partial"}
             or (concept["quality"], concept["decision"])
@@ -490,6 +505,10 @@ def validate_output_document(output: Any) -> bool:
         or has_partial_concept
         or bool(output["rejected_candidates"])
         or not output["concepts"]
+        or any(
+            outcome["processing"] != "succeeded"
+            for outcome in semantic_page_outcomes
+        )
     )
     if (output["processing"] == "partial") != is_partial:
         return False
@@ -541,7 +560,7 @@ def build_output(
     formal_pages = deepcopy(pages)
     for page in formal_pages:
         semantic_page = semantic_by_page[page["page_ref"]]
-        if semantic_page["processing"] == "partial":
+        if semantic_page["processing"] != "succeeded":
             page["processing"] = "partial"
         page["reason_codes"] = formal_reason_codes(
             page["reason_codes"] + semantic_page["reason_codes"]
@@ -557,7 +576,7 @@ def build_output(
     for semantic_page in semantic_pages:
         for source_concept in semantic_page["concepts"]:
             concept = deepcopy(source_concept)
-            concept["processing"] = semantic_page["processing"]
+            concept["processing"] = source_concept["processing"]
             concept["quality"] = "needs_review"
             concept["decision"] = "review"
             concept["reason_codes"] = formal_reason_codes(
@@ -612,6 +631,18 @@ def build_output(
             for page in formal_pages
         ],
         "semantic_batches": semantic_batches,
+        "semantic_page_outcomes": [
+            {
+                "page_ref": semantic_page["page_ref"],
+                "processing": semantic_page["processing"],
+                "quality": semantic_page["quality"],
+                "decision": semantic_page["decision"],
+                "reason_codes": formal_reason_codes(
+                    semantic_page["reason_codes"]
+                ),
+            }
+            for semantic_page in semantic_pages
+        ],
         "concepts": concepts,
         "rejected_candidates": rejected,
         "runtime_binding": deepcopy(runtime_binding),

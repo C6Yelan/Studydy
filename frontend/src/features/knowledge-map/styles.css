@@ -365,11 +365,6 @@
   stroke-width: 2;
 }
 
-.concept-flow-edge.is-related .react-flow__edge-path,
-.concept-flow-edge.is-secondary-contains .react-flow__edge-path {
-  stroke-dasharray: 7 5;
-}
-
 .concept-flow-edge:focus-visible .react-flow__edge-path,
 .concept-flow-edge.selected .react-flow__edge-path {
   stroke-width: 4;
@@ -516,111 +511,6 @@
   background: var(--surface);
   font-size: .78rem;
 }
-
-.relation-legend {
-  display: flex;
-  justify-content: center;
-  gap: var(--space-5);
-  margin-bottom: var(--space-5);
-  padding: var(--space-3);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-input);
-  background: var(--surface);
-}
-
-.relation-list {
-  display: grid;
-  gap: var(--space-3);
-}
-
-.relation-list > button {
-  display: grid;
-  width: 100%;
-  min-height: 84px;
-  grid-template-columns: minmax(120px, 1fr) 180px minmax(120px, 1fr);
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  color: var(--text-primary);
-  background: var(--surface);
-}
-
-.relation-list > button:hover {
-  border-color: var(--studydy-blue);
-}
-
-.relation-list > button > span:not(.relation-connector) {
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-input);
-  background: var(--page-cool);
-  font-weight: 600;
-}
-
-.relation-list > button > span.is-selected {
-  color: var(--studydy-blue);
-  border-color: var(--studydy-blue);
-  background: var(--studydy-blue-soft);
-}
-
-.relation-connector {
-  display: grid;
-  min-width: 110px;
-  gap: var(--space-1);
-  justify-items: center;
-  color: var(--studydy-blue);
-  font-size: .72rem;
-  font-weight: 600;
-}
-
-.relation-connector > i {
-  position: relative;
-  display: block;
-  width: 100%;
-  height: 10px;
-  border-top: 2px solid currentColor;
-}
-
-.relation-connector[data-directional="true"] > i::after {
-  position: absolute;
-  top: -6px;
-  right: 0;
-  width: 8px;
-  height: 8px;
-  border-top: 2px solid currentColor;
-  border-right: 2px solid currentColor;
-  content: "";
-  transform: rotate(45deg);
-}
-
-.relation-connector.is-contains {
-  color: var(--success);
-}
-
-.relation-connector.is-related {
-  color: #7c3aed;
-}
-
-.relation-connector.is-related > i {
-  border-top-style: dashed;
-}
-
-.relation-connector.is-related > i::before,
-.relation-connector.is-related > i::after {
-  position: absolute;
-  top: -4px;
-  width: 6px;
-  height: 6px;
-  border: 1.5px solid currentColor;
-  border-radius: 50%;
-  background: var(--surface);
-  content: "";
-}
-
-.relation-connector.is-related > i::before { left: 0; }
-.relation-connector.is-related > i::after { right: 0; }
 
 .compact-empty,
 .partial-notice {
@@ -822,20 +712,6 @@
   font-weight: 600;
 }
 
-.relation-detail-route {
-  display: grid;
-  gap: var(--space-3);
-  margin-top: var(--space-5);
-  padding: var(--space-4);
-  border-radius: var(--radius-input);
-  background: var(--page-cool);
-  text-align: center;
-}
-
-.relation-detail-route .relation-connector {
-  width: 100%;
-}
-
 .detail-panel section > p {
   color: var(--text-secondary);
   font-size: .88rem;
@@ -903,19 +779,6 @@
   }
 
   .concept-select select {
-    width: 100%;
-  }
-
-  .relation-legend {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .relation-list > button {
-    grid-template-columns: 1fr;
-  }
-
-  .relation-connector {
     width: 100%;
   }
 

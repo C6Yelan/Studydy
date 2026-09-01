@@ -92,7 +92,7 @@ def settings(
         "site_packages": str(root / "ocr/runtime/lib/python3.12/site-packages"),
         "concept_site_packages": str(root / "vllm/lib/python3.12/site-packages"),
         "ocr_model_root": str(root / "models/unlimited-ocr"),
-        "relation_model_root": str(root / "models/mdeberta-v3-base-mnli-xnli"),
+        "verifier_model_root": str(root / "models/mdeberta-v3-base-mnli-xnli"),
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
         "concept_server_executable": str(root / "vllm/bin/vllm"),
@@ -395,11 +395,11 @@ def test_success_exposes_only_review_map_with_pdf_locator(
         )
         assert map_response.status_code == 200
         view = map_response.json()
-        assert view["schema"] == "knowledge-map-view/v9"
+        assert view["schema"] == "knowledge-map-view/v10"
         assert view["status"]["decision"] == "review"
         assert view["concepts"][0]["claims"][0]["evidence"][0]["page_number"] == 1
         encoded = json.dumps(view)
-        assert "Public evidence" not in encoded
+        assert "evidence_text_index" not in encoded
         assert "runtime_binding" not in encoded
         assert "model_text" not in encoded
 
@@ -460,8 +460,9 @@ def test_openapi_has_phase_06_learning_routes_without_private_fields(
         ("ExcludedPageView", "page_number"),
     ):
         assert "maximum" not in schemas[schema_name]["properties"][field_name]
-    for field_name in ("concepts", "relations", "initial_learning_path", "excluded_pages"):
+    for field_name in ("concepts", "initial_learning_path", "excluded_pages"):
         assert "maxItems" not in schemas["KnowledgeMapView"]["properties"][field_name]
+    assert "relations" not in schemas["KnowledgeMapView"]["properties"]
     assert "maxItems" not in schemas["FormalConceptView"]["properties"]["claims"]
     assert "maxLength" not in schemas["FormalConceptView"]["properties"]["label"]
     assert "maxItems" not in schemas["FormalClaimView"]["properties"]["evidence"]
@@ -662,8 +663,8 @@ def test_learning_api_closed_public_wiring_and_safe_feedback(
         assert state["concept_states"][1]["status"] == "needs_review"
         assert "source_answer_event_ids" not in json.dumps(state)
         assert "supporting_answer_event_ids" not in json.dumps(weakness)
-        assert adaptive["plan"]["primary_step"]["action"] == "relearn_prerequisite"
-        assert adaptive["suggestion"]["action"] == "relearn_prerequisite"
+        assert adaptive["plan"]["primary_step"]["action"] == "review"
+        assert adaptive["suggestion"]["action"] == "review"
         applied = client.post(
             f"/v1/study-sessions/{session_id}/adaptive-plan/apply",
             headers={"Origin": settings.public_origin},
@@ -673,7 +674,8 @@ def test_learning_api_closed_public_wiring_and_safe_feedback(
             },
         )
         assert applied.status_code == 200
-        assert applied.json()["deferred_formal_concept_id"] == target[
+        assert applied.json()["deferred_formal_concept_id"] is None
+        assert applied.json()["current_formal_concept_id"] == target[
             "formal_concept_id"
         ]
         assert client.post(
@@ -960,7 +962,7 @@ def _api_answer(
     return response.json()
 
 
-def test_phase_06_public_api_closed_loop_matches_golden(
+def _retired_prerequisite_public_api_closed_loop(
     settings: ApiSettings, monkeypatch: pytest.MonkeyPatch
 ):
     monkeypatch.setattr(

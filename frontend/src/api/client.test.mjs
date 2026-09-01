@@ -73,7 +73,7 @@ function successfulRun() {
 function mapView() {
   const pageRef = `page:sha256:${"5".repeat(64)}`;
   return {
-    schema: "knowledge-map-view/v9",
+    schema: "knowledge-map-view/v10",
     material_ref: `material:sha256:${"6".repeat(64)}`,
     knowledge_map_revision: mapRevision,
     source_output_id: `study-material-output:sha256:${"3".repeat(64)}`,
@@ -125,58 +125,33 @@ function mapView() {
       coverage_before: 1,
       coverage_after: 1,
     },
-    relations: [],
-    relation_diagnostics: {
-      possible_pairs: 0,
-      candidate_pairs: 0,
-      selected_pairs: 0,
-      selected_signal_counts: {},
-      model_calls: 0,
-      model_no_relation_pairs: 0,
-      model_contains_pairs: 0,
-      model_prerequisite_pairs: 0,
-      model_related_pairs: 0,
-      model_review_pairs: 0,
-      unexpected_pairs: 0,
-      invalid_pairs: 0,
-      canonical_rejections: 0,
-      verifier_calls: 0,
-      verifier_accepted: 0,
-      verifier_rejected: 0,
-      verifier_unsupported: 0,
-      verifier_failures: 0,
-      accepted_relations: 0,
+    supplementary_resources: {
+      processing: "succeeded",
+      quality: "needs_review",
+      decision: "review",
+      reason_codes: [],
+      binding: {
+        context_revision: `map-resource-context:sha256:${"1".repeat(64)}`,
+        library_revision: `resource-library:sha256:${"2".repeat(64)}`,
+        matching_policy: "resource-context-exact-distinct-source/v3",
+        promotion_policy: "resource-formal-concept-promotion/v1",
+      },
+      diagnostics: {
+        matches: 0,
+        promoted_matches: 0,
+        promoted_resources: 0,
+        dropped_matches: 0,
+        split_review_matches: 0,
+      },
+      decisions: [],
     },
-    resource_binding: {
-      context_revision: `map-resource-context:sha256:${"1".repeat(64)}`,
-      library_revision: `resource-library:sha256:${"2".repeat(64)}`,
-      matching_policy: "resource-context-exact-distinct-source/v3",
-      promotion_policy: "resource-formal-concept-promotion/v1",
-    },
-    resource_diagnostics: {
-      matches: 0,
-      promoted_matches: 0,
-      promoted_resources: 0,
-      dropped_matches: 0,
-      split_review_matches: 0,
-    },
-    resource_decisions: [],
-    topology: {
-      roots: [`formal-concept:sha256:${"7".repeat(64)}`],
-      nodes: [{
-        formal_concept_id: `formal-concept:sha256:${"7".repeat(64)}`,
-        depth: 0,
-        primary_parent_formal_concept_id: null,
-        flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
-        flat_group_anchor: {
-          evidence_id: `evidence:sha256:${"8".repeat(64)}`,
-          page_ref: pageRef,
-          page_number: 40,
-          reading_order: 0,
-        },
-      }],
-      flat_groups: [{
-        flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
+    document_tree: {
+      root: {
+        material_ref: `material:sha256:${"6".repeat(64)}`,
+        section_ids: [`document-section:sha256:${"1".repeat(64)}`],
+      },
+      sections: [{
+        section_id: `document-section:sha256:${"1".repeat(64)}`,
         label: "第 40 頁未命名段落",
         label_source: "unheaded_fallback",
         heading_evidence_id: null,
@@ -186,97 +161,23 @@ function mapView() {
           page_number: 40,
           reading_order: 0,
         },
-        formal_concept_ids: [`formal-concept:sha256:${"7".repeat(64)}`],
+        concept_ids: [`formal-concept:sha256:${"7".repeat(64)}`],
       }],
-    },
-    topology_diagnostics: {
-      component_count: 1,
-      orphan_concept_count: 1,
-      secondary_parent_count: 0,
-      skipped_parent_before_child_count: 0,
     },
     initial_learning_path: [{
       step_number: 1,
       formal_concept_id: `formal-concept:sha256:${"7".repeat(64)}`,
-      placement_reason: "依教材第 40 頁的首次出現位置安排。",
+      placement_reason: "依教材第 40 頁的首次 Claim Evidence 安排。",
       order_basis: {
-        prerequisite_formal_concept_ids: [],
-        parent_formal_concept_ids: [],
-        flat_group_id: `document-section:sha256:${"1".repeat(64)}`,
-        hierarchy_depth: 0,
-        source_page_number: 40,
+        section_id: `document-section:sha256:${"1".repeat(64)}`,
+        page_ref: pageRef,
+        page_number: 40,
+        reading_order: 0,
+        evidence_id: `evidence:sha256:${"8".repeat(64)}`,
       },
     }],
     excluded_pages: [],
   };
-}
-
-function mapViewWithRelation() {
-  const view = mapView();
-  const source = view.concepts[0];
-  const target = structuredClone(source);
-  target.formal_concept_id = `formal-concept:sha256:${"b".repeat(64)}`;
-  target.claims[0].claim_id = `claim:sha256:${"c".repeat(64)}`;
-  target.claims[0].evidence[0].evidence_id = `evidence:sha256:${"e".repeat(64)}`;
-  target.source_concept_ids = [`concept:sha256:${"f".repeat(64)}`];
-  view.concepts.push(target);
-  view.topology.roots.push(target.formal_concept_id);
-  view.topology.nodes.push({
-    formal_concept_id: target.formal_concept_id,
-    depth: 0,
-    primary_parent_formal_concept_id: null,
-    flat_group_id: view.topology.flat_groups[0].flat_group_id,
-    flat_group_anchor: {
-      evidence_id: target.claims[0].evidence[0].evidence_id,
-      page_ref: target.claims[0].evidence[0].page_ref,
-      page_number: target.claims[0].evidence[0].page_number,
-      reading_order: 1,
-    },
-  });
-  view.topology.flat_groups[0].formal_concept_ids.push(target.formal_concept_id);
-  view.topology_diagnostics.component_count += 1;
-  view.topology_diagnostics.orphan_concept_count += 1;
-  view.initial_learning_path.push({
-    step_number: 2,
-    formal_concept_id: target.formal_concept_id,
-    placement_reason: "接續教材同一節的平面概念順序。",
-    order_basis: {
-      prerequisite_formal_concept_ids: [],
-      parent_formal_concept_ids: [],
-      flat_group_id: view.topology.flat_groups[0].flat_group_id,
-      hierarchy_depth: 0,
-      source_page_number: 40,
-    },
-  });
-  view.relations.push({
-    relation_id: `formal-relation:sha256:${"a".repeat(64)}`,
-    type: "related",
-    source_formal_concept_id: source.formal_concept_id,
-    target_formal_concept_id: target.formal_concept_id,
-    reason: "These concepts share a grounded learning application.",
-    inference_basis: "claim_semantics",
-    relation_evidence: [{
-      owner_formal_concept_id: source.formal_concept_id,
-      claim_id: source.claims[0].claim_id,
-      evidence_ids: [source.claims[0].evidence[0].evidence_id],
-    }],
-    relation_context: [],
-    needs_review: false,
-    quality: "needs_review",
-    decision: "review",
-    reason_codes: ["RELATION_REVIEW_REQUIRED"],
-    is_in_prerequisite_cycle: false,
-  });
-  Object.assign(view.relation_diagnostics, {
-    possible_pairs: 1,
-    candidate_pairs: 1,
-    selected_pairs: 1,
-    selected_signal_counts: { shared_evidence: 1 },
-    model_calls: 1,
-    model_related_pairs: 1,
-    accepted_relations: 1,
-  });
-  return view;
 }
 
 test("protected request 的 401 會 refresh 後重送", async () => {
@@ -417,7 +318,7 @@ test("run v3 closed progress shape rejects v2, decreasing bounds and fake termin
   }
 });
 
-test("Map v9 使用 exact run/revision 並要求 topology、path 與 claim PDF locator", async () => {
+test("Map v10 使用 exact run/revision 並要求 tree、path 與 claim PDF locator", async () => {
   const paths = [];
   const client = new StudydyApiClient(async (input) => {
     paths.push(String(input));
@@ -448,7 +349,7 @@ test("Map v9 使用 exact run/revision 並要求 topology、path 與 claim PDF l
   );
 });
 
-test("Map v9 補充資源只接受 HTTP(S) public URL", async () => {
+test("Map v10 補充資源只接受 HTTP(S) public URL", async () => {
   const invalid = mapView();
   const sourceConceptId = invalid.concepts[0].source_concept_ids[0];
   invalid.concepts[0].supplementary_resources.push({
@@ -469,7 +370,7 @@ test("Map v9 補充資源只接受 HTTP(S) public URL", async () => {
     study_concept_ids: [sourceConceptId],
     match_reason: "EXACT_NORMALIZED_LABEL",
   });
-  Object.assign(invalid.resource_diagnostics, {
+  Object.assign(invalid.supplementary_resources.diagnostics, {
     matches: 1,
     promoted_matches: 1,
     promoted_resources: 1,
@@ -566,7 +467,7 @@ test("StudySession-scoped learning projections 保持 revision 與 action bindin
   };
   assert.equal((await read("getLearningState", phase06Fixtures.low_data)).concept_states[0].status, "not_started");
   assert.equal((await read("getWeakness", phase06Fixtures.weakness)).findings[0].category, "observed_weak");
-  assert.equal((await read("getAdaptivePlan", phase06Fixtures.prerequisite_gap)).plan.primary_step.action, "relearn_prerequisite");
+  assert.equal((await read("getAdaptivePlan", phase06Fixtures.review_needed)).plan.primary_step.action, "review");
 
   const falseMastery = structuredClone(phase06Fixtures.low_data);
   falseMastery.all_mastered = true;
@@ -574,7 +475,7 @@ test("StudySession-scoped learning projections 保持 revision 與 action bindin
     read("getLearningState", falseMastery),
     (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
   );
-  const splitDecision = structuredClone(phase06Fixtures.prerequisite_gap);
+  const splitDecision = structuredClone(phase06Fixtures.review_needed);
   splitDecision.suggestion.action = "practice";
   await assert.rejects(
     read("getAdaptivePlan", splitDecision),
@@ -582,33 +483,21 @@ test("StudySession-scoped learning projections 保持 revision 與 action bindin
   );
 });
 
-test("Map v9 pair-level Relation Evidence 必須保留真實 claim owner", async () => {
+test("Map v10 closed contract rejects retired graph fields", async () => {
+  const invalid = mapView();
+  invalid.relations = [];
   let calls = 0;
-  const acceptedClient = new StudydyApiClient(async () => {
-    calls += 1;
-    return calls === 1
-      ? new Response(null, { status: 204 })
-      : Response.json(mapViewWithRelation());
-  });
-  assert.equal((await acceptedClient.getKnowledgeMap({ materialId, runId, mapRevision }))
-    .relations.length, 1);
-
-  const invalid = mapViewWithRelation();
-  invalid.relations[0].relation_evidence[0].evidence_ids = [
-    invalid.concepts[1].claims[0].evidence[0].evidence_id,
-  ];
-  calls = 0;
-  const rejectedClient = new StudydyApiClient(async () => {
+  const client = new StudydyApiClient(async () => {
     calls += 1;
     return calls === 1 ? new Response(null, { status: 204 }) : Response.json(invalid);
   });
   await assert.rejects(
-    rejectedClient.getKnowledgeMap({ materialId, runId, mapRevision }),
+    client.getKnowledgeMap({ materialId, runId, mapRevision }),
     (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
   );
 });
 
-test("Map v9 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
+test("Map v10 recursively rejects unexpected、duplicate、nonfinite、type 與 count mutations", async (context) => {
   const mutations = {
     unexpected: (view) => { view.concepts[0].unexpected_field = true; },
     duplicate: (view) => { view.concepts.push(structuredClone(view.concepts[0])); },
@@ -616,11 +505,11 @@ test("Map v9 recursively rejects unexpected、duplicate、nonfinite、type 與 c
     type: (view) => { view.concepts[0].claims[0].evidence[0].page_number = true; },
     count: (view) => { view.concepts[0].claims = []; },
     reference: (view) => { view.concepts[0].claims[0].evidence[0].page_number = 41; },
-    topology: (view) => { view.topology.nodes[0].depth = 1; },
+    topology: (view) => { view.document_tree.root.section_ids = []; },
     group_anchor: (view) => {
-      view.topology.nodes[0].flat_group_anchor.evidence_id = `evidence:sha256:${"0".repeat(64)}`;
+      view.initial_learning_path[0].order_basis.evidence_id = `evidence:sha256:${"0".repeat(64)}`;
     },
-    group_label: (view) => { view.topology.flat_groups[0].label = "猜測的段落名稱"; },
+    group_label: (view) => { view.document_tree.sections[0].section_id = "invalid"; },
     path: (view) => { view.initial_learning_path[0].placement_reason = ""; },
     excluded: (view) => {
       view.status.processing = "succeeded";

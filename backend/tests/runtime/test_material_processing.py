@@ -277,7 +277,7 @@ def _settings(tmp_path: Path) -> dict:
         "site_packages": str(root / "ocr/runtime/lib/python3.12/site-packages"),
         "concept_site_packages": str(root / "vllm/lib/python3.12/site-packages"),
         "ocr_model_root": str(root / "models/unlimited-ocr"),
-        "relation_model_root": str(root / "models/mdeberta-v3-base-mnli-xnli"),
+        "verifier_model_root": str(root / "models/mdeberta-v3-base-mnli-xnli"),
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": "Qwen/Qwen3-14B-AWQ",
         "concept_server_executable": str(root / "vllm/bin/vllm"),
@@ -349,11 +349,6 @@ def _fake_knowledge_map(
     return build_knowledge_map(
         study_output,
         resolutions,
-        [],
-        relation_pair_status={
-            "processing": "succeeded",
-            "reason_codes": ["RELATION_REVIEW_REQUIRED"],
-        },
         resource_promotion=promote_resources_to_formal_concepts(
             formal_concepts, resource_context, study_output, resource_library
         ),
@@ -416,12 +411,8 @@ def _fake_producer(
                         "concepts": [
                             {
                                 "label": f"Public concept {page_number}",
-                                "definition": {
-                                    "text": "Public definition",
-                                    "evidence_ids": [semantic_request["evidence"][0]["id"]],
-                                },
-                                "key_points": [{
-                                    "text": "Public point",
+                                "claims": [{
+                                    "text": f"Public evidence {page_number}",
                                     "evidence_ids": [semantic_request["evidence"][0]["id"]],
                                 }],
                             }
@@ -601,14 +592,14 @@ def test_create_replay_claim_execute_and_publish_only_output_and_map(
     outputs = read_material_run_outputs(
         learner_id, source.material_id, created.run_id, dsn=processing_database_dsn
     )
-    assert outputs.study_material_output["schema"] == "study-material-output/v7"
+    assert outputs.study_material_output["schema"] == "study-material-output/v8"
     assert outputs.study_material_output["evidence_text_index"]
     assert all(
         set(evidence) == {"evidence_id", "text"}
         for evidence in outputs.study_material_output["evidence_text_index"]
     )
-    assert outputs.knowledge_map["schema"] == "knowledge-map/v9"
-    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v9"
+    assert outputs.knowledge_map["schema"] == "knowledge-map/v10"
+    assert outputs.knowledge_map_view["schema"] == "knowledge-map-view/v10"
     with psycopg.connect(processing_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM study_material_outputs").fetchone() == (1,)
         assert connection.execute("SELECT count(*) FROM knowledge_maps").fetchone() == (1,)
@@ -806,7 +797,7 @@ def test_partial_page_and_semantic_status_reaches_persisted_run(
     assert completed.output_binding["processing"] == "partial"
     assert outputs.study_material_output["processing"] == "partial"
     assert outputs.study_material_output["pages"][0]["processing"] == "partial"
-    assert outputs.study_material_output["concepts"][0]["processing"] == "partial"
+    assert outputs.study_material_output["concepts"][0]["processing"] == "succeeded"
     assert outputs.knowledge_map["processing"] == "partial"
     view = deepcopy(outputs.knowledge_map_view)
     evidence = view["concepts"][0]["claims"][0]["evidence"][0]
@@ -815,101 +806,15 @@ def test_partial_page_and_semantic_status_reaches_persisted_run(
     assert api_view["excluded_pages"] == []
     assert api_view["concepts"][0]["claims"][0]["evidence"][0] == evidence
     invalid_topology = deepcopy(api_view)
-    invalid_topology["topology"]["nodes"][0]["depth"] = 1
+    invalid_topology["document_tree"]["root"]["section_ids"] = []
     with pytest.raises(ValueError, match="KNOWLEDGE_MAP_VIEW_INVALID"):
         KnowledgeMapView.model_validate(invalid_topology)
     invalid_path = deepcopy(api_view)
     invalid_path["initial_learning_path"][0]["order_basis"][
-        "source_page_number"
+            "page_number"
     ] += 1
     with pytest.raises(ValueError, match="KNOWLEDGE_MAP_VIEW_INVALID"):
         KnowledgeMapView.model_validate(invalid_path)
-    relation_view = deepcopy(outputs.knowledge_map_view)
-    second_concept = deepcopy(relation_view["concepts"][0])
-    second_concept["formal_concept_id"] = "formal-concept:sha256:" + "c" * 64
-    second_concept["claims"][0]["claim_id"] = "claim:sha256:" + "d" * 64
-    second_concept["claims"][0]["evidence"][0]["evidence_id"] = (
-        "evidence:sha256:" + "e" * 64
-    )
-    second_concept["source_concept_ids"] = ["concept:sha256:" + "f" * 64]
-    relation_view["concepts"].append(second_concept)
-    second_id = second_concept["formal_concept_id"]
-    flat_group_id = relation_view["topology"]["nodes"][0]["flat_group_id"]
-    relation_view["topology"]["roots"].append(second_id)
-    relation_view["topology"]["nodes"].append({
-        "formal_concept_id": second_id,
-        "depth": 0,
-        "primary_parent_formal_concept_id": None,
-        "flat_group_id": flat_group_id,
-        "flat_group_anchor": {
-            "evidence_id": second_concept["claims"][0]["evidence"][0][
-                "evidence_id"
-            ],
-            "page_ref": second_concept["claims"][0]["evidence"][0][
-                "page_ref"
-            ],
-            "page_number": second_concept["claims"][0]["evidence"][0][
-                "page_number"
-            ],
-            "reading_order": 0,
-        },
-    })
-    relation_view["topology"]["flat_groups"][0][
-        "formal_concept_ids"
-    ].append(second_id)
-    relation_view["topology_diagnostics"]["component_count"] += 1
-    relation_view["topology_diagnostics"]["orphan_concept_count"] += 1
-    relation_view["initial_learning_path"].append({
-        "step_number": 2,
-        "formal_concept_id": second_id,
-        "placement_reason": "接續教材同一節的平面概念順序。",
-        "order_basis": {
-            "prerequisite_formal_concept_ids": [],
-            "parent_formal_concept_ids": [],
-            "flat_group_id": flat_group_id,
-            "hierarchy_depth": 0,
-            "source_page_number": min(second_concept["source_page_numbers"]),
-        },
-    })
-    relation_view["relations"] = [
-        {
-            "relation_id": "formal-relation:sha256:" + "a" * 64,
-            "type": "related",
-            "source_formal_concept_id": relation_view["concepts"][0][
-                "formal_concept_id"
-            ],
-                "target_formal_concept_id": second_concept["formal_concept_id"],
-                "reason": "These concepts share a grounded learning relationship.",
-                "inference_basis": "claim_semantics",
-            "relation_evidence": [{
-                "owner_formal_concept_id": relation_view["concepts"][0][
-                    "formal_concept_id"
-                ],
-                "claim_id": relation_view["concepts"][0]["claims"][0][
-                    "claim_id"
-                ],
-                "evidence_ids": [evidence["evidence_id"]],
-                }],
-                "relation_context": [],
-                "needs_review": False,
-            "quality": "needs_review",
-            "decision": "review",
-            "reason_codes": ["RELATION_REVIEW_REQUIRED"],
-            "is_in_prerequisite_cycle": False,
-        }
-    ]
-    KnowledgeMapView.model_validate(relation_view)
-    unknown_evidence_id = "evidence:sha256:" + "0" * 64
-    relation_view["relations"][0]["relation_evidence"][0]["evidence_ids"] = [
-        unknown_evidence_id
-    ]
-    assert unknown_evidence_id not in {
-        item["evidence_id"]
-        for claim in relation_view["concepts"][1]["claims"]
-        for item in claim["evidence"]
-    }
-    with pytest.raises(ValueError, match="KNOWLEDGE_MAP_VIEW_INVALID"):
-        KnowledgeMapView.model_validate(relation_view)
     view["status"]["processing"] = "succeeded"
     view["excluded_pages"] = [
         {
@@ -943,27 +848,23 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert binding["call_ceilings"] == {
         "ocr_calls_per_page": 1,
         "ocr_initial_loads": 1,
-        "concept_initial_loads": 3,
-        "relation_model_batches_per_material": 8,
+            "concept_initial_loads": 2,
         "concept_equivalence_initial_loads": 1,
         "concept_equivalence_pairs_per_material": 16,
         "concept_equivalence_directions_per_material": 32,
-        "relation_verifier_initial_loads": 1,
-        "relation_verifier_calls_per_material": 128,
     }
     assert binding["timeouts_seconds"] == {
         "resident_lock": 5,
         "ocr_page": 120,
         "concept_attempt": 300,
         "concept_server_ready": 300,
-        "relation_verifier": 120,
         "concept_equivalence": 120,
     }
     assert binding["retry_policy"]["concept_attempts"] == 2
     encoded = json.dumps(binding)
     assert settings["private_runtime_root"] not in encoded
     assert settings["ocr_model_root"] not in encoded
-    assert settings["relation_model_root"] not in encoded
+    assert settings["verifier_model_root"] not in encoded
     assert settings["concept_server_executable"] not in encoded
     assert settings["concept_model_root"] not in encoded
     assert binding["concept_api"] == {
@@ -979,13 +880,13 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
         "structured_output": settings["runtime_lock"]["semantic"]["structured_output"],
         "input_token_budget": settings["runtime_lock"]["semantic"]["input_token_budget"],
     }
-    assert binding["relation_verifier"] == settings["runtime_lock"][
-        "relation_verifier"
+    assert binding["verifier_model"] == settings["runtime_lock"][
+        "verifier_model"
     ]
     assert binding["concept_equivalence"] == settings["runtime_lock"][
         "concept_equivalence"
     ]
-    assert len(binding["code_hashes"]) == 18
+    assert len(binding["code_hashes"]) == 17
     assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
     assert "backend/src/pdf_evidence/process_guard.py" in binding["code_hashes"]
     repository_root = Path(__file__).parents[3]
@@ -1048,7 +949,7 @@ def test_assessment_policy_does_not_change_material_runtime_identity(tmp_path: P
 
     for changed in (
         {**settings, "concept_api_base_url": "http://example.test:8101"},
-        {**settings, "relation_model_root": str(tmp_path / "different-model")},
+        {**settings, "verifier_model_root": str(tmp_path / "different-model")},
         {**settings, "concept_model": "different-model"},
         {**settings, "concept_kv_cache_bytes": 0},
         {**settings, "concept_max_concurrency": 3},
@@ -1143,7 +1044,7 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
     python_executable.chmod(0o700)
     for key in (
         "site_packages", "concept_site_packages", "ocr_model_root",
-        "relation_model_root", "concept_model_root"
+        "verifier_model_root", "concept_model_root"
     ):
         Path(settings[key]).mkdir(parents=True)
     concept_server = Path(settings["concept_server_executable"])
@@ -1153,14 +1054,13 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
 
     runtime_files = processing_module._runtime_files(settings)
     relative_names = {runtime_file.path.name for runtime_file in runtime_files}
-    assert len(runtime_files) == 29
+    assert len(runtime_files) == 28
     assert {
         "python3.12",
         "vllm",
         "__init__.py",
         "protocol.py",
         "ocr_process.py",
-        "relation_process.py",
         "equivalence_process.py",
         "model-00001-of-000001.safetensors",
         "model.safetensors.index.json",
@@ -1173,11 +1073,10 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
         "__init__.py",
         "protocol.py",
         "ocr_process.py",
-        "relation_process.py",
     )
     assert settings["runtime_lock"]["concept_equivalence"]["package_source"] == {
         "name": "equivalence_process.py",
-        "sha256": "588383aeb52638a7dd23a91c5d400229845c859d897b21bef5c8d06e06ffa56c",
+        "sha256": "2d56949bf2499514e64edc38fa257d9b54221c12e387ae677a5443cd510512a1",
     }
 
 
@@ -1400,10 +1299,7 @@ def test_owner_scope_and_tampered_map_read_fail_closed(
             "SELECT document FROM study_material_outputs"
         ).fetchone()[0]
         forged = deepcopy(stored)
-        forged["flat_group_context"]["concept_anchors"][0][
-            "reading_order"
-        ] += 17
-        forged["topology"]["nodes"][0]["flat_group_anchor"][
+        forged["document_tree"]["sections"][0]["source_order"][
             "reading_order"
         ] += 17
         forged["revision"] = "knowledge-map:sha256:" + canonical_sha256(

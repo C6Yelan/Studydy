@@ -23,7 +23,7 @@ def start_assessment_process(
             "-c",
             _ASSESSMENT_BOOTSTRAP,
             settings["site_packages"],
-            settings["relation_model_root"],
+            settings["verifier_model_root"],
         ],
         request_limit=128 * 1024,
         response_limit=4096,
@@ -32,7 +32,7 @@ def start_assessment_process(
         startup = process.read_startup_response(startup_timeout_seconds)
     except LocalAIError as error:
         process.abort()
-        if error.reason_code == "RELATION_VERIFIER_TIMEOUT":
+        if error.reason_code == "CHILD_TIMEOUT":
             raise LocalAIError("ASSESSMENT_VERIFIER_TIMEOUT") from None
         if error.reason_code == "CHILD_RESPONSE_INVALID":
             raise LocalAIError("ASSESSMENT_VERIFIER_RESPONSE_INVALID") from None

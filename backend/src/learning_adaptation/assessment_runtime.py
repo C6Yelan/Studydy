@@ -76,7 +76,7 @@ def _validate_assessment_runtime_lock(
 ) -> None:
     try:
         semantic = material_lock["semantic"]
-        relation = material_lock["relation_verifier"]
+        verifier_model = material_lock["verifier_model"]
         matches = (
             isinstance(assessment_lock, dict)
             and canonical_sha256(assessment_lock)
@@ -89,8 +89,8 @@ def _validate_assessment_runtime_lock(
             == {
                 "semantic_model_id": semantic["model_id"],
                 "semantic_revision": semantic["revision"],
-                "verifier_model_id": relation["model_id"],
-                "verifier_revision": relation["revision"],
+                "verifier_model_id": verifier_model["model_id"],
+                "verifier_revision": verifier_model["revision"],
             }
             and all(
                 hashlib.sha256(
@@ -239,10 +239,10 @@ def assessment_runtime_binding(
                 "server": deepcopy(material_lock["semantic"]["server"]),
             },
             "verifier_model": {
-                "model_id": material_lock["relation_verifier"]["model_id"],
-                "revision": material_lock["relation_verifier"]["revision"],
+                "model_id": material_lock["verifier_model"]["model_id"],
+                "revision": material_lock["verifier_model"]["revision"],
                 "required_files_sha256": canonical_sha256(
-                    material_lock["relation_verifier"]["required_files"]
+                    material_lock["verifier_model"]["required_files"]
                 ),
             },
         },

@@ -17,10 +17,19 @@ from learning_adaptation.study_sessions import (
     read_study_session,
 )
 from learning_resources.map_resources import MATCHING_POLICY, PROMOTION_POLICY
-from knowledge_map.artifacts import _topology_and_learning_path
-from pdf_evidence.concept_generation import build_semantic_request
+from knowledge_map.artifacts import (
+    _document_tree_and_learning_path,
+    _formal_concepts_are_valid,
+    validate_knowledge_map,
+)
+from pdf_evidence.concept_generation import (
+    build_semantic_request,
+    claim_id,
+    concept_id,
+)
 from pdf_evidence.document_context import build_document_contexts
 from pdf_evidence.ocr_page_evidence import canonical_sha256
+from pdf_evidence.study_material_output import validate_study_material_output
 from runtime.learner_session import (
     TrustedLearner,
     create_session,
@@ -56,7 +65,6 @@ def study_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
 def _formal_id(concept: dict) -> str:
     return "formal-concept:sha256:" + canonical_sha256(
         {
-            "group_id": concept["group_id"],
             "operation": concept["operation"],
             "source_concept_ids": concept["source_concept_ids"],
             "label": concept["label"],
@@ -67,87 +75,44 @@ def _formal_id(concept: dict) -> str:
     )
 
 
-def _flat_group_context(concepts: list[dict]) -> dict:
-    anchors = [
-        {
-            "formal_concept_id": concept["formal_concept_id"],
-            "flat_group_id": concept["source_members"][0]["section_ids"][0],
-            "evidence_id": concept["claims"][0]["evidence_ids"][0],
-            "page_ref": concept["source_members"][0]["page_ref"],
-            "page_number": concept["source_page_numbers"][0],
+def _tree_and_path(concepts: list[dict], material_ref: str) -> tuple[dict, list]:
+    ordered = sorted(concepts, key=lambda concept: concept["formal_concept_id"])
+    section_id = ordered[0]["source_members"][0]["section_ids"][0]
+    evidence_id = ordered[0]["claims"][0]["evidence_ids"][0]
+    page_ref = ordered[0]["source_members"][0]["page_ref"]
+    section = {
+        "section_id": section_id,
+        "label": "第 1 頁未命名段落",
+        "label_source": "unheaded_fallback",
+        "heading_evidence_id": None,
+        "source_order": {
+            "page_ref": page_ref,
+            "page_number": 1,
             "reading_order": 0,
-            "document_context_id": concept["source_members"][0][
-                "document_context_id"
-            ],
-        }
-        for concept in concepts
-    ]
-    groups = []
-    for flat_group_id in {anchor["flat_group_id"] for anchor in anchors}:
-        source = min(
-            (anchor for anchor in anchors if anchor["flat_group_id"] == flat_group_id),
-            key=lambda item: (
-                item["page_number"], item["reading_order"], item["evidence_id"]
-            ),
-        )
-        groups.append({
-            "flat_group_id": flat_group_id,
-            "label": f"第 {source['page_number']} 頁未命名段落",
-            "label_source": "unheaded_fallback",
-            "heading_evidence_id": None,
-            "source_order": {
-                key: value
-                for key, value in source.items()
-                if key not in {"formal_concept_id", "flat_group_id"}
-            },
-        })
-    return {
-        "concept_anchors": sorted(
-            anchors, key=lambda item: item["formal_concept_id"]
-        ),
-        "groups": sorted(
-            groups,
-            key=lambda item: (
-                item["source_order"]["page_number"],
-                item["source_order"]["reading_order"],
-                item["source_order"]["evidence_id"],
-                item["flat_group_id"],
-            ),
-        ),
+            "evidence_id": evidence_id,
+        },
+        "concept_ids": [concept["formal_concept_id"] for concept in ordered],
     }
-
-
-def _relation(relation_type: str, source: dict, target: dict) -> dict:
-    relation_evidence = [
+    tree = {
+        "root": {"material_ref": material_ref, "section_ids": [section_id]},
+        "sections": [section],
+    }
+    path = [
         {
-            "owner_formal_concept_id": source["formal_concept_id"],
-            "claim_id": source["claims"][0]["claim_id"],
-            "evidence_ids": source["claims"][0]["evidence_ids"],
+            "step_number": index,
+            "formal_concept_id": concept["formal_concept_id"],
+            "placement_reason": "依教材第 1 頁的首次 Claim Evidence 安排。",
+            "order_basis": {
+                "section_id": section_id,
+                "page_ref": page_ref,
+                "page_number": 1,
+                "reading_order": 0,
+                "evidence_id": evidence_id,
+            },
         }
+        for index, concept in enumerate(ordered, start=1)
     ]
-    identity = {
-        "type": relation_type,
-        "source_formal_concept_id": source["formal_concept_id"],
-        "target_formal_concept_id": target["formal_concept_id"],
-        "reason": "The grounded concepts have a specific learning relationship.",
-        "inference_basis": "combined",
-        "relation_evidence": relation_evidence,
-        "relation_context": [{
-            "owner_formal_concept_id": source["formal_concept_id"],
-            "document_context_id": source["source_members"][0]["document_context_id"],
-            "page_ref": source["source_members"][0]["page_ref"],
-            "section_ids": source["source_members"][0]["section_ids"],
-        }],
-    }
-    return {
-        "relation_id": "formal-relation:sha256:" + canonical_sha256(identity),
-        **identity,
-        "needs_review": False,
-        "quality": "needs_review",
-        "decision": "review",
-        "reason_codes": ["RELATION_REVIEW_REQUIRED"],
-        "is_in_prerequisite_cycle": False,
-    }
+    return tree, path
 
 
 def _knowledge_map() -> dict:
@@ -177,22 +142,23 @@ def _knowledge_map() -> dict:
         ("Core concept", "Applied concept", "Related concept")
     ):
         claim = {
-            "claim_id": "claim:sha256:" + str(index + 1) * 64,
             "text": f"Grounded claim {index + 1}",
             "evidence_ids": [evidence_id],
         }
+        claim = {
+            "claim_id": claim_id(page_ref, claim, index=0),
+            **claim,
+        }
+        source_concept_id = concept_id(page_ref, label, [claim])
         concept = {
             "formal_concept_id": "",
-            "group_id": f"group-{index}",
             "operation": "KEEP",
-            "source_concept_ids": [
-                "concept:sha256:" + str(index + 1) * 64
-            ],
+            "source_concept_ids": [source_concept_id],
             "label": label,
             "aliases": [],
             "claims": [claim],
             "source_members": [{
-                "source_concept_id": "concept:sha256:" + str(index + 1) * 64,
+                "source_concept_id": source_concept_id,
                 "label": label,
                 "claim_ids": [claim["claim_id"]],
                 "evidence_ids": [evidence_id],
@@ -205,7 +171,6 @@ def _knowledge_map() -> dict:
             "quality": "needs_review",
             "decision": "review",
             "reason_codes": ["FORMAL_CONCEPT_REVIEW_REQUIRED"],
-            "resolution_order": [index, 0],
             "supplementary_resources": [],
         }
         concept["formal_concept_id"] = _formal_id(concept)
@@ -231,18 +196,13 @@ def _knowledge_map() -> dict:
     promoted_resource["promotion_id"] = (
         "resource-promotion:sha256:" + canonical_sha256(promoted_resource)
     )
+    concepts.sort(key=lambda concept: concept["formal_concept_id"])
     concepts[0]["supplementary_resources"] = [promoted_resource]
-
-    related_source, related_target = sorted(
-        concepts[1:], key=lambda concept: concept["formal_concept_id"]
+    document_tree, initial_learning_path = _tree_and_path(
+        concepts, "material:sha256:" + "1" * 64
     )
-    relations = [
-        _relation("prerequisite", concepts[0], concepts[1]),
-        _relation("contains", concepts[0], concepts[2]),
-        _relation("related", related_source, related_target),
-    ]
     knowledge_map = {
-        "schema": "knowledge-map/v9",
+        "schema": "knowledge-map/v10",
         "source_output_id": "study-material-output:sha256:" + "1" * 64,
         "source_binding": {
             "study_material_output_id": "study-material-output:sha256:" + "1" * 64,
@@ -272,42 +232,28 @@ def _knowledge_map() -> dict:
             "coverage_before": 3,
             "coverage_after": 3,
         },
-        "relations": relations,
-        "relation_diagnostics": {
-            "possible_pairs": 3,
-            "candidate_pairs": 3,
-            "selected_pairs": 3,
-            "selected_signal_counts": {},
-            "model_calls": 1,
-            "model_no_relation_pairs": 0,
-            "model_review_pairs": 0,
-            "unexpected_pairs": 0,
-            "canonical_rejections": 0,
-            "verifier_calls": 1,
-            "verifier_accepted": 1,
-            "verifier_rejected": 0,
-            "verifier_unsupported": 0,
-            "model_contains_pairs": 1,
-            "model_prerequisite_pairs": 1,
-            "model_related_pairs": 1,
-            "invalid_pairs": 0,
-            "verifier_failures": 0,
-            "accepted_relations": 3,
+        "document_tree": document_tree,
+        "initial_learning_path": initial_learning_path,
+        "supplementary_resources": {
+            "processing": "succeeded",
+            "quality": "needs_review",
+            "decision": "review",
+            "reason_codes": [],
+            "binding": {
+                "context_revision": "map-resource-context:sha256:" + "1" * 64,
+                "library_revision": "resource-library:sha256:" + "1" * 64,
+                "matching_policy": MATCHING_POLICY,
+                "promotion_policy": PROMOTION_POLICY,
+            },
+            "diagnostics": {
+                "matches": 1,
+                "promoted_matches": 1,
+                "promoted_resources": 1,
+                "dropped_matches": 0,
+                "split_review_matches": 0,
+            },
+            "decisions": [],
         },
-        "resource_binding": {
-            "context_revision": "map-resource-context:sha256:" + "1" * 64,
-            "library_revision": "resource-library:sha256:" + "1" * 64,
-            "matching_policy": MATCHING_POLICY,
-            "promotion_policy": PROMOTION_POLICY,
-        },
-        "resource_diagnostics": {
-            "matches": 1,
-            "promoted_matches": 1,
-            "promoted_resources": 1,
-            "dropped_matches": 0,
-            "split_review_matches": 0,
-        },
-        "resource_decisions": [],
         "evidence_index": [
             {
                 "evidence_id": evidence_id,
@@ -324,19 +270,8 @@ def _knowledge_map() -> dict:
         "processing": "succeeded",
         "quality": "needs_review",
         "decision": "review",
-        "reason_codes": [
-            "KNOWLEDGE_MAP_REVIEW_REQUIRED",
-            "RELATION_REVIEW_REQUIRED",
-        ],
+        "reason_codes": ["KNOWLEDGE_MAP_REVIEW_REQUIRED"],
     }
-    knowledge_map["flat_group_context"] = _flat_group_context(concepts)
-    (
-        knowledge_map["topology"],
-        knowledge_map["initial_learning_path"],
-        knowledge_map["topology_diagnostics"],
-    ) = _topology_and_learning_path(
-        concepts, relations, knowledge_map["flat_group_context"]
-    )
     knowledge_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(
         knowledge_map
     )
@@ -346,27 +281,19 @@ def _knowledge_map() -> dict:
 def _rejected_knowledge_map() -> dict:
     knowledge_map = _knowledge_map()
     knowledge_map["formal_concepts"] = []
-    knowledge_map["relations"] = []
     knowledge_map["concept_diagnostics"] = {
         key: 0 for key in knowledge_map["concept_diagnostics"]
     }
-    knowledge_map["relation_diagnostics"] = {
-        key: {} if key == "selected_signal_counts" else 0
-        for key in knowledge_map["relation_diagnostics"]
+    knowledge_map["supplementary_resources"]["diagnostics"] = {
+        key: 0
+        for key in knowledge_map["supplementary_resources"]["diagnostics"]
     }
-    knowledge_map["resource_diagnostics"] = {
-        key: 0 for key in knowledge_map["resource_diagnostics"]
-    }
-    knowledge_map["topology"] = {"roots": [], "nodes": [], "flat_groups": []}
-    knowledge_map["flat_group_context"] = {
-        "concept_anchors": [],
-        "groups": [],
-    }
-    knowledge_map["topology_diagnostics"] = {
-        "component_count": 0,
-        "orphan_concept_count": 0,
-        "secondary_parent_count": 0,
-        "skipped_parent_before_child_count": 0,
+    knowledge_map["document_tree"] = {
+        "root": {
+            "material_ref": knowledge_map["material_ref"],
+            "section_ids": [],
+        },
+        "sections": [],
     }
     knowledge_map["initial_learning_path"] = []
     knowledge_map["processing"] = "partial"
@@ -439,7 +366,7 @@ def _insert_material_map(
     ]
     document_contexts = build_document_contexts(context_source_pages)
     study_material_output = {
-        "schema": "study-material-output/v7",
+        "schema": "study-material-output/v8",
         "run_id": f"text-first-run:{run_id}",
         "produced_at": "2026-08-26T00:00:00+00:00",
         "material_ref": knowledge_map["material_ref"],
@@ -457,7 +384,24 @@ def _insert_material_map(
         },
         "pages": pages,
         "excluded_pages": [],
-        "concepts": [],
+        "concepts": [
+            {
+                "concept_id": member["source_concept_id"],
+                "page_ref": member["page_ref"],
+                "label": member["label"],
+                "claims": [
+                    deepcopy(claim)
+                    for claim in formal_concept["claims"]
+                    if claim["claim_id"] in member["claim_ids"]
+                ],
+                "processing": "succeeded",
+                "quality": "needs_review",
+                "decision": "review",
+                "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
+            }
+            for formal_concept in knowledge_map["formal_concepts"]
+            for member in formal_concept["source_members"]
+        ],
         "evidence_index": evidence_index,
         "evidence_text_index": [
             {
@@ -479,6 +423,16 @@ def _insert_material_map(
             )
             for semantic_request, _ in [build_semantic_request(page, context)]
         ],
+        "semantic_page_outcomes": [
+            {
+                "page_ref": page["page_ref"],
+                "processing": "succeeded",
+                "quality": "needs_review",
+                "decision": "review",
+                "reason_codes": ["CONTENT_REVIEW_REQUIRED"],
+            }
+            for page in pages
+        ],
         "images": [],
         "processing": "succeeded",
         "quality": "needs_review",
@@ -496,6 +450,17 @@ def _insert_material_map(
     knowledge_map["revision"] = "knowledge-map:sha256:" + canonical_sha256(
         knowledge_map
     )
+    assert validate_study_material_output(study_material_output) is None
+    assert _formal_concepts_are_valid(
+        knowledge_map["formal_concepts"], study_material_output
+    )
+    assert _document_tree_and_learning_path(
+        study_material_output, knowledge_map["formal_concepts"]
+    ) == (
+        knowledge_map["document_tree"],
+        knowledge_map["initial_learning_path"],
+    )
+    assert validate_knowledge_map(knowledge_map, study_material_output) is None
     page_count = len(pages)
     material_runtime_binding_sha256 = knowledge_map["source_binding"][
         "material_runtime_binding_sha256"
@@ -638,31 +603,6 @@ def test_map_context_projects_only_validated_current_fields(
     ) == tuple(
         concept["formal_concept_id"] for concept in knowledge_map["formal_concepts"]
     )
-    assert tuple(
-        (
-            relation.relation_id,
-            relation.relation_type,
-            relation.source_formal_concept_id,
-            relation.target_formal_concept_id,
-        )
-        for relation in context.relations
-    ) == tuple(
-        (
-            relation["relation_id"],
-            relation["type"],
-            relation["source_formal_concept_id"],
-            relation["target_formal_concept_id"],
-        )
-        for relation in knowledge_map["relations"]
-    )
-    assert {relation.relation_type for relation in context.relations} == {
-        "prerequisite",
-        "contains",
-        "related",
-    }
-    assert [relation.is_in_prerequisite_cycle for relation in context.relations] == [
-        relation["is_in_prerequisite_cycle"] for relation in knowledge_map["relations"]
-    ]
     evidence = context.formal_concepts[0].claims[0].evidence[0]
     assert (evidence.page_ref, evidence.page_number, evidence.bbox) == (
         knowledge_map["evidence_index"][0]["page_ref"],
@@ -670,7 +610,11 @@ def test_map_context_projects_only_validated_current_fields(
         tuple(knowledge_map["evidence_index"][0]["region"]["bbox"]),
     )
     assert evidence.text == "Canonical Evidence 1"
-    promoted = context.formal_concepts[0].supplementary_resources[0]
+    promoted = next(
+        resource
+        for concept in context.formal_concepts
+        for resource in concept.supplementary_resources
+    )
     assert promoted.promotion_id.startswith("resource-promotion:sha256:")
     assert promoted.resource_id.startswith("resource:sha256:")
     assert not hasattr(promoted, "match_ids")
@@ -679,7 +623,6 @@ def test_map_context_projects_only_validated_current_fields(
         "material_id",
         "knowledge_map_revision",
         "formal_concepts",
-        "relations",
         "initial_learning_path",
     }
 
@@ -722,7 +665,7 @@ def test_map_context_rejects_canonical_evidence_text_tamper(
         )
 
 
-def test_map_context_rejects_rehashed_group_source_order_tamper(
+def test_map_context_rejects_rehashed_section_source_order_tamper(
     study_database_dsn: str,
 ):
     owner = uuid4()
@@ -731,10 +674,7 @@ def test_map_context_rejects_rehashed_group_source_order_tamper(
         study_database_dsn, owner, knowledge_map
     )
     forged = deepcopy(knowledge_map)
-    forged["flat_group_context"]["groups"][0]["source_order"][
-        "reading_order"
-    ] += 23
-    forged["topology"]["flat_groups"][0]["source_order"][
+    forged["document_tree"]["sections"][0]["source_order"][
         "reading_order"
     ] += 23
     forged.pop("revision")

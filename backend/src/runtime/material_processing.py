@@ -14,7 +14,6 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, update
 
-from knowledge_map.relations import MAX_RELATION_PAIRS
 from pdf_evidence.concept_api import (
     CONCEPT_SERVER_READY_TIMEOUT_SECONDS,
     ConceptAPIError,
@@ -44,7 +43,7 @@ _CONFIG_KEYS = {
     "site_packages",
     "concept_site_packages",
     "ocr_model_root",
-    "relation_model_root",
+    "verifier_model_root",
     "concept_api_base_url",
     "concept_model",
     "concept_server_executable",
@@ -59,21 +58,20 @@ _CONFIG_PATH_KEYS = {
     "site_packages",
     "concept_site_packages",
     "ocr_model_root",
-    "relation_model_root",
+    "verifier_model_root",
     "concept_server_executable",
     "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "c9045788c221a90523058e19fcd225e745d91b5bab35198da6182c2babfe015a",
+    "local_ai/runtime-lock.json": "5ee88128b598deb53c28a50b67940162763b391be3767e63b2711916eb281c5e",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "13716c4f0e1429802f2fa0e28c4e87743c678adb5ad61a32c12cb6309fd55a6a",
-    "backend/src/pdf_evidence/concept_generation.py": "390cecca7cb143c2a939acb9beffab0920482c556614f06ba25ec40b454a4835",
+    "backend/src/pdf_evidence/concept_generation.py": "1d25b9ddb6e1b2e3f6a8f43d129a48443503457a425765db59deb3b1ad8f5c05",
     "backend/src/pdf_evidence/document_context.py": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
-    "backend/src/pdf_evidence/concept_api.py": "b1a4f67457e8b8d1d9c4b15ff18c69c9a94be8f5d405dff329ab3eff80c292e5",
-    "backend/src/pdf_evidence/study_material_output.py": "967271f356c5da7c2e1ab87b7086f629787838ea7437e236749bb1a4b8651a49",
+    "backend/src/pdf_evidence/concept_api.py": "277aa9baf9638899df2d5e003011320ba8674557c90489d12bdd16f424435bad",
+    "backend/src/pdf_evidence/study_material_output.py": "88efd57be086464d6fae7c127b81add392088d20b7c05548862f046d73693419",
     "backend/src/pdf_evidence/process_guard.py": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
-    "backend/src/pdf_evidence/local_ai_process.py": "3cc563a14f6e82421d402cf5fa37bfc9f236c71d93e46e514357d69167b05539",
-    "backend/src/knowledge_map/relations.py": "dd63ed988ee16c530bd4b283707e6101665101289f2b84ccaa3e459fe90a41e5",
-    "backend/src/knowledge_map/local_generation.py": "0f1f05a5a376327e252aced21a069d93474bc18cd7d3e5eca4751c978a1cd969",
+    "backend/src/pdf_evidence/local_ai_process.py": "c1457e3f1e7bb8fb8c0aabf3d53071011f7bacded99a296a873542a36efd6e53",
+    "backend/src/knowledge_map/local_generation.py": "dfb88f6a0cd3df2e1fdd4da0d7bf492003d70d56e7c9526a978820375c4b342e",
 }
 _BINDING_FILES = (
     "backend/src/pdf_evidence/artifact_reason_codes.py",
@@ -85,7 +83,6 @@ _BINDING_FILES = (
     "backend/src/pdf_evidence/study_material_output.py",
     "backend/src/knowledge_map/artifacts.py",
     "backend/src/knowledge_map/formal_concepts.py",
-    "backend/src/knowledge_map/relations.py",
     "backend/src/knowledge_map/local_generation.py",
     "backend/src/learning_resources/map_resources.py",
     "backend/src/learning_resources/data/resource_library_v1.json",
@@ -109,7 +106,7 @@ _RUNTIME_COMPONENTS = {
     "python_runtime",
     "ocr_package",
     "ocr_model",
-    "relation_model",
+    "verifier_model",
     "concept_runtime",
     "concept_model",
     "product_code",
@@ -302,10 +299,10 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
     ocr_model_root = _absolute_runtime_path(
         local_config["ocr_model_root"], is_directory=True, component="ocr_model"
     )
-    relation_model_root = _absolute_runtime_path(
-        local_config["relation_model_root"],
+    verifier_model_root = _absolute_runtime_path(
+        local_config["verifier_model_root"],
         is_directory=True,
-        component="relation_model",
+        component="verifier_model",
     )
     concept_server_executable = _absolute_runtime_path(
         local_config["concept_server_executable"],
@@ -387,15 +384,15 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
                 required_file.get("size"),
             )
         )
-    for required_file in runtime_lock["relation_verifier"]["required_files"]:
+    for required_file in runtime_lock["verifier_model"]["required_files"]:
         name = required_file["name"]
         if Path(name).name != name:
             raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")
         files.append(
             _RuntimeFile(
-                relation_model_root / name,
+                verifier_model_root / name,
                 required_file["sha256"],
-                "relation_model",
+                "verifier_model",
                 required_file.get("size"),
             )
         )
@@ -529,7 +526,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         "site_packages": root / "ocr/runtime/lib/python3.12/site-packages",
         "concept_site_packages": root / "vllm/lib/python3.12/site-packages",
         "ocr_model_root": root / "models/unlimited-ocr",
-        "relation_model_root": root / "models/mdeberta-v3-base-mnli-xnli",
+        "verifier_model_root": root / "models/mdeberta-v3-base-mnli-xnli",
         "concept_server_executable": root / "vllm/bin/vllm",
         "concept_model_root": root / "models/qwen3-14b-awq",
     }
@@ -612,22 +609,16 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         "call_ceilings": {
             "ocr_calls_per_page": 1,
             "ocr_initial_loads": 1,
-            "concept_initial_loads": 3,
-            "relation_model_batches_per_material": 8,
+            "concept_initial_loads": 2,
             "concept_equivalence_initial_loads": 1,
             "concept_equivalence_pairs_per_material": 16,
             "concept_equivalence_directions_per_material": 32,
-            "relation_verifier_initial_loads": 1,
-            "relation_verifier_calls_per_material": MAX_RELATION_PAIRS,
         },
         "timeouts_seconds": {
             "resident_lock": 5,
             "ocr_page": 120,
             "concept_attempt": 300,
             "concept_server_ready": CONCEPT_SERVER_READY_TIMEOUT_SECONDS,
-            "relation_verifier": local_config["runtime_lock"][
-                "relation_verifier"
-            ]["timeout_seconds"],
             "concept_equivalence": local_config["runtime_lock"][
                 "concept_equivalence"
             ]["timeout_seconds"],
@@ -651,15 +642,15 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
             "structured_output": deepcopy(semantic_lock["structured_output"]),
             "input_token_budget": deepcopy(semantic_lock["input_token_budget"]),
         },
-        "relation_verifier": deepcopy(
-            local_config["runtime_lock"]["relation_verifier"]
+        "verifier_model": deepcopy(
+            local_config["runtime_lock"]["verifier_model"]
         ),
         "concept_equivalence": deepcopy(
             local_config["runtime_lock"]["concept_equivalence"]
         ),
         "residency_policy": (
             "ocr-child-then-owned-loopback-concept-server-"
-            "then-concept-equivalence-then-relation-model-then-relation-verifier/v6"
+            "then-concept-equivalence/v7"
         ),
         "network_policy": "loopback-concept-api-no-credentials/v1",
         "retention_policy": {
