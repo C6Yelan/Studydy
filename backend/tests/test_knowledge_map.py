@@ -10,6 +10,7 @@ from knowledge_map.formal_concepts import (
     build_deduplication_request,
     canonicalize_concepts,
 )
+from knowledge_map.prerequisites import build_prerequisite_constraints
 from pdf_evidence.concept_generation import claim_id, concept_id
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.study_material_output import build_study_material_output
@@ -75,11 +76,12 @@ def _resolution(study, decision="UNCERTAIN", failure_reason=None):
     )
 
 
-def _map(study, resolution):
+def _map(study, resolution, prerequisite_constraints=None):
     return build_knowledge_map(
         study,
         [resolution],
         material_runtime_binding_sha256="a" * 64,
+        prerequisite_constraints=prerequisite_constraints,
     )
 
 
@@ -139,9 +141,92 @@ def test_path_order_is_independent_of_display_connectors():
     study = _study_with_two_concepts()
     knowledge_map = _map(study, _resolution(study))
     assert all(set(step["order_basis"]) == {
-        "section_id", "page_ref", "page_number", "reading_order", "evidence_id"
+        "prerequisite_constraint_ids", "section_id", "page_ref", "page_number",
+        "reading_order", "evidence_id"
     } for step in knowledge_map["initial_learning_path"])
     assert all("parent" not in str(step) for step in knowledge_map["initial_learning_path"])
+
+
+def test_only_positive_constraint_can_change_baseline_path():
+    study = _study_with_two_concepts()
+    resolution = _resolution(study)
+    concepts = sorted(
+        resolution["formal_concepts"],
+        key=lambda concept: concept["formal_concept_id"],
+    )
+    baseline = _map(study, resolution)
+    source, target = concepts[1], concepts[0]
+    claim = source["claims"][0]
+    proposal = {
+        "proposal_id": "reverse-baseline",
+        "source_formal_concept_id": source["formal_concept_id"],
+        "target_formal_concept_id": target["formal_concept_id"],
+        "evidence_bindings": [{
+            "owner_formal_concept_id": source["formal_concept_id"],
+            "claim_id": claim["claim_id"],
+            "evidence_ids": sorted(claim["evidence_ids"]),
+        }],
+    }
+    constraints, diagnostics = build_prerequisite_constraints(
+        [proposal],
+        resolution["formal_concepts"],
+        {"model_id": "local-nli", "revision": "fixed", "policy": "positive-only/v1"},
+        lambda _: True,
+    )
+    constrained = _map(study, resolution, constraints)
+    assert diagnostics["accepted"] == 1
+    assert [
+        step["formal_concept_id"] for step in constrained["initial_learning_path"]
+    ][:2] == [source["formal_concept_id"], target["formal_concept_id"]]
+    assert constrained["initial_learning_path"][1]["order_basis"][
+        "prerequisite_constraint_ids"
+    ] == [constraints[0]["prerequisite_constraint_id"]]
+
+    rejected, rejected_diagnostics = build_prerequisite_constraints(
+        [proposal],
+        resolution["formal_concepts"],
+        {"model_id": "local-nli", "revision": "fixed", "policy": "positive-only/v1"},
+        lambda _: False,
+    )
+    assert rejected == []
+    assert rejected_diagnostics["not_positive"] == 1
+    assert _map(study, resolution, rejected)["initial_learning_path"] == baseline[
+        "initial_learning_path"
+    ]
+
+
+def test_cycle_conflict_and_verifier_failure_publish_no_extra_constraint():
+    study = _study_with_two_concepts()
+    resolution = _resolution(study)
+    left, right = resolution["formal_concepts"]
+    def proposal(proposal_id, source, target):
+        claim = source["claims"][0]
+        return {
+            "proposal_id": proposal_id,
+            "source_formal_concept_id": source["formal_concept_id"],
+            "target_formal_concept_id": target["formal_concept_id"],
+            "evidence_bindings": [{
+                "owner_formal_concept_id": source["formal_concept_id"],
+                "claim_id": claim["claim_id"],
+                "evidence_ids": sorted(claim["evidence_ids"]),
+            }],
+        }
+    constraints, diagnostics = build_prerequisite_constraints(
+        [proposal("a", left, right), proposal("b", right, left)],
+        resolution["formal_concepts"],
+        {"model_id": "local-nli", "revision": "fixed", "policy": "positive-only/v1"},
+        lambda _: True,
+    )
+    assert len(constraints) == 1
+    assert diagnostics["cycle_or_conflict"] == 1
+    failed, failed_diagnostics = build_prerequisite_constraints(
+        [proposal("timeout", left, right)],
+        resolution["formal_concepts"],
+        {"model_id": "local-nli", "revision": "fixed", "policy": "positive-only/v1"},
+        lambda _: (_ for _ in ()).throw(TimeoutError()),
+    )
+    assert failed == []
+    assert failed_diagnostics["not_positive"] == 1
 
 
 def test_missing_resources_yields_partial_sidecar_without_blocking_core():

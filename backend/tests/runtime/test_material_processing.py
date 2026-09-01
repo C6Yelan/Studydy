@@ -886,7 +886,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert binding["concept_equivalence"] == settings["runtime_lock"][
         "concept_equivalence"
     ]
-    assert len(binding["code_hashes"]) == 17
+    assert len(binding["code_hashes"]) == 18
     assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
     assert "backend/src/pdf_evidence/process_guard.py" in binding["code_hashes"]
     repository_root = Path(__file__).parents[3]

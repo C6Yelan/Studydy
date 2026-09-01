@@ -204,6 +204,7 @@ export type KnowledgeMapView = {
     formal_concept_id: string;
     placement_reason: string;
     order_basis: {
+      prerequisite_constraint_ids: string[];
       section_id: string;
       page_ref: string;
       page_number: number;
@@ -348,6 +349,18 @@ export type WeaknessFindingView = {
   reason: string;
 };
 
+export type PrerequisiteGapView = {
+  category: "possible_prerequisite_gap";
+  target_formal_concept_id: string;
+  prerequisite_formal_concept_id: string;
+  prerequisite_label: string;
+  prerequisite_constraint_id: string;
+  prerequisite_status: LearningStatus;
+  prerequisite_confidence: LearningConfidence;
+  remediation_intent: "relearn_prerequisite";
+  reason: string;
+};
+
 export type WeaknessView = {
   schema: "weakness/v1";
   study_session_id: string;
@@ -357,6 +370,7 @@ export type WeaknessView = {
   current_formal_concept_id: string | null;
   weakness_revision: string;
   findings: WeaknessFindingView[];
+  immediate_prerequisite_gaps: PrerequisiteGapView[];
 };
 
 export type AdaptiveAction =
@@ -364,6 +378,7 @@ export type AdaptiveAction =
   | "continue"
   | "practice"
   | "review"
+  | "relearn_prerequisite"
   | "use_resource"
   | "follow_path"
   | "collect_more_data"

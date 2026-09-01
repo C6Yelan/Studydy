@@ -83,6 +83,7 @@ _BINDING_FILES = (
     "backend/src/pdf_evidence/study_material_output.py",
     "backend/src/knowledge_map/artifacts.py",
     "backend/src/knowledge_map/formal_concepts.py",
+    "backend/src/knowledge_map/prerequisites.py",
     "backend/src/knowledge_map/local_generation.py",
     "backend/src/learning_resources/map_resources.py",
     "backend/src/learning_resources/data/resource_library_v1.json",

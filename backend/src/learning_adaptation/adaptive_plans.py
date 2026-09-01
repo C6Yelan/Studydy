@@ -44,6 +44,7 @@ AdaptiveAction = Literal[
     "continue",
     "practice",
     "review",
+    "relearn_prerequisite",
     "use_resource",
     "follow_path",
     "collect_more_data",
@@ -105,6 +106,7 @@ class AdaptivePlanSnapshot(BaseModel):
     no_safe_deferred_formal_concept_ids: list[str]
     primary_step: AdaptiveStep
     fallback_reason: Literal[
+        "UNMASTERED_VERIFIED_PREREQUISITE",
         "CURRENT_OBSERVED_WEAKNESS",
         "CURRENT_NEEDS_REVIEW",
         "RETURN_DEFERRED_TARGET",
@@ -232,6 +234,33 @@ def _choose_primary_step(
         state.formal_concept_id: state
         for state in learning_state.concept_states
     }
+    path_order = {
+        concept_id: index
+        for index, concept_id in enumerate(context.initial_learning_path)
+    }
+    if weakness.immediate_prerequisite_gaps:
+        gap = min(
+            weakness.immediate_prerequisite_gaps,
+            key=lambda item: (
+                path_order.get(item.prerequisite_formal_concept_id, 10**9),
+                item.prerequisite_formal_concept_id,
+            ),
+        )
+        prerequisite = concepts[gap.prerequisite_formal_concept_id]
+        prerequisite_state = states[prerequisite.formal_concept_id]
+        return (
+            _step(
+                study_session.study_session_id,
+                "relearn_prerequisite",
+                prerequisite,
+                "先補強已正向驗證且尚未掌握的先備概念，再回到目前目標。",
+                prerequisite_state.confidence,
+                prerequisite_state.claim_coverage_complete,
+                [prerequisite.formal_concept_id],
+                include_resource=True,
+            ),
+            "UNMASTERED_VERIFIED_PREREQUISITE",
+        )
     current_id = study_session.current_formal_concept_id
     no_safe_claim_ids = set(study_session.no_safe_claim_ids)
     no_safe_concept_ids = {
@@ -689,7 +718,13 @@ def apply_adaptive_plan(
             if plan.adaptive_plan_revision != adaptive_plan_revision:
                 raise _error("ADAPTIVE_PLAN_STALE")
             target_id = plan.primary_step.target_formal_concept_id
-            if plan.primary_step.action == "defer":
+            if plan.primary_step.action == "relearn_prerequisite":
+                if study_session.deferred_formal_concept_id is None:
+                    study_session.deferred_formal_concept_id = (
+                        plan.current_formal_concept_id
+                    )
+                study_session.current_formal_concept_id = target_id
+            elif plan.primary_step.action == "defer":
                 if target_id is None or plan.current_formal_concept_id is None:
                     raise _error("ADAPTIVE_PLAN_UNAVAILABLE")
                 deferred_ids = list(
@@ -793,6 +828,7 @@ def project_suggestion(plan: AdaptivePlanSnapshot) -> Suggestion:
         "collect_more_data",
         "practice",
         "review",
+        "relearn_prerequisite",
         "defer",
     }:
         fallback_action = "collect_more_data"

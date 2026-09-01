@@ -135,6 +135,7 @@ export function mapView(): KnowledgeMapView {
         formal_concept_id: prerequisiteConceptId,
         placement_reason: "依教材第 1 頁的首次 Claim Evidence 安排。",
         order_basis: {
+          prerequisite_constraint_ids: [],
           section_id: revision("document-section", "1"),
           page_ref: prerequisite.claims[0].evidence[0].page_ref,
           page_number: 1,
@@ -147,6 +148,7 @@ export function mapView(): KnowledgeMapView {
         formal_concept_id: targetConceptId,
         placement_reason: "依教材第 2 頁的首次 Claim Evidence 安排。",
         order_basis: {
+          prerequisite_constraint_ids: [],
           section_id: revision("document-section", "2"),
           page_ref: target.claims[0].evidence[0].page_ref,
           page_number: 2,
@@ -354,6 +356,7 @@ export function weaknessView(options: {
     current_formal_concept_id: options.currentConceptId === undefined ? targetConceptId : options.currentConceptId,
     weakness_revision: revision("weakness", "a"),
     findings,
+    immediate_prerequisite_gaps: [],
   };
 }
 

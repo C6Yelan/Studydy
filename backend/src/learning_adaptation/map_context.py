@@ -65,11 +65,19 @@ class FormalConceptContext:
 
 
 @dataclass(frozen=True)
+class PrerequisiteConstraintContext:
+    prerequisite_constraint_id: str
+    source_formal_concept_id: str
+    target_formal_concept_id: str
+
+
+@dataclass(frozen=True)
 class MapContext:
     learner_id: UUID
     material_id: UUID
     knowledge_map_revision: str
     formal_concepts: tuple[FormalConceptContext, ...]
+    prerequisite_constraints: tuple[PrerequisiteConstraintContext, ...]
     initial_learning_path: tuple[str, ...]
 
 
@@ -171,6 +179,20 @@ def _build_context(
         material_id=material_id,
         knowledge_map_revision=knowledge_map_revision,
         formal_concepts=formal_concepts,
+        prerequisite_constraints=tuple(
+            PrerequisiteConstraintContext(
+                prerequisite_constraint_id=constraint[
+                    "prerequisite_constraint_id"
+                ],
+                source_formal_concept_id=constraint[
+                    "source_formal_concept_id"
+                ],
+                target_formal_concept_id=constraint[
+                    "target_formal_concept_id"
+                ],
+            )
+            for constraint in knowledge_map["prerequisite_constraints"]
+        ),
         initial_learning_path=tuple(
             step["formal_concept_id"]
             for step in knowledge_map["initial_learning_path"]

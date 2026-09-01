@@ -64,7 +64,8 @@
       "claim_coverage_complete": true,
       "remediation_intent": "practice",
       "reason": "多次可信作答錯誤顯示這個概念目前是明確弱點。"
-    }]
+    }],
+    "immediate_prerequisite_gaps": []
   },
   "review_needed": {
     "schema": "adaptive-response/v1",

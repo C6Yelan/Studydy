@@ -169,6 +169,7 @@ function mapView() {
       formal_concept_id: `formal-concept:sha256:${"7".repeat(64)}`,
       placement_reason: "依教材第 40 頁的首次 Claim Evidence 安排。",
       order_basis: {
+        prerequisite_constraint_ids: [],
         section_id: `document-section:sha256:${"1".repeat(64)}`,
         page_ref: pageRef,
         page_number: 40,
