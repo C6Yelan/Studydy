@@ -4,25 +4,8 @@ from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.exc import SQLAlchemyError
-
-from pdf_evidence.ocr_page_evidence import canonical_sha256
-from runtime.learner_session import TrustedLearner
-from runtime.storage.database import DatabaseConfigurationError
-from runtime.storage.tables import database_session
-
-from .answer_events import (
-    AnswerSubmissionError,
-    StoredAnswerEvent,
-    _read_session_answer_events,
-)
-from .map_context import FormalConceptContext, MapContext, MapContextError
-from .study_sessions import (
-    StudySessionError,
-    _learner_id,
-    _read_stored_row,
-    _validate_binding,
-)
+from .answer_events import StoredAnswerEvent
+from .map_context import FormalConceptContext, MapContext
 
 
 class LearningStateError(RuntimeError):
@@ -63,22 +46,6 @@ class ConceptLearningState(BaseModel):
         "MASTERY_DEMONSTRATED",
     ]
     explanation: str = Field(min_length=1)
-
-
-class LearningStateSnapshot(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    schema_: Literal["learning-state/v1"] = Field(alias="schema")
-    study_session_id: UUID
-    base_knowledge_map_revision: str = Field(
-        pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
-    )
-    state_revision: str = Field(
-        pattern=r"^learning-state:sha256:[0-9a-f]{64}$"
-    )
-    event_watermark: int = Field(ge=0)
-    all_mastered: bool
-    concept_states: list[ConceptLearningState] = Field(min_length=1)
 
 
 def _error(reason: str) -> LearningStateError:
@@ -240,73 +207,12 @@ def _concept_state(
     )
 
 
-def _learning_state_snapshot(
-    study_session_id: UUID,
-    knowledge_map_revision: str,
-    event_watermark: int,
+def _concept_states(
     context: MapContext,
     events: tuple[StoredAnswerEvent, ...],
-) -> LearningStateSnapshot:
-    concept_states = [
+) -> list[ConceptLearningState]:
+    """依 Map 順序從同一批可信事件直接推導 Concept states。"""
+
+    return [
         _concept_state(concept, events) for concept in context.formal_concepts
     ]
-    identity = {
-        "schema": "learning-state/v1",
-        "study_session_id": str(study_session_id),
-        "base_knowledge_map_revision": knowledge_map_revision,
-        "event_watermark": event_watermark,
-        "all_mastered": all(
-            state.status == "mastered" for state in concept_states
-        ),
-        "concept_states": [
-            state.model_dump(mode="json") for state in concept_states
-        ],
-    }
-    return LearningStateSnapshot.model_validate(
-        {
-            "schema": identity["schema"],
-            "study_session_id": study_session_id,
-            "base_knowledge_map_revision": identity[
-                "base_knowledge_map_revision"
-            ],
-            "event_watermark": identity["event_watermark"],
-            "all_mastered": identity["all_mastered"],
-            "concept_states": concept_states,
-            "state_revision": (
-                "learning-state:sha256:" + canonical_sha256(identity)
-            ),
-        }
-    )
-
-
-def derive_learning_state(
-    learner: TrustedLearner,
-    study_session_id: UUID,
-    *,
-    dsn: str | None = None,
-) -> LearningStateSnapshot:
-    """只由同一 StudySession 的可信 AnswerEvent 推導固定 state snapshot。"""
-
-    if not isinstance(study_session_id, UUID):
-        raise _error("LEARNING_STATE_REQUEST_INVALID")
-    try:
-        learner_id = _learner_id(learner)
-        with database_session(dsn) as session:
-            study_session = _read_stored_row(
-                session, learner_id, study_session_id, for_update=True
-            )
-            context = _validate_binding(session, study_session)
-            events = _read_session_answer_events(session, study_session)
-            return _learning_state_snapshot(
-                study_session_id,
-                study_session.knowledge_map_revision,
-                study_session.last_event_number,
-                context,
-                events,
-            )
-    except LearningStateError:
-        raise
-    except (StudySessionError, AnswerSubmissionError, MapContextError):
-        raise _error("LEARNING_STATE_UNAVAILABLE") from None
-    except (DatabaseConfigurationError, SQLAlchemyError, TypeError, ValueError):
-        raise _error("LEARNING_STATE_STORAGE_FAILED") from None

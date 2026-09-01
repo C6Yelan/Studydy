@@ -1,23 +1,20 @@
 import type {
   AnswerFeedbackView,
   AnswerSubmissionCreate,
-  AdaptivePlanApply,
-  AdaptiveResponseView,
+  GuidanceApply,
   ApiErrorView,
   ApiReasonCode,
   AssessmentCreate,
   AssessmentView,
   KnowledgeMapRequest,
   KnowledgeMapView,
-  LearningStateView,
+  LearnerProgressView,
   KnownApiReasonCode,
   MaterialProcessingCreate,
   MaterialProcessingRunView,
   MaterialView,
-  StudyContextView,
   StudySessionCreate,
   StudySessionView,
-  WeaknessView,
 } from "./contracts";
 
 type FetchRequest = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -416,7 +413,7 @@ function isDateTime(value: unknown): value is string {
 function isStudySession(value: unknown): value is StudySessionView {
   const item = closed(value, [
     "schema", "study_session_id", "material_id", "knowledge_map_revision",
-    "current_formal_concept_id", "deferred_formal_concept_id",
+    "current_formal_concept_id",
     "no_safe_deferred_formal_concept_ids", "status",
     "started_at", "completed_at", "event_watermark",
   ]);
@@ -426,8 +423,6 @@ function isStudySession(value: unknown): value is StudySessionView {
     || !isUuid(item.material_id)
     || !isRevision(item.knowledge_map_revision, "knowledge-map")
     || !(item.current_formal_concept_id === null || isRevision(item.current_formal_concept_id, "formal-concept"))
-    || !(item.deferred_formal_concept_id === null || isRevision(item.deferred_formal_concept_id, "formal-concept"))
-    || (item.deferred_formal_concept_id !== null && item.deferred_formal_concept_id === item.current_formal_concept_id)
     || !isStringArray(item.no_safe_deferred_formal_concept_ids)
     || !(item.no_safe_deferred_formal_concept_ids as string[])
       .every((id) => isRevision(id, "formal-concept"))
@@ -438,49 +433,6 @@ function isStudySession(value: unknown): value is StudySessionView {
     || Number(item.event_watermark) < 0) return false;
   if (item.status === "active" || item.status === "no_safe") return item.completed_at === null;
   return item.status === "completed" && isDateTime(item.completed_at);
-}
-
-function isStudyContext(value: unknown): value is StudyContextView {
-  const item = closed(value, [
-    "schema", "study_session_id", "base_knowledge_map_revision",
-    "current_formal_concept_id", "deferred_formal_concept_id",
-    "no_safe_deferred_formal_concept_ids", "initial_learning_path",
-  ]);
-  if (!item
-    || item.schema !== "study-context/v1"
-    || !isUuid(item.study_session_id)
-    || !isRevision(item.base_knowledge_map_revision, "knowledge-map")
-    || !(item.current_formal_concept_id === null || isRevision(item.current_formal_concept_id, "formal-concept"))
-    || !(item.deferred_formal_concept_id === null || isRevision(item.deferred_formal_concept_id, "formal-concept"))
-    || (item.deferred_formal_concept_id !== null && item.deferred_formal_concept_id === item.current_formal_concept_id)
-    || !isStringArray(item.no_safe_deferred_formal_concept_ids)
-    || !(item.no_safe_deferred_formal_concept_ids as string[])
-      .every((id) => isRevision(id, "formal-concept"))
-    || !Array.isArray(item.initial_learning_path)
-    || item.initial_learning_path.length < 1) return false;
-  const concepts = item.initial_learning_path.map((value) => {
-    const concept = closed(value, [
-      "formal_concept_id", "label", "claim_ids", "supplementary_resource_promotion_ids",
-    ]);
-    if (!concept
-      || !isRevision(concept.formal_concept_id, "formal-concept")
-      || typeof concept.label !== "string"
-      || concept.label.length < 1
-      || !isStringArray(concept.claim_ids, 1)
-      || !(concept.claim_ids as string[]).every((id) => isRevision(id, "claim"))
-      || new Set(concept.claim_ids as string[]).size !== (concept.claim_ids as string[]).length
-      || !isStringArray(concept.supplementary_resource_promotion_ids)
-      || !(concept.supplementary_resource_promotion_ids as string[])
-        .every((id) => isRevision(id, "resource-promotion"))) return null;
-    return concept.formal_concept_id as string;
-  });
-  if (concepts.includes(null) || new Set(concepts).size !== concepts.length) return false;
-  return (item.current_formal_concept_id === null || concepts.includes(item.current_formal_concept_id))
-    && (item.deferred_formal_concept_id === null || concepts.includes(item.deferred_formal_concept_id))
-    && new Set(item.no_safe_deferred_formal_concept_ids as string[]).size
-      === (item.no_safe_deferred_formal_concept_ids as string[]).length
-    && (item.no_safe_deferred_formal_concept_ids as string[])
-      .every((id) => concepts.includes(id));
 }
 
 function isAssessment(value: unknown): value is AssessmentView {
@@ -543,195 +495,121 @@ function isAnswerFeedback(value: unknown): value is AnswerFeedbackView {
 
 const learningStatuses = new Set(["not_started", "learning", "needs_review", "mastered"]);
 const learningConfidences = new Set(["none", "limited", "supported"]);
-const adaptiveActions = new Set([
+const guidanceActions = new Set([
   "start", "continue", "practice", "review",
   "use_resource", "follow_path", "collect_more_data", "defer", "resume", "no_action",
 ]);
 
-function isLearningState(value: unknown): value is LearningStateView {
-  const item = closed(value, [
-    "schema", "study_session_id", "base_knowledge_map_revision", "state_revision",
-    "event_watermark", "all_mastered", "concept_states",
+function readConceptState(value: unknown): JsonObject | null {
+  const state = closed(value, [
+    "formal_concept_id", "status", "mastery_band", "confidence", "needs_more_data",
+    "required_claim_ids", "attempted_claim_ids", "latest_correct_claim_ids",
+    "claim_coverage_complete", "required_evidence_ids", "observed_evidence_ids",
+    "evidence_coverage_complete", "valid_attempts", "correct_attempts",
+    "qualified_distinct_correct_items", "recent_result", "repeated_error",
+    "post_error_improvement", "explanation",
   ]);
-  if (!item
-    || item.schema !== "learning-state/v1"
-    || !isUuid(item.study_session_id)
-    || !isRevision(item.base_knowledge_map_revision, "knowledge-map")
-    || !isRevision(item.state_revision, "learning-state")
-    || !Number.isInteger(item.event_watermark)
-    || Number(item.event_watermark) < 0
-    || typeof item.all_mastered !== "boolean"
-    || !Array.isArray(item.concept_states)
-    || item.concept_states.length < 1) return false;
-  const conceptIds = item.concept_states.map((value) => {
-    const state = closed(value, [
-      "formal_concept_id", "status", "mastery_band", "confidence", "needs_more_data",
-      "required_claim_ids", "attempted_claim_ids", "latest_correct_claim_ids",
-      "claim_coverage_complete", "required_evidence_ids", "observed_evidence_ids",
-      "evidence_coverage_complete", "valid_attempts", "correct_attempts",
-      "distinct_item_attempts", "recent_result", "repeated_error",
-      "post_error_improvement", "explanation",
-    ]);
-    if (!state
-      || !isRevision(state.formal_concept_id, "formal-concept")
-      || !learningStatuses.has(String(state.status))
-      || !["no_evidence", "developing", "demonstrated"].includes(String(state.mastery_band))
-      || !learningConfidences.has(String(state.confidence))
-      || typeof state.needs_more_data !== "boolean"
-      || !isStringArray(state.required_claim_ids)
-      || !(state.required_claim_ids as string[]).every((id) => isRevision(id, "claim"))
-      || !isStringArray(state.attempted_claim_ids)
-      || !(state.attempted_claim_ids as string[]).every((id) => isRevision(id, "claim"))
-      || !isStringArray(state.latest_correct_claim_ids)
-      || !(state.latest_correct_claim_ids as string[]).every((id) => isRevision(id, "claim"))
-      || typeof state.claim_coverage_complete !== "boolean"
-      || !isStringArray(state.required_evidence_ids)
-      || !(state.required_evidence_ids as string[]).every((id) => isRevision(id, "evidence"))
-      || !isStringArray(state.observed_evidence_ids)
-      || !(state.observed_evidence_ids as string[]).every((id) => isRevision(id, "evidence"))
-      || typeof state.evidence_coverage_complete !== "boolean"
-      || !Number.isInteger(state.valid_attempts)
-      || Number(state.valid_attempts) < 0
-      || !Number.isInteger(state.correct_attempts)
-      || Number(state.correct_attempts) < 0
-      || Number(state.correct_attempts) > Number(state.valid_attempts)
-      || !Number.isInteger(state.distinct_item_attempts)
-      || Number(state.distinct_item_attempts) < 0
-      || Number(state.distinct_item_attempts) > Number(state.valid_attempts)
-      || !(state.recent_result === null || state.recent_result === "correct" || state.recent_result === "incorrect")
-      || typeof state.repeated_error !== "boolean"
-      || typeof state.post_error_improvement !== "boolean"
-      || typeof state.explanation !== "string"
-      || state.explanation.length < 1) return null;
-    const arrays = [
-      state.required_claim_ids, state.attempted_claim_ids, state.latest_correct_claim_ids,
-      state.required_evidence_ids, state.observed_evidence_ids,
-    ] as string[][];
-    if (arrays.some((values) => new Set(values).size !== values.length)) return null;
-    return state.formal_concept_id as string;
-  });
-  return !conceptIds.includes(null)
-    && new Set(conceptIds).size === conceptIds.length
-    && item.all_mastered === item.concept_states.every((state) => object(state)?.status === "mastered");
+  if (!state
+    || !isRevision(state.formal_concept_id, "formal-concept")
+    || !learningStatuses.has(String(state.status))
+    || !["no_evidence", "developing", "demonstrated"].includes(String(state.mastery_band))
+    || !learningConfidences.has(String(state.confidence))
+    || typeof state.needs_more_data !== "boolean"
+    || typeof state.claim_coverage_complete !== "boolean"
+    || typeof state.evidence_coverage_complete !== "boolean"
+    || !Number.isInteger(state.valid_attempts) || Number(state.valid_attempts) < 0
+    || !Number.isInteger(state.correct_attempts) || Number(state.correct_attempts) < 0
+    || Number(state.correct_attempts) > Number(state.valid_attempts)
+    || !Number.isInteger(state.qualified_distinct_correct_items)
+    || Number(state.qualified_distinct_correct_items) < 0
+    || Number(state.qualified_distinct_correct_items) > Number(state.correct_attempts)
+    || !(state.recent_result === null || state.recent_result === "correct" || state.recent_result === "incorrect")
+    || typeof state.repeated_error !== "boolean"
+    || typeof state.post_error_improvement !== "boolean"
+    || typeof state.explanation !== "string" || state.explanation.length < 1) return null;
+  const idGroups = [
+    [state.required_claim_ids, "claim"],
+    [state.attempted_claim_ids, "claim"],
+    [state.latest_correct_claim_ids, "claim"],
+    [state.required_evidence_ids, "evidence"],
+    [state.observed_evidence_ids, "evidence"],
+  ] as [unknown, string][];
+  return idGroups.every(([ids, kind]) => isStringArray(ids)
+    && (ids as string[]).every((id) => isRevision(id, kind))
+    && new Set(ids as string[]).size === (ids as string[]).length) ? state : null;
 }
 
-function isWeakness(value: unknown): value is WeaknessView {
-  const item = closed(value, [
-    "schema", "study_session_id", "base_knowledge_map_revision",
-    "source_learning_state_revision", "event_watermark", "current_formal_concept_id",
-    "weakness_revision", "findings",
+function readWeaknessFinding(value: unknown): JsonObject | null {
+  const finding = closed(value, [
+    "target_formal_concept_id", "target_label", "category", "confidence",
+    "claim_coverage_complete", "remediation_intent", "reason",
   ]);
-  if (!item
-    || item.schema !== "weakness/v1"
-    || !isUuid(item.study_session_id)
-    || !isRevision(item.base_knowledge_map_revision, "knowledge-map")
-    || !isRevision(item.source_learning_state_revision, "learning-state")
-    || !Number.isInteger(item.event_watermark)
-    || Number(item.event_watermark) < 0
-    || !(item.current_formal_concept_id === null || isRevision(item.current_formal_concept_id, "formal-concept"))
-    || !isRevision(item.weakness_revision, "weakness")
-    || !Array.isArray(item.findings)) return false;
-  const findingIds = item.findings.map((value) => {
-    const finding = closed(value, [
-      "target_formal_concept_id", "target_label", "category", "confidence",
-      "claim_coverage_complete", "remediation_intent", "reason",
-    ]);
-    if (!finding
-      || !isRevision(finding.target_formal_concept_id, "formal-concept")
-      || typeof finding.target_label !== "string"
-      || finding.target_label.length < 1
-      || !["observed_weak", "needs_review", "not_enough_data"].includes(String(finding.category))
-      || !learningConfidences.has(String(finding.confidence))
-      || typeof finding.claim_coverage_complete !== "boolean"
-      || !["practice", "review", "collect_more_data"].includes(String(finding.remediation_intent))
-      || typeof finding.reason !== "string"
-      || finding.reason.length < 1) return null;
-    return finding.target_formal_concept_id as string;
-  });
-  return !findingIds.includes(null)
-    && new Set(findingIds).size === findingIds.length;
+  return finding
+    && isRevision(finding.target_formal_concept_id, "formal-concept")
+    && typeof finding.target_label === "string" && finding.target_label.length > 0
+    && ["observed_weak", "needs_review", "not_enough_data"].includes(String(finding.category))
+    && learningConfidences.has(String(finding.confidence))
+    && typeof finding.claim_coverage_complete === "boolean"
+    && ["practice", "review", "collect_more_data"].includes(String(finding.remediation_intent))
+    && typeof finding.reason === "string" && finding.reason.length > 0
+    ? finding : null;
 }
 
-function readAdaptiveRoute(value: unknown, studySessionId: string): JsonObject | null {
-  const route = closed(value, ["study_session_id", "formal_concept_id", "resource_promotion_id"]);
-  return route
-    && route.study_session_id === studySessionId
-    && (route.formal_concept_id === null || isRevision(route.formal_concept_id, "formal-concept"))
-    && (route.resource_promotion_id === null || isRevision(route.resource_promotion_id, "resource-promotion"))
-    ? route
-    : null;
-}
-
-function readAdaptiveStep(value: unknown, studySessionId: string): JsonObject | null {
-  const step = closed(value, [
+function readNextAction(value: unknown, studySessionId: string): JsonObject | null {
+  const action = closed(value, [
     "action", "target_formal_concept_id", "target_label", "reason", "confidence",
     "claim_coverage_complete", "route",
   ]);
-  if (!step
-    || !adaptiveActions.has(String(step.action))
-    || !(step.target_formal_concept_id === null || isRevision(step.target_formal_concept_id, "formal-concept"))
-    || !(step.target_label === null || (typeof step.target_label === "string" && step.target_label.length > 0))
-    || typeof step.reason !== "string"
-    || step.reason.length < 1
-    || !learningConfidences.has(String(step.confidence))
-    || typeof step.claim_coverage_complete !== "boolean") return null;
-  const route = readAdaptiveRoute(step.route, studySessionId);
-  return route && route.formal_concept_id === step.target_formal_concept_id ? step : null;
+  const route = action && closed(action.route, [
+    "study_session_id", "formal_concept_id", "resource_promotion_id",
+  ]);
+  return action && route
+    && guidanceActions.has(String(action.action))
+    && (action.target_formal_concept_id === null || isRevision(action.target_formal_concept_id, "formal-concept"))
+    && (action.target_label === null || (typeof action.target_label === "string" && action.target_label.length > 0))
+    && typeof action.reason === "string" && action.reason.length > 0
+    && learningConfidences.has(String(action.confidence))
+    && typeof action.claim_coverage_complete === "boolean"
+    && route.study_session_id === studySessionId
+    && route.formal_concept_id === action.target_formal_concept_id
+    && (route.resource_promotion_id === null || isRevision(route.resource_promotion_id, "resource-promotion"))
+    ? action : null;
 }
 
-function isAdaptiveResponse(value: unknown): value is AdaptiveResponseView {
-  const item = closed(value, ["schema", "plan", "suggestion"]);
-  if (!item || item.schema !== "adaptive-response/v1") return false;
-  const plan = closed(item.plan, [
-    "schema", "study_session_id", "base_knowledge_map_revision",
-    "inline_initial_learning_path_sha256", "source_learning_state_revision",
-    "event_watermark", "current_formal_concept_id", "deferred_formal_concept_id",
-    "no_safe_deferred_formal_concept_ids", "primary_step", "adaptive_plan_revision",
+function isLearnerProgress(value: unknown): value is LearnerProgressView {
+  const item = closed(value, [
+    "schema", "study_session_id", "material_id", "base_knowledge_map_revision",
+    "inline_initial_learning_path_sha256", "event_watermark", "status",
+    "current_formal_concept_id", "no_safe_deferred_formal_concept_ids",
+    "concept_states", "weakness_findings", "next_action", "guidance_revision",
   ]);
-  if (!plan
-    || plan.schema !== "adaptive-plan/v1"
-    || !isUuid(plan.study_session_id)
-    || !isRevision(plan.base_knowledge_map_revision, "knowledge-map")
-    || typeof plan.inline_initial_learning_path_sha256 !== "string"
-    || !sha256Pattern.test(plan.inline_initial_learning_path_sha256)
-    || !isRevision(plan.source_learning_state_revision, "learning-state")
-    || !Number.isInteger(plan.event_watermark)
-    || Number(plan.event_watermark) < 0
-    || !(plan.current_formal_concept_id === null || isRevision(plan.current_formal_concept_id, "formal-concept"))
-    || !(plan.deferred_formal_concept_id === null || isRevision(plan.deferred_formal_concept_id, "formal-concept"))
-    || (plan.deferred_formal_concept_id !== null && plan.deferred_formal_concept_id === plan.current_formal_concept_id)
-    || !isStringArray(plan.no_safe_deferred_formal_concept_ids)
-    || !(plan.no_safe_deferred_formal_concept_ids as string[])
-      .every((id) => isRevision(id, "formal-concept"))
-    || new Set(plan.no_safe_deferred_formal_concept_ids as string[]).size
-      !== (plan.no_safe_deferred_formal_concept_ids as string[]).length
-    || !isRevision(plan.adaptive_plan_revision, "adaptive-plan")) return false;
-  const step = readAdaptiveStep(plan.primary_step, String(plan.study_session_id));
-  const suggestion = closed(item.suggestion, [
-    "schema", "adaptive_plan_revision", "study_session_id", "base_knowledge_map_revision",
-    "action", "target_formal_concept_id", "target_label", "reason", "confidence",
-    "claim_coverage_complete", "route", "fallback_action", "fallback_reason",
-  ]);
-  if (!step
-    || !suggestion
-    || suggestion.schema !== "learning-suggestion/v1"
-    || suggestion.adaptive_plan_revision !== plan.adaptive_plan_revision
-    || suggestion.study_session_id !== plan.study_session_id
-    || suggestion.base_knowledge_map_revision !== plan.base_knowledge_map_revision
-    || suggestion.action !== step.action
-    || suggestion.target_formal_concept_id !== step.target_formal_concept_id
-    || suggestion.target_label !== step.target_label
-    || suggestion.reason !== step.reason
-    || suggestion.confidence !== step.confidence
-    || suggestion.claim_coverage_complete !== step.claim_coverage_complete
-    || !["follow_path", "collect_more_data", "no_action"].includes(String(suggestion.fallback_action))
-    || typeof suggestion.fallback_reason !== "string"
-    || suggestion.fallback_reason.length < 1) return false;
-  const suggestionRoute = readAdaptiveRoute(suggestion.route, String(plan.study_session_id));
-  const stepRoute = object(step.route);
-  return !!suggestionRoute
-    && !!stepRoute
-    && JSON.stringify(suggestionRoute) === JSON.stringify(stepRoute);
+  if (!item || item.schema !== "learner-progress/v1"
+    || !isUuid(item.study_session_id) || !isUuid(item.material_id)
+    || !isRevision(item.base_knowledge_map_revision, "knowledge-map")
+    || typeof item.inline_initial_learning_path_sha256 !== "string"
+    || !sha256Pattern.test(item.inline_initial_learning_path_sha256)
+    || !Number.isInteger(item.event_watermark) || Number(item.event_watermark) < 0
+    || !["active", "completed", "no_safe"].includes(String(item.status))
+    || !(item.current_formal_concept_id === null || isRevision(item.current_formal_concept_id, "formal-concept"))
+    || !isStringArray(item.no_safe_deferred_formal_concept_ids)
+    || !Array.isArray(item.concept_states) || item.concept_states.length < 1
+    || !Array.isArray(item.weakness_findings)
+    || !isRevision(item.guidance_revision, "learner-guidance")) return false;
+  const states = item.concept_states.map(readConceptState);
+  const conceptIds = states.map((state) => state?.formal_concept_id as string | undefined);
+  const findings = item.weakness_findings.map(readWeaknessFinding);
+  const findingIds = findings.map((finding) => finding?.target_formal_concept_id as string | undefined);
+  const deferredIds = item.no_safe_deferred_formal_concept_ids as string[];
+  const nextAction = readNextAction(item.next_action, String(item.study_session_id));
+  return !conceptIds.includes(undefined) && new Set(conceptIds).size === conceptIds.length
+    && !findingIds.includes(undefined) && new Set(findingIds).size === findingIds.length
+    && findingIds.every((id) => conceptIds.includes(id))
+    && (item.current_formal_concept_id === null || conceptIds.includes(item.current_formal_concept_id))
+    && deferredIds.every((id) => conceptIds.includes(id))
+    && new Set(deferredIds).size === deferredIds.length
+    && !!nextAction
+    && (nextAction.target_formal_concept_id === null
+      || conceptIds.includes(nextAction.target_formal_concept_id as string));
 }
 
 function isApiError(value: unknown): value is ApiErrorView {
@@ -969,17 +847,6 @@ export class StudydyApiClient {
     return session;
   }
 
-  async getStudyContext(studySessionId: string): Promise<StudyContextView> {
-    if (!isUuid(studySessionId)) {
-      throw new ApiClientError("input", "本次學習識別資訊無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
-    }
-    const context = await this.json(`/v1/study-sessions/${studySessionId}/context`, { method: "GET" }, isStudyContext);
-    if (context.study_session_id !== studySessionId) {
-      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
-    }
-    return context;
-  }
-
   async completeStudySession(studySessionId: string): Promise<StudySessionView> {
     if (!isUuid(studySessionId)) {
       throw new ApiClientError("input", "本次學習識別資訊無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
@@ -1076,71 +943,41 @@ export class StudydyApiClient {
     return feedback;
   }
 
-  async getLearningState(studySessionId: string): Promise<LearningStateView> {
+  async getLearnerProgress(studySessionId: string): Promise<LearnerProgressView> {
     if (!isUuid(studySessionId)) {
       throw new ApiClientError("input", "本次學習識別資訊無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
     }
-    const state = await this.json(
-      `/v1/study-sessions/${studySessionId}/learning-state`,
+    const progress = await this.json(
+      `/v1/study-sessions/${studySessionId}/progress`,
       { method: "GET" },
-      isLearningState,
+      isLearnerProgress,
     );
-    if (state.study_session_id !== studySessionId) {
+    if (progress.study_session_id !== studySessionId) {
       throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
     }
-    return state;
+    return progress;
   }
 
-  async getWeakness(studySessionId: string): Promise<WeaknessView> {
-    if (!isUuid(studySessionId)) {
-      throw new ApiClientError("input", "本次學習識別資訊無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
-    }
-    const weakness = await this.json(
-      `/v1/study-sessions/${studySessionId}/weakness`,
-      { method: "GET" },
-      isWeakness,
-    );
-    if (weakness.study_session_id !== studySessionId) {
-      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
-    }
-    return weakness;
-  }
-
-  async getAdaptivePlan(studySessionId: string): Promise<AdaptiveResponseView> {
-    if (!isUuid(studySessionId)) {
-      throw new ApiClientError("input", "本次學習識別資訊無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
-    }
-    const adaptive = await this.json(
-      `/v1/study-sessions/${studySessionId}/adaptive-plan`,
-      { method: "GET" },
-      isAdaptiveResponse,
-    );
-    if (adaptive.plan.study_session_id !== studySessionId) {
-      throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
-    }
-    return adaptive;
-  }
-
-  async applyAdaptivePlan(studySessionId: string, body: AdaptivePlanApply): Promise<StudySessionView> {
+  async applyGuidance(studySessionId: string, body: GuidanceApply): Promise<LearnerProgressView> {
     if (!isUuid(studySessionId)
-      || body.schema !== "adaptive-plan-apply/v1"
-      || !isRevision(body.adaptive_plan_revision, "adaptive-plan")
+      || body.schema !== "guidance-apply/v1"
+      || !isRevision(body.guidance_revision, "learner-guidance")
       || Object.keys(body).length !== 2) {
       throw new ApiClientError("input", "調整學習步驟的請求無效。", { reasonCode: "REQUEST_INPUT_INVALID" });
     }
-    const session = await this.json(
-      `/v1/study-sessions/${studySessionId}/adaptive-plan/apply`,
+    const progress = await this.json(
+      `/v1/study-sessions/${studySessionId}/guidance/apply`,
       {
         method: "POST",
         headers: { Origin: requestOrigin(), "Content-Type": "application/json" },
         body: JSON.stringify(body),
       },
-      isStudySession,
+      isLearnerProgress,
     );
-    if (session.study_session_id !== studySessionId) {
+    if (progress.study_session_id !== studySessionId) {
       throw new ApiClientError("schema", "伺服器回應格式不符。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
     }
-    return session;
+    return progress;
   }
 
   sourceArtifactUrl(artifactId: string, pageNumber?: number): string {

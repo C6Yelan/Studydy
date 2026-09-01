@@ -1,11 +1,9 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 import {
-  adaptiveView,
+  progressView,
   assessmentView,
-  contextView,
   feedbackView,
-  learningStateView,
   mapRevision,
   mapView,
   materialId,
@@ -15,7 +13,6 @@ import {
   sessionView,
   studySessionId,
   targetConceptId,
-  weaknessView,
 } from "./fixtures/learning";
 
 const newStudySessionId = "bf9619ff-8b86-4e3a-a2f1-2bb9424d5c88";
@@ -59,64 +56,41 @@ test("no-safe 暫緩可前進、重整保存並依順序回到原重點", async 
   const currentConceptId = () =>
     phase === "defer" || phase === "returned" ? firstConceptId : targetConceptId;
   const noSafeDeferredIds = () => isAdvanced() ? [firstConceptId] : [];
-  const currentAdaptive = () => {
-    if (phase === "defer") return adaptiveView({
+  const currentProgress = () => {
+    if (phase === "defer") return progressView({
       action: "defer",
       currentConceptId: firstConceptId,
-      planValue: "6",
+      guidanceValue: "6",
       targetConceptId,
       targetLabel: "目標概念",
     });
-    if (phase === "resume") return adaptiveView({
+    if (phase === "resume") return progressView({
       action: "resume",
       currentConceptId: targetConceptId,
       eventWatermark: 1,
       noSafeDeferredConceptIds: [firstConceptId],
-      planValue: "8",
+      guidanceValue: "8",
       targetConceptId: firstConceptId,
       targetLabel: "第一個概念",
     });
-    return adaptiveView({
+    return progressView({
       action: "collect_more_data",
       currentConceptId: currentConceptId(),
       eventWatermark: eventWatermark(),
       noSafeDeferredConceptIds: noSafeDeferredIds(),
-      planValue: phase === "advanced" ? "7" : "9",
+      guidanceValue: phase === "advanced" ? "7" : "9",
       targetConceptId: currentConceptId(),
       targetLabel: phase === "advanced" ? "目標概念" : "第一個概念",
     });
   };
 
-  await page.route(`**/v1/study-sessions/${studySessionId}`, (route) => fulfillJson(route, sessionView({
-    current_formal_concept_id: currentConceptId(),
-    no_safe_deferred_formal_concept_ids: noSafeDeferredIds(),
-    event_watermark: eventWatermark(),
-  })));
-  await page.route(`**/v1/study-sessions/${studySessionId}/context`, (route) => fulfillJson(route, contextView({
-    current_formal_concept_id: currentConceptId(),
-    no_safe_deferred_formal_concept_ids: noSafeDeferredIds(),
-  })));
-  await page.route(`**/v1/study-sessions/${studySessionId}/learning-state`, (route) => fulfillJson(route, learningStateView({
-    eventWatermark: eventWatermark(),
-    firstStatus: "not_started",
-    targetStatus: phase === "resume" || phase === "returned" ? "mastered" : "not_started",
-  })));
-  await page.route(`**/v1/study-sessions/${studySessionId}/weakness`, (route) => fulfillJson(route, weaknessView({
-    currentConceptId: currentConceptId(),
-    eventWatermark: eventWatermark(),
-  })));
-  await page.route(`**/v1/study-sessions/${studySessionId}/adaptive-plan`, (route) =>
-    fulfillJson(route, currentAdaptive()));
-  await page.route(`**/v1/study-sessions/${studySessionId}/adaptive-plan/apply`, async (route) => {
-    expect((await route.request().postDataJSON()).adaptive_plan_revision).toBe(
-      currentAdaptive().plan.adaptive_plan_revision,
+  await page.route(`**/v1/study-sessions/${studySessionId}/progress`, (route) => fulfillJson(route, currentProgress()));
+  await page.route(`**/v1/study-sessions/${studySessionId}/guidance/apply`, async (route) => {
+    expect((await route.request().postDataJSON()).guidance_revision).toBe(
+      currentProgress().guidance_revision,
     );
     phase = phase === "defer" ? "advanced" : "returned";
-    await fulfillJson(route, sessionView({
-      current_formal_concept_id: currentConceptId(),
-      no_safe_deferred_formal_concept_ids: noSafeDeferredIds(),
-      event_watermark: eventWatermark(),
-    }));
+    await fulfillJson(route, currentProgress());
   });
   await page.route(`**/v1/study-sessions/${studySessionId}/assessments`, (route) =>
     fulfillJson(route, assessmentView(1), 201));
@@ -152,29 +126,30 @@ test("no-safe 暫緩可前進、重整保存並依順序回到原重點", async 
 
 test("新 StudySession 不繼承前一個 session 的 mastery 或 weakness", async ({ page }) => {
   await baseRoutes(page);
-  const oldLearning = learningStateView({ eventWatermark: 2, firstStatus: "mastered", targetStatus: "needs_review" });
-  const oldWeakness = weaknessView({ category: "observed_weak", currentConceptId: firstConceptId, eventWatermark: 2 });
-  const oldAdaptive = adaptiveView({
+  const oldProgress = progressView({
     action: "no_action",
     currentConceptId: firstConceptId,
     eventWatermark: 2,
     targetConceptId: null,
     targetLabel: null,
+    category: "observed_weak",
+    firstStatus: "mastered",
+    targetStatus: "needs_review",
   });
-  await page.route(`**/v1/study-sessions/${studySessionId}`, (route) => fulfillJson(route, sessionView({
-    current_formal_concept_id: firstConceptId,
-    event_watermark: 2,
-  })));
-  await page.route(`**/v1/study-sessions/${studySessionId}/context`, (route) => fulfillJson(route, contextView({ current_formal_concept_id: firstConceptId })));
-  await page.route(`**/v1/study-sessions/${studySessionId}/learning-state`, (route) => fulfillJson(route, oldLearning));
-  await page.route(`**/v1/study-sessions/${studySessionId}/weakness`, (route) => fulfillJson(route, oldWeakness));
-  await page.route(`**/v1/study-sessions/${studySessionId}/adaptive-plan`, (route) => fulfillJson(route, oldAdaptive));
-  await page.route(`**/v1/study-sessions/${studySessionId}/complete`, (route) => fulfillJson(route, sessionView({
-    current_formal_concept_id: firstConceptId,
-    event_watermark: 2,
-    status: "completed",
-    completed_at: "2026-08-27T00:30:00Z",
-  })));
+  let isCompleted = false;
+  await page.route(`**/v1/study-sessions/${studySessionId}/progress`, (route) => fulfillJson(route, {
+    ...oldProgress,
+    status: isCompleted ? "completed" : "active",
+  }));
+  await page.route(`**/v1/study-sessions/${studySessionId}/complete`, (route) => {
+    isCompleted = true;
+    return fulfillJson(route, sessionView({
+      current_formal_concept_id: firstConceptId,
+      event_watermark: 2,
+      status: "completed",
+      completed_at: "2026-08-27T00:30:00Z",
+    }));
+  });
 
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-maps/${encodeURIComponent(mapRevision)}/study-sessions/${studySessionId}`);
   await expect(page.getByText("本次已掌握")).toBeVisible();
@@ -184,11 +159,7 @@ test("新 StudySession 不繼承前一個 session 的 mastery 或 weakness", asy
   await page.getByRole("button", { name: /回到知識地圖/ }).click();
 
   await page.route("**/v1/study-sessions", (route) => fulfillJson(route, bindSession(sessionView(), newStudySessionId), 201));
-  await page.route(`**/v1/study-sessions/${newStudySessionId}`, (route) => fulfillJson(route, bindSession(sessionView(), newStudySessionId)));
-  await page.route(`**/v1/study-sessions/${newStudySessionId}/context`, (route) => fulfillJson(route, bindSession(contextView(), newStudySessionId)));
-  await page.route(`**/v1/study-sessions/${newStudySessionId}/learning-state`, (route) => fulfillJson(route, bindSession(learningStateView(), newStudySessionId)));
-  await page.route(`**/v1/study-sessions/${newStudySessionId}/weakness`, (route) => fulfillJson(route, bindSession(weaknessView(), newStudySessionId)));
-  await page.route(`**/v1/study-sessions/${newStudySessionId}/adaptive-plan`, (route) => fulfillJson(route, bindSession(adaptiveView(), newStudySessionId)));
+  await page.route(`**/v1/study-sessions/${newStudySessionId}/progress`, (route) => fulfillJson(route, progressView({ studySessionId: newStudySessionId })));
 
   await page.getByRole("button", { name: "教材概念：目標概念" }).click();
   await page.getByRole("button", { name: "從這個概念開始" }).click();

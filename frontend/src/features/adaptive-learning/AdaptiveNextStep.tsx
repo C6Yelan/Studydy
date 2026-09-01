@@ -1,8 +1,8 @@
-import type { AdaptiveAction, AdaptiveResponseView, StudyContextView } from "../../api/contracts";
+import type { GuidanceAction, KnowledgeMapView, LearnerProgressView } from "../../api/contracts";
 import { Icon } from "../../ui/Icon";
 import "./styles.css";
 
-const actionCopy: Record<AdaptiveAction, { label: string; cta: string }> = {
+const actionCopy: Record<GuidanceAction, { label: string; cta: string }> = {
   start: { label: "開始目前概念", cta: "前往目前步驟" },
   continue: { label: "繼續目前概念", cta: "繼續學習" },
   practice: { label: "練習目前概念", cta: "開始練習" },
@@ -21,26 +21,26 @@ const confidenceCopy = {
   supported: "已有足夠依據",
 } as const;
 
-function contextLabel(context: StudyContextView, conceptId: string | null): string | null {
+function conceptLabel(view: KnowledgeMapView, conceptId: string | null): string | null {
   if (!conceptId) return null;
-  return context.initial_learning_path.find((item) => item.formal_concept_id === conceptId)?.label ?? null;
+  return view.concepts.find((item) => item.formal_concept_id === conceptId)?.label ?? null;
 }
 
-export function AdaptiveNextStep({ adaptive, context, hasNoSafeItem, isApplying, onApply, onReviewEvidence }: {
-  adaptive: AdaptiveResponseView;
-  context: StudyContextView;
+export function GuidanceNextStep({ progress, view, hasNoSafeItem, isApplying, onApply, onReviewEvidence }: {
+  progress: LearnerProgressView;
+  view: KnowledgeMapView;
   hasNoSafeItem: boolean;
   isApplying: boolean;
   onApply: () => void;
   onReviewEvidence: () => void;
 }) {
-  const step = adaptive.plan.primary_step;
+  const step = progress.next_action;
   const useReviewFallback = hasNoSafeItem && step.action === "collect_more_data";
   const copy = useReviewFallback
     ? { label: "先回顧目前教材重點", cta: "回顧教材" }
     : actionCopy[step.action];
-  const deferredLabel = contextLabel(context, adaptive.plan.deferred_formal_concept_id);
-  const currentLabel = contextLabel(context, adaptive.plan.current_formal_concept_id);
+  const deferredLabel = conceptLabel(view, progress.no_safe_deferred_formal_concept_ids[0] ?? null);
+  const currentLabel = conceptLabel(view, progress.current_formal_concept_id);
   return (
     <section className="adaptive-card" aria-labelledby="adaptive-title">
       <div className="adaptive-icon"><Icon name="learning" size={28} /></div>

@@ -2,99 +2,60 @@ import { useEffect, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type {
-  AdaptiveResponseView,
   AnswerFeedbackView,
   KnowledgeMapView,
-  LearningStateView,
-  StudyContextView,
-  StudySessionView,
-  WeaknessView,
+  LearnerProgressView,
 } from "../../api/contracts";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { AssessmentPanel } from "../assessment/AssessmentPanel";
-import { AdaptiveNextStep } from "../adaptive-learning/AdaptiveNextStep";
+import { GuidanceNextStep } from "../adaptive-learning/AdaptiveNextStep";
 import { safeExternalUrl } from "../knowledge-map/knowledge-map";
 import { LearningInsights } from "../learning-state/LearningInsights";
 import "./styles.css";
 
 type StudyData = {
-  adaptive: AdaptiveResponseView;
-  context: StudyContextView;
-  learningState: LearningStateView;
-  session: StudySessionView;
+  progress: LearnerProgressView;
   sourceArtifactId: string;
   view: KnowledgeMapView;
-  weakness: WeaknessView;
 };
 
 function assertRouteBinding(route: Extract<AppRoute, { name: "study-session" }>, data: StudyData) {
   const conceptIds = data.view.concepts.map((concept) => concept.formal_concept_id);
-  const contextIds = data.context.initial_learning_path.map((concept) => concept.formal_concept_id);
-  const stateIds = data.learningState.concept_states.map((state) => state.formal_concept_id);
-  const contextMatchesMap = data.context.initial_learning_path.every((contextConcept) => {
-    const mapConcept = data.view.concepts.find((concept) => concept.formal_concept_id === contextConcept.formal_concept_id);
-    return !!mapConcept
-      && mapConcept.label === contextConcept.label
-      && JSON.stringify(mapConcept.claims.map((claim) => claim.claim_id)) === JSON.stringify(contextConcept.claim_ids)
-      && JSON.stringify(mapConcept.supplementary_resources.map((resource) => resource.promotion_id))
-        === JSON.stringify(contextConcept.supplementary_resource_promotion_ids);
-  });
-  const adaptiveTarget = data.adaptive.plan.primary_step.target_formal_concept_id;
-  const adaptiveResource = data.adaptive.plan.primary_step.route.resource_promotion_id;
+  const stateIds = data.progress.concept_states.map((state) => state.formal_concept_id);
+  const guidanceTarget = data.progress.next_action.target_formal_concept_id;
+  const guidanceResource = data.progress.next_action.route.resource_promotion_id;
   if (
-    data.session.study_session_id !== route.studySessionId
-    || data.session.material_id !== route.materialId
-    || data.session.knowledge_map_revision !== route.mapRevision
-    || data.context.study_session_id !== route.studySessionId
-    || data.context.base_knowledge_map_revision !== route.mapRevision
-    || data.view.knowledge_map_revision !== route.mapRevision
-    || data.context.current_formal_concept_id !== data.session.current_formal_concept_id
-    || data.context.deferred_formal_concept_id !== data.session.deferred_formal_concept_id
-    || JSON.stringify(data.context.no_safe_deferred_formal_concept_ids)
-      !== JSON.stringify(data.session.no_safe_deferred_formal_concept_ids)
-    || data.learningState.study_session_id !== route.studySessionId
-    || data.learningState.base_knowledge_map_revision !== route.mapRevision
-    || data.learningState.event_watermark !== data.session.event_watermark
-    || data.weakness.study_session_id !== route.studySessionId
-    || data.weakness.base_knowledge_map_revision !== route.mapRevision
-    || data.weakness.source_learning_state_revision !== data.learningState.state_revision
-    || data.weakness.event_watermark !== data.learningState.event_watermark
-    || data.weakness.current_formal_concept_id !== data.session.current_formal_concept_id
-    || data.adaptive.plan.study_session_id !== route.studySessionId
-    || data.adaptive.plan.base_knowledge_map_revision !== route.mapRevision
-    || data.adaptive.plan.source_learning_state_revision !== data.learningState.state_revision
-    || data.adaptive.plan.event_watermark !== data.learningState.event_watermark
-    || JSON.stringify(data.adaptive.plan.no_safe_deferred_formal_concept_ids)
-      !== JSON.stringify(data.session.no_safe_deferred_formal_concept_ids)
-    || JSON.stringify(contextIds) !== JSON.stringify(
-      data.view.initial_learning_path.map((step) => step.formal_concept_id),
-    )
-    || !contextMatchesMap
+    data.view.knowledge_map_revision !== route.mapRevision
+    || data.progress.study_session_id !== route.studySessionId
+    || data.progress.material_id !== route.materialId
+    || data.progress.base_knowledge_map_revision !== route.mapRevision
     || new Set(stateIds).size !== conceptIds.length
     || !conceptIds.every((id) => stateIds.includes(id))
-    || (data.session.current_formal_concept_id !== null && !conceptIds.includes(data.session.current_formal_concept_id))
-    || (data.session.deferred_formal_concept_id !== null && !conceptIds.includes(data.session.deferred_formal_concept_id))
-    || data.weakness.findings.some((finding) => !conceptIds.includes(finding.target_formal_concept_id))
-    || (adaptiveTarget !== null && !conceptIds.includes(adaptiveTarget))
-    || (adaptiveResource !== null && !data.view.concepts.some((concept) =>
-      concept.supplementary_resources.some((resource) => resource.promotion_id === adaptiveResource)))
+    || (data.progress.current_formal_concept_id !== null && !conceptIds.includes(data.progress.current_formal_concept_id))
+    || data.progress.weakness_findings.some((finding) => !conceptIds.includes(finding.target_formal_concept_id))
+    || (guidanceTarget !== null && !conceptIds.includes(guidanceTarget))
+    || (guidanceResource !== null && !data.view.concepts.some((concept) =>
+      concept.supplementary_resources.some((resource) => resource.promotion_id === guidanceResource)))
   ) throw new Error("STUDY_ROUTE_BINDING_MISMATCH");
 }
 
-function SessionPath({ context, learningState, view }: {
-  context: StudyContextView;
-  learningState: LearningStateView;
+function SessionPath({ progress, view }: {
+  progress: LearnerProgressView;
   view: KnowledgeMapView;
 }) {
-  const mastered = new Set(learningState.concept_states
+  const mastered = new Set(progress.concept_states
     .filter((state) => state.status === "mastered")
     .map((state) => state.formal_concept_id));
-  const deferredNoSafe = new Set(context.no_safe_deferred_formal_concept_ids);
-  const currentIndex = context.initial_learning_path.findIndex((concept) =>
-    concept.formal_concept_id === context.current_formal_concept_id);
-  const nextConceptId = context.initial_learning_path
+  const deferredNoSafe = new Set(progress.no_safe_deferred_formal_concept_ids);
+  const path = view.initial_learning_path.map((step) => ({
+    ...step,
+    label: view.concepts.find((concept) => concept.formal_concept_id === step.formal_concept_id)?.label ?? step.formal_concept_id,
+  }));
+  const currentIndex = path.findIndex((concept) =>
+    concept.formal_concept_id === progress.current_formal_concept_id);
+  const nextConceptId = path
     .slice(currentIndex + 1)
     .find((concept) => !mastered.has(concept.formal_concept_id))?.formal_concept_id;
   return (
@@ -103,20 +64,19 @@ function SessionPath({ context, learningState, view }: {
       <h2 id="session-path-title">教材建議學習順序</h2>
       <p>作答會更新本次進度，但不會改寫這份教材順序。</p>
       <ol>
-        {context.initial_learning_path.map((concept, index) => {
-          const isCurrent = concept.formal_concept_id === context.current_formal_concept_id;
-          const isDeferred = concept.formal_concept_id === context.deferred_formal_concept_id;
+        {path.map((concept, index) => {
+          const isCurrent = concept.formal_concept_id === progress.current_formal_concept_id;
           const isNoSafeDeferred = deferredNoSafe.has(concept.formal_concept_id);
           const isCompleted = mastered.has(concept.formal_concept_id);
           const isNext = concept.formal_concept_id === nextConceptId;
           const placementReason = view.initial_learning_path.find((step) =>
             step.formal_concept_id === concept.formal_concept_id)?.placement_reason;
           return (
-            <li className={isCurrent ? "is-current" : isCompleted ? "is-completed" : isDeferred || isNoSafeDeferred ? "is-deferred" : undefined} key={concept.formal_concept_id}>
+            <li className={isCurrent ? "is-current" : isCompleted ? "is-completed" : isNoSafeDeferred ? "is-deferred" : undefined} key={concept.formal_concept_id}>
               <span>{index + 1}</span>
               <div>
                 <strong>{concept.label}</strong>
-                <small>{isCurrent ? "目前" : isCompleted ? "已完成" : isDeferred || isNoSafeDeferred ? "稍後回到這裡" : isNext ? "下一步" : placementReason}</small>
+                <small>{isCurrent ? "目前" : isCompleted ? "已完成" : isNoSafeDeferred ? "稍後回到這裡" : isNext ? "下一步" : placementReason}</small>
               </div>
             </li>
           );
@@ -170,31 +130,23 @@ export function StudySessionPage({ apiClient, route }: {
   const [isCompleting, setIsCompleting] = useState(false);
   const [completeMessage, setCompleteMessage] = useState<string | null>(null);
   const [isRefreshingInsights, setIsRefreshingInsights] = useState(false);
-  const [isApplyingPlan, setIsApplyingPlan] = useState(false);
-  const [adaptiveMessage, setAdaptiveMessage] = useState<string | null>(null);
+  const [isApplyingGuidance, setIsApplyingGuidance] = useState(false);
+  const [guidanceMessage, setGuidanceMessage] = useState<string | null>(null);
   const [hasNoSafeItem, setHasNoSafeItem] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void Promise.all([
-      apiClient.getStudySession(route.studySessionId),
-      apiClient.getStudyContext(route.studySessionId),
       apiClient.getKnowledgeMap({ materialId: route.materialId, runId: route.runId, mapRevision: route.mapRevision }),
       apiClient.getMaterialRun(route.runId),
-      apiClient.getLearningState(route.studySessionId),
-      apiClient.getWeakness(route.studySessionId),
-      apiClient.getAdaptivePlan(route.studySessionId),
+      apiClient.getLearnerProgress(route.studySessionId),
     ]).then(
-      ([session, context, view, run, learningState, weakness, adaptive]) => {
+      ([view, run, progress]) => {
         if (cancelled) return;
         const next = {
-          adaptive,
-          context,
-          learningState,
-          session,
+          progress,
           sourceArtifactId: run.source_artifact_id,
           view,
-          weakness,
         };
         if (run.material_id !== route.materialId) throw new Error("RUN_MATERIAL_MISMATCH");
         assertRouteBinding(route, next);
@@ -227,11 +179,11 @@ export function StudySessionPage({ apiClient, route }: {
       tone="loading"
     />
   );
-  if (data.session.status === "completed") return <CompletedSession route={route} />;
-  if (data.session.status === "no_safe") return <NoSafeSession route={route} />;
+  if (data.progress.status === "completed") return <CompletedSession route={route} />;
+  if (data.progress.status === "no_safe") return <NoSafeSession route={route} />;
 
   const currentConcept = data.view.concepts.find((concept) =>
-    concept.formal_concept_id === data.session.current_formal_concept_id);
+    concept.formal_concept_id === data.progress.current_formal_concept_id);
   if (!currentConcept) return (
     <StateView
       action={<button className="secondary-button" type="button" onClick={() => writeRoute({
@@ -252,8 +204,9 @@ export function StudySessionPage({ apiClient, route }: {
     setIsCompleting(true);
     setCompleteMessage(null);
     try {
-      const session = await apiClient.completeStudySession(route.studySessionId);
-      setData((current) => current && { ...current, session });
+      await apiClient.completeStudySession(route.studySessionId);
+      const progress = await apiClient.getLearnerProgress(route.studySessionId);
+      setData((current) => current && { ...current, progress });
     } catch (error) {
       setCompleteMessage(errorMessage(error));
       setIsCompleting(false);
@@ -264,34 +217,30 @@ export function StudySessionPage({ apiClient, route }: {
     if (isRefreshingInsights) return;
     setIsRefreshingInsights(true);
     try {
-      const [session, context, learningState, weakness, adaptive] = await Promise.all([
-        apiClient.getStudySession(route.studySessionId),
-        apiClient.getStudyContext(route.studySessionId),
-        apiClient.getLearningState(route.studySessionId),
-        apiClient.getWeakness(route.studySessionId),
-        apiClient.getAdaptivePlan(route.studySessionId),
-      ]);
-      const next = { ...data, adaptive, context, learningState, session, weakness };
+      const progress = await apiClient.getLearnerProgress(route.studySessionId);
+      const next = { ...data, progress };
       assertRouteBinding(route, next);
       setData(next);
     } catch (error) {
-      setAdaptiveMessage(errorMessage(error));
+      setGuidanceMessage(errorMessage(error));
     } finally {
       setIsRefreshingInsights(false);
     }
   };
 
-  const applyPlan = async () => {
-    if (isApplyingPlan) return;
-    setIsApplyingPlan(true);
-    setAdaptiveMessage(null);
-    const step = data.adaptive.plan.primary_step;
+  const applyCurrentGuidance = async () => {
+    if (isApplyingGuidance) return;
+    setIsApplyingGuidance(true);
+    setGuidanceMessage(null);
+    const step = data.progress.next_action;
     try {
-      await apiClient.applyAdaptivePlan(route.studySessionId, {
-        schema: "adaptive-plan-apply/v1",
-        adaptive_plan_revision: data.adaptive.plan.adaptive_plan_revision,
+      const progress = await apiClient.applyGuidance(route.studySessionId, {
+        schema: "guidance-apply/v1",
+        guidance_revision: data.progress.guidance_revision,
       });
-      await refreshInsights();
+      const next = { ...data, progress };
+      assertRouteBinding(route, next);
+      setData(next);
       if (step.action === "use_resource" && step.route.resource_promotion_id) {
         const resource = data.view.concepts
           .flatMap((concept) => concept.supplementary_resources)
@@ -303,9 +252,9 @@ export function StudySessionPage({ apiClient, route }: {
         window.setTimeout(() => document.getElementById("assessment-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
       }
     } catch (error) {
-      setAdaptiveMessage(errorMessage(error));
+      setGuidanceMessage(errorMessage(error));
     } finally {
-      setIsApplyingPlan(false);
+      setIsApplyingGuidance(false);
     }
   };
 
@@ -318,9 +267,9 @@ export function StudySessionPage({ apiClient, route }: {
         </button>
       </header>
       {completeMessage && <p className="study-error" role="alert">{completeMessage}</p>}
-      {adaptiveMessage && <p className="study-error" role="alert">{adaptiveMessage}</p>}
+      {guidanceMessage && <p className="study-error" role="alert">{guidanceMessage}</p>}
       <div className="study-layout">
-        <SessionPath context={data.context} learningState={data.learningState} view={data.view} />
+        <SessionPath progress={data.progress} view={data.view} />
         <div className="study-main-column">
           <article className="surface current-concept-card">
             <div className="current-concept-copy">
@@ -381,19 +330,18 @@ export function StudySessionPage({ apiClient, route }: {
             </section>
           )}
 
-          <AdaptiveNextStep
-            adaptive={data.adaptive}
-            context={data.context}
+          <GuidanceNextStep
+            progress={data.progress}
+            view={data.view}
             hasNoSafeItem={hasNoSafeItem}
-            isApplying={isApplyingPlan || isRefreshingInsights}
-            onApply={() => void applyPlan()}
+            isApplying={isApplyingGuidance || isRefreshingInsights}
+            onApply={() => void applyCurrentGuidance()}
             onReviewEvidence={() => document.getElementById("assessment-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}
           />
 
           <LearningInsights
             currentConceptId={currentConcept.formal_concept_id}
-            learningState={data.learningState}
-            weakness={data.weakness}
+            progress={data.progress}
           />
 
           <div id="assessment-panel">

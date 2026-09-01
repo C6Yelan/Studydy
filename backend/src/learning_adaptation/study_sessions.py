@@ -33,7 +33,6 @@ class StoredStudySession:
     material_id: UUID
     knowledge_map_revision: str
     current_formal_concept_id: str | None
-    deferred_formal_concept_id: str | None
     no_safe_claim_ids: tuple[str, ...]
     no_safe_deferred_formal_concept_ids: tuple[str, ...]
     status: str
@@ -127,15 +126,6 @@ def _validate_binding(session: Session, stored: StudySession) -> MapContext:
     ):
         raise _error("STUDY_SESSION_UNAVAILABLE")
     if (
-        stored.deferred_formal_concept_id is not None
-        and (
-            stored.deferred_formal_concept_id not in known_concepts
-            or stored.deferred_formal_concept_id
-            == stored.current_formal_concept_id
-        )
-    ):
-        raise _error("STUDY_SESSION_UNAVAILABLE")
-    if (
         not set(stored.no_safe_claim_ids) <= known_claims
         or not set(stored.no_safe_deferred_formal_concept_ids)
         <= known_concepts
@@ -173,7 +163,6 @@ def _stored_session(stored: StudySession) -> StoredStudySession:
         material_id=stored.material_id,
         knowledge_map_revision=stored.knowledge_map_revision,
         current_formal_concept_id=stored.current_formal_concept_id,
-        deferred_formal_concept_id=stored.deferred_formal_concept_id,
         no_safe_claim_ids=no_safe_claim_ids,
         no_safe_deferred_formal_concept_ids=no_safe_deferred_ids,
         status=stored.status,
@@ -234,11 +223,10 @@ def create_study_session(
                     material_id=material_id,
                     knowledge_map_revision=knowledge_map_revision,
                     current_formal_concept_id=current_formal_concept_id,
-                    deferred_formal_concept_id=None,
                     no_safe_claim_ids=[],
                     no_safe_deferred_formal_concept_ids=[],
-                    last_applied_adaptive_plan_revision=None,
-                    last_applied_session_state_sha256=None,
+                    last_applied_guidance_revision=None,
+                    last_applied_progress_state_sha256=None,
                     status="active",
                     idempotency_key_sha256=key_digest,
                     request_fingerprint=fingerprint,
@@ -335,8 +323,8 @@ def set_current_study_concept(
             }:
                 raise _error("STUDY_SESSION_TARGET_INVALID")
             stored.current_formal_concept_id = formal_concept_id
-            stored.last_applied_adaptive_plan_revision = None
-            stored.last_applied_session_state_sha256 = None
+            stored.last_applied_guidance_revision = None
+            stored.last_applied_progress_state_sha256 = None
             session.flush()
             return _stored_session(stored)
     except StudySessionError:

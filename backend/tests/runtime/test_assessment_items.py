@@ -25,7 +25,7 @@ from learning_adaptation.map_context import (
     EvidenceLocator,
     FormalConceptContext,
 )
-from learning_adaptation.learning_states import derive_learning_state
+from learning_adaptation.learner_progress import derive_learner_progress
 from learning_adaptation.assessment_items import (
     ASSESSMENT_POLICY_REVISION,
     GENERATION_PROVENANCE_SCHEMA,
@@ -69,6 +69,7 @@ def assessment_database_dsn(
         14,
         15,
         16,
+        17,
     )
     return clean_database_dsn
 
@@ -711,7 +712,7 @@ def test_concurrent_requests_publish_at_most_one_session_semantic_identity(
             """,
             (study_session.study_session_id,),
         ).fetchone() == (0,)
-    state = derive_learning_state(
+    state = derive_learner_progress(
         learner,
         study_session.study_session_id,
         dsn=assessment_database_dsn,

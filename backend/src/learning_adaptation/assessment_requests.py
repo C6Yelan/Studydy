@@ -23,7 +23,7 @@ from .assessment_items import (
     _stored_assessment,
 )
 from .assessment_runtime_reuse import AssessmentRuntimeReuse
-from .adaptive_plans import record_no_safe_assessment
+from .learner_progress import record_no_safe_assessment
 from .map_context import MapContextError
 from .study_sessions import (
     StudySessionError,

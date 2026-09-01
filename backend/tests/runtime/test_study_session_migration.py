@@ -177,7 +177,11 @@ def test_fresh_migrations_replace_only_empty_dormant_tables(
         14,
         15,
         16,
+        17,
     )
+    assert run_migrations(
+        clean_database_dsn, migrations_dir=migrations_dir
+    ) == ()
     with psycopg.connect(clean_database_dsn) as connection:
         assert connection.execute(
             "SELECT to_regclass('public.study_sessions')"
