@@ -27,7 +27,7 @@ from .map_resources import build_resource_library, validate_resource_library
 
 METADATA_SCHEMA = "resource-source-metadata/v1"
 CANDIDATE_SCHEMA = "resource-intake-candidate/v3"
-CANDIDATE_POLICY = "resource-intake-proposal-isolation/v3"
+CANDIDATE_POLICY = "resource-intake-retained-proposals/v4"
 REVIEW_REASON = "RESOURCE_HUMAN_REVIEW_REQUIRED"
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -317,8 +317,6 @@ def _project_output(
                 for page, block in resolved
             ) or not _nonempty_text(concept.get("label")):
                 reason = "RESOURCE_EVIDENCE_NOT_GROUNDED"
-            elif concept.get("processing") != "succeeded":
-                reason = "RESOURCE_PROPOSAL_UNCERTAIN"
         if reason is not None:
             page_number = pages_by_ref.get(concept.get("page_ref"), {}).get("page_number")
             omitted.append({

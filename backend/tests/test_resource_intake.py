@@ -12,7 +12,6 @@ from learning_resources.map_resources import (
     validate_resource_library,
 )
 from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
-from pdf_evidence.concept_generation import concept_id
 from pdf_evidence.text_first_bundle import build_producer_bundle, publish_run
 from runtime.material_processing import MaterialProcessingError
 from test_study_material_output import producer_output
@@ -97,7 +96,6 @@ def _install_producer(
     def run(request, settings):
         calls.append(deepcopy(request))
         output = producer_output()
-        output["concepts"][0]["processing"] = "succeeded"
         if output_mutator is not None:
             output_mutator(output)
         identity = dict(output)
@@ -225,6 +223,9 @@ def test_analyze_writes_immutable_bundle_and_exact_replay_uses_no_model(
         resource_intake._candidate_content_sha256(candidate)
     )
     assert candidate["publishable_proposals"][0]["label"] == "Public concept"
+    assert candidate["candidate_policy"] == (
+        "resource-intake-retained-proposals/v4"
+    )
     assert candidate["processing"] == "partial"
     assert (directory.stat().st_mode & 0o777) == 0o700
     assert ((directory / "candidate.json").stat().st_mode & 0o777) == 0o600
@@ -412,11 +413,9 @@ def test_replace_failure_and_candidate_tamper_never_overwrite_library(
 
 def test_projection_isolates_unsupported_proposals():
     output = producer_output()
-    uncertain = deepcopy(output)
-    uncertain["concepts"][0]["processing"] = "partial"
-    proposals, omitted = resource_intake._project_output(uncertain)
-    assert proposals == []
-    assert omitted[0]["reason_code"] == "RESOURCE_PROPOSAL_UNCERTAIN"
+    proposals, omitted = resource_intake._project_output(output)
+    assert len(proposals) == 1
+    assert omitted == []
 
     missing = deepcopy(output)
     missing["concepts"][0]["claims"][0]["evidence_ids"] = []
@@ -445,8 +444,13 @@ def test_projection_isolates_unsupported_proposals():
     assert proposals == []
     assert omitted[0]["reason_code"] == "RESOURCE_EVIDENCE_NOT_GROUNDED"
 
+    empty_label = deepcopy(output)
+    empty_label["concepts"][0]["label"] = ""
+    proposals, omitted = resource_intake._project_output(empty_label)
+    assert proposals == []
+    assert omitted[0]["reason_code"] == "RESOURCE_EVIDENCE_NOT_GROUNDED"
+
     multiple = deepcopy(output)
-    multiple["concepts"][0]["processing"] = "succeeded"
     second_evidence = deepcopy(multiple["pages"][0]["evidence_blocks"][0])
     second_evidence["evidence_id"] = "evidence:sha256:" + "8" * 64
     second_evidence["block_id"] = "block:sha256:" + "7" * 64
@@ -476,49 +480,53 @@ def test_projection_isolates_unsupported_proposals():
     assert omitted[0]["reason_code"] == "RESOURCE_PROPOSAL_UNCERTAIN"
 
 
-def test_analyze_keeps_valid_sibling_when_one_proposal_is_uncertain(
-    tmp_path, monkeypatch, capsys
-):
-    def add_invalid_sibling(output):
-        invalid = deepcopy(output["concepts"][0])
-        invalid["label"] = "Invalid sibling"
-        invalid["concept_id"] = concept_id(
-            invalid["page_ref"], invalid["label"], invalid["claims"]
-        )
-        invalid["processing"] = "partial"
-        output["concepts"].append(invalid)
+def test_partial_concept_uses_only_retained_claim_evidence():
+    output = producer_output()
+    unused_evidence = deepcopy(output["pages"][0]["evidence_blocks"][0])
+    unused_evidence["evidence_id"] = "evidence:sha256:" + "8" * 64
+    unused_evidence["text"] = "Evidence from a claim removed upstream."
+    output["pages"][0]["evidence_blocks"].append(unused_evidence)
+    output["concepts"][0]["claims"] = output["concepts"][0]["claims"][:1]
 
-    analyzed, _, _, _, _, candidates, _ = _analyze(
-        tmp_path,
-        monkeypatch,
-        capsys,
-        output_mutator=add_invalid_sibling,
-    )
-    candidate = json.loads(
-        (candidates / analyzed["candidate_id"] / "candidate.json").read_bytes()
-    )
-    assert len(candidate["publishable_proposals"]) == 1
-    assert candidate["omitted_items"] == [{
-        "concept_id": candidate["omitted_items"][0]["concept_id"],
-        "page_number": 1,
-        "reason_code": "RESOURCE_PROPOSAL_UNCERTAIN",
-        "processing": "failed",
-        "quality": "needs_review",
-        "decision": "reject",
-    }]
+    proposals, omitted = resource_intake._project_output(output)
+
+    assert omitted == []
+    assert [
+        item["source_evidence_id"] for item in proposals[0]["evidence"]
+    ] == output["concepts"][0]["claims"][0]["evidence_ids"]
+
+
+def test_valid_partial_concept_survives_invalid_sibling():
+    output = producer_output()
+    invalid = deepcopy(output["concepts"][0])
+    invalid["concept_id"] = "concept:sha256:" + "9" * 64
+    invalid["label"] = "Invalid sibling"
+    invalid["claims"][0]["evidence_ids"] = []
+    output["concepts"].append(invalid)
+
+    proposals, omitted = resource_intake._project_output(output)
+
+    assert len(proposals) == 1
+    assert omitted[0]["concept_id"] == invalid["concept_id"]
+    assert omitted[0]["reason_code"] == "RESOURCE_EVIDENCE_MISSING"
 
 
 def test_analyze_truthfully_rejects_when_every_proposal_is_invalid(
     tmp_path, monkeypatch, capsys
 ):
-    def mark_uncertain(output):
-        output["concepts"][0]["processing"] = "partial"
+    def reject_every_candidate(output):
+        output["concepts"] = []
+        output["processing"] = "partial"
+        output["reason_codes"] = [
+            "CONTENT_REVIEW_REQUIRED",
+            "PAGE_CONTENT_UNUSABLE",
+        ]
 
     failure, *_ = _analyze(
         tmp_path,
         monkeypatch,
         capsys,
-        output_mutator=mark_uncertain,
+        output_mutator=reject_every_candidate,
         expected_return=1,
     )
     assert failure == {
