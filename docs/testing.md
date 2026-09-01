@@ -93,9 +93,9 @@ bbox 與 runtime metadata 均留在後端完成綁定。
 
 ## Assessment generation qualification
 
-P06-03 的獨立 Assessment runtime binding、deterministic gates、risk-only repair、
-mDeBERTa complete-input protocol、session-scoped new-item selection、P06-02
-public/private contract、semantic novelty 與 persistence regression 可用以下命令驗證：
+Phase 06 的獨立 Assessment runtime binding、deterministic correctness gates、risk-only
+repair、publication-independent private novelty qualification、mastery，以及單一 learner
+progress/guidance contract可用以下命令驗證：
 
 ```bash
 PYTHONPATH=backend/src backend/.venv/bin/python -m runtime.local_runtime verify
@@ -108,7 +108,11 @@ PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/python -m pytest \
   backend/tests/test_local_ai_process.py \
   local_ai/tests/test_protocol.py \
   local_ai/tests/test_assessment_process.py \
-  backend/tests/runtime/test_assessment_items.py
+  backend/tests/runtime/test_assessment_items.py \
+  backend/tests/runtime/test_answer_events.py \
+  backend/tests/runtime/test_learning_states.py \
+  backend/tests/runtime/test_learner_progress.py \
+  backend/tests/runtime/test_api_runtime.py
 ```
 
 Material / Agent 1–3 只由 `local_ai/runtime-lock.json` 綁定；Agent 4 的 prompt、
@@ -121,19 +125,32 @@ Evidence-option pair；超過384 tokens時回傳明確reject，禁止以截斷�
 Claim Evidence驗證整體margin與multiple-supported distractor risk；private
 `assessment-generation-provenance/v2`保存兩組對齊分數，model宣告的support IDs不能單獨
 作為grounding證明。
-Novelty authority不是`question_id`或Claim identity：`question_id`綁定公開 Assessment
-內容以及 map、concept、claim、Evidence、question type 與 policy 等 domain bindings，
-不是只由學生可見 prompt/options 建立；跨 Claim 的 novelty identity則由 normalized student-visible prompt
-與 private correct answer 的 semantic focus 建立。每次比較都必須對所有既有 semantic
-identities 通過 conservative `entailment-or-unproven-neutral-reject/v3`決策，任一
-entailment、unproven neutral 或方向不足即拒絕該candidate；不得以單一相似度分數放行。
-資料庫另以`(study_session_id, semantic_identity)`唯一約束作為最後防線。
+Novelty qualification不是publication gate。`question_id`綁定公開 Assessment內容以及
+Map、Concept、Claim、Evidence、question type與policy等domain bindings；private semantic
+identity由normalized student-visible prompt與private correct answer的semantic focus建立。
+exact identity在整個StudySession防重，資料庫另以
+`(study_session_id, semantic_identity)`唯一約束作為最後防線；semantic novelty只與同一
+target Claim的prior artifacts比較。沒有prior或positively verified distinct才計入private
+distinct mastery evidence。neutral、uncertain、timeout、invalid、unavailable、unsupported
+或over-limit仍發布correctness-safe grounded nonduplicate，但保持unqualified。
 同一StudySession依margin與candidate index deterministic選擇尚未儲存的semantic
 identity；最高排名risky proposal的repair pool耗盡後，仍須繼續掃描較低排名的
-unused safe proposals。全部safe possibilities真正耗盡時，沿用PR-05 no-safe handoff
+unused safe proposals。只有correctness-safe、grounded、nonduplicate possibilities真正耗盡
+時才記錄該Claim的no-safe狀態；novelty不確定或novelty-stage failure不得寫入no-safe。
+耗盡時沿用no-safe handoff
 記錄該claim的no-safe狀態，回傳`NO_SAFE_ASSESSMENT`／`ASSESSMENT_NO_NEW_SAFE_ITEM`，
-再由既有 adaptive-plan defer/resume flow 尋找下一個可行重點；不建立新的Assessment
+再由`learner-progress/v1`的canonical `initial_learning_path` defer/resume guidance尋找下一個
+可行重點；不建立新的Assessment
 或AnswerEvent，也不推測答案或降低任何安全gate。
+
+單一Claim mastery必須有兩個unique、correct、positively qualified item identities。
+unqualified answers仍更新attempts、latest result、coverage、repeated errors與improvement
+history，但不增加`qualified_distinct_correct_items`。`GET /progress`回傳同一
+`event_watermark`下的`learner-progress/v1`；`POST /guidance/apply`只接受exact
+`guidance_revision`並回傳重新推導的progress。舊context、learning-state、weakness、
+adaptive-plan與suggestion derived APIs沒有alias或compatibility surface。Map v11 flat
+grounded Tree與canonical inline `initial_learning_path`只讀；Agent 4不消費或推論
+prerequisite、prerequisite-gap或Relation資料。
 
 正式 `/v1` app 會在第一次 Assessment request lazy 啟動 Qwen 與 Assessment verifier，
 後續 request 在同一安全 lifecycle 內 reuse ready process。reuse期間沿用既有
@@ -141,7 +158,7 @@ unused safe proposals。全部safe possibilities真正耗盡時，沿用PR-05 no
 idle或app shutdown會回收process並釋放lock。任一 generation failure會同時丟棄Qwen與
 verifier，下一次request重新cold start，不reuse可能損壞的process。這個lifecycle不改
 Assessment runtime lock、prompt、NLI threshold、repair、Evidence Gate或selection policy。
-fresh disposable database 應由上述 migration command 套用連續的 1–16 版 migration；
+fresh disposable database 應由上述 migration command 套用連續的 1–17 版 migration；
 再次執行必須回傳空 tuple 並驗證 ledger checksum。`runtime.local_runtime verify`
 必須同時驗證 assessment package source hashes、model revisions、prompt hashes 與
 novelty/selection policy；lock 或 migration checksum 不符時應 fail closed。

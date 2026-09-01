@@ -1,9 +1,9 @@
-# Phase 06 — Agent 4 Learning Adaptation：Assessment、Learning State、Weakness 與 Dynamic Suggestion — Frozen Execution Plan
+# Phase 06 — Agent 4 Learning Adaptation：Assessment 與 Learner Progress — Frozen Contract
 
-- **文件定位：** Phase 06 的 authoritative product / execution plan。P06-00～03 已完成並凍結；P06-04～10 依本文件與最新 `dev` 真實程式碼繼續實作。
-- **目前 frozen baseline：** P06-03 accepted candidate `161cf9f6761e187ba944b9b71b96ddea454f09df`。P06-04 long-run 只可在該 candidate 正式合回最新 `dev` 後開始；若實際 `dev` 已不同，先確認差異來源。
+- **文件定位：** Phase 06 的 authoritative product contract。下方早期 Task 拆分只保留歷史脈絡；與「Plan 02 authoritative cutover」衝突的名稱、API 或行為不是 active guidance。
+- **目前 frozen baseline：** Plan 02 validated candidate `eb2026f4872b880e814ac3b961e7b9e00835b7d6`。
 - **前置依賴：** Phase 05 已發布的 Map v11 Document Tree 與 grounded `initial_learning_path` contract；Phase 03 stable Evidence；Phase 04 promoted supplementary resources。
-- **核心原則：** Agent 4 不重建 Knowledge Map、不創造新的 Relation、不覆寫 Agent 3 canonical `initial_learning_path`；以 evidence-grounded 單選題建立可信 assessment signal，再建立 StudySession-scoped learner state、weakness 與 adaptive next-step overlay。
+- **核心原則：** Agent 4 不重建 Knowledge Map、不讀取或創造 Relation、不覆寫 canonical `initial_learning_path`；以 evidence-grounded 單選題建立可信 assessment signal，再建立 StudySession-scoped `learner-progress/v1`。
 - **Assessment scope：** V2 第一版固定只支援 `single_choice`，**exactly 4 options**；free-response、複選、程式題與 AI semantic grading 全部延後。
 - **Assessment grounding：** 第一版題目固定為 **Formal Concept / Claim / canonical exact Evidence-grounded**；不新增 Relation-question contract。
 - **Session 邊界：** Learning State / Mastery / Weakness / Adaptive Plan 只在單次 `StudySession` 內成立；不同 StudySession 預設互不繼承。
@@ -11,8 +11,64 @@
 - **Mastery 原則：** claim-aware、deterministic、conservative；單題答對永遠不得直接 mastered，confidence / coverage 與 mastery 分離。
 - **訊號限制：** V2 **不使用 dwell time / engagement duration 作 learner-state signal**；不足時使用 `needs_more_data`、`collect_more_data` 或 canonical path fallback。
 - **Path 原則：** Agent 4 只使用 Map v11 的 grounded `initial_learning_path`；不從 `contains`、`related` 或其他 Relation 推導學習依賴。
-- **Adaptive output：** 一次只輸出 **one primary adaptive step**；Suggestion 只是 Adaptive Plan projection，不建立第二套 recommendation engine。
-- **Execution mode：** P06-04～10 可在同一 Codex App conversation / long-run Goal 連續執行，但每個 Task 必須獨立 test → commit → push → checkpoint；重大 contract / architecture 衝突才升級給 planner/reviewer。
+- **Guidance output：** `learner-progress/v1` 一次只輸出 one `next_action`；只以 exact `guidance_revision` 套用。
+
+## Plan 02 authoritative cutover
+
+本節同步 exact validated candidate
+`eb2026f4872b880e814ac3b961e7b9e00835b7d6`。它取代下方歷史段落中分離的
+Context、Learning State snapshot、Weakness snapshot、Adaptive Plan 與 Suggestion
+public contract；不得提供舊 endpoint、schema、type alias、facade 或 compatibility claim。
+
+### Assessment publication 與 private mastery qualification
+
+- correctness-safe、grounded、非 exact duplicate 的候選必須發布；novelty 為 neutral、
+  uncertain、timeout、unavailable、unsupported、invalid 或 over-limit 時仍發布，但只記為
+  unqualified。
+- 只有「沒有同 Claim prior」或同 Claim comparison **positively verified distinct** 的題目，
+  才以 private `counts_as_distinct_mastery_evidence` 計入 distinct mastery evidence。此 qualification、
+  semantic focus、正解、pre-submit rationale 與 verifier scores 都不得進 public Assessment。
+- semantic novelty 只與同一 target Claim 的 prior artifacts 比較；exact semantic identity 仍在
+  整個 StudySession 防重，並保留 database uniqueness 與 session serialization。exact duplicate
+  必須跳過並繼續搜尋其他候選。
+- `NO_SAFE_ASSESSMENT` / `ASSESSMENT_NO_NEW_SAFE_ITEM` 只表示 correctness-safe、grounded、
+  非 exact duplicate 候選已耗盡。novelty 不確定或 novelty stage failure 本身不得建立或更新
+  no-safe state。
+- correctness gates 不變：exactly four options、selected/full Evidence margins、multiple-support、
+  ambiguity、leakage、technical-token、grounding 與 verifier complete-input limit 都維持 fail closed；
+  novelty failure handling 不得包住或放寬這些 gates。
+
+### Mastery 與 normal history
+
+- trusted `AnswerEvent` 維持 server-scored、append-only、owner/material/StudySession/Map-bound、
+  idempotent 與 replay-safe；qualification 來自 server-private immutable Assessment，不接受 client
+  輸入，也不新增 public qualification field。
+- 單一 Claim Concept 只有在至少兩個 unique、correct、qualified item identities 成立時，才滿足
+  distinct-item mastery threshold；`qualified_distinct_correct_items` 是公開 progress 中的透明計數。
+  一次答對、replay、兩個 unqualified correct，或一個 qualified 加一個 unqualified correct 都不得
+  mastered。
+- qualified 與 unqualified 的有效答案都正常更新 attempts、latest result、coverage、repeated errors
+  與 improvement history；unqualified 只是不增加 single-Claim distinct mastery evidence。multi-Claim
+  latest-correct 與 coverage 規則不變。
+
+### Canonical learner progress / guidance contract
+
+- `GET /v1/study-sessions/{study_session_id}/progress` 回傳唯一
+  `learner-progress/v1` projection：session/material/Map/path bindings、同一 `event_watermark` 下的
+  `concept_states`、`weakness_findings`、one `next_action` 與 `guidance_revision`。
+- `POST /v1/study-sessions/{study_session_id}/guidance/apply` 只接受
+  `guidance-apply/v1` 與 exact `guidance_revision`，在 owner/session/material/Map binding、row lock、
+  stale 與 idempotency 檢查後回傳重新推導的 `learner-progress/v1`。
+- 已移除 `/context`、`/learning-state`、`/weakness`、`/adaptive-plan` 與
+  `/adaptive-plan/apply`；frontend 讀 exact Map/run 加一份 progress，Concept/Claim/resource/path label
+  由唯讀 Knowledge Map view 組合。
+- Map v11 flat grounded Document Tree 與 canonical inline `initial_learning_path` 是唯讀輸入。
+  Agent 4 沒有 prerequisite、prerequisite-gap 或 Relation 的欄位、查詢、推論、routing 或 fallback
+  authority；guidance apply 只能更新 StudySession routing state，不得修改 Map document bytes、Map
+  revision 或 inline path bytes/hash。
+- 所有 derived read/apply 維持 learner ownership、StudySession isolation、exact Map revision、
+  stale rejection、concurrency serialization 與 replay-state binding；新 StudySession 不繼承另一
+  StudySession 的 derived progress。
 
 ## 階段定位
 
@@ -191,7 +247,9 @@ Frozen safety rules：
 - full Claim maximum distractor entailment `>= 0.4` 時，不可直接 promotion，必須進 repair。
 - verifier complete Evidence-option pair 最大 384 tokens；`truncation=False`，超限在 inference 前 reject。
 - repair 無 passing item時不回退 risky proposal；繼續考慮其他 ranked safe proposals。
-- 同 StudySession / Claim 已用 question identity 不作新題；所有安全 identities 耗盡才 `ASSESSMENT_NO_NEW_SAFE_ITEM`。
+- 同 StudySession 的 exact semantic identity 不作新題；跳過 exact duplicate 並繼續搜尋。只有
+  correctness-safe、grounded、非 exact duplicate 候選耗盡時才
+  `ASSESSMENT_NO_NEW_SAFE_ITEM`；novelty qualification 未通過或不確定不構成耗盡。
 - model `support_ids` 只是 proposal，不是 grounding authority。
 - 任一必要 semantic condition無法證明時，不生成 Assessment。
 - no same-model critic、blind verifier、absolute-NLI fallback、4B/8B substitute、relation-question fallback。
@@ -262,7 +320,8 @@ Concept 只有在以下條件**全部**成立時才可 `mastered`：
 2. required Claim coverage 成立。
 3. 被納入 coverage 的 Claim，其 **latest valid result 必須 correct**。
 4. Concept 有 `>= 2` Claims 時：至少兩個 distinct Claims 的 latest valid result correct。
-5. Concept 只有 1 Claim 時：至少兩個不同 item / attempt correct；不得用同一題 replay重複灌高 Mastery。
+5. Concept 只有 1 Claim 時：至少兩個 unique、correct、positively qualified item identities；
+   unqualified correct answer仍更新一般學習歷史，但不增加 distinct mastery evidence，replay亦不得重複灌高 Mastery。
 6. 一次答對永遠不得直接 mastered。
 
 其他規則：
@@ -271,7 +330,8 @@ Concept 只有在以下條件**全部**成立時才可 `mastered`：
 - no assessment evidence時不得宣稱 mastered；依 explicit learning action最多顯示 `not_started` / `learning`，並標 `needs_more_data`。
 - repeated wrong 可形成 needs-review / weakness evidence。
 - post-review improvement可反映 trend，但不能抹掉本 StudySession歷史。
-- duplicate / invalid / stale / wrong-session event不計入 state。
+- duplicate / invalid / stale / wrong-session event不計入 state；有效的 unqualified event照常更新
+  attempts、latest result、coverage、repeated errors與improvement，只不計入 single-Claim distinct mastery threshold。
 - 新 StudySession 不讀取上一 StudySession 的 derived mastery。
 
 ### G. Weakness model
@@ -545,7 +605,8 @@ read latest repo / previous frozen contract
 Frozen結果：
 
 - integration branch = `dev`。
-- Agent 3 canonical Map contract = `knowledge-map/v6`，Relation只有 `prerequisite` / `contains` / `related`，inline `initial_learning_path`；此為 Plan01 前歷史 baseline，已由 Map v11 Document Tree 取代。
+- Agent 4 的 canonical input 是 Map v11 flat grounded Document Tree 與 inline
+  `initial_learning_path`；兩者唯讀，沒有 Relation-derived learning dependency contract。
 - `LearnerSession`保留 auth/cookie責任，不承載學習進度。
 - 沒有證據需要為 hypothetical legacy建立 compatibility facade。
 
@@ -650,7 +711,8 @@ Frozen結果：
 - required Claim coverage成立。
 - 被納入 coverage 的 Claim，其 latest valid result必須 correct。
 - Concept有 `>= 2` Claims：至少兩個 distinct Claims latest valid result correct。
-- Concept只有1個 Claim：至少兩個不同 item / attempt correct。
+- Concept只有1個 Claim：至少兩個 unique、correct、positively qualified item identities；
+  unqualified correct answers仍更新一般歷史但不增加此計數。
 - 一次答對永遠不得直接 mastered。
 - replay / duplicate / invalid / stale / wrong-session event不算 valid evidence。
 
