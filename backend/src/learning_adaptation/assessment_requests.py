@@ -157,6 +157,15 @@ def generate_assessment_for_request(
                 session, learner_id, study_session_id
             )
             _validate_binding(session, study_session)
+            replay = _existing_request(
+                session,
+                study_session_id,
+                target_claim_id,
+                key_digest,
+                fingerprint,
+            )
+            if replay is not None:
+                return replay
             if study_session.status == "no_safe":
                 raise AssessmentGenerationError(
                     "ASSESSMENT_NO_NEW_SAFE_ITEM"
@@ -167,15 +176,6 @@ def generate_assessment_for_request(
                 study_session.current_formal_concept_id
             )
             expected_event_number = study_session.last_event_number
-            replay = _existing_request(
-                session,
-                study_session_id,
-                target_claim_id,
-                key_digest,
-                fingerprint,
-            )
-            if replay is not None:
-                return replay
             if target_claim_id in study_session.no_safe_claim_ids:
                 raise AssessmentGenerationError(
                     "ASSESSMENT_NO_NEW_SAFE_ITEM"

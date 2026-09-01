@@ -400,6 +400,7 @@ def _choose_primary_step(
             concept_id
             for concept_id in context.initial_learning_path
             if states[concept_id].status != "mastered"
+            and concept_id not in deferred_no_safe_ids
         ),
         None,
     )
@@ -450,6 +451,28 @@ def _choose_primary_step(
             "RETURN_DEFERRED_TARGET",
         )
     if first_not_mastered_id is None:
+        blocked_deferred_id = next(
+            (
+                concept_id
+                for concept_id in context.initial_learning_path
+                if concept_id in deferred_no_safe_ids
+                and states[concept_id].status != "mastered"
+            ),
+            None,
+        )
+        if blocked_deferred_id is not None:
+            return (
+                _step(
+                    study_session.study_session_id,
+                    "no_action",
+                    None,
+                    "先前暫緩的教材重點仍有尚未掌握的先備概念，現在不能返回。",
+                    "supported",
+                    False,
+                    [current_id, blocked_deferred_id],
+                ),
+                "NO_SAFE_PREREQUISITE_BLOCKED",
+            )
         return (
             _step(
                 study_session.study_session_id,
@@ -535,13 +558,17 @@ def _adaptive_plan_snapshot(
         "primary_step": primary_step.model_dump(mode="json"),
         "fallback_reason": fallback_reason,
     }
+    revision_identity = {
+        **identity,
+        "no_safe_claim_ids": list(study_session.no_safe_claim_ids),
+    }
     return AdaptivePlanSnapshot.model_validate(
         {
             **identity,
             "study_session_id": study_session.study_session_id,
             "primary_step": primary_step,
             "adaptive_plan_revision": (
-                "adaptive-plan:sha256:" + canonical_sha256(identity)
+                "adaptive-plan:sha256:" + canonical_sha256(revision_identity)
             ),
         }
     )

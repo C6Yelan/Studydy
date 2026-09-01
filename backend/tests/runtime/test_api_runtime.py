@@ -434,6 +434,12 @@ def test_openapi_has_phase_06_learning_routes_without_private_fields(
     }
     assert "HTTPValidationError" not in document["components"]["schemas"]
     assert "ValidationError" not in document["components"]["schemas"]
+    assessment_responses = document["paths"][
+        "/v1/study-sessions/{study_session_id}/assessments"
+    ]["post"]["responses"]
+    assert assessment_responses["422"]["content"]["application/json"][
+        "schema"
+    ] == {"$ref": "#/components/schemas/ApiErrorView"}
     assert all(
         schema.get("additionalProperties") is False
         for schema in document["components"]["schemas"].values()
@@ -774,6 +780,86 @@ def test_no_safe_assessment_has_durable_distinct_terminal_state(
             )
             assert unavailable.status_code == 404
             assert unavailable.json()["reason_code"] == "RESOURCE_NOT_FOUND"
+
+
+def test_no_safe_state_preserves_bound_assessment_submission_and_replay(
+    settings: ApiSettings, monkeypatch: pytest.MonkeyPatch
+):
+    calls = 0
+
+    def first_safe_then_no_safe(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return _fake_assessment_generation(*args, **kwargs)
+        raise AssessmentGenerationError("ASSESSMENT_NO_NEW_SAFE_ITEM")
+
+    monkeypatch.setattr(
+        assessment_request_module,
+        "generate_and_store_assessment",
+        first_safe_then_no_safe,
+    )
+    with TestClient(create_app(settings)) as client:
+        _, knowledge_map, material_id = _learning_material(client, settings)
+        target = knowledge_map["formal_concepts"][-1]
+        created = client.post(
+            "/v1/study-sessions",
+            headers=_headers("outstanding-assessment-session"),
+            json={
+                "schema": "study-session-create/v1",
+                "material_id": str(material_id),
+                "knowledge_map_revision": knowledge_map["revision"],
+                "current_formal_concept_id": target["formal_concept_id"],
+            },
+        ).json()
+        session_id = created["study_session_id"]
+        assessment_url = f"/v1/study-sessions/{session_id}/assessments"
+        body = {
+            "schema": "assessment-create/v1",
+            "target_claim_id": target["claims"][0]["claim_id"],
+        }
+
+        issued = client.post(
+            assessment_url,
+            headers=_headers("issued-safe-assessment"),
+            json=body,
+        )
+        assert issued.status_code == 201
+        no_safe = client.post(
+            assessment_url,
+            headers=_headers("new-no-safe-assessment"),
+            json=body,
+        )
+        assert no_safe.status_code == 422
+        assert no_safe.json()["reason_code"] == "NO_SAFE_ASSESSMENT"
+
+        assessment = issued.json()
+        submitted = client.post(
+            f"{assessment_url}/{assessment['assessment_revision']}/submissions",
+            headers=_headers("outstanding-assessment-answer"),
+            json={
+                "schema": "answer-submission-create/v1",
+                "question_id": assessment["question_id"],
+                "selected_option_id": assessment["options"][0]["option_id"],
+            },
+        )
+        assert submitted.status_code == 201
+
+        replay = client.post(
+            assessment_url,
+            headers=_headers("issued-safe-assessment"),
+            json=body,
+        )
+        assert replay.status_code == 201
+        assert replay.json() == assessment
+        terminal = client.post(
+            assessment_url,
+            headers=_headers("another-new-assessment"),
+            json=body,
+        )
+        assert terminal.status_code == 422
+        assert terminal.json()["reason_code"] == "NO_SAFE_ASSESSMENT"
+        assert calls == 2
 
 
 def _sequenced_assessment_generation(

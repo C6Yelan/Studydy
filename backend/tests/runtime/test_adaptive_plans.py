@@ -21,7 +21,7 @@ from learning_adaptation.study_sessions import (
 from learning_adaptation.learning_states import derive_learning_state
 from runtime.storage.migrations import run_migrations
 from runtime.learner_session import TrustedLearner
-from test_learning_states import _answer, _state_session
+from test_learning_states import _answer, _multi_claim_map, _state_session
 
 
 @pytest.fixture
@@ -475,6 +475,17 @@ def test_no_safe_defer_and_resume_preserve_events_and_canonical_map(
         dsn=adaptive_database_dsn,
     ).study_session == applied.study_session
 
+    while_next_concept_is_unfinished = derive_adaptive_plan(
+        learner, study_session.study_session_id, dsn=adaptive_database_dsn
+    )
+    assert (
+        while_next_concept_is_unfinished.primary_step.target_formal_concept_id
+        == next_concept["formal_concept_id"]
+    )
+    assert while_next_concept_is_unfinished.primary_step.action == (
+        "collect_more_data"
+    )
+
     for sequence in (3, 4):
         _answer(
             adaptive_database_dsn,
@@ -511,6 +522,46 @@ def test_no_safe_defer_and_resume_preserve_events_and_canonical_map(
             "SELECT document FROM knowledge_maps WHERE map_revision=%s",
             (knowledge_map["revision"],),
         ).fetchone()[0] == before
+
+
+def test_partial_no_safe_claim_change_makes_adaptive_plan_stale(
+    adaptive_database_dsn: str,
+):
+    learner, knowledge_map, _, study_session = _state_session(
+        adaptive_database_dsn, _multi_claim_map()
+    )
+    old_plan = derive_adaptive_plan(
+        learner, study_session.study_session_id, dsn=adaptive_database_dsn
+    )
+    current = knowledge_map["formal_concepts"][0]
+
+    record_no_safe_assessment(
+        learner,
+        study_session.study_session_id,
+        current["claims"][0]["claim_id"],
+        current["formal_concept_id"],
+        0,
+        dsn=adaptive_database_dsn,
+    )
+
+    new_plan = derive_adaptive_plan(
+        learner, study_session.study_session_id, dsn=adaptive_database_dsn
+    )
+    assert new_plan.primary_step == old_plan.primary_step
+    assert new_plan.adaptive_plan_revision != old_plan.adaptive_plan_revision
+    with pytest.raises(AdaptivePlanError, match="ADAPTIVE_PLAN_STALE"):
+        apply_adaptive_plan(
+            learner,
+            study_session.study_session_id,
+            old_plan.adaptive_plan_revision,
+            dsn=adaptive_database_dsn,
+        )
+    assert apply_adaptive_plan(
+        learner,
+        study_session.study_session_id,
+        new_plan.adaptive_plan_revision,
+        dsn=adaptive_database_dsn,
+    ).plan == new_plan
 
 
 def test_multiple_no_safe_defers_follow_path_and_exclude_active_deferred(

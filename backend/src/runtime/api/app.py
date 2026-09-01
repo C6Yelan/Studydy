@@ -402,6 +402,12 @@ def _install_openapi(app: FastAPI) -> None:
                     response_codes.add(409)
                 if path == "/v1/materials" and method == "post":
                     response_codes.update({413, 415})
+                if (
+                    path
+                    == "/v1/study-sessions/{study_session_id}/assessments"
+                    and method == "post"
+                ):
+                    response_codes.add(422)
                 response_codes.add(503)
                 for code in sorted(response_codes):
                     operation.setdefault("responses", {})[str(code)] = deepcopy(error_response)
