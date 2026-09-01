@@ -54,8 +54,9 @@ PYTHONPATH=backend/src python -m runtime.local_runtime verify
 ```
 
 `verify` 只讀取並驗證目前已安裝的 runtime，沒有副作用。`sync` 是明確、另行授權
-的操作，只 reconcile 已安裝 Studydy Python package 中的四個檔案：
-`__init__.py`、`protocol.py`、`ocr_process.py` 與 `relation_process.py`。若有變更，會先保留四個檔案的完整
+的操作，只 reconcile 已安裝 Studydy Python package 中的六個檔案：
+`__init__.py`、`protocol.py`、`ocr_process.py`、`relation_process.py`、
+`equivalence_process.py` 與 `assessment_process.py`。若有變更，會先保留六個檔案的完整
 backup；`sync --rollback` 會從該 backup 還原。sync 不會在啟動時自動執行，也不會
 進行下載、安裝或網路操作；在真實主機上執行會改動檔案，必須另行取得批准。
 
@@ -136,8 +137,9 @@ Evidence-option pair；超過384 tokens時回傳明確reject，禁止以截斷�
 Claim Evidence驗證整體margin與multiple-supported distractor risk；private
 `assessment-generation-provenance/v2`保存兩組對齊分數，model宣告的support IDs不能單獨
 作為grounding證明。
-Novelty authority不是`question_id`或Claim identity：`question_id`是由學生可見題目內容
-建立的內容 identity；跨 Claim 的 novelty identity則由 normalized student-visible prompt
+Novelty authority不是`question_id`或Claim identity：`question_id`綁定公開 Assessment
+內容以及 map、concept、claim、Evidence、question type 與 policy 等 domain bindings，
+不是只由學生可見 prompt/options 建立；跨 Claim 的 novelty identity則由 normalized student-visible prompt
 與 private correct answer 的 semantic focus 建立。每次比較都必須對所有既有 semantic
 identities 通過 conservative `entailment-or-unproven-neutral-reject/v3`決策，任一
 entailment、unproven neutral 或方向不足即拒絕該candidate；不得以單一相似度分數放行。
