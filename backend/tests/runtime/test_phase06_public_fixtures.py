@@ -4,13 +4,11 @@ import json
 from pathlib import Path
 
 from runtime.api.models import (
-    AdaptiveResponseView,
     AnswerFeedbackView,
     ApiErrorView,
     AssessmentView,
-    LearningStateView,
+    LearnerProgressView,
     StudySessionView,
-    WeaknessView,
 )
 
 
@@ -20,9 +18,9 @@ def test_phase06_public_fixtures_are_strict_and_contain_no_private_fields():
     assert fixtures["schema"] == "phase06-public-fixtures/v1"
     validators = {
         "success": AssessmentView,
-        "low_data": LearningStateView,
-        "weakness": WeaknessView,
-        "review_needed": AdaptiveResponseView,
+        "low_data": LearnerProgressView,
+        "weakness": LearnerProgressView,
+        "review_needed": LearnerProgressView,
         "reassessment": AnswerFeedbackView,
         "completed": StudySessionView,
         "stale": ApiErrorView,

@@ -8,9 +8,9 @@ import pytest
 
 from learning_adaptation.answer_events import submit_answer
 from learning_adaptation.assessment_items import store_assessment
-from learning_adaptation.learning_states import (
-    LearningStateError,
-    derive_learning_state,
+from learning_adaptation.learner_progress import (
+    LearnerProgressError,
+    derive_learner_progress,
 )
 from learning_adaptation.study_sessions import (
     StudySessionError,
@@ -22,7 +22,7 @@ from pdf_evidence.concept_generation import claim_id, concept_id
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.learner_session import TrustedLearner
 from runtime.storage.migrations import run_migrations
-from test_assessment_items import _documents
+from test_assessment_items import _documents, _qualified_novelty
 from test_study_sessions import (
     _formal_id,
     _insert_material_map,
@@ -37,7 +37,7 @@ def state_database_dsn(
 ) -> str:
     assert run_migrations(
         clean_database_dsn, migrations_dir=migrations_dir
-) == tuple(range(1, 17))
+    ) == tuple(range(1, 18))
     return clean_database_dsn
 
 
@@ -107,6 +107,7 @@ def _answer(
     claim_index: int = 0,
     correct: bool,
     sequence: int,
+    qualified: bool = True,
 ):
     concept = knowledge_map["formal_concepts"][concept_index]
     claim = concept["claims"][claim_index]
@@ -128,6 +129,9 @@ def _answer(
         learner,
         documents.public_document,
         documents.private_answer_document,
+        semantic_novelty=(
+            _qualified_novelty(documents) if qualified else None
+        ),
         dsn=dsn,
     )
     selected_option_id = assessment.private_answer_document.correct_option_id
@@ -154,15 +158,15 @@ def test_no_data_and_one_answer_remain_conservative_and_deterministic(
     learner, knowledge_map, _, study_session = _state_session(
         state_database_dsn
     )
-    empty = derive_learning_state(
+    empty = derive_learner_progress(
         learner, study_session.study_session_id, dsn=state_database_dsn
     )
-    replay = derive_learning_state(
+    replay = derive_learner_progress(
         learner, study_session.study_session_id, dsn=state_database_dsn
     )
     assert replay == empty
     assert empty.event_watermark == 0
-    assert empty.all_mastered is False
+    assert not all(state.status == "mastered" for state in empty.concept_states)
     assert all(
         state.status == "not_started"
         and state.mastery_band == "no_evidence"
@@ -179,11 +183,11 @@ def test_no_data_and_one_answer_remain_conservative_and_deterministic(
         correct=True,
         sequence=1,
     )
-    one_answer = derive_learning_state(
+    one_answer = derive_learner_progress(
         learner, study_session.study_session_id, dsn=state_database_dsn
     )
     current = one_answer.concept_states[0]
-    assert one_answer.state_revision != empty.state_revision
+    assert one_answer.guidance_revision != empty.guidance_revision
     assert one_answer.event_watermark == 1
     assert current.status == "learning"
     assert current.mastery_band == "developing"
@@ -215,7 +219,7 @@ def test_single_claim_requires_two_distinct_correct_items(
         correct=True,
         sequence=2,
     )
-    snapshot = derive_learning_state(
+    snapshot = derive_learner_progress(
         learner, study_session.study_session_id, dsn=state_database_dsn
     )
     current = snapshot.concept_states[0]
@@ -224,8 +228,42 @@ def test_single_claim_requires_two_distinct_correct_items(
     assert current.confidence == "supported"
     assert current.needs_more_data is False
     assert current.valid_attempts == current.correct_attempts == 2
-    assert current.distinct_item_attempts == 2
+    assert current.qualified_distinct_correct_items == 2
     assert current.reason_code == "MASTERY_DEMONSTRATED"
+
+
+@pytest.mark.parametrize(
+    ("qualified_answers", "qualified_count"),
+    [((False, False), 0), ((True, False), 1)],
+)
+def test_unqualified_correct_answers_update_history_without_false_mastery(
+    state_database_dsn: str,
+    qualified_answers: tuple[bool, bool],
+    qualified_count: int,
+):
+    learner, knowledge_map, _, study_session = _state_session(
+        state_database_dsn
+    )
+    for sequence, qualified in enumerate(qualified_answers, start=1):
+        _answer(
+            state_database_dsn,
+            learner,
+            knowledge_map,
+            study_session,
+            correct=True,
+            sequence=sequence,
+            qualified=qualified,
+        )
+
+    current = derive_learner_progress(
+        learner, study_session.study_session_id, dsn=state_database_dsn
+    ).concept_states[0]
+    assert current.status == "learning"
+    assert current.reason_code == "DISTINCT_ITEM_EVIDENCE_REQUIRED"
+    assert current.valid_attempts == current.correct_attempts == 2
+    assert current.latest_correct_claim_ids == current.attempted_claim_ids
+    assert current.claim_coverage_complete is True
+    assert current.qualified_distinct_correct_items == qualified_count
 
 
 def test_wrong_mixed_and_post_error_improvement_keep_history(
@@ -242,7 +280,7 @@ def test_wrong_mixed_and_post_error_improvement_keep_history(
         correct=False,
         sequence=1,
     )
-    wrong = derive_learning_state(
+    wrong = derive_learner_progress(
         learner, study_session.study_session_id, dsn=state_database_dsn
     ).concept_states[0]
     assert wrong.status == "needs_review"
@@ -257,7 +295,7 @@ def test_wrong_mixed_and_post_error_improvement_keep_history(
         correct=True,
         sequence=2,
     )
-    improved = derive_learning_state(
+    improved = derive_learner_progress(
         learner, study_session.study_session_id, dsn=state_database_dsn
     ).concept_states[0]
     assert improved.status == "learning"
@@ -284,7 +322,7 @@ def test_repeated_wrong_is_needs_review_without_more_data_claim(
             correct=False,
             sequence=sequence,
         )
-    current = derive_learning_state(
+    current = derive_learner_progress(
         learner, study_session.study_session_id, dsn=state_database_dsn
     ).concept_states[0]
     assert current.status == "needs_review"
@@ -318,7 +356,7 @@ def test_multi_claim_coverage_and_latest_result_gate_mastery(
         correct=True,
         sequence=2,
     )
-    incomplete = derive_learning_state(
+    incomplete = derive_learner_progress(
         learner, study_session.study_session_id, dsn=state_database_dsn
     ).concept_states[0]
     assert incomplete.status == "learning"
@@ -334,7 +372,7 @@ def test_multi_claim_coverage_and_latest_result_gate_mastery(
         correct=True,
         sequence=3,
     )
-    mastered = derive_learning_state(
+    mastered = derive_learner_progress(
         learner, study_session.study_session_id, dsn=state_database_dsn
     ).concept_states[0]
     assert mastered.status == "mastered"
@@ -349,7 +387,7 @@ def test_multi_claim_coverage_and_latest_result_gate_mastery(
         correct=False,
         sequence=4,
     )
-    regressed = derive_learning_state(
+    regressed = derive_learner_progress(
         learner, study_session.study_session_id, dsn=state_database_dsn
     ).concept_states[0]
     assert regressed.status == "needs_review"
@@ -376,10 +414,10 @@ def test_all_mastered_and_new_session_are_isolated(state_database_dsn: str):
                 correct=True,
                 sequence=sequence,
             )
-    complete = derive_learning_state(
+    complete = derive_learner_progress(
         learner, study_session.study_session_id, dsn=state_database_dsn
     )
-    assert complete.all_mastered is True
+    assert all(state.status == "mastered" for state in complete.concept_states)
     assert complete.event_watermark == 6
     assert all(state.status == "mastered" for state in complete.concept_states)
 
@@ -393,11 +431,13 @@ def test_all_mastered_and_new_session_are_isolated(state_database_dsn: str):
         ],
         dsn=state_database_dsn,
     )
-    isolated = derive_learning_state(
+    isolated = derive_learner_progress(
         learner, new_session.study_session_id, dsn=state_database_dsn
     )
     assert isolated.event_watermark == 0
-    assert isolated.all_mastered is False
+    assert not all(
+        state.status == "mastered" for state in isolated.concept_states
+    )
     assert all(
         state.status == "not_started" for state in isolated.concept_states
     )
@@ -410,8 +450,8 @@ def test_wrong_owner_and_tampered_event_binding_fail_closed(
         state_database_dsn
     )
     outsider = TrustedLearner(uuid4())
-    with pytest.raises(LearningStateError, match="LEARNING_STATE_UNAVAILABLE"):
-        derive_learning_state(
+    with pytest.raises(LearnerProgressError, match="LEARNER_PROGRESS_UNAVAILABLE"):
+        derive_learner_progress(
             outsider, study_session.study_session_id, dsn=state_database_dsn
         )
 
@@ -429,8 +469,8 @@ def test_wrong_owner_and_tampered_event_binding_fail_closed(
             "WHERE answer_event_id=%s",
             ("claim:sha256:" + "9" * 64, submitted.event.answer_event_id),
         )
-    with pytest.raises(LearningStateError, match="LEARNING_STATE_UNAVAILABLE"):
-        derive_learning_state(
+    with pytest.raises(LearnerProgressError, match="LEARNER_PROGRESS_UNAVAILABLE"):
+        derive_learner_progress(
             learner, study_session.study_session_id, dsn=state_database_dsn
         )
 

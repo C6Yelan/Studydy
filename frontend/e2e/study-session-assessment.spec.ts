@@ -1,21 +1,18 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 import {
-  adaptiveView,
   apiError,
   assessmentView,
-  contextView,
   feedbackView,
-  learningStateView,
   mapRevision,
   mapView,
   materialId,
+  progressView,
   runId,
   runView,
   sessionView,
   studySessionId,
   targetConceptId,
-  weaknessView,
 } from "./fixtures/learning";
 
 async function captureAcceptance(page: Page, filename: string) {
@@ -36,7 +33,7 @@ async function learningRoutes(
   page: Page,
   eventWatermark: () => number = () => 0,
   knowledgeMap = mapView(),
-  context = contextView(),
+  progressStatus: () => "active" | "completed" | "no_safe" = () => "active",
 ) {
   await page.route("**/v1/session/refresh", (route) => route.fulfill({ status: 204 }));
   await page.route(`**/v1/material-processing-runs/${runId}`, (route) => fulfillJson(route, runView()));
@@ -51,11 +48,11 @@ async function learningRoutes(
     });
     await fulfillJson(route, sessionView(), 201);
   });
-  await page.route(`**/v1/study-sessions/${studySessionId}`, (route) => fulfillJson(route, sessionView({ event_watermark: eventWatermark() })));
-  await page.route(`**/v1/study-sessions/${studySessionId}/context`, (route) => fulfillJson(route, context));
-  await page.route(`**/v1/study-sessions/${studySessionId}/learning-state`, (route) => fulfillJson(route, learningStateView({ eventWatermark: eventWatermark() })));
-  await page.route(`**/v1/study-sessions/${studySessionId}/weakness`, (route) => fulfillJson(route, weaknessView({ eventWatermark: eventWatermark() })));
-  await page.route(`**/v1/study-sessions/${studySessionId}/adaptive-plan`, (route) => fulfillJson(route, adaptiveView({ eventWatermark: eventWatermark() })));
+  await page.route(`**/v1/study-sessions/${studySessionId}/progress`, (route) => fulfillJson(route, progressView({
+    eventWatermark: eventWatermark(),
+    status: progressStatus(),
+    targetStatus: eventWatermark() > 0 ? "needs_review" : "not_started",
+  })));
 }
 
 async function openStudySession(page: Page) {
@@ -69,7 +66,8 @@ async function openStudySession(page: Page) {
 
 test("StudySession assessment：錯誤回饋、新題重評與完成", async ({ page }) => {
   let eventWatermark = 0;
-  await learningRoutes(page, () => eventWatermark);
+  let isCompleted = false;
+  await learningRoutes(page, () => eventWatermark, mapView(), () => isCompleted ? "completed" : "active");
   let assessmentRound = 0;
   await page.route(`**/v1/study-sessions/${studySessionId}/assessments`, async (route) => {
     assessmentRound += 1;
@@ -87,11 +85,14 @@ test("StudySession assessment：錯誤回饋、新題重評與完成", async ({ 
     expect(request.question_id).toBe(assessment.question_id);
     await fulfillJson(route, feedbackView(assessment, request.selected_option_id, submissionRound === 2, submissionRound), 201);
   });
-  await page.route(`**/v1/study-sessions/${studySessionId}/complete`, (route) => fulfillJson(route, sessionView({
-    status: "completed",
-    completed_at: "2026-08-27T00:30:00Z",
-    event_watermark: 2,
-  })));
+  await page.route(`**/v1/study-sessions/${studySessionId}/complete`, (route) => {
+    isCompleted = true;
+    return fulfillJson(route, sessionView({
+      status: "completed",
+      completed_at: "2026-08-27T00:30:00Z",
+      event_watermark: 2,
+    }));
+  });
 
   await openStudySession(page);
   await captureAcceptance(page, "09_study_current_concept.png");
@@ -137,10 +138,8 @@ test("Assessment 沒有新安全題目時提供可理解 fallback", async ({ pag
 });
 
 test("沒有可前往重點的狀態會保存並在桌面與窄螢幕清楚結束", async ({ page }) => {
-  await learningRoutes(page);
   let isNoSafe = false;
-  await page.route(`**/v1/study-sessions/${studySessionId}`, (route) =>
-    fulfillJson(route, sessionView(isNoSafe ? { status: "no_safe" } : {})));
+  await learningRoutes(page, () => 0, mapView(), () => isNoSafe ? "no_safe" : "active");
   await page.route(`**/v1/study-sessions/${studySessionId}/assessments`, async (route) => {
     isNoSafe = true;
     await fulfillJson(route, apiError("NO_SAFE_ASSESSMENT"), 422);
@@ -170,9 +169,7 @@ test("Assessment no-safe 不會自動產生其他 Claim 題目", async ({ page }
     claim_id: fallbackClaimId,
     text: "另一個有教材依據的重點。",
   });
-  const context = contextView();
-  context.initial_learning_path[1].claim_ids.push(fallbackClaimId);
-  await learningRoutes(page, () => 0, knowledgeMap, context);
+  await learningRoutes(page, () => 0, knowledgeMap);
   let requests = 0;
   await page.route(`**/v1/study-sessions/${studySessionId}/assessments`, async (route) => {
     requests += 1;

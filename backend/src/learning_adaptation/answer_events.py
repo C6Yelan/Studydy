@@ -73,6 +73,7 @@ class StoredAnswerEvent:
     assessment_revision: str
     question_id: str
     semantic_identity: str
+    counts_as_distinct_mastery_evidence: bool
     target_formal_concept_id: str
     target_claim_id: str
     source_evidence_ids: tuple[str, ...]
@@ -171,6 +172,9 @@ def _stored_event(
         assessment_revision=row.assessment_revision,
         question_id=row.question_id,
         semantic_identity=row.semantic_identity,
+        counts_as_distinct_mastery_evidence=(
+            assessment.counts_as_distinct_mastery_evidence
+        ),
         target_formal_concept_id=row.target_formal_concept_id,
         target_claim_id=row.target_claim_id,
         source_evidence_ids=tuple(

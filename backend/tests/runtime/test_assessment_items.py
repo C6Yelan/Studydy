@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import shutil
+from threading import Event
 from uuid import uuid4
 
 import psycopg
@@ -25,7 +26,7 @@ from learning_adaptation.map_context import (
     EvidenceLocator,
     FormalConceptContext,
 )
-from learning_adaptation.learning_states import derive_learning_state
+from learning_adaptation.learner_progress import derive_learner_progress
 from learning_adaptation.assessment_items import (
     ASSESSMENT_POLICY_REVISION,
     GENERATION_PROVENANCE_SCHEMA,
@@ -33,7 +34,6 @@ from learning_adaptation.assessment_items import (
     build_assessment_semantic_novelty,
     build_single_choice_assessment,
     project_public_assessment,
-    question_reuse_key,
     read_assessment,
     store_assessment,
     validate_assessment_generation_provenance,
@@ -70,6 +70,7 @@ def assessment_database_dsn(
         14,
         15,
         16,
+        17,
     )
     return clean_database_dsn
 
@@ -119,6 +120,18 @@ def _documents_as_dicts(documents):
     return (
         documents.public_document.model_dump(mode="json", by_alias=True),
         documents.private_answer_document.model_dump(mode="json", by_alias=True),
+    )
+
+
+def _qualified_novelty(documents):
+    return build_assessment_semantic_novelty(
+        documents,
+        comparison_policy_revision="distinct-mastery-evidence:no-prior/v1",
+        verifier_model_id="test-verifier",
+        verifier_revision="test-verifier/v1",
+        compared_semantic_identities=[],
+        maximum_equivalence_score=None,
+        runtime_binding_sha256="9" * 64,
     )
 
 
@@ -317,40 +330,6 @@ def test_valid_public_private_round_trip_and_public_projection_has_no_answer_lea
         "semantic_novelty",
     ):
         assert forbidden not in serialized
-
-
-def test_same_semantic_question_on_alternate_claim_has_distinct_identity():
-    knowledge_map = _knowledge_map()
-    target = knowledge_map["formal_concepts"][0]
-    session_id = uuid4()
-    first = build_single_choice_assessment(
-        session_id,
-        knowledge_map["revision"],
-        target["formal_concept_id"],
-        "claim:sha256:" + "1" * 64,
-        target["claims"][0]["evidence_ids"],
-        "Which statement is grounded?",
-        ["First", "Second", "Third", "Fourth"],
-        0,
-        "The first option follows from the cited Evidence.",
-    )
-    alternate = build_single_choice_assessment(
-        session_id,
-        knowledge_map["revision"],
-        target["formal_concept_id"],
-        "claim:sha256:" + "2" * 64,
-        target["claims"][0]["evidence_ids"],
-        "Which statement is grounded?",
-        ["First", "Second", "Third", "Fourth"],
-        0,
-        "The first option follows from the cited Evidence.",
-    )
-
-    assert first.public_document.question_id != alternate.public_document.question_id
-    assert first.public_document.target_claim_id != alternate.public_document.target_claim_id
-    assert question_reuse_key(first.public_document) == question_reuse_key(
-        alternate.public_document
-    )
 
 
 def test_semantic_identity_ignores_claim_evidence_formatting_and_option_order():
@@ -734,15 +713,103 @@ def test_concurrent_requests_publish_at_most_one_session_semantic_identity(
             """,
             (study_session.study_session_id,),
         ).fetchone() == (0,)
-    state = derive_learning_state(
+    state = derive_learner_progress(
         learner,
         study_session.study_session_id,
         dsn=assessment_database_dsn,
     ).concept_states[0]
     assert state.valid_attempts == 0
-    assert state.distinct_item_attempts == 0
+    assert state.qualified_distinct_correct_items == 0
     assert state.observed_evidence_ids == []
     assert state.post_error_improvement is False
+
+
+def test_no_safe_write_serializes_overlapping_safe_generation(
+    assessment_database_dsn: str,
+    monkeypatch,
+):
+    learner, knowledge_map, _, study_session = _active_study_session(
+        assessment_database_dsn
+    )
+    target = knowledge_map["formal_concepts"][0]
+    target_claim_id = target["claims"][0]["claim_id"]
+    documents = _documents(study_session, knowledge_map)
+    no_safe_write_started = Event()
+    second_request_entered = Event()
+    safe_generation_started = Event()
+    first_generation_failed = Event()
+    allow_no_safe_write = Event()
+    original_record = requests_module._record_no_safe_assessment_in_session
+
+    def pause_before_no_safe_write(*args):
+        no_safe_write_started.set()
+        assert allow_no_safe_write.wait(timeout=5)
+        return original_record(*args)
+
+    def fail_then_offer_safe_candidate(*_args, **_kwargs):
+        if not first_generation_failed.is_set():
+            first_generation_failed.set()
+            raise AssessmentGenerationError("ASSESSMENT_NO_NEW_SAFE_ITEM")
+        safe_generation_started.set()
+        return store_assessment(
+            learner,
+            documents.public_document,
+            documents.private_answer_document,
+            require_new=True,
+            dsn=assessment_database_dsn,
+        )
+
+    monkeypatch.setattr(
+        requests_module,
+        "_record_no_safe_assessment_in_session",
+        pause_before_no_safe_write,
+    )
+    monkeypatch.setattr(
+        requests_module,
+        "generate_and_store_assessment",
+        fail_then_offer_safe_candidate,
+    )
+
+    def request(key: str):
+        if key == "request-b":
+            second_request_entered.set()
+        try:
+            return generate_assessment_for_request(
+                learner,
+                study_session.study_session_id,
+                target_claim_id,
+                {},
+                key,
+                dsn=assessment_database_dsn,
+            )
+        except AssessmentGenerationError as error:
+            return str(error)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(request, "request-a")
+        assert no_safe_write_started.wait(timeout=5)
+        second = executor.submit(request, "request-b")
+        assert second_request_entered.wait(timeout=5)
+        try:
+            assert not safe_generation_started.wait(timeout=1)
+        finally:
+            allow_no_safe_write.set()
+        outcomes = [first.result(timeout=5), second.result(timeout=5)]
+
+    assert outcomes == [
+        "ASSESSMENT_NO_NEW_SAFE_ITEM",
+        "ASSESSMENT_NO_NEW_SAFE_ITEM",
+    ]
+    assert safe_generation_started.is_set() is False
+    assert _assessment_count(assessment_database_dsn) == 0
+    with psycopg.connect(assessment_database_dsn) as connection:
+        assert connection.execute(
+            """
+            SELECT status, no_safe_claim_ids
+            FROM study_sessions WHERE study_session_id = %s
+            """,
+            (study_session.study_session_id,),
+        ).fetchone() == ("active", [target_claim_id])
 
 
 def test_generation_provenance_is_private_bound_and_tamper_evident(
@@ -860,10 +927,26 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             "multiple_support_risk_threshold": 0.4,
         },
         "novelty": {
-            "decision_rule": "entailment-or-unproven-neutral-reject/v3",
+            "decision_rule": (
+                "publication-independent-mastery-qualification/v1"
+            ),
             "novel_requirement": (
                 "each-prior-no-entailment-and-directional-contradiction/v1"
             ),
+            "qualification_outcomes": {
+                "no_prior": "distinct-mastery-evidence:no-prior/v1",
+                "verified_distinct": (
+                    "distinct-mastery-evidence:verified-distinct/v1"
+                ),
+                "neutral": "distinct-mastery-evidence:neutral/v1",
+                "timeout": "distinct-mastery-evidence:timeout/v1",
+                "invalid_response": (
+                    "distinct-mastery-evidence:invalid-response/v1"
+                ),
+                "unavailable": "distinct-mastery-evidence:unavailable/v1",
+                "unsupported": "distinct-mastery-evidence:unsupported/v1",
+                "over_limit": "distinct-mastery-evidence:over-limit/v1",
+            },
             "maximum_prior_items": 32,
             "request_timeout_seconds": 120,
         },

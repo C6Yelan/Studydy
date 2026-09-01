@@ -1,4 +1,4 @@
-import type { LearningStateView, WeaknessView } from "../../api/contracts";
+import type { LearnerProgressView } from "../../api/contracts";
 import { Icon } from "../../ui/Icon";
 import "./styles.css";
 
@@ -27,17 +27,16 @@ const findingCopy = {
   not_enough_data: { title: "目前資料不足", tone: "neutral" },
 } as const;
 
-export function LearningInsights({ currentConceptId, learningState, weakness }: {
+export function LearningInsights({ currentConceptId, progress }: {
   currentConceptId: string;
-  learningState: LearningStateView;
-  weakness: WeaknessView;
+  progress: LearnerProgressView;
 }) {
-  const current = learningState.concept_states.find((state) => state.formal_concept_id === currentConceptId);
+  const current = progress.concept_states.find((state) => state.formal_concept_id === currentConceptId);
   if (!current) return null;
-  const untouchedCount = learningState.concept_states.filter((state) =>
+  const untouchedCount = progress.concept_states.filter((state) =>
     state.formal_concept_id !== currentConceptId && state.status === "not_started").length;
   const findingPriority = { observed_weak: 0, needs_review: 1, not_enough_data: 2 } as const;
-  const orderedFindings = [...weakness.findings].sort((left, right) =>
+  const orderedFindings = [...progress.weakness_findings].sort((left, right) =>
     Number(right.target_formal_concept_id === currentConceptId)
     - Number(left.target_formal_concept_id === currentConceptId)
     || findingPriority[left.category] - findingPriority[right.category]);

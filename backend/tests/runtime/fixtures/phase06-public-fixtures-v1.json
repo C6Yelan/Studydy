@@ -8,110 +8,217 @@
     "question_id": "question:sha256:3333333333333333333333333333333333333333333333333333333333333333",
     "target_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
     "target_claim_id": "claim:sha256:5555555555555555555555555555555555555555555555555555555555555555",
-    "source_evidence_ids": ["evidence:sha256:6666666666666666666666666666666666666666666666666666666666666666"],
+    "source_evidence_ids": [
+      "evidence:sha256:6666666666666666666666666666666666666666666666666666666666666666"
+    ],
     "question_type": "single_choice",
     "prompt": "哪個選項符合引用的教材證據？",
     "options": [
-      {"option_id": "option:sha256:7777777777777777777777777777777777777777777777777777777777777777", "text": "選項 A"},
-      {"option_id": "option:sha256:8888888888888888888888888888888888888888888888888888888888888888", "text": "選項 B"},
-      {"option_id": "option:sha256:9999999999999999999999999999999999999999999999999999999999999999", "text": "選項 C"},
-      {"option_id": "option:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "text": "選項 D"}
+      {
+        "option_id": "option:sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "text": "選項 A"
+      },
+      {
+        "option_id": "option:sha256:8888888888888888888888888888888888888888888888888888888888888888",
+        "text": "選項 B"
+      },
+      {
+        "option_id": "option:sha256:9999999999999999999999999999999999999999999999999999999999999999",
+        "text": "選項 C"
+      },
+      {
+        "option_id": "option:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "text": "選項 D"
+      }
     ],
     "policy_revision": "single-choice-assessment-policy/v1"
   },
   "low_data": {
-    "schema": "learning-state/v1",
+    "schema": "learner-progress/v1",
     "study_session_id": "00000000-0000-4000-8000-000000000001",
+    "material_id": "00000000-0000-4000-8000-000000000003",
     "base_knowledge_map_revision": "knowledge-map:sha256:1111111111111111111111111111111111111111111111111111111111111111",
-    "state_revision": "learning-state:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "inline_initial_learning_path_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
     "event_watermark": 0,
-    "all_mastered": false,
-    "concept_states": [{
-      "formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
-      "status": "not_started",
-      "mastery_band": "no_evidence",
-      "confidence": "none",
-      "needs_more_data": true,
-      "required_claim_ids": ["claim:sha256:5555555555555555555555555555555555555555555555555555555555555555"],
-      "attempted_claim_ids": [],
-      "latest_correct_claim_ids": [],
-      "claim_coverage_complete": false,
-      "required_evidence_ids": ["evidence:sha256:6666666666666666666666666666666666666666666666666666666666666666"],
-      "observed_evidence_ids": [],
-      "evidence_coverage_complete": false,
-      "valid_attempts": 0,
-      "correct_attempts": 0,
-      "distinct_item_attempts": 0,
-      "recent_result": null,
-      "repeated_error": false,
-      "post_error_improvement": false,
-      "explanation": "尚未有可信作答紀錄，需要先完成評量。"
-    }]
-  },
-  "weakness": {
-    "schema": "weakness/v1",
-    "study_session_id": "00000000-0000-4000-8000-000000000001",
-    "base_knowledge_map_revision": "knowledge-map:sha256:1111111111111111111111111111111111111111111111111111111111111111",
-    "source_learning_state_revision": "learning-state:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "event_watermark": 2,
+    "status": "active",
     "current_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
-    "weakness_revision": "weakness:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    "findings": [{
-      "target_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
-      "target_label": "目標概念",
-      "category": "observed_weak",
-      "confidence": "supported",
-      "claim_coverage_complete": true,
-      "remediation_intent": "practice",
-      "reason": "多次可信作答錯誤顯示這個概念目前是明確弱點。"
-    }]
-  },
-  "review_needed": {
-    "schema": "adaptive-response/v1",
-    "plan": {
-      "schema": "adaptive-plan/v1",
-      "study_session_id": "00000000-0000-4000-8000-000000000001",
-      "base_knowledge_map_revision": "knowledge-map:sha256:1111111111111111111111111111111111111111111111111111111111111111",
-      "inline_initial_learning_path_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      "source_learning_state_revision": "learning-state:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "event_watermark": 2,
-      "current_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
-      "deferred_formal_concept_id": null,
-      "no_safe_deferred_formal_concept_ids": [],
-      "primary_step": {
-        "action": "review",
-        "target_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
-        "target_label": "目標概念",
-        "reason": "近期作答仍不穩定，建議先複習再重新評量。",
-        "confidence": "limited",
+    "no_safe_deferred_formal_concept_ids": [],
+    "concept_states": [
+      {
+        "formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "status": "not_started",
+        "mastery_band": "no_evidence",
+        "confidence": "none",
+        "needs_more_data": true,
+        "required_claim_ids": [
+          "claim:sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        ],
+        "attempted_claim_ids": [],
+        "latest_correct_claim_ids": [],
         "claim_coverage_complete": false,
-        "route": {
-          "study_session_id": "00000000-0000-4000-8000-000000000001",
-          "formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
-          "resource_promotion_id": null
-        }
-      },
-      "adaptive_plan_revision": "adaptive-plan:sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-    },
-    "suggestion": {
-      "schema": "learning-suggestion/v1",
-      "adaptive_plan_revision": "adaptive-plan:sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-      "study_session_id": "00000000-0000-4000-8000-000000000001",
-      "base_knowledge_map_revision": "knowledge-map:sha256:1111111111111111111111111111111111111111111111111111111111111111",
-      "action": "review",
+        "required_evidence_ids": [
+          "evidence:sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        ],
+        "observed_evidence_ids": [],
+        "evidence_coverage_complete": false,
+        "valid_attempts": 0,
+        "correct_attempts": 0,
+        "qualified_distinct_correct_items": 0,
+        "recent_result": null,
+        "repeated_error": false,
+        "post_error_improvement": false,
+        "explanation": "尚未有可信作答紀錄，需要先完成評量。"
+      }
+    ],
+    "weakness_findings": [],
+    "next_action": {
+      "action": "collect_more_data",
       "target_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
       "target_label": "目標概念",
-      "reason": "近期作答仍不穩定，建議先複習再重新評量。",
-      "confidence": "limited",
+      "reason": "目前證據不足，先完成新的安全題目再判斷是否需要調整路徑。",
+      "confidence": "none",
       "claim_coverage_complete": false,
       "route": {
         "study_session_id": "00000000-0000-4000-8000-000000000001",
         "formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
         "resource_promotion_id": null
-      },
-      "fallback_action": "collect_more_data",
-      "fallback_reason": "若目前動作無法完成，先取得更多可信作答證據。"
-    }
+      }
+    },
+    "guidance_revision": "learner-guidance:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "weakness": {
+    "schema": "learner-progress/v1",
+    "study_session_id": "00000000-0000-4000-8000-000000000001",
+    "material_id": "00000000-0000-4000-8000-000000000003",
+    "base_knowledge_map_revision": "knowledge-map:sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "inline_initial_learning_path_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "event_watermark": 2,
+    "status": "active",
+    "current_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "no_safe_deferred_formal_concept_ids": [],
+    "concept_states": [
+      {
+        "formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "status": "needs_review",
+        "mastery_band": "developing",
+        "confidence": "limited",
+        "needs_more_data": true,
+        "required_claim_ids": [
+          "claim:sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        ],
+        "attempted_claim_ids": [
+          "claim:sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        ],
+        "latest_correct_claim_ids": [],
+        "claim_coverage_complete": true,
+        "required_evidence_ids": [
+          "evidence:sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        ],
+        "observed_evidence_ids": [
+          "evidence:sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        ],
+        "evidence_coverage_complete": true,
+        "valid_attempts": 2,
+        "correct_attempts": 0,
+        "qualified_distinct_correct_items": 0,
+        "recent_result": "incorrect",
+        "repeated_error": true,
+        "post_error_improvement": false,
+        "explanation": "近期作答需要繼續練習。"
+      }
+    ],
+    "weakness_findings": [
+      {
+        "target_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "target_label": "目標概念",
+        "category": "observed_weak",
+        "confidence": "supported",
+        "claim_coverage_complete": true,
+        "remediation_intent": "practice",
+        "reason": "多次可信作答錯誤顯示這個概念目前是明確弱點。"
+      }
+    ],
+    "next_action": {
+      "action": "practice",
+      "target_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "target_label": "目標概念",
+      "reason": "多次可信作答錯誤顯示這個概念目前是明確弱點。",
+      "confidence": "limited",
+      "claim_coverage_complete": true,
+      "route": {
+        "study_session_id": "00000000-0000-4000-8000-000000000001",
+        "formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "resource_promotion_id": null
+      }
+    },
+    "guidance_revision": "learner-guidance:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "review_needed": {
+    "schema": "learner-progress/v1",
+    "study_session_id": "00000000-0000-4000-8000-000000000001",
+    "material_id": "00000000-0000-4000-8000-000000000003",
+    "base_knowledge_map_revision": "knowledge-map:sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "inline_initial_learning_path_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "event_watermark": 1,
+    "status": "active",
+    "current_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "no_safe_deferred_formal_concept_ids": [],
+    "concept_states": [
+      {
+        "formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "status": "needs_review",
+        "mastery_band": "developing",
+        "confidence": "limited",
+        "needs_more_data": true,
+        "required_claim_ids": [
+          "claim:sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        ],
+        "attempted_claim_ids": [
+          "claim:sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        ],
+        "latest_correct_claim_ids": [],
+        "claim_coverage_complete": true,
+        "required_evidence_ids": [
+          "evidence:sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        ],
+        "observed_evidence_ids": [
+          "evidence:sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        ],
+        "evidence_coverage_complete": true,
+        "valid_attempts": 1,
+        "correct_attempts": 0,
+        "qualified_distinct_correct_items": 0,
+        "recent_result": "incorrect",
+        "repeated_error": false,
+        "post_error_improvement": false,
+        "explanation": "近期作答需要繼續練習。"
+      }
+    ],
+    "weakness_findings": [
+      {
+        "target_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "target_label": "目標概念",
+        "category": "needs_review",
+        "confidence": "limited",
+        "claim_coverage_complete": true,
+        "remediation_intent": "review",
+        "reason": "近期作答仍不穩定，建議先複習再重新評量。"
+      }
+    ],
+    "next_action": {
+      "action": "review",
+      "target_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "target_label": "目標概念",
+      "reason": "近期作答仍不穩定，建議先複習再重新評量。",
+      "confidence": "limited",
+      "claim_coverage_complete": true,
+      "route": {
+        "study_session_id": "00000000-0000-4000-8000-000000000001",
+        "formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "resource_promotion_id": null
+      }
+    },
+    "guidance_revision": "learner-guidance:sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
   },
   "reassessment": {
     "schema": "answer-feedback/v1",
@@ -122,7 +229,9 @@
     "selected_option_id": "option:sha256:7777777777777777777777777777777777777777777777777777777777777777",
     "is_correct": true,
     "rationale": "引用的教材證據支持這個選項。",
-    "source_evidence_ids": ["evidence:sha256:6666666666666666666666666666666666666666666666666666666666666666"],
+    "source_evidence_ids": [
+      "evidence:sha256:6666666666666666666666666666666666666666666666666666666666666666"
+    ],
     "event_number": 4,
     "created_at": "2026-08-27T00:00:00Z"
   },
@@ -132,7 +241,6 @@
     "material_id": "00000000-0000-4000-8000-000000000003",
     "knowledge_map_revision": "knowledge-map:sha256:1111111111111111111111111111111111111111111111111111111111111111",
     "current_formal_concept_id": "formal-concept:sha256:4444444444444444444444444444444444444444444444444444444444444444",
-    "deferred_formal_concept_id": null,
     "no_safe_deferred_formal_concept_ids": [],
     "status": "completed",
     "started_at": "2026-08-27T00:00:00Z",

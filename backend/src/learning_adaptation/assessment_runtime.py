@@ -15,7 +15,7 @@ from runtime.material_processing import (
 
 
 ASSESSMENT_RUNTIME_LOCK_SHA256 = (
-    "091e5e20ff0213cf1dd733394318fca930f957baa450255dfeafa04e4d3b4371"
+    "49728ba748630ad69fb0012ec75190def59e2cd25cc24681faa72cce6c717b9a"
 )
 _CODE_PATHS = {
     "backend_assessment_generation": (
@@ -84,7 +84,7 @@ def _validate_assessment_runtime_lock(
             and assessment_lock["schema"]
             == "studydy-assessment-runtime-lock/v1"
             and assessment_lock["policy_revision"]
-            == "assessment-generation-policy/v5"
+            == "assessment-generation-policy/v6"
             and assessment_lock["shared_models"]
             == {
                 "semantic_model_id": semantic["model_id"],
@@ -146,7 +146,7 @@ def _validate_assessment_runtime_lock(
                     "margin-descending-candidate-index-ascending/v1"
                 ),
                 "used_identity_scope": (
-                    "study-session-semantic-identity/v2"
+                    "study-session-semantic-identity/v3"
                 ),
                 "all_safe_candidates_used": "reject-no-new-safe-item/v1",
                 "repair_exhaustion": (
@@ -158,11 +158,32 @@ def _validate_assessment_runtime_lock(
                 "request_schema": "local-assessment-novelty-request/v1",
                 "response_schema": "local-assessment-novelty-response/v1",
                 "decision_rule": (
-                    "entailment-or-unproven-neutral-reject/v3"
+                    "publication-independent-mastery-qualification/v1"
                 ),
                 "novel_requirement": (
                     "each-prior-no-entailment-and-directional-contradiction/v1"
                 ),
+                "comparison_scope": "same-target-claim/v1",
+                "qualification_outcomes": {
+                    "no_prior": "distinct-mastery-evidence:no-prior/v1",
+                    "verified_distinct": (
+                        "distinct-mastery-evidence:verified-distinct/v1"
+                    ),
+                    "neutral": "distinct-mastery-evidence:neutral/v1",
+                    "timeout": "distinct-mastery-evidence:timeout/v1",
+                    "invalid_response": (
+                        "distinct-mastery-evidence:invalid-response/v1"
+                    ),
+                    "unavailable": (
+                        "distinct-mastery-evidence:unavailable/v1"
+                    ),
+                    "unsupported": (
+                        "distinct-mastery-evidence:unsupported/v1"
+                    ),
+                    "over_limit": (
+                        "distinct-mastery-evidence:over-limit/v1"
+                    ),
+                },
                 "maximum_prior_items": 32,
                 "maximum_pair_tokens": 384,
                 "over_limit_policy": "reject-before-inference/v1",

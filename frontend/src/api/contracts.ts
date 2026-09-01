@@ -222,29 +222,11 @@ export type StudySessionView = {
   material_id: string;
   knowledge_map_revision: string;
   current_formal_concept_id: string | null;
-  deferred_formal_concept_id: string | null;
   no_safe_deferred_formal_concept_ids: string[];
   status: "active" | "completed" | "no_safe";
   started_at: string;
   completed_at: string | null;
   event_watermark: number;
-};
-
-export type StudyConceptContextView = {
-  formal_concept_id: string;
-  label: string;
-  claim_ids: string[];
-  supplementary_resource_promotion_ids: string[];
-};
-
-export type StudyContextView = {
-  schema: "study-context/v1";
-  study_session_id: string;
-  base_knowledge_map_revision: string;
-  current_formal_concept_id: string | null;
-  deferred_formal_concept_id: string | null;
-  no_safe_deferred_formal_concept_ids: string[];
-  initial_learning_path: StudyConceptContextView[];
 };
 
 export type AssessmentCreate = {
@@ -310,21 +292,11 @@ export type ConceptLearningStateView = {
   evidence_coverage_complete: boolean;
   valid_attempts: number;
   correct_attempts: number;
-  distinct_item_attempts: number;
+  qualified_distinct_correct_items: number;
   recent_result: "correct" | "incorrect" | null;
   repeated_error: boolean;
   post_error_improvement: boolean;
   explanation: string;
-};
-
-export type LearningStateView = {
-  schema: "learning-state/v1";
-  study_session_id: string;
-  base_knowledge_map_revision: string;
-  state_revision: string;
-  event_watermark: number;
-  all_mastered: boolean;
-  concept_states: ConceptLearningStateView[];
 };
 
 export type WeaknessFindingView = {
@@ -337,18 +309,7 @@ export type WeaknessFindingView = {
   reason: string;
 };
 
-export type WeaknessView = {
-  schema: "weakness/v1";
-  study_session_id: string;
-  base_knowledge_map_revision: string;
-  source_learning_state_revision: string;
-  event_watermark: number;
-  current_formal_concept_id: string | null;
-  weakness_revision: string;
-  findings: WeaknessFindingView[];
-};
-
-export type AdaptiveAction =
+export type GuidanceAction =
   | "start"
   | "continue"
   | "practice"
@@ -360,59 +321,39 @@ export type AdaptiveAction =
   | "resume"
   | "no_action";
 
-export type AdaptiveRouteView = {
+export type GuidanceRouteView = {
   study_session_id: string;
   formal_concept_id: string | null;
   resource_promotion_id: string | null;
 };
 
-export type AdaptiveStepView = {
-  action: AdaptiveAction;
+export type NextActionView = {
+  action: GuidanceAction;
   target_formal_concept_id: string | null;
   target_label: string | null;
   reason: string;
   confidence: LearningConfidence;
   claim_coverage_complete: boolean;
-  route: AdaptiveRouteView;
+  route: GuidanceRouteView;
 };
 
-export type AdaptivePlanView = {
-  schema: "adaptive-plan/v1";
+export type LearnerProgressView = {
+  schema: "learner-progress/v1";
   study_session_id: string;
+  material_id: string;
   base_knowledge_map_revision: string;
   inline_initial_learning_path_sha256: string;
-  source_learning_state_revision: string;
   event_watermark: number;
+  status: "active" | "completed" | "no_safe";
   current_formal_concept_id: string | null;
-  deferred_formal_concept_id: string | null;
   no_safe_deferred_formal_concept_ids: string[];
-  primary_step: AdaptiveStepView;
-  adaptive_plan_revision: string;
+  concept_states: ConceptLearningStateView[];
+  weakness_findings: WeaknessFindingView[];
+  next_action: NextActionView;
+  guidance_revision: string;
 };
 
-export type SuggestionView = {
-  schema: "learning-suggestion/v1";
-  adaptive_plan_revision: string;
-  study_session_id: string;
-  base_knowledge_map_revision: string;
-  action: AdaptiveAction;
-  target_formal_concept_id: string | null;
-  target_label: string | null;
-  reason: string;
-  confidence: LearningConfidence;
-  claim_coverage_complete: boolean;
-  route: AdaptiveRouteView;
-  fallback_action: "follow_path" | "collect_more_data" | "no_action";
-  fallback_reason: string;
-};
-
-export type AdaptiveResponseView = {
-  schema: "adaptive-response/v1";
-  plan: AdaptivePlanView;
-  suggestion: SuggestionView;
-};
-
-export type AdaptivePlanApply = {
-  schema: "adaptive-plan-apply/v1";
-  adaptive_plan_revision: string;
+export type GuidanceApply = {
+  schema: "guidance-apply/v1";
+  guidance_revision: string;
 };

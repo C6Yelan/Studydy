@@ -23,7 +23,7 @@ from .assessment_items import (
     _stored_assessment,
 )
 from .assessment_runtime_reuse import AssessmentRuntimeReuse
-from .adaptive_plans import record_no_safe_assessment
+from .learner_progress import _record_no_safe_assessment_in_session
 from .map_context import MapContextError
 from .study_sessions import (
     StudySessionError,
@@ -187,49 +187,61 @@ def generate_assessment_for_request(
                 raise AssessmentGenerationError(
                     "ASSESSMENT_NO_NEW_SAFE_ITEM"
                 )
-            operation = lambda: generate_and_store_assessment(
-                learner, study_session_id, target_claim_id, local_config, dsn=dsn
-            )
-            generated = (
-                operation()
-                if runtime_reuse is None
-                else runtime_reuse.generate(operation)
-            )
-            row = session.scalar(
-                select(Assessment)
-                .where(
-                    Assessment.study_session_id == study_session_id,
-                    Assessment.assessment_revision
-                    == generated.assessment_revision,
+            try:
+                operation = lambda: generate_and_store_assessment(
+                    learner,
+                    study_session_id,
+                    target_claim_id,
+                    local_config,
+                    dsn=dsn,
                 )
-                .with_for_update()
-            )
-            if row is None:
-                raise _error("ASSESSMENT_REQUEST_STORAGE_FAILED")
-            if (
-                row.request_idempotency_key_sha256 is not None
-                or row.request_fingerprint is not None
-            ):
-                raise _error("ASSESSMENT_IDEMPOTENCY_CONFLICT")
-            row.request_idempotency_key_sha256 = key_digest
-            row.request_fingerprint = fingerprint
-            session.flush()
-            return _stored_assessment(row)
-    except AssessmentGenerationError as error:
-        if (
-            str(error)
-            in {"ASSESSMENT_NO_NEW_SAFE_ITEM", "ASSESSMENT_NO_SAFE_CANDIDATE"}
-            and expected_formal_concept_id is not None
-            and expected_event_number is not None
-        ):
-            record_no_safe_assessment(
-                learner,
-                study_session_id,
-                target_claim_id,
-                expected_formal_concept_id,
-                expected_event_number,
-                dsn=dsn,
-            )
+                generated = (
+                    operation()
+                    if runtime_reuse is None
+                    else runtime_reuse.generate(operation)
+                )
+            except AssessmentGenerationError as error:
+                if (
+                    str(error)
+                    in {
+                        "ASSESSMENT_NO_NEW_SAFE_ITEM",
+                        "ASSESSMENT_NO_SAFE_CANDIDATE",
+                    }
+                    and expected_formal_concept_id is not None
+                    and expected_event_number is not None
+                ):
+                    _record_no_safe_assessment_in_session(
+                        session,
+                        learner_id,
+                        study_session_id,
+                        target_claim_id,
+                        expected_formal_concept_id,
+                        expected_event_number,
+                    )
+                generation_error = error
+            else:
+                row = session.scalar(
+                    select(Assessment)
+                    .where(
+                        Assessment.study_session_id == study_session_id,
+                        Assessment.assessment_revision
+                        == generated.assessment_revision,
+                    )
+                    .with_for_update()
+                )
+                if row is None:
+                    raise _error("ASSESSMENT_REQUEST_STORAGE_FAILED")
+                if (
+                    row.request_idempotency_key_sha256 is not None
+                    or row.request_fingerprint is not None
+                ):
+                    raise _error("ASSESSMENT_IDEMPOTENCY_CONFLICT")
+                row.request_idempotency_key_sha256 = key_digest
+                row.request_fingerprint = fingerprint
+                session.flush()
+                return _stored_assessment(row)
+        raise generation_error
+    except AssessmentGenerationError:
         raise
     except AssessmentRequestError:
         raise

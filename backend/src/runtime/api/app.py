@@ -19,35 +19,28 @@ from starlette.exceptions import HTTPException as StarletteHttpException
 from starlette.routing import Match
 
 from .models import (
-    AdaptivePlanApply,
-    AdaptiveResponseView,
     AnswerFeedbackView,
     AnswerSubmissionCreate,
     ApiErrorView,
     AssessmentCreate,
     AssessmentView,
-    LearningStateView,
+    GuidanceApply,
     KnowledgeMapView,
     MaterialProcessingCreate,
     MaterialProcessingRunView,
     MaterialView,
-    StudyContextView,
+    LearnerProgressView,
     StudySessionCreate,
     StudySessionView,
-    WeaknessView,
-    project_adaptive_response,
     project_answer_feedback,
     project_assessment,
-    project_learning_state,
+    project_learner_progress,
     project_material_run,
-    project_study_context,
     project_study_session,
-    project_weakness,
 )
-from learning_adaptation.adaptive_plans import (
-    apply_adaptive_plan,
-    derive_adaptive_plan,
-    project_suggestion,
+from learning_adaptation.learner_progress import (
+    apply_guidance,
+    derive_learner_progress,
 )
 from learning_adaptation.answer_events import submit_answer
 from learning_adaptation.assessment_requests import (
@@ -56,14 +49,11 @@ from learning_adaptation.assessment_requests import (
 from learning_adaptation.assessment_runtime import load_assessment_runtime_lock
 from learning_adaptation.assessment_runtime_reuse import AssessmentRuntimeReuse
 from learning_adaptation.assessment_items import read_assessment
-from learning_adaptation.learning_states import derive_learning_state
-from learning_adaptation.map_context import read_map_context
 from learning_adaptation.study_sessions import (
     complete_study_session,
     create_study_session,
     read_study_session,
 )
-from learning_adaptation.weaknesses import derive_weakness
 from ..learner_session import (
     SessionError,
     TrustedLearner,
@@ -653,29 +643,6 @@ def create_app(settings: ApiSettings) -> FastAPI:
             )
         )
 
-    @app.get(
-        "/v1/study-sessions/{study_session_id}/context",
-        response_model=StudyContextView,
-        response_model_by_alias=True,
-        operation_id="getStudyContext",
-        tags=["learning"],
-    )
-    async def read_study_context_route(
-        request: Request, study_session_id: UUID
-    ) -> StudyContextView:
-        _require_query(request, set())
-        learner = _trusted_learner(request, settings)
-        stored = read_study_session(
-            learner, study_session_id, dsn=settings.dsn
-        )
-        context = read_map_context(
-            stored.learner_id,
-            stored.material_id,
-            stored.knowledge_map_revision,
-            dsn=settings.dsn,
-        )
-        return project_study_context(stored, context)
-
     @app.post(
         "/v1/study-sessions/{study_session_id}/assessments",
         response_model=AssessmentView,
@@ -753,77 +720,45 @@ def create_app(settings: ApiSettings) -> FastAPI:
         return project_answer_feedback(submitted.feedback)
 
     @app.get(
-        "/v1/study-sessions/{study_session_id}/learning-state",
-        response_model=LearningStateView,
+        "/v1/study-sessions/{study_session_id}/progress",
+        response_model=LearnerProgressView,
         response_model_by_alias=True,
-        operation_id="getLearningState",
+        operation_id="getLearnerProgress",
         tags=["learning"],
     )
-    async def read_learning_state_route(
+    async def read_learner_progress_route(
         request: Request, study_session_id: UUID
-    ) -> LearningStateView:
+    ) -> LearnerProgressView:
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
-        return project_learning_state(
-            derive_learning_state(
+        return project_learner_progress(
+            derive_learner_progress(
                 learner, study_session_id, dsn=settings.dsn
             )
         )
 
-    @app.get(
-        "/v1/study-sessions/{study_session_id}/weakness",
-        response_model=WeaknessView,
-        response_model_by_alias=True,
-        operation_id="getWeakness",
-        tags=["learning"],
-    )
-    async def read_weakness_route(
-        request: Request, study_session_id: UUID
-    ) -> WeaknessView:
-        _require_query(request, set())
-        learner = _trusted_learner(request, settings)
-        return project_weakness(
-            derive_weakness(learner, study_session_id, dsn=settings.dsn)
-        )
-
-    @app.get(
-        "/v1/study-sessions/{study_session_id}/adaptive-plan",
-        response_model=AdaptiveResponseView,
-        response_model_by_alias=True,
-        operation_id="getAdaptivePlan",
-        tags=["learning"],
-    )
-    async def read_adaptive_plan_route(
-        request: Request, study_session_id: UUID
-    ) -> AdaptiveResponseView:
-        _require_query(request, set())
-        learner = _trusted_learner(request, settings)
-        plan = derive_adaptive_plan(
-            learner, study_session_id, dsn=settings.dsn
-        )
-        return project_adaptive_response(plan, project_suggestion(plan))
-
     @app.post(
-        "/v1/study-sessions/{study_session_id}/adaptive-plan/apply",
-        response_model=StudySessionView,
+        "/v1/study-sessions/{study_session_id}/guidance/apply",
+        response_model=LearnerProgressView,
         response_model_by_alias=True,
-        operation_id="applyAdaptivePlan",
+        operation_id="applyGuidance",
         tags=["learning"],
     )
-    async def apply_adaptive_plan_route(
+    async def apply_guidance_route(
         request: Request,
         study_session_id: UUID,
-        body: AdaptivePlanApply,
-    ) -> StudySessionView:
+        body: GuidanceApply,
+    ) -> LearnerProgressView:
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
-        applied = apply_adaptive_plan(
-            learner,
-            study_session_id,
-            body.adaptive_plan_revision,
-            dsn=settings.dsn,
+        return project_learner_progress(
+            apply_guidance(
+                learner,
+                study_session_id,
+                body.guidance_revision,
+                dsn=settings.dsn,
+            )
         )
-        return project_study_session(applied.study_session)
 
     @app.get("/v1/artifacts/{artifact_id}", operation_id="getSourceArtifact", tags=["artifacts"], response_class=StreamingResponse)
     async def read_artifact_route(request: Request, artifact_id: UUID) -> StreamingResponse:

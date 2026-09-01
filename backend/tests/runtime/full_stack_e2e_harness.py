@@ -176,7 +176,7 @@ class FullStackHarness:
                 raise HarnessFailure("E2E_DATABASE_NOT_EMPTY")
         if run_migrations(
             self.database_dsn, migrations_dir=DEFAULT_MIGRATIONS_DIR
-        ) != tuple(range(1, 17)):
+        ) != tuple(range(1, 18)):
             raise HarnessFailure("E2E_FRESH_MIGRATION_FAILED")
         with psycopg.connect(self.database_dsn) as connection:
             for table in (

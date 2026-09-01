@@ -8,17 +8,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from learning_adaptation.adaptive_plans import (
-    AdaptiveAction,
-    AdaptivePlanSnapshot,
-    Suggestion,
+from learning_adaptation.learner_progress import (
+    GuidanceAction,
+    LearnerProgressSnapshot,
 )
 from learning_adaptation.answer_events import AnswerFeedback
 from learning_adaptation.assessment_items import StoredAssessment
-from learning_adaptation.learning_states import LearningStateSnapshot
-from learning_adaptation.map_context import MapContext
 from learning_adaptation.study_sessions import StoredStudySession
-from learning_adaptation.weaknesses import WeaknessSnapshot
 
 from ..material_processing import MaterialProcessingRun
 
@@ -488,29 +484,11 @@ class StudySessionView(_ClosedModel):
     material_id: UUID
     knowledge_map_revision: str
     current_formal_concept_id: str | None
-    deferred_formal_concept_id: str | None
     no_safe_deferred_formal_concept_ids: list[str]
     status: Literal["active", "completed", "no_safe"]
     started_at: datetime
     completed_at: datetime | None
     event_watermark: int = Field(ge=0)
-
-
-class StudyConceptContextView(_ClosedModel):
-    formal_concept_id: str
-    label: str = Field(min_length=1)
-    claim_ids: list[str] = Field(min_length=1)
-    supplementary_resource_promotion_ids: list[str]
-
-
-class StudyContextView(_ClosedModel):
-    schema_: Literal["study-context/v1"] = Field(alias="schema")
-    study_session_id: UUID
-    base_knowledge_map_revision: str
-    current_formal_concept_id: str | None
-    deferred_formal_concept_id: str | None
-    no_safe_deferred_formal_concept_ids: list[str]
-    initial_learning_path: list[StudyConceptContextView] = Field(min_length=1)
 
 
 class AssessmentCreate(_ClosedModel):
@@ -573,21 +551,11 @@ class ConceptLearningStateView(_ClosedModel):
     evidence_coverage_complete: bool
     valid_attempts: int = Field(ge=0)
     correct_attempts: int = Field(ge=0)
-    distinct_item_attempts: int = Field(ge=0)
+    qualified_distinct_correct_items: int = Field(ge=0)
     recent_result: Literal["correct", "incorrect"] | None
     repeated_error: bool
     post_error_improvement: bool
     explanation: str = Field(min_length=1)
-
-
-class LearningStateView(_ClosedModel):
-    schema_: Literal["learning-state/v1"] = Field(alias="schema")
-    study_session_id: UUID
-    base_knowledge_map_revision: str
-    state_revision: str
-    event_watermark: int = Field(ge=0)
-    all_mastered: bool
-    concept_states: list[ConceptLearningStateView] = Field(min_length=1)
 
 
 class WeaknessFindingView(_ClosedModel):
@@ -600,73 +568,44 @@ class WeaknessFindingView(_ClosedModel):
     reason: str
 
 
-class WeaknessView(_ClosedModel):
-    schema_: Literal["weakness/v1"] = Field(alias="schema")
-    study_session_id: UUID
-    base_knowledge_map_revision: str
-    source_learning_state_revision: str
-    event_watermark: int = Field(ge=0)
-    current_formal_concept_id: str | None
-    weakness_revision: str
-    findings: list[WeaknessFindingView]
-
-
-class AdaptiveRouteView(_ClosedModel):
+class GuidanceRouteView(_ClosedModel):
     study_session_id: UUID
     formal_concept_id: str | None
     resource_promotion_id: str | None
 
 
-class AdaptiveStepView(_ClosedModel):
-    action: AdaptiveAction
+class NextActionView(_ClosedModel):
+    action: GuidanceAction
     target_formal_concept_id: str | None
     target_label: str | None
     reason: str
     confidence: Literal["none", "limited", "supported"]
     claim_coverage_complete: bool
-    route: AdaptiveRouteView
+    route: GuidanceRouteView
 
 
-class AdaptivePlanView(_ClosedModel):
-    schema_: Literal["adaptive-plan/v1"] = Field(alias="schema")
+class LearnerProgressView(_ClosedModel):
+    schema_: Literal["learner-progress/v1"] = Field(alias="schema")
     study_session_id: UUID
+    material_id: UUID
     base_knowledge_map_revision: str
     inline_initial_learning_path_sha256: str
-    source_learning_state_revision: str
     event_watermark: int = Field(ge=0)
+    status: Literal["active", "completed", "no_safe"]
     current_formal_concept_id: str | None
-    deferred_formal_concept_id: str | None
     no_safe_deferred_formal_concept_ids: list[str]
-    primary_step: AdaptiveStepView
-    adaptive_plan_revision: str
+    concept_states: list[ConceptLearningStateView] = Field(min_length=1)
+    weakness_findings: list[WeaknessFindingView]
+    next_action: NextActionView
+    guidance_revision: str = Field(
+        pattern=r"^learner-guidance:sha256:[0-9a-f]{64}$"
+    )
 
 
-class SuggestionView(_ClosedModel):
-    schema_: Literal["learning-suggestion/v1"] = Field(alias="schema")
-    adaptive_plan_revision: str
-    study_session_id: UUID
-    base_knowledge_map_revision: str
-    action: AdaptiveAction
-    target_formal_concept_id: str | None
-    target_label: str | None
-    reason: str
-    confidence: Literal["none", "limited", "supported"]
-    claim_coverage_complete: bool
-    route: AdaptiveRouteView
-    fallback_action: Literal["follow_path", "collect_more_data", "no_action"]
-    fallback_reason: str
-
-
-class AdaptiveResponseView(_ClosedModel):
-    schema_: Literal["adaptive-response/v1"] = Field(alias="schema")
-    plan: AdaptivePlanView
-    suggestion: SuggestionView
-
-
-class AdaptivePlanApply(_ClosedModel):
-    schema_: Literal["adaptive-plan-apply/v1"] = Field(alias="schema")
-    adaptive_plan_revision: str = Field(
-        pattern=r"^adaptive-plan:sha256:[0-9a-f]{64}$"
+class GuidanceApply(_ClosedModel):
+    schema_: Literal["guidance-apply/v1"] = Field(alias="schema")
+    guidance_revision: str = Field(
+        pattern=r"^learner-guidance:sha256:[0-9a-f]{64}$"
     )
 
 
@@ -708,7 +647,6 @@ def project_study_session(session: StoredStudySession) -> StudySessionView:
             "material_id": session.material_id,
             "knowledge_map_revision": session.knowledge_map_revision,
             "current_formal_concept_id": session.current_formal_concept_id,
-            "deferred_formal_concept_id": session.deferred_formal_concept_id,
             "no_safe_deferred_formal_concept_ids": list(
                 session.no_safe_deferred_formal_concept_ids
             ),
@@ -716,44 +654,6 @@ def project_study_session(session: StoredStudySession) -> StudySessionView:
             "started_at": session.started_at,
             "completed_at": session.completed_at,
             "event_watermark": session.last_event_number,
-        }
-    )
-
-
-def project_study_context(
-    session: StoredStudySession,
-    context: MapContext,
-) -> StudyContextView:
-    concepts = {
-        concept.formal_concept_id: concept
-        for concept in context.formal_concepts
-    }
-    return StudyContextView.model_validate(
-        {
-            "schema": "study-context/v1",
-            "study_session_id": session.study_session_id,
-            "base_knowledge_map_revision": context.knowledge_map_revision,
-            "current_formal_concept_id": session.current_formal_concept_id,
-            "deferred_formal_concept_id": session.deferred_formal_concept_id,
-            "no_safe_deferred_formal_concept_ids": list(
-                session.no_safe_deferred_formal_concept_ids
-            ),
-            "initial_learning_path": [
-                {
-                    "formal_concept_id": concept_id,
-                    "label": concepts[concept_id].label,
-                    "claim_ids": [
-                        claim.claim_id for claim in concepts[concept_id].claims
-                    ],
-                    "supplementary_resource_promotion_ids": [
-                        resource.promotion_id
-                        for resource in concepts[
-                            concept_id
-                        ].supplementary_resources
-                    ],
-                }
-                for concept_id in context.initial_learning_path
-            ],
         }
     )
 
@@ -770,17 +670,28 @@ def project_answer_feedback(feedback: AnswerFeedback) -> AnswerFeedbackView:
     )
 
 
-def project_learning_state(state: LearningStateSnapshot) -> LearningStateView:
-    return LearningStateView.model_validate(
+def project_learner_progress(
+    progress: LearnerProgressSnapshot,
+) -> LearnerProgressView:
+    """移除 private event refs，只投影同一 watermark 的 progress/guidance。"""
+
+    return LearnerProgressView.model_validate(
         {
-            "schema": "learning-state/v1",
-            "study_session_id": state.study_session_id,
-            "base_knowledge_map_revision": state.base_knowledge_map_revision,
-            "state_revision": state.state_revision,
-            "event_watermark": state.event_watermark,
-            "all_mastered": state.all_mastered,
+            "schema": "learner-progress/v1",
+            "study_session_id": progress.study_session_id,
+            "material_id": progress.material_id,
+            "base_knowledge_map_revision": progress.base_knowledge_map_revision,
+            "inline_initial_learning_path_sha256": (
+                progress.inline_initial_learning_path_sha256
+            ),
+            "event_watermark": progress.event_watermark,
+            "status": progress.status,
+            "current_formal_concept_id": progress.current_formal_concept_id,
+            "no_safe_deferred_formal_concept_ids": (
+                progress.no_safe_deferred_formal_concept_ids
+            ),
             "concept_states": [
-                concept.model_dump(
+                state.model_dump(
                     mode="python",
                     exclude={
                         "source_answer_event_ids",
@@ -788,61 +699,17 @@ def project_learning_state(state: LearningStateSnapshot) -> LearningStateView:
                         "reason_code",
                     },
                 )
-                for concept in state.concept_states
+                for state in progress.concept_states
             ],
-        }
-    )
-
-
-def project_weakness(weakness: WeaknessSnapshot) -> WeaknessView:
-    return WeaknessView.model_validate(
-        {
-            "schema": "weakness/v1",
-            "study_session_id": weakness.study_session_id,
-            "base_knowledge_map_revision": weakness.base_knowledge_map_revision,
-            "source_learning_state_revision": (
-                weakness.source_learning_state_revision
-            ),
-            "event_watermark": weakness.event_watermark,
-            "current_formal_concept_id": weakness.current_formal_concept_id,
-            "weakness_revision": weakness.weakness_revision,
-            "findings": [
+            "weakness_findings": [
                 finding.model_dump(
                     mode="python", exclude={"supporting_answer_event_ids"}
                 )
-                for finding in weakness.findings
+                for finding in progress.weakness_findings
             ],
-        }
-    )
-
-
-def project_adaptive_response(
-    plan: AdaptivePlanSnapshot,
-    suggestion: Suggestion,
-) -> AdaptiveResponseView:
-    plan_view = {
-        "schema": "adaptive-plan/v1",
-        "study_session_id": plan.study_session_id,
-        "base_knowledge_map_revision": plan.base_knowledge_map_revision,
-        "inline_initial_learning_path_sha256": (
-            plan.inline_initial_learning_path_sha256
-        ),
-        "source_learning_state_revision": plan.source_learning_state_revision,
-        "event_watermark": plan.event_watermark,
-        "current_formal_concept_id": plan.current_formal_concept_id,
-        "deferred_formal_concept_id": plan.deferred_formal_concept_id,
-        "no_safe_deferred_formal_concept_ids": (
-            plan.no_safe_deferred_formal_concept_ids
-        ),
-        "primary_step": plan.primary_step.model_dump(
-            mode="python", exclude={"supporting_formal_concept_ids"}
-        ),
-        "adaptive_plan_revision": plan.adaptive_plan_revision,
-    }
-    return AdaptiveResponseView.model_validate(
-        {
-            "schema": "adaptive-response/v1",
-            "plan": plan_view,
-            "suggestion": suggestion.model_dump(mode="python", by_alias=True),
+            "next_action": progress.next_action.model_dump(
+                mode="python", exclude={"supporting_formal_concept_ids"}
+            ),
+            "guidance_revision": progress.guidance_revision,
         }
     )

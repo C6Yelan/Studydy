@@ -1,19 +1,16 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 import {
-  adaptiveView,
   apiError,
   assessmentView,
-  contextView,
-  learningStateView,
   mapRevision,
   mapView,
   materialId,
+  progressView,
   runId,
   runView,
   sessionView,
   studySessionId,
-  weaknessView,
 } from "./fixtures/learning";
 
 async function fulfillJson(route: Route, json: unknown, status = 200) {
@@ -28,11 +25,7 @@ async function publicMapRoutes(page: Page, view = mapView()) {
 
 async function activeSessionRoutes(page: Page, currentConceptId: string | null = sessionView().current_formal_concept_id) {
   await publicMapRoutes(page);
-  await page.route(`**/v1/study-sessions/${studySessionId}`, (route) => fulfillJson(route, sessionView({ current_formal_concept_id: currentConceptId })));
-  await page.route(`**/v1/study-sessions/${studySessionId}/context`, (route) => fulfillJson(route, contextView({ current_formal_concept_id: currentConceptId })));
-  await page.route(`**/v1/study-sessions/${studySessionId}/learning-state`, (route) => fulfillJson(route, learningStateView()));
-  await page.route(`**/v1/study-sessions/${studySessionId}/weakness`, (route) => fulfillJson(route, weaknessView({ currentConceptId })));
-  await page.route(`**/v1/study-sessions/${studySessionId}/adaptive-plan`, (route) => fulfillJson(route, adaptiveView({ currentConceptId })));
+  await page.route(`**/v1/study-sessions/${studySessionId}/progress`, (route) => fulfillJson(route, progressView({ currentConceptId })));
 }
 
 function emptyMap() {

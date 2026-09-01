@@ -23,6 +23,7 @@ from learning_adaptation.map_context import (
     EvidenceLocator,
     FormalConceptContext,
 )
+from pdf_evidence.local_ai_process import LocalAIError
 
 
 def _identifier(kind: str, digit: str) -> str:
@@ -94,10 +95,26 @@ def _policy() -> dict:
             "multiple_support_risk_threshold": 0.4,
         },
         "novelty": {
-            "decision_rule": "entailment-or-unproven-neutral-reject/v3",
+            "decision_rule": (
+                "publication-independent-mastery-qualification/v1"
+            ),
             "novel_requirement": (
                 "each-prior-no-entailment-and-directional-contradiction/v1"
             ),
+            "qualification_outcomes": {
+                "no_prior": "distinct-mastery-evidence:no-prior/v1",
+                "verified_distinct": (
+                    "distinct-mastery-evidence:verified-distinct/v1"
+                ),
+                "neutral": "distinct-mastery-evidence:neutral/v1",
+                "timeout": "distinct-mastery-evidence:timeout/v1",
+                "invalid_response": (
+                    "distinct-mastery-evidence:invalid-response/v1"
+                ),
+                "unavailable": "distinct-mastery-evidence:unavailable/v1",
+                "unsupported": "distinct-mastery-evidence:unsupported/v1",
+                "over_limit": "distinct-mastery-evidence:over-limit/v1",
+            },
             "maximum_prior_items": 32,
             "request_timeout_seconds": 120,
         },
@@ -364,7 +381,7 @@ def test_repeated_generation_selects_unused_safe_candidate_then_fails_closed(
     used = set()
 
     for expected_candidate_index in (1, 0, 2):
-        documents, provenance, _ = _generate_documents(
+        documents, provenance, novelty = _generate_documents(
             session_id,
             _identifier("knowledge-map", "8"),
             _grounded(),
@@ -373,8 +390,8 @@ def test_repeated_generation_selects_unused_safe_candidate_then_fails_closed(
             frozenset(used),
         )
         assert provenance["selected_candidate_index"] == expected_candidate_index
-        assert documents.public_document.question_id not in used
-        used.add(documents.public_document.question_id)
+        assert novelty.semantic_identity not in used
+        used.add(novelty.semantic_identity)
 
     with pytest.raises(
         AssessmentGenerationError, match="^ASSESSMENT_NO_NEW_SAFE_ITEM$"
@@ -425,7 +442,7 @@ def test_exhausted_risky_repairs_do_not_block_lower_safe_proposals(monkeypatch):
     selected = []
 
     for _ in range(5):
-        documents, provenance, _ = _generate_documents(
+        documents, provenance, novelty = _generate_documents(
             session_id,
             _identifier("knowledge-map", "8"),
             _grounded(),
@@ -433,8 +450,8 @@ def test_exhausted_risky_repairs_do_not_block_lower_safe_proposals(monkeypatch):
             "9" * 64,
             frozenset(used),
         )
-        assert documents.public_document.question_id not in used
-        used.add(documents.public_document.question_id)
+        assert novelty.semantic_identity not in used
+        used.add(novelty.semantic_identity)
         selected.append(
             (
                 provenance["selected_stage"],
@@ -496,7 +513,7 @@ def test_verifier_over_token_boundary_rejects_before_selection(monkeypatch):
         )
 
 
-def test_dup_stack_order_is_rejected_on_one_directional_entailment(
+def test_directional_entailment_publishes_without_mastery_qualification(
     monkeypatch,
 ):
     scores = {
@@ -546,20 +563,21 @@ def test_dup_stack_order_is_rejected_on_one_directional_entailment(
             else _proposal_document()
         ),
     )
-    with pytest.raises(
-        AssessmentGenerationError, match="^ASSESSMENT_NO_NEW_SAFE_ITEM$"
-    ):
-        _generate_documents(
-            session_id,
-            _identifier("knowledge-map", "8"),
-            _grounded(),
-            _settings(),
-            "9" * 64,
-            frozenset(),
-            (first_novelty,),
-        )
+    _, _, novelty = _generate_documents(
+        session_id,
+        _identifier("knowledge-map", "8"),
+        _grounded(),
+        _settings(),
+        "9" * 64,
+        frozenset({first_novelty.semantic_identity}),
+        (first_novelty,),
+    )
 
     assert duplicate_verifier.novelty_requests <= 6
+    assert novelty.counts_as_distinct_mastery_evidence is False
+    assert novelty.comparison_policy_revision == (
+        "distinct-mastery-evidence:neutral/v1"
+    )
 
 
 def test_semantically_distinct_candidate_remains_selectable(monkeypatch):
@@ -594,7 +612,7 @@ def test_semantically_distinct_candidate_remains_selectable(monkeypatch):
         _grounded(),
         _settings(),
         "9" * 64,
-        frozenset({first_documents.public_document.question_id}),
+        frozenset({first_novelty.semantic_identity}),
         (first_novelty,),
     )
 
@@ -603,9 +621,10 @@ def test_semantically_distinct_candidate_remains_selectable(monkeypatch):
         != first_documents.public_document.question_id
     )
     assert novelty.maximum_equivalence_score == 0.003729
+    assert novelty.counts_as_distinct_mastery_evidence is True
 
 
-def test_dup_matrix_neutral_pair_is_unproven_and_fails_closed(monkeypatch):
+def test_neutral_pair_publishes_without_mastery_qualification(monkeypatch):
     scores = {
         "Supported answer 0": [0.55, 0.2, 0.1, 0.1],
         "Supported answer 1": [0.9, 0.1, 0.1, 0.1],
@@ -654,19 +673,132 @@ def test_dup_matrix_neutral_pair_is_unproven_and_fails_closed(monkeypatch):
         ),
     )
 
-    with pytest.raises(
-        AssessmentGenerationError, match="^ASSESSMENT_NO_NEW_SAFE_ITEM$"
-    ):
-        _generate_documents(
-            session_id,
-            _identifier("knowledge-map", "8"),
-            _grounded(),
-            _settings(),
-            "9" * 64,
-            frozenset(),
-            (first_novelty,),
-        )
+    _, _, novelty = _generate_documents(
+        session_id,
+        _identifier("knowledge-map", "8"),
+        _grounded(),
+        _settings(),
+        "9" * 64,
+        frozenset({first_novelty.semantic_identity}),
+        (first_novelty,),
+    )
     assert ambiguous_verifier.novelty_requests <= 6
+    assert novelty.counts_as_distinct_mastery_evidence is False
+    assert novelty.comparison_policy_revision == (
+        "distinct-mastery-evidence:neutral/v1"
+    )
+
+
+@pytest.mark.parametrize(
+    ("novelty_failure", "expected_policy"),
+    [
+        (
+            LocalAIError("ASSESSMENT_VERIFIER_TIMEOUT"),
+            "distinct-mastery-evidence:timeout/v1",
+        ),
+        (
+            LocalAIError("ASSESSMENT_VERIFIER_UNAVAILABLE"),
+            "distinct-mastery-evidence:unavailable/v1",
+        ),
+        (
+            LocalAIError("ASSESSMENT_VERIFIER_RESPONSE_INVALID"),
+            "distinct-mastery-evidence:invalid-response/v1",
+        ),
+        (
+            LocalAIError("ASSESSMENT_VERIFIER_DEPENDENCY_MISSING"),
+            "distinct-mastery-evidence:unsupported/v1",
+        ),
+    ],
+)
+def test_novelty_runtime_failure_publishes_without_mastery_qualification(
+    monkeypatch, novelty_failure, expected_policy
+):
+    scores = {
+        "Supported answer 0": [0.55, 0.2, 0.1, 0.1],
+        "Supported answer 1": [0.9, 0.1, 0.1, 0.1],
+        "Supported answer 2": [0.6, 0.3, 0.2, 0.1],
+    }
+    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
+    monkeypatch.setattr(
+        generation, "_request_stage", lambda *args, **kwargs: _proposal_document()
+    )
+    first_verifier = _Verifier(scores)
+    monkeypatch.setattr(
+        generation, "start_assessment_process", lambda *_: first_verifier
+    )
+    session_id = uuid4()
+    _, _, first_novelty = _generate_documents(
+        session_id,
+        _identifier("knowledge-map", "8"),
+        _grounded(),
+        _settings(),
+        "9" * 64,
+        frozenset(),
+    )
+
+    class UncertainVerifier(_Verifier):
+        def request(self, request, timeout):
+            if request["schema"] == "local-assessment-novelty-request/v1":
+                raise novelty_failure
+            return super().request(request, timeout)
+
+    uncertain_verifier = UncertainVerifier(scores)
+    monkeypatch.setattr(
+        generation,
+        "start_assessment_process",
+        lambda *_: uncertain_verifier,
+    )
+    _, _, novelty = _generate_documents(
+        session_id,
+        _identifier("knowledge-map", "8"),
+        _grounded(),
+        _settings(),
+        "9" * 64,
+        frozenset({first_novelty.semantic_identity}),
+        (first_novelty,),
+    )
+
+    assert novelty.counts_as_distinct_mastery_evidence is False
+    assert novelty.comparison_policy_revision == expected_policy
+
+
+def test_novelty_over_limit_publishes_without_comparison(monkeypatch):
+    verifier = _Verifier({
+        "Supported answer 0": [0.55, 0.2, 0.1, 0.1],
+        "Supported answer 1": [0.9, 0.1, 0.1, 0.1],
+        "Supported answer 2": [0.6, 0.3, 0.2, 0.1],
+    })
+    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
+    monkeypatch.setattr(
+        generation, "start_assessment_process", lambda *_: verifier
+    )
+    monkeypatch.setattr(
+        generation, "_request_stage", lambda *args, **kwargs: _proposal_document()
+    )
+    session_id = uuid4()
+    _, _, first_novelty = _generate_documents(
+        session_id,
+        _identifier("knowledge-map", "8"),
+        _grounded(),
+        _settings(),
+        "9" * 64,
+        frozenset(),
+    )
+    _, _, novelty = _generate_documents(
+        session_id,
+        _identifier("knowledge-map", "8"),
+        _grounded(),
+        _settings(),
+        "9" * 64,
+        frozenset({first_novelty.semantic_identity}),
+        (first_novelty,) * 33,
+    )
+
+    assert verifier.novelty_requests == 0
+    assert novelty.counts_as_distinct_mastery_evidence is False
+    assert novelty.comparison_policy_revision == (
+        "distinct-mastery-evidence:over-limit/v1"
+    )
 
 
 def test_selected_evidence_must_independently_support_correct_option():

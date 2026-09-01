@@ -453,7 +453,7 @@ test("Answer feedback parser 只接受 post-submit public fields", async () => {
   );
 });
 
-test("StudySession-scoped learning projections 保持 revision 與 action bindings", async () => {
+test("StudySession progress 保持 watermark、mastery 與 guidance bindings", async () => {
   const read = async (method, value) => {
     let calls = 0;
     const client = new StudydyApiClient(async () => {
@@ -462,20 +462,20 @@ test("StudySession-scoped learning projections 保持 revision 與 action bindin
     });
     return client[method](phase06Fixtures.success.study_session_id);
   };
-  assert.equal((await read("getLearningState", phase06Fixtures.low_data)).concept_states[0].status, "not_started");
-  assert.equal((await read("getWeakness", phase06Fixtures.weakness)).findings[0].category, "observed_weak");
-  assert.equal((await read("getAdaptivePlan", phase06Fixtures.review_needed)).plan.primary_step.action, "review");
+  assert.equal((await read("getLearnerProgress", phase06Fixtures.low_data)).concept_states[0].status, "not_started");
+  assert.equal((await read("getLearnerProgress", phase06Fixtures.weakness)).weakness_findings[0].category, "observed_weak");
+  assert.equal((await read("getLearnerProgress", phase06Fixtures.review_needed)).next_action.action, "review");
 
   const falseMastery = structuredClone(phase06Fixtures.low_data);
-  falseMastery.all_mastered = true;
+  falseMastery.concept_states[0].qualified_distinct_correct_items = 1;
   await assert.rejects(
-    read("getLearningState", falseMastery),
+    read("getLearnerProgress", falseMastery),
     (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
   );
   const splitDecision = structuredClone(phase06Fixtures.review_needed);
-  splitDecision.suggestion.action = "practice";
+  splitDecision.next_action.route.formal_concept_id = null;
   await assert.rejects(
-    read("getAdaptivePlan", splitDecision),
+    read("getLearnerProgress", splitDecision),
     (error) => error instanceof ApiClientError && error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
   );
 });
@@ -542,13 +542,16 @@ test("Map v11 recursively rejects unexpected、duplicate、nonfinite、type 與 
 test("client surface 只公開目前 frozen downstream methods", () => {
   const client = new StudydyApiClient(async () => new Response(null, { status: 204 }));
   for (const name of [
-    "createStudySession", "getStudySession", "getStudyContext", "completeStudySession",
-    "createAssessment", "getAssessment", "submitAssessmentAnswer", "getLearningState",
-    "getWeakness", "getAdaptivePlan", "applyAdaptivePlan",
+    "createStudySession", "getStudySession", "completeStudySession",
+    "createAssessment", "getAssessment", "submitAssessmentAnswer",
+    "getLearnerProgress", "applyGuidance",
   ]) {
     assert.equal(typeof client[name], "function");
   }
-  for (const name of ["submitLearningUpdate", "getLearningResourceResult"]) {
+  for (const name of [
+    "submitLearningUpdate", "getLearningResourceResult", "getStudyContext",
+    "getLearningState", "getWeakness", "getAdaptivePlan", "applyAdaptivePlan",
+  ]) {
     assert.equal(client[name], undefined);
   }
   assert.equal(client.sourceArtifactUrl(artifactId), `/v1/artifacts/${artifactId}`);

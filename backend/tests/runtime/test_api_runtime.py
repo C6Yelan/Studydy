@@ -57,6 +57,7 @@ def api_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
         14,
         15,
         16,
+        17,
     )
     return clean_database_dsn
 
@@ -412,6 +413,7 @@ def test_openapi_has_phase_06_learning_routes_without_private_fields(
     fixture = Path(__file__).parent / "fixtures" / "openapi-v2.json"
     assert encoded == fixture.read_bytes()
     document = json.loads(encoded)
+    assert "prerequisite" not in encoded.decode("utf-8").casefold()
     paths = set(document["paths"])
     assert paths == {
         "/v1/session",
@@ -424,14 +426,11 @@ def test_openapi_has_phase_06_learning_routes_without_private_fields(
         "/v1/study-sessions",
         "/v1/study-sessions/{study_session_id}",
         "/v1/study-sessions/{study_session_id}/complete",
-        "/v1/study-sessions/{study_session_id}/context",
         "/v1/study-sessions/{study_session_id}/assessments",
         "/v1/study-sessions/{study_session_id}/assessments/{assessment_revision}",
         "/v1/study-sessions/{study_session_id}/assessments/{assessment_revision}/submissions",
-        "/v1/study-sessions/{study_session_id}/learning-state",
-        "/v1/study-sessions/{study_session_id}/weakness",
-        "/v1/study-sessions/{study_session_id}/adaptive-plan",
-        "/v1/study-sessions/{study_session_id}/adaptive-plan/apply",
+        "/v1/study-sessions/{study_session_id}/progress",
+        "/v1/study-sessions/{study_session_id}/guidance/apply",
     }
     assert "HTTPValidationError" not in document["components"]["schemas"]
     assert "ValidationError" not in document["components"]["schemas"]
@@ -586,17 +585,6 @@ def test_learning_api_closed_public_wiring_and_safe_feedback(
         session_id = study_session["study_session_id"]
         assert client.get(f"/v1/study-sessions/{session_id}").json() == study_session
 
-        context = client.get(
-            f"/v1/study-sessions/{session_id}/context"
-        ).json()
-        assert context["base_knowledge_map_revision"] == knowledge_map["revision"]
-        assert [
-            item["formal_concept_id"] for item in context["initial_learning_path"]
-        ] == [
-            step["formal_concept_id"]
-            for step in knowledge_map["initial_learning_path"]
-        ]
-
         assessment_request = {
             "schema": "assessment-create/v1",
             "target_claim_id": target["claims"][0]["claim_id"],
@@ -620,6 +608,8 @@ def test_learning_api_closed_public_wiring_and_safe_feedback(
         assert "correct_option" not in encoded_assessment
         assert "rationale" not in encoded_assessment
         assert "generation_provenance" not in encoded_assessment
+        assert "counts_as_distinct_mastery_evidence" not in encoded_assessment
+        assert "semantic_novelty" not in encoded_assessment
         assert client.get(
             f"{assessment_url}/{assessment['assessment_revision']}"
         ).json() == assessment
@@ -651,30 +641,23 @@ def test_learning_api_closed_public_wiring_and_safe_feedback(
             },
         ).status_code == 400
 
-        state = client.get(
-            f"/v1/study-sessions/{session_id}/learning-state"
+        progress = client.get(
+            f"/v1/study-sessions/{session_id}/progress"
         ).json()
-        weakness = client.get(
-            f"/v1/study-sessions/{session_id}/weakness"
-        ).json()
-        adaptive = client.get(
-            f"/v1/study-sessions/{session_id}/adaptive-plan"
-        ).json()
-        assert state["concept_states"][1]["status"] == "needs_review"
-        assert "source_answer_event_ids" not in json.dumps(state)
-        assert "supporting_answer_event_ids" not in json.dumps(weakness)
-        assert adaptive["plan"]["primary_step"]["action"] == "review"
-        assert adaptive["suggestion"]["action"] == "review"
+        assert progress["concept_states"][1]["status"] == "needs_review"
+        assert progress["event_watermark"] == 1
+        assert "source_answer_event_ids" not in json.dumps(progress)
+        assert "supporting_answer_event_ids" not in json.dumps(progress)
+        assert progress["next_action"]["action"] == "review"
         applied = client.post(
-            f"/v1/study-sessions/{session_id}/adaptive-plan/apply",
+            f"/v1/study-sessions/{session_id}/guidance/apply",
             headers={"Origin": settings.public_origin},
             json={
-                "schema": "adaptive-plan-apply/v1",
-                "adaptive_plan_revision": adaptive["plan"]["adaptive_plan_revision"],
+                "schema": "guidance-apply/v1",
+                "guidance_revision": progress["guidance_revision"],
             },
         )
         assert applied.status_code == 200
-        assert applied.json()["deferred_formal_concept_id"] is None
         assert applied.json()["current_formal_concept_id"] == target[
             "formal_concept_id"
         ]

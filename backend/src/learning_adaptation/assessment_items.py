@@ -39,6 +39,21 @@ ASSESSMENT_POLICY_REVISION = "single-choice-assessment-policy/v1"
 GENERATION_PROVENANCE_SCHEMA = "assessment-generation-provenance/v2"
 SEMANTIC_NOVELTY_SCHEMA = "assessment-semantic-novelty/v1"
 
+_QUALIFIED_NOVELTY_POLICIES = {
+    "entailment-or-unproven-neutral-reject/v3",
+    "distinct-mastery-evidence:no-prior/v1",
+    "distinct-mastery-evidence:verified-distinct/v1",
+}
+_NOVELTY_POLICIES = _QUALIFIED_NOVELTY_POLICIES | {
+    "normalized-exact-focus/v1",
+    "distinct-mastery-evidence:neutral/v1",
+    "distinct-mastery-evidence:timeout/v1",
+    "distinct-mastery-evidence:invalid-response/v1",
+    "distinct-mastery-evidence:unavailable/v1",
+    "distinct-mastery-evidence:unsupported/v1",
+    "distinct-mastery-evidence:over-limit/v1",
+}
+
 _ASSESSMENT_ID = r"^assessment:sha256:[0-9a-f]{64}$"
 _QUESTION_ID = r"^question:sha256:[0-9a-f]{64}$"
 _OPTION_ID = r"^option:sha256:[0-9a-f]{64}$"
@@ -262,6 +277,13 @@ class AssessmentSemanticNovelty(BaseModel):
             raise ValueError("ASSESSMENT_NOVELTY_TEXT_INVALID")
         return value
 
+    @field_validator("comparison_policy_revision")
+    @classmethod
+    def comparison_policy_must_be_known(cls, value: str) -> str:
+        if value not in _NOVELTY_POLICIES:
+            raise ValueError("ASSESSMENT_NOVELTY_POLICY_INVALID")
+        return value
+
     @field_validator("compared_semantic_identities")
     @classmethod
     def compared_identities_must_be_unique(
@@ -282,7 +304,24 @@ class AssessmentSemanticNovelty(BaseModel):
             self.maximum_equivalence_score is not None
         ):
             raise ValueError("ASSESSMENT_NOVELTY_SCORE_INVALID")
+        if self.comparison_policy_revision in {
+            "distinct-mastery-evidence:verified-distinct/v1",
+            "distinct-mastery-evidence:neutral/v1",
+        } and not self.compared_semantic_identities:
+            raise ValueError("ASSESSMENT_NOVELTY_SCORE_INVALID")
+        if self.comparison_policy_revision not in {
+            "entailment-or-unproven-neutral-reject/v3",
+            "distinct-mastery-evidence:verified-distinct/v1",
+            "distinct-mastery-evidence:neutral/v1",
+        } and self.compared_semantic_identities:
+            raise ValueError("ASSESSMENT_NOVELTY_SCORE_INVALID")
         return self
+
+    @property
+    def counts_as_distinct_mastery_evidence(self) -> bool:
+        """只有正向證明的題目可作為單一 Claim 的不同題證據。"""
+
+        return self.comparison_policy_revision in _QUALIFIED_NOVELTY_POLICIES
 
 
 def _private_answer_sha256(
@@ -323,6 +362,7 @@ class StoredAssessment:
     knowledge_map_revision: str
     question_id: str
     semantic_identity: str
+    counts_as_distinct_mastery_evidence: bool
     target_formal_concept_id: str
     target_claim_id: str
     public_document: PublicAssessmentDocument
@@ -352,23 +392,6 @@ def _question_semantic_content(
         "option_texts": [option.text for option in public_document.options],
         "policy_revision": public_document.policy_revision,
     }
-
-
-def question_reuse_key(
-    public_document: PublicAssessmentDocument,
-) -> str:
-    """跨Claim比較學生實際看到的同Concept題意與選項。"""
-
-    return "question-semantic:sha256:" + canonical_sha256({
-        "knowledge_map_revision": public_document.knowledge_map_revision,
-        "target_formal_concept_id": public_document.target_formal_concept_id,
-        "question_type": public_document.question_type,
-        "prompt": _normalized_text(public_document.prompt),
-        "option_texts": sorted(
-            _normalized_text(option.text) for option in public_document.options
-        ),
-        "policy_revision": public_document.policy_revision,
-    })
 
 
 def _semantic_focus(documents: AssessmentDocuments) -> str:
@@ -708,6 +731,9 @@ def _stored_assessment(row: Assessment) -> StoredAssessment:
         knowledge_map_revision=row.knowledge_map_revision,
         question_id=row.question_id,
         semantic_identity=row.semantic_identity,
+        counts_as_distinct_mastery_evidence=(
+            novelty.counts_as_distinct_mastery_evidence
+        ),
         target_formal_concept_id=row.target_formal_concept_id,
         target_claim_id=row.target_claim_id,
         public_document=public,
@@ -757,13 +783,13 @@ def used_question_ids(
         raise _error("ASSESSMENT_STORAGE_FAILED") from None
 
 
-def used_question_keys(
+def used_semantic_identities(
     learner: TrustedLearner,
     study_session_id: UUID,
     *,
     dsn: str | None = None,
 ) -> frozenset[str]:
-    """回傳同一StudySession所有question IDs與跨Claim semantic keys。"""
+    """回傳同一 StudySession 已發布題目的 exact semantic identities。"""
 
     if not isinstance(study_session_id, UUID):
         raise _error("ASSESSMENT_UNAVAILABLE")
@@ -774,16 +800,11 @@ def used_question_keys(
                 session, learner_id, study_session_id
             )
             _validate_binding(session, study_session)
-            keys: set[str] = set()
-            for question_id, public_document in session.execute(
-                select(Assessment.question_id, Assessment.public_document).where(
+            return frozenset(session.scalars(
+                select(Assessment.semantic_identity).where(
                     Assessment.study_session_id == study_session_id
                 )
-            ):
-                public = PublicAssessmentDocument.model_validate(public_document)
-                keys.add(question_id)
-                keys.add(question_reuse_key(public))
-            return frozenset(keys)
+            ))
     except AssessmentError:
         raise
     except (StudySessionError, MapContextError):
@@ -801,12 +822,17 @@ def used_question_keys(
 def used_semantic_novelties(
     learner: TrustedLearner,
     study_session_id: UUID,
+    target_claim_id: str,
     *,
     dsn: str | None = None,
 ) -> tuple[AssessmentSemanticNovelty, ...]:
-    """回傳同一 StudySession 已發布題目的 private semantic evidence。"""
+    """回傳同一 StudySession / Claim 已發布題目的 private semantic evidence。"""
 
-    if not isinstance(study_session_id, UUID):
+    if (
+        not isinstance(study_session_id, UUID)
+        or not isinstance(target_claim_id, str)
+        or re.fullmatch(_CLAIM_ID, target_claim_id) is None
+    ):
         raise _error("ASSESSMENT_UNAVAILABLE")
     try:
         learner_id = _learner_id(learner)
@@ -819,7 +845,10 @@ def used_semantic_novelties(
                 _stored_assessment(row).semantic_novelty
                 for row in session.scalars(
                     select(Assessment)
-                    .where(Assessment.study_session_id == study_session_id)
+                    .where(
+                        Assessment.study_session_id == study_session_id,
+                        Assessment.target_claim_id == target_claim_id,
+                    )
                     .order_by(Assessment.created_at, Assessment.assessment_revision)
                 )
             )
