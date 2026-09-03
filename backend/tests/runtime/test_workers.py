@@ -6,12 +6,17 @@ import pytest
 import runtime.workers as worker_module
 
 
-def _hold_material_analysis_lock(runtime_root: str, acquired, release) -> None:
+def _hold_material_analysis_lock(
+    runtime_root: str, started, acquired, release, released
+) -> None:
     from pdf_evidence.text_first_run import material_analysis_lock
 
+    started.set()
     with material_analysis_lock(Path(runtime_root)):
         acquired.set()
-        release.wait(10)
+        if not release.wait(15):
+            raise RuntimeError("TEST_LOCK_RELEASE_TIMEOUT")
+    released.set()
 
 
 def test_second_process_does_not_recover_or_claim_before_ownership(
@@ -19,13 +24,16 @@ def test_second_process_does_not_recover_or_claim_before_ownership(
 ):
     runtime_root = tmp_path / "runtime"
     process_context = get_context("spawn")
+    started = process_context.Event()
     acquired = process_context.Event()
     release = process_context.Event()
+    released = process_context.Event()
     lock_owner = process_context.Process(
         target=_hold_material_analysis_lock,
-        args=(str(runtime_root), acquired, release),
+        args=(str(runtime_root), started, acquired, release, released),
     )
     lock_owner.start()
+    assert started.wait(15), f"spawned lock owner exited with {lock_owner.exitcode}"
     assert acquired.wait(5)
 
     calls = []
@@ -62,7 +70,8 @@ def test_second_process_does_not_recover_or_claim_before_ownership(
         assert calls == []
 
         release.set()
-        assert executed.wait(5)
+        assert released.wait(5)
+        assert executed.wait(10)
         workers.stop()
         assert calls[:3] == ["recover", "claim", "execute"]
     finally:
