@@ -3,6 +3,7 @@ from __future__ import annotations
 from psycopg.conninfo import conninfo_to_dict
 import pytest
 
+import conftest as fixture_module
 from conftest import DatabaseDsn, _test_postgres_dsn_from_environment
 
 
@@ -47,3 +48,38 @@ def test_explicit_test_postgres_dsn_rejects_production_or_invalid_targets(
 ):
     with pytest.raises(ValueError, match="TEST_POSTGRES_DSN_INVALID"):
         _test_postgres_dsn_from_environment(environment)
+
+
+def test_postgres_preflight_requires_superuser_before_database_tests(
+    monkeypatch,
+):
+    class Query:
+        def __init__(self, row):
+            self._row = row
+
+        def fetchone(self):
+            return self._row
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return None
+
+        def execute(self, statement):
+            if statement == "SHOW server_version_num":
+                return Query(("180006",))
+            return Query((False,))
+
+    monkeypatch.setattr(
+        fixture_module.psycopg, "connect", lambda _: Connection()
+    )
+
+    with pytest.raises(
+        pytest.fail.Exception,
+        match="DISPOSABLE_POSTGRES_SUPERUSER_REQUIRED",
+    ):
+        fixture_module._wait_for_postgres(
+            DatabaseDsn("dbname=studydy_test_control")
+        )

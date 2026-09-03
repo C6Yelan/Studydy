@@ -61,7 +61,10 @@ Keep `STUDYDY_DATABASE_DSN` only in the current private shell. Do not echo it.
 
 Automated tests create their own pinned disposable Docker PostgreSQL by default. On a host without Docker,
 install PostgreSQL 18 on ephemeral container disk and prepare an empty control database whose name
-starts with `studydy_test`; its local test role must have `CREATEDB`. Do not put `PGDATA` on
+starts with `studydy_test`; its dedicated test-only role must be a PostgreSQL superuser, matching the
+privileges of Docker `POSTGRES_USER`. Migration fixtures use `session_replication_role` to construct
+legacy and deliberately invalid rows, so `CREATEDB` alone is insufficient. Never grant these test
+privileges to the production database role. Do not put `PGDATA` on
 `/workspace` network storage. Read the test-only DSN without echoing it, then run pytest in the same
 shell:
 
@@ -74,7 +77,8 @@ unset STUDYDY_TEST_POSTGRES_DSN
 ```
 
 The fixture rejects a DSN whose control database is not named `studydy_test*` or is identical to
-`STUDYDY_DATABASE_DSN`. Every test still creates a fresh `studydy_case_*` database and terminates
+`STUDYDY_DATABASE_DSN`, and fails before database-backed test execution proceeds when the role is not a superuser.
+Every test still creates a fresh `studydy_case_*` database and terminates
 connections and drops it afterward. PostgreSQL migrations, transactions, isolation and cleanup are
 unchanged. Native PostgreSQL state is disposable; cross-day retention requires an explicit private
 dump/restore workflow and is outside Batch 1.

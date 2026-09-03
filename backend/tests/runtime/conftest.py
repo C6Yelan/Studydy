@@ -97,13 +97,13 @@ def _wait_for_postgres(dsn: DatabaseDsn) -> None:
                 ).fetchone()
                 if version is None or not 180_000 <= int(version[0]) < 190_000:
                     pytest.fail("DISPOSABLE_POSTGRES_VERSION_MISMATCH", pytrace=False)
-                can_create = connection.execute(
-                    "SELECT rolcreatedb OR rolsuper FROM pg_roles "
+                is_superuser = connection.execute(
+                    "SELECT rolsuper FROM pg_roles "
                     "WHERE rolname=current_user"
                 ).fetchone()
-                if can_create != (True,):
+                if is_superuser != (True,):
                     pytest.fail(
-                        "DISPOSABLE_POSTGRES_CREATE_DATABASE_REQUIRED",
+                        "DISPOSABLE_POSTGRES_SUPERUSER_REQUIRED",
                         pytrace=False,
                     )
                 break
@@ -112,7 +112,7 @@ def _wait_for_postgres(dsn: DatabaseDsn) -> None:
                 pytest.fail("DISPOSABLE_POSTGRES_NOT_READY", pytrace=False)
             time.sleep(0.2)
         except psycopg.Error:
-            pytest.fail("DISPOSABLE_POSTGRES_CREATE_DATABASE_REQUIRED", pytrace=False)
+            pytest.fail("DISPOSABLE_POSTGRES_SUPERUSER_REQUIRED", pytrace=False)
 
 
 @pytest.fixture(scope="session")

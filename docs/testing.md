@@ -68,7 +68,10 @@ PostgreSQL production semantics remain PostgreSQL-only. Pytest normally creates 
 disposable Docker PostgreSQL control database, then creates and drops a fresh `studydy_case_*`
 database for every database-backed test. On RunPod or another host without Docker, install
 PostgreSQL 18 on ephemeral local disk, prepare an empty `studydy_test*` control database with a
-test-only `CREATEDB` role, and provide its DSN only through `STUDYDY_TEST_POSTGRES_DSN`. The fixture
+dedicated test-only superuser matching Docker `POSTGRES_USER`, and provide its DSN only through
+`STUDYDY_TEST_POSTGRES_DSN`. Superuser is required only because migration fixtures use
+`session_replication_role` to construct legacy/invalid rows; production database privileges are
+unchanged. The fixture
 rejects the production DSN and preserves the same migration, transaction, isolation and cleanup
 checks. Never print or commit either DSN.
 
