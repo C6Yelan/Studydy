@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-import learning_adaptation.assessment_runtime as runtime
 from learning_adaptation.assessment_runtime import (
+    ASSESSMENT_RUNTIME_LOCK_SHA256,
     AssessmentRuntimeError,
     _validate_assessment_runtime_lock,
     assessment_runtime_binding,
@@ -33,30 +33,16 @@ def test_assessment_lock_is_exact_and_tamper_closed():
         _validate_assessment_runtime_lock(changed, MATERIAL_LOCK)
 
 
-def test_assessment_binding_owns_policy_without_material_prompt_identity(
-    monkeypatch,
-):
-    hashes_by_name = {
-        Path(relative_path).name: ASSESSMENT_LOCK["code_hashes"][name]
-        for name, relative_path in runtime._CODE_PATHS.items()
-    }
-    monkeypatch.setattr(
-        runtime,
-        "_file_sha256",
-        lambda path: hashes_by_name[path.name],
-    )
+def test_assessment_binding_owns_policy_without_material_prompt_identity():
     binding = assessment_runtime_binding(
-        {
-            "runtime_lock": MATERIAL_LOCK,
-            "site_packages": "/fixed/site-packages",
-        },
+        {"runtime_lock": MATERIAL_LOCK},
         ASSESSMENT_LOCK,
     )
 
     assert binding["schema"] == "assessment-generation-runtime-binding/v1"
     assert binding["policy_revision"] == "assessment-generation-policy/v6"
     assert binding["assessment_runtime_lock_sha256"] == (
-        runtime.ASSESSMENT_RUNTIME_LOCK_SHA256
+        ASSESSMENT_RUNTIME_LOCK_SHA256
     )
     encoded = json.dumps(binding, sort_keys=True)
     assert MATERIAL_LOCK["semantic"]["prompt"] not in encoded

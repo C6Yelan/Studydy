@@ -131,7 +131,7 @@ def test_runtime_summary_preserves_only_fixed_runtime_stage(monkeypatch):
             MaterialProcessingError(
                 "private diagnostic",
                 component="ocr_package",
-                reason="LOCAL_RUNTIME_HASH_MISMATCH",
+                reason="LOCAL_RUNTIME_VERSION_MISMATCH",
             )
         ),
     )
@@ -141,7 +141,7 @@ def test_runtime_summary_preserves_only_fixed_runtime_stage(monkeypatch):
 
     assert str(failure.value) == "RESOURCE_RUNTIME_BINDING_MISMATCH"
     assert failure.value.component == "ocr_package"
-    assert failure.value.runtime_reason == "LOCAL_RUNTIME_HASH_MISMATCH"
+    assert failure.value.runtime_reason == "LOCAL_RUNTIME_VERSION_MISMATCH"
 
 
 def _analyze(

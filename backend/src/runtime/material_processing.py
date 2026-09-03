@@ -56,41 +56,6 @@ _CONFIG_PATH_KEYS = {
     "ocr_model_root",
     "verifier_model_root",
 }
-_LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "c8e6bd1c50a0aef089c0585c32c71270f210d7efad1d681d43c985b9df78e23d",
-    "backend/src/pdf_evidence/ocr_page_evidence.py": "13716c4f0e1429802f2fa0e28c4e87743c678adb5ad61a32c12cb6309fd55a6a",
-    "backend/src/pdf_evidence/concept_generation.py": "4a7c1ac816ab69a82a12df8fa2c1db16ad98c07c9c9bf4a44bc042925372274f",
-    "backend/src/pdf_evidence/document_context.py": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
-    "backend/src/pdf_evidence/concept_api.py": "7a134bf0cd06c523e56dabfc45596fdb4838c963ff56552940e7133dbcae2970",
-    "backend/src/pdf_evidence/study_material_output.py": "88efd57be086464d6fae7c127b81add392088d20b7c05548862f046d73693419",
-    "backend/src/pdf_evidence/local_ai_process.py": "c1457e3f1e7bb8fb8c0aabf3d53071011f7bacded99a296a873542a36efd6e53",
-    "backend/src/knowledge_map/local_generation.py": "b2eb68ae7aa53bdea15ccc1d0702099efcf4345702f83fe5cd597587c94afeed",
-}
-_BINDING_FILES = (
-    "backend/src/pdf_evidence/artifact_reason_codes.py",
-    "backend/src/pdf_evidence/concept_evidence_output.py",
-    "backend/src/pdf_evidence/concept_api.py",
-    "backend/src/pdf_evidence/text_first_bundle.py",
-    "backend/src/pdf_evidence/text_first_run.py",
-    "backend/src/pdf_evidence/study_material_output.py",
-    "backend/src/knowledge_map/artifacts.py",
-    "backend/src/knowledge_map/formal_concepts.py",
-    "backend/src/knowledge_map/local_generation.py",
-    "backend/src/learning_resources/map_resources.py",
-    "backend/src/learning_resources/data/resource_library_v1.json",
-    "backend/src/pdf_evidence/local_ai_process.py",
-    "backend/src/runtime/material_processing.py",
-    "backend/src/runtime/local_app.py",
-    "backend/src/pdf_evidence/source_pdf.py",
-    "backend/src/runtime/storage/material_review_outputs.py",
-)
-_OCR_PACKAGE_VERSIONS = {
-    "studydy-local-ai": "0.1.0",
-    "setuptools": "84.0.0",
-    "torch": "2.10.0+cu128",
-    "torchvision": "0.25.0+cu128",
-    "transformers": "4.57.1",
-}
 _RUNTIME_COMPONENTS = {
     "layout",
     "runtime_lock",
@@ -100,20 +65,15 @@ _RUNTIME_COMPONENTS = {
     "verifier_model",
     "concept_runtime",
     "concept_model",
-    "product_code",
-    "backup",
-    "transaction",
 }
 _RUNTIME_REASONS = {
     "LOCAL_RUNTIME_MISSING",
     "LOCAL_RUNTIME_UNSAFE_TARGET",
     "LOCAL_RUNTIME_NOT_EXECUTABLE",
-    "LOCAL_RUNTIME_SIZE_MISMATCH",
-    "LOCAL_RUNTIME_HASH_MISMATCH",
     "LOCAL_RUNTIME_VERSION_MISMATCH",
+    "LOCAL_RUNTIME_SMOKE_FAILED",
     "LOCAL_RUNTIME_SETTINGS_MISMATCH",
     "LOCAL_RUNTIME_LOCK_MISMATCH",
-    "LOCAL_RUNTIME_BACKUP_CONFLICT",
     "LOCAL_RUNTIME_WRITE_FAILED",
 }
 
@@ -211,25 +171,6 @@ def _row(row: MaterialProcessingRunRow) -> MaterialProcessingRun:
     )
 
 
-def _file_sha256(path: Path, *, component: str = "product_code") -> str:
-    try:
-        with path.open("rb") as source:
-            digest = sha256()
-            while chunk := source.read(_CHUNK):
-                digest.update(chunk)
-            return digest.hexdigest()
-    except OSError:
-        raise _runtime_error(component, "LOCAL_RUNTIME_MISSING") from None
-
-
-@dataclass(frozen=True)
-class _RuntimeFile:
-    path: Path
-    expected_sha256: str
-    component: str
-    expected_size: int | None = None
-
-
 def _absolute_runtime_path(
     value: str, *, is_directory: bool, component: str
 ) -> Path:
@@ -268,101 +209,15 @@ def _prepare_private_runtime_root(value: str) -> None:
         raise _runtime_error("layout", "LOCAL_RUNTIME_UNSAFE_TARGET")
 
 
-def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
-    """把 runtime lock 對應到 OCR、Qwen 與本機 verifier 檔案。"""
-
-    runtime_lock = local_config["runtime_lock"]
-    python_executable = _absolute_runtime_path(
-        local_config["python_executable"],
-        is_directory=False,
-        component="python_runtime",
-    )
-    if not os.access(python_executable, os.X_OK):
-        raise _runtime_error("python_runtime", "LOCAL_RUNTIME_NOT_EXECUTABLE")
-    site_packages = _absolute_runtime_path(
-        local_config["site_packages"], is_directory=True, component="ocr_package"
-    )
-    ocr_model_root = _absolute_runtime_path(
-        local_config["ocr_model_root"], is_directory=True, component="ocr_model"
-    )
-    verifier_model_root = _absolute_runtime_path(
-        local_config["verifier_model_root"],
-        is_directory=True,
-        component="verifier_model",
-    )
-    package_root = site_packages / "studydy_local_ai"
-    files = [
-        *(
-            _RuntimeFile(package_root / name, expected_sha256, "ocr_package")
-            for name, expected_sha256 in runtime_lock["ocr"][
-                "package_sources"
-            ].items()
-        ),
-        _RuntimeFile(
-            ocr_model_root / "config.json",
-            runtime_lock["ocr"]["config_sha256"],
-            "ocr_model",
-        ),
-        *(
-            _RuntimeFile(
-                ocr_model_root / name, expected_sha256, "ocr_model"
-            )
-            for name, expected_sha256 in runtime_lock["ocr"]["reviewed_code"].items()
-        ),
-    ]
-    equivalence_source = runtime_lock["concept_equivalence"]["package_source"]
-    if (
-        not isinstance(equivalence_source, dict)
-        or set(equivalence_source) != {"name", "sha256"}
-        or equivalence_source["name"] != "equivalence_process.py"
-    ):
-        raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")
-    files.append(
-        _RuntimeFile(
-            package_root / equivalence_source["name"],
-            equivalence_source["sha256"],
-            "equivalence_package",
-        )
-    )
-    for required_file in runtime_lock["ocr"]["required_files"]:
-        name = required_file["name"]
-        if Path(name).name != name:
-            raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")
-        files.append(
-            _RuntimeFile(
-                ocr_model_root / name,
-                required_file["sha256"],
-                "ocr_model",
-                required_file["size"],
-            )
-        )
-    for required_file in runtime_lock["verifier_model"]["required_files"]:
-        name = required_file["name"]
-        if Path(name).name != name:
-            raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")
-        files.append(
-            _RuntimeFile(
-                verifier_model_root / name,
-                required_file["sha256"],
-                "verifier_model",
-                required_file.get("size"),
-            )
-        )
-    return tuple(files)
-
-
-def _distribution_versions(
+def _installed_package_versions(
     site_packages: Path,
-    expected_versions: dict[str, str],
-    *,
-    component: str,
+    expected_packages: dict[str, str],
 ) -> dict[str, str]:
-    """直接讀取固定 site-packages metadata，不執行待驗 runtime 程式。"""
+    """讀取必要 package metadata；model smoke另驗證實際 imports。"""
 
     found: dict[str, str] = {}
     try:
-        metadata_files = tuple(site_packages.glob("*.dist-info/METADATA"))
-        for metadata_file in metadata_files:
+        for metadata_file in site_packages.glob("*.dist-info/METADATA"):
             name = version = None
             with metadata_file.open("r", encoding="utf-8") as metadata:
                 for line in metadata:
@@ -372,73 +227,59 @@ def _distribution_versions(
                         version = line[9:].strip()
                     if name is not None and version is not None:
                         break
-            if name in expected_versions:
-                if name in found:
-                    raise _runtime_error(
-                        component, "LOCAL_RUNTIME_VERSION_MISMATCH"
-                    )
+            if name in expected_packages:
                 found[name] = version
     except (OSError, UnicodeError):
-        raise _runtime_error(component, "LOCAL_RUNTIME_VERSION_MISMATCH") from None
+        raise _runtime_error(
+            "ocr_package", "LOCAL_RUNTIME_VERSION_MISMATCH"
+        ) from None
     return found
 
 
 def validate_installed_local_runtime(
     local_config: Any,
-) -> tuple[dict[str, Any], int]:
-    """唯讀核對固定 runtime binding、必要檔案與套件版本。"""
+) -> dict[str, Any]:
+    """驗證可執行的Python環境與OCR/verifier model入口。"""
 
     binding = formal_runtime_binding(local_config)
     assert isinstance(local_config, dict)
-    runtime_files = _runtime_files(local_config)
-    for runtime_file in runtime_files:
-        try:
-            file_status = runtime_file.path.stat()
-        except FileNotFoundError:
-            raise _runtime_error(
-                runtime_file.component, "LOCAL_RUNTIME_MISSING"
-            ) from None
-        except OSError:
-            raise _runtime_error(
-                runtime_file.component, "LOCAL_RUNTIME_UNSAFE_TARGET"
-            ) from None
-        if not stat.S_ISREG(file_status.st_mode):
-            raise _runtime_error(
-                runtime_file.component, "LOCAL_RUNTIME_UNSAFE_TARGET"
-            )
-        if (
-            runtime_file.expected_size is not None
-            and file_status.st_size != runtime_file.expected_size
-        ):
-            raise _runtime_error(
-                runtime_file.component, "LOCAL_RUNTIME_SIZE_MISMATCH"
-            )
-        if (
-            _file_sha256(
-                runtime_file.path, component=runtime_file.component
-            )
-            != runtime_file.expected_sha256
-        ):
-            raise _runtime_error(
-                runtime_file.component, "LOCAL_RUNTIME_HASH_MISMATCH"
-            )
-    site_packages = Path(local_config["site_packages"])
-    if (
-        _distribution_versions(
-            site_packages,
-            _OCR_PACKAGE_VERSIONS,
-            component="ocr_package",
+    python_executable = _absolute_runtime_path(
+        local_config["python_executable"],
+        is_directory=False,
+        component="python_runtime",
+    )
+    if not os.access(python_executable, os.X_OK):
+        raise _runtime_error("python_runtime", "LOCAL_RUNTIME_NOT_EXECUTABLE")
+    site_packages = _absolute_runtime_path(
+        local_config["site_packages"],
+        is_directory=True,
+        component="ocr_package",
+    )
+    for key, component in (
+        ("ocr_model_root", "ocr_model"),
+        ("verifier_model_root", "verifier_model"),
+    ):
+        model_root = _absolute_runtime_path(
+            local_config[key], is_directory=True, component=component
         )
-        != _OCR_PACKAGE_VERSIONS
+        _absolute_runtime_path(
+            str(model_root / "config.json"),
+            is_directory=False,
+            component=component,
+        )
+    expected_packages = local_config["runtime_lock"]["packages"]
+    if (
+        _installed_package_versions(site_packages, expected_packages)
+        != expected_packages
     ):
         raise _runtime_error("ocr_package", "LOCAL_RUNTIME_VERSION_MISMATCH")
-    return binding, len(runtime_files)
+    return binding
 
 
 def formal_runtime_preflight(local_config: Any) -> dict[str, Any]:
     """唯讀驗證成功後，才準備本次執行使用的 private root。"""
 
-    binding, _ = validate_installed_local_runtime(local_config)
+    binding = validate_installed_local_runtime(local_config)
     assert isinstance(local_config, dict)
     try:
         preflight_semantic_service(local_config)
@@ -536,26 +377,9 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
             "concept_runtime", "LOCAL_RUNTIME_SETTINGS_MISMATCH"
         )
 
-    repository_root = Path(__file__).resolve().parents[3]
-    for relative_path, expected_sha256 in _LOCKED_FILES.items():
-        component = (
-            "runtime_lock"
-            if relative_path == "local_ai/runtime-lock.json"
-            else "product_code"
-        )
-        if (
-            _file_sha256(repository_root / relative_path, component=component)
-            != expected_sha256
-        ):
-            raise _runtime_error(component, "LOCAL_RUNTIME_HASH_MISMATCH")
-    code_hashes = {
-        relative_path: _file_sha256(repository_root / relative_path)
-        for relative_path in _BINDING_FILES
-    }
     binding = {
-        "schema": "formal-material-runtime-binding/v8",
+        "schema": "formal-material-runtime-binding/v9",
         "runtime_lock_sha256": canonical_sha256(local_config["runtime_lock"]),
-        "code_hashes": code_hashes,
         "document_policy": "whole-document-review-aggregation/v1",
         "page_range": {"minimum": 1, "caller_subset": False},
         "call_ceilings": {

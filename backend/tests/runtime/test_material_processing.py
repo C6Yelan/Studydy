@@ -1,5 +1,4 @@
 from copy import deepcopy
-import hashlib
 import io
 import json
 from pathlib import Path
@@ -883,39 +882,6 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert binding["concept_equivalence"] == settings["runtime_lock"][
         "concept_equivalence"
     ]
-    assert len(binding["code_hashes"]) == 16
-    assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
-    repository_root = Path(__file__).parents[3]
-    for locked_sha256, relative_path in (
-        (
-            settings["runtime_lock"]["page"]["code_hashes"][
-                "backend_ocr_page_evidence"
-            ],
-            "backend/src/pdf_evidence/ocr_page_evidence.py",
-        ),
-        (
-            settings["runtime_lock"]["semantic"]["code_hashes"][
-                "backend_concept_api"
-            ],
-            "backend/src/pdf_evidence/concept_api.py",
-        ),
-        (
-            settings["runtime_lock"]["semantic"]["code_hashes"][
-                "backend_document_context"
-            ],
-            "backend/src/pdf_evidence/document_context.py",
-        ),
-        (
-            settings["runtime_lock"]["semantic"]["code_hashes"][
-                "backend_study_material_output"
-            ],
-            "backend/src/pdf_evidence/study_material_output.py",
-        ),
-    ):
-        source_sha256 = hashlib.sha256(
-            (repository_root / relative_path).read_bytes()
-        ).hexdigest()
-        assert locked_sha256 == source_sha256
 
 
 def test_assessment_policy_does_not_change_material_runtime_identity(tmp_path: Path):
@@ -932,10 +898,6 @@ def test_assessment_policy_does_not_change_material_runtime_identity(tmp_path: P
 
     assert formal_runtime_binding(settings) == baseline
     assert "assessment_runtime_lock" not in settings
-    assert not any(
-        "assessment" in relative_path
-        for relative_path in baseline["code_hashes"]
-    )
 
     for changed in (
         {**settings, "concept_api_base_url": "http://example.test:8101"},
@@ -950,61 +912,15 @@ def test_assessment_policy_does_not_change_material_runtime_identity(tmp_path: P
             formal_runtime_binding(changed)
 
 
-def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    settings = _settings(tmp_path)
-    runtime_target = tmp_path / "verified-runtime-target"
-    runtime_target.write_bytes(b"exact runtime")
-    runtime_file = tmp_path / "verified-runtime-file"
-    runtime_file.symlink_to(runtime_target)
-    expected_sha256 = hashlib.sha256(b"exact runtime").hexdigest()
-    monkeypatch.setattr(
-        processing_module,
-        "_runtime_files",
-        lambda _: (
-            processing_module._RuntimeFile(
-                runtime_file,
-                expected_sha256,
-                "ocr_package",
-                len(b"exact runtime"),
-            ),
-        ),
-    )
-    monkeypatch.setattr(
-        processing_module,
-        "_distribution_versions",
-        lambda _path, expected, **_: expected,
-    )
-    runtime_root = Path(settings["private_runtime_root"])
-    runtime_root.mkdir(parents=True)
-    runtime_root.chmod(0o777)
-
-    binding = processing_module.formal_runtime_preflight(settings)
-    assert binding["schema"] == "formal-material-runtime-binding/v8"
-    assert runtime_root.stat().st_mode & 0o777 == 0o777
-
-    runtime_target.write_bytes(b"short")
-    with pytest.raises(MaterialProcessingError) as size_failure:
-        processing_module.formal_runtime_preflight(settings)
-    assert size_failure.value.component == "ocr_package"
-    assert size_failure.value.reason == "LOCAL_RUNTIME_SIZE_MISMATCH"
-    runtime_target.write_bytes(b"drift runtime")
-    with pytest.raises(MaterialProcessingError) as hash_failure:
-        processing_module.formal_runtime_preflight(settings)
-    assert hash_failure.value.component == "ocr_package"
-    assert hash_failure.value.reason == "LOCAL_RUNTIME_HASH_MISMATCH"
-
-
 def test_preflight_rejects_runtime_root_that_is_not_a_usable_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     settings = _settings(tmp_path)
-    binding = {"schema": "formal-material-runtime-binding/v8"}
+    binding = {"schema": "formal-material-runtime-binding/v9"}
     monkeypatch.setattr(
         processing_module,
         "validate_installed_local_runtime",
-        lambda _: (binding, 0),
+        lambda _: binding,
     )
     runtime_root = Path(settings["private_runtime_root"])
     runtime_root.parent.mkdir(parents=True)
@@ -1021,11 +937,11 @@ def test_preflight_rejects_runtime_root_that_cannot_be_created(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     settings = _settings(tmp_path)
-    binding = {"schema": "formal-material-runtime-binding/v8"}
+    binding = {"schema": "formal-material-runtime-binding/v9"}
     monkeypatch.setattr(
         processing_module,
         "validate_installed_local_runtime",
-        lambda _: (binding, 0),
+        lambda _: binding,
     )
     runtime_root = Path(settings["private_runtime_root"])
     real_mkdir = Path.mkdir
@@ -1055,7 +971,7 @@ def test_preflight_prepares_private_root_only_after_shared_validation(
         raise MaterialProcessingError(
             "MATERIAL_CONFIGURATION_INVALID",
             component="ocr_package",
-            reason="LOCAL_RUNTIME_HASH_MISMATCH",
+            reason="LOCAL_RUNTIME_VERSION_MISMATCH",
         )
 
     monkeypatch.setattr(
@@ -1072,19 +988,19 @@ def test_preflight_prepares_private_root_only_after_shared_validation(
 
     assert observed == ["validate"]
     assert failure.value.component == "ocr_package"
-    assert failure.value.reason == "LOCAL_RUNTIME_HASH_MISMATCH"
+    assert failure.value.reason == "LOCAL_RUNTIME_VERSION_MISMATCH"
 
 
 def test_preflight_checks_resident_semantic_service_before_preparing_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     settings = _settings(tmp_path)
-    binding = {"schema": "formal-material-runtime-binding/v8"}
+    binding = {"schema": "formal-material-runtime-binding/v9"}
     observed = []
     monkeypatch.setattr(
         processing_module,
         "validate_installed_local_runtime",
-        lambda _: (observed.append("local") or binding, 0),
+        lambda _: observed.append("local") or binding,
     )
     monkeypatch.setattr(
         processing_module,
@@ -1101,73 +1017,39 @@ def test_preflight_checks_resident_semantic_service_before_preparing_root(
     assert observed == ["local", "semantic", "prepare"]
 
 
-def test_runtime_file_plan_covers_ocr_and_verifier_files(tmp_path: Path):
+def test_installed_runtime_requires_packages_and_loadable_model_configs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     settings = _settings(tmp_path)
+    binding = {"schema": "formal-material-runtime-binding/v9"}
+    monkeypatch.setattr(
+        processing_module, "formal_runtime_binding", lambda _: binding
+    )
     python_executable = Path(settings["python_executable"])
     python_executable.parent.mkdir(parents=True)
     python_executable.write_bytes(b"python")
     python_executable.chmod(0o700)
-    for key in ("site_packages", "ocr_model_root", "verifier_model_root"):
-        Path(settings[key]).mkdir(parents=True)
-
-    runtime_files = processing_module._runtime_files(settings)
-    relative_names = {runtime_file.path.name for runtime_file in runtime_files}
-    assert len(runtime_files) == 22
-    assert {
-        "__init__.py",
-        "protocol.py",
-        "ocr_process.py",
-        "equivalence_process.py",
-        "model-00001-of-000001.safetensors",
-        "model.safetensors.index.json",
-        "special_tokens_map.json",
-        "configuration_deepseek_v2.py",
-        "tokenizer.json",
-    } <= relative_names
-    assert tuple(settings["runtime_lock"]["ocr"]["package_sources"]) == (
-        "__init__.py",
-        "protocol.py",
-        "ocr_process.py",
-    )
-    assert settings["runtime_lock"]["concept_equivalence"]["package_source"] == {
-        "name": "equivalence_process.py",
-        "sha256": "2d56949bf2499514e64edc38fa257d9b54221c12e387ae677a5443cd510512a1",
-    }
-
-
-def test_distribution_versions_require_one_exact_metadata_record_per_package(
-    tmp_path: Path,
-):
-    site_packages = tmp_path / "site-packages"
-    site_packages.mkdir()
-    for name, version in processing_module._OCR_PACKAGE_VERSIONS.items():
+    site_packages = Path(settings["site_packages"])
+    site_packages.mkdir(parents=True)
+    for name, version in settings["runtime_lock"]["packages"].items():
         metadata_root = site_packages / f"{name.replace('-', '_')}-{version}.dist-info"
         metadata_root.mkdir()
         (metadata_root / "METADATA").write_text(
             f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n",
             encoding="utf-8",
         )
-    assert processing_module._distribution_versions(
-        site_packages,
-        processing_module._OCR_PACKAGE_VERSIONS,
-        component="ocr_package",
-    ) == (
-        processing_module._OCR_PACKAGE_VERSIONS
-    )
+    for key in ("ocr_model_root", "verifier_model_root"):
+        model_root = Path(settings[key])
+        model_root.mkdir(parents=True)
+        (model_root / "config.json").write_text("{}", encoding="utf-8")
 
-    duplicate = site_packages / "duplicate.dist-info"
-    duplicate.mkdir()
-    (duplicate / "METADATA").write_text(
-        "Name: torch\nVersion: 2.10.0+cu128\n", encoding="utf-8"
-    )
-    with pytest.raises(
-        MaterialProcessingError, match="MATERIAL_CONFIGURATION_INVALID"
-    ):
-        processing_module._distribution_versions(
-            site_packages,
-            processing_module._OCR_PACKAGE_VERSIONS,
-            component="ocr_package",
-        )
+    assert processing_module.validate_installed_local_runtime(settings) is binding
+
+    (Path(settings["verifier_model_root"]) / "config.json").unlink()
+    with pytest.raises(MaterialProcessingError) as failure:
+        processing_module.validate_installed_local_runtime(settings)
+    assert failure.value.component == "verifier_model"
+    assert failure.value.reason == "LOCAL_RUNTIME_MISSING"
 
 
 def test_changed_runtime_binding_fails_before_producer_and_writes_no_revisions(

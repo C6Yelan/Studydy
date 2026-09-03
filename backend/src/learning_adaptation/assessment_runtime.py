@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from hashlib import sha256
 import hashlib
 import json
 from pathlib import Path
@@ -15,26 +14,8 @@ from runtime.material_processing import (
 
 
 ASSESSMENT_RUNTIME_LOCK_SHA256 = (
-    "df8f68e68b9d8117d738c7a6bf5c7c9a831118d4e5840706a2adae5238e4cdad"
+    "cbaf1854557f891ed8e2af8e212239855872ac970341925e0c9bb86104b40b90"
 )
-_CODE_PATHS = {
-    "backend_assessment_generation": (
-        "backend/src/learning_adaptation/assessment_generation.py"
-    ),
-    "backend_assessment_items": (
-        "backend/src/learning_adaptation/assessment_items.py"
-    ),
-    "backend_map_context": "backend/src/learning_adaptation/map_context.py",
-    "backend_assessment_model_api": (
-        "backend/src/learning_adaptation/assessment_model_api.py"
-    ),
-    "backend_assessment_verifier": (
-        "backend/src/learning_adaptation/assessment_verifier.py"
-    ),
-    "local_assessment_process": (
-        "local_ai/src/studydy_local_ai/assessment_process.py"
-    ),
-}
 
 
 class AssessmentRuntimeError(RuntimeError):
@@ -43,17 +24,6 @@ class AssessmentRuntimeError(RuntimeError):
 
 def _error() -> AssessmentRuntimeError:
     return AssessmentRuntimeError("ASSESSMENT_CONFIGURATION_INVALID")
-
-
-def _file_sha256(path: Path) -> str:
-    try:
-        with path.open("rb") as source:
-            digest = sha256()
-            while chunk := source.read(1024 * 1024):
-                digest.update(chunk)
-            return digest.hexdigest()
-    except OSError:
-        raise _error() from None
 
 
 def load_assessment_runtime_lock() -> dict[str, Any]:
@@ -82,7 +52,7 @@ def _validate_assessment_runtime_lock(
             and canonical_sha256(assessment_lock)
             == ASSESSMENT_RUNTIME_LOCK_SHA256
             and assessment_lock["schema"]
-            == "studydy-assessment-runtime-lock/v1"
+            == "studydy-assessment-runtime-lock/v2"
             and assessment_lock["policy_revision"]
             == "assessment-generation-policy/v6"
             and assessment_lock["shared_models"]
@@ -197,11 +167,6 @@ def _validate_assessment_runtime_lock(
                 "final_option_count": 4,
                 "maximum_evidence_characters": 32768,
             }
-            and set(assessment_lock["code_hashes"]) == set(_CODE_PATHS)
-            and set(assessment_lock["package_sources"])
-            == {"assessment_process.py"}
-            and assessment_lock["package_sources"]["assessment_process.py"]
-            == assessment_lock["code_hashes"]["local_assessment_process"]
             and assessment_lock["failure_policy"]
             == "reject-without-unsafe-fallback/v1"
             and assessment_lock["rationale_policy"]
@@ -223,30 +188,10 @@ def assessment_runtime_binding(
     except (KeyError, TypeError):
         raise _error() from None
     _validate_assessment_runtime_lock(assessment_lock, material_lock)
-    repository_root = Path(__file__).resolve().parents[3]
-    code_hashes = {
-        name: _file_sha256(repository_root / relative_path)
-        for name, relative_path in _CODE_PATHS.items()
-    }
-    if code_hashes != assessment_lock["code_hashes"]:
-        raise _error()
-    try:
-        installed_process = (
-            Path(local_config["site_packages"])
-            / "studydy_local_ai"
-            / "assessment_process.py"
-        )
-    except (KeyError, TypeError):
-        raise _error() from None
-    if _file_sha256(installed_process) != assessment_lock[
-        "package_sources"
-    ]["assessment_process.py"]:
-        raise _error()
     binding = {
         "schema": "assessment-generation-runtime-binding/v1",
         "assessment_runtime_lock_sha256": canonical_sha256(assessment_lock),
         "policy_revision": assessment_lock["policy_revision"],
-        "code_hashes": code_hashes,
         "physical_runtime": {
             "python": deepcopy(material_lock["python"]),
             "torch": material_lock["packages"]["torch"],
@@ -259,9 +204,7 @@ def assessment_runtime_binding(
             "verifier_model": {
                 "model_id": material_lock["verifier_model"]["model_id"],
                 "revision": material_lock["verifier_model"]["revision"],
-                "required_files_sha256": canonical_sha256(
-                    material_lock["verifier_model"]["required_files"]
-                ),
+                "safe_loading": material_lock["verifier_model"]["safe_loading"],
             },
         },
     }

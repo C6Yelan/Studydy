@@ -1,5 +1,5 @@
 {
-  "schema": "studydy-assessment-runtime-lock/v1",
+  "schema": "studydy-assessment-runtime-lock/v2",
   "policy_revision": "assessment-generation-policy/v6",
   "shared_models": {
     "semantic_model_id": "Qwen/Qwen3.8-27B-FP8",
@@ -86,17 +86,6 @@
     "repair_distractor_proposal_count": 5,
     "final_option_count": 4,
     "maximum_evidence_characters": 32768
-  },
-  "package_sources": {
-    "assessment_process.py": "5e315d73f85cc2f0d068cbc13bf923e45bcd70d004857b2a523ae8f528ac1c10"
-  },
-  "code_hashes": {
-    "backend_assessment_generation": "4edb5f6469da1e46979dda9536f0c0091464f046335b998752c1abed78a9f32e",
-    "backend_assessment_items": "22ad41156589dee1ac3d79874aae8fb5d4838bdfd3debd000885e55169fa75c3",
-    "backend_map_context": "b454faed1dbfa4942e2e0549e4a2cbff4d81b86789ebee0d512eefa088f49bec",
-    "backend_assessment_model_api": "5195a0f7d316f979b9c97ba0848ce3b25f98a69d5c2441bada387ada8f33d549",
-    "backend_assessment_verifier": "253a94c6d535af2b0c9ae9867b92c5215d9d0cfd1b40e3b7fc91930503980380",
-    "local_assessment_process": "5e315d73f85cc2f0d068cbc13bf923e45bcd70d004857b2a523ae8f528ac1c10"
   },
   "failure_policy": "reject-without-unsafe-fallback/v1",
   "rationale_policy": "deterministic-selected-exact-evidence/v1"

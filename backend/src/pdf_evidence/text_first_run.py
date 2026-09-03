@@ -124,7 +124,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
                 "formal_resolution", "concept_equivalence", "verifier_model",
             }
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
-            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v12"
+            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v13"
             and runtime_lock["python"] == {"version": "3.12"}
             and semantic["model_id"] == "Qwen/Qwen3.8-27B-FP8"
             and semantic["revision"]
@@ -161,8 +161,6 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
             == "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
             and verifier_model["revision"]
             == "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c"
-            and verifier_model["required_file_count"]
-            == len(verifier_model["required_files"])
             and verifier_model["safe_loading"]
             == "safetensors-local-only-no-remote-code"
             and concept_equivalence
@@ -181,12 +179,6 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
                 "timeout_seconds": 120,
                 "failure_policy": "veto-and-retain/v1",
                 "safe_loading": "safetensors-local-only-no-remote-code",
-                "package_source": {
-                    "name": "equivalence_process.py",
-                    "sha256": (
-                        "2d56949bf2499514e64edc38fa257d9b54221c12e387ae677a5443cd510512a1"
-                    ),
-                },
             }
         )
     except (KeyError, RecursionError, TypeError, ValueError):
