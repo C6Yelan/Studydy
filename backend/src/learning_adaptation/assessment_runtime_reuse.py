@@ -10,7 +10,6 @@ import time
 from typing import Any, Callable, Iterator
 
 import learning_adaptation.assessment_generation as generation_module
-from pdf_evidence.concept_api import start_concept_server
 
 from .assessment_verifier import start_assessment_process
 
@@ -58,11 +57,6 @@ class AssessmentRuntimeReuseError(RuntimeError):
     """Assessment reusable runtime 無法安全啟動或回收。"""
 
 
-class _ConceptServerLease:
-    def close(self) -> None:
-        """單次 generation 結束不關閉 reusable process。"""
-
-
 class _VerifierLease:
     def __init__(self, process: Any) -> None:
         self._process = process
@@ -74,14 +68,13 @@ class _VerifierLease:
         """單次 generation 結束不送 EOF。"""
 
     def abort(self) -> None:
-        """outer lifecycle 會在 failure 後統一回收兩個 process。"""
+        """outer lifecycle 會在 failure 後統一回收 verifier process。"""
 
 
 @dataclass(frozen=True)
 class AssessmentRuntimeProfile:
     cold_starts: int
     warm_requests: int
-    qwen_startup_seconds: tuple[float, ...]
     verifier_startup_seconds: tuple[float, ...]
     proposal_inference_seconds: tuple[float, ...]
     repair_inference_seconds: tuple[float, ...]
@@ -91,7 +84,7 @@ class AssessmentRuntimeProfile:
 
 
 class AssessmentRuntimeReuse:
-    """在 app lifecycle 內 reuse frozen generator 使用的實體模型 process。"""
+    """在 app lifecycle 內 reuse backend-owned assessment verifier。"""
 
     def __init__(
         self,
@@ -110,7 +103,6 @@ class AssessmentRuntimeReuse:
         self._idle_seconds = float(idle_seconds)
         self._state_lock = Lock()
         self._model_lock_context: Any | None = None
-        self._server: Any | None = None
         self._verifier: Any | None = None
         self._idle_timer: Timer | None = None
         self._active_requests = 0
@@ -118,7 +110,6 @@ class AssessmentRuntimeReuse:
         self._cold_starts = 0
         self._warm_requests = 0
         self._timings: dict[str, list[float]] = {
-            "qwen_startup": [],
             "verifier_startup": [],
             "proposal_inference": [],
             "repair_inference": [],
@@ -135,16 +126,11 @@ class AssessmentRuntimeReuse:
     def _start_locked(self) -> None:
         if self._closed:
             raise AssessmentRuntimeReuseError("ASSESSMENT_RUNTIME_REUSE_CLOSED")
-        if self._server is not None and self._verifier is not None:
+        if self._verifier is not None:
             self._warm_requests += 1
             return
         held_lock = _acquire_model_lock(self._runtime_root)
         try:
-            qwen_started = time.monotonic()
-            server = start_concept_server(self._settings)
-            self._timings["qwen_startup"].append(
-                time.monotonic() - qwen_started
-            )
             verifier_started = time.monotonic()
             verifier = start_assessment_process(
                 self._settings,
@@ -156,40 +142,27 @@ class AssessmentRuntimeReuse:
                 time.monotonic() - verifier_started
             )
         except BaseException:
-            if "server" in locals():
-                server.close()
             held_lock.close()
             raise
         self._model_lock_context = held_lock
-        self._server = server
         self._verifier = verifier
         self._cold_starts += 1
 
     def _shutdown_locked(self) -> None:
         self._cancel_idle_timer()
-        if (
-            self._server is None
-            and self._verifier is None
-            and self._model_lock_context is None
-        ):
+        if self._verifier is None and self._model_lock_context is None:
             return
         started = time.monotonic()
         verifier = self._verifier
-        server = self._server
         held_lock = self._model_lock_context
         self._verifier = None
-        self._server = None
         self._model_lock_context = None
         try:
             if verifier is not None:
                 verifier.abort()
         finally:
-            try:
-                if server is not None:
-                    server.close()
-            finally:
-                if held_lock is not None:
-                    held_lock.close()
+            if held_lock is not None:
+                held_lock.close()
         self._timings["shutdown"].append(time.monotonic() - started)
 
     def _idle_shutdown(self) -> None:
@@ -217,11 +190,6 @@ class AssessmentRuntimeReuse:
                     )
                     self._idle_timer.daemon = True
                     self._idle_timer.start()
-
-    def _server_lease(self, _: dict[str, Any]) -> _ConceptServerLease:
-        if self._server is None:
-            raise AssessmentRuntimeReuseError("ASSESSMENT_RUNTIME_NOT_READY")
-        return _ConceptServerLease()
 
     def _verifier_lease(
         self, _: dict[str, Any], __: float
@@ -264,13 +232,11 @@ class AssessmentRuntimeReuse:
         with _PATCH_LOCK:
             originals = {
                 "material_analysis_lock": generation_module.material_analysis_lock,
-                "start_concept_server": generation_module.start_concept_server,
                 "start_assessment_process": generation_module.start_assessment_process,
                 "_request_stage": generation_module._request_stage,
                 "_rank_candidates": generation_module._rank_candidates,
             }
             generation_module.material_analysis_lock = self._reuse_lock
-            generation_module.start_concept_server = self._server_lease
             generation_module.start_assessment_process = self._verifier_lease
             generation_module._request_stage = self._timed_request_stage(
                 originals["_request_stage"]
@@ -298,7 +264,6 @@ class AssessmentRuntimeReuse:
             return AssessmentRuntimeProfile(
                 cold_starts=self._cold_starts,
                 warm_requests=self._warm_requests,
-                qwen_startup_seconds=tuple(self._timings["qwen_startup"]),
                 verifier_startup_seconds=tuple(
                     self._timings["verifier_startup"]
                 ),

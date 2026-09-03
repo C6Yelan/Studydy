@@ -62,22 +62,17 @@ def test_formal_launch_uses_the_local_composition_root(monkeypatch):
         "runtime_lock",
         "python_executable",
         "site_packages",
-        "concept_site_packages",
         "ocr_model_root",
         "verifier_model_root",
         "concept_api_base_url",
         "concept_model",
-        "concept_server_executable",
-        "concept_model_root",
-        "concept_kv_cache_bytes",
         "concept_max_concurrency",
         "concept_max_model_len",
     }
-    assert observed[0]["local_config"]["concept_kv_cache_bytes"] == 2_147_483_648
     assert observed[0]["local_config"]["concept_max_concurrency"] == 1
     assert observed[0]["local_config"]["concept_max_model_len"] == 32_768
-    assert observed[0]["local_config"]["concept_model_root"] == (
-        "/temporary/studydy/models/qwen3.8-27b-fp8"
+    assert observed[0]["local_config"]["concept_api_base_url"] == (
+        "http://127.0.0.1:8000"
     )
     assert observed[0]["local_config"]["python_executable"] == (
         "/temporary/studydy/ocr/runtime/bin/python3.12"
@@ -107,14 +102,10 @@ def test_cli_reader_returns_only_existing_local_ai_arguments():
         "runtime_lock",
         "python_executable",
         "site_packages",
-        "concept_site_packages",
         "ocr_model_root",
         "verifier_model_root",
         "concept_api_base_url",
         "concept_model",
-        "concept_server_executable",
-        "concept_model_root",
-        "concept_kv_cache_bytes",
         "concept_max_concurrency",
         "concept_max_model_len",
     }
@@ -122,13 +113,11 @@ def test_cli_reader_returns_only_existing_local_ai_arguments():
     assert local_config["concept_max_concurrency"] == 1
 
 
-def test_default_root_and_only_kv_cache_is_environment_configurable(
+def test_default_root_keeps_semantic_service_outside_runtime_layout(
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(local_app.Path, "home", lambda: tmp_path)
-    environment = {
-        "STUDYDY_CONCEPT_KV_CACHE_BYTES": "1024",
-    }
+    environment = {}
 
     local_config = local_app.read_local_ai_config_from_environment(environment)
 
@@ -142,7 +131,7 @@ def test_default_root_and_only_kv_cache_is_environment_configurable(
     assert local_config["concept_model"] == local_config["runtime_lock"][
         "semantic"
     ]["model_id"]
-    assert local_config["concept_kv_cache_bytes"] == 1024
+    assert local_config["concept_api_base_url"] == "http://127.0.0.1:8000"
     assert local_config["concept_max_concurrency"] == 1
     assert local_config["concept_max_model_len"] == 32_768
 
@@ -169,4 +158,4 @@ def test_module_entry_invokes_uvicorn(monkeypatch):
 
     assert len(observed) == 1
     assert observed[0][1]["host"] == "127.0.0.1"
-    assert observed[0][1]["port"] == 8000
+    assert observed[0][1]["port"] == 8101

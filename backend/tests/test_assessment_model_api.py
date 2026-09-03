@@ -28,7 +28,7 @@ def test_assessment_request_preserves_fixed_input_order_and_disables_thinking():
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
         assert request_assessment_text(
             client,
-            base_url="http://127.0.0.1:8101",
+            base_url="http://127.0.0.1:8000",
             model="fixed-model",
             prompt_template="fixed prompt",
             request_document=request_document,

@@ -263,6 +263,9 @@ def test_populated_migration_five_deletes_v2_terminal_runs_on_forward_upgrade(
 def artifact_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "private-artifacts"
     monkeypatch.setenv("STUDYDY_ARTIFACT_ROOT", str(root))
+    monkeypatch.setattr(
+        processing_module, "preflight_semantic_service", lambda _: None
+    )
     return root
 
 
@@ -277,14 +280,10 @@ def _settings(tmp_path: Path) -> dict:
         ),
         "python_executable": str(root / "ocr/runtime/bin/python3.12"),
         "site_packages": str(root / "ocr/runtime/lib/python3.12/site-packages"),
-        "concept_site_packages": str(root / "vllm/lib/python3.12/site-packages"),
         "ocr_model_root": str(root / "models/unlimited-ocr"),
         "verifier_model_root": str(root / "models/mdeberta-v3-base-mnli-xnli"),
-        "concept_api_base_url": "http://127.0.0.1:8101",
+        "concept_api_base_url": "http://127.0.0.1:8000",
         "concept_model": "Qwen/Qwen3.8-27B-FP8",
-        "concept_server_executable": str(root / "vllm/bin/vllm"),
-        "concept_model_root": str(root / "models/qwen3.8-27b-fp8"),
-        "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 1,
         "concept_max_model_len": 32_768,
     }
@@ -850,7 +849,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert binding["call_ceilings"] == {
         "ocr_calls_per_page": 1,
         "ocr_initial_loads": 1,
-        "concept_initial_loads": 1,
+        "backend_concept_initial_loads": 0,
         "concept_equivalence_initial_loads": 1,
         "concept_equivalence_pairs_per_material": 16,
         "concept_equivalence_directions_per_material": 32,
@@ -859,7 +858,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
         "resident_lock": 5,
         "ocr_page": 120,
         "concept_attempt": 300,
-        "concept_server_ready": 300,
+        "semantic_service_preflight": 5,
         "concept_equivalence": 120,
     }
     assert binding["retry_policy"]["concept_attempts"] == 2
@@ -867,14 +866,11 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert settings["private_runtime_root"] not in encoded
     assert settings["ocr_model_root"] not in encoded
     assert settings["verifier_model_root"] not in encoded
-    assert settings["concept_server_executable"] not in encoded
-    assert settings["concept_model_root"] not in encoded
     assert binding["concept_api"] == {
-        "base_url": "http://127.0.0.1:8101",
+        "base_url": "http://127.0.0.1:8000",
         "model": "Qwen/Qwen3.8-27B-FP8",
         "model_revision": "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a",
         "protocol": "openai-chat-completions/v1",
-        "kv_cache_bytes": 2_147_483_648,
         "max_concurrency": 1,
         "max_model_len": 32_768,
         "server": settings["runtime_lock"]["semantic"]["server"],
@@ -887,9 +883,8 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert binding["concept_equivalence"] == settings["runtime_lock"][
         "concept_equivalence"
     ]
-    assert len(binding["code_hashes"]) == 17
+    assert len(binding["code_hashes"]) == 16
     assert "backend/src/pdf_evidence/artifact_reason_codes.py" in binding["code_hashes"]
-    assert "backend/src/pdf_evidence/process_guard.py" in binding["code_hashes"]
     repository_root = Path(__file__).parents[3]
     for locked_sha256, relative_path in (
         (
@@ -903,12 +898,6 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
                 "backend_concept_api"
             ],
             "backend/src/pdf_evidence/concept_api.py",
-        ),
-        (
-            settings["runtime_lock"]["semantic"]["code_hashes"][
-                "backend_process_guard"
-            ],
-            "backend/src/pdf_evidence/process_guard.py",
         ),
         (
             settings["runtime_lock"]["semantic"]["code_hashes"][
@@ -952,7 +941,6 @@ def test_assessment_policy_does_not_change_material_runtime_identity(tmp_path: P
         {**settings, "concept_api_base_url": "http://example.test:8101"},
         {**settings, "verifier_model_root": str(tmp_path / "different-model")},
         {**settings, "concept_model": "different-model"},
-        {**settings, "concept_kv_cache_bytes": 0},
         {**settings, "concept_max_concurrency": 3},
         {**settings, "concept_max_model_len": 0},
     ):
@@ -993,7 +981,7 @@ def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
     runtime_root.chmod(0o777)
 
     binding = processing_module.formal_runtime_preflight(settings)
-    assert binding["schema"] == "formal-material-runtime-binding/v7"
+    assert binding["schema"] == "formal-material-runtime-binding/v8"
     assert runtime_root.stat().st_mode & 0o777 == 0o777
 
     runtime_target.write_bytes(b"short")
@@ -1012,7 +1000,7 @@ def test_preflight_rejects_runtime_root_that_is_not_a_usable_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     settings = _settings(tmp_path)
-    binding = {"schema": "formal-material-runtime-binding/v7"}
+    binding = {"schema": "formal-material-runtime-binding/v8"}
     monkeypatch.setattr(
         processing_module,
         "validate_installed_local_runtime",
@@ -1033,7 +1021,7 @@ def test_preflight_rejects_runtime_root_that_cannot_be_created(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     settings = _settings(tmp_path)
-    binding = {"schema": "formal-material-runtime-binding/v7"}
+    binding = {"schema": "formal-material-runtime-binding/v8"}
     monkeypatch.setattr(
         processing_module,
         "validate_installed_local_runtime",
@@ -1087,21 +1075,40 @@ def test_preflight_prepares_private_root_only_after_shared_validation(
     assert failure.value.reason == "LOCAL_RUNTIME_HASH_MISMATCH"
 
 
+def test_preflight_checks_resident_semantic_service_before_preparing_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    settings = _settings(tmp_path)
+    binding = {"schema": "formal-material-runtime-binding/v8"}
+    observed = []
+    monkeypatch.setattr(
+        processing_module,
+        "validate_installed_local_runtime",
+        lambda _: (observed.append("local") or binding, 0),
+    )
+    monkeypatch.setattr(
+        processing_module,
+        "preflight_semantic_service",
+        lambda _: observed.append("semantic"),
+    )
+    monkeypatch.setattr(
+        processing_module,
+        "_prepare_private_runtime_root",
+        lambda _: observed.append("prepare"),
+    )
+
+    assert processing_module.formal_runtime_preflight(settings) is binding
+    assert observed == ["local", "semantic", "prepare"]
+
+
 def test_runtime_file_plan_covers_ocr_and_verifier_files(tmp_path: Path):
     settings = _settings(tmp_path)
     python_executable = Path(settings["python_executable"])
     python_executable.parent.mkdir(parents=True)
     python_executable.write_bytes(b"python")
     python_executable.chmod(0o700)
-    for key in (
-        "site_packages", "concept_site_packages", "ocr_model_root",
-        "verifier_model_root", "concept_model_root"
-    ):
+    for key in ("site_packages", "ocr_model_root", "verifier_model_root"):
         Path(settings[key]).mkdir(parents=True)
-    concept_server = Path(settings["concept_server_executable"])
-    concept_server.parent.mkdir(parents=True, exist_ok=True)
-    concept_server.write_bytes(b"vllm")
-    concept_server.chmod(0o700)
 
     runtime_files = processing_module._runtime_files(settings)
     relative_names = {runtime_file.path.name for runtime_file in runtime_files}

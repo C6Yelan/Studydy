@@ -26,14 +26,10 @@ def _settings(tmp_path):
         "runtime_lock": runtime_lock,
         "python_executable": str(root / "ocr/runtime/bin/python3.12"),
         "site_packages": str(root / "ocr/runtime/lib/python3.12/site-packages"),
-        "concept_site_packages": str(root / "vllm/lib/python3.12/site-packages"),
         "ocr_model_root": str(root / "models/unlimited-ocr"),
         "verifier_model_root": str(root / "models/mdeberta-v3-base-mnli-xnli"),
-        "concept_api_base_url": "http://127.0.0.1:8101",
+        "concept_api_base_url": "http://127.0.0.1:8000",
         "concept_model": runtime_lock["semantic"]["model_id"],
-        "concept_server_executable": str(root / "vllm/bin/vllm"),
-        "concept_model_root": str(root / "models/qwen3.8-27b-fp8"),
-        "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 1,
         "concept_max_model_len": 32_768,
     }
@@ -235,33 +231,8 @@ def _state():
     return {"resident": [], "ocr": 0, "concept": 0, "ocr_loads": 0}
 
 
-class FakeConceptServer:
-    def __init__(self, state):
-        self.state = state
-        self.is_closed = False
-        assert state["resident"] == []
-        state["resident"].append("concept_server")
-
-    @property
-    def did_load_model(self):
-        return True
-
-    def close(self):
-        self.state["resident"].remove("concept_server")
-        self.is_closed = True
-
-
 @pytest.fixture(autouse=True)
 def no_real_concept_server(monkeypatch):
-    class FakeServer:
-        @property
-        def did_load_model(self):
-            return True
-
-        def close(self):
-            return None
-
-    monkeypatch.setattr(run_module, "start_concept_server", lambda _: FakeServer())
     monkeypatch.setattr(
         run_module,
         "fit_concept_request",
@@ -281,7 +252,7 @@ def test_sequential_product_path_and_exact_replay_zero_model_calls(tmp_path, mon
     assert state["ocr"] == 0
     assert state["concept"] == 1
     assert state["ocr_loads"] == 0
-    assert first["concept_loads"] == 1
+    assert first["concept_loads"] == 0
     assert second["concept_loads"] == 0
     assert second["ocr_calls"] == second["concept_calls"] == 0
     assert list((tmp_path / "runtime").rglob("*.png")) == []
@@ -877,7 +848,7 @@ def test_formal_whole_document_excludes_one_page_and_keeps_grounded_core(
     assert bundle["ocr_calls"] == 2
     assert bundle["concept_calls"] == 1
     assert bundle["ocr_loads"] == 1
-    assert bundle["concept_loads"] == 1
+    assert bundle["concept_loads"] == 0
     published = read_producer_bundle(tmp_path / "runtime", run_id)
     assert published["output"]["concepts"][0]["processing"] == "succeeded"
     assert published["output"]["excluded_pages"][0]["page_number"] == 2
@@ -900,7 +871,6 @@ def test_formal_long_pdf_processes_every_page_without_truncation(
     path = tmp_path / f"long-{page_count}-pages.pdf"
     _pdf(path, page_count=page_count)
     state = _state()
-    servers = []
     active = 0
     maximum_active = 0
     active_lock = threading.Lock()
@@ -920,11 +890,6 @@ def test_formal_long_pdf_processes_every_page_without_truncation(
     monkeypatch.setattr(
         run_module, "start_ocr_process", lambda settings: FakeChild("ocr", state)
     )
-    monkeypatch.setattr(
-        run_module,
-        "start_concept_server",
-        lambda _: servers.append(FakeConceptServer(state)) or servers[-1],
-    )
     monkeypatch.setattr(run_module, "request_concept_text", concurrent_concept)
     run_id = f"text-first-run:00000000-0000-4000-8000-{page_count:012d}"
     settings = _settings(tmp_path)
@@ -941,9 +906,8 @@ def test_formal_long_pdf_processes_every_page_without_truncation(
     assert bundle["ocr_calls"] == 0
     assert bundle["concept_calls"] == page_count
     assert bundle["ocr_loads"] == 0
-    assert bundle["concept_loads"] == 1
+    assert bundle["concept_loads"] == 0
     assert maximum_active == max_concurrency
-    assert len(servers) == 1 and servers[0].is_closed
     published = read_producer_bundle(tmp_path / "runtime", run_id)
     pages = published["output"]["pages"]
     assert [page["page_number"] for page in pages] == list(range(1, page_count + 1))
@@ -955,19 +919,14 @@ def test_formal_long_pdf_processes_every_page_without_truncation(
     assert list((tmp_path / "runtime").rglob("*.png")) == []
 
 
-def test_formal_concept_failure_closes_owned_server(tmp_path, monkeypatch):
+def test_formal_concept_failure_does_not_poison_resident_service(
+    tmp_path, monkeypatch
+):
     path = tmp_path / "public.pdf"
     _pdf(path)
     state = _state()
-    servers = []
-
     monkeypatch.setattr(
         run_module, "start_ocr_process", lambda _: FakeChild("ocr", state)
-    )
-    monkeypatch.setattr(
-        run_module,
-        "start_concept_server",
-        lambda _: servers.append(FakeConceptServer(state)) or servers[-1],
     )
     monkeypatch.setattr(
         run_module,
@@ -985,7 +944,6 @@ def test_formal_concept_failure_closes_owned_server(tmp_path, monkeypatch):
     assert bundle["processing"] == "partial"
     assert "PROCESS_FAILED" in bundle["reason_codes"]
     assert bundle["concept_calls"] == 2
-    assert len(servers) == 1 and servers[0].is_closed
     assert state["resident"] == []
 
 

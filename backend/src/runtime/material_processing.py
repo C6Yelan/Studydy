@@ -15,9 +15,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select, update
 
 from pdf_evidence.concept_api import (
-    CONCEPT_SERVER_READY_TIMEOUT_SECONDS,
+    SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS,
     ConceptAPIError,
     chat_completions_url,
+    preflight_semantic_service,
 )
 from pdf_evidence.text_first_bundle import read_producer_bundle
 from pdf_evidence.ocr_page_evidence import canonical_sha256
@@ -41,14 +42,10 @@ _CONFIG_KEYS = {
     "runtime_lock",
     "python_executable",
     "site_packages",
-    "concept_site_packages",
     "ocr_model_root",
     "verifier_model_root",
     "concept_api_base_url",
     "concept_model",
-    "concept_server_executable",
-    "concept_model_root",
-    "concept_kv_cache_bytes",
     "concept_max_concurrency",
     "concept_max_model_len",
 }
@@ -56,28 +53,23 @@ _CONFIG_PATH_KEYS = {
     "private_runtime_root",
     "python_executable",
     "site_packages",
-    "concept_site_packages",
     "ocr_model_root",
     "verifier_model_root",
-    "concept_server_executable",
-    "concept_model_root",
 }
 _LOCKED_FILES = {
-    "local_ai/runtime-lock.json": "567392bb3dbade29a54d051d328fbd24d11cb410fdf46c072c600acc7be22bb8",
+    "local_ai/runtime-lock.json": "c8e6bd1c50a0aef089c0585c32c71270f210d7efad1d681d43c985b9df78e23d",
     "backend/src/pdf_evidence/ocr_page_evidence.py": "13716c4f0e1429802f2fa0e28c4e87743c678adb5ad61a32c12cb6309fd55a6a",
     "backend/src/pdf_evidence/concept_generation.py": "4a7c1ac816ab69a82a12df8fa2c1db16ad98c07c9c9bf4a44bc042925372274f",
     "backend/src/pdf_evidence/document_context.py": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
-    "backend/src/pdf_evidence/concept_api.py": "13de5b8f521f5f518eac32af1ee198b6de6cc51d914e868f98c0186e59fc46bb",
+    "backend/src/pdf_evidence/concept_api.py": "7a134bf0cd06c523e56dabfc45596fdb4838c963ff56552940e7133dbcae2970",
     "backend/src/pdf_evidence/study_material_output.py": "88efd57be086464d6fae7c127b81add392088d20b7c05548862f046d73693419",
-    "backend/src/pdf_evidence/process_guard.py": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
     "backend/src/pdf_evidence/local_ai_process.py": "c1457e3f1e7bb8fb8c0aabf3d53071011f7bacded99a296a873542a36efd6e53",
-    "backend/src/knowledge_map/local_generation.py": "dfb88f6a0cd3df2e1fdd4da0d7bf492003d70d56e7c9526a978820375c4b342e",
+    "backend/src/knowledge_map/local_generation.py": "b2eb68ae7aa53bdea15ccc1d0702099efcf4345702f83fe5cd597587c94afeed",
 }
 _BINDING_FILES = (
     "backend/src/pdf_evidence/artifact_reason_codes.py",
     "backend/src/pdf_evidence/concept_evidence_output.py",
     "backend/src/pdf_evidence/concept_api.py",
-    "backend/src/pdf_evidence/process_guard.py",
     "backend/src/pdf_evidence/text_first_bundle.py",
     "backend/src/pdf_evidence/text_first_run.py",
     "backend/src/pdf_evidence/study_material_output.py",
@@ -99,7 +91,6 @@ _OCR_PACKAGE_VERSIONS = {
     "torchvision": "0.25.0+cu128",
     "transformers": "4.57.1",
 }
-_CONCEPT_PACKAGE_VERSIONS = {"vllm": "0.28.0"}
 _RUNTIME_COMPONENTS = {
     "layout",
     "runtime_lock",
@@ -291,11 +282,6 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
     site_packages = _absolute_runtime_path(
         local_config["site_packages"], is_directory=True, component="ocr_package"
     )
-    _absolute_runtime_path(
-        local_config["concept_site_packages"],
-        is_directory=True,
-        component="concept_runtime",
-    )
     ocr_model_root = _absolute_runtime_path(
         local_config["ocr_model_root"], is_directory=True, component="ocr_model"
     )
@@ -303,18 +289,6 @@ def _runtime_files(local_config: dict[str, Any]) -> tuple[_RuntimeFile, ...]:
         local_config["verifier_model_root"],
         is_directory=True,
         component="verifier_model",
-    )
-    concept_server_executable = _absolute_runtime_path(
-        local_config["concept_server_executable"],
-        is_directory=False,
-        component="concept_runtime",
-    )
-    if not os.access(concept_server_executable, os.X_OK):
-        raise _runtime_error("concept_runtime", "LOCAL_RUNTIME_NOT_EXECUTABLE")
-    concept_model_root = _absolute_runtime_path(
-        local_config["concept_model_root"],
-        is_directory=True,
-        component="concept_model",
     )
     package_root = site_packages / "studydy_local_ai"
     files = [
@@ -458,18 +432,6 @@ def validate_installed_local_runtime(
         != _OCR_PACKAGE_VERSIONS
     ):
         raise _runtime_error("ocr_package", "LOCAL_RUNTIME_VERSION_MISMATCH")
-    concept_site_packages = Path(local_config["concept_site_packages"])
-    if (
-        _distribution_versions(
-            concept_site_packages,
-            _CONCEPT_PACKAGE_VERSIONS,
-            component="concept_runtime",
-        )
-        != _CONCEPT_PACKAGE_VERSIONS
-    ):
-        raise _runtime_error(
-            "concept_runtime", "LOCAL_RUNTIME_VERSION_MISMATCH"
-        )
     return binding, len(runtime_files)
 
 
@@ -478,6 +440,16 @@ def formal_runtime_preflight(local_config: Any) -> dict[str, Any]:
 
     binding, _ = validate_installed_local_runtime(local_config)
     assert isinstance(local_config, dict)
+    try:
+        preflight_semantic_service(local_config)
+    except ConceptAPIError as error:
+        reason = (
+            "LOCAL_RUNTIME_SETTINGS_MISMATCH"
+            if error.reason_code
+            in {"CONCEPT_API_CONFIG_INVALID", "CONCEPT_API_IDENTITY_MISMATCH"}
+            else "LOCAL_RUNTIME_MISSING"
+        )
+        raise _runtime_error("concept_runtime", reason) from None
     _prepare_private_runtime_root(local_config["private_runtime_root"])
     return binding
 
@@ -502,11 +474,8 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         "private_runtime_root": root / "runtime",
         "python_executable": root / "ocr/runtime/bin/python3.12",
         "site_packages": root / "ocr/runtime/lib/python3.12/site-packages",
-        "concept_site_packages": root / "vllm/lib/python3.12/site-packages",
         "ocr_model_root": root / "models/unlimited-ocr",
         "verifier_model_root": root / "models/mdeberta-v3-base-mnli-xnli",
-        "concept_server_executable": root / "vllm/bin/vllm",
-        "concept_model_root": root / "models/qwen3.8-27b-fp8",
     }
     if any(
         Path(local_config[name]) != expected
@@ -516,9 +485,6 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
     concept_model = local_config.get("concept_model")
     if not isinstance(concept_model, str) or not concept_model or len(concept_model) > 256:
         raise _runtime_error("concept_model", "LOCAL_RUNTIME_SETTINGS_MISMATCH")
-    concept_kv_cache_bytes = local_config.get("concept_kv_cache_bytes")
-    if type(concept_kv_cache_bytes) is not int or concept_kv_cache_bytes < 1:
-        raise _runtime_error("concept_runtime", "LOCAL_RUNTIME_SETTINGS_MISMATCH")
     concept_max_concurrency = local_config.get("concept_max_concurrency")
     if type(concept_max_concurrency) is not int or concept_max_concurrency != 1:
         raise _runtime_error("concept_runtime", "LOCAL_RUNTIME_SETTINGS_MISMATCH")
@@ -531,7 +497,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         raise _runtime_error(
             "concept_runtime", "LOCAL_RUNTIME_SETTINGS_MISMATCH"
         ) from None
-    if local_config["concept_api_base_url"] != "http://127.0.0.1:8101":
+    if local_config["concept_api_base_url"] != "http://127.0.0.1:8000":
         raise _runtime_error(
             "concept_runtime", "LOCAL_RUNTIME_SETTINGS_MISMATCH"
         )
@@ -551,7 +517,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         semantic_lock["server"]
         != {
             "package": "vllm",
-            "version": _CONCEPT_PACKAGE_VERSIONS["vllm"],
+            "version": "0.28.0",
             "python_minor": "3.12",
             "torch": "2.13.0+cu130",
             "cuda": "13.0",
@@ -560,10 +526,10 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         or semantic_lock["service"]
         != {
             "host": "127.0.0.1",
-            "port": 8101,
+            "port": 8000,
             "max_model_len": 32768,
             "max_num_seqs": 1,
-            "cache_path": "runtime/vllm-cache",
+            "authentication": "environment-bearer:VLLM_API_KEY",
         }
     ):
         raise _runtime_error(
@@ -587,7 +553,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         for relative_path in _BINDING_FILES
     }
     binding = {
-        "schema": "formal-material-runtime-binding/v7",
+        "schema": "formal-material-runtime-binding/v8",
         "runtime_lock_sha256": canonical_sha256(local_config["runtime_lock"]),
         "code_hashes": code_hashes,
         "document_policy": "whole-document-review-aggregation/v1",
@@ -595,7 +561,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         "call_ceilings": {
             "ocr_calls_per_page": 1,
             "ocr_initial_loads": 1,
-            "concept_initial_loads": 1,
+            "backend_concept_initial_loads": 0,
             "concept_equivalence_initial_loads": 1,
             "concept_equivalence_pairs_per_material": 16,
             "concept_equivalence_directions_per_material": 32,
@@ -604,7 +570,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
             "resident_lock": 5,
             "ocr_page": 120,
             "concept_attempt": 300,
-            "concept_server_ready": CONCEPT_SERVER_READY_TIMEOUT_SECONDS,
+            "semantic_service_preflight": SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS,
             "concept_equivalence": local_config["runtime_lock"][
                 "concept_equivalence"
             ]["timeout_seconds"],
@@ -618,7 +584,6 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
             "model": concept_model,
             "model_revision": local_config["runtime_lock"]["semantic"]["revision"],
             "protocol": local_config["runtime_lock"]["semantic"]["api_protocol"],
-            "kv_cache_bytes": concept_kv_cache_bytes,
             "max_concurrency": concept_max_concurrency,
             "max_model_len": concept_max_model_len,
             "server": deepcopy(semantic_lock["server"]),
@@ -632,10 +597,10 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
             local_config["runtime_lock"]["concept_equivalence"]
         ),
         "residency_policy": (
-            "ocr-child-with-resident-loopback-concept-service-"
+            "ocr-child-with-external-resident-loopback-semantic-service-"
             "then-concept-equivalence/v8"
         ),
-        "network_policy": "loopback-concept-api-no-credentials/v1",
+        "network_policy": "fixed-loopback-semantic-api-environment-bearer/v1",
         "retention_policy": {
             "provider_raw": "not_persisted",
             "validated_cache": "local_private_cache",

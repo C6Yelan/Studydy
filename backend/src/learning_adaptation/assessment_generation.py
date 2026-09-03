@@ -12,7 +12,7 @@ import httpx
 
 from pdf_evidence.concept_api import (
     ConceptAPIError,
-    start_concept_server,
+    semantic_service_client,
 )
 from pdf_evidence.local_ai_process import (
     LocalAIError,
@@ -819,10 +819,9 @@ def _generate_documents(
     proposal_request = _request_document(
         grounding, include_output_language=False
     )
-    server = verifier = None
+    verifier = None
     try:
-        server = start_concept_server(settings)
-        with httpx.Client(trust_env=False, follow_redirects=False) as client:
+        with semantic_service_client() as client:
             proposal_text = _request_stage(
                 client,
                 settings,
@@ -925,8 +924,6 @@ def _generate_documents(
                 raise _error("ASSESSMENT_NO_SAFE_CANDIDATE")
             verifier.close()
             verifier = None
-        server.close()
-        server = None
     except AssessmentGenerationError:
         raise
     except ConceptAPIError as error:
@@ -941,8 +938,6 @@ def _generate_documents(
     finally:
         if verifier is not None:
             verifier.abort()
-        if server is not None:
-            server.close()
 
     return documents, provenance, novelty
 

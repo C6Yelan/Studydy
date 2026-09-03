@@ -125,7 +125,7 @@ def _policy() -> dict:
 def _settings() -> dict:
     return {
         "assessment_runtime_lock": _policy(),
-        "concept_api_base_url": "http://127.0.0.1:8101",
+        "concept_api_base_url": "http://127.0.0.1:8000",
         "concept_model": "Qwen/Qwen3.8-27B-FP8",
         "concept_max_model_len": 32768,
     }
@@ -183,14 +183,6 @@ def _repair_document(*, valid: bool = True) -> str:
             ]
         }
     )
-
-
-class _Server:
-    def __init__(self) -> None:
-        self.closed = False
-
-    def close(self) -> None:
-        self.closed = True
 
 
 class _Verifier:
@@ -284,7 +276,6 @@ def test_proposal_and_mutation_proof_gates_fail_closed():
 
 
 def test_safe_proposal_builds_contract_and_private_provenance(monkeypatch):
-    server = _Server()
     verifier = _Verifier(
         {
             "Supported answer 0": [0.55, 0.2, 0.1, 0.1],
@@ -292,7 +283,6 @@ def test_safe_proposal_builds_contract_and_private_provenance(monkeypatch):
             "Supported answer 2": [0.6, 0.3, 0.2, 0.1],
         }
     )
-    monkeypatch.setattr(generation, "start_concept_server", lambda _: server)
     monkeypatch.setattr(
         generation, "start_assessment_process", lambda *_: verifier
     )
@@ -309,7 +299,7 @@ def test_safe_proposal_builds_contract_and_private_provenance(monkeypatch):
         frozenset(),
     )
 
-    assert server.closed and verifier.closed and not verifier.aborted
+    assert verifier.closed and not verifier.aborted
     assert provenance["selected_stage"] == "proposal"
     assert provenance["selected_candidate_index"] == 1
     assert provenance["multiple_support_risk"] is False
@@ -332,13 +322,11 @@ def test_empty_validated_proposals_use_existing_repair_stage(monkeypatch):
     for candidate in invalid_proposal["candidates"]:
         candidate["prompt"] = "The correct answer is shown below."
     responses = iter([json.dumps(invalid_proposal), _repair_document()])
-    server = _Server()
     verifier = _Verifier({
         "The first element is stored at stack[0].": [
             0.99, 0.01, 0.01, 0.01,
         ],
     })
-    monkeypatch.setattr(generation, "start_concept_server", lambda _: server)
     monkeypatch.setattr(
         generation, "start_assessment_process", lambda *_: verifier
     )
@@ -357,7 +345,7 @@ def test_empty_validated_proposals_use_existing_repair_stage(monkeypatch):
 
     assert provenance["selected_stage"] == "repair"
     assert provenance["multiple_support_risk"] is False
-    assert server.closed and verifier.closed and not verifier.aborted
+    assert verifier.closed and not verifier.aborted
 
 
 def test_repeated_generation_selects_unused_safe_candidate_then_fails_closed(
@@ -370,7 +358,6 @@ def test_repeated_generation_selects_unused_safe_candidate_then_fails_closed(
             "Supported answer 2": [0.6, 0.3, 0.2, 0.1],
         }
     )
-    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
     monkeypatch.setattr(
         generation, "start_assessment_process", lambda *_: verifier
     )
@@ -424,7 +411,6 @@ def test_exhausted_risky_repairs_do_not_block_lower_safe_proposals(monkeypatch):
             ],
         }
     )
-    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
     monkeypatch.setattr(
         generation, "start_assessment_process", lambda *_: verifier
     )
@@ -491,7 +477,6 @@ def test_verifier_over_token_boundary_rejects_before_selection(monkeypatch):
             }
 
     verifier = RejectingVerifier({})
-    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
     monkeypatch.setattr(
         generation, "start_assessment_process", lambda *_: verifier
     )
@@ -528,7 +513,6 @@ def test_directional_entailment_publishes_without_mastery_qualification(
         ],
     }
     first_verifier = _Verifier(scores)
-    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
     monkeypatch.setattr(
         generation, "start_assessment_process", lambda *_: first_verifier
     )
@@ -590,7 +574,6 @@ def test_semantically_distinct_candidate_remains_selectable(monkeypatch):
         novelty_probabilities=(0.021863, 0.003729),
         novelty_contradictions=(True, False),
     )
-    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
     monkeypatch.setattr(
         generation, "start_assessment_process", lambda *_: verifier
     )
@@ -637,7 +620,6 @@ def test_neutral_pair_publishes_without_mastery_qualification(monkeypatch):
         ],
     }
     first_verifier = _Verifier(scores)
-    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
     monkeypatch.setattr(
         generation, "start_assessment_process", lambda *_: first_verifier
     )
@@ -718,7 +700,6 @@ def test_novelty_runtime_failure_publishes_without_mastery_qualification(
         "Supported answer 1": [0.9, 0.1, 0.1, 0.1],
         "Supported answer 2": [0.6, 0.3, 0.2, 0.1],
     }
-    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
     monkeypatch.setattr(
         generation, "_request_stage", lambda *args, **kwargs: _proposal_document()
     )
@@ -768,7 +749,6 @@ def test_novelty_over_limit_publishes_without_comparison(monkeypatch):
         "Supported answer 1": [0.9, 0.1, 0.1, 0.1],
         "Supported answer 2": [0.6, 0.3, 0.2, 0.1],
     })
-    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
     monkeypatch.setattr(
         generation, "start_assessment_process", lambda *_: verifier
     )
@@ -888,7 +868,6 @@ def test_multiple_supported_risk_requires_passing_repair(monkeypatch):
             ],
         }
     )
-    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
     monkeypatch.setattr(
         generation, "start_assessment_process", lambda *_: verifier
     )
@@ -920,7 +899,6 @@ def test_failed_repair_never_promotes_risky_proposal(monkeypatch):
             "Supported answer 2": [0.6, 0.3, 0.2, 0.1],
         }
     )
-    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
     monkeypatch.setattr(
         generation, "start_assessment_process", lambda *_: verifier
     )
@@ -949,7 +927,6 @@ def test_failed_repair_rejects_when_no_lower_safe_proposal(monkeypatch):
             "Supported answer 2": [0.2, 0.15, 0.1, 0.1],
         }
     )
-    monkeypatch.setattr(generation, "start_concept_server", lambda _: _Server())
     monkeypatch.setattr(
         generation, "start_assessment_process", lambda *_: verifier
     )

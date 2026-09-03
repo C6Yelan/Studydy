@@ -1,5 +1,5 @@
 {
-  "schema": "studydy-local-ai-runtime-lock/v11",
+  "schema": "studydy-local-ai-runtime-lock/v12",
   "python": {
     "version": "3.12"
   },
@@ -98,10 +98,10 @@
     },
     "service": {
       "host": "127.0.0.1",
-      "port": 8101,
+      "port": 8000,
       "max_model_len": 32768,
       "max_num_seqs": 1,
-      "cache_path": "runtime/vllm-cache"
+      "authentication": "environment-bearer:VLLM_API_KEY"
     },
     "prompt": "Extract learner-worthy study concepts only from the supplied current evidence. Use document_context only to interpret heading ancestry, adjacency, and continuation; it is not claim evidence. assessment_groups preserves a question stem with its options; when has_reliable_answer is false, do not infer an answer or emit a factual claim from the group. Return each concept as label plus one or more grounded claims. Cite only IDs from the current evidence list and give every claim non-empty evidence_ids. Preserve exact escapes, symbols, operators, numbers, units, conditions, direction, and scope, including \\0. Keep grounded single claims, code, declarations, formulas, captions, and partial clauses when they carry study content. Do not emit isolated connectors or pure symbol junk. Return concepts=[] when the current page teaches no concept. Return JSON only and no additional fields.",
     "prompt_sha256": "47d1abca48ea2b500663d6cd9e44574a78eb2f1d03ffe3c429cbfd6f2f12065c",
@@ -155,11 +155,10 @@
       "structurally_valid_decision": "review"
     },
     "code_hashes": {
-      "backend_concept_api": "13de5b8f521f5f518eac32af1ee198b6de6cc51d914e868f98c0186e59fc46bb",
-      "backend_process_guard": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
+      "backend_concept_api": "7a134bf0cd06c523e56dabfc45596fdb4838c963ff56552940e7133dbcae2970",
       "backend_concept_generation": "4a7c1ac816ab69a82a12df8fa2c1db16ad98c07c9c9bf4a44bc042925372274f",
       "backend_document_context": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
-      "backend_text_first_run": "e7755f8c5f73b34586280072fe9fa23d25832e5b7390cdba4edb278061afd938",
+      "backend_text_first_run": "069d6680374617dcb5da095a4684fb5767a5c008ce993e8d0ea1f20637407d39",
       "backend_study_material_output": "88efd57be086464d6fae7c127b81add392088d20b7c05548862f046d73693419"
     },
     "fixture_hashes": {

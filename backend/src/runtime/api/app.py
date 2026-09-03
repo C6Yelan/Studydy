@@ -5,7 +5,6 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 import ipaddress
 import json
-import logging
 import tempfile
 from typing import Any, Callable, Iterator
 from urllib.parse import urlsplit
@@ -55,7 +54,6 @@ from learning_adaptation.study_sessions import (
     create_study_session,
     read_study_session,
 )
-from pdf_evidence.concept_api import start_concept_server
 from ..learner_session import (
     SessionError,
     TrustedLearner,
@@ -78,7 +76,6 @@ from ..storage.material_review_outputs import read_material_run_outputs
 from ..workers import start_runtime_workers
 
 
-_LOGGER = logging.getLogger(__name__)
 _COOKIE_NAME = "studydy_session"
 _ERROR_MESSAGE = "Request could not be completed."
 _SOURCE_LIMIT = 104_857_600
@@ -424,11 +421,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
     assessment_runtime_reuse = AssessmentRuntimeReuse(assessment_settings)
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        qwen_service = start_concept_server(
-            settings.local_config, reuse_ready=False
-        )
-        app.state.qwen_service = qwen_service
+    async def lifespan(_: FastAPI):
         try:
             workers = start_runtime_workers(
                 dsn=settings.dsn, local_config=settings.local_config
@@ -439,8 +432,6 @@ def create_app(settings: ApiSettings) -> FastAPI:
                 workers.stop()
         finally:
             assessment_runtime_reuse.close()
-            _LOGGER.info("Qwen service profile: %s", qwen_service.profile())
-            qwen_service.close()
 
     app = FastAPI(
         title="Studydy Material Review API",
@@ -452,7 +443,6 @@ def create_app(settings: ApiSettings) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.assessment_runtime_reuse = assessment_runtime_reuse
-    app.state.qwen_service = None
 
     @app.get("/v1/openapi.json", include_in_schema=False)
     async def openapi_document() -> Response:

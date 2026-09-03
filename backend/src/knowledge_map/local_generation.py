@@ -12,7 +12,7 @@ from learning_resources.map_resources import promote_resources_to_formal_concept
 from pdf_evidence.concept_api import (
     ConceptAPIError,
     request_structured_text,
-    start_concept_server,
+    semantic_service_client,
 )
 from pdf_evidence.local_ai_process import (
     LocalAIError,
@@ -306,14 +306,11 @@ def generate_knowledge_map(
     deduplication_request, concept_aliases = build_deduplication_request(
         study_material_output
     )
-    server = None
     failure_reason = None
     try:
-        if deduplication_request["pairs"]:
-            server = start_concept_server(settings)
-        with httpx.Client(
-            trust_env=False, follow_redirects=False
-        ) if deduplication_request["pairs"] else nullcontext() as client:
+        with semantic_service_client() if deduplication_request[
+            "pairs"
+        ] else nullcontext() as client:
             if deduplication_request["pairs"]:
                 assert isinstance(client, httpx.Client)
                 model_text = _request_stage(
@@ -334,9 +331,6 @@ def generate_knowledge_map(
     except (FormalConceptError, KeyError, TypeError, ValueError):
         pair_decisions = uncertain_pair_decisions(deduplication_request)
         failure_reason = "MODEL_OUTPUT_INVALID"
-    finally:
-        if server is not None:
-            server.close()
 
     if failure_reason is None:
         try:

@@ -1,15 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import dataclass
 import json
 import os
-import signal
-import subprocess
-import sys
-import time
-from pathlib import Path
-from threading import Event, Lock, Thread
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -19,11 +13,15 @@ from .ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
 CHAT_COMPLETIONS_PATH = "/v1/chat/completions"
+HEALTH_PATH = "/health"
+MODELS_PATH = "/v1/models"
 TOKENIZE_PATH = "/tokenize"
+VERSION_PATH = "/version"
 MAX_TOKENS = 1_536
 TEMPERATURE = 0
 MAX_API_RESPONSE_BYTES = 128 * 1_024
-CONCEPT_SERVER_READY_TIMEOUT_SECONDS = 300
+SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS = 5
+SEMANTIC_API_KEY_ENVIRONMENT = "VLLM_API_KEY"
 CONCEPT_RESPONSE_FORMAT = {
     "type": "json_schema",
     "json_schema": {
@@ -66,15 +64,6 @@ CONCEPT_RESPONSE_FORMAT = {
         },
     },
 }
-_VLLM_ENVIRONMENT = {
-    "DO_NOT_TRACK": "1",
-    "HF_HUB_DISABLE_TELEMETRY": "1",
-    "HF_HUB_OFFLINE": "1",
-    "PATH": "/usr/bin:/bin",
-    "TRANSFORMERS_OFFLINE": "1",
-    "VLLM_NO_USAGE_STATS": "1",
-    "VLLM_USE_FLASHINFER_SAMPLER": "0",
-}
 
 
 class ConceptAPIError(RuntimeError):
@@ -85,302 +74,130 @@ class ConceptAPIError(RuntimeError):
         self.reason_code = reason_code
 
 
-@dataclass(frozen=True)
-class ConceptServiceProfile:
-    model_load_count: int
-    model_ready_seconds: float | None
-    request_count: int
-    warm_latency_seconds: float | None
-    peak_vram_bytes: int | None
-    steady_vram_bytes: int | None
-    engine_death_count: int
-    oom_count: int
+def _semantic_service_headers(
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Bearer 只從 process environment 讀取，不進設定、binding 或 log。"""
 
-
-class LocalConceptServer:
-    """持有 app/command 啟動的 vLLM，或代表一次 non-owning lease。"""
-
-    def __init__(
-        self,
-        process: subprocess.Popen[bytes] | None,
-        settings: dict[str, Any],
-        *,
-        ready_seconds: float | None = None,
-    ) -> None:
-        self._process = process
-        self._settings = settings
-        self._ready_seconds = ready_seconds
-        self._is_closed = False
-        self._metrics_lock = Lock()
-        self._stop_monitoring = Event()
-        self._output_threads: tuple[Thread, ...] = ()
-        self._vram_thread: Thread | None = None
-        self._peak_vram_bytes: int | None = None
-        self._steady_vram_bytes: int | None = None
-        self._engine_death_count = 0
-        self._death_recorded = False
-        self._oom_count = 0
-        if process is not None:
-            self._start_monitors()
-
-    @property
-    def did_load_model(self) -> bool:
-        return self._process is not None
-
-    def _read_output(self, stream: Any) -> None:
-        try:
-            for line in iter(stream.readline, b""):
-                lowered = line.lower()
-                if b"out of memory" in lowered or b"cuda oom" in lowered:
-                    with self._metrics_lock:
-                        self._oom_count += 1
-        finally:
-            stream.close()
-
-    def _sample_vram(self) -> None:
-        while not self._stop_monitoring.is_set():
-            try:
-                completed = subprocess.run(
-                    [
-                        "nvidia-smi",
-                        "--query-gpu=memory.used",
-                        "--format=csv,noheader,nounits",
-                    ],
-                    check=False,
-                    capture_output=True,
-                    timeout=2,
-                )
-                values = [
-                    int(line.strip()) * 1024 * 1024
-                    for line in completed.stdout.decode("ascii").splitlines()
-                    if line.strip().isdecimal()
-                ]
-                if completed.returncode == 0 and values:
-                    used = max(values)
-                    with self._metrics_lock:
-                        self._steady_vram_bytes = used
-                        self._peak_vram_bytes = max(
-                            self._peak_vram_bytes or 0, used
-                        )
-            except (OSError, subprocess.SubprocessError, UnicodeError, ValueError):
-                pass
-            self._stop_monitoring.wait(1)
-
-    def _start_monitors(self) -> None:
-        assert self._process is not None
-        output_threads = []
-        for stream in (self._process.stdout, self._process.stderr):
-            if stream is None:
-                continue
-            thread = Thread(
-                target=self._read_output,
-                args=(stream,),
-                name="studydy-qwen-output",
-                daemon=True,
-            )
-            thread.start()
-            output_threads.append(thread)
-        self._output_threads = tuple(output_threads)
-        self._vram_thread = Thread(
-            target=self._sample_vram,
-            name="studydy-qwen-vram",
-            daemon=True,
-        )
-        self._vram_thread.start()
-
-    @staticmethod
-    def _metric_total(metrics: str, name: str) -> float | None:
-        total = 0.0
-        found = False
-        for line in metrics.splitlines():
-            if line.startswith("#"):
-                continue
-            sample, separator, raw_value = line.partition(" ")
-            if not separator or sample.split("{", 1)[0] != name:
-                continue
-            try:
-                total += float(raw_value)
-            except ValueError:
-                continue
-            found = True
-        return total if found else None
-
-    def is_ready(self) -> bool:
-        process = self._process
-        if process is not None and process.poll() is not None:
-            with self._metrics_lock:
-                if not self._death_recorded:
-                    self._engine_death_count += 1
-                    self._death_recorded = True
-            return False
-        return _concept_server_is_ready(self._settings)
-
-    def profile(self) -> ConceptServiceProfile:
-        request_count = 0
-        warm_latency_seconds = None
-        try:
-            with httpx.Client(trust_env=False, follow_redirects=False) as client:
-                response = client.get(
-                    f"{self._settings['concept_api_base_url'].rstrip('/')}/metrics",
-                    timeout=1,
-                )
-                response.raise_for_status()
-            metrics = response.content.decode("utf-8")
-            count = self._metric_total(
-                metrics, "vllm:e2e_request_latency_seconds_count"
-            )
-            elapsed = self._metric_total(
-                metrics, "vllm:e2e_request_latency_seconds_sum"
-            )
-            if count is not None:
-                request_count = int(count)
-                if count > 0 and elapsed is not None:
-                    warm_latency_seconds = elapsed / count
-        except (httpx.HTTPError, KeyError, UnicodeError, ValueError):
-            pass
-        self.is_ready()
-        with self._metrics_lock:
-            return ConceptServiceProfile(
-                model_load_count=1 if self.did_load_model else 0,
-                model_ready_seconds=self._ready_seconds,
-                request_count=request_count,
-                warm_latency_seconds=warm_latency_seconds,
-                peak_vram_bytes=self._peak_vram_bytes,
-                steady_vram_bytes=self._steady_vram_bytes,
-                engine_death_count=self._engine_death_count,
-                oom_count=self._oom_count,
-            )
-
-    def close(self) -> None:
-        if self._is_closed:
-            return
-        self._is_closed = True
-        self._stop_monitoring.set()
-        process = self._process
-        if process is None:
-            return
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        except OSError as error:
-            raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
-        try:
-            process.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            except OSError as error:
-                raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
-            try:
-                process.wait(timeout=30)
-            except (OSError, subprocess.TimeoutExpired) as error:
-                raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
-        finally:
-            if self._vram_thread is not None:
-                self._vram_thread.join(timeout=3)
-            for thread in self._output_threads:
-                thread.join(timeout=1)
-
-
-def _concept_server_is_ready(settings: dict[str, Any]) -> bool:
-    try:
-        with httpx.Client(trust_env=False, follow_redirects=False) as client:
-            response = client.get(
-                f"{settings['concept_api_base_url'].rstrip('/')}/health",
-                timeout=1,
-            )
-        return response.status_code == 200
-    except (httpx.RequestError, KeyError):
-        return False
-
-
-def start_concept_server(
-    settings: dict[str, Any], *, reuse_ready: bool = True
-) -> LocalConceptServer:
-    """以固定 vLLM CLI 啟動 loopback server，ready 前不送教材。"""
-
-    base_url = settings["concept_api_base_url"]
-    chat_completions_url(base_url)
-    if _concept_server_is_ready(settings):
-        if reuse_ready:
-            return LocalConceptServer(None, settings)
-        raise ConceptAPIError("CONCEPT_API_UNAVAILABLE")
-    parsed = urlsplit(base_url)
-    port = parsed.port or 80
+    values = os.environ if environment is None else environment
+    api_key = values.get(SEMANTIC_API_KEY_ENVIRONMENT)
+    if api_key is None:
+        return {}
     if (
-        parsed.hostname != "127.0.0.1"
-        or settings.get("concept_max_concurrency") != 1
-        or settings.get("concept_max_model_len") != 32_768
+        not isinstance(api_key, str)
+        or not api_key
+        or len(api_key) > 4_096
+        or any(character in api_key for character in "\x00\r\n")
     ):
         raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
-    model_command = [
-        settings["concept_server_executable"],
-        "serve",
-        settings["concept_model_root"],
-        "--served-model-name",
-        settings["concept_model"],
-        "--host",
-        parsed.hostname or "127.0.0.1",
-        "--port",
-        str(port),
-        "--kv-cache-memory-bytes",
-        str(settings["concept_kv_cache_bytes"]),
-        "--max-num-seqs",
-        str(settings["concept_max_concurrency"]),
-        "--max-model-len",
-        str(settings["concept_max_model_len"]),
-        "--generation-config",
-        "vllm",
-        "--enforce-eager",
-    ]
-    command = [
-        sys.executable,
-        str(Path(__file__).with_name("process_guard.py")),
-        str(os.getpid()),
-        *model_command,
-    ]
+    return {"Authorization": f"Bearer {api_key}"}
+
+
+def semantic_service_client(
+    *, environment: Mapping[str, str] | None = None
+) -> httpx.Client:
+    """建立只連固定 loopback contract 的短生命週期 HTTP client。"""
+
+    return httpx.Client(
+        headers=_semantic_service_headers(environment),
+        trust_env=False,
+        follow_redirects=False,
+    )
+
+
+def preflight_semantic_service(
+    settings: dict[str, Any], *, client: httpx.Client | None = None
+) -> None:
+    """驗證既有 vLLM readiness、版本、模型 identity 與 32K tokenizer contract。"""
+
     try:
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-            env={
-                **os.environ,
-                **_VLLM_ENVIRONMENT,
-                "VLLM_CACHE_ROOT": str(
-                    Path(settings["private_runtime_root"]) / "vllm-cache"
-                ),
-            },
+        base_url = settings["concept_api_base_url"]
+        model = settings["concept_model"]
+        max_model_len = settings["concept_max_model_len"]
+        semantic_lock = settings["runtime_lock"]["semantic"]
+        server_version = semantic_lock["server"]["version"]
+        if (
+            chat_completions_url(base_url)
+            != f"{base_url}{semantic_lock['api_path']}"
+            or base_url != "http://127.0.0.1:8000"
+            or model != semantic_lock["model_id"]
+            or max_model_len != semantic_lock["service"]["max_model_len"]
+            or semantic_lock["input_token_budget"]["api_path"] != TOKENIZE_PATH
+        ):
+            raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
+    except (KeyError, TypeError):
+        raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID") from None
+
+    owned_client = client is None
+    semantic_client = semantic_service_client() if client is None else client
+    try:
+        health = semantic_client.get(
+            f"{base_url}{HEALTH_PATH}",
+            timeout=SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS,
         )
-    except (KeyError, OSError) as error:
+        health.raise_for_status()
+        version_response = semantic_client.get(
+            f"{base_url}{VERSION_PATH}",
+            timeout=SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS,
+        )
+        version_response.raise_for_status()
+        models_response = semantic_client.get(
+            f"{base_url}{MODELS_PATH}",
+            timeout=SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS,
+        )
+        models_response.raise_for_status()
+        chat_response = semantic_client.options(
+            chat_completions_url(base_url),
+            timeout=SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS,
+        )
+        if chat_response.status_code not in {200, 405}:
+            chat_response.raise_for_status()
+        tokenize_response = semantic_client.post(
+            f"{base_url}{TOKENIZE_PATH}",
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": "ready"}],
+                "add_generation_prompt": True,
+                "add_special_tokens": False,
+            },
+            timeout=SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS,
+        )
+        tokenize_response.raise_for_status()
+        version = version_response.json()
+        models = models_response.json()
+        tokenized = tokenize_response.json()
+    except httpx.TimeoutException as error:
+        raise ConceptAPIError("CONCEPT_API_TIMEOUT") from error
+    except (httpx.HTTPError, RecursionError, UnicodeDecodeError, ValueError) as error:
         raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
-    server = LocalConceptServer(process, settings)
-    deadline = time.monotonic() + CONCEPT_SERVER_READY_TIMEOUT_SECONDS
-    try:
-        with httpx.Client(trust_env=False, follow_redirects=False) as client:
-            while True:
-                if process.poll() is not None:
-                    raise ConceptAPIError("CONCEPT_API_UNAVAILABLE")
-                try:
-                    response = client.get(f"{base_url.rstrip('/')}/health", timeout=1)
-                    if response.status_code == 200:
-                        server._ready_seconds = time.monotonic() - (
-                            deadline - CONCEPT_SERVER_READY_TIMEOUT_SECONDS
-                        )
-                        return server
-                except httpx.RequestError:
-                    pass
-                if time.monotonic() >= deadline:
-                    raise ConceptAPIError("CONCEPT_API_TIMEOUT")
-                time.sleep(0.1)
-    except BaseException:
-        server.close()
-        raise
+    finally:
+        if owned_client:
+            semantic_client.close()
+
+    served_models = models.get("data") if isinstance(models, dict) else None
+    matching_model = (
+        next(
+            (
+                served
+                for served in served_models
+                if isinstance(served, dict) and served.get("id") == model
+            ),
+            None,
+        )
+        if isinstance(served_models, list)
+        else None
+    )
+    if (
+        not isinstance(version, dict)
+        or version.get("version") != server_version
+        or matching_model is None
+        or matching_model.get("max_model_len") != max_model_len
+        or not isinstance(tokenized, dict)
+        or type(tokenized.get("count")) is not int
+        or tokenized["count"] < 1
+        or tokenized.get("max_model_len") != max_model_len
+    ):
+        raise ConceptAPIError("CONCEPT_API_IDENTITY_MISMATCH")
 
 
 def chat_completions_url(base_url: Any) -> str:
@@ -395,7 +212,7 @@ def chat_completions_url(base_url: Any) -> str:
         raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID") from None
     if (
         parsed.scheme != "http"
-        or parsed.hostname not in {"127.0.0.1", "localhost"}
+        or parsed.hostname != "127.0.0.1"
         or parsed.username is not None
         or parsed.password is not None
         or parsed.path not in {"", "/"}

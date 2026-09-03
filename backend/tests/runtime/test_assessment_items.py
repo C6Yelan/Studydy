@@ -954,14 +954,10 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
     }
     local_config = {
         "private_runtime_root": str(tmp_path / "runtime"),
-        "concept_api_base_url": "http://127.0.0.1:8101",
+        "concept_api_base_url": "http://127.0.0.1:8000",
         "concept_model": "Qwen/Qwen3.8-27B-FP8",
         "concept_max_model_len": 32768,
     }
-
-    class Server:
-        def close(self):
-            pass
 
     class Verifier:
         def request(self, request, _timeout):
@@ -1013,11 +1009,6 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
     )
     monkeypatch.setattr(
         generation_module,
-        "start_concept_server",
-        lambda _: starts.append("qwen") or Server(),
-    )
-    monkeypatch.setattr(
-        generation_module,
         "start_assessment_process",
         lambda *_: starts.append("verifier") or Verifier(),
     )
@@ -1037,7 +1028,7 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
         dsn=assessment_database_dsn,
     )
 
-    assert starts == ["qwen", "verifier"]
+    assert starts == ["verifier"]
     assert stored.public_document.source_evidence_ids == claim["evidence_ids"]
     assert stored.private_answer_document.rationale == (
         "教材依據明確記載：Canonical Evidence 1"
@@ -1085,7 +1076,7 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             dsn=assessment_database_dsn,
         )
     assert _assessment_count(assessment_database_dsn) == 3
-    assert starts == ["qwen", "verifier"] * 4
+    assert starts == ["verifier"] * 4
     assert stage_calls == ["proposal"] * 4 + ["repair"]
 
     other = TrustedLearner(uuid4())
@@ -1099,7 +1090,7 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             local_config,
             dsn=assessment_database_dsn,
         )
-    assert starts == ["qwen", "verifier"] * 4
+    assert starts == ["verifier"] * 4
 
 
 def test_assessment_grounding_allows_unrelated_formula_tokens_in_evidence():

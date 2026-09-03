@@ -10,14 +10,6 @@ import learning_adaptation.assessment_runtime_reuse as reuse_module
 from learning_adaptation.assessment_runtime_reuse import AssessmentRuntimeReuse
 
 
-class _Server:
-    def __init__(self, calls: list[str]) -> None:
-        self.calls = calls
-
-    def close(self) -> None:
-        self.calls.append("server_close")
-
-
 class _Verifier:
     def __init__(self, calls: list[str]) -> None:
         self.calls = calls
@@ -42,16 +34,11 @@ def _manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         calls.append("lock_enter")
         return ModelLock()
 
-    def start_server(_):
-        calls.append("server_start")
-        return _Server(calls)
-
     def start_verifier(_, __):
         calls.append("verifier_start")
         return _Verifier(calls)
 
     monkeypatch.setattr(reuse_module, "_acquire_model_lock", model_lock)
-    monkeypatch.setattr(reuse_module, "start_concept_server", start_server)
     monkeypatch.setattr(reuse_module, "start_assessment_process", start_verifier)
     manager = AssessmentRuntimeReuse(
         {
@@ -68,11 +55,9 @@ def _manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def _successful_operation(settings):
     def operation():
         with generation_module.material_analysis_lock(Path(settings["private_runtime_root"])):
-            server = generation_module.start_concept_server(settings)
             verifier = generation_module.start_assessment_process(settings, 1)
             assert verifier.request({"item": 1}, 1)["request"] == {"item": 1}
             verifier.close()
-            server.close()
         return "ok"
 
     return operation
@@ -84,11 +69,9 @@ def test_reuses_ready_processes_and_restores_frozen_generator_globals(
     manager, calls = _manager(tmp_path, monkeypatch)
     settings = {"private_runtime_root": str(tmp_path)}
     original_lock = generation_module.material_analysis_lock
-    original_server = generation_module.start_concept_server
     try:
         assert manager.generate(_successful_operation(settings)) == "ok"
         assert manager.generate(_successful_operation(settings)) == "ok"
-        assert calls.count("server_start") == 1
         assert calls.count("verifier_start") == 1
         assert calls.count("verify") == 2
         profile = manager.profile()
@@ -96,11 +79,9 @@ def test_reuses_ready_processes_and_restores_frozen_generator_globals(
         assert profile.warm_requests == 1
         assert len(profile.request_seconds) == 2
         assert generation_module.material_analysis_lock is original_lock
-        assert generation_module.start_concept_server is original_server
     finally:
         manager.close()
     assert calls.count("verifier_abort") == 1
-    assert calls.count("server_close") == 1
     assert calls.count("lock_exit") == 1
 
 
@@ -112,7 +93,6 @@ def test_failure_discards_processes_and_next_request_starts_cleanly(
 
     def failed():
         with generation_module.material_analysis_lock(tmp_path):
-            generation_module.start_concept_server(settings)
             generation_module.start_assessment_process(settings, 1)
             raise RuntimeError("MODEL_PROCESS_FAILED")
 
@@ -120,7 +100,6 @@ def test_failure_discards_processes_and_next_request_starts_cleanly(
         with pytest.raises(RuntimeError, match="MODEL_PROCESS_FAILED"):
             manager.generate(failed)
         assert manager.generate(_successful_operation(settings)) == "ok"
-        assert calls.count("server_start") == 2
         assert calls.count("verifier_start") == 2
         assert manager.profile().cold_starts == 2
     finally:
@@ -131,11 +110,6 @@ def test_runtime_started_in_request_thread_can_close_in_lifespan_thread(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     calls: list[str] = []
-    monkeypatch.setattr(
-        reuse_module,
-        "start_concept_server",
-        lambda _: _Server(calls),
-    )
     monkeypatch.setattr(
         reuse_module,
         "start_assessment_process",
