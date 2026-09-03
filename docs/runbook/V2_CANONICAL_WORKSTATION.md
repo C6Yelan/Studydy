@@ -22,7 +22,7 @@ UV_CACHE_DIR=/tmp/studydy-uv-cache uv sync --project backend --python 3.12 --ext
 backend/.venv/bin/python -c 'import sys; assert sys.version_info[:2] == (3, 12)'
 ```
 
-接著確認 Docker、GPU 與已安裝 runtime：
+接著確認 GPU 與 backend-owned OCR/verifier runtime；有 Docker 的 workstation 才需要第一行：
 
 ```bash
 docker info --format '{{.ServerVersion}} {{.Driver}} {{.OSType}}'
@@ -31,7 +31,8 @@ PYTHONPATH=backend/src backend/.venv/bin/python -m runtime.local_runtime verify
 ```
 
 Expected runtime verify: `22/22` files。此檢查確認必要 runtime layout、package 與既有
-OCR/verifier assets；不以 executable、wheel/RECORD 或 Qwen shard byte hash 作為 Batch 1 gate。
+OCR/verifier assets；backend 不安裝、驗證或擁有 vLLM executable、site-packages、Qwen model
+directory、KV cache 或 process lifecycle。
 
 ## 2. PostgreSQL
 
@@ -58,6 +59,26 @@ unset POSTGRES_PASSWORD STUDYDY_V2_PG_PASSWORD
 
 Keep `STUDYDY_DATABASE_DSN` only in the current private shell. Do not echo it.
 
+Automated tests use the disposable Docker PostgreSQL above by default. On a host without Docker,
+install PostgreSQL 18 on ephemeral container disk and prepare an empty control database whose name
+starts with `studydy_test`; its local test role must have `CREATEDB`. Do not put `PGDATA` on
+`/workspace` network storage. Read the test-only DSN without echoing it, then run pytest in the same
+shell:
+
+```bash
+read -rsp 'Test PostgreSQL DSN: ' STUDYDY_TEST_POSTGRES_DSN; echo
+export STUDYDY_TEST_POSTGRES_DSN
+PYTHONPATH=backend/src:local_ai/src:backend/tests backend/.venv/bin/pytest -q \
+  backend/tests local_ai/tests
+unset STUDYDY_TEST_POSTGRES_DSN
+```
+
+The fixture rejects a DSN whose control database is not named `studydy_test*` or is identical to
+`STUDYDY_DATABASE_DSN`. Every test still creates a fresh `studydy_case_*` database and terminates
+connections and drops it afterward. PostgreSQL migrations, transactions, isolation and cleanup are
+unchanged. Native PostgreSQL state is disposable; cross-day retention requires an explicit private
+dump/restore workflow and is outside Batch 1.
+
 ## 3. Migrations
 
 ```bash
@@ -79,14 +100,17 @@ export STUDYDY_PUBLIC_ORIGIN=http://127.0.0.1:4173
 export STUDYDY_SECURE_COOKIE=false
 export STUDYDY_ARTIFACT_ROOT='<ABSOLUTE_IGNORED_ARTIFACT_ROOT>'
 # export STUDYDY_LOCAL_RUNTIME_ROOT='<ABSOLUTE_APPROVED_RUNTIME_ROOT>'
+# VLLM_API_KEY is inherited from the private RunPod/container environment.
 PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/python -c \
   'from runtime.local_app import run_local_app; run_local_app(port=8001)'
 ```
 
-Backend 啟動時先載入唯一的 loopback `Qwen/Qwen3.8-27B-FP8` vLLM service，固定
-`max_model_len=32768`、`max_num_seqs=1`，並持有到 app shutdown。Material、Knowledge Map
-與 Assessment 的既有 OpenAI-compatible client 都只取得 non-owning lease；request 結束或
-失敗不 unload Qwen。Assessment verifier 仍依既有 lifecycle 管理。
+RunPod container startup 獨立啟動並持有 `http://127.0.0.1:8000` 的
+`Qwen/Qwen3.8-27B-FP8` vLLM service；不要修改 Pod startup configuration。Backend 啟動只做
+loopback、`/health`、`/version`、`/v1/models`、`/tokenize`、vLLM `0.28.0`、served model 與
+`max_model_len=32768` preflight，並從 environment 即時建立 bearer header。Material、Knowledge
+Map 與 Assessment 只建立 HTTP client；request failure、backend restart 或 shutdown 都不會
+spawn、kill 或 unload Qwen。Assessment verifier 仍依既有 lifecycle 管理。
 
 ## 5. Frontend
 
@@ -135,14 +159,14 @@ learn correctness only after server Feedback.
 
 ## 8. Warm Demo
 
-Qwen 在同一 app uptime 內保持 resident：
+Qwen 跨 backend uptime 保持 resident：
 
 1. Return to the Map and start a new StudySession on the qualified Concept.
 2. Confirm watermark 0 and no inherited attempts/mastery/observed weakness.
 3. Request a new Assessment and record warm latency.
 4. Repeat one different-item reassessment and show stable model reuse without a second Qwen load.
 
-Assessment verifier 的 idle 回收不會回收 resident Qwen；只有 app restart 才是下一次 Qwen cold load。
+Assessment verifier 的 idle 回收不會回收 resident Qwen；backend restart 也不會增加 Qwen load。
 
 ## 9. Recovery Demo
 
@@ -173,7 +197,8 @@ its own pinned PostgreSQL container.
 
 ## 11. Shutdown and evidence boundary
 
-Stop frontend and backend with `Ctrl-C`, then stop only the explicit database container:
+Stop frontend and backend with `Ctrl-C`, then stop only the explicit database container. Do not stop
+the RunPod-owned semantic service as part of backend shutdown:
 
 ```bash
 docker stop "$STUDYDY_V2_PG_CONTAINER"

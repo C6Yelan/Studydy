@@ -64,6 +64,14 @@ PYTHONPATH=backend/src python -m runtime.local_runtime verify
 測試中的 disposable fixtures 只驗證這些 layout、驗證與 backup/rollback 邏輯。
 真實主機 E2E 與 unseen-PDF 評估是另外核准的操作，不屬於 fixture 測試。
 
+PostgreSQL production semantics remain PostgreSQL-only. Pytest normally creates one pinned
+disposable Docker PostgreSQL control database, then creates and drops a fresh `studydy_case_*`
+database for every database-backed test. On RunPod or another host without Docker, install
+PostgreSQL 18 on ephemeral local disk, prepare an empty `studydy_test*` control database with a
+test-only `CREATEDB` role, and provide its DSN only through `STUDYDY_TEST_POSTGRES_DSN`. The fixture
+rejects the production DSN and preserves the same migration, transaction, isolation and cleanup
+checks. Never print or commit either DSN.
+
 ## Resource intake
 
 先準備一份 `resource-source-metadata/v1` JSON，並確認固定本機 runtime 已通過
@@ -153,10 +161,12 @@ adaptive-plan與suggestion derived APIs沒有alias或compatibility surface。Map
 grounded Tree與canonical inline `initial_learning_path`只讀；Agent 4不消費或推論
 prerequisite、prerequisite-gap或Relation資料。
 
-正式 `/v1` app 會在 worker 接收工作前啟動唯一 loopback Qwen3.8 service，並在 app
-shutdown 時才回收。Material、Knowledge Map 與 Assessment 只取得 resident service lease，
-不在 request 內載入或卸載 Qwen；request failure 回報既有 failure semantics，不 poison 或
-關閉 service。Assessment verifier 仍沿用既有 lazy/idle lifecycle。這個變更不改
+正式 `/v1` app 不擁有 Qwen lifecycle。RunPod/container startup 獨立持有固定
+`http://127.0.0.1:8000` 的 Qwen3.8 vLLM service；app startup 只驗證 readiness、vLLM version、
+served model identity、32K context 與 tokenizer protocol。Material、Knowledge Map 與
+Assessment 只建立帶 environment bearer 的 loopback HTTP client，不在 request 內載入或卸載
+Qwen；request failure、backend restart 與 shutdown 都不 poison 或關閉 service。Assessment
+verifier 仍沿用既有 lazy/idle lifecycle。這個變更不改
 Assessment runtime lock、prompt、NLI threshold、repair、Evidence Gate或selection policy。
 fresh disposable database 應由上述 migration command 套用連續的 1–17 版 migration；
 再次執行必須回傳空 tuple 並驗證 ledger checksum。`runtime.local_runtime verify`
