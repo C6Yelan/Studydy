@@ -122,7 +122,7 @@ def run_local_app(
     *,
     environment: Mapping[str, str] | None = None,
     host: str = "127.0.0.1",
-    port: int = 8101,
+    port: int = 8001,
 ) -> None:
     """以同一組 API/worker 組裝結果啟動正式 Uvicorn server。"""
 

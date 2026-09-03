@@ -158,4 +158,4 @@ def test_module_entry_invokes_uvicorn(monkeypatch):
 
     assert len(observed) == 1
     assert observed[0][1]["host"] == "127.0.0.1"
-    assert observed[0][1]["port"] == 8101
+    assert observed[0][1]["port"] == 8001
