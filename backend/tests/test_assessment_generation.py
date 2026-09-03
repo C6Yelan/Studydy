@@ -57,7 +57,7 @@ def _policy() -> dict:
     return {
         "policy_revision": "assessment-generation-policy/v1",
         "shared_models": {
-            "semantic_model_id": "Qwen/Qwen3-14B-AWQ",
+            "semantic_model_id": "Qwen/Qwen3.8-27B-FP8",
             "semantic_revision": "content-sha256:" + "5" * 64,
             "verifier_model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
             "verifier_revision": "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c",
@@ -126,8 +126,8 @@ def _settings() -> dict:
     return {
         "assessment_runtime_lock": _policy(),
         "concept_api_base_url": "http://127.0.0.1:8101",
-        "concept_model": "Qwen/Qwen3-14B-AWQ",
-        "concept_max_model_len": 8192,
+        "concept_model": "Qwen/Qwen3.8-27B-FP8",
+        "concept_max_model_len": 32768,
     }
 
 

@@ -32,10 +32,10 @@ def _settings(tmp_path):
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
         "concept_server_executable": str(root / "vllm/bin/vllm"),
-        "concept_model_root": str(root / "models/qwen3-14b-awq"),
+        "concept_model_root": str(root / "models/qwen3.8-27b-fp8"),
         "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 1,
-        "concept_max_model_len": 8_192,
+        "concept_max_model_len": 32_768,
     }
 
 
@@ -242,6 +242,10 @@ class FakeConceptServer:
         assert state["resident"] == []
         state["resident"].append("concept_server")
 
+    @property
+    def did_load_model(self):
+        return True
+
     def close(self):
         self.state["resident"].remove("concept_server")
         self.is_closed = True
@@ -250,6 +254,10 @@ class FakeConceptServer:
 @pytest.fixture(autouse=True)
 def no_real_concept_server(monkeypatch):
     class FakeServer:
+        @property
+        def did_load_model(self):
+            return True
+
         def close(self):
             return None
 

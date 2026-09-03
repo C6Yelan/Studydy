@@ -1,8 +1,7 @@
 {
-  "schema": "studydy-local-ai-runtime-lock/v10",
+  "schema": "studydy-local-ai-runtime-lock/v11",
   "python": {
-    "version": "3.12.3",
-    "executable_sha256": "4933b6c4a8521fb3aa93856701e30b3ac2626d3c47ceb22965a3b0b422e85b44"
+    "version": "3.12"
   },
   "packages": {
     "setuptools": "84.0.0",
@@ -85,22 +84,24 @@
     "fixture_hashes": {}
   },
   "semantic": {
-    "model_id": "Qwen/Qwen3-14B-AWQ",
-    "revision": "content-sha256:5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619",
-    "binding_manifest_sha256": "5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619",
-    "required_file_count": 4,
-    "required_files": [
-      {"name": "config.json", "sha256": "5244a80c9acdc63504acff475a9c84044cca0f62cb4f184fe0cf7d1792fafb5a"},
-      {"name": "model.safetensors.index.json", "sha256": "b8243c9f4e592643b48eb2c35f99f5a6c160a2e8a89b01075e05701871851997"},
-      {"name": "model-00001-of-00002.safetensors", "sha256": "668eb0f1356638310db286f4819b223c12e3916934123f1a81b2b2c0e148c6a2"},
-      {"name": "model-00002-of-00002.safetensors", "sha256": "c3c1625df80fe01211038bfa520629ebde6adf776556aa80cd49696d986d6657"}
-    ],
+    "model_id": "Qwen/Qwen3.8-27B-FP8",
+    "revision": "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a",
     "api_protocol": "openai-chat-completions/v1",
     "api_path": "/v1/chat/completions",
     "server": {
       "package": "vllm",
-      "version": "0.26.0+cu129",
-      "executable_sha256": "6d34800bbe39c7b1d94043fa0a7badafd894dbc422e0212f94ebe16547b2097a"
+      "version": "0.28.0",
+      "python_minor": "3.12",
+      "torch": "2.13.0+cu130",
+      "cuda": "13.0",
+      "transformers": "5.16.1"
+    },
+    "service": {
+      "host": "127.0.0.1",
+      "port": 8101,
+      "max_model_len": 32768,
+      "max_num_seqs": 1,
+      "cache_path": "runtime/vllm-cache"
     },
     "prompt": "Extract learner-worthy study concepts only from the supplied current evidence. Use document_context only to interpret heading ancestry, adjacency, and continuation; it is not claim evidence. assessment_groups preserves a question stem with its options; when has_reliable_answer is false, do not infer an answer or emit a factual claim from the group. Return each concept as label plus one or more grounded claims. Cite only IDs from the current evidence list and give every claim non-empty evidence_ids. Preserve exact escapes, symbols, operators, numbers, units, conditions, direction, and scope, including \\0. Keep grounded single claims, code, declarations, formulas, captions, and partial clauses when they carry study content. Do not emit isolated connectors or pure symbol junk. Return concepts=[] when the current page teaches no concept. Return JSON only and no additional fields.",
     "prompt_sha256": "47d1abca48ea2b500663d6cd9e44574a78eb2f1d03ffe3c429cbfd6f2f12065c",
@@ -154,11 +155,11 @@
       "structurally_valid_decision": "review"
     },
     "code_hashes": {
-      "backend_concept_api": "277aa9baf9638899df2d5e003011320ba8674557c90489d12bdd16f424435bad",
+      "backend_concept_api": "a1aac7e6d708811316d85e3944bb2982e78c8593505ac65bbd74dc4774e722fc",
       "backend_process_guard": "bdf7b7b4935267690ac9cb2cd1f74fc96a86a827f1e4fe9e199f2109e4cd26bd",
       "backend_concept_generation": "4a7c1ac816ab69a82a12df8fa2c1db16ad98c07c9c9bf4a44bc042925372274f",
       "backend_document_context": "306245f5b9be8872a15179b8fb1a283dbdda975602be07a7d6c868b65c3f893a",
-      "backend_text_first_run": "d9eddc0d9cf8417ec57a0e643b3f01723556ccf34a3290ac4576c75f0d4578a7",
+      "backend_text_first_run": "e7755f8c5f73b34586280072fe9fa23d25832e5b7390cdba4edb278061afd938",
       "backend_study_material_output": "88efd57be086464d6fae7c127b81add392088d20b7c05548862f046d73693419"
     },
     "fixture_hashes": {

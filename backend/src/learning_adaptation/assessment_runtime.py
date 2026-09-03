@@ -15,7 +15,7 @@ from runtime.material_processing import (
 
 
 ASSESSMENT_RUNTIME_LOCK_SHA256 = (
-    "49728ba748630ad69fb0012ec75190def59e2cd25cc24681faa72cce6c717b9a"
+    "4bae112391ea6104c464f382cdfb9968a2eded704f536f207692ca39207943ef"
 )
 _CODE_PATHS = {
     "backend_assessment_generation": (
@@ -254,9 +254,6 @@ def assessment_runtime_binding(
             "semantic_model": {
                 "model_id": material_lock["semantic"]["model_id"],
                 "revision": material_lock["semantic"]["revision"],
-                "binding_manifest_sha256": material_lock["semantic"][
-                    "binding_manifest_sha256"
-                ],
                 "server": deepcopy(material_lock["semantic"]["server"]),
             },
             "verifier_model": {

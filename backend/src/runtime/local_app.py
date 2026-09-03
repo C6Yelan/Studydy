@@ -21,8 +21,6 @@ _APP_ENVIRONMENT_KEYS = {
 _LOCAL_RUNTIME_ROOT_ENVIRONMENT_KEY = "STUDYDY_LOCAL_RUNTIME_ROOT"
 _OPTIONAL_INTEGER_SETTINGS = {
     "concept_kv_cache_bytes": ("STUDYDY_CONCEPT_KV_CACHE_BYTES", 2_147_483_648),
-    "concept_max_concurrency": ("STUDYDY_CONCEPT_MAX_CONCURRENCY", 1),
-    "concept_max_model_len": ("STUDYDY_CONCEPT_MAX_MODEL_LEN", 8_192),
 }
 
 
@@ -101,7 +99,9 @@ def read_local_ai_config_from_environment(
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
         "concept_server_executable": str(root / "vllm" / "bin" / "vllm"),
-        "concept_model_root": str(root / "models" / "qwen3-14b-awq"),
+        "concept_model_root": str(root / "models" / "qwen3.8-27b-fp8"),
+        "concept_max_concurrency": 1,
+        "concept_max_model_len": 32_768,
     }
     for name, (environment_name, default) in _OPTIONAL_INTEGER_SETTINGS.items():
         raw_value = environment.get(environment_name, str(default))

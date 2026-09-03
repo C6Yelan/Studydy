@@ -1,4 +1,5 @@
 import json
+from io import BytesIO
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -56,37 +57,48 @@ def _request(
 
 def _server_settings():
     return {
+        "private_runtime_root": "/runtime/private",
         "concept_api_base_url": "http://127.0.0.1:8101",
-        "concept_model": "Qwen/Qwen3-14B-AWQ",
+        "concept_model": "Qwen/Qwen3.8-27B-FP8",
         "concept_server_executable": "/runtime/bin/vllm",
-        "concept_model_root": "/models/qwen",
+        "concept_model_root": "/models/qwen3.8-27b-fp8",
         "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 1,
-        "concept_max_model_len": 8_192,
+        "concept_max_model_len": 32_768,
     }
 
 
 def test_owned_vllm_server_uses_fixed_bounded_command_and_cleans_up(monkeypatch):
     process = MagicMock(pid=1234)
     process.poll.return_value = None
+    process.stdout = BytesIO()
+    process.stderr = BytesIO()
     health = MagicMock()
     health.__enter__.return_value = health
-    health.get.return_value = SimpleNamespace(status_code=200)
+    health.get.side_effect = [
+        httpx.ConnectError("not started"),
+        SimpleNamespace(status_code=200),
+    ]
     popen = MagicMock(return_value=process)
     killpg = MagicMock()
     monkeypatch.setattr(concept_api_module.subprocess, "Popen", popen)
+    monkeypatch.setattr(
+        concept_api_module.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout=b""),
+    )
     monkeypatch.setattr(concept_api_module.httpx, "Client", lambda **_: health)
     monkeypatch.setattr(concept_api_module.os, "killpg", killpg)
 
-    server = start_concept_server(_server_settings())
+    server = start_concept_server(_server_settings(), reuse_ready=False)
     server.close()
     server.close()
 
     expected_model_command = (
-        "/runtime/bin/vllm serve /models/qwen --served-model-name "
-        "Qwen/Qwen3-14B-AWQ --host 127.0.0.1 --port 8101 "
-        "--kv-cache-memory-bytes 2147483648 --max-num-seqs 1 --max-model-len 8192 "
-        "--generation-config vllm --enforce-eager"
+        "/runtime/bin/vllm serve /models/qwen3.8-27b-fp8 --served-model-name "
+        "Qwen/Qwen3.8-27B-FP8 --host 127.0.0.1 --port 8101 "
+        "--kv-cache-memory-bytes 2147483648 --max-num-seqs 1 --max-model-len 32768 "
+        "--generation-config vllm --enforce-eager --disable-log-requests"
     ).split()
     assert popen.call_args.args[0] == [
         sys.executable,
@@ -97,18 +109,15 @@ def test_owned_vllm_server_uses_fixed_bounded_command_and_cleans_up(monkeypatch)
     assert "--enable-log-requests" not in expected_model_command
     process_options = popen.call_args.kwargs
     assert process_options.pop("start_new_session") is True
-    assert process_options.pop("env") == {
-        "DO_NOT_TRACK": "1",
-        "HF_HUB_DISABLE_TELEMETRY": "1",
-        "HF_HUB_OFFLINE": "1",
-        "PATH": "/usr/bin:/bin",
-        "TRANSFORMERS_OFFLINE": "1",
-        "VLLM_NO_USAGE_STATS": "1",
-        "VLLM_USE_FLASHINFER_SAMPLER": "0",
-        "VLLM_USE_V2_MODEL_RUNNER": "0",
+    environment = process_options.pop("env")
+    assert environment["VLLM_CACHE_ROOT"] == "/runtime/private/vllm-cache"
+    assert environment["HF_HUB_OFFLINE"] == "1"
+    assert process_options == {
+        "stdin": concept_api_module.subprocess.DEVNULL,
+        "stdout": concept_api_module.subprocess.PIPE,
+        "stderr": concept_api_module.subprocess.PIPE,
     }
-    assert set(process_options.values()) == {concept_api_module.subprocess.DEVNULL}
-    health.get.assert_called_once_with("http://127.0.0.1:8101/health", timeout=1)
+    assert health.get.call_count == 2
     killpg.assert_called_once_with(1234, concept_api_module.signal.SIGTERM)
     process.wait.assert_called_once_with(timeout=30)
 
@@ -125,21 +134,88 @@ def test_owned_vllm_server_start_failures_always_cleanup(
 ):
     process = MagicMock(pid=1234)
     process.poll.return_value = process_return_code
+    process.stdout = BytesIO()
+    process.stderr = BytesIO()
     health = MagicMock()
     health.__enter__.return_value = health
-    health.get.side_effect = health_error
+    health.get.side_effect = httpx.ConnectError("not started")
     killpg = MagicMock()
     monkeypatch.setattr(concept_api_module.subprocess, "Popen", lambda *_, **__: process)
+    monkeypatch.setattr(
+        concept_api_module.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout=b""),
+    )
     monkeypatch.setattr(concept_api_module.httpx, "Client", lambda **_: health)
     monkeypatch.setattr(concept_api_module.time, "monotonic", lambda: moments.pop(0))
     monkeypatch.setattr(concept_api_module.time, "sleep", lambda _: None)
     monkeypatch.setattr(concept_api_module.os, "killpg", killpg)
 
     with pytest.raises(ConceptAPIError, match=reason_code):
-        start_concept_server(_server_settings())
+        start_concept_server(_server_settings(), reuse_ready=False)
 
     killpg.assert_called_once()
     process.wait.assert_called_once_with(timeout=30)
+
+
+def test_ready_resident_server_returns_non_owning_lease(monkeypatch):
+    health = MagicMock()
+    health.__enter__.return_value = health
+    health.get.return_value = SimpleNamespace(status_code=200)
+    popen = MagicMock()
+    killpg = MagicMock()
+    monkeypatch.setattr(concept_api_module.httpx, "Client", lambda **_: health)
+    monkeypatch.setattr(concept_api_module.subprocess, "Popen", popen)
+    monkeypatch.setattr(concept_api_module.os, "killpg", killpg)
+
+    lease = start_concept_server(_server_settings())
+    lease.close()
+
+    assert lease.did_load_model is False
+    popen.assert_not_called()
+    killpg.assert_not_called()
+
+
+def test_service_profile_reports_request_latency_vram_and_engine_death(monkeypatch):
+    process = MagicMock()
+    process.poll.return_value = None
+    service = concept_api_module.LocalConceptServer(None, _server_settings())
+    service._process = process
+    service._ready_seconds = 12.5
+    service._peak_vram_bytes = 43 * 1024**3
+    service._steady_vram_bytes = 40 * 1024**3
+    service._oom_count = 1
+
+    client = MagicMock()
+    client.__enter__.return_value = client
+    def get(url, *, timeout):
+        if url.endswith("/metrics"):
+            return httpx.Response(
+                200,
+                request=httpx.Request("GET", url),
+                text=(
+                    "vllm:e2e_request_latency_seconds_count 2\n"
+                    "vllm:e2e_request_latency_seconds_sum 0.5\n"
+                ),
+            )
+        return SimpleNamespace(status_code=200)
+
+    client.get.side_effect = get
+    monkeypatch.setattr(concept_api_module.httpx, "Client", lambda **_: client)
+
+    profile = service.profile()
+    process.poll.return_value = 137
+    service.is_ready()
+    service.is_ready()
+
+    assert profile.model_load_count == 1
+    assert profile.model_ready_seconds == 12.5
+    assert profile.request_count == 2
+    assert profile.warm_latency_seconds == 0.25
+    assert profile.peak_vram_bytes == 43 * 1024**3
+    assert profile.steady_vram_bytes == 40 * 1024**3
+    assert profile.oom_count == 1
+    assert service.profile().engine_death_count == 1
 
 
 def test_chat_completion_uses_exact_loopback_request_and_returns_content():

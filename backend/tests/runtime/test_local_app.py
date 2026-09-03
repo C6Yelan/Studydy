@@ -75,7 +75,10 @@ def test_formal_launch_uses_the_local_composition_root(monkeypatch):
     }
     assert observed[0]["local_config"]["concept_kv_cache_bytes"] == 2_147_483_648
     assert observed[0]["local_config"]["concept_max_concurrency"] == 1
-    assert observed[0]["local_config"]["concept_max_model_len"] == 8_192
+    assert observed[0]["local_config"]["concept_max_model_len"] == 32_768
+    assert observed[0]["local_config"]["concept_model_root"] == (
+        "/temporary/studydy/models/qwen3.8-27b-fp8"
+    )
     assert observed[0]["local_config"]["python_executable"] == (
         "/temporary/studydy/ocr/runtime/bin/python3.12"
     )
@@ -119,14 +122,12 @@ def test_cli_reader_returns_only_existing_local_ai_arguments():
     assert local_config["concept_max_concurrency"] == 1
 
 
-def test_default_root_and_only_three_tunings_are_environment_configurable(
+def test_default_root_and_only_kv_cache_is_environment_configurable(
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(local_app.Path, "home", lambda: tmp_path)
     environment = {
         "STUDYDY_CONCEPT_KV_CACHE_BYTES": "1024",
-        "STUDYDY_CONCEPT_MAX_CONCURRENCY": "1",
-        "STUDYDY_CONCEPT_MAX_MODEL_LEN": "5632",
     }
 
     local_config = local_app.read_local_ai_config_from_environment(environment)
@@ -143,6 +144,7 @@ def test_default_root_and_only_three_tunings_are_environment_configurable(
     ]["model_id"]
     assert local_config["concept_kv_cache_bytes"] == 1024
     assert local_config["concept_max_concurrency"] == 1
+    assert local_config["concept_max_model_len"] == 32_768
 
 
 @pytest.mark.parametrize("profile", ["development", "production", "unknown"])

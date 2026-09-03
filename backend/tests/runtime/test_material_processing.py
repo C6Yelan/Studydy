@@ -281,12 +281,12 @@ def _settings(tmp_path: Path) -> dict:
         "ocr_model_root": str(root / "models/unlimited-ocr"),
         "verifier_model_root": str(root / "models/mdeberta-v3-base-mnli-xnli"),
         "concept_api_base_url": "http://127.0.0.1:8101",
-        "concept_model": "Qwen/Qwen3-14B-AWQ",
+        "concept_model": "Qwen/Qwen3.8-27B-FP8",
         "concept_server_executable": str(root / "vllm/bin/vllm"),
-        "concept_model_root": str(root / "models/qwen3-14b-awq"),
+        "concept_model_root": str(root / "models/qwen3.8-27b-fp8"),
         "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 1,
-        "concept_max_model_len": 8_192,
+        "concept_max_model_len": 32_768,
     }
 
 
@@ -850,7 +850,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert binding["call_ceilings"] == {
         "ocr_calls_per_page": 1,
         "ocr_initial_loads": 1,
-            "concept_initial_loads": 2,
+        "concept_initial_loads": 1,
         "concept_equivalence_initial_loads": 1,
         "concept_equivalence_pairs_per_material": 16,
         "concept_equivalence_directions_per_material": 32,
@@ -871,13 +871,12 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     assert settings["concept_model_root"] not in encoded
     assert binding["concept_api"] == {
         "base_url": "http://127.0.0.1:8101",
-        "model": "Qwen/Qwen3-14B-AWQ",
-        "model_revision": "content-sha256:5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619",
-        "model_binding_manifest_sha256": "5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619",
+        "model": "Qwen/Qwen3.8-27B-FP8",
+        "model_revision": "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a",
         "protocol": "openai-chat-completions/v1",
         "kv_cache_bytes": 2_147_483_648,
         "max_concurrency": 1,
-        "max_model_len": 8_192,
+        "max_model_len": 32_768,
         "server": settings["runtime_lock"]["semantic"]["server"],
         "structured_output": settings["runtime_lock"]["semantic"]["structured_output"],
         "input_token_budget": settings["runtime_lock"]["semantic"]["input_token_budget"],
@@ -1038,7 +1037,7 @@ def test_preflight_prepares_private_root_only_after_shared_validation(
     assert failure.value.reason == "LOCAL_RUNTIME_HASH_MISMATCH"
 
 
-def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
+def test_runtime_file_plan_covers_ocr_and_verifier_files(tmp_path: Path):
     settings = _settings(tmp_path)
     python_executable = Path(settings["python_executable"])
     python_executable.parent.mkdir(parents=True)
@@ -1056,10 +1055,8 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
 
     runtime_files = processing_module._runtime_files(settings)
     relative_names = {runtime_file.path.name for runtime_file in runtime_files}
-    assert len(runtime_files) == 28
+    assert len(runtime_files) == 22
     assert {
-        "python3.12",
-        "vllm",
         "__init__.py",
         "protocol.py",
         "ocr_process.py",
@@ -1068,7 +1065,6 @@ def test_runtime_file_plan_covers_python_ocr_and_qwen(tmp_path: Path):
         "model.safetensors.index.json",
         "special_tokens_map.json",
         "configuration_deepseek_v2.py",
-            "model-00001-of-00002.safetensors",
         "tokenizer.json",
     } <= relative_names
     assert tuple(settings["runtime_lock"]["ocr"]["package_sources"]) == (

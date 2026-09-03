@@ -38,6 +38,14 @@ class _Workers:
         return None
 
 
+class _QwenService:
+    def profile(self):
+        return None
+
+    def close(self):
+        return None
+
+
 @pytest.fixture
 def api_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
     assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (
@@ -71,6 +79,11 @@ def settings(
     monkeypatch.setattr(app_module, "start_runtime_workers", lambda **kwargs: _Workers())
     monkeypatch.setattr(
         app_module,
+        "start_concept_server",
+        lambda *args, **kwargs: _QwenService(),
+    )
+    monkeypatch.setattr(
+        app_module,
         "formal_runtime_preflight",
         processing_module.formal_runtime_binding,
     )
@@ -97,10 +110,10 @@ def settings(
         "concept_api_base_url": "http://127.0.0.1:8101",
         "concept_model": runtime_lock["semantic"]["model_id"],
         "concept_server_executable": str(root / "vllm/bin/vllm"),
-        "concept_model_root": str(root / "models/qwen3-14b-awq"),
+        "concept_model_root": str(root / "models/qwen3.8-27b-fp8"),
         "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 1,
-        "concept_max_model_len": 8_192,
+        "concept_max_model_len": 32_768,
     }
     return ApiSettings(
         profile="local",

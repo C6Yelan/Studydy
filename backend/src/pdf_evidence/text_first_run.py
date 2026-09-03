@@ -124,14 +124,19 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
                 "formal_resolution", "concept_equivalence", "verifier_model",
             }
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
-            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v10"
-            and runtime_lock["semantic"]["required_file_count"]
-            == len(runtime_lock["semantic"]["required_files"])
-            and runtime_lock["semantic"]["binding_manifest_sha256"]
-            == canonical_sha256(runtime_lock["semantic"]["required_files"])
-            and runtime_lock["semantic"]["revision"]
-            == "content-sha256:"
-            + runtime_lock["semantic"]["binding_manifest_sha256"]
+            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v11"
+            and runtime_lock["python"] == {"version": "3.12"}
+            and semantic["model_id"] == "Qwen/Qwen3.8-27B-FP8"
+            and semantic["revision"]
+            == "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
+            and semantic["service"]
+            == {
+                "host": "127.0.0.1",
+                "port": 8101,
+                "max_model_len": 32768,
+                "max_num_seqs": 1,
+                "cache_path": "runtime/vllm-cache",
+            }
             and all(
                 hashlib.sha256(runtime_lock[stage]["prompt"].encode("utf-8")).hexdigest()
                 == runtime_lock[stage]["prompt_sha256"]
@@ -563,7 +568,7 @@ def _process_pdf(
             raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
         if (
             type(settings.get("concept_max_model_len")) is not int
-            or settings["concept_max_model_len"] < 1
+            or settings["concept_max_model_len"] != 32_768
         ):
             raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
         snapshot_directory = tempfile.TemporaryDirectory(prefix="studydy-source-")
@@ -783,8 +788,8 @@ def _process_pdf(
         concept_client: httpx.Client | None = None
         try:
             if missing_semantic:
-                concept_loads += 1
                 concept_server = start_concept_server(settings)
+                concept_loads += int(concept_server.did_load_model)
                 concept_client = httpx.Client(
                     trust_env=False,
                     follow_redirects=False,

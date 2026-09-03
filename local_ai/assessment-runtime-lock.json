@@ -2,8 +2,8 @@
   "schema": "studydy-assessment-runtime-lock/v1",
   "policy_revision": "assessment-generation-policy/v6",
   "shared_models": {
-    "semantic_model_id": "Qwen/Qwen3-14B-AWQ",
-    "semantic_revision": "content-sha256:5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619",
+    "semantic_model_id": "Qwen/Qwen3.8-27B-FP8",
+    "semantic_revision": "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a",
     "verifier_model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
     "verifier_revision": "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c"
   },

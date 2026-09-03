@@ -151,7 +151,7 @@ def _generation_provenance(documents):
         "question_id": public.question_id,
         "generation_policy_revision": "assessment-generation-policy/v1",
         "runtime_binding_sha256": "2" * 64,
-        "model_id": "Qwen/Qwen3-14B-AWQ",
+        "model_id": "Qwen/Qwen3.8-27B-FP8",
         "model_revision": "content-sha256:" + "3" * 64,
         "proposal_prompt_sha256": "4" * 64,
         "repair_prompt_sha256": "5" * 64,
@@ -889,7 +889,7 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
     policy = {
         "policy_revision": "assessment-generation-policy/v1",
         "shared_models": {
-            "semantic_model_id": "Qwen/Qwen3-14B-AWQ",
+            "semantic_model_id": "Qwen/Qwen3.8-27B-FP8",
             "semantic_revision": "content-sha256:" + "2" * 64,
             "verifier_model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
             "verifier_revision": "5" * 40,
@@ -955,8 +955,8 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
     local_config = {
         "private_runtime_root": str(tmp_path / "runtime"),
         "concept_api_base_url": "http://127.0.0.1:8101",
-        "concept_model": "Qwen/Qwen3-14B-AWQ",
-        "concept_max_model_len": 8192,
+        "concept_model": "Qwen/Qwen3.8-27B-FP8",
+        "concept_max_model_len": 32768,
     }
 
     class Server:
