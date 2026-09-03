@@ -36,7 +36,7 @@ PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/pytest -q \
   backend/tests/test_text_first_run.py
 ```
 
-公開模型 smoke 必須使用 `local_ai/runtime-lock.json` 綁定的離線 wheel、模型 revision、prompt 與 generation 設定。驗收時確認同一 product path 產生至少一個 page、Evidence block 與 Concept，狀態維持 `partial / needs_review / review`；再以相同輸入重跑，OCR 與 Qwen 呼叫數都必須為零。測試輸出只報告狀態、數量、延遲與固定 reason code，不保存 page image、完整 OCR／model text 或 raw pipe 內容。
+公開模型 smoke 必須使用 `local_ai/runtime-lock.json` 綁定的 Python 3.12、Qwen3.8 revision、vLLM 版本、prompt 與 generation 設定。驗收時確認同一 product path 產生至少一個 page、Evidence block 與 Concept，狀態維持 `partial / needs_review / review`；再以相同輸入重跑，OCR 與 Qwen 呼叫數都必須為零。測試輸出只報告狀態、數量、延遲與固定 reason code，不保存 page image、完整 OCR／model text 或 raw pipe 內容。
 
 ## Fixed local runtime checks
 
@@ -48,6 +48,7 @@ PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/pytest -q \
 這些命令都從 repository root 執行：
 
 ```bash
+UV_CACHE_DIR=/tmp/studydy-uv-cache uv sync --project backend --python 3.12 --extra test
 PYTHONPATH=backend/src python -m runtime.local_runtime sync
 PYTHONPATH=backend/src python -m runtime.local_runtime sync --rollback
 PYTHONPATH=backend/src python -m runtime.local_runtime verify
@@ -152,11 +153,10 @@ adaptive-plan與suggestion derived APIs沒有alias或compatibility surface。Map
 grounded Tree與canonical inline `initial_learning_path`只讀；Agent 4不消費或推論
 prerequisite、prerequisite-gap或Relation資料。
 
-正式 `/v1` app 會在第一次 Assessment request lazy 啟動 Qwen 與 Assessment verifier，
-後續 request 在同一安全 lifecycle 內 reuse ready process。reuse期間沿用既有
-`material-analysis.lock`，因此 material worker只會等待、不會同時載入另一組模型；60秒
-idle或app shutdown會回收process並釋放lock。任一 generation failure會同時丟棄Qwen與
-verifier，下一次request重新cold start，不reuse可能損壞的process。這個lifecycle不改
+正式 `/v1` app 會在 worker 接收工作前啟動唯一 loopback Qwen3.8 service，並在 app
+shutdown 時才回收。Material、Knowledge Map 與 Assessment 只取得 resident service lease，
+不在 request 內載入或卸載 Qwen；request failure 回報既有 failure semantics，不 poison 或
+關閉 service。Assessment verifier 仍沿用既有 lazy/idle lifecycle。這個變更不改
 Assessment runtime lock、prompt、NLI threshold、repair、Evidence Gate或selection policy。
 fresh disposable database 應由上述 migration command 套用連續的 1–17 版 migration；
 再次執行必須回傳空 tuple 並驗證 ledger checksum。`runtime.local_runtime verify`

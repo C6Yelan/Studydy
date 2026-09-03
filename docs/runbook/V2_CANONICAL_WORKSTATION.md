@@ -10,12 +10,19 @@ DSNs or model/cache locations into Git, screenshots, logs or review comments.
 git fetch --all --prune
 git status --short
 git rev-parse --show-toplevel
-git rev-parse origin/dev
-git merge-base --is-ancestor c65aeac51ac0bde7b18b5490c2a4201adb028802 origin/dev
+git rev-parse HEAD
+git merge-base --is-ancestor 47156f624eefe51cc0bc37d3232868102e20c7a7 HEAD
 ```
 
-Expected RC: `c65aeac51ac0bde7b18b5490c2a4201adb028802`; the worktree must be clean
-before qualification. Confirm Docker and GPU visibility:
+`HEAD` 必須等於 Batch 1 handoff 的 exact candidate SHA，且 worktree 必須乾淨。
+backend 與所有 local AI runtime 都使用 Python 3.12 minor：
+
+```bash
+UV_CACHE_DIR=/tmp/studydy-uv-cache uv sync --project backend --python 3.12 --extra test
+backend/.venv/bin/python -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+```
+
+接著確認 Docker、GPU 與已安裝 runtime：
 
 ```bash
 docker info --format '{{.ServerVersion}} {{.Driver}} {{.OSType}}'
@@ -23,7 +30,8 @@ nvidia-smi.exe --query-gpu=name,memory.total,driver_version --format=csv,noheade
 PYTHONPATH=backend/src backend/.venv/bin/python -m runtime.local_runtime verify
 ```
 
-Expected runtime verify: `29/29` files.
+Expected runtime verify: `22/22` files。此檢查確認必要 runtime layout、package 與既有
+OCR/verifier assets；不以 executable、wheel/RECORD 或 Qwen shard byte hash 作為 Batch 1 gate。
 
 ## 2. PostgreSQL
 
@@ -75,8 +83,10 @@ PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/python -c \
   'from runtime.local_app import run_local_app; run_local_app(port=8001)'
 ```
 
-The backend owns the material worker and lazily starts only the pinned loopback Qwen/verifier
-processes. Do not start a second material/model process while the model lock is held.
+Backend 啟動時先載入唯一的 loopback `Qwen/Qwen3.8-27B-FP8` vLLM service，固定
+`max_model_len=32768`、`max_num_seqs=1`，並持有到 app shutdown。Material、Knowledge Map
+與 Assessment 的既有 OpenAI-compatible client 都只取得 non-owning lease；request 結束或
+失敗不 unload Qwen。Assessment verifier 仍依既有 lifecycle 管理。
 
 ## 5. Frontend
 
@@ -125,14 +135,14 @@ learn correctness only after server Feedback.
 
 ## 8. Warm Demo
 
-Before the 60-second idle reclamation window expires:
+Qwen 在同一 app uptime 內保持 resident：
 
 1. Return to the Map and start a new StudySession on the qualified Concept.
 2. Confirm watermark 0 and no inherited attempts/mastery/observed weakness.
-3. Request a new Assessment. Expected warm latency is about 19 seconds.
+3. Request a new Assessment and record warm latency.
 4. Repeat one different-item reassessment and show stable model reuse without a second Qwen load.
 
-If the 60-second idle window elapsed, label the next request cold; do not call it a warm regression.
+Assessment verifier 的 idle 回收不會回收 resident Qwen；只有 app restart 才是下一次 Qwen cold load。
 
 ## 9. Recovery Demo
 
@@ -158,8 +168,8 @@ PYTHONPATH=backend/src:local_ai/src:backend/tests backend/.venv/bin/pytest -q \
 backend/.venv/bin/python backend/tests/runtime/material_review_e2e_runner.py
 ```
 
-Expected: 326 backend/local-AI tests and 14 Playwright tests. The Playwright runner creates and
-cleans its own pinned PostgreSQL container.
+Record the actual backend/local-AI and Playwright totals. The Playwright runner creates and cleans
+its own pinned PostgreSQL container.
 
 ## 11. Shutdown and evidence boundary
 
