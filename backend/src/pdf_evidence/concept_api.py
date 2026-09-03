@@ -335,7 +335,6 @@ def start_concept_server(
         "--generation-config",
         "vllm",
         "--enforce-eager",
-        "--disable-log-requests",
     ]
     command = [
         sys.executable,
