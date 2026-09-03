@@ -59,7 +59,7 @@ unset POSTGRES_PASSWORD STUDYDY_V2_PG_PASSWORD
 
 Keep `STUDYDY_DATABASE_DSN` only in the current private shell. Do not echo it.
 
-Automated tests use the disposable Docker PostgreSQL above by default. On a host without Docker,
+Automated tests create their own pinned disposable Docker PostgreSQL by default. On a host without Docker,
 install PostgreSQL 18 on ephemeral container disk and prepare an empty control database whose name
 starts with `studydy_test`; its local test role must have `CREATEDB`. Do not put `PGDATA` on
 `/workspace` network storage. Read the test-only DSN without echoing it, then run pytest in the same
@@ -86,7 +86,7 @@ PYTHONPATH=backend/src backend/.venv/bin/python -c \
   'from runtime.storage.migrations import run_migrations; print(run_migrations())'
 ```
 
-A fresh database must print versions 1 through 13. Running it again must print `()` and verify
+A fresh database must print versions 1 through 17. Running it again must print `()` and verify
 ledger checksums without changing schema.
 
 ## 4. Backend and local AI
