@@ -30,9 +30,10 @@ nvidia-smi.exe --query-gpu=name,memory.total,driver_version --format=csv,noheade
 PYTHONPATH=backend/src backend/.venv/bin/python -m runtime.local_runtime verify
 ```
 
-Expected runtime verify: `22/22` files。此檢查確認必要 runtime layout、package 與既有
-OCR/verifier assets；backend 不安裝、驗證或擁有 vLLM executable、site-packages、Qwen model
-directory、KV cache 或 process lifecycle。
+成功時回傳 `{"command":"verify","status":"succeeded"}`。此檢查驗證 Python 3.12 package
+版本、OCR/verifier model config與實際model load，以及既有semantic service preflight；不要求
+固定file count或逐檔size/hash。Backend不擁有vLLM executable、Qwen directory、KV cache或
+process lifecycle。
 
 ## 2. PostgreSQL
 

@@ -49,20 +49,13 @@ PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/pytest -q \
 
 ```bash
 UV_CACHE_DIR=/tmp/studydy-uv-cache uv sync --project backend --python 3.12 --extra test
-PYTHONPATH=backend/src python -m runtime.local_runtime sync
-PYTHONPATH=backend/src python -m runtime.local_runtime sync --rollback
 PYTHONPATH=backend/src python -m runtime.local_runtime verify
 ```
 
-`verify` 只讀取並驗證目前已安裝的 runtime，沒有副作用。`sync` 是明確、另行授權
-的操作，只 reconcile 已安裝 Studydy Python package 中的五個檔案：
-`__init__.py`、`protocol.py`、`ocr_process.py`、`equivalence_process.py` 與
-`assessment_process.py`。若有變更，會先保留五個檔案的完整 backup；`sync --rollback`
-會從該 backup 還原。sync 不會在啟動時自動執行，也不會
-進行下載、安裝或網路操作；在真實主機上執行會改動檔案，必須另行取得批准。
-
-測試中的 disposable fixtures 只驗證這些 layout、驗證與 backup/rollback 邏輯。
-真實主機 E2E 與 unseen-PDF 評估是另外核准的操作，不屬於 fixture 測試。
+`verify` 不修改已安裝runtime。它驗證必要package版本、model config、semantic service，並以
+現有production loaders實際載入OCR與assessment verifier；任一import、config或model load失敗
+即fail closed。Runtime安裝由bootstrap/package tooling負責，backend不提供source sync、backup或
+rollback，也不維護逐檔manifest。真實主機E2E與unseen-PDF評估仍是另外核准的操作。
 
 PostgreSQL production semantics remain PostgreSQL-only. Pytest normally creates one pinned
 disposable Docker PostgreSQL control database, then creates and drops a fresh `studydy_case_*`
@@ -173,8 +166,8 @@ verifier 仍沿用既有 lazy/idle lifecycle。這個變更不改
 Assessment runtime lock、prompt、NLI threshold、repair、Evidence Gate或selection policy。
 fresh disposable database 應由上述 migration command 套用連續的 1–17 版 migration；
 再次執行必須回傳空 tuple 並驗證 ledger checksum。`runtime.local_runtime verify`
-必須同時驗證 assessment package source hashes、model revisions、prompt hashes 與
-novelty/selection policy；lock 或 migration checksum 不符時應 fail closed。
+必須同時驗證model revisions、prompt hashes、novelty/selection policy與OCR/verifier load；
+lock或migration checksum不符時應fail closed。
 
 真模型 qualification 必須從 Formal Concept / Claim / canonical exact Evidence 進入正式
 prompt、validation、relative-margin selection、multiple-support risk repair 與 P06-02 builder；
