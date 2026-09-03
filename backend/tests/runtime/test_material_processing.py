@@ -988,11 +988,13 @@ def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
         "_distribution_versions",
         lambda _path, expected, **_: expected,
     )
+    runtime_root = Path(settings["private_runtime_root"])
+    runtime_root.mkdir(parents=True)
+    runtime_root.chmod(0o777)
 
     binding = processing_module.formal_runtime_preflight(settings)
     assert binding["schema"] == "formal-material-runtime-binding/v7"
-    runtime_root = Path(settings["private_runtime_root"])
-    assert runtime_root.stat().st_mode & 0o777 == 0o700
+    assert runtime_root.stat().st_mode & 0o777 == 0o777
 
     runtime_target.write_bytes(b"short")
     with pytest.raises(MaterialProcessingError) as size_failure:
@@ -1004,6 +1006,54 @@ def test_formal_runtime_preflight_hashes_actual_files_and_detects_drift(
         processing_module.formal_runtime_preflight(settings)
     assert hash_failure.value.component == "ocr_package"
     assert hash_failure.value.reason == "LOCAL_RUNTIME_HASH_MISMATCH"
+
+
+def test_preflight_rejects_runtime_root_that_is_not_a_usable_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    settings = _settings(tmp_path)
+    binding = {"schema": "formal-material-runtime-binding/v7"}
+    monkeypatch.setattr(
+        processing_module,
+        "validate_installed_local_runtime",
+        lambda _: (binding, 0),
+    )
+    runtime_root = Path(settings["private_runtime_root"])
+    runtime_root.parent.mkdir(parents=True)
+    runtime_root.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(MaterialProcessingError) as failure:
+        processing_module.formal_runtime_preflight(settings)
+
+    assert failure.value.component == "layout"
+    assert failure.value.reason == "LOCAL_RUNTIME_UNSAFE_TARGET"
+
+
+def test_preflight_rejects_runtime_root_that_cannot_be_created(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    settings = _settings(tmp_path)
+    binding = {"schema": "formal-material-runtime-binding/v7"}
+    monkeypatch.setattr(
+        processing_module,
+        "validate_installed_local_runtime",
+        lambda _: (binding, 0),
+    )
+    runtime_root = Path(settings["private_runtime_root"])
+    real_mkdir = Path.mkdir
+
+    def fail_runtime_root(path: Path, *args, **kwargs):
+        if path == runtime_root:
+            raise PermissionError
+        return real_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", fail_runtime_root)
+
+    with pytest.raises(MaterialProcessingError) as failure:
+        processing_module.formal_runtime_preflight(settings)
+
+    assert failure.value.component == "layout"
+    assert failure.value.reason == "LOCAL_RUNTIME_WRITE_FAILED"
 
 
 def test_preflight_prepares_private_root_only_after_shared_validation(

@@ -258,21 +258,21 @@ def _absolute_runtime_path(
 
 
 def _prepare_private_runtime_root(value: str) -> None:
-    """建立 owner-only runtime root；既有寬鬆或連結目錄一律拒絕。"""
+    """建立 runtime root，並確認目前 process 可讀寫及進入。"""
 
     path = Path(value)
     if not path.is_absolute() or path.is_symlink():
         raise _runtime_error("layout", "LOCAL_RUNTIME_UNSAFE_TARGET")
     try:
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        path_status = path.lstat()
+        path.mkdir(parents=True, exist_ok=True)
+        path_status = path.stat()
+    except FileExistsError:
+        raise _runtime_error("layout", "LOCAL_RUNTIME_UNSAFE_TARGET") from None
     except OSError:
         raise _runtime_error("layout", "LOCAL_RUNTIME_WRITE_FAILED") from None
     if (
         not stat.S_ISDIR(path_status.st_mode)
-        or stat.S_ISLNK(path_status.st_mode)
-        or path_status.st_uid != os.getuid()
-        or stat.S_IMODE(path_status.st_mode) & 0o077
+        or not os.access(path, os.R_OK | os.W_OK | os.X_OK)
     ):
         raise _runtime_error("layout", "LOCAL_RUNTIME_UNSAFE_TARGET")
 
