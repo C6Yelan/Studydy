@@ -104,12 +104,10 @@ def extract_page(
     material_id = f"material:sha256:{source_sha256}"
     material_revision = _ref("material-revision", {"source_sha256": source_sha256})
     page_ref = _ref("page", {"source_sha256": source_sha256, "page_number": page_number})
-    section_id = _ref("section", {"page_ref": page_ref})
     native_evidence = {
         "schema": NATIVE_SCHEMA,
         "material_id": material_id,
         "material_revision": material_revision,
-        "section_id": section_id,
         "page_ref": page_ref,
         "page_number": page_number,
         "raw_text": raw_text,
@@ -119,7 +117,6 @@ def extract_page(
     return {
         "material_id": material_id,
         "material_revision": material_revision,
-        "section_id": section_id,
         "page_ref": page_ref,
         "page_number": page_number,
         "geometry": {
@@ -449,7 +446,6 @@ def _build_page_evidence(
         or native_evidence.get("page_ref") != page.get("page_ref")
         or native_evidence.get("material_id") != page.get("material_id")
         or native_evidence.get("material_revision") != page.get("material_revision")
-        or native_evidence.get("section_id") != page.get("section_id")
     ):
         raise ValueError("OCR_LOCATOR_INVALID")
     evidence_blocks: list[dict[str, Any]] = []
@@ -551,7 +547,6 @@ def _build_page_evidence(
         "schema": PAGE_SCHEMA,
         "material_id": page["material_id"],
         "material_revision": page["material_revision"],
-        "section_id": page["section_id"],
         "page_ref": page["page_ref"],
         "page_number": page["page_number"],
         "geometry": page["geometry"],

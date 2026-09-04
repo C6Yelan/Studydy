@@ -7,25 +7,8 @@ from typing import Any
 from uuid import UUID
 
 import psycopg
-from sqlalchemy import (
-    ARRAY,
-    BigInteger,
-    Boolean,
-    CHAR,
-    CheckConstraint,
-    DateTime,
-    ForeignKey,
-    ForeignKeyConstraint,
-    Index,
-    Integer,
-    LargeBinary,
-    PrimaryKeyConstraint,
-    Text,
-    UniqueConstraint,
-    create_engine,
-    text,
-)
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PostgreSQLUUID
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, ForeignKeyConstraint, Integer, LargeBinary, Text, UniqueConstraint, create_engine, text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PostgreSQLUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from sqlalchemy.pool import NullPool
 
@@ -33,17 +16,14 @@ from .database import resolve_database_dsn
 
 
 class Base(DeclarativeBase):
-    """集中描述目前 PostgreSQL schema；migration 仍是 DDL 唯一來源。"""
+    """Final pre-release schema；DDL 唯一來源仍是 migration。"""
 
 
 class SchemaMigration(Base):
     __tablename__ = "schema_migrations"
-    __table_args__ = (
-        CheckConstraint("sql_sha256 ~ '^[0-9a-f]{64}$'"),
-    )
 
     version: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
-    sql_sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    sql_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -56,19 +36,10 @@ class Learner(Base):
 
 class LearnerSession(Base):
     __tablename__ = "learner_sessions"
-    __table_args__ = (
-        UniqueConstraint("token_sha256", name="idx_sessions_resolve"),
-        CheckConstraint("octet_length(token_sha256) = 32"),
-        CheckConstraint(
-            "created_at <= idle_expires_at AND idle_expires_at <= absolute_expires_at"
-        ),
-    )
 
     session_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
-    learner_id: Mapped[UUID] = mapped_column(
-        PostgreSQLUUID(as_uuid=True), ForeignKey("learners.learner_id"), nullable=False
-    )
-    token_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), ForeignKey("learners.learner_id"), nullable=False)
+    token_sha256: Mapped[bytes] = mapped_column(LargeBinary, unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     idle_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     absolute_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -79,7 +50,6 @@ class LearnerSession(Base):
 class Material(Base):
     __tablename__ = "materials"
     __table_args__ = (
-        UniqueConstraint("source_artifact_id"),
         UniqueConstraint("learner_id", "material_id"),
         UniqueConstraint("learner_id", "upload_idempotency_key_sha256"),
         ForeignKeyConstraint(
@@ -90,15 +60,11 @@ class Material(Base):
             initially="DEFERRED",
             use_alter=True,
         ),
-        CheckConstraint("octet_length(upload_idempotency_key_sha256) = 32"),
-        CheckConstraint("octet_length(upload_request_fingerprint) = 32"),
     )
 
     material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
-    learner_id: Mapped[UUID] = mapped_column(
-        PostgreSQLUUID(as_uuid=True), ForeignKey("learners.learner_id"), nullable=False
-    )
-    source_artifact_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), ForeignKey("learners.learner_id"), nullable=False)
+    source_artifact_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), unique=True, nullable=False)
     upload_idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     upload_request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -108,21 +74,7 @@ class Artifact(Base):
     __tablename__ = "artifacts"
     __table_args__ = (
         UniqueConstraint("learner_id", "material_id", "artifact_id"),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id"],
-            ["materials.learner_id", "materials.material_id"],
-        ),
-        Index(
-            "idx_artifacts_one_source_pdf",
-            "learner_id",
-            "material_id",
-            unique=True,
-            postgresql_where="kind = 'source_pdf'",
-        ),
-        CheckConstraint("kind IN ('source_pdf', 'resource_pdf')"),
-        CheckConstraint("media_type = 'application/pdf'"),
-        CheckConstraint("octet_length(sha256) = 32"),
-        CheckConstraint("size_bytes > 0 AND size_bytes <= 104857600"),
+        ForeignKeyConstraint(["learner_id", "material_id"], ["materials.learner_id", "materials.material_id"]),
     )
 
     artifact_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
@@ -135,180 +87,14 @@ class Artifact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-class StudyMaterialOutput(Base):
-    __tablename__ = "study_material_outputs"
-    __table_args__ = (
-        PrimaryKeyConstraint("learner_id", "material_id", "output_revision"),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id"],
-            ["materials.learner_id", "materials.material_id"],
-        ),
-        CheckConstraint(
-            "document ? 'output_id' AND document ->> 'output_id' = output_revision"
-        ),
-    )
-
-    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    output_revision: Mapped[str] = mapped_column(Text)
-    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
-class KnowledgeMap(Base):
-    __tablename__ = "knowledge_maps"
-    __table_args__ = (
-        PrimaryKeyConstraint("learner_id", "material_id", "map_revision"),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id", "source_output_revision"],
-            [
-                "study_material_outputs.learner_id",
-                "study_material_outputs.material_id",
-                "study_material_outputs.output_revision",
-            ],
-        ),
-        CheckConstraint(
-            "document ? 'revision' AND document ->> 'revision' = map_revision"
-        ),
-        CheckConstraint(
-            "document ? 'source_output_id' "
-            "AND document ->> 'source_output_id' = source_output_revision"
-        ),
-    )
-
-    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    map_revision: Mapped[str] = mapped_column(Text)
-    source_output_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
-class ResourceCatalog(Base):
-    __tablename__ = "resource_catalogs"
-    __table_args__ = (
-        PrimaryKeyConstraint("learner_id", "material_id", "catalog_revision"),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id"],
-            ["materials.learner_id", "materials.material_id"],
-        ),
-        CheckConstraint("char_length(subject) BETWEEN 1 AND 128"),
-        CheckConstraint(
-            "document ? 'catalog_revision' "
-            "AND document ->> 'catalog_revision' = catalog_revision"
-        ),
-    )
-
-    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    catalog_revision: Mapped[str] = mapped_column(Text)
-    subject: Mapped[str] = mapped_column(Text, nullable=False)
-    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
-class LearningResourceResult(Base):
-    __tablename__ = "learning_resource_results"
-    __table_args__ = (
-        PrimaryKeyConstraint("learner_id", "material_id", "result_revision"),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id", "source_output_revision"],
-            [
-                "study_material_outputs.learner_id",
-                "study_material_outputs.material_id",
-                "study_material_outputs.output_revision",
-            ],
-        ),
-        ForeignKeyConstraint(
-            ["learner_id", "material_id", "catalog_revision"],
-            ["resource_catalogs.learner_id", "resource_catalogs.material_id", "resource_catalogs.catalog_revision"],
-        ),
-        CheckConstraint(
-            "document ? 'result_revision' "
-            "AND document ->> 'result_revision' = result_revision"
-        ),
-        CheckConstraint(
-            "document ? 'source_study_material_output_revision' "
-            "AND document ->> 'source_study_material_output_revision' = source_output_revision"
-        ),
-        CheckConstraint(
-            "document ? 'catalog_revision' "
-            "AND document ->> 'catalog_revision' = catalog_revision"
-        ),
-    )
-
-    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    result_revision: Mapped[str] = mapped_column(Text)
-    source_output_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    catalog_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
 class MaterialProcessingRun(Base):
     __tablename__ = "material_processing_runs"
     __table_args__ = (
-        UniqueConstraint("learner_id", "idempotency_key_sha256"),
         UniqueConstraint("learner_id", "material_id", "run_id"),
+        UniqueConstraint("learner_id", "idempotency_key_sha256"),
         ForeignKeyConstraint(
             ["learner_id", "material_id", "source_artifact_id"],
             ["artifacts.learner_id", "artifacts.material_id", "artifacts.artifact_id"],
-        ),
-        Index(
-            "idx_material_runs_pending",
-            "created_at",
-            "run_id",
-            postgresql_where="status = 'pending'",
-        ),
-        CheckConstraint("octet_length(idempotency_key_sha256) = 32"),
-        CheckConstraint("octet_length(request_fingerprint) = 32"),
-        CheckConstraint(
-            "status IN ('running', 'pending', 'succeeded', 'partial', 'failed')"
-        ),
-        CheckConstraint(
-            "error_code IS NULL OR error_code ~ '^[A-Z][A-Z0-9_]{0,99}$'"
-        ),
-        CheckConstraint(
-            "(status IN ('running', 'pending') AND error_code IS NULL "
-            "AND output_binding IS NULL AND completed_at IS NULL) OR "
-            "(status IN ('succeeded', 'partial') AND error_code IS NULL "
-            "AND output_binding IS NOT NULL "
-            "AND output_binding ->> 'schema' = 'material-run-output-binding/v3' "
-            "AND completed_at IS NOT NULL) OR "
-            "(status = 'failed' AND error_code IS NOT NULL "
-            "AND output_binding IS NULL AND completed_at IS NOT NULL)"
-        ),
-        CheckConstraint(
-            "progress_stage IN ('queued', 'page_evidence', "
-            "'concept_generation', 'knowledge_map_generation', "
-            "'publishing', 'completed')"
-        ),
-        CheckConstraint(
-            "completed_pages >= 0 AND ((progress_stage = 'queued' "
-            "AND completed_pages = 0 AND total_pages IS NULL) OR "
-            "(progress_stage <> 'queued' AND total_pages IS NOT NULL "
-            "AND total_pages >= 1 "
-            "AND completed_pages <= total_pages)) AND "
-            "(progress_stage NOT IN ('knowledge_map_generation', 'publishing') "
-            "OR completed_pages = total_pages)"
-        ),
-        CheckConstraint(
-            "(status = 'pending' AND progress_stage = 'queued' "
-            "AND completed_pages = 0 AND total_pages IS NULL) OR "
-            "(status = 'running' AND progress_stage <> 'completed') OR "
-            "(status = 'failed' AND progress_stage <> 'completed') OR "
-            "(status IN ('succeeded', 'partial') "
-            "AND progress_stage = 'completed' "
-            "AND total_pages IS NOT NULL "
-            "AND total_pages = completed_pages "
-            "AND CASE WHEN output_binding ? 'page_count' "
-            "AND jsonb_typeof(output_binding -> 'page_count') = 'number' "
-            "AND (output_binding ->> 'page_count') ~ '^[1-9][0-9]*$' "
-            "THEN CASE WHEN (output_binding ->> 'page_count')::numeric "
-            "<= 2147483647 THEN total_pages = "
-            "(output_binding ->> 'page_count')::integer ELSE FALSE END "
-            "ELSE FALSE END)"
         ),
     )
 
@@ -330,208 +116,79 @@ class MaterialProcessingRun(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class KnowledgeStructure(Base):
+    __tablename__ = "knowledge_structures"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "material_id", "run_id"),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "run_id"],
+            ["material_processing_runs.learner_id", "material_processing_runs.material_id", "material_processing_runs.run_id"],
+        ),
+    )
+
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    structure_revision: Mapped[str] = mapped_column(Text, primary_key=True)
+    run_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class StudySession(Base):
     __tablename__ = "study_sessions"
     __table_args__ = (
         UniqueConstraint("learner_id", "idempotency_key_sha256"),
-        UniqueConstraint(
-            "study_session_id",
-            "knowledge_map_revision",
-            name="study_sessions_map_binding_unique",
-        ),
+        UniqueConstraint("study_session_id", "knowledge_structure_revision"),
         ForeignKeyConstraint(
-            ["learner_id", "material_id", "knowledge_map_revision"],
-            ["knowledge_maps.learner_id", "knowledge_maps.material_id", "knowledge_maps.map_revision"],
-        ),
-        CheckConstraint("octet_length(idempotency_key_sha256) = 32"),
-        CheckConstraint("octet_length(request_fingerprint) = 32"),
-        CheckConstraint(
-            "current_formal_concept_id IS NULL OR "
-            "current_formal_concept_id ~ '^formal-concept:sha256:[0-9a-f]{64}$'"
-        ),
-        CheckConstraint(
-            "array_position(no_safe_claim_ids, NULL) IS NULL AND "
-            "(array_to_string(no_safe_claim_ids, ',') = '' OR "
-            "array_to_string(no_safe_claim_ids, ',') ~ "
-            "'^claim:sha256:[0-9a-f]{64}(,claim:sha256:[0-9a-f]{64})*$')"
-        ),
-        CheckConstraint(
-            "array_position(no_safe_deferred_formal_concept_ids, NULL) "
-            "IS NULL AND (array_to_string("
-            "no_safe_deferred_formal_concept_ids, ',') = '' OR "
-            "array_to_string(no_safe_deferred_formal_concept_ids, ',') ~ "
-            "'^formal-concept:sha256:[0-9a-f]{64}"
-            "(,formal-concept:sha256:[0-9a-f]{64})*$')"
-        ),
-        CheckConstraint(
-            "(last_applied_guidance_revision IS NULL AND "
-            "last_applied_progress_state_sha256 IS NULL) OR "
-            "(last_applied_guidance_revision IS NOT NULL AND "
-            "last_applied_progress_state_sha256 IS NOT NULL AND "
-            "last_applied_guidance_revision ~ "
-            "'^learner-guidance:sha256:[0-9a-f]{64}$' AND "
-            "last_applied_progress_state_sha256 ~ '^[0-9a-f]{64}$')"
-        ),
-        CheckConstraint("status IN ('active', 'completed', 'no_safe')"),
-        CheckConstraint("last_event_number >= 0"),
-        CheckConstraint(
-            "(status IN ('active', 'no_safe') AND completed_at IS NULL) OR "
-            "(status = 'completed' AND completed_at IS NOT NULL "
-            "AND completed_at >= started_at)"
+            ["learner_id", "material_id", "knowledge_structure_revision"],
+            ["knowledge_structures.learner_id", "knowledge_structures.material_id", "knowledge_structures.structure_revision"],
         ),
     )
 
-    study_session_id: Mapped[UUID] = mapped_column(
-        PostgreSQLUUID(as_uuid=True), primary_key=True
-    )
+    study_session_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
     learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
     material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
-    knowledge_map_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    current_formal_concept_id: Mapped[str | None] = mapped_column(Text)
-    no_safe_claim_ids: Mapped[list[str]] = mapped_column(
-        ARRAY(Text), nullable=False, server_default=text("ARRAY[]::text[]")
-    )
-    no_safe_deferred_formal_concept_ids: Mapped[list[str]] = mapped_column(
-        ARRAY(Text), nullable=False, server_default=text("ARRAY[]::text[]")
-    )
+    knowledge_structure_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    current_concept_id: Mapped[str | None] = mapped_column(Text)
+    no_safe_claim_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default=text("ARRAY[]::text[]"))
+    deferred_concept_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default=text("ARRAY[]::text[]"))
     last_applied_guidance_revision: Mapped[str | None] = mapped_column(Text)
-    last_applied_progress_state_sha256: Mapped[str | None] = mapped_column(Text)
+    last_applied_progress_sha256: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    last_event_number: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, server_default=text("0")
-    )
+    last_event_number: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
 
 
 class Assessment(Base):
     __tablename__ = "assessments"
     __table_args__ = (
         UniqueConstraint("study_session_id", "question_id"),
-        UniqueConstraint(
-            "study_session_id",
-            "semantic_identity",
-            name="assessments_session_semantic_identity_unique",
-        ),
-        UniqueConstraint(
-            "study_session_id",
-            "assessment_revision",
-            "question_id",
-            name="assessments_session_revision_question_unique",
-        ),
-        UniqueConstraint(
-            "study_session_id",
-            "assessment_revision",
-            "question_id",
-            "semantic_identity",
-            name="assessments_session_revision_question_semantic_unique",
-        ),
+        UniqueConstraint("study_session_id", "semantic_identity"),
         UniqueConstraint("study_session_id", "request_idempotency_key_sha256"),
         ForeignKeyConstraint(
-            ["study_session_id", "knowledge_map_revision"],
-            [
-                "study_sessions.study_session_id",
-                "study_sessions.knowledge_map_revision",
-            ],
-        ),
-        CheckConstraint(
-            "assessment_revision ~ '^assessment:sha256:[0-9a-f]{64}$'"
-        ),
-        CheckConstraint("question_id ~ '^question:sha256:[0-9a-f]{64}$'"),
-        CheckConstraint(
-            "semantic_identity ~ "
-            "'^assessment-semantic:sha256:[0-9a-f]{64}$'"
-        ),
-        CheckConstraint(
-            "target_formal_concept_id ~ '^formal-concept:sha256:[0-9a-f]{64}$'"
-        ),
-        CheckConstraint("target_claim_id ~ '^claim:sha256:[0-9a-f]{64}$'"),
-        CheckConstraint(
-            "policy_revision = 'single-choice-assessment-policy/v1'"
-        ),
-        CheckConstraint(
-            "jsonb_typeof(public_document) = 'object' "
-            "AND public_document ?& ARRAY['schema', 'study_session_id', "
-            "'knowledge_map_revision', 'assessment_revision', 'question_id', "
-            "'target_formal_concept_id', 'target_claim_id', "
-            "'source_evidence_ids', 'question_type', 'prompt', 'options', "
-            "'policy_revision'] "
-            "AND public_document ->> 'schema' = "
-            "'single-choice-assessment-public/v1' "
-            "AND public_document ->> 'study_session_id' = study_session_id::text "
-            "AND public_document ->> 'knowledge_map_revision' = knowledge_map_revision "
-            "AND public_document ->> 'assessment_revision' = assessment_revision "
-            "AND public_document ->> 'question_id' = question_id "
-            "AND public_document ->> 'target_formal_concept_id' = target_formal_concept_id "
-            "AND public_document ->> 'target_claim_id' = target_claim_id "
-            "AND public_document ->> 'question_type' = 'single_choice' "
-            "AND public_document ->> 'policy_revision' = policy_revision"
-        ),
-        CheckConstraint(
-            "jsonb_typeof(private_answer_document) = 'object' "
-            "AND private_answer_document ?& ARRAY['schema', "
-            "'assessment_revision', 'question_id', 'correct_option_id', "
-            "'rationale', 'source_evidence_ids', 'private_answer_sha256'] "
-            "AND private_answer_document ->> 'schema' = "
-            "'single-choice-assessment-answer/v1' "
-            "AND private_answer_document ->> 'assessment_revision' = "
-            "assessment_revision "
-            "AND private_answer_document ->> 'question_id' = question_id"
-        ),
-        CheckConstraint(
-            "generation_provenance IS NULL OR ("
-            "jsonb_typeof(generation_provenance) = 'object' "
-            "AND generation_provenance ->> 'schema' = "
-            "'assessment-generation-provenance/v2' "
-            "AND generation_provenance ->> 'assessment_revision' = "
-            "assessment_revision "
-            "AND generation_provenance ->> 'question_id' = question_id)"
-        ),
-        CheckConstraint(
-            "jsonb_typeof(semantic_novelty) = 'object' "
-            "AND semantic_novelty ->> 'schema' = "
-            "'assessment-semantic-novelty/v1' "
-            "AND semantic_novelty ->> 'assessment_revision' = "
-            "assessment_revision "
-            "AND semantic_novelty ->> 'question_id' = question_id "
-            "AND semantic_novelty ->> 'semantic_identity' = "
-            "semantic_identity"
-        ),
-        CheckConstraint(
-            "(request_idempotency_key_sha256 IS NULL AND "
-            "request_fingerprint IS NULL) OR "
-            "(octet_length(request_idempotency_key_sha256) = 32 AND "
-            "octet_length(request_fingerprint) = 32)"
+            ["study_session_id", "knowledge_structure_revision"],
+            ["study_sessions.study_session_id", "study_sessions.knowledge_structure_revision"],
         ),
     )
 
     assessment_revision: Mapped[str] = mapped_column(Text, primary_key=True)
-    study_session_id: Mapped[UUID] = mapped_column(
-        PostgreSQLUUID(as_uuid=True), nullable=False
-    )
-    knowledge_map_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    study_session_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    knowledge_structure_revision: Mapped[str] = mapped_column(Text, nullable=False)
     question_id: Mapped[str] = mapped_column(Text, nullable=False)
     semantic_identity: Mapped[str] = mapped_column(Text, nullable=False)
-    target_formal_concept_id: Mapped[str] = mapped_column(Text, nullable=False)
+    learning_angle: Mapped[str] = mapped_column(Text, nullable=False)
+    target_concept_id: Mapped[str] = mapped_column(Text, nullable=False)
     target_claim_id: Mapped[str] = mapped_column(Text, nullable=False)
     public_document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    private_answer_document: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False
-    )
-    generation_provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    semantic_novelty: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False
-    )
-    request_idempotency_key_sha256: Mapped[bytes | None] = mapped_column(
-        LargeBinary
-    )
-    request_fingerprint: Mapped[bytes | None] = mapped_column(LargeBinary)
-    policy_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    private_answer_document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    generation_provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    mastery_qualified: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    request_idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class AnswerEvent(Base):
@@ -541,99 +198,47 @@ class AnswerEvent(Base):
         UniqueConstraint("study_session_id", "event_number"),
         UniqueConstraint("study_session_id", "idempotency_key_sha256"),
         ForeignKeyConstraint(
-            ["study_session_id", "knowledge_map_revision"],
-            [
-                "study_sessions.study_session_id",
-                "study_sessions.knowledge_map_revision",
-            ],
+            ["study_session_id", "knowledge_structure_revision"],
+            ["study_sessions.study_session_id", "study_sessions.knowledge_structure_revision"],
         ),
-        ForeignKeyConstraint(
-            [
-                "study_session_id",
-                "assessment_revision",
-                "question_id",
-                "semantic_identity",
-            ],
-            [
-                "assessments.study_session_id",
-                "assessments.assessment_revision",
-                "assessments.question_id",
-                "assessments.semantic_identity",
-            ],
-            name="answer_events_assessment_semantic_binding",
-        ),
-        CheckConstraint(
-            "assessment_revision ~ '^assessment:sha256:[0-9a-f]{64}$'"
-        ),
-        CheckConstraint("question_id ~ '^question:sha256:[0-9a-f]{64}$'"),
-        CheckConstraint(
-            "semantic_identity ~ "
-            "'^assessment-semantic:sha256:[0-9a-f]{64}$'"
-        ),
-        CheckConstraint(
-            "target_formal_concept_id ~ '^formal-concept:sha256:[0-9a-f]{64}$'"
-        ),
-        CheckConstraint("target_claim_id ~ '^claim:sha256:[0-9a-f]{64}$'"),
-        CheckConstraint("selected_option_id ~ '^option:sha256:[0-9a-f]{64}$'"),
-        CheckConstraint("event_number >= 1"),
-        CheckConstraint("octet_length(idempotency_key_sha256) = 32"),
-        CheckConstraint("octet_length(request_fingerprint) = 32"),
     )
 
-    answer_event_id: Mapped[UUID] = mapped_column(
-        PostgreSQLUUID(as_uuid=True), primary_key=True
-    )
-    study_session_id: Mapped[UUID] = mapped_column(
-        PostgreSQLUUID(as_uuid=True), nullable=False
-    )
-    material_id: Mapped[UUID] = mapped_column(
-        PostgreSQLUUID(as_uuid=True), nullable=False
-    )
-    knowledge_map_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    assessment_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    answer_event_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    study_session_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    knowledge_structure_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    assessment_revision: Mapped[str] = mapped_column(Text, ForeignKey("assessments.assessment_revision"), nullable=False)
     question_id: Mapped[str] = mapped_column(Text, nullable=False)
     semantic_identity: Mapped[str] = mapped_column(Text, nullable=False)
-    target_formal_concept_id: Mapped[str] = mapped_column(Text, nullable=False)
+    target_concept_id: Mapped[str] = mapped_column(Text, nullable=False)
     target_claim_id: Mapped[str] = mapped_column(Text, nullable=False)
     selected_option_id: Mapped[str] = mapped_column(Text, nullable=False)
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    mastery_qualified: Mapped[bool] = mapped_column(Boolean, nullable=False)
     event_number: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    idempotency_key_sha256: Mapped[bytes] = mapped_column(
-        LargeBinary, nullable=False
-    )
-    request_fingerprint: Mapped[bytes] = mapped_column(
-        LargeBinary, nullable=False
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 @contextmanager
 def database_session(dsn: str | None = None) -> Generator[Session, None, None]:
-    """每個 public operation 使用獨立 transaction，不保留全域 Session。"""
-
-    resolved_dsn = resolve_database_dsn(dsn)
+    resolved = resolve_database_dsn(dsn)
     engine = create_engine(
         "postgresql+psycopg://",
-        creator=lambda: psycopg.connect(resolved_dsn),
+        creator=lambda: psycopg.connect(resolved),
         poolclass=NullPool,
         hide_parameters=True,
     )
     try:
-        with Session(engine, expire_on_commit=False) as session:
-            with session.begin():
-                yield session
+        with Session(engine, expire_on_commit=False) as session, session.begin():
+            yield session
     finally:
         engine.dispose()
 
 
 @contextmanager
-def deferred_artifact_session(
-    dsn: str | None = None,
-) -> Generator[Session, None, None]:
-    """建立 source material 與 artifact 時延後檢查循環 FK。"""
-
+def deferred_artifact_session(dsn: str | None = None) -> Generator[Session, None, None]:
     with database_session(dsn) as session:
         session.execute(text("SET CONSTRAINTS materials_source_artifact_fk DEFERRED"))
         yield session

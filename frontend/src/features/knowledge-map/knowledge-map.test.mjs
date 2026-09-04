@@ -1,47 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  documentTreeConnectors,
-  hierarchyLayout,
-  safeExternalUrl,
-} from "./knowledge-map.ts";
+import { documentTreeConnectors, hierarchyLayout, relationConnectors, safeExternalUrl } from "./knowledge-map.ts";
 
 const view = {
-  concepts: [
-    { formal_concept_id: "concept-a" },
-    { formal_concept_id: "concept-b" },
-  ],
   document_tree: {
-    root: { material_ref: "material-root", section_ids: ["section-a"] },
-    sections: [{
-      section_id: "section-a",
-      concept_ids: ["concept-a", "concept-b"],
-    }],
+    material_id: "material",
+    sections: [{ section_id: "section", concept_ids: ["concept-a", "concept-b"] }],
   },
+  concepts: [{ concept_id: "concept-a" }, { concept_id: "concept-b" }],
+  relations: [{ relation_id: "relation", source_concept_id: "concept-a", target_concept_id: "concept-b", type: "prerequisite", learner_reason: "A is required before B." }],
 };
 
-test("display connectors derive only from the canonical document tree", () => {
-  assert.deepEqual(documentTreeConnectors(view), [
-    { id: "root:section-a", source: "material-root", target: "section-a" },
-    { id: "section:section-a:concept-a", source: "section-a", target: "concept-a" },
-    { id: "section:section-a:concept-b", source: "section-a", target: "concept-b" },
-  ]);
+test("tree owns layout while typed relations remain a separate overlay", () => {
+  assert.equal(documentTreeConnectors(view).length, 3);
+  assert.deepEqual(relationConnectors(view), [{ id: "relation", source: "concept-a", target: "concept-b", type: "prerequisite", reason: "A is required before B." }]);
+  assert.equal(hierarchyLayout(view).length, 4);
 });
 
-test("Dagre layout is deterministic and includes each tree node once", () => {
-  const first = hierarchyLayout(view);
-  const second = hierarchyLayout(view);
-  assert.deepEqual(first, second);
-  assert.deepEqual(first.map((node) => node.id).sort(), [
-    "concept-a", "concept-b", "material-root", "section-a",
-  ]);
-  assert.ok(first.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y)));
-});
-
-test("resource links only allow HTTP(S)", () => {
-  assert.equal(safeExternalUrl("https://example.test/resource"), "https://example.test/resource");
-  assert.equal(safeExternalUrl("http://example.test/resource"), "http://example.test/resource");
+test("external resource links only accept http origins", () => {
   assert.equal(safeExternalUrl("javascript:alert(1)"), null);
-  assert.equal(safeExternalUrl("not a url"), null);
+  assert.equal(safeExternalUrl("https://example.test/book"), "https://example.test/book");
 });

@@ -10,16 +10,17 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import type { StudydyApiClient } from "../../api/client";
-import type { KnowledgeMapView } from "../../api/contracts";
+import type { KnowledgeStructureView } from "../../api/contracts";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import {
   documentTreeConnectors,
   hierarchyLayout,
+  relationConnectors,
   safeExternalUrl,
 } from "./knowledge-map";
 
-type Concept = KnowledgeMapView["concepts"][number];
+type Concept = KnowledgeStructureView["concepts"][number];
 type Mode = "overview" | "path" | "focus" | "review";
 
 const modes: { id: Mode; label: string }[] = [
@@ -50,14 +51,14 @@ function EvidenceList({ apiClient, evidence, sourceArtifactId }: {
       {evidence.map((item) => (
         <li key={item.evidence_id}>
           <div>
-            <strong>原始教材第 {item.page_number} 頁</strong>
+            <strong>原始教材第 {item.page} 頁</strong>
             <span>{item.kind} · 已保留頁面定位</span>
           </div>
           <button
             className="text-button"
             type="button"
             onClick={() => window.open(
-              apiClient.sourceArtifactUrl(sourceArtifactId, item.page_number),
+              apiClient.sourceArtifactUrl(sourceArtifactId, item.page),
               "_blank",
               "noopener,noreferrer",
             )}
@@ -87,7 +88,7 @@ function ConceptDetail({ apiClient, concept, close, isStartingStudy, onStartStud
         className="primary-button detail-start"
         disabled={isStartingStudy}
         type="button"
-        onClick={() => onStartStudy(concept.formal_concept_id)}
+        onClick={() => onStartStudy(concept.concept_id)}
       ><Icon name="learning" />{isStartingStudy ? "正在開始…" : "從這個概念開始"}</button>
       <section>
         <h3>教材重點</h3>
@@ -100,26 +101,26 @@ function ConceptDetail({ apiClient, concept, close, isStartingStudy, onStartStud
       </section>
       <section>
         <h3>來源頁面</h3>
-        <p className="page-list">第 {concept.source_page_numbers.join("、")} 頁</p>
+        <p className="page-list">第 {concept.source_pages.join("、")} 頁</p>
       </section>
       {concept.aliases.length > 0 && (
         <section><h3>教材中的其他名稱</h3><p className="page-list">{concept.aliases.join("、")}</p></section>
       )}
       <section>
         <h3>補充資源</h3>
-        {concept.supplementary_resources.length === 0 ? (
+        {concept.resources.length === 0 ? (
           <p className="muted-copy">目前沒有已發布的補充資源。</p>
         ) : (
           <ul className="resource-list">
-            {concept.supplementary_resources.map((resource) => {
+            {concept.resources.map((resource) => {
               const sourceUrl = safeExternalUrl(resource.source_url);
               const licenseUrl = safeExternalUrl(resource.license_url);
               return (
-                <li key={resource.promotion_id}>
+                <li key={resource.resource_id}>
                   <strong>{resource.title}</strong>
                   <span>{resource.authors.join("、")}</span>
                   <small>{resource.citation}</small>
-                  <small>{resource.license} · {resource.use_boundary}</small>
+                  <small>{resource.license}</small>
                   <div>
                     {sourceUrl && <a href={sourceUrl} target="_blank" rel="noreferrer">開啟資源</a>}
                     {licenseUrl && <a href={licenseUrl} target="_blank" rel="noreferrer">授權說明</a>}
@@ -136,7 +137,7 @@ function ConceptDetail({ apiClient, concept, close, isStartingStudy, onStartStud
 
 function Overview({ openConcept, view }: {
   openConcept: (id: string) => void;
-  view: KnowledgeMapView;
+  view: KnowledgeStructureView;
 }) {
   return (
     <section aria-labelledby="overview-title">
@@ -145,15 +146,15 @@ function Overview({ openConcept, view }: {
         {view.concepts.map((concept, index) => (
           <button
             className={`concept-card accent-${index % 4}`}
-            key={concept.formal_concept_id}
+            key={concept.concept_id}
             type="button"
-            onClick={() => openConcept(concept.formal_concept_id)}
+            onClick={() => openConcept(concept.concept_id)}
           >
             <span className="concept-card__icon"><Icon name="book" /></span>
             <span className="status-badge is-review">可查看來源</span>
             <strong>{concept.label}</strong>
             <span>{concept.claims[0]?.text}</span>
-            <small>{concept.claims.length} 個教材重點 · 第 {concept.source_page_numbers.join("、")} 頁</small>
+            <small>{concept.claims.length} 個教材重點 · 第 {concept.source_pages.join("、")} 頁</small>
           </button>
         ))}
       </div>
@@ -166,7 +167,7 @@ function PathView({ isStartingStudy, onFocusConcept, onStartStudy, selectedConce
   onFocusConcept: (id: string) => void;
   onStartStudy: (id: string) => void;
   selectedConceptId: string;
-  view: KnowledgeMapView;
+  view: KnowledgeStructureView;
 }) {
   return (
     <section aria-labelledby="path-title">
@@ -176,17 +177,17 @@ function PathView({ isStartingStudy, onFocusConcept, onStartStudy, selectedConce
           className="primary-button"
           disabled={isStartingStudy}
           type="button"
-          onClick={() => onStartStudy(view.initial_learning_path[0].formal_concept_id)}
+          onClick={() => onStartStudy(view.initial_learning_path[0].concept_id)}
         ><Icon name="learning" />{isStartingStudy ? "正在開始…" : "從第一步開始"}</button>
       </div>
       <ol className="learning-path">
         {view.initial_learning_path.map((step) => {
-          const concept = view.concepts.find((item) => item.formal_concept_id === step.formal_concept_id)!;
+          const concept = view.concepts.find((item) => item.concept_id === step.concept_id)!;
           return (
-            <li className={step.formal_concept_id === selectedConceptId ? "is-current" : undefined} key={step.formal_concept_id}>
-              <button type="button" onClick={() => onFocusConcept(step.formal_concept_id)}>
-                <span>{step.step_number}</span>
-                <div><strong>{concept.label}</strong><small>{step.placement_reason}</small></div>
+            <li className={step.concept_id === selectedConceptId ? "is-current" : undefined} key={step.concept_id}>
+              <button type="button" onClick={() => onFocusConcept(step.concept_id)}>
+                <span>{step.position}</span>
+                <div><strong>{concept.label}</strong><small>{step.reason}</small></div>
                 <Icon name="chevron-right" />
               </button>
             </li>
@@ -202,7 +203,7 @@ function TreeFallback({ collapsedSections, openConcept, selectedConceptId, toggl
   openConcept: (id: string) => void;
   selectedConceptId: string;
   toggleSection: (id: string) => void;
-  view: KnowledgeMapView;
+  view: KnowledgeStructureView;
 }) {
   return (
     <div className="semantic-map-fallback" aria-label="教材概念階層清單">
@@ -212,7 +213,7 @@ function TreeFallback({ collapsedSections, openConcept, selectedConceptId, toggl
         return (
           <section className={`semantic-group${isCurrent ? " is-current" : ""}`} key={section.section_id}>
             <header>
-              <div><small>教材段落</small><h3>{section.label}</h3></div>
+              <div><small>教材段落</small><h3>{section.title}</h3></div>
               <button type="button" aria-expanded={!isCollapsed} onClick={() => toggleSection(section.section_id)}>
                 {isCollapsed ? "展開" : "收合"}
               </button>
@@ -222,8 +223,8 @@ function TreeFallback({ collapsedSections, openConcept, selectedConceptId, toggl
                 {section.concept_ids.map((conceptId) => (
                   <li aria-level={2} key={conceptId} role="treeitem">
                     <button aria-current={conceptId === selectedConceptId ? "true" : undefined} type="button" onClick={() => openConcept(conceptId)}>
-                      <small>{conceptId === selectedConceptId ? "目前位置" : `第 ${section.source_order.page_number} 頁`}</small>
-                      <strong>{view.concepts.find((concept) => concept.formal_concept_id === conceptId)?.label}</strong>
+                      <small>{conceptId === selectedConceptId ? "目前位置" : `段落 ${section.order + 1}`}</small>
+                      <strong>{view.concepts.find((concept) => concept.concept_id === conceptId)?.label}</strong>
                     </button>
                   </li>
                 ))}
@@ -240,10 +241,11 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
   openConcept: (id: string) => void;
   selectedConceptId: string;
   setSelectedConceptId: (id: string) => void;
-  view: KnowledgeMapView;
+  view: KnowledgeStructureView;
 }) {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
-  const selected = view.concepts.find((concept) => concept.formal_concept_id === selectedConceptId) ?? view.concepts[0];
+  const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
+  const selected = view.concepts.find((concept) => concept.concept_id === selectedConceptId) ?? view.concepts[0];
   const layout = hierarchyLayout(view);
   const graphElement = useRef<HTMLDivElement>(null);
   const graphInstance = useRef<ReactFlowInstance | null>(null);
@@ -271,21 +273,11 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
     fitGraph();
     return () => { window.cancelAnimationFrame(animationFrame); observer.disconnect(); };
   }, [collapsedSections]);
-  useEffect(() => {
-    const node = layout.find((item) => item.id === selected.formal_concept_id);
-    if (node && graphInstance.current) {
-      void graphInstance.current.setCenter(
-        node.x + node.width / 2,
-        node.y + node.height / 2,
-        { zoom: 1.2, duration: 280 },
-      );
-    }
-  }, [selected.formal_concept_id]);
   const graphNodes: Node[] = visibleLayout.map((node) => {
-    const concept = view.concepts.find((item) => item.formal_concept_id === node.id);
+    const concept = view.concepts.find((item) => item.concept_id === node.id);
     const section = view.document_tree.sections.find((item) => item.section_id === node.id);
-    const isFocus = node.id === selected.formal_concept_id;
-    const label = concept?.label ?? section?.label ?? "教材";
+    const isFocus = node.id === selected.concept_id;
+    const label = concept?.label ?? section?.title ?? "教材";
     const open = concept
       ? () => openConcept(node.id)
       : section ? () => toggleSection(node.id) : () => undefined;
@@ -311,10 +303,12 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
     };
   });
   const visibleIds = new Set(visibleLayout.map((node) => node.id));
-  const graphEdges: Edge[] = documentTreeConnectors(view)
+  const treeEdges: Edge[] = documentTreeConnectors(view)
     .filter((connector) => visibleIds.has(connector.source) && visibleIds.has(connector.target))
     .map((connector) => ({
-      ...connector,
+      id: connector.id,
+      source: connector.source,
+      target: connector.target,
       type: "smoothstep",
       className: "concept-flow-edge is-structural",
       ariaLabel: "教材階層連接線",
@@ -322,21 +316,37 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
       selectable: false,
       interactionWidth: 0,
     }));
+  const relationEdges: Edge[] = relationConnectors(view)
+    .filter((connector) => visibleIds.has(connector.source) && visibleIds.has(connector.target))
+    .map((connector) => ({
+      id: connector.id,
+      source: connector.source,
+      target: connector.target,
+      type: "smoothstep",
+      label: connector.type,
+      data: { reason: connector.reason, relationType: connector.type },
+      className: `concept-flow-edge is-relation is-${connector.type}`,
+      ariaLabel: `${connector.type}：${connector.reason}`,
+      focusable: true,
+      selectable: true,
+    }));
+  const graphEdges = [...treeEdges, ...relationEdges];
+  const selectedRelation = view.relations.find((relation) => relation.relation_id === selectedRelationId);
   return (
     <section aria-labelledby="focus-title">
       <div className="view-heading">
-        <div><h2 id="focus-title">概念地圖</h2><p>連接線只表示教材、段落與概念的顯示階層。</p></div>
+        <div><h2 id="focus-title">概念地圖</h2><p>教材階層決定位置；彩色線條顯示五種學習關係。</p></div>
         <label className="concept-select">焦點概念
-          <select value={selected.formal_concept_id} onChange={(event) => setSelectedConceptId(event.currentTarget.value)}>
-            {view.concepts.map((concept) => <option key={concept.formal_concept_id} value={concept.formal_concept_id}>{concept.label}</option>)}
+          <select value={selected.concept_id} onChange={(event) => setSelectedConceptId(event.currentTarget.value)}>
+            {view.concepts.map((concept) => <option key={concept.concept_id} value={concept.concept_id}>{concept.label}</option>)}
           </select>
         </label>
       </div>
       <div className="flat-group-list" aria-label="教材段落">
         {view.document_tree.sections.map((section) => (
-          <article className={section.concept_ids.includes(selected.formal_concept_id) ? "is-current" : undefined} key={section.section_id}>
-            <small>教材第 {section.source_order.page_number} 頁</small>
-            <strong>{section.label}</strong>
+          <article className={section.concept_ids.includes(selected.concept_id) ? "is-current" : undefined} key={section.section_id}>
+            <small>教材段落 {section.order + 1}</small>
+            <strong>{section.title}</strong>
             <button type="button" aria-expanded={!collapsedSections.has(section.section_id)} onClick={() => toggleSection(section.section_id)}>
               {collapsedSections.has(section.section_id) ? "展開" : "收合"} {section.concept_ids.length} 個概念
             </button>
@@ -359,18 +369,36 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
           nodesDraggable={false}
           onInit={(instance) => { graphInstance.current = instance; void instance.fitView({ padding: 0.16, maxZoom: 1 }); }}
           onNodeClick={(_, node) => {
-            if (view.concepts.some((concept) => concept.formal_concept_id === node.id)) openConcept(node.id);
+            if (view.concepts.some((concept) => concept.concept_id === node.id)) openConcept(node.id);
             else if (view.document_tree.sections.some((section) => section.section_id === node.id)) toggleSection(node.id);
+          }}
+          onEdgeClick={(_, edge) => {
+            if (edge.className?.includes("is-relation")) setSelectedRelationId(edge.id);
+          }}
+          onEdgeMouseEnter={(_, edge) => {
+            if (edge.className?.includes("is-relation")) setSelectedRelationId(edge.id);
           }}
         >
           <Background color="#dfe8fb" gap={32} size={1} />
           <Controls aria-label="概念地圖縮放與置中控制" showInteractive={false} />
         </ReactFlow>
       </div>
+      <div className="relation-legend" aria-label="概念關係圖例">
+        {(["prerequisite", "part_of", "application", "example", "contrast"] as const).map((type) => (
+          <span className={`is-${type}`} key={type}>{type}</span>
+        ))}
+      </div>
+      {selectedRelation && (
+        <aside className="relation-detail" role="status">
+          <strong>{selectedRelation.type}</strong>
+          <p>{selectedRelation.learner_reason}</p>
+          <button type="button" onClick={() => setSelectedRelationId(null)}>關閉</button>
+        </aside>
+      )}
       <TreeFallback
         collapsedSections={collapsedSections}
         openConcept={openConcept}
-        selectedConceptId={selected.formal_concept_id}
+        selectedConceptId={selected.concept_id}
         toggleSection={toggleSection}
         view={view}
       />
@@ -378,7 +406,7 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
   );
 }
 
-function ReviewView({ openConcept, view }: { openConcept: (id: string) => void; view: KnowledgeMapView }) {
+function ReviewView({ openConcept, view }: { openConcept: (id: string) => void; view: KnowledgeStructureView }) {
   return (
     <section aria-labelledby="review-title">
       <div className="view-heading"><div><h2 id="review-title">教材內容複核</h2><p>這裡顯示教材整理狀態，不代表你的學習弱點。</p></div></div>
@@ -387,10 +415,10 @@ function ReviewView({ openConcept, view }: { openConcept: (id: string) => void; 
       )}
       <div className="review-list">
         {view.concepts.map((concept) => (
-          <article className="surface" key={concept.formal_concept_id}>
+          <article className="surface" key={concept.concept_id}>
             <span className="status-badge is-review">內容待複核</span>
-            <div><strong>{concept.label}</strong><p>{concept.claims.length} 個教材重點 · 第 {concept.source_page_numbers.join("、")} 頁</p></div>
-            <button className="secondary-button" type="button" onClick={() => openConcept(concept.formal_concept_id)}>查看概念</button>
+            <div><strong>{concept.label}</strong><p>{concept.claims.length} 個教材重點 · 第 {concept.source_pages.join("、")} 頁</p></div>
+            <button className="secondary-button" type="button" onClick={() => openConcept(concept.concept_id)}>查看概念</button>
           </article>
         ))}
       </div>
@@ -405,14 +433,14 @@ export function KnowledgeMapWorkspace({ apiClient, isStartingStudy, onReturnToRu
   onStartStudy: (conceptId: string) => void;
   sourceArtifactId: string;
   startMessage: string | null;
-  view: KnowledgeMapView;
+  view: KnowledgeStructureView;
 }) {
-  const initialConceptId = view.initial_learning_path[0]?.formal_concept_id ?? view.concepts[0]?.formal_concept_id ?? "";
+  const initialConceptId = view.initial_learning_path[0]?.concept_id ?? view.concepts[0]?.concept_id ?? "";
   const [mode, setMode] = useState<Mode>("focus");
   const [selectedConceptId, setSelectedConceptId] = useState(initialConceptId);
   const [detailConceptId, setDetailConceptId] = useState<string | null>(null);
   const selectedConcept = useMemo(() => view.concepts.find((concept) =>
-    concept.formal_concept_id === detailConceptId) ?? null, [detailConceptId, view.concepts]);
+    concept.concept_id === detailConceptId) ?? null, [detailConceptId, view.concepts]);
 
   if (view.concepts.length === 0) return (
     <StateView
@@ -438,7 +466,7 @@ export function KnowledgeMapWorkspace({ apiClient, isStartingStudy, onReturnToRu
           <div className="map-facts" aria-label="地圖摘要">
             <span><strong>{view.concepts.length}</strong>概念</span>
             <span><strong>{view.document_tree.sections.length}</strong>段落</span>
-            <span><strong>{view.supplementary_resources.diagnostics.promoted_resources}</strong>資源</span>
+            <span><strong>{view.concepts.reduce((count, concept) => count + concept.resources.length, 0)}</strong>資源</span>
           </div>
           <button className="primary-button" disabled={isStartingStudy} type="button" onClick={() => onStartStudy(initialConceptId)}>
             <Icon name="learning" />{isStartingStudy ? "正在開始…" : "開始本次學習"}

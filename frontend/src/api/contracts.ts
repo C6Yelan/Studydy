@@ -30,35 +30,31 @@ export type MaterialView = {
 };
 
 export type MaterialProcessingCreate = {
-  schema: "material-processing-create/v2";
+  schema: "material-processing-create/v1";
   material_id: string;
   source_artifact_id: string;
 };
 
 export type MaterialOutputBinding = {
-  schema: "material-run-output-binding/v3";
-  producer_bundle_id: string;
-  producer_run_id: string;
-  concept_evidence_output_id: string;
-  study_material_output_revision: string;
-  knowledge_map_revision: string;
-  runtime_binding_sha256: string;
+  schema: "material-run-output-binding/v4";
+  knowledge_structure_revision: string;
+  runtime_lock_sha256: string;
   page_count: number;
   processing: "succeeded" | "partial";
-  quality: "needs_review";
-  decision: "review";
+  quality: "accepted" | "needs_review";
+  decision: "retain" | "review";
   reason_codes: string[];
   ocr_calls: number;
-  concept_calls: number;
+  semantic_calls: number;
 };
 
 export type MaterialProcessingRunView = {
-  schema: "material-processing-run/v3";
+  schema: "material-processing-run/v4";
   run_id: string;
   material_id: string;
   source_artifact_id: string;
   status: "pending" | "running" | "succeeded" | "partial" | "failed";
-  progress_stage: "queued" | "page_evidence" | "concept_generation" | "knowledge_map_generation" | "publishing" | "completed";
+  progress_stage: "queued" | "evidence" | "semantics" | "publishing" | "completed";
   completed_pages: number;
   total_pages: number | null;
   output_binding: MaterialOutputBinding | null;
@@ -68,200 +64,132 @@ export type MaterialProcessingRunView = {
   completed_at: string | null;
 };
 
-export type RegionView = {
-  coordinate_space: "unrotated_pdf_points";
-  bbox: [number, number, number, number];
+export type SourceLocatorView = {
+  page: number;
+  block_id: string;
+  region: [number, number, number, number];
 };
 
 export type EvidenceView = {
   evidence_id: string;
   page_ref: string;
-  page_number: number;
+  page: number;
+  block_order: number;
   kind: string;
-  region: RegionView;
+  source_locator: SourceLocatorView;
+  quote: string;
 };
 
-export type ExcludedPageView = {
-  page_ref: string;
-  page_number: number;
-  page_evidence_id: string | null;
-  last_stage: "page_evidence" | "concept";
-  processing: "failed";
-  quality: "needs_review";
-  decision: "reject";
-  reason_codes: string[];
+export type ResourceView = {
+  resource_id: string;
+  title: string;
+  authors: string[];
+  citation: string;
+  license: string;
+  license_url: string;
+  source_url: string;
+  pages: number[];
 };
 
-export type KnowledgeMapView = {
-  schema: "knowledge-map-view/v11";
-  material_ref: string;
-  knowledge_map_revision: string;
-  source_output_id: string;
+export type RelationType = "prerequisite" | "part_of" | "application" | "example" | "contrast";
+
+export type KnowledgeStructureView = {
+  schema: "knowledge-structure-view/v1";
+  material_id: string;
+  knowledge_structure_revision: string;
   status: {
     processing: "succeeded" | "partial" | "failed";
-    quality: "needs_review";
-    decision: "review" | "reject";
+    quality: "accepted" | "needs_review";
+    decision: "retain" | "review" | "reject";
     reason_codes: string[];
-  };
-  concepts: {
-    formal_concept_id: string;
-    label: string;
-    aliases: string[];
-    claims: { claim_id: string; text: string; evidence: EvidenceView[] }[];
-    source_concept_ids: string[];
-    source_page_numbers: number[];
-    supplementary_resources: {
-      promotion_id: string;
-      resource_concept_id: string;
-      resource_id: string;
-      label: string;
-      title: string;
-      authors: string[];
-      source_url: string;
-      citation: string;
-      license: string;
-      license_url: string;
-      use_boundary: string;
-      page_numbers: number[];
-      resource_evidence_ids: string[];
-      match_ids: string[];
-      study_concept_ids: string[];
-      match_reason: "EXACT_NORMALIZED_LABEL";
-    }[];
-    quality: "needs_review";
-    decision: "review";
-    reason_codes: string[];
-  }[];
-  concept_diagnostics: {
-    possible_pairs: number;
-    candidate_pairs: number;
-    selected_pairs: number;
-    pair_ceiling: number;
-    qwen_same_pairs: number;
-    qwen_distinct_pairs: number;
-    qwen_uncertain_pairs: number;
-    verifier_requested_pairs: number;
-    verifier_scored_pairs: number;
-    verifier_allowed_pairs: number;
-    verifier_vetoed_pairs: number;
-    verifier_unsupported_pairs: number;
-    verifier_failed_pairs: number;
-    source_concepts_before: number;
-    canonical_concepts_after: number;
-    duplicate_delta: number;
-    coverage_before: number;
-    coverage_after: number;
-  };
-  supplementary_resources: {
-    processing: "succeeded" | "partial";
-    quality: "needs_review";
-    decision: "review";
-    reason_codes: string[];
-    binding: {
-    context_revision: string;
-    library_revision: string;
-    matching_policy: "resource-context-exact-distinct-source/v3";
-    promotion_policy: "resource-formal-concept-promotion/v1";
-    } | null;
-    diagnostics: {
-      matches: number;
-      promoted_matches: number;
-      promoted_resources: number;
-    };
   };
   document_tree: {
-    root: {
-      material_ref: string;
-      section_ids: string[];
-    };
+    material_id: string;
     sections: {
       section_id: string;
-      label: string;
-      label_source: "heading" | "unheaded_fallback";
+      title: string;
+      order: number;
       heading_evidence_id: string | null;
-      source_order: {
-        evidence_id: string;
-        page_ref: string;
-        page_number: number;
-        reading_order: number;
-      };
       concept_ids: string[];
     }[];
   };
-  initial_learning_path: {
-    step_number: number;
-    formal_concept_id: string;
-    placement_reason: string;
-    order_basis: {
-      section_id: string;
-      page_ref: string;
-      page_number: number;
-      reading_order: number;
-      evidence_id: string;
-    };
+  concepts: {
+    concept_id: string;
+    label: string;
+    aliases: string[];
+    claims: { claim_id: string; text: string; evidence: EvidenceView[] }[];
+    section_ids: string[];
+    source_pages: number[];
+    resources: ResourceView[];
   }[];
-  excluded_pages: ExcludedPageView[];
+  relations: {
+    relation_id: string;
+    source_concept_id: string;
+    target_concept_id: string;
+    type: RelationType;
+    learner_reason: string;
+    evidence_refs: string[];
+    context_refs: string[];
+    inference_basis: "dependency" | "composition" | "usage" | "instantiation" | "comparison";
+    confidence: number;
+  }[];
+  initial_learning_path: {
+    position: number;
+    concept_id: string;
+    reason: "document_order" | "prerequisite";
+  }[];
+  excluded_pages: { page_ref: string; page: number; stage: "evidence"; reason_code: string }[];
 };
 
-export type KnowledgeMapRequest = {
+export type KnowledgeStructureRequest = {
   materialId: string;
-  runId: string;
-  mapRevision: string;
+  structureRevision: string;
 };
 
 export type StudySessionCreate = {
-  schema: "study-session-create/v1";
+  schema: "study-session-create/v2";
   material_id: string;
-  knowledge_map_revision: string;
-  current_formal_concept_id?: string | null;
+  knowledge_structure_revision: string;
+  current_concept_id?: string | null;
 };
 
 export type StudySessionView = {
-  schema: "study-session/v1";
+  schema: "study-session/v2";
   study_session_id: string;
   material_id: string;
-  knowledge_map_revision: string;
-  current_formal_concept_id: string | null;
-  no_safe_deferred_formal_concept_ids: string[];
-  status: "active" | "completed" | "no_safe";
+  knowledge_structure_revision: string;
+  current_concept_id: string | null;
+  deferred_concept_ids: string[];
+  status: "active" | "no_safe" | "completed";
   started_at: string;
   completed_at: string | null;
   event_watermark: number;
 };
 
-export type AssessmentCreate = {
-  schema: "assessment-create/v1";
-  target_claim_id: string;
-};
-
-export type AssessmentOptionView = {
-  option_id: string;
-  text: string;
-};
-
+export type AssessmentCreate = { schema: "assessment-create/v2"; target_claim_id: string };
+export type AssessmentOptionView = { option_id: string; text: string };
 export type AssessmentView = {
-  schema: "single-choice-assessment-public/v1";
-  study_session_id: string;
-  knowledge_map_revision: string;
+  schema: "single-choice-assessment/v2";
   assessment_revision: string;
+  study_session_id: string;
+  knowledge_structure_revision: string;
   question_id: string;
-  target_formal_concept_id: string;
+  target_concept_id: string;
   target_claim_id: string;
   source_evidence_ids: string[];
   question_type: "single_choice";
   prompt: string;
-  options: [AssessmentOptionView, AssessmentOptionView, AssessmentOptionView, AssessmentOptionView];
-  policy_revision: "single-choice-assessment-policy/v1";
+  options: AssessmentOptionView[];
 };
 
 export type AnswerSubmissionCreate = {
-  schema: "answer-submission-create/v1";
+  schema: "answer-submission-create/v2";
   question_id: string;
   selected_option_id: string;
 };
 
 export type AnswerFeedbackView = {
-  schema: "answer-feedback/v1";
+  schema: "answer-feedback/v2";
   answer_event_id: string;
   study_session_id: string;
   assessment_revision: string;
@@ -274,86 +202,37 @@ export type AnswerFeedbackView = {
   created_at: string;
 };
 
-export type LearningStatus = "not_started" | "learning" | "needs_review" | "mastered";
-export type LearningConfidence = "none" | "limited" | "supported";
-
 export type ConceptLearningStateView = {
-  formal_concept_id: string;
-  status: LearningStatus;
-  mastery_band: "no_evidence" | "developing" | "demonstrated";
-  confidence: LearningConfidence;
-  needs_more_data: boolean;
-  required_claim_ids: string[];
-  attempted_claim_ids: string[];
-  latest_correct_claim_ids: string[];
-  claim_coverage_complete: boolean;
-  required_evidence_ids: string[];
-  observed_evidence_ids: string[];
-  evidence_coverage_complete: boolean;
-  valid_attempts: number;
-  correct_attempts: number;
-  qualified_distinct_correct_items: number;
-  recent_result: "correct" | "incorrect" | null;
-  repeated_error: boolean;
-  post_error_improvement: boolean;
-  explanation: string;
-};
-
-export type WeaknessFindingView = {
-  target_formal_concept_id: string;
-  target_label: string;
-  category: "observed_weak" | "needs_review" | "not_enough_data";
-  confidence: LearningConfidence;
-  claim_coverage_complete: boolean;
-  remediation_intent: "practice" | "review" | "collect_more_data";
-  reason: string;
-};
-
-export type GuidanceAction =
-  | "start"
-  | "continue"
-  | "practice"
-  | "review"
-  | "use_resource"
-  | "follow_path"
-  | "collect_more_data"
-  | "defer"
-  | "resume"
-  | "no_action";
-
-export type GuidanceRouteView = {
-  study_session_id: string;
-  formal_concept_id: string | null;
-  resource_promotion_id: string | null;
+  concept_id: string;
+  label: string;
+  status: "not_started" | "learning" | "needs_review" | "mastered";
+  attempts: number;
+  correct_answers: number;
+  qualified_correct_items: number;
+  covered_claim_ids: string[];
+  weak_claim_ids: string[];
+  latest_is_correct: boolean | null;
 };
 
 export type NextActionView = {
-  action: GuidanceAction;
-  target_formal_concept_id: string | null;
-  target_label: string | null;
+  action: "assess" | "review_prerequisite" | "advance" | "defer" | "resume" | "no_safe" | "complete";
+  target_concept_id: string | null;
+  target_claim_id: string | null;
+  prerequisite_concept_ids: string[];
   reason: string;
-  confidence: LearningConfidence;
-  claim_coverage_complete: boolean;
-  route: GuidanceRouteView;
 };
 
 export type LearnerProgressView = {
-  schema: "learner-progress/v1";
+  schema: "learner-progress/v2";
   study_session_id: string;
-  material_id: string;
-  base_knowledge_map_revision: string;
-  inline_initial_learning_path_sha256: string;
+  knowledge_structure_revision: string;
   event_watermark: number;
-  status: "active" | "completed" | "no_safe";
-  current_formal_concept_id: string | null;
-  no_safe_deferred_formal_concept_ids: string[];
+  current_concept_id: string | null;
+  deferred_concept_ids: string[];
   concept_states: ConceptLearningStateView[];
-  weakness_findings: WeaknessFindingView[];
+  weaknesses: { concept_id: string; claim_ids: string[]; reason: string }[];
   next_action: NextActionView;
   guidance_revision: string;
 };
 
-export type GuidanceApply = {
-  schema: "guidance-apply/v1";
-  guidance_revision: string;
-};
+export type GuidanceApply = { schema: "guidance-apply/v2"; guidance_revision: string };

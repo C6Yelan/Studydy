@@ -4,7 +4,7 @@ from pathlib import Path
 import pymupdf
 import pytest
 
-from pdf_evidence.document_context import build_document_contexts
+from knowledge_map.structure import build_document_context
 from pdf_evidence.ocr_page_evidence import (
     build_native_page_evidence,
     build_page_evidence,
@@ -147,13 +147,13 @@ def test_non_centered_native_heading_starts_stable_following_page_section(
     )
     assert replay == artifacts[0]
 
-    contexts = build_document_contexts(artifacts)
-    heading_block_id = artifacts[0]["evidence_blocks"][0]["block_id"]
-    heading_section_id = contexts[0]["current_blocks"][0]["section_id"]
-    assert contexts[1]["current_blocks"][0]["heading_ancestry_block_ids"] == [
-        heading_block_id
-    ]
-    assert contexts[1]["current_blocks"][0]["section_id"] == heading_section_id
+    context = build_document_context(artifacts, page_count=2)
+    heading_evidence_id = artifacts[0]["evidence_blocks"][0]["evidence_id"]
+    assert len(context["sections"]) == 1
+    assert context["sections"][0]["heading_evidence_id"] == heading_evidence_id
+    assert {item["section_id"] for item in context["evidence"]} == {
+        context["sections"][0]["section_id"]
+    }
 
 
 def test_native_body_and_small_emphasis_do_not_become_headings(tmp_path):

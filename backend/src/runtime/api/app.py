@@ -25,7 +25,7 @@ from .models import (
     AssessmentCreate,
     AssessmentView,
     GuidanceApply,
-    KnowledgeMapView,
+    KnowledgeStructureView,
     MaterialProcessingCreate,
     MaterialProcessingRunView,
     MaterialView,
@@ -43,12 +43,7 @@ from learning_adaptation.learner_progress import (
     derive_learner_progress,
 )
 from learning_adaptation.answer_events import submit_answer
-from learning_adaptation.assessment_requests import (
-    generate_assessment_for_request,
-)
-from learning_adaptation.assessment_runtime import load_assessment_runtime_lock
-from learning_adaptation.assessment_runtime_reuse import AssessmentRuntimeReuse
-from learning_adaptation.assessment_items import read_assessment
+from learning_adaptation.assessments import generate_assessment, read_assessment
 from learning_adaptation.study_sessions import (
     complete_study_session,
     create_study_session,
@@ -65,14 +60,14 @@ from ..learner_session import (
 from ..material_processing import (
     MaterialProcessingError,
     create_material_processing_run,
-    formal_runtime_preflight,
+    runtime_preflight,
     read_material_processing_run,
 )
 from ..storage.artifacts import (
     open_verified_source_pdf,
     publish_idempotent_source_pdf,
 )
-from ..storage.material_review_outputs import read_material_run_outputs
+from ..storage.knowledge_structures import read_knowledge_structure
 from ..workers import start_runtime_workers
 
 
@@ -141,7 +136,7 @@ class ApiSettings:
             raise ValueError("API_SETTINGS_INVALID")
         try:
             copied = deepcopy(self.local_config)
-            formal_runtime_preflight(copied)
+            runtime_preflight(copied)
         except MaterialProcessingError as error:
             raise ApiSettingsError(error.component, error.reason) from None
         except Exception:
@@ -212,23 +207,19 @@ def _fixed_exception(error: Exception) -> str:
     if reason in {
         "MATERIAL_RUN_NOT_FOUND",
         "MATERIAL_RUN_UNAVAILABLE",
-        "MATERIAL_OUTPUT_UNAVAILABLE",
+        "KNOWLEDGE_STRUCTURE_UNAVAILABLE",
         "ARTIFACT_NOT_AVAILABLE",
         "STUDY_SESSION_UNAVAILABLE",
         "STUDY_SESSION_MAP_UNAVAILABLE",
         "ANSWER_STUDY_SESSION_UNAVAILABLE",
         "ANSWER_ASSESSMENT_UNAVAILABLE",
         "ASSESSMENT_UNAVAILABLE",
-        "ASSESSMENT_REQUEST_UNAVAILABLE",
-        "ASSESSMENT_GROUNDING_UNAVAILABLE",
-        "LEARNING_STATE_UNAVAILABLE",
-        "WEAKNESS_UNAVAILABLE",
-        "ADAPTIVE_PLAN_UNAVAILABLE",
+        "ASSESSMENT_SESSION_UNAVAILABLE",
+        "LEARNER_PROGRESS_UNAVAILABLE",
     }:
         return "RESOURCE_NOT_FOUND"
     if reason in {
-        "ASSESSMENT_NO_NEW_SAFE_ITEM",
-        "ASSESSMENT_NO_SAFE_CANDIDATE",
+        "NO_SAFE_ASSESSMENT",
     }:
         return "NO_SAFE_ASSESSMENT"
     if reason in {
@@ -239,10 +230,7 @@ def _fixed_exception(error: Exception) -> str:
         "ANSWER_SUBMISSION_INVALID",
         "ANSWER_OPTION_INVALID",
         "ASSESSMENT_REQUEST_INVALID",
-        "ASSESSMENT_GENERATION_REQUEST_INVALID",
-        "LEARNING_STATE_REQUEST_INVALID",
-        "WEAKNESS_REQUEST_INVALID",
-        "ADAPTIVE_PLAN_REQUEST_INVALID",
+        "ASSESSMENT_TARGET_INVALID",
     }:
         return "REQUEST_INVALID"
     if reason == "ARTIFACT_PDF_INVALID":
@@ -250,10 +238,8 @@ def _fixed_exception(error: Exception) -> str:
     if "STORAGE" in reason or reason in {
         "SESSION_CREATE_FAILED",
         "ARTIFACT_PUBLISH_FAILED",
-        "ASSESSMENT_MODEL_UNAVAILABLE",
-        "ASSESSMENT_VERIFIER_UNAVAILABLE",
-        "ASSESSMENT_RUNTIME_BUSY",
-        "ASSESSMENT_CONFIGURATION_INVALID",
+        "SEMANTIC_SERVICE_UNAVAILABLE",
+        "SEMANTIC_SERVICE_TIMEOUT",
     }:
         return "STORAGE_UNAVAILABLE"
     return "INTERNAL_ERROR"
@@ -414,36 +400,25 @@ def create_app(settings: ApiSettings) -> FastAPI:
 
     if not isinstance(settings, ApiSettings):
         raise ValueError("API_SETTINGS_INVALID")
-    assessment_settings = {
-        **deepcopy(settings.local_config),
-        "assessment_runtime_lock": load_assessment_runtime_lock(),
-    }
-    assessment_runtime_reuse = AssessmentRuntimeReuse(assessment_settings)
-
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        workers = start_runtime_workers(
+            dsn=settings.dsn, local_config=settings.local_config
+        )
         try:
-            workers = start_runtime_workers(
-                dsn=settings.dsn, local_config=settings.local_config
-            )
-            try:
-                yield
-            finally:
-                workers.stop()
+            yield
         finally:
-            assessment_runtime_reuse.close()
+            workers.stop()
 
     app = FastAPI(
         title="Studydy Material Review API",
-        version="2.0.0",
+        version="3.0.0",
         openapi_version="3.1.0",
         openapi_url=None,
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
     )
-    app.state.assessment_runtime_reuse = assessment_runtime_reuse
-
     @app.get("/v1/openapi.json", include_in_schema=False)
     async def openapi_document() -> Response:
         return Response(canonical_openapi_bytes(app), media_type="application/json")
@@ -575,19 +550,19 @@ def create_app(settings: ApiSettings) -> FastAPI:
         return project_material_run(read_material_processing_run(learner.learner_id, run_id, dsn=settings.dsn))
 
     @app.get(
-        "/v1/materials/{material_id}/knowledge-maps/{map_revision}",
-        response_model=KnowledgeMapView,
+        "/v1/materials/{material_id}/knowledge-structures/{structure_revision}",
+        response_model=KnowledgeStructureView,
         response_model_by_alias=True,
-        operation_id="getKnowledgeMapReview",
+        operation_id="getKnowledgeStructure",
         tags=["review"],
     )
-    async def read_map_route(request: Request, material_id: UUID, map_revision: str, run_id: UUID) -> KnowledgeMapView:
-        _require_query(request, {"run_id"})
+    async def read_map_route(request: Request, material_id: UUID, structure_revision: str) -> KnowledgeStructureView:
+        _require_query(request, set())
         learner = _trusted_learner(request, settings)
-        outputs = read_material_run_outputs(learner.learner_id, material_id, run_id, dsn=settings.dsn)
-        if outputs.knowledge_map_revision != map_revision:
-            raise _ApiFailure("RESOURCE_NOT_FOUND")
-        return KnowledgeMapView.model_validate(deepcopy(outputs.knowledge_map_view))
+        stored = read_knowledge_structure(
+            learner.learner_id, material_id, revision=structure_revision, dsn=settings.dsn
+        )
+        return KnowledgeStructureView.model_validate(deepcopy(stored.view))
 
     @app.post(
         "/v1/study-sessions",
@@ -605,9 +580,9 @@ def create_app(settings: ApiSettings) -> FastAPI:
         stored = create_study_session(
             learner,
             body.material_id,
-            body.knowledge_map_revision,
+            body.knowledge_structure_revision,
             _idempotency_key(request),
-            current_formal_concept_id=body.current_formal_concept_id,
+            current_concept_id=body.current_concept_id,
             dsn=settings.dsn,
         )
         return project_study_session(stored)
@@ -664,13 +639,12 @@ def create_app(settings: ApiSettings) -> FastAPI:
         learner = _trusted_learner(request, settings)
         key = _idempotency_key(request)
         stored = await run_in_threadpool(
-            generate_assessment_for_request,
+            generate_assessment,
             learner,
             study_session_id,
             body.target_claim_id,
-            deepcopy(settings.local_config),
             key,
-            runtime_reuse=assessment_runtime_reuse,
+            deepcopy(settings.local_config),
             dsn=settings.dsn,
         )
         return project_assessment(stored)
@@ -690,10 +664,8 @@ def create_app(settings: ApiSettings) -> FastAPI:
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
         stored = read_assessment(
-            learner, assessment_revision, dsn=settings.dsn
+            learner, study_session_id, assessment_revision, dsn=settings.dsn
         )
-        if stored.study_session_id != study_session_id:
-            raise _ApiFailure("RESOURCE_NOT_FOUND")
         return project_assessment(stored)
 
     @app.post(

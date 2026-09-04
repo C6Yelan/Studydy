@@ -3,29 +3,23 @@ import test from "node:test";
 
 import { readRoute, routePath } from "./routes.ts";
 
-const materialId = "9f9619ff-8b86-4e3a-a2f1-2bb9424d5c72";
-const runId = "bf9619ff-8b86-4e3a-a2f1-2bb9424d5c74";
-const studySessionId = "cf9619ff-8b86-4e3a-a2f1-2bb9424d5c75";
-const mapRevision = `knowledge-map:sha256:${"d".repeat(64)}`;
+const materialId = "11111111-1111-4111-8111-111111111111";
+const runId = "22222222-2222-4222-8222-222222222222";
+const studySessionId = "33333333-3333-4333-8333-333333333333";
+const structureRevision = `knowledge-structure:sha256:${"d".repeat(64)}`;
 
-test("v2 routes round trip", () => {
+test("final knowledge-structure routes round trip", () => {
   for (const route of [
-    { name: "home" },
-    { name: "material-run", materialId, runId },
-    { name: "knowledge-map", materialId, runId, mapRevision },
-    { name: "study-session", materialId, runId, mapRevision, studySessionId },
+    { name: "knowledge-map", materialId, runId, structureRevision },
+    { name: "study-session", materialId, runId, structureRevision, studySessionId },
   ]) {
     const path = routePath(route);
     assert.deepEqual(readRoute(path), { route, isCanonical: true });
+    assert.match(path, /knowledge-structures/);
+    assert.doesNotMatch(path, /knowledge-maps/);
   }
 });
 
-test("deferred downstream paths are not active routes", () => {
-  for (const path of [
-    `/materials/${materialId}/runs/${runId}/assessments/anything`,
-    `/materials/${materialId}/learning-states/anything`,
-    `/materials/${materialId}/learning-paths/anything`,
-  ]) {
-    assert.deepEqual(readRoute(path), { route: { name: "home" }, isCanonical: false });
-  }
+test("retired map revisions do not parse", () => {
+  assert.equal(readRoute(`/materials/${materialId}/runs/${runId}/knowledge-maps/knowledge-map:sha256:${"a".repeat(64)}`).route.name, "home");
 });

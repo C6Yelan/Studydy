@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from pathlib import Path
 from threading import Event, Thread
-
-from pdf_evidence.text_first_run import material_analysis_lock
 
 from .material_processing import (
     claim_next_material_processing_run,
@@ -52,27 +49,18 @@ class RuntimeWorkers:
             self._thread.join()
 
     def _loop(self) -> None:
-        runtime_root = Path(self.local_config["private_runtime_root"])
         is_starting = True
         while not self._stop.is_set():
             try:
-                with material_analysis_lock(runtime_root, wait_seconds=0):
-                    if is_starting:
-                        recover_interrupted_material_runs(dsn=self.dsn)
-                        self._started.set()
-                        is_starting = False
-                    claim = claim_next_material_processing_run(dsn=self.dsn)
-                    if claim is not None:
-                        execute_claimed_material_processing_run(
-                            claim, deepcopy(self.local_config), dsn=self.dsn
-                        )
-            except ValueError as error:
-                if str(error) != "RUNTIME_BUSY" and is_starting:
-                    self._startup_error = error
-                    self._started.set()
-                    return
                 if is_starting:
+                    recover_interrupted_material_runs(dsn=self.dsn)
                     self._started.set()
+                    is_starting = False
+                claim = claim_next_material_processing_run(dsn=self.dsn)
+                if claim is not None:
+                    execute_claimed_material_processing_run(
+                        claim, deepcopy(self.local_config), dsn=self.dsn
+                    )
             except Exception as error:
                 if is_starting:
                     self._startup_error = error

@@ -16,10 +16,6 @@ _OCR_BOOTSTRAP = (
     "import sys;sys.path.insert(0,sys.argv.pop(1));"
     "from studydy_local_ai.ocr_process import main;raise SystemExit(main())"
 )
-_EQUIVALENCE_BOOTSTRAP = (
-    "import sys;sys.path.insert(0,sys.argv.pop(1));"
-    "from studydy_local_ai.equivalence_process import main;raise SystemExit(main())"
-)
 
 
 class LocalAIError(RuntimeError):
@@ -189,51 +185,3 @@ def start_ocr_process(settings: dict[str, Any]) -> LocalAIProcess:
         request_limit=96 * 1024 * 1024,
         response_limit=4 * 1024 * 1024,
     )
-
-
-def start_equivalence_process(
-    settings: dict[str, Any], startup_timeout_seconds: float
-) -> LocalAIProcess:
-    """以現有固定 mDeBERTa 啟動 Concept 等價 child。"""
-
-    process = LocalAIProcess(
-        [
-            settings["python_executable"],
-            "-I",
-            "-c",
-            _EQUIVALENCE_BOOTSTRAP,
-            settings["site_packages"],
-            settings["verifier_model_root"],
-        ],
-        request_limit=64 * 1024,
-        response_limit=2 * 1024,
-    )
-    try:
-        startup = process.read_startup_response(startup_timeout_seconds)
-    except LocalAIError as error:
-        process.abort()
-        if error.reason_code == "CHILD_TIMEOUT":
-            raise LocalAIError("CONCEPT_EQUIVALENCE_VERIFIER_TIMEOUT") from None
-        if error.reason_code == "CHILD_RESPONSE_INVALID":
-            raise LocalAIError(
-                "CONCEPT_EQUIVALENCE_VERIFIER_RESPONSE_INVALID"
-            ) from None
-        raise LocalAIError("CONCEPT_EQUIVALENCE_VERIFIER_UNAVAILABLE") from None
-    ready = {"schema": "local-concept-equivalence-startup/v1", "status": "ready"}
-    failure_reasons = {
-        "CONCEPT_EQUIVALENCE_VERIFIER_DEPENDENCY_MISSING",
-        "CONCEPT_EQUIVALENCE_VERIFIER_CUDA_UNAVAILABLE",
-        "CONCEPT_EQUIVALENCE_VERIFIER_MODEL_LOAD_FAILED",
-    }
-    if startup == ready:
-        return process
-    if (
-        set(startup) == {"schema", "status", "reason_code"}
-        and startup.get("schema") == ready["schema"]
-        and startup.get("status") == "failed"
-        and startup.get("reason_code") in failure_reasons
-    ):
-        process.abort()
-        raise LocalAIError(startup["reason_code"])
-    process.abort()
-    raise LocalAIError("CONCEPT_EQUIVALENCE_VERIFIER_RESPONSE_INVALID")

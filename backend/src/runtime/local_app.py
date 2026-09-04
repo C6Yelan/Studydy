@@ -64,7 +64,7 @@ def _app_arguments_from_environment(environment: Mapping[str, str]) -> dict[str,
 def read_local_ai_config_from_environment(
     environment: Mapping[str, str],
 ) -> dict[str, Any]:
-    """從單一 root 組出 backend-owned runtime 與固定 semantic endpoint。"""
+    """從單一 root 組出 OCR sidecar；resident semantic service 只由 lock 定義。"""
 
     root_value = environment.get(_LOCAL_RUNTIME_ROOT_ENVIRONMENT_KEY)
     if root_value is None:
@@ -87,13 +87,6 @@ def read_local_ai_config_from_environment(
             root / "ocr" / "runtime" / "lib" / "python3.12" / "site-packages"
         ),
         "ocr_model_root": str(root / "models" / "unlimited-ocr"),
-        "verifier_model_root": str(
-            root / "models" / "mdeberta-v3-base-mnli-xnli"
-        ),
-        "concept_api_base_url": "http://127.0.0.1:8000",
-        "concept_model": runtime_lock["semantic"]["model_id"],
-        "concept_max_concurrency": 1,
-        "concept_max_model_len": 32_768,
     }
     return values
 
@@ -106,7 +99,7 @@ def create_local_app(
     local_config: dict[str, Any],
     dsn: str | None,
 ) -> FastAPI:
-    """先完成 formal preflight，再建立唯一 material review API。"""
+    """先完成唯一 runtime preflight，再建立產品 API。"""
 
     settings = ApiSettings(
         profile=profile,

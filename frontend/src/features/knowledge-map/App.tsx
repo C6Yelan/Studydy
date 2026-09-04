@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { KnowledgeMapView } from "../../api/contracts";
+import type { KnowledgeStructureView } from "../../api/contracts";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { StateView } from "../../ui/StateView";
 import { KnowledgeMapWorkspace } from "./KnowledgeMapWorkspace";
@@ -11,7 +11,7 @@ export default function KnowledgeMap({ apiClient, route }: {
   apiClient: StudydyApiClient;
   route: Extract<AppRoute, { name: "knowledge-map" }>;
 }) {
-  const [view, setView] = useState<KnowledgeMapView | null>(null);
+  const [view, setView] = useState<KnowledgeStructureView | null>(null);
   const [sourceArtifactId, setSourceArtifactId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [startMessage, setStartMessage] = useState<string | null>(null);
@@ -21,10 +21,9 @@ export default function KnowledgeMap({ apiClient, route }: {
   useEffect(() => {
     let cancelled = false;
     void Promise.all([
-      apiClient.getKnowledgeMap({
+      apiClient.getKnowledgeStructure({
         materialId: route.materialId,
-        runId: route.runId,
-        mapRevision: route.mapRevision,
+        structureRevision: route.structureRevision,
       }),
       apiClient.getMaterialRun(route.runId),
     ]).then(
@@ -40,7 +39,7 @@ export default function KnowledgeMap({ apiClient, route }: {
       },
     );
     return () => { cancelled = true; };
-  }, [apiClient, route.mapRevision, route.materialId, route.runId]);
+  }, [apiClient, route.structureRevision, route.materialId, route.runId]);
 
   if (message) return (
     <StateView
@@ -67,16 +66,16 @@ export default function KnowledgeMap({ apiClient, route }: {
     setStartMessage(null);
     try {
       const session = await apiClient.createStudySession({
-        schema: "study-session-create/v1",
+        schema: "study-session-create/v2",
         material_id: route.materialId,
-        knowledge_map_revision: route.mapRevision,
-        current_formal_concept_id: conceptId,
+        knowledge_structure_revision: route.structureRevision,
+        current_concept_id: conceptId,
       }, startIntent.current.key);
       writeRoute({
         name: "study-session",
         materialId: route.materialId,
         runId: route.runId,
-        mapRevision: route.mapRevision,
+        structureRevision: route.structureRevision,
         studySessionId: session.study_session_id,
       });
     } catch (error) {
