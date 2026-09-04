@@ -12,7 +12,7 @@ import httpx
 
 from pdf_evidence.concept_api import (
     ConceptAPIError,
-    start_concept_server,
+    semantic_service_client,
 )
 from pdf_evidence.local_ai_process import (
     LocalAIError,
@@ -408,7 +408,6 @@ def _request_stage(
                 response_format=response_format,
                 max_model_len=settings["concept_max_model_len"],
                 max_tokens=stage["generation"]["max_tokens"],
-                timeout_seconds=stage["timeout_seconds"],
             )
         except ConceptAPIError as error:
             if (
@@ -424,7 +423,6 @@ def _verifier_probabilities(
     premise: str,
     options: list[str],
     request_id: str,
-    timeout_seconds: float,
 ) -> tuple[float, float, float, float]:
     response = process.request(
         {
@@ -433,7 +431,7 @@ def _verifier_probabilities(
             "premise": premise,
             "options": options,
         },
-        timeout_seconds,
+        None,
     )
     rejected = {
         "schema": "local-assessment-verifier-response/v2",
@@ -473,7 +471,6 @@ def _novelty_comparisons(
     candidate_focus: str,
     prior_novelties: tuple[AssessmentSemanticNovelty, ...],
     request_id: str,
-    timeout_seconds: float,
 ) -> tuple[_NoveltyComparison, ...]:
     response = process.request(
         {
@@ -484,7 +481,7 @@ def _novelty_comparisons(
                 novelty.semantic_focus for novelty in prior_novelties
             ],
         },
-        timeout_seconds,
+        None,
     )
     rejected = {
         "schema": "local-assessment-novelty-response/v1",
@@ -579,7 +576,6 @@ def _score_candidate(
     process: LocalAIProcess,
     candidate: _Candidate,
     grounding: _Grounding,
-    timeout_seconds: float,
 ) -> _ScoredCandidate:
     options = [candidate.correct_option, *candidate.distractors]
     identity = {
@@ -600,7 +596,6 @@ def _score_candidate(
         selected_premise,
         options,
         canonical_sha256({**identity, "evidence_scope": "selected"}),
-        timeout_seconds,
     )
     values = (
         selected_values
@@ -610,7 +605,6 @@ def _score_candidate(
             full_premise,
             options,
             canonical_sha256({**identity, "evidence_scope": "full_claim"}),
-            timeout_seconds,
         )
     )
     maximum_distractor = max(values[1:])
@@ -634,12 +628,7 @@ def _rank_candidates(
     policy: dict[str, Any],
 ) -> list[_ScoredCandidate]:
     scored = [
-        _score_candidate(
-            process,
-            candidate,
-            grounding,
-            policy["verifier"]["request_timeout_seconds"],
-        )
+        _score_candidate(process, candidate, grounding)
         for candidate in candidates
     ]
     passing = [
@@ -819,10 +808,9 @@ def _generate_documents(
     proposal_request = _request_document(
         grounding, include_output_language=False
     )
-    server = verifier = None
+    verifier = None
     try:
-        server = start_concept_server(settings)
-        with httpx.Client(trust_env=False, follow_redirects=False) as client:
+        with semantic_service_client() as client:
             proposal_text = _request_stage(
                 client,
                 settings,
@@ -925,8 +913,6 @@ def _generate_documents(
                 raise _error("ASSESSMENT_NO_SAFE_CANDIDATE")
             verifier.close()
             verifier = None
-        server.close()
-        server = None
     except AssessmentGenerationError:
         raise
     except ConceptAPIError as error:
@@ -941,8 +927,6 @@ def _generate_documents(
     finally:
         if verifier is not None:
             verifier.abort()
-        if server is not None:
-            server.close()
 
     return documents, provenance, novelty
 
@@ -1072,7 +1056,6 @@ def _first_unused_documents(
                             prior.semantic_identity for prior in prior_novelties
                         ],
                     }),
-                    timeout_seconds=novelty_policy["request_timeout_seconds"],
                 )
             except (AssessmentGenerationError, LocalAIError) as error:
                 comparison_policy_revision = outcomes[

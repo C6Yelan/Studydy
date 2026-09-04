@@ -10,12 +10,19 @@ DSNs or model/cache locations into Git, screenshots, logs or review comments.
 git fetch --all --prune
 git status --short
 git rev-parse --show-toplevel
-git rev-parse origin/dev
-git merge-base --is-ancestor c65aeac51ac0bde7b18b5490c2a4201adb028802 origin/dev
+git rev-parse HEAD
+git merge-base --is-ancestor 47156f624eefe51cc0bc37d3232868102e20c7a7 HEAD
 ```
 
-Expected RC: `c65aeac51ac0bde7b18b5490c2a4201adb028802`; the worktree must be clean
-before qualification. Confirm Docker and GPU visibility:
+`HEAD` 必須等於 Batch 1 handoff 的 exact candidate SHA，且 worktree 必須乾淨。
+backend 與所有 local AI runtime 都使用 Python 3.12 minor：
+
+```bash
+UV_CACHE_DIR=/tmp/studydy-uv-cache uv sync --project backend --python 3.12 --extra test
+backend/.venv/bin/python -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+```
+
+接著確認 GPU 與 backend-owned OCR/verifier runtime；有 Docker 的 workstation 才需要第一行：
 
 ```bash
 docker info --format '{{.ServerVersion}} {{.Driver}} {{.OSType}}'
@@ -23,7 +30,14 @@ nvidia-smi.exe --query-gpu=name,memory.total,driver_version --format=csv,noheade
 PYTHONPATH=backend/src backend/.venv/bin/python -m runtime.local_runtime verify
 ```
 
-Expected runtime verify: `29/29` files.
+成功時回傳 `{"command":"verify","status":"succeeded"}`。此檢查驗證 Python 3.12 package
+版本、OCR/verifier model config與實際model load，以及既有semantic service preflight；不要求
+固定file count或逐檔size/hash。Backend不擁有vLLM executable、Qwen directory、KV cache或
+process lifecycle。
+
+Model startup/readiness、loopback connect、database、lock acquisition與graceful shutdown維持
+bounded timeout。OCR、Qwen generation及mDeBERTa inference在process/service仍存活時沒有執行
+deadline；停止backend時仍由既有close/abort路徑回收backend-owned child。
 
 ## 2. PostgreSQL
 
@@ -50,6 +64,30 @@ unset POSTGRES_PASSWORD STUDYDY_V2_PG_PASSWORD
 
 Keep `STUDYDY_DATABASE_DSN` only in the current private shell. Do not echo it.
 
+Automated tests create their own pinned disposable Docker PostgreSQL by default. On a host without Docker,
+install PostgreSQL 18 on ephemeral container disk and prepare an empty control database whose name
+starts with `studydy_test`; its dedicated test-only role must be a PostgreSQL superuser, matching the
+privileges of Docker `POSTGRES_USER`. Migration fixtures use `session_replication_role` to construct
+legacy and deliberately invalid rows, so `CREATEDB` alone is insufficient. Never grant these test
+privileges to the production database role. Do not put `PGDATA` on
+`/workspace` network storage. Read the test-only DSN without echoing it, then run pytest in the same
+shell:
+
+```bash
+read -rsp 'Test PostgreSQL DSN: ' STUDYDY_TEST_POSTGRES_DSN; echo
+export STUDYDY_TEST_POSTGRES_DSN
+PYTHONPATH=backend/src:local_ai/src:backend/tests backend/.venv/bin/pytest -q \
+  backend/tests local_ai/tests
+unset STUDYDY_TEST_POSTGRES_DSN
+```
+
+The fixture rejects a DSN whose control database is not named `studydy_test*` or is identical to
+`STUDYDY_DATABASE_DSN`, and fails before database-backed test execution proceeds when the role is not a superuser.
+Every test still creates a fresh `studydy_case_*` database and terminates
+connections and drops it afterward. PostgreSQL migrations, transactions, isolation and cleanup are
+unchanged. Native PostgreSQL state is disposable; cross-day retention requires an explicit private
+dump/restore workflow and is outside Batch 1.
+
 ## 3. Migrations
 
 ```bash
@@ -57,7 +95,7 @@ PYTHONPATH=backend/src backend/.venv/bin/python -c \
   'from runtime.storage.migrations import run_migrations; print(run_migrations())'
 ```
 
-A fresh database must print versions 1 through 13. Running it again must print `()` and verify
+A fresh database must print versions 1 through 17. Running it again must print `()` and verify
 ledger checksums without changing schema.
 
 ## 4. Backend and local AI
@@ -71,12 +109,17 @@ export STUDYDY_PUBLIC_ORIGIN=http://127.0.0.1:4173
 export STUDYDY_SECURE_COOKIE=false
 export STUDYDY_ARTIFACT_ROOT='<ABSOLUTE_IGNORED_ARTIFACT_ROOT>'
 # export STUDYDY_LOCAL_RUNTIME_ROOT='<ABSOLUTE_APPROVED_RUNTIME_ROOT>'
+# VLLM_API_KEY is inherited from the private RunPod/container environment.
 PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/python -c \
   'from runtime.local_app import run_local_app; run_local_app(port=8001)'
 ```
 
-The backend owns the material worker and lazily starts only the pinned loopback Qwen/verifier
-processes. Do not start a second material/model process while the model lock is held.
+RunPod container startup 獨立啟動並持有 `http://127.0.0.1:8000` 的
+`Qwen/Qwen3.8-27B-FP8` vLLM service；不要修改 Pod startup configuration。Backend 啟動只做
+loopback、`/health`、`/version`、`/v1/models`、`/tokenize`、vLLM `0.28.0`、served model 與
+`max_model_len=32768` preflight，並從 environment 即時建立 bearer header。Material、Knowledge
+Map 與 Assessment 只建立 HTTP client；request failure、backend restart 或 shutdown 都不會
+spawn、kill 或 unload Qwen。Assessment verifier 仍依既有 lifecycle 管理。
 
 ## 5. Frontend
 
@@ -125,14 +168,14 @@ learn correctness only after server Feedback.
 
 ## 8. Warm Demo
 
-Before the 60-second idle reclamation window expires:
+Qwen 跨 backend uptime 保持 resident：
 
 1. Return to the Map and start a new StudySession on the qualified Concept.
 2. Confirm watermark 0 and no inherited attempts/mastery/observed weakness.
-3. Request a new Assessment. Expected warm latency is about 19 seconds.
+3. Request a new Assessment and record warm latency.
 4. Repeat one different-item reassessment and show stable model reuse without a second Qwen load.
 
-If the 60-second idle window elapsed, label the next request cold; do not call it a warm regression.
+Assessment verifier 的 idle 回收不會回收 resident Qwen；backend restart 也不會增加 Qwen load。
 
 ## 9. Recovery Demo
 
@@ -158,12 +201,13 @@ PYTHONPATH=backend/src:local_ai/src:backend/tests backend/.venv/bin/pytest -q \
 backend/.venv/bin/python backend/tests/runtime/material_review_e2e_runner.py
 ```
 
-Expected: 326 backend/local-AI tests and 14 Playwright tests. The Playwright runner creates and
-cleans its own pinned PostgreSQL container.
+Record the actual backend/local-AI and Playwright totals. The Playwright runner creates and cleans
+its own pinned PostgreSQL container.
 
 ## 11. Shutdown and evidence boundary
 
-Stop frontend and backend with `Ctrl-C`, then stop only the explicit database container:
+Stop frontend and backend with `Ctrl-C`, then stop only the explicit database container. Do not stop
+the RunPod-owned semantic service as part of backend shutdown:
 
 ```bash
 docker stop "$STUDYDY_V2_PG_CONTAINER"

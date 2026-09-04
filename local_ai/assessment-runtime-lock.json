@@ -1,9 +1,9 @@
 {
-  "schema": "studydy-assessment-runtime-lock/v1",
+  "schema": "studydy-assessment-runtime-lock/v3",
   "policy_revision": "assessment-generation-policy/v6",
   "shared_models": {
-    "semantic_model_id": "Qwen/Qwen3-14B-AWQ",
-    "semantic_revision": "content-sha256:5a690dbf98db87941c991fdc50afcf637e01c35c6ae11b04da1f6ac5d9d17619",
+    "semantic_model_id": "Qwen/Qwen3.8-27B-FP8",
+    "semantic_revision": "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a",
     "verifier_model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
     "verifier_revision": "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c"
   },
@@ -14,7 +14,6 @@
     "output_schema": "assessment-grounded-multi-candidates/v1",
     "input_serialization": "insertion-order-compact-json/v1",
     "generation": {"temperature": 0, "max_tokens": 2800},
-    "timeout_seconds": 300,
     "retry": {
       "max_attempts": 2,
       "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
@@ -27,7 +26,6 @@
     "output_schema": "assessment-grounded-mutation-candidates/v1",
     "input_serialization": "insertion-order-compact-json/v1",
     "generation": {"temperature": 0, "max_tokens": 3400},
-    "timeout_seconds": 300,
     "retry": {
       "max_attempts": 2,
       "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
@@ -50,7 +48,6 @@
     "maximum_pair_tokens": 384,
     "over_limit_policy": "reject-before-inference/v1",
     "startup_timeout_seconds": 120,
-    "request_timeout_seconds": 120,
     "safe_loading": "safetensors-local-only-no-remote-code"
   },
   "novelty": {
@@ -71,8 +68,7 @@
     },
     "maximum_prior_items": 32,
     "maximum_pair_tokens": 384,
-    "over_limit_policy": "reject-before-inference/v1",
-    "request_timeout_seconds": 120
+    "over_limit_policy": "reject-before-inference/v1"
   },
   "selection": {
     "ranking": "margin-descending-candidate-index-ascending/v1",
@@ -86,17 +82,6 @@
     "repair_distractor_proposal_count": 5,
     "final_option_count": 4,
     "maximum_evidence_characters": 32768
-  },
-  "package_sources": {
-    "assessment_process.py": "5e315d73f85cc2f0d068cbc13bf923e45bcd70d004857b2a523ae8f528ac1c10"
-  },
-  "code_hashes": {
-    "backend_assessment_generation": "ae8b2ba96979f1442b7d47b8b61a2dc61f670bc4d1551e894087dde45f30cac2",
-    "backend_assessment_items": "22ad41156589dee1ac3d79874aae8fb5d4838bdfd3debd000885e55169fa75c3",
-    "backend_map_context": "b454faed1dbfa4942e2e0549e4a2cbff4d81b86789ebee0d512eefa088f49bec",
-    "backend_assessment_model_api": "5195a0f7d316f979b9c97ba0848ce3b25f98a69d5c2441bada387ada8f33d549",
-    "backend_assessment_verifier": "253a94c6d535af2b0c9ae9867b92c5215d9d0cfd1b40e3b7fc91930503980380",
-    "local_assessment_process": "5e315d73f85cc2f0d068cbc13bf923e45bcd70d004857b2a523ae8f528ac1c10"
   },
   "failure_policy": "reject-without-unsafe-fallback/v1",
   "rationale_policy": "deterministic-selected-exact-evidence/v1"

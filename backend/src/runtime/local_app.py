@@ -19,11 +19,6 @@ _APP_ENVIRONMENT_KEYS = {
     "secure_cookie": "STUDYDY_SECURE_COOKIE",
 }
 _LOCAL_RUNTIME_ROOT_ENVIRONMENT_KEY = "STUDYDY_LOCAL_RUNTIME_ROOT"
-_OPTIONAL_INTEGER_SETTINGS = {
-    "concept_kv_cache_bytes": ("STUDYDY_CONCEPT_KV_CACHE_BYTES", 2_147_483_648),
-    "concept_max_concurrency": ("STUDYDY_CONCEPT_MAX_CONCURRENCY", 1),
-    "concept_max_model_len": ("STUDYDY_CONCEPT_MAX_MODEL_LEN", 8_192),
-}
 
 
 def _required_environment_value(environment: Mapping[str, str], name: str) -> str:
@@ -69,7 +64,7 @@ def _app_arguments_from_environment(environment: Mapping[str, str]) -> dict[str,
 def read_local_ai_config_from_environment(
     environment: Mapping[str, str],
 ) -> dict[str, Any]:
-    """從單一 root 組出固定 OCR 與 Concept runtime 設定。"""
+    """從單一 root 組出 backend-owned runtime 與固定 semantic endpoint。"""
 
     root_value = environment.get(_LOCAL_RUNTIME_ROOT_ENVIRONMENT_KEY)
     if root_value is None:
@@ -91,23 +86,15 @@ def read_local_ai_config_from_environment(
         "site_packages": str(
             root / "ocr" / "runtime" / "lib" / "python3.12" / "site-packages"
         ),
-        "concept_site_packages": str(
-            root / "vllm" / "lib" / "python3.12" / "site-packages"
-        ),
         "ocr_model_root": str(root / "models" / "unlimited-ocr"),
         "verifier_model_root": str(
             root / "models" / "mdeberta-v3-base-mnli-xnli"
         ),
-        "concept_api_base_url": "http://127.0.0.1:8101",
+        "concept_api_base_url": "http://127.0.0.1:8000",
         "concept_model": runtime_lock["semantic"]["model_id"],
-        "concept_server_executable": str(root / "vllm" / "bin" / "vllm"),
-        "concept_model_root": str(root / "models" / "qwen3-14b-awq"),
+        "concept_max_concurrency": 1,
+        "concept_max_model_len": 32_768,
     }
-    for name, (environment_name, default) in _OPTIONAL_INTEGER_SETTINGS.items():
-        raw_value = environment.get(environment_name, str(default))
-        if not isinstance(raw_value, str) or not raw_value.isdecimal():
-            raise ValueError("LOCAL_APP_SETTINGS_INVALID")
-        values[name] = int(raw_value)
     return values
 
 
@@ -135,7 +122,7 @@ def run_local_app(
     *,
     environment: Mapping[str, str] | None = None,
     host: str = "127.0.0.1",
-    port: int = 8000,
+    port: int = 8001,
 ) -> None:
     """以同一組 API/worker 組裝結果啟動正式 Uvicorn server。"""
 

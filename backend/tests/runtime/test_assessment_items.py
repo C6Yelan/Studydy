@@ -151,7 +151,7 @@ def _generation_provenance(documents):
         "question_id": public.question_id,
         "generation_policy_revision": "assessment-generation-policy/v1",
         "runtime_binding_sha256": "2" * 64,
-        "model_id": "Qwen/Qwen3-14B-AWQ",
+        "model_id": "Qwen/Qwen3.8-27B-FP8",
         "model_revision": "content-sha256:" + "3" * 64,
         "proposal_prompt_sha256": "4" * 64,
         "repair_prompt_sha256": "5" * 64,
@@ -889,7 +889,7 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
     policy = {
         "policy_revision": "assessment-generation-policy/v1",
         "shared_models": {
-            "semantic_model_id": "Qwen/Qwen3-14B-AWQ",
+            "semantic_model_id": "Qwen/Qwen3.8-27B-FP8",
             "semantic_revision": "content-sha256:" + "2" * 64,
             "verifier_model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
             "verifier_revision": "5" * 40,
@@ -898,7 +898,6 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             "prompt": "proposal",
             "prompt_sha256": "3" * 64,
             "generation": {"max_tokens": 2800},
-            "timeout_seconds": 300,
             "retry": {
                 "max_attempts": 2,
                 "retryable_reasons": [
@@ -911,7 +910,6 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             "prompt": "repair",
             "prompt_sha256": "4" * 64,
             "generation": {"max_tokens": 3400},
-            "timeout_seconds": 300,
             "retry": {
                 "max_attempts": 2,
                 "retryable_reasons": [
@@ -922,7 +920,6 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
         },
         "verifier": {
             "startup_timeout_seconds": 120,
-            "request_timeout_seconds": 120,
             "entailment_margin_threshold": 0.1,
             "multiple_support_risk_threshold": 0.4,
         },
@@ -948,20 +945,15 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
                 "over_limit": "distinct-mastery-evidence:over-limit/v1",
             },
             "maximum_prior_items": 32,
-            "request_timeout_seconds": 120,
         },
         "limits": {"maximum_evidence_characters": 32768},
     }
     local_config = {
         "private_runtime_root": str(tmp_path / "runtime"),
-        "concept_api_base_url": "http://127.0.0.1:8101",
-        "concept_model": "Qwen/Qwen3-14B-AWQ",
-        "concept_max_model_len": 8192,
+        "concept_api_base_url": "http://127.0.0.1:8000",
+        "concept_model": "Qwen/Qwen3.8-27B-FP8",
+        "concept_max_model_len": 32768,
     }
-
-    class Server:
-        def close(self):
-            pass
 
     class Verifier:
         def request(self, request, _timeout):
@@ -1013,11 +1005,6 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
     )
     monkeypatch.setattr(
         generation_module,
-        "start_concept_server",
-        lambda _: starts.append("qwen") or Server(),
-    )
-    monkeypatch.setattr(
-        generation_module,
         "start_assessment_process",
         lambda *_: starts.append("verifier") or Verifier(),
     )
@@ -1037,7 +1024,7 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
         dsn=assessment_database_dsn,
     )
 
-    assert starts == ["qwen", "verifier"]
+    assert starts == ["verifier"]
     assert stored.public_document.source_evidence_ids == claim["evidence_ids"]
     assert stored.private_answer_document.rationale == (
         "教材依據明確記載：Canonical Evidence 1"
@@ -1085,7 +1072,7 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             dsn=assessment_database_dsn,
         )
     assert _assessment_count(assessment_database_dsn) == 3
-    assert starts == ["qwen", "verifier"] * 4
+    assert starts == ["verifier"] * 4
     assert stage_calls == ["proposal"] * 4 + ["repair"]
 
     other = TrustedLearner(uuid4())
@@ -1099,7 +1086,7 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             local_config,
             dsn=assessment_database_dsn,
         )
-    assert starts == ["qwen", "verifier"] * 4
+    assert starts == ["verifier"] * 4
 
 
 def test_assessment_grounding_allows_unrelated_formula_tokens_in_evidence():

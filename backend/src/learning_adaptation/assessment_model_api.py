@@ -34,7 +34,6 @@ def request_assessment_text(
     response_format: dict[str, Any],
     max_model_len: int,
     max_tokens: int,
-    timeout_seconds: float,
 ) -> str:
     """以固定insertion-order input呼叫Assessment structured generation。"""
 
@@ -71,7 +70,6 @@ def request_assessment_text(
                 "add_generation_prompt": True,
                 "add_special_tokens": False,
             },
-            timeout=timeout_seconds,
         )
         tokenized.raise_for_status()
         if not tokenized.content or len(tokenized.content) > _MAX_RESPONSE_BYTES:
@@ -101,7 +99,6 @@ def request_assessment_text(
                 "response_format": response_format,
                 "chat_template_kwargs": {"enable_thinking": False},
             },
-            timeout=timeout_seconds,
         )
         response.raise_for_status()
     except httpx.TimeoutException as error:

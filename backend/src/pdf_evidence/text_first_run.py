@@ -26,7 +26,7 @@ from .concept_api import (
     chat_completions_url,
     fit_concept_request,
     request_concept_text,
-    start_concept_server,
+    semantic_service_client,
 )
 from .concept_evidence_output import (
     RUNTIME_LOCK_SHA256,
@@ -124,14 +124,19 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
                 "formal_resolution", "concept_equivalence", "verifier_model",
             }
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
-            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v10"
-            and runtime_lock["semantic"]["required_file_count"]
-            == len(runtime_lock["semantic"]["required_files"])
-            and runtime_lock["semantic"]["binding_manifest_sha256"]
-            == canonical_sha256(runtime_lock["semantic"]["required_files"])
-            and runtime_lock["semantic"]["revision"]
-            == "content-sha256:"
-            + runtime_lock["semantic"]["binding_manifest_sha256"]
+            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v14"
+            and runtime_lock["python"] == {"version": "3.12"}
+            and semantic["model_id"] == "Qwen/Qwen3.8-27B-FP8"
+            and semantic["revision"]
+            == "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"
+            and semantic["service"]
+            == {
+                "host": "127.0.0.1",
+                "port": 8000,
+                "max_model_len": 32768,
+                "max_num_seqs": 1,
+                "authentication": "environment-bearer:VLLM_API_KEY",
+            }
             and all(
                 hashlib.sha256(runtime_lock[stage]["prompt"].encode("utf-8")).hexdigest()
                 == runtime_lock[stage]["prompt_sha256"]
@@ -156,8 +161,6 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
             == "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
             and verifier_model["revision"]
             == "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c"
-            and verifier_model["required_file_count"]
-            == len(verifier_model["required_files"])
             and verifier_model["safe_loading"]
             == "safetensors-local-only-no-remote-code"
             and concept_equivalence
@@ -173,15 +176,9 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
                 ),
                 "entailment_threshold": 0.8,
                 "maximum_tokens": 384,
-                "timeout_seconds": 120,
+                "startup_timeout_seconds": 120,
                 "failure_policy": "veto-and-retain/v1",
                 "safe_loading": "safetensors-local-only-no-remote-code",
-                "package_source": {
-                    "name": "equivalence_process.py",
-                    "sha256": (
-                        "2d56949bf2499514e64edc38fa257d9b54221c12e387ae677a5443cd510512a1"
-                    ),
-                },
             }
         )
     except (KeyError, RecursionError, TypeError, ValueError):
@@ -192,7 +189,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
 
 @contextmanager
 def material_analysis_lock(runtime_root: Path, *, wait_seconds: float = 5):
-    """跨 process 同時只允許一個本機 OCR 與 Concept API sequence。"""
+    """跨 process 同時只允許一個 GPU-heavy backend sequence。"""
 
     if type(wait_seconds) not in {int, float} or wait_seconds < 0:
         raise ValueError("RUNTIME_BINDING_INVALID")
@@ -552,18 +549,13 @@ def _process_pdf(
         if settings.get("concept_model") != runtime_lock["semantic"]["model_id"]:
             raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
         if (
-            type(settings.get("concept_kv_cache_bytes")) is not int
-            or settings["concept_kv_cache_bytes"] < 1
-        ):
-            raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
-        if (
             type(settings.get("concept_max_concurrency")) is not int
             or settings["concept_max_concurrency"] != 1
         ):
             raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
         if (
             type(settings.get("concept_max_model_len")) is not int
-            or settings["concept_max_model_len"] < 1
+            or settings["concept_max_model_len"] != 32_768
         ):
             raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
         snapshot_directory = tempfile.TemporaryDirectory(prefix="studydy-source-")
@@ -623,7 +615,7 @@ def _process_pdf(
                                         ).decode("ascii"),
                                     },
                                 },
-                                120,
+                                None,
                             )
                             if (
                                 set(response) != {"schema", "request_id", "blocks"}
@@ -703,7 +695,6 @@ def _process_pdf(
                     "concept_api": {
                         "base_url": settings["concept_api_base_url"],
                         "model": settings["concept_model"],
-                        "kv_cache_bytes": settings["concept_kv_cache_bytes"],
                         "max_concurrency": settings["concept_max_concurrency"],
                         "max_model_len": settings["concept_max_model_len"],
                     },
@@ -779,16 +770,10 @@ def _process_pdf(
         missing_semantic = [
             work for work in semantic_work if work["artifact"] is None
         ]
-        concept_server = None
         concept_client: httpx.Client | None = None
         try:
             if missing_semantic:
-                concept_loads += 1
-                concept_server = start_concept_server(settings)
-                concept_client = httpx.Client(
-                    trust_env=False,
-                    follow_redirects=False,
-                )
+                concept_client = semantic_service_client()
 
             def generate(
                 work: dict[str, Any],
@@ -814,7 +799,6 @@ def _process_pdf(
                                     prompt_template=runtime_lock["semantic"]["prompt"],
                                     semantic_request=request,
                                     max_model_len=settings["concept_max_model_len"],
-                                    timeout_seconds=retry_policy["timeout_seconds"],
                                 )
                                 validate_semantic_request(fitted_request)
                                 batch_binding = {
@@ -831,7 +815,6 @@ def _process_pdf(
                                     prompt_template=runtime_lock["semantic"]["prompt"],
                                     semantic_request=fitted_request,
                                     max_model_len=settings["concept_max_model_len"],
-                                    timeout_seconds=retry_policy["timeout_seconds"],
                                     already_fitted=True,
                                 )
                                 calls += 1
@@ -909,12 +892,8 @@ def _process_pdf(
                             "concept_generation", completed_concepts, page_count
                         )
         finally:
-            try:
-                if concept_client is not None:
-                    concept_client.close()
-            finally:
-                if concept_server is not None:
-                    concept_server.close()
+            if concept_client is not None:
+                concept_client.close()
 
         semantic_pages = []
         included_pages = []

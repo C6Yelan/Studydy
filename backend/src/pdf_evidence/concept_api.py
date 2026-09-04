@@ -1,13 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 import json
 import os
-import signal
-import subprocess
-import sys
-import time
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -17,11 +13,18 @@ from .ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
 CHAT_COMPLETIONS_PATH = "/v1/chat/completions"
+HEALTH_PATH = "/health"
+MODELS_PATH = "/v1/models"
 TOKENIZE_PATH = "/tokenize"
+VERSION_PATH = "/version"
 MAX_TOKENS = 1_536
 TEMPERATURE = 0
 MAX_API_RESPONSE_BYTES = 128 * 1_024
-CONCEPT_SERVER_READY_TIMEOUT_SECONDS = 300
+SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS = 5
+SEMANTIC_API_KEY_ENVIRONMENT = "VLLM_API_KEY"
+SEMANTIC_INFERENCE_TIMEOUT = httpx.Timeout(
+    None, connect=SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS
+)
 CONCEPT_RESPONSE_FORMAT = {
     "type": "json_schema",
     "json_schema": {
@@ -64,16 +67,6 @@ CONCEPT_RESPONSE_FORMAT = {
         },
     },
 }
-_VLLM_ENVIRONMENT = {
-    "DO_NOT_TRACK": "1",
-    "HF_HUB_DISABLE_TELEMETRY": "1",
-    "HF_HUB_OFFLINE": "1",
-    "PATH": "/usr/bin:/bin",
-    "TRANSFORMERS_OFFLINE": "1",
-    "VLLM_NO_USAGE_STATS": "1",
-    "VLLM_USE_FLASHINFER_SAMPLER": "0",
-    "VLLM_USE_V2_MODEL_RUNNER": "0",
-}
 
 
 class ConceptAPIError(RuntimeError):
@@ -84,101 +77,131 @@ class ConceptAPIError(RuntimeError):
         self.reason_code = reason_code
 
 
-class LocalConceptServer:
-    """關閉 runner 啟動的 vLLM process group，避免模型留在 GPU。"""
+def _semantic_service_headers(
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Bearer 只從 process environment 讀取，不進設定、binding 或 log。"""
 
-    def __init__(self, process: subprocess.Popen[bytes]) -> None:
-        self._process = process
-        self._is_closed = False
-
-    def close(self) -> None:
-        if self._is_closed:
-            return
-        try:
-            os.killpg(self._process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        except OSError as error:
-            raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
-        try:
-            self._process.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(self._process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            except OSError as error:
-                raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
-            try:
-                self._process.wait(timeout=30)
-            except (OSError, subprocess.TimeoutExpired) as error:
-                raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
-        self._is_closed = True
+    values = os.environ if environment is None else environment
+    api_key = values.get(SEMANTIC_API_KEY_ENVIRONMENT)
+    if api_key is None:
+        return {}
+    if (
+        not isinstance(api_key, str)
+        or not api_key
+        or len(api_key) > 4_096
+        or any(character in api_key for character in "\x00\r\n")
+    ):
+        raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
+    return {"Authorization": f"Bearer {api_key}"}
 
 
-def start_concept_server(settings: dict[str, Any]) -> LocalConceptServer:
-    """以固定 vLLM CLI 啟動 loopback server，ready 前不送教材。"""
+def semantic_service_client(
+    *, environment: Mapping[str, str] | None = None
+) -> httpx.Client:
+    """建立只連固定 loopback contract 的短生命週期 HTTP client。"""
 
-    base_url = settings["concept_api_base_url"]
-    chat_completions_url(base_url)
-    parsed = urlsplit(base_url)
-    port = parsed.port or 80
-    model_command = [
-        settings["concept_server_executable"],
-        "serve",
-        settings["concept_model_root"],
-        "--served-model-name",
-        settings["concept_model"],
-        "--host",
-        parsed.hostname or "127.0.0.1",
-        "--port",
-        str(port),
-        "--kv-cache-memory-bytes",
-        str(settings["concept_kv_cache_bytes"]),
-        "--max-num-seqs",
-        str(settings["concept_max_concurrency"]),
-        "--max-model-len",
-        str(settings["concept_max_model_len"]),
-        "--generation-config",
-        "vllm",
-        "--enforce-eager",
-    ]
-    command = [
-        sys.executable,
-        str(Path(__file__).with_name("process_guard.py")),
-        str(os.getpid()),
-        *model_command,
-    ]
+    return httpx.Client(
+        headers=_semantic_service_headers(environment),
+        trust_env=False,
+        follow_redirects=False,
+        timeout=SEMANTIC_INFERENCE_TIMEOUT,
+    )
+
+
+def preflight_semantic_service(
+    settings: dict[str, Any], *, client: httpx.Client | None = None
+) -> None:
+    """驗證既有 vLLM readiness、版本、模型 identity 與 32K tokenizer contract。"""
+
     try:
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            env=_VLLM_ENVIRONMENT,
+        base_url = settings["concept_api_base_url"]
+        model = settings["concept_model"]
+        max_model_len = settings["concept_max_model_len"]
+        semantic_lock = settings["runtime_lock"]["semantic"]
+        server_version = semantic_lock["server"]["version"]
+        if (
+            chat_completions_url(base_url)
+            != f"{base_url}{semantic_lock['api_path']}"
+            or base_url != "http://127.0.0.1:8000"
+            or model != semantic_lock["model_id"]
+            or max_model_len != semantic_lock["service"]["max_model_len"]
+            or semantic_lock["input_token_budget"]["api_path"] != TOKENIZE_PATH
+        ):
+            raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID")
+    except (KeyError, TypeError):
+        raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID") from None
+
+    owned_client = client is None
+    semantic_client = semantic_service_client() if client is None else client
+    try:
+        health = semantic_client.get(
+            f"{base_url}{HEALTH_PATH}",
+            timeout=SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS,
         )
-    except OSError as error:
+        health.raise_for_status()
+        version_response = semantic_client.get(
+            f"{base_url}{VERSION_PATH}",
+            timeout=SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS,
+        )
+        version_response.raise_for_status()
+        models_response = semantic_client.get(
+            f"{base_url}{MODELS_PATH}",
+            timeout=SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS,
+        )
+        models_response.raise_for_status()
+        chat_response = semantic_client.options(
+            chat_completions_url(base_url),
+            timeout=SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS,
+        )
+        if chat_response.status_code not in {200, 405}:
+            chat_response.raise_for_status()
+        tokenize_response = semantic_client.post(
+            f"{base_url}{TOKENIZE_PATH}",
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": "ready"}],
+                "add_generation_prompt": True,
+                "add_special_tokens": False,
+            },
+            timeout=SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS,
+        )
+        tokenize_response.raise_for_status()
+        version = version_response.json()
+        models = models_response.json()
+        tokenized = tokenize_response.json()
+    except httpx.TimeoutException as error:
+        raise ConceptAPIError("CONCEPT_API_TIMEOUT") from error
+    except (httpx.HTTPError, RecursionError, UnicodeDecodeError, ValueError) as error:
         raise ConceptAPIError("CONCEPT_API_UNAVAILABLE") from error
-    server = LocalConceptServer(process)
-    deadline = time.monotonic() + CONCEPT_SERVER_READY_TIMEOUT_SECONDS
-    try:
-        with httpx.Client(trust_env=False, follow_redirects=False) as client:
-            while True:
-                if process.poll() is not None:
-                    raise ConceptAPIError("CONCEPT_API_UNAVAILABLE")
-                try:
-                    response = client.get(f"{base_url.rstrip('/')}/health", timeout=1)
-                    if response.status_code == 200:
-                        return server
-                except httpx.RequestError:
-                    pass
-                if time.monotonic() >= deadline:
-                    raise ConceptAPIError("CONCEPT_API_TIMEOUT")
-                time.sleep(0.1)
-    except BaseException:
-        server.close()
-        raise
+    finally:
+        if owned_client:
+            semantic_client.close()
+
+    served_models = models.get("data") if isinstance(models, dict) else None
+    matching_model = (
+        next(
+            (
+                served
+                for served in served_models
+                if isinstance(served, dict) and served.get("id") == model
+            ),
+            None,
+        )
+        if isinstance(served_models, list)
+        else None
+    )
+    if (
+        not isinstance(version, dict)
+        or version.get("version") != server_version
+        or matching_model is None
+        or matching_model.get("max_model_len") != max_model_len
+        or not isinstance(tokenized, dict)
+        or type(tokenized.get("count")) is not int
+        or tokenized["count"] < 1
+        or tokenized.get("max_model_len") != max_model_len
+    ):
+        raise ConceptAPIError("CONCEPT_API_IDENTITY_MISMATCH")
 
 
 def chat_completions_url(base_url: Any) -> str:
@@ -193,7 +216,7 @@ def chat_completions_url(base_url: Any) -> str:
         raise ConceptAPIError("CONCEPT_API_CONFIG_INVALID") from None
     if (
         parsed.scheme != "http"
-        or parsed.hostname not in {"127.0.0.1", "localhost"}
+        or parsed.hostname != "127.0.0.1"
         or parsed.username is not None
         or parsed.password is not None
         or parsed.path not in {"", "/"}
@@ -231,7 +254,6 @@ def request_concept_text(
     prompt_template: str,
     semantic_request: dict[str, Any],
     max_model_len: int,
-    timeout_seconds: float,
     already_fitted: bool = False,
 ) -> str:
     return request_structured_text(
@@ -243,7 +265,6 @@ def request_concept_text(
         response_format=CONCEPT_RESPONSE_FORMAT,
         max_model_len=max_model_len,
         max_tokens=MAX_TOKENS,
-        timeout_seconds=timeout_seconds,
         request_is_fitted=already_fitted,
     )
 
@@ -256,7 +277,6 @@ def fit_concept_request(
     prompt_template: str,
     semantic_request: dict[str, Any],
     max_model_len: int,
-    timeout_seconds: float,
 ) -> dict[str, Any]:
     """以 server tokenizer 移除 optional context，保留完整 envelope。"""
 
@@ -269,7 +289,6 @@ def fit_concept_request(
             request_document=semantic_request,
             max_model_len=max_model_len,
             max_tokens=MAX_TOKENS,
-            timeout_seconds=timeout_seconds,
         )
     except httpx.TimeoutException as error:
         raise ConceptAPIError("CONCEPT_API_TIMEOUT") from error
@@ -289,7 +308,6 @@ def request_structured_text(
     response_format: dict[str, Any],
     max_model_len: int,
     max_tokens: int,
-    timeout_seconds: float,
     enable_thinking: bool | None = None,
     request_is_fitted: bool = False,
 ) -> str:
@@ -321,7 +339,6 @@ def request_structured_text(
                 request_document=request_document,
                 max_model_len=max_model_len,
                 max_tokens=max_tokens,
-                timeout_seconds=timeout_seconds,
             )
         )
         messages = _request_messages(prompt_template, fitted_request)
@@ -339,7 +356,6 @@ def request_structured_text(
         response = client.post(
             chat_completions_url(base_url),
             json=request_body,
-            timeout=timeout_seconds,
         )
         response.raise_for_status()
     except httpx.TimeoutException as error:
@@ -394,7 +410,6 @@ def _fit_request_document(
     request_document: dict[str, Any],
     max_model_len: int,
     max_tokens: int,
-    timeout_seconds: float,
 ) -> dict[str, Any]:
     """只移除低優先 context；current Evidence 的 batch 邊界不變。"""
 
@@ -407,7 +422,6 @@ def _fit_request_document(
             model=model,
             messages=messages,
             max_model_len=max_model_len,
-            timeout_seconds=timeout_seconds,
         )
         if count + max_tokens <= max_model_len:
             return candidate
@@ -477,7 +491,6 @@ def _token_count(
     model: str,
     messages: list[dict[str, str]],
     max_model_len: int,
-    timeout_seconds: float,
 ) -> int:
     tokenized = client.post(
         _tokenize_url(base_url),
@@ -487,7 +500,6 @@ def _token_count(
             "add_generation_prompt": True,
             "add_special_tokens": False,
         },
-        timeout=timeout_seconds,
     )
     tokenized.raise_for_status()
     if not tokenized.content or len(tokenized.content) > MAX_API_RESPONSE_BYTES:

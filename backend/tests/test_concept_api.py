@@ -1,19 +1,17 @@
 import json
 from pathlib import Path
-import sys
-from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import httpx
 import pytest
 
-import pdf_evidence.concept_api as concept_api_module
 from pdf_evidence.concept_api import (
     CONCEPT_RESPONSE_FORMAT,
     ConceptAPIError,
+    _semantic_service_headers,
     chat_completions_url,
+    preflight_semantic_service,
     request_concept_text,
-    start_concept_server,
+    semantic_service_client,
 )
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 
@@ -40,7 +38,7 @@ def _semantic_request():
 def _request(
     client,
     *,
-    base_url="http://localhost:8101",
+    base_url="http://127.0.0.1:8000",
     semantic_request=None,
 ):
     return request_concept_text(
@@ -50,96 +48,110 @@ def _request(
         prompt_template=RUNTIME_LOCK["semantic"]["prompt"],
         semantic_request=semantic_request or _semantic_request(),
         max_model_len=8_192,
-        timeout_seconds=300,
     )
 
 
 def _server_settings():
     return {
-        "concept_api_base_url": "http://127.0.0.1:8101",
-        "concept_model": "Qwen/Qwen3-14B-AWQ",
-        "concept_server_executable": "/runtime/bin/vllm",
-        "concept_model_root": "/models/qwen",
-        "concept_kv_cache_bytes": 2_147_483_648,
+        "runtime_lock": RUNTIME_LOCK,
+        "concept_api_base_url": "http://127.0.0.1:8000",
+        "concept_model": "Qwen/Qwen3.8-27B-FP8",
         "concept_max_concurrency": 1,
-        "concept_max_model_len": 8_192,
+        "concept_max_model_len": 32_768,
     }
 
 
-def test_owned_vllm_server_uses_fixed_bounded_command_and_cleans_up(monkeypatch):
-    process = MagicMock(pid=1234)
-    process.poll.return_value = None
-    health = MagicMock()
-    health.__enter__.return_value = health
-    health.get.return_value = SimpleNamespace(status_code=200)
-    popen = MagicMock(return_value=process)
-    killpg = MagicMock()
-    monkeypatch.setattr(concept_api_module.subprocess, "Popen", popen)
-    monkeypatch.setattr(concept_api_module.httpx, "Client", lambda **_: health)
-    monkeypatch.setattr(concept_api_module.os, "killpg", killpg)
+def _preflight_response(request: httpx.Request) -> httpx.Response:
+    if request.url.path == "/health":
+        return httpx.Response(200)
+    if request.url.path == "/version":
+        return httpx.Response(200, json={"version": "0.28.0"})
+    if request.url.path == "/v1/models":
+        return httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "data": [
+                    {
+                        "id": "Qwen/Qwen3.8-27B-FP8",
+                        "max_model_len": 32_768,
+                    }
+                ],
+            },
+        )
+    return httpx.Response(200, json={"count": 2, "max_model_len": 32_768})
 
-    server = start_concept_server(_server_settings())
-    server.close()
-    server.close()
 
-    expected_model_command = (
-        "/runtime/bin/vllm serve /models/qwen --served-model-name "
-        "Qwen/Qwen3-14B-AWQ --host 127.0.0.1 --port 8101 "
-        "--kv-cache-memory-bytes 2147483648 --max-num-seqs 1 --max-model-len 8192 "
-        "--generation-config vllm --enforce-eager"
-    ).split()
-    assert popen.call_args.args[0] == [
-        sys.executable,
-        str(Path(concept_api_module.__file__).with_name("process_guard.py")),
-        str(concept_api_module.os.getpid()),
-        *expected_model_command,
+def test_preflight_verifies_resident_service_without_process_lifecycle():
+    observed = []
+
+    def respond(request):
+        observed.append((request.method, request.url.path))
+        return _preflight_response(request)
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        preflight_semantic_service(_server_settings(), client=client)
+
+    assert observed == [
+        ("GET", "/health"),
+        ("GET", "/version"),
+        ("GET", "/v1/models"),
+        ("OPTIONS", "/v1/chat/completions"),
+        ("POST", "/tokenize"),
     ]
-    assert "--enable-log-requests" not in expected_model_command
-    process_options = popen.call_args.kwargs
-    assert process_options.pop("start_new_session") is True
-    assert process_options.pop("env") == {
-        "DO_NOT_TRACK": "1",
-        "HF_HUB_DISABLE_TELEMETRY": "1",
-        "HF_HUB_OFFLINE": "1",
-        "PATH": "/usr/bin:/bin",
-        "TRANSFORMERS_OFFLINE": "1",
-        "VLLM_NO_USAGE_STATS": "1",
-        "VLLM_USE_FLASHINFER_SAMPLER": "0",
-        "VLLM_USE_V2_MODEL_RUNNER": "0",
-    }
-    assert set(process_options.values()) == {concept_api_module.subprocess.DEVNULL}
-    health.get.assert_called_once_with("http://127.0.0.1:8101/health", timeout=1)
-    killpg.assert_called_once_with(1234, concept_api_module.signal.SIGTERM)
-    process.wait.assert_called_once_with(timeout=30)
+
+
+def test_semantic_service_client_uses_only_environment_bearer():
+    assert _semantic_service_headers(
+        {"VLLM_API_KEY": "test-only-value"}
+    ) == {"Authorization": "Bearer test-only-value"}
+    assert _semantic_service_headers({}) == {}
+
+
+def test_semantic_inference_has_connect_timeout_without_read_deadline():
+    with semantic_service_client(environment={}) as client:
+        assert client.timeout.connect == 5
+        assert client.timeout.read is None
+
+
+@pytest.mark.parametrize("api_key", ["", "line\nbreak", "nul\x00byte"])
+def test_semantic_service_bearer_rejects_unsafe_environment_value(api_key):
+    with pytest.raises(ConceptAPIError, match="CONCEPT_API_CONFIG_INVALID") as failure:
+        _semantic_service_headers({"VLLM_API_KEY": api_key})
+    if api_key:
+        assert api_key not in str(failure.value)
 
 
 @pytest.mark.parametrize(
-    ("process_return_code", "health_error", "moments", "reason_code"),
+    ("changed_path", "changed_value"),
     [
-        (7, None, [0.0], "CONCEPT_API_UNAVAILABLE"),
-        (None, httpx.ConnectError("public unavailable"), [0.0, 301.0], "CONCEPT_API_TIMEOUT"),
+        (("concept_api_base_url",), "http://127.0.0.1:8001"),
+        (("concept_model",), "wrong-model"),
+        (("concept_max_model_len",), 8_192),
     ],
 )
-def test_owned_vllm_server_start_failures_always_cleanup(
-    monkeypatch, process_return_code, health_error, moments, reason_code
-):
-    process = MagicMock(pid=1234)
-    process.poll.return_value = process_return_code
-    health = MagicMock()
-    health.__enter__.return_value = health
-    health.get.side_effect = health_error
-    killpg = MagicMock()
-    monkeypatch.setattr(concept_api_module.subprocess, "Popen", lambda *_, **__: process)
-    monkeypatch.setattr(concept_api_module.httpx, "Client", lambda **_: health)
-    monkeypatch.setattr(concept_api_module.time, "monotonic", lambda: moments.pop(0))
-    monkeypatch.setattr(concept_api_module.time, "sleep", lambda _: None)
-    monkeypatch.setattr(concept_api_module.os, "killpg", killpg)
+def test_preflight_rejects_noncanonical_contract(changed_path, changed_value):
+    settings = _server_settings()
+    settings[changed_path[0]] = changed_value
+    with pytest.raises(ConceptAPIError, match="CONCEPT_API_CONFIG_INVALID"):
+        preflight_semantic_service(settings)
 
-    with pytest.raises(ConceptAPIError, match=reason_code):
-        start_concept_server(_server_settings())
 
-    killpg.assert_called_once()
-    process.wait.assert_called_once_with(timeout=30)
+@pytest.mark.parametrize("field", ["version", "model", "max_model_len"])
+def test_preflight_rejects_wrong_service_identity(field):
+    def respond(request):
+        response = _preflight_response(request)
+        if field == "version" and request.url.path == "/version":
+            return httpx.Response(200, json={"version": "0.27.0"})
+        if field == "model" and request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": "wrong-model"}]})
+        if field == "max_model_len" and request.url.path == "/tokenize":
+            return httpx.Response(200, json={"count": 2, "max_model_len": 8_192})
+        return response
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ConceptAPIError, match="CONCEPT_API_IDENTITY_MISMATCH"):
+            preflight_semantic_service(_server_settings(), client=client)
 
 
 def test_chat_completion_uses_exact_loopback_request_and_returns_content():
@@ -162,12 +174,12 @@ def test_chat_completion_uses_exact_loopback_request_and_returns_content():
         )
 
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
-        model_text = _request(client, base_url="http://127.0.0.1:8101")
+        model_text = _request(client, base_url="http://127.0.0.1:8000")
 
     assert model_text == '{"concepts":[]}'
-    assert observed[0].url == "http://127.0.0.1:8101/tokenize"
+    assert observed[0].url == "http://127.0.0.1:8000/tokenize"
     assert json.loads(observed[0].content)["add_generation_prompt"] is True
-    assert observed[1].url == "http://127.0.0.1:8101/v1/chat/completions"
+    assert observed[1].url == "http://127.0.0.1:8000/v1/chat/completions"
     assert "authorization" not in observed[1].headers
     body = json.loads(observed[1].content)
     assert "uniqueItems" not in json.dumps(body["response_format"])
@@ -294,10 +306,11 @@ def test_optional_context_overflow_keeps_evidence_in_one_generation_call():
 @pytest.mark.parametrize(
     "base_url",
     [
-        "https://127.0.0.1:8101",
-        "http://example.test:8101",
-        "http://user@localhost:8101",
-        "http://localhost:8101/path",
+        "https://127.0.0.1:8000",
+        "http://example.test:8000",
+        "http://localhost:8000",
+        "http://user@localhost:8000",
+        "http://localhost:8000/path",
     ],
 )
 def test_chat_completion_rejects_non_loopback_origin(base_url):
@@ -322,6 +335,38 @@ def test_chat_completion_reports_http_unavailable_and_timeout(failure_type, reas
     with httpx.Client(transport=httpx.MockTransport(fail)) as client:
         with pytest.raises(ConceptAPIError, match=reason_code):
             _request(client)
+
+
+def test_failed_request_does_not_poison_next_resident_service_request():
+    tokenize_calls = 0
+
+    def respond(request):
+        nonlocal tokenize_calls
+        if request.url.path == "/tokenize":
+            tokenize_calls += 1
+            if tokenize_calls == 1:
+                return httpx.Response(503)
+            return httpx.Response(
+                200, json={"count": 100, "max_model_len": 8_192}
+            )
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": '{"concepts":[]}'},
+                    }
+                ]
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ConceptAPIError, match="CONCEPT_API_UNAVAILABLE"):
+            _request(client)
+        assert _request(client) == '{"concepts":[]}'
+
+    assert tokenize_calls == 2
 
 
 @pytest.mark.parametrize(

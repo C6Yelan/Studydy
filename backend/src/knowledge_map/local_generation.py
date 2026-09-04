@@ -12,7 +12,7 @@ from learning_resources.map_resources import promote_resources_to_formal_concept
 from pdf_evidence.concept_api import (
     ConceptAPIError,
     request_structured_text,
-    start_concept_server,
+    semantic_service_client,
 )
 from pdf_evidence.local_ai_process import (
     LocalAIError,
@@ -115,7 +115,6 @@ def _request_stage(
                 response_format=response_format,
                 max_model_len=settings["concept_max_model_len"],
                 max_tokens=stage["generation"]["max_tokens"],
-                timeout_seconds=stage["timeout_seconds"],
                 enable_thinking=False,
             )
         except ConceptAPIError as error:
@@ -177,11 +176,11 @@ def _verify_same_pairs(
     pairs_by_id = {pair["id"]: pair for pair in request["pairs"]}
     process = None
     final_decisions = []
-    timeout_seconds = settings["runtime_lock"]["concept_equivalence"][
-        "timeout_seconds"
+    startup_timeout_seconds = settings["runtime_lock"]["concept_equivalence"][
+        "startup_timeout_seconds"
     ]
     try:
-        process = start_equivalence_process(settings, timeout_seconds)
+        process = start_equivalence_process(settings, startup_timeout_seconds)
         for proposal in proposals:
             if proposal["decision"] != "SAME":
                 final_decisions.append(deepcopy(proposal))
@@ -199,7 +198,7 @@ def _verify_same_pairs(
                         "left_text": verifier_texts[pair["left"]],
                         "right_text": verifier_texts[pair["right"]],
                     },
-                    timeout_seconds,
+                    None,
                 )
             except LocalAIError as error:
                 if error.reason_code == "CHILD_TIMEOUT":
@@ -306,14 +305,11 @@ def generate_knowledge_map(
     deduplication_request, concept_aliases = build_deduplication_request(
         study_material_output
     )
-    server = None
     failure_reason = None
     try:
-        if deduplication_request["pairs"]:
-            server = start_concept_server(settings)
-        with httpx.Client(
-            trust_env=False, follow_redirects=False
-        ) if deduplication_request["pairs"] else nullcontext() as client:
+        with semantic_service_client() if deduplication_request[
+            "pairs"
+        ] else nullcontext() as client:
             if deduplication_request["pairs"]:
                 assert isinstance(client, httpx.Client)
                 model_text = _request_stage(
@@ -334,9 +330,6 @@ def generate_knowledge_map(
     except (FormalConceptError, KeyError, TypeError, ValueError):
         pair_decisions = uncertain_pair_decisions(deduplication_request)
         failure_reason = "MODEL_OUTPUT_INVALID"
-    finally:
-        if server is not None:
-            server.close()
 
     if failure_reason is None:
         try:

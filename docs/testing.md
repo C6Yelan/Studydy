@@ -36,7 +36,7 @@ PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/pytest -q \
   backend/tests/test_text_first_run.py
 ```
 
-公開模型 smoke 必須使用 `local_ai/runtime-lock.json` 綁定的離線 wheel、模型 revision、prompt 與 generation 設定。驗收時確認同一 product path 產生至少一個 page、Evidence block 與 Concept，狀態維持 `partial / needs_review / review`；再以相同輸入重跑，OCR 與 Qwen 呼叫數都必須為零。測試輸出只報告狀態、數量、延遲與固定 reason code，不保存 page image、完整 OCR／model text 或 raw pipe 內容。
+公開模型 smoke 必須使用 `local_ai/runtime-lock.json` 綁定的 Python 3.12、Qwen3.8 revision、vLLM 版本、prompt 與 generation 設定。驗收時確認同一 product path 產生至少一個 page、Evidence block 與 Concept，狀態維持 `partial / needs_review / review`；再以相同輸入重跑，OCR 與 Qwen 呼叫數都必須為零。測試輸出只報告狀態、數量、延遲與固定 reason code，不保存 page image、完整 OCR／model text 或 raw pipe 內容。
 
 ## Fixed local runtime checks
 
@@ -48,20 +48,29 @@ PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/pytest -q \
 這些命令都從 repository root 執行：
 
 ```bash
-PYTHONPATH=backend/src python -m runtime.local_runtime sync
-PYTHONPATH=backend/src python -m runtime.local_runtime sync --rollback
+UV_CACHE_DIR=/tmp/studydy-uv-cache uv sync --project backend --python 3.12 --extra test
 PYTHONPATH=backend/src python -m runtime.local_runtime verify
 ```
 
-`verify` 只讀取並驗證目前已安裝的 runtime，沒有副作用。`sync` 是明確、另行授權
-的操作，只 reconcile 已安裝 Studydy Python package 中的五個檔案：
-`__init__.py`、`protocol.py`、`ocr_process.py`、`equivalence_process.py` 與
-`assessment_process.py`。若有變更，會先保留五個檔案的完整 backup；`sync --rollback`
-會從該 backup 還原。sync 不會在啟動時自動執行，也不會
-進行下載、安裝或網路操作；在真實主機上執行會改動檔案，必須另行取得批准。
+`verify` 不修改已安裝runtime。它驗證必要package版本、model config、semantic service，並以
+現有production loaders實際載入OCR與assessment verifier；任一import、config或model load失敗
+即fail closed。Runtime安裝由bootstrap/package tooling負責，backend不提供source sync、backup或
+rollback，也不維護逐檔manifest。真實主機E2E與unseen-PDF評估仍是另外核准的操作。
 
-測試中的 disposable fixtures 只驗證這些 layout、驗證與 backup/rollback 邏輯。
-真實主機 E2E 與 unseen-PDF 評估是另外核准的操作，不屬於 fixture 測試。
+Production model inference不設計算deadline：OCR與mDeBERTa subprocess request傳入
+`timeout=None`；semantic HTTP client保留bounded loopback connect timeout，但read沒有deadline。
+Startup/readiness、database connect、lock acquisition與subprocess shutdown timeout不受影響。
+
+PostgreSQL production semantics remain PostgreSQL-only. Pytest normally creates one pinned
+disposable Docker PostgreSQL control database, then creates and drops a fresh `studydy_case_*`
+database for every database-backed test. On RunPod or another host without Docker, install
+PostgreSQL 18 on ephemeral local disk, prepare an empty `studydy_test*` control database with a
+dedicated test-only superuser matching Docker `POSTGRES_USER`, and provide its DSN only through
+`STUDYDY_TEST_POSTGRES_DSN`. Superuser is required only because migration fixtures use
+`session_replication_role` to construct legacy/invalid rows; production database privileges are
+unchanged. The fixture
+rejects the production DSN and preserves the same migration, transaction, isolation and cleanup
+checks. Never print or commit either DSN.
 
 ## Resource intake
 
@@ -152,16 +161,17 @@ adaptive-plan與suggestion derived APIs沒有alias或compatibility surface。Map
 grounded Tree與canonical inline `initial_learning_path`只讀；Agent 4不消費或推論
 prerequisite、prerequisite-gap或Relation資料。
 
-正式 `/v1` app 會在第一次 Assessment request lazy 啟動 Qwen 與 Assessment verifier，
-後續 request 在同一安全 lifecycle 內 reuse ready process。reuse期間沿用既有
-`material-analysis.lock`，因此 material worker只會等待、不會同時載入另一組模型；60秒
-idle或app shutdown會回收process並釋放lock。任一 generation failure會同時丟棄Qwen與
-verifier，下一次request重新cold start，不reuse可能損壞的process。這個lifecycle不改
+正式 `/v1` app 不擁有 Qwen lifecycle。RunPod/container startup 獨立持有固定
+`http://127.0.0.1:8000` 的 Qwen3.8 vLLM service；app startup 只驗證 readiness、vLLM version、
+served model identity、32K context 與 tokenizer protocol。Material、Knowledge Map 與
+Assessment 只建立帶 environment bearer 的 loopback HTTP client，不在 request 內載入或卸載
+Qwen；request failure、backend restart 與 shutdown 都不 poison 或關閉 service。Assessment
+verifier 仍沿用既有 lazy/idle lifecycle。這個變更不改
 Assessment runtime lock、prompt、NLI threshold、repair、Evidence Gate或selection policy。
 fresh disposable database 應由上述 migration command 套用連續的 1–17 版 migration；
 再次執行必須回傳空 tuple 並驗證 ledger checksum。`runtime.local_runtime verify`
-必須同時驗證 assessment package source hashes、model revisions、prompt hashes 與
-novelty/selection policy；lock 或 migration checksum 不符時應 fail closed。
+必須同時驗證model revisions、prompt hashes、novelty/selection policy與OCR/verifier load；
+lock或migration checksum不符時應fail closed。
 
 真模型 qualification 必須從 Formal Concept / Claim / canonical exact Evidence 進入正式
 prompt、validation、relative-margin selection、multiple-support risk repair 與 P06-02 builder；

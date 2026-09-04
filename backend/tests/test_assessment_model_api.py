@@ -28,14 +28,13 @@ def test_assessment_request_preserves_fixed_input_order_and_disables_thinking():
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
         assert request_assessment_text(
             client,
-            base_url="http://127.0.0.1:8101",
+            base_url="http://127.0.0.1:8000",
             model="fixed-model",
             prompt_template="fixed prompt",
             request_document=request_document,
             response_format={"type": "json_schema"},
             max_model_len=100,
             max_tokens=20,
-            timeout_seconds=30,
         ) == "{}"
 
     body = json.loads(observed[1].content)

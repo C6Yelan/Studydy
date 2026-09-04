@@ -91,16 +91,12 @@ def settings(
         "runtime_lock": runtime_lock,
         "python_executable": str(root / "ocr/runtime/bin/python3.12"),
         "site_packages": str(root / "ocr/runtime/lib/python3.12/site-packages"),
-        "concept_site_packages": str(root / "vllm/lib/python3.12/site-packages"),
         "ocr_model_root": str(root / "models/unlimited-ocr"),
         "verifier_model_root": str(root / "models/mdeberta-v3-base-mnli-xnli"),
-        "concept_api_base_url": "http://127.0.0.1:8101",
+        "concept_api_base_url": "http://127.0.0.1:8000",
         "concept_model": runtime_lock["semantic"]["model_id"],
-        "concept_server_executable": str(root / "vllm/bin/vllm"),
-        "concept_model_root": str(root / "models/qwen3-14b-awq"),
-        "concept_kv_cache_bytes": 2_147_483_648,
         "concept_max_concurrency": 1,
-        "concept_max_model_len": 8_192,
+        "concept_max_model_len": 32_768,
     }
     return ApiSettings(
         profile="local",

@@ -422,11 +422,15 @@ def create_app(settings: ApiSettings) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        workers = start_runtime_workers(dsn=settings.dsn, local_config=settings.local_config)
         try:
-            yield
+            workers = start_runtime_workers(
+                dsn=settings.dsn, local_config=settings.local_config
+            )
+            try:
+                yield
+            finally:
+                workers.stop()
         finally:
-            workers.stop()
             assessment_runtime_reuse.close()
 
     app = FastAPI(
