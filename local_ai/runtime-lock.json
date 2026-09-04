@@ -11,6 +11,10 @@
     "model_id": "Unlimited-OCR",
     "revision": "07dea832e22aefee32ad281d4b80551282e1c168",
     "prompt": "<image>document parsing.",
+    "page_schema": "page-evidence/v4",
+    "native_schema": "page-native/v3",
+    "processing_policy": "native-first-page-evidence/v3",
+    "normalizer_policy": "ocr-text-nfc-line-preserving/v1",
     "render": {
       "dpi": 200,
       "colorspace": "RGB",

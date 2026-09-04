@@ -55,7 +55,7 @@ def test_200dpi_rgb_page_identity_and_ocr_locator(tmp_path):
         produced_at="2026-08-18T00:00:00Z",
     )
     block = artifact["evidence_blocks"][0]
-    assert artifact["schema"] == "page-evidence/v3"
+    assert artifact["schema"] == "page-evidence/v4"
     assert artifact["route"] == "OCR_needed"
     assert artifact["processing"] == "succeeded"
     assert artifact["decision"] == "review"

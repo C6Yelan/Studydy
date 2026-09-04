@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+import math
 import re
 from typing import Any
 import unicodedata
@@ -61,17 +62,58 @@ def _ordered_pages(pages: Any) -> list[dict[str, Any]]:
         or len(page_numbers) != len(set(page_numbers))
     ):
         raise ValueError("DOCUMENT_EVIDENCE_INVALID")
+    material_id = next(iter(material_ids))
+    if not isinstance(material_id, str) or re.fullmatch(r"material:sha256:[0-9a-f]{64}", material_id) is None:
+        raise ValueError("DOCUMENT_EVIDENCE_INVALID")
+    source_sha256 = material_id.removeprefix("material:sha256:")
     evidence_ids: set[str] = set()
     for page in ordered:
         blocks = page.get("evidence_blocks")
-        if page.get("schema") != "page-evidence/v3" or not isinstance(blocks, list) or not blocks:
+        if page.get("schema") != "page-evidence/v4" or not isinstance(blocks, list) or not blocks:
+            raise ValueError("DOCUMENT_EVIDENCE_INVALID")
+        if page.get("page_ref") != _id(
+            "page",
+            {"source_sha256": source_sha256, "page_number": page["page_number"]},
+        ):
             raise ValueError("DOCUMENT_EVIDENCE_INVALID")
         orders = [block.get("reading_order") for block in blocks if isinstance(block, dict)]
         if len(orders) != len(blocks) or orders != sorted(set(orders)):
             raise ValueError("DOCUMENT_EVIDENCE_INVALID")
         for block in blocks:
             evidence_id = block.get("evidence_id")
-            if not isinstance(evidence_id, str) or evidence_id in evidence_ids:
+            locator = block.get("locator")
+            if (
+                not isinstance(locator, dict)
+                or locator.get("page") != page["page_number"]
+                or not isinstance(locator.get("region"), list)
+            ):
+                raise ValueError("DOCUMENT_EVIDENCE_INVALID")
+            block_id = _id(
+                "block",
+                {
+                    "page_ref": page["page_ref"],
+                    "reading_order": block["reading_order"],
+                    "region": locator["region"],
+                },
+            )
+            expected_evidence_id = _id(
+                "evidence",
+                {
+                    "page_ref": page["page_ref"],
+                    "block_id": block_id,
+                    "kind": block.get("kind"),
+                    "source": block.get("source"),
+                    "text": block.get("text"),
+                    "reading_order": block.get("reading_order"),
+                    "region": locator["region"],
+                },
+            )
+            if (
+                block.get("block_id") != block_id
+                or locator.get("block_id") != block_id
+                or evidence_id != expected_evidence_id
+                or evidence_id in evidence_ids
+            ):
                 raise ValueError("DOCUMENT_EVIDENCE_INVALID")
             evidence_ids.add(evidence_id)
     return ordered
@@ -491,6 +533,8 @@ def build_knowledge_structure(
     semantic_duration_ms: int = 0,
     resource_index: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
+    if context.get("material_id") != f"material:sha256:{source_sha256}":
+        raise ValueError("MATERIAL_IDENTITY_INVALID")
     evidence_by_id = {item["evidence_id"]: item for item in context["evidence"]}
     evidence_order = {key: index for index, key in enumerate(evidence_by_id)}
     concepts: list[dict[str, Any]] = []
@@ -641,7 +685,15 @@ def validate_knowledge_structure(document: Any) -> bool:
             "provenance", "page_count", "evidence", "excluded_pages", "document_tree",
             "concepts", "relations", "initial_learning_path", "metrics", "status",
         }
-        if not isinstance(document, dict) or set(document) != fields or document["schema"] != STRUCTURE_SCHEMA or document["revision"] != _revision(document):
+        if (
+            not isinstance(document, dict)
+            or set(document) != fields
+            or document["schema"] != STRUCTURE_SCHEMA
+            or document["revision"] != _revision(document)
+            or not isinstance(document["source_sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", document["source_sha256"]) is None
+            or document["material_id"] != f"material:sha256:{document['source_sha256']}"
+        ):
             return False
         evidence = document["evidence"]
         concepts = document["concepts"]
@@ -681,6 +733,52 @@ def validate_knowledge_structure(document: Any) -> bool:
             for item in evidence
         ):
             return False
+        for item in evidence:
+            locator = item["source_locator"]
+            if (
+                not isinstance(locator, dict)
+                or set(locator) != {"page", "block_id", "region"}
+                or not isinstance(locator["region"], list)
+                or len(locator["region"]) != 4
+                or any(type(number) not in {int, float} or not math.isfinite(number) for number in locator["region"])
+                or locator["region"][0] >= locator["region"][2]
+                or locator["region"][1] >= locator["region"][3]
+            ):
+                return False
+            page_ref = _id(
+                "page",
+                {
+                    "source_sha256": document["source_sha256"],
+                    "page_number": item["page"],
+                },
+            )
+            block_id = _id(
+                "block",
+                {
+                    "page_ref": page_ref,
+                    "reading_order": item["block_order"],
+                    "region": locator["region"],
+                },
+            )
+            evidence_id = _id(
+                "evidence",
+                {
+                    "page_ref": page_ref,
+                    "block_id": block_id,
+                    "kind": item["kind"],
+                    "source": item["source"],
+                    "text": item["exact_text"],
+                    "reading_order": item["block_order"],
+                    "region": locator["region"],
+                },
+            )
+            if (
+                item["page_ref"] != page_ref
+                or locator["page"] != item["page"]
+                or locator["block_id"] != block_id
+                or item["evidence_id"] != evidence_id
+            ):
+                return False
         known_evidence, known_concepts = set(evidence_ids), set(concept_ids)
         evidence_by_id = {item["evidence_id"]: item for item in evidence}
         for concept in concepts:

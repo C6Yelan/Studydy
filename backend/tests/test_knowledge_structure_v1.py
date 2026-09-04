@@ -15,26 +15,44 @@ from pdf_evidence.ocr_page_evidence import canonical_sha256
 
 
 def _block(page: int, order: int, kind: str, text: str) -> dict:
-    page_ref = f"page:sha256:{page:064x}"
-    block_id = f"block:sha256:{page * 100 + order:064x}"
+    page_ref = "page:sha256:" + canonical_sha256(
+        {"source_sha256": "1" * 64, "page_number": page}
+    )
+    region = [1.0, 2.0, 30.0, 40.0]
+    block_id = "block:sha256:" + canonical_sha256(
+        {"page_ref": page_ref, "reading_order": order, "region": region}
+    )
+    evidence_id = "evidence:sha256:" + canonical_sha256(
+        {
+            "page_ref": page_ref,
+            "block_id": block_id,
+            "kind": kind,
+            "source": "native_text",
+            "text": text,
+            "reading_order": order,
+            "region": region,
+        }
+    )
     return {
-        "evidence_id": f"evidence:sha256:{page * 100 + order:064x}",
+        "evidence_id": evidence_id,
         "block_id": block_id,
         "ocr_type": kind,
         "kind": kind,
         "text": text,
         "reading_order": order,
-        "locator": {"page": page, "block_id": block_id, "region": [1.0, 2.0, 30.0, 40.0]},
-        "render_region": [1.0, 2.0, 30.0, 40.0],
+        "locator": {"page": page, "block_id": block_id, "region": region},
+        "render_region": region,
         "source": "native_text",
     }
 
 
 def _page(number: int, blocks: list[dict]) -> dict:
     return {
-        "schema": "page-evidence/v3",
-        "material_id": f"material:sha256:{1:064x}",
-        "page_ref": f"page:sha256:{number:064x}",
+        "schema": "page-evidence/v4",
+        "material_id": "material:sha256:" + "1" * 64,
+        "page_ref": "page:sha256:" + canonical_sha256(
+            {"source_sha256": "1" * 64, "page_number": number}
+        ),
         "page_number": number,
         "evidence_blocks": blocks,
     }
@@ -165,7 +183,7 @@ def test_typed_relations_and_prerequisite_are_the_only_path_authority():
     structure = build_knowledge_structure(
         context,
         state,
-        source_sha256="f" * 64,
+        source_sha256="1" * 64,
         run_id="run-1",
         produced_at="2026-09-05T00:00:00+00:00",
         runtime_lock_sha256=canonical_sha256({"runtime": 1}),
@@ -199,7 +217,7 @@ def test_cycle_and_forbidden_or_generic_relations_never_publish():
     structure = build_knowledge_structure(
         context,
         state,
-        source_sha256="f" * 64,
+        source_sha256="1" * 64,
         run_id="run-1",
         produced_at="now",
         runtime_lock_sha256="a" * 64,
@@ -232,7 +250,7 @@ def test_cross_section_concept_has_one_primary_tree_placement_and_zero_prerequis
     }]
     apply_semantic_response(response, context=context, bundle=bundle, state=state)
     structure = build_knowledge_structure(
-        context, state, source_sha256="f" * 64, run_id="run", produced_at="now",
+        context, state, source_sha256="1" * 64, run_id="run", produced_at="now",
         runtime_lock_sha256="a" * 64, model_id="Qwen/Qwen3.8-27B-FP8",
         model_revision="revision", semantic_calls=1, ocr_calls=0,
     )
@@ -282,7 +300,7 @@ def test_runtime_timings_do_not_change_content_revision():
     bundle = build_semantic_bundles(context, maximum_utf8_bytes=80_000)[0]
     apply_semantic_response(_response(context), context=context, bundle=bundle, state=state)
     arguments = {
-        "source_sha256": "f" * 64,
+        "source_sha256": "1" * 64,
         "run_id": "run",
         "produced_at": "now",
         "runtime_lock_sha256": "a" * 64,
@@ -299,3 +317,16 @@ def test_runtime_timings_do_not_change_content_revision():
     )
     assert fast["revision"] == slow["revision"]
     assert fast["metrics"] != slow["metrics"]
+
+
+def test_material_source_identity_mismatch_is_rejected_before_publication():
+    context = _context()
+    state = SemanticState()
+    bundle = build_semantic_bundles(context, maximum_utf8_bytes=80_000)[0]
+    apply_semantic_response(_response(context), context=context, bundle=bundle, state=state)
+    with pytest.raises(ValueError, match="MATERIAL_IDENTITY_INVALID"):
+        build_knowledge_structure(
+            context, state, source_sha256="2" * 64, run_id="run", produced_at="now",
+            runtime_lock_sha256="a" * 64, model_id="Qwen/Qwen3.8-27B-FP8",
+            model_revision="revision", semantic_calls=1, ocr_calls=0,
+        )

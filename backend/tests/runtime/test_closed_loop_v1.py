@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+import time
 
 import pymupdf
 import psycopg
@@ -16,7 +18,8 @@ from learning_adaptation.assessments import AssessmentError, generate_assessment
 from learning_adaptation.learner_progress import LearnerProgressError, apply_guidance, derive_learner_progress
 from learning_adaptation.study_sessions import create_study_session, read_study_session
 from runtime.learner_session import TrustedLearner, create_session
-from runtime.material_processing import _record_progress, claim_next_material_processing_run, create_material_processing_run
+import runtime.material_processing as processing
+from runtime.material_processing import _record_progress, claim_next_material_processing_run, create_material_processing_run, runtime_binding
 from runtime.storage.artifacts import publish_idempotent_source_pdf
 from runtime.storage.knowledge_structures import publish_knowledge_structure, read_knowledge_structure
 from runtime.storage.migrations import run_migrations
@@ -49,27 +52,44 @@ def _pdf() -> bytes:
     return value
 
 
-def _page() -> dict:
-    block_id = "block:sha256:" + "2" * 64
-    return {
-        "schema": "page-evidence/v3",
-        "material_id": "material:sha256:" + "3" * 64,
-        "page_ref": "page:sha256:" + "4" * 64,
-        "page_number": 1,
-        "evidence_blocks": [{
-            "evidence_id": "evidence:sha256:" + "5" * 64,
+def _page(source_sha256: str) -> dict:
+    page_ref = "page:sha256:" + canonical_sha256(
+        {"source_sha256": source_sha256, "page_number": 1}
+    )
+    region = [1.0, 2.0, 20.0, 30.0]
+    block_id = "block:sha256:" + canonical_sha256(
+        {"page_ref": page_ref, "reading_order": 0, "region": region}
+    )
+    evidence_id = "evidence:sha256:" + canonical_sha256(
+        {
+            "page_ref": page_ref,
             "block_id": block_id,
             "kind": "paragraph",
             "source": "native_text",
             "text": "A stack follows LIFO order.",
             "reading_order": 0,
-            "locator": {"page": 1, "block_id": block_id, "region": [1.0, 2.0, 20.0, 30.0]},
+            "region": region,
+        }
+    )
+    return {
+        "schema": "page-evidence/v4",
+        "material_id": "material:sha256:" + source_sha256,
+        "page_ref": page_ref,
+        "page_number": 1,
+        "evidence_blocks": [{
+            "evidence_id": evidence_id,
+            "block_id": block_id,
+            "kind": "paragraph",
+            "source": "native_text",
+            "text": "A stack follows LIFO order.",
+            "reading_order": 0,
+            "locator": {"page": 1, "block_id": block_id, "region": region},
         }],
     }
 
 
 def _structure(run_id: str, source_sha256: str, lock: dict) -> dict:
-    context = build_document_context([_page()], page_count=1)
+    context = build_document_context([_page(source_sha256)], page_count=1)
     state = SemanticState()
     response = {
         "schema": "material-semantics-response/v1",
@@ -95,14 +115,14 @@ def _structure(run_id: str, source_sha256: str, lock: dict) -> dict:
     )
 
 
-def _assessment_response(angle: str, prompt: str) -> dict:
+def _assessment_response(angle: str, prompt: str, evidence_id: str) -> dict:
     candidate = {
         "learning_angle": angle,
         "novelty": "distinct",
         "safety": "safe",
         "prompt": prompt,
         "correct_answer": "LIFO",
-        "supporting_evidence_ids": ["evidence:sha256:" + "5" * 64],
+        "supporting_evidence_ids": [evidence_id],
         "distractors": [
             {"text": "FIFO", "changed_from": "LIFO", "changed_to": "FIFO"},
             {"text": "RANDOM", "changed_from": "LIFO", "changed_to": "RANDOM"},
@@ -143,7 +163,7 @@ def test_persisted_closed_loop_private_answer_mastery_and_guidance(closed_loop):
 
     first = generate_assessment(
         learner, study.study_session_id, claim_id, "assessment-1", settings,
-        dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: _assessment_response("definition", "根據教材，Stack 使用哪種順序？"),
+        dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: _assessment_response("definition", "根據教材，Stack 使用哪種順序？", concept["evidence_refs"][0]),
     )
     assert "correct_option_id" not in first.public_document
     correct = first.private_answer_document["correct_option_id"]
@@ -154,7 +174,7 @@ def test_persisted_closed_loop_private_answer_mastery_and_guidance(closed_loop):
 
     second = generate_assessment(
         learner, study.study_session_id, claim_id, "assessment-2", settings,
-        dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: _assessment_response("recognition", "依教材，哪個縮寫描述 Stack 順序？"),
+        dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: _assessment_response("recognition", "依教材，哪個縮寫描述 Stack 順序？", concept["evidence_refs"][0]),
     )
     submit_answer(learner, study.study_session_id, second.assessment_revision, second.question_id, second.private_answer_document["correct_option_id"], "answer-2", dsn=dsn)
     progress = derive_learner_progress(learner, study.study_session_id, dsn=dsn)
@@ -171,7 +191,7 @@ def test_answer_idempotency_conflict_is_not_false_success(closed_loop):
     study = create_study_session(learner, source.material_id, structure["revision"], "study", dsn=dsn)
     assessment = generate_assessment(
         learner, study.study_session_id, concept["claims"][0]["claim_id"], "assessment", settings,
-        dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: _assessment_response("definition", "根據教材，Stack 使用哪種順序？"),
+        dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: _assessment_response("definition", "根據教材，Stack 使用哪種順序？", concept["evidence_refs"][0]),
     )
     first, second = assessment.public_document["options"][:2]
     submit_answer(learner, study.study_session_id, assessment.assessment_revision, assessment.question_id, first["option_id"], "same", dsn=dsn)
@@ -187,7 +207,7 @@ def test_concurrent_same_assessment_intent_publishes_once(closed_loop):
     def request():
         return generate_assessment(
             learner, study.study_session_id, claim_id, "same-assessment-intent", settings,
-            dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: _assessment_response("definition", "根據教材，Stack 使用哪種順序？"),
+            dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: _assessment_response("definition", "根據教材，Stack 使用哪種順序？", structure["concepts"][0]["evidence_refs"][0]),
         )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -204,7 +224,7 @@ def test_guidance_revision_becomes_stale_after_answer_event(closed_loop):
     before = derive_learner_progress(learner, study.study_session_id, dsn=dsn)
     assessment = generate_assessment(
         learner, study.study_session_id, claim_id, "assessment", settings,
-        dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: _assessment_response("definition", "根據教材，Stack 使用哪種順序？"),
+        dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: _assessment_response("definition", "根據教材，Stack 使用哪種順序？", structure["concepts"][0]["evidence_refs"][0]),
     )
     submit_answer(
         learner, study.study_session_id, assessment.assessment_revision,
@@ -219,7 +239,7 @@ def test_no_safe_assessment_is_truthful_and_creates_no_private_answer(closed_loo
     learner, source, settings, structure, dsn, _token = closed_loop
     study = create_study_session(learner, source.material_id, structure["revision"], "study", dsn=dsn)
     claim_id = structure["concepts"][0]["claims"][0]["claim_id"]
-    rejected = _assessment_response("unsafe", "Ambiguous question")
+    rejected = _assessment_response("unsafe", "Ambiguous question", structure["concepts"][0]["evidence_refs"][0])
     rejected["candidates"][0]["safety"] = "reject"
     with pytest.raises(AssessmentError, match="NO_SAFE_ASSESSMENT"):
         generate_assessment(
@@ -247,7 +267,7 @@ def test_http_api_projects_the_same_closed_loop_without_private_answer(closed_lo
             *arguments,
             **keywords,
             client=Client(),
-            semantic_call=lambda *_args, **_kwargs: _assessment_response("definition", "根據教材，Stack 使用哪種順序？"),
+            semantic_call=lambda *_args, **_kwargs: _assessment_response("definition", "根據教材，Stack 使用哪種順序？", structure["concepts"][0]["evidence_refs"][0]),
         )
 
     monkeypatch.setattr(api_app, "generate_assessment", generate)
@@ -307,3 +327,133 @@ def test_http_api_projects_the_same_closed_loop_without_private_answer(closed_lo
         openapi = client.get("/v1/openapi.json").text
         assert "knowledge-structures" in openapi
         assert "formal_concept" not in openapi
+
+
+def test_http_upload_worker_assessment_and_guidance_are_one_closed_loop(
+    clean_database_dsn, migrations_dir, tmp_path, monkeypatch
+):
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1,)
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir(mode=0o700)
+    monkeypatch.setenv("STUDYDY_ARTIFACT_ROOT", str(artifact_root))
+    settings = _settings(tmp_path)
+    produced: dict[str, dict] = {}
+
+    def deterministic_analysis(request, local_config, *, run_id, progress_callback, **_arguments):
+        source = Path(request["source_path"]).read_bytes()
+        assert hashlib.sha256(source).hexdigest() == request["expected_source_sha256"]
+        progress_callback("evidence", 1, 1)
+        progress_callback("semantics", 1, 1)
+        structure = _structure(run_id, request["expected_source_sha256"], local_config["runtime_lock"])
+        produced["structure"] = structure
+        return structure
+
+    monkeypatch.setattr(api_app, "runtime_preflight", runtime_binding)
+    monkeypatch.setattr(processing, "runtime_preflight", runtime_binding)
+    monkeypatch.setattr(processing, "analyze_material", deterministic_analysis)
+    assessment_round = 0
+
+    def generate(*arguments, **keywords):
+        nonlocal assessment_round
+        assessment_round += 1
+        evidence_id = produced["structure"]["concepts"][0]["evidence_refs"][0]
+        return generate_assessment(
+            *arguments,
+            **keywords,
+            client=Client(),
+            semantic_call=lambda *_args, **_kwargs: _assessment_response(
+                f"angle-{assessment_round}",
+                f"根據教材，第 {assessment_round} 題：Stack 使用哪種順序？",
+                evidence_id,
+            ),
+        )
+
+    monkeypatch.setattr(api_app, "generate_assessment", generate)
+    app = api_app.create_app(api_app.ApiSettings(
+        profile="test",
+        public_origin="https://studydy.test",
+        secure_cookie=True,
+        local_config=settings,
+        dsn=clean_database_dsn,
+    ))
+    mutation_headers = {"Origin": "https://studydy.test"}
+    with TestClient(app, base_url="https://studydy.test") as client:
+        assert client.post("/v1/session", headers=mutation_headers).status_code == 204
+        uploaded = client.post(
+            "/v1/materials",
+            headers={
+                **mutation_headers,
+                "Idempotency-Key": "full-upload",
+                "Content-Type": "application/pdf",
+            },
+            content=_pdf(),
+        )
+        assert uploaded.status_code == 201
+        material = uploaded.json()
+        created = client.post(
+            "/v1/material-processing-runs",
+            headers={**mutation_headers, "Idempotency-Key": "full-process"},
+            json={
+                "schema": "material-processing-create/v1",
+                "material_id": material["material_id"],
+                "source_artifact_id": material["source_artifact_id"],
+            },
+        )
+        assert created.status_code == 202
+        run_id = created.json()["run_id"]
+        deadline = time.monotonic() + 5
+        while True:
+            run = client.get(f"/v1/material-processing-runs/{run_id}").json()
+            if run["status"] not in {"pending", "running"}:
+                break
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
+        assert run["status"] == "succeeded"
+        revision = run["output_binding"]["knowledge_structure_revision"]
+        map_url = f"/v1/materials/{material['material_id']}/knowledge-structures/{revision}"
+        first_map = client.get(map_url)
+        second_map = client.get(map_url)
+        assert first_map.status_code == second_map.status_code == 200
+        assert first_map.content == second_map.content
+        view = first_map.json()
+        assert view["concepts"][0]["claims"][0]["evidence"][0]["source_locator"]["page"] == 1
+        study = client.post(
+            "/v1/study-sessions",
+            headers={**mutation_headers, "Idempotency-Key": "full-study"},
+            json={
+                "schema": "study-session-create/v2",
+                "material_id": material["material_id"],
+                "knowledge_structure_revision": revision,
+                "current_concept_id": view["concepts"][0]["concept_id"],
+            },
+        ).json()
+        claim_id = view["concepts"][0]["claims"][0]["claim_id"]
+        for number in (1, 2):
+            assessment = client.post(
+                f"/v1/study-sessions/{study['study_session_id']}/assessments",
+                headers={**mutation_headers, "Idempotency-Key": f"full-assessment-{number}"},
+                json={"schema": "assessment-create/v2", "target_claim_id": claim_id},
+            )
+            assert assessment.status_code == 201
+            public = assessment.json()
+            assert "correct_option_id" not in public
+            correct = next(option for option in public["options"] if option["text"] == "LIFO")
+            feedback = client.post(
+                f"/v1/study-sessions/{study['study_session_id']}/assessments/{public['assessment_revision']}/submissions",
+                headers={**mutation_headers, "Idempotency-Key": f"full-answer-{number}"},
+                json={
+                    "schema": "answer-submission-create/v2",
+                    "question_id": public["question_id"],
+                    "selected_option_id": correct["option_id"],
+                },
+            )
+            assert feedback.status_code == 201 and feedback.json()["is_correct"] is True
+        progress = client.get(f"/v1/study-sessions/{study['study_session_id']}/progress").json()
+        assert progress["concept_states"][0]["status"] == "mastered"
+        completed = client.post(
+            f"/v1/study-sessions/{study['study_session_id']}/guidance/apply",
+            headers=mutation_headers,
+            json={"schema": "guidance-apply/v2", "guidance_revision": progress["guidance_revision"]},
+        )
+        assert completed.status_code == 200
+        assert client.get(f"/v1/study-sessions/{study['study_session_id']}").json()["status"] == "completed"

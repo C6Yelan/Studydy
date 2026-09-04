@@ -10,9 +10,9 @@ import unicodedata
 import pymupdf
 
 
-PAGE_SCHEMA = "page-evidence/v3"
-NATIVE_SCHEMA = "page-native/v2"
-PROCESSING_POLICY = "native-first-page-evidence/v2"
+PAGE_SCHEMA = "page-evidence/v4"
+NATIVE_SCHEMA = "page-native/v3"
+PROCESSING_POLICY = "native-first-page-evidence/v3"
 NORMALIZER_POLICY = "ocr-text-nfc-line-preserving/v1"
 RENDER_DPI = 200
 PDF_POINTS_PER_INCH = 72
@@ -471,10 +471,12 @@ def _build_page_evidence(
             "block",
             {"page_ref": page["page_ref"], "reading_order": reading_order, "region": region},
         )
+        kind = _kind(ocr_type)
         identity = {
             "page_ref": page["page_ref"],
             "block_id": block_id,
-            "ocr_type": ocr_type,
+            "kind": kind,
+            "source": source,
             "text": text,
             "reading_order": reading_order,
             "region": region,
@@ -484,7 +486,7 @@ def _build_page_evidence(
                 "evidence_id": _ref("evidence", identity),
                 "block_id": block_id,
                 "ocr_type": ocr_type,
-                "kind": _kind(ocr_type),
+                "kind": kind,
                 "text": text,
                 "reading_order": reading_order,
                 "locator": {

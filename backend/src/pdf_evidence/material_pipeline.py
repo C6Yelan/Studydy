@@ -73,6 +73,10 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
             or material["response_schema"] != "material-semantics-response/v1"
             or assessment["request_schema"] != "assessment-semantics-request/v1"
             or assessment["response_schema"] != "assessment-semantics-response/v1"
+            or lock["ocr"]["page_schema"] != "page-evidence/v4"
+            or lock["ocr"]["native_schema"] != "page-native/v3"
+            or lock["ocr"]["processing_policy"] != "native-first-page-evidence/v3"
+            or lock["ocr"]["normalizer_policy"] != "ocr-text-nfc-line-preserving/v1"
             or type(material["maximum_bundle_utf8_bytes"]) is not int
             or material["retry_attempts"] != 2
         ):
