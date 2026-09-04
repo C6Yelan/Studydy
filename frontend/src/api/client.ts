@@ -95,6 +95,7 @@ function knowledgeStructure(value: unknown): value is KnowledgeStructureView {
       if (!claim.evidence.every((value) => {
         const evidence = object(value);
         return !!evidence && revision(evidence.evidence_id, "evidence") && Number.isInteger(evidence.page)
+          && (evidence.source === "native_text" || evidence.source === "unlimited_ocr")
           && typeof evidence.quote === "string" && locator(evidence.source_locator);
       })) return false;
     }

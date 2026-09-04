@@ -13,7 +13,10 @@
       "wrong_relation_direction": 0,
       "invented_relation_endpoint": 0,
       "unsupported_prerequisite": 0,
-      "generic_relation_reason": 0
+      "generic_relation_reason": 0,
+      "generic_relation_hub": 0,
+      "adjacency_only_relation": 0,
+      "missing_no_relation": 0
     },
     "technical": {
       "revision": "REPLACE_WITH_PRIVATE_REVISION",
@@ -26,7 +29,10 @@
       "wrong_relation_direction": 0,
       "invented_relation_endpoint": 0,
       "unsupported_prerequisite": 0,
-      "generic_relation_reason": 0
+      "generic_relation_reason": 0,
+      "generic_relation_hub": 0,
+      "adjacency_only_relation": 0,
+      "missing_no_relation": 0
     },
     "scanned": {
       "revision": "REPLACE_WITH_PRIVATE_REVISION",
@@ -39,7 +45,10 @@
       "wrong_relation_direction": 0,
       "invented_relation_endpoint": 0,
       "unsupported_prerequisite": 0,
-      "generic_relation_reason": 0
+      "generic_relation_reason": 0,
+      "generic_relation_hub": 0,
+      "adjacency_only_relation": 0,
+      "missing_no_relation": 0
     }
   },
   "assessment": {
@@ -49,6 +58,8 @@
     "exact_duplicate_blocked": false,
     "novelty_uncertain_published": false,
     "technical_token_safe": false,
+    "unsupported_correct_blocked": false,
+    "contradiction_paraphrase_safe": false,
     "false_mastery": 0
   },
   "closed_loop": {
@@ -69,12 +80,8 @@
     "pdf_locator": false
   },
   "runtime": {
-    "resident_qwen_load_count": 0,
-    "material_model_reloads": 0,
     "oom": 0,
     "engine_death": 0,
-    "representative_8_page_semantic_calls": 0,
-    "warm_semantic_wall_seconds": 0,
     "python_minors": ["3.12"],
     "mdeberta_decision": "REMOVE"
   }

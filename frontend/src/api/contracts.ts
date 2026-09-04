@@ -76,6 +76,7 @@ export type EvidenceView = {
   page: number;
   block_order: number;
   kind: string;
+  source: "native_text" | "unlimited_ocr";
   source_locator: SourceLocatorView;
   quote: string;
 };

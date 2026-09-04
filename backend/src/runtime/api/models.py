@@ -74,6 +74,7 @@ class EvidenceView(_Closed):
     page: int
     block_order: int
     kind: str
+    source: Literal["native_text", "unlimited_ocr"]
     source_locator: SourceLocatorView
     quote: str
 

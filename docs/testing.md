@@ -45,6 +45,7 @@ Inputs and outputs stay under ignored/private locations:
 
 ```bash
 PYTHONPATH=backend/src backend/.venv/bin/python backend/scripts/a40_final_qualification.py run \
+  --representative-eight '<PRIVATE_REPRESENTATIVE_8_PAGE_PDF>' \
   --array '<PRIVATE_45_PAGE_ARRAY_PDF>' \
   --technical '<PRIVATE_ADDITIONAL_TECHNICAL_PDF>' \
   --scanned '<PRIVATE_SCANNED_PDF>'
@@ -53,8 +54,9 @@ PYTHONPATH=backend/src backend/.venv/bin/python backend/scripts/a40_final_qualif
   --review '<PRIVATE_REVIEW_JSON>'
 ```
 
-`run` rejects non-A40 hardware, a non-resident or reloaded Qwen, a non-45-page primary input, a
-scanned input that never uses OCR, invalid structures, or service death. It saves full artifacts only
+`run` rejects non-A40 hardware, a non-resident or reloaded Qwen, an 8-page runtime input outside the
+1–3 call / 180-second semantic gates, a non-45-page primary input, a scanned input that never uses
+OCR, invalid structures, unavailable VRAM telemetry, or service death. It saves full artifacts only
 under ignored `.studydy-runtime/a40-final/` and prints aggregate identity only.
 
 The bound `a40-final-review/v1` review records teaching-unit recall/disappearance/false merges,

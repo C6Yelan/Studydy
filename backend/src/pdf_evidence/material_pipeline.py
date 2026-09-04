@@ -245,6 +245,7 @@ def analyze_material(
     report = progress_callback or (lambda _stage, _completed, _total: None)
     runtime_root = Path(settings["private_runtime_root"])
     with material_analysis_lock(runtime_root):
+        evidence_started = time.monotonic()
         with tempfile.TemporaryDirectory(prefix="studydy-source-") as directory:
             snapshot = Path(directory) / "source.pdf"
             checked = snapshot_whole_document_request(request, snapshot)
@@ -257,6 +258,7 @@ def analyze_material(
                 resolved_time,
                 report,
             )
+        evidence_duration_ms = round((time.monotonic() - evidence_started) * 1000)
         context = build_document_context(
             pages, page_count=len(page_numbers), excluded_pages=excluded
         )
@@ -267,6 +269,7 @@ def analyze_material(
         state = SemanticState()
         pending = list(bundles)
         semantic_calls = 0
+        semantic_started = time.monotonic()
         owned_client = client is None
         http = semantic_client() if client is None else client
         try:
@@ -310,6 +313,7 @@ def analyze_material(
         finally:
             if owned_client:
                 http.close()
+        semantic_duration_ms = round((time.monotonic() - semantic_started) * 1000)
     service = lock["semantic_service"]
     return build_knowledge_structure(
         context,
@@ -322,5 +326,7 @@ def analyze_material(
         model_revision=service["revision"],
         semantic_calls=semantic_calls,
         ocr_calls=ocr_calls,
+        evidence_duration_ms=evidence_duration_ms,
+        semantic_duration_ms=semantic_duration_ms,
         resource_index=load_resource_index(),
     )

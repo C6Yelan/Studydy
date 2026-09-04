@@ -60,6 +60,7 @@ def _page() -> dict:
             "evidence_id": "evidence:sha256:" + "5" * 64,
             "block_id": block_id,
             "kind": "paragraph",
+            "source": "native_text",
             "text": "A stack follows LIFO order.",
             "reading_order": 0,
             "locator": {"page": 1, "block_id": block_id, "region": [1.0, 2.0, 20.0, 30.0]},

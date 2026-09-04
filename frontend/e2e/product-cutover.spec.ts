@@ -28,6 +28,7 @@ function structureView() {
         page,
         block_order: 0,
         kind: "paragraph",
+        source: "native_text",
         source_locator: { page, block_id: `block:sha256:${String(page).repeat(64)}`, region: [1, 2, 30, 40] },
         quote: label === "Stack" ? "A stack follows LIFO order." : "An array stores contiguous values.",
       }],

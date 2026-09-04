@@ -9,7 +9,8 @@
 4. Apply the sole final migration to a fresh pre-release database; a second invocation must return
    an empty tuple.
 5. Run `runtime.local_runtime verify`, the complete local regression in `docs/testing.md`, and the A40
-   `run` command on the 45-page array material, another technical material, and a scanned material.
+   `run` command on a representative 8-page input, the 45-page array material, another technical
+   material, and a scanned material.
 6. Through the real browser/API, verify upload, progress, Evidence, Concepts, Relations, Map, Path,
    StudySession, Assessment, answer, learner guidance, reload/reopen, exact revision, and PDF locator.
 7. Complete the private review bound to the run SHA and run the `score` command. A summary with

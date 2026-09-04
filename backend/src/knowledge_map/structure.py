@@ -125,6 +125,7 @@ def build_document_context(
                 "page": page["page_number"],
                 "block_order": block["reading_order"],
                 "kind": block["kind"],
+                "source": block["source"],
                 "exact_text": block["text"],
                 "heading": current["title"],
                 "section_id": current["section_id"],
@@ -466,7 +467,11 @@ def _path(concepts: list[dict[str, Any]], relations: list[dict[str, Any]]) -> li
 
 
 def _revision(document: dict[str, Any]) -> str:
-    identity = {key: value for key, value in document.items() if key not in {"revision", "run_id", "produced_at"}}
+    identity = {
+        key: value
+        for key, value in document.items()
+        if key not in {"revision", "run_id", "produced_at", "metrics"}
+    }
     return _id("knowledge-structure", identity)
 
 
@@ -482,6 +487,8 @@ def build_knowledge_structure(
     model_revision: str,
     semantic_calls: int,
     ocr_calls: int,
+    evidence_duration_ms: int = 0,
+    semantic_duration_ms: int = 0,
     resource_index: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     evidence_by_id = {item["evidence_id"]: item for item in context["evidence"]}
@@ -611,6 +618,8 @@ def build_knowledge_structure(
         "metrics": {
             "semantic_calls": semantic_calls,
             "ocr_calls": ocr_calls,
+            "evidence_duration_ms": evidence_duration_ms,
+            "semantic_duration_ms": semantic_duration_ms,
             "literal_repairs": state.literal_repairs,
             "rejected_claims": state.rejected_claims,
             "rejected_relations": rejected_relations,
@@ -639,9 +648,38 @@ def validate_knowledge_structure(document: Any) -> bool:
         relations = document["relations"]
         if not isinstance(evidence, list) or not isinstance(concepts, list) or not isinstance(relations, list):
             return False
+        metrics = document["metrics"]
+        if (
+            not isinstance(metrics, dict)
+            or set(metrics) != {
+                "semantic_calls", "ocr_calls", "evidence_duration_ms",
+                "semantic_duration_ms", "literal_repairs", "rejected_claims",
+                "rejected_relations",
+            }
+            or any(type(value) is not int or value < 0 for value in metrics.values())
+            or metrics["semantic_calls"] < 1
+            or metrics["ocr_calls"] > document["page_count"]
+        ):
+            return False
         evidence_ids = [item["evidence_id"] for item in evidence]
         concept_ids = [item["concept_id"] for item in concepts]
         if len(evidence_ids) != len(set(evidence_ids)) or len(concept_ids) != len(set(concept_ids)):
+            return False
+        if any(
+            not isinstance(item, dict)
+            or set(item) != {
+                "evidence_id", "page_ref", "page", "block_order", "kind", "source",
+                "exact_text", "heading", "section_id", "source_locator",
+            }
+            or item["source"] not in {"native_text", "unlimited_ocr"}
+            or type(item["page"]) is not int
+            or item["page"] < 1
+            or type(item["block_order"]) is not int
+            or item["block_order"] < 0
+            or not isinstance(item["exact_text"], str)
+            or not item["exact_text"]
+            for item in evidence
+        ):
             return False
         known_evidence, known_concepts = set(evidence_ids), set(concept_ids)
         evidence_by_id = {item["evidence_id"]: item for item in evidence}
@@ -750,6 +788,7 @@ def build_knowledge_structure_view(document: dict[str, Any]) -> dict[str, Any]:
                     "page": evidence[reference]["page"],
                     "block_order": evidence[reference]["block_order"],
                     "kind": evidence[reference]["kind"],
+                    "source": evidence[reference]["source"],
                     "source_locator": deepcopy(evidence[reference]["source_locator"]),
                     "quote": " ".join(
                         span["quote"]

@@ -274,3 +274,28 @@ def test_later_bundle_reuses_qwen_concept_key_without_pairwise_dedup_stage():
         )
     assert list(state.concepts) == ["shared-concept"]
     assert len(state.concepts["shared-concept"]["claims"]) == 2
+
+
+def test_runtime_timings_do_not_change_content_revision():
+    context = _context()
+    state = SemanticState()
+    bundle = build_semantic_bundles(context, maximum_utf8_bytes=80_000)[0]
+    apply_semantic_response(_response(context), context=context, bundle=bundle, state=state)
+    arguments = {
+        "source_sha256": "f" * 64,
+        "run_id": "run",
+        "produced_at": "now",
+        "runtime_lock_sha256": "a" * 64,
+        "model_id": "Qwen/Qwen3.8-27B-FP8",
+        "model_revision": "revision",
+        "semantic_calls": 1,
+        "ocr_calls": 0,
+    }
+    fast = build_knowledge_structure(
+        context, state, evidence_duration_ms=10, semantic_duration_ms=20, **arguments
+    )
+    slow = build_knowledge_structure(
+        context, state, evidence_duration_ms=100, semantic_duration_ms=200, **arguments
+    )
+    assert fast["revision"] == slow["revision"]
+    assert fast["metrics"] != slow["metrics"]
