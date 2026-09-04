@@ -9,6 +9,7 @@ import runtime.local_app as local_app
 import runtime.local_runtime as local_runtime
 import runtime.workers as workers_module
 from pdf_evidence.local_ai_process import LocalAIError
+from runtime.material_processing import MaterialProcessingError, runtime_binding
 
 
 def _environment(tmp_path: Path) -> dict[str, str]:
@@ -30,6 +31,10 @@ def test_local_config_has_one_python_one_semantic_lock_and_no_verifier(tmp_path)
     assert config["runtime_lock"]["semantic_service"]["model_id"] == "Qwen/Qwen3.8-27B-FP8"
     assert "verifier" not in str(config).casefold()
     assert "mdeberta" not in str(config).casefold()
+    tampered = deepcopy(config)
+    tampered["runtime_lock"]["assessment"]["verifier"] = {"model": "second-authority"}
+    with pytest.raises(MaterialProcessingError):
+        runtime_binding(tampered)
 
 
 def test_local_app_composition_preflights_then_starts_uvicorn(tmp_path, monkeypatch):

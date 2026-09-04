@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import datetime
 import math
 import re
 from typing import Any
 import unicodedata
+from urllib.parse import urlsplit
+from uuid import UUID
 
 from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 
@@ -21,6 +24,13 @@ RELATION_BASIS = {
     "application": "usage",
     "example": "instantiation",
     "contrast": "comparison",
+}
+RELATION_PRIORITY = {
+    "prerequisite": 0,
+    "part_of": 1,
+    "application": 2,
+    "example": 3,
+    "contrast": 4,
 }
 _KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 _TECHNICAL = re.compile(
@@ -134,7 +144,10 @@ def build_document_context(
     sections: list[dict[str, Any]] = []
     evidence: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
+    last_included_page: int | None = None
     for page in ordered:
+        if last_included_page is not None and page["page_number"] != last_included_page + 1:
+            current = None
         for block in page["evidence_blocks"]:
             if current is None or block["kind"] == "heading":
                 title = _text(block["text"], maximum=512) if block["kind"] == "heading" else "教材開頭"
@@ -179,6 +192,7 @@ def build_document_context(
             }
             evidence.append(item)
             current["evidence_ids"].append(item["evidence_id"])
+        last_included_page = page["page_number"]
     if not evidence:
         raise ValueError("NO_USABLE_EVIDENCE")
     for index, section in enumerate(sections):
@@ -199,6 +213,14 @@ def _request_size(sections: list[dict[str, Any]], evidence: list[dict[str, Any]]
     return len(canonical_bytes({"sections": sections, "evidence": evidence}))
 
 
+def _section_slice(
+    section: dict[str, Any], evidence: list[dict[str, Any]]
+) -> dict[str, Any]:
+    sliced = deepcopy(section)
+    sliced["evidence_ids"] = [item["evidence_id"] for item in evidence]
+    return sliced
+
+
 def build_semantic_bundles(
     context: dict[str, Any], *, maximum_utf8_bytes: int
 ) -> list[dict[str, Any]]:
@@ -216,18 +238,14 @@ def build_semantic_bundles(
         chunk: list[dict[str, Any]] = []
         for item in items:
             candidate = [*chunk, item]
-            if chunk and _request_size([section], candidate) > maximum_utf8_bytes:
-                split_section = deepcopy(section)
-                split_section["evidence_ids"] = [entry["evidence_id"] for entry in chunk]
-                units.append((split_section, chunk))
+            if chunk and _request_size([_section_slice(section, candidate)], candidate) > maximum_utf8_bytes:
+                units.append((_section_slice(section, chunk), chunk))
                 chunk = [item]
             else:
                 chunk = candidate
-            if _request_size([section], chunk) > maximum_utf8_bytes:
+            if _request_size([_section_slice(section, chunk)], chunk) > maximum_utf8_bytes:
                 raise ValueError("SEMANTIC_INPUT_TOO_LARGE")
-        split_section = deepcopy(section)
-        split_section["evidence_ids"] = [entry["evidence_id"] for entry in chunk]
-        units.append((split_section, chunk))
+        units.append((_section_slice(section, chunk), chunk))
     bundles: list[dict[str, Any]] = []
     sections: list[dict[str, Any]] = []
     evidence: list[dict[str, Any]] = []
@@ -533,7 +551,18 @@ def build_knowledge_structure(
     semantic_duration_ms: int = 0,
     resource_index: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
-    if context.get("material_id") != f"material:sha256:{source_sha256}":
+    try:
+        parsed_time = datetime.fromisoformat(produced_at)
+        UUID(run_id)
+    except (TypeError, ValueError):
+        raise ValueError("MATERIAL_IDENTITY_INVALID") from None
+    if (
+        context.get("material_id") != f"material:sha256:{source_sha256}"
+        or parsed_time.tzinfo is None
+        or re.fullmatch(r"[0-9a-f]{64}", runtime_lock_sha256) is None
+        or model_id != "Qwen/Qwen3.8-27B-FP8"
+        or re.fullmatch(r"[0-9a-f]{40}", model_revision) is None
+    ):
         raise ValueError("MATERIAL_IDENTITY_INVALID")
     evidence_by_id = {item["evidence_id"]: item for item in context["evidence"]}
     evidence_order = {key: index for index, key in enumerate(evidence_by_id)}
@@ -569,7 +598,12 @@ def build_knowledge_structure(
                 "resources": deepcopy((resource_index or {}).get(_normalized_label(item["label"]), [])),
             }
         )
-    concepts.sort(key=lambda concept: min(evidence_order[reference] for reference in concept["evidence_refs"]))
+    concepts.sort(
+        key=lambda concept: (
+            min(evidence_order[reference] for reference in concept["evidence_refs"]),
+            concept["concept_id"],
+        )
+    )
     relations: list[dict[str, Any]] = []
     directed_relations: set[tuple[str, str, str]] = set()
     prerequisite_edges: list[tuple[str, str]] = []
@@ -606,6 +640,14 @@ def build_knowledge_structure(
         directed_relations.add(identity)
         if relation_type == "prerequisite":
             prerequisite_edges.append((source, target))
+    relations.sort(
+        key=lambda relation: (
+            RELATION_PRIORITY[relation["type"]],
+            relation["source_concept_id"],
+            relation["target_concept_id"],
+            relation["relation_id"],
+        )
+    )
     section_nodes = []
     for section in context["sections"]:
         concept_ids = [
@@ -695,10 +737,36 @@ def validate_knowledge_structure(document: Any) -> bool:
             or document["material_id"] != f"material:sha256:{document['source_sha256']}"
         ):
             return False
+        provenance = document["provenance"]
+        try:
+            produced_at = datetime.fromisoformat(document["produced_at"])
+            UUID(document["run_id"])
+        except (TypeError, ValueError):
+            return False
+        if (
+            produced_at.tzinfo is None
+            or not isinstance(provenance, dict)
+            or set(provenance) != {
+                "runtime_lock_sha256", "model_id", "model_revision", "semantic_policy"
+            }
+            or re.fullmatch(r"[0-9a-f]{64}", provenance["runtime_lock_sha256"]) is None
+            or provenance["model_id"] != "Qwen/Qwen3.8-27B-FP8"
+            or re.fullmatch(r"[0-9a-f]{40}", provenance["model_revision"]) is None
+            or provenance["semantic_policy"] != "unified-material-evidence-projection/v1"
+        ):
+            return False
         evidence = document["evidence"]
+        excluded_pages = document["excluded_pages"]
         concepts = document["concepts"]
         relations = document["relations"]
-        if not isinstance(evidence, list) or not isinstance(concepts, list) or not isinstance(relations, list):
+        if (
+            type(document["page_count"]) is not int
+            or document["page_count"] < 1
+            or not isinstance(evidence, list)
+            or not isinstance(excluded_pages, list)
+            or not isinstance(concepts, list)
+            or not isinstance(relations, list)
+        ):
             return False
         metrics = document["metrics"]
         if (
@@ -717,6 +785,9 @@ def validate_knowledge_structure(document: Any) -> bool:
         concept_ids = [item["concept_id"] for item in concepts]
         if len(evidence_ids) != len(set(evidence_ids)) or len(concept_ids) != len(set(concept_ids)):
             return False
+        evidence_positions = [(item["page"], item["block_order"]) for item in evidence]
+        if evidence_positions != sorted(evidence_positions) or len(evidence_positions) != len(set(evidence_positions)):
+            return False
         if any(
             not isinstance(item, dict)
             or set(item) != {
@@ -724,12 +795,17 @@ def validate_knowledge_structure(document: Any) -> bool:
                 "exact_text", "heading", "section_id", "source_locator",
             }
             or item["source"] not in {"native_text", "unlimited_ocr"}
+            or not isinstance(item["kind"], str)
+            or not item["kind"]
             or type(item["page"]) is not int
             or item["page"] < 1
             or type(item["block_order"]) is not int
             or item["block_order"] < 0
             or not isinstance(item["exact_text"], str)
             or not item["exact_text"]
+            or not isinstance(item["heading"], str)
+            or not item["heading"]
+            or not isinstance(item["section_id"], str)
             for item in evidence
         ):
             return False
@@ -779,8 +855,38 @@ def validate_knowledge_structure(document: Any) -> bool:
                 or item["evidence_id"] != evidence_id
             ):
                 return False
+        included_page_numbers = {item["page"] for item in evidence}
+        excluded_page_numbers: set[int] = set()
+        for excluded in excluded_pages:
+            if (
+                not isinstance(excluded, dict)
+                or set(excluded) != {"page_ref", "page", "stage", "reason_code"}
+                or type(excluded["page"]) is not int
+                or excluded["page"] < 1
+                or excluded["page"] > document["page_count"]
+                or excluded["page"] in excluded_page_numbers
+                or excluded["stage"] != "evidence"
+                or not isinstance(excluded["reason_code"], str)
+                or re.fullmatch(r"[A-Z][A-Z0-9_]{0,99}", excluded["reason_code"]) is None
+                or excluded["page_ref"] != _id(
+                    "page",
+                    {
+                        "source_sha256": document["source_sha256"],
+                        "page_number": excluded["page"],
+                    },
+                )
+            ):
+                return False
+            excluded_page_numbers.add(excluded["page"])
+        if (
+            included_page_numbers & excluded_page_numbers
+            or included_page_numbers | excluded_page_numbers
+            != set(range(1, document["page_count"] + 1))
+        ):
+            return False
         known_evidence, known_concepts = set(evidence_ids), set(concept_ids)
         evidence_by_id = {item["evidence_id"]: item for item in evidence}
+        evidence_order = {evidence_id: index for index, evidence_id in enumerate(evidence_ids)}
         for concept in concepts:
             if (
                 set(concept) != {
@@ -788,13 +894,37 @@ def validate_knowledge_structure(document: Any) -> bool:
                     "section_ids", "source_pages", "resources",
                 }
                 or not concept["claims"]
+                or not isinstance(concept["label"], str)
+                or not concept["label"].strip()
+                or not isinstance(concept["aliases"], list)
+                or not isinstance(concept["evidence_refs"], list)
+                or not concept["evidence_refs"]
+                or len(concept["evidence_refs"]) != len(set(concept["evidence_refs"]))
                 or not set(concept["evidence_refs"]) <= known_evidence
+                or not isinstance(concept["section_ids"], list)
+                or not concept["section_ids"]
+                or not isinstance(concept["source_pages"], list)
                 or not isinstance(concept["resources"], list)
             ):
                 return False
             expected_sections = list(dict.fromkeys(evidence_by_id[reference]["section_id"] for reference in concept["evidence_refs"]))
             expected_pages = sorted({evidence_by_id[reference]["page"] for reference in concept["evidence_refs"]})
+            claim_ids: set[str] = set()
             for claim in concept["claims"]:
+                if (
+                    not isinstance(claim, dict)
+                    or set(claim) != {
+                        "claim_id", "text", "source_spans", "projection", "evidence_refs"
+                    }
+                    or claim["claim_id"] in claim_ids
+                    or not isinstance(claim["text"], str)
+                    or not claim["text"].strip()
+                    or not isinstance(claim["source_spans"], list)
+                    or not claim["source_spans"]
+                    or not isinstance(claim["evidence_refs"], list)
+                    or not claim["evidence_refs"]
+                ):
+                    return False
                 identity = {key: value for key, value in claim.items() if key != "claim_id"}
                 if claim["claim_id"] != _id("claim", identity) or not set(claim["evidence_refs"]) <= known_evidence:
                     return False
@@ -806,6 +936,11 @@ def validate_knowledge_structure(document: Any) -> bool:
                     for span in claim["source_spans"]
                 ):
                     return False
+                if claim["evidence_refs"] != list(
+                    dict.fromkeys(span["evidence_id"] for span in claim["source_spans"])
+                ):
+                    return False
+                claim_ids.add(claim["claim_id"])
                 source_text = " ".join(span["quote"] for span in claim["source_spans"])
                 if claim["projection"] == "source_literal_repair":
                     if claim["text"] != source_text:
@@ -818,6 +953,47 @@ def validate_knowledge_structure(document: Any) -> bool:
                     ):
                         return False
                 else:
+                    return False
+            expected_evidence_refs = list(
+                dict.fromkeys(
+                    reference
+                    for claim in concept["claims"]
+                    for reference in claim["evidence_refs"]
+                )
+            )
+            if concept["evidence_refs"] != expected_evidence_refs:
+                return False
+            for resource in concept["resources"]:
+                source_url = urlsplit(resource.get("source_url", "")) if isinstance(resource, dict) else None
+                license_url = urlsplit(resource.get("license_url", "")) if isinstance(resource, dict) else None
+                if (
+                    not isinstance(resource, dict)
+                    or set(resource) != {
+                        "resource_id", "title", "authors", "citation", "license",
+                        "license_url", "source_url", "pages",
+                    }
+                    or any(
+                        not isinstance(resource[field], str) or not resource[field]
+                        for field in (
+                            "resource_id", "title", "citation", "license",
+                            "license_url", "source_url",
+                        )
+                    )
+                    or re.fullmatch(r"resource:sha256:[0-9a-f]{64}", resource["resource_id"]) is None
+                    or source_url is None
+                    or source_url.scheme not in {"http", "https"}
+                    or not source_url.netloc
+                    or license_url is None
+                    or license_url.scheme not in {"http", "https"}
+                    or not license_url.netloc
+                    or not isinstance(resource["authors"], list)
+                    or not resource["authors"]
+                    or any(not isinstance(author, str) or not author for author in resource["authors"])
+                    or not isinstance(resource["pages"], list)
+                    or not resource["pages"]
+                    or resource["pages"] != sorted(set(resource["pages"]))
+                    or any(type(page) is not int or page < 1 for page in resource["pages"])
+                ):
                     return False
             concept_identity = {
                 "label": concept["label"],
@@ -833,6 +1009,14 @@ def validate_knowledge_structure(document: Any) -> bool:
                 or concept["source_pages"] != expected_pages
             ):
                 return False
+        if concepts != sorted(
+            concepts,
+            key=lambda concept: (
+                min(evidence_order[reference] for reference in concept["evidence_refs"]),
+                concept["concept_id"],
+            ),
+        ):
+            return False
         tree = document["document_tree"]
         if not isinstance(tree, dict) or set(tree) != {"material_id", "sections"} or tree["material_id"] != document["material_id"]:
             return False
@@ -842,10 +1026,54 @@ def validate_knowledge_structure(document: Any) -> bool:
         tree_concepts = [concept_id for section in sections for concept_id in section.get("concept_ids", [])]
         if len(tree_concepts) != len(set(tree_concepts)) or set(tree_concepts) != known_concepts:
             return False
+        expected_sections = []
+        for item in evidence:
+            if not expected_sections or expected_sections[-1]["section_id"] != item["section_id"]:
+                if item["section_id"] != _id(
+                    "section",
+                    {
+                        "material_id": document["material_id"],
+                        "anchor_evidence_id": item["evidence_id"],
+                    },
+                ):
+                    return False
+                expected_sections.append(
+                    {
+                        "section_id": item["section_id"],
+                        "title": item["heading"],
+                        "order": len(expected_sections),
+                        "heading_evidence_id": (
+                            item["evidence_id"] if item["kind"] == "heading" else None
+                        ),
+                        "concept_ids": [
+                            concept["concept_id"]
+                            for concept in concepts
+                            if concept["section_ids"][0] == item["section_id"]
+                        ],
+                    }
+                )
+            elif item["heading"] != expected_sections[-1]["title"]:
+                return False
+        if sections != expected_sections:
+            return False
         edges = []
         relation_ids = set()
+        relation_directions: set[tuple[str, str, str]] = set()
+        known_sections = {section["section_id"] for section in sections}
         for relation in relations:
+            if not isinstance(relation, dict) or set(relation) != {
+                "relation_id", "source_concept_id", "target_concept_id", "type",
+                "learner_reason", "evidence_refs", "context_refs", "inference_basis",
+                "confidence",
+            }:
+                return False
             identity = {key: value for key, value in relation.items() if key != "relation_id"}
+            direction = (
+                relation["source_concept_id"],
+                relation["target_concept_id"],
+                relation["type"],
+            )
+            reverse = (direction[1], direction[0], direction[2])
             if (
                 relation["relation_id"] in relation_ids
                 or relation["relation_id"] != _id("relation", identity)
@@ -854,19 +1082,67 @@ def validate_knowledge_structure(document: Any) -> bool:
                 or relation["source_concept_id"] not in known_concepts
                 or relation["target_concept_id"] not in known_concepts
                 or relation["source_concept_id"] == relation["target_concept_id"]
+                or direction in relation_directions
+                or reverse in relation_directions
+                or (
+                    relation["type"] == "contrast"
+                    and relation["source_concept_id"] > relation["target_concept_id"]
+                )
+                or not isinstance(relation["learner_reason"], str)
+                or not relation["learner_reason"].strip()
+                or relation["learner_reason"].casefold() in _GENERIC_REASONS
+                or not isinstance(relation["evidence_refs"], list)
+                or not relation["evidence_refs"]
+                or len(relation["evidence_refs"]) != len(set(relation["evidence_refs"]))
                 or not set(relation["evidence_refs"]) <= known_evidence
+                or not isinstance(relation["context_refs"], list)
+                or len(relation["context_refs"]) != len(set(relation["context_refs"]))
+                or not set(relation["context_refs"]) <= known_sections
+                or type(relation["confidence"]) not in {int, float}
+                or isinstance(relation["confidence"], bool)
+                or not math.isfinite(relation["confidence"])
+                or not 0 <= relation["confidence"] <= 1
             ):
                 return False
             relation_ids.add(relation["relation_id"])
+            relation_directions.add(direction)
             if relation["type"] == "prerequisite":
                 if _cycle(edges, (relation["source_concept_id"], relation["target_concept_id"])):
                     return False
                 edges.append((relation["source_concept_id"], relation["target_concept_id"]))
+        if relations != sorted(
+            relations,
+            key=lambda relation: (
+                RELATION_PRIORITY[relation["type"]],
+                relation["source_concept_id"],
+                relation["target_concept_id"],
+                relation["relation_id"],
+            ),
+        ):
+            return False
         path_ids = [step["concept_id"] for step in document["initial_learning_path"]]
         if len(path_ids) != len(set(path_ids)) or set(path_ids) != known_concepts:
             return False
-        positions = {concept_id: index for index, concept_id in enumerate(path_ids)}
-        return all(positions[source] < positions[target] for source, target in edges)
+        if document["initial_learning_path"] != _path(concepts, relations):
+            return False
+        reasons = []
+        if excluded_pages:
+            reasons.append("PAGES_EXCLUDED")
+        if metrics["rejected_claims"]:
+            reasons.append("CLAIMS_REJECTED")
+        if metrics["literal_repairs"]:
+            reasons.append("LITERALS_RESTORED_FROM_SOURCE")
+        if metrics["rejected_relations"]:
+            reasons.append("RELATIONS_REJECTED")
+        if not concepts:
+            reasons.append("NO_CANONICAL_CONCEPT")
+        expected_status = {
+            "processing": "partial" if reasons and concepts else ("failed" if not concepts else "succeeded"),
+            "quality": "needs_review" if reasons else "accepted",
+            "decision": "reject" if not concepts else ("review" if reasons else "retain"),
+            "reason_codes": reasons,
+        }
+        return document["status"] == expected_status
     except (KeyError, TypeError, ValueError):
         return False
 

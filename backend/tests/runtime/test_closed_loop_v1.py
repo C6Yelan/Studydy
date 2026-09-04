@@ -153,6 +153,29 @@ def closed_loop(clean_database_dsn, migrations_dir, tmp_path, monkeypatch):
     return learner, source, settings, structure, clean_database_dsn, created.raw_token
 
 
+def test_final_schema_contains_only_current_product_tables(clean_database_dsn, migrations_dir):
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1,)
+    with psycopg.connect(clean_database_dsn) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT tablename FROM pg_tables WHERE schemaname='public'"
+            )
+        }
+        columns = {
+            row[0]
+            for row in connection.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema='public'"
+            )
+        }
+    assert tables == {
+        "schema_migrations", "learners", "learner_sessions", "materials", "artifacts",
+        "material_processing_runs", "knowledge_structures", "study_sessions", "assessments",
+        "answer_events",
+    }
+    assert not any("formal_concept" in column or "verifier" in column for column in columns)
+
+
 def test_persisted_closed_loop_private_answer_mastery_and_guidance(closed_loop):
     learner, source, settings, structure, dsn, _token = closed_loop
     stored = read_knowledge_structure(learner.learner_id, source.material_id, revision=structure["revision"], dsn=dsn)

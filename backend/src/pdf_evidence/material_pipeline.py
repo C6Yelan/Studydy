@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 import fcntl
 import os
 from pathlib import Path
+import re
 import tempfile
 import time
 from typing import Any, Callable
@@ -63,21 +64,71 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
         semantic = lock["semantic_service"]
         material = lock["material_semantics"]
         assessment = lock["assessment"]
+        ocr = lock["ocr"]
         if (
             lock["schema"] != "studydy-runtime-lock/v15"
             or lock["python"] != "3.12"
+            or lock["packages"] != {
+                "studydy-local-ai": "0.1.0",
+                "torch": "2.10.0+cu128",
+                "torchvision": "0.25.0+cu128",
+                "transformers": "4.57.1",
+            }
+            or set(ocr) != {
+                "model_id", "revision", "prompt", "page_schema", "native_schema",
+                "processing_policy", "normalizer_policy", "render",
+            }
+            or ocr["model_id"] != "Unlimited-OCR"
+            or re.fullmatch(r"[0-9a-f]{40}", ocr["revision"]) is None
+            or not isinstance(ocr["prompt"], str)
+            or not ocr["prompt"]
+            or ocr["render"] != {"dpi": 200, "colorspace": "RGB", "format": "PNG"}
+            or set(semantic) != {
+                "model_id", "revision", "api_protocol", "base_url", "max_model_len",
+                "max_num_seqs", "server", "authentication",
+            }
             or semantic["model_id"] != "Qwen/Qwen3.8-27B-FP8"
+            or re.fullmatch(r"[0-9a-f]{40}", semantic["revision"]) is None
+            or semantic["api_protocol"] != "openai-chat-completions/v1"
+            or semantic["base_url"] != "http://127.0.0.1:8000"
             or semantic["max_model_len"] != 32768
-            or semantic["server"]["python"] != "3.12"
+            or semantic["max_num_seqs"] != 1
+            or semantic["server"] != {
+                "package": "vllm",
+                "version": "0.28.0",
+                "python": "3.12",
+                "torch": "2.13.0+cu130",
+                "cuda": "13.0",
+                "transformers": "5.16.1",
+            }
+            or semantic["authentication"] != "environment-bearer:VLLM_API_KEY"
+            or set(material) != {
+                "request_schema", "response_schema", "bundle_policy",
+                "maximum_bundle_utf8_bytes", "max_tokens", "prompt", "retry_attempts",
+            }
             or material["request_schema"] != "material-semantics-request/v1"
             or material["response_schema"] != "material-semantics-response/v1"
+            or material["bundle_policy"] != "contiguous-sections-with-prior-concept-catalog/v1"
+            or material["max_tokens"] != 8192
+            or not isinstance(material["prompt"], str)
+            or not material["prompt"]
+            or set(assessment) != {
+                "request_schema", "response_schema", "policy", "candidate_count",
+                "option_count", "max_tokens", "prompt",
+            }
             or assessment["request_schema"] != "assessment-semantics-request/v1"
             or assessment["response_schema"] != "assessment-semantics-response/v1"
-            or lock["ocr"]["page_schema"] != "page-evidence/v4"
-            or lock["ocr"]["native_schema"] != "page-native/v3"
-            or lock["ocr"]["processing_policy"] != "native-first-page-evidence/v3"
-            or lock["ocr"]["normalizer_policy"] != "ocr-text-nfc-line-preserving/v1"
-            or type(material["maximum_bundle_utf8_bytes"]) is not int
+            or assessment["policy"] != "source-span-single-choice/v1"
+            or assessment["candidate_count"] != 3
+            or assessment["option_count"] != 4
+            or assessment["max_tokens"] != 4096
+            or not isinstance(assessment["prompt"], str)
+            or not assessment["prompt"]
+            or ocr["page_schema"] != "page-evidence/v4"
+            or ocr["native_schema"] != "page-native/v3"
+            or ocr["processing_policy"] != "native-first-page-evidence/v3"
+            or ocr["normalizer_policy"] != "ocr-text-nfc-line-preserving/v1"
+            or material["maximum_bundle_utf8_bytes"] != 80000
             or material["retry_attempts"] != 2
         ):
             raise ValueError
@@ -284,6 +335,7 @@ def analyze_material(
                 for _attempt in range(lock["material_semantics"]["retry_attempts"]):
                     candidate_state = deepcopy(state)
                     try:
+                        semantic_calls += 1
                         response = semantic_call(
                             http,
                             runtime_lock=lock,
@@ -291,7 +343,6 @@ def analyze_material(
                             request=request_document,
                             response_schema=semantic_response_schema(),
                         )
-                        semantic_calls += 1
                         apply_semantic_response(
                             response,
                             context=context,
@@ -304,10 +355,10 @@ def analyze_material(
                     except SemanticServiceError as error:
                         last_error = error
                         if error.reason_code == "SEMANTIC_INPUT_TOO_LARGE":
+                            semantic_calls -= 1
                             pending[0:0] = _split_bundle(bundle)
                             break
                     except ValueError as error:
-                        semantic_calls += 1
                         last_error = error
                 if last_error is not None:
                     if isinstance(last_error, SemanticServiceError) and last_error.reason_code == "SEMANTIC_INPUT_TOO_LARGE":

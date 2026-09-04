@@ -388,6 +388,21 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
           <span className={`is-${type}`} key={type}>{type}</span>
         ))}
       </div>
+      <ul className="relation-list" aria-label="概念關係">
+        {view.relations.map((relation) => {
+          const source = view.concepts.find((concept) => concept.concept_id === relation.source_concept_id);
+          const target = view.concepts.find((concept) => concept.concept_id === relation.target_concept_id);
+          return (
+            <li key={relation.relation_id}>
+              <button type="button" onClick={() => setSelectedRelationId(relation.relation_id)}>
+                <span className={`is-${relation.type}`}>{relation.type}</span>
+                <strong>{source?.label} → {target?.label}</strong>
+                <small>{relation.learner_reason}</small>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
       {selectedRelation && (
         <aside className="relation-detail" role="status">
           <strong>{selectedRelation.type}</strong>

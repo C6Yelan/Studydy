@@ -116,8 +116,9 @@ test("Document Tree layout and typed Relation overlay are both usable", async ({
   await expect(page.getByRole("heading", { name: "知識地圖", exact: true })).toBeVisible();
   await expect(page.locator(".concept-flow-edge.is-structural")).toHaveCount(3);
   await expect(page.locator(".concept-flow-edge.is-prerequisite")).toHaveCount(1);
+  await expect(page.locator(".relation-detail")).toHaveCount(0);
   await page.locator(".concept-flow-edge.is-prerequisite .react-flow__edge-interaction").hover({ force: true });
-  await expect(page.getByText("Stack must be learned before Array traversal.")).toBeVisible();
+  await expect(page.locator(".relation-detail")).toContainText("Stack must be learned before Array traversal.");
   await page.getByRole("button", { name: /收合 2 個概念/ }).first().click();
   await expect(page.locator(".react-flow__node")).toHaveCount(2);
   await page.getByRole("button", { name: /展開 2 個概念/ }).first().click();
@@ -158,4 +159,15 @@ test("StudySession uses source-bound assessment and server feedback", async ({ p
   await page.getByRole("button", { name: "送出答案" }).click();
   await expect(page.getByRole("heading", { name: "答對了" })).toBeVisible();
   await expect(page.locator(".feedback-rationale")).toHaveText("A stack follows LIFO order.");
+});
+
+test("mobile fallback keeps canonical Relations and Evidence reachable", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await routes(page);
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+  await expect(page.locator(".focus-graph")).toBeHidden();
+  await expect(page.getByLabel("教材概念階層清單")).toBeVisible();
+  await expect(page.getByLabel("概念關係").getByText("Stack must be learned before Array traversal.")).toBeVisible();
+  await page.getByLabel("教材概念階層清單").getByRole("button", { name: /Stack/ }).click();
+  await expect(page.getByText("原始教材第 1 頁")).toBeVisible();
 });

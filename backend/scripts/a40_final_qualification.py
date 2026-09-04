@@ -220,7 +220,11 @@ def run(inputs: dict[str, Path], output: Path) -> int:
             started = time.monotonic()
             structure = analyze_material(request, settings)
             elapsed = time.monotonic() - started
-            if not validate_knowledge_structure(structure):
+            if (
+                not validate_knowledge_structure(structure)
+                or structure["status"]["processing"] == "failed"
+                or not structure["concepts"]
+            ):
                 raise QualificationError("KNOWLEDGE_STRUCTURE_INVALID")
             if role == "scanned" and (
                 structure["metrics"]["ocr_calls"] < 1

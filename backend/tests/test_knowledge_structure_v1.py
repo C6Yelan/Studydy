@@ -4,6 +4,7 @@ import pytest
 from knowledge_map.structure import (
     SemanticState,
     _project_claim,
+    _revision,
     apply_semantic_response,
     build_document_context,
     build_knowledge_structure,
@@ -12,6 +13,11 @@ from knowledge_map.structure import (
     validate_knowledge_structure,
 )
 from pdf_evidence.ocr_page_evidence import canonical_sha256
+
+
+RUN_ID = "00000000-0000-4000-8000-000000000001"
+PRODUCED_AT = "2026-09-05T00:00:00+00:00"
+MODEL_REVISION = "b" * 40
 
 
 def _block(page: int, order: int, kind: str, text: str) -> dict:
@@ -129,6 +135,40 @@ def test_material_context_bundles_sections_without_page_envelopes():
     ]
 
 
+def test_oversized_single_section_splits_by_actual_slice_without_dropping_evidence():
+    page = _page(
+        1,
+        [
+            _block(1, order, "paragraph", f"Evidence {order} " + "x" * 320)
+            for order in range(30)
+        ],
+    )
+    context = build_document_context([page], page_count=1)
+    bundles = build_semantic_bundles(context, maximum_utf8_bytes=4096)
+    assert len(bundles) > 1
+    assert [item["evidence_id"] for bundle in bundles for item in bundle["evidence"]] == [
+        item["evidence_id"] for item in context["evidence"]
+    ]
+    assert all(
+        bundle["sections"][0]["evidence_ids"]
+        == [item["evidence_id"] for item in bundle["evidence"]]
+        for bundle in bundles
+    )
+
+
+def test_excluded_page_gap_breaks_section_instead_of_guessing_continuation():
+    context = build_document_context(
+        [
+            _page(1, [_block(1, 0, "heading", "First"), _block(1, 1, "paragraph", "First content")]),
+            _page(3, [_block(3, 0, "paragraph", "Content after excluded page")]),
+        ],
+        page_count=3,
+        excluded_pages=[{"page": 2}],
+    )
+    assert [section["title"] for section in context["sections"]] == ["First", "教材開頭"]
+    assert context["evidence"][-1]["section_id"] == context["sections"][1]["section_id"]
+
+
 def test_projection_repairs_only_technical_claim_and_keeps_valid_sibling():
     context = _context()
     state = SemanticState()
@@ -184,11 +224,11 @@ def test_typed_relations_and_prerequisite_are_the_only_path_authority():
         context,
         state,
         source_sha256="1" * 64,
-        run_id="run-1",
-        produced_at="2026-09-05T00:00:00+00:00",
+        run_id=RUN_ID,
+        produced_at=PRODUCED_AT,
         runtime_lock_sha256=canonical_sha256({"runtime": 1}),
         model_id="Qwen/Qwen3.8-27B-FP8",
-        model_revision="revision",
+        model_revision=MODEL_REVISION,
         semantic_calls=1,
         ocr_calls=0,
     )
@@ -218,11 +258,11 @@ def test_cycle_and_forbidden_or_generic_relations_never_publish():
         context,
         state,
         source_sha256="1" * 64,
-        run_id="run-1",
-        produced_at="now",
+        run_id=RUN_ID,
+        produced_at=PRODUCED_AT,
         runtime_lock_sha256="a" * 64,
         model_id="Qwen/Qwen3.8-27B-FP8",
-        model_revision="revision",
+        model_revision=MODEL_REVISION,
         semantic_calls=1,
         ocr_calls=0,
     )
@@ -250,9 +290,9 @@ def test_cross_section_concept_has_one_primary_tree_placement_and_zero_prerequis
     }]
     apply_semantic_response(response, context=context, bundle=bundle, state=state)
     structure = build_knowledge_structure(
-        context, state, source_sha256="1" * 64, run_id="run", produced_at="now",
+        context, state, source_sha256="1" * 64, run_id=RUN_ID, produced_at=PRODUCED_AT,
         runtime_lock_sha256="a" * 64, model_id="Qwen/Qwen3.8-27B-FP8",
-        model_revision="revision", semantic_calls=1, ocr_calls=0,
+        model_revision=MODEL_REVISION, semantic_calls=1, ocr_calls=0,
     )
     tree_ids = [concept_id for section in structure["document_tree"]["sections"] for concept_id in section["concept_ids"]]
     assert len(tree_ids) == len(set(tree_ids)) == len(structure["concepts"])
@@ -301,11 +341,11 @@ def test_runtime_timings_do_not_change_content_revision():
     apply_semantic_response(_response(context), context=context, bundle=bundle, state=state)
     arguments = {
         "source_sha256": "1" * 64,
-        "run_id": "run",
-        "produced_at": "now",
+        "run_id": RUN_ID,
+        "produced_at": PRODUCED_AT,
         "runtime_lock_sha256": "a" * 64,
         "model_id": "Qwen/Qwen3.8-27B-FP8",
-        "model_revision": "revision",
+        "model_revision": MODEL_REVISION,
         "semantic_calls": 1,
         "ocr_calls": 0,
     }
@@ -317,6 +357,14 @@ def test_runtime_timings_do_not_change_content_revision():
     )
     assert fast["revision"] == slow["revision"]
     assert fast["metrics"] != slow["metrics"]
+    tampered = deepcopy(fast)
+    tampered["evidence"][0]["exact_text"] += " changed"
+    tampered["revision"] = _revision(tampered)
+    assert not validate_knowledge_structure(tampered)
+    tampered = deepcopy(fast)
+    tampered["initial_learning_path"].reverse()
+    tampered["revision"] = _revision(tampered)
+    assert not validate_knowledge_structure(tampered)
 
 
 def test_material_source_identity_mismatch_is_rejected_before_publication():
@@ -326,7 +374,7 @@ def test_material_source_identity_mismatch_is_rejected_before_publication():
     apply_semantic_response(_response(context), context=context, bundle=bundle, state=state)
     with pytest.raises(ValueError, match="MATERIAL_IDENTITY_INVALID"):
         build_knowledge_structure(
-            context, state, source_sha256="2" * 64, run_id="run", produced_at="now",
+            context, state, source_sha256="2" * 64, run_id=RUN_ID, produced_at=PRODUCED_AT,
             runtime_lock_sha256="a" * 64, model_id="Qwen/Qwen3.8-27B-FP8",
-            model_revision="revision", semantic_calls=1, ocr_calls=0,
+            model_revision=MODEL_REVISION, semantic_calls=1, ocr_calls=0,
         )
