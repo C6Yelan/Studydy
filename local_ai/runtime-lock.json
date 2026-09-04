@@ -50,7 +50,10 @@
   "assessment": {
     "request_schema": "assessment-semantics-request/v1",
     "response_schema": "assessment-semantics-response/v1",
-    "policy": "source-span-single-choice/v1",
+    "public_schema": "single-choice-assessment/v2",
+    "private_schema": "single-choice-answer/v2",
+    "provenance_schema": "assessment-generation-provenance/v4",
+    "policy": "source-span-single-choice/v2",
     "candidate_count": 3,
     "option_count": 4,
     "max_tokens": 4096,

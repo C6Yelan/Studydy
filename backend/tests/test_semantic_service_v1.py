@@ -46,3 +46,23 @@ def test_non_loopback_or_second_runtime_contract_is_rejected_before_network():
     with httpx.Client(transport=httpx.MockTransport(lambda _request: (_ for _ in ()).throw(AssertionError()))) as client:
         with pytest.raises(SemanticServiceError):
             request_semantics(client, runtime_lock=second, task="assessment", request={}, response_schema={})
+
+
+def test_preflight_rejects_more_than_one_served_model():
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200)
+        if request.url.path == "/version":
+            return httpx.Response(200, json={"version": "0.28.0"})
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={
+                "data": [
+                    {"id": "Qwen/Qwen3.8-27B-FP8", "max_model_len": 32768},
+                    {"id": "second-model", "max_model_len": 32768},
+                ]
+            })
+        return httpx.Response(200, json={"count": 1, "max_model_len": 32768})
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(SemanticServiceError, match="SEMANTIC_SERVICE_IDENTITY_MISMATCH"):
+            preflight_semantic_service(_lock(), client=client)

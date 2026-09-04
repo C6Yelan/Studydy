@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import time
+from uuid import UUID
 
 import pymupdf
 import psycopg
@@ -13,13 +14,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from knowledge_map.structure import SemanticState, apply_semantic_response, build_document_context, build_knowledge_structure
-from learning_adaptation.answer_events import AnswerSubmissionError, submit_answer
-from learning_adaptation.assessments import AssessmentError, generate_assessment
+from learning_adaptation.answer_events import AnswerSubmissionError, read_answer_events, submit_answer
+from learning_adaptation.assessments import AssessmentError, generate_assessment, read_assessment
 from learning_adaptation.learner_progress import LearnerProgressError, apply_guidance, derive_learner_progress
 from learning_adaptation.study_sessions import create_study_session, read_study_session
 from runtime.learner_session import TrustedLearner, create_session
 import runtime.material_processing as processing
-from runtime.material_processing import _record_progress, claim_next_material_processing_run, create_material_processing_run, runtime_binding
+from runtime.material_processing import MaterialProcessingError, _record_progress, claim_next_material_processing_run, create_material_processing_run, read_material_processing_run, runtime_binding
 from runtime.storage.artifacts import publish_idempotent_source_pdf
 from runtime.storage.knowledge_structures import publish_knowledge_structure, read_knowledge_structure
 from runtime.storage.migrations import run_migrations
@@ -176,6 +177,21 @@ def test_final_schema_contains_only_current_product_tables(clean_database_dsn, m
     assert not any("formal_concept" in column or "verifier" in column for column in columns)
 
 
+def test_terminal_material_run_tamper_cannot_report_false_success(closed_loop):
+    learner, _source, _settings_value, structure, dsn, _token = closed_loop
+    with psycopg.connect(dsn) as connection:
+        connection.execute(
+            "UPDATE material_processing_runs SET output_binding="
+            "jsonb_set(output_binding,'{page_count}','2'::jsonb) "
+            "WHERE run_id=%s",
+            (structure["run_id"],),
+        )
+    with pytest.raises(MaterialProcessingError, match="MATERIAL_RUN_INVALID"):
+        read_material_processing_run(
+            learner.learner_id, UUID(structure["run_id"]), dsn=dsn
+        )
+
+
 def test_persisted_closed_loop_private_answer_mastery_and_guidance(closed_loop):
     learner, source, settings, structure, dsn, _token = closed_loop
     stored = read_knowledge_structure(learner.learner_id, source.material_id, revision=structure["revision"], dsn=dsn)
@@ -203,7 +219,13 @@ def test_persisted_closed_loop_private_answer_mastery_and_guidance(closed_loop):
     progress = derive_learner_progress(learner, study.study_session_id, dsn=dsn)
     assert progress.concept_states[0].status == "mastered"
     assert progress.next_action.action == "complete"
-    apply_guidance(learner, study.study_session_id, progress.guidance_revision, dsn=dsn)
+    applied = apply_guidance(
+        learner, study.study_session_id, progress.guidance_revision, dsn=dsn
+    )
+    replay = apply_guidance(
+        learner, study.study_session_id, progress.guidance_revision, dsn=dsn
+    )
+    assert replay == applied
     assert read_study_session(learner, study.study_session_id, dsn=dsn).status == "completed"
     assert stored.view["concepts"][0]["claims"][0]["evidence"][0]["page"] == 1
 
@@ -273,6 +295,90 @@ def test_no_safe_assessment_is_truthful_and_creates_no_private_answer(closed_loo
     assert stored.status == "no_safe" and stored.no_safe_claim_ids == (claim_id,)
     with psycopg.connect(dsn) as connection:
         assert connection.execute("SELECT count(*) FROM assessments").fetchone() == (0,)
+
+
+@pytest.mark.parametrize("mutation", ["private_answer", "public_prompt", "mastery"])
+def test_assessment_tamper_is_rejected_before_read_or_scoring(closed_loop, mutation):
+    learner, source, settings, structure, dsn, _token = closed_loop
+    concept = structure["concepts"][0]
+    study = create_study_session(learner, source.material_id, structure["revision"], "study", dsn=dsn)
+    assessment = generate_assessment(
+        learner, study.study_session_id, concept["claims"][0]["claim_id"], "assessment", settings,
+        dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: _assessment_response(
+            "definition", "根據教材，Stack 使用哪種順序？", concept["evidence_refs"][0]
+        ),
+    )
+    with psycopg.connect(dsn) as connection:
+        if mutation == "private_answer":
+            replacement = next(
+                option["option_id"]
+                for option in assessment.public_document["options"]
+                if option["option_id"] != assessment.private_answer_document["correct_option_id"]
+            )
+            connection.execute(
+                "UPDATE assessments SET private_answer_document="
+                "jsonb_set(private_answer_document,'{correct_option_id}',to_jsonb(%s::text)) "
+                "WHERE assessment_revision=%s",
+                (replacement, assessment.assessment_revision),
+            )
+        elif mutation == "public_prompt":
+            connection.execute(
+                "UPDATE assessments SET public_document="
+                "jsonb_set(public_document,'{prompt}',to_jsonb('changed'::text)) "
+                "WHERE assessment_revision=%s",
+                (assessment.assessment_revision,),
+            )
+        else:
+            connection.execute(
+                "UPDATE assessments SET mastery_qualified=NOT mastery_qualified "
+                "WHERE assessment_revision=%s",
+                (assessment.assessment_revision,),
+            )
+    with pytest.raises(AssessmentError, match="ASSESSMENT_UNAVAILABLE"):
+        read_assessment(
+            learner, study.study_session_id, assessment.assessment_revision, dsn=dsn
+        )
+    with pytest.raises(AnswerSubmissionError, match="ANSWER_ASSESSMENT_UNAVAILABLE"):
+        submit_answer(
+            learner,
+            study.study_session_id,
+            assessment.assessment_revision,
+            assessment.question_id,
+            assessment.public_document["options"][0]["option_id"],
+            f"tampered-{mutation}",
+            dsn=dsn,
+        )
+
+
+def test_answer_event_correctness_tamper_cannot_change_mastery(closed_loop):
+    learner, source, settings, structure, dsn, _token = closed_loop
+    concept = structure["concepts"][0]
+    study = create_study_session(learner, source.material_id, structure["revision"], "study", dsn=dsn)
+    assessment = generate_assessment(
+        learner, study.study_session_id, concept["claims"][0]["claim_id"], "assessment", settings,
+        dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: _assessment_response(
+            "definition", "根據教材，Stack 使用哪種順序？", concept["evidence_refs"][0]
+        ),
+    )
+    submitted = submit_answer(
+        learner,
+        study.study_session_id,
+        assessment.assessment_revision,
+        assessment.question_id,
+        assessment.private_answer_document["correct_option_id"],
+        "answer",
+        dsn=dsn,
+    )
+    assert submitted.event.is_correct is True
+    with psycopg.connect(dsn) as connection:
+        connection.execute(
+            "UPDATE answer_events SET is_correct=false WHERE answer_event_id=%s",
+            (submitted.event.answer_event_id,),
+        )
+    with pytest.raises(AnswerSubmissionError, match="ANSWER_EVENT_UNAVAILABLE"):
+        read_answer_events(learner, study.study_session_id, dsn=dsn)
+    with pytest.raises(LearnerProgressError, match="LEARNER_PROGRESS_UNAVAILABLE"):
+        derive_learner_progress(learner, study.study_session_id, dsn=dsn)
 
 
 def test_http_api_projects_the_same_closed_loop_without_private_answer(closed_loop, monkeypatch):

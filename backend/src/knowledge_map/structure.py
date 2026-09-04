@@ -36,7 +36,8 @@ _KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 _TECHNICAL = re.compile(
     r"\\(?:[0abfnrtv\\'\"?]|x[0-9A-Fa-f]+|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})"
     r"|'[^'\n]{0,80}'|\"[^\"\n]{0,80}\"|(?:==|!=|<=|>=|->|::|&&|\|\||<<|>>)"
-    r"|(?<!\w)[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:\s?(?:%|ms|s|kg|g|km|m|cm|mm|Hz|kHz|MHz|GHz|B|KB|MB|GB))?"
+    r"|[+\-*/%<>&|!~]"
+    r"|(?<!\w)[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:\s?(?:%|[A-Za-zµμ°][A-Za-z0-9µμ°/^.-]{0,15}))?"
 )
 _CODE_OR_FORMULA = re.compile(r"[;{}]|\[[^\]]*\]|\([^\n()]*\)|\^|(?<![<>=!])=(?!=)")
 _GENERIC_REASONS = {"有關", "內容相似", "同一主題", "一起出現", "related", "similar topic"}
@@ -337,6 +338,13 @@ class SemanticState:
                 "label": concept["label"],
                 "aliases": concept["aliases"],
                 "claims": [claim["text"] for claim in concept["claims"]],
+                "evidence_refs": list(
+                    dict.fromkeys(
+                        span["evidence_id"]
+                        for claim in concept["claims"]
+                        for span in claim["source_spans"]
+                    )
+                ),
             }
             for key, concept in self.concepts.items()
         ]
@@ -345,10 +353,21 @@ class SemanticState:
 def semantic_request(
     context: dict[str, Any], bundle: dict[str, Any], state: SemanticState
 ) -> dict[str, Any]:
+    section_by_evidence = {
+        item["evidence_id"]: item["section_id"] for item in context["evidence"]
+    }
+    existing_concepts = state.catalog()
+    for concept in existing_concepts:
+        concept["section_refs"] = list(
+            dict.fromkeys(
+                section_by_evidence[reference]
+                for reference in concept["evidence_refs"]
+            )
+        )
     return {
         "schema": REQUEST_SCHEMA,
         "material_id": context["material_id"],
-        "existing_concepts": state.catalog(),
+        "existing_concepts": existing_concepts,
         "sections": deepcopy(bundle["sections"]),
         "evidence": deepcopy(bundle["evidence"]),
     }
@@ -442,6 +461,9 @@ def apply_semantic_response(
             if all(canonical_sha256(existing) != identity for existing in current["claims"]):
                 current["claims"].append(claim)
     known_keys = set(state.concepts)
+    context_evidence = {
+        item["evidence_id"]: item for item in context["evidence"]
+    }
     for relation in response["relations"]:
         if not isinstance(relation, dict) or set(relation) != {
             "source_concept", "target_concept", "type", "learner_reason",
@@ -453,22 +475,51 @@ def apply_semantic_response(
         evidence_refs = relation["evidence_refs"]
         context_refs = relation["context_refs"]
         confidence = relation["confidence"]
+        endpoint_evidence = {
+            span["evidence_id"]
+            for key in (relation["source_concept"], relation["target_concept"])
+            for claim in state.concepts.get(key, {}).get("claims", [])
+            for span in claim["source_spans"]
+        }
+        endpoint_sections = {
+            context_evidence[reference]["section_id"]
+            for reference in endpoint_evidence
+        }
         if (
             relation["source_concept"] not in known_keys
             or relation["target_concept"] not in known_keys
             or relation["source_concept"] == relation["target_concept"]
-            or relation_type not in RELATION_TYPES
+        ):
+            state.rejected_relations += 1
+            continue
+        if (
+            relation_type not in RELATION_TYPES
             or relation["inference_basis"] != RELATION_BASIS[relation_type]
             or reason.casefold() in _GENERIC_REASONS
-            or not isinstance(evidence_refs, list)
+        ):
+            state.rejected_relations += 1
+            continue
+        if (
+            not isinstance(evidence_refs, list)
             or not evidence_refs
             or len(evidence_refs) != len(set(evidence_refs))
             or any(reference not in all_evidence for reference in evidence_refs)
-            or not isinstance(context_refs, list)
+            or not set(evidence_refs) <= endpoint_evidence
+        ):
+            state.rejected_relations += 1
+            continue
+        if (
+            not isinstance(context_refs, list)
             or len(context_refs) != len(set(context_refs))
             or any(reference not in all_sections for reference in context_refs)
-            or type(confidence) not in {int, float}
+            or not set(context_refs) <= endpoint_sections
+        ):
+            state.rejected_relations += 1
+            continue
+        if (
+            type(confidence) not in {int, float}
             or isinstance(confidence, bool)
+            or not math.isfinite(confidence)
             or not 0 <= confidence <= 1
         ):
             state.rejected_relations += 1
@@ -1060,6 +1111,7 @@ def validate_knowledge_structure(document: Any) -> bool:
         relation_ids = set()
         relation_directions: set[tuple[str, str, str]] = set()
         known_sections = {section["section_id"] for section in sections}
+        concept_by_id = {concept["concept_id"]: concept for concept in concepts}
         for relation in relations:
             if not isinstance(relation, dict) or set(relation) != {
                 "relation_id", "source_concept_id", "target_concept_id", "type",
@@ -1068,48 +1120,75 @@ def validate_knowledge_structure(document: Any) -> bool:
             }:
                 return False
             identity = {key: value for key, value in relation.items() if key != "relation_id"}
-            direction = (
-                relation["source_concept_id"],
-                relation["target_concept_id"],
-                relation["type"],
-            )
-            reverse = (direction[1], direction[0], direction[2])
+            relation_type = relation["type"]
+            source_id = relation["source_concept_id"]
+            target_id = relation["target_concept_id"]
             if (
                 relation["relation_id"] in relation_ids
                 or relation["relation_id"] != _id("relation", identity)
-                or relation["type"] not in RELATION_TYPES
-                or relation["inference_basis"] != RELATION_BASIS[relation["type"]]
-                or relation["source_concept_id"] not in known_concepts
-                or relation["target_concept_id"] not in known_concepts
-                or relation["source_concept_id"] == relation["target_concept_id"]
-                or direction in relation_directions
+                or relation_type not in RELATION_TYPES
+                or relation["inference_basis"] != RELATION_BASIS[relation_type]
+                or source_id not in known_concepts
+                or target_id not in known_concepts
+                or source_id == target_id
+            ):
+                return False
+            direction = (
+                source_id,
+                target_id,
+                relation_type,
+            )
+            reverse = (direction[1], direction[0], direction[2])
+            if (
+                direction in relation_directions
                 or reverse in relation_directions
-                or (
-                    relation["type"] == "contrast"
-                    and relation["source_concept_id"] > relation["target_concept_id"]
-                )
-                or not isinstance(relation["learner_reason"], str)
-                or not relation["learner_reason"].strip()
-                or relation["learner_reason"].casefold() in _GENERIC_REASONS
-                or not isinstance(relation["evidence_refs"], list)
-                or not relation["evidence_refs"]
-                or len(relation["evidence_refs"]) != len(set(relation["evidence_refs"]))
-                or not set(relation["evidence_refs"]) <= known_evidence
-                or not isinstance(relation["context_refs"], list)
-                or len(relation["context_refs"]) != len(set(relation["context_refs"]))
-                or not set(relation["context_refs"]) <= known_sections
-                or type(relation["confidence"]) not in {int, float}
-                or isinstance(relation["confidence"], bool)
-                or not math.isfinite(relation["confidence"])
-                or not 0 <= relation["confidence"] <= 1
+                or (relation_type == "contrast" and source_id > target_id)
+            ):
+                return False
+            reason = relation["learner_reason"]
+            if (
+                not isinstance(reason, str)
+                or not reason.strip()
+                or reason.casefold() in _GENERIC_REASONS
+            ):
+                return False
+            endpoint_evidence = set(concept_by_id[source_id]["evidence_refs"]) | set(
+                concept_by_id[target_id]["evidence_refs"]
+            )
+            evidence_refs = relation["evidence_refs"]
+            if (
+                not isinstance(evidence_refs, list)
+                or not evidence_refs
+                or len(evidence_refs) != len(set(evidence_refs))
+                or not set(evidence_refs) <= known_evidence
+                or not set(evidence_refs) <= endpoint_evidence
+            ):
+                return False
+            endpoint_sections = set(concept_by_id[source_id]["section_ids"]) | set(
+                concept_by_id[target_id]["section_ids"]
+            )
+            context_refs = relation["context_refs"]
+            if (
+                not isinstance(context_refs, list)
+                or len(context_refs) != len(set(context_refs))
+                or not set(context_refs) <= known_sections
+                or not set(context_refs) <= endpoint_sections
+            ):
+                return False
+            confidence = relation["confidence"]
+            if (
+                type(confidence) not in {int, float}
+                or isinstance(confidence, bool)
+                or not math.isfinite(confidence)
+                or not 0 <= confidence <= 1
             ):
                 return False
             relation_ids.add(relation["relation_id"])
             relation_directions.add(direction)
-            if relation["type"] == "prerequisite":
-                if _cycle(edges, (relation["source_concept_id"], relation["target_concept_id"])):
+            if relation_type == "prerequisite":
+                if _cycle(edges, (source_id, target_id)):
                     return False
-                edges.append((relation["source_concept_id"], relation["target_concept_id"]))
+                edges.append((source_id, target_id))
         if relations != sorted(
             relations,
             key=lambda relation: (

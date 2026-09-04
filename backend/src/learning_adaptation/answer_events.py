@@ -13,6 +13,7 @@ from sqlalchemy import select
 from runtime.learner_session import TrustedLearner
 from runtime.storage.tables import AnswerEvent, Assessment, database_session
 
+from .assessments import AssessmentError, _stored as validate_stored_assessment
 from .study_sessions import StudySessionError, _learner, _row, _stored, _validate
 
 
@@ -90,18 +91,42 @@ def _assessment(session, study, revision: str) -> Assessment:
     ))
     if row is None or not isinstance(row.public_document, dict) or not isinstance(row.private_answer_document, dict):
         raise AnswerSubmissionError("ANSWER_ASSESSMENT_UNAVAILABLE")
-    if row.public_document.get("assessment_revision") != revision or row.private_answer_document.get("assessment_revision") != revision:
+    try:
+        validate_stored_assessment(row)
+    except AssessmentError:
         raise AnswerSubmissionError("ANSWER_ASSESSMENT_UNAVAILABLE")
     return row
 
 
-def _event(row: AnswerEvent, assessment: Assessment) -> StoredAnswerEvent:
+def _event(row: AnswerEvent, assessment: Assessment, study) -> StoredAnswerEvent:
+    option_ids = {option["option_id"] for option in assessment.public_document["options"]}
     if (
-        row.question_id != assessment.question_id
+        row.study_session_id != study.study_session_id
+        or row.material_id != study.material_id
+        or row.knowledge_structure_revision != study.knowledge_structure_revision
+        or row.assessment_revision != assessment.assessment_revision
+        or row.question_id != assessment.question_id
         or row.semantic_identity != assessment.semantic_identity
         or row.target_concept_id != assessment.target_concept_id
         or row.target_claim_id != assessment.target_claim_id
         or row.mastery_qualified != assessment.mastery_qualified
+        or row.selected_option_id not in option_ids
+        or row.is_correct
+        != (
+            row.selected_option_id
+            == assessment.private_answer_document["correct_option_id"]
+        )
+        or type(row.event_number) is not int
+        or row.event_number < 1
+        or len(bytes(row.idempotency_key_sha256)) != 32
+        or len(bytes(row.request_fingerprint)) != 32
+        or bytes(row.request_fingerprint)
+        != _fingerprint(
+            row.study_session_id,
+            row.assessment_revision,
+            row.question_id,
+            row.selected_option_id,
+        )
     ):
         raise AnswerSubmissionError("ANSWER_EVENT_UNAVAILABLE")
     return StoredAnswerEvent(
@@ -159,7 +184,7 @@ def submit_answer(
             if replay is not None:
                 if bytes(replay.request_fingerprint) != fingerprint:
                     raise AnswerSubmissionError("ANSWER_IDEMPOTENCY_CONFLICT")
-                event = _event(replay, assessment)
+                event = _event(replay, assessment, study)
                 return AnswerSubmission(event, _feedback(event, assessment))
             if (
                 _stored(study).status not in {"active", "no_safe"}
@@ -190,7 +215,7 @@ def submit_answer(
             )
             session.add(created)
             session.flush()
-            event = _event(created, assessment)
+            event = _event(created, assessment, study)
             return AnswerSubmission(event, _feedback(event, assessment))
     except (AnswerSubmissionError, StudySessionError):
         raise
@@ -205,7 +230,14 @@ def read_answer_events(learner: TrustedLearner, study_session_id: UUID, *, dsn: 
             study = _row(session, learner_id, study_session_id)
             _validate(session, study)
             rows = list(session.scalars(select(AnswerEvent).where(AnswerEvent.study_session_id == study_session_id).order_by(AnswerEvent.event_number)))
-            events = tuple(_event(row, _assessment(session, study, row.assessment_revision)) for row in rows)
+            events = tuple(
+                _event(
+                    row,
+                    _assessment(session, study, row.assessment_revision),
+                    study,
+                )
+                for row in rows
+            )
             if [event.event_number for event in events] != list(range(1, len(events) + 1)) or len(events) > study.last_event_number:
                 raise AnswerSubmissionError("ANSWER_EVENT_UNAVAILABLE")
             return events

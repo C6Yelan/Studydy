@@ -13,6 +13,7 @@ from knowledge_map.structure import (
     build_knowledge_structure_view,
     validate_knowledge_structure,
 )
+from pdf_evidence.ocr_page_evidence import canonical_sha256
 
 from .artifacts import open_verified_source_pdf
 from .tables import KnowledgeStructure, MaterialProcessingRun, database_session
@@ -27,6 +28,46 @@ class StoredKnowledgeStructure:
     revision: str
     document: dict[str, Any] = field(repr=False)
     view: dict[str, Any] = field(repr=False)
+
+
+def runtime_binding_is_valid(value: Any) -> bool:
+    try:
+        if not isinstance(value, dict) or set(value) != {
+            "schema", "python", "runtime_lock_sha256", "model_id", "model_revision",
+            "semantic_service", "ocr", "policy", "runtime_binding_sha256",
+        }:
+            return False
+        identity = {
+            key: item for key, item in value.items() if key != "runtime_binding_sha256"
+        }
+        return (
+            value["schema"] == "material-runtime-binding/v1"
+            and value["python"] == "3.12"
+            and value["runtime_binding_sha256"] == canonical_sha256(identity)
+            and isinstance(value["runtime_lock_sha256"], str)
+            and len(value["runtime_lock_sha256"]) == 64
+            and all(character in "0123456789abcdef" for character in value["runtime_lock_sha256"])
+            and value["model_id"] == "Qwen/Qwen3.8-27B-FP8"
+            and isinstance(value["model_revision"], str)
+            and len(value["model_revision"]) == 40
+            and all(character in "0123456789abcdef" for character in value["model_revision"])
+            and value["semantic_service"] == {
+                "base_url": "http://127.0.0.1:8000",
+                "max_model_len": 32768,
+                "server": {
+                    "package": "vllm", "version": "0.28.0", "python": "3.12",
+                    "torch": "2.13.0+cu130", "cuda": "13.0",
+                    "transformers": "5.16.1",
+                },
+            }
+            and value["ocr"] == {
+                "model_id": "Unlimited-OCR",
+                "revision": "07dea832e22aefee32ad281d4b80551282e1c168",
+            }
+            and value["policy"] == "evidence-unified-semantics-product/v1"
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def _binding(document: dict[str, Any]) -> dict[str, Any]:
@@ -73,7 +114,7 @@ def publish_knowledge_structure(
             ).one_or_none()
             if (
                 run is None
-                or not isinstance(run[0], dict)
+                or not runtime_binding_is_valid(run[0])
                 or run[0].get("runtime_lock_sha256") != binding["runtime_lock_sha256"]
             ):
                 raise KnowledgeStructureStoreError("MATERIAL_RUN_UNAVAILABLE")
@@ -171,6 +212,7 @@ def read_knowledge_structure(
             or not isinstance(binding, dict)
             or binding != _binding(document)
             or not isinstance(runtime_binding, dict)
+            or not runtime_binding_is_valid(runtime_binding)
             or runtime_binding.get("runtime_lock_sha256") != document["provenance"]["runtime_lock_sha256"]
         ):
             raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")

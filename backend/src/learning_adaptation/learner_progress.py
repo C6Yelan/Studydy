@@ -12,7 +12,7 @@ from runtime.storage.tables import StudySession, database_session
 from .answer_events import read_answer_events
 from .learning_states import ConceptLearningState, derive_learning_states
 from .map_context import ConceptContext, read_map_context
-from .study_sessions import StoredStudySession, StudySessionError, read_study_session
+from .study_sessions import StoredStudySession, read_study_session
 
 
 class LearnerProgressError(RuntimeError):
@@ -149,6 +149,30 @@ def derive_learner_progress(
         raise LearnerProgressError("LEARNER_PROGRESS_UNAVAILABLE") from None
 
 
+def _guidance_was_applied(
+    learner: TrustedLearner,
+    study_session_id: UUID,
+    guidance_revision: str,
+    *,
+    dsn: str | None,
+) -> bool:
+    try:
+        with database_session(dsn) as session:
+            row = session.execute(
+                select(StudySession.last_applied_guidance_revision).where(
+                    StudySession.learner_id == learner.learner_id,
+                    StudySession.study_session_id == study_session_id,
+                )
+            ).one_or_none()
+        if row is None:
+            raise LearnerProgressError("LEARNER_PROGRESS_UNAVAILABLE")
+        return row[0] == guidance_revision
+    except LearnerProgressError:
+        raise
+    except Exception:
+        raise LearnerProgressError("LEARNER_PROGRESS_UNAVAILABLE") from None
+
+
 def apply_guidance(
     learner: TrustedLearner,
     study_session_id: UUID,
@@ -156,8 +180,16 @@ def apply_guidance(
     *,
     dsn: str | None = None,
 ) -> LearnerProgressSnapshot:
+    if _guidance_was_applied(
+        learner, study_session_id, guidance_revision, dsn=dsn
+    ):
+        return derive_learner_progress(learner, study_session_id, dsn=dsn)
     before = derive_learner_progress(learner, study_session_id, dsn=dsn)
     if guidance_revision != before.guidance_revision:
+        if _guidance_was_applied(
+            learner, study_session_id, guidance_revision, dsn=dsn
+        ):
+            return derive_learner_progress(learner, study_session_id, dsn=dsn)
         raise LearnerProgressError("LEARNER_GUIDANCE_STALE")
     state_sha = canonical_sha256({
         "event_watermark": before.event_watermark,

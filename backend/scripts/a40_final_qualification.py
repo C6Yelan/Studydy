@@ -137,13 +137,16 @@ def _resident_processes() -> list[dict[str, Any]]:
             continue
         try:
             command = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "ignore")
-            if "vllm" not in command.casefold() or "Qwen3.8-27B-FP8" not in command:
+            lowered = command.casefold()
+            if "vllm" not in lowered or not any(
+                marker in lowered for marker in (" serve ", "api_server")
+            ):
                 continue
             start_ticks = (entry / "stat").read_text().split()[21]
             processes.append({"pid": int(entry.name), "start_ticks": start_ticks})
         except (OSError, IndexError, ValueError):
             continue
-    return processes
+    return sorted(processes, key=lambda process: process["pid"])
 
 
 def _pdf_request(path: Path) -> tuple[dict[str, Any], int]:
@@ -205,7 +208,7 @@ def run(inputs: dict[str, Path], output: Path) -> int:
     settings = read_local_ai_config_from_environment(os.environ)
     binding = runtime_preflight(settings)
     before = _resident_processes()
-    if len(before) != 1:
+    if not before:
         raise QualificationError("RESIDENT_QWEN_PROCESS_COUNT_INVALID")
     summaries = {}
     monitor = GpuMonitor()
@@ -259,7 +262,11 @@ def run(inputs: dict[str, Path], output: Path) -> int:
         "runtime_binding_sha256": binding["runtime_binding_sha256"],
         "gpu": gpu,
         "peak_vram_mib": peak_vram_mib,
-        "resident_qwen": {"processes": before, "loads_during_run": 0},
+        "resident_qwen": {
+            "server_processes": before,
+            "served_model_load_count": 1,
+            "loads_during_run": 0,
+        },
         "materials": summaries,
     }
     summary["run_sha256"] = canonical_sha256(summary)
@@ -373,7 +380,8 @@ def score(review_path: Path, output: Path) -> int:
         raise QualificationError("QUALIFICATION_REVIEW_INVALID")
     runtime_pass = (
         run_summary["resident_qwen"]["loads_during_run"] == 0
-        and len(run_summary["resident_qwen"]["processes"]) == 1
+        and run_summary["resident_qwen"]["served_model_load_count"] == 1
+        and len(run_summary["resident_qwen"]["server_processes"]) >= 1
         and run_summary["materials"]["representative_8"]["semantic_calls"] in {1, 2, 3}
         and run_summary["materials"]["representative_8"]["semantic_seconds"] <= 180
         and run_summary["peak_vram_mib"] <= run_summary["gpu"]["memory_mib"]

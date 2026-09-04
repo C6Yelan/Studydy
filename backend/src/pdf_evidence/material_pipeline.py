@@ -113,12 +113,16 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
             or not isinstance(material["prompt"], str)
             or not material["prompt"]
             or set(assessment) != {
-                "request_schema", "response_schema", "policy", "candidate_count",
-                "option_count", "max_tokens", "prompt",
+                "request_schema", "response_schema", "public_schema", "private_schema",
+                "provenance_schema", "policy", "candidate_count", "option_count",
+                "max_tokens", "prompt",
             }
             or assessment["request_schema"] != "assessment-semantics-request/v1"
             or assessment["response_schema"] != "assessment-semantics-response/v1"
-            or assessment["policy"] != "source-span-single-choice/v1"
+            or assessment["public_schema"] != "single-choice-assessment/v2"
+            or assessment["private_schema"] != "single-choice-answer/v2"
+            or assessment["provenance_schema"] != "assessment-generation-provenance/v4"
+            or assessment["policy"] != "source-span-single-choice/v2"
             or assessment["candidate_count"] != 3
             or assessment["option_count"] != 4
             or assessment["max_tokens"] != 4096

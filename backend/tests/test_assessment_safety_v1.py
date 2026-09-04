@@ -33,7 +33,7 @@ def _proposal() -> dict:
         "supporting_evidence_ids": ["evidence:sha256:" + "2" * 64],
         "distractors": [
             {"text": "'\\n'", "changed_from": "\\0", "changed_to": "\\n"},
-            {"text": "'NULL'", "changed_from": "\\0", "changed_to": "NULL"},
+            {"text": "'EOF'", "changed_from": "\\0", "changed_to": "EOF"},
             {"text": "nullptr", "changed_from": "\\0", "changed_to": "nullptr"},
         ],
     }
@@ -43,7 +43,7 @@ def test_source_span_candidate_preserves_technical_token():
     candidate = _candidate(_proposal(), _claim(), set())
     assert candidate is not None
     assert candidate["correct_answer"] == "'\\0'"
-    assert candidate["options"] == ["'\\0'", "'\\n'", "'NULL'", "nullptr"]
+    assert candidate["options"] == ["'\\0'", "'\\n'", "'EOF'", "nullptr"]
 
 
 def test_unsupported_correct_multiple_supported_and_model_reject_are_blocked():
@@ -107,3 +107,13 @@ def test_exact_duplicate_is_blocked_but_novelty_uncertainty_does_not_block_publi
     assert private["correct_answer"] == "'\\0'"
     assert provenance["model_id"] == "Qwen/Qwen3.8-27B-FP8"
     assert qualified is False
+
+
+def test_visually_equivalent_unicode_question_is_an_exact_duplicate():
+    fullwidth = _proposal()
+    fullwidth["prompt"] = "Ａ"
+    first = _candidate(fullwidth, _claim(), set())
+    assert first is not None
+    ascii_form = _proposal()
+    ascii_form["prompt"] = "A"
+    assert _candidate(ascii_form, _claim(), {first["semantic_identity"]}) is None

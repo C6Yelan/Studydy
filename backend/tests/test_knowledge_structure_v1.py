@@ -10,6 +10,7 @@ from knowledge_map.structure import (
     build_knowledge_structure,
     build_knowledge_structure_view,
     build_semantic_bundles,
+    semantic_request,
     validate_knowledge_structure,
 )
 from pdf_evidence.ocr_page_evidence import canonical_sha256
@@ -188,8 +189,10 @@ def test_projection_repairs_only_technical_claim_and_keeps_valid_sibling():
     ("The terminator is '\\0'.", "The terminator is \"\\0\"."),
     ("Use the character literal 'x'.", 'Use the character literal "x".'),
     ("The condition is a <= b.", "The condition is a < b."),
+    ("Compute a + b.", "Compute a - b."),
     ("The answer is 42.", "The answer is 43."),
     ("The mass is 5 kg.", "The mass is 5 g."),
+    ("Speed is 12 m/s.", "Speed is 12 km/h."),
     ("Declare const char *value;", "Declare a character pointer."),
     ("Energy follows E = mc^2.", "Energy follows mass equivalence."),
 ])
@@ -270,6 +273,23 @@ def test_cycle_and_forbidden_or_generic_relations_never_publish():
     assert structure["metrics"]["rejected_relations"] == 2
 
 
+def test_relation_cannot_borrow_unrelated_document_evidence():
+    context = _context()
+    state = SemanticState()
+    bundle = build_semantic_bundles(context, maximum_utf8_bytes=80_000)[0]
+    response = _response(context)
+    response["relations"][0]["evidence_refs"] = [context["evidence"][0]["evidence_id"]]
+    apply_semantic_response(response, context=context, bundle=bundle, state=state)
+    structure = build_knowledge_structure(
+        context, state, source_sha256="1" * 64, run_id=RUN_ID,
+        produced_at=PRODUCED_AT, runtime_lock_sha256="a" * 64,
+        model_id="Qwen/Qwen3.8-27B-FP8", model_revision=MODEL_REVISION,
+        semantic_calls=1, ocr_calls=0,
+    )
+    assert structure["relations"] == []
+    assert structure["metrics"]["rejected_relations"] == 1
+
+
 def test_cross_section_concept_has_one_primary_tree_placement_and_zero_prerequisite_path_is_complete():
     context = _context()
     state = SemanticState()
@@ -332,6 +352,16 @@ def test_later_bundle_reuses_qwen_concept_key_without_pairwise_dedup_stage():
         )
     assert list(state.concepts) == ["shared-concept"]
     assert len(state.concepts["shared-concept"]["claims"]) == 2
+    request = semantic_request(
+        context,
+        {"sections": [sections[1]], "evidence": second_evidence},
+        state,
+    )
+    catalog = request["existing_concepts"][0]
+    assert len(catalog["evidence_refs"]) == 2
+    assert set(catalog["section_refs"]) == {
+        sections[0]["section_id"], sections[1]["section_id"]
+    }
 
 
 def test_runtime_timings_do_not_change_content_revision():

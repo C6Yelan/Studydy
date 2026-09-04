@@ -7,6 +7,7 @@ from hashlib import sha256
 import json
 import re
 from typing import Any, Callable
+import unicodedata
 from uuid import UUID
 
 import httpx
@@ -98,6 +99,22 @@ def _clean(value: Any, maximum: int = 4096) -> str:
     return cleaned
 
 
+def _exact(value: Any, maximum: int = 4096) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or len(value) > maximum
+        or "\x00" in value
+    ):
+        raise AssessmentError("ASSESSMENT_OUTPUT_INVALID")
+    return value
+
+
+def _normalized(value: str) -> str:
+    return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+
 def _key(value: str) -> bytes:
     if not isinstance(value, str) or not 1 <= len(value.encode()) <= 256:
         raise AssessmentError("ASSESSMENT_REQUEST_INVALID")
@@ -113,15 +130,165 @@ def _fingerprint(study_session_id: UUID, revision: str, claim_id: str) -> bytes:
 
 
 def _stored(row: Assessment) -> StoredAssessment:
-    if not all(isinstance(value, dict) for value in (row.public_document, row.private_answer_document, row.generation_provenance)):
+    public = row.public_document
+    private = row.private_answer_document
+    provenance = row.generation_provenance
+    if not all(isinstance(value, dict) for value in (public, private, provenance)):
         raise AssessmentError("ASSESSMENT_UNAVAILABLE")
+    public_fields = {
+        "schema", "assessment_revision", "study_session_id",
+        "knowledge_structure_revision", "question_id", "target_concept_id",
+        "target_claim_id", "source_evidence_ids", "question_type", "prompt", "options",
+    }
+    private_fields = {
+        "schema", "assessment_revision", "question_id", "correct_option_id",
+        "correct_answer", "rationale",
+    }
+    provenance_fields = {
+        "schema", "assessment_revision", "runtime_lock_sha256", "model_id",
+        "model_revision", "policy", "source_evidence_ids", "counterfactual_proofs",
+        "learning_angle", "novelty", "mastery_qualified",
+    }
+    try:
+        options = public["options"]
+        option_ids = [option["option_id"] for option in options]
+        option_texts = [option["text"] for option in options]
+        question_identity = {
+            "study_session_id": str(row.study_session_id),
+            "knowledge_structure_revision": row.knowledge_structure_revision,
+            "target_concept_id": row.target_concept_id,
+            "target_claim_id": row.target_claim_id,
+            "prompt": public["prompt"],
+            "options": sorted(option_texts),
+        }
+        question_id = "question:sha256:" + canonical_sha256(question_identity)
+        semantic_identity = "assessment-semantic:sha256:" + canonical_sha256(
+            {
+                "prompt": _normalized(public["prompt"]),
+                "correct": _normalized(private["correct_answer"]),
+            }
+        )
+        public_core = {key: value for key, value in public.items() if key != "assessment_revision"}
+        private_core = {key: value for key, value in private.items() if key != "assessment_revision"}
+        provenance_core = {
+            key: value for key, value in provenance.items() if key != "assessment_revision"
+        }
+        revision = "assessment:sha256:" + canonical_sha256(
+            {
+                "public": public_core,
+                "private_sha256": canonical_sha256(private_core),
+                "provenance_sha256": canonical_sha256(provenance_core),
+            }
+        )
+    except (KeyError, TypeError, ValueError):
+        raise AssessmentError("ASSESSMENT_UNAVAILABLE") from None
     if (
-        row.public_document.get("assessment_revision") != row.assessment_revision
-        or row.public_document.get("question_id") != row.question_id
-        or row.private_answer_document.get("assessment_revision") != row.assessment_revision
-        or row.generation_provenance.get("assessment_revision") != row.assessment_revision
+        set(public) != public_fields
+        or set(private) != private_fields
+        or set(provenance) != provenance_fields
+        or public["schema"] != "single-choice-assessment/v2"
+        or private["schema"] != "single-choice-answer/v2"
+        or provenance["schema"] != "assessment-generation-provenance/v4"
+        or revision != row.assessment_revision
+        or public["assessment_revision"] != revision
+        or private["assessment_revision"] != revision
+        or provenance["assessment_revision"] != revision
+        or re.fullmatch(r"assessment:sha256:[0-9a-f]{64}", revision) is None
+        or public["study_session_id"] != str(row.study_session_id)
+        or public["knowledge_structure_revision"] != row.knowledge_structure_revision
+        or public["question_id"] != question_id
+        or private["question_id"] != question_id
+        or row.question_id != question_id
+        or re.fullmatch(r"question:sha256:[0-9a-f]{64}", question_id) is None
+        or row.semantic_identity != semantic_identity
+        or re.fullmatch(
+            r"assessment-semantic:sha256:[0-9a-f]{64}", semantic_identity
+        )
+        is None
+        or public["target_concept_id"] != row.target_concept_id
+        or re.fullmatch(r"concept:sha256:[0-9a-f]{64}", row.target_concept_id)
+        is None
+        or public["target_claim_id"] != row.target_claim_id
+        or re.fullmatch(r"claim:sha256:[0-9a-f]{64}", row.target_claim_id) is None
+        or public["question_type"] != "single_choice"
+        or not isinstance(public["prompt"], str)
+        or not public["prompt"].strip()
+        or not isinstance(options, list)
+        or len(options) != 4
+        or any(
+            not isinstance(option, dict)
+            or set(option) != {"option_id", "text"}
+            or not isinstance(option["text"], str)
+            or not option["text"].strip()
+            or option["option_id"]
+            != "option:sha256:" + canonical_sha256(
+                {"question_id": question_id, "text": option["text"]}
+            )
+            for option in options
+        )
+        or option_ids != sorted(option_ids)
+        or len(option_ids) != len(set(option_ids))
+        or len(option_texts) != len(set(option_texts))
+        or private["correct_option_id"] not in option_ids
+        or private["correct_answer"]
+        != next(
+            option["text"]
+            for option in options
+            if option["option_id"] == private["correct_option_id"]
+        )
+        or not isinstance(private["rationale"], str)
+        or not private["rationale"].strip()
+        or not isinstance(public["source_evidence_ids"], list)
+        or not public["source_evidence_ids"]
+        or len(public["source_evidence_ids"])
+        != len(set(public["source_evidence_ids"]))
+        or any(
+            not isinstance(reference, str)
+            or re.fullmatch(r"evidence:sha256:[0-9a-f]{64}", reference) is None
+            for reference in public["source_evidence_ids"]
+        )
+        or provenance["source_evidence_ids"] != public["source_evidence_ids"]
+        or re.fullmatch(r"[0-9a-f]{64}", provenance["runtime_lock_sha256"])
+        is None
+        or provenance["model_id"] != "Qwen/Qwen3.8-27B-FP8"
+        or re.fullmatch(r"[0-9a-f]{40}", provenance["model_revision"]) is None
+        or provenance["policy"] != "source-span-single-choice/v2"
+        or provenance["learning_angle"] != row.learning_angle
+        or not isinstance(row.learning_angle, str)
+        or not row.learning_angle.strip()
+        or provenance["novelty"] not in {"distinct", "uncertain"}
+        or type(provenance["mastery_qualified"]) is not bool
+        or provenance["mastery_qualified"] != row.mastery_qualified
+        or not isinstance(provenance["counterfactual_proofs"], list)
+        or len(provenance["counterfactual_proofs"]) != 3
+        or len(bytes(row.request_idempotency_key_sha256)) != 32
+        or len(bytes(row.request_fingerprint)) != 32
+        or bytes(row.request_fingerprint)
+        != _fingerprint(
+            row.study_session_id,
+            row.knowledge_structure_revision,
+            row.target_claim_id,
+        )
     ):
         raise AssessmentError("ASSESSMENT_UNAVAILABLE")
+    distractor_texts = set(option_texts) - {private["correct_answer"]}
+    for proof in provenance["counterfactual_proofs"]:
+        if (
+            not isinstance(proof, dict)
+            or set(proof) != {"changed_from", "changed_to"}
+            or not isinstance(proof["changed_from"], str)
+            or not isinstance(proof["changed_to"], str)
+            or proof["changed_from"] not in private["correct_answer"]
+            or proof["changed_from"] not in private["rationale"]
+            or proof["changed_to"].casefold()
+            in private["correct_answer"].casefold()
+            or proof["changed_to"].casefold() in private["rationale"].casefold()
+            or not any(
+                proof["changed_to"].casefold() in text.casefold()
+                for text in distractor_texts
+            )
+        ):
+            raise AssessmentError("ASSESSMENT_UNAVAILABLE")
     return StoredAssessment(
         row.assessment_revision, row.study_session_id, row.knowledge_structure_revision,
         row.question_id, row.semantic_identity, row.learning_angle,
@@ -186,7 +353,7 @@ def _candidate(candidate: Any, claim: ClaimContext, used_identities: set[str]) -
     try:
         angle = _clean(candidate["learning_angle"], 256)
         prompt = _clean(candidate["prompt"])
-        correct = _clean(candidate["correct_answer"])
+        correct = _exact(candidate["correct_answer"])
     except AssessmentError:
         return None
     evidence = {item.evidence_id: item.quote for item in claim.evidence}
@@ -204,6 +371,8 @@ def _candidate(candidate: Any, claim: ClaimContext, used_identities: set[str]) -
     ):
         return None
     source_text = "\n".join(evidence.values())
+    source_folded = source_text.casefold()
+    correct_folded = correct.casefold()
     options = [correct]
     proofs = []
     for distractor in distractors:
@@ -211,26 +380,28 @@ def _candidate(candidate: Any, claim: ClaimContext, used_identities: set[str]) -
             return None
         try:
             text = _clean(distractor["text"])
-            changed_from = _clean(distractor["changed_from"])
-            changed_to = _clean(distractor["changed_to"])
+            changed_from = _exact(distractor["changed_from"])
+            changed_to = _exact(distractor["changed_to"])
         except AssessmentError:
             return None
         if (
             changed_from not in correct
             or changed_from not in source_text
-            or changed_to in correct
-            or changed_to in source_text
+            or changed_to.casefold() in correct_folded
+            or changed_to.casefold() in source_folded
             or changed_to not in text
-            or text in source_text
+            or text.casefold() in source_folded
             or any(reference in text for reference in evidence)
         ):
             return None
         options.append(text)
         proofs.append({"changed_from": changed_from, "changed_to": changed_to})
-    normalized = [" ".join(option.casefold().split()) for option in options]
+    normalized = [_normalized(option) for option in options]
     if len(normalized) != len(set(normalized)):
         return None
-    semantic_identity = "assessment-semantic:sha256:" + canonical_sha256({"prompt": prompt.casefold(), "correct": correct.casefold()})
+    semantic_identity = "assessment-semantic:sha256:" + canonical_sha256(
+        {"prompt": _normalized(prompt), "correct": _normalized(correct)}
+    )
     if semantic_identity in used_identities:
         return None
     return {
@@ -260,7 +431,7 @@ def _documents(
         "target_concept_id": concept.concept_id,
         "target_claim_id": claim.claim_id,
         "prompt": candidate["prompt"],
-        "options": candidate["options"],
+        "options": sorted(candidate["options"]),
     }
     question_id = "question:sha256:" + canonical_sha256(question_identity)
     option_documents = sorted(
@@ -268,7 +439,10 @@ def _documents(
         key=lambda option: option["option_id"],
     )
     correct_option_id = next(option["option_id"] for option in option_documents if option["text"] == candidate["correct_answer"])
-    mastery_qualified = not prior_angles or (candidate["novelty"] == "distinct" and candidate["learning_angle"].casefold() not in prior_angles)
+    mastery_qualified = not prior_angles or (
+        candidate["novelty"] == "distinct"
+        and _normalized(candidate["learning_angle"]) not in prior_angles
+    )
     public_core = {
         "schema": "single-choice-assessment/v2",
         "study_session_id": str(study.study_session_id),
@@ -288,20 +462,29 @@ def _documents(
         "correct_answer": candidate["correct_answer"],
         "rationale": " ".join(evidence.quote for evidence in claim.evidence if evidence.evidence_id in candidate["supporting_evidence_ids"]),
     }
-    revision = "assessment:sha256:" + canonical_sha256({"public": public_core, "private_sha256": canonical_sha256(private_core)})
-    public = {**public_core, "assessment_revision": revision}
-    private = {**private_core, "assessment_revision": revision}
     service = runtime_lock["semantic_service"]
-    provenance = {
-        "schema": "assessment-generation-provenance/v3",
-        "assessment_revision": revision,
+    provenance_core = {
+        "schema": "assessment-generation-provenance/v4",
         "runtime_lock_sha256": canonical_sha256(runtime_lock),
         "model_id": service["model_id"],
         "model_revision": service["revision"],
         "policy": runtime_lock["assessment"]["policy"],
         "source_evidence_ids": candidate["supporting_evidence_ids"],
         "counterfactual_proofs": candidate["proofs"],
+        "learning_angle": candidate["learning_angle"],
+        "novelty": candidate["novelty"],
+        "mastery_qualified": mastery_qualified,
     }
+    revision = "assessment:sha256:" + canonical_sha256(
+        {
+            "public": public_core,
+            "private_sha256": canonical_sha256(private_core),
+            "provenance_sha256": canonical_sha256(provenance_core),
+        }
+    )
+    public = {**public_core, "assessment_revision": revision}
+    private = {**private_core, "assessment_revision": revision}
+    provenance = {**provenance_core, "assessment_revision": revision}
     return public, private, provenance, mastery_qualified
 
 
@@ -332,6 +515,8 @@ def generate_assessment(
                     raise AssessmentError("ASSESSMENT_IDEMPOTENCY_CONFLICT")
                 return _stored(existing)
             prior = list(session.scalars(select(Assessment).where(Assessment.study_session_id == study_session_id, Assessment.target_claim_id == target_claim_id).order_by(Assessment.created_at)))
+            for prior_assessment in prior:
+                _stored(prior_assessment)
             owned = client is None
             http = semantic_client() if client is None else client
             try:
@@ -358,7 +543,7 @@ def generate_assessment(
                 public, private, provenance, mastery_qualified = _documents(
                     study, concept, claim, chosen,
                     runtime_lock=runtime_lock,
-                    prior_angles={row.learning_angle.casefold() for row in prior},
+                    prior_angles={_normalized(row.learning_angle) for row in prior},
                 )
                 session.execute(insert(Assessment).values(
                     assessment_revision=public["assessment_revision"],

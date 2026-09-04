@@ -8,6 +8,7 @@ import importlib.metadata
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import tempfile
 from typing import Any
@@ -20,7 +21,7 @@ from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.semantic_service import SemanticServiceError, preflight_semantic_service
 
 from .storage.artifacts import open_verified_source_pdf
-from .storage.knowledge_structures import KnowledgeStructureStoreError, publish_knowledge_structure
+from .storage.knowledge_structures import KnowledgeStructureStoreError, publish_knowledge_structure, runtime_binding_is_valid
 from .storage.tables import Learner, MaterialProcessingRun as RunRow, database_session
 
 
@@ -68,6 +69,69 @@ class ClaimedMaterialProcessingRun:
 
 
 def _row(row: RunRow) -> MaterialProcessingRun:
+    runtime = row.runtime_binding
+    if not runtime_binding_is_valid(runtime):
+        raise MaterialProcessingError("MATERIAL_RUN_INVALID")
+    output = row.output_binding
+    if row.status in {"pending", "running"}:
+        valid_lifecycle = (
+            output is None and row.error_code is None and row.completed_at is None
+            and (row.status != "pending" or row.progress_stage == "queued")
+        )
+    elif row.status == "failed":
+        valid_lifecycle = (
+            output is None
+            and isinstance(row.error_code, str)
+            and re.fullmatch(r"[A-Z][A-Z0-9_]{0,99}", row.error_code) is not None
+            and row.completed_at is not None
+            and row.progress_stage != "completed"
+        )
+    else:
+        fields = {
+            "schema", "knowledge_structure_revision", "runtime_lock_sha256",
+            "page_count", "processing", "quality", "decision", "reason_codes",
+            "ocr_calls", "semantic_calls",
+        }
+        valid_lifecycle = (
+            row.status in {"succeeded", "partial"}
+            and isinstance(output, dict)
+            and set(output) == fields
+            and output["schema"] == "material-run-output-binding/v4"
+            and re.fullmatch(
+                r"knowledge-structure:sha256:[0-9a-f]{64}",
+                output["knowledge_structure_revision"],
+            )
+            is not None
+            and output["runtime_lock_sha256"] == runtime["runtime_lock_sha256"]
+            and type(output["page_count"]) is int
+            and output["page_count"] >= 1
+            and output["processing"] == row.status
+            and output["quality"] in {"accepted", "needs_review"}
+            and output["decision"] in {"retain", "review"}
+            and isinstance(output["reason_codes"], list)
+            and output["reason_codes"] == list(dict.fromkeys(output["reason_codes"]))
+            and all(
+                isinstance(reason, str)
+                and re.fullmatch(r"[A-Z][A-Z0-9_]{0,99}", reason) is not None
+                for reason in output["reason_codes"]
+            )
+            and type(output["ocr_calls"]) is int
+            and 0 <= output["ocr_calls"] <= output["page_count"]
+            and type(output["semantic_calls"]) is int
+            and output["semantic_calls"] >= 1
+            and row.progress_stage == "completed"
+            and row.completed_pages == row.total_pages == output["page_count"]
+            and row.error_code is None
+            and row.completed_at is not None
+        )
+    if (
+        not valid_lifecycle
+        or row.progress_stage not in {"queued", "evidence", "semantics", "publishing", "completed"}
+        or type(row.completed_pages) is not int
+        or row.completed_pages < 0
+        or (row.total_pages is not None and (type(row.total_pages) is not int or row.total_pages < 1))
+    ):
+        raise MaterialProcessingError("MATERIAL_RUN_INVALID")
     return MaterialProcessingRun(
         row.run_id, row.learner_id, row.material_id, row.source_artifact_id,
         deepcopy(row.runtime_binding), row.status, row.progress_stage,
@@ -133,6 +197,8 @@ def runtime_binding(local_config: Any) -> dict[str, Any]:
         "policy": "evidence-unified-semantics-product/v1",
     }
     binding["runtime_binding_sha256"] = canonical_sha256(binding)
+    if not runtime_binding_is_valid(binding):
+        raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")
     return binding
 
 

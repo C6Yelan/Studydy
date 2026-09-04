@@ -140,6 +140,8 @@ def preflight_semantic_service(
     if (
         not isinstance(version_body, dict)
         or version_body.get("version") != service["server"]["version"]
+        or not isinstance(served, list)
+        or len(served) != 1
         or model is None
         or model.get("max_model_len") != service["max_model_len"]
         or not isinstance(token_body, dict)
