@@ -57,6 +57,10 @@ PYTHONPATH=backend/src python -m runtime.local_runtime verify
 即fail closed。Runtime安裝由bootstrap/package tooling負責，backend不提供source sync、backup或
 rollback，也不維護逐檔manifest。真實主機E2E與unseen-PDF評估仍是另外核准的操作。
 
+Production model inference不設計算deadline：OCR與mDeBERTa subprocess request傳入
+`timeout=None`；semantic HTTP client保留bounded loopback connect timeout，但read沒有deadline。
+Startup/readiness、database connect、lock acquisition與subprocess shutdown timeout不受影響。
+
 PostgreSQL production semantics remain PostgreSQL-only. Pytest normally creates one pinned
 disposable Docker PostgreSQL control database, then creates and drops a fresh `studydy_case_*`
 database for every database-backed test. On RunPod or another host without Docker, install

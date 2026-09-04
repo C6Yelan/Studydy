@@ -35,6 +35,10 @@ PYTHONPATH=backend/src backend/.venv/bin/python -m runtime.local_runtime verify
 固定file count或逐檔size/hash。Backend不擁有vLLM executable、Qwen directory、KV cache或
 process lifecycle。
 
+Model startup/readiness、loopback connect、database、lock acquisition與graceful shutdown維持
+bounded timeout。OCR、Qwen generation及mDeBERTa inference在process/service仍存活時沒有執行
+deadline；停止backend時仍由既有close/abort路徑回收backend-owned child。
+
 ## 2. PostgreSQL
 
 Use a unique explicit container name and loopback-only port. Enter the password interactively so it
