@@ -408,7 +408,6 @@ def _request_stage(
                 response_format=response_format,
                 max_model_len=settings["concept_max_model_len"],
                 max_tokens=stage["generation"]["max_tokens"],
-                timeout_seconds=stage["timeout_seconds"],
             )
         except ConceptAPIError as error:
             if (
@@ -424,7 +423,6 @@ def _verifier_probabilities(
     premise: str,
     options: list[str],
     request_id: str,
-    timeout_seconds: float,
 ) -> tuple[float, float, float, float]:
     response = process.request(
         {
@@ -433,7 +431,7 @@ def _verifier_probabilities(
             "premise": premise,
             "options": options,
         },
-        timeout_seconds,
+        None,
     )
     rejected = {
         "schema": "local-assessment-verifier-response/v2",
@@ -473,7 +471,6 @@ def _novelty_comparisons(
     candidate_focus: str,
     prior_novelties: tuple[AssessmentSemanticNovelty, ...],
     request_id: str,
-    timeout_seconds: float,
 ) -> tuple[_NoveltyComparison, ...]:
     response = process.request(
         {
@@ -484,7 +481,7 @@ def _novelty_comparisons(
                 novelty.semantic_focus for novelty in prior_novelties
             ],
         },
-        timeout_seconds,
+        None,
     )
     rejected = {
         "schema": "local-assessment-novelty-response/v1",
@@ -579,7 +576,6 @@ def _score_candidate(
     process: LocalAIProcess,
     candidate: _Candidate,
     grounding: _Grounding,
-    timeout_seconds: float,
 ) -> _ScoredCandidate:
     options = [candidate.correct_option, *candidate.distractors]
     identity = {
@@ -600,7 +596,6 @@ def _score_candidate(
         selected_premise,
         options,
         canonical_sha256({**identity, "evidence_scope": "selected"}),
-        timeout_seconds,
     )
     values = (
         selected_values
@@ -610,7 +605,6 @@ def _score_candidate(
             full_premise,
             options,
             canonical_sha256({**identity, "evidence_scope": "full_claim"}),
-            timeout_seconds,
         )
     )
     maximum_distractor = max(values[1:])
@@ -634,12 +628,7 @@ def _rank_candidates(
     policy: dict[str, Any],
 ) -> list[_ScoredCandidate]:
     scored = [
-        _score_candidate(
-            process,
-            candidate,
-            grounding,
-            policy["verifier"]["request_timeout_seconds"],
-        )
+        _score_candidate(process, candidate, grounding)
         for candidate in candidates
     ]
     passing = [
@@ -1067,7 +1056,6 @@ def _first_unused_documents(
                             prior.semantic_identity for prior in prior_novelties
                         ],
                     }),
-                    timeout_seconds=novelty_policy["request_timeout_seconds"],
                 )
             except (AssessmentGenerationError, LocalAIError) as error:
                 comparison_policy_revision = outcomes[

@@ -855,10 +855,7 @@ def test_runtime_binding_contains_exact_code_and_no_private_paths(tmp_path: Path
     }
     assert binding["timeouts_seconds"] == {
         "resident_lock": 5,
-        "ocr_page": 120,
-        "concept_attempt": 300,
         "semantic_service_preflight": 5,
-        "concept_equivalence": 120,
     }
     assert binding["retry_policy"]["concept_attempts"] == 2
     encoded = json.dumps(binding)

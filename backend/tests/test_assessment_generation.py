@@ -66,7 +66,6 @@ def _policy() -> dict:
             "prompt": "proposal",
             "prompt_sha256": "6" * 64,
             "generation": {"max_tokens": 2800},
-            "timeout_seconds": 300,
             "retry": {
                 "max_attempts": 2,
                 "retryable_reasons": [
@@ -79,7 +78,6 @@ def _policy() -> dict:
             "prompt": "repair",
             "prompt_sha256": "7" * 64,
             "generation": {"max_tokens": 3400},
-            "timeout_seconds": 300,
             "retry": {
                 "max_attempts": 2,
                 "retryable_reasons": [
@@ -90,7 +88,6 @@ def _policy() -> dict:
         },
         "verifier": {
             "startup_timeout_seconds": 120,
-            "request_timeout_seconds": 120,
             "entailment_margin_threshold": 0.1,
             "multiple_support_risk_threshold": 0.4,
         },
@@ -116,7 +113,6 @@ def _policy() -> dict:
                 "over_limit": "distinct-mastery-evidence:over-limit/v1",
             },
             "maximum_prior_items": 32,
-            "request_timeout_seconds": 120,
         },
         "limits": {"maximum_evidence_characters": 32768},
     }
@@ -203,6 +199,7 @@ class _Verifier:
         self.aborted = False
 
     def request(self, request, _timeout):
+        assert _timeout is None
         if request["schema"] == "local-assessment-novelty-request/v1":
             self.novelty_requests += 1
             return {

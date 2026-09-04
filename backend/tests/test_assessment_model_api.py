@@ -35,7 +35,6 @@ def test_assessment_request_preserves_fixed_input_order_and_disables_thinking():
             response_format={"type": "json_schema"},
             max_model_len=100,
             max_tokens=20,
-            timeout_seconds=30,
         ) == "{}"
 
     body = json.loads(observed[1].content)

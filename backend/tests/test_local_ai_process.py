@@ -28,7 +28,7 @@ def _verifier_child_settings(tmp_path: Path) -> dict[str, str]:
 def test_bounded_ndjson_pipe_and_clean_exit():
     code = "import sys,json; value=json.loads(sys.stdin.buffer.readline()); print(json.dumps({'request_id':value['request_id']}),flush=True)"
     child = LocalAIProcess([sys.executable, "-c", code], request_limit=100, response_limit=100)
-    assert child.request({"request_id": "public"}, 2) == {"request_id": "public"}
+    assert child.request({"request_id": "public"}, None) == {"request_id": "public"}
     child.close()
     child.close()
 

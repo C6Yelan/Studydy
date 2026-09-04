@@ -116,6 +116,7 @@ class FakeChild:
         assert len(state["resident"]) == 1
 
     def request(self, request, timeout):
+        assert timeout is None
         self.state[self.kind] += 1
         return {
             "schema": "local-ocr-response/v1",

@@ -124,7 +124,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
                 "formal_resolution", "concept_equivalence", "verifier_model",
             }
             and canonical_sha256(runtime_lock) == RUNTIME_LOCK_SHA256
-            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v13"
+            and runtime_lock["schema"] == "studydy-local-ai-runtime-lock/v14"
             and runtime_lock["python"] == {"version": "3.12"}
             and semantic["model_id"] == "Qwen/Qwen3.8-27B-FP8"
             and semantic["revision"]
@@ -176,7 +176,7 @@ def _validate_runtime_lock(runtime_lock: Any) -> None:
                 ),
                 "entailment_threshold": 0.8,
                 "maximum_tokens": 384,
-                "timeout_seconds": 120,
+                "startup_timeout_seconds": 120,
                 "failure_policy": "veto-and-retain/v1",
                 "safe_loading": "safetensors-local-only-no-remote-code",
             }
@@ -615,7 +615,7 @@ def _process_pdf(
                                         ).decode("ascii"),
                                     },
                                 },
-                                120,
+                                None,
                             )
                             if (
                                 set(response) != {"schema", "request_id", "blocks"}
@@ -799,7 +799,6 @@ def _process_pdf(
                                     prompt_template=runtime_lock["semantic"]["prompt"],
                                     semantic_request=request,
                                     max_model_len=settings["concept_max_model_len"],
-                                    timeout_seconds=retry_policy["timeout_seconds"],
                                 )
                                 validate_semantic_request(fitted_request)
                                 batch_binding = {
@@ -816,7 +815,6 @@ def _process_pdf(
                                     prompt_template=runtime_lock["semantic"]["prompt"],
                                     semantic_request=fitted_request,
                                     max_model_len=settings["concept_max_model_len"],
-                                    timeout_seconds=retry_policy["timeout_seconds"],
                                     already_fitted=True,
                                 )
                                 calls += 1

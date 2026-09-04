@@ -61,7 +61,9 @@ class _VerifierLease:
     def __init__(self, process: Any) -> None:
         self._process = process
 
-    def request(self, request: dict[str, Any], timeout_seconds: float) -> Any:
+    def request(
+        self, request: dict[str, Any], timeout_seconds: float | None
+    ) -> Any:
         return self._process.request(request, timeout_seconds)
 
     def close(self) -> None:

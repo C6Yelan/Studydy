@@ -392,12 +392,7 @@ def formal_runtime_binding(local_config: Any) -> dict[str, Any]:
         },
         "timeouts_seconds": {
             "resident_lock": 5,
-            "ocr_page": 120,
-            "concept_attempt": 300,
             "semantic_service_preflight": SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS,
-            "concept_equivalence": local_config["runtime_lock"][
-                "concept_equivalence"
-            ]["timeout_seconds"],
         },
         "retry_policy": {
             "ocr_attempts": 1,

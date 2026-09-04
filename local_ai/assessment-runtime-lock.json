@@ -1,5 +1,5 @@
 {
-  "schema": "studydy-assessment-runtime-lock/v2",
+  "schema": "studydy-assessment-runtime-lock/v3",
   "policy_revision": "assessment-generation-policy/v6",
   "shared_models": {
     "semantic_model_id": "Qwen/Qwen3.8-27B-FP8",
@@ -14,7 +14,6 @@
     "output_schema": "assessment-grounded-multi-candidates/v1",
     "input_serialization": "insertion-order-compact-json/v1",
     "generation": {"temperature": 0, "max_tokens": 2800},
-    "timeout_seconds": 300,
     "retry": {
       "max_attempts": 2,
       "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
@@ -27,7 +26,6 @@
     "output_schema": "assessment-grounded-mutation-candidates/v1",
     "input_serialization": "insertion-order-compact-json/v1",
     "generation": {"temperature": 0, "max_tokens": 3400},
-    "timeout_seconds": 300,
     "retry": {
       "max_attempts": 2,
       "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
@@ -50,7 +48,6 @@
     "maximum_pair_tokens": 384,
     "over_limit_policy": "reject-before-inference/v1",
     "startup_timeout_seconds": 120,
-    "request_timeout_seconds": 120,
     "safe_loading": "safetensors-local-only-no-remote-code"
   },
   "novelty": {
@@ -71,8 +68,7 @@
     },
     "maximum_prior_items": 32,
     "maximum_pair_tokens": 384,
-    "over_limit_policy": "reject-before-inference/v1",
-    "request_timeout_seconds": 120
+    "over_limit_policy": "reject-before-inference/v1"
   },
   "selection": {
     "ranking": "margin-descending-candidate-index-ascending/v1",

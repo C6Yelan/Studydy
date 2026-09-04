@@ -97,7 +97,9 @@ class LocalAIProcess:
             except OSError:
                 pass
 
-    def request(self, request: dict[str, Any], timeout_seconds: float) -> dict[str, Any]:
+    def request(
+        self, request: dict[str, Any], timeout_seconds: float | None
+    ) -> dict[str, Any]:
         try:
             encoded = json.dumps(
                 request,

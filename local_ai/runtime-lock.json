@@ -1,5 +1,5 @@
 {
-  "schema": "studydy-local-ai-runtime-lock/v13",
+  "schema": "studydy-local-ai-runtime-lock/v14",
   "python": {
     "version": "3.12"
   },
@@ -110,7 +110,6 @@
     "retry": {
       "max_attempts": 2,
       "fixed_retry_count": 1,
-      "timeout_seconds": 300,
       "retryable_reasons": [
         "CONCEPT_API_TIMEOUT",
         "CONCEPT_API_UNAVAILABLE"
@@ -134,7 +133,6 @@
     "request_schema": "concept-deduplication-input/v1",
     "output_schema": "concept-deduplication/v1",
     "generation": {"temperature": 0, "max_tokens": 512},
-    "timeout_seconds": 300,
     "retry": {
       "max_attempts": 2,
       "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
@@ -150,7 +148,7 @@
     "decision_rule": "bidirectional-entailment-threshold-and-argmax/v1",
     "entailment_threshold": 0.8,
     "maximum_tokens": 384,
-    "timeout_seconds": 120,
+    "startup_timeout_seconds": 120,
     "failure_policy": "veto-and-retain/v1",
     "safe_loading": "safetensors-local-only-no-remote-code"
   },

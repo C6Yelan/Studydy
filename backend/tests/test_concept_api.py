@@ -11,6 +11,7 @@ from pdf_evidence.concept_api import (
     chat_completions_url,
     preflight_semantic_service,
     request_concept_text,
+    semantic_service_client,
 )
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 
@@ -47,7 +48,6 @@ def _request(
         prompt_template=RUNTIME_LOCK["semantic"]["prompt"],
         semantic_request=semantic_request or _semantic_request(),
         max_model_len=8_192,
-        timeout_seconds=300,
     )
 
 
@@ -106,6 +106,12 @@ def test_semantic_service_client_uses_only_environment_bearer():
         {"VLLM_API_KEY": "test-only-value"}
     ) == {"Authorization": "Bearer test-only-value"}
     assert _semantic_service_headers({}) == {}
+
+
+def test_semantic_inference_has_connect_timeout_without_read_deadline():
+    with semantic_service_client(environment={}) as client:
+        assert client.timeout.connect == 5
+        assert client.timeout.read is None
 
 
 @pytest.mark.parametrize("api_key", ["", "line\nbreak", "nul\x00byte"])

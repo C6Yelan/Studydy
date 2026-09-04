@@ -22,6 +22,9 @@ TEMPERATURE = 0
 MAX_API_RESPONSE_BYTES = 128 * 1_024
 SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS = 5
 SEMANTIC_API_KEY_ENVIRONMENT = "VLLM_API_KEY"
+SEMANTIC_INFERENCE_TIMEOUT = httpx.Timeout(
+    None, connect=SEMANTIC_SERVICE_PREFLIGHT_TIMEOUT_SECONDS
+)
 CONCEPT_RESPONSE_FORMAT = {
     "type": "json_schema",
     "json_schema": {
@@ -102,6 +105,7 @@ def semantic_service_client(
         headers=_semantic_service_headers(environment),
         trust_env=False,
         follow_redirects=False,
+        timeout=SEMANTIC_INFERENCE_TIMEOUT,
     )
 
 
@@ -250,7 +254,6 @@ def request_concept_text(
     prompt_template: str,
     semantic_request: dict[str, Any],
     max_model_len: int,
-    timeout_seconds: float,
     already_fitted: bool = False,
 ) -> str:
     return request_structured_text(
@@ -262,7 +265,6 @@ def request_concept_text(
         response_format=CONCEPT_RESPONSE_FORMAT,
         max_model_len=max_model_len,
         max_tokens=MAX_TOKENS,
-        timeout_seconds=timeout_seconds,
         request_is_fitted=already_fitted,
     )
 
@@ -275,7 +277,6 @@ def fit_concept_request(
     prompt_template: str,
     semantic_request: dict[str, Any],
     max_model_len: int,
-    timeout_seconds: float,
 ) -> dict[str, Any]:
     """以 server tokenizer 移除 optional context，保留完整 envelope。"""
 
@@ -288,7 +289,6 @@ def fit_concept_request(
             request_document=semantic_request,
             max_model_len=max_model_len,
             max_tokens=MAX_TOKENS,
-            timeout_seconds=timeout_seconds,
         )
     except httpx.TimeoutException as error:
         raise ConceptAPIError("CONCEPT_API_TIMEOUT") from error
@@ -308,7 +308,6 @@ def request_structured_text(
     response_format: dict[str, Any],
     max_model_len: int,
     max_tokens: int,
-    timeout_seconds: float,
     enable_thinking: bool | None = None,
     request_is_fitted: bool = False,
 ) -> str:
@@ -340,7 +339,6 @@ def request_structured_text(
                 request_document=request_document,
                 max_model_len=max_model_len,
                 max_tokens=max_tokens,
-                timeout_seconds=timeout_seconds,
             )
         )
         messages = _request_messages(prompt_template, fitted_request)
@@ -358,7 +356,6 @@ def request_structured_text(
         response = client.post(
             chat_completions_url(base_url),
             json=request_body,
-            timeout=timeout_seconds,
         )
         response.raise_for_status()
     except httpx.TimeoutException as error:
@@ -413,7 +410,6 @@ def _fit_request_document(
     request_document: dict[str, Any],
     max_model_len: int,
     max_tokens: int,
-    timeout_seconds: float,
 ) -> dict[str, Any]:
     """只移除低優先 context；current Evidence 的 batch 邊界不變。"""
 
@@ -426,7 +422,6 @@ def _fit_request_document(
             model=model,
             messages=messages,
             max_model_len=max_model_len,
-            timeout_seconds=timeout_seconds,
         )
         if count + max_tokens <= max_model_len:
             return candidate
@@ -496,7 +491,6 @@ def _token_count(
     model: str,
     messages: list[dict[str, str]],
     max_model_len: int,
-    timeout_seconds: float,
 ) -> int:
     tokenized = client.post(
         _tokenize_url(base_url),
@@ -506,7 +500,6 @@ def _token_count(
             "add_generation_prompt": True,
             "add_special_tokens": False,
         },
-        timeout=timeout_seconds,
     )
     tokenized.raise_for_status()
     if not tokenized.content or len(tokenized.content) > MAX_API_RESPONSE_BYTES:

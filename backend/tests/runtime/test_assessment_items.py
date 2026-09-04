@@ -898,7 +898,6 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             "prompt": "proposal",
             "prompt_sha256": "3" * 64,
             "generation": {"max_tokens": 2800},
-            "timeout_seconds": 300,
             "retry": {
                 "max_attempts": 2,
                 "retryable_reasons": [
@@ -911,7 +910,6 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
             "prompt": "repair",
             "prompt_sha256": "4" * 64,
             "generation": {"max_tokens": 3400},
-            "timeout_seconds": 300,
             "retry": {
                 "max_attempts": 2,
                 "retryable_reasons": [
@@ -922,7 +920,6 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
         },
         "verifier": {
             "startup_timeout_seconds": 120,
-            "request_timeout_seconds": 120,
             "entailment_margin_threshold": 0.1,
             "multiple_support_risk_threshold": 0.4,
         },
@@ -948,7 +945,6 @@ def test_production_generation_uses_canonical_evidence_and_stores_private_answer
                 "over_limit": "distinct-mastery-evidence:over-limit/v1",
             },
             "maximum_prior_items": 32,
-            "request_timeout_seconds": 120,
         },
         "limits": {"maximum_evidence_characters": 32768},
     }

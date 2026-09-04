@@ -14,7 +14,7 @@ from runtime.material_processing import (
 
 
 ASSESSMENT_RUNTIME_LOCK_SHA256 = (
-    "cbaf1854557f891ed8e2af8e212239855872ac970341925e0c9bb86104b40b90"
+    "d7cc77dccca0a228fefe2040cb59511b5b75b277873ee470f7e28d97d3069b7e"
 )
 
 
@@ -52,7 +52,7 @@ def _validate_assessment_runtime_lock(
             and canonical_sha256(assessment_lock)
             == ASSESSMENT_RUNTIME_LOCK_SHA256
             and assessment_lock["schema"]
-            == "studydy-assessment-runtime-lock/v2"
+            == "studydy-assessment-runtime-lock/v3"
             and assessment_lock["policy_revision"]
             == "assessment-generation-policy/v6"
             and assessment_lock["shared_models"]
@@ -107,7 +107,6 @@ def _validate_assessment_runtime_lock(
                 "maximum_pair_tokens": 384,
                 "over_limit_policy": "reject-before-inference/v1",
                 "startup_timeout_seconds": 120,
-                "request_timeout_seconds": 120,
                 "safe_loading": "safetensors-local-only-no-remote-code",
             }
             and assessment_lock["selection"]
@@ -157,7 +156,6 @@ def _validate_assessment_runtime_lock(
                 "maximum_prior_items": 32,
                 "maximum_pair_tokens": 384,
                 "over_limit_policy": "reject-before-inference/v1",
-                "request_timeout_seconds": 120,
             }
             and assessment_lock["limits"]
             == {

@@ -115,7 +115,6 @@ def _request_stage(
                 response_format=response_format,
                 max_model_len=settings["concept_max_model_len"],
                 max_tokens=stage["generation"]["max_tokens"],
-                timeout_seconds=stage["timeout_seconds"],
                 enable_thinking=False,
             )
         except ConceptAPIError as error:
@@ -177,11 +176,11 @@ def _verify_same_pairs(
     pairs_by_id = {pair["id"]: pair for pair in request["pairs"]}
     process = None
     final_decisions = []
-    timeout_seconds = settings["runtime_lock"]["concept_equivalence"][
-        "timeout_seconds"
+    startup_timeout_seconds = settings["runtime_lock"]["concept_equivalence"][
+        "startup_timeout_seconds"
     ]
     try:
-        process = start_equivalence_process(settings, timeout_seconds)
+        process = start_equivalence_process(settings, startup_timeout_seconds)
         for proposal in proposals:
             if proposal["decision"] != "SAME":
                 final_decisions.append(deepcopy(proposal))
@@ -199,7 +198,7 @@ def _verify_same_pairs(
                         "left_text": verifier_texts[pair["left"]],
                         "right_text": verifier_texts[pair["right"]],
                     },
-                    timeout_seconds,
+                    None,
                 )
             except LocalAIError as error:
                 if error.reason_code == "CHILD_TIMEOUT":

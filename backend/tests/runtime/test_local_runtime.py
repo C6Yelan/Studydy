@@ -12,9 +12,7 @@ from runtime.material_processing import MaterialProcessingError
 def _config(tmp_path: Path) -> dict:
     return {
         "private_runtime_root": str(tmp_path / "runtime"),
-        "runtime_lock": {
-            "concept_equivalence": {"timeout_seconds": 120},
-        },
+        "runtime_lock": {},
     }
 
 
