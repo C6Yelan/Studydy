@@ -3,12 +3,15 @@ import json
 from pathlib import Path
 
 import pymupdf
+import httpx
 
 import pdf_evidence.material_pipeline as pipeline
 
 
 class Client:
-    pass
+    def post(self, url, **kwargs):
+        assert url.endswith("/tokenize")
+        return httpx.Response(200, json={"count": 100, "max_model_len": 32768}, request=httpx.Request("POST", url))
 
 
 def _settings(tmp_path: Path) -> dict:
@@ -46,17 +49,11 @@ def _semantic(calls: list[dict]):
     def call(_client, **arguments):
         request = arguments["request"]
         calls.append(request)
-        first = next(item for item in request["evidence"] if item["kind"] != "heading")
+        first = next(item for section in request["sections"] for item in section["evidence"] if item[2] != "heading")
         return {
-            "schema": "material-semantics-response/v1",
             "concepts": [{
-                "key": "algorithm",
-                "label": "Algorithm",
-                "aliases": [],
-                "claims": [{
-                    "meaning": first["exact_text"],
-                    "source_spans": [{"evidence_id": first["evidence_id"], "quote": first["exact_text"]}],
-                }],
+                "k": "algorithm", "l": "Algorithm", "a": [],
+                "c": [{"m": None, "s": [[first[0], 0, 0]]}],
             }],
             "relations": [],
         }
@@ -74,7 +71,7 @@ def test_eight_native_pages_use_one_unified_semantic_call_without_ocr(tmp_path, 
     assert structure["metrics"]["semantic_calls"] == 1
     assert structure["metrics"]["ocr_calls"] == 0
     assert len(calls) == 1
-    assert len({item["page"] for item in calls[0]["evidence"]}) == 8
+    assert len({item[1] for section in calls[0]["sections"] for item in section["evidence"]}) == 8
     assert structure["initial_learning_path"][0]["concept_id"] == structure["concepts"][0]["concept_id"]
 
 
@@ -106,4 +103,4 @@ def test_ocr_failure_excludes_only_scan_and_semantics_still_runs(tmp_path, monke
         "stage": "evidence",
         "reason_code": "CHILD_EXITED",
     }]
-    assert {item["page"] for item in calls[0]["evidence"]} == {2}
+    assert {item[1] for section in calls[0]["sections"] for item in section["evidence"]} == {2}

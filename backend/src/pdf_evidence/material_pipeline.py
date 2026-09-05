@@ -28,6 +28,7 @@ from knowledge_map.structure import (
 from learning_resources.resources import load_resource_index
 from runtime.semantic_service import (
     SemanticServiceError,
+    material_request_fits,
     request_semantics,
     semantic_client,
 )
@@ -104,12 +105,12 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
             or semantic["authentication"] != "environment-bearer:VLLM_API_KEY"
             or set(material) != {
                 "request_schema", "response_schema", "bundle_policy",
-                "maximum_bundle_utf8_bytes", "max_tokens", "prompt", "retry_attempts",
+                "max_tokens", "prompt", "retry_attempts",
             }
-            or material["request_schema"] != "material-semantics-request/v1"
-            or material["response_schema"] != "material-semantics-response/v1"
-            or material["bundle_policy"] != "contiguous-sections-with-prior-concept-catalog/v1"
-            or material["max_tokens"] != 8192
+            or material["request_schema"] != "material-semantics-request/v2"
+            or material["response_schema"] != "material-semantics-response/v2"
+            or material["bundle_policy"] != "tokenized-contiguous-evidence/v2"
+            or material["max_tokens"] != 4096
             or not isinstance(material["prompt"], str)
             or not material["prompt"]
             or set(assessment) != {
@@ -132,7 +133,6 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
             or ocr["native_schema"] != "page-native/v3"
             or ocr["processing_policy"] != "native-first-page-evidence/v3"
             or ocr["normalizer_policy"] != "ocr-text-nfc-line-preserving/v1"
-            or material["maximum_bundle_utf8_bytes"] != 80000
             or material["retry_attempts"] != 2
         ):
             raise ValueError
@@ -187,35 +187,6 @@ def _excluded(page: dict[str, Any], reason: str) -> dict[str, Any]:
         "stage": "evidence",
         "reason_code": reason,
     }
-
-
-def _split_bundle(bundle: dict[str, Any]) -> list[dict[str, Any]]:
-    sections = bundle["sections"]
-    evidence = bundle["evidence"]
-    if len(sections) > 1:
-        midpoint = len(sections) // 2
-        groups = (sections[:midpoint], sections[midpoint:])
-        return [
-            {
-                "sections": deepcopy(group),
-                "evidence": [
-                    deepcopy(item)
-                    for item in evidence
-                    if item["section_id"] in {section["section_id"] for section in group}
-                ],
-            }
-            for group in groups
-        ]
-    if len(evidence) < 2:
-        raise MaterialAnalysisError("SEMANTIC_INPUT_TOO_LARGE")
-    midpoint = len(evidence) // 2
-    groups = (evidence[:midpoint], evidence[midpoint:])
-    split = []
-    for group in groups:
-        section = deepcopy(sections[0])
-        section["evidence_ids"] = [item["evidence_id"] for item in group]
-        split.append({"sections": [section], "evidence": deepcopy(group)})
-    return split
 
 
 def _page_evidence(
@@ -321,19 +292,16 @@ def analyze_material(
         context = build_document_context(
             pages, page_count=len(page_numbers), excluded_pages=excluded
         )
-        bundles = build_semantic_bundles(
-            context,
-            maximum_utf8_bytes=lock["material_semantics"]["maximum_bundle_utf8_bytes"],
-        )
         state = SemanticState()
-        pending = list(bundles)
         semantic_calls = 0
         semantic_started = time.monotonic()
         owned_client = client is None
         http = semantic_client() if client is None else client
         try:
-            while pending:
-                bundle = pending.pop(0)
+            for bundle in build_semantic_bundles(
+                context, state=state,
+                fits=lambda request: material_request_fits(http, lock, request),
+            ):
                 request_document = semantic_request(context, bundle, state)
                 last_error: Exception | None = None
                 for _attempt in range(lock["material_semantics"]["retry_attempts"]):
@@ -353,20 +321,18 @@ def analyze_material(
                             bundle=bundle,
                             state=candidate_state,
                         )
-                        state = candidate_state
+                        state.concepts = candidate_state.concepts
+                        state.relations = candidate_state.relations
+                        state.rejected_claims = candidate_state.rejected_claims
+                        state.rejected_relations = candidate_state.rejected_relations
+                        state.literal_repairs = candidate_state.literal_repairs
                         last_error = None
                         break
                     except SemanticServiceError as error:
                         last_error = error
-                        if error.reason_code == "SEMANTIC_INPUT_TOO_LARGE":
-                            semantic_calls -= 1
-                            pending[0:0] = _split_bundle(bundle)
-                            break
                     except ValueError as error:
                         last_error = error
                 if last_error is not None:
-                    if isinstance(last_error, SemanticServiceError) and last_error.reason_code == "SEMANTIC_INPUT_TOO_LARGE":
-                        continue
                     raise MaterialAnalysisError(_reason(last_error)) from None
                 report("semantics", len(page_numbers), len(page_numbers))
         finally:

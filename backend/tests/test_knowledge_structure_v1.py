@@ -5,12 +5,13 @@ from knowledge_map.structure import (
     SemanticState,
     _project_claim,
     _revision,
-    apply_semantic_response,
+    apply_semantic_response as apply_wire_response,
     build_document_context,
     build_knowledge_structure,
     build_knowledge_structure_view,
     build_semantic_bundles,
     semantic_request,
+    semantic_response_schema,
     validate_knowledge_structure,
 )
 from pdf_evidence.ocr_page_evidence import canonical_sha256
@@ -19,6 +20,37 @@ from pdf_evidence.ocr_page_evidence import canonical_sha256
 RUN_ID = "00000000-0000-4000-8000-000000000001"
 PRODUCED_AT = "2026-09-05T00:00:00+00:00"
 MODEL_REVISION = "b" * 40
+
+
+def _compact_response(response, context):
+    handles = {item["evidence_id"]: index for index, item in enumerate(context["evidence"])}
+    def span(reference):
+        handle = handles[reference["evidence_id"]]
+        text = context["evidence"][handle]["exact_text"]
+        start = text.find(reference["quote"])
+        return [handle, start, start + len(reference["quote"])]
+    return {
+        "concepts": [{
+            "k": concept["key"], "l": concept["label"], "a": concept["aliases"],
+            "c": [{"m": claim["meaning"], "s": [span(ref) for ref in claim["source_spans"]]} for claim in concept["claims"]],
+        } for concept in response["concepts"]],
+        "relations": [{
+            "s": relation["source_concept"], "t": relation["target_concept"],
+            "k": relation["type"], "r": relation["learner_reason"],
+            "e": [handles[ref] for ref in relation["evidence_refs"]], "c": relation["confidence"],
+        } for relation in response["relations"]],
+    }
+
+
+def apply_semantic_response(response, *, context, bundle, state):
+    apply_wire_response(_compact_response(response, context), context=context, bundle=bundle, state=state)
+
+
+def _bundles(context, maximum_evidence=1000):
+    return list(build_semantic_bundles(
+        context, state=SemanticState(),
+        fits=lambda request: sum(len(section["evidence"]) for section in request["sections"]) <= maximum_evidence,
+    ))
 
 
 def _block(page: int, order: int, kind: str, text: str) -> dict:
@@ -79,7 +111,6 @@ def _context() -> dict:
 def _response(context: dict) -> dict:
     evidence = context["evidence"]
     return {
-        "schema": "material-semantics-response/v1",
         "concepts": [
             {
                 "key": "pointer",
@@ -129,8 +160,8 @@ def test_material_context_bundles_sections_without_page_envelopes():
     context = _context()
     assert [section["title"] for section in context["sections"]] == ["Pointers", "Arrays"]
     assert all("previous_page" not in str(item) and "next_page" not in str(item) for item in context["evidence"])
-    assert len(build_semantic_bundles(context, maximum_utf8_bytes=80_000)) == 1
-    split = build_semantic_bundles(context, maximum_utf8_bytes=4096)
+    assert len(_bundles(context)) == 1
+    split = _bundles(context, maximum_evidence=3)
     assert [item["evidence_id"] for bundle in split for item in bundle["evidence"]] == [
         item["evidence_id"] for item in context["evidence"]
     ]
@@ -145,7 +176,7 @@ def test_oversized_single_section_splits_by_actual_slice_without_dropping_eviden
         ],
     )
     context = build_document_context([page], page_count=1)
-    bundles = build_semantic_bundles(context, maximum_utf8_bytes=4096)
+    bundles = _bundles(context, maximum_evidence=5)
     assert len(bundles) > 1
     assert [item["evidence_id"] for bundle in bundles for item in bundle["evidence"]] == [
         item["evidence_id"] for item in context["evidence"]
@@ -173,7 +204,7 @@ def test_excluded_page_gap_breaks_section_instead_of_guessing_continuation():
 def test_projection_repairs_only_technical_claim_and_keeps_valid_sibling():
     context = _context()
     state = SemanticState()
-    bundle = build_semantic_bundles(context, maximum_utf8_bytes=80_000)[0]
+    bundle = _bundles(context)[0]
     apply_semantic_response(_response(context), context=context, bundle=bundle, state=state)
     claims = state.concepts["pointer"]["claims"]
     assert [claim["text"] for claim in claims] == [
@@ -212,7 +243,7 @@ def test_every_required_technical_literal_uses_source_bound_text(source, meaning
 def test_typed_relations_and_prerequisite_are_the_only_path_authority():
     context = _context()
     state = SemanticState()
-    bundle = build_semantic_bundles(context, maximum_utf8_bytes=80_000)[0]
+    bundle = _bundles(context)[0]
     response = _response(context)
     response["relations"].append({
         **deepcopy(response["relations"][0]),
@@ -247,7 +278,7 @@ def test_typed_relations_and_prerequisite_are_the_only_path_authority():
 def test_cycle_and_forbidden_or_generic_relations_never_publish():
     context = _context()
     state = SemanticState()
-    bundle = build_semantic_bundles(context, maximum_utf8_bytes=80_000)[0]
+    bundle = _bundles(context)[0]
     response = _response(context)
     reverse = deepcopy(response["relations"][0])
     reverse["source_concept"], reverse["target_concept"] = "array", "pointer"
@@ -276,7 +307,7 @@ def test_cycle_and_forbidden_or_generic_relations_never_publish():
 def test_relation_cannot_borrow_unrelated_document_evidence():
     context = _context()
     state = SemanticState()
-    bundle = build_semantic_bundles(context, maximum_utf8_bytes=80_000)[0]
+    bundle = _bundles(context)[0]
     response = _response(context)
     response["relations"][0]["evidence_refs"] = [context["evidence"][0]["evidence_id"]]
     apply_semantic_response(response, context=context, bundle=bundle, state=state)
@@ -293,7 +324,7 @@ def test_relation_cannot_borrow_unrelated_document_evidence():
 def test_cross_section_concept_has_one_primary_tree_placement_and_zero_prerequisite_path_is_complete():
     context = _context()
     state = SemanticState()
-    bundle = build_semantic_bundles(context, maximum_utf8_bytes=80_000)[0]
+    bundle = _bundles(context)[0]
     response = _response(context)
     response["concepts"][0]["claims"].append({
         "meaning": context["evidence"][4]["exact_text"],
@@ -334,7 +365,6 @@ def test_later_bundle_reuses_qwen_concept_key_without_pairwise_dedup_stage():
         source = next(item for item in items if item["kind"] != "heading")
         apply_semantic_response(
             {
-                "schema": "material-semantics-response/v1",
                 "concepts": [{
                     "key": "shared-concept",
                     "label": label,
@@ -358,16 +388,15 @@ def test_later_bundle_reuses_qwen_concept_key_without_pairwise_dedup_stage():
         state,
     )
     catalog = request["existing_concepts"][0]
-    assert len(catalog["evidence_refs"]) == 2
-    assert set(catalog["section_refs"]) == {
-        sections[0]["section_id"], sections[1]["section_id"]
-    }
+    assert len(catalog["e"]) == 2
+    assert all(type(ref) is int for ref in catalog["e"])
+    assert set(catalog) == {"k", "l", "a", "c", "e"}
 
 
 def test_runtime_timings_do_not_change_content_revision():
     context = _context()
     state = SemanticState()
-    bundle = build_semantic_bundles(context, maximum_utf8_bytes=80_000)[0]
+    bundle = _bundles(context)[0]
     apply_semantic_response(_response(context), context=context, bundle=bundle, state=state)
     arguments = {
         "source_sha256": "1" * 64,
@@ -400,7 +429,7 @@ def test_runtime_timings_do_not_change_content_revision():
 def test_material_source_identity_mismatch_is_rejected_before_publication():
     context = _context()
     state = SemanticState()
-    bundle = build_semantic_bundles(context, maximum_utf8_bytes=80_000)[0]
+    bundle = _bundles(context)[0]
     apply_semantic_response(_response(context), context=context, bundle=bundle, state=state)
     with pytest.raises(ValueError, match="MATERIAL_IDENTITY_INVALID"):
         build_knowledge_structure(
@@ -408,3 +437,70 @@ def test_material_source_identity_mismatch_is_rejected_before_publication():
             runtime_lock_sha256="a" * 64, model_id="Qwen/Qwen3.8-27B-FP8",
             model_revision=MODEL_REVISION, semantic_calls=1, ocr_calls=0,
         )
+
+
+def test_compact_wire_keeps_all_source_text_without_canonical_metadata():
+    context = _context()
+    request = semantic_request(context, _bundles(context)[0], SemanticState())
+    rows = [row for section in request["sections"] for row in section["evidence"]]
+    assert [row[0] for row in rows] == list(range(len(context["evidence"])))
+    assert [row[3] for row in rows] == [item["exact_text"] for item in context["evidence"]]
+    assert "sha256" not in str(request)
+    assert set(request) == {"sections", "existing_concepts"}
+    assert set(semantic_response_schema()["properties"]) == {"concepts", "relations"}
+
+
+@pytest.mark.parametrize("relation_type", ["prerequisite", "part_of", "application", "example", "contrast"])
+def test_compact_wire_reconstructs_relation_basis_and_canonical_support(relation_type):
+    from knowledge_map.structure import RELATION_BASIS
+    context = _context()
+    wire = _compact_response(_response(context), context)
+    wire["relations"][0]["k"] = relation_type
+    state = SemanticState()
+    apply_wire_response(wire, context=context, bundle=_bundles(context)[0], state=state)
+    relation = state.relations[0]
+    assert relation["type"] == relation_type
+    assert relation["inference_basis"] == RELATION_BASIS[relation_type]
+    assert relation["evidence_refs"] == [context["evidence"][i]["evidence_id"] for i in (2, 4)]
+    assert relation["context_refs"] == [section["section_id"] for section in context["sections"]]
+
+
+def test_compact_spans_preserve_unicode_literals_and_reject_unseen_evidence():
+    text = "中文😀 '\\0' a <= b 5 kg"
+    context = build_document_context([_page(1, [_block(1, 0, "paragraph", text), _block(1, 1, "paragraph", "unseen")])], page_count=1)
+    bundle = {"sections": context["sections"], "evidence": context["evidence"][:1]}
+    state = SemanticState()
+    apply_wire_response({
+        "concepts": [{"k": "c0", "l": "Literal", "a": [], "c": [
+            {"m": None, "s": [[0, 0, 0]]},
+            {"m": None, "s": [[0, 2, 3]]},
+            {"m": None, "s": [[0, 0, 999]]},
+            {"m": None, "s": [[1, 0, 0]]},
+            {"m": None, "s": [[True, 0, 0]]},
+        ]}], "relations": [],
+    }, context=context, bundle=bundle, state=state)
+    assert [claim["text"] for claim in state.concepts["c0"]["claims"]] == [text, "😀"]
+    assert state.rejected_claims == 3
+
+
+def test_token_packing_rechecks_current_catalog_and_never_drops_evidence():
+    context = _context()
+    state = SemanticState()
+    sizes = []
+    def fits(request):
+        count = sum(len(section["evidence"]) for section in request["sections"])
+        sizes.append((len(request["existing_concepts"]), count))
+        return count + len(request["existing_concepts"]) <= 3
+    bundles = build_semantic_bundles(context, state=state, fits=fits)
+    first = next(bundles)
+    state.concepts["c0"] = {"label": "Prior", "aliases": [], "claims": []}
+    remaining = list(bundles)
+    assert any(catalog == 1 for catalog, _ in sizes)
+    assert [item["evidence_id"] for bundle in [first, *remaining] for item in bundle["evidence"]] == [item["evidence_id"] for item in context["evidence"]]
+    with pytest.raises(ValueError, match="SEMANTIC_INPUT_TOO_LARGE"):
+        list(build_semantic_bundles(context, state=state, fits=lambda request: False))
+
+
+def test_token_fit_does_not_apply_old_utf8_byte_limit():
+    context = build_document_context([_page(1, [_block(1, 0, "paragraph", "漢" * 30000)])], page_count=1)
+    assert len(_bundles(context)) == 1

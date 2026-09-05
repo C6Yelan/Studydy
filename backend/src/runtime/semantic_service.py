@@ -275,3 +275,19 @@ def request_semantics(
     if not isinstance(result, dict):
         raise SemanticServiceError("SEMANTIC_RESPONSE_INVALID")
     return result
+
+
+def material_request_fits(
+    client: httpx.Client, runtime_lock: dict[str, Any], request: dict[str, Any]
+) -> bool:
+    """使用 resident tokenizer 與正式推論相同的 prompt 和輸出預算。"""
+
+    service = _service(runtime_lock)
+    task = runtime_lock["material_semantics"]
+    try:
+        count = _token_count(client, service, _messages(task["prompt"], request))
+    except httpx.TimeoutException as error:
+        raise SemanticServiceError("SEMANTIC_SERVICE_TIMEOUT") from error
+    except (httpx.HTTPError, UnicodeError, ValueError) as error:
+        raise SemanticServiceError("SEMANTIC_SERVICE_UNAVAILABLE") from error
+    return count + task["max_tokens"] <= service["max_model_len"]

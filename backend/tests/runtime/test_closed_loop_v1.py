@@ -93,15 +93,9 @@ def _structure(run_id: str, source_sha256: str, lock: dict) -> dict:
     context = build_document_context([_page(source_sha256)], page_count=1)
     state = SemanticState()
     response = {
-        "schema": "material-semantics-response/v1",
         "concepts": [{
-            "key": "stack",
-            "label": "Stack",
-            "aliases": [],
-            "claims": [{
-                "meaning": "A stack follows LIFO order.",
-                "source_spans": [{"evidence_id": context["evidence"][0]["evidence_id"], "quote": context["evidence"][0]["exact_text"]}],
-            }],
+            "k": "stack", "l": "Stack", "a": [],
+            "c": [{"m": None, "s": [[0, 0, 0]]}],
         }],
         "relations": [],
     }

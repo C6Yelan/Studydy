@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 import math
@@ -15,8 +16,6 @@ from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 
 STRUCTURE_SCHEMA = "knowledge-structure/v1"
 VIEW_SCHEMA = "knowledge-structure-view/v1"
-REQUEST_SCHEMA = "material-semantics-request/v1"
-RESPONSE_SCHEMA = "material-semantics-response/v1"
 RELATION_TYPES = {"prerequisite", "part_of", "application", "example", "contrast"}
 RELATION_BASIS = {
     "prerequisite": "dependency",
@@ -210,113 +209,94 @@ def build_document_context(
     }
 
 
-def _request_size(sections: list[dict[str, Any]], evidence: list[dict[str, Any]]) -> int:
-    return len(canonical_bytes({"sections": sections, "evidence": evidence}))
-
-
-def _section_slice(
-    section: dict[str, Any], evidence: list[dict[str, Any]]
-) -> dict[str, Any]:
-    sliced = deepcopy(section)
-    sliced["evidence_ids"] = [item["evidence_id"] for item in evidence]
-    return sliced
-
-
 def build_semantic_bundles(
-    context: dict[str, Any], *, maximum_utf8_bytes: int
-) -> list[dict[str, Any]]:
-    """依 section 邊界填滿 bundle；超大單一 section 才按 Evidence 切割。"""
+    context: dict[str, Any], *, state: SemanticState,
+    fits: Callable[[dict[str, Any]], bool],
+) -> Iterator[dict[str, Any]]:
+    """以實際 prompt tokens 填滿連續 Evidence；每次納入最新 concept catalog。"""
 
-    if type(maximum_utf8_bytes) is not int or maximum_utf8_bytes < 4096:
-        raise ValueError("SEMANTIC_BUNDLE_INVALID")
-    evidence_by_id = {item["evidence_id"]: item for item in context["evidence"]}
-    units: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
-    for section in context["sections"]:
-        items = [evidence_by_id[evidence_id] for evidence_id in section["evidence_ids"]]
-        if _request_size([section], items) <= maximum_utf8_bytes:
-            units.append((section, items))
-            continue
-        chunk: list[dict[str, Any]] = []
-        for item in items:
-            candidate = [*chunk, item]
-            if chunk and _request_size([_section_slice(section, candidate)], candidate) > maximum_utf8_bytes:
-                units.append((_section_slice(section, chunk), chunk))
-                chunk = [item]
+    evidence = context["evidence"]
+
+    def bundle(start: int, end: int) -> dict[str, Any]:
+        items = evidence[start:end]
+        ids = {item["evidence_id"] for item in items}
+        sections = [
+            {**section, "evidence_ids": [ref for ref in section["evidence_ids"] if ref in ids]}
+            for section in context["sections"]
+            if any(ref in ids for ref in section["evidence_ids"])
+        ]
+        return {"sections": sections, "evidence": items}
+
+    start = 0
+    while start < len(evidence):
+        candidate = bundle(start, len(evidence))
+        if fits(semantic_request(context, candidate, state)):
+            yield candidate
+            return
+        low, high = start, len(evidence)
+        while low + 1 < high:
+            middle = (low + high) // 2
+            if fits(semantic_request(context, bundle(start, middle), state)):
+                low = middle
             else:
-                chunk = candidate
-            if _request_size([_section_slice(section, chunk)], chunk) > maximum_utf8_bytes:
-                raise ValueError("SEMANTIC_INPUT_TOO_LARGE")
-        units.append((_section_slice(section, chunk), chunk))
-    bundles: list[dict[str, Any]] = []
-    sections: list[dict[str, Any]] = []
-    evidence: list[dict[str, Any]] = []
-    for section, items in units:
-        next_sections = [*sections, section]
-        next_evidence = [*evidence, *items]
-        if evidence and _request_size(next_sections, next_evidence) > maximum_utf8_bytes:
-            bundles.append({"sections": sections, "evidence": evidence})
-            sections, evidence = [section], list(items)
-        else:
-            sections, evidence = next_sections, next_evidence
-    if evidence:
-        bundles.append({"sections": sections, "evidence": evidence})
-    return bundles
+                high = middle
+        if low == start:
+            raise ValueError("SEMANTIC_INPUT_TOO_LARGE")
+        boundaries = [
+            end for end in range(start + 1, low + 1)
+            if end == len(evidence) or evidence[end - 1]["section_id"] != evidence[end]["section_id"]
+        ]
+        end = boundaries[-1] if boundaries else low
+        candidate = bundle(start, end)
+        # tokenizer 不保證任意字串前綴的 token 數嚴格單調；最終 bundle 再核對。
+        if not fits(semantic_request(context, candidate, state)):
+            raise ValueError("SEMANTIC_INPUT_TOO_LARGE")
+        yield candidate
+        start = end
 
 
 def semantic_response_schema() -> dict[str, Any]:
-    span = {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["evidence_id", "quote"],
-        "properties": {
-            "evidence_id": {"type": "string"},
-            "quote": {"type": "string", "minLength": 1},
-        },
-    }
+    span = {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 3, "maxItems": 3}
     claim = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["meaning", "source_spans"],
+        "required": ["m", "s"],
         "properties": {
-            "meaning": {"type": "string", "minLength": 1},
-            "source_spans": {"type": "array", "minItems": 1, "items": span},
+            "m": {"type": ["string", "null"]},
+            "s": {"type": "array", "minItems": 1, "items": span},
         },
     }
     concept = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["key", "label", "aliases", "claims"],
+        "required": ["k", "l", "a", "c"],
         "properties": {
-            "key": {"type": "string", "minLength": 1},
-            "label": {"type": "string", "minLength": 1},
-            "aliases": {"type": "array", "items": {"type": "string", "minLength": 1}},
-            "claims": {"type": "array", "items": claim},
+            "k": {"type": "string", "minLength": 1},
+            "l": {"type": "string", "minLength": 1},
+            "a": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "c": {"type": "array", "items": claim},
         },
     }
     relation = {
         "type": "object",
         "additionalProperties": False,
         "required": [
-            "source_concept", "target_concept", "type", "learner_reason",
-            "evidence_refs", "context_refs", "inference_basis", "confidence",
+            "s", "t", "k", "r", "e", "c",
         ],
         "properties": {
-            "source_concept": {"type": "string"},
-            "target_concept": {"type": "string"},
-            "type": {"type": "string", "enum": sorted(RELATION_TYPES)},
-            "learner_reason": {"type": "string", "minLength": 1},
-            "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-            "context_refs": {"type": "array", "items": {"type": "string"}},
-            "inference_basis": {"type": "string", "enum": sorted(set(RELATION_BASIS.values()))},
-            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "s": {"type": "string"},
+            "t": {"type": "string"},
+            "k": {"type": "string", "enum": sorted(RELATION_TYPES)},
+            "r": {"type": "string", "minLength": 1},
+            "e": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 0}},
+            "c": {"type": "number", "minimum": 0, "maximum": 1},
         },
     }
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["schema", "concepts", "relations"],
+        "required": ["concepts", "relations"],
         "properties": {
-            "schema": {"type": "string", "const": RESPONSE_SCHEMA},
             "concepts": {"type": "array", "items": concept},
             "relations": {"type": "array", "items": relation},
         },
@@ -331,16 +311,16 @@ class SemanticState:
     rejected_relations: int = 0
     literal_repairs: int = 0
 
-    def catalog(self) -> list[dict[str, Any]]:
+    def catalog(self, handles: dict[str, int]) -> list[dict[str, Any]]:
         return [
             {
-                "key": key,
-                "label": concept["label"],
-                "aliases": concept["aliases"],
-                "claims": [claim["text"] for claim in concept["claims"]],
-                "evidence_refs": list(
+                "k": key,
+                "l": concept["label"],
+                "a": concept["aliases"],
+                "c": [claim["text"] for claim in concept["claims"]],
+                "e": list(
                     dict.fromkeys(
-                        span["evidence_id"]
+                        handles[span["evidence_id"]]
                         for claim in concept["claims"]
                         for span in claim["source_spans"]
                     )
@@ -353,23 +333,45 @@ class SemanticState:
 def semantic_request(
     context: dict[str, Any], bundle: dict[str, Any], state: SemanticState
 ) -> dict[str, Any]:
-    section_by_evidence = {
-        item["evidence_id"]: item["section_id"] for item in context["evidence"]
-    }
-    existing_concepts = state.catalog()
-    for concept in existing_concepts:
-        concept["section_refs"] = list(
-            dict.fromkeys(
-                section_by_evidence[reference]
-                for reference in concept["evidence_refs"]
-            )
-        )
+    handles = {item["evidence_id"]: index for index, item in enumerate(context["evidence"])}
+    evidence = {item["evidence_id"]: item for item in bundle["evidence"]}
     return {
-        "schema": REQUEST_SCHEMA,
-        "material_id": context["material_id"],
-        "existing_concepts": existing_concepts,
-        "sections": deepcopy(bundle["sections"]),
-        "evidence": deepcopy(bundle["evidence"]),
+        "existing_concepts": state.catalog(handles),
+        "sections": [
+            {
+                "title": section["title"],
+                "evidence": [
+                    [handles[ref], evidence[ref]["page"], evidence[ref]["kind"], evidence[ref]["exact_text"]]
+                    for ref in section["evidence_ids"]
+                ],
+            }
+            for section in bundle["sections"]
+        ],
+    }
+
+
+def _expand_claim(claim: Any, sources: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """短引用只在本次 material context 有效；原文依 Unicode 字元範圍還原。"""
+
+    if not isinstance(claim, dict) or set(claim) != {"m", "s"} or not isinstance(claim["s"], list):
+        return None
+    spans = []
+    for span in claim["s"]:
+        if not isinstance(span, list) or len(span) != 3 or any(type(value) is not int or value < 0 for value in span):
+            return None
+        handle, start, end = span
+        if handle >= len(sources):
+            return None
+        source = sources[handle]
+        text = source["exact_text"]
+        if start == end == 0:
+            end = len(text)
+        if not 0 <= start < end <= len(text):
+            return None
+        spans.append({"evidence_id": source["evidence_id"], "quote": text[start:end]})
+    return {
+        "meaning": " ".join(span["quote"] for span in spans) if claim["m"] is None else claim["m"],
+        "source_spans": spans,
     }
 
 
@@ -420,23 +422,23 @@ def apply_semantic_response(
 ) -> None:
     """只投影有效的 Claim/Relation；一筆錯誤不刪除 sibling Claims。"""
 
-    if not isinstance(response, dict) or set(response) != {"schema", "concepts", "relations"}:
+    if not isinstance(response, dict) or set(response) != {"concepts", "relations"}:
         raise ValueError("SEMANTIC_OUTPUT_INVALID")
-    if response["schema"] != RESPONSE_SCHEMA or not isinstance(response["concepts"], list) or not isinstance(response["relations"], list):
+    if not isinstance(response["concepts"], list) or not isinstance(response["relations"], list):
         raise ValueError("SEMANTIC_OUTPUT_INVALID")
     evidence = {item["evidence_id"]: item for item in bundle["evidence"]}
     all_evidence = {item["evidence_id"] for item in context["evidence"]}
     all_sections = {section["section_id"] for section in context["sections"]}
     response_keys: set[str] = set()
     for proposal in response["concepts"]:
-        if not isinstance(proposal, dict) or set(proposal) != {"key", "label", "aliases", "claims"}:
+        if not isinstance(proposal, dict) or set(proposal) != {"k", "l", "a", "c"}:
             raise ValueError("SEMANTIC_OUTPUT_INVALID")
-        key = proposal["key"]
+        key = proposal["k"]
         if not isinstance(key, str) or _KEY.fullmatch(key) is None or key in response_keys:
             raise ValueError("SEMANTIC_OUTPUT_INVALID")
         response_keys.add(key)
-        label = _text(proposal["label"], maximum=256)
-        aliases = proposal["aliases"]
+        label = _text(proposal["l"], maximum=256)
+        aliases = proposal["a"]
         if not isinstance(aliases, list):
             raise ValueError("SEMANTIC_OUTPUT_INVALID")
         aliases = sorted({_text(alias, maximum=256) for alias in aliases} - {label})
@@ -448,10 +450,10 @@ def apply_semantic_response(
             current["aliases"] = sorted(
                 set(current["aliases"]) | set(aliases) | ({label} - {current["label"]})
             )
-        if not isinstance(proposal["claims"], list):
+        if not isinstance(proposal["c"], list):
             raise ValueError("SEMANTIC_OUTPUT_INVALID")
-        for proposed_claim in proposal["claims"]:
-            claim = _project_claim(proposed_claim, evidence)
+        for proposed_claim in proposal["c"]:
+            claim = _project_claim(_expand_claim(proposed_claim, context["evidence"]), evidence)
             if claim is None:
                 state.rejected_claims += 1
                 continue
@@ -466,10 +468,25 @@ def apply_semantic_response(
     }
     for relation in response["relations"]:
         if not isinstance(relation, dict) or set(relation) != {
-            "source_concept", "target_concept", "type", "learner_reason",
-            "evidence_refs", "context_refs", "inference_basis", "confidence",
+            "s", "t", "k", "r", "e", "c",
         }:
             raise ValueError("SEMANTIC_OUTPUT_INVALID")
+        if (
+            any(not isinstance(relation[key], str) for key in ("s", "t", "k"))
+            or not isinstance(relation["e"], list)
+            or any(type(ref) is not int or not 0 <= ref < len(context["evidence"]) for ref in relation["e"])
+        ):
+            state.rejected_relations += 1
+            continue
+        refs = [context["evidence"][ref] for ref in relation["e"]]
+        relation = {
+            "source_concept": relation["s"], "target_concept": relation["t"],
+            "type": relation["k"], "learner_reason": relation["r"],
+            "evidence_refs": [item["evidence_id"] for item in refs],
+            "context_refs": list(dict.fromkeys(item["section_id"] for item in refs)),
+            "inference_basis": RELATION_BASIS.get(relation["k"]),
+            "confidence": relation["c"],
+        }
         reason = _text(relation["learner_reason"], maximum=1024)
         relation_type = relation["type"]
         evidence_refs = relation["evidence_refs"]
