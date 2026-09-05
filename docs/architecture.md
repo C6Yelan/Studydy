@@ -9,6 +9,11 @@ PDF → native Evidence / optional OCR → document sections + Evidence bundle
     → StudySession + Assessment + learner guidance
 ```
 
+Supplementary resource recommendation (Agent 2) is removed. Concepts retain only the uploaded
+material's Evidence and PDF locators. Knowledge Structure and its public view use schema v2, with
+no resource-library fields or separate resource PDF kind. Fresh pre-release databases use the
+updated initial migration; historical evaluation artifacts remain separate and are not rewritten.
+
 Qwen owns Concept boundaries, Claim meaning, cross-section consolidation, Relation proposals/reasons,
 and Assessment semantics. Code owns source identity, Evidence/span binding, exact technical literals,
 schema, ownership, endpoints, duplicates/conflicts, prerequisite cycles, private answers, scoring,
@@ -21,7 +26,10 @@ reuses the selected source text. Code restores canonical IDs, quotes, section re
 Relation basis. These temporary handles are never persisted as canonical identities.
 
 Bundles are packed using the resident tokenizer with the actual prompt and current Concept catalog,
-reserving 4096 output tokens within the unchanged 32768-token context. A truncated response fails;
+reserving 4096 output tokens within the unchanged 32768-token context. New Evidence per bundle
+is bounded to 1536 input tokens without the existing Concept catalog, so longer documents make
+incremental progress without forcing their full semantic output into one response. An indivisible
+Evidence block may exceed this soft limit if the full request still fits the model context. A truncated response fails;
 it does not count as a successful material or trigger additional split calls.
 Material generation explicitly pins the existing thinking/xhigh template and sampling settings in
 the runtime lock; packing and inference use the same template options. Relation instructions retain

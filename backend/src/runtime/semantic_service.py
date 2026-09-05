@@ -290,8 +290,17 @@ def material_request_fits(
     task = runtime_lock["material_semantics"]
     try:
         count = _token_count(client, service, _messages(task["prompt"], request), task["generation"]["chat_template_kwargs"])
+        if count + task["max_tokens"] > service["max_model_len"]:
+            return False
+        # 原始 block 不截斷；多個 block 分批，避免新教材擠爆固定輸出預算。
+        if sum(len(section["evidence"]) for section in request["sections"]) == 1:
+            return True
+        new_count = count
+        if request.get("existing_concepts"):
+            fresh_request = {**request, "existing_concepts": []}
+            new_count = _token_count(client, service, _messages(task["prompt"], fresh_request), task["generation"]["chat_template_kwargs"])
     except httpx.TimeoutException as error:
         raise SemanticServiceError("SEMANTIC_SERVICE_TIMEOUT") from error
     except (httpx.HTTPError, UnicodeError, ValueError) as error:
         raise SemanticServiceError("SEMANTIC_SERVICE_UNAVAILABLE") from error
-    return count + task["max_tokens"] <= service["max_model_len"]
+    return new_count <= task["max_new_input_tokens"]

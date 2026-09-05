@@ -42,9 +42,20 @@ def test_gpu_monitor_records_peak_without_material_content(monkeypatch):
     assert monitor.stop() == 1234
 
 
-@pytest.mark.parametrize("semantic_seconds, expected_exit", [(180, 0), (181, 1)])
-def test_score_uses_run_metrics_with_only_four_review_runtime_fields(
-    tmp_path, monkeypatch, semantic_seconds, expected_exit
+def test_lifecycle_includes_linux_truncated_engine_process_name(tmp_path, monkeypatch):
+    """Linux comm 只保留短名稱，仍須偵測 engine 重啟，不能只比 API server。"""
+    process = tmp_path / "628"
+    process.mkdir()
+    (process / "cmdline").write_bytes(b"VLLM::EngineCore\0")
+    (process / "comm").write_text("VLLM::EngineCor\n")
+    (process / "stat").write_text(" ".join(["0"] * 21 + ["12345"]))
+    monkeypatch.setattr(qualification, "Path", lambda value: tmp_path if value == "/proc" else Path(value))
+    assert qualification._resident_processes() == [{"pid": 628, "start_ticks": "12345"}]
+
+
+@pytest.mark.parametrize("usable_units, oom, expected_exit", [(17, 0, 0), (16, 0, 1), (17, 1, 1)])
+def test_score_uses_85_percent_semantics_and_keeps_runtime_failures_blocking(
+    tmp_path, monkeypatch, usable_units, oom, expected_exit
 ):
     monkeypatch.setattr(qualification, "ROOT", tmp_path)
     monkeypatch.setattr(
@@ -52,9 +63,7 @@ def test_score_uses_run_metrics_with_only_four_review_runtime_fields(
         lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="candidate\n"),
     )
     monkeypatch.setattr(qualification, "_automatic_gates", lambda structure: {
-        "structure_valid": True, "evidence_refs_percent": 100,
-        "literal_fidelity_percent": 100, "related_count": 0,
-        "path_coverage_percent": 100,
+        "structure_valid": True, "path_complete": True,
     })
     output = qualification._private_output(tmp_path / ".studydy-runtime" / "fresh")
     review = json.loads(SCRIPT.with_name("a40_final_review.example.json").read_text())
@@ -64,24 +73,20 @@ def test_score_uses_run_metrics_with_only_four_review_runtime_fields(
             "loads_during_run": 0, "served_model_load_count": 1,
             "server_processes": [{"pid": 123}],
         },
-        "materials": {"representative_8": {
-            "semantic_calls": 2, "semantic_seconds": semantic_seconds,
-        }},
+        "materials": {},
         "peak_vram_mib": 40000, "gpu": {"memory_mib": 46080},
     }
     for role in qualification.QUALITY_ROLES:
-        structure = {"revision": role, "source_sha256": "public-source", "concepts": [{}]}
+        structure = {"revision": role, "source_sha256": qualification.ARRAY_SOURCE_SHA256, "page_count": 45, "concepts": [{}]}
         qualification._write(output / f"{role}.private.json", structure)
         summary["materials"][role] = {
-            "revision": role, "source_sha256": "public-source",
+            "revision": role, "source_sha256": qualification.ARRAY_SOURCE_SHA256,
         }
         review["materials"][role].update(
-            revision=role, teaching_units_total=1, teaching_units_found=1,
+            revision=role, reviewed_units=20, usable_units=usable_units,
         )
-    review["assessment"] = {
-        name: 0 if name == "false_mastery" else True
-        for name in qualification.ASSESSMENT_FIELDS
-    }
+    review["assessment"].update(reviewed_questions=20, usable_questions=17)
+    review["runtime"]["oom"] = oom
     review["closed_loop"] = dict.fromkeys(qualification.CLOSED_LOOP_FIELDS, True)
     summary["run_sha256"] = qualification.canonical_sha256(summary)
     review["run_sha256"] = summary["run_sha256"]
@@ -91,5 +96,5 @@ def test_score_uses_run_metrics_with_only_four_review_runtime_fields(
 
     assert qualification.score(review_path, output) == expected_exit
     scored = qualification._read(output / "qualification-summary.json")
-    assert scored["runtime_pass"] is (expected_exit == 0)
+    assert scored["runtime_pass"] is (oom == 0)
     assert scored["pass"] is (expected_exit == 0)

@@ -21,6 +21,10 @@ They cover the single migration, owner isolation, immutable Knowledge Structure,
 Assessment, private answer, server-side scoring, append-only AnswerEvent, mastery, guidance,
 idempotency, stale state, and the HTTP API closed loop.
 
+The resource-free Knowledge Structure v2 cutover requires a fresh pre-release database. Do not
+apply the edited initial migration over a database with a different recorded checksum. Use a new
+test database and artifact root; retain historical qualification outputs independently.
+
 The browser runner starts only a disposable Vite process. Its API fixtures use the final public
 contract and verify Document Tree layout, the five Relation styles/reason interaction, Evidence
 locator, StudySession, Assessment, and feedback. Real model behavior is qualified separately.
@@ -40,28 +44,25 @@ lifecycle is loaded.
 
 ## A40 final qualification
 
-Run only on the approved A40 host, with the resident service and private runtime environment ready.
-Inputs and outputs stay under ignored/private locations:
+The active primary input is the approved 45-page C array/string PDF. The runner verifies its exact
+source SHA and page count; there is no default additional textbook or 8-page benchmark rerun.
+Use a fresh private output directory under ignored `.studydy-runtime/`, or a mode-0700 directory
+named `/tmp/studydy-*` when the network filesystem cannot preserve Unix permissions.
 
 ```bash
 PYTHONPATH=backend/src backend/.venv/bin/python backend/scripts/a40_final_qualification.py run \
-  --representative-eight '<PRIVATE_REPRESENTATIVE_8_PAGE_PDF>' \
-  --array '<PRIVATE_45_PAGE_ARRAY_PDF>' \
-  --technical '<PRIVATE_ADDITIONAL_TECHNICAL_PDF>' \
-  --scanned '<PRIVATE_SCANNED_PDF>'
+  --array '<APPROVED_45_PAGE_PDF>' --output '<NEW_PRIVATE_OUTPUT>'
 
 PYTHONPATH=backend/src backend/.venv/bin/python backend/scripts/a40_final_qualification.py score \
-  --review '<PRIVATE_REVIEW_JSON>'
+  --review '<PRIVATE_REVIEW_JSON>' --output '<PRIVATE_OUTPUT>'
 ```
 
-`run` rejects non-A40 hardware, a non-resident or reloaded Qwen, an 8-page runtime input outside the
-1–3 call / 180-second semantic gates, a non-45-page primary input, a scanned input that never uses
-OCR, invalid structures, unavailable VRAM telemetry, or service death. It saves full artifacts only
-under ignored `.studydy-runtime/a40-final/` and prints aggregate identity only.
+The v2 review records explicit reviewed/usable counts and known limitations. Semantic acceptance
+uses 85%; source/revision binding, complete canonical Path, truthful failure, private-answer safety,
+zero observed false mastery, and runtime liveness remain required. The scorer does not invent
+literal-fidelity percentages or enforce the retired 8-page/180-second timing gate.
 
-The bound `a40-final-review/v1` review records teaching-unit recall/disappearance/false merges,
-duplicates, Relation type/direction/endpoints/reasons/prerequisites, the six focused Assessment safety
-checks, the complete browser/API loop, OOM/engine-death/load evidence, warm timing, and the single
-Python minor. `score` passes only at the published final gates and requires `mdeberta_decision` to be
-`REMOVE`. Copy `backend/scripts/a40_final_review.example.json` into the ignored output directory and
-fill it from human review; never edit the tracked example with private values.
+The CLI material run is a diagnostic path. Final product acceptance also needs the real browser/API
+loop: upload, progress, Map/Path, source PDF locator, Assessment/Answer, guidance, and reload/reopen.
+Store that evidence privately and bind its manual review to the exact artifact revision. Never mark
+unexecuted browser checks true in the review example.

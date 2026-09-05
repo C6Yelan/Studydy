@@ -1,66 +1,20 @@
 {
-  "schema": "a40-final-review/v1",
+  "schema": "a40-final-review/v2",
   "run_sha256": "REPLACE_WITH_PRIVATE_RUN_SHA256",
   "materials": {
     "array_45": {
       "revision": "REPLACE_WITH_PRIVATE_REVISION",
-      "teaching_units_total": 0,
-      "teaching_units_found": 0,
-      "learner_worthy_disappearance": 0,
-      "critical_false_merge": 0,
-      "duplicate_concepts": 0,
-      "critical_wrong_relation_type": 0,
-      "wrong_relation_direction": 0,
-      "invented_relation_endpoint": 0,
-      "unsupported_prerequisite": 0,
-      "generic_relation_reason": 0,
-      "generic_relation_hub": 0,
-      "adjacency_only_relation": 0,
-      "missing_no_relation": 0
-    },
-    "technical": {
-      "revision": "REPLACE_WITH_PRIVATE_REVISION",
-      "teaching_units_total": 0,
-      "teaching_units_found": 0,
-      "learner_worthy_disappearance": 0,
-      "critical_false_merge": 0,
-      "duplicate_concepts": 0,
-      "critical_wrong_relation_type": 0,
-      "wrong_relation_direction": 0,
-      "invented_relation_endpoint": 0,
-      "unsupported_prerequisite": 0,
-      "generic_relation_reason": 0,
-      "generic_relation_hub": 0,
-      "adjacency_only_relation": 0,
-      "missing_no_relation": 0
-    },
-    "scanned": {
-      "revision": "REPLACE_WITH_PRIVATE_REVISION",
-      "teaching_units_total": 0,
-      "teaching_units_found": 0,
-      "learner_worthy_disappearance": 0,
-      "critical_false_merge": 0,
-      "duplicate_concepts": 0,
-      "critical_wrong_relation_type": 0,
-      "wrong_relation_direction": 0,
-      "invented_relation_endpoint": 0,
-      "unsupported_prerequisite": 0,
-      "generic_relation_reason": 0,
-      "generic_relation_hub": 0,
-      "adjacency_only_relation": 0,
-      "missing_no_relation": 0
+      "reviewed_units": 0,
+      "usable_units": 0,
+      "limitations": []
     }
   },
   "assessment": {
-    "correctness_safe_published": false,
-    "ambiguity_blocked": false,
-    "distractor_support_blocked": false,
-    "exact_duplicate_blocked": false,
-    "novelty_uncertain_published": false,
-    "technical_token_safe": false,
-    "unsupported_correct_blocked": false,
-    "contradiction_paraphrase_safe": false,
-    "false_mastery": 0
+    "reviewed_questions": 0,
+    "usable_questions": 0,
+    "no_safe_requests": 0,
+    "false_mastery": 0,
+    "limitations": []
   },
   "closed_loop": {
     "upload": false,
@@ -82,7 +36,9 @@
   "runtime": {
     "oom": 0,
     "engine_death": 0,
-    "python_minors": ["3.12"],
+    "python_minors": [
+      "3.12"
+    ],
     "mdeberta_decision": "REMOVE"
   }
 }

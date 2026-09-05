@@ -85,17 +85,6 @@ class ClaimView(_Closed):
     evidence: list[EvidenceView]
 
 
-class ResourceView(_Closed):
-    resource_id: str
-    title: str
-    authors: list[str]
-    citation: str
-    license: str
-    license_url: str
-    source_url: str
-    pages: list[int]
-
-
 class ConceptView(_Closed):
     concept_id: str
     label: str
@@ -103,7 +92,6 @@ class ConceptView(_Closed):
     claims: list[ClaimView]
     section_ids: list[str]
     source_pages: list[int]
-    resources: list[ResourceView]
 
 
 class RelationView(_Closed):
@@ -152,7 +140,7 @@ class ExcludedPageView(_Closed):
 
 
 class KnowledgeStructureView(_Closed):
-    schema_: Literal["knowledge-structure-view/v1"] = Field(alias="schema")
+    schema_: Literal["knowledge-structure-view/v2"] = Field(alias="schema")
     material_id: str
     knowledge_structure_revision: str
     status: StatusView

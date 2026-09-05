@@ -271,7 +271,7 @@ def test_typed_relations_and_prerequisite_are_the_only_path_authority():
     labels = {concept["concept_id"]: concept["label"] for concept in structure["concepts"]}
     assert [labels[step["concept_id"]] for step in structure["initial_learning_path"]] == ["Pointer", "Array"]
     view = build_knowledge_structure_view(structure)
-    assert view["schema"] == "knowledge-structure-view/v1"
+    assert view["schema"] == "knowledge-structure-view/v2"
     assert view["concepts"][0]["claims"][0]["evidence"][0]["page"] == 1
 
 
@@ -447,7 +447,7 @@ def test_compact_wire_keeps_all_source_text_without_canonical_metadata():
     assert [row[3] for row in rows] == [item["exact_text"] for item in context["evidence"]]
     assert "sha256" not in str(request)
     assert set(request) == {"sections", "existing_concepts"}
-    assert set(semantic_response_schema()["properties"]) == {"concepts", "relations"}
+    assert set(semantic_response_schema([0])["properties"]) == {"concepts", "relations"}
 
 
 @pytest.mark.parametrize("relation_type", ["prerequisite", "part_of", "application", "example", "contrast"])

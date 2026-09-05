@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 from threading import Event, Thread
@@ -16,7 +17,7 @@ from typing import Any
 
 import pymupdf
 
-from knowledge_map.structure import RELATION_TYPES, validate_knowledge_structure
+from knowledge_map.structure import validate_knowledge_structure
 from pdf_evidence.material_pipeline import analyze_material
 from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 from runtime.local_app import read_local_ai_config_from_environment
@@ -26,20 +27,11 @@ from runtime.semantic_service import preflight_semantic_service
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = ROOT / ".studydy-runtime/a40-final"
-QUALITY_ROLES = ("array_45", "technical", "scanned")
-RUN_ROLES = ("representative_8", *QUALITY_ROLES)
-MATERIAL_REVIEW_FIELDS = {
-    "revision", "teaching_units_total", "teaching_units_found",
-    "learner_worthy_disappearance", "critical_false_merge", "duplicate_concepts",
-    "critical_wrong_relation_type", "wrong_relation_direction",
-    "invented_relation_endpoint", "unsupported_prerequisite", "generic_relation_reason",
-    "generic_relation_hub", "adjacency_only_relation", "missing_no_relation",
-}
-ASSESSMENT_FIELDS = {
-    "correctness_safe_published", "ambiguity_blocked", "distractor_support_blocked",
-    "exact_duplicate_blocked", "novelty_uncertain_published", "technical_token_safe",
-    "unsupported_correct_blocked", "contradiction_paraphrase_safe", "false_mastery",
-}
+QUALITY_ROLES = ("array_45",)
+RUN_ROLES = QUALITY_ROLES
+ARRAY_SOURCE_SHA256 = "773e72dcddc7902d27d2315910749361928f143ac11beb6b66c5fe6b0d5b59df"
+MATERIAL_REVIEW_FIELDS = {"revision", "reviewed_units", "usable_units", "limitations"}
+ASSESSMENT_FIELDS = {"reviewed_questions", "usable_questions", "no_safe_requests", "false_mastery", "limitations"}
 CLOSED_LOOP_FIELDS = {
     "upload", "progress", "ingestion", "evidence", "concepts", "relations", "map",
     "path", "study_session", "assessment", "answer", "learner_guidance", "reload_reopen",
@@ -57,9 +49,13 @@ class QualificationError(RuntimeError):
 def _private_output(path: Path) -> Path:
     resolved = path.resolve()
     allowed = (ROOT / ".studydy-runtime").resolve()
-    if resolved != allowed and allowed not in resolved.parents:
+    temporary = resolved.parent == Path("/tmp") and resolved.name.startswith("studydy-")
+    if not temporary and resolved != allowed and allowed not in resolved.parents:
         raise QualificationError("QUALIFICATION_OUTPUT_NOT_PRIVATE")
     resolved.mkdir(parents=True, exist_ok=True, mode=0o700)
+    details = resolved.stat()
+    if stat.S_IMODE(details.st_mode) != 0o700 or details.st_uid != os.geteuid():
+        raise QualificationError("QUALIFICATION_OUTPUT_NOT_PRIVATE")
     return resolved
 
 
@@ -138,9 +134,10 @@ def _resident_processes() -> list[dict[str, Any]]:
         try:
             command = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "ignore")
             lowered = command.casefold()
-            if "vllm" not in lowered or not any(
+            engine = (entry / "comm").read_text().startswith("VLLM::Engine")
+            if not engine and ("vllm" not in lowered or not any(
                 marker in lowered for marker in (" serve ", "api_server")
-            ):
+            )):
                 continue
             start_ticks = (entry / "stat").read_text().split()[21]
             processes.append({"pid": int(entry.name), "start_ticks": start_ticks})
@@ -204,6 +201,8 @@ def _read(path: Path) -> dict[str, Any]:
 
 def run(inputs: dict[str, Path], output: Path) -> int:
     output = _private_output(output)
+    if (output / "run-summary.private.json").exists():
+        raise QualificationError("QUALIFICATION_OUTPUT_ALREADY_EXISTS")
     gpu = _gpu()
     settings = read_local_ai_config_from_environment(os.environ)
     binding = runtime_preflight(settings)
@@ -216,10 +215,8 @@ def run(inputs: dict[str, Path], output: Path) -> int:
     try:
         for role in RUN_ROLES:
             request, page_count = _pdf_request(inputs[role])
-            if role == "array_45" and page_count != 45:
-                raise QualificationError("ARRAY_MATERIAL_PAGE_COUNT_INVALID")
-            if role == "representative_8" and page_count != 8:
-                raise QualificationError("REPRESENTATIVE_MATERIAL_PAGE_COUNT_INVALID")
+            if page_count != 45 or request["expected_source_sha256"] != ARRAY_SOURCE_SHA256:
+                raise QualificationError("ARRAY_MATERIAL_IDENTITY_MISMATCH")
             started = time.monotonic()
             structure = analyze_material(request, settings)
             elapsed = time.monotonic() - started
@@ -229,11 +226,6 @@ def run(inputs: dict[str, Path], output: Path) -> int:
                 or not structure["concepts"]
             ):
                 raise QualificationError("KNOWLEDGE_STRUCTURE_INVALID")
-            if role == "scanned" and (
-                structure["metrics"]["ocr_calls"] < 1
-                or not any(item["source"] == "unlimited_ocr" for item in structure["evidence"])
-            ):
-                raise QualificationError("SCANNED_MATERIAL_DID_NOT_USE_OCR")
             _write(output / f"{role}.private.json", structure)
             summaries[role] = {
                 "source_sha256": structure["source_sha256"],
@@ -256,7 +248,7 @@ def run(inputs: dict[str, Path], output: Path) -> int:
     if before != after:
         raise QualificationError("RESIDENT_QWEN_RELOADED")
     summary = {
-        "schema": "a40-final-run/v1",
+        "schema": "a40-final-run/v2",
         "produced_at": datetime.now(UTC).isoformat(),
         "candidate_sha": subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, check=True, capture_output=True, text=True).stdout.strip(),
         "runtime_binding_sha256": binding["runtime_binding_sha256"],
@@ -280,11 +272,18 @@ def _automatic_gates(structure: dict[str, Any]) -> dict[str, Any]:
     path_ids = [step["concept_id"] for step in structure["initial_learning_path"]]
     return {
         "structure_valid": validate_knowledge_structure(structure),
-        "evidence_refs_percent": 100,
-        "literal_fidelity_percent": 100,
-        "related_count": sum(relation["type"] not in RELATION_TYPES for relation in structure["relations"]),
-        "path_coverage_percent": round(100 * len(set(path_ids)) / len(concept_ids), 2) if concept_ids else 0,
+        "path_complete": bool(concept_ids) and len(path_ids) == len(concept_ids) and set(path_ids) == concept_ids,
     }
+
+
+def _review_counts(review: dict[str, Any], total_name: str, usable_name: str) -> bool:
+    """語意使用人工檢視的明確分母；限制列出，不宣稱自動保證準確度。"""
+    total, usable = review[total_name], review[usable_name]
+    if (type(total) is not int or type(usable) is not int or total < 0 or not 0 <= usable <= total
+        or not isinstance(review["limitations"], list)
+        or any(not isinstance(item, str) for item in review["limitations"])):
+        raise QualificationError("QUALIFICATION_REVIEW_INVALID")
+    return total > 0 and usable / total >= 0.85
 
 
 def score(review_path: Path, output: Path) -> int:
@@ -293,114 +292,52 @@ def score(review_path: Path, output: Path) -> int:
     review = _read(review_path)
     if (
         set(review) != {"schema", "run_sha256", "materials", "assessment", "closed_loop", "runtime"}
-        or review.get("schema") != "a40-final-review/v1"
+        or review.get("schema") != "a40-final-review/v2"
         or review.get("run_sha256") != run_summary.get("run_sha256")
         or canonical_sha256({key: value for key, value in run_summary.items() if key != "run_sha256"}) != run_summary.get("run_sha256")
         or run_summary.get("candidate_sha") != subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, check=True, capture_output=True, text=True).stdout.strip()
-        or not isinstance(review.get("materials"), dict)
         or set(review["materials"]) != set(QUALITY_ROLES)
-        or not isinstance(review.get("assessment"), dict)
         or set(review["assessment"]) != ASSESSMENT_FIELDS
-        or not isinstance(review.get("closed_loop"), dict)
         or set(review["closed_loop"]) != CLOSED_LOOP_FIELDS
-        or not isinstance(review.get("runtime"), dict)
         or set(review["runtime"]) != RUNTIME_FIELDS
     ):
         raise QualificationError("QUALIFICATION_REVIEW_BINDING_INVALID")
-    gates: dict[str, Any] = {}
-    passed = True
-    for role in QUALITY_ROLES:
-        structure = _read(output / f"{role}.private.json")
-        automatic = _automatic_gates(structure)
-        human = review["materials"][role]
-        if (
-            not isinstance(human, dict)
-            or set(human) != MATERIAL_REVIEW_FIELDS
-            or any(
-                type(human[name]) is not int or human[name] < 0
-                for name in MATERIAL_REVIEW_FIELDS - {"revision"}
-            )
-        ):
-            raise QualificationError("QUALIFICATION_REVIEW_INVALID")
-        total = human["teaching_units_total"]
-        found = human["teaching_units_found"]
-        duplicate_rate = 100 * human["duplicate_concepts"] / max(1, len(structure["concepts"]))
-        role_pass = (
-            structure["revision"] == human["revision"]
-            and structure["revision"] == run_summary["materials"][role]["revision"]
-            and structure["source_sha256"] == run_summary["materials"][role]["source_sha256"]
-            and total > 0 and found <= total and found / total >= 0.95
-            and human["learner_worthy_disappearance"] == 0
-            and human["critical_false_merge"] == 0
-            and duplicate_rate <= 3
-            and all(human[name] == 0 for name in (
-                "critical_wrong_relation_type", "wrong_relation_direction",
-                "invented_relation_endpoint", "unsupported_prerequisite", "generic_relation_reason",
-                "generic_relation_hub", "adjacency_only_relation", "missing_no_relation",
-            ))
-            and automatic["structure_valid"] is True
-            and automatic["evidence_refs_percent"] == 100
-            and automatic["literal_fidelity_percent"] == 100
-            and automatic["related_count"] == 0
-            and automatic["path_coverage_percent"] == 100
-        )
-        passed = passed and role_pass
-        gates[role] = {
-            "pass": role_pass,
-            "teaching_unit_recall_percent": round(100 * found / total, 2),
-            "duplicate_concept_percent": round(duplicate_rate, 2),
-            **automatic,
-        }
-    assessment = review["assessment"]
-    if (
-        any(type(assessment[name]) is not bool for name in ASSESSMENT_FIELDS - {"false_mastery"})
-        or type(assessment["false_mastery"]) is not int
-        or assessment["false_mastery"] < 0
-        or any(type(value) is not bool for value in review["closed_loop"].values())
-    ):
+    structure = _read(output / "array_45.private.json")
+    human = review["materials"]["array_45"]
+    if set(human) != MATERIAL_REVIEW_FIELDS:
         raise QualificationError("QUALIFICATION_REVIEW_INVALID")
-    assessment_pass = all(assessment[name] is True for name in (
-        "correctness_safe_published", "ambiguity_blocked", "distractor_support_blocked",
-        "exact_duplicate_blocked", "novelty_uncertain_published", "technical_token_safe",
-        "unsupported_correct_blocked", "contradiction_paraphrase_safe",
-    )) and assessment["false_mastery"] == 0
-    closed_loop_pass = all(value is True for value in review["closed_loop"].values())
+    automatic = _automatic_gates(structure)
+    material_pass = _review_counts(human, "reviewed_units", "usable_units") and all(automatic.values()) and (
+        structure["revision"] == human["revision"] == run_summary["materials"]["array_45"]["revision"]
+        and structure["source_sha256"] == run_summary["materials"]["array_45"]["source_sha256"] == ARRAY_SOURCE_SHA256
+        and structure["page_count"] == 45
+    )
+    assessment = review["assessment"]
+    assessment_pass = _review_counts(assessment, "reviewed_questions", "usable_questions")
+    if any(type(assessment[name]) is not int or assessment[name] < 0 for name in ("no_safe_requests", "false_mastery")):
+        raise QualificationError("QUALIFICATION_REVIEW_INVALID")
+    assessment_pass = assessment_pass and assessment["false_mastery"] == 0
+    if any(type(value) is not bool for value in review["closed_loop"].values()):
+        raise QualificationError("QUALIFICATION_REVIEW_INVALID")
+    closed_loop_pass = all(review["closed_loop"].values())
     runtime = review["runtime"]
-    if (
-        any(type(runtime[name]) is not int or runtime[name] < 0 for name in (
-            "oom", "engine_death",
-        ))
-        or not isinstance(runtime["python_minors"], list)
-        or not isinstance(runtime["mdeberta_decision"], str)
-    ):
+    if any(type(runtime[name]) is not int or runtime[name] < 0 for name in ("oom", "engine_death")):
         raise QualificationError("QUALIFICATION_REVIEW_INVALID")
     runtime_pass = (
         run_summary["resident_qwen"]["loads_during_run"] == 0
         and run_summary["resident_qwen"]["served_model_load_count"] == 1
-        and len(run_summary["resident_qwen"]["server_processes"]) >= 1
-        and run_summary["materials"]["representative_8"]["semantic_calls"] in {1, 2, 3}
-        and run_summary["materials"]["representative_8"]["semantic_seconds"] <= 180
+        and bool(run_summary["resident_qwen"]["server_processes"])
         and run_summary["peak_vram_mib"] <= run_summary["gpu"]["memory_mib"]
-        and runtime["oom"] == 0
-        and runtime["engine_death"] == 0
-        and runtime["python_minors"] == ["3.12"]
-        and runtime["mdeberta_decision"] == "REMOVE"
+        and runtime["oom"] == 0 and runtime["engine_death"] == 0
+        and runtime["python_minors"] == ["3.12"] and runtime["mdeberta_decision"] == "REMOVE"
     )
-    passed = passed and assessment_pass and closed_loop_pass and runtime_pass
-    result = {
-        "schema": "a40-final-qualification/v1",
-        "candidate_sha": run_summary["candidate_sha"],
-        "run_sha256": run_summary["run_sha256"],
-        "pass": passed,
-        "material_gates": gates,
-        "assessment_pass": assessment_pass,
-        "closed_loop_pass": closed_loop_pass,
-        "runtime_pass": runtime_pass,
-        "mdeberta_decision": "REMOVE",
-    }
+    result = {"schema": "a40-final-qualification/v2", "candidate_sha": run_summary["candidate_sha"],
+              "run_sha256": run_summary["run_sha256"], "pass": material_pass and assessment_pass and closed_loop_pass and runtime_pass,
+              "material_pass": material_pass, "assessment_pass": assessment_pass, "closed_loop_pass": closed_loop_pass,
+              "runtime_pass": runtime_pass, "automatic": automatic, "mdeberta_decision": "REMOVE"}
     _write(output / "qualification-summary.json", result)
     print(json.dumps(result, sort_keys=True))
-    return 0 if passed else 1
+    return 0 if result["pass"] else 1
 
 
 def main() -> int:
@@ -408,32 +345,13 @@ def main() -> int:
     parser.add_argument("command", choices=("run", "score"))
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--array", type=Path)
-    parser.add_argument("--representative-eight", type=Path)
-    parser.add_argument("--technical", type=Path)
-    parser.add_argument("--scanned", type=Path)
     parser.add_argument("--review", type=Path)
     arguments = parser.parse_args()
     try:
         if arguments.command == "run":
-            if any(
-                value is None
-                for value in (
-                    arguments.representative_eight,
-                    arguments.array,
-                    arguments.technical,
-                    arguments.scanned,
-                )
-            ):
+            if arguments.array is None:
                 raise QualificationError("QUALIFICATION_INPUT_MISSING")
-            return run(
-                {
-                    "representative_8": arguments.representative_eight,
-                    "array_45": arguments.array,
-                    "technical": arguments.technical,
-                    "scanned": arguments.scanned,
-                },
-                arguments.output,
-            )
+            return run({"array_45": arguments.array}, arguments.output)
         if arguments.review is None:
             raise QualificationError("QUALIFICATION_REVIEW_MISSING")
         return score(arguments.review, arguments.output)

@@ -10,14 +10,13 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import type { StudydyApiClient } from "../../api/client";
-import type { KnowledgeStructureView } from "../../api/contracts";
+import type { KnowledgeStructureView, RelationType } from "../../api/contracts";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import {
   documentTreeConnectors,
   hierarchyLayout,
   relationConnectors,
-  safeExternalUrl,
 } from "./knowledge-map";
 
 type Concept = KnowledgeStructureView["concepts"][number];
@@ -29,6 +28,10 @@ const modes: { id: Mode; label: string }[] = [
   { id: "overview", label: "總覽" },
   { id: "review", label: "內容複核" },
 ];
+
+const relationLabels: Record<RelationType, string> = {
+  prerequisite: "先備", part_of: "組成", application: "應用", example: "例子", contrast: "對照",
+};
 
 function nodeKeyboardAction(open: () => void, title: string) {
   return {
@@ -52,7 +55,7 @@ function EvidenceList({ apiClient, evidence, sourceArtifactId }: {
         <li key={item.evidence_id}>
           <div>
             <strong>原始教材第 {item.page} 頁</strong>
-            <span>{item.kind} · 已保留頁面定位</span>
+            <span>可回查原始頁面</span>
           </div>
           <button
             className="text-button"
@@ -106,31 +109,6 @@ function ConceptDetail({ apiClient, concept, close, isStartingStudy, onStartStud
       {concept.aliases.length > 0 && (
         <section><h3>教材中的其他名稱</h3><p className="page-list">{concept.aliases.join("、")}</p></section>
       )}
-      <section>
-        <h3>補充資源</h3>
-        {concept.resources.length === 0 ? (
-          <p className="muted-copy">目前沒有已發布的補充資源。</p>
-        ) : (
-          <ul className="resource-list">
-            {concept.resources.map((resource) => {
-              const sourceUrl = safeExternalUrl(resource.source_url);
-              const licenseUrl = safeExternalUrl(resource.license_url);
-              return (
-                <li key={resource.resource_id}>
-                  <strong>{resource.title}</strong>
-                  <span>{resource.authors.join("、")}</span>
-                  <small>{resource.citation}</small>
-                  <small>{resource.license}</small>
-                  <div>
-                    {sourceUrl && <a href={sourceUrl} target="_blank" rel="noreferrer">開啟資源</a>}
-                    {licenseUrl && <a href={licenseUrl} target="_blank" rel="noreferrer">授權說明</a>}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
     </aside>
   );
 }
@@ -246,7 +224,6 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
   const selected = view.concepts.find((concept) => concept.concept_id === selectedConceptId) ?? view.concepts[0];
-  const layout = hierarchyLayout(view);
   const graphElement = useRef<HTMLDivElement>(null);
   const graphInstance = useRef<ReactFlowInstance | null>(null);
   const toggleSection = (sectionId: string) => setCollapsedSections((current) => {
@@ -257,7 +234,20 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
   const hiddenConceptIds = new Set(view.document_tree.sections
     .filter((section) => collapsedSections.has(section.section_id))
     .flatMap((section) => section.concept_ids));
-  const visibleLayout = layout.filter((node) => !hiddenConceptIds.has(node.id));
+  const visibleLayout = hierarchyLayout(view, hiddenConceptIds);
+  const focusGraph = () => {
+    const section = view.document_tree.sections.find((item) => item.concept_ids.includes(selected.concept_id));
+    const node = visibleLayout.find((item) => item.id === selected.concept_id)
+      ?? visibleLayout.find((item) => item.id === section?.section_id);
+    if (node) void graphInstance.current?.setCenter(node.x + node.width / 2, node.y + node.height / 2, { zoom: 0.85 });
+  };
+  useEffect(() => {
+    const section = view.document_tree.sections.find((item) => item.concept_ids.includes(selectedConceptId));
+    if (section) setCollapsedSections((current) => {
+      if (!current.has(section.section_id)) return current;
+      const next = new Set(current); next.delete(section.section_id); return next;
+    });
+  }, [selectedConceptId, view]);
   useEffect(() => {
     const element = graphElement.current;
     if (!element) return;
@@ -265,14 +255,14 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
     const fitGraph = () => {
       window.cancelAnimationFrame(animationFrame);
       animationFrame = window.requestAnimationFrame(() => {
-        void graphInstance.current?.fitView({ padding: 0.16, maxZoom: 1 });
+        focusGraph();
       });
     };
     const observer = new ResizeObserver(fitGraph);
     observer.observe(element);
     fitGraph();
     return () => { window.cancelAnimationFrame(animationFrame); observer.disconnect(); };
-  }, [collapsedSections]);
+  }, [collapsedSections, selectedConceptId, view]);
   const graphNodes: Node[] = visibleLayout.map((node) => {
     const concept = view.concepts.find((item) => item.concept_id === node.id);
     const section = view.document_tree.sections.find((item) => item.section_id === node.id);
@@ -323,10 +313,10 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
       source: connector.source,
       target: connector.target,
       type: "smoothstep",
-      label: connector.type,
+      label: relationLabels[connector.type],
       data: { reason: connector.reason, relationType: connector.type },
       className: `concept-flow-edge is-relation is-${connector.type}`,
-      ariaLabel: `${connector.type}：${connector.reason}`,
+      ariaLabel: `${relationLabels[connector.type]}：${connector.reason}`,
       focusable: true,
       selectable: true,
     }));
@@ -342,8 +332,10 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
           </select>
         </label>
       </div>
+      <details className="section-controls" open={view.document_tree.sections.length <= 4}>
+      <summary>展開／收合教材段落</summary>
       <div className="flat-group-list" aria-label="教材段落">
-        {view.document_tree.sections.map((section) => (
+        {view.document_tree.sections.filter((section) => section.concept_ids.length > 0).map((section) => (
           <article className={section.concept_ids.includes(selected.concept_id) ? "is-current" : undefined} key={section.section_id}>
             <small>教材段落 {section.order + 1}</small>
             <strong>{section.title}</strong>
@@ -353,6 +345,11 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
           </article>
         ))}
       </div>
+      </details>
+      <div className="graph-actions">
+        <button type="button" className="text-button" onClick={focusGraph}>聚焦目前概念</button>
+        <button type="button" className="text-button" onClick={() => void graphInstance.current?.fitView({ padding: 0.16, maxZoom: 1 })}>查看全圖</button>
+      </div>
       <div className="focus-graph" ref={graphElement} aria-label={`「${selected.label}」所在的教材概念階層圖`}>
         <ReactFlow
           aria-label="可平移、縮放、選擇與置中的概念階層圖"
@@ -360,14 +357,12 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
           edges={graphEdges}
           edgesReconnectable={false}
           elementsSelectable
-          fitView
-          fitViewOptions={{ padding: 0.16, maxZoom: 1 }}
           maxZoom={1.8}
-          minZoom={0.2}
+          minZoom={0.02}
           nodes={graphNodes}
           nodesConnectable={false}
           nodesDraggable={false}
-          onInit={(instance) => { graphInstance.current = instance; void instance.fitView({ padding: 0.16, maxZoom: 1 }); }}
+          onInit={(instance) => { graphInstance.current = instance; focusGraph(); }}
           onNodeClick={(_, node) => {
             if (view.concepts.some((concept) => concept.concept_id === node.id)) openConcept(node.id);
             else if (view.document_tree.sections.some((section) => section.section_id === node.id)) toggleSection(node.id);
@@ -385,7 +380,7 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
       </div>
       <div className="relation-legend" aria-label="概念關係圖例">
         {(["prerequisite", "part_of", "application", "example", "contrast"] as const).map((type) => (
-          <span className={`is-${type}`} key={type}>{type}</span>
+          <span className={`is-${type}`} key={type}>{relationLabels[type]}</span>
         ))}
       </div>
       <ul className="relation-list" aria-label="概念關係">
@@ -395,7 +390,7 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
           return (
             <li key={relation.relation_id}>
               <button type="button" onClick={() => setSelectedRelationId(relation.relation_id)}>
-                <span className={`is-${relation.type}`}>{relation.type}</span>
+                <span className={`is-${relation.type}`}>{relationLabels[relation.type]}</span>
                 <strong>{source?.label} → {target?.label}</strong>
                 <small>{relation.learner_reason}</small>
               </button>
@@ -405,7 +400,7 @@ function FocusView({ openConcept, selectedConceptId, setSelectedConceptId, view 
       </ul>
       {selectedRelation && (
         <aside className="relation-detail" role="status">
-          <strong>{selectedRelation.type}</strong>
+          <strong>{relationLabels[selectedRelation.type]}</strong>
           <p>{selectedRelation.learner_reason}</p>
           <button type="button" onClick={() => setSelectedRelationId(null)}>關閉</button>
         </aside>
@@ -481,7 +476,7 @@ export function KnowledgeMapWorkspace({ apiClient, isStartingStudy, onReturnToRu
           <div className="map-facts" aria-label="地圖摘要">
             <span><strong>{view.concepts.length}</strong>概念</span>
             <span><strong>{view.document_tree.sections.length}</strong>段落</span>
-            <span><strong>{view.concepts.reduce((count, concept) => count + concept.resources.length, 0)}</strong>資源</span>
+            <span><strong>{view.relations.length}</strong>關係</span>
           </div>
           <button className="primary-button" disabled={isStartingStudy} type="button" onClick={() => onStartStudy(initialConceptId)}>
             <Icon name="learning" />{isStartingStudy ? "正在開始…" : "開始本次學習"}

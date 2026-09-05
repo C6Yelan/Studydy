@@ -72,7 +72,7 @@ def test_material_packing_and_generation_share_exact_token_budget(count, fits):
             "finish_reason": "length", "message": {"content": '{"concepts":[]}'},
         }]})
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
-        arguments = dict(runtime_lock=_lock(), task="material_semantics", request={"sections": []}, response_schema={})
+        arguments = dict(runtime_lock=_lock(), task="material_semantics", request={"sections": [{"evidence": [[0, 1, "code", "x"]]}]}, response_schema={})
         assert material_request_fits(client, _lock(), arguments["request"]) is fits
         with pytest.raises(SemanticServiceError, match="SEMANTIC_OUTPUT_TRUNCATED" if fits else "SEMANTIC_INPUT_TOO_LARGE"):
             request_semantics(client, **arguments)
@@ -117,3 +117,21 @@ def test_preflight_rejects_more_than_one_served_model():
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
         with pytest.raises(SemanticServiceError, match="SEMANTIC_SERVICE_IDENTITY_MISMATCH"):
             preflight_semantic_service(_lock(), client=client)
+
+
+@pytest.mark.parametrize("fresh_count,fits", [(1536, True), (1537, False)])
+def test_material_bundle_budget_excludes_existing_catalog(fresh_count, fits):
+    """舊概念目錄只佔 context；新增教材另有輸出容量預算。"""
+    calls = []
+    def respond(request):
+        body = json.loads(request.content)
+        material = json.loads(body["messages"][-1]["content"].split("\nINPUT:\n", 1)[1])
+        calls.append(material)
+        return httpx.Response(200, json={"count": 6000 if material["existing_concepts"] else fresh_count, "max_model_len": 32768})
+    material = {"existing_concepts": [{"k": "array", "l": "Array", "a": [], "c": ["Existing claim"], "e": [0]}],
+                "sections": [{"title": "New material", "evidence": [[1, 1, "paragraph", "First"], [2, 2, "paragraph", "Second"]]}]}
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        assert material_request_fits(client, _lock(), material) is fits
+    assert calls[0] == material
+    assert calls[1]["existing_concepts"] == []
+    assert calls[1]["sections"] == material["sections"]

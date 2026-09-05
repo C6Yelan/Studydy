@@ -463,6 +463,26 @@
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.section-controls {
+  margin-bottom: var(--space-3);
+}
+
+.section-controls > summary {
+  padding: var(--space-2) 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.graph-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
 }
 
 .flat-group-list article {
@@ -707,8 +727,7 @@
   font-size: .88rem;
 }
 
-.evidence-list,
-.resource-list {
+.evidence-list {
   display: grid;
   gap: var(--space-2);
   margin: 0;
@@ -745,36 +764,10 @@
   font-size: .78rem;
 }
 
-.page-list,
-.muted-copy {
+.page-list {
   margin: 0;
   color: var(--text-secondary);
   font-size: .86rem;
-}
-
-.resource-list li {
-  display: grid;
-  gap: var(--space-1);
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-input);
-}
-
-.resource-list span,
-.resource-list small {
-  color: var(--text-secondary);
-}
-
-.resource-list div {
-  display: flex;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
-}
-
-.resource-list a {
-  color: var(--studydy-blue);
-  font-size: .8rem;
-  font-weight: 600;
 }
 
 .detail-panel section > p {
@@ -853,6 +846,10 @@
 }
 
 @media (max-width: 520px) {
+  .graph-actions,
+  .section-controls {
+    display: none;
+  }
   .focus-graph {
     display: none;
   }

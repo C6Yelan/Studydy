@@ -134,6 +134,7 @@ export function AssessmentPanel({ apiClient, concept, onNoSafeItem, onReloadSess
       .flatMap((item) => item.claims)
       .flatMap((claim) => claim.evidence)
       .filter((item) => feedback.source_evidence_ids.includes(item.evidence_id));
+    const evidencePages = [...new Set(evidence.map((item) => item.page))];
     return (
       <section className={`assessment-card feedback-card is-${feedback.is_correct ? "correct" : "incorrect"}`} aria-live="polite">
         <span className="feedback-icon"><Icon name={feedback.is_correct ? "check" : "warning"} size={28} /></span>
@@ -142,17 +143,17 @@ export function AssessmentPanel({ apiClient, concept, onNoSafeItem, onReloadSess
         <p className="feedback-rationale">{feedback.rationale}</p>
         <div className="feedback-evidence">
           <h3>教材依據</h3>
-          {evidence.map((item) => (
+          {evidencePages.map((page) => (
             <button
               className="text-button"
-              key={item.evidence_id}
+              key={page}
               type="button"
               onClick={() => window.open(
-                apiClient.sourceArtifactUrl(sourceArtifactId, item.page),
+                apiClient.sourceArtifactUrl(sourceArtifactId, page),
                 "_blank",
                 "noopener,noreferrer",
               )}
-            >原始教材第 {item.page} 頁<Icon name="chevron-right" /></button>
+            >原始教材第 {page} 頁<Icon name="chevron-right" /></button>
           ))}
         </div>
         <div className="assessment-actions">

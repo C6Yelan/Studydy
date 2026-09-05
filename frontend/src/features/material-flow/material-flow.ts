@@ -114,7 +114,7 @@ export function materialRunLabel(status: MaterialProcessingRunView["status"]): s
   if (status === "pending") return "等待開始處理";
   if (status === "running") return "正在分析完整教材";
   if (status === "succeeded") return "處理完成，等待複核";
-  if (status === "partial") return "部分頁面已排除，等待複核";
+  if (status === "partial") return "部分內容需要複核";
   return "處理失敗";
 }
 

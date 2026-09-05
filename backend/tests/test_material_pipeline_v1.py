@@ -49,6 +49,8 @@ def _semantic(calls: list[dict]):
     def call(_client, **arguments):
         request = arguments["request"]
         calls.append(request)
+        allowed = arguments["response_schema"]["properties"]["concepts"]["items"]["properties"]["c"]["items"]["properties"]["s"]["items"]["prefixItems"][0]["enum"]
+        assert allowed == [row[0] for section in request["sections"] for row in section["evidence"]]
         first = next(item for section in request["sections"] for item in section["evidence"] if item[2] != "heading")
         return {
             "concepts": [{
@@ -84,6 +86,26 @@ class FailedOcr:
 
     def abort(self):
         pass
+
+
+def test_multiple_bundles_report_incremental_semantic_progress(tmp_path):
+    """後面頁面尚未處理時，不能先把語意進度回報為整份完成。"""
+    source = tmp_path / "three.pdf"
+    _pdf(source, 3)
+    class BudgetClient:
+        def post(self, url, **kwargs):
+            request = json.loads(kwargs["json"]["messages"][-1]["content"].split("\nINPUT:\n", 1)[1])
+            count = 700 * sum(len(section["evidence"]) for section in request["sections"])
+            return httpx.Response(200, json={"count": count, "max_model_len": 32768}, request=httpx.Request("POST", url))
+    calls = []
+    progress = []
+    pipeline.analyze_material(_request(source), _settings(tmp_path), client=BudgetClient(),
+                              semantic_call=_semantic(calls), progress_callback=lambda stage, done, total: progress.append((stage, done, total)))
+    assert len(calls) > 1
+    assert {row[1] for call in calls for section in call["sections"] for row in section["evidence"]} == {1, 2, 3}
+    completed = [done for stage, done, _total in progress if stage == "semantics"]
+    assert completed == sorted(completed)
+    assert completed[0] < 3 and completed[-1] == 3
 
 
 def test_ocr_failure_excludes_only_scan_and_semantics_still_runs(tmp_path, monkeypatch):
