@@ -50,6 +50,7 @@ from learning_adaptation.study_sessions import (
     read_study_session,
 )
 from ..learner_session import (
+    IDLE_LIFETIME,
     SessionError,
     TrustedLearner,
     create_session,
@@ -290,6 +291,7 @@ def _set_session_cookie(response: Response, token: str, settings: ApiSettings) -
         secure=settings.secure_cookie,
         samesite="strict",
         path="/",
+        max_age=int(IDLE_LIFETIME.total_seconds()),
     )
 
 

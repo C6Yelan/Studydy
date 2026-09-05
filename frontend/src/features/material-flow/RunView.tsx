@@ -203,7 +203,7 @@ export function RunView({ apiClient, route }: {
           <ol className="status-timeline">
             <li className="is-complete"><span><Icon name="check" /></span><div><strong>教材已接收</strong><p>檔案與處理作業完成綁定。</p></div></li>
             <li className="is-complete"><span><Icon name="check" /></span><div><strong>來源已保留</strong><p>每個重點都可回到原始 PDF 頁面。</p></div></li>
-            <li className="is-complete"><span><Icon name="check" /></span><div><strong>知識地圖已發布</strong><p>{run.status === "partial" ? "部分頁面未安全納入，地圖會清楚標示。" : "可安全複核的內容已準備完成。"}</p></div></li>
+            <li className="is-complete"><span><Icon name="check" /></span><div><strong>知識地圖已發布</strong><p>{run.status === "partial" ? "部分內容需要複核，已保留可使用的結果。" : "可安全複核的內容已準備完成。"}</p></div></li>
           </ol>
         </section>
       </div>

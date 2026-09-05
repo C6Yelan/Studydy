@@ -81,21 +81,10 @@ export type EvidenceView = {
   quote: string;
 };
 
-export type ResourceView = {
-  resource_id: string;
-  title: string;
-  authors: string[];
-  citation: string;
-  license: string;
-  license_url: string;
-  source_url: string;
-  pages: number[];
-};
-
 export type RelationType = "prerequisite" | "part_of" | "application" | "example" | "contrast";
 
 export type KnowledgeStructureView = {
-  schema: "knowledge-structure-view/v1";
+  schema: "knowledge-structure-view/v2";
   material_id: string;
   knowledge_structure_revision: string;
   status: {
@@ -121,7 +110,6 @@ export type KnowledgeStructureView = {
     claims: { claim_id: string; text: string; evidence: EvidenceView[] }[];
     section_ids: string[];
     source_pages: number[];
-    resources: ResourceView[];
   }[];
   relations: {
     relation_id: string;

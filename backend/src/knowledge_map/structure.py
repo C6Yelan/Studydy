@@ -7,15 +7,13 @@ from datetime import datetime
 import math
 import re
 from typing import Any
-import unicodedata
-from urllib.parse import urlsplit
 from uuid import UUID
 
 from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
-STRUCTURE_SCHEMA = "knowledge-structure/v1"
-VIEW_SCHEMA = "knowledge-structure-view/v1"
+STRUCTURE_SCHEMA = "knowledge-structure/v2"
+VIEW_SCHEMA = "knowledge-structure-view/v2"
 RELATION_TYPES = {"prerequisite", "part_of", "application", "example", "contrast"}
 RELATION_BASIS = {
     "prerequisite": "dependency",
@@ -53,10 +51,6 @@ def _text(value: Any, *, maximum: int = 4096) -> str:
     if not cleaned or len(cleaned) > maximum or "\x00" in cleaned:
         raise ValueError("SEMANTIC_OUTPUT_INVALID")
     return cleaned
-
-
-def _normalized_label(value: str) -> str:
-    return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
 
 
 def _ordered_pages(pages: Any) -> list[dict[str, Any]]:
@@ -255,14 +249,22 @@ def build_semantic_bundles(
         start = end
 
 
-def semantic_response_schema() -> dict[str, Any]:
-    span = {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 3, "maxItems": 3}
+def semantic_response_schema(evidence_handles: list[int]) -> dict[str, Any]:
+    span = {
+        "type": "array", "minItems": 3, "maxItems": 3,
+        "prefixItems": [
+            {"type": "integer", "enum": evidence_handles},
+            {"type": "integer", "minimum": 0},
+            {"type": "integer", "minimum": 0},
+        ],
+        "items": False,
+    }
     claim = {
         "type": "object",
         "additionalProperties": False,
         "required": ["m", "s"],
         "properties": {
-            "m": {"type": ["string", "null"]},
+            "m": {"type": ["string", "null"], "minLength": 1},
             "s": {"type": "array", "minItems": 1, "items": span},
         },
     }
@@ -617,7 +619,6 @@ def build_knowledge_structure(
     ocr_calls: int,
     evidence_duration_ms: int = 0,
     semantic_duration_ms: int = 0,
-    resource_index: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     try:
         parsed_time = datetime.fromisoformat(produced_at)
@@ -663,7 +664,6 @@ def build_knowledge_structure(
                 "evidence_refs": references,
                 "section_ids": list(dict.fromkeys(evidence_by_id[reference]["section_id"] for reference in references)),
                 "source_pages": sorted({evidence_by_id[reference]["page"] for reference in references}),
-                "resources": deepcopy((resource_index or {}).get(_normalized_label(item["label"]), [])),
             }
         )
     concepts.sort(
@@ -959,7 +959,7 @@ def validate_knowledge_structure(document: Any) -> bool:
             if (
                 set(concept) != {
                     "concept_id", "label", "aliases", "claims", "evidence_refs",
-                    "section_ids", "source_pages", "resources",
+                    "section_ids", "source_pages",
                 }
                 or not concept["claims"]
                 or not isinstance(concept["label"], str)
@@ -972,7 +972,6 @@ def validate_knowledge_structure(document: Any) -> bool:
                 or not isinstance(concept["section_ids"], list)
                 or not concept["section_ids"]
                 or not isinstance(concept["source_pages"], list)
-                or not isinstance(concept["resources"], list)
             ):
                 return False
             expected_sections = list(dict.fromkeys(evidence_by_id[reference]["section_id"] for reference in concept["evidence_refs"]))
@@ -1031,38 +1030,6 @@ def validate_knowledge_structure(document: Any) -> bool:
             )
             if concept["evidence_refs"] != expected_evidence_refs:
                 return False
-            for resource in concept["resources"]:
-                source_url = urlsplit(resource.get("source_url", "")) if isinstance(resource, dict) else None
-                license_url = urlsplit(resource.get("license_url", "")) if isinstance(resource, dict) else None
-                if (
-                    not isinstance(resource, dict)
-                    or set(resource) != {
-                        "resource_id", "title", "authors", "citation", "license",
-                        "license_url", "source_url", "pages",
-                    }
-                    or any(
-                        not isinstance(resource[field], str) or not resource[field]
-                        for field in (
-                            "resource_id", "title", "citation", "license",
-                            "license_url", "source_url",
-                        )
-                    )
-                    or re.fullmatch(r"resource:sha256:[0-9a-f]{64}", resource["resource_id"]) is None
-                    or source_url is None
-                    or source_url.scheme not in {"http", "https"}
-                    or not source_url.netloc
-                    or license_url is None
-                    or license_url.scheme not in {"http", "https"}
-                    or not license_url.netloc
-                    or not isinstance(resource["authors"], list)
-                    or not resource["authors"]
-                    or any(not isinstance(author, str) or not author for author in resource["authors"])
-                    or not isinstance(resource["pages"], list)
-                    or not resource["pages"]
-                    or resource["pages"] != sorted(set(resource["pages"]))
-                    or any(type(page) is not int or page < 1 for page in resource["pages"])
-                ):
-                    return False
             concept_identity = {
                 "label": concept["label"],
                 "aliases": concept["aliases"],

@@ -18,7 +18,6 @@ function structureView() {
     aliases: [],
     section_ids: [`section:sha256:${"2".repeat(64)}`],
     source_pages: [page],
-    resources: [],
     claims: [{
       claim_id: claimId,
       text: label === "Stack" ? "A stack follows LIFO order." : "An array stores contiguous values.",
@@ -35,7 +34,7 @@ function structureView() {
     }],
   });
   return {
-    schema: "knowledge-structure-view/v1",
+    schema: "knowledge-structure-view/v2",
     material_id: `material:sha256:${"7".repeat(64)}`,
     knowledge_structure_revision: structureRevision,
     status: { processing: "succeeded", quality: "accepted", decision: "retain", reason_codes: [] },
@@ -100,11 +99,11 @@ async function json(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, json: body });
 }
 
-async function routes(page: Page) {
+async function routes(page: Page, view = structureView()) {
   await page.route("**/v1/session", (route) => route.fulfill({ status: 204 }));
   await page.route("**/v1/session/refresh", (route) => route.fulfill({ status: 204 }));
   await page.route(`**/v1/material-processing-runs/${runId}`, (route) => json(route, run));
-  await page.route("**/v1/materials/*/knowledge-structures/**", (route) => json(route, structureView()));
+  await page.route("**/v1/materials/*/knowledge-structures/**", (route) => json(route, view));
   await page.route("**/v1/study-sessions", (route) => json(route, session(), 201));
   await page.route(`**/v1/study-sessions/${sessionId}`, (route) => json(route, session()));
   await page.route(`**/v1/study-sessions/${sessionId}/progress`, (route) => json(route, progress));
@@ -129,12 +128,49 @@ test("Document Tree layout and typed Relation overlay are both usable", async ({
   await expect(page.getByRole("tab", { name: "概念地圖" })).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "教材概念：Stack" }).click();
   await expect(page.getByText("原始教材第 1 頁")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "補充資源", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "開啟 PDF", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "從這個概念開始" }).click();
   await expect(page).toHaveURL(new RegExp(`/study-sessions/${sessionId}$`));
 });
 
+test("large maps keep the selected concept visible without a full-page section list", async ({ page }) => {
+  const view = structureView();
+  view.concepts = Array.from({ length: 30 }, (_, index) => ({
+    ...view.concepts[0], concept_id: `concept:sha256:${(index + 10).toString(16).padStart(64, "0")}`,
+    label: `Concept ${index + 1}`, section_ids: [`section:sha256:${(index + 10).toString(16).padStart(64, "0")}`],
+  }));
+  view.document_tree.sections = view.concepts.map((concept, index) => ({
+    section_id: concept.section_ids[0], title: `Section ${index + 1}`, order: index,
+    heading_evidence_id: null, concept_ids: [concept.concept_id],
+  }));
+  view.relations = [];
+  view.initial_learning_path = view.concepts.map((concept, index) => ({ position: index + 1, concept_id: concept.concept_id, reason: "document_order" }));
+  await routes(page, view);
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+  const select = page.getByRole("combobox", { name: "焦點概念" });
+  await select.selectOption(view.concepts[29].concept_id);
+  await expect(page.getByRole("button", { name: "教材概念：Concept 30", exact: true })).toHaveClass(/is-focus/);
+  await expect.poll(async () => {
+    const node = await page.locator(".react-flow__node.is-focus").boundingBox();
+    const graph = await page.locator(".focus-graph").boundingBox();
+    return !!node && !!graph && node.x >= graph.x && node.x + node.width <= graph.x + graph.width
+      && node.y >= graph.y && node.y + node.height <= graph.y + graph.height;
+  }).toBe(true);
+  await expect(page.locator(".section-controls")).not.toHaveAttribute("open");
+  await page.getByText("展開／收合教材段落", { exact: true }).click();
+  const sections = await page.locator(".flat-group-list").boundingBox();
+  expect(sections!.height).toBeLessThanOrEqual(220);
+});
+
 test("StudySession uses source-bound assessment and server feedback", async ({ page }) => {
-  await routes(page);
+  const sharedEvidenceView = structureView();
+  sharedEvidenceView.concepts[0].claims.push({
+    ...sharedEvidenceView.concepts[0].claims[0],
+    claim_id: `claim:sha256:${"f".repeat(64)}`,
+    text: "Another learning point with the same source page.",
+  });
+  await routes(page, sharedEvidenceView);
   const assessmentRevision = `assessment:sha256:${"3".repeat(64)}`;
   const questionId = `question:sha256:${"4".repeat(64)}`;
   const options = ["LIFO", "FIFO", "RANDOM", "PRIORITY"].map((text, index) => ({ option_id: `option:sha256:${String(index + 1).repeat(64)}`, text }));
@@ -159,6 +195,7 @@ test("StudySession uses source-bound assessment and server feedback", async ({ p
   await page.getByRole("button", { name: "送出答案" }).click();
   await expect(page.getByRole("heading", { name: "答對了" })).toBeVisible();
   await expect(page.locator(".feedback-rationale")).toHaveText("A stack follows LIFO order.");
+  await expect(page.locator(".feedback-evidence button")).toHaveCount(1);
 });
 
 test("mobile fallback keeps canonical Relations and Evidence reachable", async ({ page }) => {

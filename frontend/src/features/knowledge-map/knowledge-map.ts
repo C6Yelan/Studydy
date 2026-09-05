@@ -25,15 +25,6 @@ const sizes = {
   concept: { width: 190, height: 88 },
 };
 
-export function safeExternalUrl(value: string): string | null {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
-  } catch {
-    return null;
-  }
-}
-
 export function documentTreeConnectors(view: KnowledgeStructureView): MapConnector[] {
   const rootId = view.document_tree.material_id;
   return [
@@ -53,7 +44,7 @@ export function documentTreeConnectors(view: KnowledgeStructureView): MapConnect
   ];
 }
 
-export function relationConnectors(view: KnowledgeStructureView): MapConnector[] {
+export function relationConnectors(view: KnowledgeStructureView) {
   return view.relations.map((relation) => ({
     id: relation.relation_id,
     source: relation.source_concept_id,
@@ -63,15 +54,15 @@ export function relationConnectors(view: KnowledgeStructureView): MapConnector[]
   }));
 }
 
-export function hierarchyLayout(view: KnowledgeStructureView): MapNode[] {
+export function hierarchyLayout(view: KnowledgeStructureView, hiddenConceptIds: ReadonlySet<string> = new Set()): MapNode[] {
   const rootId = view.document_tree.material_id;
   const nodes: Array<Pick<MapNode, "id" | "kind">> = [
     { id: rootId, kind: "material" },
-    ...view.document_tree.sections.map((section) => ({
+    ...view.document_tree.sections.filter((section) => section.concept_ids.length > 0).map((section) => ({
       id: section.section_id,
       kind: "section" as const,
     })),
-    ...view.concepts.map((concept) => ({
+    ...view.concepts.filter((concept) => !hiddenConceptIds.has(concept.concept_id)).map((concept) => ({
       id: concept.concept_id,
       kind: "concept" as const,
     })),
@@ -80,8 +71,9 @@ export function hierarchyLayout(view: KnowledgeStructureView): MapNode[] {
   graph.setGraph({ rankdir: "TB", nodesep: 28, ranksep: 64, marginx: 24, marginy: 24 });
   graph.setDefaultEdgeLabel(() => ({}));
   for (const node of nodes) graph.setNode(node.id, { ...sizes[node.kind] });
+  const visible = new Set(nodes.map((node) => node.id));
   for (const connector of documentTreeConnectors(view)) {
-    graph.setEdge(connector.source, connector.target);
+    if (visible.has(connector.source) && visible.has(connector.target)) graph.setEdge(connector.source, connector.target);
   }
   dagre.layout(graph);
   return nodes.map((node) => {

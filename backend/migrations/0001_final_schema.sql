@@ -36,7 +36,7 @@ CREATE TABLE artifacts (
     artifact_id uuid PRIMARY KEY,
     learner_id uuid NOT NULL,
     material_id uuid NOT NULL,
-    kind text NOT NULL CHECK (kind IN ('source_pdf', 'resource_pdf')),
+    kind text NOT NULL CHECK (kind = 'source_pdf'),
     media_type text NOT NULL CHECK (media_type = 'application/pdf'),
     sha256 bytea NOT NULL CHECK (octet_length(sha256) = 32),
     size_bytes bigint NOT NULL CHECK (size_bytes BETWEEN 1 AND 104857600),
@@ -95,7 +95,7 @@ CREATE TABLE knowledge_structures (
     UNIQUE (learner_id, material_id, run_id),
     FOREIGN KEY (learner_id, material_id, run_id)
         REFERENCES material_processing_runs (learner_id, material_id, run_id),
-    CHECK (document ->> 'schema' = 'knowledge-structure/v1'),
+    CHECK (document ->> 'schema' = 'knowledge-structure/v2'),
     CHECK (document ->> 'revision' = structure_revision)
 );
 

@@ -445,6 +445,10 @@ def test_http_api_projects_the_same_closed_loop_without_private_answer(closed_lo
     headers = {"Origin": "https://studydy.test"}
     with TestClient(app, base_url="https://studydy.test") as client:
         client.cookies.set("studydy_session", token)
+        refreshed = client.post("/v1/session/refresh", headers=headers)
+        assert refreshed.status_code == 204
+        cookie = refreshed.headers["set-cookie"]
+        assert "Max-Age=604800" in cookie and "HttpOnly" in cookie and "Secure" in cookie and "SameSite=strict" in cookie
         map_response = client.get(
             f"/v1/materials/{source.material_id}/knowledge-structures/{structure['revision']}"
         )
@@ -542,7 +546,9 @@ def test_http_upload_worker_assessment_and_guidance_are_one_closed_loop(
     ))
     mutation_headers = {"Origin": "https://studydy.test"}
     with TestClient(app, base_url="https://studydy.test") as client:
-        assert client.post("/v1/session", headers=mutation_headers).status_code == 204
+        created_session = client.post("/v1/session", headers=mutation_headers)
+        assert created_session.status_code == 204
+        assert "Max-Age=604800" in created_session.headers["set-cookie"]
         uploaded = client.post(
             "/v1/materials",
             headers={

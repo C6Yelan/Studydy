@@ -7,7 +7,6 @@ import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { AssessmentPanel } from "../assessment/AssessmentPanel";
 import { GuidanceNextStep } from "../adaptive-learning/AdaptiveNextStep";
-import { safeExternalUrl } from "../knowledge-map/knowledge-map";
 import { LearningInsights } from "../learning-state/LearningInsights";
 import "./styles.css";
 
@@ -142,12 +141,6 @@ export function StudySessionPage({ apiClient, route }: {
             <img src="/assets/studydy/learning-guide.png" alt="" />
           </article>
 
-          {current.resources.length > 0 && (
-            <section className="surface study-resources"><h2>補充資源</h2>{current.resources.map((resource) => {
-              const url = safeExternalUrl(resource.source_url);
-              return <article key={resource.resource_id}><div><strong>{resource.title}</strong><p>{resource.citation}</p></div>{url && <a href={url} target="_blank" rel="noreferrer">開啟資源</a>}</article>;
-            })}</section>
-          )}
 
           <GuidanceNextStep progress={data.progress} view={data.view} isApplying={busy} onApply={() => void apply()} />
           <LearningInsights currentConceptId={current.concept_id} progress={data.progress} />

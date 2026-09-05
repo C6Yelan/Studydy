@@ -25,7 +25,6 @@ from knowledge_map.structure import (
     semantic_request,
     semantic_response_schema,
 )
-from learning_resources.resources import load_resource_index
 from runtime.semantic_service import (
     SemanticServiceError,
     material_request_fits,
@@ -105,11 +104,12 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
             or semantic["authentication"] != "environment-bearer:VLLM_API_KEY"
             or set(material) != {
                 "request_schema", "response_schema", "bundle_policy",
-                "max_tokens", "prompt", "retry_attempts", "generation",
+                "max_tokens", "prompt", "retry_attempts", "generation", "max_new_input_tokens",
             }
             or material["request_schema"] != "material-semantics-request/v2"
             or material["response_schema"] != "material-semantics-response/v2"
-            or material["bundle_policy"] != "tokenized-contiguous-evidence/v2"
+            or material["bundle_policy"] != "tokenized-contiguous-evidence/v3"
+            or material["max_new_input_tokens"] != 1536
             or material["max_tokens"] != 4096
             or material["generation"] != {
                 "temperature": 1.0, "top_p": 0.95, "top_k": 20,
@@ -319,7 +319,9 @@ def analyze_material(
                             runtime_lock=lock,
                             task="material_semantics",
                             request=request_document,
-                            response_schema=semantic_response_schema(),
+                            response_schema=semantic_response_schema([
+                                row[0] for section in request_document["sections"] for row in section["evidence"]
+                            ]),
                         )
                         apply_semantic_response(
                             response,
@@ -340,7 +342,7 @@ def analyze_material(
                         last_error = error
                 if last_error is not None:
                     raise MaterialAnalysisError(_reason(last_error)) from None
-                report("semantics", len(page_numbers), len(page_numbers))
+                report("semantics", bundle["evidence"][-1]["page"], len(page_numbers))
         finally:
             if owned_client:
                 http.close()
@@ -359,5 +361,4 @@ def analyze_material(
         ocr_calls=ocr_calls,
         evidence_duration_ms=evidence_duration_ms,
         semantic_duration_ms=semantic_duration_ms,
-        resource_index=load_resource_index(),
     )

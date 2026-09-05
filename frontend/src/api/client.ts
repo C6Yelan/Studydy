@@ -81,7 +81,7 @@ function locator(value: unknown): boolean {
 
 function knowledgeStructure(value: unknown): value is KnowledgeStructureView {
   const item = object(value);
-  if (!item || item.schema !== "knowledge-structure-view/v1" || !revision(item.knowledge_structure_revision, "knowledge-structure")) return false;
+  if (!item || item.schema !== "knowledge-structure-view/v2" || !revision(item.knowledge_structure_revision, "knowledge-structure")) return false;
   if (!Array.isArray(item.concepts) || !Array.isArray(item.relations) || !Array.isArray(item.initial_learning_path)) return false;
   const concepts = item.concepts as unknown[];
   const conceptIds: string[] = [];
