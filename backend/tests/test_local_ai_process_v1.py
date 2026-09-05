@@ -24,6 +24,24 @@ def test_timeout_aborts_only_owned_ocr_child():
     child.close()
 
 
+def test_close_waits_without_deadline_after_stdin_eof(monkeypatch):
+    child = LocalAIProcess(
+        [sys.executable, "-c", "import sys; sys.stdin.buffer.read()"],
+        request_limit=100,
+        response_limit=100,
+    )
+    wait = child._process.wait
+
+    def wait_after_eof(timeout=None):
+        assert child._process.stdin.closed
+        assert timeout is None
+        return wait()
+
+    monkeypatch.setattr(child._process, "wait", wait_after_eof)
+    child.close()
+    assert child._process.returncode == 0
+
+
 def test_child_failure_and_limits_do_not_expose_stderr():
     child = LocalAIProcess([sys.executable, "-c", "raise SystemExit(7)"], request_limit=10, response_limit=10)
     with pytest.raises(LocalAIError, match="CHILD_EXITED"):

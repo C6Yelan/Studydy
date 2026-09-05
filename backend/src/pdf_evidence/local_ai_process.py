@@ -143,12 +143,7 @@ class LocalAIProcess:
         try:
             if self._process.stdin is not None and not self._process.stdin.closed:
                 self._process.stdin.close()
-            try:
-                return_code = self._process.wait(timeout=30)
-            except subprocess.TimeoutExpired as error:
-                self._process.kill()
-                self._process.wait()
-                raise LocalAIError("CHILD_TIMEOUT") from error
+            return_code = self._process.wait()
             if return_code != 0:
                 raise LocalAIError("CHILD_EXITED")
             assert self._process.stdout is not None

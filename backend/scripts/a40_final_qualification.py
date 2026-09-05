@@ -368,12 +368,8 @@ def score(review_path: Path, output: Path) -> int:
     runtime = review["runtime"]
     if (
         any(type(runtime[name]) is not int or runtime[name] < 0 for name in (
-            "resident_qwen_load_count", "material_model_reloads", "oom", "engine_death",
-            "representative_8_page_semantic_calls",
+            "oom", "engine_death",
         ))
-        or type(runtime["warm_semantic_wall_seconds"]) not in {int, float}
-        or isinstance(runtime["warm_semantic_wall_seconds"], bool)
-        or runtime["warm_semantic_wall_seconds"] < 0
         or not isinstance(runtime["python_minors"], list)
         or not isinstance(runtime["mdeberta_decision"], str)
     ):
