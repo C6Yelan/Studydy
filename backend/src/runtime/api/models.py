@@ -1,715 +1,285 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from datetime import datetime
-import math
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-from learning_adaptation.learner_progress import (
-    GuidanceAction,
-    LearnerProgressSnapshot,
-)
-from learning_adaptation.answer_events import AnswerFeedback
-from learning_adaptation.assessment_items import StoredAssessment
-from learning_adaptation.study_sessions import StoredStudySession
-
-from ..material_processing import MaterialProcessingRun
+from pydantic import BaseModel, ConfigDict, Field
 
 
-ApiReasonCode = Literal[
-    "REQUEST_INVALID",
-    "SESSION_REQUIRED",
-    "ORIGIN_NOT_ALLOWED",
-    "RESOURCE_NOT_FOUND",
-    "IDEMPOTENCY_CONFLICT",
-    "NO_SAFE_ASSESSMENT",
-    "MATERIAL_TOO_LARGE",
-    "MATERIAL_PDF_INVALID",
-    "UNSUPPORTED_MEDIA_TYPE",
-    "STORAGE_UNAVAILABLE",
-    "INTERNAL_ERROR",
-]
+class _Closed(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
-class _ClosedModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+class ApiErrorView(_Closed):
+    schema_: Literal["api-error/v1"] = Field(alias="schema")
+    request_id: UUID
+    reason_code: str
+    retryable: bool
+    message: Literal["Request could not be completed."]
 
 
-class MaterialView(_ClosedModel):
+class MaterialView(_Closed):
     schema_: Literal["material/v1"] = Field(alias="schema")
     material_id: UUID
     source_artifact_id: UUID
-    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    size_bytes: int = Field(gt=0, le=104_857_600)
+    source_sha256: str
+    size_bytes: int
 
 
-class MaterialProcessingCreate(_ClosedModel):
-    schema_: Literal["material-processing-create/v2"] = Field(alias="schema")
-    material_id: UUID = Field(strict=False)
-    source_artifact_id: UUID = Field(strict=False)
+class MaterialProcessingCreate(_Closed):
+    schema_: Literal["material-processing-create/v1"] = Field(alias="schema")
+    material_id: UUID
+    source_artifact_id: UUID
 
 
-class MaterialOutputBinding(_ClosedModel):
-    schema_: Literal["material-run-output-binding/v3"] = Field(alias="schema")
-    producer_bundle_id: str = Field(
-        pattern=r"^text-first-producer-bundle:sha256:[0-9a-f]{64}$"
-    )
-    producer_run_id: str = Field(
-        pattern=r"^text-first-run:[0-9a-fA-F-]{36}$"
-    )
-    concept_evidence_output_id: str = Field(
-        pattern=r"^concept-evidence-output:sha256:[0-9a-f]{64}$"
-    )
-    study_material_output_revision: str = Field(
-        pattern=r"^study-material-output:sha256:[0-9a-f]{64}$"
-    )
-    knowledge_map_revision: str = Field(
-        pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
-    )
-    runtime_binding_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    page_count: int = Field(ge=1)
+class MaterialOutputBindingView(_Closed):
+    schema_: Literal["material-run-output-binding/v4"] = Field(alias="schema")
+    knowledge_structure_revision: str
+    runtime_lock_sha256: str
+    page_count: int
     processing: Literal["succeeded", "partial"]
-    quality: Literal["needs_review"]
-    decision: Literal["review"]
-    reason_codes: list[str] = Field(min_length=1, max_length=64)
-    ocr_calls: int = Field(ge=0)
-    concept_calls: int = Field(ge=0)
-
-    @model_validator(mode="after")
-    def validate_counts(self) -> "MaterialOutputBinding":
-        if (
-            len(self.reason_codes) != len(set(self.reason_codes))
-            or self.reason_codes != sorted(self.reason_codes)
-            or self.ocr_calls > self.page_count
-        ):
-            raise ValueError("MATERIAL_OUTPUT_BINDING_INVALID")
-        return self
+    quality: Literal["accepted", "needs_review"]
+    decision: Literal["retain", "review"]
+    reason_codes: list[str]
+    ocr_calls: int
+    semantic_calls: int
 
 
-class MaterialProcessingRunView(_ClosedModel):
-    schema_: Literal["material-processing-run/v3"] = Field(alias="schema")
+class MaterialProcessingRunView(_Closed):
+    schema_: Literal["material-processing-run/v4"] = Field(alias="schema")
     run_id: UUID
     material_id: UUID
     source_artifact_id: UUID
     status: Literal["pending", "running", "succeeded", "partial", "failed"]
-    progress_stage: Literal[
-        "queued",
-        "page_evidence",
-        "concept_generation",
-        "knowledge_map_generation",
-        "publishing",
-        "completed",
-    ]
-    completed_pages: int = Field(ge=0)
-    total_pages: int | None = Field(default=None, ge=1)
-    output_binding: MaterialOutputBinding | None
-    error_code: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{0,99}$")
+    progress_stage: Literal["queued", "evidence", "semantics", "publishing", "completed"]
+    completed_pages: int
+    total_pages: int | None
+    output_binding: MaterialOutputBindingView | None
+    error_code: str | None
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
 
-    @model_validator(mode="after")
-    def validate_status_shape(self) -> "MaterialProcessingRunView":
-        if self.progress_stage == "queued":
-            if self.completed_pages != 0 or self.total_pages is not None:
-                raise ValueError("MATERIAL_RUN_VIEW_INVALID")
-        elif (
-            self.total_pages is None
-            or self.completed_pages > self.total_pages
-            or (
-                self.progress_stage
-                in {"knowledge_map_generation", "publishing"}
-                and self.completed_pages != self.total_pages
-            )
-        ):
-            raise ValueError("MATERIAL_RUN_VIEW_INVALID")
-        if self.status in {"succeeded", "partial"}:
-            if (
-                self.output_binding is None
-                or self.output_binding.processing != self.status
-                or self.error_code is not None
-                or self.completed_at is None
-                or self.progress_stage != "completed"
-                or self.completed_pages != self.output_binding.page_count
-                or self.total_pages != self.output_binding.page_count
-            ):
-                raise ValueError("MATERIAL_RUN_VIEW_INVALID")
-        elif self.status == "failed":
-            if (
-                self.output_binding is not None
-                or self.error_code is None
-                or self.completed_at is None
-                or self.progress_stage == "completed"
-            ):
-                raise ValueError("MATERIAL_RUN_VIEW_INVALID")
-        elif (
-            self.output_binding is not None
-            or self.error_code is not None
-            or self.completed_at is not None
-            or self.progress_stage == "completed"
-            or (self.status == "pending" and self.progress_stage != "queued")
-        ):
-            raise ValueError("MATERIAL_RUN_VIEW_INVALID")
-        return self
+
+class SourceLocatorView(_Closed):
+    page: int
+    block_id: str
+    region: list[float] = Field(min_length=4, max_length=4)
 
 
-class RegionView(_ClosedModel):
-    coordinate_space: Literal["unrotated_pdf_points"]
-    bbox: list[float] = Field(min_length=4, max_length=4)
-
-    @model_validator(mode="after")
-    def validate_box(self) -> "RegionView":
-        if not all(math.isfinite(value) for value in self.bbox):
-            raise ValueError("REGION_INVALID")
-        if self.bbox[0] >= self.bbox[2] or self.bbox[1] >= self.bbox[3]:
-            raise ValueError("REGION_INVALID")
-        return self
+class EvidenceView(_Closed):
+    evidence_id: str
+    page_ref: str
+    page: int
+    block_order: int
+    kind: str
+    source: Literal["native_text", "unlimited_ocr"]
+    source_locator: SourceLocatorView
+    quote: str
 
 
-class EvidenceView(_ClosedModel):
-    evidence_id: str = Field(pattern=r"^evidence:sha256:[0-9a-f]{64}$")
-    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
-    page_number: int = Field(ge=1)
-    kind: str = Field(min_length=1, max_length=64)
-    region: RegionView
+class ClaimView(_Closed):
+    claim_id: str
+    text: str
+    evidence: list[EvidenceView]
 
 
-class FormalClaimView(_ClosedModel):
-    claim_id: str = Field(pattern=r"^claim:sha256:[0-9a-f]{64}$")
-    text: str = Field(min_length=1)
-    evidence: list[EvidenceView] = Field(min_length=1)
+class ResourceView(_Closed):
+    resource_id: str
+    title: str
+    authors: list[str]
+    citation: str
+    license: str
+    license_url: str
+    source_url: str
+    pages: list[int]
 
 
-class SupplementaryResourceView(_ClosedModel):
-    promotion_id: str = Field(pattern=r"^resource-promotion:sha256:[0-9a-f]{64}$")
-    resource_concept_id: str = Field(pattern=r"^resource-concept:sha256:[0-9a-f]{64}$")
-    resource_id: str = Field(pattern=r"^resource:sha256:[0-9a-f]{64}$")
-    label: str = Field(min_length=1)
-    title: str = Field(min_length=1)
-    authors: list[str] = Field(min_length=1)
-    source_url: str = Field(min_length=1)
-    citation: str = Field(min_length=1)
-    license: str = Field(min_length=1)
-    license_url: str = Field(min_length=1)
-    use_boundary: str = Field(min_length=1)
-    page_numbers: list[int] = Field(min_length=1)
-    resource_evidence_ids: list[str] = Field(min_length=1)
-    match_ids: list[str] = Field(min_length=1)
-    study_concept_ids: list[str] = Field(min_length=1)
-    match_reason: Literal["EXACT_NORMALIZED_LABEL"]
-
-    @model_validator(mode="after")
-    def validate_resource_provenance(self) -> "SupplementaryResourceView":
-        if (
-            self.page_numbers != sorted(set(self.page_numbers))
-            or any(page < 1 for page in self.page_numbers)
-            or self.resource_evidence_ids != sorted(set(self.resource_evidence_ids))
-            or self.match_ids != sorted(set(self.match_ids))
-            or self.study_concept_ids != sorted(set(self.study_concept_ids))
-            or any(not value for value in self.authors)
-        ):
-            raise ValueError("SUPPLEMENTARY_RESOURCE_INVALID")
-        return self
-
-
-class FormalConceptView(_ClosedModel):
-    formal_concept_id: str = Field(pattern=r"^formal-concept:sha256:[0-9a-f]{64}$")
-    label: str = Field(min_length=1)
+class ConceptView(_Closed):
+    concept_id: str
+    label: str
     aliases: list[str]
-    claims: list[FormalClaimView] = Field(min_length=1)
-    source_concept_ids: list[str] = Field(min_length=1)
-    source_page_numbers: list[int] = Field(min_length=1)
-    supplementary_resources: list[SupplementaryResourceView]
-    quality: Literal["needs_review"]
-    decision: Literal["review"]
-    reason_codes: list[str] = Field(min_length=1, max_length=64)
-
-    @model_validator(mode="after")
-    def validate_lineage(self) -> "FormalConceptView":
-        if (
-            self.aliases != sorted(set(self.aliases))
-            or self.label in self.aliases
-            or self.source_concept_ids != sorted(set(self.source_concept_ids))
-            or self.source_page_numbers != sorted(set(self.source_page_numbers))
-        ):
-            raise ValueError("FORMAL_CONCEPT_VIEW_INVALID")
-        return self
-
-
-class ConceptDiagnosticsView(_ClosedModel):
-    possible_pairs: int = Field(ge=0)
-    candidate_pairs: int = Field(ge=0)
-    selected_pairs: int = Field(ge=0)
-    pair_ceiling: int = Field(ge=0)
-    qwen_same_pairs: int = Field(ge=0)
-    qwen_distinct_pairs: int = Field(ge=0)
-    qwen_uncertain_pairs: int = Field(ge=0)
-    verifier_requested_pairs: int = Field(ge=0)
-    verifier_scored_pairs: int = Field(ge=0)
-    verifier_allowed_pairs: int = Field(ge=0)
-    verifier_vetoed_pairs: int = Field(ge=0)
-    verifier_unsupported_pairs: int = Field(ge=0)
-    verifier_failed_pairs: int = Field(ge=0)
-    source_concepts_before: int = Field(ge=0)
-    canonical_concepts_after: int = Field(ge=0)
-    duplicate_delta: int = Field(ge=0)
-    coverage_before: int = Field(ge=0)
-    coverage_after: int = Field(ge=0)
-
-    @model_validator(mode="after")
-    def validate_counts(self) -> "ConceptDiagnosticsView":
-        if (
-            self.selected_pairs > self.candidate_pairs
-            or self.candidate_pairs > self.possible_pairs
-            or self.selected_pairs
-            != self.qwen_same_pairs
-            + self.qwen_distinct_pairs
-            + self.qwen_uncertain_pairs
-            or self.verifier_requested_pairs != self.qwen_same_pairs
-            or self.verifier_requested_pairs
-            != self.verifier_scored_pairs
-            + self.verifier_unsupported_pairs
-            + self.verifier_failed_pairs
-            or self.verifier_scored_pairs
-            != self.verifier_allowed_pairs + self.verifier_vetoed_pairs
-            or self.duplicate_delta
-            != self.source_concepts_before - self.canonical_concepts_after
-            or self.coverage_before != self.coverage_after
-        ):
-            raise ValueError("CONCEPT_DIAGNOSTICS_INVALID")
-        return self
-
-
-class ResourceBindingView(_ClosedModel):
-    context_revision: str = Field(pattern=r"^map-resource-context:sha256:[0-9a-f]{64}$")
-    library_revision: str = Field(pattern=r"^resource-library:sha256:[0-9a-f]{64}$")
-    matching_policy: Literal["resource-context-exact-distinct-source/v3"]
-    promotion_policy: Literal["resource-formal-concept-promotion/v1"]
-
-
-class ResourceDiagnosticsView(_ClosedModel):
-    matches: int = Field(ge=0)
-    promoted_matches: int = Field(ge=0)
-    promoted_resources: int = Field(ge=0)
-
-    @model_validator(mode="after")
-    def validate_counts(self) -> "ResourceDiagnosticsView":
-        if (
-            self.matches != self.promoted_matches
-            or self.promoted_resources > self.promoted_matches
-        ):
-            raise ValueError("RESOURCE_DIAGNOSTICS_INVALID")
-        return self
-
-
-class ExcludedPageView(_ClosedModel):
-    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
-    page_number: int = Field(ge=1)
-    page_evidence_id: str | None
-    last_stage: Literal["page_evidence", "concept"]
-    processing: Literal["failed"]
-    quality: Literal["needs_review"]
-    decision: Literal["reject"]
-    reason_codes: list[str] = Field(min_length=1, max_length=64)
-
-
-class ArtifactStatusView(_ClosedModel):
-    processing: Literal["succeeded", "partial", "failed"]
-    quality: Literal["needs_review"]
-    decision: Literal["review", "reject"]
-    reason_codes: list[str] = Field(min_length=1, max_length=64)
-
-
-class DocumentTreeSourceView(_ClosedModel):
-    evidence_id: str = Field(pattern=r"^evidence:sha256:[0-9a-f]{64}$")
-    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
-    page_number: int = Field(ge=1)
-    reading_order: int = Field(ge=0)
-
-
-class DocumentTreeSectionView(_ClosedModel):
-    section_id: str = Field(
-        pattern=r"^document-section:sha256:[0-9a-f]{64}$"
-    )
-    label: str = Field(min_length=1, max_length=120)
-    label_source: Literal["heading", "unheaded_fallback"]
-    heading_evidence_id: str | None = Field(
-        pattern=r"^evidence:sha256:[0-9a-f]{64}$"
-    )
-    source_order: DocumentTreeSourceView
-    concept_ids: list[str] = Field(min_length=1)
-
-
-class DocumentTreeRootView(_ClosedModel):
-    material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
+    claims: list[ClaimView]
     section_ids: list[str]
+    source_pages: list[int]
+    resources: list[ResourceView]
 
 
-class DocumentTreeView(_ClosedModel):
-    root: DocumentTreeRootView
-    sections: list[DocumentTreeSectionView]
+class RelationView(_Closed):
+    relation_id: str
+    source_concept_id: str
+    target_concept_id: str
+    type: Literal["prerequisite", "part_of", "application", "example", "contrast"]
+    learner_reason: str
+    evidence_refs: list[str]
+    context_refs: list[str]
+    inference_basis: Literal["dependency", "composition", "usage", "instantiation", "comparison"]
+    confidence: float
 
 
-class LearningPathOrderBasisView(_ClosedModel):
-    section_id: str = Field(pattern=r"^document-section:sha256:[0-9a-f]{64}$")
-    page_ref: str = Field(pattern=r"^page:sha256:[0-9a-f]{64}$")
-    page_number: int = Field(ge=1)
-    reading_order: int = Field(ge=0)
-    evidence_id: str = Field(pattern=r"^evidence:sha256:[0-9a-f]{64}$")
+class SectionView(_Closed):
+    section_id: str
+    title: str
+    order: int
+    heading_evidence_id: str | None
+    concept_ids: list[str]
 
 
-class SupplementaryResourcesView(_ClosedModel):
-    processing: Literal["succeeded", "partial"]
-    quality: Literal["needs_review"]
-    decision: Literal["review"]
-    reason_codes: list[str] = Field(max_length=64)
-    binding: ResourceBindingView | None
-    diagnostics: ResourceDiagnosticsView
+class DocumentTreeView(_Closed):
+    material_id: str
+    sections: list[SectionView]
 
 
-class InitialLearningPathStepView(_ClosedModel):
-    step_number: int = Field(ge=1)
-    formal_concept_id: str = Field(
-        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$"
-    )
-    placement_reason: str = Field(min_length=1)
-    order_basis: LearningPathOrderBasisView
+class LearningPathStepView(_Closed):
+    position: int
+    concept_id: str
+    reason: Literal["document_order", "prerequisite"]
 
 
-class KnowledgeMapView(_ClosedModel):
-    schema_: Literal["knowledge-map-view/v11"] = Field(alias="schema")
-    material_ref: str = Field(pattern=r"^material:sha256:[0-9a-f]{64}$")
-    knowledge_map_revision: str = Field(
-        pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
-    )
-    source_output_id: str = Field(
-        pattern=r"^study-material-output:sha256:[0-9a-f]{64}$"
-    )
-    status: ArtifactStatusView
-    concepts: list[FormalConceptView]
-    concept_diagnostics: ConceptDiagnosticsView
+class StatusView(_Closed):
+    processing: Literal["succeeded", "partial", "failed"]
+    quality: Literal["accepted", "needs_review"]
+    decision: Literal["retain", "review", "reject"]
+    reason_codes: list[str]
+
+
+class ExcludedPageView(_Closed):
+    page_ref: str
+    page: int
+    stage: Literal["evidence"]
+    reason_code: str
+
+
+class KnowledgeStructureView(_Closed):
+    schema_: Literal["knowledge-structure-view/v1"] = Field(alias="schema")
+    material_id: str
+    knowledge_structure_revision: str
+    status: StatusView
     document_tree: DocumentTreeView
-    initial_learning_path: list[InitialLearningPathStepView]
-    supplementary_resources: SupplementaryResourcesView
+    concepts: list[ConceptView]
+    relations: list[RelationView]
+    initial_learning_path: list[LearningPathStepView]
     excluded_pages: list[ExcludedPageView]
 
-    @model_validator(mode="after")
-    def validate_same_page_links(self) -> "KnowledgeMapView":
-        concept_ids = {concept.formal_concept_id for concept in self.concepts}
-        reason_lists = [
-            self.status.reason_codes,
-            *(concept.reason_codes for concept in self.concepts),
-            *(page.reason_codes for page in self.excluded_pages),
-            self.supplementary_resources.reason_codes,
-        ]
-        if any(reasons != sorted(set(reasons)) for reasons in reason_lists):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if len(concept_ids) != len(self.concepts):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        path_ids = [step.formal_concept_id for step in self.initial_learning_path]
-        if set(path_ids) != concept_ids or len(path_ids) != len(concept_ids):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if [step.step_number for step in self.initial_learning_path] != list(
-            range(1, len(path_ids) + 1)
-        ):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        tree_ids = [
-            concept_id for section in self.document_tree.sections
-            for concept_id in section.concept_ids
-        ]
-        if (
-            self.document_tree.root.material_ref != self.material_ref
-            or self.document_tree.root.section_ids
-            != [section.section_id for section in self.document_tree.sections]
-            or set(tree_ids) != concept_ids
-            or len(tree_ids) != len(concept_ids)
-            or any(
-                step.order_basis.section_id
-                != next(
-                    section.section_id for section in self.document_tree.sections
-                    if step.formal_concept_id in section.concept_ids
-                )
-                for step in self.initial_learning_path
-            )
-        ):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        concepts_by_id = {
-            concept.formal_concept_id: concept for concept in self.concepts
-        }
-        for step in self.initial_learning_path:
-            evidence = next(
-                (
-                    evidence
-                    for claim in concepts_by_id[step.formal_concept_id].claims
-                    for evidence in claim.evidence
-                    if evidence.evidence_id == step.order_basis.evidence_id
-                ),
-                None,
-            )
-            if (
-                evidence is None
-                or evidence.page_ref != step.order_basis.page_ref
-                or evidence.page_number != step.order_basis.page_number
-            ):
-                raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if any(
-            evidence.page_number not in concept.source_page_numbers
-            for concept in self.concepts
-            for claim in concept.claims
-            for evidence in claim.evidence
-        ):
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        if self.excluded_pages and self.status.processing != "partial":
-            raise ValueError("KNOWLEDGE_MAP_VIEW_INVALID")
-        return self
 
-class StudySessionCreate(_ClosedModel):
-    schema_: Literal["study-session-create/v1"] = Field(alias="schema")
-    material_id: UUID = Field(strict=False)
-    knowledge_map_revision: str = Field(
-        pattern=r"^knowledge-map:sha256:[0-9a-f]{64}$"
-    )
-    current_formal_concept_id: str | None = Field(
-        default=None,
-        pattern=r"^formal-concept:sha256:[0-9a-f]{64}$",
-    )
+class StudySessionCreate(_Closed):
+    schema_: Literal["study-session-create/v2"] = Field(alias="schema")
+    material_id: UUID
+    knowledge_structure_revision: str
+    current_concept_id: str | None = None
 
 
-class StudySessionView(_ClosedModel):
-    schema_: Literal["study-session/v1"] = Field(alias="schema")
+class StudySessionView(_Closed):
+    schema_: Literal["study-session/v2"] = Field(alias="schema")
     study_session_id: UUID
     material_id: UUID
-    knowledge_map_revision: str
-    current_formal_concept_id: str | None
-    no_safe_deferred_formal_concept_ids: list[str]
-    status: Literal["active", "completed", "no_safe"]
+    knowledge_structure_revision: str
+    current_concept_id: str | None
+    deferred_concept_ids: list[str]
+    status: Literal["active", "no_safe", "completed"]
     started_at: datetime
     completed_at: datetime | None
-    event_watermark: int = Field(ge=0)
+    event_watermark: int
 
 
-class AssessmentCreate(_ClosedModel):
-    schema_: Literal["assessment-create/v1"] = Field(alias="schema")
-    target_claim_id: str = Field(pattern=r"^claim:sha256:[0-9a-f]{64}$")
-
-
-class AssessmentOptionView(_ClosedModel):
-    option_id: str
-    text: str = Field(min_length=1)
-
-
-class AssessmentView(_ClosedModel):
-    schema_: Literal["single-choice-assessment-public/v1"] = Field(alias="schema")
-    study_session_id: UUID
-    knowledge_map_revision: str
-    assessment_revision: str
-    question_id: str
-    target_formal_concept_id: str
+class AssessmentCreate(_Closed):
+    schema_: Literal["assessment-create/v2"] = Field(alias="schema")
     target_claim_id: str
-    source_evidence_ids: list[str] = Field(min_length=1)
+
+
+class AssessmentOptionView(_Closed):
+    option_id: str
+    text: str
+
+
+class AssessmentView(_Closed):
+    schema_: Literal["single-choice-assessment/v2"] = Field(alias="schema")
+    assessment_revision: str
+    study_session_id: UUID
+    knowledge_structure_revision: str
+    question_id: str
+    target_concept_id: str
+    target_claim_id: str
+    source_evidence_ids: list[str]
     question_type: Literal["single_choice"]
-    prompt: str = Field(min_length=1)
-    options: list[AssessmentOptionView] = Field(min_length=4, max_length=4)
-    policy_revision: Literal["single-choice-assessment-policy/v1"]
+    prompt: str
+    options: list[AssessmentOptionView]
 
 
-class AnswerSubmissionCreate(_ClosedModel):
-    schema_: Literal["answer-submission-create/v1"] = Field(alias="schema")
-    question_id: str = Field(pattern=r"^question:sha256:[0-9a-f]{64}$")
-    selected_option_id: str = Field(pattern=r"^option:sha256:[0-9a-f]{64}$")
+class AnswerSubmissionCreate(_Closed):
+    schema_: Literal["answer-submission-create/v2"] = Field(alias="schema")
+    question_id: str
+    selected_option_id: str
 
 
-class AnswerFeedbackView(_ClosedModel):
-    schema_: Literal["answer-feedback/v1"] = Field(alias="schema")
+class AnswerFeedbackView(_Closed):
+    schema_: Literal["answer-feedback/v2"] = Field(alias="schema")
     answer_event_id: UUID
     study_session_id: UUID
     assessment_revision: str
     question_id: str
     selected_option_id: str
     is_correct: bool
-    rationale: str = Field(min_length=1)
-    source_evidence_ids: list[str] = Field(min_length=1)
-    event_number: int = Field(ge=1)
+    rationale: str
+    source_evidence_ids: list[str]
+    event_number: int
     created_at: datetime
 
 
-class ConceptLearningStateView(_ClosedModel):
-    formal_concept_id: str
-    status: Literal["not_started", "learning", "needs_review", "mastered"]
-    mastery_band: Literal["no_evidence", "developing", "demonstrated"]
-    confidence: Literal["none", "limited", "supported"]
-    needs_more_data: bool
-    required_claim_ids: list[str]
-    attempted_claim_ids: list[str]
-    latest_correct_claim_ids: list[str]
-    claim_coverage_complete: bool
-    required_evidence_ids: list[str]
-    observed_evidence_ids: list[str]
-    evidence_coverage_complete: bool
-    valid_attempts: int = Field(ge=0)
-    correct_attempts: int = Field(ge=0)
-    qualified_distinct_correct_items: int = Field(ge=0)
-    recent_result: Literal["correct", "incorrect"] | None
-    repeated_error: bool
-    post_error_improvement: bool
-    explanation: str = Field(min_length=1)
+class GuidanceApply(_Closed):
+    schema_: Literal["guidance-apply/v2"] = Field(alias="schema")
+    guidance_revision: str
 
 
-class WeaknessFindingView(_ClosedModel):
-    target_formal_concept_id: str
-    target_label: str
-    category: Literal["observed_weak", "needs_review", "not_enough_data"]
-    confidence: Literal["none", "limited", "supported"]
-    claim_coverage_complete: bool
-    remediation_intent: Literal["practice", "review", "collect_more_data"]
-    reason: str
-
-
-class GuidanceRouteView(_ClosedModel):
+class LearnerProgressView(_Closed):
+    schema_: Literal["learner-progress/v2"] = Field(alias="schema")
     study_session_id: UUID
-    formal_concept_id: str | None
-    resource_promotion_id: str | None
+    knowledge_structure_revision: str
+    event_watermark: int
+    current_concept_id: str | None
+    deferred_concept_ids: list[str]
+    concept_states: list[dict[str, Any]]
+    weaknesses: list[dict[str, Any]]
+    next_action: dict[str, Any]
+    guidance_revision: str
 
 
-class NextActionView(_ClosedModel):
-    action: GuidanceAction
-    target_formal_concept_id: str | None
-    target_label: str | None
-    reason: str
-    confidence: Literal["none", "limited", "supported"]
-    claim_coverage_complete: bool
-    route: GuidanceRouteView
+def project_material_run(run: Any) -> MaterialProcessingRunView:
+    return MaterialProcessingRunView.model_validate({
+        "schema": "material-processing-run/v4",
+        **{name: getattr(run, name) for name in (
+            "run_id", "material_id", "source_artifact_id", "status", "progress_stage",
+            "completed_pages", "total_pages", "output_binding", "error_code",
+            "created_at", "updated_at", "completed_at",
+        )},
+    })
 
 
-class LearnerProgressView(_ClosedModel):
-    schema_: Literal["learner-progress/v1"] = Field(alias="schema")
-    study_session_id: UUID
-    material_id: UUID
-    base_knowledge_map_revision: str
-    inline_initial_learning_path_sha256: str
-    event_watermark: int = Field(ge=0)
-    status: Literal["active", "completed", "no_safe"]
-    current_formal_concept_id: str | None
-    no_safe_deferred_formal_concept_ids: list[str]
-    concept_states: list[ConceptLearningStateView] = Field(min_length=1)
-    weakness_findings: list[WeaknessFindingView]
-    next_action: NextActionView
-    guidance_revision: str = Field(
-        pattern=r"^learner-guidance:sha256:[0-9a-f]{64}$"
-    )
+def project_study_session(session: Any) -> StudySessionView:
+    return StudySessionView.model_validate({
+        "schema": "study-session/v2",
+        "study_session_id": session.study_session_id,
+        "material_id": session.material_id,
+        "knowledge_structure_revision": session.knowledge_structure_revision,
+        "current_concept_id": session.current_concept_id,
+        "deferred_concept_ids": list(session.deferred_concept_ids),
+        "status": session.status,
+        "started_at": session.started_at,
+        "completed_at": session.completed_at,
+        "event_watermark": session.last_event_number,
+    })
 
 
-class GuidanceApply(_ClosedModel):
-    schema_: Literal["guidance-apply/v1"] = Field(alias="schema")
-    guidance_revision: str = Field(
-        pattern=r"^learner-guidance:sha256:[0-9a-f]{64}$"
-    )
+def project_assessment(assessment: Any) -> AssessmentView:
+    return AssessmentView.model_validate(assessment.public_document)
 
 
-class ApiErrorView(_ClosedModel):
-    schema_: Literal["api-error/v1"] = Field(alias="schema")
-    request_id: UUID
-    reason_code: ApiReasonCode
-    retryable: bool
-    message: Literal["Request could not be completed."]
+def project_answer_feedback(feedback: Any) -> AnswerFeedbackView:
+    return AnswerFeedbackView.model_validate(feedback.model_dump(by_alias=True))
 
 
-def project_material_run(run: MaterialProcessingRun) -> MaterialProcessingRunView:
-    """移除 learner 與 internal runtime binding。"""
-
-    return MaterialProcessingRunView.model_validate(
-        {
-            "schema": "material-processing-run/v3",
-            "run_id": run.run_id,
-            "material_id": run.material_id,
-            "source_artifact_id": run.source_artifact_id,
-            "status": run.status,
-            "progress_stage": run.progress_stage,
-            "completed_pages": run.completed_pages,
-            "total_pages": run.total_pages,
-            "output_binding": deepcopy(run.output_binding),
-            "error_code": run.error_code,
-            "created_at": run.created_at,
-            "updated_at": run.updated_at,
-            "completed_at": run.completed_at,
-        }
-    )
-
-
-def project_study_session(session: StoredStudySession) -> StudySessionView:
-    return StudySessionView.model_validate(
-        {
-            "schema": "study-session/v1",
-            "study_session_id": session.study_session_id,
-            "material_id": session.material_id,
-            "knowledge_map_revision": session.knowledge_map_revision,
-            "current_formal_concept_id": session.current_formal_concept_id,
-            "no_safe_deferred_formal_concept_ids": list(
-                session.no_safe_deferred_formal_concept_ids
-            ),
-            "status": session.status,
-            "started_at": session.started_at,
-            "completed_at": session.completed_at,
-            "event_watermark": session.last_event_number,
-        }
-    )
-
-
-def project_assessment(assessment: StoredAssessment) -> AssessmentView:
-    public = assessment.public_document.model_dump(mode="python", by_alias=True)
-    public["study_session_id"] = assessment.study_session_id
-    return AssessmentView.model_validate(public)
-
-
-def project_answer_feedback(feedback: AnswerFeedback) -> AnswerFeedbackView:
-    return AnswerFeedbackView.model_validate(
-        feedback.model_dump(mode="python", by_alias=True)
-    )
-
-
-def project_learner_progress(
-    progress: LearnerProgressSnapshot,
-) -> LearnerProgressView:
-    """移除 private event refs，只投影同一 watermark 的 progress/guidance。"""
-
-    return LearnerProgressView.model_validate(
-        {
-            "schema": "learner-progress/v1",
-            "study_session_id": progress.study_session_id,
-            "material_id": progress.material_id,
-            "base_knowledge_map_revision": progress.base_knowledge_map_revision,
-            "inline_initial_learning_path_sha256": (
-                progress.inline_initial_learning_path_sha256
-            ),
-            "event_watermark": progress.event_watermark,
-            "status": progress.status,
-            "current_formal_concept_id": progress.current_formal_concept_id,
-            "no_safe_deferred_formal_concept_ids": (
-                progress.no_safe_deferred_formal_concept_ids
-            ),
-            "concept_states": [
-                state.model_dump(
-                    mode="python",
-                    exclude={
-                        "source_answer_event_ids",
-                        "source_event_numbers",
-                        "reason_code",
-                    },
-                )
-                for state in progress.concept_states
-            ],
-            "weakness_findings": [
-                finding.model_dump(
-                    mode="python", exclude={"supporting_answer_event_ids"}
-                )
-                for finding in progress.weakness_findings
-            ],
-            "next_action": progress.next_action.model_dump(
-                mode="python", exclude={"supporting_formal_concept_ids"}
-            ),
-            "guidance_revision": progress.guidance_revision,
-        }
-    )
+def project_learner_progress(progress: Any) -> LearnerProgressView:
+    document = progress.model_dump()
+    document["schema"] = document.pop("schema_")
+    return LearnerProgressView.model_validate(document)

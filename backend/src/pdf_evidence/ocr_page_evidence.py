@@ -10,9 +10,9 @@ import unicodedata
 import pymupdf
 
 
-PAGE_SCHEMA = "page-evidence/v3"
-NATIVE_SCHEMA = "page-native/v2"
-PROCESSING_POLICY = "native-first-page-evidence/v2"
+PAGE_SCHEMA = "page-evidence/v4"
+NATIVE_SCHEMA = "page-native/v3"
+PROCESSING_POLICY = "native-first-page-evidence/v3"
 NORMALIZER_POLICY = "ocr-text-nfc-line-preserving/v1"
 RENDER_DPI = 200
 PDF_POINTS_PER_INCH = 72
@@ -104,12 +104,10 @@ def extract_page(
     material_id = f"material:sha256:{source_sha256}"
     material_revision = _ref("material-revision", {"source_sha256": source_sha256})
     page_ref = _ref("page", {"source_sha256": source_sha256, "page_number": page_number})
-    section_id = _ref("section", {"page_ref": page_ref})
     native_evidence = {
         "schema": NATIVE_SCHEMA,
         "material_id": material_id,
         "material_revision": material_revision,
-        "section_id": section_id,
         "page_ref": page_ref,
         "page_number": page_number,
         "raw_text": raw_text,
@@ -119,7 +117,6 @@ def extract_page(
     return {
         "material_id": material_id,
         "material_revision": material_revision,
-        "section_id": section_id,
         "page_ref": page_ref,
         "page_number": page_number,
         "geometry": {
@@ -449,7 +446,6 @@ def _build_page_evidence(
         or native_evidence.get("page_ref") != page.get("page_ref")
         or native_evidence.get("material_id") != page.get("material_id")
         or native_evidence.get("material_revision") != page.get("material_revision")
-        or native_evidence.get("section_id") != page.get("section_id")
     ):
         raise ValueError("OCR_LOCATOR_INVALID")
     evidence_blocks: list[dict[str, Any]] = []
@@ -475,10 +471,12 @@ def _build_page_evidence(
             "block",
             {"page_ref": page["page_ref"], "reading_order": reading_order, "region": region},
         )
+        kind = _kind(ocr_type)
         identity = {
             "page_ref": page["page_ref"],
             "block_id": block_id,
-            "ocr_type": ocr_type,
+            "kind": kind,
+            "source": source,
             "text": text,
             "reading_order": reading_order,
             "region": region,
@@ -488,7 +486,7 @@ def _build_page_evidence(
                 "evidence_id": _ref("evidence", identity),
                 "block_id": block_id,
                 "ocr_type": ocr_type,
-                "kind": _kind(ocr_type),
+                "kind": kind,
                 "text": text,
                 "reading_order": reading_order,
                 "locator": {
@@ -551,7 +549,6 @@ def _build_page_evidence(
         "schema": PAGE_SCHEMA,
         "material_id": page["material_id"],
         "material_revision": page["material_revision"],
-        "section_id": page["section_id"],
         "page_ref": page["page_ref"],
         "page_number": page["page_number"],
         "geometry": page["geometry"],

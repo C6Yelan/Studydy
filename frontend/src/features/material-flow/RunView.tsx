@@ -92,8 +92,8 @@ export function RunView({ apiClient, route }: {
   if (run.status === "pending" || run.status === "running") {
     const currentStageIndex = materialProgressStages.indexOf(run.progress_stage);
     const hasPageProgress = (
-      run.progress_stage === "page_evidence"
-      || run.progress_stage === "concept_generation"
+      run.progress_stage === "evidence"
+      || run.progress_stage === "semantics"
     ) && run.total_pages !== null;
     return (
     <section className="processing-page">
@@ -133,7 +133,7 @@ export function RunView({ apiClient, route }: {
           <ol className="status-timeline">
             {materialProgressStages.slice(0, -1).map((stage, index) => (
               <li className={index < currentStageIndex ? "is-complete" : index === currentStageIndex ? "is-active" : undefined} key={stage}>
-                <span><Icon name={index < currentStageIndex ? "check" : stage === "knowledge_map_generation" ? "map" : "process"} /></span>
+                <span><Icon name={index < currentStageIndex ? "check" : stage === "semantics" ? "map" : "process"} /></span>
                 <div><strong>{materialProgressStageLabel(stage)}</strong><p>{index < currentStageIndex ? "此階段已完成。" : index === currentStageIndex ? "目前正在這個階段。" : "尚未開始。"}</p></div>
               </li>
             ))}
@@ -214,7 +214,7 @@ export function RunView({ apiClient, route }: {
           name: "knowledge-map",
           materialId: run.material_id,
           runId: run.run_id,
-          mapRevision: binding.knowledge_map_revision,
+          structureRevision: binding.knowledge_structure_revision,
         })}>開啟複核地圖<Icon name="chevron-right" /></button>
       </div>
     </section>

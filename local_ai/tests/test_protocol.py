@@ -3,7 +3,6 @@ import json
 
 import pytest
 
-from studydy_local_ai.assessment_process import validate_assessment_request
 from studydy_local_ai.protocol import (
     ProtocolError,
     decode_json_object,
@@ -37,25 +36,3 @@ def test_ocr_request_decodes_only_bound_png():
     request["render"]["extra"] = True
     with pytest.raises(ProtocolError):
         validate_ocr_request(request)
-
-
-def test_assessment_request_requires_exactly_four_bounded_options():
-    request = {
-        "schema": "local-assessment-verifier-request/v1",
-        "request_id": "assessment-1",
-        "premise": "Exact Evidence",
-        "options": ["A", "B", "C", "D"],
-    }
-    assert validate_assessment_request(request) == {
-        "request_id": "assessment-1",
-        "premise": "Exact Evidence",
-        "options": ["A", "B", "C", "D"],
-    }
-    for invalid in (
-        {**request, "options": ["A", "B", "C"]},
-        {**request, "options": ["A", "B", "C", ""]},
-        {**request, "premise": ""},
-        {**request, "extra": True},
-    ):
-        with pytest.raises(ProtocolError, match="CHILD_REQUEST_INVALID"):
-            validate_assessment_request(invalid)

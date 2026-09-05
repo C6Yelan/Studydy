@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
-import type { AnswerFeedbackView, AssessmentView, KnowledgeMapView } from "../../api/contracts";
+import type { AnswerFeedbackView, AssessmentView, KnowledgeStructureView } from "../../api/contracts";
 import { Icon } from "../../ui/Icon";
 import "./styles.css";
 
-type Concept = KnowledgeMapView["concepts"][number];
+type Concept = KnowledgeStructureView["concepts"][number];
 type AssessmentError = { conflict: boolean; message: string; noSafeItem: boolean; retryable: boolean };
 
 function assessmentError(error: unknown): AssessmentError {
@@ -41,7 +41,7 @@ export function AssessmentPanel({ apiClient, concept, onNoSafeItem, onReloadSess
   onSubmitted: (feedback: AnswerFeedbackView) => void;
   sourceArtifactId: string;
   studySessionId: string;
-  view: KnowledgeMapView;
+  view: KnowledgeStructureView;
 }) {
   const [selectedClaimId, setSelectedClaimId] = useState(concept.claims[0].claim_id);
   const [assessment, setAssessment] = useState<AssessmentView | null>(null);
@@ -65,7 +65,7 @@ export function AssessmentPanel({ apiClient, concept, onNoSafeItem, onReloadSess
     onNoSafeItem(false);
     assessmentIntent.current = null;
     submissionIntent.current = null;
-  }, [concept.formal_concept_id, concept.claims]);
+  }, [concept.concept_id]);
 
   useEffect(() => {
     if (!isLoading) return;
@@ -90,7 +90,7 @@ export function AssessmentPanel({ apiClient, concept, onNoSafeItem, onReloadSess
         assessmentIntent.current = { claimId, key: crypto.randomUUID() };
       }
       return apiClient.createAssessment(studySessionId, {
-        schema: "assessment-create/v1",
+        schema: "assessment-create/v2",
         target_claim_id: claimId,
       }, assessmentIntent.current.key);
     };
@@ -116,7 +116,7 @@ export function AssessmentPanel({ apiClient, concept, onNoSafeItem, onReloadSess
     setSubmissionError(null);
     try {
       const next = await apiClient.submitAssessmentAnswer(studySessionId, assessment.assessment_revision, {
-        schema: "answer-submission-create/v1",
+        schema: "answer-submission-create/v2",
         question_id: assessment.question_id,
         selected_option_id: selectedOptionId,
       }, submissionIntent.current.key);
@@ -148,11 +148,11 @@ export function AssessmentPanel({ apiClient, concept, onNoSafeItem, onReloadSess
               key={item.evidence_id}
               type="button"
               onClick={() => window.open(
-                apiClient.sourceArtifactUrl(sourceArtifactId, item.page_number),
+                apiClient.sourceArtifactUrl(sourceArtifactId, item.page),
                 "_blank",
                 "noopener,noreferrer",
               )}
-            >原始教材第 {item.page_number} 頁<Icon name="chevron-right" /></button>
+            >原始教材第 {item.page} 頁<Icon name="chevron-right" /></button>
           ))}
         </div>
         <div className="assessment-actions">
@@ -186,11 +186,11 @@ export function AssessmentPanel({ apiClient, concept, onNoSafeItem, onReloadSess
                     key={evidence.evidence_id}
                     type="button"
                     onClick={() => window.open(
-                      apiClient.sourceArtifactUrl(sourceArtifactId, evidence.page_number),
+                      apiClient.sourceArtifactUrl(sourceArtifactId, evidence.page),
                       "_blank",
                       "noopener,noreferrer",
                     )}
-                  >查看教材第 {evidence.page_number} 頁<Icon name="chevron-right" /></button>
+                  >查看教材第 {evidence.page} 頁<Icon name="chevron-right" /></button>
                 ))}
               </div>
             </article>

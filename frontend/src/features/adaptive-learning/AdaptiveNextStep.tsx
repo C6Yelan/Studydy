@@ -1,67 +1,37 @@
-import type { GuidanceAction, KnowledgeMapView, LearnerProgressView } from "../../api/contracts";
+import type { KnowledgeStructureView, LearnerProgressView } from "../../api/contracts";
 import { Icon } from "../../ui/Icon";
 import "./styles.css";
 
-const actionCopy: Record<GuidanceAction, { label: string; cta: string }> = {
-  start: { label: "開始目前概念", cta: "前往目前步驟" },
-  continue: { label: "繼續目前概念", cta: "繼續學習" },
-  practice: { label: "練習目前概念", cta: "開始練習" },
-  review: { label: "複習目前概念", cta: "開始複習" },
-  use_resource: { label: "使用補充資源", cta: "開啟建議資源" },
-  follow_path: { label: "回到教材建議順序", cta: "依順序繼續" },
-  collect_more_data: { label: "取得更多作答資料", cta: "完成更多評量" },
-  defer: { label: "先前往下一個教材重點", cta: "前往下一個重點" },
-  resume: { label: "回到先前的教材重點", cta: "回到暫緩重點" },
-  no_action: { label: "目前沒有下一個動作", cta: "" },
-};
-
-const confidenceCopy = {
-  none: "目前沒有足夠依據",
-  limited: "依據有限",
-  supported: "已有足夠依據",
+const copy = {
+  assess: ["練習目前概念", "開始練習"],
+  review_prerequisite: ["先補強前置概念", "前往前置概念"],
+  advance: ["前往下一個教材重點", "繼續學習"],
+  defer: ["先學下一個安全重點", "暫緩並繼續"],
+  resume: ["回到先前暫緩的重點", "回到暫緩重點"],
+  no_safe: ["目前沒有安全題目", ""],
+  complete: ["本次內容已完成", "完成學習"],
 } as const;
 
-function conceptLabel(view: KnowledgeMapView, conceptId: string | null): string | null {
-  if (!conceptId) return null;
-  return view.concepts.find((item) => item.formal_concept_id === conceptId)?.label ?? null;
-}
-
-export function GuidanceNextStep({ progress, view, hasNoSafeItem, isApplying, onApply, onReviewEvidence }: {
+export function GuidanceNextStep({ progress, view, isApplying, onApply }: {
   progress: LearnerProgressView;
-  view: KnowledgeMapView;
-  hasNoSafeItem: boolean;
+  view: KnowledgeStructureView;
   isApplying: boolean;
   onApply: () => void;
-  onReviewEvidence: () => void;
 }) {
   const step = progress.next_action;
-  const useReviewFallback = hasNoSafeItem && step.action === "collect_more_data";
-  const copy = useReviewFallback
-    ? { label: "先回顧目前教材重點", cta: "回顧教材" }
-    : actionCopy[step.action];
-  const deferredLabel = conceptLabel(view, progress.no_safe_deferred_formal_concept_ids[0] ?? null);
-  const currentLabel = conceptLabel(view, progress.current_formal_concept_id);
+  const target = view.concepts.find((concept) => concept.concept_id === step.target_concept_id);
   return (
     <section className="adaptive-card" aria-labelledby="adaptive-title">
       <div className="adaptive-icon"><Icon name="learning" size={28} /></div>
       <div className="adaptive-copy">
-        <p className="eyebrow">目前為你調整</p>
-        <h2 id="adaptive-title">{copy.label}</h2>
-        <p>{useReviewFallback ? "目前沒有新的安全題目，先回查教材內容，不重複要求同一項評量。" : step.reason}</p>
-        <div className="adaptive-meta">
-          <span>目標：{step.target_label ?? "目前沒有目標"}</span>
-          <span>{confidenceCopy[step.confidence]}</span>
-          <span>{step.claim_coverage_complete ? "核心重點已練習" : "核心重點仍可練習"}</span>
-        </div>
-        {deferredLabel && currentLabel && (
-          <p className="deferred-copy"><Icon name="refresh" />現在先學「{currentLabel}」，完成後會回到「{deferredLabel}」。</p>
-        )}
-        <small>這個建議只影響本次學習，不會改寫教材的概念連結或建議順序。</small>
+        <p className="eyebrow">本次學習指引</p>
+        <h2 id="adaptive-title">{copy[step.action][0]}</h2>
+        <p>{step.reason === "canonical_prerequisite_gap" ? "這項建議只使用教材已發布的 prerequisite 關係。" : step.reason === "no_safe_assessment" ? "目前題目未通過安全檢查，先保留進度。" : "依目前作答與教材學習順序安排。"}</p>
+        {target && <div className="adaptive-meta"><span>目標：{target.label}</span></div>}
+        <small>指引只屬於本次 Session，不會改寫教材 Map 或 Path。</small>
       </div>
-      {step.action !== "no_action" && (
-        <button className="primary-button" disabled={isApplying} type="button" onClick={useReviewFallback ? onReviewEvidence : onApply}>
-          {isApplying ? "正在調整…" : copy.cta}<Icon name="chevron-right" />
-        </button>
+      {step.action !== "assess" && step.action !== "no_safe" && (
+        <button className="primary-button" disabled={isApplying} type="button" onClick={onApply}>{isApplying ? "正在調整…" : copy[step.action][1]}<Icon name="chevron-right" /></button>
       )}
     </section>
   );

@@ -1,160 +1,62 @@
 {
-  "schema": "studydy-local-ai-runtime-lock/v14",
-  "python": {
-    "version": "3.12"
-  },
+  "schema": "studydy-runtime-lock/v15",
+  "python": "3.12",
   "packages": {
     "studydy-local-ai": "0.1.0",
     "torch": "2.10.0+cu128",
     "torchvision": "0.25.0+cu128",
     "transformers": "4.57.1"
   },
-  "page": {
-    "pymupdf_version": "1.28.0",
-    "schema": "page-evidence/v3",
-    "native_schema": "page-native/v2",
-    "render": {
-      "schema": "page-render/v1",
-      "dpi": 200,
-      "colorspace": "RGB",
-      "format": "PNG",
-      "coverage": "full_visible_page"
-    },
-    "render_sha256": "a1d0c0e330ca0b4cb4f8aa0b541e6530b14d8c9644b4c62ae70a4fcf8c437f85",
-    "normalization": {
-      "version": "ocr-output-normalization/v1",
-      "operations": ["crlf_to_lf", "unicode_nfc", "remove_trailing_whitespace"]
-    },
-    "normalization_sha256": "7c2be4a85c07ef3a792fd1e7ba90f0c0436c83457a92cfbded7465581148b810",
-    "processing": "native-first-page-evidence/v2",
-    "normalizer": "ocr-text-nfc-line-preserving/v1",
-    "native_heading": {
-      "policy": "relative-native-typography-heading/v1",
-      "body_baseline": "visible-character-weighted-dominant-font/v1",
-      "line_font": "visible-character-weighted-median-font/v1",
-      "minimum_font_increase_points": 1.5,
-      "minimum_font_increase_ratio": 1.15,
-      "maximum_visible_characters": 160,
-      "footer_boundary_ratio": 0.9
-    }
-  },
   "ocr": {
     "model_id": "Unlimited-OCR",
     "revision": "07dea832e22aefee32ad281d4b80551282e1c168",
     "prompt": "<image>document parsing.",
-    "prompt_sha256": "a210f5b991d35d2a9a7d6c6160f54165c0ae96e02fbfdd1bc38400232021c303",
-    "inference": {
-      "base_size": 1024,
-      "image_size": 640,
-      "crop_mode": true,
-      "eval_mode": true,
-      "max_length": 32768,
-      "no_repeat_ngram_size": 35,
-      "ngram_window": 128,
-      "temperature": 0.0,
-      "save_results": false
-    },
-    "grammar": "strict-det-blocks/v1"
+    "page_schema": "page-evidence/v4",
+    "native_schema": "page-native/v3",
+    "processing_policy": "native-first-page-evidence/v3",
+    "normalizer_policy": "ocr-text-nfc-line-preserving/v1",
+    "render": {
+      "dpi": 200,
+      "colorspace": "RGB",
+      "format": "PNG"
+    }
   },
-  "semantic": {
+  "semantic_service": {
     "model_id": "Qwen/Qwen3.8-27B-FP8",
     "revision": "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a",
     "api_protocol": "openai-chat-completions/v1",
-    "api_path": "/v1/chat/completions",
+    "base_url": "http://127.0.0.1:8000",
+    "max_model_len": 32768,
+    "max_num_seqs": 1,
     "server": {
       "package": "vllm",
       "version": "0.28.0",
-      "python_minor": "3.12",
+      "python": "3.12",
       "torch": "2.13.0+cu130",
       "cuda": "13.0",
       "transformers": "5.16.1"
     },
-    "service": {
-      "host": "127.0.0.1",
-      "port": 8000,
-      "max_model_len": 32768,
-      "max_num_seqs": 1,
-      "authentication": "environment-bearer:VLLM_API_KEY"
-    },
-    "prompt": "Extract learner-worthy study concepts only from the supplied current evidence. Use document_context only to interpret heading ancestry, adjacency, and continuation; it is not claim evidence. assessment_groups preserves a question stem with its options; when has_reliable_answer is false, do not infer an answer or emit a factual claim from the group. Return each concept as label plus one or more grounded claims. Cite only IDs from the current evidence list and give every claim non-empty evidence_ids. Preserve exact escapes, symbols, operators, numbers, units, conditions, direction, and scope, including \\0. Keep grounded single claims, code, declarations, formulas, captions, and partial clauses when they carry study content. Do not emit isolated connectors or pure symbol junk. Return concepts=[] when the current page teaches no concept. Return JSON only and no additional fields.",
-    "prompt_sha256": "47d1abca48ea2b500663d6cd9e44574a78eb2f1d03ffe3c429cbfd6f2f12065c",
-    "request_schema": "concept-generation-input/v7",
-    "output_schema": "semantic-page-concepts/v4",
-    "generation": {"temperature": 0, "max_tokens": 1536},
-    "structured_output": {
-      "type": "json_schema",
-      "name": "studydy_page_concepts",
-      "strict": true,
-      "schema_sha256": "732ad8896148ab8ea690e01188ae29aaf49166fff6ab42eca2a35b9bba3d245f"
-    },
-    "input_token_budget": {
-      "api_path": "/tokenize",
-      "add_generation_prompt": true,
-      "add_special_tokens": false,
-      "maximum_input_tokens": 6656
-    },
-    "document_context": {
-      "schema": "document-semantic-context/v1",
-      "concept_envelope_schema": "concept-context-envelope/v3",
-      "processing_policy": "document-reading-order-context/v1",
-      "token_budget": 1024,
-      "token_counter": "utf8-byte-upper-bound/v1",
-      "model_calls": 0,
-      "section_policy": "nearest-grounded-heading-flat-section/v1",
-      "ambiguous_hierarchy": "needs-review/v1",
-      "dispatch_fit": "evidence-only-batch-preserving/v1",
-      "batch_binding": "exact-fitted-request-lineage/v1",
-      "durable_output_schema": "concept-evidence-output/v6",
-      "study_projection_schema": "study-material-output/v8"
-    },
-    "retry": {
-      "max_attempts": 2,
-      "fixed_retry_count": 1,
-      "retryable_reasons": [
-        "CONCEPT_API_TIMEOUT",
-        "CONCEPT_API_UNAVAILABLE"
-      ]
-    },
-    "policy": {
-      "candidate_text_normalizer": "concept-text-nfkc-whitespace/v1",
-      "claim_processing_policy": "claim-grounded-concept-review/v9",
-      "exact_technical_tokens": "claim-technical-token-fidelity/v1",
-      "fragment_validation": "objective-junk-only/v1",
-      "cross_concept_evidence_reuse": true,
-      "lexical_overlap_decision": false,
-      "fenced_json": "reject",
-      "generation_termination": "finish-reason-stop-required/v1",
-      "structurally_valid_decision": "review"
-    }
+    "authentication": "environment-bearer:VLLM_API_KEY"
   },
-  "formal_resolution": {
-    "prompt": "/no_think\nFor every supplied candidate pair, decide only SAME, DISTINCT, or UNCERTAIN. SAME means genuine aliases or duplicates that teach the same concept; surface similarity alone is insufficient. DISTINCT means both concepts should remain separate, including related concepts with different learning objectives. Use only supplied labels, claims, Evidence, and document context. Retrieval signals are comparison hints, never merge proof. When evidence is insufficient choose UNCERTAIN. Return every pair id exactly once as JSON and no extra fields.",
-    "prompt_sha256": "20dca1040d4ead4bde162b92022b78cecb74c6cfab7188f19f3e726df0105677",
-    "request_schema": "concept-deduplication-input/v1",
-    "output_schema": "concept-deduplication/v1",
-    "generation": {"temperature": 0, "max_tokens": 512},
-    "retry": {
-      "max_attempts": 2,
-      "retryable_reasons": ["CONCEPT_API_TIMEOUT", "CONCEPT_API_UNAVAILABLE"]
-    }
+  "material_semantics": {
+    "request_schema": "material-semantics-request/v2",
+    "response_schema": "material-semantics-response/v2",
+    "bundle_policy": "tokenized-contiguous-evidence/v2",
+    "max_tokens": 4096,
+    "generation": {"temperature":1,"top_p":0.95,"top_k":20,"min_p":0,"presence_penalty":0,"repetition_penalty":1,"chat_template_kwargs":{"enable_thinking":true,"reasoning_effort":"xhigh"}},
+    "prompt": "Analyze all sections as one teaching unit. You decide canonical Concepts, grounded Claims and Relations. Retain every supported learner-worthy concept and claim even without an edge; merge only identical meanings. Aliases must be equivalent names, not members, properties or examples. A heading alone names a topic, not its missing procedure or facts. Input evidence rows: [id,page,kind,exact_text]. Existing concepts: k=key,l=label,a=aliases,c=claims,e=evidence ids; reuse keys only for identical meanings. Output concepts: k=short unique key,l=label,a=aliases,c=claims. Claim: {m:meaning or null,s:[[evidence id,start,end],...]}, using zero-based Unicode offsets, end exclusive; [id,0,0] selects the entire text. Use m=null when selected text already states the claim, especially code/formulas. Otherwise write one concise grounded meaning. Preserve technical literals, scope and conditions. Relation: s=source key,t=target key,k=type,r=one short specific learner-facing reason,e=endpoint claim evidence ids,c=confidence 0..1. Types: prerequisite=necessary knowledge dependency, part_of=part to whole, application=concept to concrete use, example=abstract to instance, contrast=two entities compared on an explicit axis. For prerequisite, evidence must explain why learning the target requires the source; helpful background, neighboring headings and shared subject do not establish necessity. For application, name what the source is used to accomplish; definitions and representations alone are not uses. For contrast, the two endpoints themselves must be the entities named by the comparison, not a comparison-topic node. Examples: 'Compute the mean by summing values then dividing by their count' supports sum -> mean prerequisite; 'numeral history helps arithmetic' does not establish prerequisite. 'Use a queue to schedule print jobs' supports application; 'a queue is represented by an array' alone does not. 'Queues remove FIFO; stacks remove LIFO' supports queue <-> stack contrast on removal order, not 'comparison of containers' <-> stack. Retain clear supported composition, use, example and contrast relations; do not minimize edge count. When a proposed type or endpoint is wrong, choose the supported type and actual entities; omit only when no precise relation is grounded. Never invent endpoints, evidence or procedures to fill missing content. Return only {concepts:[...],relations:[...]} JSON; no hashes, copied quotes, section metadata or outside explanation.",
+    "retry_attempts": 2
   },
-  "concept_equivalence": {
-    "model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
-    "revision": "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c",
-    "request_schema": "local-concept-equivalence-request/v1",
-    "response_schema": "local-concept-equivalence-response/v1",
-    "startup_schema": "local-concept-equivalence-startup/v1",
-    "representation": "label-claims-evidence-headings/v1",
-    "decision_rule": "bidirectional-entailment-threshold-and-argmax/v1",
-    "entailment_threshold": 0.8,
-    "maximum_tokens": 384,
-    "startup_timeout_seconds": 120,
-    "failure_policy": "veto-and-retain/v1",
-    "safe_loading": "safetensors-local-only-no-remote-code"
-  },
-  "verifier_model": {
-    "model_id": "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli",
-    "revision": "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c",
-    "safe_loading": "safetensors-local-only-no-remote-code"
+  "assessment": {
+    "request_schema": "assessment-semantics-request/v1",
+    "response_schema": "assessment-semantics-response/v1",
+    "public_schema": "single-choice-assessment/v2",
+    "private_schema": "single-choice-answer/v2",
+    "provenance_schema": "assessment-generation-provenance/v4",
+    "policy": "source-span-single-choice/v2",
+    "candidate_count": 3,
+    "option_count": 4,
+    "max_tokens": 4096,
+    "prompt": "Create three materially different single-choice questions from the supplied canonical Claim and exact Evidence. Qwen is the only semantic authority. Each candidate must test one explicit learning angle, quote one exact correct answer span from Evidence, and provide three counterfactual distractors. For every distractor, identify changed_from exactly present in the correct answer and Evidence and changed_to exactly present only in that distractor. Reject ambiguity, multiple defensible answers, unsupported answers, semantic-equivalent distractors, and outside knowledge. Preserve escapes, quote kind, operators, numbers, units, declarations, formulas, conditions, direction, and scope. Student-facing text must not mention Evidence IDs. Return JSON only."
   }
 }

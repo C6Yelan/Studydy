@@ -365,6 +365,71 @@
   stroke-width: 2;
 }
 
+.concept-flow-edge.is-structural .react-flow__edge-path { stroke: #c9d7ef; }
+.concept-flow-edge.is-prerequisite .react-flow__edge-path { stroke: #7c3aed; }
+.concept-flow-edge.is-part_of .react-flow__edge-path { stroke: #2563eb; }
+.concept-flow-edge.is-application .react-flow__edge-path { stroke: #059669; }
+.concept-flow-edge.is-example .react-flow__edge-path { stroke: #d97706; }
+.concept-flow-edge.is-contrast .react-flow__edge-path { stroke: #dc2626; stroke-dasharray: 7 5; }
+
+.relation-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+
+.relation-legend span,
+.relation-detail strong {
+  border-radius: 999px;
+  background: #eef3ff;
+  padding: .3rem .65rem;
+  font-size: .78rem;
+}
+
+.relation-detail {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  background: var(--surface);
+}
+
+.relation-detail p { flex: 1; margin: 0; }
+
+.relation-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.relation-list button {
+  display: grid;
+  width: 100%;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  background: var(--surface);
+  text-align: left;
+}
+
+.relation-list span {
+  grid-row: 1 / 3;
+  align-self: center;
+  color: var(--studydy-blue);
+  font-size: .76rem;
+  font-weight: 700;
+}
+
+.relation-list small { color: var(--text-secondary); }
+
 .concept-flow-edge:focus-visible .react-flow__edge-path,
 .concept-flow-edge.selected .react-flow__edge-path {
   stroke-width: 4;

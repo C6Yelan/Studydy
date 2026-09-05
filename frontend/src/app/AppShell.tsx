@@ -43,7 +43,7 @@ function routeNavigation(route: AppRoute): NavItem[] {
         name: "knowledge-map",
         materialId: route.materialId,
         runId: route.runId,
-        mapRevision: route.mapRevision,
+        structureRevision: route.structureRevision,
       }),
     });
   }

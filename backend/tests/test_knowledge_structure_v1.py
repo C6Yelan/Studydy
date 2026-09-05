@@ -1,0 +1,506 @@
+from copy import deepcopy
+import pytest
+
+from knowledge_map.structure import (
+    SemanticState,
+    _project_claim,
+    _revision,
+    apply_semantic_response as apply_wire_response,
+    build_document_context,
+    build_knowledge_structure,
+    build_knowledge_structure_view,
+    build_semantic_bundles,
+    semantic_request,
+    semantic_response_schema,
+    validate_knowledge_structure,
+)
+from pdf_evidence.ocr_page_evidence import canonical_sha256
+
+
+RUN_ID = "00000000-0000-4000-8000-000000000001"
+PRODUCED_AT = "2026-09-05T00:00:00+00:00"
+MODEL_REVISION = "b" * 40
+
+
+def _compact_response(response, context):
+    handles = {item["evidence_id"]: index for index, item in enumerate(context["evidence"])}
+    def span(reference):
+        handle = handles[reference["evidence_id"]]
+        text = context["evidence"][handle]["exact_text"]
+        start = text.find(reference["quote"])
+        return [handle, start, start + len(reference["quote"])]
+    return {
+        "concepts": [{
+            "k": concept["key"], "l": concept["label"], "a": concept["aliases"],
+            "c": [{"m": claim["meaning"], "s": [span(ref) for ref in claim["source_spans"]]} for claim in concept["claims"]],
+        } for concept in response["concepts"]],
+        "relations": [{
+            "s": relation["source_concept"], "t": relation["target_concept"],
+            "k": relation["type"], "r": relation["learner_reason"],
+            "e": [handles[ref] for ref in relation["evidence_refs"]], "c": relation["confidence"],
+        } for relation in response["relations"]],
+    }
+
+
+def apply_semantic_response(response, *, context, bundle, state):
+    apply_wire_response(_compact_response(response, context), context=context, bundle=bundle, state=state)
+
+
+def _bundles(context, maximum_evidence=1000):
+    return list(build_semantic_bundles(
+        context, state=SemanticState(),
+        fits=lambda request: sum(len(section["evidence"]) for section in request["sections"]) <= maximum_evidence,
+    ))
+
+
+def _block(page: int, order: int, kind: str, text: str) -> dict:
+    page_ref = "page:sha256:" + canonical_sha256(
+        {"source_sha256": "1" * 64, "page_number": page}
+    )
+    region = [1.0, 2.0, 30.0, 40.0]
+    block_id = "block:sha256:" + canonical_sha256(
+        {"page_ref": page_ref, "reading_order": order, "region": region}
+    )
+    evidence_id = "evidence:sha256:" + canonical_sha256(
+        {
+            "page_ref": page_ref,
+            "block_id": block_id,
+            "kind": kind,
+            "source": "native_text",
+            "text": text,
+            "reading_order": order,
+            "region": region,
+        }
+    )
+    return {
+        "evidence_id": evidence_id,
+        "block_id": block_id,
+        "ocr_type": kind,
+        "kind": kind,
+        "text": text,
+        "reading_order": order,
+        "locator": {"page": page, "block_id": block_id, "region": region},
+        "render_region": region,
+        "source": "native_text",
+    }
+
+
+def _page(number: int, blocks: list[dict]) -> dict:
+    return {
+        "schema": "page-evidence/v4",
+        "material_id": "material:sha256:" + "1" * 64,
+        "page_ref": "page:sha256:" + canonical_sha256(
+            {"source_sha256": "1" * 64, "page_number": number}
+        ),
+        "page_number": number,
+        "evidence_blocks": blocks,
+    }
+
+
+def _context() -> dict:
+    return build_document_context(
+        [
+            _page(1, [_block(1, 0, "heading", "Pointers"), _block(1, 1, "paragraph", "The null character is written as '\\0'.")]),
+            _page(2, [_block(2, 0, "paragraph", "A pointer declaration can be written as int *value;")]),
+            _page(3, [_block(3, 0, "heading", "Arrays"), _block(3, 1, "paragraph", "An array stores 8 values in contiguous memory.")]),
+        ],
+        page_count=3,
+    )
+
+
+def _response(context: dict) -> dict:
+    evidence = context["evidence"]
+    return {
+        "concepts": [
+            {
+                "key": "pointer",
+                "label": "Pointer",
+                "aliases": ["指標"],
+                "claims": [
+                    {
+                        "meaning": "The null character is written as \"\\0\".",
+                        "source_spans": [{"evidence_id": evidence[1]["evidence_id"], "quote": "The null character is written as '\\0'."}],
+                    },
+                    {
+                        "meaning": "int value declares a pointer",
+                        "source_spans": [{"evidence_id": evidence[2]["evidence_id"], "quote": "int *value;"}],
+                    },
+                    {
+                        "meaning": "unsupported sibling",
+                        "source_spans": [{"evidence_id": evidence[2]["evidence_id"], "quote": "not in source"}],
+                    },
+                ],
+            },
+            {
+                "key": "array",
+                "label": "Array",
+                "aliases": [],
+                "claims": [{
+                    "meaning": "An array stores 8 values in contiguous memory.",
+                    "source_spans": [{"evidence_id": evidence[4]["evidence_id"], "quote": evidence[4]["exact_text"]}],
+                }],
+            },
+        ],
+        "relations": [
+            {
+                "source_concept": "pointer",
+                "target_concept": "array",
+                "type": "prerequisite",
+                "learner_reason": "Pointer addressing is required before pointer-based array traversal.",
+                "evidence_refs": [evidence[2]["evidence_id"], evidence[4]["evidence_id"]],
+                "context_refs": [context["sections"][0]["section_id"], context["sections"][1]["section_id"]],
+                "inference_basis": "dependency",
+                "confidence": 0.82,
+            }
+        ],
+    }
+
+
+def test_material_context_bundles_sections_without_page_envelopes():
+    context = _context()
+    assert [section["title"] for section in context["sections"]] == ["Pointers", "Arrays"]
+    assert all("previous_page" not in str(item) and "next_page" not in str(item) for item in context["evidence"])
+    assert len(_bundles(context)) == 1
+    split = _bundles(context, maximum_evidence=3)
+    assert [item["evidence_id"] for bundle in split for item in bundle["evidence"]] == [
+        item["evidence_id"] for item in context["evidence"]
+    ]
+
+
+def test_oversized_single_section_splits_by_actual_slice_without_dropping_evidence():
+    page = _page(
+        1,
+        [
+            _block(1, order, "paragraph", f"Evidence {order} " + "x" * 320)
+            for order in range(30)
+        ],
+    )
+    context = build_document_context([page], page_count=1)
+    bundles = _bundles(context, maximum_evidence=5)
+    assert len(bundles) > 1
+    assert [item["evidence_id"] for bundle in bundles for item in bundle["evidence"]] == [
+        item["evidence_id"] for item in context["evidence"]
+    ]
+    assert all(
+        bundle["sections"][0]["evidence_ids"]
+        == [item["evidence_id"] for item in bundle["evidence"]]
+        for bundle in bundles
+    )
+
+
+def test_excluded_page_gap_breaks_section_instead_of_guessing_continuation():
+    context = build_document_context(
+        [
+            _page(1, [_block(1, 0, "heading", "First"), _block(1, 1, "paragraph", "First content")]),
+            _page(3, [_block(3, 0, "paragraph", "Content after excluded page")]),
+        ],
+        page_count=3,
+        excluded_pages=[{"page": 2}],
+    )
+    assert [section["title"] for section in context["sections"]] == ["First", "教材開頭"]
+    assert context["evidence"][-1]["section_id"] == context["sections"][1]["section_id"]
+
+
+def test_projection_repairs_only_technical_claim_and_keeps_valid_sibling():
+    context = _context()
+    state = SemanticState()
+    bundle = _bundles(context)[0]
+    apply_semantic_response(_response(context), context=context, bundle=bundle, state=state)
+    claims = state.concepts["pointer"]["claims"]
+    assert [claim["text"] for claim in claims] == [
+        "The null character is written as '\\0'.",
+        "int *value;",
+    ]
+    assert claims[0]["projection"] == "source_literal_repair"
+    assert state.rejected_claims == 1
+    assert state.literal_repairs == 2
+
+
+@pytest.mark.parametrize(("source", "meaning"), [
+    ("The terminator is '\\0'.", "The terminator is \"\\0\"."),
+    ("Use the character literal 'x'.", 'Use the character literal "x".'),
+    ("The condition is a <= b.", "The condition is a < b."),
+    ("Compute a + b.", "Compute a - b."),
+    ("The answer is 42.", "The answer is 43."),
+    ("The mass is 5 kg.", "The mass is 5 g."),
+    ("Speed is 12 m/s.", "Speed is 12 km/h."),
+    ("Declare const char *value;", "Declare a character pointer."),
+    ("Energy follows E = mc^2.", "Energy follows mass equivalence."),
+])
+def test_every_required_technical_literal_uses_source_bound_text(source, meaning):
+    evidence_id = "evidence:sha256:" + "f" * 64
+    projected = _project_claim(
+        {"meaning": meaning, "source_spans": [{"evidence_id": evidence_id, "quote": source}]},
+        {evidence_id: {"exact_text": source}},
+    )
+    assert projected == {
+        "text": source,
+        "source_spans": [{"evidence_id": evidence_id, "quote": source}],
+        "projection": "source_literal_repair",
+    }
+
+
+def test_typed_relations_and_prerequisite_are_the_only_path_authority():
+    context = _context()
+    state = SemanticState()
+    bundle = _bundles(context)[0]
+    response = _response(context)
+    response["relations"].append({
+        **deepcopy(response["relations"][0]),
+        "source_concept": "array",
+        "target_concept": "pointer",
+        "type": "contrast",
+        "learner_reason": "Compares contiguous storage with address indirection.",
+        "inference_basis": "comparison",
+    })
+    apply_semantic_response(response, context=context, bundle=bundle, state=state)
+    structure = build_knowledge_structure(
+        context,
+        state,
+        source_sha256="1" * 64,
+        run_id=RUN_ID,
+        produced_at=PRODUCED_AT,
+        runtime_lock_sha256=canonical_sha256({"runtime": 1}),
+        model_id="Qwen/Qwen3.8-27B-FP8",
+        model_revision=MODEL_REVISION,
+        semantic_calls=1,
+        ocr_calls=0,
+    )
+    assert validate_knowledge_structure(structure)
+    assert [relation["type"] for relation in structure["relations"]] == ["prerequisite", "contrast"]
+    labels = {concept["concept_id"]: concept["label"] for concept in structure["concepts"]}
+    assert [labels[step["concept_id"]] for step in structure["initial_learning_path"]] == ["Pointer", "Array"]
+    view = build_knowledge_structure_view(structure)
+    assert view["schema"] == "knowledge-structure-view/v1"
+    assert view["concepts"][0]["claims"][0]["evidence"][0]["page"] == 1
+
+
+def test_cycle_and_forbidden_or_generic_relations_never_publish():
+    context = _context()
+    state = SemanticState()
+    bundle = _bundles(context)[0]
+    response = _response(context)
+    reverse = deepcopy(response["relations"][0])
+    reverse["source_concept"], reverse["target_concept"] = "array", "pointer"
+    generic = deepcopy(response["relations"][0])
+    generic["type"] = "contrast"
+    generic["inference_basis"] = "comparison"
+    generic["learner_reason"] = "related"
+    response["relations"].extend([reverse, generic])
+    apply_semantic_response(response, context=context, bundle=bundle, state=state)
+    structure = build_knowledge_structure(
+        context,
+        state,
+        source_sha256="1" * 64,
+        run_id=RUN_ID,
+        produced_at=PRODUCED_AT,
+        runtime_lock_sha256="a" * 64,
+        model_id="Qwen/Qwen3.8-27B-FP8",
+        model_revision=MODEL_REVISION,
+        semantic_calls=1,
+        ocr_calls=0,
+    )
+    assert [relation["type"] for relation in structure["relations"]] == ["prerequisite"]
+    assert structure["metrics"]["rejected_relations"] == 2
+
+
+def test_relation_cannot_borrow_unrelated_document_evidence():
+    context = _context()
+    state = SemanticState()
+    bundle = _bundles(context)[0]
+    response = _response(context)
+    response["relations"][0]["evidence_refs"] = [context["evidence"][0]["evidence_id"]]
+    apply_semantic_response(response, context=context, bundle=bundle, state=state)
+    structure = build_knowledge_structure(
+        context, state, source_sha256="1" * 64, run_id=RUN_ID,
+        produced_at=PRODUCED_AT, runtime_lock_sha256="a" * 64,
+        model_id="Qwen/Qwen3.8-27B-FP8", model_revision=MODEL_REVISION,
+        semantic_calls=1, ocr_calls=0,
+    )
+    assert structure["relations"] == []
+    assert structure["metrics"]["rejected_relations"] == 1
+
+
+def test_cross_section_concept_has_one_primary_tree_placement_and_zero_prerequisite_path_is_complete():
+    context = _context()
+    state = SemanticState()
+    bundle = _bundles(context)[0]
+    response = _response(context)
+    response["concepts"][0]["claims"].append({
+        "meaning": context["evidence"][4]["exact_text"],
+        "source_spans": [{
+            "evidence_id": context["evidence"][4]["evidence_id"],
+            "quote": context["evidence"][4]["exact_text"],
+        }],
+    })
+    response["relations"] = [{
+        **response["relations"][0],
+        "type": "application",
+        "inference_basis": "usage",
+        "learner_reason": "Pointer addressing is applied when traversing array storage.",
+    }]
+    apply_semantic_response(response, context=context, bundle=bundle, state=state)
+    structure = build_knowledge_structure(
+        context, state, source_sha256="1" * 64, run_id=RUN_ID, produced_at=PRODUCED_AT,
+        runtime_lock_sha256="a" * 64, model_id="Qwen/Qwen3.8-27B-FP8",
+        model_revision=MODEL_REVISION, semantic_calls=1, ocr_calls=0,
+    )
+    tree_ids = [concept_id for section in structure["document_tree"]["sections"] for concept_id in section["concept_ids"]]
+    assert len(tree_ids) == len(set(tree_ids)) == len(structure["concepts"])
+    assert [step["concept_id"] for step in structure["initial_learning_path"]] == [
+        concept["concept_id"] for concept in structure["concepts"]
+    ]
+
+
+def test_later_bundle_reuses_qwen_concept_key_without_pairwise_dedup_stage():
+    context = _context()
+    state = SemanticState()
+    sections = context["sections"]
+    first_evidence = [item for item in context["evidence"] if item["section_id"] == sections[0]["section_id"]]
+    second_evidence = [item for item in context["evidence"] if item["section_id"] == sections[1]["section_id"]]
+    for items, section, label in (
+        (first_evidence, sections[0], "Pointer"),
+        (second_evidence, sections[1], "Pointer"),
+    ):
+        source = next(item for item in items if item["kind"] != "heading")
+        apply_semantic_response(
+            {
+                "concepts": [{
+                    "key": "shared-concept",
+                    "label": label,
+                    "aliases": [],
+                    "claims": [{
+                        "meaning": source["exact_text"],
+                        "source_spans": [{"evidence_id": source["evidence_id"], "quote": source["exact_text"]}],
+                    }],
+                }],
+                "relations": [],
+            },
+            context=context,
+            bundle={"sections": [section], "evidence": items},
+            state=state,
+        )
+    assert list(state.concepts) == ["shared-concept"]
+    assert len(state.concepts["shared-concept"]["claims"]) == 2
+    request = semantic_request(
+        context,
+        {"sections": [sections[1]], "evidence": second_evidence},
+        state,
+    )
+    catalog = request["existing_concepts"][0]
+    assert len(catalog["e"]) == 2
+    assert all(type(ref) is int for ref in catalog["e"])
+    assert set(catalog) == {"k", "l", "a", "c", "e"}
+
+
+def test_runtime_timings_do_not_change_content_revision():
+    context = _context()
+    state = SemanticState()
+    bundle = _bundles(context)[0]
+    apply_semantic_response(_response(context), context=context, bundle=bundle, state=state)
+    arguments = {
+        "source_sha256": "1" * 64,
+        "run_id": RUN_ID,
+        "produced_at": PRODUCED_AT,
+        "runtime_lock_sha256": "a" * 64,
+        "model_id": "Qwen/Qwen3.8-27B-FP8",
+        "model_revision": MODEL_REVISION,
+        "semantic_calls": 1,
+        "ocr_calls": 0,
+    }
+    fast = build_knowledge_structure(
+        context, state, evidence_duration_ms=10, semantic_duration_ms=20, **arguments
+    )
+    slow = build_knowledge_structure(
+        context, state, evidence_duration_ms=100, semantic_duration_ms=200, **arguments
+    )
+    assert fast["revision"] == slow["revision"]
+    assert fast["metrics"] != slow["metrics"]
+    tampered = deepcopy(fast)
+    tampered["evidence"][0]["exact_text"] += " changed"
+    tampered["revision"] = _revision(tampered)
+    assert not validate_knowledge_structure(tampered)
+    tampered = deepcopy(fast)
+    tampered["initial_learning_path"].reverse()
+    tampered["revision"] = _revision(tampered)
+    assert not validate_knowledge_structure(tampered)
+
+
+def test_material_source_identity_mismatch_is_rejected_before_publication():
+    context = _context()
+    state = SemanticState()
+    bundle = _bundles(context)[0]
+    apply_semantic_response(_response(context), context=context, bundle=bundle, state=state)
+    with pytest.raises(ValueError, match="MATERIAL_IDENTITY_INVALID"):
+        build_knowledge_structure(
+            context, state, source_sha256="2" * 64, run_id=RUN_ID, produced_at=PRODUCED_AT,
+            runtime_lock_sha256="a" * 64, model_id="Qwen/Qwen3.8-27B-FP8",
+            model_revision=MODEL_REVISION, semantic_calls=1, ocr_calls=0,
+        )
+
+
+def test_compact_wire_keeps_all_source_text_without_canonical_metadata():
+    context = _context()
+    request = semantic_request(context, _bundles(context)[0], SemanticState())
+    rows = [row for section in request["sections"] for row in section["evidence"]]
+    assert [row[0] for row in rows] == list(range(len(context["evidence"])))
+    assert [row[3] for row in rows] == [item["exact_text"] for item in context["evidence"]]
+    assert "sha256" not in str(request)
+    assert set(request) == {"sections", "existing_concepts"}
+    assert set(semantic_response_schema()["properties"]) == {"concepts", "relations"}
+
+
+@pytest.mark.parametrize("relation_type", ["prerequisite", "part_of", "application", "example", "contrast"])
+def test_compact_wire_reconstructs_relation_basis_and_canonical_support(relation_type):
+    from knowledge_map.structure import RELATION_BASIS
+    context = _context()
+    wire = _compact_response(_response(context), context)
+    wire["relations"][0]["k"] = relation_type
+    state = SemanticState()
+    apply_wire_response(wire, context=context, bundle=_bundles(context)[0], state=state)
+    relation = state.relations[0]
+    assert relation["type"] == relation_type
+    assert relation["inference_basis"] == RELATION_BASIS[relation_type]
+    assert relation["evidence_refs"] == [context["evidence"][i]["evidence_id"] for i in (2, 4)]
+    assert relation["context_refs"] == [section["section_id"] for section in context["sections"]]
+
+
+def test_compact_spans_preserve_unicode_literals_and_reject_unseen_evidence():
+    text = "中文😀 '\\0' a <= b 5 kg"
+    context = build_document_context([_page(1, [_block(1, 0, "paragraph", text), _block(1, 1, "paragraph", "unseen")])], page_count=1)
+    bundle = {"sections": context["sections"], "evidence": context["evidence"][:1]}
+    state = SemanticState()
+    apply_wire_response({
+        "concepts": [{"k": "c0", "l": "Literal", "a": [], "c": [
+            {"m": None, "s": [[0, 0, 0]]},
+            {"m": None, "s": [[0, 2, 3]]},
+            {"m": None, "s": [[0, 0, 999]]},
+            {"m": None, "s": [[1, 0, 0]]},
+            {"m": None, "s": [[True, 0, 0]]},
+        ]}], "relations": [],
+    }, context=context, bundle=bundle, state=state)
+    assert [claim["text"] for claim in state.concepts["c0"]["claims"]] == [text, "😀"]
+    assert state.rejected_claims == 3
+
+
+def test_token_packing_rechecks_current_catalog_and_never_drops_evidence():
+    context = _context()
+    state = SemanticState()
+    sizes = []
+    def fits(request):
+        count = sum(len(section["evidence"]) for section in request["sections"])
+        sizes.append((len(request["existing_concepts"]), count))
+        return count + len(request["existing_concepts"]) <= 3
+    bundles = build_semantic_bundles(context, state=state, fits=fits)
+    first = next(bundles)
+    state.concepts["c0"] = {"label": "Prior", "aliases": [], "claims": []}
+    remaining = list(bundles)
+    assert any(catalog == 1 for catalog, _ in sizes)
+    assert [item["evidence_id"] for bundle in [first, *remaining] for item in bundle["evidence"]] == [item["evidence_id"] for item in context["evidence"]]
+    with pytest.raises(ValueError, match="SEMANTIC_INPUT_TOO_LARGE"):
+        list(build_semantic_bundles(context, state=state, fits=lambda request: False))
+
+
+def test_token_fit_does_not_apply_old_utf8_byte_limit():
+    context = build_document_context([_page(1, [_block(1, 0, "paragraph", "漢" * 30000)])], page_count=1)
+    assert len(_bundles(context)) == 1

@@ -12,18 +12,16 @@ export type LatestMaterialRunPointer = {
 
 export const materialProgressStages = [
   "queued",
-  "page_evidence",
-  "concept_generation",
-  "knowledge_map_generation",
+  "evidence",
+  "semantics",
   "publishing",
   "completed",
 ] as const;
 
 export function materialProgressStageLabel(stage: MaterialProcessingRunView["progress_stage"]): string {
   if (stage === "queued") return "等待本機處理資源";
-  if (stage === "page_evidence") return "整理頁面與教材來源";
-  if (stage === "concept_generation") return "建立並檢查教材概念";
-  if (stage === "knowledge_map_generation") return "建立知識地圖";
+  if (stage === "evidence") return "整理頁面與教材來源";
+  if (stage === "semantics") return "建立概念、關係與學習順序";
   if (stage === "publishing") return "發布可複核結果";
   return "處理完成";
 }
@@ -132,6 +130,5 @@ export function materialFailureMessage(errorCode: string): string {
 }
 
 export function materialRunHasUsableMap(run: MaterialProcessingRunView): boolean {
-  return run.output_binding !== null
-    && !run.output_binding.reason_codes.includes("NO_FORMAL_CONCEPT");
+  return run.output_binding !== null;
 }

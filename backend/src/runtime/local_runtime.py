@@ -6,45 +6,25 @@ from pathlib import Path
 import sys
 from typing import Any, Mapping
 
-from learning_adaptation.assessment_runtime import (
-    assessment_runtime_binding,
-    load_assessment_runtime_lock,
-)
-from learning_adaptation.assessment_verifier import start_assessment_process
-from pdf_evidence.local_ai_process import (
-    LocalAIError,
-    start_ocr_process,
-)
-from pdf_evidence.text_first_run import material_analysis_lock
+from pdf_evidence.local_ai_process import LocalAIError, start_ocr_process
+from pdf_evidence.material_pipeline import material_analysis_lock
 
 from .local_app import read_local_ai_config_from_environment
-from .material_processing import _runtime_error, formal_runtime_preflight
+from .material_processing import _runtime_error, runtime_preflight
 
 
 def _verify_model_loads(local_config: dict[str, Any]) -> None:
-    assessment_lock = load_assessment_runtime_lock()
-    assessment_runtime_binding(local_config, assessment_lock)
     try:
         ocr = start_ocr_process(local_config)
         ocr.close()
     except LocalAIError:
         raise _runtime_error("ocr_model", "LOCAL_RUNTIME_SMOKE_FAILED") from None
-    try:
-        verifier = start_assessment_process(
-            local_config,
-            assessment_lock["verifier"]["startup_timeout_seconds"],
-        )
-        verifier.close()
-    except LocalAIError:
-        raise _runtime_error(
-            "verifier_model", "LOCAL_RUNTIME_SMOKE_FAILED"
-        ) from None
 
 
 def verify_local_runtime(local_config: dict[str, Any]) -> dict[str, Any]:
     """以現有production loaders驗證本機runtime具備必要能力。"""
 
-    formal_runtime_preflight(local_config)
+    runtime_preflight(local_config)
     with material_analysis_lock(Path(local_config["private_runtime_root"])):
         _verify_model_loads(local_config)
     return {
