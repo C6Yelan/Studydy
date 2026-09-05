@@ -23,6 +23,10 @@ Relation basis. These temporary handles are never persisted as canonical identit
 Bundles are packed using the resident tokenizer with the actual prompt and current Concept catalog,
 reserving 4096 output tokens within the unchanged 32768-token context. A truncated response fails;
 it does not count as a successful material or trigger additional split calls.
+Material generation explicitly pins the existing thinking/xhigh template and sampling settings in
+the runtime lock; packing and inference use the same template options. Relation instructions retain
+supported edges while distinguishing necessary dependencies, concrete uses, and the entities being
+compared. Assessment settings are unchanged.
 
 The only Relation types are `prerequisite`, `part_of`, `application`, `example`, and `contrast`.
 `prerequisite` is the only Relation that can change Initial Path order or create a learner prerequisite

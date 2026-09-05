@@ -178,6 +178,7 @@ def _token_count(
     client: httpx.Client,
     service: dict[str, Any],
     messages: list[dict[str, str]],
+    chat_template_kwargs: dict[str, Any] | None = None,
 ) -> int:
     response = client.post(
         f"{service['base_url']}{TOKENIZE_PATH}",
@@ -186,6 +187,7 @@ def _token_count(
             "messages": messages,
             "add_generation_prompt": True,
             "add_special_tokens": False,
+            **({"chat_template_kwargs": chat_template_kwargs} if chat_template_kwargs is not None else {}),
         },
     )
     response.raise_for_status()
@@ -226,11 +228,13 @@ def request_semantics(
         ):
             raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
         messages = _messages(prompt, request)
-        if _token_count(client, service, messages) + max_tokens > service["max_model_len"]:
+        generation = deepcopy(task_lock["generation"]) if task == "material_semantics" else {}
+        if _token_count(client, service, messages, generation.get("chat_template_kwargs")) + max_tokens > service["max_model_len"]:
             raise SemanticServiceError("SEMANTIC_INPUT_TOO_LARGE")
         response = client.post(
             f"{service['base_url']}{CHAT_PATH}",
             json={
+                **generation,
                 "model": service["model_id"],
                 "messages": messages,
                 "max_tokens": max_tokens,
@@ -285,7 +289,7 @@ def material_request_fits(
     service = _service(runtime_lock)
     task = runtime_lock["material_semantics"]
     try:
-        count = _token_count(client, service, _messages(task["prompt"], request))
+        count = _token_count(client, service, _messages(task["prompt"], request), task["generation"]["chat_template_kwargs"])
     except httpx.TimeoutException as error:
         raise SemanticServiceError("SEMANTIC_SERVICE_TIMEOUT") from error
     except (httpx.HTTPError, UnicodeError, ValueError) as error:

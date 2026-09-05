@@ -105,12 +105,17 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
             or semantic["authentication"] != "environment-bearer:VLLM_API_KEY"
             or set(material) != {
                 "request_schema", "response_schema", "bundle_policy",
-                "max_tokens", "prompt", "retry_attempts",
+                "max_tokens", "prompt", "retry_attempts", "generation",
             }
             or material["request_schema"] != "material-semantics-request/v2"
             or material["response_schema"] != "material-semantics-response/v2"
             or material["bundle_policy"] != "tokenized-contiguous-evidence/v2"
             or material["max_tokens"] != 4096
+            or material["generation"] != {
+                "temperature": 1.0, "top_p": 0.95, "top_k": 20,
+                "min_p": 0.0, "presence_penalty": 0.0, "repetition_penalty": 1.0,
+                "chat_template_kwargs": {"enable_thinking": True, "reasoning_effort": "xhigh"},
+            }
             or not isinstance(material["prompt"], str)
             or not material["prompt"]
             or set(assessment) != {

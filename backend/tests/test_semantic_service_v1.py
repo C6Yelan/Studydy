@@ -22,6 +22,12 @@ def test_preflight_and_both_tasks_use_the_same_resident_service():
         if request.url.path == "/v1/models": return httpx.Response(200, json={"data": [{"id": "Qwen/Qwen3.8-27B-FP8", "max_model_len": 32768}]})
         if request.url.path == "/tokenize": return httpx.Response(200, json={"count": 50, "max_model_len": 32768})
         task = json.loads(request.content)["response_format"]["json_schema"]["name"]
+        body = json.loads(request.content)
+        generation = _lock()["material_semantics"]["generation"]
+        if task == "material_semantics":
+            assert {key: body[key] for key in generation} == generation
+        else:
+            assert set(generation).isdisjoint(body)
         content = {"material_semantics": {"concepts": [], "relations": []}, "assessment": {"schema": "assessment-semantics-response/v1", "candidates": []}}[task]
         return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(content)}}]})
 
@@ -53,6 +59,11 @@ def test_material_packing_and_generation_share_exact_token_budget(count, fits):
         with pytest.raises(SemanticServiceError, match="SEMANTIC_OUTPUT_TRUNCATED" if fits else "SEMANTIC_INPUT_TOO_LARGE"):
             request_semantics(client, **arguments)
     assert requests[0][1]["messages"] == requests[1][1]["messages"]
+    template = {"enable_thinking": True, "reasoning_effort": "xhigh"}
+    assert requests[0][1]["chat_template_kwargs"] == template
+    assert requests[1][1]["chat_template_kwargs"] == template
+    if fits:
+        assert requests[2][1]["chat_template_kwargs"] == template
     assert sum(path == "/v1/chat/completions" for path, _ in requests) == int(fits)
 
 
