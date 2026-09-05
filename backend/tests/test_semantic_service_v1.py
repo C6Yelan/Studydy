@@ -27,8 +27,9 @@ def test_preflight_and_both_tasks_use_the_same_resident_service():
         if task == "material_semantics":
             assert {key: body[key] for key in generation} == generation
         else:
-            assert set(generation).isdisjoint(body)
-        content = {"material_semantics": {"concepts": [], "relations": []}, "assessment": {"schema": "assessment-semantics-response/v1", "candidates": []}}[task]
+            assert body["chat_template_kwargs"] == {"enable_thinking": False}
+            assert (set(generation) - {"chat_template_kwargs"}).isdisjoint(body)
+        content = {"material_semantics": {"concepts": [], "relations": []}, "assessment": {"schema": "assessment-semantics-response/v2", "candidates": []}}[task]
         return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(content)}}]})
 
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
@@ -39,6 +40,23 @@ def test_preflight_and_both_tasks_use_the_same_resident_service():
             assert ("concepts" if task == "material_semantics" else "candidates") in result
     assert paths.count("/v1/chat/completions") == 2
     assert set(paths) == {"/health", "/version", "/v1/models", "/tokenize", "/v1/chat/completions"}
+
+
+def test_assessment_tokenizer_and_generation_both_disable_thinking():
+    """出題的 token 預算與實際推論使用相同的非 thinking template。"""
+    observed = []
+    def respond(request):
+        body = json.loads(request.content)
+        observed.append((request.url.path, body["chat_template_kwargs"]))
+        if request.url.path == "/tokenize":
+            return httpx.Response(200, json={"count": 50, "max_model_len": 32768})
+        return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": '{"schema":"assessment-semantics-response/v2","candidates":[]}'}}]})
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        request_semantics(client, runtime_lock=_lock(), task="assessment", request={}, response_schema={})
+    assert observed == [
+        ("/tokenize", {"enable_thinking": False}),
+        ("/v1/chat/completions", {"enable_thinking": False}),
+    ]
 
 
 @pytest.mark.parametrize("count, fits", [(28672, True), (28673, False)])

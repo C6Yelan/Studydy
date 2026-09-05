@@ -26,7 +26,17 @@ it does not count as a successful material or trigger additional split calls.
 Material generation explicitly pins the existing thinking/xhigh template and sampling settings in
 the runtime lock; packing and inference use the same template options. Relation instructions retain
 supported edges while distinguishing necessary dependencies, concrete uses, and the entities being
-compared. Assessment settings are unchanged.
+compared.
+
+Assessment uses the v2 response contract with three plain-text distractors. Qwen checks that the
+question matches the designated answer and avoids a clear second correct answer. Distractors may
+appear elsewhere in the Evidence; no token-substitution proof or source-wide word exclusion is
+required. Code retains exact answer/source binding, distinct option identities, private answers and
+server-side scoring. Safe practice with uncertain novelty can publish without adding a distinct
+mastery credit. Generation provenance v5 records the source-span-single-choice/v4 policy.
+Assessment explicitly disables thinking in both tokenization and generation to keep short quiz
+requests from exhausting their output budget in reasoning. Material generation retains its pinned
+thinking/xhigh settings; both tasks use the same resident service.
 
 The only Relation types are `prerequisite`, `part_of`, `application`, `example`, and `contrast`.
 `prerequisite` is the only Relation that can change Initial Path order or create a learner prerequisite

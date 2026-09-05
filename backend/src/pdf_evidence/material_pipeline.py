@@ -121,17 +121,18 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
             or set(assessment) != {
                 "request_schema", "response_schema", "public_schema", "private_schema",
                 "provenance_schema", "policy", "candidate_count", "option_count",
-                "max_tokens", "prompt",
+                "max_tokens", "generation", "prompt",
             }
             or assessment["request_schema"] != "assessment-semantics-request/v1"
-            or assessment["response_schema"] != "assessment-semantics-response/v1"
+            or assessment["response_schema"] != "assessment-semantics-response/v2"
             or assessment["public_schema"] != "single-choice-assessment/v2"
             or assessment["private_schema"] != "single-choice-answer/v2"
-            or assessment["provenance_schema"] != "assessment-generation-provenance/v4"
-            or assessment["policy"] != "source-span-single-choice/v2"
+            or assessment["provenance_schema"] != "assessment-generation-provenance/v5"
+            or assessment["policy"] != "source-span-single-choice/v4"
             or assessment["candidate_count"] != 3
             or assessment["option_count"] != 4
             or assessment["max_tokens"] != 4096
+            or assessment["generation"] != {"chat_template_kwargs": {"enable_thinking": False}}
             or not isinstance(assessment["prompt"], str)
             or not assessment["prompt"]
             or ocr["page_schema"] != "page-evidence/v4"

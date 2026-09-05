@@ -228,7 +228,7 @@ def request_semantics(
         ):
             raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
         messages = _messages(prompt, request)
-        generation = deepcopy(task_lock["generation"]) if task == "material_semantics" else {}
+        generation = deepcopy(task_lock["generation"])
         if _token_count(client, service, messages, generation.get("chat_template_kwargs")) + max_tokens > service["max_model_len"]:
             raise SemanticServiceError("SEMANTIC_INPUT_TOO_LARGE")
         response = client.post(

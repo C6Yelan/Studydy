@@ -119,12 +119,12 @@ def _assessment_response(angle: str, prompt: str, evidence_id: str) -> dict:
         "correct_answer": "LIFO",
         "supporting_evidence_ids": [evidence_id],
         "distractors": [
-            {"text": "FIFO", "changed_from": "LIFO", "changed_to": "FIFO"},
-            {"text": "RANDOM", "changed_from": "LIFO", "changed_to": "RANDOM"},
-            {"text": "PRIORITY", "changed_from": "LIFO", "changed_to": "PRIORITY"},
+            "FIFO",
+            "RANDOM",
+            "PRIORITY",
         ],
     }
-    return {"schema": "assessment-semantics-response/v1", "candidates": [candidate, {**candidate, "safety": "reject"}, {**candidate, "safety": "reject"}]}
+    return {"schema": "assessment-semantics-response/v2", "candidates": [candidate, {**candidate, "safety": "reject"}, {**candidate, "safety": "reject"}]}
 
 
 @pytest.fixture
@@ -254,6 +254,47 @@ def test_concurrent_same_assessment_intent_publishes_once(closed_loop):
     assert first.assessment_revision == second.assessment_revision
     with psycopg.connect(dsn) as connection:
         assert connection.execute("SELECT count(*) FROM assessments").fetchone() == (1,)
+
+
+@pytest.mark.parametrize("second_novelty,second_correct,expected_status,qualified_count", [
+    ("uncertain", True, "learning", 1),
+    ("distinct", False, "needs_review", 1),
+    ("distinct", True, "mastered", 2),
+])
+def test_publication_and_mastery_remain_separate_after_real_persistence(
+    closed_loop, second_novelty, second_correct, expected_status, qualified_count
+):
+    """安全題可發布；不確定的新意或答錯不能累積成虛假掌握。"""
+    learner, source, settings, structure, dsn, _token = closed_loop
+    concept = structure["concepts"][0]
+    claim_id = concept["claims"][0]["claim_id"]
+    study = create_study_session(learner, source.material_id, structure["revision"], "study", dsn=dsn)
+    for number in (1, 2):
+        response = _assessment_response(
+            f"angle-{number}", f"教材中的 Stack 順序，第 {number} 題？", concept["evidence_refs"][0]
+        )
+        response["candidates"][0]["novelty"] = "distinct" if number == 1 else second_novelty
+        assessment = generate_assessment(
+            learner, study.study_session_id, claim_id, f"assessment-{number}", settings,
+            dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: response,
+        )
+        assert assessment.mastery_qualified is (number == 1 or second_novelty == "distinct")
+        correct = assessment.private_answer_document["correct_option_id"]
+        selected = correct if number == 1 or second_correct else next(
+            option["option_id"] for option in assessment.public_document["options"] if option["option_id"] != correct
+        )
+        submitted = submit_answer(
+            learner, study.study_session_id, assessment.assessment_revision,
+            assessment.question_id, selected, f"answer-{number}", dsn=dsn,
+        )
+        assert submitted.feedback.is_correct is (number == 1 or second_correct)
+    progress = derive_learner_progress(learner, study.study_session_id, dsn=dsn)
+    assert progress.concept_states[0].status == expected_status
+    assert progress.concept_states[0].qualified_correct_items == qualified_count
+    assert read_study_session(learner, study.study_session_id, dsn=dsn).status == "active"
+    assert read_knowledge_structure(
+        learner.learner_id, source.material_id, revision=structure["revision"], dsn=dsn
+    ).document == structure
 
 
 def test_guidance_revision_becomes_stale_after_answer_event(closed_loop):

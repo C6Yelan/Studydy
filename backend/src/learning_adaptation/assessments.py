@@ -46,16 +46,6 @@ class StoredAssessment:
 
 
 def assessment_response_schema() -> dict[str, Any]:
-    distractor = {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["text", "changed_from", "changed_to"],
-        "properties": {
-            "text": {"type": "string", "minLength": 1},
-            "changed_from": {"type": "string", "minLength": 1},
-            "changed_to": {"type": "string", "minLength": 1},
-        },
-    }
     candidate = {
         "type": "object",
         "additionalProperties": False,
@@ -65,12 +55,12 @@ def assessment_response_schema() -> dict[str, Any]:
         ],
         "properties": {
             "learning_angle": {"type": "string", "minLength": 1},
-            "novelty": {"type": "string", "enum": ["distinct", "uncertain"]},
-            "safety": {"type": "string", "enum": ["safe", "reject"]},
-            "prompt": {"type": "string", "minLength": 1},
             "correct_answer": {"type": "string", "minLength": 1},
             "supporting_evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-            "distractors": {"type": "array", "minItems": 3, "maxItems": 3, "items": distractor},
+            "prompt": {"type": "string", "minLength": 1},
+            "distractors": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "string", "minLength": 1}},
+            "novelty": {"type": "string", "enum": ["distinct", "uncertain"]},
+            "safety": {"type": "string", "enum": ["safe", "reject"]},
         },
     }
     return {
@@ -78,7 +68,7 @@ def assessment_response_schema() -> dict[str, Any]:
         "additionalProperties": False,
         "required": ["schema", "candidates"],
         "properties": {
-            "schema": {"type": "string", "const": "assessment-semantics-response/v1"},
+            "schema": {"type": "string", "const": "assessment-semantics-response/v2"},
             "candidates": {"type": "array", "minItems": 3, "maxItems": 3, "items": candidate},
         },
     }
@@ -146,7 +136,7 @@ def _stored(row: Assessment) -> StoredAssessment:
     }
     provenance_fields = {
         "schema", "assessment_revision", "runtime_lock_sha256", "model_id",
-        "model_revision", "policy", "source_evidence_ids", "counterfactual_proofs",
+        "model_revision", "policy", "source_evidence_ids",
         "learning_angle", "novelty", "mastery_qualified",
     }
     try:
@@ -188,7 +178,7 @@ def _stored(row: Assessment) -> StoredAssessment:
         or set(provenance) != provenance_fields
         or public["schema"] != "single-choice-assessment/v2"
         or private["schema"] != "single-choice-answer/v2"
-        or provenance["schema"] != "assessment-generation-provenance/v4"
+        or provenance["schema"] != "assessment-generation-provenance/v5"
         or revision != row.assessment_revision
         or public["assessment_revision"] != revision
         or private["assessment_revision"] != revision
@@ -238,6 +228,7 @@ def _stored(row: Assessment) -> StoredAssessment:
         )
         or not isinstance(private["rationale"], str)
         or not private["rationale"].strip()
+        or private["correct_answer"] not in private["rationale"]
         or not isinstance(public["source_evidence_ids"], list)
         or not public["source_evidence_ids"]
         or len(public["source_evidence_ids"])
@@ -252,15 +243,13 @@ def _stored(row: Assessment) -> StoredAssessment:
         is None
         or provenance["model_id"] != "Qwen/Qwen3.8-27B-FP8"
         or re.fullmatch(r"[0-9a-f]{40}", provenance["model_revision"]) is None
-        or provenance["policy"] != "source-span-single-choice/v2"
+        or provenance["policy"] != "source-span-single-choice/v4"
         or provenance["learning_angle"] != row.learning_angle
         or not isinstance(row.learning_angle, str)
         or not row.learning_angle.strip()
         or provenance["novelty"] not in {"distinct", "uncertain"}
         or type(provenance["mastery_qualified"]) is not bool
         or provenance["mastery_qualified"] != row.mastery_qualified
-        or not isinstance(provenance["counterfactual_proofs"], list)
-        or len(provenance["counterfactual_proofs"]) != 3
         or len(bytes(row.request_idempotency_key_sha256)) != 32
         or len(bytes(row.request_fingerprint)) != 32
         or bytes(row.request_fingerprint)
@@ -271,24 +260,6 @@ def _stored(row: Assessment) -> StoredAssessment:
         )
     ):
         raise AssessmentError("ASSESSMENT_UNAVAILABLE")
-    distractor_texts = set(option_texts) - {private["correct_answer"]}
-    for proof in provenance["counterfactual_proofs"]:
-        if (
-            not isinstance(proof, dict)
-            or set(proof) != {"changed_from", "changed_to"}
-            or not isinstance(proof["changed_from"], str)
-            or not isinstance(proof["changed_to"], str)
-            or proof["changed_from"] not in private["correct_answer"]
-            or proof["changed_from"] not in private["rationale"]
-            or proof["changed_to"].casefold()
-            in private["correct_answer"].casefold()
-            or proof["changed_to"].casefold() in private["rationale"].casefold()
-            or not any(
-                proof["changed_to"].casefold() in text.casefold()
-                for text in distractor_texts
-            )
-        ):
-            raise AssessmentError("ASSESSMENT_UNAVAILABLE")
     return StoredAssessment(
         row.assessment_revision, row.study_session_id, row.knowledge_structure_revision,
         row.question_id, row.semantic_identity, row.learning_angle,
@@ -370,32 +341,16 @@ def _candidate(candidate: Any, claim: ClaimContext, used_identities: set[str]) -
         or any(reference in prompt for reference in evidence)
     ):
         return None
-    source_text = "\n".join(evidence.values())
-    source_folded = source_text.casefold()
-    correct_folded = correct.casefold()
     options = [correct]
-    proofs = []
+    # 選項在其他句子出現不代表它能回答本題；語意安全由 Qwen 判斷。
     for distractor in distractors:
-        if not isinstance(distractor, dict) or set(distractor) != {"text", "changed_from", "changed_to"}:
-            return None
         try:
-            text = _clean(distractor["text"])
-            changed_from = _exact(distractor["changed_from"])
-            changed_to = _exact(distractor["changed_to"])
+            text = _clean(distractor)
         except AssessmentError:
             return None
-        if (
-            changed_from not in correct
-            or changed_from not in source_text
-            or changed_to.casefold() in correct_folded
-            or changed_to.casefold() in source_folded
-            or changed_to not in text
-            or text.casefold() in source_folded
-            or any(reference in text for reference in evidence)
-        ):
+        if any(reference in text for reference in evidence):
             return None
         options.append(text)
-        proofs.append({"changed_from": changed_from, "changed_to": changed_to})
     normalized = [_normalized(option) for option in options]
     if len(normalized) != len(set(normalized)):
         return None
@@ -411,7 +366,6 @@ def _candidate(candidate: Any, claim: ClaimContext, used_identities: set[str]) -
         "correct_answer": correct,
         "supporting_evidence_ids": references,
         "options": options,
-        "proofs": proofs,
         "semantic_identity": semantic_identity,
     }
 
@@ -464,13 +418,12 @@ def _documents(
     }
     service = runtime_lock["semantic_service"]
     provenance_core = {
-        "schema": "assessment-generation-provenance/v4",
+        "schema": "assessment-generation-provenance/v5",
         "runtime_lock_sha256": canonical_sha256(runtime_lock),
         "model_id": service["model_id"],
         "model_revision": service["revision"],
         "policy": runtime_lock["assessment"]["policy"],
         "source_evidence_ids": candidate["supporting_evidence_ids"],
-        "counterfactual_proofs": candidate["proofs"],
         "learning_angle": candidate["learning_angle"],
         "novelty": candidate["novelty"],
         "mastery_qualified": mastery_qualified,
@@ -530,7 +483,7 @@ def generate_assessment(
             finally:
                 if owned:
                     http.close()
-            if not isinstance(response, dict) or set(response) != {"schema", "candidates"} or response["schema"] != "assessment-semantics-response/v1" or not isinstance(response["candidates"], list) or len(response["candidates"]) != 3:
+            if not isinstance(response, dict) or set(response) != {"schema", "candidates"} or response["schema"] != "assessment-semantics-response/v2" or not isinstance(response["candidates"], list) or len(response["candidates"]) != 3:
                 raise AssessmentError("ASSESSMENT_OUTPUT_INVALID")
             used = {row.semantic_identity for row in prior}
             chosen = next((projected for item in response["candidates"] if (projected := _candidate(item, claim, used)) is not None), None)
