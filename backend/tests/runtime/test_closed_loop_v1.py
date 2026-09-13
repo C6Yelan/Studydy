@@ -726,3 +726,71 @@ def test_legacy_assessment_eligibility_is_not_upgraded_by_new_policy(closed_loop
     for document in [legacy.public_document, legacy.private_answer_document, provenance]:
         document["assessment_revision"] = revision
     assert _stored(legacy).mastery_qualified is False
+
+
+def test_direct_middle_start_with_advisory_can_assess_and_resume_without_applying_guidance(closed_loop, tmp_path, monkeypatch):
+    from copy import deepcopy
+    from learning_adaptation.map_context import context_from_structure
+    from test_accounts import _app, ORIGIN
+
+    learner, _source, settings, _old_structure, dsn, token = closed_loop
+    texts = [f"Concept {number} follows LIFO order." for number in range(1, 6)]
+    pdf = pymupdf.open()
+    pdf_page = pdf.new_page()
+    for index, text in enumerate(texts):
+        pdf_page.insert_text((72, 72 + index * 24), text)
+    payload = pdf.tobytes(); pdf.close()
+    source = publish_idempotent_source_pdf(learner.learner_id, io.BytesIO(payload), "middle-source", dsn=dsn)
+    run = create_material_processing_run(learner.learner_id, source.material_id, source.artifact_id, "middle-run", settings, dsn=dsn)
+    assert claim_next_material_processing_run(dsn=dsn).run.run_id == run.run_id
+    page = _page(source.sha256)
+    template = page["evidence_blocks"][0]
+    page["evidence_blocks"] = []
+    for index, text in enumerate(texts):
+        block = deepcopy(template)
+        region = [72.0, float(60 + index * 24), 300.0, float(76 + index * 24)]
+        block_id = "block:sha256:" + canonical_sha256({"page_ref": page["page_ref"], "reading_order": index, "region": region})
+        block.update(block_id=block_id, text=text, reading_order=index, locator={"page": 1, "block_id": block_id, "region": region})
+        block["evidence_id"] = "evidence:sha256:" + canonical_sha256({"page_ref": page["page_ref"], "block_id": block_id, "kind": "paragraph", "source": "native_text", "text": text, "reading_order": index, "region": region})
+        page["evidence_blocks"].append(block)
+    context = build_document_context([page], page_count=1)
+    state = SemanticState()
+    apply_semantic_response({
+        "concepts": [{"k": str(i), "l": f"Concept {i + 1}", "a": [], "c": [{"m": None, "s": [i]}]} for i in range(5)],
+        "relations": [
+            {"s": "1", "t": "4", "k": "prerequisite", "r": "Concept 2 provides context for Concept 5.", "e": [1, 4], "c": .9},
+            {"s": "2", "t": "4", "k": "example", "r": "Concept 3 illustrates Concept 5.", "e": [2, 4], "c": .9},
+        ],
+    }, context=context, bundle={"sections": context["sections"], "evidence": context["evidence"]}, state=state)
+    structure = build_knowledge_structure(context, state, source_sha256=source.sha256, run_id=str(run.run_id), produced_at="2026-09-05T00:00:00+00:00",
+        runtime_lock_sha256=canonical_sha256(settings["runtime_lock"]), model_id=settings["runtime_lock"]["semantic_service"]["model_id"],
+        model_revision=settings["runtime_lock"]["semantic_service"]["revision"], semantic_calls=1, ocr_calls=0)
+    for stage in ("evidence", "semantics", "publishing"):
+        _record_progress(run.run_id, stage, 1, 1, dsn=dsn)
+    publish_knowledge_structure(learner.learner_id, source.material_id, run.run_id, structure, dsn=dsn)
+    bound = context_from_structure(source.material_id, structure)
+    target = next(concept for concept in bound.concepts if concept.label == "Concept 5")
+    prerequisite = next(concept for concept in bound.concepts if concept.label == "Concept 2")
+    assert bound.initial_learning_path.index(target.concept_id) == 4
+    assert target.prerequisite_ids == (prerequisite.concept_id,)
+    study = create_study_session(learner, source.material_id, structure["revision"], "middle-study", current_concept_id=target.concept_id, dsn=dsn)
+    before = read_study_session(learner, study.study_session_id, dsn=dsn)
+    progress = derive_learner_progress(learner, study.study_session_id, dsn=dsn)
+    assert progress.current_concept_id == target.concept_id
+    assert progress.next_action.action == "assess"
+    assert progress.next_action.target_concept_id == target.concept_id
+    assert progress.next_action.target_claim_id == target.claims[0].claim_id
+    assert progress.next_action.prerequisite_concept_ids == [prerequisite.concept_id]
+    assert progress.next_action.reason == "canonical_prerequisite_gap"
+    assert read_study_session(learner, study.study_session_id, dsn=dsn) == before
+    assessment = generate_assessment(learner, study.study_session_id, progress.next_action.target_claim_id, "middle-question", settings,
+        dsn=dsn, client=Client(), semantic_call=lambda *_a, **_k: _assessment_response("definition", "Concept 5 使用哪種順序？", target.claims[0].evidence[0].evidence_id))
+    assert assessment.public_document["target_concept_id"] == target.concept_id
+    client = TestClient(_app(dsn, tmp_path, monkeypatch), base_url=ORIGIN)
+    client.cookies.set("studydy_session", token)
+    restored = client.get(f"/v1/materials/{source.material_id}/knowledge-structures/{structure['revision']}/study-sessions/{study.study_session_id}/resume", params={"run_id": str(run.run_id)})
+    assert restored.status_code == 200
+    assert restored.json()["progress"]["next_action"]["target_concept_id"] == target.concept_id
+    assert restored.json()["selected_assessment_revision"] == assessment.assessment_revision
+    assert read_study_session(learner, study.study_session_id, dsn=dsn).current_concept_id == target.concept_id
+    assert read_knowledge_structure(learner.learner_id, source.material_id, revision=structure["revision"], dsn=dsn).document == structure

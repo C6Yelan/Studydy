@@ -48,11 +48,15 @@ def _session(context: MapContext, current: str, *, no_safe=(), deferred=()) -> S
     )
 
 
-def test_guidance_uses_only_canonical_prerequisite_for_gap():
+def test_prerequisite_gap_advises_without_redirecting_current_concept():
     context = _context()
-    action = _next_action(context, _session(context, B), [_state(A, "not_started"), _state(B, "not_started")])
-    assert action.action == "review_prerequisite"
-    assert action.target_concept_id == A
+    study = _session(context, B)
+    action = _next_action(context, study, [_state(A, "not_started"), _state(B, "not_started")])
+    assert study.current_concept_id == B
+    assert action.action == "assess"
+    assert action.target_concept_id == B
+    assert action.target_claim_id == CLAIM_B
+    assert action.reason == "canonical_prerequisite_gap"
     assert action.prerequisite_concept_ids == [A]
 
 
@@ -98,3 +102,43 @@ def test_guidance_moves_past_mastered_claim_after_all_claims_are_covered():
     action = _next_action(context, session, list(states))
     assert action.action == "assess"
     assert action.target_claim_id == CLAIM_B
+
+
+def test_mastered_prerequisite_removes_advisory_without_changing_target():
+    context = _context()
+    action = _next_action(context, _session(context, B), [_state(A, "mastered"), _state(B, "learning")])
+    assert action.action == "assess" and action.target_claim_id == CLAIM_B
+    assert action.target_concept_id == B and action.prerequisite_concept_ids == []
+    assert action.reason == "current_concept"
+
+
+def test_multiple_canonical_prerequisites_do_not_include_other_path_steps():
+    from dataclasses import replace
+    context = _context()
+    extra, unrelated = "concept-extra", "concept-unrelated"
+    context = replace(context, concepts=(context.concepts[0],
+        replace(context.concepts[1], prerequisite_ids=(A, extra)),
+        ConceptContext(extra, "Extra", (ClaimContext("claim-extra", "Extra", ()),), ()),
+        ConceptContext(unrelated, "Other", (ClaimContext("claim-other", "Other", ()),), ())),
+        initial_learning_path=(A, extra, unrelated, B))
+    action = _next_action(context, _session(context, B), [_state(id, "not_started") for id in context.initial_learning_path])
+    assert action.action == "assess" and action.target_concept_id == B
+    assert action.prerequisite_concept_ids == [A, extra]
+    assert context.initial_learning_path == (A, extra, unrelated, B)
+
+
+def test_no_safe_still_takes_priority_over_prerequisite_advice():
+    context = _context()
+    action = _next_action(context, _session(context, B, no_safe=(CLAIM_B,)), [_state(A, "not_started"), _state(B, "learning")])
+    assert action.action == "defer" and action.target_concept_id == A
+    assert action.prerequisite_concept_ids == [] and action.reason == "no_safe_assessment"
+    blocked = _next_action(context, _session(context, B, no_safe=(CLAIM_B,), deferred=(A,)), [_state(A, "not_started"), _state(B, "learning")])
+    assert blocked.action == "no_safe"
+
+
+def test_mastered_current_still_advances_or_completes():
+    context = _context()
+    action = _next_action(context, _session(context, A), [_state(A, "mastered"), _state(B, "not_started")])
+    assert action.action == "advance" and action.target_concept_id == B
+    action = _next_action(context, _session(context, B), [_state(A, "mastered"), _state(B, "mastered")])
+    assert action.action == "complete" and action.target_concept_id is None

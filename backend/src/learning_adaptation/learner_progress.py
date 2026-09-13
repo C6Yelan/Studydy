@@ -79,10 +79,8 @@ def _next_action(context, session: StoredStudySession, states: list[ConceptLearn
         return NextAction(action="defer" if target else "no_safe", target_concept_id=target, target_claim_id=target_claim, prerequisite_concept_ids=[], reason="no_safe_assessment")
     if state.status != "mastered":
         unmet = [concept_id for concept_id in current.prerequisite_ids if by_id[concept_id].status != "mastered"]
-        if unmet:
-            target = unmet[0]
-            return NextAction(action="review_prerequisite", target_concept_id=target, target_claim_id=_first_unmastered_claim(_concept(context, target), by_id), prerequisite_concept_ids=unmet, reason="canonical_prerequisite_gap")
-        return NextAction(action="assess", target_concept_id=current.concept_id, target_claim_id=target_claim, prerequisite_concept_ids=[], reason="current_concept")
+        return NextAction(action="assess", target_concept_id=current.concept_id, target_claim_id=target_claim,
+                          prerequisite_concept_ids=unmet, reason="canonical_prerequisite_gap" if unmet else "current_concept")
     target = next((item for item in context.initial_learning_path if by_id[item].status != "mastered" and item not in deferred), None)
     if target:
         return NextAction(action="advance", target_concept_id=target, target_claim_id=None, prerequisite_concept_ids=[], reason="initial_path")
