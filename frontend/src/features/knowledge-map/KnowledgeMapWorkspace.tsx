@@ -152,88 +152,50 @@ function ConceptDetail({ apiClient, concept, close, isStartingStudy, onStartStud
   );
 }
 
-function Overview({ selectedConceptId, focusInMap, view }: {
-  selectedConceptId: string;
+function Overview({ focusInMap, view }: {
   focusInMap: (id: string) => void;
   view: KnowledgeStructureView;
 }) {
   const sections = useMemo(() => view.document_tree.sections.filter(section => section.concept_ids.length > 0)
     .sort((a, b) => a.order - b.order), [view.document_tree.sections]);
   const conceptById = useMemo(() => new Map(view.concepts.map(concept => [concept.concept_id, concept])), [view.concepts]);
-  const contextualSection = sections.find(section => section.concept_ids.includes(selectedConceptId)) ?? sections[0];
-  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(() => contextualSection?.section_id ?? null);
-  const selected = sections.find(section => section.section_id === selectedSectionId) ?? contextualSection;
-  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
-  const rail = useRef<HTMLDivElement>(null);
-  const selectedRow = useRef<HTMLButtonElement>(null);
-  const detailPane = useRef<HTMLElement>(null);
-  const picker = useRef<HTMLDetailsElement>(null);
-  const pickerSummary = useRef<HTMLElement>(null);
-  const revealSelected = () => {
-    if (!rail.current?.clientHeight || !selectedRow.current) return;
-    const row = selectedRow.current.getBoundingClientRect();
-    const bounds = rail.current.getBoundingClientRect();
-    if (row.top < bounds.top) rail.current.scrollTop += row.top - bounds.top;
-    else if (row.bottom > bounds.bottom) rail.current.scrollTop += row.bottom - bounds.bottom;
-  };
-  useEffect(() => {
-    const media = window.matchMedia("(max-width: 900px)");
-    const update = () => setMobile(media.matches);
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-  useEffect(() => {
-    detailPane.current?.scrollTo(0, 0);
-    revealSelected();
-    if (!rail.current) return;
-    const observer = new ResizeObserver(revealSelected);
-    observer.observe(rail.current);
-    return () => observer.disconnect();
-  }, [selected?.section_id, mobile]);
-  const selectSection = (id: string) => {
-    setSelectedSectionId(id);
-    if (picker.current?.open) {
-      picker.current.open = false;
-      pickerSummary.current?.focus({ preventScroll: true });
-    }
-  };
-  const sectionList = <nav className="overview-master" aria-label="教材段落">
-    <header><h3>教材段落</h3><p>{sections.length} 個可探索段落</p></header>
-    <div className="overview-section-list" ref={rail}><ul>{sections.map(section => <li key={section.section_id}>
-      <button type="button" className="overview-section-row" ref={section.section_id === selected?.section_id ? selectedRow : undefined}
-        aria-current={section.section_id === selected?.section_id ? "true" : undefined}
-        aria-label={`教材段落 ${section.order + 1}，${section.title}，${section.concept_ids.length} 個概念`}
-        onClick={() => selectSection(section.section_id)}>
-        <span className="overview-section-number" aria-hidden="true">{String(section.order + 1).padStart(2, "0")}</span>
-        <span className="overview-section-title" title={section.title}>{section.title}</span>
-        <span className="overview-section-count" aria-hidden="true">{section.concept_ids.length}</span>
-      </button>
-    </li>)}</ul></div>
-  </nav>;
-  const invalidReference = selected?.concept_ids.some(id => !conceptById.has(id));
-  return <section className="overview-view" aria-labelledby="overview-title">
-    <div className="view-heading"><div><h2 id="overview-title">教材結構</h2><p>依教材原本順序瀏覽段落與其中概念。</p></div></div>
-    {selected ? <div className="overview-browser surface">
-      {mobile ? <details className="overview-section-picker" ref={picker} onToggle={event => { if (event.currentTarget.open) revealSelected(); }}>
-        <summary ref={pickerSummary}>選擇教材段落<span>{selected.title}</span></summary>
-        {sectionList}
-      </details> : sectionList}
-      <section className="overview-section-detail" ref={detailPane} aria-label="段落內容">
-        <header><p>教材段落 {selected.order + 1} · {selected.concept_ids.length} 個概念</p><h3>{selected.title}</h3></header>
-        <h4>段落概念</h4>
-        {invalidReference ? <StateView title="無法顯示段落概念" description="這個段落的概念資料不完整，請重新讀取知識地圖。" tone="failure" />
-          : <ul className="overview-concepts">{selected.concept_ids.map(id => {
+  const normalizeLabel = (text: string) => text.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
+  return <div className="overview-view">
+    <div className="view-heading"><div><h2 id="overview-title">教材結構</h2><p>依教材原本順序快速瀏覽段落與概念。</p></div></div>
+    {sections.length > 0 ? <section className="overview-index surface" aria-label="教材結構">
+      <header><p>{sections.length} 個可探索段落</p></header>
+      <div className="overview-index-columns" aria-hidden="true"><span>段落</span><span>教材內容</span><span>概念</span></div>
+      <div className="overview-index-list"><ol>{sections.map(section => {
+        const sectionName = `教材段落 ${section.order + 1}，${section.title}`;
+        const number = <span className="overview-index-number" aria-hidden="true">{String(section.order + 1).padStart(2, "0")}</span>;
+        const title = <span className="overview-index-title" title={section.title}>{section.title}</span>;
+        if (section.concept_ids.some(id => !conceptById.has(id))) return <li key={section.section_id}>
+          <div className="overview-index-error" role="alert">{sectionName}：概念資料不完整，請重新讀取知識地圖。</div>
+        </li>;
+        if (section.concept_ids.length === 1) {
+          const concept = conceptById.get(section.concept_ids[0])!;
+          const sameLabel = normalizeLabel(section.title) === normalizeLabel(concept.label);
+          return <li key={section.section_id}><button className="overview-index-row" type="button"
+            aria-label={`${sectionName}${sameLabel ? "" : `，概念：${concept.label}`}，在概念地圖中查看`}
+            onClick={() => focusInMap(concept.concept_id)}>
+            {number}{title}<span className="overview-index-action">{!sameLabel && <span>{concept.label}</span>}<Icon name="chevron-right" size={18} /></span>
+          </button></li>;
+        }
+        return <li key={section.section_id}><details className="overview-index-disclosure">
+          <summary className="overview-index-row" aria-label={`${sectionName}，${section.concept_ids.length} 個概念`}>
+            {number}{title}<span className="overview-index-action"><span>{section.concept_ids.length} 個概念</span><Icon name="chevron-right" size={18} /></span>
+          </summary>
+          <ul className="overview-index-concepts">{section.concept_ids.map(id => {
             const concept = conceptById.get(id)!;
-            const preview = concept.claims.find(claim => claim.text.trim())?.text;
-            return <li key={id}><button className="overview-concept-row" type="button" aria-label={`在概念地圖中查看：${concept.label}`} onClick={() => focusInMap(id)}>
-              <span><strong>{concept.label}</strong>{preview && <span className="overview-claim-preview">{preview}</span>}</span>
-              <Icon name="chevron-right" size={18} />
+            return <li key={id}><button type="button" aria-label={`在概念地圖中查看：${concept.label}`} onClick={() => focusInMap(id)}>
+              <span>{concept.label}</span><Icon name="chevron-right" size={18} />
             </button></li>;
-          })}</ul>}
-      </section>
-    </div> : <StateView title="目前沒有可探索的教材段落" description="這份教材尚無包含概念的段落。" tone="empty" />}
+          })}</ul>
+        </details></li>;
+      })}</ol></div>
+    </section> : <StateView title="目前沒有可探索的教材段落" description="這份教材尚無包含概念的段落。" tone="empty" />}
     {view.excluded_pages.length > 0 && <section className="material-quality" aria-label="未能整理的頁面"><h3>有些頁面未能整理</h3><p>第 {view.excluded_pages.map((item) => item.page).join("、")} 頁未納入概念與練習，這些內容請從原始 PDF 閱讀。</p></section>}
-  </section>;
+  </div>;
 }
 
 type ConceptHandle = { id: string; type: "source" | "target"; position: Position; offset: number };
@@ -697,7 +659,7 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
       </div></details>}
       <div className="map-content">
         <div aria-labelledby={`map-tab-${mode}`} className="map-view" id={`map-panel-${mode}`} role="tabpanel" tabIndex={0}>
-          {mode === "overview" && <Overview selectedConceptId={selectedConceptId} focusInMap={focusInMap} view={view} />}
+          {mode === "overview" && <Overview focusInMap={focusInMap} view={view} />}
           {mode === "focus" && (
             <FocusView selectedRelationId={relationId} progress={progress} openRelation={openRelation} openConcept={openConceptDetail} selectedConceptId={selectedConceptId} focusConcept={focusConcept} detail={detail} studyAction={focusStudyAction} view={view} />
           )}
@@ -705,7 +667,7 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
         </div>
         {mode === "review" && detail}
       </div>
-      {mode !== "focus" && <div className="map-study-bar"><StudyGuide
+      {mode === "review" && <div className="map-study-bar"><StudyGuide
         mood={canResume ? "guide" : "welcome"}
         title={studyTitle}
         message={canResume ? "你的作答進度已保留。回到教材後，我會帶你完成下一個練習重點。" : "點選概念或連線查看內容。學習導覽提供建議順序，選好想學的概念後就能開始閱讀與練習。"}
