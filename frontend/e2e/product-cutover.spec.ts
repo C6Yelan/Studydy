@@ -2027,9 +2027,9 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
     await page.getByRole("button", { name: "開始學習", exact: true }).click();
     const advisory = page.getByRole("complementary", { name: "建議先了解" });
     await expect(advisory).toHaveCount(1);
-    await expect(advisory.locator("li")).toHaveText(["陣列", "Concept 3"]);
-    await expect(advisory).toContainText("如果你已經熟悉，可以直接繼續");
-    await expect(advisory.getByRole("button")).toHaveCount(0);
+    await expect(advisory.getByRole("button")).toHaveText(["查看「陣列」", "查看「Concept 3」"]);
+    await expect(advisory).toContainText("如果你已經熟悉，可以直接開始練習");
+    await expect(advisory.locator(".primary-button")).toHaveCount(0);
     await expect(page.locator(".study-header")).toContainText("第 5 / 56 個概念");
     await expect(page.getByRole("button", { name: "開始練習", exact: true })).toBeEnabled();
     if (viewport.width > 900) await expect(page.getByRole("button", { name: "開始練習", exact: true })).toBeInViewport();
@@ -2167,3 +2167,88 @@ test("failed no-safe refresh reloads current guidance without retaining an orpha
   await expect(page.locator(".study-current-action .adaptive-card")).toContainText("目前沒有適合的新題目");
   await expect(page.locator(".evidence-review-activity, .assessment-ready")).toHaveCount(0);
 });
+
+for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 390, height: 844 }]) {
+  for (const count of [1, 3]) {
+    test(`prerequisite preview ${count} concepts preserves study authority at ${viewport.width}px`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      const fixture = await studyWorkflowFixture(page);
+      const current = fixture.view.concepts[1]; current.label = "使用 sizeof 計算陣列容量";
+      const prerequisites = (count === 1 ? [fixture.view.concepts[0]] : [fixture.view.concepts[3], fixture.view.concepts[0], fixture.view.concepts[2]]);
+      prerequisites.forEach((concept, index) => {
+        concept.label = index === 0 && count === 3 ? "使用二維陣列表示資料與索引位置_" + "LongPrerequisite".repeat(4) : index === 1 || count === 1 ? "陣列索引值" : "一維陣列";
+        const evidence = concept.claims[0].evidence[0];
+        concept.claims = [3, 3, 5].map((sourcePage, i) => ({ claim_id: `claim:sha256:${(3000 + index * 3 + i).toString(16).padStart(64, "0")}`,
+          text: `前置教材 ${index + 1} 重點 ${i + 1}：元素使用索引值定位。` + (count === 3 && index === 0 && i === 2 ? "長教材內容應完整閱讀並正常換行。".repeat(24) : ""),
+          evidence: [{ ...evidence, page: sourcePage, page_ref: `page:sha256:${String(sourcePage).repeat(64)}`, source_locator: { ...evidence.source_locator, page: sourcePage } }],
+        }));
+      });
+      fixture.state.next_action.prerequisite_concept_ids = prerequisites.map(concept => concept.concept_id);
+      const snapshot = structuredClone(fixture.state);
+      const targetClaim = fixture.state.next_action.target_claim_id;
+      const study = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${sessionId}`;
+      const productRequests: string[] = [];
+      page.on("request", request => { if (/\/v1\/(study-sessions|materials)/.test(request.url())) productRequests.push(request.method() + request.url()); });
+      await page.goto(study);
+      const advisory = page.getByRole("complementary", { name: "建議先了解" });
+      await expect(advisory.getByRole("button")).toHaveText(prerequisites.map(concept => `查看「${concept.label}」`));
+      await expect(page.locator(".study-current-action .primary-button")).toHaveCount(1);
+      await expect(page.getByRole("button", { name: "開始練習", exact: true })).toBeEnabled();
+      await page.screenshot({ path: `/tmp/studydy-prerequisite-preview/${viewport.width}-${count}-ready.png`, fullPage: true });
+      for (const [index, concept] of prerequisites.entries()) {
+        const beforeRequests = productRequests.length;
+        const opener = advisory.getByRole("button", { name: `查看「${concept.label}」`, exact: true });
+        await opener.focus(); await page.keyboard.press("Enter");
+        const preview = page.locator(".assessment-prerequisite-preview");
+        await expect(preview.getByRole("heading", { name: concept.label, exact: true })).toBeFocused();
+        await expect(preview.locator(":scope > ul > li")).toHaveText(concept.claims.map(claim => claim.text));
+        await expect(preview.getByRole("region", { name: "前置概念教材來源" }).getByRole("button")).toHaveText(["第 3 頁", "第 5 頁"]);
+        await expect(page.locator(".assessment-ready, .adaptive-card")).toHaveCount(0);
+        await expect(preview.locator(".primary-button")).toHaveCount(0);
+        await expect(page.locator(".study-header h1")).toHaveText(current.label);
+        await expect(page.locator(".current-concept-card h2")).toHaveText(current.label);
+        await expect(page).toHaveURL(study);
+        expect(productRequests).toHaveLength(beforeRequests);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
+        await page.screenshot({ path: `/tmp/studydy-prerequisite-preview/${viewport.width}-${count}-open-${index}.png`, fullPage: true });
+        if (index === 0) {
+          const opened = page.waitForEvent("popup");
+          await preview.getByRole("button", { name: "第 3 頁", exact: true }).click();
+          const source = await opened; await source.waitForLoadState();
+          expect(source.url()).toContain(`/v1/artifacts/${artifactId}#page=3`);
+          expect(await source.evaluate(() => window.opener)).toBeNull(); await source.close();
+        }
+        await preview.getByRole("button", { name: "回到目前練習", exact: true }).click();
+        await expect(opener).toBeFocused();
+        await expect(preview).toHaveCount(0);
+        await expect(page.getByRole("heading", { name: `準備好練習「${current.label}」了嗎？`, exact: true })).toBeVisible();
+        expect(productRequests).toHaveLength(beforeRequests);
+        expect(fixture.state).toEqual(snapshot);
+      }
+      expect(fixture.creates).toHaveLength(0); expect(fixture.applies).toHaveLength(0); expect(fixture.completions()).toBe(0);
+      await page.getByRole("button", { name: "開始練習", exact: true }).click();
+      await expect(page.getByRole("heading", { name: /練習 1：/ })).toBeVisible();
+      expect(fixture.creates[0].body).toEqual({ schema: "assessment-create/v2", target_claim_id: targetClaim });
+      await expect(page.locator(".assessment-prerequisite-preview, .assessment-prerequisite-actions")).toHaveCount(0);
+      await page.reload(); await expect(page.getByRole("heading", { name: /練習 1：/ })).toBeVisible();
+      await expect(page.locator(".assessment-prerequisite-actions")).toHaveCount(0);
+      fixture.setStatus("completed"); await page.reload();
+      await expect(page.getByRole("heading", { name: "本次學習已完成", exact: true })).toBeVisible();
+      await expect(page.locator(".assessment-prerequisite-preview, .assessment-prerequisite-actions")).toHaveCount(0);
+    });
+  }
+  test(`preview never overlaps no-safe review at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const fixture = await studyWorkflowFixture(page); fixture.failNextAssessment();
+    fixture.state.next_action.prerequisite_concept_ids = [fixture.view.concepts[0].concept_id];
+    await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${sessionId}`);
+    await page.getByRole("button", { name: `查看「${fixture.view.concepts[0].label}」`, exact: true }).click();
+    await page.getByRole("button", { name: "回到目前練習", exact: true }).click();
+    await page.getByRole("button", { name: "開始練習", exact: true }).click();
+    await expect(page.locator(".evidence-review-activity")).toBeVisible();
+    await expect(page.locator(".assessment-prerequisite-preview, .assessment-prerequisite-actions")).toHaveCount(0);
+    await page.getByRole("button", { name: "完成本次回顧", exact: true }).click();
+    await expect(page.locator(".study-current-action .adaptive-card")).toBeVisible();
+    expect(fixture.applies).toHaveLength(0); expect(fixture.completions()).toBe(0);
+  });
+}

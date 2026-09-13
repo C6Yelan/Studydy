@@ -33,7 +33,7 @@ function assessmentError(error: unknown): AssessmentError {
   };
 }
 
-export function AssessmentPanel({ apiClient, record, completed, onAssessmentCreated, concept, assessmentTargetClaimId, assessmentTargetInvalid, prerequisiteLabels, onNoSafeReviewChange, onProgressChanged, onReloadSession, sourceArtifactId, studySessionId, view }: {
+export function AssessmentPanel({ apiClient, record, completed, onAssessmentCreated, concept, assessmentTargetClaimId, assessmentTargetInvalid, prerequisiteConcepts, onNoSafeReviewChange, onProgressChanged, onReloadSession, sourceArtifactId, studySessionId, view }: {
   apiClient: StudydyApiClient;
   record: AssessmentRecordView | null;
   completed: boolean;
@@ -41,7 +41,7 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
   concept: Concept;
   assessmentTargetClaimId: string | null;
   assessmentTargetInvalid: boolean;
-  prerequisiteLabels: string[];
+  prerequisiteConcepts: Concept[];
   onNoSafeReviewChange: (active: boolean) => void;
   onProgressChanged: (activity: "answer" | "no_safe") => Promise<void>;
   onReloadSession: () => void;
@@ -49,6 +49,7 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
   studySessionId: string;
   view: KnowledgeStructureView;
 }) {
+  const [previewPrerequisiteId, setPreviewPrerequisiteId] = useState<string | null>(null);
   const [assessment, setAssessment] = useState<AssessmentView | null>(record?.assessment ?? null);
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(record?.feedback?.selected_option_id ?? null);
   const [feedback, setFeedback] = useState<AnswerFeedbackView | null>(record?.feedback ?? null);
@@ -61,6 +62,20 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
   const submissionIntent = useRef<{ optionId: string; key: string } | null>(null);
   const questionHeading = useRef<HTMLHeadingElement>(null);
   const errorReloadFrom = useRef<KnowledgeStructureView | null>(null);
+  const previewHeading = useRef<HTMLHeadingElement>(null);
+  const prerequisiteButtons = useRef(new Map<string, HTMLButtonElement>());
+  const previewOpenerId = useRef<string | null>(null);
+  const previewPrerequisite = !assessment && !record && !completed && !requestError && !isLoading
+    ? prerequisiteConcepts.find(item => item.concept_id === previewPrerequisiteId) : undefined;
+
+  useEffect(() => {
+    if (previewPrerequisite) previewHeading.current?.focus();
+    else if (previewOpenerId.current) {
+      prerequisiteButtons.current.get(previewOpenerId.current)?.focus();
+      previewOpenerId.current = null;
+    }
+  }, [previewPrerequisite?.concept_id]);
+
 
   // resumeStudy supplies a new view only after the requested refresh succeeds.
   useEffect(() => {
@@ -93,6 +108,7 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
 
   const requestAssessment = async (newIntent: boolean) => {
     if (isLoading || !canCreateAssessment || !assessmentTargetClaimId) return;
+    setPreviewPrerequisiteId(null);
     setIsLoading(true);
     setRequestError(null);
     setAssessment(null);
@@ -245,13 +261,31 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
   );
 
 
+  if (previewPrerequisite) {
+    const pages = [...new Set(previewPrerequisite.claims.flatMap(claim => claim.evidence.map(evidence => evidence.page)))];
+    return <section className="assessment-card assessment-prerequisite-preview" aria-labelledby="prerequisite-preview-heading">
+      <p className="eyebrow">前置概念</p>
+      <h2 id="prerequisite-preview-heading" ref={previewHeading} tabIndex={-1}>{previewPrerequisite.label}</h2>
+      <h3>教材重點</h3>
+      <ul>{previewPrerequisite.claims.map(claim => <li key={claim.claim_id}>{claim.text}</li>)}</ul>
+      <section className="assessment-prerequisite-sources" aria-label="前置概念教材來源">
+        <h3>教材來源</h3><div>{pages.map(page => <button className="text-button" type="button" key={page}
+          onClick={() => window.open(apiClient.sourceArtifactUrl(sourceArtifactId, page), "_blank", "noopener,noreferrer")}>第 {page} 頁<Icon name="chevron-right" /></button>)}</div>
+      </section>
+      <div className="assessment-actions"><button className="secondary-button" type="button" onClick={() => setPreviewPrerequisiteId(null)}>回到目前練習</button></div>
+    </section>;
+  }
+
   if (!assessment) return (
     <section className="assessment-card assessment-ready">
       <div><p className="eyebrow">理解練習</p><h2>準備好練習「{concept.label}」了嗎？</h2><p>系統會依你的學習進度與目前教材重點準備一道題目。</p></div>
-      {prerequisiteLabels.length > 0 && <aside className="assessment-prerequisites" aria-label="建議先了解">
+      {!record && prerequisiteConcepts.length > 0 && <aside className="assessment-prerequisites" aria-label="建議先了解">
         <h3>建議先了解</h3>
-        <ul>{prerequisiteLabels.map((label, index) => <li key={index}>{label}</li>)}</ul>
-        <p>這些前置內容目前尚未在本次學習中掌握。如果你已經熟悉，可以直接繼續；若覺得內容較難，再回知識地圖複習即可。</p>
+        <ul className="assessment-prerequisite-actions">{prerequisiteConcepts.map(item => <li key={item.concept_id}>
+          <button className="text-button" type="button" ref={node => { if (node) prerequisiteButtons.current.set(item.concept_id, node); else prerequisiteButtons.current.delete(item.concept_id); }}
+            onClick={() => { previewOpenerId.current = item.concept_id; setPreviewPrerequisiteId(item.concept_id); }}>查看「{item.label}」</button>
+        </li>)}</ul>
+        <p>{prerequisiteConcepts.length === 1 ? "這個內容" : "這些內容"}目前尚未在本次學習中掌握。如果你已經熟悉，可以直接開始練習；需要時也可以先查看內容。</p>
       </aside>}
       <button className="primary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="learning" />開始練習</button>
     </section>

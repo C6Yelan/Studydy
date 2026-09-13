@@ -111,8 +111,8 @@ export function StudySessionPage({ apiClient, route }: {
     && nextAction.target_concept_id === current.concept_id
     && current.claims.some(claim => claim.claim_id === nextAction.target_claim_id)
     ? nextAction.target_claim_id : null;
-  const prerequisiteLabels = nextAction.action === "assess" && nextAction.target_concept_id === current.concept_id
-    ? nextAction.prerequisite_concept_ids.map(id => data.view.concepts.find(concept => concept.concept_id === id)!.label) : [];
+  const prerequisiteConcepts = nextAction.action === "assess" && nextAction.target_concept_id === current.concept_id
+    ? nextAction.prerequisite_concept_ids.map(id => data.view.concepts.find(concept => concept.concept_id === id)!) : [];
   const showAssessment = completed || !!route.assessmentRevision || nextAction.action === "assess" || noSafeReviewActive;
   const position = data.view.initial_learning_path.find(step => step.concept_id === data.progress.current_concept_id)?.position;
   const sourcePages = [...new Set(current.claims.flatMap(claim => claim.evidence.map(evidence => evidence.page)))];
@@ -140,7 +140,7 @@ export function StudySessionPage({ apiClient, route }: {
             concept={current}
             assessmentTargetClaimId={assessmentTargetClaimId}
             assessmentTargetInvalid={nextAction.action === "assess" && assessmentTargetClaimId === null}
-            prerequisiteLabels={prerequisiteLabels}
+            prerequisiteConcepts={prerequisiteConcepts}
             onNoSafeReviewChange={active => {
               setNoSafeReviewActive(active);
               if (!active && route.assessmentRevision && nextAction.action !== "assess") {

@@ -255,5 +255,12 @@
 
 .assessment-prerequisites { padding-top: var(--space-4); border-top: 1px solid var(--border); color: var(--text-secondary); font-size: 14px; }
 .assessment-prerequisites h3 { margin: 0 0 var(--space-2); font-size: 14px; color: var(--text-primary); }
-.assessment-prerequisites ul { margin: 0; padding-left: var(--space-5); overflow-wrap: anywhere; }
+.assessment-prerequisite-actions { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.assessment-prerequisite-actions .text-button { min-height: 36px; text-align: left; justify-content: flex-start; white-space: normal; overflow-wrap: anywhere; }
 .assessment-prerequisites p { margin-bottom: 0; line-height: 1.6; }
+
+.assessment-prerequisite-preview h3 { margin: var(--space-5) 0 var(--space-2); color: var(--text-secondary); font-size: 14px; }
+.assessment-prerequisite-preview > ul { margin: 0; padding-left: var(--space-5); line-height: 1.7; }
+.assessment-prerequisite-preview > ul li + li { margin-top: var(--space-3); }
+.assessment-prerequisite-sources { margin-top: var(--space-5); border-top: 1px solid var(--border); }
+.assessment-prerequisite-sources > div { display: flex; flex-wrap: wrap; gap: var(--space-3); }
