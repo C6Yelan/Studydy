@@ -117,7 +117,7 @@ test("original learning and questions survive reload, new profiles and a lost co
   expect(completed.session.status).toBe("completed");
   expect(completed.assessments[0].feedback).not.toBeNull();
   await expect(lastPage.getByRole("heading", { name: "本次學習已完成", exact: true })).toBeVisible();
-  await expect(lastPage.getByRole("button", { name: "取得目前概念的新題目", exact: true })).toHaveCount(0);
+  await expect(lastPage.getByRole("button", { name: "繼續練習", exact: true })).toHaveCount(0);
   await lastPage.getByRole("button", { name: "教材庫", exact: true }).click();
   await lastPage.getByRole("button", { name: "堆疊講義.pdf", exact: true }).click();
   const noSafeRead = resumeResponse(lastPage);

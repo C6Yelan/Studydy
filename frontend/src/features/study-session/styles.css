@@ -1,10 +1,8 @@
 .study-session-page { width: min(1180px, 100%); margin: 0 auto; padding: var(--space-7) var(--space-6) var(--space-10); }
-.study-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); margin-bottom: var(--space-5); }
+.study-header { margin-bottom: var(--space-5); }
 .study-header h1, .study-header p { margin: 0; }
 .study-header h1 { font-size: clamp(24px, 3vw, 32px); overflow-wrap: anywhere; }
 .study-header p:last-child { margin-top: var(--space-2); color: var(--text-secondary); font-size: 14px; }
-.study-header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); flex-shrink: 0; }
-.study-header-actions .text-button { color: var(--text-secondary); font-size: 13px; }
 .study-learning-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(340px, .9fr); align-items: start; gap: var(--space-5); }
 .study-learning-grid > * { min-width: 0; }
 .current-concept-card { padding: var(--space-6); }
@@ -23,15 +21,8 @@
 .study-record-picker > div { margin-top: var(--space-4); }
 .study-record-picker select { width: 100%; min-width: 0; max-width: 100%; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-input); background: var(--surface); color: var(--text-primary); }
 .study-record-picker button { justify-self: start; }
-.study-finish-confirmation { padding: var(--space-5); margin-bottom: var(--space-5); }
-.study-finish-confirmation h2 { margin: 0; font-size: 18px; }
-.study-finish-confirmation p { color: var(--text-secondary); }
-.study-finish-confirmation > div { display: flex; flex-wrap: wrap; gap: var(--space-3); }
-@media (max-width: 1199px) { .study-header { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 900px) { .study-learning-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 620px) {
   .study-session-page { padding: var(--space-5) var(--space-3) var(--space-8); }
   .current-concept-card { padding: var(--space-5); }
-  .study-header-actions { width: 100%; }
-  .study-finish-confirmation > div { flex-direction: column; }
 }

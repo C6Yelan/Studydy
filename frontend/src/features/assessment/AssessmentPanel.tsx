@@ -33,20 +33,20 @@ function assessmentError(error: unknown): AssessmentError {
   };
 }
 
-export function AssessmentPanel({ apiClient, record, completed, onAssessmentCreated, concept, recommendedClaimId, onProgressChanged, onReloadSession, sourceArtifactId, studySessionId, view }: {
+export function AssessmentPanel({ apiClient, record, completed, onAssessmentCreated, concept, assessmentTargetClaimId, assessmentTargetInvalid, onProgressChanged, onReloadSession, sourceArtifactId, studySessionId, view }: {
   apiClient: StudydyApiClient;
   record: AssessmentRecordView | null;
   completed: boolean;
   onAssessmentCreated: (revision: string) => void;
   concept: Concept;
-  recommendedClaimId: string | null;
-  onProgressChanged: () => void;
+  assessmentTargetClaimId: string | null;
+  assessmentTargetInvalid: boolean;
+  onProgressChanged: () => Promise<void>;
   onReloadSession: () => void;
   sourceArtifactId: string;
   studySessionId: string;
   view: KnowledgeStructureView;
 }) {
-  const [selectedClaimId, setSelectedClaimId] = useState(concept.claims[0].claim_id);
   const [assessment, setAssessment] = useState<AssessmentView | null>(record?.assessment ?? null);
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(record?.feedback?.selected_option_id ?? null);
   const [feedback, setFeedback] = useState<AnswerFeedbackView | null>(record?.feedback ?? null);
@@ -68,13 +68,6 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
 
 
   useEffect(() => {
-    if (recommendedClaimId && concept.claims.some((claim) => claim.claim_id === recommendedClaimId)) {
-      setSelectedClaimId(recommendedClaimId);
-      assessmentIntent.current = null;
-    }
-  }, [concept.concept_id, recommendedClaimId]);
-
-  useEffect(() => {
     if (!isLoading) return;
     const startedAt = Date.now();
     setElapsedSeconds(0);
@@ -84,8 +77,10 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
     return () => window.clearInterval(timer);
   }, [isLoading]);
 
+  const canCreateAssessment = !!assessmentTargetClaimId && !completed && !isSubmitting;
+
   const requestAssessment = async (newIntent: boolean) => {
-    if (isLoading || completed) return;
+    if (isLoading || !canCreateAssessment || !assessmentTargetClaimId) return;
     setIsLoading(true);
     setRequestError(null);
     setAssessment(null);
@@ -101,14 +96,14 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
       }, assessmentIntent.current.key);
     };
     try {
-      const next = await createForClaim(selectedClaimId, newIntent);
+      const next = await createForClaim(assessmentTargetClaimId, newIntent);
       setAssessment(next);
       onAssessmentCreated(next.assessment_revision);
       submissionIntent.current = null;
     } catch (error) {
       const nextError = assessmentError(error);
       setRequestError(nextError);
-      if (nextError.noSafeItem) onProgressChanged();
+      if (nextError.noSafeItem) await onProgressChanged();
     } finally {
       setIsLoading(false);
     }
@@ -128,7 +123,7 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
         selected_option_id: selectedOptionId,
       }, submissionIntent.current.key);
       setFeedback(next);
-      onProgressChanged();
+      await onProgressChanged();
     } catch (error) {
       setSubmissionError(assessmentError(error));
     } finally {
@@ -171,7 +166,7 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
             setFeedback(null);
             setSelectedOptionId(null);
           }}>回到教材</button>
-          {!completed && <button className="secondary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="refresh" />取得目前概念的新題目</button>}
+          {canCreateAssessment && <button className="secondary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="refresh" />繼續練習</button>}
         </div>
       </section>
     );
@@ -210,7 +205,7 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
       <div className="assessment-actions">
         <button className="secondary-button" type="button" onClick={() => setRequestError(null)}>{requestError.noSafeItem ? "完成本次回顧" : "回到教材"}</button>
         {requestError.conflict && <button className="secondary-button" type="button" onClick={onReloadSession}>重新整理本次學習</button>}
-        {requestError.retryable && <button className="primary-button" type="button" onClick={() => void requestAssessment(false)}>再試一次</button>}
+        {requestError.retryable && canCreateAssessment && <button className="primary-button" type="button" onClick={() => void requestAssessment(false)}>再試一次</button>}
       </div>
     </section>
   );
@@ -226,28 +221,21 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
 
   if (!assessment && completed) return <section className="assessment-card"><h2>本次學習已結束</h2><p>可從題目與作答紀錄選擇已保存的內容。</p></section>;
 
+  if (!assessment && assessmentTargetInvalid) return (
+    <section className="assessment-card" role="status">
+      <h2>暫時無法準備目前練習</h2>
+      <p>學習進度與教材重點不同步，請重新讀取。</p>
+      <button className="secondary-button" type="button" onClick={onReloadSession}>重新整理本次學習</button>
+    </section>
+  );
+
+  if (!assessment && !canCreateAssessment) return (
+    <section className="assessment-card"><h2>理解練習</h2><p>{isSubmitting ? "正在更新學習進度…" : "請依下方的學習指引繼續，或先回顧目前教材重點。"}</p></section>
+  );
+
   if (!assessment) return (
     <section className="assessment-card assessment-ready">
-      <div><p className="eyebrow">理解練習</p><h2>準備好練習「{concept.label}」了嗎？</h2><p>系統會依目前教材重點準備一道題目。</p></div>
-      {concept.claims.length > 1 && (
-        <details className="assessment-claim-picker"><summary>更換練習重點</summary><fieldset className="claim-picker">
-          <legend>選擇要練習的教材重點</legend>
-          {concept.claims.map((claim, index) => (
-            <label key={claim.claim_id}>
-              <input
-                type="radio"
-                name="target-claim"
-                value={claim.claim_id}
-                checked={selectedClaimId === claim.claim_id}
-                onChange={() => {
-                  setSelectedClaimId(claim.claim_id);
-                  assessmentIntent.current = null;
-                }}
-              />重點 {index + 1}：{claim.text}
-            </label>
-          ))}
-        </fieldset></details>
-      )}
+      <div><p className="eyebrow">理解練習</p><h2>準備好練習「{concept.label}」了嗎？</h2><p>系統會依你的學習進度與目前教材重點準備一道題目。</p></div>
       <button className="primary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="learning" />開始練習</button>
     </section>
   );

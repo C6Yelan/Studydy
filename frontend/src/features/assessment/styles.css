@@ -27,25 +27,8 @@
   margin-bottom: 0;
 }
 
-.claim-picker {
-  display: grid;
-  grid-column: 1 / -1;
-  gap: var(--space-2);
-}
 
-.claim-picker legend {
-  margin-bottom: var(--space-2);
-  font-weight: 600;
-}
 
-.claim-picker label {
-  display: flex;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-input);
-  color: var(--text-secondary);
-}
 
 .assessment-loading,
 .assessment-unavailable,
@@ -264,10 +247,6 @@
   }
 }
 
-.assessment-claim-picker summary { cursor: pointer; color: var(--text-secondary); font-size: 14px; padding: var(--space-2) 0; }
-.claim-picker { min-width: 0; margin: var(--space-2) 0 0; padding: 0; border: 0; }
-.claim-picker label { align-items: baseline; overflow-wrap: anywhere; cursor: pointer; }
-.claim-picker input { flex-shrink: 0; accent-color: var(--studydy-blue); }
 .assessment-ready > .primary-button { justify-self: start; min-height: 48px; }
 .assessment-actions { flex-wrap: wrap; }
 .assessment-options strong { font-weight: 500; overflow-wrap: anywhere; }

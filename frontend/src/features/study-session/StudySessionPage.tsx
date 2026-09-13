@@ -39,7 +39,6 @@ export function StudySessionPage({ apiClient, route }: {
   const [data, setData] = useState<StudyData | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirmFinish, setConfirmFinish] = useState(false);
   const [reload, setReload] = useState(0);
 
   const load = async () => {
@@ -94,14 +93,11 @@ export function StudySessionPage({ apiClient, route }: {
     finally { setBusy(false); }
   };
 
-  const complete = async () => {
-    if (busy) return;
-    setBusy(true);
-    try { await apiClient.completeStudySession(route.studySessionId); await refresh(); setConfirmFinish(false); }
-    catch (error) { setMessage(errorMessage(error)); }
-    finally { setBusy(false); }
-  };
-
+  const nextAction = data.progress.next_action;
+  const assessmentTargetClaimId = nextAction.action === "assess"
+    && nextAction.target_concept_id === current.concept_id
+    && current.claims.some(claim => claim.claim_id === nextAction.target_claim_id)
+    ? nextAction.target_claim_id : null;
   const position = data.view.initial_learning_path.find(step => step.concept_id === data.progress.current_concept_id)?.position;
   const sourcePages = [...new Set(current.claims.flatMap(claim => claim.evidence.map(evidence => evidence.page)))];
   return (
@@ -109,16 +105,7 @@ export function StudySessionPage({ apiClient, route }: {
       <header className="study-header">
         <div><p className="eyebrow">本次學習</p><h1>{completed ? "本次學習已完成" : current.label}</h1>
           <p>{position !== undefined && `第 ${position} / ${data.view.initial_learning_path.length} 個概念 · `}學習進度會自動保存。</p></div>
-        {!completed && <div className="study-header-actions">
-          <button className="text-button" aria-expanded={confirmFinish} aria-controls="study-finish-confirmation" disabled={busy} type="button" onClick={() => setConfirmFinish(value => !value)}>結束本次學習</button>
-        </div>}
       </header>
-      {!completed && confirmFinish && <section className="surface study-finish-confirmation" id="study-finish-confirmation" aria-labelledby="study-finish-title">
-        <h2 id="study-finish-title">要結束本次學習嗎？</h2>
-        <p>這會將本次學習標記為已完成，已保存的進度不會消失，之後仍可查看本次紀錄。</p>
-        <div><button className="secondary-button" disabled={busy} type="button" onClick={() => setConfirmFinish(false)}>繼續學習</button>
-          <button className="primary-button" disabled={busy} type="button" onClick={() => void complete()}>{busy ? "正在結束…" : "結束本次學習"}</button></div>
-      </section>}
       <div className="study-learning-grid">
         <article className="surface current-concept-card" aria-labelledby="study-content-title">
           <p className="eyebrow">教材重點</p><h2 id="study-content-title">{current.label}</h2>
@@ -135,8 +122,9 @@ export function StudySessionPage({ apiClient, route }: {
             completed={completed}
             onAssessmentCreated={assessmentRevision => writeRoute({ ...route, assessmentRevision }, true)}
             concept={current}
-            recommendedClaimId={data.progress.next_action.target_concept_id === current.concept_id ? data.progress.next_action.target_claim_id : null}
-            onProgressChanged={() => { void refresh(); }}
+            assessmentTargetClaimId={assessmentTargetClaimId}
+            assessmentTargetInvalid={nextAction.action === "assess" && assessmentTargetClaimId === null}
+            onProgressChanged={refresh}
             onReloadSession={() => { void refresh(); }}
             sourceArtifactId={data.sourceArtifactId}
             studySessionId={route.studySessionId}
