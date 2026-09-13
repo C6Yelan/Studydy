@@ -610,9 +610,14 @@ test("shared shell density keeps standard pages and map workspace bounded", asyn
       await expect(page.locator(".app-header")).toBeVisible();
       if (name === "study") await expect(page.locator(".study-session-page")).toBeVisible();
       else await expect(page.getByRole("heading", { name: heading, exact: true }).first()).toBeVisible();
-      expect((await page.locator(".app-header").boundingBox())!.height).toBe(name === "map" ? 56 : viewport.width > 900 ? 74 : 72);
-      if (name === "map") await expect(page.locator(".app-sidebar")).toHaveCount(0);
-      else if (!["home", "materials", "maps", "upload", "processing", "study"].includes(name) && viewport.width > 900) await expect(page.locator(".sidebar-helper")).toBeVisible();
+      expect((await page.locator(".app-header").boundingBox())!.height).toBe(["map", "study"].includes(name) ? 56 : viewport.width > 900 ? 74 : 72);
+      if (["map", "study"].includes(name)) await expect(page.locator(".app-sidebar")).toHaveCount(0);
+      else {
+        await expect(page.locator(".app-sidebar")).toHaveCount(1);
+        await expect(page.locator(".brand small")).toHaveText("AI 智慧學習平台");
+        await expect(page.locator(".account-avatar")).toHaveCount(1);
+      }
+      if (!["map", "home", "materials", "maps", "upload", "processing", "study"].includes(name) && viewport.width > 900) await expect(page.locator(".sidebar-helper")).toBeVisible();
       if (["home", "materials", "maps", "upload", "processing", "study"].includes(name)) await expect(page.locator(".sidebar-helper")).toHaveCount(0);
       const widths: Record<string, string> = { home: "1260px", materials: "1260px", maps: "1260px", detail: "1018px", processing: "1180px", upload: "1180px" };
       if (widths[name]) expect(await page.locator(".app-main > *").first().evaluate(element => getComputedStyle(element).maxWidth)).toBe(widths[name]);
@@ -1637,7 +1642,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
     await expect(page.getByRole("button", { name: "結束本次學習", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "取得目前概念的新題目" })).toHaveCount(0);
     await snap("completed");
-    await page.getByRole("button", { name: "回到知識地圖", exact: true }).click(); await expect(page).toHaveURL(map);
+    await page.getByRole("navigation", { name: "學習工作區導覽" }).getByRole("button", { name: "知識地圖", exact: true }).click(); await expect(page).toHaveURL(map);
   });
 }
 
@@ -1704,7 +1709,7 @@ test("Materials resumes the exact saved study and completed unanswered records s
   await expect(page.getByRole("button", { name: "送出答案", exact: true })).toBeDisabled();
   for (const radio of await page.getByRole("radio").all()) await expect(radio).toBeDisabled();
   expect(fixture.answers).toHaveLength(0);
-  await page.getByRole("button", { name: "回到知識地圖", exact: true }).click(); await expect(page).toHaveURL(map);
+  await page.getByRole("navigation", { name: "學習工作區導覽" }).getByRole("button", { name: "知識地圖", exact: true }).click(); await expect(page).toHaveURL(map);
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "RESOURCE_NOT_FOUND", retryable: false, message: "Request could not be completed." }, 404));
   await page.goto(study);
   await expect(page.getByRole("heading", { name: "無法開啟本次學習", exact: true })).toBeVisible();
@@ -1732,5 +1737,56 @@ for (const width of [1100, 390]) {
     await page.screenshot({ path: `/tmp/studydy-study-workflow/${width}-long-options.png`, fullPage: true });
     await page.getByRole("radio").nth(2).check(); await page.getByRole("button", { name: "送出答案" }).click();
     await expect(page.getByRole("heading", { name: "這題需要再想一下" })).toBeVisible();
+  });
+}
+
+for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 390, height: 844 }]) {
+  test(`learning workspace shell stays stable from Map to Study at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await routes(page);
+    const map = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
+    const study = `${map}/study-sessions/${sessionId}`;
+    const nav = page.getByRole("navigation", { name: "學習工作區導覽" });
+    const shellState = async () => {
+      await expect(page.locator(".app-shell")).toHaveClass("app-shell is-workspace");
+      await expect(page.locator(".app-sidebar, .sidebar-helper, .brand small, .account-avatar")).toHaveCount(0);
+      await expect(nav.getByRole("button")).toHaveText(["知識地圖", "教材庫", "處理狀態"]);
+      await expect(page.getByRole("button", { name: "登出", exact: true })).toBeInViewport();
+      await expect(nav.getByRole("button", { name: "知識地圖", exact: true })).toBeInViewport();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
+      expect((await page.locator(".app-main").boundingBox())!.x).toBe(0);
+      const geometry = [];
+      for (const selector of [".app-header", ".brand", ".workspace-nav", ".account-controls"]) geometry.push(await page.locator(selector).boundingBox());
+      expect(geometry[0]!.height).toBe(56);
+      return geometry;
+    };
+    await page.goto(map);
+    await expect(page.getByRole("button", { name: "開始學習", exact: true })).toBeEnabled();
+    await expect(nav.getByRole("button", { name: "知識地圖", exact: true })).toHaveAttribute("aria-current", "page");
+    const before = await shellState();
+    await page.screenshot({ path: `/tmp/studydy-learning-shell/${viewport.width}-map.png`, fullPage: true });
+    await page.getByRole("button", { name: "開始學習", exact: true }).click();
+    await expect(page).toHaveURL(study);
+    await expect(page.getByRole("button", { name: "開始練習", exact: true })).toBeVisible();
+    await expect(nav.getByRole("button", { name: "知識地圖", exact: true })).not.toHaveAttribute("aria-current");
+    await expect(page.locator(".study-header").getByRole("button", { name: "回到知識地圖" })).toHaveCount(0);
+    await expect(page.locator(".study-header").getByRole("button", { name: "結束本次學習" })).toHaveCount(1);
+    expect(await shellState()).toEqual(before);
+    const content = (await page.locator(".study-session-page").boundingBox())!;
+    expect(content.width).toBeLessThanOrEqual(1180);
+    const card = (await page.locator(".current-concept-card").boundingBox())!;
+    expect(card.x).toBeGreaterThan(content.x);
+    await page.screenshot({ path: `/tmp/studydy-learning-shell/${viewport.width}-study.png`, fullPage: true });
+    await nav.getByRole("button", { name: "知識地圖", exact: true }).click(); await expect(page).toHaveURL(map);
+    await nav.getByRole("button", { name: "知識地圖", exact: true }).click(); await expect(page).toHaveURL(map);
+    await page.goto(study); await expect(page.locator(".study-header")).toBeVisible();
+    await nav.getByRole("button", { name: "處理狀態", exact: true }).click();
+    await expect(page).toHaveURL(`/materials/${materialId}/runs/${runId}`);
+    await expect(page.locator(".app-sidebar")).toHaveCount(1);
+    await page.goto(map); await nav.getByRole("button", { name: "處理狀態", exact: true }).click();
+    await expect(page).toHaveURL(`/materials/${materialId}/runs/${runId}`);
+    await page.route("**/v1/materials", route => json(route, { schema: "material-library/v2", materials: [] }));
+    await page.goto(study); await nav.getByRole("button", { name: "教材庫", exact: true }).click();
+    await expect(page).toHaveURL("/materials"); await expect(page.locator(".app-sidebar")).toHaveCount(1);
   });
 }

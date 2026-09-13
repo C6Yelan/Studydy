@@ -22,7 +22,6 @@
 .app-main { grid-column: 2; grid-row: 2; min-width: 0; padding: 34px 50px 48px; }
 .app-shell.is-standard .app-main > * { max-width: 1018px; margin-left: 0; margin-right: auto; }
 .app-shell.is-standard .app-main > .task-page { width: 100%; max-width: 1180px; }
-.app-shell.is-workspace .app-main { padding: 28px 32px 40px; }
 @media (max-width: 1100px) { .app-main { padding: 28px; } .app-shell { grid-template-columns: 240px minmax(0, 1fr); } }
 @media (max-width: 900px) {
  .app-shell { --shell-header-height: 72px; grid-template-columns: 1fr; grid-template-rows: var(--shell-header-height) auto minmax(0, 1fr); }
@@ -32,24 +31,26 @@
  .app-sidebar { position: static; grid-column: 1; grid-row: 2; height: auto; min-height: 0; padding: 8px 12px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border-light); }
  .app-sidebar nav { display: flex; width: max-content; } .app-sidebar nav > button { min-height: 44px; width: auto; white-space: nowrap; padding: 0 14px; }
  .sidebar-helper { display: none; } .nav-unavailable { display: none; }
- .app-main, .app-shell.is-workspace .app-main { grid-column: 1; grid-row: 3; padding: 24px 18px 40px; }
+ .app-main { grid-column: 1; grid-row: 3; padding: 24px 18px 40px; }
 }
 
-/* Recovered map workspace: keep its full-width canvas independent of dashboard layout. */
-.app-shell.is-map-workspace { grid-template-columns: 1fr; grid-template-rows: 56px minmax(0, 1fr); }
-.is-map-workspace .app-header { position: sticky; top: 0; height: 56px; padding: 0 20px; gap: 24px; }
-.is-map-workspace .brand { gap: 8px; font-size: 1.45rem; }
-.is-map-workspace .brand img { width: 34px; height: 34px; }
-.is-map-workspace .account-avatar { display: none; }
-.is-map-workspace .account-controls .secondary-button { min-height: 36px; }
-.map-workspace-nav { display: flex; justify-content: flex-end; gap: 12px; margin-left: auto; }
-.map-workspace-nav button { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: 14px; }
-.map-workspace-nav button:hover { background: var(--page-cool); }
-.app-shell.is-map-workspace .app-main { grid-column: 1; grid-row: 2; padding: 0; }
+/* Learning pages share one compact shell; each page owns its content padding. */
+.app-shell.is-workspace { --shell-header-height: 56px; grid-template-columns: 1fr; grid-template-rows: 56px minmax(0, 1fr); }
+.is-workspace .app-header { position: sticky; top: 0; height: 56px; padding: 0 20px; gap: 24px; }
+.is-workspace .brand { gap: 8px; font-size: 1.45rem; }
+.is-workspace .brand img { width: 34px; height: 34px; }
+.is-workspace .account-controls .secondary-button { min-height: 36px; }
+.workspace-nav { display: flex; justify-content: flex-end; gap: 12px; margin-left: auto; }
+.workspace-nav button { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: 14px; }
+.workspace-nav button:hover { background: var(--page-cool); }
+.workspace-nav button[aria-current="page"] { color: var(--studydy-blue); background: var(--studydy-blue-soft); }
+.app-shell.is-workspace .app-main { grid-column: 1; grid-row: 2; padding: 0; }
 @media (max-width: 620px) {
-  .is-map-workspace .app-header { padding: 0 12px; gap: 8px; }
-  .map-workspace-nav { gap: 4px; }
-  .map-workspace-nav button { padding: 4px 8px; font-size: 12px; }
-  .map-workspace-nav svg { display: none; }
-  .is-map-workspace .account-controls .secondary-button { min-width: 52px; padding: 4px 8px; }
+  .is-workspace .app-header { padding: 0 12px; gap: 8px; }
+  .is-workspace .brand { gap: 4px; font-size: 20px; }
+  .is-workspace .brand img { width: 28px; height: 28px; }
+  .workspace-nav { gap: 0; }
+  .workspace-nav button { padding: 4px; font-size: 12px; }
+  .workspace-nav svg { display: none; }
+  .is-workspace .account-controls .secondary-button { min-width: 52px; padding: 4px 8px; }
 }

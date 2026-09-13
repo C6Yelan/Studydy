@@ -109,10 +109,9 @@ export function StudySessionPage({ apiClient, route }: {
       <header className="study-header">
         <div><p className="eyebrow">本次學習</p><h1>{completed ? "本次學習已完成" : current.label}</h1>
           <p>{position !== undefined && `第 ${position} / ${data.view.initial_learning_path.length} 個概念 · `}學習進度會自動保存。</p></div>
-        <div className="study-header-actions">
-          <button className="secondary-button" type="button" onClick={back}>回到知識地圖</button>
-          {!completed && <button className="text-button" aria-expanded={confirmFinish} aria-controls="study-finish-confirmation" disabled={busy} type="button" onClick={() => setConfirmFinish(value => !value)}>結束本次學習</button>}
-        </div>
+        {!completed && <div className="study-header-actions">
+          <button className="text-button" aria-expanded={confirmFinish} aria-controls="study-finish-confirmation" disabled={busy} type="button" onClick={() => setConfirmFinish(value => !value)}>結束本次學習</button>
+        </div>}
       </header>
       {!completed && confirmFinish && <section className="surface study-finish-confirmation" id="study-finish-confirmation" aria-labelledby="study-finish-title">
         <h2 id="study-finish-title">要結束本次學習嗎？</h2>
