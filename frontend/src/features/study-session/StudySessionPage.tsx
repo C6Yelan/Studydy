@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { AssessmentRecordView, KnowledgeStructureView, LearnerProgressView, StudySessionView } from "../../api/contracts";
@@ -29,7 +29,8 @@ function validBinding(route: Extract<AppRoute, { name: "study-session" }>, data:
     && data.session.material_id === route.materialId
     && data.progress.concept_states.length === concepts.size
     && data.progress.concept_states.every((state) => concepts.has(state.concept_id))
-    && (data.progress.current_concept_id === null || concepts.has(data.progress.current_concept_id));
+    && (data.progress.current_concept_id === null || concepts.has(data.progress.current_concept_id))
+    && data.progress.next_action.prerequisite_concept_ids.every(id => concepts.has(id));
 }
 
 export function StudySessionPage({ apiClient, route }: {
@@ -40,6 +41,8 @@ export function StudySessionPage({ apiClient, route }: {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
+  const [noSafeReviewActive, setNoSafeReviewActive] = useState(false);
+  const activePage = useRef(false);
 
   const load = async () => {
     const restored = await apiClient.resumeStudy(route);
@@ -52,20 +55,30 @@ export function StudySessionPage({ apiClient, route }: {
 
   useEffect(() => {
     let cancelled = false;
+    activePage.current = true;
+    setNoSafeReviewActive(false);
     setData(null);
     setMessage(null);
     void load().then((next) => {
       if (cancelled) return;
       setData(next);
-      if (!route.assessmentRevision && next.selectedAssessmentRevision) {
+      if (!route.assessmentRevision && next.selectedAssessmentRevision
+        && (next.progress.next_action.action === "assess" || next.session.status === "completed")) {
         writeRoute({ ...route, assessmentRevision: next.selectedAssessmentRevision }, true);
       }
     }, (error) => { if (!cancelled) setMessage(errorMessage(error)); });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; activePage.current = false; };
   }, [apiClient, reload, route]);
 
-  const refresh = async () => {
-    try { setData(await load()); } catch (error) { setMessage(errorMessage(error)); }
+  const refresh = async (activity?: "answer" | "no_safe") => {
+    try {
+      const next = await load();
+      if (!activePage.current) return;
+      setData(next);
+      if (activity === "answer" && next.progress.next_action.action !== "assess") {
+        writeRoute({ ...route, assessmentRevision: undefined }, true);
+      }
+    } catch (error) { setMessage(errorMessage(error)); }
   };
 
   const back = () => writeRoute({
@@ -98,6 +111,9 @@ export function StudySessionPage({ apiClient, route }: {
     && nextAction.target_concept_id === current.concept_id
     && current.claims.some(claim => claim.claim_id === nextAction.target_claim_id)
     ? nextAction.target_claim_id : null;
+  const prerequisiteLabels = nextAction.action === "assess" && nextAction.target_concept_id === current.concept_id
+    ? nextAction.prerequisite_concept_ids.map(id => data.view.concepts.find(concept => concept.concept_id === id)!.label) : [];
+  const showAssessment = completed || !!route.assessmentRevision || nextAction.action === "assess" || noSafeReviewActive;
   const position = data.view.initial_learning_path.find(step => step.concept_id === data.progress.current_concept_id)?.position;
   const sourcePages = [...new Set(current.claims.flatMap(claim => claim.evidence.map(evidence => evidence.page)))];
   return (
@@ -114,8 +130,8 @@ export function StudySessionPage({ apiClient, route }: {
             {sourcePages.map(page => <button className="text-button" key={page} type="button" onClick={() => window.open(apiClient.sourceArtifactUrl(data.sourceArtifactId, page), "_blank", "noopener,noreferrer")}>第 {page} 頁<Icon name="chevron-right" /></button>)}
           </div></section>
         </article>
-        <div id="assessment-panel">
-          <AssessmentPanel
+        <div className="study-current-action" id="assessment-panel">
+          {showAssessment ? <AssessmentPanel
             key={`${data.session.study_session_id}/${current.concept_id}/${selectedRecord?.assessment.assessment_revision ?? "new"}/${selectedRecord?.feedback?.answer_event_id ?? "unanswered"}`}
             apiClient={apiClient}
             record={selectedRecord}
@@ -124,16 +140,22 @@ export function StudySessionPage({ apiClient, route }: {
             concept={current}
             assessmentTargetClaimId={assessmentTargetClaimId}
             assessmentTargetInvalid={nextAction.action === "assess" && assessmentTargetClaimId === null}
+            prerequisiteLabels={prerequisiteLabels}
+            onNoSafeReviewChange={active => {
+              setNoSafeReviewActive(active);
+              if (!active && route.assessmentRevision && nextAction.action !== "assess") {
+                writeRoute({ ...route, assessmentRevision: undefined }, true);
+              }
+            }}
             onProgressChanged={refresh}
             onReloadSession={() => { void refresh(); }}
             sourceArtifactId={data.sourceArtifactId}
             studySessionId={route.studySessionId}
             view={data.view}
-          />
+          /> : <GuidanceNextStep progress={data.progress} view={data.view} isApplying={busy} onApply={() => void apply()} />}
         </div>
       </div>
       <div className="study-followup">
-        {!completed && <GuidanceNextStep progress={data.progress} view={data.view} isApplying={busy} onApply={() => void apply()} />}
         <LearningInsights currentConceptId={current.concept_id} progress={data.progress} />
         {data.records.length > 0 && <details className="surface study-record-picker">
           <summary>題目與作答紀錄（{data.records.length}）</summary>

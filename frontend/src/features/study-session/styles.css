@@ -26,3 +26,7 @@
   .study-session-page { padding: var(--space-5) var(--space-3) var(--space-8); }
   .current-concept-card { padding: var(--space-5); }
 }
+
+.study-current-action .adaptive-card { grid-template-columns: minmax(0, 1fr); }
+.study-current-action .adaptive-card .primary-button { justify-self: start; }
+@media (max-width: 620px) { .study-current-action .adaptive-card .primary-button { justify-self: stretch; } }

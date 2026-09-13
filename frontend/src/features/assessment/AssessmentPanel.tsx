@@ -33,7 +33,7 @@ function assessmentError(error: unknown): AssessmentError {
   };
 }
 
-export function AssessmentPanel({ apiClient, record, completed, onAssessmentCreated, concept, assessmentTargetClaimId, assessmentTargetInvalid, onProgressChanged, onReloadSession, sourceArtifactId, studySessionId, view }: {
+export function AssessmentPanel({ apiClient, record, completed, onAssessmentCreated, concept, assessmentTargetClaimId, assessmentTargetInvalid, prerequisiteLabels, onNoSafeReviewChange, onProgressChanged, onReloadSession, sourceArtifactId, studySessionId, view }: {
   apiClient: StudydyApiClient;
   record: AssessmentRecordView | null;
   completed: boolean;
@@ -41,7 +41,9 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
   concept: Concept;
   assessmentTargetClaimId: string | null;
   assessmentTargetInvalid: boolean;
-  onProgressChanged: () => Promise<void>;
+  prerequisiteLabels: string[];
+  onNoSafeReviewChange: (active: boolean) => void;
+  onProgressChanged: (activity: "answer" | "no_safe") => Promise<void>;
   onReloadSession: () => void;
   sourceArtifactId: string;
   studySessionId: string;
@@ -113,7 +115,10 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
     } catch (error) {
       const nextError = assessmentError(error);
       setRequestError(nextError);
-      if (nextError.noSafeItem) await onProgressChanged();
+      if (nextError.noSafeItem) {
+        onNoSafeReviewChange(true);
+        await onProgressChanged("no_safe");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -133,7 +138,7 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
         selected_option_id: selectedOptionId,
       }, submissionIntent.current.key);
       setFeedback(next);
-      await onProgressChanged();
+      await onProgressChanged("answer");
     } catch (error) {
       setSubmissionError(assessmentError(error));
     } finally {
@@ -209,7 +214,7 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
       )}
       <div className="assessment-actions">
         {requestError.noSafeItem
-          ? <button className="secondary-button" type="button" onClick={() => setRequestError(null)}>完成本次回顧</button>
+          ? <button className="secondary-button" disabled={isLoading} type="button" onClick={() => { setRequestError(null); onNoSafeReviewChange(false); }}>完成本次回顧</button>
           : requestError.retryable && canCreateAssessment
             ? <button className="primary-button" type="button" onClick={() => void requestAssessment(false)}>再試一次</button>
             : <button className="secondary-button" type="button" onClick={() => {
@@ -231,7 +236,7 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
 
   if (!assessment && completed) return <section className="assessment-card"><h2>本次學習已結束</h2><p>可從題目與作答紀錄選擇已保存的內容。</p></section>;
 
-  if (!assessment && assessmentTargetInvalid) return (
+  if (!assessment && (assessmentTargetInvalid || !canCreateAssessment)) return (
     <section className="assessment-card" role="status">
       <h2>暫時無法準備目前練習</h2>
       <p>學習進度與教材重點不同步，請重新讀取。</p>
@@ -239,13 +244,15 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
     </section>
   );
 
-  if (!assessment && !canCreateAssessment) return (
-    <section className="assessment-card"><h2>理解練習</h2><p>{isSubmitting ? "正在更新學習進度…" : "請依下方的學習指引繼續，或先回顧目前教材重點。"}</p></section>
-  );
 
   if (!assessment) return (
     <section className="assessment-card assessment-ready">
       <div><p className="eyebrow">理解練習</p><h2>準備好練習「{concept.label}」了嗎？</h2><p>系統會依你的學習進度與目前教材重點準備一道題目。</p></div>
+      {prerequisiteLabels.length > 0 && <aside className="assessment-prerequisites" aria-label="建議先了解">
+        <h3>建議先了解</h3>
+        <ul>{prerequisiteLabels.map((label, index) => <li key={index}>{label}</li>)}</ul>
+        <p>這些前置內容目前尚未在本次學習中掌握。如果你已經熟悉，可以直接繼續；若覺得內容較難，再回知識地圖複習即可。</p>
+      </aside>}
       <button className="primary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="learning" />開始練習</button>
     </section>
   );
