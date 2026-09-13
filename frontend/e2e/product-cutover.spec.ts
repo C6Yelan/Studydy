@@ -1836,6 +1836,8 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
     Object.assign(fixture.state.next_action, { action: "assess", target_concept_id: fixture.state.current_concept_id, target_claim_id: claims[1].claim_id });
     release();
     await expect(page.getByRole("button", { name: "繼續練習", exact: true })).toBeVisible();
+    await expect(page.locator(".feedback-card .assessment-actions button")).toHaveText(["繼續練習"]);
+    await expect(page.locator(".feedback-card")).not.toContainText("回到教材");
     await page.screenshot({ path: `/tmp/studydy-system-flow/${viewport.width}-assess-again.png`, fullPage: true });
     await page.getByRole("button", { name: "繼續練習", exact: true }).click();
     await expect(page.getByRole("heading", { name: /練習 2：/ })).toBeVisible();
@@ -1876,7 +1878,8 @@ for (const action of ["advance", "review_prerequisite", "defer", "complete"]) {
     await expect(page.getByRole("heading", { name: "答對了", exact: true })).toBeVisible();
     await expect(page.locator(".adaptive-card")).toBeVisible();
     await expect(page.getByRole("button", { name: /繼續練習|取得目前概念的新題目|再出一題/ })).toHaveCount(0);
-    await page.getByRole("button", { name: "回到教材", exact: true }).click();
+    await expect(page.locator(".feedback-card .assessment-actions")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "回到教材", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "開始練習" })).toHaveCount(0);
     expect(fixture.creates).toHaveLength(1); expect(fixture.completions()).toBe(0);
   });
@@ -1913,3 +1916,69 @@ test("leaving for Map Materials and Processing preserves the same active study a
   expect(fixture.records[0]).toEqual(record); expect(fixture.state).toEqual(savedProgress);
   expect(material.study_sessions[0].status).toBe("active"); expect(fixture.answers).toHaveLength(0);
 });
+
+for (const viewport of [{ width: 1536, height: 1024 }, { width: 390, height: 844 }]) {
+  for (const kind of ["retryable", "conflict", "non-retryable"] as const) {
+    test(`assessment error actions ${kind} at ${viewport.width}px`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      const fixture = await studyWorkflowFixture(page);
+      let reject = true;
+      const attempts: string[] = [];
+      await page.route(`**/v1/study-sessions/${sessionId}/assessments`, route => {
+        attempts.push(route.request().headers()["idempotency-key"]);
+        if (!reject) return route.fallback();
+        return json(route, { schema: "api-error/v1", request_id: sessionId,
+          reason_code: kind === "retryable" ? "STORAGE_UNAVAILABLE" : kind === "conflict" ? "IDEMPOTENCY_CONFLICT" : "REQUEST_INVALID",
+          retryable: kind === "retryable", message: "Request could not be completed." }, kind === "retryable" ? 503 : kind === "conflict" ? 409 : 400);
+      });
+      const study = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${sessionId}`;
+      await page.goto(study); await page.getByRole("button", { name: "開始練習", exact: true }).click();
+      const panel = page.locator(".assessment-unavailable");
+      await expect(panel.getByRole("heading", { name: "暫時無法準備練習題", exact: true })).toBeVisible();
+      await expect(panel).not.toContainText("回到教材");
+      await expect(panel.locator(".assessment-actions button")).toHaveText([kind === "retryable" ? "再試一次" : "重新整理本次學習"]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
+      await page.screenshot({ path: `/tmp/studydy-assessment-actions/${viewport.width}-${kind}.png`, fullPage: true });
+      reject = false;
+      if (kind === "retryable") await panel.getByRole("button", { name: "再試一次" }).click();
+      else {
+        const release = fixture.holdProgress();
+        await panel.getByRole("button", { name: "重新整理本次學習" }).click();
+        await expect(panel).toBeVisible();
+        await expect(page.getByRole("button", { name: "開始練習", exact: true })).toHaveCount(0);
+        release();
+        await page.getByRole("button", { name: "開始練習", exact: true }).click();
+      }
+      await expect(page.getByRole("heading", { name: /練習 1：/ })).toBeVisible();
+      if (kind === "retryable") expect(attempts[1]).toBe(attempts[0]);
+      if (kind !== "retryable") return;
+      await page.getByRole("radio").nth(1).check(); await page.getByRole("button", { name: "送出答案" }).click();
+      await expect(page.getByRole("heading", { name: "這題需要再想一下", exact: true })).toBeVisible();
+      Object.assign(fixture.state.next_action, { action: "advance", target_concept_id: fixture.view.concepts[2].concept_id, target_claim_id: null });
+      await page.reload();
+      await expect(page.getByRole("heading", { name: "可以繼續下一個重點", exact: true })).toBeVisible();
+      await expect(page.locator(".feedback-card .assessment-actions")).toHaveCount(0);
+      await expect(page.locator(".feedback-card")).not.toContainText("回到教材");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
+      await page.screenshot({ path: `/tmp/studydy-assessment-actions/${viewport.width}-incorrect-advance.png`, fullPage: true });
+      await page.getByRole("button", { name: "繼續學習", exact: true }).click();
+      await expect(page.locator(".study-header h1")).toHaveText(fixture.view.concepts[2].label);
+    });
+  }
+  test(`no-safe review closes locally with one honest action at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const fixture = await studyWorkflowFixture(page); fixture.failNextAssessment();
+    const study = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${sessionId}`;
+    await page.goto(study); await page.getByRole("button", { name: "開始練習", exact: true }).click();
+    const panel = page.locator(".assessment-unavailable");
+    await expect(panel.getByRole("heading", { name: "改用教材回顧", exact: true })).toBeVisible();
+    await expect(panel).not.toContainText("回到教材");
+    await expect(panel.locator(".assessment-actions button")).toHaveText(["完成本次回顧"]);
+    await page.screenshot({ path: `/tmp/studydy-assessment-actions/${viewport.width}-no-safe.png`, fullPage: true });
+    await panel.getByRole("button", { name: "完成本次回顧", exact: true }).click();
+    await expect(page.locator(".evidence-review-activity")).toHaveCount(0);
+    await expect(page).toHaveURL(study);
+    await expect(page.getByRole("heading", { name: "目前沒有適合的新題目", exact: true })).toBeVisible();
+    expect(fixture.completions()).toBe(0); expect(fixture.answers).toHaveLength(0);
+  });
+}

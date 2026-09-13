@@ -11,7 +11,7 @@ type AssessmentError = { conflict: boolean; message: string; noSafeItem: boolean
 function assessmentError(error: unknown): AssessmentError {
   if (error instanceof ApiClientError && error.reasonCode === "NO_SAFE_ASSESSMENT") {
     return {
-      message: "目前沒有可安全提供的新題目。你可以先回到教材重點，或稍後再試。",
+      message: "目前沒有可安全提供的新題目。你可以先閱讀教材重點，或稍後再試。",
       conflict: false,
       noSafeItem: true,
       retryable: false,
@@ -58,6 +58,16 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
   const assessmentIntent = useRef<{ claimId: string; key: string } | null>(null);
   const submissionIntent = useRef<{ optionId: string; key: string } | null>(null);
   const questionHeading = useRef<HTMLHeadingElement>(null);
+  const errorReloadFrom = useRef<KnowledgeStructureView | null>(null);
+
+  // resumeStudy supplies a new view only after the requested refresh succeeds.
+  useEffect(() => {
+    if (errorReloadFrom.current && errorReloadFrom.current !== view) {
+      errorReloadFrom.current = null;
+      setRequestError(null);
+    }
+  }, [view]);
+
 
   // Creating or resuming an unanswered question remounts this panel at its exact route.
   useEffect(() => {
@@ -160,14 +170,9 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
             >原始教材第 {page} 頁<Icon name="chevron-right" /></button>
           ))}
         </div>
-        <div className="assessment-actions">
-          <button className="secondary-button" type="button" onClick={() => {
-            setAssessment(null);
-            setFeedback(null);
-            setSelectedOptionId(null);
-          }}>回到教材</button>
-          {canCreateAssessment && <button className="secondary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="refresh" />繼續練習</button>}
-        </div>
+        {canCreateAssessment && <div className="assessment-actions">
+          <button className="secondary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="refresh" />繼續練習</button>
+        </div>}
       </section>
     );
   }
@@ -203,9 +208,14 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
         </div>
       )}
       <div className="assessment-actions">
-        <button className="secondary-button" type="button" onClick={() => setRequestError(null)}>{requestError.noSafeItem ? "完成本次回顧" : "回到教材"}</button>
-        {requestError.conflict && <button className="secondary-button" type="button" onClick={onReloadSession}>重新整理本次學習</button>}
-        {requestError.retryable && canCreateAssessment && <button className="primary-button" type="button" onClick={() => void requestAssessment(false)}>再試一次</button>}
+        {requestError.noSafeItem
+          ? <button className="secondary-button" type="button" onClick={() => setRequestError(null)}>完成本次回顧</button>
+          : requestError.retryable && canCreateAssessment
+            ? <button className="primary-button" type="button" onClick={() => void requestAssessment(false)}>再試一次</button>
+            : <button className="secondary-button" type="button" onClick={() => {
+              errorReloadFrom.current = view;
+              onReloadSession();
+            }}>重新整理本次學習</button>}
       </div>
     </section>
   );
