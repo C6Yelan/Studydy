@@ -32,30 +32,6 @@ function validBinding(route: Extract<AppRoute, { name: "study-session" }>, data:
     && (data.progress.current_concept_id === null || concepts.has(data.progress.current_concept_id));
 }
 
-function SessionPath({ progress, view }: { progress: LearnerProgressView; view: KnowledgeStructureView }) {
-  const mastered = new Set(progress.concept_states.filter((state) => state.status === "mastered").map((state) => state.concept_id));
-  const deferred = new Set(progress.deferred_concept_ids);
-  return (
-    <section className="surface session-path" aria-labelledby="session-path-title">
-      <p className="eyebrow">你的學習方向</p>
-      <h2 id="session-path-title">教材建議學習順序</h2>
-      <p>只有教材中的 prerequisite 關係能調整這份順序。</p>
-      <ol>
-        {view.initial_learning_path.map((step) => {
-          const concept = view.concepts.find((item) => item.concept_id === step.concept_id)!;
-          const current = step.concept_id === progress.current_concept_id;
-          return (
-            <li className={current ? "is-current" : mastered.has(step.concept_id) ? "is-completed" : deferred.has(step.concept_id) ? "is-deferred" : undefined} key={step.concept_id}>
-              <span>{step.position}</span>
-              <div><strong>{concept.label}</strong><small>{current ? "目前" : mastered.has(step.concept_id) ? "已掌握" : deferred.has(step.concept_id) ? "稍後回來" : step.reason === "prerequisite" ? "依前置概念安排" : "依教材順序"}</small></div>
-            </li>
-          );
-        })}
-      </ol>
-    </section>
-  );
-}
-
 export function StudySessionPage({ apiClient, route }: {
   apiClient: StudydyApiClient;
   route: Extract<AppRoute, { name: "study-session" }>;
@@ -63,6 +39,7 @@ export function StudySessionPage({ apiClient, route }: {
   const [data, setData] = useState<StudyData | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmFinish, setConfirmFinish] = useState(false);
   const [reload, setReload] = useState(0);
 
   const load = async () => {
@@ -120,65 +97,68 @@ export function StudySessionPage({ apiClient, route }: {
   const complete = async () => {
     if (busy) return;
     setBusy(true);
-    try { await apiClient.completeStudySession(route.studySessionId); await refresh(); }
+    try { await apiClient.completeStudySession(route.studySessionId); await refresh(); setConfirmFinish(false); }
     catch (error) { setMessage(errorMessage(error)); }
     finally { setBusy(false); }
   };
 
+  const position = data.view.initial_learning_path.find(step => step.concept_id === data.progress.current_concept_id)?.position;
+  const sourcePages = [...new Set(current.claims.flatMap(claim => claim.evidence.map(evidence => evidence.page)))];
   return (
     <section className="study-session-page">
       <header className="study-header">
-        <div><p className="eyebrow">本次學習</p><h1>{completed ? "本次學習已完成" : current.label}</h1><p>指引只更新本次 Session，不會改寫教材 Map 或 Path。</p></div>
-        {completed ? <button className="secondary-button" type="button" onClick={back}>回到知識地圖</button>
-          : <button className="secondary-button" disabled={busy} type="button" onClick={() => void complete()}><Icon name="check" />完成本次學習</button>}
+        <div><p className="eyebrow">本次學習</p><h1>{completed ? "本次學習已完成" : current.label}</h1>
+          <p>{position !== undefined && `第 ${position} / ${data.view.initial_learning_path.length} 個概念 · `}學習進度會自動保存。</p></div>
+        <div className="study-header-actions">
+          <button className="secondary-button" type="button" onClick={back}>回到知識地圖</button>
+          {!completed && <button className="text-button" aria-expanded={confirmFinish} aria-controls="study-finish-confirmation" disabled={busy} type="button" onClick={() => setConfirmFinish(value => !value)}>結束本次學習</button>}
+        </div>
       </header>
-      <div className="study-layout">
-        <SessionPath progress={data.progress} view={data.view} />
-        <div className="study-main-column">
-          <article className="surface current-concept-card">
-            <div className="current-concept-copy">
-              <p className="eyebrow">目前概念</p><h2>{current.label}</h2>
-              {current.claims.map((claim) => (
-                <section className="study-claim" key={claim.claim_id}>
-                  <p>{claim.text}</p>
-                  <div>{claim.evidence.map((evidence) => (
-                    <button className="text-button" key={evidence.evidence_id} type="button" onClick={() => window.open(apiClient.sourceArtifactUrl(data.sourceArtifactId, evidence.page), "_blank", "noopener,noreferrer")}>原始教材第 {evidence.page} 頁<Icon name="chevron-right" /></button>
-                  ))}</div>
-                </section>
-              ))}
-            </div>
-            <img src="/assets/studydy/learning-guide.png" alt="" />
-          </article>
-
-
-          {!completed && <GuidanceNextStep progress={data.progress} view={data.view} isApplying={busy} onApply={() => void apply()} />}
-          <LearningInsights currentConceptId={current.concept_id} progress={data.progress} />
-          {data.records.length > 0 && <label className="surface study-record-picker">題目與作答紀錄
+      {!completed && confirmFinish && <section className="surface study-finish-confirmation" id="study-finish-confirmation" aria-labelledby="study-finish-title">
+        <h2 id="study-finish-title">要結束本次學習嗎？</h2>
+        <p>這會將本次學習標記為已完成，已保存的進度不會消失，之後仍可查看本次紀錄。</p>
+        <div><button className="secondary-button" disabled={busy} type="button" onClick={() => setConfirmFinish(false)}>繼續學習</button>
+          <button className="primary-button" disabled={busy} type="button" onClick={() => void complete()}>{busy ? "正在結束…" : "結束本次學習"}</button></div>
+      </section>}
+      <div className="study-learning-grid">
+        <article className="surface current-concept-card" aria-labelledby="study-content-title">
+          <p className="eyebrow">教材重點</p><h2 id="study-content-title">{current.label}</h2>
+          <ul className="study-claims">{current.claims.map(claim => <li key={claim.claim_id}>{claim.text}</li>)}</ul>
+          <section className="study-sources" aria-label="教材來源"><h3>教材來源</h3><div>
+            {sourcePages.map(page => <button className="text-button" key={page} type="button" onClick={() => window.open(apiClient.sourceArtifactUrl(data.sourceArtifactId, page), "_blank", "noopener,noreferrer")}>第 {page} 頁<Icon name="chevron-right" /></button>)}
+          </div></section>
+        </article>
+        <div id="assessment-panel">
+          <AssessmentPanel
+            key={`${data.session.study_session_id}/${current.concept_id}/${selectedRecord?.assessment.assessment_revision ?? "new"}/${selectedRecord?.feedback?.answer_event_id ?? "unanswered"}`}
+            apiClient={apiClient}
+            record={selectedRecord}
+            completed={completed}
+            onAssessmentCreated={assessmentRevision => writeRoute({ ...route, assessmentRevision }, true)}
+            concept={current}
+            recommendedClaimId={data.progress.next_action.target_concept_id === current.concept_id ? data.progress.next_action.target_claim_id : null}
+            onProgressChanged={() => { void refresh(); }}
+            onReloadSession={() => { void refresh(); }}
+            sourceArtifactId={data.sourceArtifactId}
+            studySessionId={route.studySessionId}
+            view={data.view}
+          />
+        </div>
+      </div>
+      <div className="study-followup">
+        {!completed && <GuidanceNextStep progress={data.progress} view={data.view} isApplying={busy} onApply={() => void apply()} />}
+        <LearningInsights currentConceptId={current.concept_id} progress={data.progress} />
+        {data.records.length > 0 && <details className="surface study-record-picker">
+          <summary>題目與作答紀錄（{data.records.length}）</summary>
+          <div><label>題目與作答紀錄
             <select disabled={busy} value={data.selectedAssessmentRevision ?? ""} onChange={event => writeRoute({ ...route, assessmentRevision: event.target.value })}>
               {!data.selectedAssessmentRevision && <option value="" disabled>選擇既有題目</option>}
               {data.records.map((record, index) => <option key={record.assessment.assessment_revision} value={record.assessment.assessment_revision}>
                 {data.records.length - index} · {record.feedback ? "已作答" : "未作答"} · {record.assessment.prompt}
               </option>)}
             </select>
-            <button className="secondary-button" disabled={busy} type="button" onClick={() => writeRoute({ ...route, assessmentRevision: undefined }, true)}>回到目前學習</button>
-          </label>}
-          <div id="assessment-panel">
-            <AssessmentPanel
-              key={`${data.session.study_session_id}/${current.concept_id}/${selectedRecord?.assessment.assessment_revision ?? "new"}/${selectedRecord?.feedback?.answer_event_id ?? "unanswered"}`}
-              apiClient={apiClient}
-              record={selectedRecord}
-              completed={completed}
-              onAssessmentCreated={assessmentRevision => writeRoute({ ...route, assessmentRevision }, true)}
-              concept={current}
-              recommendedClaimId={data.progress.next_action.target_concept_id === current.concept_id ? data.progress.next_action.target_claim_id : null}
-              onProgressChanged={() => { void refresh(); }}
-              onReloadSession={() => { void refresh(); }}
-              sourceArtifactId={data.sourceArtifactId}
-              studySessionId={route.studySessionId}
-              view={data.view}
-            />
-          </div>
-        </div>
+          </label><button className="secondary-button" disabled={busy} type="button" onClick={() => writeRoute({ ...route, assessmentRevision: undefined }, true)}>回到目前學習</button></div>
+        </details>}
       </div>
     </section>
   );

@@ -55,6 +55,7 @@ test("original learning and questions survive reload, new profiles and a lost co
   await expect(page.getByRole("heading", { name: pendingPrompt, exact: true })).toBeVisible();
   const earlier = fresh.assessments.find(record => record.feedback !== null)!;
   const selectedRead = resumeResponse(page);
+  await page.locator(".study-record-picker summary").click();
   await page.getByRole("combobox", { name: /題目與作答紀錄/ }).selectOption(earlier.assessment.assessment_revision);
   const earlierRead: StudyResumeView = await (await selectedRead).json();
   expect(earlierRead.selected_assessment_revision).toBe(earlier.assessment.assessment_revision);
@@ -64,6 +65,7 @@ test("original learning and questions survive reload, new profiles and a lost co
   const priorBody: StudyResumeView = await (await priorReload).json();
   expect(priorBody.selected_assessment_revision).toBe(earlier.assessment.assessment_revision);
   expect(priorBody.assessments.find(record => record.feedback?.answer_event_id === earlier.feedback!.answer_event_id)?.feedback).toEqual(earlier.feedback);
+  await page.locator(".study-record-picker summary").click();
   await page.getByRole("button", { name: "回到目前學習", exact: true }).click();
   await expect(page.getByRole("heading", { name: pendingPrompt, exact: true })).toBeVisible();
 
@@ -124,7 +126,7 @@ test("original learning and questions survive reload, new profiles and a lost co
   expect(noSafe.session.status).toBe("no_safe");
   expect(noSafe.session.no_safe_claim_ids.length).toBeGreaterThan(0);
   expect(noSafe.progress.deferred_concept_ids).toEqual(noSafe.session.deferred_concept_ids);
-  await expect(lastPage.getByRole("heading", { name: "目前沒有安全題目", exact: true })).toBeVisible();
+  await expect(lastPage.getByRole("heading", { name: "目前沒有適合的新題目", exact: true })).toBeVisible();
   await lastPage.getByRole("button", { name: "登出", exact: true }).click();
   await expect(lastPage.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   await login(lastPage, "library_b@example.com");

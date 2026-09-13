@@ -57,6 +57,15 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
   const [submissionError, setSubmissionError] = useState<AssessmentError | null>(null);
   const assessmentIntent = useRef<{ claimId: string; key: string } | null>(null);
   const submissionIntent = useRef<{ optionId: string; key: string } | null>(null);
+  const questionHeading = useRef<HTMLHeadingElement>(null);
+
+  // Creating or resuming an unanswered question remounts this panel at its exact route.
+  useEffect(() => {
+    if (assessment && !feedback && !completed && record?.can_submit !== false) {
+      questionHeading.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [assessment?.assessment_revision, feedback, completed, record?.can_submit]);
+
 
   useEffect(() => {
     if (recommendedClaimId && concept.claims.some((claim) => claim.claim_id === recommendedClaimId)) {
@@ -162,7 +171,7 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
             setFeedback(null);
             setSelectedOptionId(null);
           }}>回到教材</button>
-          {!completed && <button className="primary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="refresh" />取得目前概念的新題目</button>}
+          {!completed && <button className="secondary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="refresh" />取得目前概念的新題目</button>}
         </div>
       </section>
     );
@@ -171,7 +180,7 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
   if (requestError) return (
     <section className="assessment-card assessment-unavailable" role="status">
       <span><Icon name={requestError.noSafeItem ? "book" : "warning"} size={28} /></span>
-      <h2>{requestError.noSafeItem ? "目前沒有新的安全題目" : "暫時無法建立評量"}</h2>
+      <h2>{requestError.noSafeItem ? "目前沒有新的安全題目" : "暫時無法準備練習題"}</h2>
       <p>{requestError.message}</p>
       {requestError.noSafeItem && (
         <div className="evidence-review-activity">
@@ -209,8 +218,8 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
   if (isLoading) return (
     <section className="assessment-card assessment-loading" aria-live="polite">
       <span className="loading-ring" aria-hidden="true" />
-      <h2>正在準備評量</h2>
-      <p>目前階段：後端正在根據教材內容產生並驗證題目。</p>
+      <h2>正在準備練習題</h2>
+      <p>系統正在依教材內容準備並檢查題目。</p>
       <strong className="assessment-elapsed">已等待 {elapsedSeconds} 秒</strong>
     </section>
   );
@@ -219,9 +228,9 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
 
   if (!assessment) return (
     <section className="assessment-card assessment-ready">
-      <div><p className="eyebrow">理解練習</p><h2>用一題確認目前理解</h2><p>送出後由系統評分，作答前不會顯示正確選項。</p></div>
+      <div><p className="eyebrow">理解練習</p><h2>準備好練習「{concept.label}」了嗎？</h2><p>系統會依目前教材重點準備一道題目。</p></div>
       {concept.claims.length > 1 && (
-        <fieldset className="claim-picker">
+        <details className="assessment-claim-picker"><summary>更換練習重點</summary><fieldset className="claim-picker">
           <legend>選擇要練習的教材重點</legend>
           {concept.claims.map((claim, index) => (
             <label key={claim.claim_id}>
@@ -237,16 +246,16 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
               />重點 {index + 1}：{claim.text}
             </label>
           ))}
-        </fieldset>
+        </fieldset></details>
       )}
-      <button className="primary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="learning" />開始評量</button>
+      <button className="primary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="learning" />開始練習</button>
     </section>
   );
 
   return (
     <section className="assessment-card" aria-labelledby="assessment-question">
-      <p className="eyebrow">單選評量</p>
-      <h2 id="assessment-question">{assessment.prompt}</h2>
+      <p className="eyebrow">單選題</p>
+      <h2 id="assessment-question" ref={questionHeading}>{assessment.prompt}</h2>
       <fieldset className="assessment-options" disabled={isSubmitting || completed || record?.can_submit === false}>
         <legend className="sr-only">請選擇一個答案</legend>
         {assessment.options.map((option, index) => (

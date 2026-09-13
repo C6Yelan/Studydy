@@ -1,9 +1,10 @@
 .assessment-card {
-  padding: var(--space-7);
+  padding: var(--space-6);
   border: 1px solid var(--border);
-  border-radius: var(--radius-large-card);
+  border-radius: var(--radius-card);
   background: var(--surface);
-  box-shadow: 0 2px 10px rgba(20, 32, 60, .05);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .assessment-card h2 {
@@ -18,7 +19,7 @@
 .assessment-ready {
   display: grid;
   gap: var(--space-5);
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
 }
 
@@ -50,11 +51,12 @@
 .assessment-unavailable,
 .feedback-card {
   display: flex;
-  min-height: 310px;
+  min-height: 240px;
   align-items: center;
   flex-direction: column;
   justify-content: center;
-  text-align: center;
+  text-align: left;
+  align-items: stretch;
 }
 
 .assessment-loading p,
@@ -261,3 +263,13 @@
     flex-direction: column;
   }
 }
+
+.assessment-claim-picker summary { cursor: pointer; color: var(--text-secondary); font-size: 14px; padding: var(--space-2) 0; }
+.claim-picker { min-width: 0; margin: var(--space-2) 0 0; padding: 0; border: 0; }
+.claim-picker label { align-items: baseline; overflow-wrap: anywhere; cursor: pointer; }
+.claim-picker input { flex-shrink: 0; accent-color: var(--studydy-blue); }
+.assessment-ready > .primary-button { justify-self: start; min-height: 48px; }
+.assessment-actions { flex-wrap: wrap; }
+.assessment-options strong { font-weight: 500; overflow-wrap: anywhere; }
+.evidence-review-activity { padding: var(--space-4); }
+@media (max-width: 620px) { .assessment-ready > .primary-button { justify-self: stretch; } }

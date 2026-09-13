@@ -29,7 +29,7 @@ export function AppShell({ children, route, accountAction }: {
         <button aria-current={materials ? "page" : undefined} aria-label="教材庫" type="button" onClick={() => writeRoute({ name: "materials" })}><Icon name="book" />我的教材</button>
         <button type="button" disabled title="帳號設定功能尚未提供"><Icon name="settings" />設定<span className="nav-unavailable">尚未提供</span></button>
       </nav>
-      {!["home", "maps", "materials", "upload", "material-run"].includes(route.name) && <div className="sidebar-helper">
+      {!["home", "maps", "materials", "upload", "material-run", "study-session"].includes(route.name) && <div className="sidebar-helper">
         <img src="/assets/studydy/knowledge-guide.png" alt="Studydy 學習夥伴" />
         <div><strong>需要開始學習的協助嗎？</strong><p>從上傳第一份 PDF 開始，建立你的知識地圖。</p>
           <button className="text-button" type="button" onClick={() => writeRoute({ name: "upload" })}><Icon name="upload" size={16} />上傳第一份教材</button>
