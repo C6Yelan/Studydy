@@ -37,15 +37,17 @@ def test_local_config_has_one_python_one_semantic_lock_and_no_verifier(tmp_path)
         runtime_binding(tampered)
 
 
-def test_local_app_composition_preflights_then_starts_uvicorn(tmp_path, monkeypatch):
+def test_local_app_composition_validates_settings_without_ai_then_starts_uvicorn(tmp_path, monkeypatch):
     observed = []
-    monkeypatch.setattr(api_app, "runtime_preflight", lambda config: observed.append(("preflight", deepcopy(config))))
+    import runtime.material_processing as processing
+    monkeypatch.setattr(processing, "preflight_semantic_service", lambda _: pytest.fail("startup must not contact AI"))
+    monkeypatch.setattr(processing, "validate_installed_local_runtime", lambda _: pytest.fail("startup must not load OCR"))
     app = local_app.create_local_app(
         profile="local", public_origin="http://127.0.0.1:4173", secure_cookie=False,
         local_config=local_app.read_local_ai_config_from_environment(_environment(tmp_path)), dsn=None,
     )
     assert app.version == "3.0.0"
-    assert observed[0][0] == "preflight"
+    assert observed == []
 
     monkeypatch.setattr(local_app, "create_local_app", lambda **arguments: observed.append(("create", arguments)) or app)
     monkeypatch.setattr(local_app.uvicorn, "run", lambda created, **arguments: observed.append(("run", created, arguments)))

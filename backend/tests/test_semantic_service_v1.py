@@ -135,3 +135,19 @@ def test_material_bundle_budget_excludes_existing_catalog(fresh_count, fits):
     assert calls[0] == material
     assert calls[1]["existing_concepts"] == []
     assert calls[1]["sections"] == material["sections"]
+
+
+@pytest.mark.parametrize("failure", ["offline", "timeout", "http503"])
+def test_offline_ai_requests_keep_existing_retryable_api_error(failure):
+    from runtime.api.app import _fixed_exception, _error_response
+    from learning_adaptation.assessments import AssessmentError
+    def respond(request):
+        if failure == "offline": raise httpx.ConnectError("offline", request=request)
+        if failure == "timeout": raise httpx.ReadTimeout("timeout", request=request)
+        return httpx.Response(503)
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(SemanticServiceError) as caught:
+            request_semantics(client, runtime_lock=_lock(), task="assessment", request={}, response_schema={})
+    response = _error_response(_fixed_exception(AssessmentError(caught.value.reason_code)))
+    assert response.status_code == 503
+    assert json.loads(response.body)["retryable"] is True

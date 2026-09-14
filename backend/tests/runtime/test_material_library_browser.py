@@ -10,7 +10,7 @@ from test_closed_loop_v1 import closed_loop
 
 def test_library_browser_reads_existing_records_without_generation(library_materials, monkeypatch):
     fixture = library_materials
-    monkeypatch.setattr(api_app, "runtime_preflight", lambda _: {})
+    monkeypatch.setattr(api_app, "runtime_binding", lambda _: {})
     app = api_app.create_app(api_app.ApiSettings(
         profile="local", public_origin="http://127.0.0.1:4173", secure_cookie=False,
         local_config=fixture["settings"], dsn=fixture["dsn"],

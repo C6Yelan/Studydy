@@ -337,7 +337,7 @@ def test_unlink_failure_is_private_and_retried(unused, monkeypatch):
 
 
 def test_discard_transport_owner_contract_and_cancel_surface_removed(unused, monkeypatch):
-    monkeypatch.setattr(api_app, 'runtime_preflight', lambda _: {})
+    monkeypatch.setattr(api_app, 'runtime_binding', lambda _: {})
     app = api_app.create_app(api_app.ApiSettings(profile='local', public_origin=ORIGIN, secure_cookie=False, local_config=unused.settings, dsn=unused.dsn))
     client = TestClient(app, base_url=ORIGIN)
     url = f'/v1/materials/{unused.source.material_id}'
@@ -377,7 +377,7 @@ def test_discard_transport_owner_contract_and_cancel_surface_removed(unused, mon
 
 
 def test_discard_api_filesystem_failure_is_safe_503_and_retryable(unused, monkeypatch):
-    monkeypatch.setattr(api_app, 'runtime_preflight', lambda _: {})
+    monkeypatch.setattr(api_app, 'runtime_binding', lambda _: {})
     app = api_app.create_app(api_app.ApiSettings(profile='local', public_origin=ORIGIN, secure_cookie=False, local_config=unused.settings, dsn=unused.dsn))
     client = TestClient(app, base_url=ORIGIN)
     client.cookies.set('studydy_session', unused.token)

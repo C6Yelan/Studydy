@@ -7,7 +7,7 @@ from test_closed_loop_v1 import closed_loop
 
 def test_account_browser_with_real_api_and_database(closed_loop, monkeypatch):
     learner, source, settings, structure, dsn, _ = closed_loop
-    monkeypatch.setattr(api_app, "runtime_preflight", lambda _: {})
+    monkeypatch.setattr(api_app, "runtime_binding", lambda _: {})
     app = api_app.create_app(api_app.ApiSettings(
         profile="local", public_origin="http://127.0.0.1:4173",
         secure_cookie=False, local_config=settings, dsn=dsn,

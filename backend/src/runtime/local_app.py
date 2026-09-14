@@ -99,7 +99,7 @@ def create_local_app(
     local_config: dict[str, Any],
     dsn: str | None,
 ) -> FastAPI:
-    """先完成唯一 runtime preflight，再建立產品 API。"""
+    """驗證設定後建立產品 API；AI 可用性由實際操作檢查。"""
 
     settings = ApiSettings(
         profile=profile,

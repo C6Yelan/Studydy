@@ -448,7 +448,7 @@ def test_http_api_projects_the_same_closed_loop_without_private_answer(closed_lo
         def stop(self):
             pass
 
-    monkeypatch.setattr(api_app, "runtime_preflight", lambda _config: {})
+    monkeypatch.setattr(api_app, "runtime_binding", lambda _config: {})
     monkeypatch.setattr(api_app, "start_runtime_workers", lambda **_arguments: Workers())
 
     def generate(*arguments, **keywords):
@@ -541,7 +541,7 @@ def test_http_upload_worker_assessment_and_guidance_are_one_closed_loop(
         produced["structure"] = structure
         return structure
 
-    monkeypatch.setattr(api_app, "runtime_preflight", runtime_binding)
+    monkeypatch.setattr(api_app, "runtime_binding", runtime_binding)
     monkeypatch.setattr(processing, "runtime_preflight", runtime_binding)
     monkeypatch.setattr(processing, "analyze_material", deterministic_analysis)
     assessment_round = 0

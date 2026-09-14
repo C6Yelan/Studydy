@@ -23,7 +23,7 @@ HEADERS = {"Origin": ORIGIN}
 
 def _app(dsn, tmp_path, monkeypatch):
     # 帳號測試使用真 API/DB；只隔離與帳號無關的模型 preflight 與 worker。
-    monkeypatch.setattr(api_app, "runtime_preflight", lambda _: {})
+    monkeypatch.setattr(api_app, "runtime_binding", lambda _: {})
     return api_app.create_app(api_app.ApiSettings(
         profile="test", public_origin=ORIGIN, secure_cookie=True,
         local_config=_settings(tmp_path), dsn=dsn,

@@ -12,7 +12,7 @@ from test_learning_resume import learning_records
 
 def test_learning_resume_browser_preserves_records_and_recovers_lost_response(learning_records, monkeypatch):
     fixture = learning_records
-    monkeypatch.setattr(api_app, "runtime_preflight", lambda _: {})
+    monkeypatch.setattr(api_app, "runtime_binding", lambda _: {})
     app = api_app.create_app(api_app.ApiSettings(
         profile="local", public_origin="http://127.0.0.1:4173", secure_cookie=False,
         local_config=fixture["settings"], dsn=fixture["dsn"],

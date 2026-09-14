@@ -72,7 +72,7 @@ from ..learner_session import (
 from ..material_processing import (
     MaterialProcessingError,
     create_material_processing_run,
-    runtime_preflight,
+    runtime_binding,
     read_material_processing_run,
 )
 from ..material_discard import MaterialDiscardError, request_material_discard
@@ -154,7 +154,9 @@ class ApiSettings:
             raise ValueError("API_SETTINGS_INVALID")
         try:
             copied = deepcopy(self.local_config)
-            runtime_preflight(copied)
+            # API availability does not depend on installed/online AI services.
+            # Processing and assessment retain their operation-time checks.
+            runtime_binding(copied)
         except MaterialProcessingError as error:
             raise ApiSettingsError(error.component, error.reason) from None
         except Exception:
