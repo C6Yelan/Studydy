@@ -185,8 +185,9 @@ test("removing a search match preserves query and shows search no-result", async
   await page.goto("/materials");
   const input = page.getByRole("searchbox", { name: "搜尋教材名稱" });
   await input.fill("python");
-  await page.getByRole("button", { name: "移除教材", exact: true }).click();
-  await page.getByRole("button", { name: "確認移除", exact: true }).click();
+  await page.getByRole("button", { name: /^管理「/ }).click();
+  await page.getByRole("button", { name: "刪除教材", exact: true }).click();
+  await page.getByRole("button", { name: "確認刪除", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("找不到符合「python」的教材");
   await expect(input).toHaveValue("python");
   await expect(page.locator(".library-empty")).toHaveCount(0);

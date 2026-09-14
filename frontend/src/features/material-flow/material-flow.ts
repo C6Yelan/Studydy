@@ -84,7 +84,7 @@ export function formatFileSize(sizeBytes: number): string {
 
 export function materialRunLabel(status: MaterialProcessingRunView["status"], cancelRequestedAt: string | null): string {
   if (status === "cancelled") return "已取消處理";
-  if (status === "running" && cancelRequestedAt !== null) return "正在取消並移除教材";
+  if (status === "running" && cancelRequestedAt !== null) return "正在取消並刪除教材";
   if (status === "pending") return "等待開始處理";
   if (status === "running") return "正在分析完整教材";
   if (status === "succeeded") return "處理完成，等待複核";

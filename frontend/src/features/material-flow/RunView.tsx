@@ -117,7 +117,7 @@ export function RunView({ apiClient, route }: {
         if (error instanceof ApiClientError && error.reasonCode === "MATERIAL_NOT_DISCARDABLE") {
           setConfirmingCancel(false);
           setCancelNotice(errorMessage(error));
-        } else setCancelError(`無法送出移除要求，請再試一次。${errorMessage(error)}`);
+        } else setCancelError(`無法送出刪除要求，請再試一次。${errorMessage(error)}`);
       }
     } finally {
       cancelInFlight.current = false;
@@ -164,8 +164,8 @@ export function RunView({ apiClient, route }: {
       <section className="processing-page task-page">
         <header className="processing-hero">
           <img src="/assets/studydy/processing-laptop.png" alt="" />
-          <div><p className="eyebrow">教材處理</p><h1>{cancellationRequested ? "正在取消並移除教材" : run.status === "pending" ? "等待開始處理" : "正在分析教材"}</h1>
-            <p>{cancellationRequested ? "已收到移除要求，會在目前進行中的步驟完成後安全停止並移除教材。" : "Studydy 正在整理教材內容並建立知識地圖，進度會自動保存。"}</p></div>
+          <div><p className="eyebrow">教材處理</p><h1>{cancellationRequested ? "正在取消並刪除教材" : run.status === "pending" ? "等待開始處理" : "正在分析教材"}</h1>
+            <p>{cancellationRequested ? "已收到刪除要求，會在目前進行中的步驟完成後安全停止並刪除教材。" : "Studydy 正在整理教材內容並建立知識地圖，進度會自動保存。"}</p></div>
         </header>
         <div className="processing-grid">
           <section className="surface processing-card">
@@ -191,19 +191,19 @@ export function RunView({ apiClient, route }: {
               {confirmingCancel ? <section aria-labelledby="cancel-confirm-title" className="cancel-confirmation" onKeyDown={event => {
                 if (event.key === "Escape" && !cancelBusy) { setConfirmingCancel(false); setCancelError(null); }
               }}>
-                <h3 id="cancel-confirm-title">確定要取消處理並移除這份教材嗎？</h3>
-                <p>Studydy 會安全停止目前的處理，並移除已上傳的 PDF 與這次處理紀錄。此操作無法復原。</p>
+                <h3 id="cancel-confirm-title">確定要取消處理並刪除這份教材嗎？</h3>
+                <p>Studydy 會安全停止目前的處理，並刪除原始 PDF、處理紀錄，以及既有的知識地圖、學習進度、題目與作答紀錄。此操作無法復原。</p>
                 <div className="state-actions">
                   <button ref={continueButton} className="secondary-button" type="button" disabled={cancelBusy} onClick={() => {
                     setConfirmingCancel(false); setCancelError(null);
                   }}>繼續處理</button>
-                  <button className="secondary-button cancel-confirm-button" type="button" disabled={cancelBusy} onClick={() => void sendDiscard()}>確認移除</button>
+                  <button className="secondary-button cancel-confirm-button" type="button" disabled={cancelBusy} onClick={() => void sendDiscard()}>確認刪除</button>
                 </div>
-              </section> : <button ref={cancelButton} className="secondary-button" type="button" onClick={() => { setCancelError(null); setConfirmingCancel(true); }}>取消並移除教材</button>}
+              </section> : <button ref={cancelButton} className="secondary-button" type="button" onClick={() => { setCancelError(null); setConfirmingCancel(true); }}>取消並刪除教材</button>}
             </div>}
-            {cancelBusy && <p role="status">正在送出移除要求…</p>}
+            {cancelBusy && <p role="status">正在送出刪除要求…</p>}
             {cancelError && <p className="form-error" role="alert">{cancelError}</p>}
-            {cancelNotice && <p role="status">{run.progress_stage === "publishing" ? "已進入知識地圖發布階段，目前無法移除這份教材。" : cancelNotice}</p>}
+            {cancelNotice && <p role="status">{cancelNotice}</p>}
           </section>
           <section className="surface processing-card">
             <h2>處理流程</h2>
@@ -221,9 +221,10 @@ export function RunView({ apiClient, route }: {
     );
   }
 
-  if (run.status === "cancelled") return (
+  // Accepted deletion stays authoritative when publishing reaches a terminal result.
+  if (run.status === "cancelled" || (removing && !activeRun(run))) return (
     <section className="processing-page task-page is-cancelled">
-      <StateView title={removing ? "正在移除教材…" : "已取消教材處理"} description={removing ? "分析已停止，正在移除 PDF 與處理紀錄。" : "這次分析已停止。若不再需要這份教材，可以移除 PDF 與處理紀錄。"} icon="book" tone="empty" live
+      <StateView title={removing ? "正在刪除教材…" : "已取消教材處理"} description={removing ? "分析已停止，正在刪除 PDF 與處理紀錄。" : "這次分析已停止。若不再需要這份教材，可以刪除 PDF 與處理紀錄。"} icon="book" tone="empty" live
         action={!removing && <MaterialRemoveControl apiClient={apiClient} materialId={route.materialId} onAccepted={state => {
           if (state === "removed") writeRoute({ name: "materials" });
           else { discardAccepted.current = true; setRemoving(true); setReload(value => value + 1); }

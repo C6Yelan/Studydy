@@ -249,7 +249,7 @@ test("authentication sends only Email/password and retains safe error boundaries
     ["INVALID_CREDENTIALS", 401, "Email 或密碼不正確。"],
     ["ACCOUNT_UNAVAILABLE", 409, "這個 Email 已被使用，請使用其他 Email。"],
     ["STORAGE_UNAVAILABLE", 503, "資料服務暫時無法使用，請稍後再試。"],
-    ["MATERIAL_NOT_DISCARDABLE", 409, "這份教材已有可使用的學習資料，目前無法直接移除。"],
+    ["MATERIAL_NOT_DISCARDABLE", 409, "這份教材正在刪除，無法進行這項操作。"],
   ]) {
     const failed = new StudydyApiClient(async () => Response.json({ schema: "api-error/v1", request_id: sessionId, reason_code: reason, retryable: status === 503, message: "Request could not be completed." }, { status }));
     await assert.rejects(failed.authenticate("login", "learner@example.com", "Synthetic password 42"), error => error instanceof ApiClientError && error.reasonCode === reason && error.message === message);

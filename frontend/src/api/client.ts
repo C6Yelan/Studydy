@@ -279,7 +279,7 @@ function safeMessage(reason: ApiReasonCode): string {
   if (reason === "MATERIAL_PDF_INVALID") return "這份 PDF 已損毀、加密或無法開啟。";
   if (reason === "UNSUPPORTED_MEDIA_TYPE") return "只接受 PDF 教材。";
   if (reason === "STORAGE_UNAVAILABLE") return "資料服務暫時無法使用，請稍後再試。";
-  if (reason === "MATERIAL_NOT_DISCARDABLE") return "這份教材已有可使用的學習資料，目前無法直接移除。";
+  if (reason === "MATERIAL_NOT_DISCARDABLE") return "這份教材正在刪除，無法進行這項操作。";
   return "請求無法完成，請稍後再試。";
 }
 

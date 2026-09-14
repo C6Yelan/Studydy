@@ -20,10 +20,11 @@ async function setup(page: Page) {
   await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [] } }));
 }
 async function confirm(page: Page) {
-  await page.getByRole("button", { name: "取消並移除教材", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "確定要取消處理並移除這份教材嗎？", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "取消並刪除教材", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "確定要取消處理並刪除這份教材嗎？", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "繼續處理", exact: true })).toBeFocused();
-  await page.getByRole("button", { name: "確認移除", exact: true }).click();
+  await expect(page.locator(".cancel-confirmation")).toContainText("既有的知識地圖、學習進度、題目與作答紀錄");
+  await page.getByRole("button", { name: "確認刪除", exact: true }).click();
 }
 
 for (const viewport of [{ width: 1536, height: 1024 }, { width: 390, height: 844 }]) {
@@ -39,17 +40,17 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 390, height: 844
     });
     page.on("dialog", () => { throw new Error("native confirmation is not allowed"); });
     await page.goto(path);
-    await page.getByRole("button", { name: "取消並移除教材", exact: true }).click();
+    await page.getByRole("button", { name: "取消並刪除教材", exact: true }).click();
     expect(deletes).toBe(0);
     await expect(page.getByRole("button", { name: "繼續處理", exact: true })).toBeFocused();
     await page.getByRole("button", { name: "繼續處理", exact: true }).click();
-    await expect(page.getByRole("button", { name: "取消並移除教材", exact: true })).toBeFocused();
-    await page.getByRole("button", { name: "取消並移除教材", exact: true }).click();
-    await page.keyboard.press("Tab"); await expect(page.getByRole("button", { name: "確認移除", exact: true })).toBeFocused();
+    await expect(page.getByRole("button", { name: "取消並刪除教材", exact: true })).toBeFocused();
+    await page.getByRole("button", { name: "取消並刪除教材", exact: true }).click();
+    await page.keyboard.press("Tab"); await expect(page.getByRole("button", { name: "確認刪除", exact: true })).toBeFocused();
     await page.screenshot({ path: `/tmp/studydy-discard/${viewport.width}-processing-confirm.png`, fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("button", { name: "取消並移除教材", exact: true })).toBeFocused();
+    await expect(page.getByRole("button", { name: "取消並刪除教材", exact: true })).toBeFocused();
     expect(deletes).toBe(0);
     await confirm(page);
     await expect(page).toHaveURL(/\/materials$/);
@@ -72,22 +73,22 @@ for (const stage of ["evidence", "semantics"] as const) {
       deletes++; await pending; state = requested(state); await route.fulfill({ status: 202, json: removing });
     });
     await page.goto(path);
-    await page.getByRole("button", { name: "取消並移除教材", exact: true }).click();
-    await page.getByRole("button", { name: "確認移除", exact: true }).evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
-    await expect(page.getByText("正在送出移除要求…", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "確認移除", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "取消並刪除教材", exact: true }).click();
+    await page.getByRole("button", { name: "確認刪除", exact: true }).evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
+    await expect(page.getByText("正在送出刪除要求…", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "確認刪除", exact: true })).toBeDisabled();
     await expect.poll(() => deletes).toBe(1);
     await page.clock.runFor(1500); await expect.poll(() => reads).toBe(2);
     release();
-    await expect(page.getByRole("heading", { name: "正在取消並移除教材", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "取消並移除教材", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "正在取消並刪除教材", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "取消並刪除教材", exact: true })).toHaveCount(0);
     await expect(page).toHaveURL(new RegExp(`/runs/${rid}$`));
     await page.screenshot({ path: `/tmp/studydy-discard/1536-${stage}-removing.png`, fullPage: true });
     await page.reload();
-    await expect(page.getByRole("heading", { name: "正在取消並移除教材", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "正在取消並刪除教材", exact: true })).toBeVisible();
     state = { ...state, status: "cancelled", completed_at: time.toISOString() };
     await page.clock.runFor(1500);
-    await expect(page.getByRole("heading", { name: "正在移除教材…", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "正在刪除教材…", exact: true })).toBeVisible();
     missing = true;
     await page.clock.runFor(1500);
     await expect(page).toHaveURL(/\/materials$/);
@@ -96,21 +97,23 @@ for (const stage of ["evidence", "semantics"] as const) {
   });
 }
 
-test("publishing wins discard race with a safe notice and continued polling", async ({ page }) => {
+test("publishing finishes safely while accepted deletion keeps polling to purge", async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 1024 }); await setup(page);
-  let state = base; let reads = 0;
-  await page.route(`**/v1/material-processing-runs/${rid}`, route => { reads++; return route.fulfill({ json: state }); });
+  let state = base, gone = false;
+  await page.route(`**/v1/material-processing-runs/${rid}`, route => gone ? route.fulfill({ status: 404, json: failure("RESOURCE_NOT_FOUND") }) : route.fulfill({ json: state }));
   await page.route(`**/v1/materials/${mid}`, route => {
     state = { ...base, progress_stage: "publishing", completed_pages: 45 };
-    return route.fulfill({ status: 409, json: failure("MATERIAL_NOT_DISCARDABLE") });
+    return route.fulfill({ status: 202, json: removing });
   });
   await page.goto(path); await confirm(page);
-  await expect(page.getByText("這份教材已有可使用的學習資料，目前無法直接移除。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "正在取消並刪除教材", exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await page.clock.runFor(1500); await expect.poll(() => reads).toBe(2);
-  await expect(page.getByText("已進入知識地圖發布階段，目前無法移除這份教材。", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "取消並移除教材", exact: true })).toHaveCount(0);
-  await page.reload(); await expect(page.getByRole("button", { name: "取消並移除教材", exact: true })).toHaveCount(0);
+  state = { ...state, status: "succeeded", progress_stage: "completed", completed_at: time.toISOString(),
+    output_binding: { schema: "material-run-output-binding/v4", knowledge_structure_revision: `knowledge-structure:sha256:${"a".repeat(64)}`, runtime_lock_sha256: "b".repeat(64), page_count: 45, processing: "succeeded", quality: "accepted", decision: "retain", reason_codes: [], ocr_calls: 0, semantic_calls: 1 } };
+  await page.clock.runFor(1500);
+  await expect(page.getByRole("heading", { name: "正在刪除教材…", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveCount(0);
+  gone = true; await page.clock.runFor(1500); await expect(page).toHaveURL(/\/materials$/);
 });
 
 test("DELETE 503 keeps processing and polling; confirmation can retry", async ({ page }) => {
@@ -122,11 +125,11 @@ test("DELETE 503 keeps processing and polling; confirmation can retry", async ({
     : route.fulfill({ status: 202, json: removing }));
   await page.goto(path); await confirm(page);
   await expect(page.getByRole("heading", { name: "正在分析教材", exact: true })).toBeVisible();
-  await expect(page.getByRole("alert")).toContainText("無法送出移除要求");
-  await expect(page.getByRole("button", { name: "確認移除", exact: true })).toBeEnabled();
+  await expect(page.getByRole("alert")).toContainText("無法送出刪除要求");
+  await expect(page.getByRole("button", { name: "確認刪除", exact: true })).toBeEnabled();
   await page.clock.runFor(1500); await expect.poll(() => reads).toBe(2);
-  fail = false; await page.getByRole("button", { name: "確認移除", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "正在取消並移除教材", exact: true })).toBeVisible();
+  fail = false; await page.getByRole("button", { name: "確認刪除", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "正在取消並刪除教材", exact: true })).toBeVisible();
 });
 
 test("an ordinary GET 404 remains a read failure without accepted discard", async ({ page }) => {
@@ -143,8 +146,8 @@ test("legacy cancelled record offers explicit removal without claiming a pending
   await page.route(`**/v1/materials/${mid}`, route => route.fulfill({ status: 202, json: removed }));
   await page.goto(path);
   await expect(page.getByRole("heading", { name: "已取消教材處理", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "移除教材", exact: true }).click();
-  await page.getByRole("button", { name: "確認移除", exact: true }).click();
+  await page.getByRole("button", { name: "刪除教材", exact: true }).click();
+  await page.getByRole("button", { name: "確認刪除", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
 });
 
@@ -157,8 +160,8 @@ test("persisted GET discard intent takes precedence over late DELETE transport f
     await route.fulfill({ status: 503, json: failure("STORAGE_UNAVAILABLE") });
   });
   await page.goto(path); await confirm(page); await page.clock.runFor(1500);
-  await expect(page.getByRole("heading", { name: "正在取消並移除教材", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "正在取消並刪除教材", exact: true })).toBeVisible();
   const settled = page.waitForResponse(response => response.request().method() === "DELETE"); release(); await settled;
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "正在取消並移除教材", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "正在取消並刪除教材", exact: true })).toBeVisible();
 });

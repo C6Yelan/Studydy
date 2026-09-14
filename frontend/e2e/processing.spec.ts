@@ -58,7 +58,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
       await expect(processing).toBeVisible();
       await expect(page.locator(".sidebar-helper")).toHaveCount(0);
       await expect(processing).not.toContainText(/Material Processing|Processing complete|Claim|三種概念連結|開啟複核地圖|發布可複核結果/);
-      await expect(processing.getByRole("button", { name: "取消並移除教材", exact: true })).toHaveCount(
+      await expect(processing.getByRole("button", { name: "取消並刪除教材", exact: true })).toHaveCount(
         name !== "loading" && name !== "api-failure" && (run.status === "pending" || run.status === "running") && run.progress_stage !== "publishing" ? 1 : 0);
       await expect(processing.getByRole("button", { name: "重新分析", exact: true })).toHaveCount(0);
       expect(await processing.evaluate(element => getComputedStyle(element).maxWidth)).toBe("1180px");

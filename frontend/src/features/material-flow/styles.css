@@ -566,3 +566,26 @@
 .library-search-empty { padding: 20px 0; overflow-wrap: anywhere; }
 .library-search-empty h2 { margin: 0 0 8px; font-size: 18px; }
 .library-search-empty p { margin: 0 0 12px; color: var(--text-secondary); font-size: 14px; }
+
+.library-item { position: relative; }
+.material-management-menu { position: absolute; top: 16px; right: 16px; z-index: 2; }
+.material-management-menu[hidden] { display: none; }
+.material-management-menu summary { display: grid; place-items: center; list-style: none; width: 36px; height: 36px; cursor: pointer; border-radius: var(--radius-input); font-size: 24px; color: var(--text-secondary); }
+.material-management-menu summary::-webkit-details-marker { display: none; }
+.material-management-menu summary:hover { background: var(--page-cool); }
+.material-management-menu summary:focus-visible { outline: 2px solid var(--studydy-blue); outline-offset: 2px; }
+.material-management-menu > div { position: absolute; right: 0; top: 40px; width: 140px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-input); }
+.material-management-menu button { display: block; width: 100%; min-height: 44px; text-align: left; padding: 8px 12px; border: 0; background: transparent; color: var(--text-primary); }
+.material-management-menu button:hover { background: var(--page-cool); }
+.material-management-form { margin: 16px 0 12px; }
+.material-management-form h3 { font-size: 16px; margin: 0 0 8px; }
+.material-management-form p { font-size: 13px; line-height: 1.6; }
+.material-management-form label { display: grid; gap: 8px; font-size: 14px; }
+.material-management-form input { width: 100%; min-width: 0; height: 44px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-input); font: inherit; }
+.material-management-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.material-management-actions button { min-height: 40px; }
+.library-item > fieldset.state-actions { border: 0; padding-inline: 0; padding-bottom: 0; margin-inline: 0; min-width: 0; }
+.library-item.is-deleting .material-source-link { opacity: .5; cursor: default; }
+.material-deleting { color: var(--text-secondary); }
+
+.material-management-form .cancel-confirm-button { color: var(--error); border-color: var(--error); background: var(--error-soft); }

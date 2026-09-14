@@ -20,126 +20,130 @@ async function setup(page: Page) {
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: id(900) } }));
 }
 
-for (const viewport of [{ width: 1536, height: 1024 }, { width: 390, height: 844 }]) {
-  for (const state of ["no-run", "failed", "cancelled"] as const) {
-    test(`${state} card confirms removal and updates count without reload at ${viewport.width}px`, async ({ page }) => {
-      await page.setViewportSize(viewport); await setup(page);
-      const target = item(1, state);
-      let items = [target, item(2, "succeeded", true), item(3, "partial", true)];
-      let deletes = 0; let release!: () => void; const pending = new Promise<void>(resolve => { release = resolve; });
-      await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: items } }));
-      await page.route(`**/v1/materials/${target.material_id}`, async route => {
-        expect(route.request().method()).toBe("DELETE"); deletes++; await pending;
-        items = items.filter(saved => saved.material_id !== target.material_id);
-        await route.fulfill({ status: 202, json: { schema: "material-discard/v1", material_id: target.material_id, state: "removed" } });
-      });
-      await page.goto("/materials");
-      const card = page.getByRole("article", { name: target.display_name, exact: true });
-      await expect(page.locator(".library-subtitle")).toContainText("3 份教材");
-      const actions = card.locator(":scope > .state-actions");
-      const trigger = actions.locator(":scope > button").filter({ hasText: /^移除教材$/ });
-      await expect(trigger).toHaveClass("secondary-button");
-      if (state === "failed") {
-        const latest = actions.locator(":scope > button").filter({ hasText: /^查看失敗詳情$/ });
-        await latest.focus(); await page.keyboard.press("Tab"); await expect(trigger).toBeFocused();
-        const first = (await latest.boundingBox())!; const second = (await trigger.boundingBox())!;
-        expect(Math.abs(first.height - second.height)).toBeLessThan(2);
-        if (viewport.width === 1536) expect(Math.abs(first.y + first.height / 2 - second.y - second.height / 2)).toBeLessThan(first.height / 5);
-        const styles = await actions.locator(":scope > button").evaluateAll(buttons => buttons.map(button => {
-          const style = getComputedStyle(button);
-          return [style.fontSize, style.paddingLeft, style.paddingRight, style.borderRadius];
-        }));
-        expect(styles[0]).toEqual(styles[1]);
-      }
-      await page.screenshot({ path: `/tmp/studydy-action-layout/${viewport.width}-${state}-row.png`, fullPage: true });
-      await card.getByRole("button", { name: "移除教材", exact: true }).click();
-      expect(deletes).toBe(0);
-      await expect(card.getByRole("button", { name: "保留教材", exact: true })).toBeFocused();
-      const rowBox = (await actions.boundingBox())!;
-      const confirmation = (await actions.locator(":scope > .cancel-confirmation").boundingBox())!;
-      const triggerBox = (await trigger.boundingBox())!;
-      expect(Math.abs(confirmation.width - rowBox.width)).toBeLessThan(4);
-      expect(confirmation.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height);
-      await card.getByRole("button", { name: "保留教材", exact: true }).click();
-      await expect(card.getByRole("button", { name: "移除教材", exact: true })).toBeFocused();
-      await card.getByRole("button", { name: "移除教材", exact: true }).click();
-      await page.keyboard.press("Tab"); await expect(card.getByRole("button", { name: "確認移除", exact: true })).toBeFocused();
-      await page.screenshot({ path: `/tmp/studydy-action-layout/${viewport.width}-${state}-confirm.png`, fullPage: true });
-      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
-      await page.keyboard.press("Escape");
-      await expect(card.getByRole("button", { name: "移除教材", exact: true })).toBeFocused();
-      await card.getByRole("button", { name: "移除教材", exact: true }).click();
-      await card.getByRole("button", { name: "確認移除", exact: true }).evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
-      await expect(card.getByRole("button", { name: "確認移除", exact: true })).toBeDisabled();
-      await expect(card.getByText("正在移除…", { exact: true })).toBeVisible();
-      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
-      await expect.poll(() => deletes).toBe(1);
-      release();
-      await expect(card).toHaveCount(0);
-      await expect(page.locator(".library-subtitle")).toContainText("2 份教材");
-      await expect(page.getByRole("article")).toHaveCount(2);
-      expect(deletes).toBe(1);
+
+for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
+  test(`all material states have keyboard management without changing primary actions at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport); await setup(page);
+    const items = [item(1, "no-run"), item(2, "pending"), item(3, "running"), item(4, "failed"), item(5, "partial", true), item(6, "succeeded", true), item(7, "succeeded", true, true), item(8, "cancelled")];
+    await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: items } }));
+    await page.goto("/materials");
+    const cards = page.getByRole("article");
+    await expect(cards).toHaveCount(items.length);
+    for (let index = 0; index < items.length; index++) {
+      const card = cards.nth(index);
+      const menu = card.getByRole("button", { name: `管理「${items[index].display_name}」`, exact: true });
+      await expect(menu).toBeVisible();
+      await expect(card.locator(".state-actions").getByRole("button", { name: "刪除教材", exact: true })).toHaveCount(0);
+      await menu.focus(); await page.keyboard.press("Enter");
+      await expect(card.getByRole("button", { name: "重新命名", exact: true })).toBeVisible();
+      await expect(card.getByRole("button", { name: "刪除教材", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape"); await expect(menu).toBeFocused();
+      await expect(card.locator("details")).not.toHaveAttribute("open", "");
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: `/tmp/studydy-management-${viewport.width}-cards.png`, fullPage: true });
+  });
+
+  test(`rename updates the current search locally and restores focus at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport); await setup(page);
+    let items = [item(1, "succeeded", true, true), item(2, "no-run")]; items[0].display_name = "中文舊教材.pdf";
+    let reads = 0, writes = 0, fail = true;
+    await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v2", materials: items } }); });
+    await page.route(`**/v1/materials/${items[0].material_id}/rename`, route => {
+      writes++; expect(route.request().headers()["idempotency-key"]).toBeUndefined();
+      if (fail) return route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: id(999), reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Request could not be completed." } });
+      expect(route.request().postDataJSON()).toEqual({ schema: "material-rename/v1", display_name: "作業系統 第五章" });
+      items = [{ ...items[0], display_name: "作業系統 第五章" }, items[1]];
+      return route.fulfill({ json: items[0] });
     });
-  }
+    await page.goto("/materials");
+    const search = page.getByRole("searchbox", { name: "搜尋教材名稱" }); await search.fill("中文");
+    const card = page.getByRole("article");
+    const opener = card.getByRole("button", { name: /^管理「/ });
+    await opener.click(); await card.getByRole("button", { name: "重新命名", exact: true }).click();
+    const input = card.getByRole("textbox", { name: "教材名稱", exact: true });
+    await expect(input).toBeFocused(); await expect(input).toHaveValue("中文舊教材.pdf");
+    await input.press("Escape"); await expect(opener).toBeFocused(); expect(writes).toBe(0);
+    await opener.click(); await card.getByRole("button", { name: "重新命名", exact: true }).click();
+    await input.fill("   "); await expect(card.getByRole("button", { name: "儲存", exact: true })).toBeDisabled();
+    await input.fill("  作業系統 第五章  "); await input.press("Enter");
+    await expect(card.getByRole("alert")).toContainText("無法重新命名教材"); await expect(input).toBeFocused();
+    await page.screenshot({ path: `/tmp/studydy-management-${viewport.width}-rename-error.png`, fullPage: true });
+    fail = false; await input.press("Enter");
+    await expect(page.locator(".library-search-empty")).toContainText("找不到符合「中文」");
+    await expect(search).toHaveValue("中文"); await expect(search).toBeFocused(); expect(reads).toBe(1); expect(writes).toBe(2);
+    await search.fill("第五章"); await expect(page.getByRole("article").getByRole("heading")).toHaveText("作業系統 第五章");
+  });
+
+  test(`published material confirmation deletes exactly once at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport); await setup(page);
+    let items = [item(1, "succeeded", true, true), item(2, "no-run")], deletes = 0;
+    let release!: () => void; const pending = new Promise<void>(resolve => { release = resolve; });
+    await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: items } }));
+    await page.route(`**/v1/materials/${items[0].material_id}`, async route => {
+      expect(route.request().method()).toBe("DELETE"); deletes++; await pending;
+      const removed = items[0]; items = items.slice(1);
+      return route.fulfill({ status: 202, json: { schema: "material-discard/v1", material_id: removed.material_id, state: "removed" } });
+    });
+    await page.goto("/materials");
+    const card = page.getByRole("article").first();
+    const opener = card.getByRole("button", { name: /^管理「/ });
+    await opener.click(); await card.getByRole("button", { name: "刪除教材", exact: true }).click();
+    const confirm = card.getByRole("form", { name: "刪除教材確認" });
+    await expect(confirm).toContainText("原始 PDF、知識地圖、學習進度、題目與作答紀錄");
+    await expect(confirm.getByRole("button", { name: "取消", exact: true })).toBeFocused();
+    await confirm.getByRole("button", { name: "取消", exact: true }).click(); expect(deletes).toBe(0);
+    await opener.click(); await card.getByRole("button", { name: "刪除教材", exact: true }).click();
+    await page.screenshot({ path: `/tmp/studydy-management-${viewport.width}-delete-confirm.png`, fullPage: true });
+    await confirm.getByRole("button", { name: "確認刪除", exact: true }).evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
+    await expect.poll(() => deletes).toBe(1); await expect(confirm.getByRole("button", { name: "正在刪除…", exact: true })).toBeDisabled();
+    release(); await expect(page.getByRole("article")).toHaveCount(1); expect(deletes).toBe(1);
+  });
 }
 
-test("library protects all maps/sessions and keeps active runs on the processing route", async ({ page }) => {
+test("removing publishing material disables all actions and polls until absent", async ({ page }) => {
   await setup(page);
-  const items = [item(1, "no-run"), item(2, "failed"), item(3, "cancelled"), item(4, "succeeded", true), item(5, "partial", true), item(6, "failed", true), item(7, "running"), item(8, "pending"), item(9, "cancelled", true, true)];
-  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: items } }));
-  await page.goto("/materials");
-  for (let index = 0; index < items.length; index++) {
-    const card = page.getByRole("article").nth(index);
-    await expect(card.getByRole("button", { name: "移除教材", exact: true })).toHaveCount(index < 3 ? 1 : 0);
-  }
-  await page.getByRole("article").nth(5).getByRole("button", { name: "開啟知識地圖", exact: true }).click();
-  expect(new URL(page.url()).pathname).toBe(`/materials/${id(6)}/runs/${id(306)}/knowledge-structures/${encodeURIComponent(revision)}`);
-  await page.goto("/materials");
-  await page.getByRole("article").nth(8).getByRole("button", { name: "繼續學習", exact: true }).click();
-  expect(new URL(page.url()).pathname).toContain(`/study-sessions/${id(409)}`);
-  await page.goto("/materials");
-  await page.getByRole("article").nth(6).getByRole("button", { name: "查看處理狀態", exact: true }).click();
-  expect(new URL(page.url()).pathname).toBe(`/materials/${id(7)}/runs/${id(207)}`);
-});
-
-for (const viewport of [{ width: 1536, height: 1024 }, { width: 390, height: 844 }]) {
-test(`failed removal preserves the card and supports retry at ${viewport.width}px`, async ({ page }) => {
-  await page.setViewportSize(viewport);
-  await setup(page);
-  const target = item(1, "failed"); let fail = true; let present = true;
-  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: present ? [target] : [] } }));
-  await page.route(`**/v1/materials/${target.material_id}`, route => {
-    if (fail) return route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: id(999), reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Request could not be completed." } });
-    present = false; return route.fulfill({ status: 202, json: { schema: "material-discard/v1", material_id: target.material_id, state: "removed" } });
-  });
-  await page.goto("/materials");
+  let items = [item(1, "running", true, true), item(2, "no-run")], reads = 0;
+  items[0].latest_attempt!.progress_stage = "publishing";
+  const target = items[0];
+  await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v2", materials: items } }); });
+  await page.route(`**/v1/materials/${target.material_id}`, route => route.fulfill({ status: 202, json: { schema: "material-discard/v1", material_id: target.material_id, state: "removing" } }));
+  await page.goto("/materials"); await page.getByRole("searchbox").fill("running");
   const card = page.getByRole("article");
-  await card.getByRole("button", { name: "移除教材", exact: true }).click();
-  await card.getByRole("button", { name: "確認移除", exact: true }).click();
-  await expect(card).toBeVisible(); await expect(card.getByRole("alert")).toContainText("無法移除教材");
-  await expect(card.getByRole("button", { name: "確認移除", exact: true })).toBeEnabled();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
-  await page.screenshot({ path: `/tmp/studydy-action-layout/${viewport.width}-error.png`, fullPage: true });
-  fail = false; await card.getByRole("button", { name: "確認移除", exact: true }).click();
-  await expect(card).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();
+  await card.getByRole("button", { name: /^管理「/ }).click(); await card.getByRole("button", { name: "刪除教材", exact: true }).click();
+  await expect(card.getByRole("form")).toContainText("目前處理會先安全停止");
+  await card.getByRole("button", { name: "確認刪除", exact: true }).click();
+  await expect(card.getByRole("status")).toHaveText("正在刪除…");
+  await expect(card.getByRole("button", { name: "查看處理狀態", exact: true })).toBeDisabled();
+  await expect(card.locator(".material-source-link")).not.toHaveAttribute("href");
+  await expect(card.locator(".material-management-menu")).toHaveCount(0);
+  const previous = reads; items = items.slice(1); await page.clock.runFor(3000);
+  await expect.poll(() => reads).toBeGreaterThan(previous);
+  await expect(page.locator(".library-search-empty")).toBeVisible();
+  await expect(page.getByRole("searchbox")).toHaveValue("running");
 });
-}
 
-test("accepted card removal keeps polling even when latest attempt is already terminal", async ({ page }) => {
+test("a pre-rename poll cannot restore the old title into search results", async ({ page }) => {
   await setup(page);
-  const target = item(1, "cancelled"); let present = true; let reads = 0;
-  await page.route("**/v1/materials", route => {
-    reads++; return route.fulfill({ json: { schema: "material-library/v2", materials: present ? [target] : [] } });
+  let target = item(1, "running"); target.display_name = "old title";
+  let reads = 0, release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/v1/materials", async route => {
+    reads++; const snapshot = structuredClone(target);
+    if (reads === 2) await pending;
+    return route.fulfill({ json: { schema: "material-library/v2", materials: [snapshot] } });
   });
-  await page.route(`**/v1/materials/${target.material_id}`, route => route.fulfill({ status: 202,
-    json: { schema: "material-discard/v1", material_id: target.material_id, state: "removing" } }));
-  await page.goto("/materials");
-  await page.getByRole("button", { name: "移除教材", exact: true }).click();
-  await page.getByRole("button", { name: "確認移除", exact: true }).click();
-  await expect(page.getByText("正在移除…", { exact: true })).toBeVisible();
-  await expect.poll(() => reads).toBe(2);
-  await page.clock.runFor(3000); await expect.poll(() => reads).toBe(3);
-  present = false; await page.clock.runFor(3000);
+  await page.route(`**/v1/materials/${target.material_id}/rename`, route => {
+    target = { ...target, display_name: "new title" }; return route.fulfill({ json: target });
+  });
+  await page.goto("/materials"); await page.getByRole("searchbox").fill("old");
+  await page.clock.runFor(3000); await expect.poll(() => reads).toBe(2);
+  await page.getByRole("button", { name: /^管理「/ }).click(); await page.getByRole("button", { name: "重新命名", exact: true }).click();
+  await page.getByRole("textbox", { name: "教材名稱", exact: true }).fill("new title");
+  await page.getByRole("button", { name: "儲存", exact: true }).click();
+  await expect(page.locator(".library-search-empty")).toBeVisible();
+  const response = page.waitForResponse("**/v1/materials"); release(); await response;
   await expect(page.getByRole("article")).toHaveCount(0);
+  await expect(page.getByRole("searchbox")).toHaveValue("old");
 });
