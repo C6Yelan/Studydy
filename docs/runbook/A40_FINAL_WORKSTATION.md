@@ -15,6 +15,9 @@
    run one small structured material request, then one Assessment generation and checker.
    Only after both smokes pass, run the approved 45-page input through the product pipeline.
    Use freshly processed material; do not rewrite old development provenance or replace the product DB.
+   For the local OCR plus remote Gemma deployment, upload through the running product API/UI
+   and collect its published artifact. The CLI `run` diagnostic assumes a same-host A40;
+   do not use its local GPU/process probe to identify the remote Gemma service.
 6. Through the real browser/API, verify upload, progress, Evidence, Concepts, Relations, Map, Path,
    StudySession, Assessment, answer, learner guidance, reload/reopen, exact revision, and PDF locator.
 7. Complete the private review bound to the run SHA and run the `score` command. A summary with
@@ -56,3 +59,10 @@ contacting AI; login and saved read paths remain available when Gemma is offline
 Only processing and Assessment operations require the service.
 Unlimited-OCR and its local Python integration remain unchanged.
 See [cutover audit and qualification limits](../gemma-cutover.md).
+
+The qualification input is the competition-final 45-page source, SHA-256
+`07b1c1c1352934f75cc5182aa15db8a702138861f7557f470f9200ac33b06d13`.
+The scorer uses this exact identity, the existing 85% reviewed-usability threshold,
+complete canonical Path, source/revision binding, runtime and closed-loop checks.
+For a split deployment, runtime metadata comes from the remote semantic service;
+OCR counts and processing durations come from the actual local product run.

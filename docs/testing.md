@@ -91,6 +91,10 @@ lifecycle is loaded.
 
 The active primary input is the approved 45-page C array/string PDF. The runner verifies its exact
 source SHA and page count; there is no default additional textbook or 8-page benchmark rerun.
+The current source SHA-256 is `07b1c1c1352934f75cc5182aa15db8a702138861f7557f470f9200ac33b06d13`,
+matching competition final. The CLI `run` command below is a same-host A40 diagnostic.
+For local OCR plus remote Gemma, use the normal product upload/worker pipeline and
+collect its artifact and remote runtime observations before applying the same `score` gate.
 Use a fresh private output directory under ignored `.studydy-runtime/`, or a mode-0700 directory
 named `/tmp/studydy-*` when the network filesystem cannot preserve Unix permissions.
 

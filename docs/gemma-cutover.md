@@ -110,3 +110,8 @@ assertions remain in place.
 
 Static validation does not claim live preflight, material/Assessment smoke, or the
 45-page quality gate. Those require a separately recorded runtime qualification.
+
+The completed [runtime qualification](gemma-runtime-qualification.md) records the
+real 45-page product run, browser/answer checks, historical Qwen comparison, remaining
+limitations and the user-directed adoption criterion. The original 85% score is
+reported separately and was not changed to a pass.

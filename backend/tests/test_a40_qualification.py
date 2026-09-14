@@ -69,7 +69,7 @@ def test_score_uses_85_percent_semantics_and_keeps_runtime_failures_blocking(
     review = json.loads(SCRIPT.with_name("a40_final_review.example.json").read_text())
     summary = {
         "candidate_sha": "candidate",
-        "resident_qwen": {
+        "resident_semantic": {
             "loads_during_run": 0, "served_model_load_count": 1,
             "server_processes": [{"pid": 123}],
         },

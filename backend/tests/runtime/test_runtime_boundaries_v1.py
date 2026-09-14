@@ -101,7 +101,7 @@ def test_worker_recovers_once_and_does_not_own_model_lifecycle(monkeypatch):
     assert not hasattr(workers_module, "material_analysis_lock")
 
 
-def test_source_tree_has_no_qwen_process_owner_or_retired_semantic_modules():
+def test_source_tree_has_no_semantic_process_owner_or_retired_semantic_modules():
     root = Path(__file__).parents[3]
     production = "\n".join(path.read_text(encoding="utf-8") for path in (root / "backend/src").rglob("*.py"))
     assert "subprocess.Popen" not in production.replace((root / "backend/src/pdf_evidence/local_ai_process.py").read_text(), "")

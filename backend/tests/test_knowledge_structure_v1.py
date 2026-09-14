@@ -385,7 +385,7 @@ def test_cross_section_concept_has_one_primary_tree_placement_and_zero_prerequis
     ]
 
 
-def test_later_bundle_reuses_qwen_concept_key_without_pairwise_dedup_stage():
+def test_later_bundle_reuses_semantic_concept_key_without_pairwise_dedup_stage():
     context = _context()
     state = SemanticState()
     sections = context["sections"]

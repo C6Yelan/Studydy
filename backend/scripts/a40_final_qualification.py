@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = ROOT / ".studydy-runtime/a40-final"
 QUALITY_ROLES = ("array_45",)
 RUN_ROLES = QUALITY_ROLES
-ARRAY_SOURCE_SHA256 = "773e72dcddc7902d27d2315910749361928f143ac11beb6b66c5fe6b0d5b59df"
+ARRAY_SOURCE_SHA256 = "07b1c1c1352934f75cc5182aa15db8a702138861f7557f470f9200ac33b06d13"
 MATERIAL_REVIEW_FIELDS = {"revision", "reviewed_units", "usable_units", "limitations"}
 ASSESSMENT_FIELDS = {"reviewed_questions", "usable_questions", "no_safe_requests", "false_mastery", "limitations"}
 CLOSED_LOOP_FIELDS = {
@@ -208,7 +208,7 @@ def run(inputs: dict[str, Path], output: Path) -> int:
     binding = runtime_preflight(settings)
     before = _resident_processes()
     if not before:
-        raise QualificationError("RESIDENT_QWEN_PROCESS_COUNT_INVALID")
+        raise QualificationError("RESIDENT_SEMANTIC_PROCESS_COUNT_INVALID")
     summaries = {}
     monitor = GpuMonitor()
     monitor.start()
@@ -246,7 +246,7 @@ def run(inputs: dict[str, Path], output: Path) -> int:
         peak_vram_mib = monitor.stop()
     after = _resident_processes()
     if before != after:
-        raise QualificationError("RESIDENT_QWEN_RELOADED")
+        raise QualificationError("RESIDENT_SEMANTIC_RELOADED")
     summary = {
         "schema": "a40-final-run/v2",
         "produced_at": datetime.now(UTC).isoformat(),
@@ -254,7 +254,7 @@ def run(inputs: dict[str, Path], output: Path) -> int:
         "runtime_binding_sha256": binding["runtime_binding_sha256"],
         "gpu": gpu,
         "peak_vram_mib": peak_vram_mib,
-        "resident_qwen": {
+        "resident_semantic": {
             "server_processes": before,
             "served_model_load_count": 1,
             "loads_during_run": 0,
@@ -324,9 +324,9 @@ def score(review_path: Path, output: Path) -> int:
     if any(type(runtime[name]) is not int or runtime[name] < 0 for name in ("oom", "engine_death")):
         raise QualificationError("QUALIFICATION_REVIEW_INVALID")
     runtime_pass = (
-        run_summary["resident_qwen"]["loads_during_run"] == 0
-        and run_summary["resident_qwen"]["served_model_load_count"] == 1
-        and bool(run_summary["resident_qwen"]["server_processes"])
+        run_summary["resident_semantic"]["loads_during_run"] == 0
+        and run_summary["resident_semantic"]["served_model_load_count"] == 1
+        and bool(run_summary["resident_semantic"]["server_processes"])
         and run_summary["peak_vram_mib"] <= run_summary["gpu"]["memory_mib"]
         and runtime["oom"] == 0 and runtime["engine_death"] == 0
         and runtime["python_minors"] == ["3.12"] and runtime["mdeberta_decision"] == "REMOVE"
