@@ -1802,7 +1802,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
     await expect(page.locator(".study-header").getByRole("button", { name: "結束本次學習" })).toHaveCount(0);
     expect(await shellState()).toEqual(before);
     const content = (await page.locator(".study-session-page").boundingBox())!;
-    expect(content.width).toBeLessThanOrEqual(1180);
+    expect(content.width).toBeLessThanOrEqual(1440);
     const card = (await page.locator(".current-concept-card").boundingBox())!;
     expect(card.x).toBeGreaterThan(content.x);
     await page.screenshot({ path: `/tmp/studydy-learning-shell/${viewport.width}-study.png`, fullPage: true });
@@ -1901,7 +1901,7 @@ for (const action of ["advance", "review_prerequisite", "defer", "complete"]) {
     await expect(page.getByRole("button", { name: "開始練習" })).toHaveCount(0);
     await returnToCurrentStudy(page);
     await expect(page.locator(".study-current-action .adaptive-card")).toBeVisible();
-    await expect(page.locator(".study-followup .adaptive-card")).toHaveCount(0);
+    await expect(page.locator(".study-rail .adaptive-card")).toHaveCount(0);
     expect(fixture.creates).toHaveLength(1); expect(fixture.completions()).toBe(0);
   });
 }
@@ -2059,7 +2059,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${sessionId}`);
       const actionPane = page.locator(".study-current-action");
       await expect(actionPane.locator(".adaptive-card")).toBeVisible();
-      await expect(page.locator(".study-followup .adaptive-card, .assessment-ready")).toHaveCount(0);
+      await expect(page.locator(".study-rail .adaptive-card, .assessment-ready")).toHaveCount(0);
       await expect(page.locator(".study-session-page")).not.toContainText("請依下方");
       if (viewport.width > 900) {
         await expect(actionPane.getByRole("button")).toBeInViewport();
@@ -2118,7 +2118,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       await expect(page).toHaveURL(study);
       await expect(page.locator(".evidence-review-activity")).toHaveCount(0);
       await expect(page.locator(".study-current-action .adaptive-card")).toHaveCount(1);
-      await expect(page.locator(".study-followup .adaptive-card")).toHaveCount(0);
+      await expect(page.locator(".study-rail .adaptive-card")).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
       if (action === "defer") {
         await openStudyRecord(page, fixture.records[0]);
@@ -2481,4 +2481,143 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       }
     });
   }
+}
+
+async function auditStudyComposition(page: Page, viewport: { width: number; height: number }, name: string) {
+  const workspace = page.locator(".study-workspace"), main = page.locator(".study-main"), rail = page.getByRole("complementary", { name: "學習資訊", exact: true });
+  await expect(workspace).toHaveCount(1); await expect(page.locator(".study-rail")).toHaveCount(1);
+  await expect(page.locator(".study-followup")).toHaveCount(0);
+  await expect(rail).toBeVisible();
+  await expect(rail.getByRole("button", { name: "返回最新進度", exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
+  const mainBounds = (await main.boundingBox())!, railBounds = (await rail.boundingBox())!;
+  const headerBounds = (await page.locator(".study-header").boundingBox())!, workspaceBounds = (await workspace.boundingBox())!;
+  expect(Math.abs(headerBounds.x - workspaceBounds.x)).toBeLessThan(1);
+  if (viewport.width >= 1280) {
+    expect(railBounds.x).toBeGreaterThan(mainBounds.x + mainBounds.width);
+    expect(Math.abs(railBounds.y - mainBounds.y)).toBeLessThan(1);
+    expect(railBounds.width).toBeGreaterThanOrEqual(300); expect(railBounds.width).toBeLessThanOrEqual(340);
+    expect(mainBounds.width).toBeGreaterThan(850);
+    if (await rail.locator(".learning-insights").count()) {
+      const metrics = await rail.locator(".insights-summary > span:not(.insights-separator)").all();
+      expect((await metrics[1].boundingBox())!.y).toBeGreaterThan((await metrics[0].boundingBox())!.y);
+      await expect(rail.locator(".insights-separator").first()).toHaveCSS("display", "none");
+    }
+  } else {
+    expect(railBounds.y).toBeGreaterThanOrEqual(mainBounds.y + mainBounds.height);
+    expect(Math.abs(railBounds.width - mainBounds.width)).toBeLessThan(1);
+  }
+  if (await main.locator(".is-question-mode").count()) {
+    const card = (await main.locator(".assessment-card").boundingBox())!;
+    expect(card.width).toBeLessThanOrEqual(780);
+    expect(Math.abs(card.x + card.width / 2 - mainBounds.x - mainBounds.width / 2)).toBeLessThan(1);
+    await expect(page.locator(".current-concept-card")).toHaveCount(0);
+  } else if (viewport.width >= 1280) {
+    expect((await page.locator(".current-concept-card").boundingBox())!.width).toBeGreaterThan(400);
+    expect((await page.locator(".study-current-action").boundingBox())!.width).toBeGreaterThan(400);
+  }
+  await expect(rail).toHaveCSS("overflow-y", "visible");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: `/tmp/studydy-side-rail/${viewport.width}-${name}.png`, fullPage: true });
+}
+
+for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
+  test(`study rail loading question and feedback at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const fixture = await studyWorkflowFixture(page);
+    fixture.state.next_action.prerequisite_concept_ids = [fixture.view.concepts[0].concept_id];
+    const study = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${sessionId}`;
+    await page.goto(study);
+    await expect(page.locator(".assessment-ready")).toBeVisible();
+    await expect(page.locator(".current-concept-card")).toBeVisible();
+    await expect(page.locator(".study-rail")).not.toBeVisible();
+    await page.screenshot({ path: `/tmp/studydy-side-rail/${viewport.width}-ready.png`, fullPage: true });
+    const opener = page.getByRole("button", { name: `查看「${fixture.view.concepts[0].label}」`, exact: true });
+    await opener.click(); await expect(page.locator(".assessment-prerequisite-preview")).toBeVisible();
+    await page.screenshot({ path: `/tmp/studydy-side-rail/${viewport.width}-preview.png`, fullPage: true });
+    await page.getByRole("button", { name: "回到目前練習", exact: true }).click(); await expect(opener).toBeFocused();
+    await page.getByRole("button", { name: "開始練習", exact: true }).click();
+    for (const correct of [true, false]) {
+      await expect(page.getByRole("heading", { name: /練習 \d+：/ })).toBeVisible();
+      const release = fixture.holdProgress();
+      await page.getByRole("radio").nth(correct ? 0 : 1).check(); await page.getByRole("button", { name: "送出答案", exact: true }).click();
+      await expect(page.getByRole("heading", { name: correct ? "答對了" : "這題需要再想一下", exact: true })).toBeVisible();
+      Object.assign(fixture.state.next_action, { action: "assess", target_concept_id: fixture.state.current_concept_id, target_claim_id: fixture.view.concepts[1].claims[2].claim_id });
+      release(); await expect(page.getByRole("button", { name: "繼續練習", exact: true })).toBeVisible();
+      await expect(page.locator(".learning-insights")).toHaveCount(1); await expect(page.locator(".study-record-picker")).toHaveCount(1);
+      await auditStudyComposition(page, viewport, correct ? "correct-feedback" : "wrong-feedback");
+      if (viewport.width >= 1280) {
+        await expect(page.locator(".study-rail .learning-insights")).toBeInViewport();
+        await expect(page.locator(".study-record-picker summary")).toBeInViewport();
+      }
+      if (correct) {
+        const releaseQuestion = fixture.hold();
+        await page.getByRole("button", { name: "繼續練習", exact: true }).click();
+        await expect(page.locator(".assessment-loading")).toBeVisible();
+        await expect(page.locator(".study-record-picker")).not.toHaveAttribute("open", "");
+        await auditStudyComposition(page, viewport, "loading-with-progress");
+        if (viewport.width >= 1280) {
+          await expect(page.locator(".study-rail .learning-insights")).toBeInViewport();
+          await expect(page.locator(".study-record-picker summary")).toBeInViewport();
+        }
+        releaseQuestion(); await expect(page.getByRole("heading", { name: /練習 2：/ })).toBeVisible();
+        await auditStudyComposition(page, viewport, "question-with-progress");
+      }
+    }
+    fixture.setStatus("completed"); await page.reload();
+    await expect(page.getByRole("heading", { name: "本次學習已完成", exact: true })).toBeVisible();
+    await auditStudyComposition(page, viewport, "completed");
+  });
+
+  test(`study rail ten records historical review and long question at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const fixture = await tenAssessmentHistory(page);
+    const study = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${sessionId}`;
+    await page.goto(study);
+    await expect(page.getByRole("heading", { name: fixture.records[0].assessment.prompt, exact: true })).toBeVisible();
+    await expect(page.locator(".study-record-picker")).not.toHaveAttribute("open", "");
+    await auditStudyComposition(page, viewport, "long-question-history-collapsed");
+    if (viewport.width >= 1280) await expect(page.locator(".study-record-picker summary")).toBeInViewport();
+    const history = page.locator(".study-record-picker");
+    await history.locator("summary").focus(); await page.keyboard.press("Space");
+    await expect(history.locator(".study-history-row")).toHaveCount(10);
+    await expect(history.locator(".study-history-chevron")).toHaveCount(10);
+    await expect(history.locator(".study-history-list")).toHaveCSS("overflow-y", "visible");
+    expect(await history.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
+    if (viewport.width >= 1280 || viewport.width <= 620) {
+      const row = history.locator(".study-history-row").first();
+      expect((await row.locator(".study-history-prompt").boundingBox())!.y).toBeGreaterThan((await row.locator(".study-history-number").boundingBox())!.y);
+    }
+    await auditStudyComposition(page, viewport, "ten-history-expanded");
+    await openStudyRecord(page, fixture.records[1]);
+    await expect(page.getByRole("region", { name: "歷史作答", exact: true })).toBeFocused();
+    await expect(page.getByRole("heading", { name: "這題需要再想一下", exact: true })).toBeVisible();
+    await history.locator("summary").click();
+    await expect(history.locator('[aria-current="true"] .study-history-number')).toHaveText("第 9 題");
+    await auditStudyComposition(page, viewport, "historical");
+    await returnToCurrentStudy(page); await expect(page).toHaveURL(study);
+    await expect(page.locator(".study-learning-grid")).toHaveClass(/is-question-mode/);
+    await expect(page.locator(".current-concept-card")).toHaveCount(0);
+  });
+
+  test(`study rail guidance and no-safe keep secondary information separate at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const fixture = await tenAssessmentHistory(page);
+    Object.assign(fixture.state.concept_states[1], { status: "mastered", attempts: 6, correct_answers: 6, covered_claim_ids: fixture.view.concepts[1].claims.map(claim => claim.claim_id), mastered_claim_ids: fixture.view.concepts[1].claims.map(claim => claim.claim_id) });
+    Object.assign(fixture.state.next_action, { action: "advance", target_concept_id: fixture.view.concepts[2].concept_id, target_claim_id: null });
+    await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${sessionId}`);
+    await expect(page.getByRole("heading", { name: "可以繼續下一個重點", exact: true })).toBeVisible();
+    await auditStudyComposition(page, viewport, "advance");
+    await page.getByRole("button", { name: "繼續學習", exact: true }).click();
+    await expect(page.locator(".assessment-ready")).toBeVisible();
+    await auditStudyComposition(page, viewport, "ready-with-history");
+    fixture.failNextAssessment();
+    await page.getByRole("button", { name: "開始練習", exact: true }).click();
+    await expect(page.locator(".study-main .evidence-review-activity")).toBeVisible();
+    await expect(page.locator(".study-rail .evidence-review-activity, .study-rail .adaptive-card")).toHaveCount(0);
+    await expect(page.locator(".current-concept-card")).toBeVisible();
+    await auditStudyComposition(page, viewport, "no-safe");
+    await page.getByRole("button", { name: "完成本次回顧", exact: true }).click();
+    await expect(page.locator(".study-current-action .adaptive-card")).toBeVisible();
+  });
 }

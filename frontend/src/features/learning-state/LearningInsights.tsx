@@ -23,7 +23,7 @@ export function LearningInsights({ currentConceptId, totalClaimCount, progress }
         <h2 id="learning-insights-title">本次進度</h2>
         <span className={`learning-status is-${current.status}`}>{status[current.status]}</span>
       </div>
-      <p className="insights-summary">作答 {current.attempts} 次 · 答對 {current.correct_answers} 次 · 已練習 {current.covered_claim_ids.length} 個重點</p>
+      <p className="insights-summary"><span>作答 {current.attempts} 次</span><span className="insights-separator" aria-hidden="true"> · </span><span>答對 {current.correct_answers} 次</span><span className="insights-separator" aria-hidden="true"> · </span><span>已練習 {current.covered_claim_ids.length} 個重點</span></p>
       <p>已掌握 {current.mastered_claim_ids.length} / {totalClaimCount} 個教材重點</p>
       {current.attempts > 0 && <details className="mastery-explanation"><summary>如何判斷已掌握？</summary><p>每個教材重點需答對 2 道不同且通過檢查的題目，最近一次作答也需答對。</p></details>}
 
