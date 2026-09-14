@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { AnswerFeedbackView, AssessmentRecordView, AssessmentView, KnowledgeStructureView } from "../../api/contracts";
@@ -33,7 +33,7 @@ function assessmentError(error: unknown): AssessmentError {
   };
 }
 
-export function AssessmentPanel({ apiClient, record, completed, isHistorical, historyQuestionNumber, onReturnLatest, onAssessmentCreated, concept, assessmentTargetClaimId, assessmentTargetInvalid, prerequisiteConcepts, onNoSafeReviewChange, onProgressChanged, onReloadSession, sourceArtifactId, studySessionId, view }: {
+export function AssessmentPanel({ apiClient, record, completed, isHistorical, historyQuestionNumber, onReturnLatest, onAssessmentCreated, concept, assessmentTargetClaimId, assessmentTargetInvalid, prerequisiteConcepts, onNoSafeReviewChange, onQuestionModeChange, onProgressChanged, onReloadSession, sourceArtifactId, studySessionId, view }: {
   apiClient: StudydyApiClient;
   record: AssessmentRecordView | null;
   completed: boolean;
@@ -46,6 +46,7 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
   assessmentTargetInvalid: boolean;
   prerequisiteConcepts: Concept[];
   onNoSafeReviewChange: (active: boolean) => void;
+  onQuestionModeChange: (active: boolean) => void;
   onProgressChanged: (activity: "answer" | "no_safe") => Promise<void>;
   onReloadSession: () => void;
   sourceArtifactId: string;
@@ -115,6 +116,13 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
   const canCreateAssessment = !!assessmentTargetClaimId && !completed && !isSubmitting && !isHistorical;
   const canAnswer = !completed && record?.can_submit !== false
     && (!isHistorical || (!!assessmentTargetClaimId && assessment?.target_concept_id === concept.concept_id));
+  const questionMode = !isHistorical && !completed && !requestError
+    && (isLoading || (!!assessment && !feedback && canAnswer));
+  useLayoutEffect(() => {
+    onQuestionModeChange(questionMode);
+    return () => onQuestionModeChange(false);
+  }, [questionMode, onQuestionModeChange]);
+
   const historicalContext = isHistorical && record ? <section className="assessment-history-context" aria-label="歷史作答" tabIndex={-1} ref={historyContext}>
     <div><p className="eyebrow">歷史作答</p><p>第 {historyQuestionNumber} 題 · {record.feedback ? "已作答" : "尚未作答"}</p></div>
     <button className="secondary-button" type="button" onClick={onReturnLatest}>返回最新進度</button>
@@ -122,6 +130,7 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
 
   const requestAssessment = async (newIntent: boolean) => {
     if (isLoading || !canCreateAssessment || !assessmentTargetClaimId) return;
+    onQuestionModeChange(true);
     setPreviewPrerequisiteId(null);
     setIsLoading(true);
     setRequestError(null);
@@ -144,6 +153,7 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
       submissionIntent.current = null;
     } catch (error) {
       const nextError = assessmentError(error);
+      onQuestionModeChange(false);
       setRequestError(nextError);
       if (nextError.noSafeItem) {
         onNoSafeReviewChange(true);
@@ -168,6 +178,7 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
         selected_option_id: selectedOptionId,
       }, submissionIntent.current.key);
       setFeedback(next);
+      onQuestionModeChange(false);
       await onProgressChanged("answer");
     } catch (error) {
       setSubmissionError(assessmentError(error));

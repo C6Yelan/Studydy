@@ -42,6 +42,7 @@ export function StudySessionPage({ apiClient, route }: {
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
   const [noSafeReviewActive, setNoSafeReviewActive] = useState(false);
+  const [assessmentQuestionMode, setAssessmentQuestionMode] = useState(false);
   const activePage = useRef(false);
 
   const load = async () => {
@@ -57,6 +58,7 @@ export function StudySessionPage({ apiClient, route }: {
     let cancelled = false;
     activePage.current = true;
     setNoSafeReviewActive(false);
+    setAssessmentQuestionMode(false);
     setData(null);
     setMessage(null);
     void load().then((next) => {
@@ -121,14 +123,14 @@ export function StudySessionPage({ apiClient, route }: {
         <div><p className="eyebrow">本次學習</p><h1>{completed ? "本次學習已完成" : current.label}</h1>
           <p>{position !== undefined && `第 ${position} / ${data.view.initial_learning_path.length} 個概念 · `}學習進度會自動保存。</p></div>
       </header>
-      <div className="study-learning-grid">
-        <article className="surface current-concept-card" aria-labelledby="study-content-title">
+      <div className={`study-learning-grid${assessmentQuestionMode ? " is-question-mode" : ""}`}>
+        {!assessmentQuestionMode && <article className="surface current-concept-card" aria-labelledby="study-content-title">
           <p className="eyebrow">教材重點</p><h2 id="study-content-title">{current.label}</h2>
           <ul className="study-claims">{current.claims.map(claim => <li key={claim.claim_id}>{claim.text}</li>)}</ul>
           <section className="study-sources" aria-label="教材來源"><h3>教材來源</h3><div>
             {sourcePages.map(page => <button className="text-button" key={page} type="button" onClick={() => window.open(apiClient.sourceArtifactUrl(data.sourceArtifactId, page), "_blank", "noopener,noreferrer")}>第 {page} 頁<Icon name="chevron-right" /></button>)}
           </div></section>
-        </article>
+        </article>}
         <div className="study-current-action" id="assessment-panel">
           {showAssessment ? <AssessmentPanel
             key={`${data.session.study_session_id}/${current.concept_id}/${selectedRecord?.assessment.assessment_revision ?? "new"}/${selectedRecord?.feedback?.answer_event_id ?? "unanswered"}`}
@@ -149,6 +151,7 @@ export function StudySessionPage({ apiClient, route }: {
                 writeRoute({ ...route, assessmentRevision: undefined }, true);
               }
             }}
+            onQuestionModeChange={setAssessmentQuestionMode}
             onProgressChanged={refresh}
             onReloadSession={() => { void refresh(); }}
             sourceArtifactId={data.sourceArtifactId}
@@ -172,6 +175,7 @@ export function StudySessionPage({ apiClient, route }: {
                   <span className="study-history-number">第 {number} 題</span>
                   <span className="study-history-prompt">{record.assessment.prompt}</span>
                   <span className={`study-history-status is-${record.feedback ? record.feedback.is_correct ? "correct" : "incorrect" : "unanswered"}`}>{result}</span>
+                  <span className="study-history-chevron" aria-hidden="true"><Icon name="chevron-right" size={18} /></span>
                 </button>
               </li>;
             })}
