@@ -15,15 +15,15 @@ const item: MaterialLibraryItem = { schema: "material-library-item/v2", material
 async function setup(page: Page) {
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: materialId } }));
   await page.route("**/v1/session/refresh", route => route.fulfill({ status: 204 }));
-  await page.route(`**/v1/materials/${materialId}`, route => route.fulfill({ json: item }));
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [item] } }));
   await page.route(`**/v1/material-processing-runs/${oldId}`, route => route.fulfill({ json: oldRun }));
   await page.route(`**/v1/material-processing-runs/${newId}`, route => route.fulfill({ json: newRun }));
 }
 for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
-  for (const context of ["detail", "run", "initial"]) test(`material recovery ${context} uses one intent and new run at ${viewport.width}px`, async ({ page }) => {
+  for (const context of ["collection", "run", "initial"]) test(`material recovery ${context} uses one intent and new run at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport); await setup(page);
-    if (context === "initial") await page.route(`**/v1/materials/${materialId}`, route => route.fulfill({ json: { ...item, latest_attempt: null } }));
-    const originalPath = context === "run" ? `/materials/${materialId}/runs/${oldId}` : `/materials/${materialId}`;
+    if (context === "initial") await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [{ ...item, latest_attempt: null }] } }));
+    const originalPath = context === "run" ? `/materials/${materialId}/runs/${oldId}` : "/materials";
     const keys: string[] = []; const bodies: unknown[] = []; const serverRuns = new Map<string, string>();
     let release!: () => void;
     const response = new Promise<void>(resolve => { release = resolve; });
@@ -75,22 +75,22 @@ test("run read failure reloads and returns to its material detail", async ({ pag
   await page.route(`**/v1/material-processing-runs/${oldId}`, route => fail ? route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: materialId, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Request could not be completed." } }) : route.fulfill({ json: oldRun }));
   await page.goto(`/materials/${materialId}/runs/${oldId}`);
   await expect(page.getByRole("heading", { name: "無法讀取處理狀態" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "返回教材詳情" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "返回教材庫" })).toBeVisible();
   fail = false; await page.getByRole("button", { name: "重新讀取", exact: true }).click();
   await expect(page.getByRole("heading", { name: "教材處理失敗", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "返回教材詳情" }).click();
-  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}$`));
+  await page.getByRole("button", { name: "返回教材庫" }).click();
+  await expect(page).toHaveURL(/\/materials$/);
 });
 
-for (const status of ["active", "completed"] as const) test(`failed detail prioritizes ${status} saved learning over recovery`, async ({ page }) => {
+for (const status of ["active", "completed"] as const) test(`failed collection prioritizes ${status} saved learning over recovery`, async ({ page }) => {
   await setup(page);
   const revision = `knowledge-structure:sha256:${"a".repeat(64)}`;
   const saved: MaterialLibraryItem = { ...item, available_structures: [{ run_id: newId, knowledge_structure_revision: revision, status: "succeeded", created_at: stamp }],
     study_sessions: [{ study_session_id: sourceId, run_id: newId, knowledge_structure_revision: revision, status, started_at: stamp, current_concept_id: null }] };
-  await page.route(`**/v1/materials/${materialId}`, route => route.fulfill({ json: saved }));
-  await page.goto(`/materials/${materialId}`);
-  const actions = page.locator(".material-detail-actions");
-  await expect(actions.locator(".primary-button")).toHaveText(status === "active" ? "接續上次學習" : "查看上次學習");
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [saved] } }));
+  await page.goto("/materials");
+  const actions = page.locator(".library-item .state-actions");
+  await expect(actions.locator(".primary-button")).toHaveText(status === "active" ? "繼續學習" : "查看學習成果");
   await expect(actions.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveClass("secondary-button");
   await expect(actions.getByRole("button", { name: "重新處理教材", exact: true })).toHaveCount(status === "active" ? 1 : 0);
   if (status === "active") await expect(actions.getByRole("button", { name: "重新處理教材", exact: true })).toHaveClass("secondary-button");

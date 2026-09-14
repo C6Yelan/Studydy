@@ -39,8 +39,8 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 390, height: 844
       const actions = card.locator(":scope > .state-actions");
       const trigger = actions.locator(":scope > button").filter({ hasText: /^移除教材$/ });
       await expect(trigger).toHaveClass("secondary-button");
-      if (state !== "no-run") {
-        const latest = actions.locator(":scope > button").filter({ hasText: /^查看最新處理$/ });
+      if (state === "failed") {
+        const latest = actions.locator(":scope > button").filter({ hasText: /^查看失敗詳情$/ });
         await latest.focus(); await page.keyboard.press("Tab"); await expect(trigger).toBeFocused();
         const first = (await latest.boundingBox())!; const second = (await trigger.boundingBox())!;
         expect(Math.abs(first.height - second.height)).toBeLessThan(2);
@@ -95,10 +95,10 @@ test("library protects all maps/sessions and keeps active runs on the processing
   await page.getByRole("article").nth(5).getByRole("button", { name: "開啟知識地圖", exact: true }).click();
   expect(new URL(page.url()).pathname).toBe(`/materials/${id(6)}/runs/${id(306)}/knowledge-structures/${encodeURIComponent(revision)}`);
   await page.goto("/materials");
-  await page.getByRole("article").nth(8).getByRole("button", { name: "接續上次學習", exact: true }).click();
+  await page.getByRole("article").nth(8).getByRole("button", { name: "繼續學習", exact: true }).click();
   expect(new URL(page.url()).pathname).toContain(`/study-sessions/${id(409)}`);
   await page.goto("/materials");
-  await page.getByRole("article").nth(6).getByRole("button", { name: "查看最新處理", exact: true }).click();
+  await page.getByRole("article").nth(6).getByRole("button", { name: "查看處理狀態", exact: true }).click();
   expect(new URL(page.url()).pathname).toBe(`/materials/${id(7)}/runs/${id(207)}`);
   await page.goto("/knowledge-maps");
   await expect(page.getByRole("button", { name: "移除教材", exact: true })).toHaveCount(0);

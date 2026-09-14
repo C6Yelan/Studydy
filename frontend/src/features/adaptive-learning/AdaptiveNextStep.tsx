@@ -8,7 +8,7 @@ const copy = {
   defer: ["先前往下一個可學習的重點", "暫緩並繼續", "目前內容會保留，之後可以再回來。"],
   resume: ["回到先前保留的重點", "回到保留重點", "接著學習先前留下的教材內容。"],
   no_safe: ["目前沒有適合的新題目", "", "可以先回顧教材內容。"],
-  complete: ["本次學習內容已完成", "完成學習", "本次紀錄會保留，之後仍可回顧。"],
+  complete: ["學習內容已完成", "完成學習", "學習進度會保留，之後仍可回顧。"],
 } as const;
 
 export function GuidanceNextStep({ progress, view, isApplying, onApply }: {

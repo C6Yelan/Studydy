@@ -119,7 +119,7 @@ test("dashboard resume retains active/completed routes and overview destinations
     status = value;
     await page.goto("/");
     await expect(page.locator(".dashboard-stat strong")).toHaveText(["1", "1", "1", value === "completed" ? "1" : "0"]);
-    await page.getByRole("button", { name: value === "active" ? "繼續學習" : "查看學習紀錄", exact: true }).click();
+    await page.getByRole("button", { name: value === "active" ? "繼續學習" : "查看學習成果", exact: true }).click();
     expect(new URL(page.url()).pathname).toBe(`/materials/${id}/runs/${id}/knowledge-structures/${encodeURIComponent(revision)}/study-sessions/${id}`);
   }
   for (const [index, path] of ["materials", "knowledge-maps", "materials", "materials"].entries()) {

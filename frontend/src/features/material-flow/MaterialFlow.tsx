@@ -15,7 +15,6 @@ export function MaterialFlow({ apiClient, route }: {
   if (route.name === "home") return <Dashboard apiClient={apiClient} />;
   if (route.name === "materials") return <MaterialLibrary key="library" apiClient={apiClient} />;
   if (route.name === "maps") return <MaterialLibrary key="maps" apiClient={apiClient} mapsOnly />;
-  if (route.name === "material-detail") return <MaterialLibrary key={route.materialId} apiClient={apiClient} materialId={route.materialId} />;
   if (route.name === "upload") return <UploadView apiClient={apiClient} />;
   if (route.name === "material-run") return <RunView key={route.runId} apiClient={apiClient} route={route} />;
   if (route.name === "knowledge-map") return <KnowledgeMap key={`${route.materialId}/${route.runId}/${route.structureRevision}`} apiClient={apiClient} route={route} />;

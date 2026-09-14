@@ -17,6 +17,7 @@ import type {
   MaterialLibraryItem,
   MaterialLibraryView,
   StudySessionCreate,
+  StudySessionFocus,
   StudySessionView,
   StudyResumeView,
 } from "./contracts";
@@ -466,6 +467,15 @@ export class StudydyApiClient {
     const view = await this.json(`/v1/materials/${encodeURIComponent(request.materialId)}/knowledge-structures/${encodeURIComponent(request.structureRevision)}`, { method: "GET" }, knowledgeStructure);
     if (view.knowledge_structure_revision !== request.structureRevision) throw new ApiClientError("schema", "教材結構版本不一致。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
     return view;
+  }
+
+  async focusStudySession(studySessionId: string, currentConceptId: string): Promise<StudySessionView> {
+    const state = await this.json(`/v1/study-sessions/${encodeURIComponent(studySessionId)}/focus`, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
+      body: JSON.stringify({ schema: "study-session-focus/v1", current_concept_id: currentConceptId } satisfies StudySessionFocus),
+    }, studySession);
+    if (state.study_session_id !== studySessionId) throw new ApiClientError("schema", "學習進度身分不一致。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    return state;
   }
 
   createStudySession(body: StudySessionCreate, key: string = crypto.randomUUID()): Promise<StudySessionView> {

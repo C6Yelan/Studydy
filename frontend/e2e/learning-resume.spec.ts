@@ -11,7 +11,7 @@ async function login(page: Page, email = "learner_test@example.com") {
   await page.getByLabel("密碼", { exact: true }).fill("Synthetic test password 42");
   await page.getByRole("button", { name: "登入", exact: true }).click();
   await expect(page.getByRole("heading", { name: "歡迎回來！", exact: true })).toBeVisible();
-  await expect(page.locator(".dashboard-stat strong")).toHaveText(email === "learner_test@example.com" ? ["3", "1", "3", "1"] : ["1", "0", "0", "0"]);
+  await expect(page.locator(".dashboard-stat strong")).toHaveText(email === "learner_test@example.com" ? ["3", "1", "1", "0"] : ["1", "0", "0", "0"]);
   await page.getByRole("button", { name: "教材庫", exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
 }
@@ -22,7 +22,11 @@ function resumeResponse(page: Page) {
 
 async function continueStudy(page: Page): Promise<StudyResumeView> {
   const read = resumeResponse(page);
-  await page.getByRole("article", { name: "堆疊講義.pdf", exact: true }).getByRole("button", { name: "接續上次學習", exact: true }).click();
+  // Legacy saved links remain resumable even when the material hub exposes only its latest structure.
+  const library = await (await page.request.get("/v1/materials")).json();
+  const material = library.materials.find((item: any) => item.display_name === "堆疊講義.pdf");
+  const state = material.study_sessions.find((item: any) => item.status === "active");
+  await page.goto(`/materials/${material.material_id}/runs/${state.run_id}/knowledge-structures/${encodeURIComponent(state.knowledge_structure_revision)}/study-sessions/${state.study_session_id}`);
   return (await read).json();
 }
 
@@ -109,29 +113,13 @@ test("original learning and questions survive reload, new profiles and a lost co
   await expect(lastPage.getByRole("heading", { name: "答對了", exact: true })).toBeVisible();
   const studyUrl = lastPage.url();
   await lastPage.getByRole("button", { name: "教材庫", exact: true }).click();
-  await lastPage.getByRole("button", { name: "堆疊講義.pdf", exact: true }).click();
-  const completedRead = resumeResponse(lastPage);
-  await lastPage.getByRole("button", { name: "開啟學習紀錄 1", exact: true }).click();
-  const completed: StudyResumeView = await (await completedRead).json();
-  expect(completed.session.status).toBe("completed");
-  expect(completed.assessments[0].feedback).not.toBeNull();
-  await expect(lastPage.getByRole("heading", { name: "本次學習已完成", exact: true })).toBeVisible();
-  await expect(lastPage.getByRole("button", { name: "繼續練習", exact: true })).toHaveCount(0);
-  await lastPage.getByRole("button", { name: "教材庫", exact: true }).click();
-  await lastPage.getByRole("button", { name: "堆疊講義.pdf", exact: true }).click();
-  const noSafeRead = resumeResponse(lastPage);
-  await lastPage.getByRole("button", { name: "開啟學習紀錄 2", exact: true }).click();
-  const noSafe: StudyResumeView = await (await noSafeRead).json();
-  expect(noSafe.session.status).toBe("no_safe");
-  expect(noSafe.session.no_safe_claim_ids.length).toBeGreaterThan(0);
-  expect(noSafe.progress.deferred_concept_ids).toEqual(noSafe.session.deferred_concept_ids);
-  await expect(lastPage.getByRole("heading", { name: "目前沒有適合的新題目", exact: true })).toBeVisible();
+  await expect(lastPage.getByRole("button", { name: /開啟學習紀錄|開啟版本/ })).toHaveCount(0);
   await lastPage.getByRole("button", { name: "登出", exact: true }).click();
   await expect(lastPage.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   await login(lastPage, "library_b@example.com");
   await expect(lastPage.getByText("堆疊講義.pdf", { exact: true })).toHaveCount(0);
   await lastPage.goto(studyUrl);
-  await expect(lastPage.getByRole("heading", { name: "無法開啟本次學習", exact: true })).toBeVisible();
+  await expect(lastPage.getByRole("heading", { name: "無法開啟學習進度", exact: true })).toBeVisible();
   await expect(lastPage.getByText(pendingPrompt, { exact: true })).toHaveCount(0);
   await lastContext.close();
 });

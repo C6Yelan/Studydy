@@ -137,7 +137,7 @@ export function RunView({ apiClient, route }: {
       <StateView
         action={<>
           <button className="primary-button" type="button" onClick={() => setReload(value => value + 1)}><Icon name="refresh" />重新讀取</button>
-          <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "material-detail", materialId: route.materialId })}>返回教材詳情</button>
+          <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "materials" })}>返回教材庫</button>
         </>}
         description={message} image="/assets/studydy/failure-confused.png" title="無法讀取處理狀態" tone="failure"
       />
@@ -235,7 +235,7 @@ export function RunView({ apiClient, route }: {
   if (run.status === "failed") return (
     <section className="processing-page task-page terminal-failure">
       <StateView
-        action={<><MaterialRunStartControl apiClient={apiClient} materialId={run.material_id} sourceArtifactId={run.source_artifact_id} /><button className="secondary-button" type="button" onClick={() => writeRoute({ name: "material-detail", materialId: route.materialId })}>返回教材詳情</button></>}
+        action={<><MaterialRunStartControl apiClient={apiClient} materialId={run.material_id} sourceArtifactId={run.source_artifact_id} /><button className="secondary-button" type="button" onClick={() => writeRoute({ name: "materials" })}>返回教材庫</button></>}
         description={materialFailureMessage(run.error_code ?? "MATERIAL_ANALYSIS_FAILED")}
         image="/assets/studydy/failure-confused.png" title="教材處理失敗" tone="failure"
       />

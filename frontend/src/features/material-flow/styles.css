@@ -508,8 +508,6 @@
 .library-item { padding: 22px; overflow-wrap: anywhere; box-shadow: none; }
 .library-item h2 { margin: 16px 0 10px; font-size: 17px; line-height: 1.5; }
 .library-item > p { font-size: 13px; color: var(--text-secondary); }
-.library-title { border: 0; padding: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.library-title:hover { color: var(--studydy-blue); text-decoration: underline; }
 .library-file-icon { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 10px; color: var(--studydy-blue); background: var(--studydy-blue-soft); }
 .library-item .state-actions { flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .library-item .state-actions > button,
@@ -537,7 +535,6 @@
 .is-collection .library-empty h2 { font-size: 23px; margin: 8px 0; }
 .is-collection .library-empty p { max-width: 560px; margin-bottom: 20px; }
 .is-collection .library-item { display: flex; flex-direction: column; min-width: 0; }
-.is-collection .library-title { max-width: 100%; }
 .is-collection .library-item > p { margin-top: 0; }
 .is-collection .library-state { align-self: flex-start; max-width: 100%; }
 .is-collection .library-item > .state-actions:empty { display: none; }
@@ -559,37 +556,6 @@
 .cancel-confirmation .cancel-confirm-button,
 .cancel-confirmation .cancel-confirm-button:hover:not(:disabled) { color: var(--error); border-color: var(--error); background: var(--error-soft); }
 
-.material-library.is-detail { width: min(1040px, 100%); margin-inline: auto; }
-.material-detail-card { padding: var(--space-6); box-shadow: none; overflow-wrap: anywhere; }
-.material-detail-identity { display: flex; align-items: center; gap: var(--space-4); padding-bottom: var(--space-5); }
-.material-detail-identity > div { min-width: 0; }
-.material-detail-identity .library-file-icon { flex-shrink: 0; }
-.material-detail-identity h2 { margin: 0 0 8px; font-size: 23px; line-height: 1.4; }
-.material-detail-identity p, .material-detail-card section > p { margin: 8px 0; color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
-.material-detail-card > section { border-top: 1px solid var(--border); padding-top: var(--space-5); margin-top: var(--space-5); }
-.material-detail-card > .material-detail-status { margin-top: 0; }
-.material-detail-card h3 { margin: 0 0 12px; font-size: 16px; }
-.material-detail-status .library-state { display: inline-flex; padding: 6px 10px; border-radius: 6px; font-size: 13px; }
-.material-detail-status .library-state.is-uploaded, .material-detail-status .library-state.is-cancelled { background: var(--page-cool); color: var(--text-secondary); }
-.material-detail-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-.material-detail-actions > * { min-height: 44px; }
-.material-detail-records ul { list-style: none; padding: 0; margin: 0; }
-.material-detail-records li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border); }
-.material-detail-records li:last-child { border-bottom: 0; }
-.material-detail-records strong, .material-detail-records time { display: block; font-size: 14px; }
-.material-detail-records time { margin-top: 6px; font-size: 13px; color: var(--text-secondary); }
-.material-detail-records button { min-height: 44px; font-size: 13px; }
-.material-detail-danger .material-remove-control > button { color: #b42338; border-color: #e7bdc4; }
-@media (max-width: 620px) {
-  .material-detail-card { padding: var(--space-4); }
-  .material-detail-identity { align-items: flex-start; flex-direction: column; }
-  .material-detail-identity h2 { font-size: 20px; }
-  .material-detail-actions { align-items: stretch; flex-direction: column; }
-  .material-detail-records li { align-items: stretch; flex-direction: column; gap: 10px; }
-  .is-detail .library-header .state-actions { width: 100%; }
-}
-
-.material-source-link { display: inline-flex; gap: 4px; font-size: 13px; min-height: 36px; align-items: center; }
+.material-source-link { align-self: flex-start; display: inline-flex; gap: 4px; font-size: 13px; min-height: 36px; align-items: center; }
 .material-recovery-error { flex-basis: 100%; width: 100%; margin: 8px 0 0; }
 .material-recovery-status { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.material-detail-actions:empty { display: none; }

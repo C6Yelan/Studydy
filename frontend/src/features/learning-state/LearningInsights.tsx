@@ -5,7 +5,7 @@ const status = {
   not_started: "尚未開始",
   learning: "學習中",
   needs_review: "需要複習",
-  mastered: "本次已掌握",
+  mastered: "已掌握",
 } as const;
 
 export function LearningInsights({ currentConceptId, totalClaimCount, progress }: {
@@ -20,7 +20,7 @@ export function LearningInsights({ currentConceptId, totalClaimCount, progress }
   return (
     <section className="learning-insights" aria-labelledby="learning-insights-title">
       <div className="insights-heading">
-        <h2 id="learning-insights-title">本次進度</h2>
+        <h2 id="learning-insights-title">學習進度</h2>
         <span className={`learning-status is-${current.status}`}>{status[current.status]}</span>
       </div>
       <p className="insights-summary"><span>作答 {current.attempts} 次</span><span className="insights-separator" aria-hidden="true"> · </span><span>答對 {current.correct_answers} 次</span><span className="insights-separator" aria-hidden="true"> · </span><span>已練習 {current.covered_claim_ids.length} 個重點</span></p>

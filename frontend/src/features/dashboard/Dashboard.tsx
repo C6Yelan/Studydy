@@ -22,13 +22,13 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
     void apiClient.listMaterials().then(library => { if (!cancelled) setMaterials(library.materials); }, failure => { if (!cancelled) setError(errorMessage(failure)); });
     return () => { cancelled = true; };
   }, [apiClient, retry]);
-  const studies = materials?.flatMap(material => material.study_sessions.map(session => ({ material, session }))) ?? [];
+  const studies = materials?.flatMap(material => material.study_sessions.filter(state => state.run_id === material.available_structures[0]?.run_id && state.knowledge_structure_revision === material.available_structures[0]?.knowledge_structure_revision).map(session => ({ material, session }))) ?? [];
   const recent = [...studies].sort((a, b) => Date.parse(b.session.started_at) - Date.parse(a.session.started_at))[0];
   const stats: { title: string; value: number | undefined; note: string; icon: IconName; route: "materials" | "maps" }[] = [
     { title: "教材", value: materials?.length, note: materials?.length ? "已保存的 PDF" : "尚未上傳教材", icon: "book", route: "materials" },
     { title: "知識地圖", value: materials?.filter(item => item.available_structures.length > 0).length, note: "可開啟地圖的教材", icon: "map", route: "maps" },
-    { title: "學習紀錄", value: materials ? studies.length : undefined, note: "保留原本的學習位置", icon: "learning", route: "materials" },
-    { title: "已完成學習", value: materials ? studies.filter(item => item.session.status === "completed").length : undefined, note: "已結束的學習紀錄", icon: "check", route: "materials" },
+    { title: "學習進度", value: materials ? studies.length : undefined, note: "保留原本的學習位置", icon: "learning", route: "materials" },
+    { title: "已完成學習", value: materials ? studies.filter(item => item.session.status === "completed").length : undefined, note: "已完成的教材學習", icon: "check", route: "materials" },
   ];
   return <section className="dashboard">
     <header className="dashboard-greeting"><h1>歡迎回來！</h1><p>讓我們一起繼續你的學習旅程。</p></header>
@@ -47,7 +47,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
             <span className="stat-icon"><Icon name={stat.icon} size={23} /></span><span className="stat-copy"><span>{stat.title}</span><strong>{error ? "—" : stat.value ?? "—"}</strong><small>{error ? "暫時無法讀取" : materials ? stat.note : "正在讀取…"}</small></span><Icon name="chevron-right" size={16} />
           </button>)}
         </div></section>
-        {recent && !error && <section className="dashboard-resume surface"><div><h2>接續上次學習</h2><p>{recent.material.display_name}</p></div><button className="primary-button" type="button" onClick={() => writeRoute({ name: "study-session", materialId: recent.material.material_id, runId: recent.session.run_id, structureRevision: recent.session.knowledge_structure_revision, studySessionId: recent.session.study_session_id })}>{recent.session.status === "completed" ? "查看學習紀錄" : "繼續學習"}<Icon name="chevron-right" size={18} /></button></section>}
+        {recent && !error && <section className="dashboard-resume surface"><div><h2>繼續學習</h2><p>{recent.material.display_name}</p></div><button className="primary-button" type="button" onClick={() => writeRoute({ name: "study-session", materialId: recent.material.material_id, runId: recent.session.run_id, structureRevision: recent.session.knowledge_structure_revision, studySessionId: recent.session.study_session_id })}>{recent.session.status === "completed" ? "查看學習成果" : "繼續學習"}<Icon name="chevron-right" size={18} /></button></section>}
       </div>
       <aside className="dashboard-help surface" aria-label="Studydy 學習協助"><h2>Studydy 如何幫助你的學習</h2><div className="dashboard-features">{features.map((feature, index) => <article className={`accent-${index}`} key={feature.title}><span className="stat-icon"><Icon name={feature.icon} size={22} /></span><div><h3>{feature.title}</h3><p>{feature.description}</p></div></article>)}</div></aside>
     </div>

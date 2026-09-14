@@ -5,25 +5,25 @@
 
 - 「上傳教材」前往 `/upload`，沿用原 PDF 上傳和處理流程，保存檔案名稱供辨識。
 - 每份教材顯示名稱、上傳時間、大小和最新處理狀態；只有完成上傳、尚未開始處理的教材也會列出。
-- 「開啟知識地圖」讀取最近已發布的 exact Knowledge Structure，Map 中可切換「學習順序」。
-- 點教材名稱進入詳情，可開啟原始 PDF、查看最新處理，或選擇先前已發布的版本。
+- 「開啟知識地圖」讀取最近已發布的 exact Knowledge Structure，Map 左側學習導覽保留建議順序。
+- 教材名稱為純文字；卡片直接提供整理、重試、處理狀態或學習入口，並在 metadata 旁保留原始 PDF 連結。
+- 前端沒有 Material Detail route；不顯示歷史版本或多次學習清單。
 - 最近處理若失敗或取消，先前成功或 partial 的已發布版本仍保留，兩種狀態分開顯示。
 - 處理中與正在取消並移除時自動更新狀態；錯誤有重新讀取與返回教材庫的出口。正常 collection 不提供手動重新整理。
 
 重新開啟只讀取既有 Material、Artifact、ProcessingRun 和 KnowledgeStructure，不呼叫模型、
-不新增紀錄。無 map/session 的 failed、cancelled 或尚未分析教材可明確確認移除；PDF 與處理紀錄一併清除。有既有學習時，「接續上次學習」會讀回原 session、題目、回饋與 progress；
-詳情提供既有學習紀錄選擇。「開始新的學習」是明確的獨立操作，見[學習恢復](learning-resume.md)。
+不新增紀錄。無 map/session 的 failed、cancelled 或尚未分析教材可明確確認移除；PDF 與處理紀錄一併清除。有既有學習時，只以最新可用 structure 的 exact run/revision 對應 state 提供「繼續學習」或「查看學習成果」。見[學習恢復](learning-resume.md)。
 
 ## API 與 migration
 
 | 入口 | 行為 |
 |---|---|
 | `GET /v1/materials` | `material-library/v2`，列出目前 learner 的全部教材 |
-| `GET /v1/materials/{material_id}` | `material-library-item/v2`，只允許 owner 讀取詳情 |
+| `GET /v1/materials/{material_id}` | `material-library-item/v2`，只允許 owner 讀取教材 binding |
 | `DELETE /v1/materials/{material_id}` | HTTP 202、`material-discard/v1`；只移除沒有已發布學習資料的教材 |
 | `POST /v1/materials` | 沿用 raw PDF body；選填 `X-Material-Name`，URI-encoded UTF-8 名稱 |
 
-列表與詳情包含 `latest_attempt` 和 `available_structures`。`latest_attempt.cancel_requested_at` 與 status 表示「正在取消並移除教材」或歷史 terminal「已取消處理」；移除 authority 與保護條件見[取消並移除契約](material-processing-cancellation.md)。後者每筆包含 exact `run_id`、
+列表與單份教材回應包含 `latest_attempt` 和 `available_structures`。`latest_attempt.cancel_requested_at` 與 status 表示「正在取消並移除教材」或歷史 terminal「已取消處理」；移除 authority 與保護條件見[取消並移除契約](material-processing-cancellation.md)。後者每筆包含 exact `run_id`、
 `knowledge_structure_revision`、發布時間及 succeeded／partial 狀態，不以最新失敗作業
 代替已發布結果。Map、處理作業與 PDF 仍使用既有 GET 入口及 server owner 檢查。
 新入口沿用 session cookie 和 `private, no-store`，不接受 client 指定 learner。

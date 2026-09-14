@@ -419,3 +419,16 @@ test("v2 library attempts preserve cancellation intent while older published map
     await assert.rejects(client.listMaterials(), e => e.kind === "schema");
   }
 });
+
+test("focus is an owner-bound state setter without a create intent", async () => {
+  const value = resumeView().session;
+  let sent;
+  const client = new StudydyApiClient(async (path, init) => { sent = { path, init }; return Response.json(value); });
+  assert.deepEqual(await client.focusStudySession(sessionId, conceptId), value);
+  assert.equal(sent.path, `/v1/study-sessions/${sessionId}/focus`);
+  assert.equal(sent.init.method, "POST");
+  assert.ok(sent.init.headers.Origin);
+  assert.equal(sent.init.headers["Idempotency-Key"], undefined);
+  assert.deepEqual(JSON.parse(sent.init.body), { schema: "study-session-focus/v1", current_concept_id: conceptId });
+  await assert.rejects(client.focusStudySession(materialId, conceptId), error => error.kind === "schema");
+});

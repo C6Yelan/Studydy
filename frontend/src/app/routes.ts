@@ -3,7 +3,6 @@ export type AppRoute =
   | { name: "materials" }
   | { name: "maps" }
   | { name: "upload" }
-  | { name: "material-detail"; materialId: string }
   | { name: "material-run"; materialId: string; runId: string }
   | { name: "knowledge-map"; materialId: string; runId: string; structureRevision: string }
   | { name: "study-session"; materialId: string; runId: string; structureRevision: string; studySessionId: string; assessmentRevision?: string };
@@ -30,10 +29,6 @@ export function readRoute(pathname: string): RouteRead {
       return "";
     }
   });
-  if (segments.length === 2 && segments[0] === "materials" && uuidPattern.test(segments[1])) {
-    const route: AppRoute = { name: "material-detail", materialId: segments[1] };
-    return { route, isCanonical: routePath(route) === pathname };
-  }
   if (
     segments.length === 4
     && segments[0] === "materials"
@@ -90,10 +85,6 @@ export function routePath(route: AppRoute): string {
   if (route.name === "materials") return "/materials";
   if (route.name === "maps") return "/knowledge-maps";
   if (route.name === "upload") return "/upload";
-  if (route.name === "material-detail") {
-    if (!uuidPattern.test(route.materialId)) throw new Error("ROUTE_INVALID");
-    return `/materials/${route.materialId}`;
-  }
   if (!validSegment(route.materialId) || !validSegment(route.runId)) throw new Error("ROUTE_INVALID");
   const base = `/materials/${route.materialId}/runs/${route.runId}`;
   if (route.name === "material-run") return base;

@@ -182,6 +182,11 @@ export type KnowledgeStructureRequest = {
   structureRevision: string;
 };
 
+export type StudySessionFocus = {
+  schema: "study-session-focus/v1";
+  current_concept_id: string;
+};
+
 export type StudySessionCreate = {
   schema: "study-session-create/v2";
   material_id: string;

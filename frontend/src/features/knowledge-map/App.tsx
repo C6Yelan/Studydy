@@ -12,7 +12,7 @@ export default function KnowledgeMap({ apiClient, route }: {
   route: Extract<AppRoute, { name: "knowledge-map" }>;
 }) {
   const [progress, setProgress] = useState<LearnerProgressView | null>(null);
-  const [recentSession, setRecentSession] = useState<StudySessionView | null>(null);
+  const [savedLearningState, setSavedLearningState] = useState<StudySessionView | null>(null);
   const [isLoadingProgress, setIsLoadingProgress] = useState(true);
   const [progressMessage, setProgressMessage] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -27,7 +27,7 @@ export default function KnowledgeMap({ apiClient, route }: {
     let cancelled = false;
     setMessage(null);
     setProgress(null);
-    setRecentSession(null);
+    setSavedLearningState(null);
     setProgressMessage(null);
     setIsLoadingProgress(true);
     const load = async () => {
@@ -44,15 +44,13 @@ export default function KnowledgeMap({ apiClient, route }: {
         try {
           const material = await apiClient.getMaterial(route.materialId);
           if (cancelled) return;
-          const saved = material.study_sessions
-            .filter((item) => item.run_id === route.runId && item.knowledge_structure_revision === route.structureRevision)
-            .sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
+          const saved = material.study_sessions.find(item => item.run_id === route.runId && item.knowledge_structure_revision === route.structureRevision);
           if (!saved) return;
           const restored = await apiClient.resumeStudy({ ...route, studySessionId: saved.study_session_id });
           if (cancelled) return;
           const { session, progress: next } = restored;
           setProgress(next);
-          setRecentSession(session);
+          setSavedLearningState(session);
         } catch {
           if (!cancelled) setProgressMessage("暫時無法讀取最近的學習進度，仍可瀏覽教材地圖。");
         }
@@ -85,8 +83,8 @@ export default function KnowledgeMap({ apiClient, route }: {
   );
   const startStudy = async (conceptId: string) => {
     if (isStartingStudy || isLoadingProgress) return;
-    if (recentSession?.status === "active" && progress?.current_concept_id === conceptId) {
-      writeRoute({ ...route, name: "study-session", studySessionId: recentSession.study_session_id });
+    if (savedLearningState && (savedLearningState.status === "completed" || progress?.current_concept_id === conceptId)) {
+      writeRoute({ ...route, name: "study-session", studySessionId: savedLearningState.study_session_id });
       return;
     }
     if (startIntent.current?.conceptId !== conceptId) {
@@ -95,12 +93,16 @@ export default function KnowledgeMap({ apiClient, route }: {
     setIsStartingStudy(true);
     setStartMessage(null);
     try {
-      const session = await apiClient.createStudySession({
+      let session = savedLearningState ? await apiClient.focusStudySession(savedLearningState.study_session_id, conceptId) : await apiClient.createStudySession({
         schema: "study-session-create/v2",
         material_id: route.materialId,
         knowledge_structure_revision: route.structureRevision,
         current_concept_id: conceptId,
       }, startIntent.current.key);
+      // A concurrent ensure may have found an existing state at another concept.
+      if (session.status !== "completed" && session.current_concept_id !== conceptId) {
+        session = await apiClient.focusStudySession(session.study_session_id, conceptId);
+      }
       writeRoute({
         name: "study-session",
         materialId: route.materialId,
@@ -117,7 +119,7 @@ export default function KnowledgeMap({ apiClient, route }: {
     <KnowledgeMapWorkspace
       apiClient={apiClient}
       progress={progress}
-      canResume={recentSession?.status === "active"}
+      learningStateStatus={savedLearningState?.status ?? null}
       progressMessage={progressMessage}
       onReloadProgress={() => setReload((value) => value + 1)}
       isStartingStudy={isStartingStudy || isLoadingProgress}

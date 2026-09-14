@@ -19,7 +19,7 @@ function assessmentError(error: unknown): AssessmentError {
   }
   if (error instanceof ApiClientError && error.reasonCode === "IDEMPOTENCY_CONFLICT") {
     return {
-      message: "這次操作與較新的學習狀態衝突，請重新整理本次學習。",
+      message: "這次操作與較新的學習狀態衝突，請重新整理學習進度。",
       conflict: true,
       noSafeItem: false,
       retryable: false,
@@ -263,7 +263,7 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
             : <button className="secondary-button" type="button" onClick={() => {
               errorReloadFrom.current = view;
               onReloadSession();
-            }}>重新整理本次學習</button>}
+            }}>重新整理學習進度</button>}
       </div>
     </section>
   );
@@ -277,13 +277,13 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
     </section>
   );
 
-  if (!assessment && completed) return <section className="assessment-card"><h2>本次學習已結束</h2><p>可從題目與作答紀錄選擇已保存的內容。</p></section>;
+  if (!assessment && completed) return <section className="assessment-card"><h2>學習成果</h2><p>可從題目與作答紀錄選擇已保存的內容。</p></section>;
 
   if (!assessment && (assessmentTargetInvalid || !canCreateAssessment)) return (
     <section className="assessment-card" role="status">
       <h2>暫時無法準備目前練習</h2>
       <p>學習進度與教材重點不同步，請重新讀取。</p>
-      <button className="secondary-button" type="button" onClick={onReloadSession}>重新整理本次學習</button>
+      <button className="secondary-button" type="button" onClick={onReloadSession}>重新整理學習進度</button>
     </section>
   );
 
@@ -312,7 +312,7 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
           <button className="text-button" type="button" ref={node => { if (node) prerequisiteButtons.current.set(item.concept_id, node); else prerequisiteButtons.current.delete(item.concept_id); }}
             onClick={() => { previewOpenerId.current = item.concept_id; setPreviewPrerequisiteId(item.concept_id); }}>查看「{item.label}」</button>
         </li>)}</ul>
-        <p>{prerequisiteConcepts.length === 1 ? "這個內容" : "這些內容"}目前尚未在本次學習中掌握。如果你已經熟悉，可以直接開始練習；需要時也可以先查看內容。</p>
+        <p>{prerequisiteConcepts.length === 1 ? "這個內容" : "這些內容"}目前尚未在學習進度中掌握。如果你已經熟悉，可以直接開始練習；需要時也可以先查看內容。</p>
       </aside>}
       <button className="primary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="learning" />開始練習</button>
     </section>

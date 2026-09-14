@@ -50,7 +50,6 @@
 .detail-kicker { font-size: 12px; color: var(--studydy-blue); }
 .panel-close { flex-shrink: 0; width: 36px; height: 36px; border: 0; border-radius: var(--radius-input); background: var(--surface); color: var(--text-secondary); font-size: 24px; }
 .panel-close:hover { background: #F8FAFC; }
-.detail-start { width: 100%; min-height: 40px; margin-top: 12px; font-size: 14px; }
 .detail-panel > section { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
 .detail-panel h3 { margin: 0 0 12px; font-size: 16px; }
 .detail-panel .concept-claim p { font-size: 14px; margin: 0; color: var(--text-secondary); }
@@ -136,7 +135,6 @@
 .map-header, .map-tabs { flex-shrink: 0; }
 @media (max-width: 620px) { .map-title-row { gap: 8px; flex-wrap: wrap; } .quality-note { font-size: 11px; } }
 
-.new-study-note { color: var(--text-secondary); font-size: 12px; }
 .concept-flow-node strong, .concept-flow-node p { overflow-wrap: anywhere; }
 
 /* The map shell is 56px tall. Flex rows reserve the header, notices and tabs;
