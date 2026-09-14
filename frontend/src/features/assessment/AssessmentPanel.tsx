@@ -33,10 +33,13 @@ function assessmentError(error: unknown): AssessmentError {
   };
 }
 
-export function AssessmentPanel({ apiClient, record, completed, onAssessmentCreated, concept, assessmentTargetClaimId, assessmentTargetInvalid, prerequisiteConcepts, onNoSafeReviewChange, onProgressChanged, onReloadSession, sourceArtifactId, studySessionId, view }: {
+export function AssessmentPanel({ apiClient, record, completed, isHistorical, historyQuestionNumber, onReturnLatest, onAssessmentCreated, concept, assessmentTargetClaimId, assessmentTargetInvalid, prerequisiteConcepts, onNoSafeReviewChange, onProgressChanged, onReloadSession, sourceArtifactId, studySessionId, view }: {
   apiClient: StudydyApiClient;
   record: AssessmentRecordView | null;
   completed: boolean;
+  isHistorical: boolean;
+  historyQuestionNumber: number | null;
+  onReturnLatest: () => void;
   onAssessmentCreated: (revision: string) => void;
   concept: Concept;
   assessmentTargetClaimId: string | null;
@@ -62,10 +65,11 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
   const submissionIntent = useRef<{ optionId: string; key: string } | null>(null);
   const questionHeading = useRef<HTMLHeadingElement>(null);
   const errorReloadFrom = useRef<KnowledgeStructureView | null>(null);
+  const historyContext = useRef<HTMLElement>(null);
   const previewHeading = useRef<HTMLHeadingElement>(null);
   const prerequisiteButtons = useRef(new Map<string, HTMLButtonElement>());
   const previewOpenerId = useRef<string | null>(null);
-  const previewPrerequisite = !assessment && !record && !completed && !requestError && !isLoading
+  const previewPrerequisite = !isHistorical && !assessment && !record && !completed && !requestError && !isLoading
     ? prerequisiteConcepts.find(item => item.concept_id === previewPrerequisiteId) : undefined;
 
   useEffect(() => {
@@ -86,12 +90,16 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
   }, [view]);
 
 
-  // Creating or resuming an unanswered question remounts this panel at its exact route.
   useEffect(() => {
-    if (assessment && !feedback && !completed && record?.can_submit !== false) {
+    if (isHistorical) historyContext.current?.focus();
+  }, [isHistorical, record?.assessment.assessment_revision]);
+
+  // Current questions remain readable after create/resume, independently of history mode.
+  useEffect(() => {
+    if (!isHistorical && assessment && !feedback && !completed && record?.can_submit !== false) {
       questionHeading.current?.scrollIntoView({ block: "nearest" });
     }
-  }, [assessment?.assessment_revision, feedback, completed, record?.can_submit]);
+  }, [assessment?.assessment_revision, feedback, completed, record?.can_submit, isHistorical]);
 
 
   useEffect(() => {
@@ -104,7 +112,13 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
     return () => window.clearInterval(timer);
   }, [isLoading]);
 
-  const canCreateAssessment = !!assessmentTargetClaimId && !completed && !isSubmitting;
+  const canCreateAssessment = !!assessmentTargetClaimId && !completed && !isSubmitting && !isHistorical;
+  const canAnswer = !completed && record?.can_submit !== false
+    && (!isHistorical || (!!assessmentTargetClaimId && assessment?.target_concept_id === concept.concept_id));
+  const historicalContext = isHistorical && record ? <section className="assessment-history-context" aria-label="歷史作答" tabIndex={-1} ref={historyContext}>
+    <div><p className="eyebrow">歷史作答</p><p>第 {historyQuestionNumber} 題 · {record.feedback ? "已作答" : "尚未作答"}</p></div>
+    <button className="secondary-button" type="button" onClick={onReturnLatest}>返回最新進度</button>
+  </section> : null;
 
   const requestAssessment = async (newIntent: boolean) => {
     if (isLoading || !canCreateAssessment || !assessmentTargetClaimId) return;
@@ -141,7 +155,7 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
   };
 
   const submit = async () => {
-    if (!assessment || !selectedOptionId || isSubmitting || completed || record?.can_submit === false) return;
+    if (!assessment || !selectedOptionId || isSubmitting || !canAnswer) return;
     if (submissionIntent.current?.optionId !== selectedOptionId) {
       submissionIntent.current = { optionId: selectedOptionId, key: crypto.randomUUID() };
     }
@@ -169,13 +183,15 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
       .filter((item) => feedback.source_evidence_ids.includes(item.evidence_id));
     const evidencePages = [...new Set(evidence.map((item) => item.page))];
     return (
-      <section className={`assessment-card feedback-card is-${feedback.is_correct ? "correct" : "incorrect"}`} aria-live="polite">
-        <span className="feedback-icon"><Icon name={feedback.is_correct ? "check" : "warning"} size={28} /></span>
-        <p className="eyebrow">作答回饋</p>
-        <h2>{feedback.is_correct ? "答對了" : "這題需要再想一下"}</h2>
-        <p>{assessment.prompt}</p>
-        <p>你的作答：{assessment.options.find(option => option.option_id === feedback.selected_option_id)?.text}</p>
-        <p className="feedback-rationale">{feedback.rationale}</p>
+      <section className={`assessment-card feedback-card is-${feedback.is_correct ? "correct" : "incorrect"}`} aria-live={isHistorical ? "off" : "polite"}>
+        {historicalContext}
+        <header className="feedback-result">
+          <span className="feedback-icon" aria-hidden="true"><Icon name={feedback.is_correct ? "check" : "warning"} size={24} /></span>
+          <div><p className="eyebrow">作答回饋</p><h2>{feedback.is_correct ? "答對了" : "這題需要再想一下"}</h2></div>
+        </header>
+        <section className="feedback-section"><h3>題目</h3><p>{assessment.prompt}</p></section>
+        <section className="feedback-section"><h3>你的答案</h3><p>{assessment.options.find(option => option.option_id === feedback.selected_option_id)?.text}</p></section>
+        <section className="feedback-section"><h3>為什麼？</h3><p className="feedback-rationale">{feedback.rationale}</p></section>
         <div className="feedback-evidence">
           <h3>教材依據</h3>
           {evidencePages.map((page) => (
@@ -192,7 +208,7 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
           ))}
         </div>
         {canCreateAssessment && <div className="assessment-actions">
-          <button className="secondary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="refresh" />繼續練習</button>
+          <button className="primary-button" type="button" onClick={() => void requestAssessment(true)}><Icon name="refresh" />繼續練習</button>
         </div>}
       </section>
     );
@@ -293,9 +309,10 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
 
   return (
     <section className="assessment-card" aria-labelledby="assessment-question">
+      {historicalContext}
       <p className="eyebrow">單選題</p>
       <h2 id="assessment-question" ref={questionHeading}>{assessment.prompt}</h2>
-      <fieldset className="assessment-options" disabled={isSubmitting || completed || record?.can_submit === false}>
+      <fieldset className="assessment-options" disabled={isSubmitting || !canAnswer}>
         <legend className="sr-only">請選擇一個答案</legend>
         {assessment.options.map((option, index) => (
           <label className={selectedOptionId === option.option_id ? "is-selected" : undefined} key={option.option_id}>
@@ -321,10 +338,10 @@ export function AssessmentPanel({ apiClient, record, completed, onAssessmentCrea
           <button className="text-button" type="button" onClick={onReloadSession}>查回作答結果</button>
         </div>
       )}
-      {(completed || record?.can_submit === false) && <p>這題已不在可作答的學習位置，僅供回顧。</p>}
-      <button className="primary-button assessment-submit" disabled={!selectedOptionId || isSubmitting || submissionError?.conflict || completed || record?.can_submit === false} type="button" onClick={() => void submit()}>
+      {!canAnswer && <p className="assessment-readonly">這題目前僅供回顧</p>}
+      {canAnswer && <button className="primary-button assessment-submit" aria-busy={isSubmitting} disabled={!selectedOptionId || isSubmitting || submissionError?.conflict} type="button" onClick={() => void submit()}>
         {isSubmitting ? "正在送出…" : submissionError?.retryable ? "重新送出" : "送出答案"}
-      </button>
+      </button>}
     </section>
   );
 }

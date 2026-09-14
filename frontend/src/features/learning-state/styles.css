@@ -8,7 +8,3 @@
 .insights-summary, .learning-insights > p { color: var(--text-secondary); font-size: 14px; }
 .mastery-explanation { color: var(--text-secondary); font-size: 13px; }
 .mastery-explanation summary { cursor: pointer; }
-.weakness-card { display: flex; align-items: start; gap: var(--space-3); margin-top: var(--space-4); padding: var(--space-3); border-radius: var(--radius-input); background: var(--warning-soft); }
-.weakness-card > svg { flex-shrink: 0; color: var(--warning); }
-.weakness-card strong { font-size: 14px; }
-.weakness-card p { margin: var(--space-1) 0 0; color: var(--text-secondary); font-size: 13px; }

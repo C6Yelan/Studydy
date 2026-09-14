@@ -56,7 +56,7 @@ test("original learning and questions survive reload, new profiles and a lost co
   const earlier = fresh.assessments.find(record => record.feedback !== null)!;
   const selectedRead = resumeResponse(page);
   await page.locator(".study-record-picker summary").click();
-  await page.getByRole("combobox", { name: /題目與作答紀錄/ }).selectOption(earlier.assessment.assessment_revision);
+  await page.locator(".study-history-row").filter({ has: page.getByText(earlier.assessment.prompt, { exact: true }) }).click();
   const earlierRead: StudyResumeView = await (await selectedRead).json();
   expect(earlierRead.selected_assessment_revision).toBe(earlier.assessment.assessment_revision);
   await expect(page.getByRole("heading", { name: "答對了", exact: true })).toBeVisible();
@@ -65,8 +65,7 @@ test("original learning and questions survive reload, new profiles and a lost co
   const priorBody: StudyResumeView = await (await priorReload).json();
   expect(priorBody.selected_assessment_revision).toBe(earlier.assessment.assessment_revision);
   expect(priorBody.assessments.find(record => record.feedback?.answer_event_id === earlier.feedback!.answer_event_id)?.feedback).toEqual(earlier.feedback);
-  await page.locator(".study-record-picker summary").click();
-  await page.getByRole("button", { name: "回到目前學習", exact: true }).click();
+  await page.getByRole("button", { name: "返回最新進度", exact: true }).click();
   await expect(page.getByRole("heading", { name: pendingPrompt, exact: true })).toBeVisible();
 
   let committed: AnswerFeedbackView | undefined;

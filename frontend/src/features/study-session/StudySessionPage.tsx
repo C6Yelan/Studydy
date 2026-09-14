@@ -62,10 +62,7 @@ export function StudySessionPage({ apiClient, route }: {
     void load().then((next) => {
       if (cancelled) return;
       setData(next);
-      if (!route.assessmentRevision && next.selectedAssessmentRevision
-        && (next.progress.next_action.action === "assess" || next.session.status === "completed")) {
-        writeRoute({ ...route, assessmentRevision: next.selectedAssessmentRevision }, true);
-      }
+
     }, (error) => { if (!cancelled) setMessage(errorMessage(error)); });
     return () => { cancelled = true; activePage.current = false; };
   }, [apiClient, reload, route]);
@@ -92,6 +89,8 @@ export function StudySessionPage({ apiClient, route }: {
   if (!data) return <StateView description="正在復原教材結構與本次學習狀態。" live title="正在讀取本次學習" tone="loading" />;
 
   const completed = data.session.status === "completed";
+  // Only explicit history navigation writes an assessment revision into the route.
+  const isHistorical = route.assessmentRevision !== undefined;
   const selectedRecord = data.records.find(record => record.assessment.assessment_revision === data.selectedAssessmentRevision) ?? null;
   const current = data.view.concepts.find((concept) => concept.concept_id === data.progress.current_concept_id);
   if (!current) return <StateView action={<button className="secondary-button" type="button" onClick={back}>回到知識地圖</button>} description="目前沒有可安全顯示的教材概念。" image="/assets/studydy/empty-disappointed.png" title="目前沒有學習內容" tone="empty" />;
@@ -113,7 +112,7 @@ export function StudySessionPage({ apiClient, route }: {
     ? nextAction.target_claim_id : null;
   const prerequisiteConcepts = nextAction.action === "assess" && nextAction.target_concept_id === current.concept_id
     ? nextAction.prerequisite_concept_ids.map(id => data.view.concepts.find(concept => concept.concept_id === id)!) : [];
-  const showAssessment = completed || !!route.assessmentRevision || nextAction.action === "assess" || noSafeReviewActive;
+  const showAssessment = completed || isHistorical || nextAction.action === "assess" || noSafeReviewActive;
   const position = data.view.initial_learning_path.find(step => step.concept_id === data.progress.current_concept_id)?.position;
   const sourcePages = [...new Set(current.claims.flatMap(claim => claim.evidence.map(evidence => evidence.page)))];
   return (
@@ -136,7 +135,10 @@ export function StudySessionPage({ apiClient, route }: {
             apiClient={apiClient}
             record={selectedRecord}
             completed={completed}
-            onAssessmentCreated={assessmentRevision => writeRoute({ ...route, assessmentRevision }, true)}
+            isHistorical={isHistorical}
+            historyQuestionNumber={selectedRecord ? data.records.length - data.records.indexOf(selectedRecord) : null}
+            onReturnLatest={() => writeRoute({ ...route, assessmentRevision: undefined }, true)}
+            onAssessmentCreated={() => writeRoute({ ...route, assessmentRevision: undefined }, true)}
             concept={current}
             assessmentTargetClaimId={assessmentTargetClaimId}
             assessmentTargetInvalid={nextAction.action === "assess" && assessmentTargetClaimId === null}
@@ -156,17 +158,24 @@ export function StudySessionPage({ apiClient, route }: {
         </div>
       </div>
       <div className="study-followup">
-        <LearningInsights currentConceptId={current.concept_id} progress={data.progress} />
+        <LearningInsights currentConceptId={current.concept_id} totalClaimCount={current.claims.length} progress={data.progress} />
         {data.records.length > 0 && <details className="surface study-record-picker">
           <summary>題目與作答紀錄（{data.records.length}）</summary>
-          <div><label>題目與作答紀錄
-            <select disabled={busy} value={data.selectedAssessmentRevision ?? ""} onChange={event => writeRoute({ ...route, assessmentRevision: event.target.value })}>
-              {!data.selectedAssessmentRevision && <option value="" disabled>選擇既有題目</option>}
-              {data.records.map((record, index) => <option key={record.assessment.assessment_revision} value={record.assessment.assessment_revision}>
-                {data.records.length - index} · {record.feedback ? "已作答" : "未作答"} · {record.assessment.prompt}
-              </option>)}
-            </select>
-          </label><button className="secondary-button" disabled={busy} type="button" onClick={() => writeRoute({ ...route, assessmentRevision: undefined }, true)}>回到目前學習</button></div>
+          <ol className="study-history-list" aria-label="題目與作答紀錄">
+            {data.records.map((record, index) => {
+              const result = record.feedback ? record.feedback.is_correct ? "答對" : "答錯" : "未作答";
+              const number = data.records.length - index;
+              return <li key={record.assessment.assessment_revision}>
+                <button className="study-history-row" type="button" disabled={busy}
+                  aria-current={isHistorical && route.assessmentRevision === record.assessment.assessment_revision ? "true" : undefined}
+                  onClick={() => writeRoute({ ...route, assessmentRevision: record.assessment.assessment_revision })}>
+                  <span className="study-history-number">第 {number} 題</span>
+                  <span className="study-history-prompt">{record.assessment.prompt}</span>
+                  <span className={`study-history-status is-${record.feedback ? record.feedback.is_correct ? "correct" : "incorrect" : "unanswered"}`}>{result}</span>
+                </button>
+              </li>;
+            })}
+          </ol>
         </details>}
       </div>
     </section>
