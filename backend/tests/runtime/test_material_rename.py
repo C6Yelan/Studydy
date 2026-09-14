@@ -41,3 +41,29 @@ def test_owner_rename_is_a_unicode_setter_without_identity_changes(library_mater
 def test_rename_rejects_invalid_names_before_storage(name):
     with pytest.raises(MaterialLibraryError, match='REQUEST_INVALID'):
         rename_material(uuid4(), uuid4(), name)
+
+from test_material_discard import unused, create, claim, ordered_race, request
+import runtime.storage.materials as material_storage
+import runtime.material_discard as material_discard
+
+
+@pytest.mark.parametrize('delete_first', [True, False])
+def test_rename_and_delete_serialize_on_the_same_material(unused, monkeypatch, delete_first):
+    run = create(unused); claim(unused)
+    def rename():
+        try:
+            return rename_material(unused.learner.learner_id, unused.source.material_id, '改名後教材', dsn=unused.dsn)
+        except MaterialLibraryError as error:
+            return type(error), str(error)
+    remove = lambda: request(unused)
+    first, second = ordered_race(monkeypatch, unused, run, remove if delete_first else rename, rename if delete_first else remove,
+        material_discard if delete_first else material_storage, material_storage if delete_first else material_discard, lock_material=True)
+    if delete_first:
+        assert first == 'removing'
+        assert second == (MaterialLibraryError, 'MATERIAL_NOT_DISCARDABLE')
+    else:
+        assert first['display_name'] == '改名後教材'
+        assert second == 'removing'
+    with psycopg.connect(unused.dsn) as db:
+        name, deleting = db.execute('SELECT display_name, discard_requested_at IS NOT NULL FROM materials WHERE learner_id=%s AND material_id=%s', (unused.learner.learner_id, unused.source.material_id)).fetchone()
+        assert deleting and name == (None if delete_first else '改名後教材')

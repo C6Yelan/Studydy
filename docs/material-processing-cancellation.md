@@ -1,26 +1,27 @@
-# 取消並移除教材
+# 取消並刪除教材
 
-Upload → Processing 是新教材的第一次分析。「取消並移除教材」會停止不需要的分析，並移除該份 Material、處理紀錄及原始 PDF。處理失敗本身不代表刪除授權：failed、legacy cancelled 或尚未分析的教材仍保留，由 learner 確認「移除教材」。
+Upload → Processing 是新教材的第一次分析。「取消並刪除教材」會停止不需要的分析，並刪除該份 Material、處理紀錄及原始 PDF。處理失敗本身不代表刪除授權：failed、legacy cancelled 或尚未分析的教材仍保留，由 learner 確認「刪除教材」。
 
 ## Canonical contracts
 
-- 唯一公開移除入口：`DELETE /v1/materials/{material_id}`。
+- 唯一公開刪除入口：`DELETE /v1/materials/{material_id}`。
 - HTTP 202、`material-discard/v1`：`material_id` 與 `state: removing | removed`。
 - CookieSession、Origin required；拒絕 query、非空 body 與 client learner override，不需要 Idempotency-Key。
 - 跨 owner／已不存在為 `RESOURCE_NOT_FOUND` / 404。不保存刪除 tombstone；重複 DELETE 在 removing 期間穩定，完成後為 404。
-- 不可移除為 `MATERIAL_NOT_DISCARDABLE` / 409 / retryable false；DB／filesystem 暫時錯誤為 `STORAGE_UNAVAILABLE` / 503。
+- 已要求刪除的教材不可 rename 或 create run（`MATERIAL_NOT_DISCARDABLE` / 409）；DB／filesystem 暫時錯誤為 `STORAGE_UNAVAILABLE` / 503。
 - Run 維持 `material-processing-run/v5`，library/item 維持 v2，output binding 維持 v4。
-- 舊 public cancel-only endpoint 與 frontend client 已移除；run cancellation 是 internal primitive，不再有 learner cancel-but-keep 行為。
+- 舊 public cancel-only endpoint 與 frontend client 已刪除；run cancellation 是 internal primitive，不再有 learner cancel-but-keep 行為。
 
 ## Eligibility 與持久化意圖
 
 | Material 的全部資料 | DELETE 行為 |
 |---|---|
-| 無 run，且沒有 map/session | 直接移除 |
-| 全部 run 都 failed/cancelled，且沒有 map/session | 直接移除 |
-| Pending，且沒有受保護資料 | 保存 discard intent，pending 立即 cancelled，再移除 |
-| Running queued/evidence/semantics，且沒有受保護資料 | 保存 intent，對所有 active runs 接受 cancellation，回 removing |
-| 任一 succeeded/partial、running publishing、KnowledgeStructure 或 StudySession | 409，不設定 intent，不刪除 |
+| 無 run | 直接刪除 |
+| 全部 run 都 failed/cancelled | 直接刪除 |
+| Pending | 保存 discard intent，pending 立即 cancelled，再刪除 |
+| Running queued/evidence/semantics | 保存 intent，對所有 active runs 接受 cancellation，回 removing |
+| Succeeded/partial、KnowledgeStructure、StudySession、Assessment、AnswerEvent | 保存 intent 後清除這份教材全部衍生資料 |
+| Running publishing | 保存 intent，不硬取消 publishing；完成到 terminal 後由 worker purge |
 
 `materials.discard_requested_at` 是 nullable internal authority，不是 status enum，也不加入 library response。新取消要求只有在持有 Material → run row locks、owner/source identity 正確且 Material 已有 discard intent 時才能建立。新 run 建立也鎖 Material，拒絕已要求 discard 的教材。
 
@@ -28,11 +29,11 @@ Run statuses 仍只有 pending、running、succeeded、partial、failed、cancel
 
 ## Worker 與 race
 
-Discard 先鎖 Material，再依 run ID 鎖住全部 runs，檢查全部 map/session 與 run eligibility。取消與 publishing transition 使用同一 run row lock：
+Discard 先鎖 Material，再依 run ID 鎖住全部 runs，等待全部 active runs 安全結束。取消與 publishing transition 使用同一 run row lock：
 
 - discard 先：Material intent 和所有 cancellation requests 同一 transaction commit；publishing checkpoint honor cancellation，不發布新 structure。
-- publishing 先：discard 回 409，發布繼續，舊地圖不受影響。
-- 已接受取消先於 failure：terminal 是 cancelled、error_code null。Failure 已先完成則不改寫其結果；明確 discard 仍可清除未發布教材。
+- publishing 先：保存 discard intent 並回 removing，允許發布安全完成，再清除該份教材。
+- 已接受取消先於 failure：terminal 是 cancelled、error_code null。Failure 已先完成則不改寫其結果；明確 discard 仍可清除該份教材。
 - Runtime work 前、preflight 後、evidence page、semantic bundle、下一個 bundle/retry、publishing 前維持 cooperative checkpoints。單一已在執行的 OCR/Qwen request 允許先完成。
 - Cancellation terminal transaction 先 commit、pipeline 正常 unwind；worker 再呼叫統一 purge authority。多個 run 必須全部停止才可 purge。
 - Startup 先恢復 interrupted runs，再 reconciliation/purge。Worker 完成工作與正常輪詢時重試尚未完成的 discard；沒有另一張 queue 或 scheduler。
@@ -41,22 +42,22 @@ Discard 先鎖 Material，再依 run ID 鎖住全部 runs，檢查全部 map/ses
 
 `runtime/material_discard.py` 是唯一 eligibility / deletion SQL authority。`runtime/storage/artifacts.py` 負責檔案操作：
 
-1. 鎖 Material、全部 runs 與 source Artifact，重新確認沒有受保護資料、沒有 active run。
+1. 鎖 Material、全部 runs、KnowledgeStructures、StudySessions 與 source Artifact，重新確認沒有 active run。
 2. 原子 rename `objects/<artifact_id.hex>` 到同一 artifact root 的私有 `.trash/`，同步目錄。
-3. 同一 DB transaction 明確依序刪除 runs → Artifact → Material；不增加 cascade。
+3. 同一 DB transaction 明確依序刪除 AnswerEvents → Assessments → StudySessions → KnowledgeStructures → runs → Artifact → Material；不增加 cascade。
 4. Commit 後由新 transaction 查 DB：沒有 Artifact reference 則 unlink quarantine PDF。
 5. Rollback／commit acknowledgement 遺失時，也重新查 DB 決定 restore 或 unlink，不猜測 commit 是否成功。
 6. Process crash 留下的 quarantine 在 startup/worker retry reconciliation：DB 仍引用 → restore；不再引用 → unlink。
 
-每個 source 的 PostgreSQL advisory transaction lock 讓 reconciliation 等待 rename 所屬 DB transaction 完成。Quarantine 0700、不對產品提供 URL；清理失敗保留可重試的私有檔案，不建立指向已永久刪除 PDF 的 DB row。若 filesystem/DB 持續不可用，清理需等 storage 恢復；不會回報成功移除。已提交後 unlink 失敗可能回 503，此時 DB row 已移除，worker/startup 仍會清除 quarantine。
+每個 source 的 PostgreSQL advisory transaction lock 讓 reconciliation 等待 rename 所屬 DB transaction 完成。Quarantine 0700、不對產品提供 URL；清理失敗保留可重試的私有檔案，不建立指向已永久刪除 PDF 的 DB row。若 filesystem/DB 持續不可用，清理需等 storage 恢復；不會回報成功刪除。已提交後 unlink 失敗可能回 503，此時 DB row 已刪除，worker/startup 仍會清除 quarantine。
 
 ## Frontend
 
-Processing 以 inline confirmation 送出一次 DELETE。`removed` 直接返回我的教材；`removing` 顯示「正在取消並移除教材」，GET polling 繼續。新 invariant 使 reload 讀到 active cancellation request 時可重建移除狀態。
+Processing 以 inline confirmation 送出一次 DELETE。`removed` 直接返回我的教材；`removing` 顯示「正在取消並刪除教材」，GET polling 繼續。新 invariant 使 reload 讀到 active cancellation request 時可重建刪除狀態。
 
-只有本頁已收到 DELETE acceptance 或讀到 active persisted cancellation intent，後續 run 404 才當成移除完成返回教材集合；一般 404 仍顯示讀取錯誤。若直接重開已刪除的舊 URL，沒有 acceptance 證據時也維持一般 404，不推測刪除原因。
+只有本頁已收到 DELETE acceptance 或讀到 active persisted cancellation intent，後續 run 404 才當成刪除完成返回教材集合；一般 404 仍顯示讀取錯誤。若直接重開已刪除的舊 URL，沒有 acceptance 證據時也維持一般 404，不推測刪除原因。
 
-Failed/cancelled/no-run card 只有在沒有 map/session 時呈現「移除教材」，使用 inline confirmation、保留／確認按鈕、鍵盤焦點與 Escape。DELETE 失敗保留卡片並提供 retry；成功更新列表與數量。Server 仍以全部 runs 決定 eligibility，不信任 latest_attempt gating。Detail 沿用同一小型控制元件，沒有重設版面。
+Failed/cancelled/no-run card 只有在沒有 map/session 時呈現「刪除教材」，使用 inline confirmation、保留／確認按鈕、鍵盤焦點與 Escape。DELETE 失敗保留卡片並提供 retry；成功更新列表與數量。Server 仍以全部 runs 決定 eligibility，不信任 latest_attempt gating。Detail 沿用同一小型控制元件，沒有重設版面。
 
 ## Migration 與版本切換
 

@@ -106,27 +106,21 @@ def test_running_discard_commits_intent_then_cancels_and_purges(unused, stage, m
 
 
 @pytest.mark.parametrize('state', ['publishing', 'succeeded', 'partial'])
-def test_publishing_and_published_runs_reject_discard_and_keep_map(unused, state):
+def test_published_data_deletes_and_publishing_finishes_before_purge(unused, state):
     run = create(unused); claim(unused, 'publishing')
     document = _structure(str(run.run_id), unused.source.sha256, unused.settings['runtime_lock'], partial=state == 'partial')
     if state != 'publishing':
         publish_knowledge_structure(unused.learner.learner_id, unused.source.material_id, run.run_id, document, dsn=unused.dsn)
-        newer = create(unused, 'later-failure'); claim(unused)
-        processing._record_failure(newer.run_id, 'EXPECTED_FAILURE', dsn=unused.dsn)
-    with pytest.raises(discard.MaterialDiscardError, match='MATERIAL_NOT_DISCARDABLE'): request(unused)
-    with psycopg.connect(unused.dsn) as c:
-        assert c.execute('SELECT discard_requested_at FROM materials WHERE material_id=%s', (unused.source.material_id,)).fetchone() == (None,)
+    assert request(unused) == ('removing' if state == 'publishing' else 'removed')
     if state == 'publishing':
+        assert read(unused, run).cancel_requested_at is None
+        with pytest.raises(processing.MaterialProcessingError, match='MATERIAL_NOT_DISCARDABLE'):
+            create(unused, 'after-delete-intent')
         publish_knowledge_structure(unused.learner.learner_id, unused.source.material_id, run.run_id, document, dsn=unused.dsn)
-    assert read_knowledge_structure(unused.learner.learner_id, unused.source.material_id, revision=document['revision'], dsn=unused.dsn).document == document
-
-
-def test_any_study_session_and_old_map_are_protected(unused):
-    session = create_study_session(unused.learner, unused.original_source.material_id, unused.original['revision'], 'keep-study', dsn=unused.dsn)
-    with pytest.raises(discard.MaterialDiscardError, match='MATERIAL_NOT_DISCARDABLE'):
-        discard.request_material_discard(unused.learner.learner_id, unused.original_source.material_id, dsn=unused.dsn)
-    with psycopg.connect(unused.dsn) as c:
-        assert c.execute('SELECT count(*) FROM study_sessions WHERE study_session_id=%s', (session.study_session_id,)).fetchone() == (1,)
+        discard.finish_material_discards(dsn=unused.dsn)
+    assert_removed(unused)
+    with psycopg.connect(unused.dsn) as db:
+        assert db.execute('SELECT count(*) FROM knowledge_structures WHERE material_id=%s', (unused.source.material_id,)).fetchone() == (0,)
 
 
 def test_every_active_run_is_cancelled_and_no_new_run_can_start(unused):
@@ -189,7 +183,7 @@ def test_discard_publishing_race_is_ordered_by_row_locks(unused, monkeypatch, di
     assert saved.progress_stage == ('semantics' if discard_first else 'publishing')
     assert (saved.cancel_requested_at is not None) == discard_first
     with psycopg.connect(unused.dsn) as c:
-        assert c.execute('SELECT discard_requested_at IS NOT NULL FROM materials WHERE material_id=%s', (unused.source.material_id,)).fetchone() == (discard_first,)
+        assert c.execute('SELECT discard_requested_at IS NOT NULL FROM materials WHERE material_id=%s', (unused.source.material_id,)).fetchone() == (True,)
 
 
 def test_discard_wins_create_run_race(unused, monkeypatch):
@@ -359,8 +353,8 @@ def test_discard_transport_owner_contract_and_cancel_surface_removed(unused, mon
     response = client.delete(url, headers=headers)
     assert response.status_code == 404 and response.json()['reason_code'] == 'RESOURCE_NOT_FOUND'
     client.cookies.set('studydy_session', unused.token)
-    protected = client.delete(f'/v1/materials/{unused.original_source.material_id}', headers=headers)
-    assert protected.status_code == 409 and protected.json()['reason_code'] == 'MATERIAL_NOT_DISCARDABLE' and protected.json()['retryable'] is False
+    published = client.delete(f'/v1/materials/{unused.original_source.material_id}', headers=headers)
+    assert published.status_code == 202 and published.json()['state'] == 'removed'
     run = create(unused); claim(unused)
     response = client.delete(url, headers=headers)
     assert response.status_code == 202 and response.json() == {'schema': 'material-discard/v1', 'material_id': str(unused.source.material_id), 'state': 'removing'}
@@ -371,7 +365,8 @@ def test_discard_transport_owner_contract_and_cancel_surface_removed(unused, mon
     removed = client.delete(url, headers=headers)
     assert removed.status_code == 202 and removed.json()['state'] == 'removed'
     assert client.delete(url, headers=headers).status_code == 404
-    assert_removed(unused)
+    assert not (unused.root / "objects" / unused.source.artifact_id.hex).exists()
+    assert not (unused.root / "objects" / unused.original_source.artifact_id.hex).exists()
     schema = app.openapi()
     assert '/v1/material-processing-runs/{run_id}/cancel' not in schema['paths']
     operation = schema['paths']['/v1/materials/{material_id}']['delete']

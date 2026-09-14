@@ -9,10 +9,10 @@
 - 教材名稱為純文字；卡片直接提供整理、重試、處理狀態或學習入口，並在 metadata 旁保留原始 PDF 連結。
 - 前端沒有 Material Detail route；不顯示歷史版本或多次學習清單。
 - 最近處理若失敗或取消，先前成功或 partial 的已發布版本仍保留，兩種狀態分開顯示。
-- 處理中與正在取消並移除時自動更新狀態；錯誤有重新讀取與返回教材庫的出口。正常 collection 不提供手動重新整理。
+- 處理中與正在取消並刪除時自動更新狀態；錯誤有重新讀取與返回教材庫的出口。正常 collection 不提供手動重新整理。
 
 重新開啟只讀取既有 Material、Artifact、ProcessingRun 和 KnowledgeStructure，不呼叫模型、
-不新增紀錄。無 map/session 的 failed、cancelled 或尚未分析教材可明確確認移除；PDF 與處理紀錄一併清除。有既有學習時，只以最新可用 structure 的 exact run/revision 對應 state 提供「繼續學習」或「查看學習成果」。見[學習恢復](learning-resume.md)。
+不新增紀錄。所有教材皆可由 owner 確認刪除；PDF、處理紀錄、知識地圖與該教材的學習／作答資料一併安全清除。有既有學習時，只以最新可用 structure 的 exact run/revision 對應 state 提供「繼續學習」或「查看學習成果」。見[學習恢復](learning-resume.md)。
 
 ## API 與 migration
 
@@ -20,10 +20,10 @@
 |---|---|
 | `GET /v1/materials` | `material-library/v2`，列出目前 learner 的全部教材 |
 | `GET /v1/materials/{material_id}` | `material-library-item/v2`，只允許 owner 讀取教材 binding |
-| `DELETE /v1/materials/{material_id}` | HTTP 202、`material-discard/v1`；只移除沒有已發布學習資料的教材 |
+| `DELETE /v1/materials/{material_id}` | HTTP 202、`material-discard/v1`；owner-scoped 刪除該教材與全部衍生學習資料 |
 | `POST /v1/materials` | 沿用 raw PDF body；選填 `X-Material-Name`，URI-encoded UTF-8 名稱 |
 
-列表與單份教材回應包含 `latest_attempt` 和 `available_structures`。`latest_attempt.cancel_requested_at` 與 status 表示「正在取消並移除教材」或歷史 terminal「已取消處理」；移除 authority 與保護條件見[取消並移除契約](material-processing-cancellation.md)。後者每筆包含 exact `run_id`、
+列表與單份教材回應包含 `latest_attempt` 和 `available_structures`。`latest_attempt.cancel_requested_at` 與 status 表示「正在取消並刪除教材」或歷史 terminal「已取消處理」；刪除 authority 與保護條件見[取消並刪除契約](material-processing-cancellation.md)。後者每筆包含 exact `run_id`、
 `knowledge_structure_revision`、發布時間及 succeeded／partial 狀態，不以最新失敗作業
 代替已發布結果。Map、處理作業與 PDF 仍使用既有 GET 入口及 server owner 檢查。
 新入口沿用 session cookie 和 `private, no-store`，不接受 client 指定 learner。
@@ -51,3 +51,5 @@ PYTHONPATH=backend/src backend/.venv/bin/python -c 'from runtime.storage.migrati
 測試比對七張產品表的完整內容摘要與筆數（含 Material、Artifact、Run、KS、StudySession、
 Assessment、AnswerEvent），確認純 reopen 不變更資料；攔截後端 HTTP transport 確認零模型外呼。
 來源為既有 controlled fixtures，不啟動模型、OCR 或雲端 Pod，不宣稱完成正式模型或整合驗收。
+
+教材卡片的管理選單提供重新命名與刪除。`POST /v1/materials/{material_id}/rename` 使用 `material-rename/v1`，回傳既有 `material-library-item/v2`；僅修改 display_name，trim 後 1–200 Unicode 字元，不接受控制字元。Rename 與 delete 都鎖定 owner 的 exact Material row；已保存 delete intent 時拒絕 rename。沒有新增 migration。

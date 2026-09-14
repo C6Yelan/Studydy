@@ -1,11 +1,11 @@
-"""Unused Material discard authority; no deletion of published learning data."""
+"""Owner-scoped material deletion, including derived learning data and its source PDF."""
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
 
 from .material_processing import _request_cancellation_locked
 from .storage.artifacts import quarantine_source_pdf, reconcile_discarded_sources
-from .storage.tables import Artifact, KnowledgeStructure, Material, MaterialProcessingRun, StudySession, database_session
+from .storage.tables import AnswerEvent, Assessment, Artifact, KnowledgeStructure, Material, MaterialProcessingRun, StudySession, database_session
 
 
 class MaterialDiscardError(RuntimeError):
@@ -14,14 +14,9 @@ class MaterialDiscardError(RuntimeError):
 
 def _locked_runs(session, material):
     return session.scalars(select(MaterialProcessingRun).where(
+        MaterialProcessingRun.learner_id == material.learner_id,
         MaterialProcessingRun.material_id == material.material_id,
     ).order_by(MaterialProcessingRun.run_id).with_for_update()).all()
-
-
-def _require_discardable(session, material, runs):
-    protected = any(row.status in {"succeeded", "partial"} or (row.status == "running" and row.progress_stage == "publishing") for row in runs)
-    if protected or any(session.scalar(select(table.material_id).where(table.material_id == material.material_id).limit(1)) is not None for table in (KnowledgeStructure, StudySession)):
-        raise MaterialDiscardError("MATERIAL_NOT_DISCARDABLE")
 
 
 def request_material_discard(learner_id: UUID, material_id: UUID, *, dsn: str | None = None) -> str:
@@ -31,7 +26,6 @@ def request_material_discard(learner_id: UUID, material_id: UUID, *, dsn: str | 
             if material is None:
                 raise MaterialDiscardError("RESOURCE_NOT_FOUND")
             runs = _locked_runs(session, material)
-            _require_discardable(session, material, runs)
             if material.discard_requested_at is None:
                 material.discard_requested_at = session.scalar(select(func.clock_timestamp()))
             for row in runs:
@@ -54,9 +48,16 @@ def purge_discarded_material(learner_id: UUID, material_id: UUID, *, dsn: str | 
             if material.discard_requested_at is None:
                 return False
             runs = _locked_runs(session, material)
-            _require_discardable(session, material, runs)
             if any(row.status in {"pending", "running"} for row in runs):
                 return False
+            # Lock parents before enumerating children so concurrent ensure/assessment/answer
+            # transactions finish before purge; later writers cannot create orphan descendants.
+            session.scalars(select(KnowledgeStructure).where(
+                KnowledgeStructure.learner_id == learner_id, KnowledgeStructure.material_id == material_id,
+            ).order_by(KnowledgeStructure.structure_revision).with_for_update()).all()
+            study_ids = session.scalars(select(StudySession.study_session_id).where(
+                StudySession.learner_id == learner_id, StudySession.material_id == material_id,
+            ).order_by(StudySession.study_session_id).with_for_update()).all()
             artifact = session.scalar(select(Artifact).where(
                 Artifact.artifact_id == material.source_artifact_id, Artifact.material_id == material_id,
                 Artifact.learner_id == learner_id, Artifact.kind == "source_pdf",
@@ -65,9 +66,13 @@ def purge_discarded_material(learner_id: UUID, material_id: UUID, *, dsn: str | 
                 raise MaterialDiscardError("MATERIAL_DISCARD_STORAGE_FAILED")
             artifact_id = artifact.artifact_id
             quarantine_source_pdf(session, artifact_id)
-            session.execute(delete(MaterialProcessingRun).where(MaterialProcessingRun.material_id == material_id))
-            session.execute(delete(Artifact).where(Artifact.artifact_id == artifact_id))
-            session.execute(delete(Material).where(Material.material_id == material_id))
+            session.execute(delete(AnswerEvent).where(AnswerEvent.study_session_id.in_(study_ids), AnswerEvent.material_id == material_id))
+            session.execute(delete(Assessment).where(Assessment.study_session_id.in_(study_ids)))
+            session.execute(delete(StudySession).where(StudySession.learner_id == learner_id, StudySession.material_id == material_id))
+            session.execute(delete(KnowledgeStructure).where(KnowledgeStructure.learner_id == learner_id, KnowledgeStructure.material_id == material_id))
+            session.execute(delete(MaterialProcessingRun).where(MaterialProcessingRun.learner_id == learner_id, MaterialProcessingRun.material_id == material_id))
+            session.execute(delete(Artifact).where(Artifact.learner_id == learner_id, Artifact.material_id == material_id, Artifact.artifact_id == artifact_id))
+            session.execute(delete(Material).where(Material.learner_id == learner_id, Material.material_id == material_id))
         reconcile_discarded_sources(dsn=dsn, artifact_id=artifact_id)
         return True
     except Exception as error:
