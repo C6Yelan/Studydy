@@ -16,9 +16,8 @@ export function AppShell({ children, route, accountAction }: {
         <img src="/assets/studydy/brand-idle.png" alt="" /><span>Studydy{!learningWorkspace && <small>AI 智慧學習平台</small>}</span>
       </button>
       {learningWorkspace && <nav className="workspace-nav" aria-label="學習工作區導覽">
-        <button aria-current={route.name === "knowledge-map" ? "page" : undefined} type="button" onClick={() => writeRoute({ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision })}><Icon name="map" size={18} />知識地圖</button>
+        {route.name === "study-session" && <button type="button" onClick={() => writeRoute({ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision })}><Icon name="map" size={18} />知識地圖</button>}
         <button type="button" onClick={() => writeRoute({ name: "materials" })}><Icon name="book" size={18} />我的教材</button>
-        <button type="button" onClick={() => writeRoute({ name: "material-run", materialId: route.materialId, runId: route.runId })}><Icon name="process" size={18} />處理狀態</button>
       </nav>}
       <div className="account-controls">{accountAction}</div>
     </header>
