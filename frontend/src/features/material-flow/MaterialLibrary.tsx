@@ -49,7 +49,7 @@ export function MaterialLibrary({ apiClient, materialId, mapsOnly = false }: { a
   }, [apiClient, materialId, reload]);
 
   const isCollection = !materialId;
-  const libraryClass = `material-library${isCollection ? " is-collection" : ""}${mapsOnly ? " is-maps-only" : ""}`;
+  const libraryClass = `material-library${isCollection ? " is-collection" : " is-detail"}${mapsOnly ? " is-maps-only" : ""}`;
   if (message || items === null) {
     const state = message ? <StateView title="無法讀取教材" description={message} tone="failure" action={<>
       <button className="primary-button" type="button" onClick={() => { setMessage(null); setItems(null); setReload(value => value + 1); }}>重新讀取</button>
@@ -64,8 +64,7 @@ export function MaterialLibrary({ apiClient, materialId, mapsOnly = false }: { a
       <div><h1>{materialId ? "教材詳情" : mapsOnly ? "知識地圖" : "我的教材"}</h1><p className="library-subtitle">{materialId ? "查看已保存的教材、地圖與學習紀錄。" : mapsOnly ? "從已發布的教材地圖開始探索。" : items.length === 0 ? "上傳教材後，可在這裡查看處理結果並接續學習。" : `已保存 ${items.length} 份教材，隨時接續你的學習。`}</p></div>
       {(!isCollection || visibleItems.length > 0) && <div className="state-actions">
         {materialId && <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "materials" })}>返回教材庫</button>}
-        {!isCollection && <button className="secondary-button" type="button" onClick={() => setReload(value => value + 1)}>重新整理</button>}
-        <button className="primary-button" type="button" onClick={() => writeRoute({ name: "upload" })}>上傳教材</button>
+        <button className={isCollection ? "primary-button" : "secondary-button"} type="button" onClick={() => writeRoute({ name: "upload" })}>上傳教材</button>
       </div>}
     </header>
     {visibleItems.length === 0 && <section className="library-empty surface" aria-label={mapsOnly ? "知識地圖引導" : "空教材引導"}>
@@ -97,9 +96,40 @@ export function MaterialLibrary({ apiClient, materialId, mapsOnly = false }: { a
             } else pendingRemovals.current.add(item.material_id);
             setReload(value => value + 1);
           }} />;
+      if (!isCollection) return <article className="surface material-detail-card" key={item.material_id} aria-label={item.display_name}>
+        <header className="material-detail-identity">
+          <span className="library-file-icon" aria-hidden="true"><Icon name="file" size={25} /></span>
+          <div><h2>{item.display_name}</h2><p>{new Date(item.created_at).toLocaleString()} · {formatFileSize(item.size_bytes)}</p></div>
+        </header>
+        <section className="material-detail-status" aria-label="最新處理">
+          <div className="material-detail-section-heading"><h3>最新處理</h3><button className="text-button" type="button" onClick={() => setReload(value => value + 1)}>重新整理狀態</button></div>
+          <span className={`library-state is-${latest?.status ?? "uploaded"}`}>{latest ? materialRunLabel(latest.status, latest.cancel_requested_at) : "已上傳，尚未開始處理"}</span>
+          {latest && (latest.status === "running" || latest.status === "pending") && <p>{materialProgressStageLabel(latest.progress_stage)} · 已完成 {latest.completed_pages} 頁{latest.total_pages !== null && `／共 ${latest.total_pages} 頁`}</p>}
+          {latest?.status === "failed" && <p>{materialFailureMessage(latest.error_code ?? "")}</p>}
+          {latest?.status === "failed" && available.length > 0 && <p>先前已發布的知識地圖仍可使用。</p>}
+          <div className="material-detail-actions">
+            {studyAction}{mapAction}
+            {latest && <button className={!item.study_sessions[0] && !available[0] ? "primary-button" : "secondary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>{latest.status === "running" || latest.status === "pending" ? "查看處理狀態" : "查看處理詳情"}</button>}
+            <a className="secondary-button" href={apiClient.sourceArtifactUrl(item.source_artifact_id)} target="_blank" rel="noopener noreferrer">開啟原始 PDF</a>
+          </div>
+        </section>
+        {item.study_sessions.length > 0 && <section className="material-detail-records" aria-label="學習紀錄">
+          <h3>既有學習紀錄</h3><ul>{item.study_sessions.map((session, index) => <li key={session.study_session_id}>
+            <div><strong>{session.status === "completed" ? "已完成" : session.status === "no_safe" ? "目前沒有安全題目" : "學習中"}</strong><time dateTime={session.started_at}>{new Date(session.started_at).toLocaleString()}</time></div>
+            <button className="secondary-button" type="button" onClick={() => openStudy(item, session)}>開啟學習紀錄 {item.study_sessions.length - index}<Icon name="chevron-right" size={16} /></button>
+          </li>)}</ul>
+        </section>}
+        {available.length > 0 && <section className="material-detail-records" aria-label="已發布版本">
+          <h3>已發布版本</h3><ul>{available.map((structure, index) => <li key={structure.knowledge_structure_revision}>
+            <div><strong>{structure.status === "partial" ? "部分內容待複核" : "處理完成"}</strong><time dateTime={structure.created_at}>{new Date(structure.created_at).toLocaleString()}</time></div>
+            <button className="secondary-button" type="button" onClick={() => openStructure(item, structure)}>開啟版本 {available.length - index}<Icon name="chevron-right" size={16} /></button>
+          </li>)}</ul>
+        </section>}
+        {removeControl && <section className="material-detail-danger" aria-label="移除教材"><h3>移除教材</h3><p>若不再需要這份教材，可將它移除。移除後將無法再從教材庫開啟。</p>{removeControl}</section>}
+      </article>;
       return <article className="surface library-item" key={item.material_id} aria-label={item.display_name}>
         <span className="library-file-icon" aria-hidden="true"><Icon name={mapsOnly ? "map" : "file"} size={25} /></span>
-        <h2>{materialId ? item.display_name : <button className="library-title" type="button" onClick={() => writeRoute({ name: "material-detail", materialId: item.material_id })}>{item.display_name}</button>}</h2>
+        <h2><button className="library-title" type="button" onClick={() => writeRoute({ name: "material-detail", materialId: item.material_id })}>{item.display_name}</button></h2>
         <p>{new Date(item.created_at).toLocaleString()} · {formatFileSize(item.size_bytes)}</p>
         {showLatestState && <p className={`library-state is-${latest?.status ?? "uploaded"}`}>最新處理：{latest ? materialRunLabel(latest.status, latest.cancel_requested_at) : "已上傳，尚未開始處理"}</p>}
         {latest && (latest.status === "running" || latest.status === "pending") && <p>{materialProgressStageLabel(latest.progress_stage)} · 已完成 {latest.completed_pages} 頁{latest.total_pages !== null && `／共 ${latest.total_pages} 頁`}</p>}
@@ -110,24 +140,7 @@ export function MaterialLibrary({ apiClient, materialId, mapsOnly = false }: { a
           {mapsOnly ? studyAction : mapAction}
           {showLatestProcessing && <button className={processingPrimary ? "primary-button" : "secondary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看最新處理</button>}
           {isCollection && removeControl}
-          {materialId && <a className="secondary-button" href={apiClient.sourceArtifactUrl(item.source_artifact_id)} target="_blank" rel="noreferrer">開啟原始 PDF</a>}
         </div>
-        {!isCollection && removeControl}
-        {!isCollection && unpublishedNote}
-        {materialId && item.study_sessions.length > 0 && <section aria-label="學習紀錄">
-          <h3>既有學習紀錄</h3>
-          <ul>{item.study_sessions.map((session, index) => <li key={session.study_session_id}>
-            <span>{new Date(session.started_at).toLocaleString()} · {session.status === "completed" ? "已完成" : session.status === "no_safe" ? "目前沒有安全題目" : "學習中"}</span>{" "}
-            <button className="secondary-button" type="button" onClick={() => openStudy(item, session)}>開啟學習紀錄 {item.study_sessions.length - index}</button>
-          </li>)}</ul>
-        </section>}
-        {materialId && available.length > 0 && <section aria-label="已發布版本">
-          <h3>已發布版本</h3>
-          <ul>{available.map((structure, index) => <li key={structure.knowledge_structure_revision}>
-            <span>{new Date(structure.created_at).toLocaleString()} · {structure.status === "partial" ? "部分內容待複核" : "處理完成"}</span>{" "}
-            <button className="secondary-button" type="button" onClick={() => openStructure(item, structure)}>開啟版本 {available.length - index}</button>
-          </li>)}</ul>
-        </section>}
       </article>;
     })}
     </div>

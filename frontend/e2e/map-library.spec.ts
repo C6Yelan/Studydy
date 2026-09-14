@@ -144,7 +144,7 @@ test("map, study and processing actions preserve distinct bindings; ordinary lib
     await expect(page.locator(".material-library")).not.toHaveClass(/is-maps-only/);
     await expect(page.locator(".sidebar-helper")).toHaveCount(path === "/materials" ? 0 : 1);
     expect(await page.locator(".material-library").evaluate(element => getComputedStyle(element).maxWidth)).toBe(path === "/materials" ? "1260px" : "1018px");
-    const cards = page.locator(".library-item");
+    const cards = page.locator(path === "/materials" ? ".library-item" : ".material-detail-card");
     await expect(cards.getByRole("button", { name: "接續上次學習", exact: true })).toHaveClass("primary-button");
     await expect(cards.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveClass("secondary-button");
     if (path !== "/materials") {

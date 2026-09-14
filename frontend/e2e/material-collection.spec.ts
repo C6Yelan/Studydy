@@ -186,11 +186,11 @@ test("no-safe studies and unpublished completed runs keep collection-only action
     await expect(page.locator(".library-state")).toContainText("最新處理：");
     await page.goto(`/materials/${materialId}`);
     await expect(page.locator(".material-library")).not.toHaveClass(/is-collection/);
-    await expect(page.locator(".library-header button")).toHaveText(["返回教材庫", "重新整理", "上傳教材"]);
+    await expect(page.locator(".library-header button")).toHaveText(["返回教材庫", "上傳教材"]);
     const reloaded = page.waitForResponse(`**/v1/materials/${materialId}`);
-    await page.getByRole("button", { name: "重新整理", exact: true }).click(); await reloaded;
-    await expect(page.getByRole("button", { name: "查看最新處理", exact: true })).toHaveClass("secondary-button");
-    await expect(page.locator(".library-state")).toContainText("最新處理：");
+    await page.getByRole("button", { name: "重新整理狀態", exact: true }).click(); await reloaded;
+    await expect(page.getByRole("button", { name: "查看處理詳情", exact: true })).toHaveClass("primary-button");
+    await expect(page.getByRole("region", { name: "最新處理" })).toBeVisible();
     await expect(page.locator(".sidebar-helper")).toBeVisible();
     await page.screenshot({ path: `/tmp/studydy-material-collection/detail-${status}.png`, fullPage: true });
   }
@@ -230,10 +230,95 @@ for (const status of ["succeeded", "partial"] as const) {
     await expect(page.getByRole("article")).not.toContainText("最新處理：");
     await page.getByRole("button", { name: item.display_name, exact: true }).click();
     await expect(page.getByRole("heading", { name: "教材詳情", exact: true })).toBeVisible();
-    await expect(page.locator(".library-state")).toContainText("最新處理：");
+    await expect(page.getByRole("region", { name: "最新處理" })).toBeVisible();
     await expect(page.getByRole("region", { name: "已發布版本" }).getByRole("button")).toHaveCount(2);
     await expect(page.getByRole("link", { name: "開啟原始 PDF", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "查看最新處理", exact: true }).click();
+    await page.getByRole("button", { name: "查看處理詳情", exact: true }).click();
     expect(new URL(page.url()).pathname).toBe(`/materials/${materialId}/runs/${latestRun}`);
   });
 }
+
+for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
+  for (const state of ["uploaded", "pending", "running", "failed", "failed-map", "cancelled", "map", "partial", "active", "completed", "records", "long-name"] as const) {
+    test(`material detail ${state} at ${viewport.width}px has one contextual action and compact sections`, async ({ page }) => {
+      await page.setViewportSize(viewport); await signedIn(page);
+      const item = material(state === "cancelled" ? "failed" : state === "records" ? "active" : state);
+      if (state === "cancelled") Object.assign(item.latest_attempt!, { status: "cancelled", cancel_requested_at: run.created_at, error_code: null });
+      if (state === "records") {
+        item.study_sessions.push({ ...active, study_session_id: "55555555-5555-4555-8555-555555555555", status: "completed" });
+        item.available_structures.push({ ...published, run_id: latestRun, knowledge_structure_revision: `knowledge-structure:sha256:${"b".repeat(64)}`, status: "partial" });
+      }
+      await page.route(`**/v1/materials/${materialId}`, route => route.fulfill({ json: item }));
+      await page.goto(`/materials/${materialId}`);
+      const card = page.locator(".material-detail-card");
+      await expect(card).toBeVisible();
+      await expect(page.locator(".library-item")).toHaveCount(0);
+      await expect(card.locator(".material-detail-identity h2")).toHaveText(item.display_name);
+      await expect(card.locator(".material-detail-identity")).toContainText("KiB");
+      await expect(page.locator(".library-header .primary-button")).toHaveCount(0);
+      const actions = card.locator(".material-detail-actions");
+      const expected = item.study_sessions[0] ? (state === "completed" ? "查看上次學習" : "接續上次學習") : item.available_structures.length ? "開啟知識地圖" : item.latest_attempt ? (["pending", "running"].includes(state) ? "查看處理狀態" : "查看處理詳情") : null;
+      await expect(actions.locator(".primary-button")).toHaveCount(expected ? 1 : 0);
+      if (expected) await expect(actions.locator(".primary-button")).toHaveText(expected);
+      await expect(actions.getByRole("link", { name: "開啟原始 PDF" })).toHaveAttribute("href", `/v1/artifacts/${materialId}`);
+      await expect(actions.getByRole("button", { name: "移除教材", exact: true })).toHaveCount(0);
+      await expect(card.getByText("目前沒有可開啟的已發布知識地圖。", { exact: true })).toHaveCount(0);
+      if (state.startsWith("failed")) {
+        await expect(card.getByText("教材分析未能安全完成，沒有發布知識地圖。", { exact: true })).toHaveCount(1);
+        if (state === "failed-map") await expect(card).toContainText("先前已發布的知識地圖仍可使用。");
+      }
+      await expect(card.getByRole("region", { name: "學習紀錄" }).getByRole("listitem")).toHaveCount(item.study_sessions.length);
+      await expect(card.getByRole("region", { name: "已發布版本" }).getByRole("listitem")).toHaveCount(item.available_structures.length);
+      const removable = ["uploaded", "failed", "cancelled"].includes(state);
+      await expect(card.locator(".material-detail-danger")).toHaveCount(removable ? 1 : 0);
+      if (removable) {
+        await card.getByRole("button", { name: "移除教材", exact: true }).click();
+        await expect(card.getByRole("button", { name: "保留教材", exact: true })).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(card.getByRole("button", { name: "移除教材", exact: true })).toBeFocused();
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      expect((await card.boundingBox())!.width).toBeLessThanOrEqual(1100);
+      await page.evaluate(() => scrollTo(0, 0));
+      await page.screenshot({ path: `/tmp/studydy-material-detail-${viewport.width}-${state}.png`, fullPage: true });
+      if (expected) {
+        await actions.locator(".primary-button").click();
+        const destination = item.study_sessions[0] ? `${mapPath}/study-sessions/${studyId}` : item.available_structures.length ? mapPath : `/materials/${materialId}/runs/${latestRun}`;
+        await expect.poll(() => new URL(page.url()).pathname).toBe(destination);
+      }
+    });
+  }
+}
+
+test("detail removal retains confirmation and exact delete semantics", async ({ page }) => {
+  await signedIn(page);
+  const item = material("failed"); let deletes = 0;
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [] } }));
+  await page.route(`**/v1/materials/${materialId}`, route => {
+    if (route.request().method() === "DELETE") { deletes++; return route.fulfill({ status: 202, json: { schema: "material-discard/v1", material_id: materialId, state: "removed" } }); }
+    return route.fulfill({ json: item });
+  });
+  await page.goto(`/materials/${materialId}`);
+  const danger = page.getByRole("region", { name: "移除教材", exact: true });
+  await danger.getByRole("button", { name: "移除教材", exact: true }).click();
+  expect(deletes).toBe(0);
+  await danger.getByRole("button", { name: "確認移除", exact: true }).click();
+  await expect(page).toHaveURL(/\/materials$/);
+  expect(deletes).toBe(1);
+});
+
+test("detail record and version rows preserve exact older bindings", async ({ page }) => {
+  await signedIn(page);
+  const oldId = "55555555-5555-4555-8555-555555555555";
+  const oldRevision = `knowledge-structure:sha256:${"b".repeat(64)}`;
+  const item = material("active");
+  item.study_sessions.push({ ...active, study_session_id: oldId, status: "completed", run_id: latestRun, knowledge_structure_revision: oldRevision });
+  item.available_structures.push({ ...published, run_id: latestRun, knowledge_structure_revision: oldRevision });
+  await page.route(`**/v1/materials/${materialId}`, route => route.fulfill({ json: item }));
+  const olderMap = `/materials/${materialId}/runs/${latestRun}/knowledge-structures/${encodeURIComponent(oldRevision)}`;
+  for (const [label, expected] of [["開啟版本 1", olderMap], ["開啟學習紀錄 1", `${olderMap}/study-sessions/${oldId}`]]) {
+    await page.goto(`/materials/${materialId}`);
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe(expected);
+  }
+});
