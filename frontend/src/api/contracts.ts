@@ -297,3 +297,5 @@ export type StudyResumeView = {
   assessments: AssessmentRecordView[];
   selected_assessment_revision: string | null;
 };
+
+export type MaterialRename = { schema: "material-rename/v1"; display_name: string };

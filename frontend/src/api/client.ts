@@ -15,6 +15,7 @@ import type {
   MaterialDiscardView,
   MaterialView,
   MaterialLibraryItem,
+  MaterialRename,
   MaterialLibraryView,
   StudySessionCreate,
   StudySessionFocus,
@@ -453,6 +454,15 @@ export class StudydyApiClient {
 
   getMaterialRun(runId: string): Promise<MaterialProcessingRunView> {
     return this.json(`/v1/material-processing-runs/${encodeURIComponent(runId)}`, { method: "GET" }, materialRun);
+  }
+
+  async renameMaterial(materialId: string, displayName: string): Promise<MaterialLibraryItem> {
+    const item = await this.json(`/v1/materials/${encodeURIComponent(materialId)}/rename`, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
+      body: JSON.stringify({ schema: "material-rename/v1", display_name: displayName } satisfies MaterialRename),
+    }, libraryItem);
+    if (item.material_id !== materialId) throw new ApiClientError("schema", "教材身分不一致。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    return item;
   }
 
   async discardMaterial(materialId: string): Promise<MaterialDiscardView> {

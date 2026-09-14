@@ -118,6 +118,11 @@ class MaterialLibraryItem(_Closed):
     study_sessions: list[StudySessionLink]
 
 
+class MaterialRename(_Closed):
+    schema_: Literal["material-rename/v1"] = Field(alias="schema")
+    display_name: str
+
+
 class MaterialLibraryView(_Closed):
     schema_: Literal["material-library/v2"] = Field(default="material-library/v2", alias="schema")
     materials: list[MaterialLibraryItem]

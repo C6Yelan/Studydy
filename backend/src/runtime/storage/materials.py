@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from uuid import UUID
+from unicodedata import category
 
 from sqlalchemy import case, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -91,3 +92,28 @@ def read_material_library(
         "available_structures": published[row["material_id"]],
         "study_sessions": sessions[row["material_id"]],
     } for row in materials]
+
+
+def rename_material(learner_id: UUID, material_id: UUID, display_name: str, *, dsn: str | None = None) -> dict:
+    """Rename only the learner-facing title; identities and source content stay immutable."""
+    if not isinstance(display_name, str) or any(category(char) in {"Cc", "Cs"} for char in display_name):
+        raise MaterialLibraryError("REQUEST_INVALID")
+    name = display_name.strip()
+    if not 1 <= len(name) <= 200:
+        raise MaterialLibraryError("REQUEST_INVALID")
+    try:
+        with database_session(dsn) as session:
+            material = session.scalar(select(Material).where(
+                Material.learner_id == learner_id, Material.material_id == material_id,
+            ).with_for_update())
+            if material is None:
+                raise MaterialLibraryError("RESOURCE_NOT_FOUND")
+            if material.discard_requested_at is not None:
+                raise MaterialLibraryError("MATERIAL_NOT_DISCARDABLE")
+            material.display_name = name
+    except (DatabaseConfigurationError, SQLAlchemyError):
+        raise MaterialLibraryError("MATERIAL_LIBRARY_STORAGE_FAILED") from None
+    updated = read_material_library(learner_id, material_id=material_id, dsn=dsn)
+    if not updated:
+        raise MaterialLibraryError("RESOURCE_NOT_FOUND")
+    return updated[0]

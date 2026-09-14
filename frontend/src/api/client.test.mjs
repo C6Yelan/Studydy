@@ -432,3 +432,16 @@ test("focus is an owner-bound state setter without a create intent", async () =>
   assert.deepEqual(JSON.parse(sent.init.body), { schema: "study-session-focus/v1", current_concept_id: conceptId });
   await assert.rejects(client.focusStudySession(materialId, conceptId), error => error.kind === "schema");
 });
+
+test("material rename uses the existing item guard and exact identity without a create key", async () => {
+  const item = { ...libraryItem(), display_name: "作業系統 第五章" };
+  let sent;
+  const client = new StudydyApiClient(async (path, init) => { sent = { path, init }; return Response.json(item); });
+  assert.deepEqual(await client.renameMaterial(materialId, item.display_name), item);
+  assert.equal(sent.path, `/v1/materials/${materialId}/rename`);
+  assert.equal(sent.init.method, "POST");
+  assert.ok(sent.init.headers.Origin);
+  assert.equal(sent.init.headers["Idempotency-Key"], undefined);
+  assert.deepEqual(JSON.parse(sent.init.body), { schema: "material-rename/v1", display_name: item.display_name });
+  await assert.rejects(client.renameMaterial(sessionId, item.display_name), error => error.kind === "schema");
+});

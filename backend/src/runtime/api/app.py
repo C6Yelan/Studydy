@@ -33,6 +33,7 @@ from .models import (
     MaterialDiscardView,
     MaterialView,
     MaterialLibraryItem,
+    MaterialRename,
     MaterialLibraryView,
     LearnerProgressView,
     StudySessionCreate,
@@ -80,7 +81,7 @@ from ..storage.artifacts import (
     publish_idempotent_source_pdf,
 )
 from ..storage.knowledge_structures import read_knowledge_structure
-from ..storage.materials import read_material_library
+from ..storage.materials import MaterialLibraryError, read_material_library, rename_material
 from ..workers import start_runtime_workers
 
 
@@ -215,6 +216,8 @@ def _error_response(reason_code: str, *, status_code: int | None = None) -> JSON
 def _fixed_exception(error: Exception) -> str:
     reason = str(error)
     if reason == "MATERIAL_NOT_DISCARDABLE" or (isinstance(error, MaterialDiscardError) and reason == "RESOURCE_NOT_FOUND"):
+        return reason
+    if isinstance(error, MaterialLibraryError) and reason in {"REQUEST_INVALID", "RESOURCE_NOT_FOUND", "MATERIAL_NOT_DISCARDABLE"}:
         return reason
     if isinstance(error, SessionError) and reason in _ERROR_STATUS:
         return reason
@@ -561,6 +564,15 @@ def create_app(settings: ApiSettings) -> FastAPI:
         if not materials:
             raise _ApiFailure("RESOURCE_NOT_FOUND")
         return MaterialLibraryItem.model_validate(materials[0])
+
+    @app.post("/v1/materials/{material_id}/rename", response_model=MaterialLibraryItem,
+              operation_id="renameMaterial", tags=["materials"])
+    def rename_material_route(request: Request, material_id: UUID, body: MaterialRename) -> MaterialLibraryItem:
+        _require_query(request, set())
+        learner = _trusted_learner(request, settings)
+        return MaterialLibraryItem.model_validate(rename_material(
+            learner.learner_id, material_id, body.display_name, dsn=settings.dsn,
+        ))
 
     @app.post(
         "/v1/materials",
