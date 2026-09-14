@@ -662,8 +662,8 @@ def build_knowledge_structure(
         context.get("material_id") != f"material:sha256:{source_sha256}"
         or parsed_time.tzinfo is None
         or re.fullmatch(r"[0-9a-f]{64}", runtime_lock_sha256) is None
-        or model_id != "Qwen/Qwen3.8-27B-FP8"
-        or re.fullmatch(r"[0-9a-f]{40}", model_revision) is None
+        or model_id != "google/gemma-4-31B-it-qat-w4a16-ct"
+        or model_revision != "52f3f65bc7a02d555763bc923bd1d9094898219d"
     ):
         raise ValueError("MATERIAL_IDENTITY_INVALID")
     evidence_by_id = {item["evidence_id"]: item for item in context["evidence"]}
@@ -850,8 +850,8 @@ def validate_knowledge_structure(document: Any) -> bool:
                 "runtime_lock_sha256", "model_id", "model_revision", "semantic_policy"
             }
             or re.fullmatch(r"[0-9a-f]{64}", provenance["runtime_lock_sha256"]) is None
-            or provenance["model_id"] != "Qwen/Qwen3.8-27B-FP8"
-            or re.fullmatch(r"[0-9a-f]{40}", provenance["model_revision"]) is None
+            or provenance["model_id"] != "google/gemma-4-31B-it-qat-w4a16-ct"
+            or provenance["model_revision"] != "52f3f65bc7a02d555763bc923bd1d9094898219d"
             or provenance["semantic_policy"] != "unified-material-evidence-projection/v3"
         ):
             return False

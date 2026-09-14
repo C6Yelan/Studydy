@@ -34,7 +34,7 @@ Discard 先鎖 Material，再依 run ID 鎖住全部 runs，等待全部 active 
 - discard 先：Material intent 和所有 cancellation requests 同一 transaction commit；publishing checkpoint honor cancellation，不發布新 structure。
 - publishing 先：保存 discard intent 並回 removing，允許發布安全完成，再清除該份教材。
 - 已接受取消先於 failure：terminal 是 cancelled、error_code null。Failure 已先完成則不改寫其結果；明確 discard 仍可清除該份教材。
-- Runtime work 前、preflight 後、evidence page、semantic bundle、下一個 bundle/retry、publishing 前維持 cooperative checkpoints。單一已在執行的 OCR/Qwen request 允許先完成。
+- Runtime work 前、preflight 後、evidence page、semantic bundle、下一個 bundle/retry、publishing 前維持 cooperative checkpoints。單一已在執行的 OCR/Gemma request 允許先完成。
 - Cancellation terminal transaction 先 commit、pipeline 正常 unwind；worker 再呼叫統一 purge authority。多個 run 必須全部停止才可 purge。
 - Startup 先恢復 interrupted runs，再 reconciliation/purge。Worker 完成工作與正常輪詢時重試尚未完成的 discard；沒有另一張 queue 或 scheduler。
 
@@ -65,4 +65,4 @@ Failed/cancelled/no-run card 只有在沒有 map/session 時呈現「刪除教�
 
 ## Verification
 
-`test_material_discard.py` 使用 disposable PostgreSQL、synthetic PDFs、Event 排序的競態、stubbed worker 與 quarantine fault injection。`test_processing_cancellation.py` 驗證新取消的 intent gate 及 legacy honor/recovery；pipeline checkpoint tests 保持。Processing／material-discard Playwright 使用隔離 mocked API，涵蓋 desktop/mobile、409、503、reload、404、舊 map/session 與卡片數量更新。沒有 GPU、OCR model、Qwen inference 或 Assessment qualification，也沒有模型／程序 kill 控制。
+以下為切換 Gemma 前的歷史測試紀錄。`test_material_discard.py` 使用 disposable PostgreSQL、synthetic PDFs、Event 排序的競態、stubbed worker 與 quarantine fault injection。`test_processing_cancellation.py` 驗證新取消的 intent gate 及 legacy honor/recovery；pipeline checkpoint tests 保持。Processing／material-discard Playwright 使用隔離 mocked API，涵蓋 desktop/mobile、409、503、reload、404、舊 map/session 與卡片數量更新。沒有 GPU、OCR model、Qwen inference 或 Assessment qualification，也沒有模型／程序 kill 控制。

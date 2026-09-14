@@ -76,14 +76,14 @@ saved fixtures; they do not perform the later workstation shutdown/restart or mo
 
 ## Runtime verification
 
-The runtime root contains only the Python 3.12 OCR environment and Unlimited-OCR model. Qwen is
-already resident at `127.0.0.1:8000`:
+The runtime root contains only the Python 3.12 OCR environment and Unlimited-OCR model. Gemma 4 is
+already resident at `127.0.0.1:18000`:
 
 ```bash
 PYTHONPATH=backend/src backend/.venv/bin/python -m runtime.local_runtime verify
 ```
 
-Success means the OCR model loads once and closes cleanly, while the existing Qwen3.8 service passes
+Success means the OCR model loads once and closes cleanly, while the existing Gemma 4 service passes
 health, vLLM version, served-model, 32K context, and tokenizer checks. No verifier or second model
 lifecycle is loaded.
 

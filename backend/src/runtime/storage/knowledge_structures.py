@@ -40,8 +40,6 @@ def runtime_binding_is_valid(value: Any) -> bool:
         identity = {
             key: item for key, item in value.items() if key != "runtime_binding_sha256"
         }
-        # Existing Maps retain the runtime that produced them across template updates.
-        transformers_version = value["semantic_service"]["server"]["transformers"]
         return (
             value["schema"] == "material-runtime-binding/v1"
             and value["python"] == "3.12"
@@ -49,20 +47,17 @@ def runtime_binding_is_valid(value: Any) -> bool:
             and isinstance(value["runtime_lock_sha256"], str)
             and len(value["runtime_lock_sha256"]) == 64
             and all(character in "0123456789abcdef" for character in value["runtime_lock_sha256"])
-            and value["model_id"] == "Qwen/Qwen3.8-27B-FP8"
-            and isinstance(value["model_revision"], str)
-            and len(value["model_revision"]) == 40
-            and all(character in "0123456789abcdef" for character in value["model_revision"])
+            and value["model_id"] == "google/gemma-4-31B-it-qat-w4a16-ct"
+            and value["model_revision"] == "52f3f65bc7a02d555763bc923bd1d9094898219d"
             and value["semantic_service"] == {
-                "base_url": "http://127.0.0.1:8000",
+                "base_url": "http://127.0.0.1:18000",
                 "max_model_len": 32768,
                 "server": {
                     "package": "vllm", "version": "0.28.0", "python": "3.12",
                     "torch": "2.13.0+cu130", "cuda": "13.0",
-                    "transformers": transformers_version,
+                    "transformers": "5.15.1",
                 },
             }
-            and transformers_version in {"5.15.1", "5.16.1"}
             and value["ocr"] == {
                 "model_id": "Unlimited-OCR",
                 "revision": "07dea832e22aefee32ad281d4b80551282e1c168",

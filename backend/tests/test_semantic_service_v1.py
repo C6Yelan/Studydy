@@ -19,16 +19,17 @@ def test_preflight_and_both_tasks_use_the_same_resident_service():
         paths.append(request.url.path)
         if request.url.path == "/health": return httpx.Response(200)
         if request.url.path == "/version": return httpx.Response(200, json={"version": "0.28.0"})
-        if request.url.path == "/v1/models": return httpx.Response(200, json={"data": [{"id": "Qwen/Qwen3.8-27B-FP8", "max_model_len": 32768}]})
-        if request.url.path == "/tokenize": return httpx.Response(200, json={"count": 50, "max_model_len": 32768})
+        if request.url.path == "/v1/models": return httpx.Response(200, json={"data": [{"id": "google/gemma-4-31B-it-qat-w4a16-ct", "max_model_len": 32768}]})
+        if request.url.path == "/tokenize":
+            assert json.loads(request.content)["chat_template_kwargs"] == {"enable_thinking": True}
+            return httpx.Response(200, json={"count": 50, "max_model_len": 32768})
         task = json.loads(request.content)["response_format"]["json_schema"]["name"]
         body = json.loads(request.content)
         generation = _lock()["material_semantics"]["generation"]
-        if task == "material_semantics":
-            assert {key: body[key] for key in generation} == generation
-        else:
-            assert body["chat_template_kwargs"] == {"enable_thinking": False}
-            assert (set(generation) - {"chat_template_kwargs"}).isdisjoint(body)
+        assert {key: body[key] for key in generation} == generation
+        assert body["model"] == "google/gemma-4-31B-it-qat-w4a16-ct"
+        assert "reasoning_effort" not in body
+        assert body["chat_template_kwargs"] == {"enable_thinking": True}
         content = {"material_semantics": {"concepts": [], "relations": []}, "assessment": {"schema": "assessment-semantics-response/v2", "candidates": []}}[task]
         return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(content)}}]})
 
@@ -42,8 +43,8 @@ def test_preflight_and_both_tasks_use_the_same_resident_service():
     assert set(paths) == {"/health", "/version", "/v1/models", "/tokenize", "/v1/chat/completions"}
 
 
-def test_assessment_tokenizer_and_generation_both_disable_thinking():
-    """出題的 token 預算與實際推論使用相同的非 thinking template。"""
+def test_assessment_tokenizer_and_generation_both_use_qualified_thinking():
+    """出題的 token 預算與實際推論使用相同的合格 thinking template。"""
     observed = []
     def respond(request):
         body = json.loads(request.content)
@@ -54,12 +55,12 @@ def test_assessment_tokenizer_and_generation_both_disable_thinking():
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
         request_semantics(client, runtime_lock=_lock(), task="assessment", request={}, response_schema={})
     assert observed == [
-        ("/tokenize", {"enable_thinking": False}),
-        ("/v1/chat/completions", {"enable_thinking": False}),
+        ("/tokenize", {"enable_thinking": True}),
+        ("/v1/chat/completions", {"enable_thinking": True}),
     ]
 
 
-@pytest.mark.parametrize("count, fits", [(28672, True), (28673, False)])
+@pytest.mark.parametrize("count, fits", [(24576, True), (24577, False)])
 def test_material_packing_and_generation_share_exact_token_budget(count, fits):
     requests = []
     def respond(request):
@@ -67,7 +68,7 @@ def test_material_packing_and_generation_share_exact_token_budget(count, fits):
         requests.append((request.url.path, body))
         if request.url.path == "/tokenize":
             return httpx.Response(200, json={"count": count, "max_model_len": 32768})
-        assert body["max_tokens"] == 4096
+        assert body["max_tokens"] == 8192
         return httpx.Response(200, json={"choices": [{
             "finish_reason": "length", "message": {"content": '{"concepts":[]}'},
         }]})
@@ -77,7 +78,7 @@ def test_material_packing_and_generation_share_exact_token_budget(count, fits):
         with pytest.raises(SemanticServiceError, match="SEMANTIC_OUTPUT_TRUNCATED" if fits else "SEMANTIC_INPUT_TOO_LARGE"):
             request_semantics(client, **arguments)
     assert requests[0][1]["messages"] == requests[1][1]["messages"]
-    template = {"enable_thinking": True, "reasoning_effort": "xhigh"}
+    template = {"enable_thinking": True}
     assert requests[0][1]["chat_template_kwargs"] == template
     assert requests[1][1]["chat_template_kwargs"] == template
     if fits:
@@ -93,7 +94,7 @@ def test_non_loopback_or_second_runtime_contract_is_rejected_before_network():
             request_semantics(client, runtime_lock=lock, task="material_semantics", request={}, response_schema={})
 
     second = deepcopy(_lock())
-    second["semantic_service"]["model_id"] = "Qwen/second-model"
+    second["semantic_service"]["model_id"] = "example/other-model"
     with httpx.Client(transport=httpx.MockTransport(lambda _request: (_ for _ in ()).throw(AssertionError()))) as client:
         with pytest.raises(SemanticServiceError):
             request_semantics(client, runtime_lock=second, task="assessment", request={}, response_schema={})
@@ -108,8 +109,8 @@ def test_preflight_rejects_more_than_one_served_model():
         if request.url.path == "/v1/models":
             return httpx.Response(200, json={
                 "data": [
-                    {"id": "Qwen/Qwen3.8-27B-FP8", "max_model_len": 32768},
-                    {"id": "second-model", "max_model_len": 32768},
+                    {"id": "google/gemma-4-31B-it-qat-w4a16-ct", "max_model_len": 32768},
+                    {"id": "example/other-model", "max_model_len": 32768},
                 ]
             })
         return httpx.Response(200, json={"count": 1, "max_model_len": 32768})
@@ -151,3 +152,63 @@ def test_offline_ai_requests_keep_existing_retryable_api_error(failure):
     response = _error_response(_fixed_exception(AssessmentError(caught.value.reason_code)))
     assert response.status_code == 503
     assert json.loads(response.body)["retryable"] is True
+
+
+@pytest.mark.parametrize("field,value", [
+    ("model_id", "example/other-model"),
+    ("revision", "a" * 40),
+    ("base_url", "http://127.0.0.1:18001"),
+    ("max_model_len", 16384),
+    ("max_num_seqs", 2),
+])
+def test_wrong_contract_is_rejected_by_lock_and_client_before_network(field, value):
+    """即使 revision 格式合法，也只能接受已 qualification 的單一模型。"""
+    from pdf_evidence.material_pipeline import MaterialAnalysisError, validate_runtime_lock
+    lock = _lock()
+    validate_runtime_lock(lock)
+    lock["semantic_service"][field] = value
+    with pytest.raises(MaterialAnalysisError, match="RUNTIME_LOCK_INVALID"):
+        validate_runtime_lock(lock)
+    def forbidden(_request):
+        pytest.fail("invalid lock must not contact the service")
+    with httpx.Client(transport=httpx.MockTransport(forbidden)) as client:
+        with pytest.raises(SemanticServiceError, match="SEMANTIC_SERVICE_CONFIG_INVALID"):
+            preflight_semantic_service(lock, client=client)
+
+
+@pytest.mark.parametrize("model,context", [
+    ("example/other-model", 32768),
+    ("google/gemma-4-31B-it-qat-w4a16-ct", 16384),
+])
+def test_preflight_rejects_wrong_resident_identity(model, context):
+    """服務有回應仍須符合指定模型與 context。"""
+    def respond(request):
+        if request.url.path == "/health":
+            return httpx.Response(200)
+        if request.url.path == "/version":
+            return httpx.Response(200, json={"version": "0.28.0"})
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": model, "max_model_len": context}]})
+        return httpx.Response(200, json={"count": 1, "max_model_len": 32768})
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(SemanticServiceError, match="SEMANTIC_SERVICE_IDENTITY_MISMATCH"):
+            preflight_semantic_service(_lock(), client=client)
+
+
+@pytest.mark.parametrize("task,budget", [("assessment", 4096), ("assessment_check", 1536)])
+def test_qualified_assessment_wire_keeps_schema_and_reasoning_separate(task, budget):
+    """生成與解題各自遵循合格 budget，reasoning 不混入 JSON。"""
+    schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"], "additionalProperties": False}
+    def respond(request):
+        body = json.loads(request.content)
+        assert body["chat_template_kwargs"] == {"enable_thinking": True}
+        if request.url.path == "/tokenize":
+            return httpx.Response(200, json={"count": 50, "max_model_len": 32768})
+        assert body["max_tokens"] == budget
+        assert [body[k] for k in ("temperature", "top_p", "top_k")] == [1.0, 0.95, 64]
+        assert body["response_format"]["json_schema"]["schema"] == schema
+        return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {
+            "content": '{"ok":true}', "reasoning_content": "Separate reasoning field",
+        }}]})
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        assert request_semantics(client, runtime_lock=_lock(), task=task, request={}, response_schema=schema) == {"ok": True}

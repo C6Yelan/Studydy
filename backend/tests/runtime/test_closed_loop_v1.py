@@ -692,6 +692,67 @@ def test_successful_retry_clears_obsolete_no_safe_guidance(closed_loop):
         apply_guidance(learner, study.study_session_id, unavailable.guidance_revision, dsn=dsn)
 
 
+def test_real_api_lifespan_login_and_saved_reads_work_without_ai(closed_loop, monkeypatch):
+    """真 worker 啟停與登入、已保存 Map 讀取皆不需要模型在線。"""
+    import httpx
+    from runtime.local_app import create_local_app
+    learner, source, settings, structure, dsn, _token = closed_loop
+    calls = []
+    def offline(*_args, **_kwargs):
+        calls.append("model")
+        raise httpx.ConnectError("offline")
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", offline)
+    origin = "http://127.0.0.1:4173"
+    app = create_local_app(profile="local", public_origin=origin, secure_cookie=False, local_config=settings, dsn=dsn)
+    with TestClient(app, base_url=origin) as client:
+        login = client.post("/v1/session/login", headers={"Origin": origin}, json={
+            "email": "learner_test@example.com", "password": "Synthetic test password 42",
+        })
+        assert login.status_code == 200
+        assert client.get("/v1/session").json()["learner_id"] == str(learner.learner_id)
+        assert client.get("/v1/materials").status_code == 200
+        assert client.get(f"/v1/materials/{source.material_id}/knowledge-structures/{structure['revision']}").status_code == 200
+    assert calls == []
+
+
+@pytest.mark.parametrize("field,value", [("model_id", "example/other-model"), ("model_revision", "a" * 40)])
+def test_assessment_rejects_unqualified_provenance_with_recomputed_revision(closed_loop, field, value):
+    """合法內容 hash 不能取代已 qualification 的模型身分。"""
+    from copy import deepcopy
+    from types import SimpleNamespace
+    from sqlalchemy import select
+    from runtime.storage.tables import Assessment, database_session
+    from learning_adaptation.assessments import _stored
+
+    learner, source, settings, structure, dsn, _token = closed_loop
+    concept = structure["concepts"][0]
+    study = create_study_session(learner, source.material_id, structure["revision"], "study", dsn=dsn)
+    item = generate_assessment(
+        learner, study.study_session_id, concept["claims"][0]["claim_id"], "item", settings,
+        dsn=dsn, client=Client(), semantic_call=lambda *_a, **_k: _assessment_response(
+            "definition", "根據教材，Stack 使用哪種順序？", concept["evidence_refs"][0],
+        ),
+    )
+    with database_session(dsn) as session:
+        row = session.scalar(select(Assessment).where(Assessment.assessment_revision == item.assessment_revision))
+        saved = SimpleNamespace(**{column.name: deepcopy(getattr(row, column.name)) for column in Assessment.__table__.columns})
+    assert _stored(saved).assessment_revision == item.assessment_revision
+    saved.generation_provenance[field] = value
+    documents = [saved.public_document, saved.private_answer_document, saved.generation_provenance]
+    public, private, provenance = [
+        {key: item for key, item in document.items() if key != "assessment_revision"}
+        for document in documents
+    ]
+    saved.assessment_revision = "assessment:sha256:" + canonical_sha256({
+        "public": public, "private_sha256": canonical_sha256(private),
+        "provenance_sha256": canonical_sha256(provenance),
+    })
+    for document in documents:
+        document["assessment_revision"] = saved.assessment_revision
+    with pytest.raises(AssessmentError, match="ASSESSMENT_UNAVAILABLE"):
+        _stored(saved)
+
+
 def test_legacy_assessment_eligibility_is_not_upgraded_by_new_policy(closed_loop):
     """Reading recorded v5 provenance must preserve its old ineligible flag."""
     from copy import deepcopy

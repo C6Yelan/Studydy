@@ -28,13 +28,27 @@ def test_local_config_has_one_python_one_semantic_lock_and_no_verifier(tmp_path)
         "site_packages", "ocr_model_root",
     }
     assert config["runtime_lock"]["python"] == "3.12"
-    assert config["runtime_lock"]["semantic_service"]["model_id"] == "Qwen/Qwen3.8-27B-FP8"
+    assert config["runtime_lock"]["semantic_service"]["model_id"] == "google/gemma-4-31B-it-qat-w4a16-ct"
     assert "verifier" not in str(config).casefold()
     assert "mdeberta" not in str(config).casefold()
     tampered = deepcopy(config)
     tampered["runtime_lock"]["assessment"]["verifier"] = {"model": "second-authority"}
     with pytest.raises(MaterialProcessingError):
         runtime_binding(tampered)
+
+
+@pytest.mark.parametrize("field,value", [("model_id", "example/other-model"), ("model_revision", "a" * 40)])
+def test_stored_runtime_binding_rejects_wrong_identity_even_with_valid_hash(tmp_path, field, value):
+    """重算 binding hash 不能讓未批准的模型或 revision 通過。"""
+    from pdf_evidence.ocr_page_evidence import canonical_sha256
+    from runtime.storage.knowledge_structures import runtime_binding_is_valid
+    binding = runtime_binding(local_app.read_local_ai_config_from_environment(_environment(tmp_path)))
+    assert runtime_binding_is_valid(binding)
+    binding[field] = value
+    binding["runtime_binding_sha256"] = canonical_sha256({
+        key: item for key, item in binding.items() if key != "runtime_binding_sha256"
+    })
+    assert not runtime_binding_is_valid(binding)
 
 
 def test_local_app_composition_validates_settings_without_ai_then_starts_uvicorn(tmp_path, monkeypatch):
@@ -91,7 +105,6 @@ def test_source_tree_has_no_qwen_process_owner_or_retired_semantic_modules():
     root = Path(__file__).parents[3]
     production = "\n".join(path.read_text(encoding="utf-8") for path in (root / "backend/src").rglob("*.py"))
     assert "subprocess.Popen" not in production.replace((root / "backend/src/pdf_evidence/local_ai_process.py").read_text(), "")
-    assert "Qwen3-14B" not in production
     assert not (root / "backend/src/pdf_evidence/text_first_run.py").exists()
     assert not (root / "backend/src/knowledge_map/formal_concepts.py").exists()
     assert not (root / "local_ai/assessment-runtime-lock.json").exists()

@@ -19,7 +19,7 @@ from pdf_evidence.ocr_page_evidence import canonical_sha256
 
 RUN_ID = "00000000-0000-4000-8000-000000000001"
 PRODUCED_AT = "2026-09-05T00:00:00+00:00"
-MODEL_REVISION = "b" * 40
+MODEL_REVISION = "52f3f65bc7a02d555763bc923bd1d9094898219d"
 
 
 def _compact_response(response, context):
@@ -290,7 +290,7 @@ def test_relations_keep_endpoint_order_and_only_prerequisite_orders_path(source,
         run_id=RUN_ID,
         produced_at=PRODUCED_AT,
         runtime_lock_sha256=canonical_sha256({"runtime": 1}),
-        model_id="Qwen/Qwen3.8-27B-FP8",
+        model_id="google/gemma-4-31B-it-qat-w4a16-ct",
         model_revision=MODEL_REVISION,
         semantic_calls=1,
         ocr_calls=0,
@@ -328,7 +328,7 @@ def test_cycle_and_forbidden_or_generic_relations_never_publish():
         run_id=RUN_ID,
         produced_at=PRODUCED_AT,
         runtime_lock_sha256="a" * 64,
-        model_id="Qwen/Qwen3.8-27B-FP8",
+        model_id="google/gemma-4-31B-it-qat-w4a16-ct",
         model_revision=MODEL_REVISION,
         semantic_calls=1,
         ocr_calls=0,
@@ -347,7 +347,7 @@ def test_relation_cannot_borrow_unrelated_document_evidence():
     structure = build_knowledge_structure(
         context, state, source_sha256="1" * 64, run_id=RUN_ID,
         produced_at=PRODUCED_AT, runtime_lock_sha256="a" * 64,
-        model_id="Qwen/Qwen3.8-27B-FP8", model_revision=MODEL_REVISION,
+        model_id="google/gemma-4-31B-it-qat-w4a16-ct", model_revision=MODEL_REVISION,
         semantic_calls=1, ocr_calls=0,
     )
     assert structure["relations"] == []
@@ -375,7 +375,7 @@ def test_cross_section_concept_has_one_primary_tree_placement_and_zero_prerequis
     apply_semantic_response(response, context=context, bundle=bundle, state=state)
     structure = build_knowledge_structure(
         context, state, source_sha256="1" * 64, run_id=RUN_ID, produced_at=PRODUCED_AT,
-        runtime_lock_sha256="a" * 64, model_id="Qwen/Qwen3.8-27B-FP8",
+        runtime_lock_sha256="a" * 64, model_id="google/gemma-4-31B-it-qat-w4a16-ct",
         model_revision=MODEL_REVISION, semantic_calls=1, ocr_calls=0,
     )
     tree_ids = [concept_id for section in structure["document_tree"]["sections"] for concept_id in section["concept_ids"]]
@@ -436,7 +436,7 @@ def test_runtime_timings_do_not_change_content_revision():
         "run_id": RUN_ID,
         "produced_at": PRODUCED_AT,
         "runtime_lock_sha256": "a" * 64,
-        "model_id": "Qwen/Qwen3.8-27B-FP8",
+        "model_id": "google/gemma-4-31B-it-qat-w4a16-ct",
         "model_revision": MODEL_REVISION,
         "semantic_calls": 1,
         "ocr_calls": 0,
@@ -449,6 +449,13 @@ def test_runtime_timings_do_not_change_content_revision():
     )
     assert fast["revision"] == slow["revision"]
     assert fast["metrics"] != slow["metrics"]
+    for field, value in [("model_id", "example/other-model"), ("model_revision", "a" * 40)]:
+        tampered = deepcopy(fast)
+        tampered["provenance"][field] = value
+        tampered["revision"] = _revision(tampered)
+        assert not validate_knowledge_structure(tampered)
+        with pytest.raises(ValueError, match="MATERIAL_IDENTITY_INVALID"):
+            build_knowledge_structure(context, state, **{**arguments, field: value})
     tampered = deepcopy(fast)
     tampered["evidence"][0]["exact_text"] += " changed"
     tampered["revision"] = _revision(tampered)
@@ -467,7 +474,7 @@ def test_material_source_identity_mismatch_is_rejected_before_publication():
     with pytest.raises(ValueError, match="MATERIAL_IDENTITY_INVALID"):
         build_knowledge_structure(
             context, state, source_sha256="2" * 64, run_id=RUN_ID, produced_at=PRODUCED_AT,
-            runtime_lock_sha256="a" * 64, model_id="Qwen/Qwen3.8-27B-FP8",
+            runtime_lock_sha256="a" * 64, model_id="google/gemma-4-31B-it-qat-w4a16-ct",
             model_revision=MODEL_REVISION, semantic_calls=1, ocr_calls=0,
         )
 

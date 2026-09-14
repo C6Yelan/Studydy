@@ -22,10 +22,10 @@
     }
   },
   "semantic_service": {
-    "model_id": "Qwen/Qwen3.8-27B-FP8",
-    "revision": "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a",
+    "model_id": "google/gemma-4-31B-it-qat-w4a16-ct",
+    "revision": "52f3f65bc7a02d555763bc923bd1d9094898219d",
     "api_protocol": "openai-chat-completions/v1",
-    "base_url": "http://127.0.0.1:8000",
+    "base_url": "http://127.0.0.1:18000",
     "max_model_len": 32768,
     "max_num_seqs": 1,
     "server": {
@@ -43,20 +43,16 @@
     "response_schema": "material-semantics-response/v4",
     "bundle_policy": "tokenized-contiguous-evidence/v3",
     "max_new_input_tokens": 1536,
-    "max_tokens": 4096,
+    "max_tokens": 8192,
     "generation": {
-      "temperature": 1,
+      "temperature": 1.0,
       "top_p": 0.95,
-      "top_k": 20,
-      "min_p": 0,
-      "presence_penalty": 0,
-      "repetition_penalty": 1,
+      "top_k": 64,
       "chat_template_kwargs": {
-        "enable_thinking": true,
-        "reasoning_effort": "xhigh"
+        "enable_thinking": true
       }
     },
-    "prompt": "Analyze all sections as one teaching unit. You decide canonical Concepts, grounded Claims and Relations. Retain every supported learner-worthy concept and claim even without an edge; merge only identical meanings. The existing catalog is context: return only new or changed concepts and new relations for the supplied evidence, not unchanged catalog entries. Aliases must be equivalent names, not members, properties or examples. A heading alone names a topic, not its missing procedure or facts. Input evidence rows: [id,page,kind,exact_text]. Existing concepts: k=key,l=label,a=aliases,c=claims,e=evidence ids; reuse keys only for identical meanings. Output concepts: k=short unique key,l=label,a=aliases,c=claims. Claim: {m:meaning or null,s:[evidence id,...]}. Select complete Evidence units, combining multiple IDs when a statement spans units; never emit character offsets or omit a required continuation. Copy id from the first column of the supplied evidence row; IDs are document-global and must never be renumbered to page numbers or bundle-local positions. New claims can cite only rows supplied in the current sections, not old catalog evidence. Use m=null when selected units already state the claim, especially code/formulas. Otherwise write one concise grounded meaning. Preserve technical literals, scope and conditions. Relation: s=source key,t=target key,k=type,r=one short specific learner-facing reason,e=endpoint claim evidence ids,c=confidence 0..1. Types: prerequisite=necessary knowledge dependency, part_of=part to whole, application=concept to concrete use, example=abstract to instance, contrast=two entities compared on an explicit axis. For prerequisite, evidence must explain why learning the target requires the source; helpful background, neighboring headings and shared subject do not establish necessity. For application, name what the source is used to accomplish; definitions and representations alone are not uses. For contrast, the two endpoints themselves must be the entities named by the comparison, not a comparison-topic node. Examples: 'Compute the mean by summing values then dividing by their count' supports sum -> mean prerequisite; 'numeral history helps arithmetic' does not establish prerequisite. 'Use a queue to schedule print jobs' supports application; 'a queue is represented by an array' alone does not. 'Queues remove FIFO; stacks remove LIFO' supports queue <-> stack contrast on removal order, not 'comparison of containers' <-> stack. Retain clear supported composition, use, example and contrast relations; do not minimize edge count. When a proposed type or endpoint is wrong, choose the supported type and actual entities; omit only when no precise relation is grounded. Never invent endpoints, evidence or procedures to fill missing content. Return only {concepts:[...],relations:[...]} JSON; no hashes, copied quotes, section metadata or outside explanation.",
+    "prompt": "Analyze all sections as one teaching unit. You decide canonical Concepts, grounded Claims and Relations. Retain every supported learner-worthy concept and claim even without an edge; merge only identical meanings. The existing catalog is context: return only new or changed concepts and new relations for the supplied evidence, not unchanged catalog entries. Aliases must be equivalent names, not members, properties or examples. A heading alone names a topic, not its missing procedure or facts. Input evidence rows: [id,page,kind,exact_text]. Existing concepts: k=key,l=label,a=aliases,c=claims,e=evidence ids; reuse keys only for identical meanings. Output concepts: k=short unique key,l=label,a=aliases,c=claims. Claim: {m:meaning or null,s:[evidence id,...]}. Select complete Evidence units, combining multiple IDs when a statement spans units; never emit character offsets or omit a required continuation. Copy id from the first column of the supplied evidence row; IDs are document-global and must never be renumbered to page numbers or bundle-local positions. New claims can cite only rows supplied in the current sections, not old catalog evidence. Use m=null when selected units already state the claim, especially code/formulas. Otherwise write one concise grounded meaning. Preserve technical literals, scope and conditions. Relation: s=source key,t=target key,k=type,r=one short specific learner-facing reason,e=endpoint claim evidence ids,c=confidence 0..1. Types: prerequisite=necessary knowledge dependency, part_of=part to whole, application=concept to concrete use, example=abstract to instance, contrast=two entities compared on an explicit axis. For prerequisite, evidence must explain why learning the target requires the source; helpful background, neighboring headings and shared subject do not establish necessity. For application, name what the source is used to accomplish; definitions and representations alone are not uses. For contrast, the two endpoints themselves must be the entities named by the comparison, not a comparison-topic node. Examples: 'Compute the mean by summing values then dividing by their count' supports sum -> mean prerequisite; 'numeral history helps arithmetic' does not establish prerequisite. 'Use a queue to schedule print jobs' supports application; 'a queue is represented by an array' alone does not. 'Queues remove FIFO; stacks remove LIFO' supports queue <-> stack contrast on removal order, not 'comparison of containers' <-> stack. Retain clear supported composition, use, example and contrast relations; do not minimize edge count. When a proposed type or endpoint is wrong, choose the supported type and actual entities; omit only when no precise relation is grounded. Never invent endpoints, evidence or procedures to fill missing content. Return only {concepts:[...],relations:[...]} JSON; no hashes, copied quotes, section metadata or outside explanation.\nUse the primary language of the source material for all learner-facing generated text. For source material primarily written in Traditional Chinese, Concept labels, aliases, synthesized Claim meanings, and Relation learner-facing reasons must be written in Traditional Chinese. Do not translate or alter established technical terms, identifiers, function names, code, operators, formulas, escape sequences, numbers, or exact literals supported by Evidence.",
     "retry_attempts": 2
   },
   "assessment": {
@@ -70,16 +66,21 @@
     "option_count": 4,
     "max_tokens": 4096,
     "generation": {
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "top_k": 64,
       "chat_template_kwargs": {
-        "enable_thinking": false
+        "enable_thinking": true
       }
     },
     "prompt": "Create three useful single-choice question candidates from the canonical Claim and its Evidence. The priority is that each question matches its designated correct answer and the whole question has one clear best answer. First choose a short exact correct answer span from Evidence, then write a question that asks for that kind of answer (a structure name, an order, a number, etc.), then provide three alternative answer strings. Decide safety last, after reading all four options together. Distractors need not be elaborate or highly plausible. They may appear elsewhere in the material: FIFO can be an alternative when asking about a stack even if the text also describes queues. Do not require token substitutions or words absent from the source. Avoid alternatives that clearly also answer this question correctly, including direct synonyms of the designated answer. Expressions equated by also called, parentheses, abbreviations or definitions describe the same answer. For example LIFO, last-in-first-out, FILO and most-recently-inserted-first cannot be separate options when asking which policy a stack follows. Use plainly different alternatives rather than these aliases; weak distractors are fine. In a negated question, several equivalent incorrect options are fine if exactly one option answers the question. When asking about a function, do not use another function with the same purpose as a distractor unless the question specifies a distinguishing behavior supported by the source. For example gets, scanf and fgets can all read strings, so they are not mutually exclusive answers to a generic string-input question; use functions with different purposes instead. Judge options in the scope of the question, not by hypothetical interpretations. If the initial question is unclear, choose a simpler explicit fact instead; when an algorithm is unspecified, ask about the documented API name. Mark safety=safe when the question and answer align and there is no clear second correct answer. Use safety=reject only when you cannot establish this after simplifying the question. Prefer a different question task, referent, requested attribute or supplied scenario from prior questions. The same knowledge may be assessed again; there is no requirement to introduce new knowledge. Do not merely reword a prior question asking for the same output about the same referent and conditions. Never change the designated answer to avoid repetition. If you cannot offer a sound question, use safety=reject. learning_angle and novelty are descriptive legacy metadata only and must not affect question correctness or publication. Preserve technical literals, escapes, numbers, units, operators, negation and necessary conditions. Keep student-facing wording natural and do not mention Evidence IDs. Return JSON only.",
     "check_max_tokens": 1536,
     "check_generation": {
-      "temperature": 0,
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "top_k": 64,
       "chat_template_kwargs": {
-        "enable_thinking": false
+        "enable_thinking": true
       }
     },
     "check_prompt": "Solve each supplied multiple-choice question using only the Claim and Evidence. No answer key is supplied. Decide whether exactly one option answers what the question actually asks. An option merely occurring in Evidence is not sufficient. A question asking for a data type requires a type, not a number; a quantity question requires the appropriate quantity, not an entity name. Consider all four options and aliases: equivalent correct alternatives mean multiple answers. Use answer_status=unique with selected_option_index only when exactly one option is supported; otherwise use none or multiple and selected_option_index=null. Also compare each question to prior_questions. It is a duplicate if it asks for the same output about the same referent under the same conditions, even if phrasing, option order or distractors changed. A different requested attribute, referent, condition or application scenario can be a different question even when it tests the same knowledge. Do not judge educational novelty and do not require new knowledge. Set duplicate_prior_index to the matching prior question index only for a duplicate, otherwise null. Return one verdict for every question_index. Do not invent facts to repair a defective question. Return JSON only."

@@ -244,8 +244,8 @@ def _stored(row: Assessment) -> StoredAssessment:
         or provenance["source_evidence_ids"] != public["source_evidence_ids"]
         or re.fullmatch(r"[0-9a-f]{64}", provenance["runtime_lock_sha256"])
         is None
-        or provenance["model_id"] != "Qwen/Qwen3.8-27B-FP8"
-        or re.fullmatch(r"[0-9a-f]{40}", provenance["model_revision"]) is None
+        or provenance["model_id"] != "google/gemma-4-31B-it-qat-w4a16-ct"
+        or provenance["model_revision"] != "52f3f65bc7a02d555763bc923bd1d9094898219d"
         or provenance["policy"] != ("source-span-single-choice/v5" if modern else "source-span-single-choice/v4")
         or provenance["learning_angle"] != row.learning_angle
         or not isinstance(row.learning_angle, str)
@@ -356,7 +356,7 @@ def _candidate(candidate: Any, claim: ClaimContext, used_identities: set[str]) -
     ):
         return None
     options = [correct]
-    # 選項在其他句子出現不代表它能回答本題；語意安全由 Qwen 判斷。
+    # 選項在其他句子出現不代表它能回答本題；語意安全由 Gemma 判斷。
     for distractor in distractors:
         try:
             text = _clean(distractor)

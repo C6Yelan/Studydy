@@ -4,7 +4,7 @@ Production has one semantic path:
 
 ```text
 PDF → native Evidence / optional OCR → document sections + Evidence bundle
-    → resident Qwen3.8 unified semantics → deterministic projection
+    → resident Gemma 4 unified semantics → deterministic projection
     → Document Tree + canonical Concepts + typed Relations + Initial Path
     → StudySession + Assessment + learner guidance
 ```
@@ -15,7 +15,7 @@ no resource-library fields or separate resource PDF kind. Fresh pre-release data
 initial migration followed by additive learner-credentials and material-name migrations; historical evaluation
 artifacts remain separate and are not rewritten.
 
-Qwen owns Concept boundaries, Claim meaning, cross-section consolidation, Relation proposals/reasons,
+Gemma 4 owns Concept boundaries, Claim meaning, cross-section consolidation, Relation proposals/reasons,
 and Assessment semantics. Code owns source identity, Evidence/span binding, exact technical literals,
 schema, ownership, endpoints, duplicates/conflicts, prerequisite cycles, private answers, scoring,
 and stale/idempotency/concurrency behavior.
@@ -55,7 +55,7 @@ supported edges while distinguishing necessary dependencies, concrete uses, and 
 compared.
 
 Assessment generates three candidates with the v2 response contract, then makes one bounded batch
-check through the same resident Qwen service. The checker receives source Evidence and reordered
+check through the same resident Gemma 4 service. The checker receives source Evidence and reordered
 options without the proposed answer key. Publication requires a unique selected answer matching
 the generator's exact source span, and no duplicate of a prior question. Rewording the same task,
 referent and conditions is a duplicate; different requested attributes, referents or application
@@ -73,8 +73,8 @@ The only Relation types are `prerequisite`, `part_of`, `application`, `example`,
 gap. Document Tree placement always comes from document structure.
 
 There is one production Python minor (3.12), one externally resident
-`Qwen/Qwen3.8-27B-FP8` service, and one optional Unlimited-OCR child. The backend never starts,
-stops, swaps, or unloads Qwen. Assessment uses the same authenticated loopback service.
+`google/gemma-4-31B-it-qat-w4a16-ct` service, and one optional Unlimited-OCR child. The backend never starts,
+stops, swaps, or unloads Gemma 4. Assessment uses the same authenticated loopback service.
 mDeBERTa is removed.
 
 Pre-release persistence is a clean final schema. `knowledge_structures` stores one immutable artifact

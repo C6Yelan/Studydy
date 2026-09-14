@@ -87,10 +87,10 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
                 "model_id", "revision", "api_protocol", "base_url", "max_model_len",
                 "max_num_seqs", "server", "authentication",
             }
-            or semantic["model_id"] != "Qwen/Qwen3.8-27B-FP8"
-            or re.fullmatch(r"[0-9a-f]{40}", semantic["revision"]) is None
+            or semantic["model_id"] != "google/gemma-4-31B-it-qat-w4a16-ct"
+            or semantic["revision"] != "52f3f65bc7a02d555763bc923bd1d9094898219d"
             or semantic["api_protocol"] != "openai-chat-completions/v1"
-            or semantic["base_url"] != "http://127.0.0.1:8000"
+            or semantic["base_url"] != "http://127.0.0.1:18000"
             or semantic["max_model_len"] != 32768
             or semantic["max_num_seqs"] != 1
             or semantic["server"] != {
@@ -110,11 +110,10 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
             or material["response_schema"] != "material-semantics-response/v4"
             or material["bundle_policy"] != "tokenized-contiguous-evidence/v3"
             or material["max_new_input_tokens"] != 1536
-            or material["max_tokens"] != 4096
+            or material["max_tokens"] != 8192
             or material["generation"] != {
-                "temperature": 1.0, "top_p": 0.95, "top_k": 20,
-                "min_p": 0.0, "presence_penalty": 0.0, "repetition_penalty": 1.0,
-                "chat_template_kwargs": {"enable_thinking": True, "reasoning_effort": "xhigh"},
+                "temperature": 1.0, "top_p": 0.95, "top_k": 64,
+                "chat_template_kwargs": {"enable_thinking": True},
             }
             or not isinstance(material["prompt"], str)
             or not material["prompt"]
@@ -132,11 +131,17 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
             or assessment["candidate_count"] != 3
             or assessment["option_count"] != 4
             or assessment["max_tokens"] != 4096
-            or assessment["generation"] != {"chat_template_kwargs": {"enable_thinking": False}}
+            or assessment["generation"] != {
+                "temperature": 1.0, "top_p": 0.95, "top_k": 64,
+                "chat_template_kwargs": {"enable_thinking": True},
+            }
             or not isinstance(assessment["prompt"], str)
             or not assessment["prompt"]
             or assessment["check_max_tokens"] != 1536
-            or assessment["check_generation"] != {"temperature": 0, "chat_template_kwargs": {"enable_thinking": False}}
+            or assessment["check_generation"] != {
+                "temperature": 1.0, "top_p": 0.95, "top_k": 64,
+                "chat_template_kwargs": {"enable_thinking": True},
+            }
             or not isinstance(assessment["check_prompt"], str)
             or not assessment["check_prompt"]
             or ocr["page_schema"] != "page-evidence/v4"
@@ -153,7 +158,7 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
 
 @contextmanager
 def material_analysis_lock(runtime_root: Path, *, wait_seconds: float = 5):
-    """避免同時載入多個 OCR sidecar；resident Qwen lifecycle 不在此鎖內。"""
+    """避免同時載入多個 OCR sidecar；resident Gemma lifecycle 不在此鎖內。"""
 
     if not runtime_root.is_absolute() or runtime_root.is_symlink() or wait_seconds < 0:
         raise MaterialAnalysisError("RUNTIME_LAYOUT_INVALID")
@@ -280,7 +285,7 @@ def analyze_material(
     client: httpx.Client | None = None,
     semantic_call: Callable[..., dict[str, Any]] = request_semantics,
 ) -> dict[str, Any]:
-    """Evidence → unified Qwen semantics → deterministic canonical structure。"""
+    """Evidence → unified Gemma semantics → deterministic canonical structure。"""
 
     lock = validate_runtime_lock(settings.get("runtime_lock"))
     resolved_run = run_id or str(uuid4())

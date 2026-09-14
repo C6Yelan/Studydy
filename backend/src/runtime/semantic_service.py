@@ -76,7 +76,9 @@ def _service(lock: Any) -> dict[str, Any]:
         if (
             lock["schema"] != "studydy-runtime-lock/v16"
             or lock["python"] != "3.12"
-            or service["model_id"] != "Qwen/Qwen3.8-27B-FP8"
+            or service["model_id"] != "google/gemma-4-31B-it-qat-w4a16-ct"
+            or service["revision"] != "52f3f65bc7a02d555763bc923bd1d9094898219d"
+            or origin != "http://127.0.0.1:18000"
             or service["max_model_len"] != 32768
             or service["max_num_seqs"] != 1
             or service["authentication"] != "environment-bearer:VLLM_API_KEY"
@@ -113,6 +115,7 @@ def preflight_semantic_service(
                 "messages": [{"role": "user", "content": "ready"}],
                 "add_generation_prompt": True,
                 "add_special_tokens": False,
+                "chat_template_kwargs": {"enable_thinking": True},
             },
             timeout=PREFLIGHT_TIMEOUT_SECONDS,
         )
@@ -187,6 +190,7 @@ def _token_count(
             "messages": messages,
             "add_generation_prompt": True,
             "add_special_tokens": False,
+            "chat_template_kwargs": {"enable_thinking": True},
             **({"chat_template_kwargs": chat_template_kwargs} if chat_template_kwargs is not None else {}),
         },
     )

@@ -83,7 +83,8 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   await expect(freshPage.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
   expect((await fresh.request.get(`${origin}/v1/artifacts/${artifactId}`)).status()).toBe(200);
   await fresh.request.delete(`${origin}/v1/session`, { headers: { Origin: origin } });
-  await freshPage.getByRole("button", { name: "開始學習進度", exact: true }).click();
+  await freshPage.getByRole("button", { name: "教材概念：Stack", exact: true }).click();
+  await freshPage.getByRole("button", { name: "開始學習", exact: true }).click();
   await expect(freshPage.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   await expect(freshPage.getByText("Stack", { exact: true })).toHaveCount(0);
   expect((await fresh.request.get(`${origin}/v1/session`)).status()).toBe(401);

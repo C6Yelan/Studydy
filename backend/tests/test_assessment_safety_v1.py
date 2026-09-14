@@ -115,7 +115,7 @@ def test_exact_duplicate_is_blocked_but_checked_item_does_not_require_novelty():
     assert public["schema"] == "single-choice-assessment/v2"
     assert "correct_option_id" not in public
     assert private["correct_answer"] == "8 bytes"
-    assert provenance["model_id"] == "Qwen/Qwen3.8-27B-FP8"
+    assert provenance["model_id"] == "google/gemma-4-31B-it-qat-w4a16-ct"
     assert qualified is True
 
 

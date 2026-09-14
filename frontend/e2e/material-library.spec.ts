@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { MaterialLibraryView } from "../src/api/contracts";
 
 test.skip(process.env.STUDYDY_E2E_LIBRARY !== "true", "Requires the local library API/DB fixture");
 
@@ -45,6 +46,14 @@ test("fresh profiles discover their own materials and reopen both exact publishe
   await freshPage.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
   await expect(freshPage).toHaveURL(`http://127.0.0.1:4173${newerPath}`);
   await expect(freshPage.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
+  // 教材卡只提供最新版本；舊版本仍須能由 server library 回傳的連結精確讀取。
+  const library: MaterialLibraryView = await (await fresh.request.get("http://127.0.0.1:4173/v1/materials")).json();
+  const material = library.materials.find(item => item.display_name === "堆疊講義.pdf")!;
+  expect(material.available_structures).toHaveLength(2);
+  for (const structure of material.available_structures) {
+    await freshPage.goto(`/materials/${material.material_id}/runs/${structure.run_id}/knowledge-structures/${encodeURIComponent(structure.knowledge_structure_revision)}`);
+    await expect(freshPage.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
+  }
   await freshPage.getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
   const card = freshPage.getByRole("article", { name: "堆疊講義.pdf", exact: true });
   await expect(card.getByRole("button", { name: "堆疊講義.pdf", exact: true })).toHaveCount(0);

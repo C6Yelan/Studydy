@@ -93,6 +93,13 @@ test("original learning and questions survive reload, new profiles and a lost co
   await page.getByRole("button", { name: "查回作答結果", exact: true }).click();
   const recovered: StudyResumeView = await (await recoveredRead).json();
   expect(recovered.assessments.find(record => record.assessment.assessment_revision === pending.assessment.assessment_revision)?.feedback).toEqual(committed);
+  expect(committed?.is_correct).toBe(true);
+  const recoveredHistory = resumeResponse(page);
+  await page.locator(".study-record-picker summary").click();
+  await page.locator(".study-history-row").filter({ has: page.getByText(pendingPrompt, { exact: true }) }).click();
+  const history: StudyResumeView = await (await recoveredHistory).json();
+  expect(history.selected_assessment_revision).toBe(pending.assessment.assessment_revision);
+  expect(history.assessments.find(record => record.assessment.assessment_revision === pending.assessment.assessment_revision)?.feedback).toEqual(committed);
   await expect(page.getByRole("heading", { name: "答對了", exact: true })).toBeVisible();
   const replay = await freshContext.request.post(submitUrl, { headers: { Origin: origin, "Idempotency-Key": submitKey }, data: submittedBody });
   expect(replay.status()).toBe(201);
@@ -109,6 +116,10 @@ test("original learning and questions survive reload, new profiles and a lost co
   expect(relogged.session.knowledge_structure_revision).toBe(initial.session.knowledge_structure_revision);
   expect(relogged.session.event_watermark).toBe(initial.session.event_watermark + 1);
   expect(relogged.assessments.find(record => record.assessment.assessment_revision === pending.assessment.assessment_revision)?.feedback).toEqual(committed);
+  const reloggedHistory = resumeResponse(lastPage);
+  await lastPage.locator(".study-record-picker summary").click();
+  await lastPage.locator(".study-history-row").filter({ has: lastPage.getByText(pendingPrompt, { exact: true }) }).click();
+  expect((await (await reloggedHistory).json()).selected_assessment_revision).toBe(pending.assessment.assessment_revision);
   await expect(lastPage.getByRole("heading", { name: "答對了", exact: true })).toBeVisible();
   const studyUrl = lastPage.url();
   await lastPage.getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
