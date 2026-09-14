@@ -146,7 +146,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
       expect(productRequests).toEqual([`GET /v1/material-processing-runs/${runId}`]);
       if (run.status === "failed") {
         await processing.getByText("技術資訊", { exact: true }).click(); await expect(processing.locator("code")).toHaveText("NO_USABLE_EVIDENCE"); await expect(processing.locator("code")).toBeVisible();
-        await processing.getByRole("button", { name: "返回我的教材", exact: true }).click(); await expect(page).toHaveURL(/\/materials$/);
+        await processing.getByRole("button", { name: "返回教材詳情", exact: true }).click(); await expect(page).toHaveURL(new RegExp(`/materials/${materialId}$`));
       }
       if (run.status === "succeeded" || run.status === "partial") {
         await processing.getByRole("button", { name: "開啟知識地圖", exact: true }).click();

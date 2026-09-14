@@ -5,6 +5,7 @@ import type { MaterialLibraryItem, MaterialStructureLink, StudySessionLink } fro
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
+import { MaterialRunStartControl } from "./MaterialRunStartControl";
 import { MaterialRemoveControl } from "./MaterialRemoveControl";
 import { formatFileSize, materialFailureMessage, materialProgressStageLabel, materialRunLabel } from "./material-flow";
 
@@ -64,7 +65,7 @@ export function MaterialLibrary({ apiClient, materialId, mapsOnly = false }: { a
       <div><h1>{materialId ? "教材詳情" : mapsOnly ? "知識地圖" : "我的教材"}</h1><p className="library-subtitle">{materialId ? "查看已保存的教材、地圖與學習紀錄。" : mapsOnly ? "從已發布的教材地圖開始探索。" : items.length === 0 ? "上傳教材後，可在這裡查看處理結果並接續學習。" : `已保存 ${items.length} 份教材，隨時接續你的學習。`}</p></div>
       {(!isCollection || visibleItems.length > 0) && <div className="state-actions">
         {materialId && <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "materials" })}>返回教材庫</button>}
-        <button className={isCollection ? "primary-button" : "secondary-button"} type="button" onClick={() => writeRoute({ name: "upload" })}>上傳教材</button>
+        {isCollection && <button className="primary-button" type="button" onClick={() => writeRoute({ name: "upload" })}>上傳教材</button>}
       </div>}
     </header>
     {visibleItems.length === 0 && <section className="library-empty surface" aria-label={mapsOnly ? "知識地圖引導" : "空教材引導"}>
@@ -99,18 +100,21 @@ export function MaterialLibrary({ apiClient, materialId, mapsOnly = false }: { a
       if (!isCollection) return <article className="surface material-detail-card" key={item.material_id} aria-label={item.display_name}>
         <header className="material-detail-identity">
           <span className="library-file-icon" aria-hidden="true"><Icon name="file" size={25} /></span>
-          <div><h2>{item.display_name}</h2><p>{new Date(item.created_at).toLocaleString()} · {formatFileSize(item.size_bytes)}</p></div>
+          <div><h2>{item.display_name}</h2><p>{new Date(item.created_at).toLocaleString()} · {formatFileSize(item.size_bytes)}</p><a className="text-button material-source-link" href={apiClient.sourceArtifactUrl(item.source_artifact_id)} target="_blank" rel="noopener noreferrer">開啟原始 PDF <span aria-hidden="true">↗</span></a></div>
         </header>
         <section className="material-detail-status" aria-label="最新處理">
-          <div className="material-detail-section-heading"><h3>最新處理</h3><button className="text-button" type="button" onClick={() => setReload(value => value + 1)}>重新整理狀態</button></div>
+          <h3>最新處理</h3>
           <span className={`library-state is-${latest?.status ?? "uploaded"}`}>{latest ? materialRunLabel(latest.status, latest.cancel_requested_at) : "已上傳，尚未開始處理"}</span>
           {latest && (latest.status === "running" || latest.status === "pending") && <p>{materialProgressStageLabel(latest.progress_stage)} · 已完成 {latest.completed_pages} 頁{latest.total_pages !== null && `／共 ${latest.total_pages} 頁`}</p>}
-          {latest?.status === "failed" && <p>{materialFailureMessage(latest.error_code ?? "")}</p>}
+          {latest?.status === "failed" && <p>{materialFailureMessage(latest.error_code ?? "").replace("沒有發布知識地圖", "沒有發布新的知識地圖")}</p>}
           {latest?.status === "failed" && available.length > 0 && <p>先前已發布的知識地圖仍可使用。</p>}
           <div className="material-detail-actions">
-            {studyAction}{mapAction}
-            {latest && <button className={!item.study_sessions[0] && !available[0] ? "primary-button" : "secondary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>{latest.status === "running" || latest.status === "pending" ? "查看處理狀態" : "查看處理詳情"}</button>}
-            <a className="secondary-button" href={apiClient.sourceArtifactUrl(item.source_artifact_id)} target="_blank" rel="noopener noreferrer">開啟原始 PDF</a>
+            {latest?.status === "pending" || latest?.status === "running" ?
+              <button className="primary-button" type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看處理狀態</button> : <>
+              {studyAction}{mapAction}
+              {(!latest || (latest.status === "failed" && item.study_sessions[0]?.status !== "completed")) && <MaterialRunStartControl key={`${item.material_id}:${latest?.run_id ?? "new"}`} apiClient={apiClient} materialId={item.material_id} sourceArtifactId={item.source_artifact_id} initial={!latest} primary={!item.study_sessions[0] && !available[0]} />}
+              {latest?.status === "failed" && <button className={item.study_sessions[0] || available[0] ? "text-button" : "secondary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看失敗詳情</button>}
+            </>}
           </div>
         </section>
         {item.study_sessions.length > 0 && <section className="material-detail-records" aria-label="學習紀錄">

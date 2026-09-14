@@ -186,10 +186,9 @@ test("no-safe studies and unpublished completed runs keep collection-only action
     await expect(page.locator(".library-state")).toContainText("最新處理：");
     await page.goto(`/materials/${materialId}`);
     await expect(page.locator(".material-library")).not.toHaveClass(/is-collection/);
-    await expect(page.locator(".library-header button")).toHaveText(["返回教材庫", "上傳教材"]);
-    const reloaded = page.waitForResponse(`**/v1/materials/${materialId}`);
-    await page.getByRole("button", { name: "重新整理狀態", exact: true }).click(); await reloaded;
-    await expect(page.getByRole("button", { name: "查看處理詳情", exact: true })).toHaveClass("primary-button");
+    await expect(page.locator(".library-header button")).toHaveText(["返回教材庫"]);
+    await expect(page.getByRole("button", { name: "重新整理狀態", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "查看處理詳情", exact: true })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "最新處理" })).toBeVisible();
     await expect(page.locator(".sidebar-helper")).toBeVisible();
     await page.screenshot({ path: `/tmp/studydy-material-collection/detail-${status}.png`, fullPage: true });
@@ -233,8 +232,7 @@ for (const status of ["succeeded", "partial"] as const) {
     await expect(page.getByRole("region", { name: "最新處理" })).toBeVisible();
     await expect(page.getByRole("region", { name: "已發布版本" }).getByRole("button")).toHaveCount(2);
     await expect(page.getByRole("link", { name: "開啟原始 PDF", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "查看處理詳情", exact: true }).click();
-    expect(new URL(page.url()).pathname).toBe(`/materials/${materialId}/runs/${latestRun}`);
+    await expect(page.getByRole("button", { name: "查看處理詳情", exact: true })).toHaveCount(0);
   });
 }
 
@@ -256,15 +254,20 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       await expect(card.locator(".material-detail-identity h2")).toHaveText(item.display_name);
       await expect(card.locator(".material-detail-identity")).toContainText("KiB");
       await expect(page.locator(".library-header .primary-button")).toHaveCount(0);
+      await expect(page.locator(".library-header").getByRole("button", { name: "上傳教材", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "重新整理狀態", exact: true })).toHaveCount(0);
+      await expect(card.getByRole("button", { name: "重新處理教材", exact: true })).toHaveCount(state.startsWith("failed") ? 1 : 0);
+      if (state === "failed-map") await expect(card.getByRole("button", { name: "重新處理教材", exact: true })).toHaveClass("secondary-button");
+      await expect(card.locator(".material-detail-actions a")).toHaveCount(0);
       const actions = card.locator(".material-detail-actions");
-      const expected = item.study_sessions[0] ? (state === "completed" ? "查看上次學習" : "接續上次學習") : item.available_structures.length ? "開啟知識地圖" : item.latest_attempt ? (["pending", "running"].includes(state) ? "查看處理狀態" : "查看處理詳情") : null;
+      const expected = ["pending", "running"].includes(state) ? "查看處理狀態" : item.study_sessions[0] ? (state === "completed" ? "查看上次學習" : "接續上次學習") : item.available_structures.length ? "開啟知識地圖" : state === "failed" ? "重新處理教材" : state === "uploaded" ? "開始整理教材" : null;
       await expect(actions.locator(".primary-button")).toHaveCount(expected ? 1 : 0);
       if (expected) await expect(actions.locator(".primary-button")).toHaveText(expected);
-      await expect(actions.getByRole("link", { name: "開啟原始 PDF" })).toHaveAttribute("href", `/v1/artifacts/${materialId}`);
+      await expect(card.locator(".material-detail-identity").getByRole("link", { name: "開啟原始 PDF" })).toHaveAttribute("href", `/v1/artifacts/${materialId}`);
       await expect(actions.getByRole("button", { name: "移除教材", exact: true })).toHaveCount(0);
       await expect(card.getByText("目前沒有可開啟的已發布知識地圖。", { exact: true })).toHaveCount(0);
       if (state.startsWith("failed")) {
-        await expect(card.getByText("教材分析未能安全完成，沒有發布知識地圖。", { exact: true })).toHaveCount(1);
+        await expect(card.getByText("教材分析未能安全完成，沒有發布新的知識地圖。", { exact: true })).toHaveCount(1);
         if (state === "failed-map") await expect(card).toContainText("先前已發布的知識地圖仍可使用。");
       }
       await expect(card.getByRole("region", { name: "學習紀錄" }).getByRole("listitem")).toHaveCount(item.study_sessions.length);
@@ -281,7 +284,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       expect((await card.boundingBox())!.width).toBeLessThanOrEqual(1100);
       await page.evaluate(() => scrollTo(0, 0));
       await page.screenshot({ path: `/tmp/studydy-material-detail-${viewport.width}-${state}.png`, fullPage: true });
-      if (expected) {
+      if (expected && !["重新處理教材", "開始整理教材"].includes(expected)) {
         await actions.locator(".primary-button").click();
         const destination = item.study_sessions[0] ? `${mapPath}/study-sessions/${studyId}` : item.available_structures.length ? mapPath : `/materials/${materialId}/runs/${latestRun}`;
         await expect.poll(() => new URL(page.url()).pathname).toBe(destination);

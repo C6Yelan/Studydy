@@ -569,9 +569,6 @@
 .material-detail-card > section { border-top: 1px solid var(--border); padding-top: var(--space-5); margin-top: var(--space-5); }
 .material-detail-card > .material-detail-status { margin-top: 0; }
 .material-detail-card h3 { margin: 0 0 12px; font-size: 16px; }
-.material-detail-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.material-detail-section-heading h3 { margin: 0; }
-.material-detail-section-heading .text-button { font-size: 13px; min-height: 36px; }
 .material-detail-status .library-state { display: inline-flex; padding: 6px 10px; border-radius: 6px; font-size: 13px; }
 .material-detail-status .library-state.is-uploaded, .material-detail-status .library-state.is-cancelled { background: var(--page-cool); color: var(--text-secondary); }
 .material-detail-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
@@ -591,3 +588,8 @@
   .material-detail-records li { align-items: stretch; flex-direction: column; gap: 10px; }
   .is-detail .library-header .state-actions { width: 100%; }
 }
+
+.material-source-link { display: inline-flex; gap: 4px; font-size: 13px; min-height: 36px; align-items: center; }
+.material-recovery-error { flex-basis: 100%; width: 100%; margin: 8px 0 0; }
+.material-recovery-status { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.material-detail-actions:empty { display: none; }
