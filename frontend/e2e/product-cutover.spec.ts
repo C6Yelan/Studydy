@@ -597,7 +597,8 @@ test("recovered map reads owned progress and continues the same session without 
   await page.getByRole("tab", { name: "總覽", exact: true }).click();
   await expect(page.locator(".map-study-bar")).toHaveCount(0);
   await page.getByRole("tab", { name: "複習重點", exact: true }).click();
-  await expect(page.getByRole("complementary", { name: "Studydy 學習引導" })).toContainText("接著學習「Stack」");
+  await page.getByRole("button", { name: "查看學習導覽", exact: true }).click();
+  await navigationConcept(page, "Stack").click();
   await page.getByRole("button", { name: "繼續本次學習", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/study-sessions/${sessionId}$`));
   await expect(page.getByRole("button", { name: "開始練習", exact: true })).toBeVisible();
@@ -862,14 +863,12 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
     await expect(page.locator(".focus-workspace")).toHaveCount(0);
     await page.keyboard.press("End");
     await expect(page.getByRole("tab", { name: "複習重點", exact: true })).toBeFocused();
-    await expect(page.getByRole("complementary", { name: "Studydy 學習引導" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "繼續本次學習", exact: true })).toHaveCount(1);
-    await expect(page.locator(".review-list")).toContainText("A stack follows LIFO order.");
-    const reviewAction = page.getByRole("button", { name: "查看重點", exact: true });
-    await reviewAction.click();
-    await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("Stack");
-    await expect(page.getByRole("dialog").getByRole("button", { name: "繼續這個概念", exact: true })).toBeVisible();
-    await page.keyboard.press("Escape"); await expect(reviewAction).toBeFocused();
+    await expect(page.getByRole("complementary", { name: "Studydy 學習引導" })).toHaveCount(0);
+    await expect(page.locator(".review-points")).toContainText("A stack follows LIFO order.");
+    await page.getByRole("navigation", { name: "需要複習的概念" }).getByRole("button").click();
+    await expect(page.locator(".review-context")).toContainText("Stack");
+    await expect(page.getByRole("button", { name: "繼續這個概念", exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByRole("tab", { name: "複習重點", exact: true }).focus();
     await page.keyboard.press("Home");
     await expect(page.getByRole("tab", { name: "概念地圖", exact: true })).toBeFocused();
@@ -944,11 +943,9 @@ test("compact learning entry shares loading, starting and new-study authority wi
   await expect(page.locator(".map-study-bar")).toHaveCount(0);
   for (const name of ["複習重點"]) {
     await page.getByRole("tab", { name, exact: true }).click();
-    const guide = page.getByRole("complementary", { name: "Studydy 學習引導" });
-    await expect(guide).toBeVisible();
-    await expect(guide.getByRole("button", { name: "開始新的學習", exact: true })).toBeEnabled();
-    await expect(page.getByRole("button", { name: "開始新的學習", exact: true })).toHaveCount(1);
+    await expect(page.getByRole("complementary", { name: "Studydy 學習引導" })).toHaveCount(0);
     await expect(entry).toHaveCount(0);
+    await page.getByRole("button", { name: "查看學習導覽", exact: true }).click();
   }
   await page.getByRole("button", { name: "開始新的學習", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/study-sessions/${sessionId}$`));
@@ -1103,7 +1100,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
 }
 
 for (const mode of ["複習重點"] as const) {
-  test(`${mode} keeps shared secondary concept navigation and reading study actions`, async ({ page }) => {
+  test(`${mode} resumes the selected review concept through the existing study action`, async ({ page }) => {
     await routes(page, structureView(), () => ({ ...progress,
       concept_states: progress.concept_states.map((state, index) => index ? state : { ...state, status: "needs_review", weak_claim_ids: [firstClaim] }),
     }));
@@ -1116,17 +1113,10 @@ for (const mode of ["複習重點"] as const) {
     await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
     await expect(page.getByRole("button", { name: "繼續本次學習", exact: true })).toBeEnabled();
     await page.getByRole("tab", { name: mode, exact: true }).click();
-    await page.getByRole("button", { name: "查看重點", exact: true }).click();
-    const detail = page.getByRole("dialog", { name: "概念詳情" });
-    await expect(detail.getByRole("button", { name: "繼續這個概念", exact: true })).toBeVisible();
-    await expect(detail.locator(".detail-explore")).not.toHaveAttribute("open", "");
-    await detail.locator(".detail-explore summary").click();
-    await detail.getByRole("button", { name: "先備：前往Array", exact: true }).click();
-    await expect(detail.getByRole("heading", { name: "Array", exact: true })).toBeVisible();
-    await expect(detail.getByRole("button", { name: "從這裡開始新學習", exact: true })).toBeVisible();
-    await expect(detail.locator(".detail-explore")).not.toHaveAttribute("open", "");
-    await expect(page.getByRole("tab", { name: mode, exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("complementary", { name: "Studydy 學習引導" })).toContainText("接著學習「Stack」");
+    await expect(page.locator(".review-context")).toContainText("Stack");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByRole("button", { name: "繼續這個概念", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/study-sessions/${sessionId}$`));
   });
 }
 
@@ -2621,3 +2611,92 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
     await expect(page.locator(".study-current-action .adaptive-card")).toBeVisible();
   });
 }
+
+for (const viewport of [{ width: 1536, height: 1024 }, { width: 1100, height: 800 }, { width: 390, height: 844 }]) {
+  test(`review workspace selection excerpts and study target at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const view = structureView();
+    const longText = "教材原文保留完整說明，複習入口先呈現節錄。".repeat(30);
+    view.concepts[1].claims = Array.from({ length: 6 }, (_, i) => ({ ...view.concepts[1].claims[0], claim_id: `claim:sha256:${String(i + 1).repeat(64)}`, text: i === 4 ? longText : `教材重點 ${i + 1}` }));
+    const state = structuredClone(progress);
+    state.concept_states.forEach((item, i) => Object.assign(item, { status: "needs_review", attempts: 3, correct_answers: 1, latest_is_correct: false, weak_claim_ids: [view.concepts[i].claims[i ? 4 : 0].claim_id] }));
+    await routes(page, view, () => state);
+    await page.route(`**/v1/materials/${materialId}`, route => json(route, {
+      schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId,
+      display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
+      available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }],
+      study_sessions: [{ ...session(), run_id: runId }],
+    }));
+    const creates: any[] = [];
+    await page.route("**/v1/study-sessions", route => { creates.push(route.request().postDataJSON()); return json(route, { ...session(), current_concept_id: secondConcept }, 201); });
+    await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+    await page.getByRole("tab", { name: "複習重點", exact: true }).click();
+    const list = page.getByRole("navigation", { name: "需要複習的概念" });
+    await expect(list.getByRole("button")).toHaveCount(2);
+    await expect(list).not.toContainText(longText);
+    const url = page.url();
+    const array = list.getByRole("button", { name: /Array/ });
+    await array.focus(); await page.keyboard.press("Enter");
+    await expect(array).toHaveAttribute("aria-current", "true");
+    await expect(array).toBeFocused();
+    expect(page.url()).toBe(url); expect(creates).toHaveLength(0);
+    await expect(page.locator(".review-context h3")).toHaveText("Array");
+    await expect(page.locator(".review-context")).toContainText("最近一次作答尚未答對");
+    await expect(page.locator(".review-points > ol > li")).toHaveCount(4);
+    await expect(page.locator(".review-points > ol > li").first()).toContainText(longText.slice(0, 96) + "…");
+    await expect(page.locator(".review-full-content")).not.toHaveAttribute("open", "");
+    await expect(page.locator("#map-panel-review .primary-button")).toHaveCount(1);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const boxes = await Promise.all([".review-list", ".review-context", ".review-actions", ".review-points"].map(selector => page.locator(selector).boundingBox()));
+    const [l, c, a, p] = boxes.map(box => box!);
+    if (viewport.width >= 1200) { expect(l.x + l.width).toBeLessThan(c.x); expect(c.x + c.width).toBeLessThan(a.x); }
+    if (viewport.width <= 900) { expect(c.y).toBeLessThan(a.y); expect(a.y).toBeLessThan(p.y); expect(p.y).toBeLessThan(l.y); }
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: `/tmp/studydy-review-${viewport.width}.png`, fullPage: true });
+    await page.getByText("查看完整教材重點", { exact: true }).click();
+    await expect(page.locator(".review-full-content .concept-claim")).toHaveCount(6);
+    await expect(page.locator(".review-full-content")).toContainText(longText);
+    await page.getByRole("button", { name: "繼續這個概念", exact: true }).click();
+    await expect.poll(() => creates.length).toBe(1);
+    expect(creates[0].current_concept_id).toBe(secondConcept);
+  });
+}
+
+test("review empty state keeps learning navigation without an empty workspace", async ({ page }) => {
+  await routes(page);
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+  await page.getByRole("tab", { name: "複習重點", exact: true }).click();
+  await expect(page.locator(".review-empty")).toContainText("練習後，幫你找出複習方向");
+  await expect(page.locator(".review-workspace")).toHaveCount(0);
+  await page.getByRole("button", { name: "查看學習導覽", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "概念地圖", exact: true })).toHaveAttribute("aria-selected", "true");
+});
+
+for (const count of [0, 30]) test(`review ${count} weak concepts preserves membership and list scrolling`, async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 1024 });
+  const view = workspaceView(32, true);
+  const current = view.concepts[0].concept_id;
+  const state = { ...progress, current_concept_id: current,
+    next_action: { ...progress.next_action, target_concept_id: current, target_claim_id: view.concepts[0].claims[0].claim_id },
+    concept_states: view.concepts.map((concept, i) => ({ ...progress.concept_states[0], concept_id: concept.concept_id, label: concept.label, status: i < count ? "needs_review" : "learning", weak_claim_ids: i < count ? [concept.claims[0].claim_id] : [] })) };
+  await learningMapRoutes(page, view, true);
+  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, {
+    schema: "study-resume/v1", session: { ...session(), current_concept_id: current }, run_id: runId, source_artifact_id: artifactId,
+    knowledge_structure: view, progress: state, assessments: [], selected_assessment_revision: null,
+  }));
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+  await page.getByRole("tab", { name: "複習重點", exact: true }).click();
+  if (!count) {
+    await expect(page.locator(".review-empty")).toContainText("目前沒有需要複習的概念");
+    await expect(page.locator(".review-workspace")).toHaveCount(0);
+  } else {
+    const list = page.locator(".review-list ul");
+    await expect(list.getByRole("button")).toHaveCount(count);
+    expect(await list.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+    await list.getByRole("button").last().click();
+    await expect(page.locator(".review-context h3")).toHaveText(view.concepts[count - 1].label);
+    await expect(page.locator(".review-points > ol > li")).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+});

@@ -23,7 +23,6 @@
 .map-learning-summary small { color: var(--text-secondary); font-size: 12px; margin-bottom: 4px; }
 .map-learning-summary strong { color: var(--text-primary); font-size: 16px; overflow-wrap: anywhere; }
 .map-content { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 16px; }
-.map-workspace.has-detail:not(.is-focus-mode) .map-content { grid-template-columns: minmax(0, 1fr) 320px; }
 .map-view { min-width: 0; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); }
 .view-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .view-heading h2 { margin: 0; font-size: 22px; }
@@ -51,9 +50,6 @@
 .relation-other-concept { overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .relation-list small { color: var(--text-secondary); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 .relation-empty { color: var(--text-secondary); }
-.review-list { display: grid; gap: 8px; margin-top: 12px; }
-.review-list article { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px; }
-.review-list p { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; }
 .detail-panel { margin: 0; width: 100%; color: var(--text-primary); position: sticky; top: 112px; scroll-margin-top: 112px; max-height: calc(100dvh - 128px); overflow-y: auto; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); }
 .detail-panel > header { display: flex; align-items: start; justify-content: space-between; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
 .detail-panel h2 { margin: 4px 0 0; font-size: 20px; overflow-wrap: anywhere; }
@@ -87,7 +83,6 @@
 }
 @media (max-width: 900px) {
   .map-workspace { padding: 12px; }
-  .map-workspace.has-detail:not(.is-focus-mode) .map-content { grid-template-columns: minmax(0, 1fr); }
   .detail-panel { position: fixed; z-index: 21; left: auto; top: 12px; bottom: 12px; right: 12px; width: min(380px, calc(100% - 24px)); max-height: calc(100dvh - 24px); }
 
 }
@@ -109,8 +104,6 @@
   .view-heading h2 { font-size: 20px; }
   .relation-list { grid-template-columns: 1fr; }
   .relation-list { max-height: none; }
-  .review-list article { grid-template-columns: 1fr auto; }
-  .review-list .status-badge { display: none; }
 }
 
 .detail-panel::backdrop { background: rgba(15,23,42,.28); }
@@ -146,7 +139,6 @@
   .map-header-actions { margin-left: auto; }
 }
 
-.review-list p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .relation-legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .relation-swatch { position: relative; display: inline-block; width: 24px; height: 0; border-top: 1.5px solid currentColor; }
 .relation-swatch::after { position: absolute; right: -1px; top: -4px; content: ""; border-top: 3px solid transparent; border-bottom: 3px solid transparent; border-left: 5px solid currentColor; }
@@ -211,10 +203,6 @@
 @media (min-width: 901px) {
   .focus-context .detail-panel { position: static; height: 100%; max-height: none; border: 0; border-radius: 0; }
 }
-.map-study-bar { margin-top: var(--space-3); }
-.map-workspace .map-study-bar .study-guide { padding: var(--space-3) var(--space-4); gap: var(--space-4); border-color: var(--border); border-radius: var(--radius-card); background: var(--surface); }
-.map-workspace .map-study-bar .study-guide__character { animation: none; }
-.map-workspace .map-study-bar .study-guide__action { max-width: 100%; }
 @media (min-width: 901px) and (max-width: 1199px) {
   .focus-workspace { grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: auto minmax(0, 1fr) auto; }
   .focus-navigator { grid-column: 1 / -1; grid-row: auto; z-index: 6; }
@@ -237,7 +225,6 @@
   .focus-context-content { height: auto; }
   .focus-relations { margin-top: var(--space-4); }
   .focus-relations > summary { padding: var(--space-2) 0; font-size: 14px; }
-  .map-study-bar .study-guide__character { align-self: flex-start; }
 }
 .map-workspace > .form-error[role="status"] { padding: var(--space-3) var(--space-4); margin: 0 0 var(--space-3); border-radius: var(--radius-card); color: var(--text-primary); background: var(--warning-soft); }
 
@@ -275,4 +262,43 @@
   .overview-index-number { grid-row: 1 / 3; align-self: start; }
   .overview-index-action { grid-column: 2; }
   .overview-index-concepts { padding: 0 var(--space-3) var(--space-2) 56px; }
+}
+
+.review-workspace { display: grid; grid-template-columns: 250px minmax(0, 1fr) 260px; grid-template-areas: "list context actions" "list points actions"; grid-template-rows: auto 1fr; gap: 0 var(--space-6); align-items: start; }
+.review-workspace h3 { margin: 0 0 12px; }
+.review-context { grid-area: context; padding: 16px 0; border-bottom: 1px solid var(--border); }
+.review-context h3 { margin: 12px 0 8px; font-size: 24px; overflow-wrap: anywhere; }
+.review-context p, .review-actions p, .review-excerpt-note { color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+.review-actions { grid-area: actions; padding: 20px; background: var(--page-cool); border: 1px solid var(--border); border-radius: var(--radius-card); }
+.review-actions h3 { font-size: 16px; }
+.review-actions dl { display: grid; gap: 10px; font-size: 14px; }
+.review-actions dl div { display: flex; justify-content: space-between; gap: 8px; }
+.review-actions dt { color: var(--text-secondary); }
+.review-actions dd { margin: 0; }
+.review-actions .primary-button { width: 100%; }
+.review-actions .text-button { margin-top: 12px; }
+.review-points { grid-area: points; min-width: 0; padding-top: 20px; }
+.review-points h3 { font-size: 18px; }
+.review-points ol { padding-left: 24px; margin: 16px 0 24px; }
+.review-points li { padding: 4px 0 12px 8px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.review-points li p { margin: 0; line-height: 1.75; overflow-wrap: anywhere; }
+.review-full-content summary { cursor: pointer; padding: 12px; border-radius: var(--radius-input); background: var(--page-cool); font-size: 14px; }
+.review-list { grid-area: list; min-width: 0; }
+.review-list h3 { font-size: 15px; display: flex; justify-content: space-between; gap: 8px; padding: 16px 0; }
+.review-list h3 small { font-size: 12px; color: var(--text-secondary); font-weight: 400; }
+.review-list ul { list-style: none; padding: 3px; margin: 0; display: grid; gap: 8px; max-height: clamp(300px, 65dvh, 720px); overflow-y: auto; }
+.review-list button { display: grid; grid-template-columns: minmax(0,1fr) 16px; gap: 8px; width: 100%; padding: 14px; text-align: left; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-input); cursor: pointer; }
+.review-list button strong { overflow-wrap: anywhere; }
+.review-list button > .map-learning-badge { grid-column: 1; justify-self: start; }
+.review-list button > small { grid-column: 1 / -1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); }
+.review-list button > svg { grid-column: 2; grid-row: 1; }
+.review-list button:hover, .review-full-content summary:hover { background: var(--page-cool); }
+.review-list button[aria-current="true"] { border-color: var(--studydy-blue); background: var(--studydy-blue-soft); }
+.review-list button:focus-visible, .review-full-content summary:focus-visible { outline: 2px solid var(--studydy-blue); outline-offset: 2px; }
+@media (max-width: 1199px) and (min-width: 901px) {
+  .review-workspace { grid-template-columns: 230px minmax(0,1fr); grid-template-areas: "list context" "list actions" "list points"; }
+}
+@media (max-width: 900px) {
+  .review-workspace { grid-template-columns: minmax(0,1fr); grid-template-areas: "context" "actions" "points" "list"; gap: 16px; }
+  .review-context { padding-top: 0; }
 }
