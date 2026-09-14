@@ -11,7 +11,7 @@ async function login(page: Page, email = "learner_test@example.com") {
   await page.getByLabel("密碼", { exact: true }).fill("Synthetic test password 42");
   await page.getByRole("button", { name: "登入", exact: true }).click();
   await expect(page.getByRole("heading", { name: "歡迎回來！", level: 1, exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "教材庫", exact: true }).click();
+  await page.getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
 }
 
@@ -111,7 +111,7 @@ test("original learning and questions survive reload, new profiles and a lost co
   expect(relogged.assessments.find(record => record.assessment.assessment_revision === pending.assessment.assessment_revision)?.feedback).toEqual(committed);
   await expect(lastPage.getByRole("heading", { name: "答對了", exact: true })).toBeVisible();
   const studyUrl = lastPage.url();
-  await lastPage.getByRole("button", { name: "教材庫", exact: true }).click();
+  await lastPage.getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
   await expect(lastPage.getByRole("button", { name: /開啟學習紀錄|開啟版本/ })).toHaveCount(0);
   await lastPage.getByRole("button", { name: "登出", exact: true }).click();
   await expect(lastPage.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();

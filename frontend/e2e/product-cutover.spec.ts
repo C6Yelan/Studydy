@@ -464,7 +464,7 @@ test("dashboard keeps hero and overview through a read failure and retry", async
   unavailable = false;
   await page.getByRole('button', { name: '重新讀取', exact: true }).click();
   await expect(page.locator('.dashboard-stat strong')).toHaveText(['0', '0', '0', '0']);
-  await page.getByRole('navigation', { name: '主要導覽' }).getByRole('button', { name: '教材庫', exact: true }).click();
+  await page.getByRole('navigation', { name: '主要導覽' }).getByRole('button', { name: /^(教材庫|我的教材)$/, exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole('region', { name: '空教材引導' })).toBeVisible();
 });
@@ -1760,7 +1760,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
     const shellState = async () => {
       await expect(page.locator(".app-shell")).toHaveClass("app-shell is-workspace");
       await expect(page.locator(".app-sidebar, .sidebar-helper, .brand small, .account-avatar")).toHaveCount(0);
-      await expect(nav.getByRole("button")).toHaveText(["知識地圖", "教材庫", "處理狀態"]);
+      await expect(nav.getByRole("button")).toHaveText(["知識地圖", "我的教材", "處理狀態"]);
       await expect(page.getByRole("button", { name: "登出", exact: true })).toBeInViewport();
       await expect(nav.getByRole("button", { name: "知識地圖", exact: true })).toBeInViewport();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
@@ -1796,7 +1796,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
     await page.goto(map); await nav.getByRole("button", { name: "處理狀態", exact: true }).click();
     await expect(page).toHaveURL(`/materials/${materialId}/runs/${runId}`);
     await page.route("**/v1/materials", route => json(route, { schema: "material-library/v2", materials: [] }));
-    await page.goto(study); await nav.getByRole("button", { name: "教材庫", exact: true }).click();
+    await page.goto(study); await nav.getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
     await expect(page).toHaveURL("/materials"); await expect(page.locator(".app-sidebar")).toHaveCount(1);
   });
 }
@@ -1907,7 +1907,7 @@ test("leaving for Map Materials and Processing preserves the same active study a
   await page.getByRole("button", { name: "繼續學習", exact: true }).click();
   await expect(page).toHaveURL(study);
   await expect(page.locator(".study-header h1")).toHaveText("陣列");
-  await nav.getByRole("button", { name: "教材庫", exact: true }).click();
+  await nav.getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
   await page.getByRole("button", { name: "繼續學習", exact: true }).click();
   await expect(page.getByRole("heading", { name: /練習 1：/ })).toBeVisible();
   await nav.getByRole("button", { name: "處理狀態", exact: true }).click();
@@ -2123,7 +2123,7 @@ test("late answer progress does not navigate a learner back after leaving", asyn
   const release = fixture.holdProgress();
   await page.getByRole("radio").first().check(); await page.getByRole("button", { name: "送出答案" }).click();
   await expect(page.getByRole("heading", { name: "答對了", exact: true })).toBeVisible();
-  await page.getByRole("navigation", { name: "學習工作區導覽" }).getByRole("button", { name: "教材庫", exact: true }).click();
+  await page.getByRole("navigation", { name: "學習工作區導覽" }).getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
   await expect(page).toHaveURL("/materials");
   const refreshed = page.waitForResponse(response => response.url().includes("/resume?") && response.ok());
   release(); await refreshed;
@@ -2763,7 +2763,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 390, height: 844
   await expect(page.locator(".study-header h1")).toHaveText(second.label);
   expect(creates).toBe(1); expect(focusCalls).toEqual([second.concept_id]);
   expect(f.state.concept_states[1]).toEqual(prior);
-  await page.getByRole("navigation", { name: "學習工作區導覽" }).getByRole("button", { name: "教材庫", exact: true }).click();
+  await page.getByRole("navigation", { name: "學習工作區導覽" }).getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
   await page.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
   await page.reload();
   await page.getByRole("region", { name: "學習入口" }).getByRole("button", { name: "繼續學習", exact: true }).click();

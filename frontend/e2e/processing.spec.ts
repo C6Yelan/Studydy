@@ -174,7 +174,7 @@ test("processing polling uses backend values only, stops at terminal, and clears
   await expect(page.getByRole("heading", { name: "教材整理完成", exact: true })).toBeVisible(); expect(reads).toBe(4);
   await page.clock.runFor(6001); expect(reads).toBe(4);
   server = base; await page.goto(path); await expect(page.getByRole("progressbar", { name: "整體流程進度（估計） 3%", exact: true })).toBeVisible(); expect(reads).toBe(5);
-  await page.getByRole("button", { name: "教材庫", exact: true }).click(); await expect(page).toHaveURL(/\/materials$/);
+  await page.getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click(); await expect(page).toHaveURL(/\/materials$/);
   await page.clock.runFor(6001); expect(reads).toBe(5);
 });
 

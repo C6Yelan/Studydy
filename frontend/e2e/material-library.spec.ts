@@ -8,7 +8,7 @@ async function login(page: Page, email: string) {
   await page.getByLabel("密碼", { exact: true }).fill("Synthetic test password 42");
   await page.getByRole("button", { name: "登入", exact: true }).click();
   await expect(page.getByRole("heading", { name: "歡迎回來！", level: 1, exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "教材庫", exact: true }).click();
+  await page.getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
 }
 
@@ -45,7 +45,7 @@ test("fresh profiles discover their own materials and reopen both exact publishe
   await freshPage.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
   await expect(freshPage).toHaveURL(`http://127.0.0.1:4173${newerPath}`);
   await expect(freshPage.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
-  await freshPage.getByRole("button", { name: "教材庫", exact: true }).click();
+  await freshPage.getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
   const card = freshPage.getByRole("article", { name: "堆疊講義.pdf", exact: true });
   await expect(card.getByRole("button", { name: "堆疊講義.pdf", exact: true })).toHaveCount(0);
   const pdfUrl = await card.getByRole("link", { name: "原始 PDF", exact: true }).getAttribute("href");
