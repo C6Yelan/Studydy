@@ -22,6 +22,8 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
   const [items, setItems] = useState<MaterialLibraryItem[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInput = useRef<HTMLInputElement>(null);
   const pendingRemovals = useRef(new Set<string>());
   useEffect(() => {
     let cancelled = false;
@@ -54,6 +56,10 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
     </>} /> : <StateView title="正在讀取教材庫" description="正在載入你的教材與已發布結果。" tone="loading" live />;
     return <section className={libraryClass}>{state}</section>;
   }
+  const normalize = (text: string) => text.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
+  const query = normalize(searchQuery);
+  const filteredItems = items.filter(item => normalize(item.display_name).includes(query));
+  const clearSearch = () => { setSearchQuery(""); searchInput.current?.focus(); };
   return <section className={libraryClass}>
     <header className="library-header">
       <div><h1>我的教材</h1><p className="library-subtitle">{items.length === 0 ? "上傳教材後，可在這裡查看處理結果並接續學習。" : `已保存 ${items.length} 份教材，隨時接續你的學習。`}</p></div>
@@ -61,6 +67,14 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
         <button className="primary-button" type="button" onClick={() => writeRoute({ name: "upload" })}>上傳教材</button>
       </div>}
     </header>
+    {items.length > 0 && <form className="library-search" role="search" onSubmit={event => event.preventDefault()}>
+      <input ref={searchInput} type="search" aria-label="搜尋教材名稱" placeholder="搜尋教材名稱…" value={searchQuery}
+        onChange={event => setSearchQuery(event.target.value)} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); clearSearch(); } }} />
+    </form>}
+    {items.length > 0 && query && filteredItems.length === 0 && <div className="library-search-empty" role="status">
+      <h2>找不到符合「{query}」的教材</h2><p>試試其他教材名稱。</p>
+      <button className="text-button" type="button" onClick={clearSearch}>清除搜尋</button>
+    </div>}
     {items.length === 0 && <section className="library-empty surface" aria-label="空教材引導">
       <div className="library-empty-illustration"><img src="/assets/Studydy_角色素材/空資料/empty_disappointed.png" alt="Studydy 坐在打開的空箱子旁" /></div>
       <h2>尚未有學習教材</h2>
@@ -70,7 +84,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
       </button>
     </section>}
     <div className="library-grid">
-    {items.map(item => {
+    {filteredItems.map(item => {
       const latest = item.latest_attempt;
       const available = item.available_structures;
       const latestHasPublishedMap = !!latest && available.some(structure => structure.run_id === latest.run_id);

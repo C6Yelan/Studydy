@@ -53,13 +53,14 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
         return fail ? route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: materialId, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Unavailable" } }) : route.fulfill({ json: { schema: "material-library/v2", materials: list } });
       });
       await page.goto("/materials");
-      if (state === "loading") { await expect(page.getByRole("heading", { name: "正在讀取教材庫" })).toBeVisible(); release(); }
-      if (fail) { await expect(page.getByRole("heading", { name: "無法讀取教材" })).toBeVisible(); fail = false; await page.getByRole("button", { name: "重新讀取", exact: true }).click(); }
+      if (state === "loading") { await expect(page.getByRole("heading", { name: "正在讀取教材庫" })).toBeVisible(); await expect(page.getByRole("searchbox")).toHaveCount(0); release(); }
+      if (fail) { await expect(page.getByRole("heading", { name: "無法讀取教材" })).toBeVisible(); await expect(page.getByRole("searchbox")).toHaveCount(0); fail = false; await page.getByRole("button", { name: "重新讀取", exact: true }).click(); }
       const visible = list;
       const cards = page.locator(".library-item");
       await expect(cards).toHaveCount(visible.length);
       await expect(page.locator(".sidebar-helper")).toHaveCount(0);
       if (!visible.length) await expect(page.locator(".library-empty")).toBeVisible();
+      await expect(page.getByRole("searchbox", { name: "搜尋教材名稱", exact: true })).toHaveCount(visible.length ? 1 : 0);
       for (const [index, item] of visible.entries()) {
         const card = cards.nth(index); const structure = item.available_structures[0];
         const learning = structure && item.study_sessions.find(s => s.run_id === structure.run_id && s.knowledge_structure_revision === structure.knowledge_structure_revision);
@@ -113,4 +114,82 @@ test("direct hub polls an active run until a usable map is published", async ({ 
   await page.clock.runFor(3000);
   await expect(page.getByRole("article").locator(".primary-button")).toHaveText("開啟知識地圖");
   const stopped = reads; await page.clock.runFor(6000); expect(reads).toBe(stopped);
+});
+
+const searchNames = ["Python 標準函數介紹_2026.pdf", "03_財政學_公共財政導論.pdf", "07_作業系統_ch05.pdf", "02_程式設計_陣列與字串_2025.pdf", "程式  設計_補充.pdf"];
+const searchItems = () => searchNames.map((display_name, index) => ({ ...structuredClone(base), display_name, material_id: `${String(index + 1).padStart(8, "0")}-1111-4111-8111-111111111111` }));
+for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
+  test(`material name search stays local and keyboard-clearable at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport); await signedIn(page);
+    let reads = 0;
+    await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v2", materials: searchItems() } }); });
+    await page.goto("/materials");
+    const input = page.getByRole("searchbox", { name: "搜尋教材名稱", exact: true });
+    await expect(input).toBeVisible(); await expect(input).toHaveAttribute("placeholder", "搜尋教材名稱…");
+    await expect(page.locator(".library-header input")).toHaveCount(0);
+    for (const [query, expected] of [["程式設計", [searchNames[3]]], ["python", [searchNames[0]]], ["  程式   設計 ", [searchNames[4]]], ["2025", [searchNames[3]]], ["_ch05", [searchNames[2]]], ["PDF", searchNames]] as const) {
+      await input.fill(query); await expect(page.locator(".library-item h2")).toHaveText([...expected]);
+      await expect(page.locator(".library-subtitle")).toContainText("已保存 5 份教材");
+    }
+    await input.fill("資料庫");
+    await expect(page.locator(".library-item")).toHaveCount(0);
+    await expect(page.getByRole("status")).toContainText("找不到符合「資料庫」的教材");
+    await expect(page.locator(".library-empty")).toHaveCount(0);
+    await page.screenshot({ path: `/tmp/studydy-name-search-${viewport.width}-none.png`, fullPage: true });
+    await input.press("Escape"); await expect(input).toHaveValue(""); await expect(input).toBeFocused();
+    await expect(page.locator(".library-item h2")).toHaveText(searchNames);
+    await input.fill(searchItems()[0].material_id); await expect(page.locator(".library-item")).toHaveCount(0);
+    await page.getByRole("button", { name: "清除搜尋", exact: true }).click();
+    await expect(input).toHaveValue(""); await expect(input).toBeFocused();
+    await input.fill("Python");
+    await expect(page.locator(".library-item")).toHaveCount(1);
+    expect(reads).toBe(1);
+    await input.press("Enter"); await expect(input).toHaveValue("Python");
+    expect(reads).toBe(1);
+    const box = (await input.boundingBox())!;
+    expect(box.height).toBeGreaterThanOrEqual(42); expect(box.height).toBeLessThanOrEqual(46);
+    const width = box.width;
+    expect(width).toBeLessThanOrEqual(580);
+    if (viewport.width === 390) expect(width).toBeGreaterThan(300);
+    expect(await input.evaluate(el => getComputedStyle(el).outlineStyle)).toBe("solid");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `/tmp/studydy-name-search-${viewport.width}-match.png`, fullPage: true });
+  });
+}
+
+test("polling reapplies the same material-name query to refreshed data", async ({ page }) => {
+  await signedIn(page); await page.clock.install();
+  let items = [{ ...searchItems()[0], latest_attempt: run }, searchItems()[1]], reads = 0;
+  await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v2", materials: items } }); });
+  await page.goto("/materials");
+  const input = page.getByRole("searchbox", { name: "搜尋教材名稱" });
+  await input.fill("python");
+  await expect(page.locator(".library-item")).toHaveCount(1);
+  items = [...items, { ...searchItems()[2], display_name: "Python 更新.pdf" }];
+  await page.clock.runFor(3000);
+  await expect.poll(() => reads).toBe(2);
+  await expect(input).toHaveValue("python");
+  await expect(page.locator(".library-item h2")).toHaveText([searchNames[0], "Python 更新.pdf"]);
+  await expect(page.locator(".library-subtitle")).toContainText("已保存 3 份教材");
+});
+
+test("removing a search match preserves query and shows search no-result", async ({ page }) => {
+  await signedIn(page);
+  let items = searchItems(); let deletes = 0;
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: items } }));
+  await page.route(`**/v1/materials/${items[0].material_id}`, route => {
+    expect(route.request().method()).toBe("DELETE"); deletes++;
+    const removed = items[0]; items = items.slice(1);
+    return route.fulfill({ status: 202, json: { schema: "material-discard/v1", material_id: removed.material_id, state: "removed" } });
+  });
+  await page.goto("/materials");
+  const input = page.getByRole("searchbox", { name: "搜尋教材名稱" });
+  await input.fill("python");
+  await page.getByRole("button", { name: "移除教材", exact: true }).click();
+  await page.getByRole("button", { name: "確認移除", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("找不到符合「python」的教材");
+  await expect(input).toHaveValue("python");
+  await expect(page.locator(".library-empty")).toHaveCount(0);
+  await expect(page.locator(".library-subtitle")).toContainText("已保存 4 份教材");
+  expect(deletes).toBe(1);
 });

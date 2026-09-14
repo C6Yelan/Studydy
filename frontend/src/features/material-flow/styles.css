@@ -559,3 +559,10 @@
 .material-source-link { align-self: flex-start; display: inline-flex; gap: 4px; font-size: 13px; min-height: 36px; align-items: center; }
 .material-recovery-error { flex-basis: 100%; width: 100%; margin: 8px 0 0; }
 .material-recovery-status { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.library-search { width: min(100%, 580px); margin: -4px 0 22px; }
+.library-search input { width: 100%; min-width: 0; height: 44px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-input); background: var(--surface); color: var(--text-primary); font: inherit; }
+.library-search input:focus-visible { outline: 2px solid var(--studydy-blue); outline-offset: 2px; }
+.library-search-empty { padding: 20px 0; overflow-wrap: anywhere; }
+.library-search-empty h2 { margin: 0 0 8px; font-size: 18px; }
+.library-search-empty p { margin: 0 0 12px; color: var(--text-secondary); font-size: 14px; }
