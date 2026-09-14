@@ -43,8 +43,8 @@ async function signedIn(page: Page) {
 }
 
 for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
-  for (const mapsOnly of [false, true]) for (const state of states) {
-    test(`${mapsOnly ? "maps" : "materials"} direct hub ${state} at ${viewport.width}px`, async ({ page }) => {
+  for (const state of states) {
+    test(`materials direct hub ${state} at ${viewport.width}px`, async ({ page }) => {
       await page.setViewportSize(viewport); await signedIn(page);
       const list = materials(state); let fail = state === "failure";
       let release!: () => void; const loading = new Promise<void>(resolve => { release = resolve; });
@@ -52,10 +52,10 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
         if (state === "loading") await loading;
         return fail ? route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: materialId, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Unavailable" } }) : route.fulfill({ json: { schema: "material-library/v2", materials: list } });
       });
-      await page.goto(mapsOnly ? "/knowledge-maps" : "/materials");
+      await page.goto("/materials");
       if (state === "loading") { await expect(page.getByRole("heading", { name: "正在讀取教材庫" })).toBeVisible(); release(); }
       if (fail) { await expect(page.getByRole("heading", { name: "無法讀取教材" })).toBeVisible(); fail = false; await page.getByRole("button", { name: "重新讀取", exact: true }).click(); }
-      const visible = mapsOnly ? list.filter(item => item.available_structures.length) : list;
+      const visible = list;
       const cards = page.locator(".library-item");
       await expect(cards).toHaveCount(visible.length);
       await expect(page.locator(".sidebar-helper")).toHaveCount(0);
@@ -64,7 +64,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
         const card = cards.nth(index); const structure = item.available_structures[0];
         const learning = structure && item.study_sessions.find(s => s.run_id === structure.run_id && s.knowledge_structure_revision === structure.knowledge_structure_revision);
         const busy = item.latest_attempt && ["pending", "running"].includes(item.latest_attempt.status);
-        const expected = busy ? "查看處理狀態" : mapsOnly ? "開啟知識地圖" : learning ? learning.status === "completed" ? "查看學習成果" : "繼續學習" : structure ? "開啟知識地圖" : !item.latest_attempt ? "開始整理教材" : item.latest_attempt.status === "failed" ? "重新處理教材" : null;
+        const expected = busy ? "查看處理狀態" : learning ? learning.status === "completed" ? "查看學習成果" : "繼續學習" : structure ? "開啟知識地圖" : !item.latest_attempt ? "開始整理教材" : item.latest_attempt.status === "failed" ? "重新處理教材" : null;
         await expect(card.getByRole("heading")).toHaveText(item.display_name);
         await expect(card.getByRole("button", { name: item.display_name, exact: true })).toHaveCount(0);
         await expect(card.locator(".primary-button")).toHaveCount(expected ? 1 : 0);
@@ -81,7 +81,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
         await expect(card.getByRole("region", { name: "學習紀錄" })).toHaveCount(0);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await page.screenshot({ path: `/tmp/studydy-direct-hub-${viewport.width}-${mapsOnly}-${state}.png`, fullPage: true });
+      await page.screenshot({ path: `/tmp/studydy-direct-hub-${viewport.width}-${state}.png`, fullPage: true });
     });
   }
 }

@@ -10,8 +10,7 @@ async function login(page: Page, email = "learner_test@example.com") {
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("密碼", { exact: true }).fill("Synthetic test password 42");
   await page.getByRole("button", { name: "登入", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "歡迎回來！", exact: true })).toBeVisible();
-  await expect(page.locator(".dashboard-stat strong")).toHaveText(email === "learner_test@example.com" ? ["3", "1", "1", "0"] : ["1", "0", "0", "0"]);
+  await expect(page.getByRole("heading", { name: "首頁", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "教材庫", exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
 }

@@ -450,20 +450,20 @@ test("reopen rejects a run from a different Knowledge Structure revision", async
   await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();
 });
 
-test("dashboard shows unavailable counts truthfully and retries its server-backed summary", async ({ page }) => {
+test("home shows a compact read error and retries without statistics", async ({ page }) => {
   await routes(page);
   let unavailable = true;
   await page.route('**/v1/materials', route => unavailable
     ? json(route, { schema: 'api-error/v1', request_id: sessionId, reason_code: 'STORAGE_UNAVAILABLE', retryable: true, message: 'Request could not be completed.' }, 503)
     : json(route, { schema: 'material-library/v2', materials: [] }));
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '歡迎回來！', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '首頁', exact: true })).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('資料服務暫時無法使用');
-  await expect(page.locator('.dashboard-stat strong')).toHaveText(['—', '—', '—', '—']);
+  await expect(page.getByRole('heading', { name: '無法讀取學習進度' })).toBeVisible();
   unavailable = false;
   await page.getByRole('button', { name: '重新讀取', exact: true }).click();
-  await expect(page.locator('.dashboard-stat strong')).toHaveText(['0', '0', '0', '0']);
-  await page.getByRole('button', { name: '前往我的教材', exact: true }).click();
+  await expect(page.locator('.dashboard-onboarding')).toBeVisible();
+  await page.getByRole('navigation', { name: '主要導覽' }).getByRole('button', { name: '教材庫', exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole('region', { name: '空教材引導' })).toBeVisible();
 });
@@ -612,9 +612,8 @@ test("shared shell density keeps standard pages and map workspace bounded", asyn
   for (const viewport of [{ width: 1536, height: 1024 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     for (const [name, path, heading] of [
-      ["home", "/", "歡迎回來！"], ["materials", "/materials", "我的教材"],
+      ["home", "/", "首頁"], ["materials", "/materials", "我的教材"],
       ["upload", "/upload", "上傳教材"], ["study", `${map}/study-sessions/${sessionId}`, "Stack"],
-      ["maps", "/knowledge-maps", "知識地圖"],
       ["processing", `/materials/${materialId}/runs/${runId}`, "教材整理完成"],
       ["map", map, "知識地圖"],
     ]) {
@@ -626,8 +625,8 @@ test("shared shell density keeps standard pages and map workspace bounded", asyn
       if (["map", "study"].includes(name)) await expect(page.locator(".app-sidebar")).toHaveCount(0);
       else {
         await expect(page.locator(".app-sidebar")).toHaveCount(1);
-        await expect(page.locator(".brand small")).toHaveText("AI 智慧學習平台");
-        await expect(page.locator(".account-avatar")).toHaveCount(1);
+        await expect(page.locator(".brand small")).toHaveCount(0);
+        await expect(page.locator(".account-avatar")).toHaveCount(0);
       }
       if (!["map", "home", "materials", "maps", "upload", "processing", "study"].includes(name) && viewport.width > 900) await expect(page.locator(".sidebar-helper")).toBeVisible();
       if (["home", "materials", "maps", "upload", "processing", "study"].includes(name)) await expect(page.locator(".sidebar-helper")).toHaveCount(0);

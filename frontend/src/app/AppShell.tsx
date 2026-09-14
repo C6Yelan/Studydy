@@ -13,28 +13,20 @@ export function AppShell({ children, route, accountAction }: {
   return <div className={`app-shell${learningWorkspace ? " is-workspace" : " is-standard"}`}>
     <header className="app-header">
       <button aria-label="返回 Studydy 首頁" className="brand" type="button" onClick={() => writeRoute({ name: "home" })}>
-        <img src="/assets/studydy/brand-idle.png" alt="" /><span>Studydy{!learningWorkspace && <small>AI 智慧學習平台</small>}</span>
+        <img src="/assets/studydy/brand-idle.png" alt="" /><span>Studydy</span>
       </button>
       {learningWorkspace && <nav className="workspace-nav" aria-label="學習工作區導覽">
         <button aria-current={route.name === "knowledge-map" ? "page" : undefined} type="button" onClick={() => writeRoute({ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision })}><Icon name="map" size={18} />知識地圖</button>
         <button type="button" onClick={() => writeRoute({ name: "materials" })}><Icon name="book" size={18} />教材庫</button>
         <button type="button" onClick={() => writeRoute({ name: "material-run", materialId: route.materialId, runId: route.runId })}><Icon name="process" size={18} />處理狀態</button>
       </nav>}
-      <div className="account-controls">{!learningWorkspace && <span className="account-avatar" aria-hidden="true"><Icon name="user" size={22} /></span>}{accountAction}</div>
+      <div className="account-controls">{accountAction}</div>
     </header>
     {!learningWorkspace && <aside className="app-sidebar" aria-label="學習導覽區">
       <nav aria-label="主要導覽">
         <button aria-current={route.name === "home" ? "page" : undefined} type="button" onClick={() => writeRoute({ name: "home" })}><Icon name="home" />首頁</button>
-        <button aria-current={route.name === "maps" ? "page" : undefined} type="button" onClick={() => writeRoute({ name: "maps" })}><Icon name="map" />知識地圖</button>
         <button aria-current={materials ? "page" : undefined} aria-label="教材庫" type="button" onClick={() => writeRoute({ name: "materials" })}><Icon name="book" />我的教材</button>
-        <button type="button" disabled title="帳號設定功能尚未提供"><Icon name="settings" />設定<span className="nav-unavailable">尚未提供</span></button>
       </nav>
-      {!["home", "maps", "materials", "upload", "material-run"].includes(route.name) && <div className="sidebar-helper">
-        <img src="/assets/studydy/knowledge-guide.png" alt="Studydy 學習夥伴" />
-        <div><strong>需要開始學習的協助嗎？</strong><p>從上傳第一份 PDF 開始，建立你的知識地圖。</p>
-          <button className="text-button" type="button" onClick={() => writeRoute({ name: "upload" })}><Icon name="upload" size={16} />上傳第一份教材</button>
-        </div>
-      </div>}
     </aside>}
     <main className="app-main" id="main-content">{children}</main>
   </div>;

@@ -2,23 +2,13 @@
 .app-header { grid-column: 1 / -1; grid-row: 1; height: var(--shell-header-height); display: flex; align-items: center; justify-content: space-between; padding: 0 30px; border-bottom: 1px solid var(--border-light); background: #fff; z-index: 5; }
 .brand { display: inline-flex; align-items: center; gap: 10px; width: max-content; padding: 0; border: 0; background: transparent; color: var(--studydy-blue); font-size: 30px; font-weight: 700; text-align: left; line-height: 1.15; }
 .brand img { width: 36px; height: 42px; object-fit: contain; }
-.brand small { display: block; margin-top: 5px; color: var(--text-muted); font-size: 11px; font-weight: 400; letter-spacing: .03em; }
 .account-controls { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
 .account-controls .secondary-button { min-width: 74px; min-height: 42px; border-color: var(--border); }
-.account-avatar { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: var(--studydy-blue); background: var(--studydy-blue-soft); }
-.app-sidebar { grid-column: 1; grid-row: 2; position: sticky; top: 0; height: calc(100vh - var(--shell-header-height)); min-height: 570px; padding: 24px 16px; display: flex; flex-direction: column; border-right: 1px solid var(--border-light); background: #fff; }
+.app-sidebar { grid-column: 1; grid-row: 2; position: sticky; top: 0; height: calc(100vh - var(--shell-header-height)); padding: 24px 16px; display: flex; flex-direction: column; border-right: 1px solid var(--border-light); background: #fff; }
 .app-sidebar nav { display: grid; gap: 8px; }
 .app-sidebar nav > button { display: flex; align-items: center; gap: 14px; min-height: 50px; width: 100%; padding: 0 16px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: 16px; text-align: left; }
 .app-sidebar nav > button:hover:not(:disabled) { background: var(--page-cool); color: var(--studydy-blue); }
 .app-sidebar nav > button[aria-current="page"] { color: var(--studydy-blue); background: var(--studydy-blue-soft); font-weight: 600; }
-.app-sidebar nav > button:disabled { cursor: default; color: var(--text-muted); }
-.nav-unavailable { margin-left: auto; font-size: 11px; color: var(--text-muted); }
-.sidebar-helper { margin-top: auto; padding-top: 32px; }
-.sidebar-helper > img { width: 130px; height: 140px; object-fit: contain; margin: 0 auto 10px; }
-.sidebar-helper > div { padding: 18px 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--studydy-blue-soft-2); }
-.sidebar-helper strong { color: var(--text-primary); font-size: 14px; }
-.sidebar-helper p { color: var(--text-secondary); font-size: 13px; margin: 8px 0; }
-.sidebar-helper .text-button { font-size: 13px; }
 .app-main { grid-column: 2; grid-row: 2; min-width: 0; padding: 34px 50px 48px; }
 .app-shell.is-standard .app-main > * { max-width: 1018px; margin-left: 0; margin-right: auto; }
 .app-shell.is-standard .app-main > .task-page { width: 100%; max-width: 1180px; }
@@ -26,11 +16,9 @@
 @media (max-width: 900px) {
  .app-shell { --shell-header-height: 72px; grid-template-columns: 1fr; grid-template-rows: var(--shell-header-height) auto minmax(0, 1fr); }
  .app-header { padding: 0 16px; }
- .brand { font-size: 24px; } .brand small { font-size: 10px; }
- .account-avatar { display: none; }
+ .brand { font-size: 24px; }
  .app-sidebar { position: static; grid-column: 1; grid-row: 2; height: auto; min-height: 0; padding: 8px 12px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border-light); }
  .app-sidebar nav { display: flex; width: max-content; } .app-sidebar nav > button { min-height: 44px; width: auto; white-space: nowrap; padding: 0 14px; }
- .sidebar-helper { display: none; } .nav-unavailable { display: none; }
  .app-main { grid-column: 1; grid-row: 3; padding: 24px 18px 40px; }
 }
 

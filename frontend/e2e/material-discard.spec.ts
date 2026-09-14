@@ -100,8 +100,6 @@ test("library protects all maps/sessions and keeps active runs on the processing
   await page.goto("/materials");
   await page.getByRole("article").nth(6).getByRole("button", { name: "查看處理狀態", exact: true }).click();
   expect(new URL(page.url()).pathname).toBe(`/materials/${id(7)}/runs/${id(207)}`);
-  await page.goto("/knowledge-maps");
-  await expect(page.getByRole("button", { name: "移除教材", exact: true })).toHaveCount(0);
 });
 
 for (const viewport of [{ width: 1536, height: 1024 }, { width: 390, height: 844 }]) {

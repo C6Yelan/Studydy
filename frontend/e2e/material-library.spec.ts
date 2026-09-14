@@ -7,8 +7,7 @@ async function login(page: Page, email: string) {
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("密碼", { exact: true }).fill("Synthetic test password 42");
   await page.getByRole("button", { name: "登入", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "歡迎回來！", exact: true })).toBeVisible();
-  await expect(page.locator(".dashboard-stat strong")).toHaveText(email === "learner_test@example.com" ? ["3", "1", "0", "0"] : ["1", "0", "0", "0"]);
+  await expect(page.getByRole("heading", { name: "首頁", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "教材庫", exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
 }
@@ -41,8 +40,6 @@ test("fresh profiles discover their own materials and reopen both exact publishe
   const freshPage = await fresh.newPage();
   await login(freshPage, "learner_test@example.com");
   expect(await freshPage.evaluate(() => localStorage.length)).toBe(0);
-  await freshPage.getByRole("button", { name: "知識地圖", exact: true }).click();
-  await expect(freshPage.getByRole("article")).toHaveCount(1);
   await expect(freshPage.locator(".sidebar-helper")).toHaveCount(0);
   await expect(freshPage.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveClass("primary-button");
   await freshPage.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
@@ -62,10 +59,6 @@ test("fresh profiles discover their own materials and reopen both exact publishe
   await freshPage.getByRole("button", { name: "登出", exact: true }).click();
   await expect(freshPage.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   await login(freshPage, "library_b@example.com");
-  await freshPage.getByRole("button", { name: "知識地圖", exact: true }).click();
-  await expect(freshPage.getByRole("heading", { name: "尚無可開啟的知識地圖", exact: true })).toBeVisible();
-  await expect(freshPage.getByRole("button", { name: "上傳第一份教材", exact: true })).toHaveCount(0);
-  await freshPage.getByRole("button", { name: "前往我的教材", exact: true }).click();
   await expect(freshPage.getByRole("article", { name: "B 的私人教材.pdf", exact: true })).toBeVisible();
   await expect(freshPage.getByText("堆疊講義.pdf", { exact: true })).toHaveCount(0);
   expect((await fresh.request.get(`http://127.0.0.1:4173${pdfUrl}`)).status()).toBe(404);

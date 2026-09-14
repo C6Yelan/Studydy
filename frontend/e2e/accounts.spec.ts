@@ -27,7 +27,7 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   await login(page, "learner_test@example.com");
   await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
   expect((await (await a.request.get(`${origin}/v1/session`)).json()).learner_id).toBe(learnerId);
-  await expect(page.getByRole("heading", { name: "歡迎回來！", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "首頁", exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "主要導覽", exact: true })).toBeVisible();
   const header = await page.locator(".app-header").boundingBox();
   const logout = await page.getByRole("button", { name: "登出", exact: true }).boundingBox();

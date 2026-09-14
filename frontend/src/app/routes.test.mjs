@@ -24,12 +24,13 @@ test("retired map revisions do not parse", () => {
   assert.equal(readRoute(`/materials/${materialId}/runs/${runId}/knowledge-maps/knowledge-map:sha256:${"a".repeat(64)}`).route.name, "home");
 });
 
-test("library and upload are canonical; removed detail bookmarks are not routes", () => {
-  for (const route of [{ name: "home" }, { name: "materials" }, { name: "maps" }, { name: "upload" }]) {
+test("task routes are canonical; removed collections and detail bookmarks are not routes", () => {
+  for (const route of [{ name: "home" }, { name: "materials" }, { name: "upload" }, { name: "material-run", materialId, runId }]) {
     assert.deepEqual(readRoute(routePath(route)), { route, isCanonical: true });
   }
   assert.equal(readRoute("/materials/not-an-id").isCanonical, false);
   assert.equal(readRoute(`/materials/${materialId}`).isCanonical, false);
+  assert.equal(readRoute("/knowledge-maps").isCanonical, false);
 });
 
 test("selected saved assessments survive canonical study URLs", () => {

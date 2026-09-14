@@ -18,113 +18,85 @@ async function signedIn(page: Page) {
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: id } }));
 }
 
-for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 390, height: 844 }]) {
-  for (const state of ["empty", "materials", "recent", "loading", "failure"] as const) {
-    test(`dashboard ${state} at ${viewport.width}px keeps content and navigation usable`, async ({ page }) => {
-      await page.setViewportSize(viewport);
-      await signedIn(page);
-      let responseState: string = state;
-      let release!: () => void;
-      const pending = new Promise<void>(resolve => { release = resolve; });
+for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
+  for (const state of ["empty", "active", "no_safe", "completed", "map", "unpublished", "loading", "failure"] as const) {
+    test(`home ${state} at ${viewport.width}px has one next action and two navigation items`, async ({ page }) => {
+      await page.setViewportSize(viewport); await signedIn(page);
+      let failed = state === "failure", waiting = state === "loading";
+      let release!: () => void; const pending = new Promise<void>(resolve => { release = resolve; });
+      const items = state === "empty" || state === "loading" || state === "failure" ? [] : [{ ...material,
+        available_structures: state === "unpublished" ? [] : material.available_structures,
+        study_sessions: ["active", "no_safe", "completed"].includes(state) ? [{ ...active, status: state as "active" | "no_safe" | "completed" }] : [] }];
       await page.route("**/v1/materials", async route => {
-        if (responseState === "loading") await pending;
-        if (responseState === "failure") return route.fulfill({ status: 503, json: {
-          schema: "api-error/v1", request_id: id, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Request could not be completed.",
-        } });
-        return route.fulfill({ json: { schema: "material-library/v2", materials: responseState === "materials" ? [material]
-          : responseState === "recent" ? [{ ...material, study_sessions: [active] }] : [] } });
+        if (waiting) await pending;
+        return failed ? route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: id, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Unavailable" } }) : route.fulfill({ json: { schema: "material-library/v2", materials: items } });
       });
       await page.goto("/");
-      const dashboard = page.locator(".dashboard");
-      await expect(dashboard.getByRole("heading", { level: 1 })).toHaveText("歡迎回來！");
-      const stats = page.locator(".dashboard-stats");
-      const expected = state === "empty" ? ["0", "0", "0", "0"] : state === "materials" ? ["1", "1", "0", "0"]
-        : state === "recent" ? ["1", "1", "1", "0"] : ["—", "—", "—", "—"];
-      await expect(stats.locator("strong")).toHaveText(expected);
-      await expect(stats).toHaveAttribute("aria-busy", state === "loading" ? "true" : "false");
-      await expect(page.locator(".sidebar-helper")).toHaveCount(0);
-      await expect(page.getByRole("button", { name: "首頁", exact: true })).toHaveAttribute("aria-current", "page");
-      await expect(dashboard.getByRole("button", { name: "上傳教材", exact: true })).toHaveCount(1);
-      const help = page.getByRole("complementary", { name: "Studydy 學習協助" });
-      await expect(help.getByRole("heading", { level: 3 })).toHaveText(["建立知識地圖", "依循學習路徑", "理解概念", "練習與複習"]);
-      await expect(help.getByRole("button")).toHaveCount(0);
-      const header = await page.locator(".app-header").boundingBox();
-      expect(header!.height).toBe(viewport.width > 900 ? 74 : 72);
-      if (viewport.width > 900) expect((await page.locator(".app-sidebar").boundingBox())!.width).toBe(252);
-      const primary = await page.locator(".dashboard-primary").boundingBox();
-      const rail = await help.boundingBox();
-      if (viewport.width >= 1440) {
-        expect(rail!.x).toBeGreaterThanOrEqual(primary!.x + primary!.width + 20);
-        expect(rail!.width).toBeGreaterThanOrEqual(280);
-        expect(rail!.width).toBeLessThanOrEqual(320);
-        expect(Math.abs(rail!.y - primary!.y)).toBeLessThan(1);
-        expect((await dashboard.boundingBox())!.width).toBeGreaterThan(1018);
-        expect(rail!.y + rail!.height).toBeLessThan(viewport.height);
-      } else expect(rail!.y).toBeGreaterThanOrEqual(primary!.y + primary!.height + 20);
-      const cards = await stats.locator("button").evaluateAll(elements => elements.map(element => {
-        const rect = element.getBoundingClientRect(); return { height: rect.height, top: rect.top };
-      }));
-      expect(new Set(cards.map(card => card.height)).size).toBe(1);
-      expect(cards[0].top === cards[2].top).toBe(viewport.width > 1200);
-      if (state === "recent") {
-        await expect(page.locator(".dashboard-primary .dashboard-resume")).toContainText(longName);
-        await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeVisible();
-        if (viewport.width >= 1440) {
-          const resume = await page.locator(".dashboard-resume").boundingBox();
-          expect(resume!.y + resume!.height).toBeLessThan(viewport.height);
-        }
-      } else await expect(page.locator(".dashboard-resume")).toHaveCount(0);
-      if (state === "failure") await expect(page.locator(".dashboard-primary [role=alert]")).toContainText("資料服務暫時無法使用");
-      if (viewport.width > 600) await expect.poll(() => page.locator(".hero-illustration img").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
-      else await expect(page.locator(".hero-illustration")).toBeHidden();
-      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
-      const clipped = await dashboard.locator("button, h1, h2, h3, small, p").evaluateAll(elements => elements.filter(element => element.scrollWidth > element.clientWidth + 1).map(element => element.tagName));
-      expect(clipped).toEqual([]);
-      await page.screenshot({ path: `/tmp/studydy-dashboard/${viewport.width}-${state}.png`, fullPage: true });
+      const home = page.locator(".dashboard");
+      await expect(home.getByRole("heading", { level: 1 })).toHaveText("首頁");
+      const nav = page.getByRole("navigation", { name: "主要導覽" });
+      await expect(nav.getByRole("button")).toHaveText(["首頁", "我的教材"]);
+      await expect(nav.getByRole("button").first()).toHaveAttribute("aria-current", "page");
+      await expect(page.locator(".account-avatar, .sidebar-helper, .nav-unavailable, .brand small")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
+      await expect(home.locator(".dashboard-stats, .dashboard-stat, .dashboard-help, .dashboard-features, .library-grid")).toHaveCount(0);
       if (state === "loading") {
-        const height = (await stats.boundingBox())!.height;
-        responseState = "empty"; release();
-        await expect(stats.locator("strong")).toHaveText(["0", "0", "0", "0"]);
-        expect((await stats.boundingBox())!.height).toBe(height);
+        await expect(home.getByRole("status")).toContainText("正在讀取學習進度"); waiting = false; release();
       }
       if (state === "failure") {
-        responseState = "empty";
-        await page.getByRole("button", { name: "重新讀取", exact: true }).click();
-        await expect(stats.locator("strong")).toHaveText(["0", "0", "0", "0"]);
-        await expect(page.getByRole("alert")).toHaveCount(0);
+        await expect(home.getByRole("alert")).toContainText("無法讀取學習進度");
+        await expect(home.getByRole("button", { name: "上傳教材", exact: true })).toBeEnabled();
+        failed = false; await home.getByRole("button", { name: "重新讀取", exact: true }).click();
       }
-      const upload = dashboard.getByRole("button", { name: "上傳教材", exact: true });
-      await upload.focus();
-      await page.keyboard.press("Tab");
-      await page.keyboard.press("Shift+Tab");
-      await expect(upload).toBeFocused();
-      expect(await upload.evaluate(element => getComputedStyle(element).outlineStyle)).toBe("solid");
-      await page.keyboard.press("Enter");
-      await expect(page).toHaveURL(/\/upload$/);
-      await page.getByRole("button", { name: "首頁", exact: true }).click();
-      await expect(dashboard).toBeVisible();
-      await dashboard.getByRole("button", { name: "前往我的教材", exact: true }).click();
-      await expect(page).toHaveURL(/\/materials$/);
-      await expect(page.getByRole("button", { name: "教材庫", exact: true })).toHaveAttribute("aria-current", "page");
+      const empty = ["empty", "loading", "failure"].includes(state);
+      await expect(home.locator(".dashboard-onboarding")).toHaveCount(empty ? 1 : 0);
+      await expect(home.locator(".dashboard-next")).toHaveCount(empty ? 0 : 1);
+      await expect(home.locator(".primary-button")).toHaveCount(1);
+      const label = empty ? "上傳第一份教材" : state === "map" ? "開啟知識地圖" : state === "unpublished" ? "前往我的教材" : state === "completed" ? "查看學習成果" : "繼續學習";
+      await expect(home.locator(".primary-button")).toHaveText(label);
+      if (!empty && state !== "unpublished") await expect(home.locator(".dashboard-next")).toContainText(longName);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: `/tmp/studydy-simple-home-${viewport.width}-${state}.png`, fullPage: true });
+      const action = home.getByRole("button", { name: label, exact: true });
+      await action.focus(); await page.keyboard.press("Enter");
+      const map = `/materials/${id}/runs/${id}/knowledge-structures/${encodeURIComponent(revision)}`;
+      await expect.poll(() => new URL(page.url()).pathname).toBe(empty ? "/upload" : state === "map" ? map : state === "unpublished" ? "/materials" : `${map}/study-sessions/${id}`);
+      if (empty || state === "unpublished") await expect(page.getByRole("navigation", { name: "主要導覽" }).getByRole("button").last()).toHaveAttribute("aria-current", "page");
     });
   }
 }
 
-test("dashboard resume retains active/completed routes and overview destinations", async ({ page }) => {
+test("home chooses active exact-bound state before newer completion and ignores stale revision", async ({ page }) => {
   await signedIn(page);
-  let status: "active" | "completed" = "active";
-  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2",
-    materials: [{ ...material, study_sessions: [{ ...active, status }] }] } }));
-  for (const value of ["active", "completed"] as const) {
-    status = value;
-    await page.goto("/");
-    await expect(page.locator(".dashboard-stat strong")).toHaveText(["1", "1", "1", value === "completed" ? "1" : "0"]);
-    await page.getByRole("button", { name: value === "active" ? "繼續學習" : "查看學習成果", exact: true }).click();
-    expect(new URL(page.url()).pathname).toBe(`/materials/${id}/runs/${id}/knowledge-structures/${encodeURIComponent(revision)}/study-sessions/${id}`);
-  }
-  for (const [index, path] of ["materials", "knowledge-maps", "materials", "materials"].entries()) {
-    await page.goto("/");
-    await page.locator(".dashboard-stat").nth(index).click();
-    await expect(page).toHaveURL(new RegExp(`/${path}$`));
+  const secondId = "22222222-2222-4222-8222-222222222222";
+  const staleId = "33333333-3333-4333-8333-333333333333";
+  let items: MaterialLibraryItem[] = [
+    { ...material, display_name: "Completed.pdf", study_sessions: [{ ...active, status: "completed", started_at: "2026-09-14T00:00:00Z" }] },
+    { ...material, material_id: secondId, display_name: "Active.pdf", study_sessions: [{ ...active, status: "no_safe" }] },
+    { ...material, material_id: staleId, display_name: "Stale.pdf", study_sessions: [{ ...active, knowledge_structure_revision: `knowledge-structure:sha256:${"b".repeat(64)}`, started_at: "2026-09-15T00:00:00Z" }] },
+  ];
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: items } }));
+  await page.goto("/");
+  await expect(page.locator(".dashboard-next h2")).toHaveText("Active.pdf");
+  await page.getByRole("button", { name: "繼續學習", exact: true }).click();
+  expect(new URL(page.url()).pathname).toBe(`/materials/${secondId}/runs/${id}/knowledge-structures/${encodeURIComponent(revision)}/study-sessions/${id}`);
+  items = items.filter(item => item.material_id !== secondId);
+  await page.goto("/");
+  await expect(page.locator(".dashboard-next h2")).toHaveText("Completed.pdf");
+  items = items.filter(item => item.display_name !== "Completed.pdf");
+  await page.reload();
+  await expect(page.getByRole("button", { name: "開啟知識地圖", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toHaveCount(0);
+});
+
+test("standard sidebar has only Home and Materials on all management routes", async ({ page }) => {
+  await signedIn(page);
+  await page.route("**/v1/material-processing-runs/*", route => route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: id, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Unavailable" } }));
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [] } }));
+  for (const path of ["/", "/materials", "/upload", `/materials/${id}/runs/${id}`]) {
+    await page.goto(path);
+    const nav = page.getByRole("navigation", { name: "主要導覽" });
+    await expect(nav.getByRole("button")).toHaveText(["首頁", "我的教材"]);
+    await expect(nav.getByRole("button").nth(path === "/" ? 0 : 1)).toHaveAttribute("aria-current", "page");
   }
 });

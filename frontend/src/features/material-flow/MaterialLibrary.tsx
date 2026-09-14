@@ -18,7 +18,7 @@ function openStudy(item: MaterialLibraryItem, session: StudySessionLink) {
     structureRevision: session.knowledge_structure_revision, studySessionId: session.study_session_id });
 }
 
-export function MaterialLibrary({ apiClient, mapsOnly = false }: { apiClient: StudydyApiClient; mapsOnly?: boolean }) {
+export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) {
   const [items, setItems] = useState<MaterialLibraryItem[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -46,7 +46,7 @@ export function MaterialLibrary({ apiClient, mapsOnly = false }: { apiClient: St
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [apiClient, reload]);
 
-  const libraryClass = `material-library is-collection${mapsOnly ? " is-maps-only" : ""}`;
+  const libraryClass = "material-library is-collection";
   if (message || items === null) {
     const state = message ? <StateView title="無法讀取教材" description={message} tone="failure" action={<>
       <button className="primary-button" type="button" onClick={() => { setMessage(null); setItems(null); setReload(value => value + 1); }}>重新讀取</button>
@@ -54,25 +54,23 @@ export function MaterialLibrary({ apiClient, mapsOnly = false }: { apiClient: St
     </>} /> : <StateView title="正在讀取教材庫" description="正在載入你的教材與已發布結果。" tone="loading" live />;
     return <section className={libraryClass}>{state}</section>;
   }
-  const visibleItems = mapsOnly ? items.filter(item => item.available_structures.length > 0) : items;
-  const noPublishedMaps = mapsOnly && items.length > 0 && visibleItems.length === 0;
   return <section className={libraryClass}>
     <header className="library-header">
-      <div><h1>{mapsOnly ? "知識地圖" : "我的教材"}</h1><p className="library-subtitle">{mapsOnly ? "從已發布的教材地圖開始探索。" : items.length === 0 ? "上傳教材後，可在這裡查看處理結果並接續學習。" : `已保存 ${items.length} 份教材，隨時接續你的學習。`}</p></div>
-      {(visibleItems.length > 0) && <div className="state-actions">
+      <div><h1>我的教材</h1><p className="library-subtitle">{items.length === 0 ? "上傳教材後，可在這裡查看處理結果並接續學習。" : `已保存 ${items.length} 份教材，隨時接續你的學習。`}</p></div>
+      {(items.length > 0) && <div className="state-actions">
         <button className="primary-button" type="button" onClick={() => writeRoute({ name: "upload" })}>上傳教材</button>
       </div>}
     </header>
-    {visibleItems.length === 0 && <section className="library-empty surface" aria-label={mapsOnly ? "知識地圖引導" : "空教材引導"}>
+    {items.length === 0 && <section className="library-empty surface" aria-label="空教材引導">
       <div className="library-empty-illustration"><img src="/assets/Studydy_角色素材/空資料/empty_disappointed.png" alt="Studydy 坐在打開的空箱子旁" /></div>
-      <h2>{mapsOnly ? noPublishedMaps ? "尚無可開啟的知識地圖" : "尚未建立知識地圖" : "尚未有學習教材"}</h2>
-      <p>{mapsOnly ? noPublishedMaps ? "已有教材，但目前還沒有已發布的知識地圖。前往我的教材查看處理狀態。" : "先上傳第一份 PDF，Studydy 會協助你整理知識點並建立知識地圖。" : "先上傳第一份 PDF，讓 Studydy 陪你展開學習。"}</p>
-      <button className="primary-button" type="button" onClick={() => writeRoute({ name: noPublishedMaps ? "materials" : "upload" })}>
-        <Icon name={noPublishedMaps ? "book" : "upload"} size={18} />{noPublishedMaps ? "前往我的教材" : "上傳第一份教材"}
+      <h2>尚未有學習教材</h2>
+      <p>先上傳第一份 PDF，讓 Studydy 陪你展開學習。</p>
+      <button className="primary-button" type="button" onClick={() => writeRoute({ name: "upload" })}>
+        <Icon name="upload" size={18} />上傳第一份教材
       </button>
     </section>}
     <div className="library-grid">
-    {visibleItems.map(item => {
+    {items.map(item => {
       const latest = item.latest_attempt;
       const available = item.available_structures;
       const latestHasPublishedMap = !!latest && available.some(structure => structure.run_id === latest.run_id);
@@ -81,9 +79,9 @@ export function MaterialLibrary({ apiClient, mapsOnly = false }: { apiClient: St
       const structure = available[0];
       const learningState = structure && item.study_sessions.find(state => state.run_id === structure.run_id && state.knowledge_structure_revision === structure.knowledge_structure_revision);
       const busyRun = latest?.status === "pending" || latest?.status === "running";
-      const studyAction = learningState && <button className={mapsOnly ? "secondary-button" : "primary-button"} type="button" onClick={() => openStudy(item, learningState)}>{learningState.status === "completed" ? "查看學習成果" : "繼續學習"}</button>;
-      const mapAction = structure && <button className={mapsOnly || !learningState ? "primary-button" : "secondary-button"} type="button" onClick={() => openStructure(item, structure)}>開啟知識地圖</button>;
-      const removeControl = !mapsOnly && available.length === 0 && item.study_sessions.length === 0 && (!latest || latest.status === "failed" || latest.status === "cancelled") &&
+      const studyAction = learningState && <button className="primary-button" type="button" onClick={() => openStudy(item, learningState)}>{learningState.status === "completed" ? "查看學習成果" : "繼續學習"}</button>;
+      const mapAction = structure && <button className={!learningState ? "primary-button" : "secondary-button"} type="button" onClick={() => openStructure(item, structure)}>開啟知識地圖</button>;
+      const removeControl = available.length === 0 && item.study_sessions.length === 0 && (!latest || latest.status === "failed" || latest.status === "cancelled") &&
           <MaterialRemoveControl inActionRow apiClient={apiClient} materialId={item.material_id} onAccepted={state => {
             if (state === "removed") {
               pendingRemovals.current.delete(item.material_id);
@@ -92,7 +90,7 @@ export function MaterialLibrary({ apiClient, mapsOnly = false }: { apiClient: St
             setReload(value => value + 1);
           }} />;
       return <article className="surface library-item" key={item.material_id} aria-label={item.display_name}>
-        <span className="library-file-icon" aria-hidden="true"><Icon name={mapsOnly ? "map" : "file"} size={25} /></span>
+        <span className="library-file-icon" aria-hidden="true"><Icon name="file" size={25} /></span>
         <h2>{item.display_name}</h2>
         <p>{new Date(item.created_at).toLocaleString()} · {formatFileSize(item.size_bytes)}</p>
         <a className="text-button material-source-link" href={apiClient.sourceArtifactUrl(item.source_artifact_id)} target="_blank" rel="noopener noreferrer">原始 PDF <span aria-hidden="true">↗</span></a>
@@ -101,7 +99,7 @@ export function MaterialLibrary({ apiClient, mapsOnly = false }: { apiClient: St
         {latest?.status === "failed" && <p>{materialFailureMessage(latest.error_code ?? "")}{available.length > 0 && " 先前已發布的知識地圖仍可開啟。"}</p>}
         <div className="state-actions">
           {busyRun ? <button className="primary-button" type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看處理狀態</button> : <>
-            {mapsOnly ? mapAction : studyAction}{mapsOnly ? studyAction : mapAction}
+            {studyAction}{mapAction}
             {(!latest || latest.status === "failed") && learningState?.status !== "completed" && <MaterialRunStartControl key={`${item.material_id}:${latest?.run_id ?? "new"}`} apiClient={apiClient} materialId={item.material_id} sourceArtifactId={item.source_artifact_id} initial={!latest} primary={!structure && !learningState} />}
             {latest?.status === "failed" && <button className={structure ? "text-button" : "secondary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看失敗詳情</button>}
           </>}
