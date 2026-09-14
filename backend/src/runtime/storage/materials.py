@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from .database import DatabaseConfigurationError
@@ -16,7 +16,7 @@ class MaterialLibraryError(RuntimeError):
 def read_material_library(
     learner_id: UUID, *, material_id: UUID | None = None, dsn: str | None = None,
 ) -> list[dict]:
-    """直接投影自己的教材、最新嘗試與已發布版本，不生成或寫入學習狀態。"""
+    """Project materials and one canonical persistent learning state per structure; never write learner data."""
     try:
         with database_session(dsn) as session:
             statement = select(
@@ -67,7 +67,7 @@ def read_material_library(
                 & (KnowledgeStructure.material_id == StudySession.material_id)
                 & (KnowledgeStructure.structure_revision == StudySession.knowledge_structure_revision),
             ).where(StudySession.learner_id == learner_id, StudySession.material_id.in_(ids))
-              .order_by(StudySession.started_at.desc(), StudySession.study_session_id.desc())).mappings().all()
+              .order_by(case((StudySession.status.in_(("active", "no_safe")), 0), else_=1), StudySession.started_at.desc(), StudySession.study_session_id.desc())).mappings().all()
     except (DatabaseConfigurationError, SQLAlchemyError):
         raise MaterialLibraryError("MATERIAL_LIBRARY_STORAGE_FAILED") from None
 
@@ -76,7 +76,12 @@ def read_material_library(
     for row in structures:
         published[row["material_id"]].append({key: value for key, value in row.items() if key != "material_id"})
     sessions: dict[UUID, list[dict]] = {identity: [] for identity in ids}
+    seen_states = set()
     for row in studies:
+        identity = (row["material_id"], row["knowledge_structure_revision"])
+        if identity in seen_states:
+            continue
+        seen_states.add(identity)
         sessions[row["material_id"]].append({key: value for key, value in row.items() if key != "material_id"})
     return [{
         "schema": "material-library-item/v2",

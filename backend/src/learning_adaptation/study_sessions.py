@@ -7,7 +7,7 @@ import json
 import re
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.dialects.postgresql import insert
 
 from runtime.learner_session import TrustedLearner
@@ -60,12 +60,13 @@ def _fingerprint(material_id: UUID, revision: str, concept_id: str | None) -> by
     ).encode()).digest()
 
 
-def _context(session, learner_id: UUID, material_id: UUID, revision: str) -> MapContext:
-    document = session.scalar(select(KnowledgeStructure.document).where(
+def _context(session, learner_id: UUID, material_id: UUID, revision: str, *, lock: bool = False) -> MapContext:
+    statement = select(KnowledgeStructure.document).where(
         KnowledgeStructure.learner_id == learner_id,
         KnowledgeStructure.material_id == material_id,
         KnowledgeStructure.structure_revision == revision,
-    ))
+    )
+    document = session.scalar(statement.with_for_update() if lock else statement)
     if not isinstance(document, dict):
         raise StudySessionError("STUDY_SESSION_MAP_UNAVAILABLE")
     try:
@@ -128,7 +129,24 @@ def create_study_session(
     fingerprint = _fingerprint(material_id, knowledge_structure_revision, current_concept_id)
     try:
         with database_session(dsn) as session:
-            context = _context(session, learner_id, material_id, knowledge_structure_revision)
+            # Serialize ensure requests on the immutable structure identity, including the first insert.
+            context = _context(session, learner_id, material_id, knowledge_structure_revision, lock=True)
+            initial_intent = session.scalar(select(StudySession).where(
+                StudySession.learner_id == learner_id, StudySession.idempotency_key_sha256 == key,
+            ))
+            if initial_intent is not None and bytes(initial_intent.request_fingerprint) != fingerprint:
+                raise StudySessionError("STUDY_SESSION_IDEMPOTENCY_CONFLICT")
+            canonical = session.scalar(select(StudySession).where(
+                StudySession.learner_id == learner_id, StudySession.material_id == material_id,
+                StudySession.knowledge_structure_revision == knowledge_structure_revision,
+            ).order_by(
+                case((StudySession.status.in_(("active", "no_safe")), 0), else_=1),
+                StudySession.started_at.desc(), StudySession.study_session_id.desc(),
+            ).limit(1))
+            if canonical is not None:
+                # Later ensure intents are read-only; only the initial creation fingerprint is retained.
+                _validate(session, canonical)
+                return _stored(canonical)
             known = {concept.concept_id for concept in context.concepts}
             selected = current_concept_id or (context.initial_learning_path[0] if context.initial_learning_path else None)
             if selected not in known:

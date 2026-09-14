@@ -213,10 +213,16 @@ class KnowledgeStructureView(_Closed):
 
 
 class StudySessionCreate(_Closed):
+    """Ensure a persistent state; current_concept_id applies only to its initial creation."""
     schema_: Literal["study-session-create/v2"] = Field(alias="schema")
     material_id: UUID
     knowledge_structure_revision: str
     current_concept_id: str | None = None
+
+
+class StudySessionFocus(_Closed):
+    schema_: Literal["study-session-focus/v1"] = Field(alias="schema")
+    current_concept_id: str
 
 
 class StudySessionView(_Closed):

@@ -36,6 +36,7 @@ from .models import (
     MaterialLibraryView,
     LearnerProgressView,
     StudySessionCreate,
+    StudySessionFocus,
     StudySessionView,
     StudyResumeView,
     AssessmentRecordView,
@@ -55,6 +56,7 @@ from learning_adaptation.study_sessions import (
     complete_study_session,
     create_study_session,
     read_study_session,
+    set_current_study_concept,
 )
 from ..learner_session import (
     IDLE_LIFETIME,
@@ -726,6 +728,18 @@ def create_app(settings: ApiSettings) -> FastAPI:
             dsn=settings.dsn,
         )
         return project_study_session(stored)
+
+    @app.post(
+        "/v1/study-sessions/{study_session_id}/focus",
+        response_model=StudySessionView, response_model_by_alias=True,
+        operation_id="focusStudySession", tags=["learning"],
+    )
+    async def focus_study_session_route(request: Request, study_session_id: UUID, body: StudySessionFocus) -> StudySessionView:
+        _require_query(request, set())
+        learner = _trusted_learner(request, settings)
+        return project_study_session(set_current_study_concept(
+            learner, study_session_id, body.current_concept_id, dsn=settings.dsn,
+        ))
 
     @app.get(
         "/v1/study-sessions/{study_session_id}",

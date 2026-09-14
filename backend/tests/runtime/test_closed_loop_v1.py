@@ -794,3 +794,24 @@ def test_direct_middle_start_with_advisory_can_assess_and_resume_without_applyin
     assert restored.json()["selected_assessment_revision"] == assessment.assessment_revision
     assert read_study_session(learner, study.study_session_id, dsn=dsn).current_concept_id == target.concept_id
     assert read_knowledge_structure(learner.learner_id, source.material_id, revision=structure["revision"], dsn=dsn).document == structure
+    # Ensure never switches focus; the explicit setter preserves this state's evidence and answers.
+    from learning_adaptation.study_sessions import set_current_study_concept
+    from learning_adaptation.answer_events import read_assessment_records
+    ensured = create_study_session(learner, source.material_id, structure["revision"], "another-intent", current_concept_id=prerequisite.concept_id, dsn=dsn)
+    assert ensured.study_session_id == study.study_session_id
+    assert ensured.current_concept_id == target.concept_id
+    set_current_study_concept(learner, study.study_session_id, prerequisite.concept_id, dsn=dsn)
+    history = read_assessment_records(learner, study.study_session_id, dsn=dsn)
+    assert history
+    switched = client.get(f"/v1/materials/{source.material_id}/knowledge-structures/{structure['revision']}/study-sessions/{study.study_session_id}/resume", params={"run_id": str(run.run_id)})
+    assert not switched.json()["assessments"][0]["can_submit"]
+    set_current_study_concept(learner, study.study_session_id, target.concept_id, dsn=dsn)
+    submit_answer(learner, study.study_session_id, assessment.assessment_revision,
+        assessment.question_id, assessment.private_answer_document["correct_option_id"], "persistent-answer", dsn=dsn)
+    saved = derive_learner_progress(learner, study.study_session_id, dsn=dsn)
+    events = read_answer_events(learner, study.study_session_id, dsn=dsn)
+    set_current_study_concept(learner, study.study_session_id, prerequisite.concept_id, dsn=dsn)
+    set_current_study_concept(learner, study.study_session_id, target.concept_id, dsn=dsn)
+    restored_progress = derive_learner_progress(learner, study.study_session_id, dsn=dsn)
+    assert restored_progress.concept_states == saved.concept_states
+    assert read_answer_events(learner, study.study_session_id, dsn=dsn) == events

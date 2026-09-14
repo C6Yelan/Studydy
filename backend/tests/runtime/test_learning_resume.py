@@ -36,7 +36,20 @@ def learning_records(library_materials):
         connection.execute("UPDATE study_sessions SET status='no_safe', no_safe_claim_ids=%s, deferred_concept_ids=%s WHERE study_session_id=%s",
             ([claim["claim_id"] for claim in second_concept["claims"]], [second_concept["concept_id"]], no_safe.study_session_id))
 
-    active = create_study_session(learner, source.material_id, structure["revision"], "active-study", dsn=dsn)
+    # Preserve a pre-existing legacy duplicate to exercise read-only resume and canonical projection.
+    from datetime import UTC, datetime
+    from hashlib import sha256
+    from uuid import uuid4
+    from runtime.storage.tables import StudySession, database_session
+    from learning_adaptation.study_sessions import read_study_session
+    active_id = uuid4()
+    with database_session(dsn) as db:
+        row = db.get(StudySession, completed.study_session_id)
+        values = {column.name: getattr(row, column.name) for column in StudySession.__table__.columns}
+        values.update(study_session_id=active_id, idempotency_key_sha256=sha256(b"legacy-active").digest(),
+            status="active", started_at=datetime.now(UTC), completed_at=None, last_event_number=0)
+        db.add(StudySession(**values))
+    active = read_study_session(learner, active_id, dsn=dsn)
     answered = question(active, "previous-question", "先前題目：Stack 的資料順序是什麼？")
     previous_answer = submit_answer(learner, active.study_session_id, answered.assessment_revision,
         answered.question_id, answered.private_answer_document["correct_option_id"], "previous-answer", dsn=dsn)
@@ -83,7 +96,7 @@ def test_resume_is_read_only_and_returns_saved_question_feedback_and_states(lear
     assert no_safe["progress"]["next_action"]["action"] == "no_safe"
     library = client.get("/v1/materials").json()["materials"]
     links = next(item["study_sessions"] for item in library if item["material_id"] == str(fixture["first"].material_id))
-    assert len(links) == 3 and links[0]["study_session_id"] == str(fixture["active"].study_session_id)
+    assert len(links) == 2 and links[0]["study_session_id"] == str(fixture["active"].study_session_id)
     assert links[0]["knowledge_structure_revision"] == fixture["structure"]["revision"]
     assert product_snapshot(fixture["dsn"]) == before
 
