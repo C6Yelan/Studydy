@@ -13,7 +13,7 @@ export function AppShell({ children, route, accountAction }: {
   return <div className={`app-shell${learningWorkspace ? " is-workspace" : " is-standard"}`}>
     <header className="app-header">
       <button aria-label="返回 Studydy 首頁" className="brand" type="button" onClick={() => writeRoute({ name: "home" })}>
-        <img src="/assets/studydy/brand-idle.png" alt="" /><span>Studydy</span>
+        <img src="/assets/studydy/brand-idle.png" alt="" /><span>Studydy{!learningWorkspace && <small>AI 智慧學習平台</small>}</span>
       </button>
       {learningWorkspace && <nav className="workspace-nav" aria-label="學習工作區導覽">
         <button aria-current={route.name === "knowledge-map" ? "page" : undefined} type="button" onClick={() => writeRoute({ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision })}><Icon name="map" size={18} />知識地圖</button>

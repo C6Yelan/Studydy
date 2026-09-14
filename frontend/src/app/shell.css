@@ -2,6 +2,7 @@
 .app-header { grid-column: 1 / -1; grid-row: 1; height: var(--shell-header-height); display: flex; align-items: center; justify-content: space-between; padding: 0 30px; border-bottom: 1px solid var(--border-light); background: #fff; z-index: 5; }
 .brand { display: inline-flex; align-items: center; gap: 10px; width: max-content; padding: 0; border: 0; background: transparent; color: var(--studydy-blue); font-size: 30px; font-weight: 700; text-align: left; line-height: 1.15; }
 .brand img { width: 36px; height: 42px; object-fit: contain; }
+.brand small { display: block; margin-top: 5px; color: var(--text-muted); font-size: 11px; font-weight: 400; letter-spacing: .03em; }
 .account-controls { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
 .account-controls .secondary-button { min-width: 74px; min-height: 42px; border-color: var(--border); }
 .app-sidebar { grid-column: 1; grid-row: 2; position: sticky; top: 0; height: calc(100vh - var(--shell-header-height)); padding: 24px 16px; display: flex; flex-direction: column; border-right: 1px solid var(--border-light); background: #fff; }
@@ -17,6 +18,7 @@
  .app-shell { --shell-header-height: 72px; grid-template-columns: 1fr; grid-template-rows: var(--shell-header-height) auto minmax(0, 1fr); }
  .app-header { padding: 0 16px; }
  .brand { font-size: 24px; }
+ .brand small { font-size: 10px; }
  .app-sidebar { position: static; grid-column: 1; grid-row: 2; height: auto; min-height: 0; padding: 8px 12px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border-light); }
  .app-sidebar nav { display: flex; width: max-content; } .app-sidebar nav > button { min-height: 44px; width: auto; white-space: nowrap; padding: 0 14px; }
  .app-main { grid-column: 1; grid-row: 3; padding: 24px 18px 40px; }

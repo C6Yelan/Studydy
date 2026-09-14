@@ -18,50 +18,63 @@ async function signedIn(page: Page) {
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: id } }));
 }
 
-for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
+for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
   for (const state of ["empty", "active", "no_safe", "completed", "map", "unpublished", "loading", "failure"] as const) {
-    test(`home ${state} at ${viewport.width}px has one next action and two navigation items`, async ({ page }) => {
+    test(`full dashboard ${state} at ${viewport.width}px retains simplified navigation`, async ({ page }) => {
       await page.setViewportSize(viewport); await signedIn(page);
       let failed = state === "failure", waiting = state === "loading";
       let release!: () => void; const pending = new Promise<void>(resolve => { release = resolve; });
-      const items = state === "empty" || state === "loading" || state === "failure" ? [] : [{ ...material,
-        available_structures: state === "unpublished" ? [] : material.available_structures,
-        study_sessions: ["active", "no_safe", "completed"].includes(state) ? [{ ...active, status: state as "active" | "no_safe" | "completed" }] : [] }];
+      const empty = ["empty", "loading", "failure"].includes(state);
+      const hasState = ["active", "no_safe", "completed"].includes(state);
+      const items = empty ? [] : [{ ...material, available_structures: state === "unpublished" ? [] : material.available_structures,
+        study_sessions: hasState ? [{ ...active, status: state as "active" | "no_safe" | "completed" }] : [] }];
       await page.route("**/v1/materials", async route => {
         if (waiting) await pending;
-        return failed ? route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: id, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Unavailable" } }) : route.fulfill({ json: { schema: "material-library/v2", materials: items } });
+        return failed ? route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: id, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Request could not be completed." } }) : route.fulfill({ json: { schema: "material-library/v2", materials: items } });
       });
       await page.goto("/");
       const home = page.locator(".dashboard");
-      await expect(home.getByRole("heading", { level: 1 })).toHaveText("首頁");
-      const nav = page.getByRole("navigation", { name: "主要導覽" });
-      await expect(nav.getByRole("button")).toHaveText(["首頁", "我的教材"]);
-      await expect(nav.getByRole("button").first()).toHaveAttribute("aria-current", "page");
-      await expect(page.locator(".account-avatar, .sidebar-helper, .nav-unavailable, .brand small")).toHaveCount(0);
+      await expect(home.getByRole("heading", { level: 1 })).toHaveText("歡迎回來！");
+      await expect(page.getByRole("navigation", { name: "主要導覽" }).getByRole("button")).toHaveText(["首頁", "我的教材"]);
+      await expect(page.locator(".account-avatar, .sidebar-helper, .nav-unavailable")).toHaveCount(0);
+      await expect(page.locator(".brand small")).toHaveText("AI 智慧學習平台");
       await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
-      await expect(home.locator(".dashboard-stats, .dashboard-stat, .dashboard-help, .dashboard-features, .library-grid")).toHaveCount(0);
-      if (state === "loading") {
-        await expect(home.getByRole("status")).toContainText("正在讀取學習進度"); waiting = false; release();
-      }
+      await expect(home.locator(".dashboard-hero")).toBeVisible();
+      await expect(home.getByRole("heading", { name: "建立你的知識地圖", level: 2, exact: true })).toBeVisible();
+      const help = page.getByRole("complementary", { name: "Studydy 學習協助" });
+      await expect(help).toBeVisible();
+      await expect(help.locator("article")).toHaveCount(4);
+      await expect(help.getByRole("button")).toHaveCount(0);
+      const stats = home.locator(".dashboard-stats");
+      await expect(stats.getByRole("button")).toHaveCount(4);
+      if (state === "loading" || state === "failure") await expect(stats.locator("strong")).toHaveText(["—", "—", "—", "—"]);
+      if (state === "loading") { await expect(stats).toHaveAttribute("aria-busy", "true"); waiting = false; release(); }
       if (state === "failure") {
-        await expect(home.getByRole("alert")).toContainText("無法讀取學習進度");
+        await expect(home.getByRole("alert")).toContainText("資料服務暫時無法使用");
         await expect(home.getByRole("button", { name: "上傳教材", exact: true })).toBeEnabled();
         failed = false; await home.getByRole("button", { name: "重新讀取", exact: true }).click();
       }
-      const empty = ["empty", "loading", "failure"].includes(state);
-      await expect(home.locator(".dashboard-onboarding")).toHaveCount(empty ? 1 : 0);
-      await expect(home.locator(".dashboard-next")).toHaveCount(empty ? 0 : 1);
-      await expect(home.locator(".primary-button")).toHaveCount(1);
-      const label = empty ? "上傳第一份教材" : state === "map" ? "開啟知識地圖" : state === "unpublished" ? "前往我的教材" : state === "completed" ? "查看學習成果" : "繼續學習";
-      await expect(home.locator(".primary-button")).toHaveText(label);
-      if (!empty && state !== "unpublished") await expect(home.locator(".dashboard-next")).toContainText(longName);
+      await expect(stats.locator("strong")).toHaveText([empty ? "0" : "1", empty || state === "unpublished" ? "0" : "1", hasState ? "1" : "0", state === "completed" ? "1" : "0"]);
+      await expect(home.locator(".dashboard-resume")).toHaveCount(hasState ? 1 : 0);
+      if (hasState) await expect(home.locator(".dashboard-resume p")).toHaveText(longName);
+      const main = (await home.locator(".dashboard-primary").boundingBox())!, rail = (await help.boundingBox())!;
+      if (viewport.width >= 1440) { expect(rail.x).toBeGreaterThanOrEqual(main.x + main.width + 20); expect(rail.width).toBeGreaterThanOrEqual(280); expect(rail.width).toBeLessThanOrEqual(320); expect(Math.abs(main.y - rail.y)).toBeLessThan(2); }
+      else expect(rail.y).toBeGreaterThanOrEqual(main.y + main.height);
+      if (viewport.width > 600) { await expect(home.locator(".hero-illustration")).toBeVisible(); await expect.poll(() => home.locator(".hero-illustration img").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true); }
+      else await expect(home.locator(".hero-illustration")).toBeHidden();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await page.screenshot({ path: `/tmp/studydy-simple-home-${viewport.width}-${state}.png`, fullPage: true });
-      const action = home.getByRole("button", { name: label, exact: true });
-      await action.focus(); await page.keyboard.press("Enter");
-      const map = `/materials/${id}/runs/${id}/knowledge-structures/${encodeURIComponent(revision)}`;
-      await expect.poll(() => new URL(page.url()).pathname).toBe(empty ? "/upload" : state === "map" ? map : state === "unpublished" ? "/materials" : `${map}/study-sessions/${id}`);
-      if (empty || state === "unpublished") await expect(page.getByRole("navigation", { name: "主要導覽" }).getByRole("button").last()).toHaveAttribute("aria-current", "page");
+      await page.screenshot({ path: `/tmp/studydy-restored-home-${viewport.width}-${state}.png`, fullPage: true });
+      if (hasState) {
+        const action = home.getByRole("button", { name: state === "completed" ? "查看學習成果" : "繼續學習", exact: true });
+        await action.focus(); await page.keyboard.press("Enter");
+        await expect.poll(() => new URL(page.url()).pathname).toBe(`/materials/${id}/runs/${id}/knowledge-structures/${encodeURIComponent(revision)}/study-sessions/${id}`);
+      } else {
+        await home.getByRole("button", { name: "上傳教材", exact: true }).click();
+        await expect(page).toHaveURL(/\/upload$/);
+      }
+      await page.goto("/");
+      await home.getByRole("button", { name: "前往我的教材", exact: true }).click();
+      await expect(page).toHaveURL(/\/materials$/);
     });
   }
 }
@@ -77,26 +90,29 @@ test("home chooses active exact-bound state before newer completion and ignores 
   ];
   await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: items } }));
   await page.goto("/");
-  await expect(page.locator(".dashboard-next h2")).toHaveText("Active.pdf");
+  await expect(page.locator(".dashboard-resume p")).toHaveText("Active.pdf");
   await page.getByRole("button", { name: "繼續學習", exact: true }).click();
   expect(new URL(page.url()).pathname).toBe(`/materials/${secondId}/runs/${id}/knowledge-structures/${encodeURIComponent(revision)}/study-sessions/${id}`);
   items = items.filter(item => item.material_id !== secondId);
   await page.goto("/");
-  await expect(page.locator(".dashboard-next h2")).toHaveText("Completed.pdf");
+  await expect(page.locator(".dashboard-resume p")).toHaveText("Completed.pdf");
   items = items.filter(item => item.display_name !== "Completed.pdf");
   await page.reload();
-  await expect(page.getByRole("button", { name: "開啟知識地圖", exact: true })).toBeVisible();
+  await expect(page.locator(".dashboard-resume")).toHaveCount(0);
+  await expect(page.locator(".dashboard-stat strong")).toHaveText(["1", "1", "0", "0"]);
   await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toHaveCount(0);
 });
 
-test("standard sidebar has only Home and Materials on all management routes", async ({ page }) => {
+
+test("all four overview stats use Materials and count only exact canonical states", async ({ page }) => {
   await signedIn(page);
-  await page.route("**/v1/material-processing-runs/*", route => route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: id, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Unavailable" } }));
-  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [] } }));
-  for (const path of ["/", "/materials", "/upload", `/materials/${id}/runs/${id}`]) {
-    await page.goto(path);
-    const nav = page.getByRole("navigation", { name: "主要導覽" });
-    await expect(nav.getByRole("button")).toHaveText(["首頁", "我的教材"]);
-    await expect(nav.getByRole("button").nth(path === "/" ? 0 : 1)).toHaveAttribute("aria-current", "page");
+  const stale = { ...active, study_session_id: "33333333-3333-4333-8333-333333333333", knowledge_structure_revision: `knowledge-structure:sha256:${"b".repeat(64)}` };
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [{ ...material, study_sessions: [stale, active, { ...active, study_session_id: "22222222-2222-4222-8222-222222222222" }] }] } }));
+  for (let index = 0; index < 4; index++) {
+    await page.goto("/");
+    await expect(page.locator(".dashboard-stat strong")).toHaveText(["1", "1", "1", "0"]);
+    await page.locator(".dashboard-stat").nth(index).focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/materials$/);
   }
 });
