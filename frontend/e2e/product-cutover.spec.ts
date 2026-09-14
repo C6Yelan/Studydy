@@ -1316,18 +1316,6 @@ test("three map tabs cycle and missing path references still fail the strict API
   await expect(page.getByRole("navigation", { name: "學習導覽" })).toHaveCount(0);
 });
 
-test("learning summary returns to the Focus navigator without a standalone path view", async ({ page }) => {
-  await learningMapRoutes(page, learningMap(8), true, "assess");
-  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
-  await expect(page.getByRole("button", { name: "繼續本次學習", exact: true })).toBeEnabled();
-  await page.getByRole("tab", { name: "總覽", exact: true }).click();
-  await page.locator(".map-summary-container > summary").click();
-  await page.getByRole("button", { name: /查看學習導覽/ }).click();
-  await expect(page.getByRole("tab", { name: "概念地圖", exact: true })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("navigation", { name: "學習導覽" })).toBeVisible();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.locator(".path-section, .learning-path")).toHaveCount(0);
-});
 
 for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 390, height: 844 }]) {
   test(`flat learning navigation keeps current 4, selected 20 and next 5 distinct at ${viewport.width}px`, async ({ page }) => {
@@ -2700,3 +2688,35 @@ for (const count of [0, 30]) test(`review ${count} weak concepts preserves membe
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
 });
+
+for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
+  for (const progressState of ["available", "null", "error"]) test(`map has no global learning summary with ${progressState} progress at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await learningMapRoutes(page, learningMap(8), progressState !== "null");
+    if (progressState === "error") await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { detail: "Unavailable" }, 503));
+    await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+    if (progressState === "available") await expect(page.getByRole("button", { name: "繼續本次學習", exact: true })).toBeEnabled();
+    for (const tabName of ["概念地圖", "總覽", "複習重點"]) {
+      const tab = page.getByRole("tab", { name: tabName, exact: true });
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
+      const panel = page.getByRole("tabpanel");
+      await expect(panel).toHaveAttribute("aria-labelledby", await tab.getAttribute("id") as string);
+      await expect(page.getByText("學習摘要", { exact: true })).toHaveCount(0);
+      await expect(page.locator(".map-summary-container, .map-learning-summary, .summary-progress")).toHaveCount(0);
+      await expect(page.locator(".map-facts")).toContainText("8概念");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      const adjacent = await page.locator(".map-tabs").evaluate(el => el.nextElementSibling?.classList.contains("map-content"));
+      expect(adjacent).toBe(true);
+      if (tabName === "複習重點") {
+        if (progressState === "available") await expect(page.locator(".review-workspace")).toBeVisible();
+        else await expect(page.locator(".review-empty")).toContainText(progressState === "error" ? "暫時無法顯示複習重點" : "練習後，幫你找出複習方向");
+      }
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ path: `/tmp/studydy-summary-${viewport.width}-${progressState}-${tabName}.png`, fullPage: true });
+    }
+    await page.getByRole("tab", { name: "複習重點", exact: true }).focus();
+    await page.keyboard.press("Home");
+    await expect(page.getByRole("tab", { name: "概念地圖", exact: true })).toBeFocused();
+  });
+}

@@ -555,11 +555,6 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
   const selectedRelation = view.relations.find((relation) => relation.relation_id === relationId);
   const query = searchQuery.trim().toLocaleLowerCase();
   const searchResults = query ? view.concepts.filter((concept) => [concept.label, ...concept.aliases, ...concept.claims.map((claim) => claim.text)].some((text) => text.toLocaleLowerCase().includes(query))) : [];
-  const nextConcept = progress && ["advance", "review_prerequisite", "resume"].includes(progress.next_action.action)
-    ? view.concepts.find(concept => concept.concept_id === progress.next_action.target_concept_id) : undefined;
-  const nextCaption = nextConcept ? "建議接著學習" : "教材導覽";
-  const weakCount = progress?.concept_states.filter((state) => state.status === "needs_review").length ?? 0;
-  const masteredCount = progress?.concept_states.filter((state) => state.status === "mastered").length ?? 0;
   const selectedConcept = useMemo(() => view.concepts.find((concept) =>
     concept.concept_id === detailConceptId) ?? null, [detailConceptId, view.concepts]);
 
@@ -677,12 +672,6 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
         ))}
       </div>
       {view.excluded_pages.length > 0 && <p className="form-error" role="status">第 {view.excluded_pages.map((item) => item.page).join("、")} 頁未能整理，可在總覽查看說明。</p>}
-      {progress && <details className="map-summary-container"><summary>學習摘要</summary><div className="map-learning-summary has-progress" aria-label="探索摘要">
-        <button type="button" onClick={() => mode !== "focus" ? focusInMap(selectedConceptId) : openConceptDetail(selectedConceptId)}><Icon name="book" /><span><small>目前焦點</small><strong>{view.concepts.find((concept) => concept.concept_id === selectedConceptId)?.label}</strong></span><Icon name="chevron-right" /></button>
-        <button type="button" onClick={() => nextConcept ? (mode !== "focus" ? focusInMap(nextConcept.concept_id) : openConceptDetail(nextConcept.concept_id)) : selectMode("focus")}><Icon name="learning" /><span><small>{nextCaption}</small><strong>{nextConcept?.label ?? "查看學習導覽"}</strong></span><Icon name="chevron-right" /></button>
-        <button type="button" onClick={() => selectMode("review")}><Icon name="warning" /><span><small>複習重點</small><strong>{`${weakCount} 個概念`}</strong></span></button>
-        <div className="summary-progress"><Icon name="check" /><span><small>最近一次學習</small><strong>{`${masteredCount} / ${view.concepts.length} 已掌握`}</strong></span></div>
-      </div></details>}
       <div className="map-content">
         <div aria-labelledby={`map-tab-${mode}`} className="map-view" id={`map-panel-${mode}`} role="tabpanel" tabIndex={0}>
           {mode === "overview" && <Overview focusInMap={focusInMap} view={view} />}
