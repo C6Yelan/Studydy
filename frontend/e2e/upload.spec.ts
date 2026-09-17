@@ -50,7 +50,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
       await expect(upload.locator("img")).toHaveCount(1);
       await expect(upload.locator(".upload-aside > .surface")).toHaveCount(1);
       await expect(upload.getByRole("region", { name: "檔案需求" })).toContainText("PDF（.pdf）· 最大 100 MiB");
-      await expect(upload.locator(".privacy-note")).toContainText("教材只交由本機 Studydy 流程處理");
+      await expect(upload.locator(".privacy-note")).toContainText("教材由 Studydy 處理，語意分析使用配置的 AI 服務");
       if (["selected", "long-name", "submitting", "api-failure"].includes(state)) {
         const file = state === "long-name" ? { ...pdf, name: "資料結構_" + "LongUnbrokenFilename".repeat(7) + ".pdf" } : pdf;
         await input.setInputFiles(file);
@@ -70,7 +70,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
         if (state === "submitting") {
           await expect(submit).toBeDisabled(); await expect(input).toBeDisabled();
           await expect(upload.getByRole("button", { name: "移除", exact: true })).toBeDisabled();
-          await expect(submit).toHaveText("正在上傳並建立分析…");
+          await expect(submit).toHaveText("正在上傳…");
           await expect(page.locator(".file-drop")).toHaveClass(/is-disabled/);
         } else {
           await expect(upload.getByRole("alert")).toContainText("資料服務暫時無法使用"); await expect(submit).toBeEnabled();
@@ -105,7 +105,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
         await expect(drop).not.toContainText(filename!);
         expect((await drop.locator(".file-drop__icon").boundingBox())!.width).toBe(42);
       } else expect(dropHeight).toBe(initialHeight);
-      expect(await upload.evaluate(element => getComputedStyle(element).maxWidth)).toBe("1180px");
+      expect(await upload.evaluate(element => getComputedStyle(element).maxWidth)).toBe("1280px");
       const card = await upload.locator(".upload-card").boundingBox();
       const rail = await upload.locator(".upload-aside").boundingBox();
       if (viewport.width > 1200) {
@@ -226,7 +226,7 @@ for (const stage of ["material", "run"] as const) {
     await submit.click(); await expect(page.getByRole("alert")).toContainText("資料服務暫時無法使用");
     await expect(page).toHaveURL(/\/upload$/); await expect(submit).toBeEnabled();
     await expect(page.locator(".chosen-file strong")).toHaveText(pdf.name);
-    await expect(page.locator(".chosen-file")).toContainText("準備上傳");
+    await expect(page.locator(".chosen-file")).toContainText(stage === "run" ? "已上傳，可重試建立處理任務" : "準備上傳");
     await expect(page.locator(".chosen-file")).not.toContainText("需要修正");
     await expect(page.locator("#upload-submit-error")).toHaveAttribute("role", "alert");
     await expect(page.locator("#upload-file-error")).toHaveCount(0);
@@ -236,7 +236,8 @@ for (const stage of ["material", "run"] as const) {
     if (stage === "material") expect(runs).toHaveLength(0);
     fail = false; await submit.click();
     await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${runId}$`));
-    expect(uploads).toHaveLength(2); expect(uploads[1]).toBe(uploads[0]);
+    expect(uploads).toHaveLength(stage === "run" ? 1 : 2);
+    if (stage === "material") expect(uploads[1]).toBe(uploads[0]);
     expect(runs).toHaveLength(stage === "run" ? 2 : 1);
     if (stage === "run") expect(runs[1]).toBe(runs[0]);
   });
@@ -287,4 +288,88 @@ test("task supporting rail stacks before the main upload area becomes cramped", 
   const card = await page.locator(".upload-card").boundingBox(); const rail = await page.locator(".upload-aside").boundingBox();
   expect(rail!.y).toBeGreaterThan(card!.y + card!.height);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1100);
+});
+
+test("nested drag, Escape and picker cancel preserve a stable single-file selection", async ({ page }) => {
+  await signedIn(page); await page.goto("/upload");
+  const drop = page.locator(".file-drop"), child = drop.locator("strong");
+  const input = page.getByLabel("選擇 PDF 教材", { exact: true });
+  await input.setInputFiles(pdf);
+  const data = await transfer(page, [{ name: "replacement.pdf", type: "application/pdf" }]);
+  await drop.dispatchEvent("dragenter", { dataTransfer: data });
+  await child.dispatchEvent("dragenter", { dataTransfer: data });
+  await child.dispatchEvent("dragleave", { dataTransfer: data });
+  await expect(drop).toHaveClass(/is-dragging/);
+  await page.keyboard.press("Escape"); await expect(drop).not.toHaveClass(/is-dragging/);
+  await input.dispatchEvent("cancel");
+  await expect(page.locator(".chosen-file strong")).toHaveText(pdf.name);
+  await input.setInputFiles(pdf);
+  await expect(page.locator(".chosen-file strong")).toHaveText(pdf.name);
+  await drop.dispatchEvent("dragenter", { dataTransfer: data });
+  await drop.dispatchEvent("dragleave", { dataTransfer: data });
+  await expect(drop).not.toHaveClass(/is-dragging/);
+  await data.dispose();
+});
+
+for (const kind of ["text/plain", "text/uri-list", "folder"] as const) {
+  test(`${kind} drag is not accepted as a PDF or submitted as the previous file`, async ({ page }) => {
+    await signedIn(page); await page.goto("/upload");
+    await page.getByLabel("選擇 PDF 教材", { exact: true }).setInputFiles(pdf);
+    const drop = page.locator(".file-drop");
+    const data = await page.evaluateHandle(kind => {
+      const transfer = new DataTransfer();
+      if (kind === "folder") {
+        transfer.items.add(new File([], "folder.pdf"));
+        // Chromium 每次索引可能回傳不同 wrapper，於測試 context 的原型模擬資料夾 entry。
+        Object.defineProperty(DataTransferItem.prototype, "webkitGetAsEntry", { configurable: true, value: () => ({ isDirectory: true }) });
+      } else transfer.setData(kind, "https://example.invalid/notes.pdf");
+      return transfer;
+    }, kind);
+    await drop.dispatchEvent("dragenter", { dataTransfer: data });
+    if (kind !== "folder") await expect(drop).not.toHaveClass(/is-dragging/);
+    await drop.dispatchEvent("drop", { dataTransfer: data });
+    await expect(page.getByRole("alert")).toContainText(kind === "folder" ? "不接受資料夾" : "不接受文字或網址");
+    await expect(page.locator(".chosen-file")).toHaveCount(0);
+    await expect(page.locator(".upload-card .full-button")).toBeDisabled();
+    await expect(drop).not.toHaveClass(/is-dragging/);
+    await data.dispose();
+  });
+}
+
+test("lost run response retries only the same run intent after a confirmed upload", async ({ page }) => {
+  await signedIn(page);
+  let uploads = 0; const keys: string[] = [];
+  let release!: () => void; const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/v1/materials", route => { uploads++; return route.fulfill({ status: 201, json: material }); });
+  await page.route("**/v1/material-processing-runs", async route => {
+    keys.push(route.request().headers()["idempotency-key"]);
+    if (keys.length === 1) { await pending; await route.abort("connectionreset"); }
+    else await route.fulfill({ status: 201, json: run });
+  });
+  await page.goto("/upload"); await page.getByLabel("選擇 PDF 教材", { exact: true }).setInputFiles(pdf);
+  await page.locator(".upload-card .full-button").click();
+  await expect(page.getByRole("button", { name: "正在建立處理任務…" })).toBeDisabled();
+  await expect(page.locator(".chosen-file")).toContainText("已上傳，正在建立處理任務");
+  await expect(page.getByRole("button", { name: "移除", exact: true })).toBeDisabled();
+  release(); await expect(page.getByRole("alert")).toBeVisible();
+  await page.getByRole("button", { name: "重試建立處理任務" }).click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${runId}$`));
+  expect(uploads).toBe(1); expect(keys).toHaveLength(2); expect(keys[1]).toBe(keys[0]);
+});
+
+test("lost upload response replays the original key and creates one bound run", async ({ page }) => {
+  await signedIn(page); const keys: string[] = []; let runs = 0;
+  await page.route("**/v1/materials", route => {
+    keys.push(route.request().headers()["idempotency-key"]);
+    return keys.length === 1 ? route.abort("connectionreset") : route.fulfill({ status: 201, json: material });
+  });
+  await page.route("**/v1/material-processing-runs", route => {
+    runs++; expect(route.request().postDataJSON().material_id).toBe(materialId);
+    return route.fulfill({ status: 201, json: run });
+  });
+  await page.goto("/upload"); await page.getByLabel("選擇 PDF 教材", { exact: true }).setInputFiles(pdf);
+  await page.locator(".upload-card .full-button").click(); await expect(page.getByRole("alert")).toBeVisible();
+  expect(runs).toBe(0); await page.locator(".upload-card .full-button").click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${runId}$`));
+  expect(keys).toHaveLength(2); expect(keys[1]).toBe(keys[0]); expect(runs).toBe(1);
 });

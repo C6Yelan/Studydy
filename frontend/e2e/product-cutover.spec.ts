@@ -631,7 +631,7 @@ test("shared shell density keeps standard pages and map workspace bounded", asyn
       }
       if (!["map", "home", "materials", "maps", "upload", "processing", "study"].includes(name) && viewport.width > 900) await expect(page.locator(".sidebar-helper")).toBeVisible();
       if (["home", "materials", "maps", "upload", "processing", "study"].includes(name)) await expect(page.locator(".sidebar-helper")).toHaveCount(0);
-      const widths: Record<string, string> = { home: "1260px", materials: "1260px", maps: "1260px", detail: "1018px", processing: "1180px", upload: "1180px" };
+      const widths: Record<string, string> = { home: "1280px", materials: "1280px", maps: "1280px", detail: "1280px", processing: "1280px", upload: "1280px" };
       if (widths[name]) expect(await page.locator(".app-main > *").first().evaluate(element => getComputedStyle(element).maxWidth)).toBe(widths[name]);
       await expect(page.locator(".task-page")).toHaveCount(["upload", "processing"].includes(name) ? 1 : 0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
@@ -2809,3 +2809,38 @@ test("a new structure may create a distinct persistent state without focusing th
   await expect(page).toHaveURL(new RegExp(`/study-sessions/${nextStateId}$`));
   expect(created).toBe(1);
 });
+
+test("embedded empty state retains one page heading and existing Map overview in B1", async ({ page }, info) => {
+  const view = structureView();
+  view.document_tree.sections = [];
+  view.concepts.forEach(concept => { concept.section_ids = []; });
+  view.relations = [];
+  await routes(page, view);
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+  await page.getByRole("tab", { name: "總覽", exact: true }).click();
+  const state = page.locator(".state-view--embedded");
+  await expect(state.getByRole("heading", { level: 2 })).toHaveText("目前沒有可探索的教材段落");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+  await page.screenshot({ path: info.outputPath("embedded-empty.png"), fullPage: true });
+});
+
+for (const width of [320, 390, 1366, 1920]) {
+  test(`workspace bounds and actions survive ${width}px and 200 percent equivalent reflow`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 1080 }); await routes(page);
+    const map = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
+    for (const path of [map, `${map}/study-sessions/${sessionId}`]) {
+      await page.setViewportSize({ width, height: 1080 });
+      await page.goto(path);
+      const workspace = page.locator(path === map ? ".map-workspace" : ".study-session-page");
+      await expect(workspace).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+      if (width >= 1366) {
+        // 200% 桌機縮放對應一半 CSS viewport；保留相同字級驗證重排。
+        await page.setViewportSize({ width: width / 2, height: 540 });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width / 2);
+        await expect(page.getByRole("button", { name: "我的教材", exact: true })).toBeVisible();
+      }
+      await page.screenshot({ path: info.outputPath(path === map ? "map.png" : "study.png"), fullPage: true });
+    }
+  });
+}

@@ -175,7 +175,7 @@ function Overview({ focusInMap, view }: {
           })}</ul>
         </details></li>;
       })}</ol></div>
-    </section> : <StateView title="目前沒有可探索的教材段落" description="這份教材尚無包含概念的段落。" tone="empty" />}
+    </section> : <StateView variant="embedded" title="目前沒有可探索的教材段落" description="這份教材尚無包含概念的段落。" tone="empty" />}
     {view.excluded_pages.length > 0 && <section className="material-quality" aria-label="未能整理的頁面"><h3>有些頁面未能整理</h3><p>第 {view.excluded_pages.map((item) => item.page).join("、")} 頁未納入概念與練習，這些內容請從原始 PDF 閱讀。</p></section>}
   </div>;
 }

@@ -11,6 +11,7 @@ export function StateView({
   live = false,
   title,
   tone,
+  variant = "page",
 }: {
   action?: React.ReactNode;
   description: string;
@@ -19,19 +20,21 @@ export function StateView({
   live?: boolean;
   title: string;
   tone: StateTone;
+  variant?: "page" | "embedded";
 }) {
+  const Heading = variant === "embedded" ? "h2" : "h1";
   const isFailure = tone === "failure";
   return (
     <section
-      aria-live={live ? "polite" : undefined}
-      className={`state-view is-${tone}`}
+      aria-live={live && !isFailure ? "polite" : undefined}
+      className={`state-view state-view--${variant} is-${tone}`}
       role={isFailure ? "alert" : undefined}
     >
       {image ? <img className="state-view__image" src={image} alt="" /> : (
         <span className="state-view__icon"><Icon name={icon} size={26} /></span>
       )}
       {tone === "loading" && <span className="loading-ring" aria-hidden="true" />}
-      <h1>{title}</h1>
+      <Heading>{title}</Heading>
       <p>{description}</p>
       {action && <div className="state-view__actions">{action}</div>}
     </section>

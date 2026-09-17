@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import { writeRoute } from "../../app/routes";
@@ -13,14 +13,36 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [phase, setPhase] = useState<"idle" | "uploading" | "creating-run">("idle");
+  const isSubmitting = phase !== "idle";
+  const receipt = useRef<Awaited<ReturnType<StudydyApiClient["createMaterial"]>> | null>(null);
   const submitting = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
+  const dragDepth = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
   const uploadKey = useRef(crypto.randomUUID());
   const runKey = useRef(crypto.randomUUID());
 
+  const clearDrag = () => { dragDepth.current = 0; setIsDragging(false); };
+  useEffect(() => {
+    const cancel = (event: KeyboardEvent) => { if (event.key === "Escape") clearDrag(); };
+    const input = fileInput.current;
+    input?.addEventListener("cancel", clearDrag);
+    window.addEventListener("keydown", cancel);
+    window.addEventListener("drop", clearDrag);
+    window.addEventListener("dragend", clearDrag);
+    window.addEventListener("blur", clearDrag);
+    return () => {
+      input?.removeEventListener("cancel", clearDrag);
+      window.removeEventListener("keydown", cancel);
+      window.removeEventListener("drop", clearDrag);
+      window.removeEventListener("dragend", clearDrag);
+      window.removeEventListener("blur", clearDrag);
+    };
+  }, []);
+
   const chooseFiles = (files: FileList | null) => {
+    receipt.current = null;
     uploadKey.current = crypto.randomUUID();
     runKey.current = crypto.randomUUID();
     const selection = validatePdfSelection(files);
@@ -40,11 +62,15 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
       return;
     }
     submitting.current = true;
-    setIsSubmitting(true);
+    clearDrag();
+    setPhase(receipt.current ? "creating-run" : "uploading");
     setFileError(null);
     setSubmitError(null);
     try {
-      const material = await apiClient.createMaterial(file, uploadKey.current, file.name);
+      // 上傳已成功時保留回執；建立任務重試不重新上傳 PDF。
+      const material = receipt.current ?? await apiClient.createMaterial(file, uploadKey.current, file.name);
+      receipt.current = material;
+      setPhase("creating-run");
       const run = await apiClient.createMaterialRun({
         schema: "material-processing-create/v1",
         material_id: material.material_id,
@@ -54,7 +80,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
     } catch (error) {
       setSubmitError(errorMessage(error));
       submitting.current = false;
-      setIsSubmitting(false);
+      setPhase("idle");
     }
   };
 
@@ -82,17 +108,28 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             className={`file-drop${file ? " has-file" : ""}${isSubmitting ? " is-disabled" : ""}${isDragging ? " is-dragging" : ""}`}
             onDragEnter={(event) => {
               event.preventDefault();
-              if (!isSubmitting) setIsDragging(true);
+              if (!submitting.current && event.dataTransfer.types.includes("Files")) {
+                dragDepth.current++;
+                setIsDragging(true);
+              }
             }}
             onDragOver={(event) => {
               event.preventDefault();
-              if (!isSubmitting) event.dataTransfer.dropEffect = "copy";
+              event.dataTransfer.dropEffect = !submitting.current && event.dataTransfer.types.includes("Files") ? "copy" : "none";
             }}
-            onDragLeave={() => setIsDragging(false)}
+            onDragLeave={() => {
+              dragDepth.current = Math.max(0, dragDepth.current - 1);
+              if (dragDepth.current === 0) setIsDragging(false);
+            }}
             onDrop={(event) => {
               event.preventDefault();
-              setIsDragging(false);
-              if (!isSubmitting) chooseFiles(event.dataTransfer.files);
+              clearDrag();
+              if (submitting.current) return;
+              const folder = Array.from(event.dataTransfer.items).some(item => item.webkitGetAsEntry?.()?.isDirectory);
+              if (folder || !event.dataTransfer.types.includes("Files")) {
+                chooseFiles(null);
+                setFileError(folder ? "不接受資料夾，請選擇一份 PDF。" : "請拖曳一份 PDF 檔案，不接受文字或網址。");
+              } else chooseFiles(event.dataTransfer.files);
             }}
           >
             <input
@@ -103,7 +140,8 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
               aria-describedby={fileError ? "upload-file-error" : undefined}
               aria-invalid={fileError ? true : undefined}
               disabled={isSubmitting}
-              onChange={(event) => chooseFiles(event.currentTarget.files)}
+              onClick={(event) => { event.currentTarget.value = ""; }}
+              onChange={(event) => { if (event.currentTarget.files?.length) chooseFiles(event.currentTarget.files); }}
             />
             <span className="file-drop__icon"><Icon name="upload" size={28} /></span>
             <strong>{file ? "拖放或點擊以更換 PDF" : "將 PDF 拖放到此處"}</strong>
@@ -115,13 +153,15 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
               <span className="file-kind"><Icon name="file" /></span>
               <div>
                 <strong>{file.name}</strong>
-                <small>{formatFileSize(file.size)} · 準備上傳</small>
+                <small role="status">{formatFileSize(file.size)} · {phase === "uploading" ? "上傳中" : phase === "creating-run" ? "已上傳，正在建立處理任務" : receipt.current ? "已上傳，可重試建立處理任務" : "準備上傳"}</small>
               </div>
               <button
                 className="text-button"
                 disabled={isSubmitting}
                 type="button"
                 onClick={() => {
+                  receipt.current = null;
+                  clearDrag();
                   setFile(null);
                   setFileError(null);
                   setSubmitError(null);
@@ -137,9 +177,9 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
           {submitError && <p className="form-error" id="upload-submit-error" role="alert">{submitError}</p>}
           <button className="primary-button full-button" type="button" disabled={!file || isSubmitting} onClick={submit}>
             <Icon name="upload" size={18} />
-            {isSubmitting ? "正在上傳並建立分析…" : "上傳並開始分析"}
+            {phase === "uploading" ? "正在上傳…" : phase === "creating-run" ? "正在建立處理任務…" : receipt.current ? "重試建立處理任務" : "上傳並開始分析"}
           </button>
-          <p className="privacy-note"><Icon name="lock" size={14} /> 教材只交由本機 Studydy 流程處理</p>
+          <p className="privacy-note"><Icon name="lock" size={14} /> 教材由 Studydy 處理，語意分析使用配置的 AI 服務</p>
         </section>
 
         <aside className="upload-aside" aria-label="教材處理說明">
