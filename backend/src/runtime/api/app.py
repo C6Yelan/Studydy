@@ -7,7 +7,7 @@ import ipaddress
 import json
 import tempfile
 from typing import Any, Callable, Iterator
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request, Response
@@ -19,6 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHttpException
 from starlette.routing import Match
 
 from .models import (
+    MaterialDraftCreate, MaterialDraftView, SourceListView, RevisionCreate, SourceCapabilities, EvidenceSourceView,
     AccountCredentials,
     LearnerIdentityView,
     AnswerFeedbackView,
@@ -83,12 +84,21 @@ from ..storage.artifacts import (
 from ..storage.knowledge_structures import read_knowledge_structure
 from ..storage.materials import MaterialLibraryError, read_material_library, rename_material
 from ..workers import start_runtime_workers
+from ..source_normalization import SourceError,create_draft,upload_source,read_sources,retry_normalization,create_revision
+from ..source_resolver import resolve_evidence_source
+from ..storage.source_artifacts import open_verified_artifact
+from ..storage.tables import Artifact,Material,MaterialSource,database_session
+from sqlalchemy import select
+from document_normalization.converter import MAX_FILE_BYTES,MIME,configured_python,NormalizationError
 
 
 _COOKIE_NAME = "studydy_session"
 _ERROR_MESSAGE = "Request could not be completed."
 _SOURCE_LIMIT = 104_857_600
 _ERROR_STATUS = {
+    "SOURCE_NOT_READY": (409, True),
+    "SINGLE_SOURCE_ONLY": (400, False),
+    "NORMALIZER_UNAVAILABLE": (503, True),
     "REQUEST_INVALID": (400, False),
     "INVALID_EMAIL": (400, False),
     "INVALID_CREDENTIALS": (401, False),
@@ -217,6 +227,7 @@ def _error_response(reason_code: str, *, status_code: int | None = None) -> JSON
 
 def _fixed_exception(error: Exception) -> str:
     reason = str(error)
+    if isinstance(error,(SourceError,NormalizationError)) and reason in _ERROR_STATUS:return reason
     if reason == "MATERIAL_NOT_DISCARDABLE" or (isinstance(error, MaterialDiscardError) and reason == "RESOURCE_NOT_FOUND"):
         return reason
     if isinstance(error, MaterialLibraryError) and reason in {"REQUEST_INVALID", "RESOURCE_NOT_FOUND", "MATERIAL_NOT_DISCARDABLE"}:
@@ -334,6 +345,7 @@ def _install_openapi(app: FastAPI) -> None:
     """補上 raw PDF、cookie/header 與固定錯誤契約。"""
 
     idempotent_paths = {
+        "/v2/materials", "/v2/materials/{material_id}/sources", "/v2/materials/{material_id}/revisions",
         "/v1/materials",
         "/v1/material-processing-runs",
         "/v1/study-sessions",
@@ -380,15 +392,15 @@ def _install_openapi(app: FastAPI) -> None:
                             "schema": {"type": "string", "minLength": 1, "maxLength": 256},
                         }
                     )
-                if path == "/v1/materials" and method == "post":
+                if path in {"/v1/materials", "/v2/materials/{material_id}/sources"} and method == "post":
                     operation.setdefault("parameters", []).append({
-                        "name": "X-Material-Name", "in": "header", "required": False,
+                        "name": "X-Material-Name", "in": "header", "required": path.startswith("/v2/"),
                         "description": "URI-encoded UTF-8 filename, 1–200 decoded characters; first upload owns the name.",
                         "schema": {"type": "string", "maxLength": 2400},
                     })
                     operation["requestBody"] = {
                         "required": True,
-                        "content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}},
+                        "content": {media:{"schema":{"type":"string","format":"binary"}} for media in (MIME.values() if path.startswith("/v2/") else ["application/pdf"])},
                     }
                 if path == "/v1/artifacts/{artifact_id}" and method == "get":
                     operation["responses"]["200"] = {
@@ -418,7 +430,7 @@ def _install_openapi(app: FastAPI) -> None:
                     response_codes.add(404)
                 if path in idempotent_paths and method == "post":
                     response_codes.add(409)
-                if path == "/v1/materials" and method == "post":
+                if path in {"/v1/materials","/v2/materials/{material_id}/sources"} and method == "post":
                     response_codes.update({413, 415})
                 if (
                     path
@@ -615,6 +627,76 @@ def create_app(settings: ApiSettings) -> FastAPI:
                 "size_bytes": published.size_bytes,
             }
         )
+
+    def source_listing(owner,material_id):
+        sources=read_sources(owner,material_id,dsn=settings.dsn)
+        with database_session(settings.dsn) as session:
+            material=session.scalar(select(Material).where(Material.learner_id==owner,Material.material_id==material_id))
+            if material is None:raise SourceError("RESOURCE_NOT_FOUND")
+            discarding=material.discard_requested_at is not None
+        return SourceListView(material_id=material_id,sources=sources,discard_requested=discarding)
+
+    @app.get("/v2/source-capabilities",response_model=SourceCapabilities)
+    def source_capabilities(request:Request):
+        _require_query(request,set());_trusted_learner(request,settings)
+        enabled=configured_python() is not None
+        return SourceCapabilities(formats=[{"extension":ext,"media_type":media,"max_bytes":MAX_FILE_BYTES} for ext,media in MIME.items() if ext==".pdf" or enabled],
+            quality_notice="建議優先上傳 PDF。其他支援格式會自動轉為 PDF，轉換品質不保證，請檢查轉換後內容。")
+
+    @app.post("/v2/materials",status_code=201,response_model=MaterialDraftView)
+    def create_material_draft(request:Request,body:MaterialDraftCreate):
+        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
+        return MaterialDraftView(material_id=create_draft(owner,body.display_name,_idempotency_key(request),dsn=settings.dsn))
+
+    @app.post("/v2/materials/{material_id}/sources",status_code=202,response_model=SourceListView)
+    async def upload_material_source(request:Request,material_id:UUID):
+        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id;key=_idempotency_key(request)
+        names=request.headers.getlist("x-material-name")
+        if len(names)!=1 or len(names[0])>2400:raise _ApiFailure("REQUEST_INVALID")
+        try:name=unquote(names[0],encoding="utf-8",errors="strict")
+        except UnicodeError:raise _ApiFailure("REQUEST_INVALID") from None
+        data=bytearray()
+        async for chunk in request.stream():
+            if len(data)+len(chunk)>MAX_FILE_BYTES:raise _ApiFailure("MATERIAL_TOO_LARGE")
+            data.extend(chunk)
+        await run_in_threadpool(upload_source,owner,material_id,bytes(data),name,request.headers.get("content-type"),key,dsn=settings.dsn)
+        return source_listing(owner,material_id)
+
+    @app.get("/v2/materials/{material_id}/sources",response_model=SourceListView)
+    def get_material_sources(request:Request,material_id:UUID):
+        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
+        return source_listing(owner,material_id)
+
+    @app.post("/v2/materials/{material_id}/sources/{normalization_id}/retry",response_model=SourceListView)
+    async def retry_material_source(request:Request,material_id:UUID,normalization_id:UUID):
+        _require_query(request,set());await _require_empty_body(request);owner=_trusted_learner(request,settings).learner_id
+        retry_normalization(owner,material_id,normalization_id,dsn=settings.dsn)
+        return source_listing(owner,material_id)
+
+    @app.post("/v2/materials/{material_id}/revisions",status_code=202,response_model=MaterialProcessingRunView)
+    def create_material_revision(request:Request,material_id:UUID,body:RevisionCreate):
+        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
+        return project_material_run(create_revision(owner,material_id,body.normalization_ids,_idempotency_key(request),deepcopy(settings.local_config),dsn=settings.dsn))
+
+    @app.get("/v2/materials/{material_id}/knowledge-structures/{revision}/evidence/{evidence_id}/source",response_model=EvidenceSourceView)
+    def evidence_source(request:Request,material_id:UUID,revision:str,evidence_id:str):
+        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
+        return resolve_evidence_source(owner,material_id,revision,evidence_id,dsn=settings.dsn)
+
+    @app.get("/v2/artifacts/{artifact_id}",response_class=StreamingResponse)
+    def original_artifact(request:Request,artifact_id:UUID):
+        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
+        with database_session(settings.dsn) as session:
+            artifact=session.get(Artifact,artifact_id)
+            if artifact is None or artifact.learner_id!=owner or artifact.kind not in {"original","source_pdf"}:raise _ApiFailure("RESOURCE_NOT_FOUND")
+            media=artifact.media_type
+            original_name=session.scalar(select(MaterialSource.original_name).where(MaterialSource.learner_id==owner,MaterialSource.original_artifact_id==artifact_id))
+        context=open_verified_artifact(owner,artifact_id,dsn=settings.dsn)
+        try:source=context.__enter__()
+        except Exception:raise _ApiFailure("RESOURCE_NOT_FOUND") from None
+        extension=next((ext for ext,mime in MIME.items() if mime==media),".bin")
+        return StreamingResponse(_verified_source_iterator(context,source),media_type=media,
+            headers={"Content-Disposition":f'attachment; filename="material{extension}"; filename*=UTF-8\'\'{quote(original_name or ("material"+extension),safe="")}',"X-Content-Type-Options":"nosniff","Content-Length":str(source.size_bytes)})
 
     @app.post(
         "/v1/material-processing-runs",

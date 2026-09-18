@@ -41,7 +41,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
         for (const id of pendingRemovals.current) {
           if (!materials.some(item => item.material_id === id)) pendingRemovals.current.delete(id);
         }
-        if (pendingRemovals.current.size > 0 || materials.some(item => item.latest_attempt?.status === "pending" || item.latest_attempt?.status === "running")) {
+        if (pendingRemovals.current.size > 0 || materials.some(item => item.latest_attempt?.status === "pending" || item.latest_attempt?.status === "running" || item.source?.status === "pending" || item.source?.status === "running")) {
           timer = window.setTimeout(read, 3000);
         }
       } catch (error) {
@@ -120,14 +120,16 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
           setReload(value => value + 1);
         }} />
         <p>{new Date(item.created_at).toLocaleString()} · {formatFileSize(item.size_bytes)}</p>
-        <a className="text-button material-source-link" href={deleting ? undefined : apiClient.sourceArtifactUrl(item.source_artifact_id)} target="_blank" rel="noopener noreferrer" aria-disabled={deleting || undefined} tabIndex={deleting ? -1 : undefined}>原始 PDF <span aria-hidden="true">↗</span></a>
-        {showLatestState && <p className={`library-state is-${latest?.status ?? "uploaded"}`}>最新處理：{latest ? materialRunLabel(latest.status, latest.cancel_requested_at) : "已上傳，尚未開始處理"}</p>}
+        {item.source_artifact_id && <a className="text-button material-source-link" href={deleting ? undefined : apiClient.sourceArtifactUrl(item.source_artifact_id)} target="_blank" rel="noopener noreferrer" aria-disabled={deleting || undefined} tabIndex={deleting ? -1 : undefined}>{item.ingestion_kind ? "轉換後 PDF" : "原始 PDF"} <span aria-hidden="true">↗</span></a>}
+        {item.source&&<a className="text-button material-source-link" href={deleting?undefined:`/v2/artifacts/${item.source.original_artifact_id}`} target="_blank" rel="noopener noreferrer" aria-disabled={deleting || undefined} tabIndex={deleting ? -1 : undefined}>下載原檔 · {item.source.original_name.split(".").pop()?.toUpperCase()}</a>}
+        {showLatestState && <p className={`library-state is-${latest?.status ?? (item.source?.status === "ready" ? "succeeded" : item.source?.status) ?? "uploaded"}`}>{!latest && item.ingestion_kind ? "教材轉換" : "最新處理"}：{latest ? materialRunLabel(latest.status, latest.cancel_requested_at) : item.ingestion_kind ? item.source?.status==="ready" ? "已轉換，可開始分析" : item.source?.status==="failed" ? "轉換失敗" : "等待或正在轉換" : "已上傳，尚未開始處理"}</p>}
         {latest && (latest.status === "running" || latest.status === "pending") && <p>{materialProgressStageLabel(latest.progress_stage)} · 已完成 {latest.completed_pages} 頁{latest.total_pages !== null && `／共 ${latest.total_pages} 頁`}</p>}
         {latest?.status === "failed" && <p>{materialFailureMessage(latest.error_code ?? "")}{available.length > 0 && " 先前已發布的知識地圖仍可開啟。"}</p>}
         <fieldset className="state-actions" disabled={deleting}>
           {busyRun ? <button className="primary-button" type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看處理狀態</button> : <>
             {studyAction}{mapAction}
-            {(!latest || latest.status === "failed") && learningState?.status !== "completed" && <MaterialRunStartControl key={`${item.material_id}:${latest?.run_id ?? "new"}`} apiClient={apiClient} materialId={item.material_id} sourceArtifactId={item.source_artifact_id} initial={!latest} primary={!structure && !learningState} />}
+            {item.ingestion_kind&&(!latest||latest.status==="failed")&&<button className="primary-button" onClick={()=>writeRoute({name:"material-sources",materialId:item.material_id})}>查看轉換與分析</button>}
+            {!item.ingestion_kind && item.source_artifact_id && (!latest || latest.status === "failed") && learningState?.status !== "completed" && <MaterialRunStartControl key={`${item.material_id}:${latest?.run_id ?? "new"}`} apiClient={apiClient} materialId={item.material_id} sourceArtifactId={item.source_artifact_id} initial={!latest} primary={!structure && !learningState} />}
             {latest?.status === "failed" && <button className={structure ? "text-button" : "secondary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看失敗詳情</button>}
           </>}
         </fieldset>

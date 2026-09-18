@@ -1,3 +1,4 @@
+const browserOrigin = process.env.STUDYDY_E2E_BASE_URL ?? "http://127.0.0.1:4173";
 import { expect, test, type Page } from "@playwright/test";
 import type { MaterialLibraryView } from "../src/api/contracts";
 
@@ -44,10 +45,10 @@ test("fresh profiles discover their own materials and reopen both exact publishe
   await expect(freshPage.locator(".sidebar-helper")).toHaveCount(0);
   await expect(freshPage.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveClass("primary-button");
   await freshPage.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
-  await expect(freshPage).toHaveURL(`http://127.0.0.1:4173${newerPath}`);
+  await expect(freshPage).toHaveURL(`${browserOrigin}${newerPath}`);
   await expect(freshPage.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
   // 教材卡只提供最新版本；舊版本仍須能由 server library 回傳的連結精確讀取。
-  const library: MaterialLibraryView = await (await fresh.request.get("http://127.0.0.1:4173/v1/materials")).json();
+  const library: MaterialLibraryView = await (await fresh.request.get(`${browserOrigin}/v1/materials`)).json();
   const material = library.materials.find(item => item.display_name === "堆疊講義.pdf")!;
   expect(material.available_structures).toHaveLength(2);
   for (const structure of material.available_structures) {
@@ -58,19 +59,19 @@ test("fresh profiles discover their own materials and reopen both exact publishe
   const card = freshPage.getByRole("article", { name: "堆疊講義.pdf", exact: true });
   await expect(card.getByRole("button", { name: "堆疊講義.pdf", exact: true })).toHaveCount(0);
   const pdfUrl = await card.getByRole("link", { name: "原始 PDF", exact: true }).getAttribute("href");
-  const pdf = await fresh.request.get(`http://127.0.0.1:4173${pdfUrl}`);
+  const pdf = await fresh.request.get(`${browserOrigin}${pdfUrl}`);
   expect(pdf.status()).toBe(200);
   expect(pdf.headers()["cache-control"]).toBe("private, no-store");
   expect((await pdf.body()).subarray(0, 4).toString()).toBe("%PDF");
   await freshPage.getByRole("article", { name: "堆疊講義.pdf", exact: true }).getByRole("button", { name: "開啟知識地圖", exact: true }).click();
-  await expect(freshPage).toHaveURL(`http://127.0.0.1:4173${newerPath}`);
+  await expect(freshPage).toHaveURL(`${browserOrigin}${newerPath}`);
   await expect(freshPage.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
   await freshPage.getByRole("button", { name: "登出", exact: true }).click();
   await expect(freshPage.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   await login(freshPage, "library_b@example.com");
   await expect(freshPage.getByRole("article", { name: "B 的私人教材.pdf", exact: true })).toBeVisible();
   await expect(freshPage.getByText("堆疊講義.pdf", { exact: true })).toHaveCount(0);
-  expect((await fresh.request.get(`http://127.0.0.1:4173${pdfUrl}`)).status()).toBe(404);
+  expect((await fresh.request.get(`${browserOrigin}${pdfUrl}`)).status()).toBe(404);
   await freshPage.goBack();
   await expect(freshPage.getByRole("button", { name: "教材概念：Stack", exact: true })).toHaveCount(0);
   await fresh.close();

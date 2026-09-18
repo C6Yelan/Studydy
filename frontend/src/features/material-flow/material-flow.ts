@@ -93,6 +93,8 @@ export function materialRunLabel(status: MaterialProcessingRunView["status"], ca
 }
 
 export function materialFailureMessage(errorCode: string): string {
+  if (errorCode === "SEMANTIC_INPUT_TOO_LARGE") return "教材內容與累積概念超過目前分析輸入限制，沒有發布知識地圖。請先調整分析設定，再重試。";
+  if (errorCode === "SEMANTIC_BUDGET_EXHAUSTED") return "目前開發測試的 AI 呼叫額度已用完，沒有發布知識地圖。請先確認測試額度，再重試。";
   if (errorCode === "RESTART_INTERRUPTED") return "服務重新啟動時中斷了這次處理。";
   if (errorCode === "MATERIAL_CONFIGURATION_INVALID" || errorCode === "RUNTIME_BINDING_INVALID") {
     return "本機教材處理環境未通過安全檢查。";

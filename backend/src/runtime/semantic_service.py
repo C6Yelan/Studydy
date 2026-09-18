@@ -10,6 +10,8 @@ from urllib.parse import urlsplit
 import httpx
 
 from pdf_evidence.ocr_page_evidence import canonical_bytes
+from knowledge_map.structure import semantic_response_schema
+from . import command_semantics
 
 
 API_KEY_ENV = "VLLM_API_KEY"
@@ -95,6 +97,8 @@ def preflight_semantic_service(
 ) -> None:
     """確認既有 resident vLLM 的版本、模型與 32K tokenizer contract。"""
 
+    if command_semantics.settings() is not None:
+        return
     service = _service(runtime_lock)
     owned = client is None
     http = semantic_client() if client is None else client
@@ -216,6 +220,12 @@ def request_semantics(
 ) -> dict[str, Any]:
     """所有產品語意共用同一 resident service 與同一 transport boundary。"""
 
+    if command_semantics.settings() is not None:
+        try:
+            task_lock=runtime_lock["assessment" if task=="assessment_check" else task]
+            return command_semantics.request(task_lock[("check_" if task=="assessment_check" else "")+"prompt"],request,response_schema)
+        except command_semantics.CommandSemanticError as error:
+            raise SemanticServiceError(str(error)) from None
     service = _service(runtime_lock)
     try:
         task_lock = runtime_lock["assessment" if task == "assessment_check" else task]
@@ -291,6 +301,11 @@ def material_request_fits(
 ) -> bool:
     """使用 resident tokenizer 與正式推論相同的 prompt 和輸出預算。"""
 
+    config=command_semantics.settings()
+    if config is not None:
+        schema = semantic_response_schema([row[0] for section in request["sections"] for row in section["evidence"]])
+        payload = command_semantics.encode_payload(runtime_lock["material_semantics"]["prompt"], request, schema)
+        return len(payload) <= config["max_input_bytes"]
     service = _service(runtime_lock)
     task = runtime_lock["material_semantics"]
     try:

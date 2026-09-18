@@ -1,3 +1,4 @@
+import type { SourceView, SourceListView, SourceCapabilities, EvidenceSourceView } from "./contracts";
 import type {
   AnswerFeedbackView,
   AnswerSubmissionCreate,
@@ -31,6 +32,7 @@ const knownReasons = new Set<KnownApiReasonCode>([
   "INVALID_CREDENTIALS", "ACCOUNT_UNAVAILABLE", "REQUEST_INVALID", "SESSION_REQUIRED", "ORIGIN_NOT_ALLOWED", "RESOURCE_NOT_FOUND",
   "IDEMPOTENCY_CONFLICT", "NO_SAFE_ASSESSMENT", "MATERIAL_TOO_LARGE",
   "MATERIAL_NOT_DISCARDABLE",
+  "SOURCE_NOT_READY", "SINGLE_SOURCE_ONLY", "NORMALIZER_UNAVAILABLE",
   "MATERIAL_PDF_INVALID", "UNSUPPORTED_MEDIA_TYPE", "STORAGE_UNAVAILABLE", "INTERNAL_ERROR",
 ]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -95,7 +97,7 @@ function materialDiscard(value: unknown): value is MaterialDiscardView {
 
 function materialRun(value: unknown): value is MaterialProcessingRunView {
   const item = object(value);
-  if (!item || item.schema !== "material-processing-run/v5" || !materialAttempt(item)) return false;
+  if (!item || !["material-processing-run/v5", "material-processing-run/v6"].includes(String(item.schema)) || !materialAttempt(item)) return false;
   if (typeof item.material_id !== "string" || !uuid.test(item.material_id) || typeof item.source_artifact_id !== "string" || !uuid.test(item.source_artifact_id)) return false;
   if (!timestamp(item.updated_at) || !(item.completed_at === null || timestamp(item.completed_at))) return false;
   if (item.status === "succeeded" || item.status === "partial") {
@@ -112,13 +114,39 @@ function materialRun(value: unknown): value is MaterialProcessingRunView {
   return item.output_binding === null && (["pending", "running"].includes(String(item.status)) ? item.completed_at === null : item.completed_at !== null);
 }
 
+function sourceView(value: unknown): value is SourceView {
+  const item=object(value);
+  return !!item && [item.source_id,item.normalization_id,item.original_artifact_id].every(v=>typeof v==="string" && uuid.test(v))
+    && typeof item.original_name==="string" && typeof item.media_type==="string"
+    && ["pending","running","ready","failed"].includes(String(item.status))
+    && (item.normalized_artifact_id===null || typeof item.normalized_artifact_id==="string" && uuid.test(item.normalized_artifact_id))
+    && (item.page_count===null || Number.isInteger(item.page_count) && Number(item.page_count)>0)
+    && (item.error_code===null || typeof item.error_code==="string");
+}
+function sourceList(value: unknown): value is SourceListView {
+  const item=object(value); return !!item && item.schema==="material-sources/v1" && typeof item.material_id==="string" && uuid.test(item.material_id)
+    && (item.discard_requested===undefined || typeof item.discard_requested==="boolean") && Array.isArray(item.sources) && item.sources.every(sourceView);
+}
+function capabilities(value: unknown): value is SourceCapabilities {
+  const item=object(value); return !!item && item.schema==="source-capabilities/v1" && typeof item.quality_notice==="string"
+    && Array.isArray(item.formats) && item.formats.every(v=>{ const f=object(v); return !!f && typeof f.extension==="string"
+      && [".pdf",".docx",".pptx",".doc",".ppt",".txt",".md"].includes(f.extension) && typeof f.media_type==="string" && Number.isInteger(f.max_bytes) && Number(f.max_bytes)>0; });
+}
+function evidenceSource(value:unknown): value is EvidenceSourceView {
+  const item=object(value);return !!item && item.schema==="evidence-source/v1" && ["pdf","docx","pptx","doc","ppt","txt","md"].includes(String(item.format))
+    && typeof item.original_name==="string" && typeof item.label==="string" && ["exact","ambiguous","unavailable"].includes(String(item.accuracy))
+    && Number.isInteger(item.normalized_page) && Number(item.normalized_page)>0 && Array.isArray(item.origin_locators)
+    && [item.original_url,item.preview_url].every(v=>typeof v==="string" && /^\/v[12]\/artifacts\/[0-9a-f-]+(?:#page=\d+)?$/.test(v));
+}
+
 function libraryItem(value: unknown): value is MaterialLibraryItem {
   const item = object(value);
-  if (!item || item.schema !== "material-library-item/v2"
+  if (!item || !["material-library-item/v2", "material-library-item/v3"].includes(String(item.schema))
     || typeof item.material_id !== "string" || !uuid.test(item.material_id)
-    || typeof item.source_artifact_id !== "string" || !uuid.test(item.source_artifact_id)
+    || !(typeof item.source_artifact_id === "string" && uuid.test(item.source_artifact_id) || item.schema === "material-library-item/v3" && item.source_artifact_id === null)
+    || (item.source !== undefined && !sourceView(item.source))
     || typeof item.display_name !== "string" || !item.display_name.trim()
-    || !Number.isInteger(item.size_bytes) || Number(item.size_bytes) < 1
+    || !Number.isInteger(item.size_bytes) || Number(item.size_bytes) < (item.schema === "material-library-item/v3" ? 0 : 1)
     || typeof item.created_at !== "string" || !Number.isFinite(Date.parse(item.created_at))
     || !Array.isArray(item.available_structures) || !Array.isArray(item.study_sessions)) return false;
   if (!item.study_sessions.every((value) => {
@@ -153,7 +181,8 @@ function locator(value: unknown): boolean {
 
 function knowledgeStructure(value: unknown): value is KnowledgeStructureView {
   const item = object(value);
-  if (!item || item.schema !== "knowledge-structure-view/v2" || !revision(item.knowledge_structure_revision, "knowledge-structure")) return false;
+  if (!item || !["knowledge-structure-view/v2", "knowledge-structure-view/v3"].includes(String(item.schema)) || !revision(item.knowledge_structure_revision, "knowledge-structure")) return false;
+  if (item.schema === "knowledge-structure-view/v3" && (typeof item.source_resolver !== "string" || !item.source_resolver.startsWith("/v2/materials/"))) return false;
   if (!Array.isArray(item.concepts) || !Array.isArray(item.relations) || !Array.isArray(item.initial_learning_path)) return false;
   const concepts = item.concepts as unknown[];
   const conceptIds: string[] = [];
@@ -274,10 +303,13 @@ function safeMessage(reason: ApiReasonCode): string {
   if (reason === "INVALID_CREDENTIALS") return "Email 或密碼不正確。";
   if (reason === "ACCOUNT_UNAVAILABLE") return "這個 Email 已被使用，請使用其他 Email。";
   if (reason === "RESOURCE_NOT_FOUND") return "找不到這筆資料，或你沒有權限讀取。";
+  if (reason === "SOURCE_NOT_READY") return "教材尚未完成轉換，請稍後再開始分析。";
+  if (reason === "SINGLE_SOURCE_ONLY") return "每份教材目前只能包含一個來源檔案。";
+  if (reason === "NORMALIZER_UNAVAILABLE") return "轉換工具目前不可用，仍可使用 PDF 上傳。";
   if (reason === "NO_SAFE_ASSESSMENT") return "目前沒有可安全提供的新題目。";
-  if (reason === "MATERIAL_TOO_LARGE") return "PDF 不可超過 100 MiB。";
+  if (reason === "MATERIAL_TOO_LARGE") return "每個檔案不可超過 100 MiB。";
   if (reason === "MATERIAL_PDF_INVALID") return "這份 PDF 已損毀、加密或無法開啟。";
-  if (reason === "UNSUPPORTED_MEDIA_TYPE") return "只接受 PDF 教材。";
+  if (reason === "UNSUPPORTED_MEDIA_TYPE") return "此檔案格式目前不支援，請優先使用 PDF。";
   if (reason === "STORAGE_UNAVAILABLE") return "資料服務暫時無法使用，請稍後再試。";
   if (reason === "MATERIAL_NOT_DISCARDABLE") return "這份教材正在刪除，無法進行這項操作。";
   return "請求無法完成，請稍後再試。";
@@ -436,6 +468,25 @@ export class StudydyApiClient {
     const headers: Record<string, string> = { "Content-Type": "application/pdf", Origin: origin(), "Idempotency-Key": key };
     if (displayName !== undefined) headers["X-Material-Name"] = encodeURIComponent(displayName);
     return this.json("/v1/materials", { method: "POST", headers, body: pdf }, material);
+  }
+
+  sourceCapabilities(): Promise<SourceCapabilities> { return this.json("/v2/source-capabilities",{method:"GET"},capabilities); }
+  createDraft(name:string,key:string): Promise<{schema:"material-draft/v1";material_id:string}> {
+    return this.post("/v2/materials",{schema:"material-draft-create/v1",display_name:name},key,
+      (value): value is {schema:"material-draft/v1";material_id:string} => {const item=object(value);return !!item && item.schema==="material-draft/v1" && typeof item.material_id==="string" && uuid.test(item.material_id);});
+  }
+  uploadSource(materialId:string,file:File,mediaType:string,key:string): Promise<SourceListView> {
+    return this.json(`/v2/materials/${encodeURIComponent(materialId)}/sources`,{method:"POST",body:file,
+      headers:{"Content-Type":mediaType,Origin:origin(),"Idempotency-Key":key,"X-Material-Name":encodeURIComponent(file.name)}},sourceList);
+  }
+  getSources(materialId:string): Promise<SourceListView> {return this.json(`/v2/materials/${encodeURIComponent(materialId)}/sources`,{method:"GET"},sourceList);}
+  retryNormalization(materialId:string,id:string): Promise<SourceListView> {return this.json(`/v2/materials/${encodeURIComponent(materialId)}/sources/${encodeURIComponent(id)}/retry`,{method:"POST",headers:{Origin:origin()}},sourceList);}
+  createRevision(materialId:string,normalizationId:string,key:string): Promise<MaterialProcessingRunView> {
+    return this.post(`/v2/materials/${encodeURIComponent(materialId)}/revisions`,{schema:"material-revision-create/v1",base_revision:null,normalization_ids:[normalizationId]},key,materialRun);
+  }
+  resolveEvidence(base:string,evidenceId:string): Promise<EvidenceSourceView> {
+    if (!base.startsWith("/v2/materials/")) throw new Error("SOURCE_ROUTE_INVALID");
+    return this.json(`${base}/${encodeURIComponent(evidenceId)}/source`,{method:"GET"},evidenceSource);
   }
 
   listMaterials(): Promise<MaterialLibraryView> {

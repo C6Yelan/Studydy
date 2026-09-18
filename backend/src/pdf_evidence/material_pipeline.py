@@ -191,6 +191,7 @@ def _reason(error: Exception) -> str:
         "PROTOCOL_LIMIT_EXCEEDED", "SEMANTIC_SERVICE_TIMEOUT",
         "SEMANTIC_SERVICE_UNAVAILABLE", "SEMANTIC_RESPONSE_INVALID",
         "SEMANTIC_OUTPUT_INVALID", "SEMANTIC_OUTPUT_TRUNCATED",
+        "SEMANTIC_INPUT_TOO_LARGE", "SEMANTIC_BUDGET_EXHAUSTED",
     }
     return reason if reason in allowed else "MATERIAL_ANALYSIS_FAILED"
 
@@ -285,7 +286,7 @@ def analyze_material(
     client: httpx.Client | None = None,
     semantic_call: Callable[..., dict[str, Any]] = request_semantics,
 ) -> dict[str, Any]:
-    """Evidence → unified Gemma semantics → deterministic canonical structure。"""
+    """Evidence → 設定的語意模型 → deterministic canonical structure。"""
 
     lock = validate_runtime_lock(settings.get("runtime_lock"))
     resolved_run = run_id or str(uuid4())
@@ -330,6 +331,9 @@ def analyze_material(
                     bundle = next(bundles)
                 except StopIteration:
                     break
+                except ValueError as error:
+                    # 分批器也可能在呼叫模型前拒絕輸入，保留可公開的原因碼。
+                    raise MaterialAnalysisError(_reason(error)) from None
                 request_document = semantic_request(context, bundle, state)
                 last_error: Exception | None = None
                 for _attempt in range(lock["material_semantics"]["retry_attempts"]):
@@ -370,16 +374,19 @@ def analyze_material(
             if owned_client:
                 http.close()
         semantic_duration_ms = round((time.monotonic() - semantic_started) * 1000)
-    service = lock["semantic_service"]
+    from runtime.command_semantics import identity
+    command=identity(lock)
+    service = lock["semantic_service"] if command is None else {"model_id":command["model_id"],"revision":command["model_revision"]}
     return build_knowledge_structure(
         context,
         state,
         source_sha256=checked["expected_source_sha256"],
         run_id=resolved_run,
         produced_at=resolved_time,
-        runtime_lock_sha256=canonical_sha256(lock),
+        runtime_lock_sha256=canonical_sha256(lock) if command is None else command["runtime_lock_sha256"],
         model_id=service["model_id"],
         model_revision=service["revision"],
+        execution_identity=command,
         semantic_calls=semantic_calls,
         ocr_calls=ocr_calls,
         evidence_duration_ms=evidence_duration_ms,

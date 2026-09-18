@@ -1,3 +1,4 @@
+import { SourceButton } from "../../ui/SourceButton";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
@@ -206,16 +207,7 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
         <div className="feedback-evidence">
           <h3>教材依據</h3>
           {evidencePages.map((page) => (
-            <button
-              className="text-button"
-              key={page}
-              type="button"
-              onClick={() => window.open(
-                apiClient.sourceArtifactUrl(sourceArtifactId, page),
-                "_blank",
-                "noopener,noreferrer",
-              )}
-            >原始教材第 {page} 頁<Icon name="chevron-right" /></button>
+            <SourceButton apiClient={apiClient} artifactId={sourceArtifactId} page={page} key={page} resolver={view.source_resolver} evidenceId={evidence.find(e=>e.page===page)?.evidence_id}>原始教材第 {page} 頁<Icon name="chevron-right" /></SourceButton>
           ))}
         </div>
         {canCreateAssessment && <div className="assessment-actions">
@@ -239,16 +231,7 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
               <strong>{claim.text}</strong>
               <div>
                 {claim.evidence.map((evidence) => (
-                  <button
-                    className="text-button"
-                    key={evidence.evidence_id}
-                    type="button"
-                    onClick={() => window.open(
-                      apiClient.sourceArtifactUrl(sourceArtifactId, evidence.page),
-                      "_blank",
-                      "noopener,noreferrer",
-                    )}
-                  >查看教材第 {evidence.page} 頁<Icon name="chevron-right" /></button>
+                  <SourceButton apiClient={apiClient} artifactId={sourceArtifactId} page={evidence.page} key={evidence.evidence_id} resolver={view.source_resolver} evidenceId={evidence.evidence_id}>查看教材第 {evidence.page} 頁<Icon name="chevron-right" /></SourceButton>
                 ))}
               </div>
             </article>
@@ -296,8 +279,7 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
       <h3>教材重點</h3>
       <ul>{previewPrerequisite.claims.map(claim => <li key={claim.claim_id}>{claim.text}</li>)}</ul>
       <section className="assessment-prerequisite-sources" aria-label="前置概念教材來源">
-        <h3>教材來源</h3><div>{pages.map(page => <button className="text-button" type="button" key={page}
-          onClick={() => window.open(apiClient.sourceArtifactUrl(sourceArtifactId, page), "_blank", "noopener,noreferrer")}>第 {page} 頁<Icon name="chevron-right" /></button>)}</div>
+        <h3>教材來源</h3><div>{pages.map(page => <SourceButton apiClient={apiClient} artifactId={sourceArtifactId} page={page} key={page} resolver={view.source_resolver} evidenceId={previewPrerequisite.claims.flatMap(c=>c.evidence).find(e=>e.page===page)?.evidence_id}>第 {page} 頁<Icon name="chevron-right" /></SourceButton>)}</div>
       </section>
       <div className="assessment-actions"><button className="secondary-button" type="button" onClick={() => setPreviewPrerequisiteId(null)}>回到目前練習</button></div>
     </section>;

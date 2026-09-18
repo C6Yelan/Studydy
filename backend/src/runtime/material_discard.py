@@ -5,7 +5,7 @@ from sqlalchemy import delete, func, select
 
 from .material_processing import _request_cancellation_locked
 from .storage.artifacts import quarantine_source_pdf, reconcile_discarded_sources
-from .storage.tables import AnswerEvent, Assessment, Artifact, KnowledgeStructure, Material, MaterialProcessingRun, StudySession, database_session
+from .storage.tables import AnswerEvent, Assessment, Artifact, KnowledgeStructure, Material, MaterialProcessingRun, StudySession, SourceNormalization, MaterialSource, MaterialSourceSet, MaterialSourceSetItem, database_session
 
 
 class MaterialDiscardError(RuntimeError):
@@ -39,7 +39,7 @@ def request_material_discard(learner_id: UUID, material_id: UUID, *, dsn: str | 
 
 
 def purge_discarded_material(learner_id: UUID, material_id: UUID, *, dsn: str | None = None) -> bool:
-    artifact_id = None
+    artifact_ids = []
     try:
         with database_session(dsn) as session:
             material = session.scalar(select(Material).where(Material.material_id == material_id, Material.learner_id == learner_id).with_for_update())
@@ -58,26 +58,29 @@ def purge_discarded_material(learner_id: UUID, material_id: UUID, *, dsn: str | 
             study_ids = session.scalars(select(StudySession.study_session_id).where(
                 StudySession.learner_id == learner_id, StudySession.material_id == material_id,
             ).order_by(StudySession.study_session_id).with_for_update()).all()
-            artifact = session.scalar(select(Artifact).where(
-                Artifact.artifact_id == material.source_artifact_id, Artifact.material_id == material_id,
-                Artifact.learner_id == learner_id, Artifact.kind == "source_pdf",
-            ).with_for_update())
-            if artifact is None:
-                raise MaterialDiscardError("MATERIAL_DISCARD_STORAGE_FAILED")
-            artifact_id = artifact.artifact_id
-            quarantine_source_pdf(session, artifact_id)
+            normalizations=session.scalars(select(SourceNormalization).where(SourceNormalization.learner_id==learner_id,SourceNormalization.material_id==material_id).with_for_update()).all()
+            now=session.scalar(select(func.clock_timestamp()))
+            if any(n.status=="running" and n.lease_expires_at>now for n in normalizations):return False
+            artifacts=session.scalars(select(Artifact).where(Artifact.learner_id==learner_id,Artifact.material_id==material_id).order_by(Artifact.artifact_id).with_for_update()).all()
+            for artifact in artifacts:
+                artifact_ids.append(artifact.artifact_id)
+                quarantine_source_pdf(session,artifact.artifact_id)
+            material.head_revision=None
+            session.flush()
             session.execute(delete(AnswerEvent).where(AnswerEvent.study_session_id.in_(study_ids), AnswerEvent.material_id == material_id))
             session.execute(delete(Assessment).where(Assessment.study_session_id.in_(study_ids)))
             session.execute(delete(StudySession).where(StudySession.learner_id == learner_id, StudySession.material_id == material_id))
             session.execute(delete(KnowledgeStructure).where(KnowledgeStructure.learner_id == learner_id, KnowledgeStructure.material_id == material_id))
             session.execute(delete(MaterialProcessingRun).where(MaterialProcessingRun.learner_id == learner_id, MaterialProcessingRun.material_id == material_id))
-            session.execute(delete(Artifact).where(Artifact.learner_id == learner_id, Artifact.material_id == material_id, Artifact.artifact_id == artifact_id))
+            for table in (MaterialSourceSetItem,MaterialSourceSet,SourceNormalization,MaterialSource):
+                session.execute(delete(table).where(table.learner_id==learner_id,table.material_id==material_id))
+            session.execute(delete(Artifact).where(Artifact.learner_id == learner_id, Artifact.material_id == material_id))
             session.execute(delete(Material).where(Material.learner_id == learner_id, Material.material_id == material_id))
-        reconcile_discarded_sources(dsn=dsn, artifact_id=artifact_id)
+        for artifact_id in artifact_ids:reconcile_discarded_sources(dsn=dsn, artifact_id=artifact_id)
         return True
     except Exception as error:
         # 包含 commit 結果不明的連線錯誤；由新 transaction 查 DB authority 決定還原或 unlink。
-        if artifact_id is not None:
+        for artifact_id in artifact_ids:
             reconcile_discarded_sources(dsn=dsn, artifact_id=artifact_id)
         if isinstance(error, MaterialDiscardError):
             raise

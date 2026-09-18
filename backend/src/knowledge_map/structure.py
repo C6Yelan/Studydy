@@ -652,6 +652,7 @@ def build_knowledge_structure(
     ocr_calls: int,
     evidence_duration_ms: int = 0,
     semantic_duration_ms: int = 0,
+    execution_identity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     try:
         parsed_time = datetime.fromisoformat(produced_at)
@@ -662,8 +663,9 @@ def build_knowledge_structure(
         context.get("material_id") != f"material:sha256:{source_sha256}"
         or parsed_time.tzinfo is None
         or re.fullmatch(r"[0-9a-f]{64}", runtime_lock_sha256) is None
-        or model_id != "google/gemma-4-31B-it-qat-w4a16-ct"
-        or model_revision != "52f3f65bc7a02d555763bc923bd1d9094898219d"
+        or not isinstance(model_id,str) or not model_id
+        or not isinstance(model_revision,str) or not model_revision
+        or (execution_identity is None and (model_id!="google/gemma-4-31B-it-qat-w4a16-ct" or model_revision!="52f3f65bc7a02d555763bc923bd1d9094898219d"))
     ):
         raise ValueError("MATERIAL_IDENTITY_INVALID")
     evidence_by_id = {item["evidence_id"]: item for item in context["evidence"]}
@@ -783,7 +785,7 @@ def build_knowledge_structure(
         "reason_codes": reasons,
     }
     document = {
-        "schema": STRUCTURE_SCHEMA,
+        "schema": STRUCTURE_SCHEMA if execution_identity is None else "knowledge-structure/v3",
         "material_id": context["material_id"],
         "source_sha256": source_sha256,
         "run_id": run_id,
@@ -812,6 +814,7 @@ def build_knowledge_structure(
         },
         "status": status,
     }
+    if execution_identity is not None:document["execution_identity"]=deepcopy(execution_identity)
     document["revision"] = _revision(document)
     if not validate_knowledge_structure(document):
         raise ValueError("KNOWLEDGE_STRUCTURE_INVALID")
@@ -827,10 +830,17 @@ def validate_knowledge_structure(document: Any) -> bool:
             "provenance", "page_count", "evidence", "excluded_pages", "document_tree",
             "concepts", "relations", "initial_learning_path", "metrics", "status",
         }
+        if isinstance(document,dict) and document.get("schema")=="knowledge-structure/v3" and "input_binding" in document:
+            fields.add("input_binding")
+        execution=document.get("execution_identity") if isinstance(document,dict) else None
+        if execution is not None:
+            fields.add("execution_identity")
+            if document.get("schema")!="knowledge-structure/v3" or not isinstance(execution,dict) or set(execution)!={"transport","model_id","model_revision","config_sha256","runtime_lock_sha256"}:return False
+            if execution["transport"]!="command" or any(not isinstance(execution[k],str) or re.fullmatch(r"[0-9a-f]{64}",execution[k]) is None for k in ("config_sha256","runtime_lock_sha256")):return False
         if (
             not isinstance(document, dict)
             or set(document) != fields
-            or document["schema"] != STRUCTURE_SCHEMA
+            or document["schema"] not in {STRUCTURE_SCHEMA,"knowledge-structure/v3"}
             or document["revision"] != _revision(document)
             or not isinstance(document["source_sha256"], str)
             or re.fullmatch(r"[0-9a-f]{64}", document["source_sha256"]) is None
@@ -850,8 +860,10 @@ def validate_knowledge_structure(document: Any) -> bool:
                 "runtime_lock_sha256", "model_id", "model_revision", "semantic_policy"
             }
             or re.fullmatch(r"[0-9a-f]{64}", provenance["runtime_lock_sha256"]) is None
-            or provenance["model_id"] != "google/gemma-4-31B-it-qat-w4a16-ct"
-            or provenance["model_revision"] != "52f3f65bc7a02d555763bc923bd1d9094898219d"
+            or not isinstance(provenance["model_id"],str) or not provenance["model_id"]
+            or not isinstance(provenance["model_revision"],str) or not provenance["model_revision"]
+            or (execution is None and (provenance["model_id"]!="google/gemma-4-31B-it-qat-w4a16-ct" or provenance["model_revision"]!="52f3f65bc7a02d555763bc923bd1d9094898219d"))
+            or (execution is not None and any(execution[k]!=provenance[k] for k in ("model_id","model_revision","runtime_lock_sha256")))
             or provenance["semantic_policy"] != "unified-material-evidence-projection/v3"
         ):
             return False

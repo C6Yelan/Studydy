@@ -1,3 +1,4 @@
+import { SourceButton } from "../../ui/SourceButton";
 import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
@@ -130,7 +131,7 @@ export function StudySessionPage({ apiClient, route }: {
               <p className="eyebrow">教材重點</p><h2 id="study-content-title">{current.label}</h2>
               <ul className="study-claims">{current.claims.map(claim => <li key={claim.claim_id}>{claim.text}</li>)}</ul>
               <section className="study-sources" aria-label="教材來源"><h3>教材來源</h3><div>
-                {sourcePages.map(page => <button className="text-button" key={page} type="button" onClick={() => window.open(apiClient.sourceArtifactUrl(data.sourceArtifactId, page), "_blank", "noopener,noreferrer")}>第 {page} 頁<Icon name="chevron-right" /></button>)}
+                {sourcePages.map(page => <SourceButton key={page} apiClient={apiClient} artifactId={data.sourceArtifactId} page={page} resolver={data.view.source_resolver} evidenceId={current.claims.flatMap(c=>c.evidence).find(e=>e.page===page)?.evidence_id}>第 {page} 頁<Icon name="chevron-right" /></SourceButton>)}
               </div></section>
             </article>}
             <div className="study-current-action" id="assessment-panel">

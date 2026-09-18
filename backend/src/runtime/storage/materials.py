@@ -7,7 +7,7 @@ from sqlalchemy import case, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from .database import DatabaseConfigurationError
-from .tables import Artifact, KnowledgeStructure, Material, MaterialProcessingRun, StudySession, database_session
+from .tables import Artifact, KnowledgeStructure, Material, MaterialProcessingRun, StudySession, MaterialSource, SourceNormalization, database_session
 
 
 class MaterialLibraryError(RuntimeError):
@@ -22,8 +22,8 @@ def read_material_library(
         with database_session(dsn) as session:
             statement = select(
                 Material.material_id, Material.source_artifact_id, Material.display_name,
-                Material.created_at, Artifact.size_bytes,
-            ).join(Artifact, (Artifact.artifact_id == Material.source_artifact_id)
+                Material.created_at, Artifact.size_bytes, Material.ingestion_kind,
+            ).outerjoin(Artifact, (Artifact.artifact_id == Material.source_artifact_id)
                    & (Artifact.material_id == Material.material_id)
                    & (Artifact.learner_id == Material.learner_id)).where(Material.learner_id == learner_id)
             if material_id is not None:
@@ -69,6 +69,8 @@ def read_material_library(
                 & (KnowledgeStructure.structure_revision == StudySession.knowledge_structure_revision),
             ).where(StudySession.learner_id == learner_id, StudySession.material_id.in_(ids))
               .order_by(case((StudySession.status.in_(("active", "no_safe")), 0), else_=1), StudySession.started_at.desc(), StudySession.study_session_id.desc())).mappings().all()
+            source_rows=session.execute(select(MaterialSource,SourceNormalization,Artifact.size_bytes).join(SourceNormalization,SourceNormalization.source_id==MaterialSource.source_id).join(Artifact,Artifact.artifact_id==MaterialSource.original_artifact_id)
+                .where(MaterialSource.learner_id==learner_id,MaterialSource.material_id.in_(ids)).distinct(MaterialSource.source_id).order_by(MaterialSource.source_id,SourceNormalization.created_at.desc())).all()
     except (DatabaseConfigurationError, SQLAlchemyError):
         raise MaterialLibraryError("MATERIAL_LIBRARY_STORAGE_FAILED") from None
 
@@ -84,9 +86,15 @@ def read_material_library(
             continue
         seen_states.add(identity)
         sessions[row["material_id"]].append({key: value for key, value in row.items() if key != "material_id"})
+    sources={source.material_id:{"source_id":source.source_id,"normalization_id":job.normalization_id,"original_artifact_id":source.original_artifact_id,
+        "original_name":source.original_name,"media_type":source.media_type,"status":job.status,"error_code":job.error_code,
+        "normalized_artifact_id":job.normalized_artifact_id,"page_count":job.page_count} for source,job,_ in source_rows}
+    original_sizes={source.material_id:size for source,job,size in source_rows}
     return [{
-        "schema": "material-library-item/v2",
-        **row,
+        **{key:value for key,value in row.items() if key!="ingestion_kind"},
+        "schema": "material-library-item/v3" if row["ingestion_kind"]=="sources-v2" else "material-library-item/v2",
+        "size_bytes":original_sizes.get(row["material_id"],row["size_bytes"] or 0),
+        **({"source":sources.get(row["material_id"]),"ingestion_kind":"sources-v2"} if row["ingestion_kind"]=="sources-v2" else {}),
         "display_name": row["display_name"] or f"教材 {row['created_at']:%Y-%m-%d} · {str(row['material_id'])[:8]}",
         "latest_attempt": latest.get(row["material_id"]),
         "available_structures": published[row["material_id"]],

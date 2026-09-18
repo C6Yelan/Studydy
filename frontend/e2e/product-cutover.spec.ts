@@ -1,3 +1,4 @@
+const browserOrigin = process.env.STUDYDY_E2E_BASE_URL ?? "http://127.0.0.1:4173";
 import { expect, test, type Page, type Route } from "@playwright/test";
 import type { AssessmentRecordView } from "../src/api/contracts";
 
@@ -150,7 +151,7 @@ test("learning navigation and chapter views lead to source-backed learning", asy
   await page.context().route(`**/v1/artifacts/${artifactId}`, route => route.fulfill({ contentType: "text/plain", body: "Synthetic source document" }));
   await page.goto(`/materials/${materialId}/runs/${runId}`);
   await page.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
-  await expect(page).toHaveURL(`http://127.0.0.1:4173/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+  await expect(page).toHaveURL(`${browserOrigin}/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
   await expect(page.getByRole("heading", { name: "知識地圖", exact: true })).toBeVisible();
   await expect(page.getByRole("tab", { name: "概念地圖" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("region", { name: "學習入口" })).toContainText("準備開始學習「Stack」？");
@@ -185,7 +186,7 @@ test("learning navigation and chapter views lead to source-backed learning", asy
   const popup = page.waitForEvent("popup");
   await page.getByRole("button", { name: /原始教材第 1 頁/ }).click();
   const source = await popup;
-  await expect(source).toHaveURL(`http://127.0.0.1:4173/v1/artifacts/${artifactId}#page=1`);
+  await expect(source).toHaveURL(`${browserOrigin}/v1/artifacts/${artifactId}#page=1`);
   await source.close();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "開始學習", exact: true }).click();
@@ -2844,3 +2845,25 @@ for (const width of [320, 390, 1366, 1920]) {
     }
   });
 }
+
+for(const width of [1536,390]) test(`normalized source resolver distinguishes original and converted PDF at ${width}px`,async({page},info)=>{
+  const resolver=`/v2/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`;
+  await page.setViewportSize({width,height:1024});
+  await routes(page,{...structureView(),schema:"knowledge-structure-view/v3",source_resolver:resolver} as ReturnType<typeof structureView>);
+  let reads=0;
+  await page.route("**/v2/materials/*/knowledge-structures/*/evidence/*/source",route=>{
+    reads++;return json(route,{schema:"evidence-source/v1",format:"docx",original_name:"notes.docx",original_url:`/v2/artifacts/${artifactId}`,
+      preview_url:`/v1/artifacts/${artifactId}#page=1`,normalized_page:1,accuracy:"ambiguous",origin_locators:[{paragraph:2}],label:"轉換後第 1 頁"});
+  });
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+  await page.getByRole("button",{name:"教材概念：Stack",exact:true}).click();
+  await page.getByRole("button",{name:"查看第 1 頁來源",exact:true}).click();
+  const dialog=page.getByRole("dialog",{name:"教材來源",exact:true});
+  await expect(dialog).toContainText("轉換後第 1 頁");await expect(dialog).toContainText("可能對應多處");
+  await expect(dialog.getByRole("link",{name:"下載原檔"})).toHaveAttribute("href",`/v2/artifacts/${artifactId}`);
+  await expect(dialog.getByRole("link",{name:"開啟 PDF 來源頁"})).toHaveAttribute("href",`/v1/artifacts/${artifactId}#page=1`);
+  await page.screenshot({path:info.outputPath("source-dialog.png"),fullPage:true});
+  await page.keyboard.press("Escape");await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("dialog",{name:"概念詳情",exact:true})).toBeVisible();
+  await expect(page.getByRole("button",{name:"查看第 1 頁來源",exact:true})).toBeFocused();expect(reads).toBe(1);
+});

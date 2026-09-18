@@ -63,7 +63,8 @@ class MaterialDiscardView(_Closed):
 
 
 class MaterialProcessingRunView(_Closed):
-    schema_: Literal["material-processing-run/v5"] = Field(alias="schema")
+    schema_: Literal["material-processing-run/v5", "material-processing-run/v6"] = Field(alias="schema")
+    input_source_set_id: UUID | None = Field(default=None,exclude_if=lambda value:value is None)
     run_id: UUID
     material_id: UUID
     source_artifact_id: UUID
@@ -106,10 +107,24 @@ class StudySessionLink(_Closed):
     started_at: datetime
 
 
+class SourceView(_Closed):
+    source_id: UUID
+    normalization_id: UUID
+    original_artifact_id: UUID
+    original_name: str
+    media_type: str
+    status: Literal['pending','running','ready','failed']
+    normalized_artifact_id: UUID | None
+    page_count: int | None
+    error_code: str | None
+
+
 class MaterialLibraryItem(_Closed):
-    schema_: Literal["material-library-item/v2"] = Field(alias="schema")
+    schema_: Literal["material-library-item/v2", "material-library-item/v3"] = Field(alias="schema")
+    source: SourceView | None = Field(default=None,exclude_if=lambda value:value is None)
+    ingestion_kind: Literal["sources-v2"] | None = Field(default=None,exclude_if=lambda value:value is None)
     material_id: UUID
-    source_artifact_id: UUID
+    source_artifact_id: UUID | None
     display_name: str
     size_bytes: int
     created_at: datetime
@@ -206,7 +221,8 @@ class ExcludedPageView(_Closed):
 
 
 class KnowledgeStructureView(_Closed):
-    schema_: Literal["knowledge-structure-view/v2"] = Field(alias="schema")
+    schema_: Literal["knowledge-structure-view/v2", "knowledge-structure-view/v3"] = Field(alias="schema")
+    source_resolver: str | None = Field(default=None,exclude_if=lambda value:value is None)
     material_id: str
     knowledge_structure_revision: str
     status: StatusView
@@ -326,7 +342,8 @@ class LearnerProgressView(_Closed):
 
 def project_material_run(run: Any) -> MaterialProcessingRunView:
     return MaterialProcessingRunView.model_validate({
-        "schema": "material-processing-run/v5",
+        "schema": "material-processing-run/v6" if getattr(run,"input_source_set_id",None) else "material-processing-run/v5",
+        "input_source_set_id":getattr(run,"input_source_set_id",None),
         **{name: getattr(run, name) for name in (
             "run_id", "material_id", "source_artifact_id", "status", "progress_stage",
             "completed_pages", "total_pages", "output_binding", "error_code", "cancel_requested_at",
@@ -363,3 +380,59 @@ def project_learner_progress(progress: Any) -> LearnerProgressView:
     document = progress.model_dump()
     document["schema"] = document.pop("schema_")
     return LearnerProgressView.model_validate(document)
+
+class MaterialDraftCreate(_Closed):
+    schema_: Literal['material-draft-create/v1'] = Field(alias='schema')
+    display_name: str
+
+class MaterialDraftView(_Closed):
+    schema_: Literal['material-draft/v1'] = Field(default='material-draft/v1',alias='schema')
+    material_id: UUID
+
+class SourceListView(_Closed):
+    discard_requested: bool = False
+    schema_: Literal['material-sources/v1'] = Field(default='material-sources/v1',alias='schema')
+    material_id: UUID
+    sources: list[SourceView]
+
+class RevisionCreate(_Closed):
+    schema_: Literal['material-revision-create/v1'] = Field(alias='schema')
+    base_revision: None = None
+    normalization_ids: list[UUID] = Field(min_length=1,max_length=1)
+
+class FormatCapability(_Closed):
+    extension: str
+    media_type: str
+    max_bytes: int
+
+class SourceCapabilities(_Closed):
+    schema_: Literal['source-capabilities/v1'] = Field(default='source-capabilities/v1',alias='schema')
+    formats: list[FormatCapability]
+    quality_notice: str
+
+class PdfOrigin(_Closed):
+    original_page: int = Field(ge=1)
+
+class SlideOrigin(_Closed):
+    original_slide_number: int = Field(ge=1)
+    slide_id: str
+    hidden: bool
+
+class DocumentOrigin(_Closed):
+    document_part: Literal["word/document.xml"]
+    paragraph: int = Field(ge=1)
+
+class TextOrigin(_Closed):
+    line_start: int = Field(ge=1)
+    line_end: int = Field(ge=1)
+
+class EvidenceSourceView(_Closed):
+    schema_: Literal['evidence-source/v1'] = Field(alias='schema')
+    format: Literal['pdf','docx','pptx','doc','ppt','txt','md']
+    original_name: str
+    original_url: str
+    preview_url: str
+    normalized_page: int
+    accuracy: Literal['exact','ambiguous','unavailable']
+    origin_locators: list[PdfOrigin | SlideOrigin | DocumentOrigin | TextOrigin]
+    label: str

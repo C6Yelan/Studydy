@@ -406,8 +406,11 @@ def test_0006_adds_only_nullable_intent_and_preserves_old_checksums(clean_databa
         before = c.execute('SELECT row_to_json(m) FROM materials m').fetchone()[0]
         run_before = c.execute('SELECT row_to_json(r) FROM material_processing_runs r').fetchone()[0]
         checksums = c.execute('SELECT version,sql_sha256 FROM schema_migrations ORDER BY version').fetchall()
-    assert run_migrations(clean_database_dsn) == (6,)
-    assert run_migrations(clean_database_dsn) == ()
+    through_six=tmp_path/"through-six";through_six.mkdir()
+    for path in migrations_dir.glob("*.sql"):
+        if int(path.name[:4])<=6:(through_six/path.name).write_bytes(path.read_bytes())
+    assert run_migrations(clean_database_dsn,migrations_dir=through_six) == (6,)
+    assert run_migrations(clean_database_dsn,migrations_dir=through_six) == ()
     with psycopg.connect(clean_database_dsn) as c:
         after = c.execute('SELECT row_to_json(m) FROM materials m').fetchone()[0]
         assert after.pop('discard_requested_at') is None and after == before

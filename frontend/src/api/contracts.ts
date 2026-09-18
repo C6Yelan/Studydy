@@ -8,6 +8,9 @@ export type KnownApiReasonCode =
   | "RESOURCE_NOT_FOUND"
   | "IDEMPOTENCY_CONFLICT"
   | "MATERIAL_NOT_DISCARDABLE"
+  | "SOURCE_NOT_READY"
+  | "SINGLE_SOURCE_ONLY"
+  | "NORMALIZER_UNAVAILABLE"
   | "NO_SAFE_ASSESSMENT"
   | "MATERIAL_TOO_LARGE"
   | "MATERIAL_PDF_INVALID"
@@ -59,7 +62,8 @@ export type MaterialDiscardView = {
 };
 
 export type MaterialProcessingRunView = {
-  schema: "material-processing-run/v5";
+  schema: "material-processing-run/v5" | "material-processing-run/v6";
+  input_source_set_id?: string;
   cancel_requested_at: string | null;
   run_id: string;
   material_id: string;
@@ -95,9 +99,11 @@ export type StudySessionLink = {
 };
 
 export type MaterialLibraryItem = {
-  schema: "material-library-item/v2";
+  schema: "material-library-item/v2" | "material-library-item/v3";
+  ingestion_kind?: "sources-v2";
+  source?: SourceView;
   material_id: string;
-  source_artifact_id: string;
+  source_artifact_id: string | null;
   display_name: string;
   size_bytes: number;
   created_at: string;
@@ -131,7 +137,8 @@ export type EvidenceView = {
 export type RelationType = "prerequisite" | "part_of" | "application" | "example" | "contrast";
 
 export type KnowledgeStructureView = {
-  schema: "knowledge-structure-view/v2";
+  schema: "knowledge-structure-view/v2" | "knowledge-structure-view/v3";
+  source_resolver?: string;
   material_id: string;
   knowledge_structure_revision: string;
   status: {
@@ -299,3 +306,15 @@ export type StudyResumeView = {
 };
 
 export type MaterialRename = { schema: "material-rename/v1"; display_name: string };
+
+export type SourceView = {
+  source_id: string; normalization_id: string; original_artifact_id: string;
+  original_name: string; media_type: string; status: "pending" | "running" | "ready" | "failed";
+  normalized_artifact_id: string | null; page_count: number | null; error_code: string | null;
+};
+export type SourceListView = { schema: "material-sources/v1"; material_id: string; discard_requested?: boolean; sources: SourceView[] };
+export type FormatCapability = { extension: string; media_type: string; max_bytes: number };
+export type SourceCapabilities = { schema: "source-capabilities/v1"; formats: FormatCapability[]; quality_notice: string };
+export type EvidenceSourceView = { schema: "evidence-source/v1"; format: "pdf" | "docx" | "pptx" | "doc" | "ppt" | "txt" | "md";
+  original_name: string; original_url: string; preview_url: string; normalized_page: number;
+  accuracy: "exact" | "ambiguous" | "unavailable"; origin_locators: Record<string,unknown>[]; label: string };

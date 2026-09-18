@@ -66,6 +66,7 @@ class MaterialProcessingRun:
     updated_at: datetime
     completed_at: datetime | None
     cancel_requested_at: datetime | None
+    input_source_set_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -150,7 +151,7 @@ def _row(row: RunRow) -> MaterialProcessingRun:
         row.run_id, row.learner_id, row.material_id, row.source_artifact_id,
         deepcopy(row.runtime_binding), row.status, row.progress_stage,
         row.completed_pages, row.total_pages, row.error_code,
-        deepcopy(row.output_binding), row.created_at, row.updated_at, row.completed_at, row.cancel_requested_at,
+        deepcopy(row.output_binding), row.created_at, row.updated_at, row.completed_at, row.cancel_requested_at, row.input_source_set_id,
     )
 
 
@@ -210,6 +211,11 @@ def runtime_binding(local_config: Any) -> dict[str, Any]:
         "ocr": {"model_id": lock["ocr"]["model_id"], "revision": lock["ocr"]["revision"]},
         "policy": "evidence-unified-semantics-product/v1",
     }
+    from .command_semantics import identity
+    command=identity(lock)
+    if command is not None:
+        binding.update(schema="material-runtime-binding/v2", model_id=command["model_id"], model_revision=command["model_revision"],
+                       runtime_lock_sha256=command["runtime_lock_sha256"], semantic_service=command)
     binding["runtime_binding_sha256"] = canonical_sha256(binding)
     if not runtime_binding_is_valid(binding):
         raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")
@@ -254,7 +260,8 @@ def _prepare_runtime_root(value: str) -> None:
 
 
 def runtime_preflight(local_config: Any) -> dict[str, Any]:
-    binding = validate_installed_local_runtime(local_config)
+    from .command_semantics import settings
+    binding = runtime_binding(local_config) if settings() is not None else validate_installed_local_runtime(local_config)
     assert isinstance(local_config, dict)
     try:
         preflight_semantic_service(local_config["runtime_lock"])
@@ -307,6 +314,8 @@ def create_material_processing_run(
                 raise MaterialProcessingError("MATERIAL_RUN_NOT_FOUND")
             if material.discard_requested_at is not None:
                 raise MaterialProcessingError("MATERIAL_NOT_DISCARDABLE")
+            if material.ingestion_kind != "pdf-v1":
+                raise MaterialProcessingError("MATERIAL_RUN_INVALID")
             existing = session.scalar(select(RunRow).where(RunRow.learner_id == learner_id, RunRow.idempotency_key_sha256 == key).with_for_update())
             if existing is not None:
                 if bytes(existing.request_fingerprint) != fingerprint:
@@ -516,6 +525,8 @@ def execute_claimed_material_processing_run(
         if structure["status"]["processing"] == "failed":
             raise MaterialProcessingError("NO_CANONICAL_CONCEPT")
         _record_progress(run.run_id, "publishing", structure["page_count"], structure["page_count"], dsn=dsn)
+        from .source_resolver import bind_structure_input
+        structure=bind_structure_input(run.learner_id,run.run_id,structure,dsn=dsn)
         publish_knowledge_structure(run.learner_id, run.material_id, run.run_id, structure, dsn=dsn)
     except MaterialProcessingCancelled:
         pass

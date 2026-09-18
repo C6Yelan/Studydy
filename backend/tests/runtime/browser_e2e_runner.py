@@ -21,7 +21,8 @@ ROOT = Path(__file__).resolve().parents[3]
 FRONTEND = ROOT / "frontend"
 VITE = FRONTEND / "node_modules/.bin/vite"
 PLAYWRIGHT = FRONTEND / "node_modules/.bin/playwright"
-PORT = 4173
+PORT = int(os.environ.get("STUDYDY_E2E_FRONTEND_PORT", "4173"))
+API_PORT = int(os.environ.get("STUDYDY_E2E_API_PORT", "8001"))
 
 
 def _port_is_free() -> bool:
@@ -51,7 +52,7 @@ def local_api(app):
     """兩種真 DB browser fixture 共用專屬 API socket，不啟動模型 worker。"""
     with socket.socket() as listener:
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        listener.bind(("127.0.0.1", 8001))
+        listener.bind(("127.0.0.1", API_PORT))
         server = uvicorn.Server(uvicorn.Config(app, lifespan="off", log_level="error", access_log=False))
         thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
         thread.start()
@@ -72,6 +73,8 @@ def main(spec: str = "e2e/product-cutover.spec.ts", *, production: bool = False)
         print("BROWSER_E2E_PORT_OCCUPIED")
         return 1
     environment = os.environ.copy()
+    environment["STUDYDY_E2E_BASE_URL"] = f"http://127.0.0.1:{PORT}"
+    environment["STUDYDY_E2E_API_ORIGIN"] = f"http://127.0.0.1:{API_PORT}"
     environment["STUDYDY_E2E_HARNESS_ID"] = f"studydy-e2e-{uuid4().hex}"
     with tempfile.TemporaryDirectory(prefix="studydy-browser-e2e-") as directory:
         log_path = Path(directory) / "vite.log"

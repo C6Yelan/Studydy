@@ -16,7 +16,7 @@ from sqlalchemy import insert, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .tables import Artifact, Material, database_session, deferred_artifact_session
+from .tables import Artifact, Material, MaterialSource, SourceNormalization, database_session, deferred_artifact_session
 
 ARTIFACT_ROOT_ENV = "STUDYDY_ARTIFACT_ROOT"
 SOURCE_LIMIT_BYTES = 104_857_600
@@ -307,6 +307,14 @@ def _publish_source(
                         created_at=datetime.now(UTC),
                     )
                 )
+                # 新 v1 PDF 也保存 identity normalization，與 migration 的既有 PDF backfill 一致。
+                now=datetime.now(UTC)
+                session.execute(insert(MaterialSource).values(source_id=artifact_id,learner_id=learner_id,material_id=material_id,
+                    original_artifact_id=artifact_id,original_name=display_name or "material.pdf",media_type="application/pdf",
+                    idempotency_key_sha256=key_digest,request_fingerprint=fingerprint,created_at=now))
+                session.execute(insert(SourceNormalization).values(normalization_id=artifact_id,learner_id=learner_id,material_id=material_id,
+                    source_id=artifact_id,policy={"schema":"normalization-policy/v1","renderer":"pdf-identity"},status="ready",
+                    normalized_artifact_id=artifact_id,created_at=now,updated_at=now))
         except IntegrityError:
             final.unlink(missing_ok=True)
             final = None
@@ -352,7 +360,7 @@ def open_verified_source_pdf(
                 select(Artifact.material_id, Artifact.sha256, Artifact.size_bytes).where(
                     Artifact.learner_id == learner_id,
                     Artifact.artifact_id == artifact_id,
-                    Artifact.kind == "source_pdf",
+                    Artifact.kind.in_(("source_pdf","normalized_pdf")),
                 )
             ).one_or_none()
         if row is None:

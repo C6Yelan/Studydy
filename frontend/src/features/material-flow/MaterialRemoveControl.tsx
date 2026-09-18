@@ -3,11 +3,12 @@ import { useEffect, useId, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { MaterialDiscardView } from "../../api/contracts";
 
-export function MaterialRemoveControl({ apiClient, materialId, onAccepted, inActionRow = false }: {
+export function MaterialRemoveControl({ apiClient, materialId, onAccepted, inActionRow = false, hasConversion = false }: {
   apiClient: StudydyApiClient;
   materialId: string;
   onAccepted: (state: MaterialDiscardView["state"]) => void;
   inActionRow?: boolean;
+  hasConversion?: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -45,7 +46,7 @@ export function MaterialRemoveControl({ apiClient, materialId, onAccepted, inAct
       if (event.key === "Escape" && !busy) { setConfirming(false); setError(null); }
     }}>
       <h3 id={title}>確定要刪除這份教材嗎？</h3>
-      <p>原始 PDF、處理紀錄，以及既有的知識地圖、學習進度、題目與作答紀錄會一併刪除。此操作無法復原。</p>
+      <p>{hasConversion ? "原始教材、轉換產物、處理紀錄，以及既有的知識地圖、學習進度、題目與作答紀錄會一併刪除。此操作無法復原。" : "原始 PDF、處理紀錄，以及既有的知識地圖、學習進度、題目與作答紀錄會一併刪除。此操作無法復原。"}</p>
       <div className="state-actions">
         <button ref={keep} className="secondary-button" type="button" disabled={busy} onClick={() => { setConfirming(false); setError(null); }}>取消</button>
         <button className="secondary-button cancel-confirm-button" type="button" disabled={busy} onClick={() => void submit()}>確認刪除</button>

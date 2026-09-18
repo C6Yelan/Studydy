@@ -16,7 +16,7 @@ from knowledge_map.structure import (
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 
 from .artifacts import open_verified_source_pdf
-from .tables import KnowledgeStructure, MaterialProcessingRun, database_session
+from .tables import KnowledgeStructure, MaterialProcessingRun, Material, database_session
 
 
 class KnowledgeStructureStoreError(RuntimeError):
@@ -32,6 +32,15 @@ class StoredKnowledgeStructure:
 
 def runtime_binding_is_valid(value: Any) -> bool:
     try:
+        if isinstance(value,dict) and value.get("schema")=="material-runtime-binding/v2":
+            identity={k:v for k,v in value.items() if k!="runtime_binding_sha256"}
+            service=value.get("semantic_service",{})
+            return (set(value)=={"schema","python","runtime_lock_sha256","model_id","model_revision","semantic_service","ocr","policy","runtime_binding_sha256"}
+                    and value["runtime_binding_sha256"]==canonical_sha256(identity)
+                    and set(service)=={"transport","model_id","model_revision","config_sha256","runtime_lock_sha256"}
+                    and service["transport"]=="command" and service["model_id"]==value["model_id"]
+                    and service["model_revision"]==value["model_revision"] and service["runtime_lock_sha256"]==value["runtime_lock_sha256"]
+                    and all(isinstance(service[k],str) and len(service[k])==64 for k in ("config_sha256","runtime_lock_sha256")))
         if not isinstance(value, dict) or set(value) != {
             "schema", "python", "runtime_lock_sha256", "model_id", "model_revision",
             "semantic_service", "ocr", "policy", "runtime_binding_sha256",
@@ -68,6 +77,14 @@ def runtime_binding_is_valid(value: Any) -> bool:
         return False
 
 
+def _view(document,material_id):
+    view=build_knowledge_structure_view(document)
+    if "input_binding" in document:
+        view["schema"]="knowledge-structure-view/v3"
+        view["source_resolver"]=f"/v2/materials/{material_id}/knowledge-structures/{document['revision']}/evidence"
+    return view
+
+
 def _binding(document: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema": "material-run-output-binding/v4",
@@ -93,6 +110,8 @@ def publish_knowledge_structure(
 ) -> StoredKnowledgeStructure:
     if not validate_knowledge_structure(document) or document.get("run_id") != str(run_id):
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_INVALID")
+    from ..source_resolver import verify_structure_input
+    verify_structure_input(learner_id,run_id,document,dsn=dsn)
     binding = _binding(document)
     if binding["processing"] not in {"succeeded", "partial"}:
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_INVALID")
@@ -160,12 +179,14 @@ def publish_knowledge_structure(
             ).scalar_one_or_none()
             if updated is None:
                 raise KnowledgeStructureStoreError("MATERIAL_RUN_UNAVAILABLE")
+            material=session.get(Material,material_id)
+            if material.ingestion_kind=="sources-v2":material.head_revision=document["revision"]
     except KnowledgeStructureStoreError:
         raise
     except Exception:
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_STORE_FAILED") from None
     return StoredKnowledgeStructure(
-        document["revision"], deepcopy(document), build_knowledge_structure_view(document)
+        document["revision"], deepcopy(document), _view(document,material_id)
     )
 
 
@@ -218,11 +239,13 @@ def read_knowledge_structure(
             or runtime_binding.get("runtime_lock_sha256") != document["provenance"]["runtime_lock_sha256"]
         ):
             raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
+        from ..source_resolver import verify_structure_input
+        verify_structure_input(learner_id,stored_run_id,document,dsn=dsn)
         with open_verified_source_pdf(learner_id, source_artifact_id, dsn=dsn) as source:
             if source.material_id != material_id or source.sha256 != document["source_sha256"]:
                 raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
         return StoredKnowledgeStructure(
-            document["revision"], deepcopy(document), build_knowledge_structure_view(document)
+            document["revision"], deepcopy(document), _view(document,material_id)
         )
     except KnowledgeStructureStoreError:
         raise

@@ -236,7 +236,7 @@ export function RunView({ apiClient, route }: {
   if (run.status === "failed") return (
     <section className="processing-page task-page terminal-failure">
       <StateView
-        action={<><MaterialRunStartControl apiClient={apiClient} materialId={run.material_id} sourceArtifactId={run.source_artifact_id} /><button className="secondary-button" type="button" onClick={() => writeRoute({ name: "materials" })}>返回教材庫</button></>}
+        action={<>{run.input_source_set_id ? <button className="primary-button" type="button" onClick={()=>writeRoute({name:"material-sources",materialId:run.material_id})}>查看轉換與重試分析</button> : <MaterialRunStartControl apiClient={apiClient} materialId={run.material_id} sourceArtifactId={run.source_artifact_id} />}<button className="secondary-button" type="button" onClick={() => writeRoute({ name: "materials" })}>返回教材庫</button></>}
         description={materialFailureMessage(run.error_code ?? "MATERIAL_ANALYSIS_FAILED")}
         image="/assets/studydy/failure-confused.png" title="教材處理失敗" tone="failure"
       />

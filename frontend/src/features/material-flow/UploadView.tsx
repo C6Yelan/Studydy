@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
+import type { FormatCapability } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import {
@@ -10,6 +11,22 @@ import {
 } from "./material-flow";
 
 export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
+  const [capabilityError,setCapabilityError]=useState<string|null>(null);
+  const [formats,setFormats]=useState<FormatCapability[]>([{extension:".pdf",media_type:"application/pdf",max_bytes:100*1024*1024}]);
+  useEffect(()=>{let cancelled=false;void apiClient.sourceCapabilities().then(value=>{if(!cancelled)setFormats(value.formats);}).catch(()=>{if(!cancelled)setCapabilityError("其他格式目前無法載入，仍可上傳 PDF。");});return()=>{cancelled=true;};},[apiClient]);
+  const otherFormats=formats.filter(f=>f.extension!==".pdf");
+  const draft=useRef<string|null>(null);const draftKey=useRef(crypto.randomUUID());
+  const validate=(candidate:File|null):string|null=>{
+    if(!candidate)return "請先選擇教材。";
+    if(candidate.type==="application/pdf")return validatePdfFile(candidate);
+    const extension="."+candidate.name.split(".").pop()?.toLowerCase();
+    const format=otherFormats.find(f=>f.extension===extension);
+    if(!format)return "這不是可用的 PDF 或目前支援的教材格式。";
+    if(candidate.type && candidate.type!=="application/octet-stream" && candidate.type!==format.media_type)return "副檔名與檔案類型不一致。";
+    if(!candidate.size)return "教材不可為空白檔案。";
+    if(candidate.size>format.max_bytes)return `此格式不可超過 ${Math.round(format.max_bytes/1024/1024)} MiB。`;
+    return null;
+  };
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -42,10 +59,10 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
   }, []);
 
   const chooseFiles = (files: FileList | null) => {
-    receipt.current = null;
+    receipt.current = null;draft.current=null;draftKey.current=crypto.randomUUID();
     uploadKey.current = crypto.randomUUID();
     runKey.current = crypto.randomUUID();
-    const selection = validatePdfSelection(files);
+    const selection = otherFormats.length===0 ? validatePdfSelection(files) : !files?.length ? {file:null,message:"請選擇一份教材。"} : files.length!==1 ? {file:null,message:"一次只能處理一份教材。"} : {file:files[0],message:validate(files[0])};
     const selectedFile = selection.message === null ? selection.file : null;
     setFile(selectedFile);
     setFileError(selection.message);
@@ -55,7 +72,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
 
   const submit = async () => {
     if (submitting.current) return;
-    const validation = validatePdfFile(file);
+    const validation = otherFormats.length===0 ? validatePdfFile(file) : validate(file);
     if (validation || !file) {
       setFileError(file === null ? fileError ?? validation : validation);
       setSubmitError(null);
@@ -67,6 +84,13 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
     setFileError(null);
     setSubmitError(null);
     try {
+      if(file.type!=="application/pdf") {
+        const format=otherFormats.find(f=>file.name.toLowerCase().endsWith(f.extension));
+        if(!format)throw new Error("檔案格式目前不支援。");
+        if(!draft.current)draft.current=(await apiClient.createDraft(file.name,draftKey.current)).material_id;
+        await apiClient.uploadSource(draft.current,file,format.media_type,uploadKey.current);
+        writeRoute({name:"material-sources",materialId:draft.current});return;
+      }
       // 上傳已成功時保留回執；建立任務重試不重新上傳 PDF。
       const material = receipt.current ?? await apiClient.createMaterial(file, uploadKey.current, file.name);
       receipt.current = material;
@@ -135,7 +159,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             <input
               ref={fileInput}
               type="file"
-              accept="application/pdf"
+              accept={otherFormats.length ? formats.map(f=>f.extension).join(",") : "application/pdf"}
               aria-label="選擇 PDF 教材"
               aria-describedby={fileError ? "upload-file-error" : undefined}
               aria-invalid={fileError ? true : undefined}
@@ -144,8 +168,8 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
               onChange={(event) => { if (event.currentTarget.files?.length) chooseFiles(event.currentTarget.files); }}
             />
             <span className="file-drop__icon"><Icon name="upload" size={28} /></span>
-            <strong>{file ? "拖放或點擊以更換 PDF" : "將 PDF 拖放到此處"}</strong>
-            {!file && <span>或點擊選擇 PDF · 最大 100 MiB</span>}
+            <strong>{otherFormats.length ? file ? "拖放或點擊以更換教材" : "將教材拖放到此處（建議 PDF）" : file ? "拖放或點擊以更換 PDF" : "將 PDF 拖放到此處"}</strong>
+            {!file && <span>{otherFormats.length ? "或點擊選擇教材 · 每檔最大 100 MiB" : "或點擊選擇 PDF · 最大 100 MiB"}</span>}
           </label>
 
           {file && (
@@ -160,7 +184,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
                 disabled={isSubmitting}
                 type="button"
                 onClick={() => {
-                  receipt.current = null;
+                  receipt.current = null;draft.current=null;draftKey.current=crypto.randomUUID();
                   clearDrag();
                   setFile(null);
                   setFileError(null);
@@ -173,11 +197,13 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             </div>
           )}
 
+          {capabilityError&&<p className="conversion-note" role="status">{capabilityError}</p>}
+          {otherFormats.length>0&&<p className="conversion-note">建議優先上傳 PDF。其他支援格式（{otherFormats.map(f=>f.extension.slice(1).toUpperCase()).join("、")}）會自動轉為 PDF，轉換品質不保證，請檢查轉換後內容。每檔最多 100 MiB。</p>}
           {fileError && <p className="form-error" id="upload-file-error" role="alert">{fileError}</p>}
           {submitError && <p className="form-error" id="upload-submit-error" role="alert">{submitError}</p>}
           <button className="primary-button full-button" type="button" disabled={!file || isSubmitting} onClick={submit}>
             <Icon name="upload" size={18} />
-            {phase === "uploading" ? "正在上傳…" : phase === "creating-run" ? "正在建立處理任務…" : receipt.current ? "重試建立處理任務" : "上傳並開始分析"}
+            {phase === "uploading" ? "正在上傳…" : phase === "creating-run" ? "正在建立處理任務…" : receipt.current ? "重試建立處理任務" : file && file.type!=="application/pdf" ? "上傳並轉換為 PDF" : "上傳並開始分析"}
           </button>
           <p className="privacy-note"><Icon name="lock" size={14} /> 教材由 Studydy 處理，語意分析使用配置的 AI 服務</p>
         </section>

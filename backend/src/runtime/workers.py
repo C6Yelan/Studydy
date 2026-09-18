@@ -10,6 +10,8 @@ from .material_processing import (
     recover_interrupted_material_runs,
 )
 from .material_discard import finish_material_discards
+from .source_normalization import normalize_next
+from .storage.source_artifacts import reconcile_new_artifacts
 
 _IDLE_WAIT_SECONDS = 0.1
 _STARTUP_WAIT_SECONDS = 5
@@ -54,10 +56,12 @@ class RuntimeWorkers:
         while not self._stop.is_set():
             try:
                 if is_starting:
+                    reconcile_new_artifacts(dsn=self.dsn)
                     recover_interrupted_material_runs(dsn=self.dsn)
                     finish_material_discards(dsn=self.dsn)
                     self._started.set()
                     is_starting = False
+                normalize_next(dsn=self.dsn)
                 claim = claim_next_material_processing_run(dsn=self.dsn)
                 if claim is not None:
                     execute_claimed_material_processing_run(

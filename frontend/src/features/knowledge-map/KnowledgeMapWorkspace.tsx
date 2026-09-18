@@ -1,3 +1,4 @@
+import { SourceButton } from "../../ui/SourceButton";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
 import {
   Background,
@@ -111,7 +112,7 @@ function ConceptDetail({ apiClient, concept, close, sourceArtifactId, view, open
       <LearningBadge conceptId={concept.concept_id} progress={progress} />
       <section>
         <h3>教材重點</h3>
-        <ConceptContent claims={concept.claims} apiClient={apiClient} sourceArtifactId={sourceArtifactId} />
+        <ConceptContent claims={concept.claims} apiClient={apiClient} sourceArtifactId={sourceArtifactId} sourceResolver={view.source_resolver} />
       </section>
       {concept.aliases.length > 0 && (
         <section><h3>教材中的其他名稱</h3><p className="page-list">{concept.aliases.join("、")}</p></section>
@@ -455,7 +456,7 @@ function RelationDetail({ relation, view, apiClient, sourceArtifactId, close, op
     <header><div><span className="detail-kicker">概念之間的關係</span><h2>{relationLabels[relation.type]}</h2></div><button className="panel-close" type="button" aria-label="關閉關係詳情" onClick={close}>×</button></header>
     <section className="relation-direction">{[relation.source_concept_id, relation.target_concept_id].map((id, index) => <div key={index}>{index === 1 && <span aria-hidden="true">↓</span>}<button className="detail-related" type="button" onClick={() => openConcept(id)}><small>{index === 0 ? "來源概念" : "目標概念"}</small><strong>{view.concepts.find((concept) => concept.concept_id === id)?.label}</strong></button></div>)}</section>
     <section><h3>為什麼有這個關係？</h3><p className="claim-text">{relation.learner_reason}</p></section>
-    <section><h3>教材來源</h3>{[...new Set(evidence.map((item) => item.page))].map((page) => <button className="text-button" key={page} type="button" onClick={() => window.open(apiClient.sourceArtifactUrl(sourceArtifactId, page), "_blank", "noopener,noreferrer")}>原始教材第 {page} 頁<Icon name="chevron-right" /></button>)}{evidence.length === 0 && <p>可從來源與目標概念查看相關教材。</p>}</section>
+    <section><h3>教材來源</h3>{[...new Set(evidence.map((item) => item.page))].map((page) => <SourceButton key={page} apiClient={apiClient} artifactId={sourceArtifactId} page={page} resolver={view.source_resolver} evidenceId={evidence.find(e=>e.page===page)?.evidence_id}>原始教材第 {page} 頁<Icon name="chevron-right" /></SourceButton>)}{evidence.length === 0 && <p>可從來源與目標概念查看相關教材。</p>}</section>
   </DetailPanel>;
 }
 
@@ -495,7 +496,7 @@ function ReviewView({ view, progress, startStudy, busyLabel, studyLabel, initial
         <section className="review-points" aria-label="選中概念的複習重點" key={concept.concept_id}>
           <h3>複習重點</h3><p className="review-excerpt-note">優先查看需要補強的教材重點；以下為教材節錄。</p>
           <ol>{points.map(claim => <li key={claim.claim_id}><p>{excerpt(claim.text)}</p></li>)}</ol>
-          <details className="review-full-content"><summary>查看完整教材重點</summary><ConceptContent claims={concept.claims} apiClient={apiClient} sourceArtifactId={sourceArtifactId} /></details>
+          <details className="review-full-content"><summary>查看完整教材重點</summary><ConceptContent claims={concept.claims} apiClient={apiClient} sourceArtifactId={sourceArtifactId} sourceResolver={view.source_resolver} /></details>
         </section>
         <nav className="review-list" aria-label="需要複習的概念">
           <h3>需要複習 <small>{weak.length} 個概念</small></h3>

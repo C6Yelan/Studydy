@@ -139,9 +139,16 @@ def _stored(row: Assessment) -> StoredAssessment:
         "model_revision", "policy", "source_evidence_ids",
         "learning_angle", "novelty", "mastery_qualified",
     }
-    modern = provenance.get("schema") == "assessment-generation-provenance/v6"
+    modern = provenance.get("schema") in {"assessment-generation-provenance/v6","assessment-generation-provenance/v7"}
     if modern:
         provenance_fields.add("verification")
+    if provenance.get("schema")=="assessment-generation-provenance/v7":
+        provenance_fields.add("execution_identity")
+        execution=provenance.get("execution_identity")
+        if (not isinstance(execution,dict) or set(execution)!={"transport","model_id","model_revision","config_sha256","runtime_lock_sha256"}
+            or execution.get("transport")!="command" or any(execution.get(k)!=provenance.get(k) for k in ("model_id","model_revision","runtime_lock_sha256"))
+            or not isinstance(execution.get("config_sha256"),str) or re.fullmatch(r"[0-9a-f]{64}",execution["config_sha256"]) is None):
+            raise AssessmentError("ASSESSMENT_UNAVAILABLE")
     try:
         options = public["options"]
         option_ids = [option["option_id"] for option in options]
@@ -181,7 +188,7 @@ def _stored(row: Assessment) -> StoredAssessment:
         or set(provenance) != provenance_fields
         or public["schema"] != "single-choice-assessment/v2"
         or private["schema"] != "single-choice-answer/v2"
-        or provenance["schema"] not in {"assessment-generation-provenance/v5", "assessment-generation-provenance/v6"}
+        or provenance["schema"] not in {"assessment-generation-provenance/v5", "assessment-generation-provenance/v6", "assessment-generation-provenance/v7"}
         or revision != row.assessment_revision
         or public["assessment_revision"] != revision
         or private["assessment_revision"] != revision
@@ -244,8 +251,9 @@ def _stored(row: Assessment) -> StoredAssessment:
         or provenance["source_evidence_ids"] != public["source_evidence_ids"]
         or re.fullmatch(r"[0-9a-f]{64}", provenance["runtime_lock_sha256"])
         is None
-        or provenance["model_id"] != "google/gemma-4-31B-it-qat-w4a16-ct"
-        or provenance["model_revision"] != "52f3f65bc7a02d555763bc923bd1d9094898219d"
+        or not isinstance(provenance["model_id"],str) or not provenance["model_id"]
+        or not isinstance(provenance["model_revision"],str) or not provenance["model_revision"]
+        or (provenance["schema"]!="assessment-generation-provenance/v7" and (provenance["model_id"]!="google/gemma-4-31B-it-qat-w4a16-ct" or provenance["model_revision"]!="52f3f65bc7a02d555763bc923bd1d9094898219d"))
         or provenance["policy"] != ("source-span-single-choice/v5" if modern else "source-span-single-choice/v4")
         or provenance["learning_angle"] != row.learning_angle
         or not isinstance(row.learning_angle, str)
@@ -503,10 +511,12 @@ def _documents(
         "correct_answer": candidate["correct_answer"],
         "rationale": " ".join(evidence.quote for evidence in claim.evidence if evidence.evidence_id in candidate["supporting_evidence_ids"]),
     }
-    service = runtime_lock["semantic_service"]
+    from runtime.command_semantics import identity
+    command=identity(runtime_lock)
+    service = runtime_lock["semantic_service"] if command is None else {"model_id":command["model_id"],"revision":command["model_revision"]}
     provenance_core = {
-        "schema": "assessment-generation-provenance/v6",
-        "runtime_lock_sha256": canonical_sha256(runtime_lock),
+        "schema": "assessment-generation-provenance/v6" if command is None else "assessment-generation-provenance/v7",
+        "runtime_lock_sha256": canonical_sha256(runtime_lock) if command is None else command["runtime_lock_sha256"],
         "model_id": service["model_id"],
         "model_revision": service["revision"],
         "policy": runtime_lock["assessment"]["policy"],
@@ -516,6 +526,7 @@ def _documents(
         "mastery_qualified": mastery_qualified,
         "verification": deepcopy(candidate["verification"]),
     }
+    if command is not None:provenance_core["execution_identity"]=deepcopy(command)
     revision = "assessment:sha256:" + canonical_sha256(
         {
             "public": public_core,

@@ -183,3 +183,24 @@ def test_cancellation_at_evidence_checkpoint_does_not_start_the_next_page(tmp_pa
     with pytest.raises(Cancelled):
         pipeline.analyze_material(_request(source), _settings(tmp_path), client=Client(), progress_callback=report)
     assert pages == [1]
+
+
+def test_bundle_input_limit_keeps_reason_without_model_call(tmp_path, monkeypatch):
+    import pytest
+    source = tmp_path / "limit.pdf"
+    _pdf(source, 1)
+    monkeypatch.setattr(pipeline, "material_request_fits", lambda *args: False)
+    calls = []
+    with pytest.raises(pipeline.MaterialAnalysisError, match="SEMANTIC_INPUT_TOO_LARGE"):
+        pipeline.analyze_material(_request(source), _settings(tmp_path), client=Client(), semantic_call=_semantic(calls))
+    assert calls == []
+
+
+def test_command_budget_failure_keeps_reason(tmp_path):
+    import pytest
+    source = tmp_path / "budget.pdf"
+    _pdf(source, 1)
+    def exhausted(*args, **kwargs):
+        raise pipeline.SemanticServiceError("SEMANTIC_BUDGET_EXHAUSTED")
+    with pytest.raises(pipeline.MaterialAnalysisError, match="SEMANTIC_BUDGET_EXHAUSTED"):
+        pipeline.analyze_material(_request(source), _settings(tmp_path), client=Client(), semantic_call=exhausted)
