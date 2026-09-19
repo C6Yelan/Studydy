@@ -163,6 +163,7 @@ def build_document_context(
     *,
     page_count: int,
     excluded_pages: list[dict[str, Any]] | None = None,
+    source_pages: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """建立一次性的 material context；不產生逐頁 semantic envelope。"""
 
@@ -176,6 +177,8 @@ def build_document_context(
     current: dict[str, Any] | None = None
     last_included_page: int | None = None
     for page in ordered:
+        if source_pages and last_included_page is not None and source_pages[page["page_number"] - 1]["source_id"] != source_pages[last_included_page - 1]["source_id"]:
+            current = None
         if last_included_page is not None and page["page_number"] != last_included_page + 1:
             current = None
         for block in page["evidence_blocks"]:
@@ -231,6 +234,7 @@ def build_document_context(
     excluded = deepcopy(excluded_pages or [])
     return {
         "schema": "document-context/v1",
+        **({"source_pages": deepcopy(source_pages)} if source_pages else {}),
         "material_id": material_id,
         "page_count": page_count,
         "sections": sections,
@@ -243,11 +247,14 @@ def build_document_context(
 def build_semantic_bundles(
     context: dict[str, Any], *, state: SemanticState,
     fits: Callable[[dict[str, Any]], bool],
+    minimum_page: int = 1,
+    minimum_evidence_index: int = 0,
 ) -> Iterator[dict[str, Any]]:
-    """以實際 prompt tokens 填滿連續 Evidence；每次納入最新 concept catalog。"""
+    """依語意服務的批量判斷封裝連續 Evidence；每批納入最新 concept catalog。"""
 
     excluded = set(context.get("non_content_evidence_ids", []))
-    evidence = [item for item in context["evidence"] if item["evidence_id"] not in excluded]
+    evidence = [item for index, item in enumerate(context["evidence"]) if index >= minimum_evidence_index
+                and item["evidence_id"] not in excluded and item["page"] >= minimum_page]
 
     def bundle(start: int, end: int) -> dict[str, Any]:
         items = evidence[start:end]
@@ -287,7 +294,7 @@ def build_semantic_bundles(
         start = end
 
 
-def semantic_response_schema(evidence_handles: list[int]) -> dict[str, Any]:
+def semantic_response_schema(evidence_handles: list[int], *, incremental: bool = False) -> dict[str, Any]:
     span = {"type": "integer", "enum": evidence_handles}
     claim = {
         "type": "object",
@@ -327,8 +334,9 @@ def semantic_response_schema(evidence_handles: list[int]) -> dict[str, Any]:
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["concepts", "relations"],
+        "required": ["concepts", "relations", *(["review_required"] if incremental else [])],
         "properties": {
+            **({"review_required": {"type": "boolean", "description": "True if source scope or concept grouping needs review. This is an advisory flag; keep grounded additions and do not overwrite saved Claims."}} if incremental else {}),
             "concepts": {"type": "array", "items": concept},
             "relations": {"type": "array", "items": relation},
         },
@@ -342,6 +350,7 @@ class SemanticState:
     rejected_claims: int = 0
     rejected_relations: int = 0
     literal_repairs: int = 0
+    source_review_required: bool = False
 
     def catalog(self, handles: dict[str, int]) -> list[dict[str, Any]]:
         return [
@@ -367,8 +376,18 @@ def semantic_request(
 ) -> dict[str, Any]:
     handles = {item["evidence_id"]: index for index, item in enumerate(context["evidence"])}
     evidence = {item["evidence_id"]: item for item in bundle["evidence"]}
+    catalog = state.catalog(handles)
+    source_pages = context.get("source_pages")
+    if source_pages:
+        all_evidence = {item["evidence_id"]: item for item in context["evidence"]}
+        for entry, concept in zip(catalog, state.concepts.values()):
+            entry["claim_sources"] = [list(dict.fromkeys(
+                source_pages[all_evidence[span["evidence_id"]]["page"] - 1]["source_id"]
+                for span in claim["source_spans"])) for claim in concept["claims"]]
     return {
-        "existing_concepts": state.catalog(handles),
+        "existing_concepts": catalog,
+        **({"update_policy": "Reuse existing keys for equivalent concepts. Add only grounded new Claims. Set review_required=true if new sources contradict or revise an existing Claim, or require splitting/merging saved concepts. Do not silently overwrite old facts."} if context.get("incremental") else {}),
+        **({"source_pages": [source_pages[page - 1] for page in sorted({item['page'] for item in bundle['evidence']})], "source_policy": "Each source has an independent scope. claim_sources aligns with saved Claims. Source order alone does not establish prerequisites."} if source_pages else {}),
         "sections": [
             {
                 "title": section["title"],
@@ -483,7 +502,7 @@ def apply_semantic_response(
             state.concepts[key] = current
         else:
             current["aliases"] = sorted(
-                set(current["aliases"]) | set(aliases) | ({label} - {current["label"]})
+                (set(current["aliases"]) | set(aliases) | {label}) - {current["label"]}
             )
         if not isinstance(proposal["c"], list):
             raise ValueError("SEMANTIC_OUTPUT_INVALID")
@@ -671,8 +690,10 @@ def build_knowledge_structure(
     evidence_by_id = {item["evidence_id"]: item for item in context["evidence"]}
     evidence_order = {key: index for index, key in enumerate(evidence_by_id)}
     concepts: list[dict[str, Any]] = []
+    canonical_concept_ids: set[str] = set()
     key_to_id: dict[str, str] = {}
     for key, item in state.concepts.items():
+        aliases = sorted(set(item["aliases"]) - {item["label"]})
         claims = []
         for claim in item["claims"]:
             claim = deepcopy(claim)
@@ -684,17 +705,21 @@ def build_knowledge_structure(
         references = list(dict.fromkeys(reference for claim in claims for reference in claim["evidence_refs"]))
         identity = {
             "label": item["label"],
-            "aliases": item["aliases"],
+            "aliases": aliases,
             "claim_ids": [claim["claim_id"] for claim in claims],
             "evidence_refs": references,
         }
         concept_id = _id("concept", identity)
         key_to_id[key] = concept_id
+        # 不同模型 key 若產生完全相同的 canonical 內容，只發布一個節點。
+        if concept_id in canonical_concept_ids:
+            continue
+        canonical_concept_ids.add(concept_id)
         concepts.append(
             {
                 "concept_id": concept_id,
                 "label": item["label"],
-                "aliases": item["aliases"],
+                "aliases": aliases,
                 "claims": claims,
                 "evidence_refs": references,
                 "section_ids": list(dict.fromkeys(evidence_by_id[reference]["section_id"] for reference in references)),
@@ -776,6 +801,8 @@ def build_knowledge_structure(
     rejected_relations += state.rejected_relations
     if rejected_relations:
         reasons.append("RELATIONS_REJECTED")
+    if state.source_review_required:
+        reasons.append("SOURCE_REVIEW_SUGGESTED")
     if not concepts:
         reasons.append("NO_CANONICAL_CONCEPT")
     status = {
@@ -815,6 +842,7 @@ def build_knowledge_structure(
         "status": status,
     }
     if execution_identity is not None:document["execution_identity"]=deepcopy(execution_identity)
+    if state.source_review_required:document["source_review_required"]=True
     document["revision"] = _revision(document)
     if not validate_knowledge_structure(document):
         raise ValueError("KNOWLEDGE_STRUCTURE_INVALID")
@@ -825,26 +853,37 @@ def validate_knowledge_structure(document: Any) -> bool:
     """重驗 final artifact 的 identity、lineage、Relation 與 Path authority。"""
 
     try:
+        digest_field = "source_set_sha256" if isinstance(document, dict) and document.get("schema") == "knowledge-structure/v4" else "source_sha256"
+        source_digest = document[digest_field]
         fields = {
             "schema", "revision", "material_id", "source_sha256", "run_id", "produced_at",
             "provenance", "page_count", "evidence", "excluded_pages", "document_tree",
             "concepts", "relations", "initial_learning_path", "metrics", "status",
         }
-        if isinstance(document,dict) and document.get("schema")=="knowledge-structure/v3" and "input_binding" in document:
+        if isinstance(document, dict) and "source_review_required" in document:
+            if document["source_review_required"] is not True:return False
+            fields.add("source_review_required")
+        if digest_field == "source_set_sha256":
+            fields.remove("source_sha256")
+            fields.add(digest_field)
+            binding = document.get("input_binding")
+            if not isinstance(binding, dict) or binding.get("source_set_digest") != source_digest:
+                return False
+        if isinstance(document,dict) and document.get("schema") in {"knowledge-structure/v3", "knowledge-structure/v4"} and "input_binding" in document:
             fields.add("input_binding")
         execution=document.get("execution_identity") if isinstance(document,dict) else None
         if execution is not None:
             fields.add("execution_identity")
-            if document.get("schema")!="knowledge-structure/v3" or not isinstance(execution,dict) or set(execution)!={"transport","model_id","model_revision","config_sha256","runtime_lock_sha256"}:return False
+            if document.get("schema") not in {"knowledge-structure/v3", "knowledge-structure/v4"} or not isinstance(execution,dict) or set(execution)!={"transport","model_id","model_revision","config_sha256","runtime_lock_sha256"}:return False
             if execution["transport"]!="command" or any(not isinstance(execution[k],str) or re.fullmatch(r"[0-9a-f]{64}",execution[k]) is None for k in ("config_sha256","runtime_lock_sha256")):return False
         if (
             not isinstance(document, dict)
             or set(document) != fields
-            or document["schema"] not in {STRUCTURE_SCHEMA,"knowledge-structure/v3"}
+            or document["schema"] not in {STRUCTURE_SCHEMA,"knowledge-structure/v3","knowledge-structure/v4"}
             or document["revision"] != _revision(document)
-            or not isinstance(document["source_sha256"], str)
-            or re.fullmatch(r"[0-9a-f]{64}", document["source_sha256"]) is None
-            or document["material_id"] != f"material:sha256:{document['source_sha256']}"
+            or not isinstance(source_digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", source_digest) is None
+            or document["material_id"] != f"material:sha256:{source_digest}"
         ):
             return False
         provenance = document["provenance"]
@@ -936,7 +975,7 @@ def validate_knowledge_structure(document: Any) -> bool:
             page_ref = _id(
                 "page",
                 {
-                    "source_sha256": document["source_sha256"],
+                    "source_sha256": source_digest,
                     "page_number": item["page"],
                 },
             )
@@ -983,7 +1022,7 @@ def validate_knowledge_structure(document: Any) -> bool:
                 or excluded["page_ref"] != _id(
                     "page",
                     {
-                        "source_sha256": document["source_sha256"],
+                        "source_sha256": source_digest,
                         "page_number": excluded["page"],
                     },
                 )
@@ -1242,6 +1281,8 @@ def validate_knowledge_structure(document: Any) -> bool:
             reasons.append("LITERALS_RESTORED_FROM_SOURCE")
         if metrics["rejected_relations"]:
             reasons.append("RELATIONS_REJECTED")
+        if document.get("source_review_required", False):
+            reasons.append("SOURCE_REVIEW_SUGGESTED")
         if not concepts:
             reasons.append("NO_CANONICAL_CONCEPT")
         expected_status = {

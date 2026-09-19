@@ -97,7 +97,21 @@ and creates no learning records. There is no separate material-history store.
 
 Study resume is a read projection of the existing StudySession, exact KnowledgeStructure,
 Assessment and AnswerEvent. It uses the existing assessment/event validators, feedback projection
-and derived progress. The material library exposes one canonical persistent state per structure revision; the learner hub opens only the latest usable structure. Question
+and derived progress. The material library exposes one canonical persistent state per structure revision; the learner hub opens the selected Material head. Question
 selection is explicit in the browser URL. Reads never create sessions/questions/answers or apply
 guidance. Completed sessions remain readable, and feedback is exposed only for a validated saved
 AnswerEvent. There is no additional history table or mastery calculation.
+
+B3-A appends immutable source snapshots and analyzes only added sources, retaining verified prior
+Evidence and semantic content. PDFs remain separate, with source-aware reading positions in a v4
+KnowledgeStructure. Unchanged, unambiguous Claims can inherit existing answer evidence through the
+same learning-state reducer without copying or rewriting AnswerEvents. Valid updates containing new
+grounded Claims promote the head, including partial results with quality notices. Cancellation,
+processing failures and updates without usable added content retain the previous head. Unreferenced
+old structures are pruned, while structures required by saved learning remain readable. See
+[source revisions](source-revisions.md) for publication, retention and migration details.
+
+B3-B creates the initial map from one or more ordered, ready sources using the same pipeline.
+All uploads enter the source confirmation page before semantic analysis; per-file retries reuse
+their upload receipts. Initial source ordering is frozen by the revision request, with no second
+KnowledgeStructure schema or merged PDF.

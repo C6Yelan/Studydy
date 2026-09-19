@@ -1,4 +1,4 @@
-import type { MaterialProcessingRunView } from "../../api/contracts";
+import type { FormatCapability, MaterialProcessingRunView } from "../../api/contracts";
 
 export const maximumPdfBytes = 100 * 1024 * 1024;
 export const automaticPollIntervalMs = 1_500;
@@ -54,27 +54,13 @@ export function materialElapsedLabel(createdAt: string, now: number): string {
   return minutes > 0 ? `${minutes} 分 ${seconds} 秒` : `${seconds} 秒`;
 }
 
-type PdfFileDetails = Pick<File, "size" | "type">;
-
-export function validatePdfFile(file: PdfFileDetails | null): string | null {
-  if (!file) return "請先選擇 PDF 教材。";
-  if (file.type !== "application/pdf") return "這不是可用的 PDF 檔案，請選擇副檔名為 .pdf 的教材。";
-  if (file.size === 0) return "PDF 不可為空白檔案。";
-  if (file.size > maximumPdfBytes) return "PDF 不可超過 100 MiB。";
+export function validateSourceFile(file: Pick<File, "name" | "size" | "type">, formats: FormatCapability[]): string | null {
+  const format = formats.find(item => file.name.toLowerCase().endsWith(item.extension));
+  if (!format) return "目前不支援這個教材格式。";
+  if (file.type && file.type !== "application/octet-stream" && file.type !== format.media_type) return "副檔名與檔案類型不一致。";
+  if (file.size === 0) return "教材不可為空白檔案。";
+  if (file.size > format.max_bytes) return "每份檔案最多 100 MiB。";
   return null;
-}
-
-export function validatePdfSelection<T extends PdfFileDetails>(
-  files: ArrayLike<T> | null,
-): { file: T | null; message: string | null } {
-  if (!files || files.length === 0) {
-    return { file: null, message: "請先選擇 PDF 教材。" };
-  }
-  if (files.length !== 1) {
-    return { file: null, message: "一次只能處理一份 PDF 教材。" };
-  }
-  const file = files[0];
-  return { file, message: validatePdfFile(file) };
 }
 
 export function formatFileSize(sizeBytes: number): string {
@@ -82,7 +68,11 @@ export function formatFileSize(sizeBytes: number): string {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
-export function materialRunLabel(status: MaterialProcessingRunView["status"], cancelRequestedAt: string | null): string {
+export function materialRunLabel(status: MaterialProcessingRunView["status"], cancelRequestedAt: string | null, isUpdate = false): string {
+  if (isUpdate) {
+    if (status === "running" && cancelRequestedAt !== null) return "正在取消這次更新";
+    return { pending: "等待更新教材", running: "正在更新教材", succeeded: "更新完成", partial: "更新完成（部分內容待複核）", failed: "更新失敗", cancelled: "已取消這次更新" }[status];
+  }
   if (status === "cancelled") return "已取消處理";
   if (status === "running" && cancelRequestedAt !== null) return "正在取消並刪除教材";
   if (status === "pending") return "等待開始處理";
@@ -93,6 +83,10 @@ export function materialRunLabel(status: MaterialProcessingRunView["status"], ca
 }
 
 export function materialFailureMessage(errorCode: string): string {
+  if (errorCode === "KNOWLEDGE_STRUCTURE_INVALID") return "分析結果在組裝地圖時未通過結構檢查，尚未發布地圖。";
+  if (errorCode === "ANALYSIS_ARTIFACT_WRITE_FAILED" || errorCode === "SEMANTIC_ARTIFACT_WRITE_FAILED") return "分析產物無法寫入本機儲存空間，處理已停止。";
+  if (errorCode === "ANALYSIS_CHECKPOINT_INVALID") return "已保存的分析資料未通過完整性檢查，處理已停止，沒有自動重新分析。";
+  if (errorCode === "NO_USABLE_ADDED_CONTENT") return "新增教材沒有產生可用的知識內容，目前地圖與學習紀錄已保留。";
   if (errorCode === "SEMANTIC_INPUT_TOO_LARGE") return "教材內容與累積概念超過目前分析輸入限制，沒有發布知識地圖。請先調整分析設定，再重試。";
   if (errorCode === "SEMANTIC_BUDGET_EXHAUSTED") return "目前開發測試的 AI 呼叫額度已用完，沒有發布知識地圖。請先確認測試額度，再重試。";
   if (errorCode === "RESTART_INTERRUPTED") return "服務重新啟動時中斷了這次處理。";

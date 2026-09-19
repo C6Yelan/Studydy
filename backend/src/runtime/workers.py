@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 from threading import Event, Thread
+from time import monotonic
 
 from .material_processing import (
     claim_next_material_processing_run,
@@ -12,6 +13,7 @@ from .material_processing import (
 from .material_discard import finish_material_discards
 from .source_normalization import normalize_next
 from .storage.source_artifacts import reconcile_new_artifacts
+from .storage.analysis_archive import reconcile_removed_material_analysis
 
 _IDLE_WAIT_SECONDS = 0.1
 _STARTUP_WAIT_SECONDS = 5
@@ -53,14 +55,20 @@ class RuntimeWorkers:
 
     def _loop(self) -> None:
         is_starting = True
+        next_recovery = 0.0
         while not self._stop.is_set():
             try:
                 if is_starting:
                     reconcile_new_artifacts(dsn=self.dsn)
+                    reconcile_removed_material_analysis(dsn=self.dsn)
                     recover_interrupted_material_runs(dsn=self.dsn)
+                    next_recovery = monotonic() + 10
                     finish_material_discards(dsn=self.dsn)
                     self._started.set()
                     is_starting = False
+                if monotonic() >= next_recovery:
+                    recover_interrupted_material_runs(dsn=self.dsn)
+                    next_recovery = monotonic() + 10
                 normalize_next(dsn=self.dsn)
                 claim = claim_next_material_processing_run(dsn=self.dsn)
                 if claim is not None:

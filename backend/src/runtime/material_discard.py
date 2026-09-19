@@ -5,6 +5,7 @@ from sqlalchemy import delete, func, select
 
 from .material_processing import _request_cancellation_locked
 from .storage.artifacts import quarantine_source_pdf, reconcile_discarded_sources
+from .storage.analysis_archive import remove_material_analysis
 from .storage.tables import AnswerEvent, Assessment, Artifact, KnowledgeStructure, Material, MaterialProcessingRun, StudySession, SourceNormalization, MaterialSource, MaterialSourceSet, MaterialSourceSetItem, database_session
 
 
@@ -44,6 +45,7 @@ def purge_discarded_material(learner_id: UUID, material_id: UUID, *, dsn: str | 
         with database_session(dsn) as session:
             material = session.scalar(select(Material).where(Material.material_id == material_id, Material.learner_id == learner_id).with_for_update())
             if material is None:
+                remove_material_analysis(learner_id, material_id)
                 return True
             if material.discard_requested_at is None:
                 return False
@@ -77,6 +79,7 @@ def purge_discarded_material(learner_id: UUID, material_id: UUID, *, dsn: str | 
             session.execute(delete(Artifact).where(Artifact.learner_id == learner_id, Artifact.material_id == material_id))
             session.execute(delete(Material).where(Material.learner_id == learner_id, Material.material_id == material_id))
         for artifact_id in artifact_ids:reconcile_discarded_sources(dsn=dsn, artifact_id=artifact_id)
+        remove_material_analysis(learner_id, material_id)
         return True
     except Exception as error:
         # 包含 commit 結果不明的連線錯誤；由新 transaction 查 DB authority 決定還原或 unlink。

@@ -212,7 +212,7 @@ def test_email_cutover_retires_old_credentials_and_sessions_without_deleting_own
         connection.execute("INSERT INTO artifacts VALUES (%s,%s,%s,'source_pdf','application/pdf',%s,1,now())", (artifact_id, learner_id, material_id, bytes(32)))
         material = connection.execute("SELECT * FROM materials").fetchone()
         owner = connection.execute("SELECT learner_id,created_at FROM learners").fetchone()
-    assert run_migrations(clean_database_dsn) == (4, 5, 6, 7, 8)
+    assert run_migrations(clean_database_dsn) == (4, 5, 6, 7, 8, 9)
     with psycopg.connect(clean_database_dsn) as connection:
         columns = {row[0] for row in connection.execute("SELECT column_name FROM information_schema.columns WHERE table_name='learners'")}
         assert "email" in columns and "username" not in columns

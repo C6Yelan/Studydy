@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.learner_session import TrustedLearner
-from runtime.storage.tables import StudySession, database_session
+from runtime.storage.tables import StudySession, Material, database_session
 
 from .answer_events import read_answer_events
 from .learning_states import ConceptLearningState, derive_learning_states
@@ -141,7 +141,11 @@ def derive_learner_progress(
         events = read_answer_events(learner, study_session_id, dsn=dsn)
         if len(events) != session.last_event_number:
             raise LearnerProgressError("LEARNER_PROGRESS_STALE")
-        return _snapshot(session, context, derive_learning_states(context, events))
+        from .inherited_progress import inherited_answers
+        inherited = inherited_answers(learner, session, dsn=dsn)
+        # 未跨版本時保留原有 event_number 順序；只有跨 session 的證據需要合併時間序。
+        evidence = tuple(sorted((*inherited, *events), key=lambda event: (event.created_at, str(event.answer_event_id)))) if inherited else events
+        return _snapshot(session, context, derive_learning_states(context, evidence))
     except LearnerProgressError:
         raise
     except Exception:
@@ -197,6 +201,13 @@ def apply_guidance(
     })
     try:
         with database_session(dsn) as session:
+            material_id=session.scalar(select(StudySession.material_id).where(StudySession.learner_id==learner.learner_id,
+                StudySession.study_session_id==study_session_id))
+            if material_id is None:raise LearnerProgressError("LEARNER_PROGRESS_UNAVAILABLE")
+            session.scalar(select(Material.material_id).where(Material.learner_id==learner.learner_id,
+                Material.material_id==material_id).with_for_update())
+            if derive_learner_progress(learner,study_session_id,dsn=dsn).guidance_revision != before.guidance_revision:
+                raise LearnerProgressError("LEARNER_GUIDANCE_STALE")
             stored = session.scalar(
                 select(StudySession).where(
                     StudySession.learner_id == learner.learner_id,

@@ -9,7 +9,8 @@ import psycopg
 import pytest
 from sqlalchemy import select
 from document_normalization.converter import convert,conversion_policy,MIME
-from runtime.source_normalization import create_draft,upload_source,read_sources,normalize_next,create_revision,SourceError
+from runtime.source_normalization import create_draft,upload_source,read_sources,normalize_next,SourceError
+from runtime.source_revisions import create_revision
 from runtime.source_resolver import bind_structure_input,resolve_evidence_source
 from runtime.storage.knowledge_structures import publish_knowledge_structure,read_knowledge_structure
 from runtime.storage.source_artifacts import open_verified_artifact
@@ -39,7 +40,7 @@ def test_source_round_trip_freeze_resume_and_owned_delete(closed_loop,normalizer
     job=read_sources(owner,material,dsn=dsn)[0]
     with pytest.raises(SourceError,match='SOURCE_NOT_READY'):create_revision(owner,material,[job['normalization_id']],'run',settings,dsn=dsn)
     with pytest.raises(SourceError,match='IDEMPOTENCY_CONFLICT'):upload_source(owner,material,TEXT+b'changed','notes.txt','text/plain','upload-source',dsn=dsn)
-    with pytest.raises(SourceError,match='SINGLE_SOURCE_ONLY'):upload_source(owner,material,TEXT,'second.txt','text/plain','another',dsn=dsn)
+    with pytest.raises(SourceError,match='DUPLICATE_SOURCE'):upload_source(owner,material,TEXT,'second.txt','text/plain','another',dsn=dsn)
     assert normalize_next(dsn=dsn)
     ready=read_sources(owner,material,dsn=dsn)[0]
     assert ready['status']=='ready' and ready['page_count']==1
@@ -61,11 +62,13 @@ def test_source_round_trip_freeze_resume_and_owned_delete(closed_loop,normalizer
     def semantics(_client,**request):
         handle=request['request']['sections'][0]['evidence'][0][0]
         return {'concepts':[{'k':'stack','l':'Stack','a':[],'c':[{'m':None,'s':[handle]}]}],'relations':[]}
-    document=material_pipeline.analyze_material({'media_type':'application/pdf','source_path':str(source_path),'expected_source_sha256':source_sha},
-                settings,run_id=str(run.run_id),semantic_call=semantics)
+    from runtime.source_resolver import _input
+    source_request={'media_type':'application/pdf','source_path':str(source_path),'expected_source_sha256':source_sha}
+    document=material_pipeline.analyze_material(source_request,
+                settings,run_id=str(run.run_id),semantic_call=semantics,source_inputs=[source_request],input_binding=_input(owner,run.run_id,dsn=dsn))
     document=bind_structure_input(owner,run.run_id,document,dsn=dsn)
     published=publish_knowledge_structure(owner,material,run.run_id,document,dsn=dsn)
-    assert published.document['schema']=='knowledge-structure/v3'
+    assert published.document['schema']=='knowledge-structure/v4'
     assert published.view['schema']=='knowledge-structure-view/v3'
     evidence=document['evidence'][0]['evidence_id']
     source=resolve_evidence_source(owner,material,published.revision,evidence,dsn=dsn)
@@ -215,7 +218,7 @@ def test_command_assessment_provenance_survives_configuration_removal(closed_loo
     from runtime.storage.tables import Assessment
     learner,source,settings,structure,dsn,_=closed_loop
     config={'schema':'semantic-command-config/v1','argv':[sys.executable,'-c','raise SystemExit(99)'],'model_id':'fixture-model',
-            'model_revision':'fixture-revision','timeout_seconds':1,'max_input_bytes':4096,'max_calls':1}
+            'model_revision':'fixture-revision'}
     path=tmp_path/'command.json';path.write_text(json.dumps(config));monkeypatch.setenv('STUDYDY_SEMANTIC_COMMAND_CONFIG',str(path))
     study=create_study_session(learner,source.material_id,structure['revision'],'command-study',dsn=dsn)
     concept=structure['concepts'][0]

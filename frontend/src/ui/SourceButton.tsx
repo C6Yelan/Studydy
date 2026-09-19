@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../api/client";
-import type { EvidenceSourceView } from "../api/contracts";
+import type { EvidenceSourceView, EvidenceView } from "../api/contracts";
 
-export function SourceButton({apiClient,artifactId,page,evidenceId,resolver,children}:{apiClient:StudydyApiClient;artifactId:string;page:number;evidenceId?:string;resolver?:string;children:ReactNode}) {
+export function sourceLinks(evidence: EvidenceView[], resolver?: string): EvidenceView[] {
+  // 多來源 resolver 保留區塊定位；直接開啟單 PDF 時，同頁只有同一個開啟動作。
+  return [...new Map(evidence.map(item => [resolver ? item.evidence_id : item.page, item])).values()];
+}
+
+export function SourceButton({apiClient,artifactId,page,evidenceId,resolver,children,evidence}:{apiClient:StudydyApiClient;artifactId:string;page:number;evidenceId?:string;resolver?:string;children:ReactNode;evidence?:EvidenceView}) {
   const [source,setSource]=useState<EvidenceSourceView|null>(null);
   const [error,setError]=useState<string|null>(null);const [busy,setBusy]=useState(false);
   const dialog=useRef<HTMLDialogElement>(null);const opener=useRef<HTMLButtonElement>(null);
@@ -13,7 +18,7 @@ export function SourceButton({apiClient,artifactId,page,evidenceId,resolver,chil
     try{setSource(await apiClient.resolveEvidence(resolver,evidenceId));}catch(e){setError(errorMessage(e));}finally{setBusy(false);}
   };
   return <>
-    <button ref={opener} className="text-button" type="button" disabled={busy} onClick={()=>void open()} aria-haspopup={resolver?"dialog":undefined}>{resolver?busy?"正在讀取來源…":`查看第 ${page} 頁來源`:children}</button>
+    <button ref={opener} className="text-button" type="button" disabled={busy} onClick={()=>void open()} aria-haspopup={resolver?"dialog":undefined}>{resolver?busy?"正在讀取來源…":evidence?.source_name?`${evidence.source_name} · PDF 第 ${evidence.normalized_page} 頁`:`查看第 ${page} 頁來源`:children}</button>
     {error&&<p role="alert" className="form-error">{error}</p>}
     {source&&<dialog ref={dialog} className="source-dialog" aria-label="教材來源" onCancel={event=>{event.preventDefault();event.stopPropagation();dialog.current?.close();}} onKeyDown={event=>{if(event.key==="Escape")event.stopPropagation();}} onClose={()=>{setSource(null);opener.current?.focus();}}>
       <h2>{source.original_name}</h2><p>{source.label}</p>

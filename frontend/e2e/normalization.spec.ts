@@ -21,8 +21,8 @@ for(const width of [1536,390]) test(`single non-PDF normalization resumes withou
   await page.route("**/v1/materials",r=>r.fulfill({json:{schema:"material-library/v2",materials:[item()]}}));
   await page.route(`**/v2/materials/${material}/revisions`,r=>{revisions++;return r.abort();});
   await page.goto("/upload");await expect(page.locator(".conversion-note")).toContainText("轉換品質不保證");
-  await page.getByLabel("選擇 PDF 教材",{exact:true}).setInputFiles({name:"notes.txt",mimeType:"text/plain",buffer:Buffer.from(text)});
-  await page.getByRole("button",{name:"上傳並轉換為 PDF"}).click();await expect(page).toHaveURL(new RegExp(`/materials/${material}/sources$`));
+  await page.getByLabel("選擇教材檔案",{exact:true}).setInputFiles({name:"notes.txt",mimeType:"text/plain",buffer:Buffer.from(text)});
+  await page.getByRole("button",{name:"上傳並確認來源"}).click();await expect(page).toHaveURL(new RegExp(`/materials/${material}/sources$`));
   await expect(page.getByRole("status")).toContainText("正在轉換");await page.reload();
   await expect(page.getByRole("status")).toContainText("正在轉換");expect(drafts).toBe(1);expect(uploads).toBe(1);expect(revisions).toBe(0);
   await page.screenshot({path:info.outputPath("normalizing.png"),fullPage:true});
@@ -137,13 +137,12 @@ for (const viewport of [{width:1920,height:1080},{width:1536,height:1024},{width
     expect(copy.x + copy.width).toBeLessThan(mascot.x);
     const card = (await page.locator(".source-card").boundingBox())!;
     const rail = (await page.locator(".source-guide").boundingBox())!;
-    const actions = (await page.locator(".source-file-actions").boundingBox())!;
+    const confirmation = (await page.locator(".source-confirmation").boundingBox())!;
     const cta = (await page.getByRole("button",{name:"開始分析教材"}).boundingBox())!;
-    expect(cta.y - actions.y - actions.height).toBeGreaterThanOrEqual(24);
-    expect(cta.y - actions.y - actions.height).toBeLessThanOrEqual(33);
-    expect(card.y + card.height - cta.y - cta.height).toBeLessThanOrEqual(25);
+    expect(cta.y).toBeGreaterThan(confirmation.y);
+    expect(confirmation.y + confirmation.height - cta.y - cta.height).toBeLessThanOrEqual(33);
     if (viewport.width > 1200) { expect(rail.width).toBe(320); expect(rail.x - card.x - card.width).toBeCloseTo(24,0); }
-    else { expect(rail.y).toBeGreaterThan(card.y + card.height); expect(cta.width).toBeCloseTo(card.width - 42,0); }
+    else { expect(rail.y).toBeGreaterThan(confirmation.y + confirmation.height); }
     const back = (await page.getByRole("button",{name:"返回教材庫"}).boundingBox())!;
     const remove = (await page.getByRole("button",{name:"刪除教材",exact:true}).boundingBox())!;
     expect(back.y).toBe(remove.y);

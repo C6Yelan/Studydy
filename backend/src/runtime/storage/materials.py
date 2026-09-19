@@ -22,7 +22,7 @@ def read_material_library(
         with database_session(dsn) as session:
             statement = select(
                 Material.material_id, Material.source_artifact_id, Material.display_name,
-                Material.created_at, Artifact.size_bytes, Material.ingestion_kind,
+                Material.created_at, Artifact.size_bytes, Material.ingestion_kind, Material.head_revision,
             ).outerjoin(Artifact, (Artifact.artifact_id == Material.source_artifact_id)
                    & (Artifact.material_id == Material.material_id)
                    & (Artifact.learner_id == Material.learner_id)).where(Material.learner_id == learner_id)
@@ -37,6 +37,7 @@ def read_material_library(
                 MaterialProcessingRun.status, MaterialProcessingRun.progress_stage,
                 MaterialProcessingRun.completed_pages, MaterialProcessingRun.total_pages,
                 MaterialProcessingRun.error_code, MaterialProcessingRun.created_at, MaterialProcessingRun.cancel_requested_at,
+                MaterialProcessingRun.base_revision,
             ).where(
                 MaterialProcessingRun.learner_id == learner_id,
                 MaterialProcessingRun.material_id.in_(ids),
@@ -47,12 +48,12 @@ def read_material_library(
                 KnowledgeStructure.material_id, KnowledgeStructure.run_id,
                 KnowledgeStructure.structure_revision.label("knowledge_structure_revision"),
                 KnowledgeStructure.created_at, MaterialProcessingRun.status,
+                MaterialProcessingRun.base_revision,
             ).join(MaterialProcessingRun, (MaterialProcessingRun.run_id == KnowledgeStructure.run_id)
                    & (MaterialProcessingRun.learner_id == KnowledgeStructure.learner_id)
                    & (MaterialProcessingRun.material_id == KnowledgeStructure.material_id)
             ).join(Material, (Material.material_id == KnowledgeStructure.material_id)
                    & (Material.learner_id == KnowledgeStructure.learner_id)
-                   & (Material.source_artifact_id == MaterialProcessingRun.source_artifact_id)
             ).where(
                 KnowledgeStructure.learner_id == learner_id,
                 KnowledgeStructure.material_id.in_(ids),
@@ -89,11 +90,16 @@ def read_material_library(
     sources={source.material_id:{"source_id":source.source_id,"normalization_id":job.normalization_id,"original_artifact_id":source.original_artifact_id,
         "original_name":source.original_name,"media_type":source.media_type,"status":job.status,"error_code":job.error_code,
         "normalized_artifact_id":job.normalized_artifact_id,"page_count":job.page_count} for source,job,_ in source_rows}
-    original_sizes={source.material_id:size for source,job,size in source_rows}
+    original_sizes={identity:0 for identity in ids}
+    counts={identity:0 for identity in ids}
+    for source,job,size in source_rows:
+        original_sizes[source.material_id]+=size
+        counts[source.material_id]+=1
     return [{
         **{key:value for key,value in row.items() if key!="ingestion_kind"},
         "schema": "material-library-item/v3" if row["ingestion_kind"]=="sources-v2" else "material-library-item/v2",
         "size_bytes":original_sizes.get(row["material_id"],row["size_bytes"] or 0),
+        "source_count":counts[row["material_id"]],
         **({"source":sources.get(row["material_id"]),"ingestion_kind":"sources-v2"} if row["ingestion_kind"]=="sources-v2" else {}),
         "display_name": row["display_name"] or f"教材 {row['created_at']:%Y-%m-%d} · {str(row['material_id'])[:8]}",
         "latest_attempt": latest.get(row["material_id"]),

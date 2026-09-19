@@ -68,7 +68,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
         await expect(processing.getByRole("button", { name: "重新讀取", exact: true })).toBeVisible();
       } else if (run.status === "failed") {
         await expect(processing.getByRole("heading", { name: "教材處理失敗", exact: true })).toBeVisible();
-        await expect(processing).toContainText("最後安全進度：整理頁面與教材來源，3 / 45 頁");
+        await expect(processing).toContainText("最後記錄進度：整理頁面與教材來源，3 / 45 頁");
         await expect(processing.locator("details")).not.toHaveAttribute("open", "");
         await expect(processing.locator("code")).toBeHidden();
       } else if (run.status === "succeeded" || run.status === "partial") {

@@ -1,16 +1,15 @@
-"""單來源 v2 ingestion：原檔 receipt → durable normalization → frozen source set。"""
+"""原檔 receipt 與 durable normalization；來源集合由明確確認的 revision 操作封存。"""
 from __future__ import annotations
 from datetime import UTC,datetime,timedelta
 from hashlib import sha256
-import json
 from pathlib import PurePath
-from uuid import UUID,uuid4
-from sqlalchemy import select,or_,func
-from document_normalization.converter import MAX_FILE_BYTES,MIME,NormalizationError,configured_python,conversion_policy,convert
+from uuid import uuid4
+from sqlalchemy import select,or_,delete
+from document_normalization.converter import MAX_FILE_BYTES,MIME,NormalizationError,conversion_policy,convert
 from pdf_evidence.ocr_page_evidence import canonical_bytes,canonical_sha256
-from .storage.artifacts import _key_digest,ArtifactError
+from .storage.artifacts import _key_digest
 from .storage.source_artifacts import write_blob,open_verified_artifact,reconcile_new_artifacts
-from .storage.tables import (Learner,Material,Artifact,MaterialSource,SourceNormalization,MaterialSourceSet,MaterialSourceSetItem,
+from .storage.tables import (Learner,Material,Artifact,MaterialSource,SourceNormalization,MaterialSourceSetItem,
                              MaterialProcessingRun,database_session)
 
 class SourceError(RuntimeError):pass
@@ -46,13 +45,13 @@ def upload_source(owner,material_id,data,name,media,key,*,dsn=None):
     try:
         with database_session(dsn) as session:
             material=_material(session,owner,material_id)
-            if material.ingestion_kind!='sources-v2':raise SourceError('REQUEST_INVALID')
             existing=session.scalar(select(MaterialSource).where(MaterialSource.learner_id==owner,MaterialSource.material_id==material_id,MaterialSource.idempotency_key_sha256==digest))
             if existing:
                 if bytes(existing.request_fingerprint)!=fingerprint:raise SourceError('IDEMPOTENCY_CONFLICT')
                 return existing.source_id
-            # B2-I 僅單來源；B3 才開放追加。先鎖 Material，避免同時上傳突破限制。
-            if session.scalar(select(MaterialSource.source_id).where(MaterialSource.material_id==material_id)) is not None:raise SourceError('SINGLE_SOURCE_ONLY')
+            if session.scalar(select(MaterialSource.source_id).join(Artifact,Artifact.artifact_id==MaterialSource.original_artifact_id)
+                .where(MaterialSource.material_id==material_id,Artifact.sha256==sha256(data).digest())) is not None:
+                raise SourceError('DUPLICATE_SOURCE')
             policy=conversion_policy()
             blob=write_blob(session,owner,material_id,data,'original',media);now=datetime.now(UTC);identity=uuid4()
             session.add(MaterialSource(source_id=identity,learner_id=owner,material_id=material_id,original_artifact_id=blob.artifact_id,
@@ -65,10 +64,21 @@ def upload_source(owner,material_id,data,name,media,key,*,dsn=None):
 
 def read_sources(owner,material_id,*,dsn=None):
     with database_session(dsn) as session:
-        if session.scalar(select(Material.material_id).where(Material.learner_id==owner,Material.material_id==material_id)) is None:raise SourceError('RESOURCE_NOT_FOUND')
+        material=session.scalar(select(Material).where(Material.learner_id==owner,Material.material_id==material_id))
+        if material is None:raise SourceError('RESOURCE_NOT_FOUND')
+        from .source_revisions import current_revision
+        from .storage.tables import KnowledgeStructure
+        revision=current_revision(session,material)
+        structure=session.scalar(select(KnowledgeStructure).where(KnowledgeStructure.learner_id==owner,KnowledgeStructure.material_id==material_id,KnowledgeStructure.structure_revision==revision)) if revision else None
+        included={item['source_id'] for item in structure.document.get('input_binding',{}).get('manifest',{}).get('items',[])} if structure else set()
+        if structure and not included:
+            source=session.scalar(select(MaterialSource).where(MaterialSource.material_id==material_id,MaterialSource.original_artifact_id==material.source_artifact_id))
+            if source:included.add(str(source.source_id))
         rows=session.execute(select(MaterialSource,SourceNormalization).join(SourceNormalization,SourceNormalization.source_id==MaterialSource.source_id)
              .where(MaterialSource.learner_id==owner,MaterialSource.material_id==material_id).distinct(MaterialSource.source_id).order_by(MaterialSource.source_id,SourceNormalization.created_at.desc())).all()
+        rows=sorted(rows,key=lambda pair:pair[0].created_at)
         return [{'source_id':s.source_id,'normalization_id':n.normalization_id,'original_artifact_id':s.original_artifact_id,
+                 'included':str(s.source_id) in included,
                  'original_name':s.original_name,'media_type':s.media_type,'status':n.status,'error_code':n.error_code,
                  'normalized_artifact_id':n.normalized_artifact_id,'page_count':n.page_count} for s,n in rows]
 
@@ -99,7 +109,8 @@ def normalize_next(*,dsn=None):
             job.normalized_artifact_id=normalized.artifact_id;job.mapping_artifact_id=metadata.artifact_id
             job.page_count=mapping['page_count'];job.status='ready';job.lease_token=None;job.lease_expires_at=None;job.updated_at=datetime.now(UTC)
             # 相容既有單來源 library/run projection；真正 provenance 綁在 SourceSet。
-            material.source_artifact_id=normalized.artifact_id
+            if material.source_artifact_id is None:
+                material.source_artifact_id=normalized.artifact_id
     except Exception as error:
         with database_session(dsn) as session:
             job=session.scalar(select(SourceNormalization).where(SourceNormalization.normalization_id==identity).with_for_update())
@@ -122,41 +133,28 @@ def retry_normalization(owner,material_id,identity,*,dsn=None):
             else:
                 job.status='pending';job.error_code=None;job.attempt=0;job.updated_at=now
 
-def create_revision(owner,material_id,normalization_ids,key,config,*,dsn=None):
-    from .material_processing import runtime_binding,_row
-    if len(normalization_ids)!=1:raise SourceError('SINGLE_SOURCE_ONLY')
-    digest=_key_digest(key)
-    def fingerprint_for(runtime):
-        return bytes.fromhex(canonical_sha256({'material_id':str(material_id),'normalizations':[str(x) for x in normalization_ids],'runtime':runtime}))
-    with database_session(dsn) as session:
-        material=_material(session,owner,material_id)
-        if material.ingestion_kind!='sources-v2':raise SourceError('REQUEST_INVALID')
-        existing=session.scalar(select(MaterialProcessingRun).where(MaterialProcessingRun.learner_id==owner,MaterialProcessingRun.idempotency_key_sha256==digest))
-        if existing:
-            if bytes(existing.request_fingerprint)!=fingerprint_for(existing.runtime_binding):raise SourceError('IDEMPOTENCY_CONFLICT')
-            return _row(existing)
-        runtime=runtime_binding(config);fingerprint=fingerprint_for(runtime)
-        job=session.scalar(select(SourceNormalization).where(SourceNormalization.learner_id==owner,SourceNormalization.material_id==material_id,
-                     SourceNormalization.normalization_id==normalization_ids[0],SourceNormalization.status=='ready'))
-        if job is None:raise SourceError('SOURCE_NOT_READY')
-        source=session.get(MaterialSource,job.source_id);original=session.get(Artifact,source.original_artifact_id)
-        normalized=session.get(Artifact,job.normalized_artifact_id);mapping=session.get(Artifact,job.mapping_artifact_id)
-        item={'source_id':str(source.source_id),'normalization_id':str(job.normalization_id),'original_artifact_id':str(original.artifact_id),
-              'original_sha256':bytes(original.sha256).hex(),'normalized_artifact_id':str(normalized.artifact_id),'normalized_sha256':bytes(normalized.sha256).hex(),
-              'mapping_artifact_id':str(mapping.artifact_id),'mapping_sha256':bytes(mapping.sha256).hex(),'media_type':source.media_type,
-              'original_name':source.original_name,'policy_sha256':canonical_sha256(job.policy),'page_count':job.page_count}
-        manifest={'schema':'source-set/v1','items':[item]};manifest_hash=canonical_sha256(manifest)
-        source_set=session.scalar(select(MaterialSourceSet).where(MaterialSourceSet.learner_id==owner,MaterialSourceSet.material_id==material_id,MaterialSourceSet.digest==manifest_hash))
-        now=datetime.now(UTC)
-        if source_set is None:
-            source_set=MaterialSourceSet(source_set_id=uuid4(),learner_id=owner,material_id=material_id,manifest=manifest,digest=manifest_hash,created_at=now)
-            session.add(source_set);session.flush()
-            session.add(MaterialSourceSetItem(source_set_id=source_set.source_set_id,ordinal=1,learner_id=owner,material_id=material_id,source_id=source.source_id,normalization_id=job.normalization_id));session.flush()
-        # 單來源 canonical PDF 共享已驗證 normalized bytes，不為 role 重複複製。
-        bundle={'schema':'bundle-manifest/v1','source_set_digest':manifest_hash,'canonical_artifact_id':str(normalized.artifact_id),
-                'canonical_sha256':bytes(normalized.sha256).hex(),'pages':[{'page':n,'source_id':str(source.source_id),'normalized_page':n} for n in range(1,job.page_count+1)]}
-        row=MaterialProcessingRun(run_id=uuid4(),learner_id=owner,material_id=material_id,source_artifact_id=normalized.artifact_id,
-             idempotency_key_sha256=digest,request_fingerprint=fingerprint,runtime_binding=runtime,input_source_set_id=source_set.source_set_id,
-             bundle_manifest=bundle,bundle_manifest_sha256=canonical_sha256(bundle),status='pending',progress_stage='queued',completed_pages=0,total_pages=None,
-             created_at=now,updated_at=now)
-        session.add(row);session.flush();return _row(row)
+
+def remove_staged_source(owner,material_id,source_id,*,dsn=None):
+    from .storage.artifacts import quarantine_source_pdf,reconcile_discarded_sources
+    artifacts=[]
+    try:
+        with database_session(dsn) as session:
+            material=_material(session,owner,material_id)
+            source=session.scalar(select(MaterialSource).where(MaterialSource.learner_id==owner,
+                MaterialSource.material_id==material_id,MaterialSource.source_id==source_id).with_for_update())
+            if source is None:return
+            if session.scalar(select(MaterialSourceSetItem.source_set_id).where(MaterialSourceSetItem.source_id==source_id).limit(1)):
+                raise SourceError('SOURCE_IN_USE')
+            jobs=session.scalars(select(SourceNormalization).where(SourceNormalization.source_id==source_id).with_for_update()).all()
+            if any(job.status=='running' for job in jobs):raise SourceError('SOURCE_BUSY')
+            artifacts=list({source.original_artifact_id,*[identity for job in jobs for identity in (job.normalized_artifact_id,job.mapping_artifact_id) if identity]})
+            if session.scalar(select(MaterialProcessingRun.run_id).where(MaterialProcessingRun.source_artifact_id.in_(artifacts)).limit(1)):
+                raise SourceError('SOURCE_IN_USE')
+            for identity in artifacts:quarantine_source_pdf(session,identity)
+            if material.source_artifact_id in artifacts:
+                material.source_artifact_id=None;session.flush()
+            session.execute(delete(SourceNormalization).where(SourceNormalization.source_id==source_id))
+            session.delete(source);session.flush()
+            session.execute(delete(Artifact).where(Artifact.learner_id==owner,Artifact.material_id==material_id,Artifact.artifact_id.in_(artifacts)))
+    finally:
+        for identity in artifacts:reconcile_discarded_sources(dsn=dsn,artifact_id=identity)

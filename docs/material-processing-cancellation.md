@@ -4,13 +4,13 @@ Upload → Processing 是新教材的第一次分析。「取消並刪除教材�
 
 ## Canonical contracts
 
-- 唯一公開刪除入口：`DELETE /v1/materials/{material_id}`。
+- 整份教材刪除入口：`DELETE /v1/materials/{material_id}`。
 - HTTP 202、`material-discard/v1`：`material_id` 與 `state: removing | removed`。
 - CookieSession、Origin required；拒絕 query、非空 body 與 client learner override，不需要 Idempotency-Key。
 - 跨 owner／已不存在為 `RESOURCE_NOT_FOUND` / 404。不保存刪除 tombstone；重複 DELETE 在 removing 期間穩定，完成後為 404。
 - 已要求刪除的教材不可 rename 或 create run（`MATERIAL_NOT_DISCARDABLE` / 409）；DB／filesystem 暫時錯誤為 `STORAGE_UNAVAILABLE` / 503。
-- Run 維持 `material-processing-run/v5`，library/item 維持 v2，output binding 維持 v4。
-- 舊 public cancel-only endpoint 與 frontend client 已刪除；run cancellation 是 internal primitive，不再有 learner cancel-but-keep 行為。
+- 單 PDF run 為 `material-processing-run/v5`；來源集合 run 為 v6，output binding 維持 v4。
+- B3-A 追加使用 `POST /v2/material-processing-runs/{run_id}/cancel`，保留目前地圖與學習紀錄，詳見 [追加契約](source-revisions.md)。首次分析的「取消並刪除教材」仍使用 DELETE。
 
 ## Eligibility 與持久化意圖
 
@@ -21,9 +21,9 @@ Upload → Processing 是新教材的第一次分析。「取消並刪除教材�
 | Pending | 保存 discard intent，pending 立即 cancelled，再刪除 |
 | Running queued/evidence/semantics | 保存 intent，對所有 active runs 接受 cancellation，回 removing |
 | Succeeded/partial、KnowledgeStructure、StudySession、Assessment、AnswerEvent | 保存 intent 後清除這份教材全部衍生資料 |
-| Running publishing | 保存 intent，不硬取消 publishing；完成到 terminal 後由 worker purge |
+| Running publishing | 保存 intent；尚未提交的 publication 必須停止，worker 收斂 terminal 後 purge |
 
-`materials.discard_requested_at` 是 nullable internal authority，不是 status enum，也不加入 library response。新取消要求只有在持有 Material → run row locks、owner/source identity 正確且 Material 已有 discard intent 時才能建立。新 run 建立也鎖 Material，拒絕已要求 discard 的教材。
+`materials.discard_requested_at` 是 nullable internal authority。整份刪除需持有 Material → run locks 並保存 discard intent；B3-A 的 run-only cancel 另驗證 owner、run 與 base revision，不建立整份刪除意圖。新 run 拒絕已要求 discard 的教材。
 
 Run statuses 仍只有 pending、running、succeeded、partial、failed、cancelled。既有 `cancel_requested_at` 無論是否有 Material intent，worker 都必須 honor；歷史 cancelled 資料合法且不會被 migration 補 intent 或自動刪除。
 
@@ -32,7 +32,7 @@ Run statuses 仍只有 pending、running、succeeded、partial、failed、cancel
 Discard 先鎖 Material，再依 run ID 鎖住全部 runs，等待全部 active runs 安全結束。取消與 publishing transition 使用同一 run row lock：
 
 - discard 先：Material intent 和所有 cancellation requests 同一 transaction commit；publishing checkpoint honor cancellation，不發布新 structure。
-- publishing 先：保存 discard intent 並回 removing，允許發布安全完成，再清除該份教材。
+- publication 已先提交：保留該次 terminal 結果，再清除整份教材；僅進入 publishing 階段尚不代表提交，刪除意圖可阻止晚到發布。
 - 已接受取消先於 failure：terminal 是 cancelled、error_code null。Failure 已先完成則不改寫其結果；明確 discard 仍可清除該份教材。
 - Runtime work 前、preflight 後、evidence page、semantic bundle、下一個 bundle/retry、publishing 前維持 cooperative checkpoints。單一已在執行的 OCR/Gemma request 允許先完成。
 - Cancellation terminal transaction 先 commit、pipeline 正常 unwind；worker 再呼叫統一 purge authority。多個 run 必須全部停止才可 purge。

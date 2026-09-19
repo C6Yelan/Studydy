@@ -76,6 +76,24 @@ saved fixtures; they do not perform the later workstation shutdown/restart or mo
 
 ## Runtime verification
 
+B3-A／B3-B 的核心案例在 `test_source_revisions.py`、`test_source_identity.py` 與
+`test_source_revision_migration.py`；真 API/DB browser 在 `test_source_revisions_browser.py`。
+後者仍使用受控語意回應，不是模型品質驗收。可用
+`STUDYDY_E2E_FRONTEND_PORT=4183 STUDYDY_E2E_API_PORT=8002` 避開產品 ports。
+瀏覽器請求次數／版面驗收以 `browser_e2e_runner.main(..., production=True)` 檢查正式建置；
+Vite dev 的 React StrictMode 可能重複唯讀 GET，不應誤判為搜尋觸發額外寫入。
+多個 spec 的 runner 可明確指定 `timeout_seconds`，不變更 individual test timeout 或重試次數。
+最新功能契約見 [source-revisions.md](source-revisions.md)。
+
+B3-B 初次多檔 browser 使用 `upload.spec.ts` 驗證逐檔驗證、部分失敗重試、順序、回應遺失與明確移除；
+`initial-sources-real.spec.ts` 由真 API／隔離 DB／worker fixture 執行 PDF＋TXT＋Markdown 的初次建立及逐來源回查。
+Upload 已統一走來源確認頁；舊單 PDF 直接建立 run 的 UI 測試已依新操作契約替換。
+
+失敗恢復必測 `test_source_revisions.py` 的 fault injection：同一頁第二批失敗，只重試該批；
+最後組裝／發布失敗，重試不建立模型 client、不執行 preflight／OCR／語意呼叫；
+保存失敗須在推論前停止，損毀 checkpoint 不得靜默全量重跑。`test_knowledge_structure_v1.py`
+另覆蓋跨批主名稱／別名互換，以及不同模型 key 產生相同 canonical Concept 的情況。
+
 The runtime root contains only the Python 3.12 OCR environment and Unlimited-OCR model. Gemma 4 is
 already resident at `127.0.0.1:18000`:
 

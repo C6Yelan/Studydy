@@ -10,7 +10,6 @@ from urllib.parse import urlsplit
 import httpx
 
 from pdf_evidence.ocr_page_evidence import canonical_bytes
-from knowledge_map.structure import semantic_response_schema
 from . import command_semantics
 
 
@@ -76,7 +75,7 @@ def _service(lock: Any) -> dict[str, Any]:
         service = lock["semantic_service"]
         origin = _origin(service["base_url"])
         if (
-            lock["schema"] != "studydy-runtime-lock/v16"
+            lock["schema"] != "studydy-runtime-lock/v18"
             or lock["python"] != "3.12"
             or service["model_id"] != "google/gemma-4-31B-it-qat-w4a16-ct"
             or service["revision"] != "52f3f65bc7a02d555763bc923bd1d9094898219d"
@@ -299,13 +298,20 @@ def request_semantics(
 def material_request_fits(
     client: httpx.Client, runtime_lock: dict[str, Any], request: dict[str, Any]
 ) -> bool:
-    """使用 resident tokenizer 與正式推論相同的 prompt 和輸出預算。"""
+    """共用分批器的容量判斷；command 僅估算新增內容的批量，不設總量門檻。"""
 
     config=command_semantics.settings()
     if config is not None:
-        schema = semantic_response_schema([row[0] for section in request["sections"] for row in section["evidence"]])
-        payload = command_semantics.encode_payload(runtime_lock["material_semantics"]["prompt"], request, schema)
-        return len(payload) <= config["max_input_bytes"]
+        if sum(len(section["evidence"]) for section in request["sections"]) <= 1:
+            # 單一來源區塊不截斷；超過批量目標仍完整交給執行器。
+            return True
+        fresh_request = {**request, "existing_concepts": []}
+        text = _messages(runtime_lock["material_semantics"]["prompt"], fresh_request)[0]["content"]
+        # CLI 沒有 tokenizer endpoint。ASCII 每四字元、其餘每字元估一單位，
+        # 只用來選擇同一分批器的批次大小，不冒稱模型的實際 token 數。
+        ascii_count = sum(character.isascii() for character in text)
+        estimated = (ascii_count + 3) // 4 + len(text) - ascii_count
+        return estimated <= runtime_lock["material_semantics"]["max_new_input_tokens"]
     service = _service(runtime_lock)
     task = runtime_lock["material_semantics"]
     try:

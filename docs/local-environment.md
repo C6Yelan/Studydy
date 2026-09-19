@@ -51,4 +51,10 @@ python3 ops/local/manage.py stop
 
 ## 目前 candidate 的資料契約
 
-Runtime lock v16／binding v1 採先前批准的 clean cutover。既有 product DB 的資料不會被啟動腳本改寫；舊模型產生的開發 Map 需要重新生成，不能把保存資料與目前版本可 reopen 混為一談。不要修改 DB hash 或加舊版 reader 來繞過驗證。
+B3-A／B3-B candidate 使用 runtime lock v18，保留來源 scope／增量 review flag 契約並修正 command 分批；模型與 server pin 保持原設定，開發替代模型仍由 private config 注入。2026-09-19 經使用者授權，產品 DB 已備份並升級 migration 0009；同日完成 B3-B 後已重新載入服務供整體驗收，B3-B 無新增 migration。13 張既有資料表的原有欄位雜湊核對一致；啟動未呼叫模型。已保存 KS／題目／答案不改寫 hash，來源、學習契約與備份紀錄見 [B3-A／B3-B](source-revisions.md)。
+
+同日依使用者要求，已直接移除私人 command 設定中的 `timeout_seconds`、`max_input_bytes`、`max_calls` 與執行器的相應檢查，未以 `null` 或其他數值替代。原設定留在 private backups，服務已重新載入；本次沒有模型呼叫。設定格式見 [開發替代模型](document-normalization.md#開發替代模型)。
+
+後續已修正「取消限制同時跳過分批」的錯誤：command 重新共用連續 Evidence 分批器，估算每批新增內容，並攜帶累積概念。這是批次安排，不是重新限制教材總量；CLI 的估算不能宣稱與 Gemma tokenizer 的批次完全相同。v18 服務已重新載入，無模型重跑。
+
+目前服務另已載入分析保存／失敗接續與 canonical 合併修正。教材的模型原始產物和每批 checkpoint 保存在既有 artifact root 的 `analysis/{learner}/{material}/{run}/`，不隨成功／失敗自動清除；只有明確刪除教材才清除。來源與 runtime 相同的重試可沿用已完成批次，若只剩組裝則不再需要模型。舊失敗作業若當時沒有保存資料，無法追補；不會假標成功。無新增 DB migration，也沒有重跑使用者模型工作。

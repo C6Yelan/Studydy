@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { MaterialLibraryItem, MaterialStructureLink, StudySessionLink } from "../../api/contracts";
+import type { MaterialLibraryItem, MaterialStructureLink, SourceView, StudySessionLink } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
@@ -18,10 +18,58 @@ function openStudy(item: MaterialLibraryItem, session: StudySessionLink) {
     structureRevision: session.knowledge_structure_revision, studySessionId: session.study_session_id });
 }
 
+function LibrarySources({ item, apiClient, deleting }: { item: MaterialLibraryItem; apiClient: StudydyApiClient; deleting: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [sources, setSources] = useState<SourceView[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    if (!open || deleting) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const read = async () => {
+      try {
+        const result = await apiClient.getSources(item.material_id);
+        if (cancelled) return;
+        setSources(result.sources);
+        setError(null);
+        if (result.sources.some(source => source.status === "pending" || source.status === "running")) {
+          timer = window.setTimeout(read, 3000);
+        }
+      } catch (failure) { if (!cancelled) setError(errorMessage(failure)); }
+    };
+    void read();
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [apiClient, item.material_id, item.source_count, item.head_revision, item.latest_attempt?.status, open, deleting, reload]);
+  return <details className="library-sources" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>來源檔案（{item.source_count} 份）</summary>
+    {error ? <div role="alert"><p>{error}</p><button className="text-button" disabled={deleting} onClick={() => { setError(null); setReload(value => value + 1); }}>重新讀取來源</button></div>
+      : sources === null ? <p role="status">正在讀取來源…</p>
+      : <ul>{sources.map(source => <li key={source.source_id}>
+        <span className="library-source-name">{source.original_name}</span>
+        <small>{source.included === false ? "尚未納入目前地圖 · " : ""}{source.status === "ready" ? `${source.page_count ?? "—"} 頁` : source.status === "failed" ? "轉換失敗" : "等待或正在轉換"}</small>
+        <div className="library-source-actions">
+          {source.status === "ready" && source.normalized_artifact_id && <a className="text-button material-source-link" href={deleting ? undefined : apiClient.sourceArtifactUrl(source.normalized_artifact_id)} target="_blank" rel="noopener noreferrer" aria-disabled={deleting || undefined} tabIndex={deleting ? -1 : undefined}>{source.media_type === "application/pdf" ? "開啟 PDF" : "轉換後 PDF"} ↗</a>}
+          <a className="text-button material-source-link" href={deleting ? undefined : `/v2/artifacts/${source.original_artifact_id}`} target="_blank" rel="noopener noreferrer" aria-disabled={deleting || undefined} tabIndex={deleting ? -1 : undefined}>下載原檔</a>
+        </div>
+      </li>)}</ul>}
+  </details>;
+}
+
 export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) {
   const [items, setItems] = useState<MaterialLibraryItem[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [starting, setStarting] = useState<string | null>(null);
+  const startCurrentStudy = async (item: MaterialLibraryItem, structure: MaterialStructureLink) => {
+    if (starting) return;
+    setStarting(item.material_id);
+    try {
+      const session = await apiClient.createStudySession({ schema: "study-session-create/v2", material_id: item.material_id, knowledge_structure_revision: structure.knowledge_structure_revision });
+      writeRoute({ name: "study-session", materialId: item.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision, studySessionId: session.study_session_id });
+    } catch (error) { setMessage(errorMessage(error)); }
+    finally { setStarting(null); }
+  };
   const [searchQuery, setSearchQuery] = useState("");
   const searchInput = useRef<HTMLInputElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -97,12 +145,12 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
       const available = item.available_structures;
       const latestHasPublishedMap = !!latest && available.some(structure => structure.run_id === latest.run_id);
       const latestCompletedWithMap = !!latest && (latest.status === "succeeded" || latest.status === "partial") && latestHasPublishedMap;
-      const showLatestState = !latestCompletedWithMap;
-      const structure = available[0];
+      const showLatestState = !latestCompletedWithMap || !!latest?.base_revision && latest.status === "partial";
+      const structure = available.find(value => value.knowledge_structure_revision === item.head_revision) ?? available[0];
       const learningState = structure && item.study_sessions.find(state => state.run_id === structure.run_id && state.knowledge_structure_revision === structure.knowledge_structure_revision);
       const busyRun = latest?.status === "pending" || latest?.status === "running";
-      const studyAction = learningState && <button className="primary-button" type="button" onClick={() => openStudy(item, learningState)}>{learningState.status === "completed" ? "查看學習成果" : "繼續學習"}</button>;
-      const mapAction = structure && <button className={!learningState ? "primary-button" : "secondary-button"} type="button" onClick={() => openStructure(item, structure)}>開啟知識地圖</button>;
+      const studyAction = learningState ? <button className="primary-button" type="button" onClick={() => openStudy(item, learningState)}>{learningState.status === "completed" ? "查看學習成果" : "繼續學習"}</button> : structure?.base_revision && item.study_sessions.length > 0 && <button className="primary-button" disabled={starting !== null} onClick={() => void startCurrentStudy(item, structure)}>{starting === item.material_id ? "正在接續學習…" : "接續更新後的學習"}</button>;
+      const mapAction = structure && <button className={!studyAction ? "primary-button" : "secondary-button"} type="button" onClick={() => openStructure(item, structure)}>開啟知識地圖</button>;
       const deleting = pendingRemovals.current.has(item.material_id);
       return <article className={`surface library-item${deleting ? " is-deleting" : ""}`} key={item.material_id} aria-label={item.display_name}>
         <span className="library-file-icon" aria-hidden="true"><Icon name="file" size={25} /></span>
@@ -120,19 +168,22 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
           setReload(value => value + 1);
         }} />
         <p>{new Date(item.created_at).toLocaleString()} · {formatFileSize(item.size_bytes)}</p>
-        {item.source_artifact_id && <a className="text-button material-source-link" href={deleting ? undefined : apiClient.sourceArtifactUrl(item.source_artifact_id)} target="_blank" rel="noopener noreferrer" aria-disabled={deleting || undefined} tabIndex={deleting ? -1 : undefined}>{item.ingestion_kind ? "轉換後 PDF" : "原始 PDF"} <span aria-hidden="true">↗</span></a>}
-        {item.source&&<a className="text-button material-source-link" href={deleting?undefined:`/v2/artifacts/${item.source.original_artifact_id}`} target="_blank" rel="noopener noreferrer" aria-disabled={deleting || undefined} tabIndex={deleting ? -1 : undefined}>下載原檔 · {item.source.original_name.split(".").pop()?.toUpperCase()}</a>}
-        {showLatestState && <p className={`library-state is-${latest?.status ?? (item.source?.status === "ready" ? "succeeded" : item.source?.status) ?? "uploaded"}`}>{!latest && item.ingestion_kind ? "教材轉換" : "最新處理"}：{latest ? materialRunLabel(latest.status, latest.cancel_requested_at) : item.ingestion_kind ? item.source?.status==="ready" ? "已轉換，可開始分析" : item.source?.status==="failed" ? "轉換失敗" : "等待或正在轉換" : "已上傳，尚未開始處理"}</p>}
+        {(item.source_count ?? 1) > 1 && <LibrarySources item={item} apiClient={apiClient} deleting={deleting} />}
+        {item.source_artifact_id && (item.source_count ?? 1) <= 1 && <a className="text-button material-source-link" href={deleting ? undefined : apiClient.sourceArtifactUrl(item.source_artifact_id)} target="_blank" rel="noopener noreferrer" aria-disabled={deleting || undefined} tabIndex={deleting ? -1 : undefined}>{item.ingestion_kind ? "轉換後 PDF" : "原始 PDF"} <span aria-hidden="true">↗</span></a>}
+        {item.source&&(item.source_count ?? 1)<=1&&<a className="text-button material-source-link" href={deleting?undefined:`/v2/artifacts/${item.source.original_artifact_id}`} target="_blank" rel="noopener noreferrer" aria-disabled={deleting || undefined} tabIndex={deleting ? -1 : undefined}>下載原檔 · {item.source.original_name.split(".").pop()?.toUpperCase()}</a>}
+        {showLatestState && <p className={`library-state is-${latest?.status ?? (item.source?.status === "ready" ? "succeeded" : item.source?.status) ?? "uploaded"}`}>{!latest && item.ingestion_kind ? "教材轉換" : "最新處理"}：{latest ? materialRunLabel(latest.status, latest.cancel_requested_at, !!latest.base_revision) : item.ingestion_kind ? item.source?.status==="ready" ? "已轉換，可開始分析" : item.source?.status==="failed" ? "轉換失敗" : "等待或正在轉換" : "已上傳，尚未開始處理"}</p>}
         {latest && (latest.status === "running" || latest.status === "pending") && <p>{materialProgressStageLabel(latest.progress_stage)} · 已完成 {latest.completed_pages} 頁{latest.total_pages !== null && `／共 ${latest.total_pages} 頁`}</p>}
         {latest?.status === "failed" && <p>{materialFailureMessage(latest.error_code ?? "")}{available.length > 0 && " 先前已發布的知識地圖仍可開啟。"}</p>}
         <fieldset className="state-actions" disabled={deleting}>
-          {busyRun ? <button className="primary-button" type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看處理狀態</button> : <>
-            {studyAction}{mapAction}
+          {studyAction}{mapAction}
+          {structure && <button className="text-button" onClick={() => writeRoute({ name: "material-sources", materialId: item.material_id })}>新增教材與查看來源</button>}
+          {busyRun ? <button className={structure ? "secondary-button" : "primary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看處理狀態</button> : <>
             {item.ingestion_kind&&(!latest||latest.status==="failed")&&<button className="primary-button" onClick={()=>writeRoute({name:"material-sources",materialId:item.material_id})}>查看轉換與分析</button>}
-            {!item.ingestion_kind && item.source_artifact_id && (!latest || latest.status === "failed") && learningState?.status !== "completed" && <MaterialRunStartControl key={`${item.material_id}:${latest?.run_id ?? "new"}`} apiClient={apiClient} materialId={item.material_id} sourceArtifactId={item.source_artifact_id} initial={!latest} primary={!structure && !learningState} />}
+            {!item.ingestion_kind && !latest?.base_revision && item.source_artifact_id && (!latest || latest.status === "failed") && learningState?.status !== "completed" && <MaterialRunStartControl key={`${item.material_id}:${latest?.run_id ?? "new"}`} apiClient={apiClient} materialId={item.material_id} sourceArtifactId={item.source_artifact_id} initial={!latest} primary={!structure && !learningState} />}
             {latest?.status === "failed" && <button className={structure ? "text-button" : "secondary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看失敗詳情</button>}
           </>}
         </fieldset>
+        {item.study_sessions.some(session => session.knowledge_structure_revision !== structure?.knowledge_structure_revision) && <details><summary>先前題目與作答</summary><div className="state-actions">{item.study_sessions.filter(session => session.knowledge_structure_revision !== structure?.knowledge_structure_revision).map(session => <button className="text-button" key={session.study_session_id} onClick={() => openStudy(item, session)}>學習紀錄 · {new Date(session.started_at).toLocaleString()}</button>)}</div></details>}
       </article>;
     })}
     </div>

@@ -8,8 +8,8 @@ test("real single-file upload converts, survives reload, downloads and explicitl
   await expect(page.getByRole('heading',{name:'歡迎回來！',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'上傳教材',exact:true}).click();
   await expect(page.locator('.conversion-note')).toContainText('TXT');
-  await page.getByLabel('選擇 PDF 教材',{exact:true}).setInputFiles({name:'normalization.txt',mimeType:'text/plain',buffer:Buffer.from('Stacks\nA stack follows LIFO order.\nPush adds an item to the top. Pop removes the top item.\n')});
-  await page.getByRole('button',{name:'上傳並轉換為 PDF'}).click();
+  await page.getByLabel('選擇教材檔案',{exact:true}).setInputFiles({name:'normalization.txt',mimeType:'text/plain',buffer:Buffer.from('Stacks\nA stack follows LIFO order.\nPush adds an item to the top. Pop removes the top item.\n')});
+  await page.getByRole('button',{name:'上傳並確認來源'}).click();
   await expect(page).toHaveURL(/\/materials\/[0-9a-f-]+\/sources$/);
   await expect(page.getByRole('button',{name:'開始分析教材'})).toBeVisible({timeout:20000});
   await page.reload();await expect(page.getByRole('button',{name:'開始分析教材'})).toBeVisible();

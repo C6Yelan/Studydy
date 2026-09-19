@@ -19,7 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHttpException
 from starlette.routing import Match
 
 from .models import (
-    MaterialDraftCreate, MaterialDraftView, SourceListView, RevisionCreate, SourceCapabilities, EvidenceSourceView,
+    MaterialDraftCreate, MaterialDraftView, SourceListView, RevisionCreate, RevisionCancel, SourceCapabilities, EvidenceSourceView,
     AccountCredentials,
     LearnerIdentityView,
     AnswerFeedbackView,
@@ -84,7 +84,8 @@ from ..storage.artifacts import (
 from ..storage.knowledge_structures import read_knowledge_structure
 from ..storage.materials import MaterialLibraryError, read_material_library, rename_material
 from ..workers import start_runtime_workers
-from ..source_normalization import SourceError,create_draft,upload_source,read_sources,retry_normalization,create_revision
+from ..source_normalization import SourceError,create_draft,upload_source,read_sources,retry_normalization,remove_staged_source
+from ..source_revisions import create_revision
 from ..source_resolver import resolve_evidence_source
 from ..storage.source_artifacts import open_verified_artifact
 from ..storage.tables import Artifact,Material,MaterialSource,database_session
@@ -96,8 +97,12 @@ _COOKIE_NAME = "studydy_session"
 _ERROR_MESSAGE = "Request could not be completed."
 _SOURCE_LIMIT = 104_857_600
 _ERROR_STATUS = {
+    "DUPLICATE_SOURCE": (409, False),
+    "REVISION_CONFLICT": (409, False),
+    "REVISION_IN_PROGRESS": (409, True),
+    "SOURCE_IN_USE": (409, False),
+    "SOURCE_BUSY": (409, True),
     "SOURCE_NOT_READY": (409, True),
-    "SINGLE_SOURCE_ONLY": (400, False),
     "NORMALIZER_UNAVAILABLE": (503, True),
     "REQUEST_INVALID": (400, False),
     "INVALID_EMAIL": (400, False),
@@ -227,7 +232,7 @@ def _error_response(reason_code: str, *, status_code: int | None = None) -> JSON
 
 def _fixed_exception(error: Exception) -> str:
     reason = str(error)
-    if isinstance(error,(SourceError,NormalizationError)) and reason in _ERROR_STATUS:return reason
+    if isinstance(error,(SourceError,NormalizationError,MaterialProcessingError)) and reason in _ERROR_STATUS:return reason
     if reason == "MATERIAL_NOT_DISCARDABLE" or (isinstance(error, MaterialDiscardError) and reason == "RESOURCE_NOT_FOUND"):
         return reason
     if isinstance(error, MaterialLibraryError) and reason in {"REQUEST_INVALID", "RESOURCE_NOT_FOUND", "MATERIAL_NOT_DISCARDABLE"}:
@@ -346,6 +351,7 @@ def _install_openapi(app: FastAPI) -> None:
 
     idempotent_paths = {
         "/v2/materials", "/v2/materials/{material_id}/sources", "/v2/materials/{material_id}/revisions",
+        "/v2/material-processing-runs/{run_id}/retry",
         "/v1/materials",
         "/v1/material-processing-runs",
         "/v1/study-sessions",
@@ -676,7 +682,28 @@ def create_app(settings: ApiSettings) -> FastAPI:
     @app.post("/v2/materials/{material_id}/revisions",status_code=202,response_model=MaterialProcessingRunView)
     def create_material_revision(request:Request,material_id:UUID,body:RevisionCreate):
         _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
-        return project_material_run(create_revision(owner,material_id,body.normalization_ids,_idempotency_key(request),deepcopy(settings.local_config),dsn=settings.dsn))
+        return project_material_run(create_revision(owner,material_id,body.normalization_ids,_idempotency_key(request),deepcopy(settings.local_config),base_revision=body.base_revision,dsn=settings.dsn))
+
+    @app.post("/v2/material-processing-runs/{run_id}/cancel",response_model=MaterialProcessingRunView)
+    def cancel_material_revision(request:Request,run_id:UUID,body:RevisionCancel):
+        from ..material_processing import request_material_processing_cancellation,read_material_processing_run
+        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
+        run=read_material_processing_run(owner,run_id,dsn=settings.dsn)
+        if run.base_revision!=body.base_revision:raise _ApiFailure('REQUEST_INVALID')
+        return project_material_run(request_material_processing_cancellation(owner,run_id,update_only=True,dsn=settings.dsn))
+
+    @app.post("/v2/material-processing-runs/{run_id}/retry",status_code=202,response_model=MaterialProcessingRunView)
+    async def retry_material_revision(request:Request,run_id:UUID):
+        from ..source_revisions import retry_revision
+        _require_query(request,set());await _require_empty_body(request)
+        owner=_trusted_learner(request,settings).learner_id
+        return project_material_run(await run_in_threadpool(retry_revision,owner,run_id,_idempotency_key(request),deepcopy(settings.local_config),dsn=settings.dsn))
+
+    @app.delete("/v2/materials/{material_id}/sources/{source_id}",response_model=SourceListView)
+    async def remove_material_source(request:Request,material_id:UUID,source_id:UUID):
+        _require_query(request,set());await _require_empty_body(request);owner=_trusted_learner(request,settings).learner_id
+        remove_staged_source(owner,material_id,source_id,dsn=settings.dsn)
+        return source_listing(owner,material_id)
 
     @app.get("/v2/materials/{material_id}/knowledge-structures/{revision}/evidence/{evidence_id}/source",response_model=EvidenceSourceView)
     def evidence_source(request:Request,material_id:UUID,revision:str,evidence_id:str):
@@ -781,6 +808,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         # 讀取期間若有提交或 guidance 變動，拒絕混合兩個時點的狀態，交由使用者重讀。
         if (read_study_session(learner, study_session_id, dsn=settings.dsn) != study
             or progress.event_watermark != study.last_event_number
+            or derive_learner_progress(learner, study_session_id, dsn=settings.dsn).guidance_revision != progress.guidance_revision
             or sum(record.feedback is not None for record in records) != study.last_event_number):
             raise _ApiFailure("IDEMPOTENCY_CONFLICT")
         selected = assessment_revision

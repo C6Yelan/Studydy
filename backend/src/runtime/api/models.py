@@ -63,6 +63,9 @@ class MaterialDiscardView(_Closed):
 
 
 class MaterialProcessingRunView(_Closed):
+    analysis_saved: bool = False
+    base_revision: str | None = Field(default=None,exclude_if=lambda value:value is None)
+    source_names: list[str] | None = Field(default=None,exclude_if=lambda value:value is None)
     schema_: Literal["material-processing-run/v5", "material-processing-run/v6"] = Field(alias="schema")
     input_source_set_id: UUID | None = Field(default=None,exclude_if=lambda value:value is None)
     run_id: UUID
@@ -81,6 +84,7 @@ class MaterialProcessingRunView(_Closed):
 
 
 class MaterialAttemptView(_Closed):
+    base_revision: str | None = Field(default=None,exclude_if=lambda value:value is None)
     run_id: UUID
     status: Literal["pending", "running", "succeeded", "partial", "failed", "cancelled"]
     progress_stage: Literal["queued", "evidence", "semantics", "publishing", "completed"]
@@ -92,6 +96,7 @@ class MaterialAttemptView(_Closed):
 
 
 class MaterialStructureLink(_Closed):
+    base_revision: str | None = Field(default=None,exclude_if=lambda value:value is None)
     run_id: UUID
     knowledge_structure_revision: str
     created_at: datetime
@@ -108,6 +113,7 @@ class StudySessionLink(_Closed):
 
 
 class SourceView(_Closed):
+    included: bool = False
     source_id: UUID
     normalization_id: UUID
     original_artifact_id: UUID
@@ -120,6 +126,8 @@ class SourceView(_Closed):
 
 
 class MaterialLibraryItem(_Closed):
+    head_revision: str | None = None
+    source_count: int = 1
     schema_: Literal["material-library-item/v2", "material-library-item/v3"] = Field(alias="schema")
     source: SourceView | None = Field(default=None,exclude_if=lambda value:value is None)
     ingestion_kind: Literal["sources-v2"] | None = Field(default=None,exclude_if=lambda value:value is None)
@@ -150,6 +158,9 @@ class SourceLocatorView(_Closed):
 
 
 class EvidenceView(_Closed):
+    source_id: str | None = Field(default=None,exclude_if=lambda value:value is None)
+    source_name: str | None = Field(default=None,exclude_if=lambda value:value is None)
+    normalized_page: int | None = Field(default=None,exclude_if=lambda value:value is None)
     evidence_id: str
     page_ref: str
     page: int
@@ -341,9 +352,13 @@ class LearnerProgressView(_Closed):
 
 
 def project_material_run(run: Any) -> MaterialProcessingRunView:
+    from ..storage.analysis_archive import has_analysis_checkpoint
     return MaterialProcessingRunView.model_validate({
+        "analysis_saved": run.status == "failed" and has_analysis_checkpoint(run.learner_id, run.material_id, run.run_id),
         "schema": "material-processing-run/v6" if getattr(run,"input_source_set_id",None) else "material-processing-run/v5",
         "input_source_set_id":getattr(run,"input_source_set_id",None),
+        "base_revision":getattr(run,"base_revision",None),
+        "source_names":list(run.source_names) if getattr(run,"source_names",()) else None,
         **{name: getattr(run, name) for name in (
             "run_id", "material_id", "source_artifact_id", "status", "progress_stage",
             "completed_pages", "total_pages", "output_binding", "error_code", "cancel_requested_at",
@@ -397,8 +412,13 @@ class SourceListView(_Closed):
 
 class RevisionCreate(_Closed):
     schema_: Literal['material-revision-create/v1'] = Field(alias='schema')
-    base_revision: None = None
-    normalization_ids: list[UUID] = Field(min_length=1,max_length=1)
+    base_revision: str | None = Field(default=None,pattern=r'^knowledge-structure:sha256:[0-9a-f]{64}$')
+    normalization_ids: list[UUID] = Field(min_length=1)
+
+
+class RevisionCancel(_Closed):
+    schema_: Literal['material-revision-cancel/v1'] = Field(alias='schema')
+    base_revision: str = Field(pattern=r'^knowledge-structure:sha256:[0-9a-f]{64}$')
 
 class FormatCapability(_Closed):
     extension: str

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from runtime.learner_session import TrustedLearner
-from runtime.storage.tables import AnswerEvent, Assessment, database_session
+from runtime.storage.tables import AnswerEvent, Assessment, Material, StudySession, database_session
 
 from .assessments import AssessmentError, StoredAssessment, _stored as validate_stored_assessment
 from .study_sessions import StudySessionError, _learner, _row, _stored, _validate
@@ -177,6 +177,9 @@ def submit_answer(
     fingerprint = _fingerprint(study_session_id, assessment_revision, question_id, selected_option_id)
     try:
         with database_session(dsn) as session:
+            material_id=session.scalar(select(StudySession.material_id).where(StudySession.learner_id==learner_id,StudySession.study_session_id==study_session_id))
+            if material_id is None or session.scalar(select(Material.material_id).where(Material.learner_id==learner_id,Material.material_id==material_id).with_for_update()) is None:
+                raise AnswerSubmissionError("ANSWER_STUDY_SESSION_UNAVAILABLE")
             study = _row(session, learner_id, study_session_id, lock=True)
             _validate(session, study)
             assessment = _assessment(session, study, assessment_revision)

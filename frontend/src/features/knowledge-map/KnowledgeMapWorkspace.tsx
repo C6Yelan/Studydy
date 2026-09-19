@@ -1,4 +1,4 @@
-import { SourceButton } from "../../ui/SourceButton";
+import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
 import {
   Background,
@@ -456,7 +456,7 @@ function RelationDetail({ relation, view, apiClient, sourceArtifactId, close, op
     <header><div><span className="detail-kicker">概念之間的關係</span><h2>{relationLabels[relation.type]}</h2></div><button className="panel-close" type="button" aria-label="關閉關係詳情" onClick={close}>×</button></header>
     <section className="relation-direction">{[relation.source_concept_id, relation.target_concept_id].map((id, index) => <div key={index}>{index === 1 && <span aria-hidden="true">↓</span>}<button className="detail-related" type="button" onClick={() => openConcept(id)}><small>{index === 0 ? "來源概念" : "目標概念"}</small><strong>{view.concepts.find((concept) => concept.concept_id === id)?.label}</strong></button></div>)}</section>
     <section><h3>為什麼有這個關係？</h3><p className="claim-text">{relation.learner_reason}</p></section>
-    <section><h3>教材來源</h3>{[...new Set(evidence.map((item) => item.page))].map((page) => <SourceButton key={page} apiClient={apiClient} artifactId={sourceArtifactId} page={page} resolver={view.source_resolver} evidenceId={evidence.find(e=>e.page===page)?.evidence_id}>原始教材第 {page} 頁<Icon name="chevron-right" /></SourceButton>)}{evidence.length === 0 && <p>可從來源與目標概念查看相關教材。</p>}</section>
+    <section><h3>教材來源</h3>{sourceLinks(evidence, view.source_resolver).map((item) => <SourceButton key={item.evidence_id} apiClient={apiClient} artifactId={sourceArtifactId} page={item.page} resolver={view.source_resolver} evidenceId={item.evidence_id} evidence={item}>原始教材第 {item.page} 頁<Icon name="chevron-right" /></SourceButton>)}{evidence.length === 0 && <p>可從來源與目標概念查看相關教材。</p>}</section>
   </DetailPanel>;
 }
 
@@ -511,7 +511,7 @@ function ReviewView({ view, progress, startStudy, busyLabel, studyLabel, initial
   </section>;
 }
 
-export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, learningStateStatus, progressMessage, onReloadProgress, isStartingStudy, onReturnToRun, onStartStudy, sourceArtifactId, startMessage, view }: {
+export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, learningStateStatus, progressMessage, onReloadProgress, isStartingStudy, onReturnToRun, onAddSources, onStartStudy, sourceArtifactId, startMessage, view }: {
   apiClient: StudydyApiClient;
   progress: LearnerProgressView | null;
   learningStateStatus: StudySessionView["status"] | null;
@@ -520,6 +520,7 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
   onReloadProgress: () => void;
   isStartingStudy: boolean;
   onReturnToRun: () => void;
+  onAddSources: () => void;
   onStartStudy: (conceptId: string) => void;
   sourceArtifactId: string;
   startMessage: string | null;
@@ -616,6 +617,7 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
           {query && <div ref={searchResultsElement} className="map-search-results"><p role="status">{searchResults.length ? `找到 ${searchResults.length} 個概念${searchResults.length > 8 ? "，顯示前 8 個，請輸入更多關鍵字縮小範圍" : ""}` : "找不到符合的概念，試試其他關鍵字。"}</p>{searchResults.slice(0, 8).map((concept) => <button key={concept.concept_id} type="button" onClick={() => chooseSearchResult(concept.concept_id)}><strong>{concept.label}</strong><small>{concept.claims[0]?.text}</small></button>)}</div>}
         </form>
         <div className="map-header-actions">
+          <button className="secondary-button" type="button" onClick={onAddSources}>新增教材</button>
           <div className="map-facts" aria-label="地圖摘要">
             <span><strong>{view.concepts.length}</strong>概念</span>
             <span><strong>{view.document_tree.sections.length}</strong>段落</span>

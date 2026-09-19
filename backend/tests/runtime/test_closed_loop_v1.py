@@ -149,7 +149,7 @@ def _assessment_response(angle: str, prompt: str, evidence_id: str) -> dict:
 
 @pytest.fixture
 def closed_loop(clean_database_dsn, migrations_dir, tmp_path, monkeypatch):
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8, 9)
     assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == ()
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir(mode=0o700)
@@ -169,7 +169,7 @@ def closed_loop(clean_database_dsn, migrations_dir, tmp_path, monkeypatch):
 
 
 def test_final_schema_contains_only_current_product_tables(clean_database_dsn, migrations_dir):
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8, 9)
     with psycopg.connect(clean_database_dsn) as connection:
         tables = {
             row[0]
@@ -525,7 +525,7 @@ def test_http_api_projects_the_same_closed_loop_without_private_answer(closed_lo
 def test_http_upload_worker_assessment_and_guidance_are_one_closed_loop(
     clean_database_dsn, migrations_dir, tmp_path, monkeypatch
 ):
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8, 9)
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir(mode=0o700)
     monkeypatch.setenv("STUDYDY_ARTIFACT_ROOT", str(artifact_root))

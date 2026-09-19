@@ -68,7 +68,7 @@ def local_api(app):
             assert not thread.is_alive()
 
 
-def main(spec: str = "e2e/product-cutover.spec.ts", *, production: bool = False) -> int:
+def main(spec: str = "e2e/product-cutover.spec.ts", *, production: bool = False, timeout_seconds: int = 120) -> int:
     if not _port_is_free():
         print("BROWSER_E2E_PORT_OCCUPIED")
         return 1
@@ -105,7 +105,7 @@ def main(spec: str = "e2e/product-cutover.spec.ts", *, production: bool = False)
                     cwd=FRONTEND,
                     env=environment,
                     check=False,
-                    timeout=120,
+                    timeout=timeout_seconds,
                 )
                 return completed.returncode
             finally:

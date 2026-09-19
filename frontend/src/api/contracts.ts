@@ -9,8 +9,12 @@ export type KnownApiReasonCode =
   | "IDEMPOTENCY_CONFLICT"
   | "MATERIAL_NOT_DISCARDABLE"
   | "SOURCE_NOT_READY"
-  | "SINGLE_SOURCE_ONLY"
   | "NORMALIZER_UNAVAILABLE"
+  | "DUPLICATE_SOURCE"
+  | "REVISION_CONFLICT"
+  | "REVISION_IN_PROGRESS"
+  | "SOURCE_IN_USE"
+  | "SOURCE_BUSY"
   | "NO_SAFE_ASSESSMENT"
   | "MATERIAL_TOO_LARGE"
   | "MATERIAL_PDF_INVALID"
@@ -62,6 +66,9 @@ export type MaterialDiscardView = {
 };
 
 export type MaterialProcessingRunView = {
+  analysis_saved?: boolean;
+  base_revision?: string;
+  source_names?: string[];
   schema: "material-processing-run/v5" | "material-processing-run/v6";
   input_source_set_id?: string;
   cancel_requested_at: string | null;
@@ -80,9 +87,10 @@ export type MaterialProcessingRunView = {
 };
 
 export type MaterialAttemptView = Pick<MaterialProcessingRunView,
-  "run_id" | "status" | "progress_stage" | "completed_pages" | "total_pages" | "error_code" | "created_at" | "cancel_requested_at">;
+  "run_id" | "status" | "progress_stage" | "completed_pages" | "total_pages" | "error_code" | "created_at" | "cancel_requested_at" | "base_revision">;
 
 export type MaterialStructureLink = {
+  base_revision?: string;
   run_id: string;
   knowledge_structure_revision: string;
   created_at: string;
@@ -99,6 +107,8 @@ export type StudySessionLink = {
 };
 
 export type MaterialLibraryItem = {
+  head_revision?: string | null;
+  source_count?: number;
   schema: "material-library-item/v2" | "material-library-item/v3";
   ingestion_kind?: "sources-v2";
   source?: SourceView;
@@ -124,6 +134,9 @@ export type SourceLocatorView = {
 };
 
 export type EvidenceView = {
+  source_id?: string;
+  source_name?: string;
+  normalized_page?: number;
   evidence_id: string;
   page_ref: string;
   page: number;
@@ -308,6 +321,7 @@ export type StudyResumeView = {
 export type MaterialRename = { schema: "material-rename/v1"; display_name: string };
 
 export type SourceView = {
+  included?: boolean;
   source_id: string; normalization_id: string; original_artifact_id: string;
   original_name: string; media_type: string; status: "pending" | "running" | "ready" | "failed";
   normalized_artifact_id: string | null; page_count: number | null; error_code: string | null;

@@ -1,4 +1,4 @@
-import { SourceButton } from "../../ui/SourceButton";
+import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
@@ -117,7 +117,7 @@ export function StudySessionPage({ apiClient, route }: {
     ? nextAction.prerequisite_concept_ids.map(id => data.view.concepts.find(concept => concept.concept_id === id)!) : [];
   const showAssessment = completed || isHistorical || nextAction.action === "assess" || noSafeReviewActive;
   const position = data.view.initial_learning_path.find(step => step.concept_id === data.progress.current_concept_id)?.position;
-  const sourcePages = [...new Set(current.claims.flatMap(claim => claim.evidence.map(evidence => evidence.page)))];
+  const sourceEvidence = sourceLinks(current.claims.flatMap(claim => claim.evidence), data.view.source_resolver);
   return (
     <section className="study-session-page">
       <header className="study-header">
@@ -131,7 +131,7 @@ export function StudySessionPage({ apiClient, route }: {
               <p className="eyebrow">教材重點</p><h2 id="study-content-title">{current.label}</h2>
               <ul className="study-claims">{current.claims.map(claim => <li key={claim.claim_id}>{claim.text}</li>)}</ul>
               <section className="study-sources" aria-label="教材來源"><h3>教材來源</h3><div>
-                {sourcePages.map(page => <SourceButton key={page} apiClient={apiClient} artifactId={data.sourceArtifactId} page={page} resolver={data.view.source_resolver} evidenceId={current.claims.flatMap(c=>c.evidence).find(e=>e.page===page)?.evidence_id}>第 {page} 頁<Icon name="chevron-right" /></SourceButton>)}
+                {sourceEvidence.map(evidence => <SourceButton key={evidence.evidence_id} apiClient={apiClient} artifactId={data.sourceArtifactId} page={evidence.page} resolver={data.view.source_resolver} evidenceId={evidence.evidence_id} evidence={evidence}>第 {evidence.page} 頁<Icon name="chevron-right" /></SourceButton>)}
               </div></section>
             </article>}
             <div className="study-current-action" id="assessment-panel">

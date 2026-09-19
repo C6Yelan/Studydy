@@ -148,7 +148,8 @@ def create_study_session(
                 _validate(session, canonical)
                 return _stored(canonical)
             known = {concept.concept_id for concept in context.concepts}
-            selected = current_concept_id or (context.initial_learning_path[0] if context.initial_learning_path else None)
+            from .inherited_progress import preferred_focus
+            selected = current_concept_id or preferred_focus(session, learner_id, material_id, knowledge_structure_revision) or (context.initial_learning_path[0] if context.initial_learning_path else None)
             if selected not in known:
                 raise StudySessionError("STUDY_SESSION_TARGET_INVALID")
             session.execute(insert(StudySession).values(

@@ -1,6 +1,6 @@
 # 單檔文件轉換（B2-I）
 
-PDF 是主要教材格式。其他已開放格式上傳後自動轉成 PDF，轉換品質不保證；保留原檔、轉換後預覽及來源回查。一次一個檔案；不支援追加來源、多檔或跨版本語意合併。
+PDF 是主要教材格式。其他已開放格式上傳後自動轉成 PDF，轉換品質不保證；保留原檔、轉換後預覽及來源回查。首次多檔建立與既有教材追加見 [B3-A／B3-B](source-revisions.md)。以下逐檔轉檔政策沿用 B02。
 
 ## 環境與啟用
 
@@ -14,7 +14,7 @@ export STUDYDY_NORMALIZER_PYTHON="$PWD/.studydy-runtime/normalizer-venv/bin/pyth
 
 可將絕對路徑存入正式版 private-config.json 的 `normalizer_python` 與 `semantic_command_config`，由既有 local launcher 注入上述環境變數；私人設定不提交 Git，執行器／模型選擇仍只在 private command config。
 
-未設定 converter 時前端只宣告 PDF。部署前先完成 migration 0007 與 0008；不要在舊 schema 啟動新 worker。正式 DB 升級須依工作區資料政策，先有明確授權、可驗證備份與回復計畫。這裡的指令不是自動套用正式資料的授權。
+未設定 converter 時初次上傳只宣告原有 PDF 路徑。來源轉檔／追加須有本節的 normalizer 設定。B02 使用 migration 0007／0008，當前 B3-A worker 另需 0009；不要在舊 schema 啟動新 worker。正式 DB 升級須依工作區資料政策，先有明確授權、可驗證備份與回復計畫。這裡的指令不是自動套用正式資料的授權。
 
 Normalization policy 的 `version` 已升為 3（加入 olefile 0.47 的舊 Office 辨識），包含統一檔案大小設定；已完成的舊 normalization／SourceSet 不改寫，新操作採新 policy。執行期記憶體與逾時防護繼續保留，無法完成時回報失敗。
 
@@ -24,10 +24,10 @@ Normalization policy 的 `version` 已升為 3（加入 olefile 0.47 的舊 Offi
 2. `POST /v2/materials/{id}/sources`：raw bytes、實際 MIME、URL-encoded `X-Material-Name` 與獨立 Idempotency-Key。保存原檔 receipt 和 pending normalization，HTTP request 不執行轉檔。
 3. worker 領取 source normalization，轉檔在 DB transaction 外；120 秒 lease、最大 60 秒子程序 wall time。意外中斷後 expired lease 可重領，最多 3 次；使用者可明確 POST retry。
 4. ready 原子發布 normalized PDF／mapping。失敗保留原檔與固定錯誤代碼。改變 renderer policy 後重試會建立新 normalization record，不改寫舊 ready record。
-5. `POST /v2/materials/{id}/revisions`：`material-revision-create/v1`、`base_revision: null`、單一 ready `normalization_ids`、獨立 Idempotency-Key。短交易內封存 SourceSet 與 run；單來源 canonical PDF 直接引用 normalized bytes，bundle manifest 另行 hash 綁定，不重複複製一份 PDF。
+5. `POST /v2/materials/{id}/revisions`：初次使用 `material-revision-create/v1`、`base_revision: null`、一份或多份 ready `normalization_ids`、獨立 Idempotency-Key。短交易內封存有序 SourceSet 與 run。B3-A 起沿用各來源 normalized PDF，以集合閱讀序號映射來源頁碼，不另存合併 PDF。
 6. UI 用既有 run 頁顯示分析；開始分析是明確操作，GET／reload 不生成、不轉檔。新 run 回應 `material-processing-run/v6` 並帶 `input_source_set_id`；舊 run 仍為 v5。
 
-本批單來源 assembly 為 identity mapping，因此在建立 run 的交易中完成並綁定，不新增假的非同步 assembly 階段。bundle manifest 保存在 run JSON + hash；mapping bytes 在 private artifact store。所有原檔／normalized／mapping 使用既有 owner-scoped store。
+單來源頁碼映射為 identity；bundle manifest 保存在 run JSON + hash，mapping bytes 在 private artifact store。所有原檔／normalized／mapping 使用既有 owner-scoped store。B3-A 的多來源資料契約見其專頁。
 
 ## 來源與舊資料
 
@@ -35,7 +35,7 @@ Migration 0008 只擴充原檔 MIME，新增 application/msword／application/vn
 
 Migration 0007 增加來源、normalization、SourceSet／items、run bundle binding 與 nullable draft/head 欄位；不改 0001–0006 SQL。舊 PDF backfill 與後續 v1 PDF upload 都使用 identity normalization，沒有重轉／OCR／重算舊 KS／重評答案。
 
-新 KS 使用 `knowledge-structure/v3` envelope，content revision 包含 input binding；舊 v2 reader 保留原嚴格驗證。read 再核對 SourceSet membership、三種 artifact SHA、bundle page map 與 runtime 身分；不接受 client 任意 URL 或路徑。Material 庫同時識別 legacy item/v2 與 source item/v3，草稿／失敗轉檔也能找回及刪除。
+B02 保存的 KS 為 `knowledge-structure/v3`；B3-A 新來源集合使用 v4，詳見其文件。content revision 包含 input binding；已保存版本保留原嚴格驗證。read 再核對 SourceSet membership、三種 artifact SHA、bundle page map 與 runtime 身分；不接受 client 任意 URL 或路徑。草稿／失敗轉檔也能找回及刪除。
 
 `GET /v2/materials/{id}/knowledge-structures/{revision}/evidence/{id}/source` 以 exact KS/Evidence 回查 normalized page 與相交的來源 block：
 
@@ -59,7 +59,7 @@ OOXML 保留檔案類型與 ZIP 路徑檢查，拒絕加密、宏與外部 relat
 
 ## 開發替代模型
 
-語意邊界支援明確啟用的 command transport；產品 source 沒有寫死執行器或替代模型名稱。正式 runtime-lock.json 不修改。
+語意邊界支援明確啟用的 command transport；產品 source 與正式 runtime lock 不寫死執行器或替代模型名稱。B3-A 的來源／增量請求契約於 runtime lock v17 加入，v18 修正 command 分批政策，詳見 [多來源教材](source-revisions.md)。
 
 `STUDYDY_SEMANTIC_COMMAND_CONFIG` 指向 private JSON，欄位如下：
 
@@ -68,16 +68,19 @@ OOXML 保留檔案類型與 ZIP 路徑檢查，拒絕加密、宏與外部 relat
   "schema": "semantic-command-config/v1",
   "argv": ["/absolute/executable", "{model}", "{schema}", "{output}", "{workdir}"],
   "model_id": "configured-model",
-  "model_revision": "declared-version-or-unversioned-alias",
-  "timeout_seconds": 180,
-  "max_input_bytes": 60000,
-  "max_calls": 12
+  "model_revision": "declared-version-or-unversioned-alias"
 }
 ```
 
-argv 由 subprocess argument array 執行，不經 shell。stdin 是 instructions／input／response_schema JSON；執行器將 final JSON 寫至 `{output}`。本次授權採 Codex CLI 的 luna，具體命令留在本機 private config；CLI 在本機執行不表示模型離線。本次模型測試只送出合成教材。
+argv 由 subprocess argument array 執行，不經 shell。stdin 是 instructions／input／response_schema JSON；執行器將 final JSON 寫至 `{output}`。開發設定採 Codex CLI 的 luna，具體命令留在本機 private config；CLI 在本機執行不表示模型離線。資料外送範圍依當次授權。
 
-子程序不繼承 `STUDYDY_*`（含產品 DSN／store 路徑）及 VLLM credential。超時、失敗、超出每 server process 的 max_calls、無效 JSON 都如實失敗，不切換其他模型或固定答案。API 仍經既有 grounded／答案安全驗證。command binding/v2、KS execution_identity、Assessment provenance/v7 保存實際設定的 model identity／config hash；舊 Gemma bindings／provenance 保持嚴格 reader。
+2026-09-19 依使用者要求，已移除私人執行器的 `timeout_seconds`、`max_input_bytes`、`max_calls` 欄位及檢查：不以 bytes 拒絕輸入、不限制每 server process 的呼叫次數、不設定子程序逾時。command 回應也不再另設 1 MiB 大小上限。模型服務本身仍可能回報上下文或其他執行錯誤，必須如實失敗。明確有預算的獨立實驗由實驗腳本管理；不將實驗限制放入日常使用設定。
+
+取消上述限制不取消分批。command 使用同一連續 Evidence 分批器與累積概念流程，以本機估算新增內容來選擇批次；Gemma 仍用原服務端 tokenizer。估算只安排批次，不是限制可處理的教材總量，也不裁切或丟棄原文。
+
+子程序不繼承 `STUDYDY_*`（含產品 DSN／store 路徑）及 VLLM credential。API 仍經既有 grounded／答案安全驗證，不切換其他模型或固定答案。command binding/v2、KS execution_identity、Assessment provenance/v7 保存實際設定的 model identity／config hash；已保存的 bindings／provenance 保持嚴格 reader。
+
+開發執行器不再使用會自動清除輸出的 `TemporaryDirectory`。執行 cwd 仍是與專案隔離的 0700 `studydy-semantic-*` 目錄，不額外引入專案上下文；執行目錄不自動刪除，且輸入、schema、原始回應、stdout／stderr 及 exit code 另存至私人保存目錄，包括 JSON 無效或子程序失敗。教材分析由 caller 提供 owner／Material／run 範圍的保存位置；獨立 command 呼叫在私人設定檔同層保存。教材目錄記錄 cwd 與 nonce，只有明確刪除教材時才核對並一起清理。這些是私人診斷產物，不公開或提交。教材分批接續規則見 [多來源教材](source-revisions.md#分批保存與失敗重試)。
 
 若供應商只提供 alias，`model_revision` 明示 unversioned，而不假冒 immutable weight revision。替代模型結果只能作開發流程證據；Gemma 品質驗收仍另列。
 
@@ -88,4 +91,4 @@ argv 由 subprocess argument array 執行，不經 shell。stdin 是 instruction
 - 瀏覽器 fixture 可用 `STUDYDY_E2E_FRONTEND_PORT=4183`、`STUDYDY_E2E_API_PORT=8002`，不必停止使用者 4173／8001 服務。production preview 驗證真實建置；fixture transport 不啟動模型。
 - migration rollback 不刪新資料；寫入 sources-v2 後要保留新 reader，採 forward repair 或經授權的 DB backup restore。不要直接切回舊 binary 期待它能讀所有新格式。
 
-本批不包含 B3 多來源／append、B4 地圖改版或 B5 題組／掌握度變更。
+本頁說明 B02 轉檔基礎；B3-A 追加見獨立文件，B4 地圖改版與 B5 題組仍不在本批範圍。

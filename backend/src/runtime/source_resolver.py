@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from knowledge_map.structure import _revision
-from .storage.tables import MaterialProcessingRun,MaterialSourceSet,MaterialSourceSetItem,Artifact,database_session
+from .storage.tables import MaterialProcessingRun,MaterialSourceSet,MaterialSourceSetItem,Artifact,SourceNormalization,database_session
 from .storage.source_artifacts import open_verified_artifact
 from .source_normalization import SourceError
 
@@ -20,19 +20,33 @@ def _input(owner,run_id,*,dsn=None):
         manifest=deepcopy(source_set.manifest);bundle=deepcopy(run.bundle_manifest)
         members=session.scalars(select(MaterialSourceSetItem).where(MaterialSourceSetItem.source_set_id==source_set.source_set_id).order_by(MaterialSourceSetItem.ordinal)).all()
         if (canonical_sha256(manifest)!=source_set.digest or canonical_sha256(bundle)!=run.bundle_manifest_sha256
-            or bundle.get('source_set_digest')!=source_set.digest or bundle.get('canonical_artifact_id')!=str(run.source_artifact_id)
-            or len(members)!=len(manifest['items']) or len(members)!=1):raise SourceError('SOURCE_BINDING_INVALID')
+            or bundle.get('source_set_digest')!=source_set.digest
+            or len(members)!=len(manifest['items']) or not members):raise SourceError('SOURCE_BINDING_INVALID')
+        if bundle.get('schema') not in {'bundle-manifest/v1','bundle-manifest/v2'}:raise SourceError('SOURCE_BINDING_INVALID')
         for ordinal,(member,item) in enumerate(zip(members,manifest['items']),1):
             if member.ordinal!=ordinal or str(member.source_id)!=item['source_id'] or str(member.normalization_id)!=item['normalization_id']:raise SourceError('SOURCE_BINDING_INVALID')
+            job=session.get(SourceNormalization,member.normalization_id)
+            if (job is None or job.status!='ready' or job.learner_id!=owner or job.material_id!=run.material_id
+                or job.source_id!=member.source_id or canonical_sha256(job.policy)!=item['policy_sha256']
+                or job.page_count!=item['page_count'] or str(job.normalized_artifact_id)!=item['normalized_artifact_id']
+                or str(job.mapping_artifact_id)!=item['mapping_artifact_id']):raise SourceError('SOURCE_BINDING_INVALID')
             for prefix in ('original','normalized','mapping'):
                 artifact=session.get(Artifact,UUID(item[prefix+'_artifact_id']))
                 if artifact is None or artifact.learner_id!=owner or artifact.material_id!=run.material_id or bytes(artifact.sha256).hex()!=item[prefix+'_sha256']:raise SourceError('SOURCE_BINDING_INVALID')
         item=manifest['items'][0]
-        if bundle['canonical_sha256']!=item['normalized_sha256'] or len(bundle['pages'])!=item['page_count']:raise SourceError('SOURCE_BINDING_INVALID')
-        for n,page in enumerate(bundle['pages'],1):
-            if page!={'page':n,'source_id':item['source_id'],'normalized_page':n}:raise SourceError('SOURCE_BINDING_INVALID')
-        binding={'schema':'structure-input-binding/v1','source_set_id':str(source_set.source_set_id),'source_set_digest':source_set.digest,
+        if str(run.source_artifact_id)!=item['normalized_artifact_id']:raise SourceError('SOURCE_BINDING_INVALID')
+        if bundle['schema']=='bundle-manifest/v1':
+            if len(members)!=1 or bundle['canonical_sha256']!=item['normalized_sha256'] or bundle['canonical_artifact_id']!=str(run.source_artifact_id):raise SourceError('SOURCE_BINDING_INVALID')
+        elif (bundle.get('processing_policy')!='source-boundary-incremental/v1'
+              or bundle.get('source_names')!=[item['original_name'] for item in manifest['items']]):raise SourceError('SOURCE_BINDING_INVALID')
+        expected_pages=[]
+        for item in manifest['items']:
+            for n in range(1,item['page_count']+1):
+                expected_pages.append({'page':len(expected_pages)+1,'source_id':item['source_id'],'normalized_page':n})
+        if bundle['pages']!=expected_pages:raise SourceError('SOURCE_BINDING_INVALID')
+        binding={'schema':'structure-input-binding/v2' if bundle['schema']=='bundle-manifest/v2' else 'structure-input-binding/v1','source_set_id':str(source_set.source_set_id),'source_set_digest':source_set.digest,
                  'bundle_manifest_sha256':run.bundle_manifest_sha256,'manifest':manifest,'bundle':bundle}
+        if binding['schema']=='structure-input-binding/v2':binding['base_revision']=run.base_revision
     for item in manifest['items']:
         for prefix in ('original','normalized','mapping'):
             with open_verified_artifact(owner,UUID(item[prefix+'_artifact_id']),dsn=dsn) as blob:
@@ -44,6 +58,9 @@ def bind_structure_input(owner,run_id,document,*,dsn=None):
     binding=_input(owner,run_id,dsn=dsn)
     if binding is None:return document
     result=deepcopy(document);result['schema']='knowledge-structure/v3';result['input_binding']=binding
+    if binding['schema']=='structure-input-binding/v2':
+        if result.pop('source_sha256')!=binding['source_set_digest']:raise SourceError('SOURCE_BINDING_INVALID')
+        result['schema']='knowledge-structure/v4';result['source_set_sha256']=binding['source_set_digest']
     result['revision']=_revision(result)
     return result
 
@@ -71,9 +88,11 @@ def resolve_evidence_source(owner,material_id,revision,evidence_id,*,dsn=None):
         return {'schema':'evidence-source/v1','format':'pdf','original_name':'原始 PDF','original_url':f'/v1/artifacts/{artifact}',
                 'preview_url':f'/v1/artifacts/{artifact}#page={page}','normalized_page':page,'accuracy':'exact','origin_locators':[{'original_page':page}],
                 'label':f'原始教材第 {page} 頁'}
-    item=binding['manifest']['items'][0]
+    location=binding['bundle']['pages'][page-1]
+    item=next(item for item in binding['manifest']['items'] if item['source_id']==location['source_id'])
+    page=location['normalized_page']
     with open_verified_artifact(owner,UUID(item['mapping_artifact_id']),dsn=dsn) as opened:mapping=json.loads(opened.file.read())
-    if mapping['original_sha256']!=item['original_sha256'] or mapping['normalized_sha256']!=document['source_sha256']:raise SourceError('SOURCE_BINDING_INVALID')
+    if mapping['original_sha256']!=item['original_sha256'] or mapping['normalized_sha256']!=item['normalized_sha256']:raise SourceError('SOURCE_BINDING_INVALID')
     region=evidence['source_locator']['region']
     def overlaps(candidate):
         box=candidate.get('region')

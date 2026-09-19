@@ -1,4 +1,4 @@
-import { SourceButton } from "../../ui/SourceButton";
+import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
@@ -193,7 +193,7 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
       .flatMap((item) => item.claims)
       .flatMap((claim) => claim.evidence)
       .filter((item) => feedback.source_evidence_ids.includes(item.evidence_id));
-    const evidencePages = [...new Set(evidence.map((item) => item.page))];
+    const evidenceLinks = sourceLinks(evidence, view.source_resolver);
     return (
       <section className={`assessment-card feedback-card is-${feedback.is_correct ? "correct" : "incorrect"}`} aria-live={isHistorical ? "off" : "polite"}>
         {historicalContext}
@@ -206,8 +206,8 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
         <section className="feedback-section"><h3>為什麼？</h3><p className="feedback-rationale">{feedback.rationale}</p></section>
         <div className="feedback-evidence">
           <h3>教材依據</h3>
-          {evidencePages.map((page) => (
-            <SourceButton apiClient={apiClient} artifactId={sourceArtifactId} page={page} key={page} resolver={view.source_resolver} evidenceId={evidence.find(e=>e.page===page)?.evidence_id}>原始教材第 {page} 頁<Icon name="chevron-right" /></SourceButton>
+          {evidenceLinks.map((item) => (
+            <SourceButton apiClient={apiClient} artifactId={sourceArtifactId} page={item.page} key={item.evidence_id} resolver={view.source_resolver} evidenceId={item.evidence_id} evidence={item}>原始教材第 {item.page} 頁<Icon name="chevron-right" /></SourceButton>
           ))}
         </div>
         {canCreateAssessment && <div className="assessment-actions">
@@ -231,7 +231,7 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
               <strong>{claim.text}</strong>
               <div>
                 {claim.evidence.map((evidence) => (
-                  <SourceButton apiClient={apiClient} artifactId={sourceArtifactId} page={evidence.page} key={evidence.evidence_id} resolver={view.source_resolver} evidenceId={evidence.evidence_id}>查看教材第 {evidence.page} 頁<Icon name="chevron-right" /></SourceButton>
+                  <SourceButton apiClient={apiClient} artifactId={sourceArtifactId} page={evidence.page} key={evidence.evidence_id} resolver={view.source_resolver} evidenceId={evidence.evidence_id} evidence={evidence}>查看教材第 {evidence.page} 頁<Icon name="chevron-right" /></SourceButton>
                 ))}
               </div>
             </article>
@@ -272,14 +272,14 @@ export function AssessmentPanel({ apiClient, record, completed, isHistorical, hi
 
 
   if (previewPrerequisite) {
-    const pages = [...new Set(previewPrerequisite.claims.flatMap(claim => claim.evidence.map(evidence => evidence.page)))];
+    const references = sourceLinks(previewPrerequisite.claims.flatMap(claim => claim.evidence), view.source_resolver);
     return <section className="assessment-card assessment-prerequisite-preview" aria-labelledby="prerequisite-preview-heading">
       <p className="eyebrow">前置概念</p>
       <h2 id="prerequisite-preview-heading" ref={previewHeading} tabIndex={-1}>{previewPrerequisite.label}</h2>
       <h3>教材重點</h3>
       <ul>{previewPrerequisite.claims.map(claim => <li key={claim.claim_id}>{claim.text}</li>)}</ul>
       <section className="assessment-prerequisite-sources" aria-label="前置概念教材來源">
-        <h3>教材來源</h3><div>{pages.map(page => <SourceButton apiClient={apiClient} artifactId={sourceArtifactId} page={page} key={page} resolver={view.source_resolver} evidenceId={previewPrerequisite.claims.flatMap(c=>c.evidence).find(e=>e.page===page)?.evidence_id}>第 {page} 頁<Icon name="chevron-right" /></SourceButton>)}</div>
+        <h3>教材來源</h3><div>{references.map(item => <SourceButton apiClient={apiClient} artifactId={sourceArtifactId} page={item.page} key={item.evidence_id} resolver={view.source_resolver} evidenceId={item.evidence_id} evidence={item}>第 {item.page} 頁<Icon name="chevron-right" /></SourceButton>)}</div>
       </section>
       <div className="assessment-actions"><button className="secondary-button" type="button" onClick={() => setPreviewPrerequisiteId(null)}>回到目前練習</button></div>
     </section>;
