@@ -23,6 +23,7 @@ export default function KnowledgeMap({ apiClient, route }: {
   const [isStartingStudy, setIsStartingStudy] = useState(false);
   const startIntent = useRef<{ conceptId: string; key: string } | null>(null);
 
+  const loadedRoute = useRef("");
   useEffect(() => {
     let cancelled = false;
     setMessage(null);
@@ -30,8 +31,12 @@ export default function KnowledgeMap({ apiClient, route }: {
     setSavedLearningState(null);
     setProgressMessage(null);
     setIsLoadingProgress(true);
-    setView(null);
-    setSourceArtifactId(null);
+    const routeKey = `${route.materialId}:${route.runId}:${route.structureRevision}`;
+    if (loadedRoute.current !== routeKey) {
+      setView(null);
+      setSourceArtifactId(null);
+      loadedRoute.current = routeKey;
+    }
     const openCurrentHead = (material: MaterialLibraryItem) => {
       const head = material.available_structures.find(item => item.knowledge_structure_revision === material.head_revision);
       if (!head || head.knowledge_structure_revision === route.structureRevision) return false;
@@ -131,6 +136,7 @@ export default function KnowledgeMap({ apiClient, route }: {
   };
   return (
     <KnowledgeMapWorkspace
+      key={view.knowledge_structure_revision}
       apiClient={apiClient}
       progress={progress}
       learningStateStatus={savedLearningState?.status ?? null}
