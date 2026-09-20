@@ -80,7 +80,8 @@ def main(spec: str = "e2e/product-cutover.spec.ts", *, production: bool = False,
         log_path = Path(directory) / "vite.log"
         with log_path.open("wb") as log:
             vite = subprocess.Popen(
-                [str(VITE), *(["preview"] if production else []), "--host", "127.0.0.1", "--port", str(PORT), "--strictPort"],
+                [str(VITE), *(["preview"] if production else []),
+                 *(["--outDir", os.environ["STUDYDY_E2E_FRONTEND_DIST"]] if production and os.environ.get("STUDYDY_E2E_FRONTEND_DIST") else []), "--host", "127.0.0.1", "--port", str(PORT), "--strictPort"],
                 cwd=FRONTEND,
                 env=environment,
                 stdin=subprocess.DEVNULL,

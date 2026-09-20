@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import importlib.metadata
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -23,7 +24,8 @@ from runtime.semantic_service import SemanticServiceError, preflight_semantic_se
 
 from .storage.artifacts import open_verified_source_pdf
 from .storage.knowledge_structures import KnowledgeStructureStoreError, publish_knowledge_structure, runtime_binding_is_valid
-from .storage.analysis_archive import AnalysisArchive, AnalysisArchiveError
+from .storage.analysis_archive import AnalysisArchive, AnalysisArchiveError, cleanup_published_checkpoints
+from .material_runtime import same_material_runtime
 from .storage.tables import Learner, Material, MaterialProcessingRun as RunRow, database_session
 
 
@@ -72,6 +74,7 @@ class MaterialProcessingRun:
     input_source_set_id: UUID | None = None
     base_revision: str | None = None
     source_names: tuple[str, ...] = ()
+    runtime_lock_document: dict[str, Any] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -159,6 +162,7 @@ def _row(row: RunRow) -> MaterialProcessingRun:
         row.completed_pages, row.total_pages, row.error_code,
         deepcopy(row.output_binding), row.created_at, row.updated_at, row.completed_at, row.cancel_requested_at, row.input_source_set_id, row.base_revision,
         tuple((row.bundle_manifest or {}).get('source_names', [])),
+        deepcopy(row.runtime_lock_document),
     )
 
 
@@ -201,7 +205,7 @@ def runtime_binding(local_config: Any) -> dict[str, Any]:
         }
         if root.is_symlink() or any(Path(local_config[key]) != path for key, path in expected.items()):
             raise ValueError
-        lock = validate_runtime_lock(local_config["runtime_lock"])
+        lock = validate_runtime_lock(local_config["runtime_lock"], assessment=False)
     except (IndexError, KeyError, MaterialAnalysisError, TypeError, ValueError):
         raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH") from None
     binding = {
@@ -325,7 +329,9 @@ def create_material_processing_run(
                 raise MaterialProcessingError("MATERIAL_RUN_INVALID")
             existing = session.scalar(select(RunRow).where(RunRow.learner_id == learner_id, RunRow.idempotency_key_sha256 == key).with_for_update())
             if existing is not None:
-                if bytes(existing.request_fingerprint) != fingerprint:
+                expected = _digest({'material_id': str(material_id), 'source_artifact_id': str(source_artifact_id),
+                                    'source_sha256': source_sha256, 'runtime_binding': existing.runtime_binding})
+                if bytes(existing.request_fingerprint) != expected:
                     raise MaterialProcessingError("MATERIAL_RUN_IDEMPOTENCY_CONFLICT")
                 return _row(existing)
             from .storage.tables import MaterialSource
@@ -338,7 +344,8 @@ def create_material_processing_run(
             created = RunRow(
                 run_id=uuid4(), learner_id=learner_id, material_id=material_id,
                 source_artifact_id=source_artifact_id, idempotency_key_sha256=key,
-                request_fingerprint=fingerprint, runtime_binding=binding, status="pending",
+                request_fingerprint=fingerprint, runtime_binding=binding,
+                runtime_lock_document=deepcopy(local_config['runtime_lock']), status="pending",
                 progress_stage="queued", completed_pages=0, total_pages=None,
                 created_at=now, updated_at=now,
             )
@@ -548,8 +555,11 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn):
     try:
         check_cancel()
         archive = AnalysisArchive(claim, dsn=dsn)
-        if runtime_binding(local_config) != run.runtime_binding:
+        if not same_material_runtime(run.runtime_lock_document, run.runtime_binding,
+                                     local_config['runtime_lock'], runtime_binding(local_config)):
             raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
+        # 使用原工作封存的同一份設定，發布與原 run 的完整 hash 仍精確一致。
+        local_config = {**local_config, 'runtime_lock': deepcopy(run.runtime_lock_document)}
         check_cancel()
         from .source_resolver import _input, bind_structure_input
         from .storage.source_artifacts import open_verified_artifact
@@ -591,7 +601,14 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn):
             if archive is not None: archive.save_failure(error)
         except AnalysisArchiveError: pass
         _record_failure(run.run_id, "MATERIAL_ANALYSIS_FAILED", worker_token=claim.worker_token, dsn=dsn)
-    return read_material_processing_run(run.learner_id, run.run_id, dsn=dsn)
+    result = read_material_processing_run(run.learner_id, run.run_id, dsn=dsn)
+    if result.status in {'succeeded', 'partial'}:
+        # 發布已 commit；清理失敗只記錄並由 worker 補做，不能把成功結果改回 failed。
+        try:
+            cleanup_published_checkpoints(run.learner_id, run.material_id, run.run_id, dsn=dsn)
+        except AnalysisArchiveError:
+            logging.getLogger(__name__).warning('ANALYSIS_CHECKPOINT_CLEANUP_FAILED', extra={'run_id': str(run.run_id)})
+    return result
 
 
 def _analyze_single_run_source(run, local_config, directory, progress, check_cancel, archive, *, dsn):

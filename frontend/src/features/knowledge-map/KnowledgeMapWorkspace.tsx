@@ -46,7 +46,10 @@ const learningLabels = { not_started: "尚未練習", learning: "學習中", nee
 
 function LearningBadge({ conceptId, progress }: { conceptId: string; progress: LearnerProgressView | null }) {
   const state = progress?.concept_states.find((item) => item.concept_id === conceptId);
-  return state ? <span className={`map-learning-badge is-${state.status}`}>{learningLabels[state.status]}</span> : null;
+  const cycle = progress?.assessment_cycles.find(item => item.concept_id === conceptId);
+  const label = cycle?.outcome === "passed" && state?.status !== "mastered" ? "本輪檢測通過"
+    : cycle?.pending_count ? "待補強" : state ? learningLabels[state.status] : null;
+  return state && label ? <span className={`map-learning-badge is-${state.status}`}>{label}</span> : null;
 }
 
 function DetailPanel({ label, focusKey, close, children }: { label: string; focusKey: string; close: () => void; children: ReactNode }) {

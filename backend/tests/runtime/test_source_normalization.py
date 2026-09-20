@@ -227,7 +227,7 @@ def test_command_assessment_provenance_survives_configuration_removal(closed_loo
                 dsn=dsn,client=Client(),semantic_call=lambda *_args,**_kwargs:response)
     with database_session(dsn) as session:
         provenance=session.get(Assessment,assessment.assessment_revision).generation_provenance
-        assert provenance['schema']=='assessment-generation-provenance/v7'
+        assert provenance['schema']=='assessment-generation-provenance/v8'
         assert provenance['model_id']=='fixture-model' and provenance['execution_identity']['transport']=='command'
     monkeypatch.delenv('STUDYDY_SEMANTIC_COMMAND_CONFIG')
     restored=read_assessment(learner,study.study_session_id,assessment.assessment_revision,dsn=dsn)

@@ -42,7 +42,7 @@ def test_b02_upgrade_preserves_saved_learning_and_repeats_as_noop(learning_recor
             target.commit()
             for table in tables:
                 before[table]=target.execute(sql.SQL('SELECT {} FROM {} ORDER BY 1').format(columns[table],sql.Identifier(table))).fetchall()
-        assert run_migrations(upgraded)==(9,)
+        assert run_migrations(upgraded)==(9,10,11,12,13)
         assert run_migrations(upgraded)==()
         with psycopg.connect(upgraded) as connection:
             for table in tables:

@@ -20,6 +20,7 @@ class InheritedAnswerEvidence:
     mastery_qualified: bool
     created_at: datetime
     answer_event_id: UUID
+    assisted: bool = False
 
 
 def preferred_focus(session, owner, material_id, revision):
@@ -63,5 +64,5 @@ def inherited_answers(learner, study, *, dsn=None):
             target=matches.get((event.target_concept_id,event.target_claim_id))
             if target is not None:
                 result.append(InheritedAnswerEvidence(*target,event.semantic_identity,event.is_correct,
-                    event.mastery_qualified,event.created_at,event.answer_event_id))
+                    event.mastery_qualified,event.created_at,event.answer_event_id,event.assisted))
     return tuple(result)

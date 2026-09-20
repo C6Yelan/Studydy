@@ -54,6 +54,9 @@ from learning_adaptation.learner_progress import (
 )
 from learning_adaptation.answer_events import read_assessment_records, submit_answer
 from learning_adaptation.assessments import generate_assessment, read_assessment
+from learning_adaptation import assessment_sets
+from .models import (AssessmentSetCreate, AssessmentSetAction, AssessmentPlanView,
+                     AssessmentSetListView, AssessmentSetView, AssessmentReview, AssessmentSetSubmission)
 from learning_adaptation.study_sessions import (
     complete_study_session,
     create_study_session,
@@ -97,6 +100,8 @@ _COOKIE_NAME = "studydy_session"
 _ERROR_MESSAGE = "Request could not be completed."
 _SOURCE_LIMIT = 104_857_600
 _ERROR_STATUS = {
+    'ASSESSMENT_SET_CONFLICT': (409, False),
+    'ASSESSMENT_SET_ACTIVE': (409, False),
     "DUPLICATE_SOURCE": (409, False),
     "REVISION_CONFLICT": (409, False),
     "REVISION_IN_PROGRESS": (409, True),
@@ -232,6 +237,11 @@ def _error_response(reason_code: str, *, status_code: int | None = None) -> JSON
 
 def _fixed_exception(error: Exception) -> str:
     reason = str(error)
+    if isinstance(error, assessment_sets.AssessmentSetError):
+        if reason == 'ASSESSMENT_SET_NOT_FOUND':return 'RESOURCE_NOT_FOUND'
+        if reason in ('ASSESSMENT_SET_REQUEST_INVALID','ASSESSMENT_SET_TARGET_INVALID'):return 'REQUEST_INVALID'
+        return reason if reason in ('ASSESSMENT_SET_CONFLICT', 'ASSESSMENT_SET_ACTIVE') else 'INTERNAL_ERROR'
+    if reason in ('ASSESSMENT_SET_CONFLICT', 'ASSESSMENT_SET_ACTIVE'):return reason
     if isinstance(error,(SourceError,NormalizationError,MaterialProcessingError)) and reason in _ERROR_STATUS:return reason
     if reason == "MATERIAL_NOT_DISCARDABLE" or (isinstance(error, MaterialDiscardError) and reason == "RESOURCE_NOT_FOUND"):
         return reason
@@ -356,6 +366,11 @@ def _install_openapi(app: FastAPI) -> None:
         "/v1/material-processing-runs",
         "/v1/study-sessions",
         "/v1/study-sessions/{study_session_id}/assessments",
+        "/v1/study-sessions/{study_session_id}/assessment-sets",
+        "/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/{action}",
+        "/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/reviews",
+        "/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/submissions",
+        "/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/remediation",
         "/v1/study-sessions/{study_session_id}/assessments/{assessment_revision}/submissions",
     }
     public_paths = {"/v1/accounts", "/v1/session/login"}
@@ -793,8 +808,9 @@ def create_app(settings: ApiSettings) -> FastAPI:
     def resume_study_route(
         request: Request, material_id: UUID, structure_revision: str, study_session_id: UUID,
         run_id: UUID, assessment_revision: str | None = None,
+        set_id: UUID | None = None,
     ) -> StudyResumeView:
-        _require_query(request, {"run_id", "assessment_revision"})
+        _require_query(request, {"run_id", "assessment_revision", "set_id"})
         learner = _trusted_learner(request, settings)
         study = read_study_session(learner, study_session_id, dsn=settings.dsn)
         if study.material_id != material_id or study.knowledge_structure_revision != structure_revision:
@@ -803,13 +819,15 @@ def create_app(settings: ApiSettings) -> FastAPI:
         if structure.document["run_id"] != str(run_id):
             raise _ApiFailure("RESOURCE_NOT_FOUND")
         run = read_material_processing_run(learner.learner_id, run_id, dsn=settings.dsn)
+        rounds = assessment_sets.list_sets(learner, study_session_id, dsn=settings.dsn)
         records = read_assessment_records(learner, study_session_id, dsn=settings.dsn)
         progress = derive_learner_progress(learner, study_session_id, dsn=settings.dsn)
         # 讀取期間若有提交或 guidance 變動，拒絕混合兩個時點的狀態，交由使用者重讀。
         if (read_study_session(learner, study_session_id, dsn=settings.dsn) != study
             or progress.event_watermark != study.last_event_number
             or derive_learner_progress(learner, study_session_id, dsn=settings.dsn).guidance_revision != progress.guidance_revision
-            or sum(record.feedback is not None for record in records) != study.last_event_number):
+            or sum(record.feedback is not None for record in records) != study.last_event_number
+            or assessment_sets.list_sets(learner, study_session_id, dsn=settings.dsn) != rounds):
             raise _ApiFailure("IDEMPOTENCY_CONFLICT")
         selected = assessment_revision
         if selected is not None and selected not in {record.assessment.assessment_revision for record in records}:
@@ -817,16 +835,26 @@ def create_app(settings: ApiSettings) -> FastAPI:
         if selected is None:
             selected = next((record.assessment.assessment_revision for record in records
                 if study.status == "completed" or record.assessment.target_concept_id == study.current_concept_id), None)
+        selected_set = str(set_id) if set_id is not None else next((group['set_id'] for group in rounds['sets']
+            if group['target_concept_id'] == study.current_concept_id), None)
+        if selected_set is not None and selected_set not in {group['set_id'] for group in rounds['sets']}:
+            raise _ApiFailure('RESOURCE_NOT_FOUND')
+        set_status = {revision: group['status'] for group in rounds['sets'] for revision in group['assessment_revisions']}
+        permissions = {record.assessment.assessment_revision: study.status in ('active', 'no_safe') and (
+            set_status[record.assessment.assessment_revision] in ('ready', 'in_progress')
+            if record.assessment.assessment_revision in set_status
+            else record.assessment.target_concept_id == study.current_concept_id)
+            for record in records if record.feedback is None}
         return StudyResumeView(
             session=project_study_session(study), run_id=run_id, source_artifact_id=run.source_artifact_id,
             knowledge_structure=KnowledgeStructureView.model_validate(structure.view),
             progress=project_learner_progress(progress), selected_assessment_revision=selected,
+            assessment_sets=rounds['sets'], selected_set_id=selected_set,
             assessments=[AssessmentRecordView(
                 assessment=project_assessment(record.assessment),
                 feedback=project_answer_feedback(record.feedback) if record.feedback is not None else None,
                 created_at=record.created_at,
-                can_submit=(record.feedback is None and study.status in {"active", "no_safe"}
-                            and record.assessment.target_concept_id == study.current_concept_id),
+                can_submit=record.feedback is None and permissions.get(record.assessment.assessment_revision, False),
             ) for record in records],
         )
 
@@ -899,6 +927,72 @@ def create_app(settings: ApiSettings) -> FastAPI:
                 learner, study_session_id, dsn=settings.dsn
             )
         )
+
+    @app.get('/v1/study-sessions/{study_session_id}/assessment-plan', response_model=AssessmentPlanView,
+             operation_id='getAssessmentPlan', tags=['learning'])
+    def get_assessment_plan(request: Request, study_session_id: UUID, concept_id: str):
+        _require_query(request, {'concept_id'})
+        return AssessmentPlanView.model_validate(assessment_sets.read_plan(
+            _trusted_learner(request, settings), study_session_id, concept_id, dsn=settings.dsn))
+
+    @app.get('/v1/study-sessions/{study_session_id}/assessment-sets', response_model=AssessmentSetListView,
+             operation_id='listAssessmentSets', tags=['learning'])
+    def list_assessment_sets(request: Request, study_session_id: UUID):
+        _require_query(request, set())
+        return AssessmentSetListView.model_validate(assessment_sets.list_sets(
+            _trusted_learner(request, settings), study_session_id, dsn=settings.dsn))
+
+    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets', response_model=AssessmentSetView,
+              status_code=202, operation_id='createAssessmentSet', tags=['learning'])
+    def create_assessment_set(request: Request, study_session_id: UUID, body: AssessmentSetCreate):
+        _require_query(request, set())
+        learner = _trusted_learner(request, settings)
+        set_id = assessment_sets.create_set(learner, study_session_id, body.target_concept_id,
+            _idempotency_key(request), deepcopy(settings.local_config), dsn=settings.dsn)
+        return AssessmentSetView.model_validate(assessment_sets.read_set(learner, study_session_id, set_id, dsn=settings.dsn))
+
+    @app.get('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}', response_model=AssessmentSetView,
+             operation_id='getAssessmentSet', tags=['learning'])
+    def get_assessment_set(request: Request, study_session_id: UUID, set_id: UUID):
+        _require_query(request, set())
+        return AssessmentSetView.model_validate(assessment_sets.read_set(
+            _trusted_learner(request, settings), study_session_id, set_id, dsn=settings.dsn))
+
+    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/submissions', response_model=AssessmentSetView,
+              operation_id='submitAssessmentSet', tags=['learning'])
+    def submit_assessment_set(request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentSetSubmission):
+        _require_query(request, set())
+        learner = _trusted_learner(request, settings)
+        assessment_sets.submit_set_answers(learner, study_session_id, set_id, [answer.model_dump() for answer in body.answers],
+            body.expected_set_version, _idempotency_key(request), dsn=settings.dsn)
+        return AssessmentSetView.model_validate(assessment_sets.read_set(learner, study_session_id, set_id, dsn=settings.dsn))
+
+    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/reviews', response_model=AssessmentSetView,
+              operation_id='reviewAssessmentPoint', tags=['learning'])
+    def review_assessment_point(request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentReview):
+        _require_query(request, set())
+        learner = _trusted_learner(request, settings)
+        assessment_sets.review_point(learner, study_session_id, set_id, body.target_claim_id, body.action,
+            body.expected_set_version, _idempotency_key(request), dsn=settings.dsn)
+        return AssessmentSetView.model_validate(assessment_sets.read_set(learner, study_session_id, set_id, dsn=settings.dsn))
+
+    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/remediation', response_model=AssessmentSetView,
+              status_code=202, operation_id='createRemediationSet', tags=['learning'])
+    def create_remediation_set(request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentSetAction):
+        _require_query(request, set())
+        learner = _trusted_learner(request, settings)
+        created = assessment_sets.create_remediation(learner, study_session_id, set_id, body.expected_set_version,
+            _idempotency_key(request), deepcopy(settings.local_config), dsn=settings.dsn)
+        return AssessmentSetView.model_validate(assessment_sets.read_set(learner, study_session_id, created, dsn=settings.dsn))
+
+    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/{action}', response_model=AssessmentSetView,
+              operation_id='changeAssessmentSet', tags=['learning'])
+    def change_assessment_set(request: Request, study_session_id: UUID, set_id: UUID, action: str, body: AssessmentSetAction):
+        _require_query(request, set())
+        learner = _trusted_learner(request, settings)
+        assessment_sets.change_set(learner, study_session_id, set_id, action, body.expected_set_version,
+                                  _idempotency_key(request), dsn=settings.dsn)
+        return AssessmentSetView.model_validate(assessment_sets.read_set(learner, study_session_id, set_id, dsn=settings.dsn))
 
     @app.post(
         "/v1/study-sessions/{study_session_id}/assessments",

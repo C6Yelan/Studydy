@@ -241,8 +241,11 @@ def test_retry_after_completed_analysis_reuses_saved_results_without_model_or_oc
     result=execute()
     assert result.status=='succeeded',result.error_code
     assert len(requests)==calls_before,'Retry called the model again for completed analysis'
-    assert json.loads((_material_directory(learner.learner_id,material)/retry.run_id.hex/'checkpoint.json').read_bytes())['reused_from_run']==str(run.run_id)
-    assert (directory/'checkpoint.json').is_file(),'Failed work was automatically deleted'
+    completed=_material_directory(learner.learner_id,material)/retry.run_id.hex
+    assert json.loads((completed/'completion.json').read_bytes())['reused_from_run']==str(run.run_id)
+    assert not (completed/'checkpoint.json').exists()
+    assert not (directory/'checkpoint.json').exists(),'已被成功接續的 checkpoint 不再需要保留'
+    assert (directory/'call-000001/decoded.json').is_file() and (directory/'failure.json').is_file()
 
 
 def test_checkpoint_write_failure_stops_before_model_and_corrupt_checkpoint_never_restarts_silently(revisions,monkeypatch):
@@ -333,7 +336,7 @@ def test_retry_api_reuses_exact_frozen_order_and_ignores_later_uploads(revisions
     assert names==(['A.pdf','C.pdf','B.pdf'] if append else ['C.pdf','B.pdf'])
 
 
-def test_retry_continues_at_failed_block_on_the_same_page_and_retains_all_development_outputs(revisions,monkeypatch):
+def test_retry_continues_at_failed_block_then_cleans_checkpoints_and_keeps_call_outputs(revisions,monkeypatch):
     from pdf_evidence import material_pipeline
     from runtime.semantic_service import SemanticServiceError
     from runtime.storage.analysis_archive import _material_directory
@@ -371,8 +374,9 @@ def test_retry_continues_at_failed_block_on_the_same_page_and_retains_all_develo
     assert calls[before:]==[failed_handle]
     assert calls.count(completed_handle)==1
     directory=_material_directory(learner.learner_id,material)
-    assert (directory/failed.run_id.hex/'checkpoint.json').is_file()
-    assert (directory/result.run_id.hex/'checkpoint.json').is_file()
+    assert not (directory/failed.run_id.hex/'checkpoint.json').exists()
+    assert not (directory/result.run_id.hex/'checkpoint.json').exists()
+    assert (directory/failed.run_id.hex/'call-000001/decoded.json').is_file()
     # 只在使用者明確刪除整份教材時，連同該教材的分析保存資料清除。
     assert request_material_discard(learner.learner_id,material,dsn=dsn)=='removed'
     assert not directory.exists()
