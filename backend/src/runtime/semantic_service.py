@@ -75,8 +75,7 @@ def _service(lock: Any) -> dict[str, Any]:
         service = lock["semantic_service"]
         origin = _origin(service["base_url"])
         if (
-            lock["schema"] != "studydy-runtime-lock/v18"
-            or lock["python"] != "3.12"
+            lock["python"] != "3.12"
             or service["model_id"] != "google/gemma-4-31B-it-qat-w4a16-ct"
             or service["revision"] != "52f3f65bc7a02d555763bc923bd1d9094898219d"
             or origin != "http://127.0.0.1:18000"

@@ -1,6 +1,7 @@
-"""保存每批模型回應與可續接狀態；只隨使用者明確刪除教材而清理。"""
+"""失敗保留可續接狀態；發布完成清理 checkpoint，品質提示不阻擋清理。"""
 from pathlib import Path
 import json
+import logging
 import os
 import shutil
 import stat
@@ -13,10 +14,14 @@ from sqlalchemy import select
 from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 from .artifacts import _root, _sync_directory
 from .tables import Material, MaterialProcessingRun, database_session
+from ..material_runtime import same_material_runtime
 
 
 class AnalysisArchiveError(RuntimeError):
     pass
+
+
+_logger = logging.getLogger(__name__)
 
 
 def _signature(run):
@@ -30,6 +35,17 @@ def _signature(run):
 
 def _material_directory(owner,material):
     return _root()/'analysis'/owner.hex/material.hex
+
+
+def _same_inputs(first, second):
+    return (first.source_artifact_id == second.source_artifact_id
+            and first.input_source_set_id == second.input_source_set_id
+            and first.base_revision == second.base_revision)
+
+
+def _same_analysis(first, second):
+    return _same_inputs(first, second) and same_material_runtime(
+        first.runtime_lock_document, first.runtime_binding, second.runtime_lock_document, second.runtime_binding)
 
 
 class AnalysisArchive:
@@ -54,14 +70,21 @@ class AnalysisArchive:
                 MaterialProcessingRun.status=='failed',
                 MaterialProcessingRun.created_at<self.run.created_at,
             ).order_by(MaterialProcessingRun.created_at.desc())).all()
-            candidates=[(row.run_id,row.error_code) for row in prior if _signature(row)==self.signature]
-        self._review_response_runs=[run_id for run_id,error_code in candidates if error_code=='SOURCE_UPDATE_NEEDS_REVIEW']
-        for run_id,error_code in candidates:
+            candidates=[]
+            for row in prior:
+                if not _same_inputs(row, self.run):continue
+                path=self.directory.parent/row.run_id.hex/'checkpoint.json'
+                if not path.exists():continue
+                if not _same_analysis(row, self.run):
+                    raise AnalysisArchiveError('ANALYSIS_RUNTIME_CHANGED')
+                candidates.append((row.run_id,row.error_code,_signature(row)))
+        self._review_response_runs=[(run_id,signature) for run_id,error_code,signature in candidates if error_code=='SOURCE_UPDATE_NEEDS_REVIEW']
+        for run_id,error_code,signature in candidates:
             path=self.directory.parent/run_id.hex/'checkpoint.json'
             if not path.exists():continue
             try:
                 saved=json.loads(path.read_bytes())
-                if (saved['signature']!=self.signature or saved['run_id']!=str(run_id)
+                if (saved['signature']!=signature or saved['run_id']!=str(run_id)
                     or canonical_sha256(saved['data'])!=saved['data_sha256']):raise ValueError
                 self.reused_from=str(run_id)
                 self._checkpoint=saved['data'];self._loaded=True
@@ -78,12 +101,12 @@ class AnalysisArchive:
     def reuse_review_response(self,request):
         """舊流程僅因複核旗標拒絕的回應，可在同一輸入上重用，不再付一次模型成本。"""
         if self._checkpoint is None or self._checkpoint.get('restart_semantics'):return None
-        for run_id in self._review_response_runs:
+        for run_id,signature in self._review_response_runs:
             for path in sorted((self.directory.parent/run_id.hex).glob('call-*/decoded.json'),reverse=True):
                 if path in self._replayed_responses:continue
                 try:
                     saved=json.loads(path.read_bytes());data=saved['data']
-                    if (saved['signature']!=self.signature or saved['run_id']!=str(run_id)
+                    if (saved['signature']!=signature or saved['run_id']!=str(run_id)
                         or canonical_sha256(data)!=saved['data_sha256']):raise ValueError
                     # checkpoint 的 JSON 會排序字典 key；catalog 的陣列順序因此可能改變。
                     # 概念以 k 識別，比對完整內容，但不把 catalog 排序誤當輸入改變。
@@ -104,7 +127,7 @@ class AnalysisArchive:
                     Material.material_id==self.run.material_id).with_for_update())
                 run=session.scalar(select(MaterialProcessingRun).where(MaterialProcessingRun.run_id==self.run.run_id).with_for_update())
                 if (material is None or material.discard_requested_at is not None or run is None
-                    or run.worker_token!=self.worker_token):
+                    or run.worker_token!=self.worker_token or run.status!='running'):
                     raise AnalysisArchiveError('MATERIAL_RUN_UNAVAILABLE')
                 for directory in reversed([self.directory,*list(self.directory.parents)[:3]]):
                     directory.mkdir(mode=0o700,exist_ok=True)
@@ -139,6 +162,86 @@ class AnalysisArchive:
         self._write('failure.json',{'exception_type':type(error).__name__,
             'frames':[{'file':Path(frame.filename).name,'function':frame.name,'line':frame.lineno}
                       for frame in traceback.extract_tb(error.__traceback__)]})
+
+
+def _checkpoint_directory(owner, material, run_id):
+    directory = _material_directory(owner, material) / run_id.hex
+    if any(path.is_symlink() for path in [directory, *list(directory.parents)[:3]]):
+        raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_CLEANUP_FAILED')
+    return directory
+
+
+def cleanup_published_checkpoints(owner, material_id, run_id, *, dsn):
+    """只以已 commit 的發布結果判斷；needs_review 與目前 head 不影響清理。"""
+    try:
+        with database_session(dsn) as session:
+            material = session.scalar(select(Material).where(
+                Material.learner_id == owner, Material.material_id == material_id).with_for_update())
+            run = session.scalar(select(MaterialProcessingRun).where(
+                MaterialProcessingRun.learner_id == owner, MaterialProcessingRun.material_id == material_id,
+                MaterialProcessingRun.run_id == run_id).with_for_update())
+            if (material is None or material.discard_requested_at is not None or run is None
+                or run.status not in {'succeeded', 'partial'} or run.progress_stage != 'completed'
+                or run.completed_at is None or not isinstance(run.output_binding, dict)
+                or run.output_binding.get('processing') != run.status
+                or not isinstance(run.output_binding.get('knowledge_structure_revision'), str)):
+                return False
+            directory = _checkpoint_directory(owner, material_id, run_id)
+            checkpoint = directory / 'checkpoint.json'
+            if checkpoint.is_symlink():
+                raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_CLEANUP_FAILED')
+            if not checkpoint.exists():
+                return False
+            # 完整狀態刪除後仍能追查沿用哪次失敗分析，避免把舊呼叫量冒稱本次新推論。
+            receipt = {'run_id': str(run_id),
+                       'knowledge_structure_revision': run.output_binding['knowledge_structure_revision']}
+            try:
+                saved = json.loads(checkpoint.read_bytes())
+                if (saved['run_id'] != str(run_id) or saved['signature'] != _signature(run)
+                    or saved['data_sha256'] != canonical_sha256(saved['data'])):
+                    raise ValueError
+                receipt['reused_from_run'] = saved['reused_from_run']
+            except (ValueError, KeyError, TypeError):
+                # 發布已由 DB 確認；損毀的恢復狀態不再有用途，也不能反過來卡住清理。
+                _logger.warning('ANALYSIS_CHECKPOINT_METADATA_UNAVAILABLE', extra={'run_id': str(run_id)})
+            with tempfile.NamedTemporaryFile(dir=directory, prefix='.writing-', delete=False) as stream:
+                temporary = Path(stream.name)
+                stream.write(canonical_bytes(receipt)); stream.flush(); os.fsync(stream.fileno())
+            os.replace(temporary, directory / 'completion.json')
+            _sync_directory(directory)
+
+            prior = session.scalars(select(MaterialProcessingRun).where(
+                MaterialProcessingRun.learner_id == owner, MaterialProcessingRun.material_id == material_id,
+                MaterialProcessingRun.status == 'failed', MaterialProcessingRun.created_at < run.created_at))
+            for failed in prior:
+                if not _same_analysis(failed, run):
+                    continue
+                previous = _checkpoint_directory(owner, material_id, failed.run_id)
+                path = previous / 'checkpoint.json'
+                if path.exists() or path.is_symlink():
+                    path.unlink()
+                    _sync_directory(previous)
+            # 最後才移除成功 run 的 checkpoint；中途清理失敗時，reconciliation 還找得到它。
+            checkpoint.unlink()
+            _sync_directory(directory)
+            return True
+    except AnalysisArchiveError:
+        raise
+    except Exception:
+        raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_CLEANUP_FAILED') from None
+
+
+def reconcile_published_checkpoints(*, dsn):
+    """補完發布 commit 後崩潰或檔案清理失敗；未完成／失敗作業仍保留。"""
+    for path in (_root() / 'analysis').glob('*/*/*/checkpoint.json'):
+        try:
+            owner, material, run = (UUID(hex=path.parents[index].name) for index in (2, 1, 0))
+        except ValueError:
+            continue
+        try:
+            cleanup_published_checkpoints(owner, material, run, dsn=dsn)
+        except AnalysisArchiveError:
+            _logger.warning('ANALYSIS_CHECKPOINT_CLEANUP_FAILED', extra={'run_id': str(run)})
 
 
 def remove_material_analysis(owner,material):

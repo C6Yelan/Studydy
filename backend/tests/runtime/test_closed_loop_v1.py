@@ -34,10 +34,10 @@ def generate_assessment(*args, semantic_call, **kwargs):
     answers = {}
     def model(client, **request):
         if request["task"] == "assessment_check":
-            return {"schema": "assessment-check-response/v1", "verdicts": [
+            return {"schema": "assessment-check-response/v2", "verdicts": [
                 {"question_index": question["question_index"], "answer_status": "unique",
                  "selected_option_index": question["options"].index(answers[question["prompt"]]),
-                 "duplicate_prior_index": None}
+                 "duplicate_prior_index": None, "quality_issues": []}
                 for question in request["request"]["questions"]
             ]}
         response = semantic_call(client, **request)
@@ -149,7 +149,7 @@ def _assessment_response(angle: str, prompt: str, evidence_id: str) -> dict:
 
 @pytest.fixture
 def closed_loop(clean_database_dsn, migrations_dir, tmp_path, monkeypatch):
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8, 9)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
     assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == ()
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir(mode=0o700)
@@ -169,7 +169,7 @@ def closed_loop(clean_database_dsn, migrations_dir, tmp_path, monkeypatch):
 
 
 def test_final_schema_contains_only_current_product_tables(clean_database_dsn, migrations_dir):
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8, 9)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
     with psycopg.connect(clean_database_dsn) as connection:
         tables = {
             row[0]
@@ -186,7 +186,7 @@ def test_final_schema_contains_only_current_product_tables(clean_database_dsn, m
     assert tables == {
         "schema_migrations", "learners", "learner_sessions", "materials", "artifacts",
         "material_processing_runs", "knowledge_structures", "study_sessions", "assessments",
-        "answer_events", "material_sources", "source_normalizations", "material_source_sets", "material_source_set_items",
+        "answer_events", "assessment_sets", "assessment_set_items", "material_sources", "source_normalizations", "material_source_sets", "material_source_set_items",
     }
     assert not any("formal_concept" in column or "verifier" in column for column in columns)
 
@@ -525,7 +525,7 @@ def test_http_api_projects_the_same_closed_loop_without_private_answer(closed_lo
 def test_http_upload_worker_assessment_and_guidance_are_one_closed_loop(
     clean_database_dsn, migrations_dir, tmp_path, monkeypatch
 ):
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8, 9)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir(mode=0o700)
     monkeypatch.setenv("STUDYDY_ARTIFACT_ROOT", str(artifact_root))
@@ -774,7 +774,8 @@ def test_legacy_assessment_eligibility_is_not_upgraded_by_new_policy(closed_loop
         row = session.scalar(select(Assessment).where(Assessment.assessment_revision == item.assessment_revision))
         legacy = SimpleNamespace(**{column.name: deepcopy(getattr(row, column.name)) for column in Assessment.__table__.columns})
     provenance = legacy.generation_provenance
-    provenance.pop("verification")
+    for key in ("verification", "quality_selection", "compared_assessment_revisions", "prompt_sha256", "check_prompt_sha256", "execution_identity"):
+        provenance.pop(key)
     provenance.update(schema="assessment-generation-provenance/v5", policy="source-span-single-choice/v4", novelty="uncertain", mastery_qualified=False)
     legacy.mastery_qualified = False
     core = lambda document: {key: value for key, value in document.items() if key != "assessment_revision"}

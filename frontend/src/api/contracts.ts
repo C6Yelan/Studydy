@@ -15,6 +15,8 @@ export type KnownApiReasonCode =
   | "REVISION_IN_PROGRESS"
   | "SOURCE_IN_USE"
   | "SOURCE_BUSY"
+  | "ASSESSMENT_SET_CONFLICT"
+  | "ASSESSMENT_SET_ACTIVE"
   | "NO_SAFE_ASSESSMENT"
   | "MATERIAL_TOO_LARGE"
   | "MATERIAL_PDF_INVALID"
@@ -278,7 +280,7 @@ export type ConceptLearningStateView = {
 };
 
 export type NextActionView = {
-  action: "assess" | "review_prerequisite" | "advance" | "defer" | "resume" | "no_safe" | "complete";
+  action: "continue_set" | "review" | "remediate" | "assess" | "review_prerequisite" | "advance" | "defer" | "resume" | "no_safe" | "complete";
   target_concept_id: string | null;
   target_claim_id: string | null;
   prerequisite_concept_ids: string[];
@@ -286,7 +288,8 @@ export type NextActionView = {
 };
 
 export type LearnerProgressView = {
-  schema: "learner-progress/v2";
+  schema: "learner-progress/v3";
+  assessment_cycles: AssessmentCycleSummary[];
   study_session_id: string;
   knowledge_structure_revision: string;
   event_watermark: number;
@@ -308,7 +311,7 @@ export type AssessmentRecordView = {
 };
 
 export type StudyResumeView = {
-  schema: "study-resume/v1";
+  schema: "study-resume/v3";
   session: StudySessionView;
   run_id: string;
   source_artifact_id: string;
@@ -316,7 +319,59 @@ export type StudyResumeView = {
   progress: LearnerProgressView;
   assessments: AssessmentRecordView[];
   selected_assessment_revision: string | null;
+  assessment_sets: AssessmentSetSummary[];
+  selected_set_id: string | null;
 };
+
+export type AssessmentPlanView = {
+  schema: "assessment-plan/v1"; study_session_id: string; knowledge_structure_revision: string;
+  policy: "single-concept-grounded-points/v1"; concept_id: string; point_count: number; requested_count: number;
+  targets: { claim_id: string; covered_claim_ids: string[]; reason: "distinct_grounded_point" }[];
+  excluded: { claim_id: string; reason: "no_content_evidence" }[];
+};
+
+export type AssessmentCycleSummary = {
+  diagnostic_set_id: string; concept_id: string; set_version: number;
+  outcome: "in_progress" | "needs_review" | "ready_for_remediation" | "passed" | "incomplete" | "deferred";
+  closed_at: string | null; active_set_id: string | null;
+  passed_count: number; remediation_passed_count: number; pending_count: number; unanswered_count: number; unavailable_count: number;
+};
+export type AssessmentCycleView = AssessmentCycleSummary & {
+  can_create_remediation: boolean; can_close: boolean; can_review: boolean;
+  points: { claim_id: string; result: "unavailable" | "unanswered" | "diagnostic_pass" | "needs_review" | "reviewed" | "remediation_pass" | "deferred";
+    latest_answer_event_id: string | null; latest_set_id: string | null }[];
+};
+
+export type AssessmentSetSummary = {
+  kind: "diagnostic" | "remediation"; diagnostic_set_id: string | null;
+  set_id: string; target_concept_id: string;
+  status: "preparing" | "partial_ready" | "failed" | "ready" | "in_progress" | "completed" | "cancelled";
+  set_version: number; requested_count: number; published_count: number; answered_count: number; passed_count: number;
+  assessment_revisions: string[]; created_at: string; completed_at: string | null;
+};
+
+export type AssessmentSetListView = {
+  schema: "assessment-set-list/v3"; study_session_id: string; knowledge_structure_revision: string;
+  active_set_ids: string[]; sets: AssessmentSetSummary[];
+};
+
+export type AssessmentSetItem = {
+  ordinal: number; target_claim_id: string; state: "pending" | "generating" | "verified" | "published" | "failed" | "omitted";
+  attempts: number; failure_reason: string | null; assessment: AssessmentView | null;
+  feedback: AnswerFeedbackView | null; created_at: string | null; can_submit: boolean;
+};
+
+export type AssessmentSetView = AssessmentSetSummary & {
+  schema: "assessment-set/v2"; study_session_id: string; material_id: string; knowledge_structure_revision: string;
+  cycle: AssessmentCycleView; selection_policy: "single-concept-grounded-points/v1" | "reviewed-wrong-points/v1";
+  point_count: number; excluded_count: number; verified_count: number;
+  can_retry: boolean; can_publish_partial: boolean; can_complete: boolean; can_cancel: boolean;
+  items: AssessmentSetItem[];
+};
+
+export type AssessmentSetAnswer = { assessment_revision: string; question_id: string; selected_option_id: string };
+
+export type AssessmentSetAction = "retry" | "publish-partial" | "complete" | "cancel" | "close-cycle";
 
 export type MaterialRename = { schema: "material-rename/v1"; display_name: string };
 

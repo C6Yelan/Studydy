@@ -34,10 +34,13 @@ def derive_learning_states(
             claim.claim_id: [event for event in concept_events if event.target_claim_id == claim.claim_id]
             for claim in concept.claims
         }
+        # 補強是在複習後作答：可解除本次弱點，但不取代獨立測試的掌握證據。
+        independent = {claim_id: [event for event in claim_events if not event.assisted]
+                       for claim_id, claim_events in by_claim.items()}
         mastered_claims = {
             claim_id
-            for claim_id, claim_events in by_claim.items()
-            if len({event.semantic_identity for event in claim_events if event.is_correct and event.mastery_qualified}) >= 2
+            for claim_id, claim_events in independent.items()
+            if len({event.semantic_identity for event in claim_events if event.is_correct and event.mastery_qualified and not event.assisted}) >= 2
             and claim_events[-1].is_correct
         }
         covered = [claim_id for claim_id, claim_events in by_claim.items() if claim_events]
@@ -57,7 +60,7 @@ def derive_learning_states(
             status=status,
             attempts=len(concept_events),
             correct_answers=sum(event.is_correct for event in concept_events),
-            qualified_correct_items=len({event.semantic_identity for event in concept_events if event.is_correct and event.mastery_qualified}),
+            qualified_correct_items=len({event.semantic_identity for event in concept_events if event.is_correct and event.mastery_qualified and not event.assisted}),
             covered_claim_ids=covered,
             mastered_claim_ids=[claim_id for claim_id in by_claim if claim_id in mastered_claims],
             weak_claim_ids=weak,

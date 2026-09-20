@@ -50,13 +50,17 @@ Worker lease 為 10 分鐘，由 checkpoints 及處理期間每 30 秒的存活�
 
 ## 分批保存與失敗重試
 
-分析完成每一批後，先將 Evidence context、累積語意狀態、精確 Evidence 游標與工作量原子保存，才更新頁數進度。保存位於 private artifact root 的 `analysis/{learner}/{material}/{run}/`；目錄 0700、checkpoint 0600。模型呼叫的輸入、schema、原始回應及 stdout／stderr 也保留在該次 run 的私人目錄，不寫一般 log／Git，也不隨成功或失敗自動清除。
+分析完成每一批後，先將 Evidence context、累積語意狀態、精確 Evidence 游標與工作量原子保存，才更新頁數進度。保存位於 private artifact root 的 `analysis/{learner}/{material}/{run}/`；目錄 0700、checkpoint 0600。checkpoint 用於進行中或失敗工作的接續，地圖發布交易 commit 後即清理；`partial`、`needs_review` 或 `source_review_required` 品質提示不延長其保留時間。模型呼叫的輸入、schema、原始回應及 stdout／stderr 仍保留作私人查核資料，不寫一般 log／Git；本次清理不刪原檔、正式地圖或作答紀錄。
 
-明確重試會建立新 run，僅從同 owner／Material、相同來源 artifact／SourceSet／base revision 與 runtime binding 的失敗作業接續。來源 bytes 仍先經原有 hash 驗證，checkpoint 檢查其 digest 與輸入身分；有損毀時回報 `ANALYSIS_CHECKPOINT_INVALID`，不暗中改成全量重跑。游標是區塊位置，所以最後一頁有多批時，也不會把 `90 / 90` 誤當全部分析完成。
+明確重試會建立新 run，僅從同 owner／Material、相同來源 artifact／SourceSet／base revision 與教材分析設定的失敗作業接續。migration 0010 的 `runtime_lock_document` 保存工作開始時的非機密設定，先核對原始 runtime binding，再比較 Python／套件、OCR、教材語意設定及實際模型執行身分；assessment 與整份 lock 版號不參與相容性判定。所有工作使用同一套流程，沒有 legacy 分支。
 
-中途失敗重用已完成批次與 Evidence，僅對未完成批次呼叫模型；若只剩 deterministic construction／publication，就重做該步，不需要 OCR、模型連線或新推論。保存的 metrics 包含沿用的分析工作量；新呼叫應以該 run 的呼叫產物核對，不能將沿用結果冒稱新的模型執行。保存紀錄標明 `reused_from_run`，原失敗 run 不改標成功。
+來源 bytes 仍先經原有 hash 驗證，checkpoint 的 digest 與 signature 仍對應其原 run，不改寫成新 hash。進度損毀回 `ANALYSIS_CHECKPOINT_INVALID`；原設定缺失或教材分析依賴不一致回 `ANALYSIS_RUNTIME_CHANGED`，不暗中改成全量重跑。已建立的 pending／running 工作使用其封存設定執行及發布，只改出題設定不會讓最後發布因版本不同而失敗。游標是區塊位置，所以最後一頁有多批時，也不會把 `90 / 90` 誤當全部分析完成。
 
-只有使用者明確刪除整份教材，才連同該教材保存資料清除；刪除已提交但檔案清理中斷時，啟動會核對 Material 已不存在後補完清理。仍存在的教材，包括失敗作業，一律保留。取消、worker token 與整份刪除意圖仍阻止晚到 worker 發布或重建已刪除資料。
+中途失敗重用已完成批次與 Evidence，僅對未完成批次呼叫模型；若只剩 deterministic construction／publication，就重做該步，不需要 OCR、模型連線或新推論。保存的 metrics 包含沿用的分析工作量；新呼叫應以該 run 的呼叫產物核對，不能將沿用結果冒稱新的模型執行。發布後用小型 `completion.json` 記錄可核對的 `reused_from_run` 與發布 revision，不保留完整恢復狀態；同一封存輸入與 runtime、已被此次成功工作涵蓋的舊失敗 checkpoint 一併清理，原失敗 run 狀態及錯誤紀錄不改寫。
+
+模型完成、頁數到 100% 或 checkpoint 的 `complete=true` 都不能取代 DB 發布完成。未發布的失敗工作，以及不同輸入或 runtime 的失敗 checkpoint 繼續保留；來源損毀也不自動改成從頭重跑。發布成功後若檔案清理失敗，記錄 `ANALYSIS_CHECKPOINT_CLEANUP_FAILED`，由 worker 啟動與既有恢復週期補做，不把已發布結果改回 failed。成功工作的 checkpoint 即使損毀也不再需要恢復，可在記錄接續來源資訊不可用後清理。晚到 worker 不得向已結束 run 寫回 checkpoint。
+
+使用者明確刪除整份教材時，才連同其餘私人分析查核資料清除；刪除已提交但檔案清理中斷時，啟動會核對 Material 已不存在後補完。取消、worker token 與整份刪除意圖仍阻止晚到 worker 發布或重建已刪除資料。
 
 `material-processing-run` 回應帶 `analysis_saved`，失敗頁據此顯示「接續已保存的分析」。沒有保存資料的舊失敗作業不宣稱可恢復。
 
@@ -140,3 +144,13 @@ Worker lease 為 10 分鐘，由 checkpoints 及處理期間每 30 秒的存活�
 使用者後續追加同系列教材時，第 28 批回應只有 `review_required=true`，未提供互相矛盾的具體對照；舊程式卻以該布林值直接停止整次更新。現改為保存複核提示、保留原 Claims 並納入可回查的新增內容，結果仍標 `needs_review`，不冒稱內容已驗收。
 
 28 項來源／追加／身分測試通過；調整回應重用時的 catalog 排序比對後，4 項相關回歸通過；52 項結構／pipeline／身分測試通過。對實際保存的第 28 批只做本機記憶體重播，確認 3 條新增 Claims 可納入、原有 Claims 不變，尚餘第 126–128 閱讀頁的 13 個區塊。這次沒有模型呼叫、沒有改寫失敗紀錄或先行發布未完成的地圖。
+
+### Checkpoint 保留規則修正（2026-09-20）
+
+依使用者要求，`needs_review` 不綁定 checkpoint。已實作上方的發布後清理、成功重試後清理已涵蓋的舊 checkpoint、清理失敗補做，以及 terminal run 禁止晚到寫入；已發布地圖的品質提示保持原值，不冒稱 accepted。
+
+來源重試、worker 與 command transport 回歸 39 passed；新增清理情境首次 4 passed。最後補入成功 checkpoint 損毀案例後，清理、整份教材刪除與發布失敗接續共 9 passed。全部使用隔離 PostgreSQL、合成檔案與受控語意回應，沒有真實模型呼叫。
+
+上述為 checkpoint 清理修正的初次驗證；後續已完成上方的教材／出題設定解耦。0010 只新增工作設定欄位；既有需要接續的工作以原 runtime binding 的完整 hash 核對設定後補入欄位，不改寫任何原有欄位、KS／Assessment／AnswerEvent 或 checkpoint bytes。沒有加入舊版執行器、legacy reader 或略過來源驗證的 fallback。
+
+同日已完成產品 DB 備份、0010 升級、四個可核對工作設定的補入及日常服務重啟。已發布的兩份 checkpoint 與一份已被後續成功工作涵蓋的失敗 checkpoint 均已清理；原有內容及學習資料核對不變。原登入狀態的教材庫／地圖實讀通過，沒有新增模型呼叫。完整收尾紀錄見 [B5-Q 日常服務切換](assessment-quality.md#收尾與日常服務切換2026-09-20)。

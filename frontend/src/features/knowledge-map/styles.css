@@ -135,9 +135,11 @@
 .concept-study-action > button { width: 100%; margin-top: var(--space-2); }
 .map-navigation { position: absolute; top: 12px; left: 12px; z-index: 5; max-width: calc(100% - 24px); max-height: calc(100% - 110px); display: flex; flex-direction: column; align-items: flex-start; }
 .map-navigation > button { min-height: 36px; padding: 6px 12px; flex-shrink: 0; box-shadow: 0 2px 6px #14203c12; }
-#map-navigator { width: 300px; max-width: 100%; min-height: 0; margin-top: 8px; overflow: hidden; }
+/* 將外框可用高度傳到清單，避免只有外框被裁切、清單本身卻無法捲動。 */
+#map-navigator { display: flex; flex-direction: column; width: 300px; max-width: 100%; min-height: 0; margin-top: 8px; overflow: hidden; }
 #map-navigator[hidden] { display: none; }
-.focus-navigator { display: flex; flex-direction: column; min-height: 0; max-height: 100%; }
+.focus-navigator { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.focus-navigator > header, .focus-navigator > .navigator-summary { flex-shrink: 0; }
 .focus-navigator > header { display: flex; justify-content: space-between; gap: 8px; padding: var(--space-3); border-bottom: 1px solid var(--border); }
 .focus-navigator h2 { margin: 0; font-size: 15px; }
 .focus-navigator > header > span { font-size: 12px; color: var(--text-muted); }

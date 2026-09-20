@@ -323,7 +323,7 @@ class AssessmentRecordView(_Closed):
 
 
 class StudyResumeView(_Closed):
-    schema_: Literal["study-resume/v1"] = Field(default="study-resume/v1", alias="schema")
+    schema_: Literal["study-resume/v3"] = Field(default="study-resume/v3", alias="schema")
     session: StudySessionView
     run_id: UUID
     source_artifact_id: UUID
@@ -331,6 +331,141 @@ class StudyResumeView(_Closed):
     progress: LearnerProgressView
     assessments: list[AssessmentRecordView]
     selected_assessment_revision: str | None
+    assessment_sets: list[AssessmentSetSummary]
+    selected_set_id: UUID | None
+
+
+class AssessmentSetCreate(_Closed):
+    schema_: Literal['assessment-set-create/v1'] = Field(alias='schema')
+    target_concept_id: str
+
+
+class AssessmentSetAction(_Closed):
+    schema_: Literal['assessment-set-action/v1'] = Field(alias='schema')
+    expected_set_version: int = Field(ge=1, strict=True)
+
+
+class AssessmentSetAnswer(_Closed):
+    assessment_revision: str
+    question_id: str
+    selected_option_id: str
+
+
+class AssessmentSetSubmission(_Closed):
+    schema_: Literal['assessment-set-submission/v1'] = Field(alias='schema')
+    expected_set_version: int = Field(ge=1, strict=True)
+    answers: list[AssessmentSetAnswer] = Field(min_length=1)
+
+
+class AssessmentPlanTarget(_Closed):
+    claim_id: str
+    covered_claim_ids: list[str]
+    reason: Literal['distinct_grounded_point']
+
+
+class AssessmentPlanExcluded(_Closed):
+    claim_id: str
+    reason: Literal['no_content_evidence']
+
+
+class AssessmentPlanView(_Closed):
+    schema_: Literal['assessment-plan/v1'] = Field(alias='schema')
+    study_session_id: UUID
+    knowledge_structure_revision: str
+    policy: Literal['single-concept-grounded-points/v1']
+    concept_id: str
+    point_count: int
+    requested_count: int
+    targets: list[AssessmentPlanTarget]
+    excluded: list[AssessmentPlanExcluded]
+
+
+class AssessmentReview(_Closed):
+    schema_: Literal['assessment-review/v1'] = Field(alias='schema')
+    expected_set_version: int = Field(ge=1, strict=True)
+    target_claim_id: str
+    action: Literal['review', 'defer']
+
+
+class AssessmentCycleSummary(_Closed):
+    diagnostic_set_id: UUID
+    concept_id: str
+    set_version: int
+    outcome: Literal['in_progress','needs_review','ready_for_remediation','passed','incomplete','deferred']
+    closed_at: datetime | None
+    active_set_id: UUID | None
+    passed_count: int
+    remediation_passed_count: int
+    pending_count: int
+    unanswered_count: int
+    unavailable_count: int
+
+
+class AssessmentCyclePoint(_Closed):
+    claim_id: str
+    result: Literal['unavailable','unanswered','diagnostic_pass','needs_review','reviewed','remediation_pass','deferred']
+    latest_answer_event_id: UUID | None
+    latest_set_id: UUID | None
+
+
+class AssessmentCycleView(AssessmentCycleSummary):
+    can_create_remediation: bool
+    can_close: bool
+    can_review: bool
+    points: list[AssessmentCyclePoint]
+
+
+class AssessmentSetSummary(_Closed):
+    kind: Literal['diagnostic','remediation']
+    diagnostic_set_id: UUID | None
+    set_id: UUID
+    target_concept_id: str
+    status: Literal['preparing','partial_ready','failed','ready','in_progress','completed','cancelled']
+    set_version: int
+    requested_count: int
+    published_count: int
+    answered_count: int
+    passed_count: int
+    assessment_revisions: list[str]
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class AssessmentSetListView(_Closed):
+    schema_: Literal['assessment-set-list/v3'] = Field(alias='schema')
+    study_session_id: UUID
+    knowledge_structure_revision: str
+    active_set_ids: list[UUID]
+    sets: list[AssessmentSetSummary]
+
+
+class AssessmentSetItemView(_Closed):
+    ordinal: int
+    target_claim_id: str
+    state: Literal['pending','generating','verified','published','failed','omitted']
+    attempts: int
+    failure_reason: str | None
+    assessment: AssessmentView | None
+    feedback: AnswerFeedbackView | None
+    created_at: datetime | None
+    can_submit: bool
+
+
+class AssessmentSetView(AssessmentSetSummary):
+    schema_: Literal['assessment-set/v2'] = Field(alias='schema')
+    study_session_id: UUID
+    material_id: UUID
+    knowledge_structure_revision: str
+    selection_policy: Literal['single-concept-grounded-points/v1','reviewed-wrong-points/v1']
+    point_count: int
+    excluded_count: int
+    verified_count: int
+    can_retry: bool
+    can_publish_partial: bool
+    can_complete: bool
+    can_cancel: bool
+    items: list[AssessmentSetItemView]
+    cycle: AssessmentCycleView
 
 
 class GuidanceApply(_Closed):
@@ -339,7 +474,8 @@ class GuidanceApply(_Closed):
 
 
 class LearnerProgressView(_Closed):
-    schema_: Literal["learner-progress/v2"] = Field(alias="schema")
+    assessment_cycles: list[AssessmentCycleSummary]
+    schema_: Literal["learner-progress/v3"] = Field(alias="schema")
     study_session_id: UUID
     knowledge_structure_revision: str
     event_watermark: int

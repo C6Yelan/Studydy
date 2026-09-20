@@ -30,6 +30,7 @@ test("fresh profiles discover their own materials and reopen both exact publishe
   await first.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
   await expect(page.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
   const newerPath = new URL(page.url()).pathname;
+  await page.getByRole("button", { name: "學習導覽", exact: true }).click();
   await expect(page.getByRole("navigation", { name: "學習導覽" }).locator(".navigator-position")).toHaveText(["1"]);
   await page.reload();
   await expect(page.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();

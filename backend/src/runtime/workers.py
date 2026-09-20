@@ -13,7 +13,8 @@ from .material_processing import (
 from .material_discard import finish_material_discards
 from .source_normalization import normalize_next
 from .storage.source_artifacts import reconcile_new_artifacts
-from .storage.analysis_archive import reconcile_removed_material_analysis
+from .storage.analysis_archive import reconcile_removed_material_analysis, reconcile_published_checkpoints
+from learning_adaptation.assessment_sets import run_next_set
 
 _IDLE_WAIT_SECONDS = 0.1
 _STARTUP_WAIT_SECONDS = 5
@@ -61,6 +62,7 @@ class RuntimeWorkers:
                 if is_starting:
                     reconcile_new_artifacts(dsn=self.dsn)
                     reconcile_removed_material_analysis(dsn=self.dsn)
+                    reconcile_published_checkpoints(dsn=self.dsn)
                     recover_interrupted_material_runs(dsn=self.dsn)
                     next_recovery = monotonic() + 10
                     finish_material_discards(dsn=self.dsn)
@@ -68,6 +70,7 @@ class RuntimeWorkers:
                     is_starting = False
                 if monotonic() >= next_recovery:
                     recover_interrupted_material_runs(dsn=self.dsn)
+                    reconcile_published_checkpoints(dsn=self.dsn)
                     next_recovery = monotonic() + 10
                 normalize_next(dsn=self.dsn)
                 claim = claim_next_material_processing_run(dsn=self.dsn)
@@ -75,6 +78,7 @@ class RuntimeWorkers:
                     execute_claimed_material_processing_run(
                         claim, deepcopy(self.local_config), dsn=self.dsn
                     )
+                run_next_set(dsn=self.dsn)
                 finish_material_discards(dsn=self.dsn)
             except Exception as error:
                 if is_starting:

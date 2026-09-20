@@ -61,12 +61,17 @@ the generator's exact source span, and no duplicate of a prior question. Rewordi
 referent and conditions is a duplicate; different requested attributes, referents or application
 scenarios can assess the same knowledge. Distractors may occur elsewhere in Evidence.
 Code retains exact source binding, option identities, private answers, scoring and idempotency.
-Novelty and angle remain legacy provenance fields, with no veto over new checked items' mastery
-eligibility. Existing stored eligibility remains unchanged. Each Claim still needs two distinct
-eligible correct items and a correct latest answer. Provenance v6 records the blind-check option
-order and verdict under source-span-single-choice/v5; legacy v5 provenance remains readable.
-Generation and checking both disable thinking and have fixed output budgets. Material generation
-retains its pinned thinking/xhigh settings; all tasks share the same resident service and model.
+B5-Q 的安全候選品質排序、provenance v8 與 source-span-single-choice/v6 見
+[assessment-quality.md](assessment-quality.md)。品質提示不設最低分；舊題資料不改寫。
+每個 Claim 仍須兩道不同合格正確題且最新作答正確，單次答對不代表掌握。
+
+B5-D 將一個 Concept 的多個重點預先準備成持久題組。計畫決定動態題數，現有 worker
+逐題在 DB 交易外生成並驗證，最後原子發布；失敗只明確重試未完成題，或選擇部分發布。
+`assessment_sets`／`assessment_set_items` 保存計畫、狀態與成員，作答沿用 AnswerEvent。
+詳見 [單一觀念題組](assessment-sets.md)。B5-R 以同一題組加上初篩關聯與複習決策，
+只對已複習的錯誤重點產生補強；一次新題答對可結束該點本次補強。
+補強作答在投影中保留 assisted 身分，不累計或恢復獨立掌握證據；地圖、進度與歷史共用
+本輪結果。詳見 [錯題補強](assessment-remediation.md)。
 
 The only Relation types are `prerequisite`, `part_of`, `application`, `example`, and `contrast`.
 `prerequisite` is the only Relation that can change Initial Path order or create a learner prerequisite
@@ -96,11 +101,11 @@ failed new attempt cannot hide a prior result. Reopen uses existing exact-revisi
 and creates no learning records. There is no separate material-history store.
 
 Study resume is a read projection of the existing StudySession, exact KnowledgeStructure,
-Assessment and AnswerEvent. It uses the existing assessment/event validators, feedback projection
+AssessmentSet、Assessment 與 AnswerEvent。它使用 the existing assessment/event validators, feedback projection
 and derived progress. The material library exposes one canonical persistent state per structure revision; the learner hub opens the selected Material head. Question
 selection is explicit in the browser URL. Reads never create sessions/questions/answers or apply
 guidance. Completed sessions remain readable, and feedback is exposed only for a validated saved
-AnswerEvent. There is no additional history table or mastery calculation.
+AnswerEvent. There is no separate mastery calculation; set history comes from the persisted sets.
 
 B3-A appends immutable source snapshots and analyzes only added sources, retaining verified prior
 Evidence and semantic content. PDFs remain separate, with source-aware reading positions in a v4

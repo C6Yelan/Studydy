@@ -53,8 +53,8 @@ class MaterialAnalysisError(RuntimeError):
         self.reason_code = reason_code
 
 
-def validate_runtime_lock(lock: Any) -> dict[str, Any]:
-    """Final lock 不允許第二 Python、verifier 或第二 semantic lifecycle。"""
+def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, Any]:
+    """依實際用途驗證元件契約；整份設定的版本只作稽核，不決定教材能否接續。"""
 
     try:
         if not isinstance(lock, dict) or set(lock) != {
@@ -64,10 +64,11 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
             raise ValueError
         semantic = lock["semantic_service"]
         material = lock["material_semantics"]
-        assessment = lock["assessment"]
+        assessment_settings = lock["assessment"]
         ocr = lock["ocr"]
         if (
-            lock["schema"] != "studydy-runtime-lock/v18"
+            not isinstance(lock["schema"], str)
+            or re.fullmatch(r"studydy-runtime-lock/v[1-9][0-9]*", lock["schema"]) is None
             or lock["python"] != "3.12"
             or lock["packages"] != {
                 "studydy-local-ai": "0.1.0",
@@ -118,33 +119,33 @@ def validate_runtime_lock(lock: Any) -> dict[str, Any]:
             }
             or not isinstance(material["prompt"], str)
             or not material["prompt"]
-            or set(assessment) != {
+            or (assessment and (set(assessment_settings) != {
                 "request_schema", "response_schema", "public_schema", "private_schema",
                 "provenance_schema", "policy", "candidate_count", "option_count",
                 "max_tokens", "generation", "prompt", "check_max_tokens", "check_generation", "check_prompt",
             }
-            or assessment["request_schema"] != "assessment-semantics-request/v1"
-            or assessment["response_schema"] != "assessment-semantics-response/v2"
-            or assessment["public_schema"] != "single-choice-assessment/v2"
-            or assessment["private_schema"] != "single-choice-answer/v2"
-            or assessment["provenance_schema"] != "assessment-generation-provenance/v6"
-            or assessment["policy"] != "source-span-single-choice/v5"
-            or assessment["candidate_count"] != 3
-            or assessment["option_count"] != 4
-            or assessment["max_tokens"] != 4096
-            or assessment["generation"] != {
+            or assessment_settings["request_schema"] != "assessment-semantics-request/v2"
+            or assessment_settings["response_schema"] != "assessment-semantics-response/v2"
+            or assessment_settings["public_schema"] != "single-choice-assessment/v2"
+            or assessment_settings["private_schema"] != "single-choice-answer/v2"
+            or assessment_settings["provenance_schema"] != "assessment-generation-provenance/v8"
+            or assessment_settings["policy"] != "source-span-single-choice/v6"
+            or assessment_settings["candidate_count"] != 3
+            or assessment_settings["option_count"] != 4
+            or assessment_settings["max_tokens"] != 4096
+            or assessment_settings["generation"] != {
                 "temperature": 1.0, "top_p": 0.95, "top_k": 64,
                 "chat_template_kwargs": {"enable_thinking": True},
             }
-            or not isinstance(assessment["prompt"], str)
-            or not assessment["prompt"]
-            or assessment["check_max_tokens"] != 1536
-            or assessment["check_generation"] != {
+            or not isinstance(assessment_settings["prompt"], str)
+            or not assessment_settings["prompt"]
+            or assessment_settings["check_max_tokens"] != 1536
+            or assessment_settings["check_generation"] != {
                 "temperature": 1.0, "top_p": 0.95, "top_k": 64,
                 "chat_template_kwargs": {"enable_thinking": True},
             }
-            or not isinstance(assessment["check_prompt"], str)
-            or not assessment["check_prompt"]
+            or not isinstance(assessment_settings["check_prompt"], str)
+            or not assessment_settings["check_prompt"]))
             or ocr["page_schema"] != "page-evidence/v4"
             or ocr["native_schema"] != "page-native/v3"
             or ocr["processing_policy"] != "native-first-page-evidence/v7"
@@ -295,7 +296,7 @@ def analyze_material(
 ) -> dict[str, Any]:
     """Evidence → 設定的語意模型 → deterministic canonical structure。"""
 
-    lock = validate_runtime_lock(settings.get("runtime_lock"))
+    lock = validate_runtime_lock(settings.get("runtime_lock"), assessment=False)
     resolved_run = run_id or str(uuid4())
     resolved_time = produced_at or datetime.now(UTC).isoformat()
     report = progress_callback or (lambda _stage, _completed, _total: None)

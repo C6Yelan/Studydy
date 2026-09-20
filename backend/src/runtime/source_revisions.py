@@ -183,7 +183,8 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
                 base_revision=base_revision, bundle_manifest=bundle, bundle_manifest_sha256=canonical_sha256(bundle),
                 idempotency_key_sha256=digest,
                 request_fingerprint=_fingerprint(material_id, normalization_ids, runtime, base_revision),
-                runtime_binding=runtime, status="pending", progress_stage="queued", completed_pages=0,
+                runtime_binding=runtime, runtime_lock_document=deepcopy(config['runtime_lock']),
+                status="pending", progress_stage="queued", completed_pages=0,
                 total_pages=None, created_at=now, updated_at=now)
             session.add(row)
             session.flush()

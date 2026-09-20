@@ -64,6 +64,12 @@ Map route whose processing run points at another revision.
 
 ## Learning resume regression (local only)
 
+B5-Q 的安全／可用性與版本契約見 [assessment-quality.md](assessment-quality.md)。受影響的最小回歸為
+`test_assessment_safety_v1.py`、`runtime/test_assessment_quality.py`、`runtime/test_closed_loop_v1.py`、
+`runtime/test_learning_resume.py` 與 `test_source_normalization.py` 的 command assessment provenance 案例；
+browser 使用 `runtime/test_learning_resume_browser.py`。品質排序不得把合法基礎題或弱干擾項全部拒絕，
+`partial/needs_review` 來源仍須按本題 Evidence 判斷。實際模型比較另記，不能用 fixture 結果冒充。
+
 The runtime suite includes `test_learning_resume.py` and `test_learning_resume_browser.py`.
 The Browser test logs in from independent contexts, enters the existing session through the library,
 reloads the same unanswered and answered questions, selects older sessions, and reads completed and
@@ -74,7 +80,68 @@ are the explicit answer submission and its idempotent replay, which produce one 
 Backend model HTTP transport is blocked and must observe zero calls. These tests use controlled
 saved fixtures; they do not perform the later workstation shutdown/restart or model qualification.
 
+## 單一觀念題組回歸
+
+現行契約見 [assessment-sets.md](assessment-sets.md)。`runtime/test_assessment_sets.py` 驗證
+動態題數、交易／lease、成員私密性、部分發布、失敗重試、併發與取消／刪除。
+`runtime/test_assessment_sets_browser.py` 以真 API／隔離 DB 在桌機與手機驗證完整題組。
+舊單題生成與 guidance UI 已移除；`product-cutover.spec.ts` 保留已保存單題的作答／回顧／版面案例，
+新生成流程由題組 browser 取代。合成 fixture 不算真實模型品質證據。
+
+日常 frontend 使用 `frontend/dist`，測試不要覆寫它。改用獨立 build：
+
+```bash
+npm --prefix frontend run build -- --outDir ../.studydy-runtime/b05d-frontend --emptyOutDir
+STUDYDY_E2E_FRONTEND_DIST="$PWD/.studydy-runtime/b05d-frontend" \
+STUDYDY_E2E_FRONTEND_PORT=4183 STUDYDY_E2E_API_PORT=8002 \
+PYTHONPATH=backend/src:backend/tests:local_ai/src backend/.venv/bin/pytest -q \
+  backend/tests/runtime/test_assessment_sets.py backend/tests/runtime/test_assessment_sets_browser.py
+```
+
+## 錯題補強回歸
+
+B5-R 契約見 [assessment-remediation.md](assessment-remediation.md)。核心為
+`runtime/test_assessment_remediation.py`，真 API／DB browser 為
+`runtime/test_assessment_remediation_browser.py`，另保留題組與已存題目的恢復回歸。
+初篩／補強不得重算舊答案，複習及 GET 不增加 AnswerEvent，補強正確不補足獨立掌握證據。
+測試 build 使用獨立 `.studydy-runtime/b05r-frontend`，以 `STUDYDY_E2E_FRONTEND_DIST`
+傳給 browser runner，保持日常 `frontend/dist` 穩定；測試 ports 4183／8002。
+
+## 整組交卷與版面
+
+`runtime/test_assessment_set_submission.py` 覆蓋整組原子提交、少答／錯誤成員全組拒絕、
+中途 DB 保存失敗回滾、並行／重播不重複評分，以及保留切換前已存的個別答案。
+`test_assessment_sets_browser.py` 改為整組交卷與回應遺失查回，在 1920／1536／1366／390
+驗證卡片寬度／垂直排列、單一交卷按鈕、交卷前不顯示正誤及新登入恢復；補強 browser
+同時改用整組交卷。獨立 build 為 `.studydy-runtime/b05-batch-frontend`，不覆寫日常 bundle。
+
+## 學習導覽捲動回歸
+
+`product-cutover.spec.ts` 的 `learning navigator scrolls` 使用 100 個合成概念，
+在桌機／手機寬度實際送出滾輪事件，驗證清單可捲至最末項、畫布縮放不受影響、
+重新開啟仍能看到選中項，以及鍵盤聚焦能回到首項。不能只靠 Playwright 自動
+`scrollIntoView` 後點到末項來宣稱捲動正常；外框被裁切而清單沒有高度限制時，
+後者仍可能通過。本次修正以 flex 將外框高度傳到清單，4 個導覽／搜尋案例通過。
+
+## 跨觀念題組接續
+
+`runtime/test_assessment_concept_navigation.py` 驗證 A 生成中切到 B、不同觀念各自建立及交卷、
+同一觀念防重複，以及 B 不封鎖 A 的複習／補強／失敗重試。
+`runtime/test_concept_navigation_browser.py` 以真 API／隔離 DB 在桌機與手機操作 A → B → A，
+確認另一視窗已建立同觀念題組時會接續它。整組交卷 browser 的 1536 案例另注入版本前進，
+驗證明確 409 後保留選取、改用最新版本，再遇回應遺失仍只保存一份答案。
+
 ## Runtime verification
+
+`runtime/test_checkpoint_cleanup.py` 以隔離 PostgreSQL 驗證發布後清理，包括
+`partial/needs_review`、未發布失敗保留、清理失敗補做與晚到 worker 禁止重建 checkpoint。
+配合 `test_source_revisions.py` 的接續案例及 `test_material_full_delete.py` 檢查清理範圍；
+清理以已 commit 的發布結果為準，不以模型完成或品質旗標決定。
+
+`runtime/test_material_runtime.py` 驗證出題設定改變後，pending 工作可用原設定完成，
+failed checkpoint 可在新重試中沿用且不增加已完成部分的模型呼叫；教材 prompt、
+實際模型改變或設定缺失／損毀時停止。migration 0010 新增 `runtime_lock_document`，
+既有欄位與 hashes 保持不變；新舊資料統一走相同的教材設定比對流程。
 
 B3-A／B3-B 的核心案例在 `test_source_revisions.py`、`test_source_identity.py` 與
 `test_source_revision_migration.py`；真 API/DB browser 在 `test_source_revisions_browser.py`。
