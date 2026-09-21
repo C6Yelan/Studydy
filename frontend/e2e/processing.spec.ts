@@ -61,7 +61,11 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
       await expect(processing.getByRole("button", { name: "取消並刪除教材", exact: true })).toHaveCount(
         name !== "loading" && name !== "api-failure" && (run.status === "pending" || run.status === "running") && run.progress_stage !== "publishing" ? 1 : 0);
       await expect(processing.getByRole("button", { name: "重新分析", exact: true })).toHaveCount(0);
-      expect(await processing.evaluate(element => getComputedStyle(element).maxWidth)).toBe("1280px");
+      const usable = await page.locator(".app-main").evaluate(el => {
+        const css = getComputedStyle(el);
+        return el.getBoundingClientRect().width - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
+      });
+      expect((await processing.boundingBox())!.width).toBeCloseTo(Math.min(usable, 1600), 0);
       if (name === "loading") await expect(processing).toHaveAttribute("aria-live", "polite");
       else if (name === "api-failure") {
         await expect(processing.getByRole("heading", { name: "無法讀取處理狀態", exact: true })).toBeVisible();

@@ -102,6 +102,14 @@ for (const width of [1536, 390]) test(`library moves file management out of card
 for (const viewport of [{width:1920,height:1080},{width:1536,height:1024},{width:1366,height:768},{width:390,height:844}]) {
   test(`material flow visual consistency at ${viewport.width}x${viewport.height}`, async ({page}, info) => {
     await page.setViewportSize(viewport);
+    const expectApplicationFrame = async () => {
+      const { usable, width } = await page.locator(".app-main").evaluate(main => {
+        const css = getComputedStyle(main);
+        return { usable: main.getBoundingClientRect().width - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight),
+          width: main.firstElementChild!.getBoundingClientRect().width };
+      });
+      expect(width).toBeCloseTo(Math.min(usable, 1600), 0);
+    };
     const unexpected: string[] = [];
     await page.route(/\/v[12]\//, r => { unexpected.push(r.request().url()); return r.abort(); });
     await session(page);
@@ -123,11 +131,15 @@ for (const viewport of [{width:1920,height:1080},{width:1536,height:1024},{width
     await page.route(`**/v1/material-processing-runs/${normalization}`, r => r.fulfill({json:run}));
     await page.goto("/upload");
     await expect(page.locator(".conversion-note")).toBeVisible();
+    await expectApplicationFrame();
+    expect((await page.locator(".file-drop").boundingBox())!.width).toBeLessThanOrEqual(880);
     const uploadColumns = await page.locator(".upload-layout").evaluate(el => getComputedStyle(el).gridTemplateColumns);
     const uploadMascot = await page.locator(".upload-hero > img").boundingBox();
     await page.screenshot({path:info.outputPath("upload.png"),fullPage:true});
     await page.goto(`/materials/${material}/sources`);
     await expect(page.getByRole("status")).toHaveText("轉換完成");
+    await expectApplicationFrame();
+    expect((await page.locator(".file-drop").boundingBox())!.width).toBeLessThanOrEqual(880);
     await expect(page.locator(".source-page .primary-button")).toHaveCount(1);
     expect(await page.locator(".upload-layout").evaluate(el => getComputedStyle(el).gridTemplateColumns)).toBe(uploadColumns);
     const mascot = (await page.locator(".upload-hero > img").boundingBox())!;
@@ -167,6 +179,7 @@ for (const viewport of [{width:1920,height:1080},{width:1536,height:1024},{width
       ["library","/materials",".library-item"],
     ]) {
       await page.goto(path); await expect(page.locator(selector)).toBeVisible();
+      await expectApplicationFrame();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
       await page.screenshot({path:info.outputPath(`${name}.png`),fullPage:true});
     }

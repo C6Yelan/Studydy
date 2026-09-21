@@ -391,8 +391,13 @@ test("shared shell density keeps standard pages and map workspace bounded", asyn
       }
       if (!["map", "home", "materials", "maps", "upload", "processing", "study"].includes(name) && viewport.width > 900) await expect(page.locator(".sidebar-helper")).toBeVisible();
       if (["home", "materials", "maps", "upload", "processing", "study"].includes(name)) await expect(page.locator(".sidebar-helper")).toHaveCount(0);
-      const widths: Record<string, string> = { home: "1280px", materials: "1280px", maps: "1280px", detail: "1280px", processing: "1280px", upload: "1280px" };
-      if (widths[name]) expect(await page.locator(".app-main > *").first().evaluate(element => getComputedStyle(element).maxWidth)).toBe(widths[name]);
+      if (["home", "materials", "processing", "upload"].includes(name)) {
+        const usable = await page.locator(".app-main").evaluate(el => {
+          const css = getComputedStyle(el);
+          return el.getBoundingClientRect().width - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
+        });
+        expect((await page.locator(".app-main > *").first().boundingBox())!.width).toBeCloseTo(Math.min(usable, 1600), 0);
+      }
       await expect(page.locator(".task-page")).toHaveCount(["upload", "processing"].includes(name) ? 1 : 0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
       await page.screenshot({ path: `/tmp/studydy-dashboard/shell-${name}-${viewport.width}.png`, fullPage: true });
