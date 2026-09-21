@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
+import { writeRoute } from "../../app/routes";
 import type { MaterialLibraryItem, MaterialDiscardView } from "../../api/contracts";
 
 export function MaterialManagement({ item, apiClient, deleting, onRenamed, onDeleted }: {
@@ -19,6 +20,19 @@ export function MaterialManagement({ item, apiClient, deleting, onRenamed, onDel
   const mounted = useRef(true);
   const interacted = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    // 在 click 前判斷邊界，支援滑鼠／觸控；選單內操作保留原本的事件與焦點。
+    const dismissOutside = (event: Event) => {
+      const details = menu.current;
+      if (details?.open && event.target instanceof Node && !details.contains(event.target)) details.open = false;
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    document.addEventListener("focusin", dismissOutside);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside, true);
+      document.removeEventListener("focusin", dismissOutside);
+    };
+  }, []);
   useEffect(() => {
     if (!interacted.current || deleting) return;
     if (mode === "rename") { input.current?.focus(); input.current?.select(); }
@@ -53,9 +67,9 @@ export function MaterialManagement({ item, apiClient, deleting, onRenamed, onDel
       if (event.key === "Escape") { event.preventDefault(); menu.current!.open = false; opener.current?.focus(); }
     }}>
       <summary ref={opener} role="button" tabIndex={0} aria-label={`管理「${item.display_name}」`}>⋯</summary>
-      <div><button type="button" onClick={() => choose("rename")}>重新命名</button><button type="button" onClick={() => choose("delete")}>刪除教材</button></div>
+      <div><button type="button" onClick={() => { if (menu.current) menu.current.open = false; writeRoute({ name: "material-sources", materialId: item.material_id }); }}>管理教材</button><button type="button" onClick={() => choose("rename")}>重新命名</button><button className="material-delete-action" type="button" onClick={() => choose("delete")}>刪除教材</button></div>
     </details>}
-    {mode !== "rename" && <h2>{item.display_name}</h2>}
+    {mode !== "rename" && <h2 title={item.display_name}>{item.display_name}</h2>}
     {deleting ? <p role="status" className="material-deleting">正在刪除…</p> : mode && <form className="material-management-form" aria-label={mode === "rename" ? "重新命名教材" : "刪除教材確認"}
       onSubmit={event => { event.preventDefault(); void submit(); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); close(); } }}>
       {mode === "rename" ? <>

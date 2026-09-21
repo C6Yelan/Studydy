@@ -33,7 +33,7 @@ export function MaterialRunStartControl({ apiClient, materialId, sourceArtifactI
     }
   };
   return <>
-    <button ref={button} className={primary ? "primary-button" : "secondary-button"} type="button" disabled={busy} onClick={() => void start()}>{busy ? "正在重新處理…" : retryRun ? retryRun.saved ? "接續已保存的分析" : "重新分析原來源" : initial ? "開始整理教材" : "重新處理教材"}</button>
+    <button ref={button} className={primary ? "primary-button" : "secondary-button"} type="button" disabled={busy} onClick={() => void start()}>{busy ? "正在重新處理…" : retryRun ? retryRun.saved ? "接續已保存的分析" : "重新分析原來源" : initial ? "建立知識地圖" : "重新處理教材"}</button>
     {busy && <span className="material-recovery-status" role="status">正在重新處理…</span>}
     {failure && <p className="form-error material-recovery-error" role="alert">{failure}</p>}
   </>;

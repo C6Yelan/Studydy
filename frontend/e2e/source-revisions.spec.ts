@@ -96,7 +96,7 @@ for (const width of [1536, 390]) test(`append queue and run-only cancellation pr
   expect({ starts, cancels, wholeDeletes }).toEqual({ starts: 1, cancels: 1, wholeDeletes: 0 });
 });
 
-for (const width of [1536, 390]) test(`quality notices show a completed update and open the current map at ${width}px`, async ({ page }) => {
+for (const width of [1536, 390]) test(`quality notices stay in processing while the library opens the current map at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 844 });
   const newRevision = `knowledge-structure:sha256:${"c".repeat(64)}`;
   const run: MaterialProcessingRunView = {
@@ -128,7 +128,20 @@ for (const width of [1536, 390]) test(`quality notices show a completed update a
   await page.getByRole("button", { name: "開啟目前地圖", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/runs/${newRun}/knowledge-structures/${encodeURIComponent(newRevision)}$`));
   await page.goto("/materials");
-  await expect(page.getByText("最新處理：更新完成（部分內容待複核）", { exact: true })).toBeVisible();
+  await expect(page.getByRole("article")).not.toContainText(/最新處理|更新完成|部分內容待複核|partial|needs_review/);
+  await expect(page.getByRole("article").locator(".library-state")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "開啟知識地圖", exact: true })).toBeVisible();
+  item.study_sessions = [{ study_session_id: uuid(77), run_id: newRun, knowledge_structure_revision: newRevision,
+    status: "active", started_at: timestamp, current_concept_id: null }];
+  await page.reload();
+  const card = page.getByRole("article");
+  await expect(card.locator(".primary-button")).toHaveText("繼續學習");
+  await expect(card.locator(".secondary-button")).toHaveText("開啟知識地圖");
+  await expect(card.locator(".state-actions > button")).toHaveCount(2);
+  await expect(card).not.toContainText(/最新處理|部分內容待複核|先前題目與作答/);
+  await page.screenshot({ path: `/tmp/studydy-partial-study-${width}.png`, fullPage: true });
+  await card.getByRole("button", { name: "繼續學習", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${newRun}/knowledge-structures/${encodeURIComponent(newRevision)}/study-sessions/${uuid(77)}$`));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

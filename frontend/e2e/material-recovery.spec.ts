@@ -11,7 +11,7 @@ const oldRun: MaterialProcessingRunView = { schema: "material-processing-run/v5"
   cancel_requested_at: null, error_code: "NO_USABLE_EVIDENCE", output_binding: null };
 const newRun: MaterialProcessingRunView = { ...oldRun, run_id: newId, status: "pending", progress_stage: "queued", completed_pages: 0, total_pages: null, completed_at: null, error_code: null };
 const item: MaterialLibraryItem = { schema: "material-library-item/v2", material_id: materialId, source_artifact_id: sourceId,
-  display_name: "需要重新整理的教材.pdf", size_bytes: 4096, created_at: stamp, latest_attempt: oldRun, available_structures: [], study_sessions: [] };
+  display_name: "資料結構講義.pdf", size_bytes: 4096, created_at: stamp, latest_attempt: oldRun, available_structures: [], study_sessions: [] };
 async function setup(page: Page) {
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: materialId } }));
   await page.route("**/v1/session/refresh", route => route.fulfill({ status: 204 }));
@@ -48,7 +48,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
   for (const context of ["collection", "run", "initial"]) test(`material recovery ${context} uses one intent and new run at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport); await setup(page);
     if (context === "initial") await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [{ ...item, latest_attempt: null }] } }));
-    const originalPath = context === "run" ? `/materials/${materialId}/runs/${oldId}` : "/materials";
+    let originalPath = context === "run" ? `/materials/${materialId}/runs/${oldId}` : "/materials";
     const keys: string[] = []; const bodies: unknown[] = []; const serverRuns = new Map<string, string>();
     let release!: () => void;
     const response = new Promise<void>(resolve => { release = resolve; });
@@ -63,7 +63,13 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       return route.fulfill({ status: 201, json: newRun });
     });
     await page.goto(originalPath);
-    const label = context === "initial" ? "開始整理教材" : "重新處理教材";
+    if (context === "collection") {
+      await expect(page.getByText("知識地圖建立失敗", { exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "查看問題", exact: true }).click();
+      originalPath = `/materials/${materialId}/runs/${oldId}`;
+      await expect(page).toHaveURL(new RegExp(originalPath + "$"));
+    }
+    const label = context === "initial" ? "建立知識地圖" : "重新處理教材";
     const button = page.getByRole("button", { name: label, exact: true });
     await expect(button).toHaveClass("primary-button");
     await expect(page.getByRole("button", { name: "返回我的教材", exact: true })).toHaveCount(0);
@@ -117,10 +123,9 @@ for (const status of ["active", "completed"] as const) test(`failed collection p
   const actions = page.locator(".library-item .state-actions");
   await expect(actions.locator(".primary-button")).toHaveText(status === "active" ? "繼續學習" : "查看學習成果");
   await expect(actions.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveClass("secondary-button");
-  await expect(actions.getByRole("button", { name: "重新處理教材", exact: true })).toHaveCount(status === "active" ? 1 : 0);
-  if (status === "active") await expect(actions.getByRole("button", { name: "重新處理教材", exact: true })).toHaveClass("secondary-button");
-  await expect(actions.getByRole("button", { name: "查看失敗詳情", exact: true })).toHaveClass("text-button");
+  await expect(actions.getByRole("button", { name: "重新處理教材", exact: true })).toHaveCount(0);
+  await expect(actions.getByRole("button", { name: "查看問題", exact: true })).toHaveClass("text-button");
   saved.latest_attempt = newRun;
   await page.reload();
-  await expect(actions.getByRole("button")).toHaveText([status === "active" ? "繼續學習" : "查看學習成果", "開啟知識地圖", "新增教材與查看來源", "查看處理狀態"]);
+  await expect(actions.getByRole("button")).toHaveText([status === "active" ? "繼續學習" : "查看學習成果", "開啟知識地圖", "查看進度"]);
 });

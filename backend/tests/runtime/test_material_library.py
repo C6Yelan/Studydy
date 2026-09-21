@@ -36,8 +36,8 @@ def library_materials(closed_loop):
     failed = create_material_processing_run(learner.learner_id, first.material_id, first.artifact_id, "new-failed-attempt", settings, dsn=dsn)
     with psycopg.connect(dsn) as connection:
         connection.execute("UPDATE material_processing_runs SET status='failed', error_code='NO_USABLE_EVIDENCE', completed_at=now(), updated_at=now() WHERE run_id=%s", (failed.run_id,))
-    uploaded = publish_idempotent_source_pdf(learner.learner_id, io.BytesIO(_pdf()), "uploaded-only", display_name="尚未處理.pdf", dsn=dsn)
-    running = publish_idempotent_source_pdf(learner.learner_id, io.BytesIO(_pdf()), "running-source", display_name="處理中的筆記.pdf", dsn=dsn)
+    uploaded = publish_idempotent_source_pdf(learner.learner_id, io.BytesIO(_pdf()), "uploaded-only", display_name="陣列入門.pdf", dsn=dsn)
+    running = publish_idempotent_source_pdf(learner.learner_id, io.BytesIO(_pdf()), "running-source", display_name="遞迴課堂筆記.pdf", dsn=dsn)
     running_run = create_material_processing_run(learner.learner_id, running.material_id, running.artifact_id, "running", settings, dsn=dsn)
     assert claim_next_material_processing_run(dsn=dsn).run.run_id == running_run.run_id
     _record_progress(running_run.run_id, "evidence", 0, 1, dsn=dsn)
@@ -71,7 +71,7 @@ def test_library_owns_all_materials_and_keeps_prior_versions(library_materials, 
     listed = client.get("/v1/materials")
     assert listed.status_code == 200 and listed.headers["cache-control"] == "private, no-store"
     items = listed.json()["materials"]
-    assert {item["display_name"] for item in items} == {"堆疊講義.pdf", "尚未處理.pdf", "處理中的筆記.pdf"}
+    assert {item["display_name"] for item in items} == {"堆疊講義.pdf", "陣列入門.pdf", "遞迴課堂筆記.pdf"}
     first = next(item for item in items if item["material_id"] == str(fixture["first"].material_id))
     assert first["latest_attempt"]["status"] == "failed"
     assert first["latest_attempt"]["run_id"] == str(fixture["failed"].run_id)
@@ -80,9 +80,9 @@ def test_library_owns_all_materials_and_keeps_prior_versions(library_materials, 
     for item in items:
         detail = client.get(f"/v1/materials/{item['material_id']}")
         assert detail.json() == item
-        if item["display_name"] == "尚未處理.pdf":
+        if item["display_name"] == "陣列入門.pdf":
             assert item["latest_attempt"] is None and item["available_structures"] == []
-        if item["display_name"] == "處理中的筆記.pdf":
+        if item["display_name"] == "遞迴課堂筆記.pdf":
             assert item["latest_attempt"]["status"] == "running" and item["available_structures"] == []
         for link in item["available_structures"]:
             response = client.get(f"/v1/materials/{item['material_id']}/knowledge-structures/{link['knowledge_structure_revision']}")

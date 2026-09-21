@@ -20,7 +20,7 @@ for (const width of [1920, 1536, 1366, 900, 768, 390, 320]) {
       if (path === "/") await expect(page.getByRole("region", { name: "學習總覽" })).toBeVisible();
       const main = (await page.locator(".app-main").boundingBox())!, box = (await frame.boundingBox())!;
       expect(Math.abs((box.x - main.x) - (main.x + main.width - box.x - box.width))).toBeLessThanOrEqual(4);
-      expect(box.width).toBeLessThanOrEqual(1280);
+      expect(box.width).toBeLessThanOrEqual(path === "/materials" ? 1600 : 1280);
       expect((await frame.locator("h1").boundingBox())!.y).toBeCloseTo(box.y, 0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       expect(await frame.locator("h1, h2, p, button, strong").evaluateAll(elements => elements.filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.textContent))).toEqual([]);

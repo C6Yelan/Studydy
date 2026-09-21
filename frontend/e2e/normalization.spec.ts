@@ -29,17 +29,20 @@ for(const width of [1536,390]) test(`single non-PDF normalization resumes withou
   status="ready";await expect(page.getByRole("button",{name:"開始分析教材"})).toBeVisible();
   await expect(page.getByRole("link",{name:/预覽|預覽/})).toHaveAttribute("href",`/v1/artifacts/${source}`);
   await page.screenshot({path:info.outputPath("ready.png"),fullPage:true});
-  await page.goto("/materials");await expect(page.getByRole("article")).toContainText("TXT");
+  await page.goto("/materials");await expect(page.getByRole("article")).not.toContainText("尚未建立知識地圖");
+  await expect(page.getByRole("article").getByRole("link")).toHaveCount(0);
+  await page.getByRole("button",{name:"管理「notes.txt」",exact:true}).click();
+  await page.getByRole("button",{name:"管理教材",exact:true}).click();
   await expect(page.getByRole("link",{name:/下載原檔/})).toHaveAttribute("href",`/v2/artifacts/${artifact}`);
   expect(revisions).toBe(0);
 });
 
 test("failed conversion retries explicitly, keeps original, and never starts AI",async({page})=>{
   await session(page);let retries=0,posts=0;
-  const job={source_id:source,normalization_id:normalization,original_artifact_id:artifact,original_name:"failed.txt",media_type:"text/plain",status:"failed",normalized_artifact_id:null,page_count:null,error_code:"UTF8_REQUIRED"};
+  const job={source_id:source,normalization_id:normalization,original_artifact_id:artifact,original_name:"discrete-mathematics.txt",media_type:"text/plain",status:"failed",normalized_artifact_id:null,page_count:null,error_code:"UTF8_REQUIRED"};
   page.on('request',r=>{if(r.method()==='POST'&&!r.url().endsWith('/session/refresh'))posts++;});
   await page.route(`**/v2/materials/${material}/sources`,r=>r.fulfill({json:{schema:"material-sources/v1",material_id:material,sources:[job]}}));
-  await page.route(`**/v1/materials/${material}`,r=>r.fulfill({json:{schema:"material-library-item/v3",ingestion_kind:"sources-v2",source:job,material_id:material,source_artifact_id:null,display_name:"failed.txt",size_bytes:10,created_at:"2026-09-17T00:00:00Z",latest_attempt:null,available_structures:[],study_sessions:[]}}));
+  await page.route(`**/v1/materials/${material}`,r=>r.fulfill({json:{schema:"material-library-item/v3",ingestion_kind:"sources-v2",source:job,material_id:material,source_artifact_id:null,display_name:"discrete-mathematics.txt",size_bytes:10,created_at:"2026-09-17T00:00:00Z",latest_attempt:null,available_structures:[],study_sessions:[]}}));
   await page.route(`**/v2/materials/${material}/sources/${normalization}/retry`,r=>{retries++;return r.fulfill({json:{schema:"material-sources/v1",material_id:material,sources:[job]}});});
   await page.goto(`/materials/${material}/sources`);await expect(page.getByRole("status")).toContainText("轉換失敗");
   await page.reload();await expect(page.getByRole("link",{name:"下載原檔"})).toBeVisible();expect(posts).toBe(0);
@@ -63,14 +66,14 @@ test("accepted deletion of a converting source survives reload and returns to li
   await expect(page).toHaveURL(/\/materials$/);await expect(page.getByRole('heading',{name:'我的教材',exact:true})).toBeVisible();
 });
 
-for (const width of [1536, 390]) test(`library keeps PDF and converted file links aligned at ${width}px`, async ({ page }, info) => {
+for (const width of [1536, 390]) test(`library moves file management out of cards at ${width}px`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 1024 });
   await session(page);
   const materials = [
     { name: "原生教材.pdf", status: null, media: "application/pdf" },
     { name: "課堂簡報.ppt", status: "ready", media: "application/vnd.ms-powerpoint" },
     { name: "課程講義.doc", status: "running", media: "application/msword" },
-    { name: "轉換失敗的筆記.txt", status: "failed", media: "text/plain" },
+    { name: "離散數學筆記.txt", status: "failed", media: "text/plain" },
   ].map((file, index) => ({
     schema: "material-library-item/v3", material_id: `11111111-1111-4111-8111-11111111111${index}`,
     ingestion_kind: file.status ? "sources-v2" : undefined,
@@ -87,15 +90,12 @@ for (const width of [1536, 390]) test(`library keeps PDF and converted file link
   await page.goto("/materials");
   await expect(page.getByRole("article")).toHaveCount(4);
   const converted = page.getByRole("article", { name: "課堂簡報.ppt", exact: true });
-  const pdfLink = converted.getByRole("link", { name: /轉換後 PDF/ });
-  const originalLink = converted.getByRole("link", { name: /下載原檔/ });
-  const pdfBox = await pdfLink.boundingBox();
-  const originalBox = await originalLink.boundingBox();
-  expect(originalBox!.x).toBe(pdfBox!.x);
-  expect(await originalLink.evaluate(el => getComputedStyle(el).fontSize)).toBe(await pdfLink.evaluate(el => getComputedStyle(el).fontSize));
+  await expect(page.getByRole("article").getByRole("link")).toHaveCount(0);
+  await expect(converted).not.toContainText("尚未建立知識地圖");
+  await expect(converted).not.toContainText(/教材轉換|轉換後 PDF|下載原檔/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("mixed-format-library.png"), fullPage: true });
-  await converted.getByRole("button", { name: "查看轉換與分析" }).click();
+  await converted.getByRole("button", { name: "建立知識地圖" }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materials[1].material_id}/sources$`));
 });
 

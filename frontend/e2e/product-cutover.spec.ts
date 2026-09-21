@@ -1352,7 +1352,7 @@ test("completed persistent state is viewed without create or focus", async ({ pa
   await routes(page, view);
   const state = { ...session("completed") };
   await page.route(`**/v1/materials/${materialId}`, route => json(route, { schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId,
-    display_name: "Completed.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
+    display_name: "Calculus.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
     available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }], study_sessions: [{ ...state, run_id: runId }] }));
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "study-resume/v3", assessment_sets: [], selected_set_id: null, session: state, run_id: runId, source_artifact_id: artifactId, knowledge_structure: view,
     progress: { ...progress, next_action: { ...progress.next_action, action: "complete", target_concept_id: null, target_claim_id: null, reason: "all_mastered" } }, assessments: [], selected_assessment_revision: null }));
