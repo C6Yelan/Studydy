@@ -48,6 +48,7 @@ export function StudySessionPage({ apiClient, route }: {
   const [startRound, setStartRound] = useState(false);
   const [reload, setReload] = useState(0);
   const [assessmentQuestionMode, setAssessmentQuestionMode] = useState(false);
+  const [assessmentResultMode, setAssessmentResultMode] = useState(false);
   const activePage = useRef(false);
   const pageVersion = useRef(0);
 
@@ -66,6 +67,7 @@ export function StudySessionPage({ apiClient, route }: {
     activePage.current = true;
     pageVersion.current += 1;
     setAssessmentQuestionMode(false);
+    setAssessmentResultMode(false);
     setData(null);
     setMessage(null);
     setRefreshMessage(null);
@@ -115,6 +117,7 @@ export function StudySessionPage({ apiClient, route }: {
   if (!current) return <StateView action={<button className="secondary-button" type="button" onClick={back}>回到知識地圖</button>} description="目前沒有可安全顯示的教材概念。" image="/assets/studydy/empty-disappointed.png" title="目前沒有學習內容" tone="empty" />;
 
   const restoreSavedQuestion = isHistorical || (!startRound && data.selectedSetId === null && selectedRecord !== null);
+  const layoutMode = assessmentQuestionMode ? "question" : !restoreSavedQuestion && assessmentResultMode ? "result" : "preparation";
   const position = data.view.initial_learning_path.find(step => step.concept_id === current.concept_id)?.position;
   const sourceEvidence = sourceLinks(current.claims.flatMap(claim => claim.evidence), data.view.source_resolver);
   const materialCard = <article className="surface current-concept-card" aria-labelledby="study-content-title">
@@ -128,20 +131,21 @@ export function StudySessionPage({ apiClient, route }: {
     <section className="study-session-page">
       <header className="study-header">
         <div><p className="eyebrow">學習進度</p><h1>{completed ? "學習已完成" : current.label}</h1>
-          <p>{position !== undefined && `第 ${position} / ${data.view.initial_learning_path.length} 個概念 · `}{restoreSavedQuestion ? "學習進度會自動保存。" : "整組交卷後保存作答與進度。"}</p></div>
+          <p>{position !== undefined && `第 ${position} / ${data.view.initial_learning_path.length} 個概念 · `}學習進度會自動保存。</p></div>
       </header>
       {refreshMessage && <div className="assessment-error" role="alert">{refreshMessage}<button className="text-button" onClick={() => void refresh()}>重新讀取</button></div>}
-      <div className="study-workspace">
+      <div className={`study-workspace is-${layoutMode}-mode`}>
         <div className="study-main">
-          <div className={`study-learning-grid${assessmentQuestionMode ? " is-question-mode" : ""}${!restoreSavedQuestion ? " is-set-mode" : ""}`}>
-            {!assessmentQuestionMode && (restoreSavedQuestion ? materialCard : <details className="surface study-material-summary" open={data.selectedSetId === null}>
+          <div className={`study-learning-grid is-${layoutMode}-mode${!restoreSavedQuestion ? " is-set-mode" : ""}`}>
+            {layoutMode !== "question" && (layoutMode === "preparation" ? materialCard : <details className="surface study-material-summary">
               <summary>教材重點與來源</summary>{materialCard}
             </details>)}
             <div className="study-current-action" id="assessment-panel">
               {!restoreSavedQuestion ? <AssessmentSetPanel apiClient={apiClient} studySessionId={route.studySessionId}
                 selectedSetId={data.selectedSetId} concept={current} view={data.view} sourceArtifactId={data.sourceArtifactId}
                 completed={completed} onSetSelected={id => writeRoute({ ...route, assessmentRevision: undefined, assessmentSetId: id })}
-                onProgressChanged={() => refresh()} onBackToMap={back} onQuestionModeChange={setAssessmentQuestionMode} /> : <AssessmentPanel
+                onProgressChanged={() => refresh()} onBackToMap={back} onQuestionModeChange={setAssessmentQuestionMode}
+                onResultModeChange={setAssessmentResultMode} /> : <AssessmentPanel
                 key={`${data.session.study_session_id}/${current.concept_id}/${selectedRecord?.assessment.assessment_revision ?? "new"}/${selectedRecord?.feedback?.answer_event_id ?? "unanswered"}`}
                 apiClient={apiClient}
                 record={selectedRecord}
@@ -162,7 +166,7 @@ export function StudySessionPage({ apiClient, route }: {
         </div>
         <aside className="study-rail" aria-label="學習資訊">
           <LearningInsights currentConceptId={current.concept_id} totalClaimCount={current.claims.length} progress={data.progress} />
-          {data.assessmentSets.length > 0 && <details className="surface assessment-set-history" open>
+          {data.assessmentSets.length > 0 && <details className="surface assessment-set-history">
             <summary>觀念題組紀錄（{data.assessmentSets.length}）</summary><ol>{data.assessmentSets.map((group, index) => {
               const label = data.view.concepts.find(concept => concept.concept_id === group.target_concept_id)?.label ?? "觀念";
               return <li key={group.set_id}><button className="text-button" aria-current={group.set_id === data.selectedSetId ? "true" : undefined}

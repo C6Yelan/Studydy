@@ -13,6 +13,9 @@
 .assessment-set-item .assessment-card { margin: 0; }
 .assessment-set-omitted { padding: 1.2rem; }
 .assessment-set-history { padding: 1rem; }
+.assessment-set-history > summary { cursor: pointer; padding: .5rem; border-radius: var(--radius-input); font-size: 14px; font-weight: 600; }
+.assessment-set-history > summary:hover { background: var(--page-cool); }
+.assessment-set-history > summary:focus-visible { outline: 2px solid var(--studydy-blue); outline-offset: 2px; }
 .assessment-set-history ol { padding: 0; list-style: none; display: grid; gap: .5rem; }
 .assessment-set-history button { width: 100%; text-align: start; white-space: normal; }
 

@@ -10,11 +10,12 @@ const noop = () => {};
 type Concept = KnowledgeStructureView["concepts"][number];
 
 export function AssessmentSetPanel({ apiClient, studySessionId, selectedSetId, concept, view, sourceArtifactId,
-  completed, onSetSelected, onProgressChanged, onBackToMap, onQuestionModeChange }: {
+  completed, onSetSelected, onProgressChanged, onBackToMap, onQuestionModeChange, onResultModeChange }: {
   apiClient: StudydyApiClient; studySessionId: string; selectedSetId: string | null; concept: Concept;
   view: KnowledgeStructureView; sourceArtifactId: string; completed: boolean;
   onSetSelected: (id: string) => void; onProgressChanged: () => Promise<void>;
   onBackToMap: () => void; onQuestionModeChange: (active: boolean) => void;
+  onResultModeChange: (active: boolean) => void;
 }) {
   const [plan, setPlan] = useState<AssessmentPlanView | null>(null);
   const [group, setGroup] = useState<AssessmentSetView | null>(null);
@@ -101,7 +102,10 @@ export function AssessmentSetPanel({ apiClient, studySessionId, selectedSetId, c
   }, [apiClient, studySessionId, group?.set_id, group?.status]);
 
   const answering = !!group && ["ready", "in_progress"].includes(group.status) && group.answered_count < group.published_count;
+  // 依已讀取的題組切換版面，交卷後即維持寬版，不等待外層 resume 更新。
+  const showingResults = !!group && (["completed", "cancelled"].includes(group.status) || !answering && group.published_count > 0);
   useEffect(() => { onQuestionModeChange(answering); return () => onQuestionModeChange(false); }, [answering, onQuestionModeChange]);
+  useEffect(() => { onResultModeChange(showingResults); return () => onResultModeChange(false); }, [showingResults, onResultModeChange]);
 
   const create = async () => {
     if (busy || completed) return;
@@ -224,13 +228,14 @@ export function AssessmentSetPanel({ apiClient, studySessionId, selectedSetId, c
   return <section className="assessment-set-panel" aria-label={`${concept.label}的重點題組`}>
     <header className="surface assessment-set-header">
       <div><p className="eyebrow">{group?.kind === "remediation" ? "錯題重點補強" : "觀念重點檢測"}</p><h2>{group?.kind === "remediation" ? `針對「${concept.label}」的錯誤重點再確認` : `一起檢測「${concept.label}」的重點`}</h2>
-        <p>選完本組所有題目後一起交卷，再查看結果與補強建議。交卷前可修改答案；尚未交卷的選取不會保存。</p></div>
+        {answering && <p>選完本組所有題目後一起交卷，再查看結果與補強建議。交卷前可修改答案；尚未交卷的選取不會保存。</p>}</div>
       {message && <div className="assessment-error" role="alert"><span>{message}</span>
         <button className="text-button" onClick={() => void refresh()}>重新讀取題組</button></div>}
       {!group && !plan && !message && !completed && <p role="status">正在讀取這個觀念的檢測範圍…</p>}
       {!group && completed && <p>此學習紀錄已結束，可以從題目與作答紀錄回顧。</p>}
       {plan && !group && <>
         <p>這個觀念包含 {plan.point_count} 個重點，本輪準備 {plan.requested_count} 題。</p>
+        {plan.requested_count > 0 && <p>選完本組所有題目後一起交卷。</p>}
         {plan.excluded.length > 0 && <p>{plan.excluded.length} 個重點未列入本輪出題範圍，保留為未檢測。</p>}
         <button className="primary-button" disabled={busy || plan.requested_count === 0} aria-busy={busy} onClick={() => void create()}>
           <Icon name="learning" />{busy ? "正在建立題組…" : `開始本輪 ${plan.requested_count} 題`}</button>

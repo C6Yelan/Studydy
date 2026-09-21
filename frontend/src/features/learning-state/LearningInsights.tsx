@@ -15,9 +15,7 @@ export function LearningInsights({ currentConceptId, totalClaimCount, progress }
 }) {
   const current = progress.concept_states.find((state) => state.concept_id === currentConceptId);
   if (!current) return null;
-  const finding = progress.weaknesses.find((item) => item.concept_id === currentConceptId);
   const cycle = progress.assessment_cycles.find(cycle => cycle.concept_id === currentConceptId);
-  if (current.attempts === 0 && !finding && !cycle) return null;
   return (
     <section className="learning-insights" aria-labelledby="learning-insights-title">
       <div className="insights-heading">

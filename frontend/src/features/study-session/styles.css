@@ -58,7 +58,7 @@
 @media (min-width: 1280px) {
   .study-workspace { grid-template-columns: minmax(0, 1fr) clamp(300px, 22vw, 320px); gap: var(--space-6); }
   .study-workspace:has(> .study-rail:empty) { grid-template-columns: minmax(0, 1fr); }
-  .study-main .study-learning-grid:not(.is-question-mode) { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); }
+  .study-main .study-learning-grid.is-preparation-mode { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); }
   .study-rail .learning-insights { padding: var(--space-4); }
   .study-rail .insights-heading { gap: var(--space-2); align-items: flex-start; }
   .study-rail .insights-heading h2 { font-size: 16px; }
@@ -71,13 +71,16 @@
   .study-rail .study-history-chevron { grid-column: 3; grid-row: 1; }
 }
 
-/* 題組始終佔同一主欄；交卷後不縮回教材旁的窄欄，也不留下奇數題的空格。 */
-.study-main .study-learning-grid.is-set-mode { grid-template-columns: minmax(0, 1fr); justify-items: stretch; }
-.study-main .study-learning-grid.is-set-mode .study-current-action { width: 100%; }
+/* 準備階段並排教材與檢測入口；真正作答及結果才使用寬版主區。 */
+.study-main .study-learning-grid.is-result-mode,
+.study-main .study-learning-grid.is-set-mode.is-question-mode { grid-template-columns: minmax(0, 1fr); justify-items: stretch; }
+.study-main .study-learning-grid.is-result-mode .study-current-action,
+.study-main .study-learning-grid.is-set-mode.is-question-mode .study-current-action { width: 100%; }
+.study-learning-grid.is-preparation-mode .assessment-set-header h2 { font-size: 22px; line-height: 1.45; }
 .study-material-summary { padding: 1rem 1.25rem; }
 .study-material-summary > summary { cursor: pointer; font-weight: 600; line-height: 1.5; }
 .study-material-summary .current-concept-card { padding: 1.25rem 0 0; border: 0; box-shadow: none; }
 
 @media (min-width: 1280px) {
-  .study-session-page:has(.study-learning-grid.is-set-mode) .study-rail { position: sticky; top: 80px; }
+  .study-workspace:not(.is-preparation-mode) .study-rail { position: sticky; top: 80px; }
 }
