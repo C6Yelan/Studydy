@@ -55,7 +55,7 @@ for (const width of [1536, 390]) test(`append queue and run-only cancellation pr
   await page.goto(`/materials/${material}/runs/${oldRun}`);
   await expect(page.getByRole("heading", { name: "整體流程進度（估計）", exact: true })).toBeVisible();
   const initialColumns = await page.locator(".processing-grid").evaluate(element => getComputedStyle(element).gridTemplateColumns);
-  const initialMascot = await page.locator(".processing-hero img").boundingBox();
+  const initialMascot = await page.locator(".processing-timeline-heading img").boundingBox();
   await page.goto(`/materials/${material}/sources`);
   await expect(page.getByRole("heading", { name: "新增教材", exact: true })).toBeVisible();
   await page.getByLabel("選擇新增教材", { exact: true }).setInputFiles([
@@ -74,7 +74,7 @@ for (const width of [1536, 390]) test(`append queue and run-only cancellation pr
   await expect(page.getByRole("heading", { name: "正在更新教材" })).toBeVisible();
   await expect(page.locator(".processing-grid > section.processing-card")).toHaveCount(2);
   expect(await page.locator(".processing-grid").evaluate(element => getComputedStyle(element).gridTemplateColumns)).toBe(initialColumns);
-  const updatingMascot = await page.locator(".processing-hero img").boundingBox();
+  const updatingMascot = await page.locator(".processing-timeline-heading img").boundingBox();
   expect(updatingMascot!.width).toBe(initialMascot!.width);
   expect(updatingMascot!.height).toBe(initialMascot!.height);
   await expect(page.getByRole("progressbar", { name: "整體流程進度（估計） 57%", exact: true })).toHaveAttribute("value", "57");

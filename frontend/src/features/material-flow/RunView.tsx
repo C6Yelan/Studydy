@@ -158,11 +158,10 @@ export function RunView({ apiClient, route }: {
   if (run.status === "pending" || run.status === "running") {
     const cancellationRequested = removing || run.cancel_requested_at !== null;
     return (
-      <section className="processing-page task-page">
+      <section className="processing-page task-page is-processing">
         <header className="processing-hero">
-          <img src="/assets/studydy/processing-laptop.png" alt="" />
           <div><p className="eyebrow">教材處理</p><h1>{cancellationRequested ? "正在取消並刪除教材" : run.status === "pending" ? "等待開始處理" : "正在分析教材"}</h1>
-            <p>{cancellationRequested ? "已收到刪除要求，會在目前進行中的步驟完成後安全停止並刪除教材。" : "Studydy 正在整理教材內容並建立知識地圖，進度會自動保存。"}</p></div>
+            <p>{cancellationRequested ? "已收到刪除要求，會在目前進行中的步驟完成後安全停止並刪除教材。" : "Studydy 會依序整理教材內容、建立概念關係，並在完成後發布知識地圖。"}</p></div>
         </header>
         <div className="processing-grid">
           <section className="surface processing-card">
@@ -179,7 +178,7 @@ export function RunView({ apiClient, route }: {
                   }}>繼續處理</button>
                   <button className="secondary-button cancel-confirm-button" type="button" disabled={cancelBusy} onClick={() => void sendDiscard()}>確認刪除</button>
                 </div>
-              </section> : <button ref={cancelButton} className="secondary-button" type="button" onClick={() => { setCancelError(null); setConfirmingCancel(true); }}>取消並刪除教材</button>}
+              </section> : <button ref={cancelButton} className="secondary-button processing-destructive" type="button" onClick={() => { setCancelError(null); setConfirmingCancel(true); }}>取消並刪除教材</button>}
             </div>}
             {cancelBusy && <p role="status">正在送出刪除要求…</p>}
             {cancelError && <p className="form-error" role="alert">{cancelError}</p>}
@@ -282,37 +281,39 @@ function ProcessingProgress({ run, now }: { run: MaterialProcessingRunView; now:
   const stageLabel = materialProgressStageLabel(run.progress_stage);
   const stageActivity = run.progress_stage === "queued" ? "排隊中" : run.progress_stage === "publishing" ? "發布中" : "處理中";
   return <>
-    {run.source_names && <div className="processing-sources"><h2>這次分析的來源（{run.source_names.length} 份）</h2><ol>{run.source_names.map((name, index) => <li key={index}>{name}</li>)}</ol></div>}
     <div className="processing-status" aria-live="polite">
-      <div className="progress-heading"><h2>整體流程進度（估計）</h2><strong>{overallPercent === null ? "—" : `${overallPercent}%`}</strong></div>
+      <div className="progress-heading overall-heading"><h2>整體流程進度（估計）</h2><strong>{overallPercent === null ? "—" : `${overallPercent}%`}</strong></div>
       <progress className="processing-progress" max={100} value={overallPercent ?? undefined}
         aria-label={overallPercent === null ? "整體流程進度（估計），尚無可估計資料" : `整體流程進度（估計） ${overallPercent}%`} />
-      <p className="progress-estimate-note">依已完成的處理階段與頁數估算，代表流程完成度，不代表剩餘時間。</p>
+      <p className="progress-estimate-note">依處理階段與頁數估算，不代表剩餘時間。</p>
+      <section className="processing-current">
       <h3>{currentPercent === null ? "目前狀態" : "本階段進度"}</h3>
       <div className="progress-heading"><strong className={`stage-label${currentPercent === null ? " stage-status-label" : ""}`}>{currentPercent === null && <span className="processing-status-indicator" aria-hidden="true" />}{stageLabel}</strong><strong>{currentPercent === null ? stageActivity : `${currentPercent}%`}</strong></div>
       {currentPercent === null
         ? <p>{run.progress_stage === "queued" ? "正在等待本機處理資源，開始後會自動更新進度。" : run.progress_stage === "publishing" ? "正在整理並發布可開啟的知識地圖。" : "正在處理教材內容。"}</p>
         : <progress className="processing-progress" max={100} value={currentPercent}
             aria-label={`本階段進度 ${currentPercent}%，已完成 ${run.completed_pages} / ${run.total_pages} 頁`} />}
-      {currentPercent !== null && <p>已完成 {run.completed_pages} / {run.total_pages} 頁</p>}
+      {currentPercent !== null && <p className="stage-pages">已完成 {run.completed_pages} / {run.total_pages} 頁</p>}
+      </section>
     </div>
+    {run.source_names && <div className="processing-sources"><h2>這次分析的來源（{run.source_names.length} 份）</h2><ol>{run.source_names.map((name, index) => <li key={index}>{name}</li>)}</ol></div>}
     <dl className="processing-times">
       <div><dt>已耗時</dt><dd>{materialElapsedLabel(run.created_at, now)}</dd></div>
       <div><dt>最近更新</dt><dd><time dateTime={run.updated_at}>{new Date(run.updated_at).toLocaleTimeString("zh-TW")}</time></dd></div>
     </dl>
-    <p>你可以離開此頁，處理進度會自動保存，可稍後從「我的教材」返回查看。</p>
+    <p className="processing-leave-note">進度會自動保存，可稍後從「我的教材」返回查看。</p>
   </>;
 }
 
 function ProcessingTimeline({ run }: { run: MaterialProcessingRunView }) {
   const currentStageIndex = materialProgressStages.indexOf(run.progress_stage);
-  return <section className="surface processing-card">
-    <h2>處理流程</h2>
+  return <section className="surface processing-card processing-timeline">
+    <header className="processing-timeline-heading"><h2>處理流程</h2><img src="/assets/studydy/processing-laptop.png" alt="" /></header>
     <ol className="status-timeline">
       {materialProgressStages.slice(0, -1).map((stage, index) => (
-        <li className={index < currentStageIndex ? "is-complete" : index === currentStageIndex ? "is-active" : undefined} key={stage}>
+        <li aria-current={index === currentStageIndex ? "step" : undefined} className={index < currentStageIndex ? "is-complete" : index === currentStageIndex ? "is-active" : undefined} key={stage}>
           <span><Icon name={index < currentStageIndex ? "check" : stage === "semantics" ? "map" : "process"} /></span>
-          <div><strong>{materialProgressStageLabel(stage)}</strong><p>{index < currentStageIndex ? "此階段已完成。" : index === currentStageIndex ? "目前正在這個階段。" : "尚未開始。"}</p></div>
+          <div><strong>{materialProgressStageLabel(stage)}</strong><p>{index < currentStageIndex ? "已完成" : index === currentStageIndex ? "進行中" : "尚未開始"}</p></div>
         </li>
       ))}
     </ol>
@@ -340,9 +341,8 @@ function RevisionRun({ apiClient, run, now, onChange }: { apiClient: StudydyApiC
     catch (failure) { setError(errorMessage(failure)); }
     finally { setBusy(false); }
   };
-  if (activeRun(run)) return <section className="processing-page task-page">
+  if (activeRun(run)) return <section className="processing-page task-page is-processing">
     <header className="processing-hero">
-      <img src="/assets/studydy/processing-laptop.png" alt="" />
       <div><p className="eyebrow">教材更新</p><h1>{title}</h1><p>Studydy 正在整理新增內容並更新知識地圖，期間仍可使用目前地圖與學習紀錄。</p></div>
     </header>
     <div className="processing-grid">
