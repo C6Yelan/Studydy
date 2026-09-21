@@ -1,3 +1,4 @@
+from browser_e2e_runner import PORT
 """新瀏覽器從 server library 找回教材；所有 reopen 必須維持原資料與零模型呼叫。"""
 
 import httpx
@@ -12,7 +13,7 @@ def test_library_browser_reads_existing_records_without_generation(library_mater
     fixture = library_materials
     monkeypatch.setattr(api_app, "runtime_binding", lambda _: {})
     app = api_app.create_app(api_app.ApiSettings(
-        profile="local", public_origin="http://127.0.0.1:4173", secure_cookie=False,
+        profile="local", public_origin=f"http://127.0.0.1:{PORT}", secure_cookie=False,
         local_config=fixture["settings"], dsn=fixture["dsn"],
     ))
     writes = []

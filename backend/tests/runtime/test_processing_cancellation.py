@@ -95,9 +95,13 @@ def test_restart_honors_legacy_cancel_but_does_not_discard_material(cancellation
     learner, source, settings, _, dsn, run = cancellation_run
     processing.claim_next_material_processing_run(dsn=dsn)
     legacy_cancel(cancellation_run)
+    assert processing.recover_interrupted_material_runs(dsn=dsn) == 1
     ordinary = processing.create_material_processing_run(learner.learner_id, source.material_id, source.artifact_id, "ordinary-restart", settings, dsn=dsn)
     processing.claim_next_material_processing_run(dsn=dsn)
-    assert processing.recover_interrupted_material_runs(dsn=dsn) == 2
+    assert processing.recover_interrupted_material_runs(dsn=dsn) == 0
+    with psycopg.connect(dsn) as connection:
+        connection.execute("UPDATE material_processing_runs SET lease_expires_at=now()-interval '1 second' WHERE run_id=%s",(ordinary.run_id,))
+    assert processing.recover_interrupted_material_runs(dsn=dsn) == 1
     finish_material_discards(dsn=dsn)
     assert read(cancellation_run).status == "cancelled" and read(cancellation_run).error_code is None
     interrupted = processing.read_material_processing_run(learner.learner_id, ordinary.run_id, dsn=dsn)
@@ -111,7 +115,9 @@ def test_publishing_and_terminal_primitive_is_unchanged(cancellation_run):
     for stage in ("evidence", "semantics", "publishing"):
         processing._record_progress(run.run_id, stage, 1, 1, dsn=dsn)
     before = read(cancellation_run)
-    assert processing.request_material_processing_cancellation(learner.learner_id, run.run_id, dsn=dsn) == before
+    with pytest.raises(processing.MaterialProcessingError,match='MATERIAL_RUN_INVALID'):
+        processing.request_material_processing_cancellation(learner.learner_id, run.run_id, dsn=dsn)
+    assert read(cancellation_run)==before
     processing._record_failure(run.run_id, "EXPECTED_FAILURE", dsn=dsn)
     failed = read(cancellation_run)
     assert processing.request_material_processing_cancellation(learner.learner_id, run.run_id, dsn=dsn) == failed

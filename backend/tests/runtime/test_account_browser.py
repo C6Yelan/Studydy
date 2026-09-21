@@ -1,3 +1,4 @@
+from browser_e2e_runner import PORT
 """以本地 API、真 PostgreSQL 與 production frontend 驗證帳號隔離；不啟動模型。"""
 
 import runtime.api.app as api_app
@@ -9,7 +10,7 @@ def test_account_browser_with_real_api_and_database(closed_loop, monkeypatch):
     learner, source, settings, structure, dsn, _ = closed_loop
     monkeypatch.setattr(api_app, "runtime_binding", lambda _: {})
     app = api_app.create_app(api_app.ApiSettings(
-        profile="local", public_origin="http://127.0.0.1:4173",
+        profile="local", public_origin=f"http://127.0.0.1:{PORT}",
         secure_cookie=False, local_config=settings, dsn=dsn,
     ))
     monkeypatch.setenv("STUDYDY_E2E_ACCOUNT_LEARNER", str(learner.learner_id))

@@ -1,17 +1,20 @@
+import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
 import {
   Background,
-  getViewportForBounds,
   MarkerType,
   Handle,
   Position,
   Controls,
-  ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
+  useNodesInitialized,
   useUpdateNodeInternals,
+  ReactFlow,
   type Edge,
   type Node,
   type NodeProps,
-  type ReactFlowInstance,
+  type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -22,17 +25,16 @@ import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import {
   learningNavigationItems,
-  focusLayout,
+  focusGraph,
   initialFocusConceptId,
 } from "./knowledge-map";
 
 type Concept = KnowledgeStructureView["concepts"][number];
-type Mode = "overview" | "focus" | "review";
+type Mode = "focus" | "review";
 type RestoreFocus = () => void;
 
 const modes: { id: Mode; label: string }[] = [
   { id: "focus", label: "概念地圖" },
-  { id: "overview", label: "總覽" },
   { id: "review", label: "複習重點" },
 ];
 
@@ -44,7 +46,10 @@ const learningLabels = { not_started: "尚未練習", learning: "學習中", nee
 
 function LearningBadge({ conceptId, progress }: { conceptId: string; progress: LearnerProgressView | null }) {
   const state = progress?.concept_states.find((item) => item.concept_id === conceptId);
-  return state ? <span className={`map-learning-badge is-${state.status}`}>{learningLabels[state.status]}</span> : null;
+  const cycle = progress?.assessment_cycles.find(item => item.concept_id === conceptId);
+  const label = cycle?.outcome === "passed" && state?.status !== "mastered" ? "本輪檢測通過"
+    : cycle?.pending_count ? "待補強" : state ? learningLabels[state.status] : null;
+  return state && label ? <span className={`map-learning-badge is-${state.status}`}>{label}</span> : null;
 }
 
 function DetailPanel({ label, focusKey, close, children }: { label: string; focusKey: string; close: () => void; children: ReactNode }) {
@@ -86,10 +91,10 @@ function nodeKeyboardAction(open: () => void, title: string) {
   };
 }
 
-function ConceptDetail({ apiClient, concept, close, sourceArtifactId, view, openConcept, progress }: {
+function ConceptDetail({ apiClient, concept, close, sourceArtifactId, view, openConcept, progress, studyAction }: {
   view: KnowledgeStructureView; progress: LearnerProgressView | null;
   openConcept: (id: string) => void; apiClient: StudydyApiClient;
-  concept: Concept; close: () => void; sourceArtifactId: string;
+  concept: Concept; close: () => void; sourceArtifactId: string; studyAction: ReactNode;
 }) {
   const relatedConcepts = useMemo(() => {
     const byId = new Map(view.concepts.map(item => [item.concept_id, item]));
@@ -109,9 +114,10 @@ function ConceptDetail({ apiClient, concept, close, sourceArtifactId, view, open
         <button aria-label="關閉概念詳情" className="panel-close" type="button" onClick={close}>×</button>
       </header>
       <LearningBadge conceptId={concept.concept_id} progress={progress} />
+      {studyAction}
       <section>
         <h3>教材重點</h3>
-        <ConceptContent claims={concept.claims} apiClient={apiClient} sourceArtifactId={sourceArtifactId} />
+        <ConceptContent claims={concept.claims} apiClient={apiClient} sourceArtifactId={sourceArtifactId} sourceResolver={view.source_resolver} />
       </section>
       {concept.aliases.length > 0 && (
         <section><h3>教材中的其他名稱</h3><p className="page-list">{concept.aliases.join("、")}</p></section>
@@ -134,58 +140,11 @@ function ConceptDetail({ apiClient, concept, close, sourceArtifactId, view, open
   );
 }
 
-function Overview({ focusInMap, view }: {
-  focusInMap: (id: string) => void;
-  view: KnowledgeStructureView;
-}) {
-  const sections = useMemo(() => view.document_tree.sections.filter(section => section.concept_ids.length > 0)
-    .sort((a, b) => a.order - b.order), [view.document_tree.sections]);
-  const conceptById = useMemo(() => new Map(view.concepts.map(concept => [concept.concept_id, concept])), [view.concepts]);
-  const normalizeLabel = (text: string) => text.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
-  return <div className="overview-view">
-    <div className="view-heading"><div><h2 id="overview-title">教材結構</h2><p>依教材原本順序快速瀏覽段落與概念。</p></div></div>
-    {sections.length > 0 ? <section className="overview-index surface" aria-label="教材結構">
-      <header><p>{sections.length} 個可探索段落</p></header>
-      <div className="overview-index-columns" aria-hidden="true"><span>段落</span><span>教材內容</span><span>概念</span></div>
-      <div className="overview-index-list"><ol>{sections.map(section => {
-        const sectionName = `教材段落 ${section.order + 1}，${section.title}`;
-        const number = <span className="overview-index-number" aria-hidden="true">{String(section.order + 1).padStart(2, "0")}</span>;
-        const title = <span className="overview-index-title" title={section.title}>{section.title}</span>;
-        if (section.concept_ids.some(id => !conceptById.has(id))) return <li key={section.section_id}>
-          <div className="overview-index-error" role="alert">{sectionName}：概念資料不完整，請重新讀取知識地圖。</div>
-        </li>;
-        if (section.concept_ids.length === 1) {
-          const concept = conceptById.get(section.concept_ids[0])!;
-          const sameLabel = normalizeLabel(section.title) === normalizeLabel(concept.label);
-          return <li key={section.section_id}><button className="overview-index-row" type="button"
-            aria-label={`${sectionName}${sameLabel ? "" : `，概念：${concept.label}`}，在概念地圖中查看`}
-            onClick={() => focusInMap(concept.concept_id)}>
-            {number}{title}<span className="overview-index-action">{!sameLabel && <span>{concept.label}</span>}<Icon name="chevron-right" size={18} /></span>
-          </button></li>;
-        }
-        return <li key={section.section_id}><details className="overview-index-disclosure">
-          <summary className="overview-index-row" aria-label={`${sectionName}，${section.concept_ids.length} 個概念`}>
-            {number}{title}<span className="overview-index-action"><span>{section.concept_ids.length} 個概念</span><Icon name="chevron-right" size={18} /></span>
-          </summary>
-          <ul className="overview-index-concepts">{section.concept_ids.map(id => {
-            const concept = conceptById.get(id)!;
-            return <li key={id}><button type="button" aria-label={`在概念地圖中查看：${concept.label}`} onClick={() => focusInMap(id)}>
-              <span>{concept.label}</span><Icon name="chevron-right" size={18} />
-            </button></li>;
-          })}</ul>
-        </details></li>;
-      })}</ol></div>
-    </section> : <StateView title="目前沒有可探索的教材段落" description="這份教材尚無包含概念的段落。" tone="empty" />}
-    {view.excluded_pages.length > 0 && <section className="material-quality" aria-label="未能整理的頁面"><h3>有些頁面未能整理</h3><p>第 {view.excluded_pages.map((item) => item.page).join("、")} 頁未納入概念與練習，這些內容請從原始 PDF 閱讀。</p></section>}
-  </div>;
-}
-
 type ConceptHandle = { id: string; type: "source" | "target"; position: Position; offset: number };
 type ConceptNode = Node<{ label: ReactNode; handles: ConceptHandle[] }, "concept">;
 
-function ConceptMapNode({ id, data }: NodeProps<ConceptNode>) {
-  const updateNodeInternals = useUpdateNodeInternals();
-  useEffect(() => { updateNodeInternals(id); }, [id, data.handles, updateNodeInternals]);
+function ConceptMapNode({ data }: NodeProps<ConceptNode>) {
+  // 節點尺寸由 ResizeObserver 量測；拓樸改變由 MapGraph 一次批次更新。
   return <>
     {data.handles.map((handle) => <Handle key={handle.id} id={handle.id} type={handle.type} position={handle.position}
       style={handle.position === Position.Left || handle.position === Position.Right ? { top: `${handle.offset}%` } : { left: `${handle.offset}%` }} />)}
@@ -208,7 +167,6 @@ function LearningNavigator({ view, selectedConceptId, focusConcept, progress }: 
   const currentStep = view.initial_learning_path.find(step => step.concept_id === progress?.current_concept_id);
   const mastered = progress?.concept_states.filter(state => state.status === "mastered").length ?? 0;
   const nextId = progress && ["advance", "review_prerequisite", "resume"].includes(progress.next_action.action) ? progress.next_action.target_concept_id : null;
-  const [expanded, setExpanded] = useState(false);
   const list = useRef<HTMLDivElement>(null);
   const selectedRow = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -224,12 +182,9 @@ function LearningNavigator({ view, selectedConceptId, focusConcept, progress }: 
     const observer = new ResizeObserver(reveal);
     observer.observe(rail);
     return () => observer.disconnect();
-  }, [selectedConceptId, expanded]);
-  return <nav className={`focus-navigator surface${expanded ? " is-expanded" : ""}`} aria-label="學習導覽">
+  }, [selectedConceptId]);
+  return <nav className="focus-navigator surface" aria-label="學習導覽">
     <header><h2>學習導覽</h2><span>{view.concepts.length} 個概念</span></header>
-    <button className="navigator-toggle" type="button" aria-expanded={expanded} aria-controls="focus-concept-list" onClick={() => setExpanded(value => !value)}>
-      <strong>學習導覽</strong><span>{view.concepts.length} 個概念 · {expanded ? "收合" : "展開"}</span>
-    </button>
     {(progress || firstStep) && <p className="navigator-summary">
       {progress ? <>{currentStep && `第 ${currentStep.position} / ${view.initial_learning_path.length} 個 · `}已掌握 {mastered} 個</> : `建議從第 ${firstStep!.position} 個概念開始`}
     </p>}
@@ -261,188 +216,168 @@ function LearningNavigator({ view, selectedConceptId, focusConcept, progress }: 
   </nav>;
 }
 
-function FocusContext({ selected, directRelations, conceptById, progress, openConcept, openRelation, mobile }: {
-  mobile: boolean;
-  selected: Concept; directRelations: KnowledgeStructureView["relations"]; conceptById: Map<string, Concept>;
-  progress: LearnerProgressView | null; openConcept: (id: string) => void; openRelation: (id: string) => void;
-}) {
-  const relations = mobile && (directRelations.length === 0
-    ? <p className="relation-empty">這個概念目前沒有直接連結，可查看教材重點，或從學習導覽探索其他概念。</p>
-    : <ul className="relation-list" aria-label="直接概念關係">{directRelations.map(relation => <li key={relation.relation_id}>
-      <button type="button" onClick={() => openRelation(relation.relation_id)}>
-        <span style={{ color: relationColors[relation.type] }}>{relationLabels[relation.type]}</span>
-        <strong><span className="relation-direction-hint">{relation.source_concept_id === selected.concept_id ? "連向 →" : "來自 ←"}</span><span className="relation-other-concept">{conceptById.get(relation.source_concept_id === selected.concept_id ? relation.target_concept_id : relation.source_concept_id)?.label}</span></strong>
-        <small>{relation.learner_reason}</small>
-      </button>
-    </li>)}</ul>);
-  return <>
-    <header className="focus-context-heading"><h2>目前焦點</h2><h3 title={selected.label}>{selected.label}</h3></header>
-    <p className="focus-claim-summary">{selected.claims.find(claim => claim.text.trim())?.text}</p>
-    <LearningBadge conceptId={selected.concept_id} progress={progress} />
-    {mobile ? <>
-      <button className="secondary-button focus-detail-action" type="button" onClick={() => openConcept(selected.concept_id)}>查看概念與來源</button>
-      <details className="focus-relations"><summary>查看關係說明（{directRelations.length}）</summary>{relations}</details>
-    </> : <section className="focus-relation-summary">
-      <p>{directRelations.length > 0 ? <><strong>{directRelations.length}</strong> 個直接關係</> : "目前沒有直接關係"}</p>
-      <p className="focus-map-hint">{directRelations.length > 0 ? "點選地圖上的概念或連線查看詳細內容。" : "可以從學習導覽選擇其他概念，或切換到「總覽」探索教材。"}</p>
-    </section>}
-  </>;
-}
-
-function FocusView({ openConcept, selectedConceptId, focusConcept, view, openRelation, progress, selectedRelationId, detail, studyAction }: {
+function MapGraph({ openConcept, selectedConceptId, view, openRelation, progress, selectedRelationId, detail }: {
   detail: ReactNode;
-  studyAction: ReactNode;
   selectedRelationId: string | null;
   progress: LearnerProgressView | null;
   openConcept: (id: string, restoreFocus?: RestoreFocus) => void;
   selectedConceptId: string;
-  focusConcept: (id: string) => void;
   view: KnowledgeStructureView;
   openRelation: (id: string, restoreFocus?: RestoreFocus) => void;
 }) {
   const conceptById = useMemo(() => new Map(view.concepts.map(concept => [concept.concept_id, concept])), [view.concepts]);
-  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
-  useEffect(() => {
-    const media = window.matchMedia("(max-width: 900px)");
-    const update = () => setMobile(media.matches);
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
   const selected = conceptById.get(selectedConceptId) ?? view.concepts[0];
   const highlightedRelation = view.relations.find((relation) => relation.relation_id === selectedRelationId);
   const graphElement = useRef<HTMLDivElement>(null);
-  const graphInstance = useRef<ReactFlowInstance | null>(null);
   // React Flow can recreate an edge while measuring nodes. Resolve its stable id
   // inside this canvas when restoring focus, rather than retaining a detached SVG.
-  const restoreGraphFocus = (id: string) => graphElement.current
-    ?.querySelector<HTMLElement | SVGElement>(`[data-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
-  const layout = useMemo(() => focusLayout(view, selected.concept_id), [view, selected.concept_id]);
-  const layoutById = new Map(layout.map((node) => [node.id, node]));
-  const directRelations = view.relations.filter((relation) => relation.source_concept_id === selected.concept_id || relation.target_concept_id === selected.concept_id);
-  // Share lanes across both directions so parallel relations keep distinct labels and arrowheads.
-  const pairRelations = new Map<string, typeof directRelations>();
-  for (const relation of directRelations) {
-    const key = [relation.source_concept_id, relation.target_concept_id].sort().join("|");
-    const group = pairRelations.get(key) ?? [];
-    group.push(relation);
-    pairRelations.set(key, group);
-  }
-  const handlesByNode = new Map<string, ConceptHandle[]>();
-  for (const group of pairRelations.values()) {
-    group.sort((a, b) => a.relation_id.localeCompare(b.relation_id));
-    group.forEach((relation, index) => {
+  const restoreGraphFocus = (id: string) => {
+    const element = graphElement.current?.querySelector<HTMLElement | SVGElement>(`[data-id="${CSS.escape(id)}"]`);
+    (element ?? navigatorToggle.current)?.focus({ preventScroll: true });
+  };
+  const [navigatorOpen, setNavigatorOpen] = useState(false);
+  const navigatorToggle = useRef<HTMLButtonElement>(null);
+  const graph = useReactFlow();
+  const initialized = useNodesInitialized();
+  // 受控 nodes 必須保留 React Flow 回報的尺寸，避免詳情更新後永遠未完成量測。
+  const [measurements, setMeasurements] = useState<Record<string, { width: number; height: number }>>({});
+  const measureNodes = (changes: NodeChange[]) => {
+    setMeasurements(previous => {
+      let next = previous;
+      for (const change of changes) {
+        if (change.type !== "dimensions" || !change.dimensions) continue;
+        const before = previous[change.id];
+        if (before?.width === change.dimensions.width && before?.height === change.dimensions.height) continue;
+        if (next === previous) next = { ...previous };
+        next[change.id] = change.dimensions;
+      }
+      return next;
+    });
+  };
+  const [canvasReady, setCanvasReady] = useState(false);
+  const fittedConcept = useRef<string | null>(null);
+  const projection = useMemo(() => focusGraph(view, selected.concept_id), [view, selected.concept_id]);
+  const layout = projection.nodes;
+  const updateNodeInternals = useUpdateNodeInternals();
+  const measuredLayout = useRef<typeof layout | null>(null);
+  useEffect(() => {
+    if (!initialized || measuredLayout.current === layout) return;
+    measuredLayout.current = layout;
+    // 只在換焦點／資料時更新連接點，不依尺寸回寫逐節點重測。
+    updateNodeInternals(layout.map(node => node.id));
+  }, [layout, initialized, updateNodeInternals]);
+  const { nodes, edges } = useMemo(() => {
+    const layoutById = new Map(layout.map((node) => [node.id, node]));
+    // Share lanes across both directions so parallel relations keep distinct labels and arrowheads.
+    const pairRelations = new Map<string, KnowledgeStructureView["relations"]>();
+    for (const relation of projection.relations) {
+      const key = [relation.source_concept_id, relation.target_concept_id].sort().join("|");
+      const group = pairRelations.get(key) ?? [];
+      group.push(relation);
+      pairRelations.set(key, group);
+    }
+    const handlesByNode = new Map<string, ConceptHandle[]>();
+    const minimumHeights = new Map<string, number>();
+    for (const group of pairRelations.values()) {
+      group.sort((a, b) => a.relation_id.localeCompare(b.relation_id));
+      group.forEach((relation, index) => {
+        const source = layoutById.get(relation.source_concept_id)!;
+        const target = layoutById.get(relation.target_concept_id)!;
+        const sourcePosition = source.x < target.x ? Position.Right : Position.Left;
+        const targetPosition = { [Position.Bottom]: Position.Top, [Position.Top]: Position.Bottom, [Position.Left]: Position.Right, [Position.Right]: Position.Left }[sourcePosition];
+        for (const [nodeId, type, position] of [[source.id, "source", sourcePosition], [target.id, "target", targetPosition]] as const) {
+          // 平行關係的標籤至少相隔 24px，避免卡片縮短後互相覆蓋。
+          minimumHeights.set(nodeId, Math.max(minimumHeights.get(nodeId) ?? 110, (group.length + 1) * 24));
+          const handles = handlesByNode.get(nodeId) ?? [];
+          handles.push({ id: `${relation.relation_id}:${type}`, type, position, offset: (index + 1) * 100 / (group.length + 1) });
+          handlesByNode.set(nodeId, handles);
+        }
+      });
+    }
+    const nodes: Node[] = layout.map((node) => {
+      const concept = conceptById.get(node.id)!;
+      const current = node.id === selected.concept_id;
+      return {
+        id: node.id, type: "concept", position: { x: node.x, y: node.y }, width: node.width, measured: measurements[node.id],
+        style: { width: node.width, minHeight: minimumHeights.get(node.id), opacity: highlightedRelation && ![highlightedRelation.source_concept_id, highlightedRelation.target_concept_id].includes(node.id) ? 0.5 : 1 },
+        data: { handles: handlesByNode.get(node.id) ?? [], label: <><strong>{concept.label}</strong><p>{concept.claims[0]?.text}</p><LearningBadge conceptId={concept.concept_id} progress={progress} /></> },
+        className: `concept-flow-node${current ? " is-focus" : ""}${node.depth === 2 ? " is-secondary" : ""}`,
+        ariaLabel: `教材概念：${concept.label}`, ariaRole: "button",
+        domAttributes: nodeKeyboardAction(() => openConcept(node.id, () => restoreGraphFocus(node.id)), `${concept.label}：查看概念與教材來源`),
+        draggable: false, focusable: true,
+      };
+    });
+    const edges: Edge[] = projection.relations.map((relation) => {
       const source = layoutById.get(relation.source_concept_id)!;
       const target = layoutById.get(relation.target_concept_id)!;
-      const sourcePosition = source.x < target.x ? Position.Right : Position.Left;
-      const targetPosition = { [Position.Bottom]: Position.Top, [Position.Top]: Position.Bottom, [Position.Left]: Position.Right, [Position.Right]: Position.Left }[sourcePosition];
-      for (const [nodeId, type, position] of [[source.id, "source", sourcePosition], [target.id, "target", targetPosition]] as const) {
-        const handles = handlesByNode.get(nodeId) ?? [];
-        handles.push({ id: `${relation.relation_id}:${type}`, type, position, offset: (index + 1) * 100 / (group.length + 1) });
-        handlesByNode.set(nodeId, handles);
-      }
-    });
-  }
-  // Allocate the focal ports in neighbour order, rather than reusing each pair's lanes.
-  // Monotonic ports keep the fan of curves from crossing in the open column gaps.
-  const focalHandles = handlesByNode.get(selected.concept_id) ?? [];
-  const relationByHandle = new Map<string, typeof directRelations[number]>(directRelations.flatMap((relation) => [
-    [`${relation.relation_id}:source`, relation] as const, [`${relation.relation_id}:target`, relation] as const,
-  ]));
-  for (const side of [Position.Left, Position.Right]) {
-    const handles = focalHandles.filter((handle) => handle.position === side);
-    handles.sort((a, b) => {
-      const neighbourY = (handle: ConceptHandle) => {
-        const relation = relationByHandle.get(handle.id)!;
-        const neighbourId = relation.source_concept_id === selected.concept_id ? relation.target_concept_id : relation.source_concept_id;
-        return layoutById.get(neighbourId)!.y;
+      return {
+        id: relation.relation_id, source: source.id, target: target.id, type: "default",
+        sourceHandle: `${relation.relation_id}:source`,
+        targetHandle: `${relation.relation_id}:target`,
+        label: relationLabels[relation.type], selected: relation.relation_id === selectedRelationId,
+        markerEnd: { type: MarkerType.ArrowClosed, color: relationColors[relation.type], width: 18, height: 18 },
+        style: { stroke: relationColors[relation.type], strokeWidth: 1.5, strokeDasharray: relation.type === "application" || relation.type === "contrast" ? "6 4" : undefined },
+        labelStyle: { fill: relationColors[relation.type], fontSize: 11 }, labelBgPadding: [4, 2],
+        className: `concept-flow-edge is-relation is-${relation.type}`,
+        ariaLabel: `${relationLabels[relation.type]}：${relation.learner_reason}`, focusable: true,
+        domAttributes: { onKeyDown: (event: KeyboardEvent<SVGGElement>) => {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openRelation(relation.relation_id, () => restoreGraphFocus(relation.relation_id)); }
+        } },
       };
-      return neighbourY(a) - neighbourY(b) || a.offset - b.offset;
     });
-    handles.forEach((handle, index) => { handle.offset = (index + 1) * 100 / (handles.length + 1); });
-  }
-  const bounds = {
-    x: Math.min(...layout.map((node) => node.x)), y: Math.min(...layout.map((node) => node.y)),
-    width: Math.max(...layout.map((node) => node.x + node.width)) - Math.min(...layout.map((node) => node.x)),
-    height: Math.max(...layout.map((node) => node.y + node.height)) - Math.min(...layout.map((node) => node.y)),
-  };
-  const focalNode = layoutById.get(selected.concept_id)!;
-  const centerX = focalNode.x + focalNode.width / 2;
-  const centerY = focalNode.y + focalNode.height / 2;
-  const frameFocus = () => {
-    const element = graphElement.current;
-    if (!element) return;
-    const viewport = getViewportForBounds(bounds, element.clientWidth, element.clientHeight, 0.1, 1.4, 0.14);
-    void graphInstance.current?.setViewport(viewport.zoom >= 0.7 ? viewport : {
-      x: element.clientWidth / 2 - centerX * 0.85,
-      y: element.clientHeight / 2 - centerY * 0.85,
-      zoom: 0.85,
-    });
-  };
+    return { nodes, edges };
+  }, [layout, projection.relations, selected.concept_id, highlightedRelation, conceptById, progress, openConcept, openRelation, measurements]);
+  // resize 只保留世界座標中心；使用者按適應畫面才重新 fit。
   useEffect(() => {
-    const element = graphElement.current;
-    if (!element) return;
-    let frame = 0;
-    const resize = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(frameFocus); };
-    const observer = new ResizeObserver(resize);
+    const element = graphElement.current!;
+    let width = element.clientWidth;
+    let height = element.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const nextWidth = element.clientWidth, nextHeight = element.clientHeight;
+      setCanvasReady(nextWidth > 0 && nextHeight > 0);
+      if (width && height && nextWidth && nextHeight && (width !== nextWidth || height !== nextHeight)) {
+        const viewport = graph.getViewport();
+        void graph.setViewport({ ...viewport, x: viewport.x + (nextWidth - width) / 2, y: viewport.y + (nextHeight - height) / 2 });
+      }
+      width = nextWidth; height = nextHeight;
+    });
     observer.observe(element);
-    resize();
-    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
-  }, [layout]);
-  const nodes: Node[] = layout.map((node) => {
-    const concept = view.concepts.find((item) => item.concept_id === node.id)!;
-    const current = node.id === selected.concept_id;
-    return {
-      id: node.id, type: "concept", position: { x: node.x, y: node.y }, width: node.width,
-      style: { width: node.width, opacity: highlightedRelation && ![highlightedRelation.source_concept_id, highlightedRelation.target_concept_id].includes(node.id) ? 0.5 : 1 },
-      data: { handles: handlesByNode.get(node.id) ?? [], label: <>{current && <small>目前焦點</small>}<strong>{concept.label}</strong><p>{concept.claims[0]?.text}</p><LearningBadge conceptId={concept.concept_id} progress={progress} /></> },
-      className: `concept-flow-node${current ? " is-focus" : ""}`,
-      ariaLabel: `教材概念：${concept.label}`, ariaRole: "button",
-      domAttributes: nodeKeyboardAction(() => openConcept(node.id, () => restoreGraphFocus(node.id)), `${concept.label}：查看概念與教材來源`),
-      draggable: false, focusable: true,
-    };
-  });
-  const edges: Edge[] = directRelations.map((relation) => {
-    const source = layoutById.get(relation.source_concept_id)!;
-    const target = layoutById.get(relation.target_concept_id)!;
-    return {
-      id: relation.relation_id, source: source.id, target: target.id, type: "default",
-      sourceHandle: `${relation.relation_id}:source`,
-      targetHandle: `${relation.relation_id}:target`,
-      label: relationLabels[relation.type], selected: relation.relation_id === selectedRelationId,
-      markerEnd: { type: MarkerType.ArrowClosed, color: relationColors[relation.type], width: 18, height: 18 },
-      style: { stroke: relationColors[relation.type], strokeWidth: 1.5, strokeDasharray: relation.type === "application" || relation.type === "contrast" ? "6 4" : undefined },
-      labelStyle: { fill: relationColors[relation.type], fontSize: 11 }, labelBgPadding: [4, 2],
-      className: `concept-flow-edge is-relation is-${relation.type}`,
-      ariaLabel: `${relationLabels[relation.type]}：${relation.learner_reason}`, focusable: true,
-      domAttributes: { onKeyDown: (event: KeyboardEvent<SVGGElement>) => {
-        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openRelation(relation.relation_id, () => restoreGraphFocus(relation.relation_id)); }
-      } },
-    };
-  });
-  return <section className="focus-workspace" aria-labelledby="focus-title">
-    <LearningNavigator progress={progress} view={view} selectedConceptId={selected.concept_id} focusConcept={focusConcept} />
-    <section className="focus-main surface">
-      <header className="focus-graph-header">
-        <h2 id="focus-title">概念地圖</h2>
-        <div className="relation-legend" aria-label="概念關係圖例">{Object.entries(relationLabels).map(([type, label]) => <span className={`is-${type}`} key={type} style={{ color: relationColors[type as RelationType] }}><i className={`relation-swatch${type === "application" || type === "contrast" ? " is-dashed" : ""}`} aria-hidden="true" />{label}</span>)}</div>
-      </header>
-    <div className="focus-graph" ref={graphElement} aria-label={`「${selected.label}」與直接相關概念`}>
-      <ReactFlow nodeTypes={nodeTypes} nodes={nodes} edges={edges} proOptions={{ hideAttribution: true }}
-        ariaLabelConfig={{ "controls.zoomIn.ariaLabel": "放大地圖", "controls.zoomOut.ariaLabel": "縮小地圖", "controls.fitView.ariaLabel": "顯示完整關係圖", "node.a11yDescription.default": "按 Enter 或空白鍵查看概念。", "edge.a11yDescription.default": "按 Enter 或空白鍵查看關係說明。" }} onInit={(instance) => { graphInstance.current = instance; requestAnimationFrame(frameFocus); }}
-        minZoom={0.1} maxZoom={1.8} zoomOnScroll={true} preventScrolling={true} nodesConnectable={false} nodesDraggable={false} edgesReconnectable={false}
+    return () => observer.disconnect();
+  }, [graph]);
+  useEffect(() => {
+    if (!initialized || !canvasReady || fittedConcept.current === selected.concept_id) return;
+    const frame = requestAnimationFrame(() => {
+      fittedConcept.current = selected.concept_id;
+      void graph.fitView({ padding: 0.18, minZoom: 0.001, maxZoom: 1.1 });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [initialized, canvasReady, graph, selected.concept_id]);
+  return <section className={`focus-workspace${detail ? " has-inspector" : ""}`} aria-label="概念地圖工作區">
+    <div className="focus-graph surface" ref={graphElement} aria-label={`「${selected.label}」的兩層相關概念`}>
+      <ReactFlow nodeTypes={nodeTypes} nodes={nodes} edges={edges} onNodesChange={measureNodes} proOptions={{ hideAttribution: true }}
+        ariaLabelConfig={{ "controls.zoomIn.ariaLabel": "放大地圖", "controls.zoomOut.ariaLabel": "縮小地圖", "controls.fitView.ariaLabel": "適應畫面", "node.a11yDescription.default": "按 Enter 或空白鍵查看概念。", "edge.a11yDescription.default": "按 Enter 或空白鍵查看關係說明。" }}
+        minZoom={0.001} maxZoom={1.8} zoomOnScroll={true} preventScrolling={true} nodesConnectable={false} nodesDraggable={false} edgesReconnectable={false}
         onNodeClick={(_, node) => openConcept(node.id, () => restoreGraphFocus(node.id))} onEdgeClick={(_, edge) => openRelation(edge.id, () => restoreGraphFocus(edge.id))}>
         <Background color="var(--border)" gap={28} size={1} />
-        <Controls aria-label="概念地圖縮放與置中控制" showInteractive={false} fitViewOptions={{ minZoom: 0.1, maxZoom: 1.4, padding: 0.14 }} />
+        <Controls aria-label="地圖縮放控制" showInteractive={false} fitViewOptions={{ padding: 0.18, minZoom: 0.001, maxZoom: 1.1 }} />
       </ReactFlow>
+      <div className="map-navigation" onKeyDown={event => {
+        if (event.key === "Escape") { event.preventDefault(); setNavigatorOpen(false); navigatorToggle.current?.focus(); }
+      }}>
+        <button ref={navigatorToggle} className="secondary-button" type="button" aria-expanded={navigatorOpen} aria-controls="map-navigator"
+          onClick={() => { navigatorToggle.current?.focus(); setNavigatorOpen(value => !value); }}>學習導覽</button>
+        <div id="map-navigator" hidden={!navigatorOpen}>
+          <LearningNavigator progress={progress} view={view} selectedConceptId={selected.concept_id}
+            focusConcept={id => { setNavigatorOpen(false); openConcept(id, () => navigatorToggle.current?.focus()); }} />
+        </div>
       </div>
-    </section>
-    <aside className="focus-context surface" aria-label="目前焦點資訊">
-      <div className="focus-context-content" hidden={!!detail && !mobile}>
-        <FocusContext mobile={mobile} selected={selected} directRelations={directRelations} conceptById={conceptById} progress={progress} openConcept={openConcept} openRelation={openRelation} />
-      </div>
-      {detail}
-    </aside>
-    {studyAction}
+      {(nodes.length < projection.totalNodes || edges.length < projection.totalRelations) && <p className="map-limit-note" role="status">
+        兩層範圍：{nodes.length}／{projection.totalNodes} 個概念、{edges.length}／{projection.totalRelations} 條關係。
+        尚有其他相關內容，可用搜尋或學習導覽選取。
+      </p>}
+      <div className="relation-legend" aria-label="概念關係圖例">{Object.entries(relationLabels).map(([type, label]) => <span key={type} style={{ color: relationColors[type as RelationType] }}><i className={`relation-swatch${type === "application" || type === "contrast" ? " is-dashed" : ""}`} aria-hidden="true" />{label}</span>)}</div>
+    </div>
+    {detail && <aside className="focus-context surface" aria-label="地圖詳情">{detail}</aside>}
   </section>;
 }
 
@@ -455,7 +390,7 @@ function RelationDetail({ relation, view, apiClient, sourceArtifactId, close, op
     <header><div><span className="detail-kicker">概念之間的關係</span><h2>{relationLabels[relation.type]}</h2></div><button className="panel-close" type="button" aria-label="關閉關係詳情" onClick={close}>×</button></header>
     <section className="relation-direction">{[relation.source_concept_id, relation.target_concept_id].map((id, index) => <div key={index}>{index === 1 && <span aria-hidden="true">↓</span>}<button className="detail-related" type="button" onClick={() => openConcept(id)}><small>{index === 0 ? "來源概念" : "目標概念"}</small><strong>{view.concepts.find((concept) => concept.concept_id === id)?.label}</strong></button></div>)}</section>
     <section><h3>為什麼有這個關係？</h3><p className="claim-text">{relation.learner_reason}</p></section>
-    <section><h3>教材來源</h3>{[...new Set(evidence.map((item) => item.page))].map((page) => <button className="text-button" key={page} type="button" onClick={() => window.open(apiClient.sourceArtifactUrl(sourceArtifactId, page), "_blank", "noopener,noreferrer")}>原始教材第 {page} 頁<Icon name="chevron-right" /></button>)}{evidence.length === 0 && <p>可從來源與目標概念查看相關教材。</p>}</section>
+    <section><h3>教材來源</h3>{sourceLinks(evidence, view.source_resolver).map((item) => <SourceButton key={item.evidence_id} apiClient={apiClient} artifactId={sourceArtifactId} page={item.page} resolver={view.source_resolver} evidenceId={item.evidence_id} evidence={item}>原始教材第 {item.page} 頁<Icon name="chevron-right" /></SourceButton>)}{evidence.length === 0 && <p>可從來源與目標概念查看相關教材。</p>}</section>
   </DetailPanel>;
 }
 
@@ -495,7 +430,7 @@ function ReviewView({ view, progress, startStudy, busyLabel, studyLabel, initial
         <section className="review-points" aria-label="選中概念的複習重點" key={concept.concept_id}>
           <h3>複習重點</h3><p className="review-excerpt-note">優先查看需要補強的教材重點；以下為教材節錄。</p>
           <ol>{points.map(claim => <li key={claim.claim_id}><p>{excerpt(claim.text)}</p></li>)}</ol>
-          <details className="review-full-content"><summary>查看完整教材重點</summary><ConceptContent claims={concept.claims} apiClient={apiClient} sourceArtifactId={sourceArtifactId} /></details>
+          <details className="review-full-content"><summary>查看完整教材重點</summary><ConceptContent claims={concept.claims} apiClient={apiClient} sourceArtifactId={sourceArtifactId} sourceResolver={view.source_resolver} /></details>
         </section>
         <nav className="review-list" aria-label="需要複習的概念">
           <h3>需要複習 <small>{weak.length} 個概念</small></h3>
@@ -510,7 +445,7 @@ function ReviewView({ view, progress, startStudy, busyLabel, studyLabel, initial
   </section>;
 }
 
-export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, learningStateStatus, progressMessage, onReloadProgress, isStartingStudy, onReturnToRun, onStartStudy, sourceArtifactId, startMessage, view }: {
+export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, learningStateStatus, progressMessage, onReloadProgress, isStartingStudy, onReturnToRun, onAddSources, onStartStudy, sourceArtifactId, startMessage, view }: {
   apiClient: StudydyApiClient;
   progress: LearnerProgressView | null;
   learningStateStatus: StudySessionView["status"] | null;
@@ -519,6 +454,7 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
   onReloadProgress: () => void;
   isStartingStudy: boolean;
   onReturnToRun: () => void;
+  onAddSources: () => void;
   onStartStudy: (conceptId: string) => void;
   sourceArtifactId: string;
   startMessage: string | null;
@@ -531,10 +467,17 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
   const [detailConceptId, setDetailConceptId] = useState<string | null>(null);
   const [relationId, setRelationId] = useState<string | null>(null);
   const opener = useRef<RestoreFocus | null>(null);
+  const restoreFrame = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(restoreFrame.current), []);
   const searchInput = useRef<HTMLInputElement>(null);
   const searchResultsElement = useRef<HTMLDivElement>(null);
   const tabs = useRef(new Map<Mode, HTMLButtonElement>());
-  useEffect(() => { if (progress?.current_concept_id) setSelectedConceptId(progress.current_concept_id); }, [progress?.study_session_id]);
+  const hasBrowsed = useRef(false);
+  useEffect(() => {
+    if (!hasBrowsed.current && progress?.current_concept_id && view.concepts.some(concept => concept.concept_id === progress.current_concept_id)) {
+      setSelectedConceptId(progress.current_concept_id);
+    }
+  }, [progress?.study_session_id, progress?.current_concept_id, view.concepts]);
   const selectedRelation = view.relations.find((relation) => relation.relation_id === relationId);
   const query = searchQuery.trim().toLocaleLowerCase();
   const searchResults = query ? view.concepts.filter((concept) => [concept.label, ...concept.aliases, ...concept.claims.map((claim) => claim.text)].some((text) => text.toLocaleLowerCase().includes(query))) : [];
@@ -543,7 +486,9 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
 
   if (view.concepts.length === 0) return (
     <StateView
-      action={<button className="secondary-button" type="button" onClick={onReturnToRun}><Icon name="arrow-left" />查看處理狀態</button>}
+      action={<div className="state-actions">
+        <button className="secondary-button" type="button" onClick={onReturnToRun}><Icon name="arrow-left" />查看處理狀態</button>
+      </div>}
       description="這份教材目前沒有可供學習的概念。請返回處理結果查看原因。"
       image="/assets/studydy/empty-disappointed.png"
       title="知識地圖目前是空的"
@@ -551,6 +496,8 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
     />
   );
   const rememberOpener = (restoreFocus?: RestoreFocus) => {
+    // 快速關閉再開啟詳情時，不讓前一次延遲恢復搶走新面板的焦點。
+    cancelAnimationFrame(restoreFrame.current);
     if (restoreFocus) { opener.current = restoreFocus; return; }
     const element = document.activeElement as HTMLElement | null;
     if (element?.closest(".detail-panel")) return;
@@ -559,35 +506,36 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
       else tabs.current.get(mode)?.focus({ preventScroll: true });
     };
   };
-  const focusConcept = (id: string) => { setSelectedConceptId(id); setDetailConceptId(null); setRelationId(null); };
-  const openConceptDetail = (id: string, restoreFocus?: RestoreFocus) => { rememberOpener(restoreFocus); setSelectedConceptId(id); setDetailConceptId(id); setRelationId(null); };
-  const chooseSearchResult = (id: string) => { setMode("focus"); focusConcept(id); setSearchQuery(""); searchInput.current?.focus({ preventScroll: true }); };
+  const openConceptDetail = (id: string, restoreFocus?: RestoreFocus) => { hasBrowsed.current = true; rememberOpener(restoreFocus); setSelectedConceptId(id); setDetailConceptId(id); setRelationId(null); };
+  const chooseSearchResult = (id: string) => { setMode("focus"); openConceptDetail(id); setSearchQuery(""); searchInput.current?.focus({ preventScroll: true }); };
   const openRelation = (id: string, restoreFocus?: RestoreFocus) => { rememberOpener(restoreFocus); setRelationId(id); setDetailConceptId(null); };
   const closeDetail = () => {
+    const closingFocus = document.activeElement;
     setDetailConceptId(null); setRelationId(null);
     // React Flow measures changed nodes on the next frame before they can take focus.
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (opener.current) opener.current();
-      else tabs.current.get(mode)?.focus({ preventScroll: true });
-    }));
+    cancelAnimationFrame(restoreFrame.current);
+    restoreFrame.current = requestAnimationFrame(() => {
+      restoreFrame.current = requestAnimationFrame(() => {
+        // 使用者已開始搜尋等新操作時，不以延遲恢復搶走焦點。
+        if (document.activeElement !== closingFocus && document.activeElement !== document.body) return;
+        if (opener.current) opener.current();
+        else tabs.current.get(mode)?.focus({ preventScroll: true });
+      });
+    });
   };
   const selectMode = (nextMode: Mode) => {
+    cancelAnimationFrame(restoreFrame.current);
     setMode(nextMode);
     setDetailConceptId(null);
     setRelationId(null);
     window.requestAnimationFrame(() => tabs.current.get(nextMode)?.focus());
   };
-  const focusInMap = (id: string) => { selectMode("focus"); focusConcept(id); };
   const busyStudyLabel = isLoadingProgress ? "讀取學習進度…" : isStartingStudy ? "正在開始…" : null;
   const focusStudyConceptId = selectedConceptId;
-  const focusStudyLabel = view.concepts.find(concept => concept.concept_id === focusStudyConceptId)?.label ?? "目前概念";
   const canResume = learningStateStatus === "active" || learningStateStatus === "no_safe";
   const selectedIsCurrentSessionConcept = canResume && progress?.current_concept_id === focusStudyConceptId;
-  const focusStudyTitle = learningStateStatus === "completed" ? "學習已完成" : selectedIsCurrentSessionConcept ? `接著學習「${focusStudyLabel}」`
-    : canResume ? `從「${focusStudyLabel}」繼續學習` : `準備開始學習「${focusStudyLabel}」？`;
   const focusStudyButtonLabel = busyStudyLabel ?? (learningStateStatus === "completed" ? "查看學習成果" : selectedIsCurrentSessionConcept ? "繼續學習" : canResume ? "從這個概念繼續" : "開始學習");
-  const focusStudyAction = <section className="focus-study-action surface" aria-label="學習入口">
-    <div><strong>{focusStudyTitle}</strong><p>{learningStateStatus === "completed" ? "已保存的學習內容與作答紀錄可隨時回顧。" : selectedIsCurrentSessionConcept ? "你的學習進度已保留。" : canResume ? "切換概念後，已保存的學習進度仍會保留。" : "選好概念後即可開始閱讀與練習。"}</p></div>
+  const focusStudyAction = <section className="concept-study-action" aria-label="學習入口">
     <button className="primary-button" disabled={isStartingStudy || isLoadingProgress} type="button" onClick={() => onStartStudy(focusStudyConceptId)}>
       <Icon name="learning" />{focusStudyButtonLabel}
     </button>
@@ -601,13 +549,14 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
             view={view}
             openConcept={openConceptDetail}
             concept={selectedConcept}
+            studyAction={focusStudyAction}
             progress={progress}
             sourceArtifactId={sourceArtifactId}
           />
         )}
   </> : null;
   return (
-    <section className={`map-workspace${mode === "focus" ? " is-focus-mode" : mode === "overview" ? " is-overview-mode" : ""}${selectedConcept || selectedRelation ? " has-detail" : ""}`}>
+    <section className={`map-workspace${mode === "focus" ? " is-focus-mode" : ""}${selectedConcept || selectedRelation ? " has-detail" : ""}`}>
       <header className="map-header">
         <div><div className="map-title-row"><h1>知識地圖</h1></div></div>
         <form className="map-search" onKeyDown={(event) => { if (event.key === "Escape") { setSearchQuery(""); searchInput.current?.focus(); } }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchQuery(""); }} role="search" aria-label="搜尋教材概念" onSubmit={(event) => { event.preventDefault(); if (searchResults[0]) chooseSearchResult(searchResults[0].concept_id); }}>
@@ -615,6 +564,7 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
           {query && <div ref={searchResultsElement} className="map-search-results"><p role="status">{searchResults.length ? `找到 ${searchResults.length} 個概念${searchResults.length > 8 ? "，顯示前 8 個，請輸入更多關鍵字縮小範圍" : ""}` : "找不到符合的概念，試試其他關鍵字。"}</p>{searchResults.slice(0, 8).map((concept) => <button key={concept.concept_id} type="button" onClick={() => chooseSearchResult(concept.concept_id)}><strong>{concept.label}</strong><small>{concept.claims[0]?.text}</small></button>)}</div>}
         </form>
         <div className="map-header-actions">
+          <button className="secondary-button" type="button" onClick={onAddSources}>新增教材</button>
           <div className="map-facts" aria-label="地圖摘要">
             <span><strong>{view.concepts.length}</strong>概念</span>
             <span><strong>{view.document_tree.sections.length}</strong>段落</span>
@@ -651,12 +601,11 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
           >{item.label}</button>
         ))}
       </div>
-      {view.excluded_pages.length > 0 && <p className="form-error" role="status">第 {view.excluded_pages.map((item) => item.page).join("、")} 頁未能整理，可在總覽查看說明。</p>}
+      {view.excluded_pages.length > 0 && <p className="form-error" role="status">第 {view.excluded_pages.map((item) => item.page).join("、")} 頁未納入概念與練習，請從原始教材閱讀。</p>}
       <div className="map-content">
         <div aria-labelledby={`map-tab-${mode}`} className="map-view" id={`map-panel-${mode}`} role="tabpanel" tabIndex={0}>
-          {mode === "overview" && <Overview focusInMap={focusInMap} view={view} />}
           {mode === "focus" && (
-            <FocusView selectedRelationId={relationId} progress={progress} openRelation={openRelation} openConcept={openConceptDetail} selectedConceptId={selectedConceptId} focusConcept={focusConcept} detail={detail} studyAction={focusStudyAction} view={view} />
+            <ReactFlowProvider><MapGraph selectedRelationId={relationId} progress={progress} openRelation={openRelation} openConcept={openConceptDetail} selectedConceptId={selectedConceptId} detail={detail} view={view} /></ReactFlowProvider>
           )}
           {mode === "review" && (progressMessage ? <div className="review-empty"><div><h2>暫時無法顯示複習重點</h2><p>重新讀取進度後，即可查看最近一次學習的複習方向。</p><button className="primary-button" type="button" onClick={onReloadProgress}>重新讀取進度</button></div></div> : <ReviewView view={view} progress={progress} startStudy={onStartStudy} busyLabel={busyStudyLabel} studyLabel={learningStateStatus === "completed" ? "查看學習成果" : "繼續這個概念"} initialConceptId={selectedConceptId} showNavigator={() => selectMode("focus")} apiClient={apiClient} sourceArtifactId={sourceArtifactId} />)}
         </div>

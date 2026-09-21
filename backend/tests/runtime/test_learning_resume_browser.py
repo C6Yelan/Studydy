@@ -1,3 +1,4 @@
+from browser_e2e_runner import PORT
 """以真 Browser/API/DB 驗證原題、原回饋及提交回應遺失；restore 不得生成或寫入。"""
 
 import httpx
@@ -14,7 +15,7 @@ def test_learning_resume_browser_preserves_records_and_recovers_lost_response(le
     fixture = learning_records
     monkeypatch.setattr(api_app, "runtime_binding", lambda _: {})
     app = api_app.create_app(api_app.ApiSettings(
-        profile="local", public_origin="http://127.0.0.1:4173", secure_cookie=False,
+        profile="local", public_origin=f"http://127.0.0.1:{PORT}", secure_cookie=False,
         local_config=fixture["settings"], dsn=fixture["dsn"],
     ))
     product_writes = []

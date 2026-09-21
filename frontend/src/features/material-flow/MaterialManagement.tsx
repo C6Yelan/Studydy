@@ -47,7 +47,7 @@ export function MaterialManagement({ item, apiClient, deleting, onRenamed, onDel
     }
   };
   const published = item.available_structures.length > 0 || item.study_sessions.length > 0;
-  const processing = item.latest_attempt?.status === "pending" || item.latest_attempt?.status === "running";
+  const processing = item.latest_attempt?.status === "pending" || item.latest_attempt?.status === "running" || item.source?.status === "pending" || item.source?.status === "running";
   return <>
     {!deleting && <details ref={menu} className="material-management-menu" hidden={mode !== null} onKeyDown={event => {
       if (event.key === "Escape") { event.preventDefault(); menu.current!.open = false; opener.current?.focus(); }
@@ -64,7 +64,7 @@ export function MaterialManagement({ item, apiClient, deleting, onRenamed, onDel
       </> : <>
         <h3>確定要刪除這份教材嗎？</h3>
         {processing && <p>目前處理會先安全停止，之後刪除教材與相關資料。</p>}
-        <p>{published ? "將一併刪除原始 PDF、知識地圖、學習進度、題目與作答紀錄。此操作無法復原。" : "將刪除原始 PDF 與處理紀錄。此操作無法復原。"}</p>
+        <p>{item.ingestion_kind ? "將一併刪除原始教材、轉換產物、處理紀錄，以及知識地圖、學習進度、題目與作答紀錄。此操作無法復原。" : published ? "將一併刪除原始 PDF、知識地圖、學習進度、題目與作答紀錄。此操作無法復原。" : "將刪除原始 PDF 與處理紀錄。此操作無法復原。"}</p>
       </>}
       <div className="material-management-actions">
         <button ref={cancel} className="secondary-button" type="button" disabled={busy} onClick={close}>取消</button>

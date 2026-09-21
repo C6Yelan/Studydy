@@ -1,8 +1,9 @@
+const browserOrigin = process.env.STUDYDY_E2E_BASE_URL ?? "http://127.0.0.1:4173";
 import { expect, test, type Page } from "@playwright/test";
 import type { StudyResumeView, AnswerFeedbackView } from "../src/api/contracts";
 
 test.skip(process.env.STUDYDY_E2E_RESUME !== "true", "Requires the local resume API/DB fixture");
-const origin = "http://127.0.0.1:4173";
+const origin = browserOrigin;
 const pendingPrompt = "保存的未答題：Stack 如何取出資料？";
 
 async function login(page: Page, email = "learner_test@example.com") {

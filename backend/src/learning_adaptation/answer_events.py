@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from runtime.learner_session import TrustedLearner
-from runtime.storage.tables import AnswerEvent, Assessment, database_session
+from runtime.storage.tables import AnswerEvent, Assessment, Material, StudySession, database_session
 
 from .assessments import AssessmentError, StoredAssessment, _stored as validate_stored_assessment
 from .study_sessions import StudySessionError, _learner, _row, _stored, _validate
@@ -61,6 +61,7 @@ class StoredAnswerEvent:
     created_at: datetime
     idempotency_key_sha256: bytes = field(repr=False)
     request_fingerprint: bytes = field(repr=False)
+    assisted: bool = False
 
 
 @dataclass(frozen=True)
@@ -98,7 +99,14 @@ def _assessment(session, study, revision: str) -> Assessment:
     return row
 
 
-def _event(row: AnswerEvent, assessment: Assessment, study) -> StoredAnswerEvent:
+def _assisted_revisions(session, sid):
+    from runtime.storage.tables import AssessmentSet, AssessmentSetItem
+    return set(session.scalars(select(AssessmentSetItem.assessment_revision).join(AssessmentSet,
+        AssessmentSet.set_id == AssessmentSetItem.set_id).where(AssessmentSet.study_session_id == sid,
+        AssessmentSet.kind == 'remediation', AssessmentSetItem.assessment_revision.is_not(None))))
+
+
+def _event(row: AnswerEvent, assessment: Assessment, study, *, assisted=False) -> StoredAnswerEvent:
     option_ids = {option["option_id"] for option in assessment.public_document["options"]}
     if (
         row.study_session_id != study.study_session_id
@@ -135,7 +143,7 @@ def _event(row: AnswerEvent, assessment: Assessment, study) -> StoredAnswerEvent
         row.semantic_identity, row.mastery_qualified, row.target_concept_id,
         row.target_claim_id, tuple(assessment.public_document["source_evidence_ids"]),
         row.selected_option_id, row.is_correct, row.event_number, row.created_at,
-        bytes(row.idempotency_key_sha256), bytes(row.request_fingerprint),
+        bytes(row.idempotency_key_sha256), bytes(row.request_fingerprint), assisted,
     )
 
 
@@ -153,6 +161,36 @@ def _feedback(event: StoredAnswerEvent, assessment: Assessment) -> AnswerFeedbac
         "event_number": event.event_number,
         "created_at": event.created_at,
     })
+
+
+def record_answer(session, study, assessment, selected_option_id, idempotency_key):
+    """在呼叫者的交易中保存已驗證選項；單題歷史與整組交卷共用評分。"""
+    from .assessment_sets import record_set_answer
+    study_session_id = study.study_session_id
+    assessment_revision, question_id = assessment.assessment_revision, assessment.question_id
+    key = _key(idempotency_key)
+    fingerprint = _fingerprint(study_session_id, assessment_revision, question_id, selected_option_id)
+    study.last_event_number += 1
+    record_set_answer(session, assessment)
+    created = AnswerEvent(
+        answer_event_id=uuid4(), study_session_id=study_session_id,
+        material_id=study.material_id,
+        knowledge_structure_revision=study.knowledge_structure_revision,
+        assessment_revision=assessment_revision, question_id=question_id,
+        semantic_identity=assessment.semantic_identity,
+        target_concept_id=assessment.target_concept_id,
+        target_claim_id=assessment.target_claim_id,
+        selected_option_id=selected_option_id,
+        is_correct=selected_option_id == assessment.private_answer_document["correct_option_id"],
+        mastery_qualified=assessment.mastery_qualified,
+        event_number=study.last_event_number,
+        idempotency_key_sha256=key, request_fingerprint=fingerprint,
+        created_at=datetime.now(UTC),
+    )
+    session.add(created)
+    session.flush()
+    event = _event(created, assessment, study, assisted=assessment_revision in _assisted_revisions(session, study_session_id))
+    return AnswerSubmission(event, _feedback(event, assessment))
 
 
 def submit_answer(
@@ -177,6 +215,9 @@ def submit_answer(
     fingerprint = _fingerprint(study_session_id, assessment_revision, question_id, selected_option_id)
     try:
         with database_session(dsn) as session:
+            material_id=session.scalar(select(StudySession.material_id).where(StudySession.learner_id==learner_id,StudySession.study_session_id==study_session_id))
+            if material_id is None or session.scalar(select(Material.material_id).where(Material.learner_id==learner_id,Material.material_id==material_id).with_for_update()) is None:
+                raise AnswerSubmissionError("ANSWER_STUDY_SESSION_UNAVAILABLE")
             study = _row(session, learner_id, study_session_id, lock=True)
             _validate(session, study)
             assessment = _assessment(session, study, assessment_revision)
@@ -184,12 +225,16 @@ def submit_answer(
             if replay is not None:
                 if bytes(replay.request_fingerprint) != fingerprint:
                     raise AnswerSubmissionError("ANSWER_IDEMPOTENCY_CONFLICT")
-                event = _event(replay, assessment, study)
+                event = _event(replay, assessment, study, assisted=assessment_revision in _assisted_revisions(session, study_session_id))
                 return AnswerSubmission(event, _feedback(event, assessment))
+            from runtime.storage.tables import AssessmentSetItem
+            if session.scalar(select(AssessmentSetItem.set_id).where(AssessmentSetItem.assessment_revision == assessment_revision)) is not None:
+                raise AnswerSubmissionError('ASSESSMENT_SET_CONFLICT')
+            from .assessment_sets import membership_can_submit
             if (
                 _stored(study).status not in {"active", "no_safe"}
                 or assessment.question_id != question_id
-                or study.current_concept_id != assessment.target_concept_id
+                or not membership_can_submit(session, study, assessment)
             ):
                 raise AnswerSubmissionError("ANSWER_SUBMISSION_STALE")
             option_ids = {option["option_id"] for option in assessment.public_document["options"]}
@@ -197,26 +242,7 @@ def submit_answer(
                 raise AnswerSubmissionError("ANSWER_OPTION_INVALID")
             if session.scalar(select(AnswerEvent.answer_event_id).where(AnswerEvent.study_session_id == study_session_id, AnswerEvent.assessment_revision == assessment_revision)) is not None:
                 raise AnswerSubmissionError("ANSWER_ALREADY_SUBMITTED")
-            study.last_event_number += 1
-            created = AnswerEvent(
-                answer_event_id=uuid4(), study_session_id=study_session_id,
-                material_id=study.material_id,
-                knowledge_structure_revision=study.knowledge_structure_revision,
-                assessment_revision=assessment_revision, question_id=question_id,
-                semantic_identity=assessment.semantic_identity,
-                target_concept_id=assessment.target_concept_id,
-                target_claim_id=assessment.target_claim_id,
-                selected_option_id=selected_option_id,
-                is_correct=selected_option_id == assessment.private_answer_document["correct_option_id"],
-                mastery_qualified=assessment.mastery_qualified,
-                event_number=study.last_event_number,
-                idempotency_key_sha256=key, request_fingerprint=fingerprint,
-                created_at=datetime.now(UTC),
-            )
-            session.add(created)
-            session.flush()
-            event = _event(created, assessment, study)
-            return AnswerSubmission(event, _feedback(event, assessment))
+            return record_answer(session, study, assessment, selected_option_id, idempotency_key)
     except (AnswerSubmissionError, StudySessionError):
         raise
     except Exception:
@@ -230,11 +256,12 @@ def read_answer_events(learner: TrustedLearner, study_session_id: UUID, *, dsn: 
             study = _row(session, learner_id, study_session_id)
             _validate(session, study)
             rows = list(session.scalars(select(AnswerEvent).where(AnswerEvent.study_session_id == study_session_id).order_by(AnswerEvent.event_number)))
+            assisted = _assisted_revisions(session, study_session_id)
             events = tuple(
                 _event(
                     row,
                     _assessment(session, study, row.assessment_revision),
-                    study,
+                    study, assisted=row.assessment_revision in assisted,
                 )
                 for row in rows
             )

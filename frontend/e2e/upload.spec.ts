@@ -1,290 +1,154 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import type { MaterialProcessingRunView, SourceView } from "../src/api/contracts";
 
-const materialId = "11111111-1111-4111-8111-111111111111";
-const runId = "22222222-2222-4222-8222-222222222222";
-const artifactId = "33333333-3333-4333-8333-333333333333";
-const pdf = { name: "課程講義.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7\nSynthetic upload fixture\n%%EOF") };
-const material = { schema: "material/v1", material_id: materialId, source_artifact_id: artifactId, source_sha256: "a".repeat(64), size_bytes: pdf.buffer.length };
-const run = { schema: "material-processing-run/v5", cancel_requested_at: null, run_id: runId, material_id: materialId, source_artifact_id: artifactId,
-  status: "pending", progress_stage: "queued", completed_pages: 0, total_pages: null, output_binding: null, error_code: null,
-  created_at: "2026-09-12T00:00:00Z", updated_at: "2026-09-12T00:00:00Z", completed_at: null };
+const uuid = (n: number) => `11111111-1111-4111-8111-${String(n).padStart(12, "0")}`;
+const material = uuid(1), runId = uuid(2);
+const stamp = "2026-09-19T00:00:00Z";
+const pdf = { name: "A.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-synthetic") };
+const txt = { name: "B.txt", mimeType: "text/plain", buffer: Buffer.from("Queue uses FIFO.") };
+const failure = { schema: "api-error/v1", request_id: material, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Request could not be completed." };
 
-async function signedIn(page: Page) {
-  await page.route("**/v1/session/refresh", route => route.fulfill({ status: 204 }));
-  await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: materialId } }));
-  await page.route(`**/v1/material-processing-runs/${runId}`, route => route.fulfill({ json: run }));
-}
-async function failure(route: Route) {
-  await route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: materialId, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Request could not be completed." } });
-}
-async function transfer(page: Page, files: { name: string; type: string; size?: number }[]) {
-  return page.evaluateHandle(files => {
-    const data = new DataTransfer();
-    for (const file of files) data.items.add(new File([new Uint8Array(file.size ?? 20)], file.name, { type: file.type }));
-    return data;
-  }, files);
-}
-
-for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 390, height: 844 }]) {
-  for (const state of ["initial", "selected", "long-name", "invalid", "oversized", "drag-over", "submitting", "api-failure"] as const) {
-    test(`upload ${state} at ${viewport.width}px keeps the task usable`, async ({ page }) => {
-      await page.setViewportSize(viewport); await signedIn(page);
-      let calls = 0;
-      await page.route("**/v1/materials", route => { calls++; return state === "submitting" ? undefined : failure(route); });
-      await page.goto("/upload");
-      const upload = page.locator(".upload-page");
-      const input = page.getByLabel("選擇 PDF 教材", { exact: true });
-      const submit = page.locator(".upload-card .full-button");
-      await expect(upload.getByRole("heading", { name: "上傳教材", level: 1, exact: true })).toBeVisible();
-      await expect(submit).toBeDisabled();
-      const drop = upload.locator(".file-drop");
-      const initialHeight = (await drop.boundingBox())!.height;
-      expect(initialHeight).toBeGreaterThanOrEqual(210);
-      await expect(drop).toContainText("將 PDF 拖放到此處");
-      await expect(drop).toContainText("或點擊選擇 PDF · 最大 100 MiB");
-      expect((await drop.locator(".file-drop__icon").boundingBox())!.width).toBe(58);
-      await expect(input).toHaveAttribute("accept", "application/pdf");
-      await expect(upload).toHaveAttribute("aria-labelledby", "upload-title");
-      await expect(page.locator(".sidebar-helper")).toHaveCount(0);
-      await expect(upload.locator(".step-number")).toHaveCount(0);
-      await expect(upload.locator("img")).toHaveCount(1);
-      await expect(upload.locator(".upload-aside > .surface")).toHaveCount(1);
-      await expect(upload.getByRole("region", { name: "檔案需求" })).toContainText("PDF（.pdf）· 最大 100 MiB");
-      await expect(upload.locator(".privacy-note")).toContainText("教材只交由本機 Studydy 流程處理");
-      if (["selected", "long-name", "submitting", "api-failure"].includes(state)) {
-        const file = state === "long-name" ? { ...pdf, name: "資料結構_" + "LongUnbrokenFilename".repeat(7) + ".pdf" } : pdf;
-        await input.setInputFiles(file);
-        await expect(upload.locator(".chosen-file strong")).toHaveText(file.name);
-        await expect(upload.getByText(file.name, { exact: true })).toHaveCount(1);
-        await expect(submit).toBeEnabled();
-      }
-      if (state === "invalid") await input.setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("notes") });
-      if (state === "oversized" || state === "drag-over") {
-        const data = await transfer(page, [{ name: "lecture.pdf", type: "application/pdf", size: state === "oversized" ? 100 * 1024 * 1024 + 1 : 20 }]);
-        await page.locator(".file-drop").dispatchEvent(state === "oversized" ? "drop" : "dragenter", { dataTransfer: data });
-        await data.dispose();
-      }
-      if (state === "submitting" || state === "api-failure") {
-        await submit.click();
-        await expect.poll(() => calls).toBe(1);
-        if (state === "submitting") {
-          await expect(submit).toBeDisabled(); await expect(input).toBeDisabled();
-          await expect(upload.getByRole("button", { name: "移除", exact: true })).toBeDisabled();
-          await expect(submit).toHaveText("正在上傳並建立分析…");
-          await expect(page.locator(".file-drop")).toHaveClass(/is-disabled/);
-        } else {
-          await expect(upload.getByRole("alert")).toContainText("資料服務暫時無法使用"); await expect(submit).toBeEnabled();
-          await expect(upload.locator(".chosen-file strong")).toHaveText(pdf.name);
-          await expect(upload.locator(".chosen-file")).toContainText("準備上傳");
-          await expect(upload.locator(".chosen-file")).not.toContainText("需要修正");
-          await expect(upload.locator("#upload-submit-error")).toHaveAttribute("role", "alert");
-          await expect(upload.locator("#upload-file-error")).toHaveCount(0);
-          expect(await input.getAttribute("aria-invalid")).toBeNull();
-          expect(await input.getAttribute("aria-describedby")).toBeNull();
-          await expect(page).toHaveURL(/\/upload$/);
-        }
-      }
-      if (state === "invalid" || state === "oversized") {
-        await expect(upload.getByRole("alert")).toContainText(state === "invalid" ? "不是可用的 PDF" : "不可超過 100 MiB");
-        await expect(upload.locator("#upload-file-error")).toHaveAttribute("role", "alert");
-        await expect(upload.locator("#upload-submit-error")).toHaveCount(0);
-        await expect(input).toHaveAttribute("aria-invalid", "true");
-        await expect(input).toHaveAttribute("aria-describedby", "upload-file-error");
-        await expect(upload.locator(".chosen-file")).toHaveCount(0); await expect(submit).toBeDisabled();
-        expect(await input.inputValue()).toBe("");
-      }
-      if (state === "drag-over") await expect(page.locator(".file-drop")).toHaveClass(/is-dragging/);
-      const selected = ["selected", "long-name", "submitting", "api-failure"].includes(state);
-      const dropHeight = (await drop.boundingBox())!.height;
-      if (selected) {
-        expect(dropHeight).toBeGreaterThanOrEqual(110); expect(dropHeight).toBeLessThanOrEqual(130);
-        expect(dropHeight).toBeLessThan(initialHeight);
-        await expect(drop).toContainText("拖放或點擊以更換 PDF");
-        await expect(drop).not.toContainText("100 MiB");
-        const filename = await upload.locator(".chosen-file strong").textContent();
-        await expect(drop).not.toContainText(filename!);
-        expect((await drop.locator(".file-drop__icon").boundingBox())!.width).toBe(42);
-      } else expect(dropHeight).toBe(initialHeight);
-      expect(await upload.evaluate(element => getComputedStyle(element).maxWidth)).toBe("1180px");
-      const card = await upload.locator(".upload-card").boundingBox();
-      const rail = await upload.locator(".upload-aside").boundingBox();
-      if (viewport.width > 1200) {
-        expect(rail!.width).toBe(320); expect(card!.width).toBeGreaterThan(rail!.width * 1.5);
-        expect(rail!.x).toBeGreaterThanOrEqual(card!.x + card!.width + 20);
-      } else expect(rail!.y).toBeGreaterThanOrEqual(card!.y + card!.height + 20);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
-      expect(await upload.locator("button, h1, h2, h3, p, strong").evaluateAll(elements => elements.filter(element => element.scrollWidth > element.clientWidth + 1).map(element => element.tagName))).toEqual([]);
-      await expect.poll(() => upload.locator(".upload-hero img").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
-      await page.screenshot({ path: `/tmp/studydy-upload/${viewport.width}-${state}.png`, fullPage: true });
-    });
-  }
-}
-
-test("selection, invalid replacements, accessible picker, drag/drop and removal keep one valid file", async ({ page }) => {
-  await signedIn(page); await page.goto("/upload");
-  const input = page.getByLabel("選擇 PDF 教材", { exact: true });
-  const drop = page.locator(".file-drop");
-  const chosen = page.locator(".chosen-file");
-  const submit = page.locator(".upload-card .full-button");
-  await input.focus(); await page.keyboard.press("Tab"); await page.keyboard.press("Shift+Tab"); await input.focus();
-  expect(await drop.evaluate(element => getComputedStyle(element).outlineStyle)).toBe("solid");
-  expect(await input.evaluate(element => getComputedStyle(element).display)).not.toBe("none");
-  const picker = page.waitForEvent("filechooser"); await drop.click(); await (await picker).setFiles(pdf);
-  await expect(chosen).toContainText("1 KiB · 準備上傳"); await expect(submit).toBeEnabled();
-  const compactHeight = (await drop.boundingBox())!.height;
-  expect(compactHeight).toBeLessThan(130);
-  const replacementPicker = page.waitForEvent("filechooser");
-  await drop.click(); await (await replacementPicker).setFiles({ ...pdf, name: "replacement.pdf" });
-  await expect(chosen.locator("strong")).toHaveText("replacement.pdf");
-  expect((await drop.boundingBox())!.height).toBe(compactHeight);
-  await input.focus(); expect(await drop.evaluate(element => getComputedStyle(element).outlineStyle)).toBe("solid");
-  const replacementDrop = await transfer(page, [{ name: "drag-replaced.pdf", type: "application/pdf" }]);
-  await drop.dispatchEvent("dragenter", { dataTransfer: replacementDrop });
-  await expect(drop).toHaveClass(/has-file/); await expect(drop).toHaveClass(/is-dragging/);
-  expect(await drop.evaluate(element => getComputedStyle(element).boxShadow)).not.toBe("none");
-  await drop.dispatchEvent("drop", { dataTransfer: replacementDrop }); await replacementDrop.dispose();
-  await expect(chosen.locator("strong")).toHaveText("drag-replaced.pdf");
-  expect((await drop.boundingBox())!.height).toBe(compactHeight);
-  for (const invalid of [
-    { name: "empty.pdf", mimeType: "application/pdf", buffer: Buffer.alloc(0) },
-    { name: "not-pdf.txt", mimeType: "text/plain", buffer: Buffer.from("notes") },
-  ]) {
-    await input.setInputFiles(invalid); await expect(page.getByRole("alert")).toBeVisible();
-    await expect(chosen).toHaveCount(0); await expect(submit).toBeDisabled();
-    await expect(drop).not.toHaveClass(/has-file/);
-    expect((await drop.boundingBox())!.height).toBeGreaterThanOrEqual(210);
-    await expect(input).toHaveAttribute("aria-invalid", "true");
-    await expect(input).toHaveAttribute("aria-describedby", "upload-file-error");
-    await expect(page.locator("#upload-file-error")).toHaveAttribute("role", "alert");
-    await expect(page.locator("#upload-submit-error")).toHaveCount(0);
-  }
-  const valid = await transfer(page, [{ name: "dropped.pdf", type: "application/pdf" }]);
-  await drop.dispatchEvent("dragenter", { dataTransfer: valid }); await expect(drop).toHaveClass(/is-dragging/);
-  await drop.dispatchEvent("dragover", { dataTransfer: valid });
-  await drop.dispatchEvent("dragleave", { dataTransfer: valid }); await expect(drop).not.toHaveClass(/is-dragging/);
-  await drop.dispatchEvent("drop", { dataTransfer: valid }); await expect(chosen.locator("strong")).toHaveText("dropped.pdf");
-  await expect(drop).not.toHaveClass(/is-dragging/); await expect(submit).toBeEnabled(); await valid.dispose();
-  for (const files of [[{ name: "not-pdf.txt", type: "text/plain" }], [{ name: "a.pdf", type: "application/pdf" }, { name: "b.pdf", type: "application/pdf" }]]) {
-    const invalid = await transfer(page, files); await drop.dispatchEvent("drop", { dataTransfer: invalid }); await invalid.dispose();
-    await expect(page.getByRole("alert")).toContainText(files.length === 2 ? "一次只能處理一份 PDF" : "不是可用的 PDF");
-    await expect(chosen).toHaveCount(0); await expect(submit).toBeDisabled();
-    await expect(drop).not.toHaveClass(/has-file/);
-    expect((await drop.boundingBox())!.height).toBeGreaterThanOrEqual(210);
-    await expect(input).toHaveAttribute("aria-invalid", "true");
-    await expect(input).toHaveAttribute("aria-describedby", "upload-file-error");
-    await expect(page.locator("#upload-file-error")).toHaveAttribute("role", "alert");
-    await expect(page.locator("#upload-submit-error")).toHaveCount(0);
-  }
-  await input.setInputFiles(pdf); await expect(page.getByRole("alert")).toHaveCount(0);
-  await page.getByRole("button", { name: "移除", exact: true }).click();
-  await expect(chosen).toHaveCount(0); await expect(submit).toBeDisabled(); expect(await input.inputValue()).toBe("");
-  await expect(drop).not.toHaveClass(/has-file/);
-  expect((await drop.boundingBox())!.height).toBeGreaterThanOrEqual(210);
-  await expect(drop).toContainText("將 PDF 拖放到此處");
-  await expect(page.getByRole("alert")).toHaveCount(0);
-});
-
-test("rapid submit creates one material then one bound run and navigates only after both succeed", async ({ page }) => {
-  await signedIn(page);
-  const requests: { path: string; key: string }[] = [];
-  let release!: () => void;
-  const pending = new Promise<void>(resolve => { release = resolve; });
-  await page.route("**/v1/materials", async route => {
-    requests.push({ path: "material", key: route.request().headers()["idempotency-key"] });
-    expect(route.request().headers()["content-type"]).toBe("application/pdf");
-    expect(decodeURIComponent(route.request().headers()["x-material-name"])).toBe(pdf.name);
-    expect(route.request().postDataBuffer()).toEqual(pdf.buffer);
-    await pending; await route.fulfill({ status: 201, json: material });
+async function setup(page: Page) {
+  const state = { drafts: [] as string[], uploads: [] as { name: string; key: string }[], sources: [] as SourceView[],
+    starts: [] as { key: string; body: { normalization_ids: string[]; base_revision: string | null } }[],
+    uploadLost: false, runLost: false, draftLost: false, conversionFailed: false, deleted: 0, run: null as MaterialProcessingRunView | null };
+  await page.route("**/v1/session", r => r.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }));
+  await page.route("**/v1/session/refresh", r => r.fulfill({ status: 204 }));
+  await page.route("**/v2/source-capabilities", r => r.fulfill({ json: { schema: "source-capabilities/v1", quality_notice: "PDF 優先", formats: [
+    { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 }, { extension: ".txt", media_type: "text/plain", max_bytes: 104857600 },
+  ] } }));
+  await page.route("**/v2/materials", r => {
+    state.drafts.push(r.request().headers()["idempotency-key"]);
+    if (state.draftLost) { state.draftLost = false; return r.abort("connectionreset"); }
+    return r.fulfill({ status: 201, json: { schema: "material-draft/v1", material_id: material } });
   });
-  await page.route("**/v1/material-processing-runs", route => {
-    requests.push({ path: "run", key: route.request().headers()["idempotency-key"] });
-    expect(route.request().postDataJSON()).toEqual({ schema: "material-processing-create/v1", material_id: materialId, source_artifact_id: artifactId });
-    return route.fulfill({ status: 201, json: run });
-  });
-  await page.goto("/upload"); await page.getByLabel("選擇 PDF 教材", { exact: true }).setInputFiles(pdf);
-  await page.locator(".upload-card .full-button").evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
-  await expect.poll(() => requests.length).toBe(1);
-  await expect(page.locator(".upload-card .full-button")).toBeDisabled();
-  const ignored = await transfer(page, [{ name: "ignored.txt", type: "text/plain" }]);
-  await page.locator(".file-drop").dispatchEvent("drop", { dataTransfer: ignored }); await ignored.dispose();
-  await expect(page.locator(".chosen-file strong")).toHaveText(pdf.name);
-  release();
-  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${runId}$`));
-  expect(requests.map(request => request.path)).toEqual(["material", "run"]);
-  expect(requests[0].key).toMatch(/^[0-9a-f-]{36}$/); expect(requests[1].key).not.toBe(requests[0].key);
-});
-
-for (const stage of ["material", "run"] as const) {
-  test(`${stage} failure stays on Upload and retry reuses each original idempotency key`, async ({ page }) => {
-    await signedIn(page);
-    let fail = true;
-    const uploads: string[] = []; const runs: string[] = [];
-    await page.route("**/v1/materials", route => { uploads.push(route.request().headers()["idempotency-key"]); return fail && stage === "material" ? failure(route) : route.fulfill({ status: 201, json: material }); });
-    await page.route("**/v1/material-processing-runs", route => { runs.push(route.request().headers()["idempotency-key"]); return fail && stage === "run" ? failure(route) : route.fulfill({ status: 201, json: run }); });
-    await page.goto("/upload"); await page.getByLabel("選擇 PDF 教材", { exact: true }).setInputFiles(pdf);
-    const submit = page.locator(".upload-card .full-button");
-    await submit.click(); await expect(page.getByRole("alert")).toContainText("資料服務暫時無法使用");
-    await expect(page).toHaveURL(/\/upload$/); await expect(submit).toBeEnabled();
-    await expect(page.locator(".chosen-file strong")).toHaveText(pdf.name);
-    await expect(page.locator(".chosen-file")).toContainText("準備上傳");
-    await expect(page.locator(".chosen-file")).not.toContainText("需要修正");
-    await expect(page.locator("#upload-submit-error")).toHaveAttribute("role", "alert");
-    await expect(page.locator("#upload-file-error")).toHaveCount(0);
-    const input = page.getByLabel("選擇 PDF 教材", { exact: true });
-    expect(await input.getAttribute("aria-invalid")).toBeNull();
-    expect(await input.getAttribute("aria-describedby")).toBeNull();
-    if (stage === "material") expect(runs).toHaveLength(0);
-    fail = false; await submit.click();
-    await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${runId}$`));
-    expect(uploads).toHaveLength(2); expect(uploads[1]).toBe(uploads[0]);
-    expect(runs).toHaveLength(stage === "run" ? 2 : 1);
-    if (stage === "run") expect(runs[1]).toBe(runs[0]);
-  });
-}
-
-test("remove and replacement reset both keys without retaining old selection errors", async ({ page }) => {
-  await signedIn(page);
-  const uploads: string[] = []; const runs: string[] = [];
-  await page.route("**/v1/materials", route => { uploads.push(route.request().headers()["idempotency-key"]); return route.fulfill({ status: 201, json: material }); });
-  await page.route("**/v1/material-processing-runs", route => { runs.push(route.request().headers()["idempotency-key"]); return failure(route); });
-  await page.goto("/upload"); const input = page.getByLabel("選擇 PDF 教材", { exact: true });
-  for (let index = 0; index < 3; index++) {
-    if (index === 1) {
-      await page.getByRole("button", { name: "移除", exact: true }).click();
-      await expect(page.locator(".chosen-file")).toHaveCount(0);
-      await expect(page.getByRole("alert")).toHaveCount(0);
-      await expect(page.locator(".upload-card .full-button")).toBeDisabled();
-      expect(await input.inputValue()).toBe("");
-      expect(await input.getAttribute("aria-invalid")).toBeNull();
-      expect(await input.getAttribute("aria-describedby")).toBeNull();
+  const item = () => ({ schema: "material-library-item/v3", ingestion_kind: "sources-v2", material_id: material,
+    source_artifact_id: null, display_name: "A.pdf", size_bytes: 128, created_at: stamp, latest_attempt: state.run, available_structures: [], study_sessions: [], source: state.sources[0] });
+  await page.route(`**/v1/materials/${material}`, r => r.fulfill({ json: item() }));
+  await page.route("**/v1/materials", r => r.fulfill({ json: { schema: "material-library/v2", materials: [item()] } }));
+  const listing = () => ({ schema: "material-sources/v1", material_id: material, sources: state.sources });
+  await page.route(`**/v2/materials/${material}/sources`, r => {
+    if (r.request().method() === "POST") {
+      const name = decodeURIComponent(r.request().headers()["x-material-name"]), key = r.request().headers()["idempotency-key"];
+      if (!state.uploads.some(upload => upload.key === key)) {
+        const n = 10 + state.sources.length * 10;
+        const failed = state.conversionFailed && name === "B.txt";
+        state.sources.push({ source_id: uuid(n), normalization_id: uuid(n + 1), original_artifact_id: uuid(n + 2), original_name: name,
+          media_type: r.request().headers()["content-type"], status: failed ? "failed" : "ready", normalized_artifact_id: failed ? null : uuid(n + 3), page_count: failed ? null : 1, error_code: failed ? "UTF8_REQUIRED" : null, included: false });
+      }
+      state.uploads.push({ name, key });
+      if (state.uploadLost && name === "B.txt") { state.uploadLost = false; return r.abort("connectionreset"); }
     }
-    await input.setInputFiles({ ...pdf, name: index === 2 ? "replacement.pdf" : pdf.name });
-    await expect(page.getByRole("alert")).toHaveCount(0);
-    await expect(page.locator(".chosen-file strong")).toHaveText(index === 2 ? "replacement.pdf" : pdf.name);
-    expect(await input.getAttribute("aria-invalid")).toBeNull();
-    expect(await input.getAttribute("aria-describedby")).toBeNull();
-    await expect(page.locator(".upload-card .full-button")).toBeEnabled();
-    await page.locator(".upload-card .full-button").click(); await expect(page.getByRole("alert")).toBeVisible();
-  }
-  expect(new Set(uploads).size).toBe(3); expect(new Set(runs).size).toBe(3);
-  await input.setInputFiles({ name: "invalid.txt", mimeType: "text/plain", buffer: Buffer.from("notes") });
-  await expect(page.locator("#upload-submit-error")).toHaveCount(0);
-  await expect(page.locator("#upload-file-error")).toBeVisible();
-  await expect(input).toHaveAttribute("aria-invalid", "true");
-  await expect(input).toHaveAttribute("aria-describedby", "upload-file-error");
-  await expect(page.locator(".chosen-file")).toHaveCount(0);
-  await expect(page.locator(".upload-card .full-button")).toBeDisabled();
-  await input.setInputFiles(pdf);
-  await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(page.locator(".chosen-file")).toContainText("準備上傳");
-  expect(await input.getAttribute("aria-invalid")).toBeNull();
-  expect(await input.getAttribute("aria-describedby")).toBeNull();
-  await expect(page.locator(".upload-card .full-button")).toBeEnabled();
+    return r.fulfill({ json: listing() });
+  });
+  await page.route(`**/v2/materials/${material}/sources/*`, r => {
+    expect(r.request().method()).toBe("DELETE"); state.deleted++;
+    state.sources = state.sources.filter(source => !r.request().url().endsWith(source.source_id));
+    return r.fulfill({ json: listing() });
+  });
+  await page.route(`**/v2/materials/${material}/revisions`, r => {
+    state.starts.push({ key: r.request().headers()["idempotency-key"], body: r.request().postDataJSON() });
+    if (state.runLost) { state.runLost = false; return r.fulfill({ status: 503, json: failure }); }
+    state.run = { schema: "material-processing-run/v6", run_id: runId, material_id: material, source_artifact_id: uuid(13),
+      source_names: state.sources.map(source => source.original_name), status: "pending", progress_stage: "queued", completed_pages: 0, total_pages: null,
+      output_binding: null, error_code: null, cancel_requested_at: null, created_at: stamp, updated_at: stamp, completed_at: null };
+    return r.fulfill({ status: 202, json: state.run });
+  });
+  await page.route(`**/v1/material-processing-runs/${runId}`, r => r.fulfill({ json: state.run }));
+  return state;
+}
+
+for (const width of [1536, 390]) {
+  test(`initial multi-source upload confirms exact order and replays analysis at ${width}px`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 844 });
+    const state = await setup(page); state.uploadLost = true; state.runLost = true;
+    await page.goto("/upload");
+    await page.getByLabel("選擇教材檔案", { exact: true }).setInputFiles([pdf, txt]);
+    await expect(page.locator(".chosen-file")).toHaveCount(2);
+    const upload = page.getByRole("button", { name: "上傳並確認來源", exact: true });
+    await upload.evaluate(element => { (element as HTMLButtonElement).click(); (element as HTMLButtonElement).click(); });
+    await expect(page.getByText("上傳失敗，可重試", { exact: false })).toBeVisible();
+    expect(state.starts).toHaveLength(0); expect(state.drafts).toHaveLength(1);
+    await page.getByRole("button", { name: "重試未完成的上傳" }).click();
+    await expect(page).toHaveURL(new RegExp(`/materials/${material}/sources$`));
+    expect(state.uploads.map(item => item.name)).toEqual(["A.pdf", "B.txt", "B.txt"]);
+    expect(state.uploads[1].key).toBe(state.uploads[2].key);
+    await expect(page.locator(".source-card")).toHaveCount(2);
+    await expect(page.getByRole("link", { name: /預覽轉換後 PDF/ })).toHaveCount(2);
+    await page.reload();
+    await page.getByRole("button", { name: "上移 B.txt" }).click();
+    await expect(page.locator(".source-card").first()).toContainText("B.txt");
+    await expect(page.locator(".source-confirmation")).toContainText("已選 2 份來源，共 2 頁");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath("initial-multiple.png"), fullPage: true });
+    await page.getByRole("button", { name: "開始分析教材", exact: true }).click();
+    await expect(page.locator(".source-request-error")).toBeVisible();
+    await page.getByRole("button", { name: "開始分析教材", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/materials/${material}/runs/${runId}$`));
+    expect(state.starts).toHaveLength(2); expect(state.starts[0].key).toBe(state.starts[1].key);
+    expect(state.starts[1].body.base_revision).toBeNull();
+    expect(state.starts[1].body.normalization_ids).toEqual([uuid(21), uuid(11)]);
+    expect(state.deleted).toBe(0);
+  });
+
+  test(`failed initial source requires explicit removal before analysis at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    const state = await setup(page); state.conversionFailed = true;
+    await page.goto("/upload");
+    await page.getByLabel("選擇教材檔案", { exact: true }).setInputFiles([pdf, txt]);
+    await page.getByRole("button", { name: "上傳並確認來源" }).click();
+    const start = page.getByRole("button", { name: "開始分析教材", exact: true });
+    await expect(start).toBeDisabled(); await page.reload(); await expect(start).toBeDisabled();
+    expect(state.starts).toHaveLength(0);
+    await page.getByRole("region", { name: "B.txt", exact: true }).getByRole("button", { name: "移除這份教材", exact: true }).click();
+    await expect(start).toBeEnabled();
+    await start.click();
+    await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
+    expect(state.deleted).toBe(1); expect(state.starts[0].body.normalization_ids).toEqual([uuid(11)]);
+  });
+}
+
+test("invalid and oversized files stay visible until explicitly removed", async ({ page }) => {
+  const state = await setup(page);
+  await page.goto("/upload");
+  await page.getByLabel("選擇教材檔案", { exact: true }).setInputFiles([pdf, { name: "empty.txt", mimeType: "text/plain", buffer: Buffer.alloc(0) }]);
+  await expect(page.getByRole("alert")).toContainText("不可為空白");
+  await expect(page.getByRole("button", { name: "上傳並確認來源" })).toBeDisabled();
+  await page.getByRole("button", { name: "移除 empty.txt", exact: true }).click();
+  const data = await page.evaluateHandle(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array(104857601)], "too-large.pdf", { type: "application/pdf" }));
+    return transfer;
+  });
+  await page.locator(".file-drop").dispatchEvent("drop", { dataTransfer: data }); await data.dispose();
+  await expect(page.getByRole("alert")).toContainText("100 MiB");
+  await expect(page.locator(".chosen-file")).toHaveCount(2);
+  expect(state.drafts).toHaveLength(0);
+  await page.getByRole("button", { name: "移除 too-large.pdf", exact: true }).click();
+  await expect(page.getByRole("button", { name: "上傳並確認來源" })).toBeEnabled();
 });
 
-test("task supporting rail stacks before the main upload area becomes cramped", async ({ page }) => {
-  await signedIn(page); await page.setViewportSize({ width: 1100, height: 800 }); await page.goto("/upload");
-  const card = await page.locator(".upload-card").boundingBox(); const rail = await page.locator(".upload-aside").boundingBox();
-  expect(rail!.y).toBeGreaterThan(card!.y + card!.height);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1100);
+test("draft response loss keeps the same intent and never starts analysis from upload", async ({ page }) => {
+  const state = await setup(page); state.draftLost = true;
+  await page.goto("/upload");
+  await page.getByLabel("選擇教材檔案", { exact: true }).setInputFiles(pdf);
+  await page.getByRole("button", { name: "上傳並確認來源" }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await page.getByRole("button", { name: "上傳並確認來源" }).click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${material}/sources$`));
+  expect(state.drafts).toHaveLength(2); expect(state.drafts[0]).toBe(state.drafts[1]);
+  expect(state.uploads).toHaveLength(1); expect(state.starts).toHaveLength(0);
+});
+
+test("drag state and accessible picker support multiple files without accidental submission", async ({ page }) => {
+  const state = await setup(page); await page.goto("/upload");
+  const drop = page.locator(".file-drop"), input = page.getByLabel("選擇教材檔案", { exact: true });
+  await input.focus(); expect(await drop.evaluate(element => getComputedStyle(element).outlineStyle)).toBe("solid");
+  const picker = page.waitForEvent("filechooser"); await drop.click(); await (await picker).setFiles([pdf, txt]);
+  const data = await page.evaluateHandle(() => { const value = new DataTransfer(); value.items.add(new File(["text"], "C.txt", { type: "text/plain" })); return value; });
+  await drop.dispatchEvent("dragenter", { dataTransfer: data }); await expect(drop).toHaveClass(/is-dragging/);
+  await page.keyboard.press("Escape"); await expect(drop).not.toHaveClass(/is-dragging/);
+  await drop.dispatchEvent("drop", { dataTransfer: data }); await data.dispose();
+  await expect(page.locator(".chosen-file")).toHaveCount(3);
+  expect(state.uploads).toHaveLength(0);
 });

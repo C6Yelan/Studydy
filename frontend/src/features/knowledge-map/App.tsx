@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { KnowledgeStructureView, LearnerProgressView, StudySessionView } from "../../api/contracts";
+import type { KnowledgeStructureView, LearnerProgressView, MaterialLibraryItem, StudySessionView } from "../../api/contracts";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { StateView } from "../../ui/StateView";
 import { KnowledgeMapWorkspace } from "./KnowledgeMapWorkspace";
@@ -23,6 +23,7 @@ export default function KnowledgeMap({ apiClient, route }: {
   const [isStartingStudy, setIsStartingStudy] = useState(false);
   const startIntent = useRef<{ conceptId: string; key: string } | null>(null);
 
+  const loadedRoute = useRef("");
   useEffect(() => {
     let cancelled = false;
     setMessage(null);
@@ -30,20 +31,38 @@ export default function KnowledgeMap({ apiClient, route }: {
     setSavedLearningState(null);
     setProgressMessage(null);
     setIsLoadingProgress(true);
+    const routeKey = `${route.materialId}:${route.runId}:${route.structureRevision}`;
+    if (loadedRoute.current !== routeKey) {
+      setView(null);
+      setSourceArtifactId(null);
+      loadedRoute.current = routeKey;
+    }
+    const openCurrentHead = (material: MaterialLibraryItem) => {
+      const head = material.available_structures.find(item => item.knowledge_structure_revision === material.head_revision);
+      if (!head || head.knowledge_structure_revision === route.structureRevision) return false;
+      writeRoute({ name: "knowledge-map", materialId: route.materialId, runId: head.run_id, structureRevision: head.knowledge_structure_revision }, true);
+      return true;
+    };
     const load = async () => {
       try {
-        const [map, run] = await Promise.all([
-          apiClient.getKnowledgeStructure({ materialId: route.materialId, structureRevision: route.structureRevision }),
+        const [mapResult, run] = await Promise.all([
+          apiClient.getKnowledgeStructure({ materialId: route.materialId, structureRevision: route.structureRevision })
+            .then(view => ({ view, error: null }), (error: unknown) => ({ view: null, error })),
           apiClient.getMaterialRun(route.runId),
         ]);
         if (cancelled) return;
         if (run.material_id !== route.materialId
           || run.output_binding?.knowledge_structure_revision !== route.structureRevision) throw new Error("RUN_STRUCTURE_MISMATCH");
-        setView(map);
+        if (!mapResult.view) {
+          const material = await apiClient.getMaterial(route.materialId);
+          if (cancelled || openCurrentHead(material)) return;
+          throw mapResult.error;
+        }
+        setView(mapResult.view);
         setSourceArtifactId(run.source_artifact_id);
         try {
           const material = await apiClient.getMaterial(route.materialId);
-          if (cancelled) return;
+          if (cancelled || openCurrentHead(material)) return;
           const saved = material.study_sessions.find(item => item.run_id === route.runId && item.knowledge_structure_revision === route.structureRevision);
           if (!saved) return;
           const restored = await apiClient.resumeStudy({ ...route, studySessionId: saved.study_session_id });
@@ -117,6 +136,7 @@ export default function KnowledgeMap({ apiClient, route }: {
   };
   return (
     <KnowledgeMapWorkspace
+      key={view.knowledge_structure_revision}
       apiClient={apiClient}
       progress={progress}
       learningStateStatus={savedLearningState?.status ?? null}
@@ -125,6 +145,7 @@ export default function KnowledgeMap({ apiClient, route }: {
       isStartingStudy={isStartingStudy || isLoadingProgress}
       isLoadingProgress={isLoadingProgress}
       onReturnToRun={() => writeRoute({ name: "material-run", materialId: route.materialId, runId: route.runId })}
+      onAddSources={() => writeRoute({ name: "material-sources", materialId: route.materialId })}
       onStartStudy={startStudy}
       sourceArtifactId={sourceArtifactId}
       startMessage={startMessage}

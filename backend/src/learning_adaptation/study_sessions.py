@@ -148,7 +148,8 @@ def create_study_session(
                 _validate(session, canonical)
                 return _stored(canonical)
             known = {concept.concept_id for concept in context.concepts}
-            selected = current_concept_id or (context.initial_learning_path[0] if context.initial_learning_path else None)
+            from .inherited_progress import preferred_focus
+            selected = current_concept_id or preferred_focus(session, learner_id, material_id, knowledge_structure_revision) or (context.initial_learning_path[0] if context.initial_learning_path else None)
             if selected not in known:
                 raise StudySessionError("STUDY_SESSION_TARGET_INVALID")
             session.execute(insert(StudySession).values(
@@ -189,6 +190,7 @@ def set_current_study_concept(learner: TrustedLearner, study_session_id: UUID, c
         with database_session(dsn) as session:
             stored = _row(session, learner_id, study_session_id, lock=True)
             context = _validate(session, stored)
+            # 焦點只決定導覽位置；已建立題組由自己的 Concept／KS／成員綁定保護。
             if stored.status not in {"active", "no_safe"} or concept_id not in {concept.concept_id for concept in context.concepts}:
                 raise StudySessionError("STUDY_SESSION_TARGET_INVALID")
             stored.current_concept_id = concept_id
@@ -208,6 +210,9 @@ def complete_study_session(learner: TrustedLearner, study_session_id: UUID, *, d
         with database_session(dsn) as session:
             stored = _row(session, learner_id, study_session_id, lock=True)
             _validate(session, stored)
+            from .assessment_sets import has_active_set
+            if has_active_set(session, study_session_id):
+                raise StudySessionError('ASSESSMENT_SET_ACTIVE')
             if stored.status != "completed":
                 stored.status = "completed"
                 stored.completed_at = datetime.now(UTC)

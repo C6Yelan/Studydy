@@ -61,14 +61,14 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
       await expect(processing.getByRole("button", { name: "取消並刪除教材", exact: true })).toHaveCount(
         name !== "loading" && name !== "api-failure" && (run.status === "pending" || run.status === "running") && run.progress_stage !== "publishing" ? 1 : 0);
       await expect(processing.getByRole("button", { name: "重新分析", exact: true })).toHaveCount(0);
-      expect(await processing.evaluate(element => getComputedStyle(element).maxWidth)).toBe("1180px");
+      expect(await processing.evaluate(element => getComputedStyle(element).maxWidth)).toBe("1280px");
       if (name === "loading") await expect(processing).toHaveAttribute("aria-live", "polite");
       else if (name === "api-failure") {
         await expect(processing.getByRole("heading", { name: "無法讀取處理狀態", exact: true })).toBeVisible();
         await expect(processing.getByRole("button", { name: "重新讀取", exact: true })).toBeVisible();
       } else if (run.status === "failed") {
         await expect(processing.getByRole("heading", { name: "教材處理失敗", exact: true })).toBeVisible();
-        await expect(processing).toContainText("最後安全進度：整理頁面與教材來源，3 / 45 頁");
+        await expect(processing).toContainText("最後記錄進度：整理頁面與教材來源，3 / 45 頁");
         await expect(processing.locator("details")).not.toHaveAttribute("open", "");
         await expect(processing.locator("code")).toBeHidden();
       } else if (run.status === "succeeded" || run.status === "partial") {
@@ -133,7 +133,9 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
       }
       if (viewport.width > 620 && name !== "failed" && name !== "api-failure") {
         const hero = await processing.locator(".processing-hero").boundingBox();
-        expect(hero!.height).toBeGreaterThanOrEqual(150); expect(hero!.height).toBeLessThanOrEqual(180);
+        expect(hero!.height).toBeGreaterThanOrEqual(104);
+        const heading = (await processing.locator("h1").boundingBox())!;
+        expect(heading.y).toBeCloseTo(hero!.y, 0);
       }
       if (["evidence", "semantics", "publishing", "succeeded", "partial"].includes(name)) {
         const cards = await processing.locator(".processing-grid > section").evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()));

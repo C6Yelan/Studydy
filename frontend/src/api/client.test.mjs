@@ -180,13 +180,13 @@ function resumeView() {
     prompt: "Saved question", options: Array.from({ length: 4 }, (_, index) => ({ option_id: `option:sha256:${String(index + 1).repeat(64)}`, text: String(index) })),
   };
   return {
-    schema: "study-resume/v1", run_id: runId, source_artifact_id: libraryItem().source_artifact_id,
+    schema: "study-resume/v3", assessment_sets: [], selected_set_id: null, run_id: runId, source_artifact_id: libraryItem().source_artifact_id,
     session: { schema: "study-session/v2", study_session_id: sessionId, material_id: materialId,
       knowledge_structure_revision: structureRevision, current_concept_id: conceptId,
       no_safe_claim_ids: [], deferred_concept_ids: [], status: "active", event_watermark: 0,
       started_at: "2026-09-11T00:00:00Z", completed_at: null },
     knowledge_structure: structureView(),
-    progress: { schema: "learner-progress/v2", study_session_id: sessionId, knowledge_structure_revision: structureRevision,
+    progress: { schema: "learner-progress/v3", assessment_cycles: [], study_session_id: sessionId, knowledge_structure_revision: structureRevision,
       event_watermark: 0, current_concept_id: conceptId, deferred_concept_ids: [],
       concept_states: [{ concept_id: conceptId, label: "Stack", status: "not_started" }], weaknesses: [],
       next_action: { action: "assess", target_concept_id: conceptId, target_claim_id: claimId, prerequisite_concept_ids: [], reason: "current_concept" },
@@ -444,4 +444,103 @@ test("material rename uses the existing item guard and exact identity without a 
   assert.equal(sent.init.headers["Idempotency-Key"], undefined);
   assert.deepEqual(JSON.parse(sent.init.body), { schema: "material-rename/v1", display_name: item.display_name });
   await assert.rejects(client.renameMaterial(sessionId, item.display_name), error => error.kind === "schema");
+});
+
+test("assessment sets validate scope, membership, counts and private staging", async () => {
+  const record = resumeView().assessments[0];
+  const setId = "55555555-5555-4555-8555-555555555555";
+  const base = {
+    schema: "assessment-set/v2", set_id: setId, study_session_id: sessionId, material_id: materialId,
+    knowledge_structure_revision: structureRevision, target_concept_id: conceptId,
+    kind: "diagnostic", diagnostic_set_id: null, selection_policy: "single-concept-grounded-points/v1",
+    status: "preparing", set_version: 2, requested_count: 1, published_count: 0, answered_count: 0, passed_count: 0,
+    point_count: 1, excluded_count: 0, verified_count: 1, assessment_revisions: [],
+    created_at: "2026-09-20T00:00:00Z", completed_at: null,
+    can_retry: false, can_publish_partial: false, can_complete: false, can_cancel: true,
+    cycle: { diagnostic_set_id: setId, concept_id: conceptId, set_version: 2, outcome: "in_progress", closed_at: null,
+      active_set_id: setId, passed_count: 0, remediation_passed_count: 0, pending_count: 0, unanswered_count: 0, unavailable_count: 1,
+      can_create_remediation: false, can_close: false, can_review: false,
+      points: [{ claim_id: claimId, result: "unavailable", latest_answer_event_id: null, latest_set_id: null }] },
+    items: [{ ordinal: 1, target_claim_id: claimId, state: "verified", attempts: 1, failure_reason: null,
+      assessment: null, feedback: null, created_at: null, can_submit: false }],
+  };
+  const read = value => new StudydyApiClient(async () => Response.json(value)).readAssessmentSet(sessionId, setId);
+  assert.equal((await read(base)).verified_count, 1);
+  const ready = structuredClone(base);
+  Object.assign(ready, { status: "ready", published_count: 1, can_complete: true,
+    assessment_revisions: [record.assessment.assessment_revision] });
+  Object.assign(ready.items[0], { state: "published", assessment: record.assessment, created_at: record.created_at, can_submit: true });
+  assert.equal((await read(ready)).published_count, 1);
+  const answer = { assessment_revision: record.assessment.assessment_revision, question_id: record.assessment.question_id,
+    selected_option_id: record.assessment.options[0].option_id };
+  let request;
+  const client = new StudydyApiClient(async (path, init) => { request={path,init}; return Response.json(ready); });
+  await assert.rejects(client.submitAssessmentSet(sessionId,setId,[answer],2,"one-submit"),error=>error.kind==="schema");
+  assert.equal(request.path, `/v1/study-sessions/${sessionId}/assessment-sets/${setId}/submissions`);
+  assert.equal(request.init.headers["Idempotency-Key"], "one-submit");
+  assert.deepEqual(JSON.parse(request.init.body), {schema:"assessment-set-submission/v1",expected_set_version:2,answers:[answer]});
+  for (const corrupt of [
+    v => { v.study_session_id = materialId; },
+    v => { v.verified_count = 0; },
+    v => { v.target_plan = {}; },
+    v => { v.items[0].prepared_document = { private: "hidden" }; },
+    v => { v.items[0].assessment.target_claim_id = `claim:sha256:${"f".repeat(64)}`; },
+    v => { v.items[0].assessment.correct_option_id = "secret"; },
+    v => { v.passed_count = 1; },
+    v => { v.excluded_count = 1; },
+  ]) {
+    const value = structuredClone(ready); corrupt(value);
+    await assert.rejects(read(value), error => error.kind === "schema");
+  }
+});
+
+test("resume retries only snapshot conflicts and bounds read attempts", async () => {
+  const request = { materialId, structureRevision, studySessionId: sessionId, runId };
+  for (const recover of [true, false]) {
+    let calls=0;
+    const client=new StudydyApiClient(async (_path, init) => {
+      assert.equal(init.method, "GET"); calls++;
+      if (recover && calls===2) return Response.json(resumeView());
+      return Response.json({ schema: "api-error/v1", request_id: sessionId, reason_code: "IDEMPOTENCY_CONFLICT", retryable: false, message: "Request could not be completed." }, { status: 409 });
+    });
+    if (recover) { assert.equal((await client.resumeStudy(request)).session.study_session_id, sessionId); assert.equal(calls, 2); }
+    else { await assert.rejects(client.resumeStudy(request), e=>e.reasonCode==="IDEMPOTENCY_CONFLICT"); assert.equal(calls, 3); }
+  }
+});
+
+test("active set lists allow different concepts and identify duplicate creation explicitly",async()=>{
+  const firstId="55555555-5555-4555-8555-555555555555",secondId="66666666-6666-4666-8666-666666666666";
+  const summary={set_id:firstId,target_concept_id:conceptId,kind:"diagnostic",diagnostic_set_id:null,status:"preparing",set_version:1,
+    requested_count:1,published_count:0,answered_count:0,passed_count:0,assessment_revisions:[],created_at:"2026-09-20T00:00:00Z",completed_at:null};
+  const list={schema:"assessment-set-list/v3",study_session_id:sessionId,knowledge_structure_revision:structureRevision,
+    active_set_ids:[firstId,secondId],sets:[summary,{...summary,set_id:secondId,target_concept_id:`concept:sha256:${"e".repeat(64)}`} ]};
+  const read=value=>new StudydyApiClient(async()=>Response.json(value)).listAssessmentSets(sessionId);
+  assert.equal((await read(list)).active_set_ids.length,2);
+  for(const corrupt of [v=>{v.active_set_ids=[];},v=>{v.active_set_ids=[firstId,firstId];},v=>{v.sets[1].target_concept_id=conceptId;},v=>{v.study_session_id=materialId;}]){
+    const value=structuredClone(list);corrupt(value);await assert.rejects(read(value),error=>error.kind==="schema");
+  }
+  const client=new StudydyApiClient(async()=>Response.json({schema:"api-error/v1",request_id:sessionId,
+    reason_code:"ASSESSMENT_SET_ACTIVE",retryable:false,message:"Request could not be completed."},{status:409}));
+  await assert.rejects(client.createAssessmentSet(sessionId,conceptId,"one-intent"),error=>error.reasonCode==="ASSESSMENT_SET_ACTIVE");
+});
+
+test("resume authorizes saved group membership independently of navigation focus",async()=>{
+  const value=resumeView(),other=`concept:sha256:${"e".repeat(64)}`,setId="55555555-5555-4555-8555-555555555555";
+  const second=structuredClone(value.knowledge_structure.concepts[0]);second.concept_id=other;second.label="Other";
+  second.claims[0].claim_id=`claim:sha256:${"e".repeat(64)}`;
+  value.knowledge_structure.concepts.push(second);
+  value.knowledge_structure.document_tree.sections[0].concept_ids.push(other);
+  value.knowledge_structure.initial_learning_path.push({position:2,concept_id:other,reason:"document_order"});
+  value.session.current_concept_id=value.progress.current_concept_id=other;
+  value.progress.concept_states.push({...value.progress.concept_states[0],concept_id:other,label:"Other"});
+  value.assessment_sets=[{set_id:setId,target_concept_id:conceptId,kind:"diagnostic",diagnostic_set_id:null,status:"ready",set_version:1,
+    requested_count:1,published_count:1,answered_count:0,passed_count:0,assessment_revisions:[value.assessments[0].assessment.assessment_revision],
+    created_at:"2026-09-20T00:00:00Z",completed_at:null}];
+  value.selected_set_id=setId;
+  const request={materialId,structureRevision,studySessionId:sessionId,runId};
+  const read=value=>new StudydyApiClient(async()=>Response.json(value)).resumeStudy(request);
+  assert.equal((await read(value)).assessments[0].can_submit,true);
+  for(const corrupt of [v=>{v.assessment_sets=[];v.selected_set_id=null;},v=>{v.assessment_sets[0].status="completed";},v=>{v.assessment_sets[0].target_concept_id=other;}]){
+    const bad=structuredClone(value);corrupt(bad);await assert.rejects(read(bad),error=>error.kind==="schema");
+  }
 });

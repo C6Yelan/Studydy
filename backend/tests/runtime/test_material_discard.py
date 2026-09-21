@@ -19,7 +19,7 @@ import runtime.workers as workers
 import runtime.storage.artifacts as artifacts
 from runtime.storage.tables import Material, MaterialProcessingRun as RunRow, database_session
 from runtime.storage.migrations import run_migrations
-from runtime.storage.knowledge_structures import publish_knowledge_structure, read_knowledge_structure
+from runtime.storage.knowledge_structures import publish_knowledge_structure, read_knowledge_structure, KnowledgeStructureStoreError
 from runtime.learner_session import register_account
 from learning_adaptation.study_sessions import create_study_session
 from test_closed_loop_v1 import closed_loop, _pdf, _structure
@@ -106,17 +106,20 @@ def test_running_discard_commits_intent_then_cancels_and_purges(unused, stage, m
 
 
 @pytest.mark.parametrize('state', ['publishing', 'succeeded', 'partial'])
-def test_published_data_deletes_and_publishing_finishes_before_purge(unused, state):
+def test_published_data_deletes_and_discard_prevents_late_publication(unused, state):
     run = create(unused); claim(unused, 'publishing')
     document = _structure(str(run.run_id), unused.source.sha256, unused.settings['runtime_lock'], partial=state == 'partial')
     if state != 'publishing':
         publish_knowledge_structure(unused.learner.learner_id, unused.source.material_id, run.run_id, document, dsn=unused.dsn)
     assert request(unused) == ('removing' if state == 'publishing' else 'removed')
     if state == 'publishing':
-        assert read(unused, run).cancel_requested_at is None
+        assert read(unused, run).cancel_requested_at is not None
         with pytest.raises(processing.MaterialProcessingError, match='MATERIAL_NOT_DISCARDABLE'):
             create(unused, 'after-delete-intent')
-        publish_knowledge_structure(unused.learner.learner_id, unused.source.material_id, run.run_id, document, dsn=unused.dsn)
+        with pytest.raises(KnowledgeStructureStoreError,match='MATERIAL_RUN_UNAVAILABLE'):
+            publish_knowledge_structure(unused.learner.learner_id, unused.source.material_id, run.run_id, document, dsn=unused.dsn)
+        with pytest.raises(processing.MaterialProcessingCancelled):
+            processing._check_cancellation(run.run_id,dsn=unused.dsn)
         discard.finish_material_discards(dsn=unused.dsn)
     assert_removed(unused)
     with psycopg.connect(unused.dsn) as db:
@@ -125,8 +128,24 @@ def test_published_data_deletes_and_publishing_finishes_before_purge(unused, sta
 
 def test_every_active_run_is_cancelled_and_no_new_run_can_start(unused):
     first = create(unused); claim(unused)
-    second = create(unused, 'second'); claim(unused, 'semantics')
-    pending = create(unused, 'third')
+    with pytest.raises(processing.MaterialProcessingError,match='REVISION_IN_PROGRESS'):
+        create(unused,'second')
+    # 模擬升級前已保存的多 run；新 API 禁止新增同 Material 的並行意圖。
+    from uuid import uuid4
+    from hashlib import sha256
+    with database_session(unused.dsn) as session:
+        original=session.get(RunRow,first.run_id)
+        values={column.name:getattr(original,column.name) for column in RunRow.__table__.columns}
+        for field in ('output_binding','bundle_manifest'):
+            if values[field] is None:values.pop(field)
+        duplicates=[]
+        for index in (1,2):
+            identity=uuid4()
+            row=RunRow(**{**values,'run_id':identity,'idempotency_key_sha256':sha256(str(identity).encode()).digest(),
+                'status':'running' if index==1 else 'pending','progress_stage':'semantics' if index==1 else 'queued',
+                'worker_token':None,'lease_expires_at':None,'completed_pages':1 if index==1 else 0,'total_pages':1 if index==1 else None})
+            session.add(row);session.flush();duplicates.append(processing._row(row))
+    second,pending=duplicates
     assert request(unused) == 'removing'
     assert read(unused, pending).status == 'cancelled'
     assert read(unused, pending).completed_at == read(unused, pending).cancel_requested_at
@@ -181,7 +200,7 @@ def test_discard_publishing_race_is_ordered_by_row_locks(unused, monkeypatch, di
     saved = read(unused, run)
     assert saved.status == ('cancelled' if discard_first else 'running')
     assert saved.progress_stage == ('semantics' if discard_first else 'publishing')
-    assert (saved.cancel_requested_at is not None) == discard_first
+    assert saved.cancel_requested_at is not None
     with psycopg.connect(unused.dsn) as c:
         assert c.execute('SELECT discard_requested_at IS NOT NULL FROM materials WHERE material_id=%s', (unused.source.material_id,)).fetchone() == (True,)
 
@@ -406,8 +425,11 @@ def test_0006_adds_only_nullable_intent_and_preserves_old_checksums(clean_databa
         before = c.execute('SELECT row_to_json(m) FROM materials m').fetchone()[0]
         run_before = c.execute('SELECT row_to_json(r) FROM material_processing_runs r').fetchone()[0]
         checksums = c.execute('SELECT version,sql_sha256 FROM schema_migrations ORDER BY version').fetchall()
-    assert run_migrations(clean_database_dsn) == (6,)
-    assert run_migrations(clean_database_dsn) == ()
+    through_six=tmp_path/"through-six";through_six.mkdir()
+    for path in migrations_dir.glob("*.sql"):
+        if int(path.name[:4])<=6:(through_six/path.name).write_bytes(path.read_bytes())
+    assert run_migrations(clean_database_dsn,migrations_dir=through_six) == (6,)
+    assert run_migrations(clean_database_dsn,migrations_dir=through_six) == ()
     with psycopg.connect(clean_database_dsn) as c:
         after = c.execute('SELECT row_to_json(m) FROM materials m').fetchone()[0]
         assert after.pop('discard_requested_at') is None and after == before

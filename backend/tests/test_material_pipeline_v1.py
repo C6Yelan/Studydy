@@ -108,6 +108,30 @@ def test_multiple_bundles_report_incremental_semantic_progress(tmp_path):
     assert completed[0] < 3 and completed[-1] == 3
 
 
+def test_command_uses_shared_batching_and_carries_concepts_across_all_ninety_pages(tmp_path,monkeypatch):
+    import sys
+    from runtime.semantic_service import material_request_fits
+    config={'schema':'semantic-command-config/v1','argv':[sys.executable,'-c','raise AssertionError("model not authorized")'],
+            'model_id':'synthetic-model','model_revision':'fixture-v1'}
+    config_path=tmp_path/'command.json';config_path.write_text(json.dumps(config))
+    monkeypatch.setenv('STUDYDY_SEMANTIC_COMMAND_CONFIG',str(config_path))
+    source=tmp_path/'ninety.pdf';_pdf(source,90)
+    settings=_settings(tmp_path)
+    calls=[];progress=[]
+    structure=pipeline.analyze_material(_request(source),settings,client=Client(),semantic_call=_semantic(calls),
+        progress_callback=lambda stage,done,total:progress.append((stage,done,total)))
+    assert len(calls)>1 and structure['metrics']['semantic_calls']==len(calls)
+    rows=[row for call in calls for section in call['sections'] for row in section['evidence']]
+    assert {row[1] for row in rows}==set(range(1,91))
+    assert len({row[0] for row in rows})==len(rows),'Evidence repeated across batches'
+    assert len(rows)==len(structure['evidence']),'Evidence missing from the submitted input'
+    assert all(call['existing_concepts'] for call in calls[1:])
+    assert len(calls[-1]['existing_concepts'][0]['c'])>len(calls[1]['existing_concepts'][0]['c'])
+    assert all(material_request_fits(None,settings['runtime_lock'],call) for call in calls)
+    completed=[done for stage,done,_ in progress if stage=='semantics']
+    assert completed==sorted(completed) and completed[0]<90 and completed[-1]==90
+
+
 def test_ocr_failure_excludes_only_scan_and_semantics_still_runs(tmp_path, monkeypatch):
     source = tmp_path / "mixed.pdf"
     _pdf(source, 2, blank_first=True)
@@ -183,3 +207,24 @@ def test_cancellation_at_evidence_checkpoint_does_not_start_the_next_page(tmp_pa
     with pytest.raises(Cancelled):
         pipeline.analyze_material(_request(source), _settings(tmp_path), client=Client(), progress_callback=report)
     assert pages == [1]
+
+
+def test_bundle_input_limit_keeps_reason_without_model_call(tmp_path, monkeypatch):
+    import pytest
+    source = tmp_path / "limit.pdf"
+    _pdf(source, 1)
+    monkeypatch.setattr(pipeline, "material_request_fits", lambda *args: False)
+    calls = []
+    with pytest.raises(pipeline.MaterialAnalysisError, match="SEMANTIC_INPUT_TOO_LARGE"):
+        pipeline.analyze_material(_request(source), _settings(tmp_path), client=Client(), semantic_call=_semantic(calls))
+    assert calls == []
+
+
+def test_command_budget_failure_keeps_reason(tmp_path):
+    import pytest
+    source = tmp_path / "budget.pdf"
+    _pdf(source, 1)
+    def exhausted(*args, **kwargs):
+        raise pipeline.SemanticServiceError("SEMANTIC_BUDGET_EXHAUSTED")
+    with pytest.raises(pipeline.MaterialAnalysisError, match="SEMANTIC_BUDGET_EXHAUSTED"):
+        pipeline.analyze_material(_request(source), _settings(tmp_path), client=Client(), semantic_call=exhausted)

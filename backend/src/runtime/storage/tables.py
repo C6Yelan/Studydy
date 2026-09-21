@@ -66,7 +66,9 @@ class Material(Base):
 
     material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
     learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), ForeignKey("learners.learner_id"), nullable=False)
-    source_artifact_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), unique=True, nullable=False)
+    source_artifact_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True), unique=True)
+    ingestion_kind: Mapped[str] = mapped_column(Text, nullable=False, server_default="pdf-v1")
+    head_revision: Mapped[str | None] = mapped_column(Text)
     upload_idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     upload_request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     display_name: Mapped[str | None] = mapped_column(Text)
@@ -108,7 +110,14 @@ class MaterialProcessingRun(Base):
     source_artifact_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    input_source_set_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    bundle_manifest: Mapped[dict | None] = mapped_column(JSONB)
+    bundle_manifest_sha256: Mapped[str | None] = mapped_column(Text)
+    base_revision: Mapped[str | None] = mapped_column(Text)
+    worker_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     runtime_binding: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    runtime_lock_document: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     status: Mapped[str] = mapped_column(Text, nullable=False)
     progress_stage: Mapped[str] = mapped_column(Text, nullable=False)
     completed_pages: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -196,6 +205,52 @@ class Assessment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class AssessmentSet(Base):
+    __tablename__ = "assessment_sets"
+
+    set_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    study_session_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    knowledge_structure_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    target_concept_id: Mapped[str] = mapped_column(Text, nullable=False)
+    diagnostic_set_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    review_actions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    cycle_closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    target_plan: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    requested_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    runtime_lock_document: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    execution_identity: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    set_version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    action_receipts: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    sealed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AssessmentSetItem(Base):
+    __tablename__ = "assessment_set_items"
+
+    set_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    study_session_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    knowledge_structure_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    target_concept_id: Mapped[str] = mapped_column(Text, nullable=False)
+    target_claim_id: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+    prepared_document: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    assessment_revision: Mapped[str | None] = mapped_column(Text)
+
+
 class AnswerEvent(Base):
     __tablename__ = "answer_events"
     __table_args__ = (
@@ -247,3 +302,55 @@ def deferred_artifact_session(dsn: str | None = None) -> Generator[Session, None
     with database_session(dsn) as session:
         session.execute(text("SET CONSTRAINTS materials_source_artifact_fk DEFERRED"))
         yield session
+
+
+class MaterialSource(Base):
+    __tablename__ = "material_sources"
+    source_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    original_artifact_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    original_name: Mapped[str] = mapped_column(Text)
+    media_type: Mapped[str] = mapped_column(Text)
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary)
+    request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class SourceNormalization(Base):
+    __tablename__ = "source_normalizations"
+    normalization_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    source_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    policy: Mapped[dict] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(Text)
+    attempt: Mapped[int] = mapped_column(Integer, default=0)
+    lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    normalized_artifact_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    mapping_artifact_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    page_count: Mapped[int | None] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class MaterialSourceSet(Base):
+    __tablename__ = "material_source_sets"
+    source_set_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    manifest: Mapped[dict] = mapped_column(JSONB)
+    digest: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class MaterialSourceSetItem(Base):
+    __tablename__ = "material_source_set_items"
+    source_set_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    source_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    normalization_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))

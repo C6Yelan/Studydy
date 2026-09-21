@@ -1,3 +1,4 @@
+const browserOrigin = process.env.STUDYDY_E2E_BASE_URL ?? "http://127.0.0.1:4173";
 import { expect, test, type Page } from "@playwright/test";
 
 const password = "Synthetic test password 42";
@@ -7,7 +8,7 @@ const runId = process.env.STUDYDY_E2E_ACCOUNT_RUN!;
 const revision = process.env.STUDYDY_E2E_ACCOUNT_REVISION!;
 const artifactId = process.env.STUDYDY_E2E_ACCOUNT_ARTIFACT!;
 const mapPath = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(revision)}`;
-const origin = "http://127.0.0.1:4173";
+const origin = browserOrigin;
 
 test.skip(!learnerId, "Requires the local account API/DB fixture");
 

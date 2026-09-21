@@ -9,7 +9,7 @@ export function AppShell({ children, route, accountAction }: {
   accountAction?: React.ReactNode;
 }) {
   const learningWorkspace = route.name === "knowledge-map" || route.name === "study-session";
-  const materials = ["materials", "material-run", "upload"].includes(route.name);
+  const materials = ["materials", "material-run", "material-sources", "upload"].includes(route.name);
   return <div className={`app-shell${learningWorkspace ? " is-workspace" : " is-standard"}`}>
     <header className="app-header">
       <button aria-label="返回 Studydy 首頁" className="brand" type="button" onClick={() => writeRoute({ name: "home" })}>

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { materialProgressStageLabel, materialCurrentStagePercent, materialOverallProgressPercent, materialRunHasUsableMap, maximumPdfBytes, validatePdfFile, validatePdfSelection } from "./material-flow.ts";
+import { materialProgressStageLabel, materialCurrentStagePercent, materialOverallProgressPercent, materialRunHasUsableMap, maximumPdfBytes, validateSourceFile } from "./material-flow.ts";
 
 test("final material stages and usable binding are direct", () => {
   assert.equal(materialProgressStageLabel("evidence"), "整理頁面與教材來源");
@@ -10,22 +10,16 @@ test("final material stages and usable binding are direct", () => {
   assert.equal(materialRunHasUsableMap({ output_binding: null }), false);
 });
 
-test("upload remains PDF-only and bounded", () => {
-  assert.equal(validatePdfFile({ type: "application/pdf", size: 12 }), null);
-  assert.match(validatePdfFile({ type: "text/plain", size: 12 }), /PDF/);
-});
-
-
-test("PDF selection preserves the one-file, non-empty, 100 MiB boundary", () => {
-  assert.equal(validatePdfFile(null), "請先選擇 PDF 教材。");
-  assert.equal(validatePdfSelection(null).message, "請先選擇 PDF 教材。");
-  assert.equal(validatePdfSelection([]).message, "請先選擇 PDF 教材。");
-  const valid = { type: "application/pdf", size: maximumPdfBytes };
-  assert.deepEqual(validatePdfSelection([valid]), { file: valid, message: null });
-  assert.equal(validatePdfFile({ ...valid, size: 0 }), "PDF 不可為空白檔案。");
-  assert.equal(validatePdfFile({ ...valid, size: maximumPdfBytes + 1 }), "PDF 不可超過 100 MiB。");
-  assert.match(validatePdfSelection([{ type: "text/plain", size: 20 }]).message, /不是可用的 PDF/);
-  assert.deepEqual(validatePdfSelection([valid, valid]), { file: null, message: "一次只能處理一份 PDF 教材。" });
+test("each source follows its advertised format and individual size limit", () => {
+  const formats = [{ extension: ".pdf", media_type: "application/pdf", max_bytes: maximumPdfBytes },
+    { extension: ".txt", media_type: "text/plain", max_bytes: maximumPdfBytes }];
+  const valid = { name: "教材.PDF", type: "application/pdf", size: maximumPdfBytes };
+  assert.equal(validateSourceFile(valid, formats), null);
+  assert.equal(validateSourceFile({ name: "notes.txt", type: "", size: 12 }, formats), null);
+  assert.match(validateSourceFile({ ...valid, type: "text/plain" }, formats), /類型不一致/);
+  assert.match(validateSourceFile({ ...valid, name: "file.exe" }, formats), /不支援/);
+  assert.match(validateSourceFile({ ...valid, size: 0 }, formats), /空白/);
+  assert.match(validateSourceFile({ ...valid, size: maximumPdfBytes + 1 }, formats), /100 MiB/);
 });
 
 

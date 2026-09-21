@@ -23,7 +23,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
     return () => { cancelled = true; };
   }, [apiClient, retry]);
   const studies = (materials ?? []).flatMap(material => {
-    const structure = material.available_structures[0];
+    const structure = material.available_structures.find(value => value.knowledge_structure_revision === material.head_revision) ?? material.available_structures[0];
     const state = structure && material.study_sessions.find(item => item.run_id === structure.run_id && item.knowledge_structure_revision === structure.knowledge_structure_revision);
     return state ? [{ material, session: state }] : [];
   });

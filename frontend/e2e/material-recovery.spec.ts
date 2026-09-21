@@ -19,6 +19,31 @@ async function setup(page: Page) {
   await page.route(`**/v1/material-processing-runs/${oldId}`, route => route.fulfill({ json: oldRun }));
   await page.route(`**/v1/material-processing-runs/${newId}`, route => route.fulfill({ json: newRun }));
 }
+
+for (const width of [1536,390]) test(`saved analysis failure offers continuation without claiming a published map at ${width}px`, async ({page}) => {
+  await page.setViewportSize({width,height:844});await setup(page);
+  const saved: MaterialProcessingRunView={...oldRun,schema:'material-processing-run/v6',input_source_set_id:sourceId,
+    analysis_saved:true,error_code:'KNOWLEDGE_STRUCTURE_INVALID',completed_pages:90,total_pages:90};
+  await page.route(`**/v1/material-processing-runs/${oldId}`,route=>route.fulfill({json:saved}));
+  await page.route(`**/v1/materials/${materialId}`,route=>route.fulfill({json:item}));
+  await page.route(`**/v2/materials/${materialId}/sources`,route=>route.fulfill({json:{schema:'material-sources/v1',material_id:materialId,sources:[]}}));
+  const retryKeys:string[]=[];
+  await page.route(`**/v2/material-processing-runs/${oldId}/retry`,route=>{
+    retryKeys.push(route.request().headers()['idempotency-key']);
+    expect(route.request().postData()).toBeNull();
+    return retryKeys.length===1?route.fulfill({status:503,json:{schema:'api-error/v1',request_id:materialId,reason_code:'STORAGE_UNAVAILABLE',retryable:true,message:'Request could not be completed.'}}):route.fulfill({status:202,json:newRun});
+  });
+  await page.goto(`/materials/${materialId}/runs/${oldId}`);
+  await expect(page.getByRole('heading',{name:'教材處理失敗',exact:true})).toBeVisible();
+  await expect(page.getByText('已完成的分析批次保存在本機。',{exact:false})).toBeVisible();
+  await expect(page.getByText('最後記錄進度：',{exact:false})).toContainText('90 / 90 頁');
+  await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'接續已保存的分析',exact:true}).click();
+  await expect(page.locator('.material-recovery-error')).toBeVisible();
+  await page.getByRole('button',{name:'接續已保存的分析',exact:true}).click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${newId}$`));
+  expect(retryKeys).toHaveLength(2);expect(retryKeys[0]).toBe(retryKeys[1]);
+});
 for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
   for (const context of ["collection", "run", "initial"]) test(`material recovery ${context} uses one intent and new run at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport); await setup(page);
@@ -53,7 +78,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       await expect(page.locator(".material-recovery-error")).toContainText("無法重新開始處理，請再試一次。");
       expect(new URL(page.url()).pathname).toBe(originalPath);
       await expect(button).toBeFocused();
-      if (context === "run") await expect(page.locator(".failure-progress")).toContainText("最後安全進度");
+      if (context === "run") await expect(page.locator(".failure-progress")).toContainText("最後記錄進度");
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: `/tmp/studydy-recovery-${viewport.width}-${context}-error.png`, fullPage: true });
       await button.click();
@@ -97,5 +122,5 @@ for (const status of ["active", "completed"] as const) test(`failed collection p
   await expect(actions.getByRole("button", { name: "查看失敗詳情", exact: true })).toHaveClass("text-button");
   saved.latest_attempt = newRun;
   await page.reload();
-  await expect(actions.getByRole("button")).toHaveText(["查看處理狀態"]);
+  await expect(actions.getByRole("button")).toHaveText([status === "active" ? "繼續學習" : "查看學習成果", "開啟知識地圖", "新增教材與查看來源", "查看處理狀態"]);
 });

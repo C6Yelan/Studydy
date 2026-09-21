@@ -33,8 +33,11 @@ def test_local_config_has_one_python_one_semantic_lock_and_no_verifier(tmp_path)
     assert "mdeberta" not in str(config).casefold()
     tampered = deepcopy(config)
     tampered["runtime_lock"]["assessment"]["verifier"] = {"model": "second-authority"}
-    with pytest.raises(MaterialProcessingError):
-        runtime_binding(tampered)
+    from pdf_evidence.material_pipeline import MaterialAnalysisError, validate_runtime_lock
+    with pytest.raises(MaterialAnalysisError):
+        validate_runtime_lock(tampered['runtime_lock'])
+    # 出題設定失效不妨礙教材工作；實際出題仍由完整 assessment 契約拒絕。
+    runtime_binding(tampered)
 
 
 @pytest.mark.parametrize("field,value", [("model_id", "example/other-model"), ("model_revision", "a" * 40)])
@@ -90,6 +93,11 @@ def test_runtime_verify_loads_only_ocr_sidecar(tmp_path, monkeypatch):
 
 def test_worker_recovers_once_and_does_not_own_model_lifecycle(monkeypatch):
     events = []
+    monkeypatch.setattr(workers_module,"run_next_set",lambda **_:False)
+    monkeypatch.setattr(workers_module,"reconcile_new_artifacts",lambda **_:None)
+    monkeypatch.setattr(workers_module,"reconcile_removed_material_analysis",lambda **_:None)
+    monkeypatch.setattr(workers_module,"reconcile_published_checkpoints",lambda **_:None)
+    monkeypatch.setattr(workers_module,"normalize_next",lambda **_:False)
     monkeypatch.setattr(workers_module, "recover_interrupted_material_runs", lambda **_: events.append("recover") or 0)
     monkeypatch.setattr(workers_module, "finish_material_discards", lambda **_: None)
     monkeypatch.setattr(workers_module, "claim_next_material_processing_run", lambda **_: None)
@@ -104,7 +112,10 @@ def test_worker_recovers_once_and_does_not_own_model_lifecycle(monkeypatch):
 def test_source_tree_has_no_semantic_process_owner_or_retired_semantic_modules():
     root = Path(__file__).parents[3]
     production = "\n".join(path.read_text(encoding="utf-8") for path in (root / "backend/src").rglob("*.py"))
-    assert "subprocess.Popen" not in production.replace((root / "backend/src/pdf_evidence/local_ai_process.py").read_text(), "")
+    # B2-I 明確允許 OCR、受限轉檔與設定注入的 command transport；其他模組不可另起模型生命週期。
+    for boundary in ("pdf_evidence/local_ai_process.py","document_normalization/converter.py","runtime/command_semantics.py"):
+        production=production.replace((root/"backend/src"/boundary).read_text(),"")
+    assert "subprocess.Popen" not in production
     assert not (root / "backend/src/pdf_evidence/text_first_run.py").exists()
     assert not (root / "backend/src/knowledge_map/formal_concepts.py").exists()
     assert not (root / "local_ai/assessment-runtime-lock.json").exists()
