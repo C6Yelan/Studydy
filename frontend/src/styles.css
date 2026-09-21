@@ -187,16 +187,6 @@ code {
   font-weight: 600;
 }
 
-.privacy-note {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  margin: var(--space-3) 0 0;
-  color: var(--text-muted);
-  font-size: .78rem;
-}
-
 .outcome-badge {
   display: inline-flex;
   min-height: 28px;

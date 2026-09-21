@@ -7,7 +7,7 @@ test("real single-file upload converts, survives reload, downloads and explicitl
   await page.getByRole('button',{name:'登入',exact:true}).click();
   await expect(page.getByRole('heading',{name:'歡迎回來！',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'上傳教材',exact:true}).click();
-  await expect(page.locator('.conversion-note')).toContainText('TXT');
+  await expect(page.locator('.file-drop')).toContainText('TXT');
   await page.getByLabel('選擇教材檔案',{exact:true}).setInputFiles({name:'normalization.txt',mimeType:'text/plain',buffer:Buffer.from('Stacks\nA stack follows LIFO order.\nPush adds an item to the top. Pop removes the top item.\n')});
   await page.getByRole('button',{name:'上傳並確認來源'}).click();
   await expect(page).toHaveURL(/\/materials\/[0-9a-f-]+\/sources$/);

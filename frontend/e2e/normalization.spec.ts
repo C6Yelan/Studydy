@@ -20,7 +20,7 @@ for(const width of [1536,390]) test(`single non-PDF normalization resumes withou
   await page.route(`**/v1/materials/${material}`,r=>r.fulfill({json:item()}));
   await page.route("**/v1/materials",r=>r.fulfill({json:{schema:"material-library/v2",materials:[item()]}}));
   await page.route(`**/v2/materials/${material}/revisions`,r=>{revisions++;return r.abort();});
-  await page.goto("/upload");await expect(page.locator(".conversion-note")).toContainText("轉換品質不保證");
+  await page.goto("/upload");await expect(page.getByText("非 PDF 教材會先轉換為 PDF，請在下一步確認轉換內容。", {exact:true})).toHaveCount(0);
   await page.getByLabel("選擇教材檔案",{exact:true}).setInputFiles({name:"notes.txt",mimeType:"text/plain",buffer:Buffer.from(text)});
   await page.getByRole("button",{name:"上傳並確認來源"}).click();await expect(page).toHaveURL(new RegExp(`/materials/${material}/sources$`));
   await expect(page.getByRole("status")).toContainText("正在轉換");await page.reload();
@@ -130,7 +130,7 @@ for (const viewport of [{width:1920,height:1080},{width:1536,height:1024},{width
     await page.route(`**/v2/materials/${material}/sources`, r => r.fulfill({json:{schema:"material-sources/v1",material_id:material,sources:[job()]}}));
     await page.route(`**/v1/material-processing-runs/${normalization}`, r => r.fulfill({json:run}));
     await page.goto("/upload");
-    await expect(page.locator(".conversion-note")).toBeVisible();
+    await expect(page.locator(".file-drop")).toContainText("PDF、TXT");
     await expectApplicationFrame();
     expect((await page.locator(".file-drop").boundingBox())!.width).toBeLessThanOrEqual(880);
     const uploadColumns = await page.locator(".upload-layout").evaluate(el => getComputedStyle(el).gridTemplateColumns);

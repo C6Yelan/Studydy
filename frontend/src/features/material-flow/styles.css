@@ -58,25 +58,9 @@
 .processing-card .form-error,
 .source-request-error p { max-width: var(--readable-content-max); }
 
-.section-heading {
-  display: flex;
-  gap: var(--space-3);
-}
-
-.section-heading h2,
-.section-heading p {
-  margin: 0;
-}
-
-.section-heading h2 {
-  font-size: 1.2rem;
-}
-
-.section-heading p {
-  margin-top: var(--space-1);
-  color: var(--text-secondary);
-  font-size: .9rem;
-}
+.upload-page .file-drop { margin-top: 0; }
+.upload-card > .form-error { overflow-wrap: anywhere; }
+.upload-page .guide-card ol { gap: var(--space-5); margin-bottom: 0; }
 
 .file-drop {
   display: flex;

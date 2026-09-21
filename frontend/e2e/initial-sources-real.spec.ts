@@ -12,7 +12,7 @@ for (const width of [1536, 390]) test(`real initial mixed sources build one map 
   await page.getByRole("button", { name: "登入", exact: true }).click();
   await expect(page.getByRole("heading", { name: "歡迎回來！", level: 1, exact: true })).toBeVisible();
   await page.goto("/upload");
-  await expect(page.locator(".conversion-note")).toContainText("TXT");
+  await expect(page.locator(".file-drop")).toContainText("TXT");
   await page.getByLabel("選擇教材檔案", { exact: true }).setInputFiles([
     { name: `Initial-${width}.pdf`, mimeType: "application/pdf", buffer: readFileSync(process.env.STUDYDY_E2E_INITIAL_PDF!) },
     { name: "Queue.txt", mimeType: "text/plain", buffer: Buffer.from("A queue removes the first inserted element first.\n") },
