@@ -53,7 +53,6 @@
 /* 卡片可隨 application frame 展寬，但檔案選擇與表單內容不跟著無限延伸。 */
 .upload-layout > :first-child { min-width: 0; }
 .upload-card > * { width: 100%; max-width: var(--readable-content-max); }
-.source-page .file-drop { max-width: var(--readable-content-max); }
 .processing-card > p,
 .processing-card .form-error,
 .source-request-error p { max-width: var(--readable-content-max); }
@@ -228,9 +227,6 @@
 
 .guide-card li strong { font-size: 14px; }
 
-.upload-requirements { margin-top: var(--space-6); padding-top: var(--space-5); border-top: 1px solid var(--border-light); }
-.upload-requirements h3 { margin: 0 0 var(--space-2); font-size: 14px; }
-.upload-requirements p { margin: 0; color: var(--text-secondary); font-size: 13px; }
 
 .upload-hero > div { min-width: 0; flex: 1; }
 .upload-hero .eyebrow, .processing-hero .eyebrow { display: none; }
@@ -584,27 +580,50 @@
 
 .material-management-form .cancel-confirm-button { color: var(--error); border-color: var(--error); background: var(--error-soft); }
 
-.source-file { grid-template-columns: 46px minmax(0, 1fr); }
-.source-file small { color: var(--text-secondary); }
-.source-status { display: flex; align-items: flex-start; gap: var(--space-3); margin-block: var(--space-5); }
-.source-status-icon { flex: 0 0 var(--space-7); width: var(--space-7); height: var(--space-7); color: var(--studydy-blue); background: var(--studydy-blue-soft); }
-.source-status.is-ready .source-status-icon { color: var(--success); background: var(--success-soft); }
-.source-status.is-failed .source-status-icon { color: var(--error); background: var(--error-soft); }
-.source-status p { margin: 0; line-height: 1.6; }
-.source-status [role="status"] { font-weight: 600; }
-.source-status .source-status-description { margin-top: var(--space-2); color: var(--text-secondary); font-size: .9rem; }
-.source-file-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
-.source-file-actions a { text-decoration: none; }
-.source-next-action { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); justify-content: flex-end; margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border-light); }
-.source-page .processing-card + .processing-card { margin-top: var(--space-4); }
-.source-next-action label { display: flex; align-items: center; gap: var(--space-2); margin-right: auto; }
-.source-page .chosen-file strong { overflow-wrap: anywhere; }
-.source-page .source-queued-file { grid-template-columns: minmax(0, 1fr) auto; }
-.source-technical { margin-bottom: 0; text-align: left; font-size: .85rem; }
-.source-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-3); padding-inline: var(--space-6); }
-.source-footer > button { min-height: 36px; font-size: 14px; }
-.source-footer > .secondary-button { padding-inline: var(--space-2); border-color: transparent; color: var(--text-secondary); background: transparent; }
-.source-footer > .secondary-button:hover:not(:disabled) { color: var(--error); border-color: var(--error); background: var(--error-soft); }
+/* 來源確認：同一卡片內的緊湊列，只有異常或新增 queue 才增加高度。 */
+.source-list-card { padding: 20px; box-shadow: none; min-width: 0; }
+.source-list-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.source-list-header h2 { margin: 0; font-size: 20px; }
+.source-list-header p { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; }
+.source-list-header button { min-height: 36px; font-size: 13px; }
+.source-list { list-style: none; padding: 0; margin: 16px 0 0; }
+.source-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; padding: 14px 0; border-top: 1px solid var(--border-light); }
+.source-order { display: flex; align-items: center; gap: 4px; }
+.source-number { display: grid; place-items: center; min-width: 24px; min-height: 36px; color: var(--text-muted); font-size: 13px; }
+.source-row:has(> .source-reorder) { grid-template-columns: 24px minmax(0, 1fr) auto; }
+.source-reorder { display: flex; gap: 2px; align-self: center; }
+.source-reorder button { width: 32px; min-height: 36px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-input); color: var(--text-secondary); background: var(--surface); }
+.source-content { min-width: 0; }
+.source-name { display: block; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.source-metadata { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; font-size: 12px; color: var(--text-muted); }
+.source-progress { margin: 6px 0; color: var(--text-secondary); font-size: 13px; }
+.source-row-actions { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; margin-top: 4px; }
+.source-row-actions a { text-decoration: none; font-size: 13px; }
+.source-row-actions a:hover { text-decoration: underline; }
+.source-row-actions .source-download { color: var(--text-secondary); }
+.source-row-actions .source-remove { color: var(--error); }
+.source-row-actions label { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+.source-row-actions button { min-height: 36px; font-size: 13px; }
+.source-technical { margin: 6px 0 0; text-align: left; font-size: 13px; }
+.source-add-area { border-top: 1px solid var(--border-light); padding: 12px 0; }
+.source-add-control { position: relative; display: inline-flex; align-items: center; min-height: 40px; padding: 0 8px; border-radius: var(--radius-input); color: var(--studydy-blue); cursor: pointer; font-size: 14px; }
+.source-add-control input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.source-add-control:focus-within { outline: 2px solid var(--studydy-blue); outline-offset: 2px; }
+.source-add-control:has(input:disabled) { opacity: .5; cursor: wait; }
+.source-add-area .form-error { overflow-wrap: anywhere; }
+.source-upload-status.is-pending { color: var(--text-secondary); }
+.source-upload-status.is-uploading { color: var(--studydy-blue); }
+.source-upload-status.is-failed { color: var(--error); }
+.source-upload-status.is-uploaded { color: var(--success); }
+.source-list-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; border-top: 1px solid var(--border); padding-top: 16px; }
+.source-list-footer p { margin: 4px 0; font-size: 13px; color: var(--text-secondary); }
+.source-list-footer .form-error { color: var(--error); }
+.source-list-footer .source-summary { font-weight: 600; color: var(--text-primary); }
+.source-primary-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.source-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+.source-footer > button { font-size: 14px; }
+.source-footer > .secondary-button { min-height: 36px; padding: 0; border-color: transparent; background: transparent; color: var(--error); }
+.source-footer > .secondary-button:hover:not(:disabled) { border-color: transparent; background: transparent; text-decoration: underline; }
 .source-footer .cancel-confirmation, .source-footer .material-remove-message { flex-basis: 100%; }
 .source-request-error { padding: var(--space-5); margin-bottom: var(--space-6); }
 .source-request-error p { margin-top: 0; }
@@ -615,7 +634,11 @@
 .source-guide li.is-active > span { border-color: var(--studydy-blue); color: var(--studydy-blue); background: var(--studydy-blue-soft); }
 .source-guide li.is-active strong { color: var(--text-primary); font-weight: 700; }
 @media (max-width: 620px) {
-  .source-file-actions > .secondary-button, .source-next-action > button { width: 100%; }
-  .source-footer { padding-inline: var(--space-5); }
+  .source-list-card { padding: 16px; }
+  .source-row { gap: 8px; }
+  .source-order, .source-reorder { flex-direction: column; }
+  .source-list-footer { align-items: stretch; flex-direction: column; }
+  .source-primary-actions { flex-direction: column; align-items: stretch; }
+  .source-primary-actions > .primary-button { width: 100%; }
 }
 .conversion-note { color: var(--text-secondary); font-size: .85rem; overflow-wrap: anywhere; }

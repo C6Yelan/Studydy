@@ -62,9 +62,9 @@ for (const width of [1536, 390]) test(`append queue and run-only cancellation pr
     { name: "B.txt", mimeType: "text/plain", buffer: Buffer.from("Queue uses FIFO.") },
     { name: lastFilename, mimeType: "application/pdf", buffer: Buffer.from("%PDF-synthetic") },
   ]);
-  await page.getByRole("button", { name: "上傳選取的教材" }).click();
+  await page.getByRole("button", { name: "上傳新增教材" }).click();
   await expect(page.getByLabel("加入這次更新")).toHaveCount(2);
-  await expect(page.getByRole("button", { name: "確認新增並更新地圖" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "確認新增並更新地圖" })).toHaveCount(0);
   sources[2].status = "ready";
   await expect(page.getByRole("button", { name: "確認新增並更新地圖" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "開啟目前地圖" })).toBeVisible();

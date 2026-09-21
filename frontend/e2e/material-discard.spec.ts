@@ -39,6 +39,14 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       await expect(card.getByRole("button", { name: "刪除教材", exact: true })).toBeVisible();
       await page.keyboard.press("Escape"); await expect(menu).toBeFocused();
       await expect(card.locator("details")).not.toHaveAttribute("open", "");
+      await menu.click(); await card.getByRole("button", { name: "刪除教材", exact: true }).click();
+      const confirmation = card.getByRole("form", { name: "刪除教材確認" });
+      const text = await confirmation.innerText();
+      expect(text.includes("知識地圖")).toBe(items[index].available_structures.length > 0);
+      expect(text.includes("學習紀錄、題目與作答")).toBe(items[index].study_sessions.length > 0);
+      expect(text.includes("會先停止")).toBe(["pending", "running"].includes(items[index].latest_attempt?.status ?? ""));
+      expect(text).not.toMatch(/處理紀錄|轉換產物|學習進度/);
+      await page.keyboard.press("Escape"); await expect(menu).toBeFocused();
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -91,7 +99,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
     const opener = card.getByRole("button", { name: /^管理「/ });
     await opener.click(); await card.getByRole("button", { name: "刪除教材", exact: true }).click();
     const confirm = card.getByRole("form", { name: "刪除教材確認" });
-    await expect(confirm).toContainText("原始 PDF、知識地圖、學習進度、題目與作答紀錄");
+    await expect(confirm).toContainText("這份教材、知識地圖，以及相關的學習紀錄、題目與作答");
     await expect(confirm.getByRole("button", { name: "取消", exact: true })).toBeFocused();
     await confirm.getByRole("button", { name: "取消", exact: true }).click(); expect(deletes).toBe(0);
     await opener.click(); await card.getByRole("button", { name: "刪除教材", exact: true }).click();
@@ -112,7 +120,7 @@ test("removing publishing material disables all actions and polls until absent",
   await page.goto("/materials"); await page.getByRole("searchbox").fill(target.display_name);
   const card = page.getByRole("article");
   await card.getByRole("button", { name: /^管理「/ }).click(); await card.getByRole("button", { name: "刪除教材", exact: true }).click();
-  await expect(card.getByRole("form")).toContainText("目前處理會先安全停止");
+  await expect(card.getByRole("form")).toContainText("目前的教材更新會先停止");
   await card.getByRole("button", { name: "確認刪除", exact: true }).click();
   await expect(card.getByRole("status")).toHaveText("正在刪除…");
   await expect(card.getByRole("button", { name: "查看進度", exact: true })).toBeDisabled();

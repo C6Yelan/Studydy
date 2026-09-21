@@ -19,7 +19,7 @@ for (const width of [1536, 390]) test(`real append keeps answers and source page
   const filename = `addition-${width}.txt`;
   const content = width === 1536 ? "A queue follows FIFO order.\n" : "A binary tree has left and right children.\n";
   await page.getByLabel("選擇新增教材", { exact: true }).setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from(content) });
-  await page.getByRole("button", { name: "上傳選取的教材", exact: true }).click();
+  await page.getByRole("button", { name: "上傳新增教材", exact: true }).click();
   const start = page.getByRole("button", { name: "確認新增並更新地圖", exact: true });
   await expect(start).toBeEnabled({ timeout: 20000 });
   await page.reload();

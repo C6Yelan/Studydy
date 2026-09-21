@@ -15,7 +15,7 @@ test("real single-file upload converts, survives reload, downloads and explicitl
   await page.reload();await expect(page.getByRole('button',{name:'開始分析教材'})).toBeVisible();
   const original=await page.getByRole('link',{name:'下載原檔'}).getAttribute('href');
   const content=await page.request.get(original!);expect(content.status()).toBe(200);expect(await content.text()).toContain('LIFO');
-  const preview=await page.getByRole('link',{name:/預覽轉換後 PDF/}).getAttribute('href');
+  const preview=await page.getByRole('link',{name:/預覽 PDF/}).getAttribute('href');
   const pdf=await page.request.get(preview!);expect(pdf.status()).toBe(200);expect((await pdf.body()).subarray(0,4).toString()).toBe('%PDF');
   await page.screenshot({path:info.outputPath('real-ready.png'),fullPage:true});
   await page.getByRole('button',{name:'開始分析教材'}).click();

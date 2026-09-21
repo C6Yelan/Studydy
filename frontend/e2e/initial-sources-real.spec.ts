@@ -28,8 +28,8 @@ for (const width of [1536, 390]) test(`real initial mixed sources build one map 
   expect(before.latest_attempt).toBeNull();
   await page.getByRole("button", { name: "上移 Tree.md", exact: true }).click();
   await page.getByRole("button", { name: "上移 Tree.md", exact: true }).click();
-  await expect(page.locator(".source-card").first()).toContainText("Tree.md");
-  await expect(page.locator(".source-confirmation")).toContainText("已選 3 份來源，共 3 頁");
+  await expect(page.locator(".source-row").first()).toContainText("Tree.md");
+  await expect(page.locator(".source-list-footer")).toContainText("3 份教材 · 共 3 頁");
   await page.screenshot({ path: info.outputPath("initial-confirmation.png"), fullPage: true });
   await start.click();
   await expect(page.getByRole("heading", { name: "教材整理完成", exact: true })).toBeVisible({ timeout: 20000 });

@@ -49,8 +49,8 @@ for (const width of [1536, 390]) {
     await expect(page).toHaveURL(new RegExp(`/materials/${id}/sources$`));
     await expect(page.getByText("第一章.pdf", { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "下載原檔" }).first()).toHaveAttribute("href", `/v2/artifacts/${id}`);
-    await expect(page.getByRole("link", { name: /預覽轉換後 PDF/ }).first()).toHaveAttribute("href", `/v1/artifacts/${pdf}`);
-    await expect(page.getByRole("link", { name: /預覽轉換後 PDF/ })).toHaveCount(2, { timeout: 10000 });
+    await expect(page.getByRole("link", { name: /預覽 PDF/ }).first()).toHaveAttribute("href", `/v1/artifacts/${pdf}`);
+    await expect(page.getByRole("link", { name: /預覽 PDF/ })).toHaveCount(2, { timeout: 10000 });
     expect(reads).toBeGreaterThanOrEqual(3);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });

@@ -82,3 +82,27 @@ test("cancelled is never projected as successful 100 percent completion", () => 
     assert.equal(materialOverallProgressPercent(processing(stage, 45, 45, "cancelled")), null);
   }
 });
+
+test("delete warning describes existing learner content, independently of active processing", async () => {
+  const { materialDeleteCopy } = await import("./material-delete-copy.ts");
+  const initial = { available_structures: [], study_sessions: [], latest_attempt: null };
+  const sources = [
+    { status: "ready", media_type: "application/pdf", normalized_artifact_id: "pdf" },
+    { status: "failed", media_type: "text/plain", normalized_artifact_id: null },
+  ];
+  const plain = materialDeleteCopy(initial, sources);
+  assert.equal(plain.scope, "將刪除目前已上傳的 2 份教材。此操作無法復原。");
+  assert.doesNotMatch(plain.scope, /知識地圖|學習紀錄|題目|作答|轉換/);
+  sources.push({ status: "ready", media_type: "text/plain", normalized_artifact_id: "converted" });
+  assert.match(materialDeleteCopy(initial, sources).scope, /3 份教材，以及已產生的轉換內容/);
+  const map = { ...initial, available_structures: [{}] };
+  assert.equal(materialDeleteCopy(map).scope, "將刪除這份教材及已建立的知識地圖。此操作無法復原。");
+  const history = { ...map, study_sessions: [{ status: "completed" }] };
+  assert.match(materialDeleteCopy(history).scope, /知識地圖，以及相關的學習紀錄、題目與作答/);
+  for (const status of ["pending", "running"]) {
+    assert.equal(materialDeleteCopy({ ...initial, latest_attempt: { status } }).notice, "目前的教材處理會先停止，再刪除這份教材。");
+    assert.equal(materialDeleteCopy({ ...history, latest_attempt: { status } }).notice, "目前的教材更新會先停止，再刪除這份教材。");
+  }
+  assert.match(materialDeleteCopy(initial, [{ status: "running" }]).notice, /先停止/);
+  assert.doesNotMatch(materialDeleteCopy().scope, /知識地圖|學習紀錄|題目|作答/);
+});

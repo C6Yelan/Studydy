@@ -23,8 +23,8 @@ for(const width of [1536,390]) test(`single non-PDF normalization resumes withou
   await page.goto("/upload");await expect(page.getByText("非 PDF 教材會先轉換為 PDF，請在下一步確認轉換內容。", {exact:true})).toHaveCount(0);
   await page.getByLabel("選擇教材檔案",{exact:true}).setInputFiles({name:"notes.txt",mimeType:"text/plain",buffer:Buffer.from(text)});
   await page.getByRole("button",{name:"上傳並確認來源"}).click();await expect(page).toHaveURL(new RegExp(`/materials/${material}/sources$`));
-  await expect(page.getByRole("status")).toContainText("正在轉換");await page.reload();
-  await expect(page.getByRole("status")).toContainText("正在轉換");expect(drafts).toBe(1);expect(uploads).toBe(1);expect(revisions).toBe(0);
+  await expect(page.locator(".source-row").getByRole("status")).toContainText("正在轉換");await page.reload();
+  await expect(page.locator(".source-row").getByRole("status")).toContainText("正在轉換");expect(drafts).toBe(1);expect(uploads).toBe(1);expect(revisions).toBe(0);
   await page.screenshot({path:info.outputPath("normalizing.png"),fullPage:true});
   status="ready";await expect(page.getByRole("button",{name:"開始分析教材"})).toBeVisible();
   await expect(page.getByRole("link",{name:/预覽|預覽/})).toHaveAttribute("href",`/v1/artifacts/${source}`);
@@ -44,7 +44,7 @@ test("failed conversion retries explicitly, keeps original, and never starts AI"
   await page.route(`**/v2/materials/${material}/sources`,r=>r.fulfill({json:{schema:"material-sources/v1",material_id:material,sources:[job]}}));
   await page.route(`**/v1/materials/${material}`,r=>r.fulfill({json:{schema:"material-library-item/v3",ingestion_kind:"sources-v2",source:job,material_id:material,source_artifact_id:null,display_name:"discrete-mathematics.txt",size_bytes:10,created_at:"2026-09-17T00:00:00Z",latest_attempt:null,available_structures:[],study_sessions:[]}}));
   await page.route(`**/v2/materials/${material}/sources/${normalization}/retry`,r=>{retries++;return r.fulfill({json:{schema:"material-sources/v1",material_id:material,sources:[job]}});});
-  await page.goto(`/materials/${material}/sources`);await expect(page.getByRole("status")).toContainText("轉換失敗");
+  await page.goto(`/materials/${material}/sources`);await expect(page.locator(".source-row").getByRole("status")).toContainText("轉換失敗");
   await page.reload();await expect(page.getByRole("link",{name:"下載原檔"})).toBeVisible();expect(posts).toBe(0);
   await page.getByRole("button",{name:"重試轉換"}).click();expect(retries).toBe(1);expect(posts).toBe(1);
 });
@@ -60,7 +60,7 @@ test("accepted deletion of a converting source survives reload and returns to li
   });
   await page.route('**/v1/materials',r=>r.fulfill({json:{schema:'material-library/v2',materials:[]}}));
   await page.goto(`/materials/${material}/sources`);
-  await page.getByRole('button',{name:'刪除教材',exact:true}).click();await expect(page.getByText(/原始教材、轉換產物/)).toBeVisible();
+  await page.getByRole('button',{name:'刪除教材',exact:true}).click();await expect(page.getByText(/目前已上傳的/)).toBeVisible();
   await page.getByRole('button',{name:'確認刪除',exact:true}).click();await page.reload();
   await expect(page.getByText('正在刪除教材…',{exact:true})).toBeVisible();removed=true;
   await expect(page).toHaveURL(/\/materials$/);await expect(page.getByRole('heading',{name:'我的教材',exact:true})).toBeVisible();
@@ -137,9 +137,10 @@ for (const viewport of [{width:1920,height:1080},{width:1536,height:1024},{width
     const uploadMascot = await page.locator(".upload-hero > img").boundingBox();
     await page.screenshot({path:info.outputPath("upload.png"),fullPage:true});
     await page.goto(`/materials/${material}/sources`);
-    await expect(page.getByRole("status")).toHaveText("轉換完成");
+    await expect(page.getByRole("link", {name:"預覽 PDF", exact:true})).toBeVisible();
+    await expect(page.locator(".source-row").getByRole("status")).toHaveCount(0);
     await expectApplicationFrame();
-    expect((await page.locator(".file-drop").boundingBox())!.width).toBeLessThanOrEqual(880);
+    expect((await page.locator(".source-add-control").boundingBox())!.height).toBeLessThanOrEqual(44);
     await expect(page.locator(".source-page .primary-button")).toHaveCount(1);
     expect(await page.locator(".upload-layout").evaluate(el => getComputedStyle(el).gridTemplateColumns)).toBe(uploadColumns);
     const mascot = (await page.locator(".upload-hero > img").boundingBox())!;
@@ -147,19 +148,17 @@ for (const viewport of [{width:1920,height:1080},{width:1536,height:1024},{width
     expect(mascot.height).toBe(uploadMascot!.height);
     const copy = (await page.locator(".upload-hero > div").boundingBox())!;
     expect(copy.x + copy.width).toBeLessThan(mascot.x);
-    const card = (await page.locator(".source-card").boundingBox())!;
+    const card = (await page.locator(".source-list-card").boundingBox())!;
     const rail = (await page.locator(".source-guide").boundingBox())!;
-    const confirmation = (await page.locator(".source-confirmation").boundingBox())!;
+    const confirmation = (await page.locator(".source-list-footer").boundingBox())!;
     const cta = (await page.getByRole("button",{name:"開始分析教材"}).boundingBox())!;
     expect(cta.y).toBeGreaterThan(confirmation.y);
     expect(confirmation.y + confirmation.height - cta.y - cta.height).toBeLessThanOrEqual(33);
     if (viewport.width > 1200) { expect(rail.width).toBe(320); expect(rail.x - card.x - card.width).toBeCloseTo(24,0); }
     else { expect(rail.y).toBeGreaterThan(confirmation.y + confirmation.height); }
     const back = (await page.getByRole("button",{name:"返回教材庫"}).boundingBox())!;
-    const remove = (await page.getByRole("button",{name:"刪除教材",exact:true}).boundingBox())!;
-    expect(back.y).toBe(remove.y);
-    expect(back.x).toBeGreaterThan(card.x);
-    expect(remove.x + remove.width).toBeLessThan(card.x + card.width);
+    await expect(page.getByRole("button", {name:"刪除教材", exact:true})).toBeVisible();
+    expect((await page.getByRole("button", {name:"刪除教材", exact:true}).boundingBox())!.y).toBeCloseTo(back.y, 0);
     const steps = page.locator(".source-guide li");
     await expect(steps.nth(1)).toHaveAttribute("aria-current","step");
     for (const [index, token] of [[0,"--success"],[1,"--studydy-blue"],[2,"--text-secondary"]] as const) {
@@ -170,7 +169,7 @@ for (const viewport of [{width:1920,height:1080},{width:1536,height:1024},{width
     }
     await page.screenshot({path:info.outputPath("conversion.png"),fullPage:true});
     filename = `${"VeryLongFilenameWithoutSpaces".repeat(8)}.docx`;
-    await page.reload(); await expect(page.locator(".source-file strong")).toHaveText(filename);
+    await page.reload(); await expect(page.locator(".source-name")).toHaveText(filename);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
     await page.screenshot({path:info.outputPath("conversion-long-name.png"),fullPage:true});
     filename = "資料結構與演算法講義.docx";
@@ -185,8 +184,9 @@ for (const viewport of [{width:1920,height:1080},{width:1536,height:1024},{width
     }
     if (viewport.width === 1366) {
       await page.setViewportSize({width:1200,height:768}); await page.goto(`/materials/${material}/sources`);
-      await expect(page.getByRole("status")).toHaveText("轉換完成");
-      const box = (await page.locator(".source-card").boundingBox())!;
+      await expect(page.getByRole("link", {name:"預覽 PDF", exact:true})).toBeVisible();
+    await expect(page.locator(".source-row").getByRole("status")).toHaveCount(0);
+      const box = (await page.locator(".source-row").boundingBox())!;
       expect((await page.locator(".source-guide").boundingBox())!.y).toBeGreaterThan(box.y + box.height);
     }
     expect(unexpected).toEqual([]);
