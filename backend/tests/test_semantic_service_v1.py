@@ -6,10 +6,26 @@ import httpx
 import pytest
 
 from runtime.semantic_service import SemanticServiceError, material_request_fits, preflight_semantic_service, request_semantics
+from knowledge_map.material_review import review_runtime_lock
 
 
 def _lock() -> dict:
     return json.loads((Path(__file__).parents[2] / "local_ai/runtime-lock.json").read_text())
+
+
+def test_material_review_uses_existing_gemma_transport_and_context_check():
+    observed=[]
+    def respond(request):
+        body=json.loads(request.content);observed.append((request.url.path,body))
+        if request.url.path=='/tokenize':
+            return httpx.Response(200,json={'count':100,'max_model_len':32768})
+        assert body['response_format']['json_schema']['name']=='material_review'
+        return httpx.Response(200,json={'choices':[{'finish_reason':'stop','message':{'content':'{"assignments":[],"alias_edits":[],"claim_edits":[],"relation_edits":[]}'}}]})
+    lock=_lock();original=deepcopy(lock)
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        result=request_semantics(client,runtime_lock=review_runtime_lock(lock),task='material_review',request={},response_schema={})
+    assert result['assignments']==[] and lock==original
+    assert [path for path,_ in observed]==['/tokenize','/v1/chat/completions']
 
 
 def test_preflight_and_both_tasks_use_the_same_resident_service():

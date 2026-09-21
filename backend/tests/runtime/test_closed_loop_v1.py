@@ -52,9 +52,12 @@ class Client:
 
 def _settings(tmp_path: Path) -> dict:
     root = tmp_path / "installed"
+    lock = json.loads((Path(__file__).parents[3] / "local_ai/runtime-lock.json").read_text())
+    # 此 fixture 驗證已保存分析／作答；獨立檢核由 test_material_review_flow 啟用測試。
+    lock.pop('material_review', None)
     return {
         "private_runtime_root": str(root / "runtime"),
-        "runtime_lock": json.loads((Path(__file__).parents[3] / "local_ai/runtime-lock.json").read_text()),
+        "runtime_lock": lock,
         "python_executable": str(root / "ocr/runtime/bin/python3.12"),
         "site_packages": str(root / "ocr/runtime/lib/python3.12/site-packages"),
         "ocr_model_root": str(root / "models/unlimited-ocr"),
