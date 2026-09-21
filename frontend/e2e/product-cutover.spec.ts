@@ -549,69 +549,82 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
 }
 
 for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 390, height: 844 }]) {
-  for (const kind of ["many", "none", "parallel", "long"] as const) {
-    test(`Concept Detail secondary exploration ${kind} at ${viewport.width}px`, async ({ page }) => {
+  for (const identity of ["id", "name", "single", "unknown"] as const) {
+    test(`Concept Detail concise sources and alias search (${identity}) at ${viewport.width}px`, async ({ page }) => {
       await page.setViewportSize(viewport);
-      const view = workspaceView(kind === "none" ? 1 : kind === "parallel" ? 6 : 9, kind === "long");
-      view.concepts[0].aliases = ["Document alias"];
-      if (kind === "parallel") view.relations.push(
-        { ...view.relations[0], relation_id: `relation:sha256:${"f".repeat(64)}`, type: "contrast", inference_basis: "comparison", learner_reason: "A different perspective on the same concept." },
-        { ...view.relations[0], relation_id: `relation:sha256:${"e".repeat(64)}`, source_concept_id: view.concepts[2].concept_id, target_concept_id: view.concepts[3].concept_id },
-      );
+      const view = workspaceView(6);
+      const concept = view.concepts[0];
+      concept.label = "主機";
+      concept.aliases = ["Host"];
+      const resolver = `/v2/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`;
+      if (identity !== "single") Object.assign(view, { schema: "knowledge-structure-view/v3", source_resolver: resolver });
+      const evidence = [0, 1, 2, 3].map(index => ({ ...concept.claims[0].evidence[0],
+        evidence_id: `evidence:sha256:${String(index + 1).repeat(64)}`,
+        // 原始頁碼刻意相同，確認多來源入口依 normalized_page 分組。
+        page: identity === "single" && index === 3 ? 2 : 1,
+        ...(identity === "id" ? { source_id: index === 2 ? materialId : artifactId } : {}),
+        ...(identity === "unknown" || identity === "single" ? {} : {
+          source_name: identity === "id" || index !== 2 ? "Network.pptx" : "Other.pptx",
+          normalized_page: index === 3 ? 2 : 1,
+        }),
+        quote: "Extraction text should not appear in the concept panel.",
+      }));
+      concept.claims = [
+        { ...concept.claims[0], text: "能參與網路通訊的端點。", evidence: evidence.slice(0, 1) },
+        { ...concept.claims[0], claim_id: firstClaim, text: "主機包括電腦與行動裝置。", evidence: evidence.slice(1) },
+      ];
+      view.concepts.slice(1).forEach(item => { item.claims[0].evidence = [{ ...item.claims[0].evidence[0], evidence_id: `evidence:sha256:${"9".repeat(64)}` }]; });
+      view.relations[0].evidence_refs = evidence.map(item => item.evidence_id);
       await routes(page, view);
+      const resolved: string[] = [];
+      await page.route("**/v2/materials/*/knowledge-structures/*/evidence/*/source", route => {
+        const id = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-2)!);
+        resolved.push(id);
+        const item = evidence.find(item => item.evidence_id === id)!;
+        return json(route, { schema: "evidence-source/v1", format: "pptx", original_name: "Network.pptx",
+          original_url: `/v2/artifacts/${artifactId}`, preview_url: `/v1/artifacts/${artifactId}#page=${item.normalized_page ?? item.page}`,
+          normalized_page: item.normalized_page ?? item.page, accuracy: "exact", origin_locators: [], label: "PDF 來源" });
+      });
       await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
-      if (kind !== "none") {
-        if (kind === "parallel" && viewport.width > 900) {
-          await page.locator(".concept-flow-edge").first().focus();
-          await page.keyboard.press("Enter");
-        } else await openFocusRelation(page, viewport.width <= 900);
-        const relationDetail = page.getByRole("dialog", { name: "關係詳情" });
-        await expect(relationDetail).toContainText(view.relations[0].learner_reason);
-        await expect(relationDetail.getByRole("button", { name: /原始教材第 1 頁/ })).toBeVisible();
-        await page.keyboard.press("Escape");
-      }
-      await openMapConcept(page);
-      const detail = page.getByRole("dialog", { name: "概念詳情" });
-      const explore = detail.locator(".detail-explore");
-      await expect(detail.getByRole("heading", { name: "相關概念", exact: true })).toHaveCount(0);
-      await expect(detail.getByRole("heading", { name: "教材重點", exact: true })).toBeVisible();
-      await expect(detail.locator(".primary-button")).toHaveCount(1);
-      if (kind === "none") await expect(explore).toHaveCount(0);
-      else {
-        await expect(explore.locator("summary")).toHaveText(`延伸探索${kind === "parallel" ? 5 : 8} 個相關概念`);
-        await expect(explore).not.toHaveAttribute("open", "");
-        expect(await detail.locator(".page-list").evaluate(element => element.parentElement?.nextElementSibling?.matches(".detail-explore"))).toBe(true);
-      }
-      await page.screenshot({ path: `/tmp/studydy-detail-explore/${viewport.width}-${kind}-closed.png`, fullPage: viewport.width > 900 });
-      if (kind === "none") return;
-      const summary = explore.locator("summary");
-      await summary.focus(); await page.keyboard.press("Enter");
-      await expect(explore).toHaveAttribute("open", "");
-      await expect(explore).toContainText("依知識地圖中的直接關係，探索其他概念。");
-      await expect(explore).not.toContainText(/連向|來自/);
-      await expect(explore).not.toContainText(view.relations[0].learner_reason);
-      await expect(explore.locator(".detail-explore-item strong")).toHaveText(view.concepts.slice(1).map(concept => concept.label));
-      if (kind === "parallel") {
-        const other = explore.getByRole("button", { name: "先備、對照：前往Concept 2", exact: true });
-        await expect(other).toHaveCount(1);
-        await expect(other.locator("small")).toHaveText("先備、對照");
+      const search = page.getByRole("searchbox", { name: "搜尋概念或關鍵字" });
+      await search.fill("Host");
+      await expect(page.locator(".map-search-results strong")).toHaveText(["主機"]);
+      await search.press("Enter");
+      const detail = page.getByRole("dialog", { name: "概念詳情", exact: true });
+      await expect(detail.getByRole("heading", { name: "主機", exact: true })).toBeVisible();
+      await expect(detail.getByRole("heading", { name: "教材來源", exact: true })).toBeVisible();
+      await expect(detail.getByRole("region", { name: /^教材重點 / })).toHaveCount(2);
+      await expect(detail.getByRole("button", { name: "開始學習", exact: true })).toBeEnabled();
+      await expect(detail).not.toContainText(/對照教材原文|教材中的其他名稱|延伸探索|Extraction text|Host|sha256/);
+      const count = identity === "single" ? 2 : identity === "unknown" ? 4 : 3;
+      const links = detail.getByRole("region", { name: "教材來源", exact: true }).getByRole("button");
+      await expect(links).toHaveCount(count);
+      if (identity !== "single") {
+        for (let index = 0; index < count; index++) {
+          await links.nth(index).click();
+          const source = page.getByRole("dialog", { name: "教材來源", exact: true });
+          const representative = evidence[identity === "unknown" || index === 0 ? index : index + 1];
+          expect(resolved.at(-1)).toBe(representative.evidence_id);
+          await expect(source.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute("href", `/v1/artifacts/${artifactId}#page=${representative.normalized_page ?? representative.page}`);
+          await page.keyboard.press("Escape");
+          await expect(source).toHaveCount(0);
+          await expect(links.nth(index)).toBeFocused();
+        }
       }
       expect(await detail.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
-      await page.screenshot({ path: `/tmp/studydy-detail-explore/${viewport.width}-${kind}-expanded.png`, fullPage: viewport.width > 900 });
-      await summary.focus(); await page.keyboard.press("Space");
-      await expect(explore).not.toHaveAttribute("open", "");
-      await page.keyboard.press("Enter");
-      await detail.evaluate(element => { element.scrollTop = element.scrollHeight; });
-      await explore.getByRole("button").last().click();
-      const target = view.concepts.at(-1)!;
-      await expect(detail.getByRole("heading", { name: target.label, exact: true })).toBeVisible();
-      await expect(detail).toBeFocused();
-      await expect.poll(() => detail.evaluate(element => element.scrollTop)).toBe(0);
-      await expect(detail.locator(".detail-explore")).not.toHaveAttribute("open", "");
-      await expect(page.locator('.navigator-list [aria-current="true"] .navigator-label')).toHaveText(target.label);
-      await expect(page.locator(".concept-flow-node.is-focus")).toContainText(target.label);
-      await page.screenshot({ path: `/tmp/studydy-detail-explore/${viewport.width}-${kind}-navigated.png`, fullPage: viewport.width > 900 });
+      await page.keyboard.press("Escape");
+      await expect(detail).toHaveCount(0);
+      await expect(search).toBeFocused();
+      const edge = await openFocusRelation(page, viewport.width <= 900);
+      const relation = page.getByRole("dialog", { name: "關係詳情", exact: true });
+      await expect(relation).toContainText(view.relations[0].learner_reason);
+      await expect(relation.getByRole("button", { name: /PDF 第|查看第|原始教材第/ })).toHaveCount(count);
+      await relation.getByRole("button", { name: "關閉關係詳情" }).click();
+      await expect(edge).toBeFocused();
+      await openMapConcept(page);
+      await detail.getByRole("button", { name: "關閉概念詳情" }).click();
+      await expect(page.locator(".concept-flow-node.is-focus")).toBeFocused();
     });
   }
 }

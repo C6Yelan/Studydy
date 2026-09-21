@@ -53,6 +53,17 @@ test("material run and final structure use only final endpoints", async () => {
   assert.doesNotMatch(requests[1], /run_id=/);
 });
 
+test("KnowledgeStructureView preserves canonical labels, aliases and Evidence quotes", async () => {
+  const saved = structureView();
+  saved.concepts[0].label = "主機";
+  saved.concepts[0].aliases = ["Host"];
+  const client = new StudydyApiClient(async () => Response.json(saved));
+  const view = await client.getKnowledgeStructure({ materialId, structureRevision });
+  assert.equal(view.concepts[0].label, "主機");
+  assert.deepEqual(view.concepts[0].aliases, ["Host"]);
+  assert.deepEqual(view.concepts[0].claims, saved.concepts[0].claims);
+});
+
 test("unknown relation type and leaked private answer fail closed", async () => {
   const invalid = structureView();
   invalid.relations.push({ relation_id: `relation:sha256:${"9".repeat(64)}`, source_concept_id: conceptId, target_concept_id: conceptId, type: "related", learner_reason: "related" });

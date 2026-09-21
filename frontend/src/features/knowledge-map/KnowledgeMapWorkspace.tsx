@@ -91,22 +91,11 @@ function nodeKeyboardAction(open: () => void, title: string) {
   };
 }
 
-function ConceptDetail({ apiClient, concept, close, sourceArtifactId, view, openConcept, progress, studyAction }: {
+function ConceptDetail({ apiClient, concept, close, sourceArtifactId, view, progress, studyAction }: {
   view: KnowledgeStructureView; progress: LearnerProgressView | null;
-  openConcept: (id: string) => void; apiClient: StudydyApiClient;
+  apiClient: StudydyApiClient;
   concept: Concept; close: () => void; sourceArtifactId: string; studyAction: ReactNode;
 }) {
-  const relatedConcepts = useMemo(() => {
-    const byId = new Map(view.concepts.map(item => [item.concept_id, item]));
-    const related = new Map<string, { concept: Concept; types: Set<RelationType> }>();
-    for (const relation of view.relations) {
-      if (relation.source_concept_id !== concept.concept_id && relation.target_concept_id !== concept.concept_id) continue;
-      const otherId = relation.source_concept_id === concept.concept_id ? relation.target_concept_id : relation.source_concept_id;
-      if (!related.has(otherId)) related.set(otherId, { concept: byId.get(otherId)!, types: new Set() });
-      related.get(otherId)!.types.add(relation.type);
-    }
-    return [...related.values()];
-  }, [concept.concept_id, view.concepts, view.relations]);
   return (
     <DetailPanel label="概念詳情" focusKey={concept.concept_id} close={close}>
       <header>
@@ -119,23 +108,6 @@ function ConceptDetail({ apiClient, concept, close, sourceArtifactId, view, open
         <h3>教材重點</h3>
         <ConceptContent claims={concept.claims} apiClient={apiClient} sourceArtifactId={sourceArtifactId} sourceResolver={view.source_resolver} />
       </section>
-      {concept.aliases.length > 0 && (
-        <section><h3>教材中的其他名稱</h3><p className="page-list">{concept.aliases.join("、")}</p></section>
-      )}
-      {relatedConcepts.length > 0 && <details className="detail-explore" key={concept.concept_id}>
-        <summary onKeyDown={event => {
-          // Keep native disclosure activation out of React Flow's global Space shortcut.
-          if (event.key === " ") event.stopPropagation();
-        }}><span>延伸探索</span><small>{relatedConcepts.length} 個相關概念</small></summary>
-        <p>依知識地圖中的直接關係，探索其他概念。</p>
-        <ul className="detail-explore-list">{relatedConcepts.map(item => {
-          const types = [...item.types].map(type => relationLabels[type]).join("、");
-          return <li key={item.concept.concept_id}><button className="detail-explore-item" type="button"
-            aria-label={`${types}：前往${item.concept.label}`} onClick={() => openConcept(item.concept.concept_id)}>
-            <span><small>{types}</small><strong>{item.concept.label}</strong></span><Icon name="chevron-right" size={16} />
-          </button></li>;
-        })}</ul>
-      </details>}
     </DetailPanel>
   );
 }
@@ -547,7 +519,6 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
             apiClient={apiClient}
             close={closeDetail}
             view={view}
-            openConcept={openConceptDetail}
             concept={selectedConcept}
             studyAction={focusStudyAction}
             progress={progress}
