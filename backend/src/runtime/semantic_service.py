@@ -231,7 +231,7 @@ def request_semantics(
         prompt = task_lock[prefix + "prompt"]
         max_tokens = task_lock[prefix + "max_tokens"]
         if (
-            task not in {"material_semantics", "assessment", "assessment_check"}
+            task not in {"material_semantics", "material_review", "assessment", "assessment_check"}
             or not isinstance(prompt, str)
             or not prompt
             or type(max_tokens) is not int

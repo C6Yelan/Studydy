@@ -60,6 +60,7 @@ class AnalysisArchive:
         self._checkpoint=None
         self._review_response_runs=[]
         self._replayed_responses=set()
+        self.review_reuses=[]
 
     def load_checkpoint(self):
         if self._loaded:return self._checkpoint
@@ -156,6 +157,61 @@ class AnalysisArchive:
     def prepare_call(self,index,request):
         self._write(f'call-{index:06d}/request.json',request)
         return self.directory/f'call-{index:06d}'
+
+    def save_review(self, name, data):
+        self._write(f'review/{name}.json', data)
+
+    def prepare_review_call(self, index, key, request):
+        self.save_review(f'call-{index:06d}/request', {'cache_key': key, 'request': request})
+        return self.directory/'review'/f'call-{index:06d}'
+
+    def load_review(self, key, *, validate_response=None):
+        # 同來源／模型設定的明確重試可接續；不重播未知或損毀的回應。
+        with database_session(self.dsn) as session:
+            prior = session.scalars(select(MaterialProcessingRun).where(
+                MaterialProcessingRun.learner_id == self.run.learner_id,
+                MaterialProcessingRun.material_id == self.run.material_id,
+                MaterialProcessingRun.status.in_(('failed', 'cancelled')),
+                MaterialProcessingRun.created_at < self.run.created_at)).all()
+            candidates = [(r.run_id, _signature(r)) for r in prior if _same_analysis(r, self.run)]
+        for run_id, signature in [(self.run.run_id, self.signature), *candidates]:
+            directory = self.directory.parent/run_id.hex/'review'
+            path = directory/f'cache-{key}.json'
+            try:
+                if not path.exists():
+                    # 驗證器修正後，可以重新核對原始回應；不用為同一輸入再付一次推論費用。
+                    if validate_response is None:
+                        continue
+                    for request_path in directory.glob('call-*/request.json'):
+                        request = json.loads(request_path.read_bytes())
+                        if (request['signature'] != signature or request['run_id'] != str(run_id)
+                            or request['data_sha256'] != canonical_sha256(request['data'])):
+                            raise ValueError
+                        if request['data'].get('cache_key') != key:
+                            continue
+                        candidate_path = request_path.parent/'response.json'
+                        if not candidate_path.exists():
+                            continue
+                        candidate = json.loads(candidate_path.read_bytes())
+                        if (candidate['signature'] != signature or candidate['run_id'] != str(run_id)
+                            or candidate['data_sha256'] != canonical_sha256(candidate['data'])):
+                            raise ValueError
+                        try:
+                            validate_response(candidate['data'])
+                        except ValueError:
+                            continue
+                        self.review_reuses.append({'run_id': str(run_id), 'cache_key': key, 'kind': 'revalidated_response'})
+                        return candidate['data']
+                    continue
+                value = json.loads(path.read_bytes())
+                if (value['signature'] != signature or value['run_id'] != str(run_id)
+                    or value['data_sha256'] != canonical_sha256(value['data'])):
+                    raise ValueError
+                self.review_reuses.append({'run_id': str(run_id), 'cache_key': key, 'kind': 'saved_response'})
+                return value['data']
+            except Exception:
+                raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_INVALID') from None
+        return None
 
     def save_failure(self,error):
         # 不保存 exception message／locals，避免把 DSN 或私人答案寫入一般診斷。

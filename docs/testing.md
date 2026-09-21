@@ -2,6 +2,10 @@
 
 ## Local regression
 
+教材分析結果的正式檢核發布、既有教材重整與離線檢查見 [material-review.md](material-review.md)。
+既有教材重整使用已保存的 JSON 與來源；新教材與追加來源則在原始分析後執行複核。
+程式回歸使用受控模型回應，與另行授權的真實模型品質實測分開記錄。
+
 From the repository root:
 
 ```bash

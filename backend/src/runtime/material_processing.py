@@ -26,6 +26,8 @@ from .storage.artifacts import open_verified_source_pdf
 from .storage.knowledge_structures import KnowledgeStructureStoreError, publish_knowledge_structure, runtime_binding_is_valid
 from .storage.analysis_archive import AnalysisArchive, AnalysisArchiveError, cleanup_published_checkpoints
 from .material_runtime import same_material_runtime
+from .material_review import review_structure
+from knowledge_map.material_review import ReviewError
 from .storage.tables import Learner, Material, MaterialProcessingRun as RunRow, database_session
 
 
@@ -566,12 +568,28 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn):
         from .storage.knowledge_structures import read_knowledge_structure
         binding = _input(run.learner_id, run.run_id, dsn=dsn)
         base = read_knowledge_structure(run.learner_id, run.material_id, revision=run.base_revision, dsn=dsn).document if run.base_revision else None
+        review_only = bool(base and binding and binding.get('source_set_digest') == base.get('source_set_sha256'))
         saved = archive.load_checkpoint()
-        if not (saved and saved.get('complete')) and runtime_preflight(local_config) != run.runtime_binding:
+        if not review_only and not (saved and saved.get('complete')) and runtime_preflight(local_config) != run.runtime_binding:
             raise MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID")
         check_cancel()
         with tempfile.TemporaryDirectory(prefix="studydy-material-") as directory:
-            if binding is not None and binding['schema']=='structure-input-binding/v2':
+            if review_only:
+                from knowledge_map.structure import _revision
+                structure = deepcopy(base)
+                structure.update(run_id=str(run.run_id), produced_at=datetime.now(UTC).isoformat(), input_binding=binding)
+                structure['provenance'].update(runtime_lock_sha256=run.runtime_binding['runtime_lock_sha256'],
+                    model_id=run.runtime_binding['model_id'], model_revision=run.runtime_binding['model_revision'])
+                if run.runtime_binding['semantic_service'].get('transport') == 'command':
+                    structure['execution_identity'] = deepcopy(run.runtime_binding['semantic_service'])
+                else:
+                    structure.pop('execution_identity', None)
+                # 原分析的費用留在舊 run；新 run 只計本次檢核。
+                structure['metrics'].update(ocr_calls=0, evidence_duration_ms=0, semantic_duration_ms=0)
+                structure['revision'] = _revision(structure)
+                progress('evidence', structure['page_count'], structure['page_count'])
+                progress('semantics', structure['page_count'], structure['page_count'])
+            elif binding is not None and binding['schema']=='structure-input-binding/v2':
                 sources=[]
                 for index,item in enumerate(binding['manifest']['items']):
                     path=Path(directory)/f'source-{index}.pdf'
@@ -586,12 +604,17 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn):
                 structure = _analyze_single_run_source(run, local_config, directory, progress, check_cancel, archive, dsn=dsn)
         if structure["status"]["processing"] == "failed":
             raise MaterialProcessingError("NO_CANONICAL_CONCEPT")
+        if not review_only:
+            structure=bind_structure_input(run.learner_id,run.run_id,structure,dsn=dsn)
+        inherited_calls = structure['metrics']['semantic_calls'] if review_only else 0
+        structure=review_structure(structure, local_config['runtime_lock'], archive, check_cancel, progress)
+        if review_only:
+            structure['metrics']['semantic_calls'] -= inherited_calls
         progress("publishing", structure["page_count"], structure["page_count"])
-        structure=bind_structure_input(run.learner_id,run.run_id,structure,dsn=dsn)
         publish_knowledge_structure(run.learner_id, run.material_id, run.run_id, structure, worker_token=claim.worker_token, dsn=dsn)
     except MaterialProcessingCancelled:
         pass
-    except (KnowledgeStructureStoreError, MaterialAnalysisError, MaterialProcessingError, AnalysisArchiveError) as error:
+    except (KnowledgeStructureStoreError, MaterialAnalysisError, MaterialProcessingError, AnalysisArchiveError, ReviewError, SemanticServiceError) as error:
         try:
             if archive is not None: archive.save_failure(error)
         except AnalysisArchiveError: pass

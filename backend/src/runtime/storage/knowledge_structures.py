@@ -147,7 +147,10 @@ def publish_knowledge_structure(
                 added_evidence = {item["evidence_id"] for item in document["evidence"]
                                   if item["page"] > base["page_count"]}
                 # 舊內容會被重用；只剩舊 Claims 時不能把追加顯示為已完成。
-                if not any(added_evidence.intersection(claim["evidence_refs"])
+                review_only = (document.get('source_set_sha256') is not None
+                               and document.get('source_set_sha256') == base.get('source_set_sha256')
+                               and 'material_review' in locked_run.runtime_lock_document)
+                if not review_only and not any(added_evidence.intersection(claim["evidence_refs"])
                            for concept in document["concepts"] for claim in concept["claims"]):
                     raise KnowledgeStructureStoreError("NO_USABLE_ADDED_CONTENT")
             run = session.execute(
@@ -218,7 +221,7 @@ def publish_knowledge_structure(
             if document["schema"] == "knowledge-structure/v4":
                 material.ingestion_kind = "sources-v2"
             session.flush()
-            if locked_run.base_revision is not None:
+            if locked_run.base_revision is not None and not review_only:
                 _prune_unreferenced_structures(session, learner_id, material_id, material.head_revision)
     except KnowledgeStructureStoreError:
         raise

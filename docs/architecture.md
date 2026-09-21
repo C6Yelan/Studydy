@@ -20,6 +20,9 @@ and Assessment semantics. Code owns source identity, Evidence/span binding, exac
 schema, ownership, endpoints, duplicates/conflicts, prerequisite cycles, private answers, scoring,
 and stale/idempotency/concurrency behavior.
 
+教材 worker 在初始語意分析後執行 [檢核與整理](material-review.md)，再發布 canonical 地圖。
+它共用既有 semantic transport；既有教材可重用已保存 Evidence 建立整理版本。原版地圖與舊作答不覆寫。
+
 Material requests retain document-global integer handles, page, kind, and exact text under section
 titles. Response v4 Claims select whole Evidence handles with `s: [handle, ...]`; character offsets
 are not accepted. Native Evidence joins geometrically consecutive lines within a PDF text block or a wrapped

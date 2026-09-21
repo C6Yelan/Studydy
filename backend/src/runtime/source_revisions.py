@@ -103,7 +103,10 @@ def retry_revision(owner,run_id,key,config,*,dsn=None):
 
 def create_revision(owner, material_id, normalization_ids, key, config, *, base_revision=None, dsn=None):
     from .material_processing import runtime_binding, _row
-    if not normalization_ids or len(set(normalization_ids)) != len(normalization_ids):
+    # 空追加 + 明確現行版本代表只檢核已保存分析；來源集合維持完全相同。
+    if (not normalization_ids and base_revision is None) or len(set(normalization_ids)) != len(normalization_ids):
+        raise SourceError("REQUEST_INVALID")
+    if not normalization_ids and 'material_review' not in config['runtime_lock']:
         raise SourceError("REQUEST_INVALID")
     digest = _key_digest(key)
     try:
@@ -124,6 +127,8 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
             before = session.scalar(select(KnowledgeStructure).where(KnowledgeStructure.learner_id == owner,
                 KnowledgeStructure.material_id == material_id, KnowledgeStructure.structure_revision == base_revision)) if base_revision else None
             old_binding = deepcopy(before.document.get("input_binding")) if before else None
+            if not normalization_ids and (not old_binding or old_binding['schema'] != 'structure-input-binding/v2'):
+                raise SourceError("REQUEST_INVALID")
             old_run = session.get(MaterialProcessingRun, before.run_id) if before else None
             original_pdf = old_run.source_artifact_id if old_run and old_binding is None else None
         old_items = deepcopy(old_binding["manifest"]["items"]) if old_binding else []

@@ -57,11 +57,19 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
     """依實際用途驗證元件契約；整份設定的版本只作稽核，不決定教材能否接續。"""
 
     try:
-        if not isinstance(lock, dict) or set(lock) != {
+        if not isinstance(lock, dict) or set(lock) - {'material_review'} != {
             "schema", "python", "packages", "ocr", "semantic_service",
             "material_semantics", "assessment",
         }:
             raise ValueError
+        if 'material_review' in lock:
+            review = lock['material_review']
+            if (set(review) != {'policy', 'prompt', 'max_tokens', 'generation'}
+                or review['policy'] != 'material-review/v2' or not isinstance(review['prompt'], str)
+                or not review['prompt'].strip() or type(review['max_tokens']) is not int
+                or not 1 <= review['max_tokens'] < lock['semantic_service']['max_model_len']
+                or review['generation'] != lock['material_semantics']['generation']):
+                raise ValueError
         semantic = lock["semantic_service"]
         material = lock["material_semantics"]
         assessment_settings = lock["assessment"]

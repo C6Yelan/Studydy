@@ -89,6 +89,7 @@ from ..storage.materials import MaterialLibraryError, read_material_library, ren
 from ..workers import start_runtime_workers
 from ..source_normalization import SourceError,create_draft,upload_source,read_sources,retry_normalization,remove_staged_source
 from ..source_revisions import create_revision
+from .models import MaterialReviewCreate
 from ..source_resolver import resolve_evidence_source
 from ..storage.source_artifacts import open_verified_artifact
 from ..storage.tables import Artifact,Material,MaterialSource,database_session
@@ -362,6 +363,7 @@ def _install_openapi(app: FastAPI) -> None:
     idempotent_paths = {
         "/v2/materials", "/v2/materials/{material_id}/sources", "/v2/materials/{material_id}/revisions",
         "/v2/material-processing-runs/{run_id}/retry",
+        "/v2/materials/{material_id}/review",
         "/v1/materials",
         "/v1/material-processing-runs",
         "/v1/study-sessions",
@@ -706,6 +708,13 @@ def create_app(settings: ApiSettings) -> FastAPI:
         run=read_material_processing_run(owner,run_id,dsn=settings.dsn)
         if run.base_revision!=body.base_revision:raise _ApiFailure('REQUEST_INVALID')
         return project_material_run(request_material_processing_cancellation(owner,run_id,update_only=True,dsn=settings.dsn))
+
+    @app.post("/v2/materials/{material_id}/review", status_code=202, response_model=MaterialProcessingRunView)
+    def review_material_revision(request: Request, material_id: UUID, body: MaterialReviewCreate):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        return project_material_run(create_revision(owner, material_id, [], _idempotency_key(request),
+            deepcopy(settings.local_config), base_revision=body.base_revision, dsn=settings.dsn))
 
     @app.post("/v2/material-processing-runs/{run_id}/retry",status_code=202,response_model=MaterialProcessingRunView)
     async def retry_material_revision(request:Request,run_id:UUID):
