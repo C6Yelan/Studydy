@@ -17,7 +17,7 @@ test('unfinished A does not block B and switching back resumes A',async({page})=
   await page.getByRole('button',{name:'登入',exact:true}).click();
   await expect(page.getByRole('heading',{name:'歡迎回來！',level:1,exact:true})).toBeVisible();
   await page.goto(study);await page.getByRole('button',{name:'開始本輪 1 題',exact:true}).click();
-  await expect(page.getByText('已備妥 0／1 題',{exact:true})).toBeVisible();
+  await expect(page.getByText('0 / 1 題',{exact:true})).toBeVisible();
   const firstUrl=page.url(),firstId=firstUrl.split('/').at(-1)!;
   await page.getByRole('navigation',{name:'學習工作區導覽'}).getByRole('button',{name:'知識地圖',exact:true}).click();
   await openConcept(page,'Other topic');
@@ -39,9 +39,7 @@ test('unfinished A does not block B and switching back resumes A',async({page})=
   await page.getByRole('radio',{name:/EXTERNAL/}).check();await page.getByRole('button',{name:'交卷並查看結果',exact:true}).click();
   await expect(page.getByText('本輪檢測通過，僅代表這次檢測範圍的結果。',{exact:true})).toBeVisible();
   expect((await (await page.request.get(`${base}/${firstId}`)).json()).answered_count).toBe(0);
-  await page.getByRole('button',{name:'回到地圖繼續學習',exact:true}).click();
-  await openConcept(page,'Signals');
-  await page.getByRole('region',{name:'學習入口'}).getByRole('button',{name:'從這個概念繼續',exact:true}).click();
+  await page.getByRole('button',{name:'下一個觀念：Signals',exact:true}).click();
   await expect(page).toHaveURL(firstUrl);
   await expect(page.getByRole('radio',{name:/\bcode0\b/})).toBeEnabled();
   const resumed=await (await page.request.get(`${base}/${firstId}`)).json();

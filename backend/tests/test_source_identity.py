@@ -30,9 +30,10 @@ def test_source_local_identity_survives_new_set_but_changed_claims_do_not_inheri
     apply_semantic_response({'concepts':[{'k':'stack','l':'Stack','a':[],'c':[{'m':None,'s':[0]}]}], 'relations':[]},
         context=context,bundle={'evidence':context['evidence']},state=state)
     old = structure(context,state,'1'*64)
-    snapshot=deepcopy(old)
     binding={'source_set_digest':'2'*64,'manifest':{'items':[{'source_id':'A','original_sha256':'1'*64,'normalized_sha256':'1'*64}]},
         'bundle':{'pages':[{'page':1,'source_id':'A','normalized_page':1}]}}
+    old['input_binding']={**deepcopy(binding),'source_set_digest':'1'*64}
+    snapshot=deepcopy(old)
     updated_context=build_document_context([rebase_page(page,'2'*64,1)],page_count=1)
     seeded=seed_incremental_state(old,updated_context,binding)
     updated=structure(updated_context,seeded,'2'*64)

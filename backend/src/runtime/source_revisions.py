@@ -15,14 +15,7 @@ from .storage.tables import (Artifact, KnowledgeStructure, MaterialProcessingRun
 
 
 def current_revision(session, material):
-    if material.head_revision:
-        return material.head_revision
-    # 已保存單 PDF 的 exact run 仍是目前資料，首次追加時才接到共用來源集合。
-    return session.scalar(select(KnowledgeStructure.structure_revision).join(MaterialProcessingRun,
-        KnowledgeStructure.run_id == MaterialProcessingRun.run_id).where(
-        KnowledgeStructure.learner_id == material.learner_id, KnowledgeStructure.material_id == material.material_id,
-        MaterialProcessingRun.status.in_(("succeeded", "partial")),
-        MaterialProcessingRun.base_revision.is_(None)).order_by(KnowledgeStructure.created_at.desc()).limit(1))
+    return material.head_revision
 
 
 def _descriptor(session, job):
@@ -42,34 +35,6 @@ def _descriptor(session, job):
     }
 
 
-def _pdf_identity(owner, material_id, artifact_id, *, dsn):
-    """為實際存在的單 PDF 補完整 descriptor；不改舊 ready row／KS／答案。"""
-    with open_verified_artifact(owner, artifact_id, dsn=dsn) as stream:
-        with pymupdf.open(stream=stream.file.read(), filetype="pdf") as pdf:
-            page_count = len(pdf)
-        digest = stream.sha256
-    mapping = {"schema": "source-mapping/v1", "format": "pdf", "original_sha256": digest,
-        "normalized_sha256": digest, "page_count": page_count,
-        "records": [{"normalized_page": n, "origin_locator": {"original_page": n}, "accuracy": "exact"}
-                    for n in range(1, page_count + 1)]}
-    with database_session(dsn) as session:
-        _material(session, owner, material_id)
-        source = session.scalar(select(MaterialSource).where(MaterialSource.learner_id == owner,
-            MaterialSource.material_id == material_id, MaterialSource.original_artifact_id == artifact_id))
-        if source is None:
-            raise SourceError("SOURCE_BINDING_INVALID")
-        ready = session.scalar(select(SourceNormalization).where(SourceNormalization.source_id == source.source_id,
-            SourceNormalization.status == "ready", SourceNormalization.mapping_artifact_id.is_not(None)))
-        if ready is None:
-            metadata = write_blob(session, owner, material_id, canonical_bytes(mapping), "source_mapping", "application/json")
-            now = datetime.now(UTC)
-            ready = SourceNormalization(normalization_id=uuid4(), learner_id=owner, material_id=material_id,
-                source_id=source.source_id, policy={"schema": "normalization-policy/v1", "renderer": "pdf-identity"},
-                status="ready", normalized_artifact_id=artifact_id, mapping_artifact_id=metadata.artifact_id,
-                page_count=page_count, created_at=now, updated_at=now)
-            session.add(ready)
-            session.flush()
-        return _descriptor(session, ready)
 
 
 def _fingerprint(material_id, normalization_ids, runtime, base_revision):
@@ -94,8 +59,9 @@ def retry_revision(owner,run_id,key,config,*,dsn=None):
                 MaterialProcessingRun.material_id==run.material_id,
                 MaterialProcessingRun.output_binding['knowledge_structure_revision'].astext==run.base_revision))
             if base is None:raise SourceError('REVISION_CONFLICT')
-            base_set=session.get(MaterialSourceSet,base.input_source_set_id) if base.input_source_set_id else None
-            prefix=len(base_set.manifest['items']) if base_set else 1
+            base_set=session.get(MaterialSourceSet,base.input_source_set_id)
+            if base_set is None:raise SourceError('SOURCE_BINDING_INVALID')
+            prefix=len(base_set.manifest['items'])
         additions=[UUID(item['normalization_id']) for item in source_set.manifest['items'][prefix:]]
         material_id,base_revision=run.material_id,run.base_revision
     return create_revision(owner,material_id,additions,key,config,base_revision=base_revision,dsn=dsn)
@@ -126,14 +92,10 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
                 raise SourceError("REVISION_IN_PROGRESS")
             before = session.scalar(select(KnowledgeStructure).where(KnowledgeStructure.learner_id == owner,
                 KnowledgeStructure.material_id == material_id, KnowledgeStructure.structure_revision == base_revision)) if base_revision else None
-            old_binding = deepcopy(before.document.get("input_binding")) if before else None
+            old_binding = deepcopy(before.document["input_binding"]) if before else None
             if not normalization_ids and (not old_binding or old_binding['schema'] != 'structure-input-binding/v2'):
                 raise SourceError("REQUEST_INVALID")
-            old_run = session.get(MaterialProcessingRun, before.run_id) if before else None
-            original_pdf = old_run.source_artifact_id if old_run and old_binding is None else None
         old_items = deepcopy(old_binding["manifest"]["items"]) if old_binding else []
-        if original_pdf:
-            old_items = [_pdf_identity(owner, material_id, original_pdf, dsn=dsn)]
         runtime = runtime_binding(config)
         with database_session(dsn) as session:
             material = _material(session, owner, material_id)
@@ -181,8 +143,6 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
             bundle = {"schema": "bundle-manifest/v2", "source_set_digest": manifest_hash,
                 "processing_policy": "source-boundary-incremental/v1", "pages": pages,
                 "source_names": [item["original_name"] for item in items]}
-            if base_revision is not None and material.head_revision is None:
-                material.head_revision = base_revision
             row = MaterialProcessingRun(run_id=uuid4(), learner_id=owner, material_id=material_id,
                 source_artifact_id=UUID(items[0]["normalized_artifact_id"]), input_source_set_id=source_set.source_set_id,
                 base_revision=base_revision, bundle_manifest=bundle, bundle_manifest_sha256=canonical_sha256(bundle),

@@ -29,18 +29,8 @@ class LearnerIdentityView(_Closed):
     learner_id: UUID
 
 
-class MaterialView(_Closed):
-    schema_: Literal["material/v1"] = Field(alias="schema")
-    material_id: UUID
-    source_artifact_id: UUID
-    source_sha256: str
-    size_bytes: int
 
 
-class MaterialProcessingCreate(_Closed):
-    schema_: Literal["material-processing-create/v1"] = Field(alias="schema")
-    material_id: UUID
-    source_artifact_id: UUID
 
 
 class MaterialOutputBindingView(_Closed):
@@ -66,7 +56,7 @@ class MaterialProcessingRunView(_Closed):
     analysis_saved: bool = False
     base_revision: str | None = Field(default=None,exclude_if=lambda value:value is None)
     source_names: list[str] | None = Field(default=None,exclude_if=lambda value:value is None)
-    schema_: Literal["material-processing-run/v5", "material-processing-run/v6"] = Field(alias="schema")
+    schema_: Literal["material-processing-run/v6"] = Field(alias="schema")
     input_source_set_id: UUID | None = Field(default=None,exclude_if=lambda value:value is None)
     run_id: UUID
     material_id: UUID
@@ -128,7 +118,7 @@ class SourceView(_Closed):
 class MaterialLibraryItem(_Closed):
     head_revision: str | None = None
     source_count: int = 1
-    schema_: Literal["material-library-item/v2", "material-library-item/v3"] = Field(alias="schema")
+    schema_: Literal["material-library-item/v3"] = Field(alias="schema")
     source: SourceView | None = Field(default=None,exclude_if=lambda value:value is None)
     ingestion_kind: Literal["sources-v2"] | None = Field(default=None,exclude_if=lambda value:value is None)
     material_id: UUID
@@ -232,8 +222,8 @@ class ExcludedPageView(_Closed):
 
 
 class KnowledgeStructureView(_Closed):
-    schema_: Literal["knowledge-structure-view/v2", "knowledge-structure-view/v3"] = Field(alias="schema")
-    source_resolver: str | None = Field(default=None,exclude_if=lambda value:value is None)
+    schema_: Literal["knowledge-structure-view/v3"] = Field(alias="schema")
+    source_resolver: str
     material_id: str
     knowledge_structure_revision: str
     status: StatusView
@@ -271,9 +261,6 @@ class StudySessionView(_Closed):
     event_watermark: int
 
 
-class AssessmentCreate(_Closed):
-    schema_: Literal["assessment-create/v2"] = Field(alias="schema")
-    target_claim_id: str
 
 
 class AssessmentOptionView(_Closed):
@@ -295,10 +282,6 @@ class AssessmentView(_Closed):
     options: list[AssessmentOptionView]
 
 
-class AnswerSubmissionCreate(_Closed):
-    schema_: Literal["answer-submission-create/v2"] = Field(alias="schema")
-    question_id: str
-    selected_option_id: str
 
 
 class AnswerFeedbackView(_Closed):
@@ -315,22 +298,15 @@ class AnswerFeedbackView(_Closed):
     created_at: datetime
 
 
-class AssessmentRecordView(_Closed):
-    assessment: AssessmentView
-    feedback: AnswerFeedbackView | None
-    created_at: datetime
-    can_submit: bool
 
 
 class StudyResumeView(_Closed):
-    schema_: Literal["study-resume/v3"] = Field(default="study-resume/v3", alias="schema")
+    schema_: Literal["study-resume/v5"] = Field(default="study-resume/v5", alias="schema")
     session: StudySessionView
     run_id: UUID
     source_artifact_id: UUID
     knowledge_structure: KnowledgeStructureView
     progress: LearnerProgressView
-    assessments: list[AssessmentRecordView]
-    selected_assessment_revision: str | None
     assessment_sets: list[AssessmentSetSummary]
     selected_set_id: UUID | None
 
@@ -380,19 +356,11 @@ class AssessmentPlanView(_Closed):
     excluded: list[AssessmentPlanExcluded]
 
 
-class AssessmentReview(_Closed):
-    schema_: Literal['assessment-review/v1'] = Field(alias='schema')
-    expected_set_version: int = Field(ge=1, strict=True)
-    target_claim_id: str
-    action: Literal['review', 'defer']
-
-
 class AssessmentCycleSummary(_Closed):
     diagnostic_set_id: UUID
     concept_id: str
     set_version: int
-    outcome: Literal['in_progress','needs_review','ready_for_remediation','passed','incomplete','deferred']
-    closed_at: datetime | None
+    outcome: Literal['in_progress','needs_review','passed','incomplete']
     active_set_id: UUID | None
     passed_count: int
     remediation_passed_count: int
@@ -403,15 +371,13 @@ class AssessmentCycleSummary(_Closed):
 
 class AssessmentCyclePoint(_Closed):
     claim_id: str
-    result: Literal['unavailable','unanswered','diagnostic_pass','needs_review','reviewed','remediation_pass','deferred']
+    result: Literal['unavailable','unanswered','diagnostic_pass','needs_review','remediation_pass']
     latest_answer_event_id: UUID | None
     latest_set_id: UUID | None
 
 
 class AssessmentCycleView(AssessmentCycleSummary):
     can_create_remediation: bool
-    can_close: bool
-    can_review: bool
     points: list[AssessmentCyclePoint]
 
 
@@ -452,30 +418,31 @@ class AssessmentSetItemView(_Closed):
 
 
 class AssessmentSetView(AssessmentSetSummary):
-    schema_: Literal['assessment-set/v2'] = Field(alias='schema')
+    schema_: Literal['assessment-set/v3'] = Field(alias='schema')
     study_session_id: UUID
     material_id: UUID
     knowledge_structure_revision: str
-    selection_policy: Literal['single-concept-grounded-points/v1','reviewed-wrong-points/v1']
+    selection_policy: Literal['single-concept-grounded-points/v1','needs-review-points/v1']
     point_count: int
     excluded_count: int
     verified_count: int
     can_retry: bool
     can_publish_partial: bool
     can_complete: bool
-    can_cancel: bool
     items: list[AssessmentSetItemView]
     cycle: AssessmentCycleView
 
 
+
+
 class GuidanceApply(_Closed):
     schema_: Literal["guidance-apply/v2"] = Field(alias="schema")
-    guidance_revision: str
+    guidance_revision: str = Field(pattern=r"^learner-guidance:sha256:[0-9a-f]{64}$")
 
 
 class LearnerProgressView(_Closed):
     assessment_cycles: list[AssessmentCycleSummary]
-    schema_: Literal["learner-progress/v3"] = Field(alias="schema")
+    schema_: Literal["learner-progress/v4"] = Field(alias="schema")
     study_session_id: UUID
     knowledge_structure_revision: str
     event_watermark: int
@@ -491,7 +458,7 @@ def project_material_run(run: Any) -> MaterialProcessingRunView:
     from ..storage.analysis_archive import has_analysis_checkpoint
     return MaterialProcessingRunView.model_validate({
         "analysis_saved": run.status == "failed" and has_analysis_checkpoint(run.learner_id, run.material_id, run.run_id),
-        "schema": "material-processing-run/v6" if getattr(run,"input_source_set_id",None) else "material-processing-run/v5",
+        "schema": "material-processing-run/v6",
         "input_source_set_id":getattr(run,"input_source_set_id",None),
         "base_revision":getattr(run,"base_revision",None),
         "source_names":list(run.source_names) if getattr(run,"source_names",()) else None,

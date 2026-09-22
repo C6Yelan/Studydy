@@ -192,7 +192,7 @@ def record_set_answer(session, assessment):
 
 
 def _cycle(session, study, root):
-    """同一初篩及其補強的投影；AnswerEvent 是唯一作答事實，複習確認不會冒充答對。"""
+    """同一初篩及其補強的投影；AnswerEvent 是唯一作答事實，不保存閱讀確認或暫緩決定。"""
     family = list(session.scalars(select(AssessmentSet).where(
         (AssessmentSet.set_id == root.set_id) | (AssessmentSet.diagnostic_set_id == root.set_id))
         .order_by(AssessmentSet.created_at, AssessmentSet.set_id)))
@@ -223,78 +223,43 @@ def _cycle(session, study, root):
         elif latest.is_correct:
             result = 'remediation_pass'
         else:
-            decision = root.review_actions.get(str(latest.answer_event_id), {})
-            result = {'review': 'reviewed', 'defer': 'deferred'}.get(decision.get('action'), 'needs_review')
-            # 一次複習確認只供一次補強使用；新一輪出題失敗可重試原題組，但不能無限另開。
-            attempts = [row for row in items if row.target_claim_id == claim_id and row.set_id != root.set_id
-                        and groups[row.set_id].created_at > datetime.fromisoformat(decision.get('at', latest.created_at.isoformat()))]
-            if result == 'reviewed' and attempts:
-                result = 'needs_review'
+            result = 'needs_review'
         points.append({'claim_id': claim_id, 'result': result,
             'latest_answer_event_id': str(latest.answer_event_id) if latest else None,
             'latest_set_id': str(by_revision[latest.assessment_revision].set_id) if latest else None})
     counts = {name: sum(point['result'] == name for point in points) for name in (
-        'diagnostic_pass', 'remediation_pass', 'needs_review', 'reviewed', 'deferred', 'unanswered', 'unavailable')}
-    pending = counts['needs_review'] + counts['reviewed'] + counts['deferred']
+        'diagnostic_pass', 'remediation_pass', 'needs_review', 'unanswered', 'unavailable')}
+    pending = counts['needs_review']
     unavailable = counts['unavailable'] + len(root.target_plan['excluded'])
     passed = counts['diagnostic_pass'] + counts['remediation_pass']
     if active:
         outcome = 'in_progress'
     elif pending:
-        outcome = 'deferred' if pending == counts['deferred'] else 'ready_for_remediation' if counts['reviewed'] else 'needs_review'
+        outcome = 'needs_review'
     elif points and passed == len(points) and unavailable == 0:
         outcome = 'passed'
     else:
         outcome = 'incomplete'
     can_act = study.status in ('active', 'no_safe') and root.status == 'completed' and not active and not other_active
     return {'diagnostic_set_id': str(root.set_id), 'concept_id': root.target_concept_id,
-        'set_version': root.set_version, 'outcome': outcome, 'closed_at': root.cycle_closed_at,
+        'set_version': root.set_version, 'outcome': outcome,
         'active_set_id': str(active.set_id) if active else None,
         'passed_count': passed, 'remediation_passed_count': counts['remediation_pass'],
         'pending_count': pending, 'unanswered_count': counts['unanswered'], 'unavailable_count': unavailable,
-        'can_create_remediation': can_act and counts['reviewed'] > 0 and root.cycle_closed_at is None,
-        'can_close': can_act and root.cycle_closed_at is None and pending == counts['deferred'],
-        'can_review': can_act, 'points': points}
+        'can_create_remediation': can_act and pending > 0,
+        'points': points}
 
 
-def read_cycles(learner, sid, *, dsn=None):
-    with database_session(dsn) as session:
-        session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
-        study, _, _ = _scope(session, learner, sid)
-        roots = list(session.scalars(select(AssessmentSet).where(AssessmentSet.study_session_id == sid,
-            AssessmentSet.kind == 'diagnostic').order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)))
-        latest = {}
-        for root in roots:
-            if root.target_concept_id not in latest:
-                cycle = _cycle(session, study, root)
-                latest[root.target_concept_id] = {key: value for key, value in cycle.items()
-                    if key not in ('points', 'can_review', 'can_close', 'can_create_remediation')}
-        return list(latest.values())
-
-
-def review_point(learner, sid, root_id, claim_id, action, expected_version, key, *, dsn=None):
-    if action not in ('review', 'defer'):
-        raise AssessmentSetError('ASSESSMENT_SET_REQUEST_INVALID')
-    receipt = _key(key).hex()
-    fingerprint = canonical_sha256({'action': action, 'claim': claim_id, 'version': expected_version})
-    with database_session(dsn) as session:
-        study, _, _ = _scope(session, learner, sid, lock=True)
-        root = _round(session, study, root_id, lock=True)
-        old = root.action_receipts.get(receipt)
-        if old is not None:
-            if old != fingerprint:
-                raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
-            return
-        cycle = _cycle(session, study, root)
-        point = next((point for point in cycle['points'] if point['claim_id'] == claim_id), None)
-        if (root.kind != 'diagnostic' or root.set_version != expected_version or not cycle['can_review']
-            or point is None or point['result'] not in ('needs_review', 'reviewed', 'deferred')):
-            raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
-        root.review_actions = {**root.review_actions, point['latest_answer_event_id']: {'action': action, 'at': _now().isoformat()}}
-        root.action_receipts = {**root.action_receipts, receipt: fingerprint}
-        root.cycle_closed_at = None
-        root.set_version += 1
-        root.updated_at = _now()
+def _read_cycles(session, study):
+    roots = list(session.scalars(select(AssessmentSet).where(AssessmentSet.study_session_id == study.study_session_id,
+        AssessmentSet.kind == 'diagnostic').order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)))
+    latest = {}
+    for root in roots:
+        if root.target_concept_id not in latest:
+            cycle = _cycle(session, study, root)
+            latest[root.target_concept_id] = {key: value for key, value in cycle.items()
+                if key not in ('points', 'can_create_remediation')}
+    return list(latest.values())
 
 
 def create_remediation(learner, sid, root_id, expected_version, key, local_config, *, dsn=None):
@@ -312,9 +277,9 @@ def create_remediation(learner, sid, root_id, expected_version, key, local_confi
         cycle = _cycle(session, study, root)
         if root.kind != 'diagnostic' or root.set_version != expected_version or not cycle['can_create_remediation']:
             raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
-        selected = {point['claim_id'] for point in cycle['points'] if point['result'] == 'reviewed'}
+        selected = {point['claim_id'] for point in cycle['points'] if point['result'] == 'needs_review'}
         targets = [deepcopy(target) for target in root.target_plan['targets'] if target['claim_id'] in selected]
-        plan = {'policy': 'reviewed-wrong-points/v1', 'concept_id': root.target_concept_id,
+        plan = {'policy': 'needs-review-points/v1', 'concept_id': root.target_concept_id,
             'point_count': len(targets), 'targets': targets, 'excluded': []}
         lock = deepcopy(validate_runtime_lock(local_config['runtime_lock']))
         group = AssessmentSet(set_id=uuid4(), learner_id=study.learner_id, material_id=study.material_id,
@@ -351,13 +316,15 @@ def list_sets(learner, sid, *, dsn=None):
     with database_session(dsn) as session:
         session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
         study, _, _ = _scope(session, learner, sid)
-        groups = list(session.scalars(select(AssessmentSet).where(AssessmentSet.study_session_id == sid)
-                                      .order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)))
-        return {'schema': 'assessment-set-list/v3', 'study_session_id': str(sid),
-                'knowledge_structure_revision': study.knowledge_structure_revision,
-                'active_set_ids': [str(item.set_id) for item in groups if item.status in ACTIVE],
-                'sets': [_summary(session, group) for group in groups]}
+        return _list_sets(session, study)
 
+def _list_sets(session, study):
+    groups = list(session.scalars(select(AssessmentSet).where(AssessmentSet.study_session_id == study.study_session_id)
+                                  .order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)))
+    return {'schema': 'assessment-set-list/v3', 'study_session_id': str(study.study_session_id),
+            'knowledge_structure_revision': study.knowledge_structure_revision,
+            'active_set_ids': [str(item.set_id) for item in groups if item.status in ACTIVE],
+            'sets': [_summary(session, group) for group in groups]}
 
 def read_set(learner, sid, set_id, *, dsn=None):
     from .answer_events import _event, _feedback
@@ -388,7 +355,7 @@ def read_set(learner, sid, set_id, *, dsn=None):
         other_active = session.scalar(select(AssessmentSet.set_id).where(AssessmentSet.study_session_id == sid,
             AssessmentSet.set_id != set_id, AssessmentSet.status.in_(ACTIVE),
             AssessmentSet.target_concept_id == group.target_concept_id).limit(1)) is not None
-        return {'schema': 'assessment-set/v2', 'study_session_id': str(sid),
+        return {'schema': 'assessment-set/v3', 'study_session_id': str(sid),
                 'material_id': str(study.material_id), 'knowledge_structure_revision': study.knowledge_structure_revision,
                 **summary, 'kind': group.kind, 'selection_policy': group.target_plan['policy'],
                 'point_count': group.target_plan['point_count'], 'excluded_count': len(group.target_plan['excluded']),
@@ -397,7 +364,7 @@ def read_set(learner, sid, set_id, *, dsn=None):
                              and study.status in ('active', 'no_safe') and any(item.state == 'failed' and item.attempts < MAX_ATTEMPTS for item in rows),
                 'can_publish_partial': group.status == 'partial_ready' and any(item.state == 'verified' for item in rows),
                 'can_complete': group.status in ('ready', 'in_progress'),
-                'can_cancel': group.status in ACTIVE, 'items': projected,
+                'items': projected,
                 'cycle': _cycle(session, study, session.get(AssessmentSet, group.diagnostic_set_id) if group.diagnostic_set_id else group)}
 
 
@@ -427,13 +394,6 @@ def _seal(session, study, group, items):
             item.state, item.prepared_document = 'omitted', None
     group.status, group.sealed_at = 'ready', _now()
     group.lease_token = group.lease_expires_at = None
-
-
-def _close_resolved_cycle(session, study, group):
-    root = session.get(AssessmentSet, group.diagnostic_set_id) if group.diagnostic_set_id else group
-    cycle = _cycle(session, study, root)
-    if not cycle['active_set_id'] and cycle['pending_count'] == 0:
-        root.cycle_closed_at = _now()
 
 
 def submit_set_answers(learner, sid, set_id, answers, expected_version, idempotency_key, *, dsn=None):
@@ -486,11 +446,10 @@ def submit_set_answers(learner, sid, set_id, answers, expected_version, idempote
         group.action_receipts = {**group.action_receipts, key: fingerprint}
         _touch_diagnostic(session, group)
         session.flush()
-        _close_resolved_cycle(session, study, group)
 
 
 def change_set(learner, sid, set_id, action, expected_version, idempotency_key, *, dsn=None):
-    if action not in ('retry', 'publish-partial', 'complete', 'cancel', 'close-cycle') or type(expected_version) is not int:
+    if action not in ('retry', 'publish-partial') or type(expected_version) is not int:
         raise AssessmentSetError('ASSESSMENT_SET_REQUEST_INVALID')
     key = _key(idempotency_key).hex()
     fingerprint = canonical_sha256({'action': action, 'version': expected_version})
@@ -521,31 +480,11 @@ def change_set(learner, sid, set_id, action, expected_version, idempotency_key, 
             if group.status != 'partial_ready' or not any(item.state == 'verified' for item in rows):
                 raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
             _seal(session, study, group, rows)
-        elif action == 'complete':
-            summary = _summary(session, group, rows)
-            if (group.status not in ('ready', 'in_progress') or summary['published_count'] == 0
-                or summary['answered_count'] != summary['published_count']):
-                raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
-            group.status, group.completed_at = 'completed', _now()
-        elif action == 'close-cycle':
-            if group.kind != 'diagnostic' or not _cycle(session, study, group)['can_close']:
-                raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
-            group.cycle_closed_at = _now()
-        else:
-            if group.status not in ACTIVE:
-                raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
-            for item in rows:
-                if item.state != 'published':
-                    item.state, item.prepared_document, item.failure_reason = 'omitted', None, 'CANCELLED'
-            group.status, group.completed_at = 'cancelled', _now()
-            group.lease_token = group.lease_expires_at = None
         group.set_version += 1
         group.updated_at = _now()
         group.action_receipts = {**group.action_receipts, key: fingerprint}
         session.flush()
         _touch_diagnostic(session, group)
-        if action == 'complete':
-            _close_resolved_cycle(session, study, group)
 
 
 @dataclass(frozen=True)

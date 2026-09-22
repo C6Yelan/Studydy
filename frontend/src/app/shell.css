@@ -11,8 +11,10 @@
 .app-sidebar nav > button:hover:not(:disabled) { background: var(--page-cool); color: var(--studydy-blue); }
 .app-sidebar nav > button[aria-current="page"] { color: var(--studydy-blue); background: var(--studydy-blue-soft); font-weight: 600; }
 .app-main { grid-column: 2; grid-row: 2; min-width: 0; padding: var(--space-8) clamp(24px, 3vw, 48px) var(--space-12); }
-.app-shell.is-standard .app-main > * { width: 100%; max-width: 1280px; min-width: 0; margin-inline: auto; }
-.app-shell.is-standard .app-main > .state-view { max-width: 880px; }
+/* 應用頁共用寬 frame；表單與狀態說明在內層保持可讀寬度，不套用到 workspace/auth。 */
+.app-shell.is-standard { --application-frame-max: 1600px; --readable-content-max: 880px; }
+.app-shell.is-standard .app-main > * { width: 100%; max-width: var(--application-frame-max); min-width: 0; margin-inline: auto; }
+.app-shell.is-standard .app-main > .state-view { max-width: var(--readable-content-max); }
 @media (max-width: 1100px) { .app-main { padding: 28px; } .app-shell { grid-template-columns: 240px minmax(0, 1fr); } }
 @media (max-width: 900px) {
  .app-shell { --shell-header-height: 72px; grid-template-columns: 1fr; grid-template-rows: var(--shell-header-height) auto minmax(0, 1fr); }
@@ -44,3 +46,5 @@
   .workspace-nav svg { display: none; }
   .is-workspace .account-controls .secondary-button { min-width: 52px; padding: 4px 8px; }
 }
+
+.app-loading { margin: 0; padding: var(--space-6); color: var(--text-secondary); }

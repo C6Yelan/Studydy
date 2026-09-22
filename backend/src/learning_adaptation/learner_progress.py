@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from uuid import UUID
+from contextlib import contextmanager
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.learner_session import TrustedLearner
-from runtime.storage.tables import StudySession, Material, database_session
+from runtime.storage.tables import Material, database_session
 
-from .answer_events import read_answer_events
+from .answer_events import _read_events
 from .learning_states import ConceptLearningState, derive_learning_states
-from .map_context import ConceptContext, read_map_context
-from .study_sessions import StoredStudySession, read_study_session
+from .map_context import ConceptContext, _context_from_validated_document
+from .study_sessions import StoredStudySession, _learner, _row, _stored, _validate_context
 
 
 class LearnerProgressError(RuntimeError):
@@ -78,11 +79,11 @@ def _next_action(context, session: StoredStudySession, states: list[ConceptLearn
         if cycle['active_set_id']:
             return NextAction(action='continue_set', target_concept_id=current.concept_id,
                 target_claim_id=None, prerequisite_concept_ids=[], reason='active_assessment_set')
-        if cycle['closed_at'] is None and cycle['pending_count']:
-            return NextAction(action='remediate' if cycle['outcome'] == 'ready_for_remediation' else 'review',
+        if cycle['outcome'] == 'needs_review':
+            return NextAction(action='remediate',
                 target_concept_id=current.concept_id, target_claim_id=None, prerequisite_concept_ids=[], reason='diagnostic_wrong_points')
-        if cycle['closed_at'] is not None:
-            finished = {item['concept_id'] for item in cycles if item['closed_at'] is not None}
+        if cycle['outcome'] in ('passed', 'incomplete'):
+            finished = {item['concept_id'] for item in cycles if item['outcome'] in ('passed', 'incomplete') and not item['active_set_id']}
             target = next((identity for identity in context.initial_learning_path if identity not in finished), None)
             return NextAction(action='advance' if target else 'complete', target_concept_id=target,
                 target_claim_id=None, prerequisite_concept_ids=[], reason='round_finished')
@@ -128,7 +129,7 @@ def _snapshot(
         "policy": "diagnostic-remediation/v1",
     }
     return LearnerProgressSnapshot(
-        schema_="learner-progress/v3",
+        schema_="learner-progress/v4",
         study_session_id=session.study_session_id,
         knowledge_structure_revision=session.knowledge_structure_revision,
         event_watermark=session.last_event_number,
@@ -142,136 +143,72 @@ def _snapshot(
     )
 
 
-def derive_learner_progress(
-    learner: TrustedLearner,
-    study_session_id: UUID,
-    *,
-    dsn: str | None = None,
-) -> LearnerProgressSnapshot:
-    try:
-        session = read_study_session(learner, study_session_id, dsn=dsn)
-        context = read_map_context(
-            learner.learner_id,
-            session.material_id,
-            session.knowledge_structure_revision,
-            dsn=dsn,
-        )
-        from .assessment_sets import read_cycles
-        cycles = read_cycles(learner, study_session_id, dsn=dsn)
-        events = read_answer_events(learner, study_session_id, dsn=dsn)
-        if len(events) != session.last_event_number:
-            raise LearnerProgressError("LEARNER_PROGRESS_STALE")
-        from .inherited_progress import inherited_answers
-        inherited = inherited_answers(learner, session, dsn=dsn)
-        # 未跨版本時保留原有 event_number 順序；只有跨 session 的證據需要合併時間序。
-        evidence = tuple(sorted((*inherited, *events), key=lambda event: (event.created_at, str(event.answer_event_id)))) if inherited else events
-        if cycles != read_cycles(learner, study_session_id, dsn=dsn):
-            raise LearnerProgressError('LEARNER_PROGRESS_STALE')
-        # cycle timestamps must be canonical JSON for the guidance digest.
-        cycles = [{key: value.isoformat() if hasattr(value, 'isoformat') else value for key, value in item.items()} for item in cycles]
-        return _snapshot(session, context, derive_learning_states(context, evidence), cycles)
-    except LearnerProgressError:
-        raise
-    except Exception:
-        raise LearnerProgressError("LEARNER_PROGRESS_UNAVAILABLE") from None
+@contextmanager
+def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=None):
+    """同次讀取共用已驗證教材與一致 DB snapshot，不以重讀全部資料來偵測競態。"""
+    from runtime.storage.knowledge_structures import _read_verified_document
+    from .assessment_sets import _read_cycles
+    from .inherited_progress import inherited_answers
+    with database_session(dsn) as db:
+        try:
+            db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
+            row = _row(db, _learner(learner), study_session_id)
+            material = db.scalar(select(Material.material_id).where(Material.learner_id == learner.learner_id,
+                Material.material_id == row.material_id, Material.discard_requested_at.is_(None)))
+            if material is None:
+                raise LearnerProgressError('LEARNER_PROGRESS_UNAVAILABLE')
+            document = _read_verified_document(db, learner.learner_id, row.material_id,
+                revision=row.knowledge_structure_revision, dsn=dsn)
+            context = _context_from_validated_document(row.material_id, document)
+            _validate_context(row, context)
+            study = _stored(row)
+            events = _read_events(db, row)
+            if len(events) != study.last_event_number:
+                raise LearnerProgressError('LEARNER_PROGRESS_STALE')
+            cycles = _read_cycles(db, row)
+            inherited = inherited_answers(db, learner, study, document, dsn=dsn)
+            evidence = tuple(sorted((*inherited, *events), key=lambda event: (event.created_at, str(event.answer_event_id)))) if inherited else events
+            snapshot = _snapshot(study, context, derive_learning_states(context, evidence), cycles)
+        except LearnerProgressError:
+            raise
+        except Exception:
+            raise LearnerProgressError('LEARNER_PROGRESS_UNAVAILABLE') from None
+        yield db, study, document, snapshot
 
 
-def _guidance_was_applied(
-    learner: TrustedLearner,
-    study_session_id: UUID,
-    guidance_revision: str,
-    *,
-    dsn: str | None,
-) -> bool:
-    try:
-        with database_session(dsn) as session:
-            row = session.execute(
-                select(StudySession.last_applied_guidance_revision).where(
-                    StudySession.learner_id == learner.learner_id,
-                    StudySession.study_session_id == study_session_id,
-                )
-            ).one_or_none()
-        if row is None:
-            raise LearnerProgressError("LEARNER_PROGRESS_UNAVAILABLE")
-        return row[0] == guidance_revision
-    except LearnerProgressError:
-        raise
-    except Exception:
-        raise LearnerProgressError("LEARNER_PROGRESS_UNAVAILABLE") from None
+def derive_learner_progress(learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None) -> LearnerProgressSnapshot:
+    with progress_snapshot(learner, study_session_id, dsn=dsn) as (_, _, _, progress):
+        return progress
 
 
-def apply_guidance(
-    learner: TrustedLearner,
-    study_session_id: UUID,
-    guidance_revision: str,
-    *,
-    dsn: str | None = None,
-) -> LearnerProgressSnapshot:
-    if _guidance_was_applied(
-        learner, study_session_id, guidance_revision, dsn=dsn
-    ):
-        return derive_learner_progress(learner, study_session_id, dsn=dsn)
-    before = derive_learner_progress(learner, study_session_id, dsn=dsn)
-    if guidance_revision != before.guidance_revision:
-        if _guidance_was_applied(
-            learner, study_session_id, guidance_revision, dsn=dsn
-        ):
-            return derive_learner_progress(learner, study_session_id, dsn=dsn)
-        raise LearnerProgressError("LEARNER_GUIDANCE_STALE")
-    state_sha = canonical_sha256({
-        "event_watermark": before.event_watermark,
-        "current_concept_id": before.current_concept_id,
-        "deferred_concept_ids": before.deferred_concept_ids,
-    })
+def apply_guidance(learner: TrustedLearner, study_session_id: UUID, guidance_revision: str, *, dsn: str | None = None) -> LearnerProgressSnapshot:
+    """只套用目前權威投影的 advance/complete；同 revision 重播不會多前進一步。"""
+    from datetime import UTC, datetime
+    from .assessment_sets import _scope, has_active_set
     try:
         with database_session(dsn) as session:
-            material_id=session.scalar(select(StudySession.material_id).where(StudySession.learner_id==learner.learner_id,
-                StudySession.study_session_id==study_session_id))
-            if material_id is None:raise LearnerProgressError("LEARNER_PROGRESS_UNAVAILABLE")
-            session.scalar(select(Material.material_id).where(Material.learner_id==learner.learner_id,
-                Material.material_id==material_id).with_for_update())
-            if derive_learner_progress(learner,study_session_id,dsn=dsn).guidance_revision != before.guidance_revision:
-                raise LearnerProgressError("LEARNER_GUIDANCE_STALE")
-            from .assessment_sets import has_active_set
-            if before.next_action.action == "complete" and has_active_set(session, study_session_id):
-                raise LearnerProgressError('ASSESSMENT_SET_ACTIVE')
-            stored = session.scalar(
-                select(StudySession).where(
-                    StudySession.learner_id == learner.learner_id,
-                    StudySession.study_session_id == study_session_id,
-                ).with_for_update()
-            )
-            if stored is None:
-                raise LearnerProgressError("LEARNER_PROGRESS_UNAVAILABLE")
-            if stored.last_applied_guidance_revision == guidance_revision:
-                pass
-            elif stored.last_event_number != before.event_watermark or stored.current_concept_id != before.current_concept_id or list(stored.deferred_concept_ids) != before.deferred_concept_ids:
-                raise LearnerProgressError("LEARNER_GUIDANCE_STALE")
-            else:
+            # 與題組建立／提交共用 Material → Study 鎖，阻止核對與套用之間插入作答。
+            stored, _, _ = _scope(session, learner, study_session_id, lock=True)
+            if stored.last_applied_guidance_revision != guidance_revision:
+                before = derive_learner_progress(learner, study_session_id, dsn=dsn)
                 action = before.next_action
-                if action.action in ('continue_set', 'review', 'remediate'):
+                if (stored.status not in ('active', 'no_safe') or before.guidance_revision != guidance_revision
+                    or action.action not in ('advance', 'complete')):
                     raise LearnerProgressError('LEARNER_GUIDANCE_STALE')
-                if action.action == "defer":
-                    if stored.current_concept_id not in stored.deferred_concept_ids:
-                        stored.deferred_concept_ids = [*stored.deferred_concept_ids, stored.current_concept_id]
+                if has_active_set(session, study_session_id, stored.current_concept_id if action.action == 'advance' else None):
+                    raise LearnerProgressError('ASSESSMENT_SET_ACTIVE')
+                if action.action == 'advance':
+                    if action.target_concept_id is None:
+                        raise LearnerProgressError('LEARNER_GUIDANCE_STALE')
                     stored.current_concept_id = action.target_concept_id
-                    stored.status = "active"
-                elif action.action in {"advance", "review_prerequisite", "resume"}:
-                    stored.current_concept_id = action.target_concept_id
-                    stored.status = "active"
-                    if action.action == "resume":
-                        stored.deferred_concept_ids = [
-                            concept_id for concept_id in stored.deferred_concept_ids
-                            if concept_id != action.target_concept_id
-                        ]
-                elif action.action == "complete":
-                    stored.status = "completed"
-                    from datetime import UTC, datetime
+                    stored.status = 'active'
+                else:
+                    stored.status = 'completed'
                     stored.completed_at = datetime.now(UTC)
                 stored.last_applied_guidance_revision = guidance_revision
-                stored.last_applied_progress_sha256 = state_sha
+                stored.last_applied_progress_sha256 = canonical_sha256(before.model_dump(mode='json'))
     except LearnerProgressError:
         raise
     except Exception:
-        raise LearnerProgressError("LEARNER_PROGRESS_UNAVAILABLE") from None
+        raise LearnerProgressError('LEARNER_PROGRESS_UNAVAILABLE') from None
     return derive_learner_progress(learner, study_session_id, dsn=dsn)

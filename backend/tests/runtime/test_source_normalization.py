@@ -1,3 +1,5 @@
+
+from product_fixtures import seed_run, publish_fixture_structure
 """B2-I 使用 disposable DB／合成來源，不使用產品模型或資料。"""
 from copy import deepcopy
 import io
@@ -12,10 +14,10 @@ from document_normalization.converter import convert,conversion_policy,MIME
 from runtime.source_normalization import create_draft,upload_source,read_sources,normalize_next,SourceError
 from runtime.source_revisions import create_revision
 from runtime.source_resolver import bind_structure_input,resolve_evidence_source
-from runtime.storage.knowledge_structures import publish_knowledge_structure,read_knowledge_structure
+from runtime.storage.knowledge_structures import read_knowledge_structure
 from runtime.storage.source_artifacts import open_verified_artifact
 from runtime.storage.tables import MaterialSourceSet,SourceNormalization,Artifact,database_session
-from runtime.material_processing import claim_next_material_processing_run,_record_progress,create_material_processing_run,MaterialProcessingError
+from runtime.material_processing import claim_next_material_processing_run, _record_progress, MaterialProcessingError
 from runtime.material_discard import request_material_discard
 from test_closed_loop_v1 import closed_loop,_structure
 
@@ -48,8 +50,8 @@ def test_source_round_trip_freeze_resume_and_owned_delete(closed_loop,normalizer
     run=create_revision(owner,material,[job['normalization_id']],'run',settings,dsn=dsn)
     assert create_revision(owner,material,[job['normalization_id']],'run',settings,dsn=dsn).run_id==run.run_id
     assert run.input_source_set_id
-    with pytest.raises(MaterialProcessingError,match='MATERIAL_RUN_INVALID'):
-        create_material_processing_run(owner,material,run.source_artifact_id,'bypass',settings,dsn=dsn)
+    with pytest.raises(SourceError,match='REVISION_IN_PROGRESS'):
+        create_revision(owner,material,[job['normalization_id']],'competing',settings,dsn=dsn)
     with database_session(dsn) as session:
         frozen=deepcopy(session.get(MaterialSourceSet,run.input_source_set_id).manifest)
         artifact_ids=session.scalars(select(Artifact.artifact_id).where(Artifact.material_id==material)).all()
@@ -67,7 +69,7 @@ def test_source_round_trip_freeze_resume_and_owned_delete(closed_loop,normalizer
     document=material_pipeline.analyze_material(source_request,
                 settings,run_id=str(run.run_id),semantic_call=semantics,source_inputs=[source_request],input_binding=_input(owner,run.run_id,dsn=dsn))
     document=bind_structure_input(owner,run.run_id,document,dsn=dsn)
-    published=publish_knowledge_structure(owner,material,run.run_id,document,dsn=dsn)
+    published=publish_fixture_structure(owner,material,run.run_id,document,dsn=dsn)
     assert published.document['schema']=='knowledge-structure/v4'
     assert published.view['schema']=='knowledge-structure-view/v3'
     evidence=document['evidence'][0]['evidence_id']
@@ -210,28 +212,6 @@ def test_changed_conversion_policy_creates_new_job_without_rewriting_old_one(clo
     with database_session(dsn) as session:assert session.get(SourceNormalization,old).status=='failed'
 
 
-def test_command_assessment_provenance_survives_configuration_removal(closed_loop,tmp_path,monkeypatch):
-    import sys
-    from test_closed_loop_v1 import generate_assessment,_assessment_response,Client
-    from learning_adaptation.study_sessions import create_study_session
-    from learning_adaptation.assessments import read_assessment
-    from runtime.storage.tables import Assessment
-    learner,source,settings,structure,dsn,_=closed_loop
-    config={'schema':'semantic-command-config/v1','argv':[sys.executable,'-c','raise SystemExit(99)'],'model_id':'fixture-model',
-            'model_revision':'fixture-revision'}
-    path=tmp_path/'command.json';path.write_text(json.dumps(config));monkeypatch.setenv('STUDYDY_SEMANTIC_COMMAND_CONFIG',str(path))
-    study=create_study_session(learner,source.material_id,structure['revision'],'command-study',dsn=dsn)
-    concept=structure['concepts'][0]
-    response=_assessment_response('fixture','教材中的 Stack 採用何種順序？',concept['evidence_refs'][0])
-    assessment=generate_assessment(learner,study.study_session_id,concept['claims'][0]['claim_id'],'command-question',settings,
-                dsn=dsn,client=Client(),semantic_call=lambda *_args,**_kwargs:response)
-    with database_session(dsn) as session:
-        provenance=session.get(Assessment,assessment.assessment_revision).generation_provenance
-        assert provenance['schema']=='assessment-generation-provenance/v8'
-        assert provenance['model_id']=='fixture-model' and provenance['execution_identity']['transport']=='command'
-    monkeypatch.delenv('STUDYDY_SEMANTIC_COMMAND_CONFIG')
-    restored=read_assessment(learner,study.study_session_id,assessment.assessment_revision,dsn=dsn)
-    assert restored.assessment_revision==assessment.assessment_revision
 
 
 @pytest.mark.parametrize('part',['word/embeddings/oleObject1.bin','word/activeX/activeX1.bin','word/vbaProject.bin'])

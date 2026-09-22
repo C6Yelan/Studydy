@@ -88,3 +88,32 @@ def test_explicit_review_after_cancellation_reuses_saved_responses(revisions, mo
     completed = execute()
     assert completed.status == 'succeeded', completed.error_code
     assert read_knowledge_structure(owner.learner_id, material, revision=original['revision'], dsn=dsn).document == original
+
+
+def test_coverage_failure_retry_repairs_saved_response_without_analysis(revisions, monkeypatch):
+    owner, material, settings, dsn, add, start, execute, first, original, requests = revisions
+    enable_review(settings)
+    calls = []
+
+    def model(client, **kw):
+        request = kw['request']
+        calls.append(request)
+        response = keep_response(request)
+        if len(calls) <= 2:
+            response['assignments'].append(deepcopy(response['assignments'][0]))
+        return response
+
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    monkeypatch.setattr('runtime.material_processing.analyze_material', lambda *a, **kw: pytest.fail('analysis replay'))
+    create_revision(owner.learner_id, material, [], 'coverage-review', settings,
+                    base_revision=original['revision'], dsn=dsn)
+    failed = execute()
+    assert failed.status == 'failed' and failed.error_code == 'REVIEW_CONCEPT_COVERAGE_INVALID'
+    assert len(calls) == 2 and 'review_correction' in calls[1]
+    assert read_knowledge_structure(owner.learner_id, material, revision=original['revision'], dsn=dsn).document == original
+    retry_revision(owner.learner_id, failed.run_id, 'repair-coverage', settings, dsn=dsn)
+    completed = execute()
+    assert completed.status == 'succeeded', completed.error_code
+    assert len(calls) == 3 and 'review_correction' in calls[2]
+    doc = read_knowledge_structure(owner.learner_id, material, run_id=completed.run_id, dsn=dsn).document
+    assert validate_knowledge_structure(doc) and doc['evidence'] == original['evidence']

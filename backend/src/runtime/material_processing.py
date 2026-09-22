@@ -285,79 +285,8 @@ def runtime_preflight(local_config: Any) -> dict[str, Any]:
     return binding
 
 
-def _source_hash(learner_id: UUID, material_id: UUID, artifact_id: UUID, *, dsn: str | None) -> str:
-    try:
-        with open_verified_source_pdf(learner_id, artifact_id, dsn=dsn) as source:
-            if source.material_id != material_id:
-                raise MaterialProcessingError("MATERIAL_RUN_INVALID")
-            return source.sha256
-    except MaterialProcessingError:
-        raise
-    except Exception:
-        raise MaterialProcessingError("MATERIAL_RUN_INVALID") from None
 
 
-def create_material_processing_run(
-    learner_id: UUID,
-    material_id: UUID,
-    source_artifact_id: UUID,
-    idempotency_key: str,
-    local_config: dict[str, Any],
-    *,
-    dsn: str | None = None,
-) -> MaterialProcessingRun:
-    if not all(isinstance(value, UUID) for value in (learner_id, material_id, source_artifact_id)):
-        raise MaterialProcessingError("MATERIAL_RUN_INVALID")
-    binding = runtime_binding(local_config)
-    source_sha256 = _source_hash(learner_id, material_id, source_artifact_id, dsn=dsn)
-    key = _key(idempotency_key)
-    fingerprint = _digest({
-        "material_id": str(material_id), "source_artifact_id": str(source_artifact_id),
-        "source_sha256": source_sha256, "runtime_binding": binding,
-    })
-    try:
-        with database_session(dsn) as session:
-            if session.scalar(select(Learner.learner_id).where(Learner.learner_id == learner_id).with_for_update()) is None:
-                raise MaterialProcessingError("MATERIAL_RUN_INVALID")
-            material = session.scalar(select(Material).where(
-                Material.material_id == material_id, Material.learner_id == learner_id,
-                Material.source_artifact_id == source_artifact_id,
-            ).with_for_update())
-            if material is None:
-                raise MaterialProcessingError("MATERIAL_RUN_NOT_FOUND")
-            if material.discard_requested_at is not None:
-                raise MaterialProcessingError("MATERIAL_NOT_DISCARDABLE")
-            if material.ingestion_kind != "pdf-v1":
-                raise MaterialProcessingError("MATERIAL_RUN_INVALID")
-            existing = session.scalar(select(RunRow).where(RunRow.learner_id == learner_id, RunRow.idempotency_key_sha256 == key).with_for_update())
-            if existing is not None:
-                expected = _digest({'material_id': str(material_id), 'source_artifact_id': str(source_artifact_id),
-                                    'source_sha256': source_sha256, 'runtime_binding': existing.runtime_binding})
-                if bytes(existing.request_fingerprint) != expected:
-                    raise MaterialProcessingError("MATERIAL_RUN_IDEMPOTENCY_CONFLICT")
-                return _row(existing)
-            from .storage.tables import MaterialSource
-            if session.scalar(select(MaterialSource.source_id).where(MaterialSource.material_id == material_id,
-                    MaterialSource.original_artifact_id != source_artifact_id).limit(1)):
-                raise MaterialProcessingError("MATERIAL_RUN_INVALID")
-            if session.scalar(select(RunRow.run_id).where(RunRow.material_id == material_id, RunRow.status.in_(("pending", "running")))):
-                raise MaterialProcessingError("REVISION_IN_PROGRESS")
-            now = datetime.now(UTC)
-            created = RunRow(
-                run_id=uuid4(), learner_id=learner_id, material_id=material_id,
-                source_artifact_id=source_artifact_id, idempotency_key_sha256=key,
-                request_fingerprint=fingerprint, runtime_binding=binding,
-                runtime_lock_document=deepcopy(local_config['runtime_lock']), status="pending",
-                progress_stage="queued", completed_pages=0, total_pages=None,
-                created_at=now, updated_at=now,
-            )
-            session.add(created)
-            session.flush()
-            return _row(created)
-    except MaterialProcessingError:
-        raise
-    except Exception:
-        raise MaterialProcessingError("MATERIAL_RUN_STORAGE_FAILED") from None
 
 
 def read_material_processing_run(learner_id: UUID, run_id: UUID, *, dsn: str | None = None) -> MaterialProcessingRun:
@@ -601,7 +530,7 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn):
                     source_inputs=sources,input_binding=binding,base_structure=base,
                     progress_callback=progress,cancellation_check=check_cancel,analysis_archive=archive)
             else:
-                structure = _analyze_single_run_source(run, local_config, directory, progress, check_cancel, archive, dsn=dsn)
+                raise MaterialProcessingError("SOURCE_BINDING_INVALID")
         if structure["status"]["processing"] == "failed":
             raise MaterialProcessingError("NO_CANONICAL_CONCEPT")
         if not review_only:
@@ -632,22 +561,3 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn):
         except AnalysisArchiveError:
             logging.getLogger(__name__).warning('ANALYSIS_CHECKPOINT_CLEANUP_FAILED', extra={'run_id': str(run.run_id)})
     return result
-
-
-def _analyze_single_run_source(run, local_config, directory, progress, check_cancel, archive, *, dsn):
-    source_path = Path(directory) / "source.pdf"
-    with open_verified_source_pdf(run.learner_id, run.source_artifact_id, dsn=dsn) as source:
-        if source.material_id != run.material_id:
-            raise MaterialProcessingError("MATERIAL_RUN_INVALID")
-        with source_path.open("xb") as destination:
-            while chunk := source.file.read(1024 * 1024):
-                destination.write(chunk)
-        source_sha256 = source.sha256
-    return analyze_material(
-        {"media_type": "application/pdf", "source_path": str(source_path), "expected_source_sha256": source_sha256},
-        deepcopy(local_config),
-        run_id=str(run.run_id),
-        progress_callback=progress,
-        cancellation_check=check_cancel,
-        analysis_archive=archive,
-    )

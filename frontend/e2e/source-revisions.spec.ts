@@ -11,7 +11,7 @@ for (const width of [1536, 390]) test(`append queue and run-only cancellation pr
   await page.clock.setFixedTime(new Date("2026-09-18T00:01:30Z"));
   const lastFilename = `C-${"LongChapterFilename".repeat(5)}.pdf`;
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }));
-  await page.route("**/v1/session/refresh", route => route.fulfill({ status: 204 }));
+  await page.route("**/v1/session/refresh", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
   await page.route("**/v2/source-capabilities", route => route.fulfill({ json: { schema: "source-capabilities/v1", quality_notice: "PDF 優先", formats: [
     { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 },
     { extension: ".txt", media_type: "text/plain", max_bytes: 104857600 },
@@ -26,7 +26,7 @@ for (const width of [1536, 390]) test(`append queue and run-only cancellation pr
   await page.route(`**/v1/materials/${material}`, route => { if (route.request().method() === "DELETE") wholeDeletes++; return route.fulfill({ json: item() }); });
   await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [item()] } }));
   await page.route(`**/v1/material-processing-runs/${oldRun}`, route => route.fulfill({ json: {
-    schema: "material-processing-run/v5", run_id: oldRun, material_id: material, source_artifact_id: uuid(13),
+    schema: "material-processing-run/v6", run_id: oldRun, material_id: material, source_artifact_id: uuid(13),
     status: "running", progress_stage: "semantics", completed_pages: 1, total_pages: 3,
     output_binding: null, error_code: null, cancel_requested_at: null, created_at: timestamp, updated_at: timestamp, completed_at: null,
   } }));
@@ -55,16 +55,16 @@ for (const width of [1536, 390]) test(`append queue and run-only cancellation pr
   await page.goto(`/materials/${material}/runs/${oldRun}`);
   await expect(page.getByRole("heading", { name: "整體流程進度（估計）", exact: true })).toBeVisible();
   const initialColumns = await page.locator(".processing-grid").evaluate(element => getComputedStyle(element).gridTemplateColumns);
-  const initialMascot = await page.locator(".processing-hero img").boundingBox();
+  const initialMascot = await page.locator(".processing-timeline-heading img").boundingBox();
   await page.goto(`/materials/${material}/sources`);
   await expect(page.getByRole("heading", { name: "新增教材", exact: true })).toBeVisible();
   await page.getByLabel("選擇新增教材", { exact: true }).setInputFiles([
     { name: "B.txt", mimeType: "text/plain", buffer: Buffer.from("Queue uses FIFO.") },
     { name: lastFilename, mimeType: "application/pdf", buffer: Buffer.from("%PDF-synthetic") },
   ]);
-  await page.getByRole("button", { name: "上傳選取的教材" }).click();
+  await page.getByRole("button", { name: "上傳新增教材" }).click();
   await expect(page.getByLabel("加入這次更新")).toHaveCount(2);
-  await expect(page.getByRole("button", { name: "確認新增並更新地圖" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "確認新增並更新地圖" })).toHaveCount(0);
   sources[2].status = "ready";
   await expect(page.getByRole("button", { name: "確認新增並更新地圖" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "開啟目前地圖" })).toBeVisible();
@@ -74,7 +74,7 @@ for (const width of [1536, 390]) test(`append queue and run-only cancellation pr
   await expect(page.getByRole("heading", { name: "正在更新教材" })).toBeVisible();
   await expect(page.locator(".processing-grid > section.processing-card")).toHaveCount(2);
   expect(await page.locator(".processing-grid").evaluate(element => getComputedStyle(element).gridTemplateColumns)).toBe(initialColumns);
-  const updatingMascot = await page.locator(".processing-hero img").boundingBox();
+  const updatingMascot = await page.locator(".processing-timeline-heading img").boundingBox();
   expect(updatingMascot!.width).toBe(initialMascot!.width);
   expect(updatingMascot!.height).toBe(initialMascot!.height);
   await expect(page.getByRole("progressbar", { name: "整體流程進度（估計） 57%", exact: true })).toHaveAttribute("value", "57");
@@ -96,7 +96,7 @@ for (const width of [1536, 390]) test(`append queue and run-only cancellation pr
   expect({ starts, cancels, wholeDeletes }).toEqual({ starts: 1, cancels: 1, wholeDeletes: 0 });
 });
 
-for (const width of [1536, 390]) test(`quality notices show a completed update and open the current map at ${width}px`, async ({ page }) => {
+for (const width of [1536, 390]) test(`quality notices stay in processing while the library opens the current map at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 844 });
   const newRevision = `knowledge-structure:sha256:${"c".repeat(64)}`;
   const run: MaterialProcessingRunView = {
@@ -116,7 +116,7 @@ for (const width of [1536, 390]) test(`quality notices show a completed update a
     ],
   };
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }));
-  await page.route("**/v1/session/refresh", route => route.fulfill({ status: 204 }));
+  await page.route("**/v1/session/refresh", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
   await page.route(`**/v1/material-processing-runs/${newRun}`, route => route.fulfill({ json: run }));
   await page.route(`**/v1/materials/${material}`, route => route.fulfill({ json: item }));
   await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [item] } }));
@@ -128,7 +128,20 @@ for (const width of [1536, 390]) test(`quality notices show a completed update a
   await page.getByRole("button", { name: "開啟目前地圖", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/runs/${newRun}/knowledge-structures/${encodeURIComponent(newRevision)}$`));
   await page.goto("/materials");
-  await expect(page.getByText("最新處理：更新完成（部分內容待複核）", { exact: true })).toBeVisible();
+  await expect(page.getByRole("article")).not.toContainText(/最新處理|更新完成|部分內容待複核|partial|needs_review/);
+  await expect(page.getByRole("article").locator(".library-state")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "開啟知識地圖", exact: true })).toBeVisible();
+  item.study_sessions = [{ study_session_id: uuid(77), run_id: newRun, knowledge_structure_revision: newRevision,
+    status: "active", started_at: timestamp, current_concept_id: null }];
+  await page.reload();
+  const card = page.getByRole("article");
+  await expect(card.locator(".primary-button")).toHaveText("繼續學習");
+  await expect(card.locator(".secondary-button")).toHaveText("開啟知識地圖");
+  await expect(card.locator(".state-actions > button")).toHaveCount(2);
+  await expect(card).not.toContainText(/最新處理|部分內容待複核|先前題目與作答/);
+  await page.screenshot({ path: `/tmp/studydy-partial-study-${width}.png`, fullPage: true });
+  await card.getByRole("button", { name: "繼續學習", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${newRun}/knowledge-structures/${encodeURIComponent(newRevision)}/study-sessions/${uuid(77)}$`));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

@@ -19,5 +19,5 @@ export function MaterialFlow({ apiClient, route }: {
   if (route.name === "material-sources") return <SourceView apiClient={apiClient} materialId={route.materialId} />;
   if (route.name === "material-run") return <RunView key={route.runId} apiClient={apiClient} route={route} />;
   if (route.name === "knowledge-map") return <KnowledgeMap key={`${route.materialId}/${route.runId}/${route.structureRevision}`} apiClient={apiClient} route={route} />;
-  return <StudySessionPage key={`${route.materialId}/${route.runId}/${route.structureRevision}/${route.studySessionId}/${route.assessmentRevision ?? "current"}`} apiClient={apiClient} route={route} />;
+  return <StudySessionPage key={`${route.materialId}/${route.runId}/${route.structureRevision}/${route.studySessionId}`} apiClient={apiClient} route={route} />;
 }

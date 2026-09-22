@@ -1,3 +1,5 @@
+
+from product_fixtures import publish_fixture_structure
 """單一教材執行流程：出題設定可獨立更新，原 run／checkpoint 身分不改寫。"""
 from copy import deepcopy
 import json

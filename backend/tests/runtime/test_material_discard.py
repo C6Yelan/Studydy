@@ -1,3 +1,5 @@
+
+from product_fixtures import seed_pdf, seed_run, publish_fixture_structure
 """Discard uses real disposable PostgreSQL and synthetic PDFs, never models."""
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -19,8 +21,10 @@ import runtime.workers as workers
 import runtime.storage.artifacts as artifacts
 from runtime.storage.tables import Material, MaterialProcessingRun as RunRow, database_session
 from runtime.storage.migrations import run_migrations
-from runtime.storage.knowledge_structures import publish_knowledge_structure, read_knowledge_structure, KnowledgeStructureStoreError
+from runtime.storage.knowledge_structures import read_knowledge_structure, KnowledgeStructureStoreError
 from runtime.learner_session import register_account
+from runtime.source_normalization import SourceError
+import runtime.source_revisions as revisions
 from learning_adaptation.study_sessions import create_study_session
 from test_closed_loop_v1 import closed_loop, _pdf, _structure
 
@@ -33,13 +37,13 @@ class SessionToken(str):
 @pytest.fixture
 def unused(closed_loop):
     learner, original_source, settings, original, dsn, token = closed_loop
-    source = artifacts.publish_idempotent_source_pdf(learner.learner_id, io.BytesIO(_pdf()), "discard-source", dsn=dsn)
+    source = seed_pdf(learner.learner_id, io.BytesIO(_pdf()), "discard-source", dsn=dsn)
     return SimpleNamespace(learner=learner, source=source, original_source=original_source, original=original,
                            settings=settings, dsn=dsn, token=SessionToken(token), root=artifacts._root())
 
 
 def create(f, key="discard-run"):
-    return processing.create_material_processing_run(f.learner.learner_id, f.source.material_id, f.source.artifact_id, key, f.settings, dsn=f.dsn)
+    return seed_run(f.learner.learner_id, f.source.material_id, f.source.artifact_id, key, f.settings, dsn=f.dsn)
 
 
 def claim(f, stage="evidence"):
@@ -110,14 +114,14 @@ def test_published_data_deletes_and_discard_prevents_late_publication(unused, st
     run = create(unused); claim(unused, 'publishing')
     document = _structure(str(run.run_id), unused.source.sha256, unused.settings['runtime_lock'], partial=state == 'partial')
     if state != 'publishing':
-        publish_knowledge_structure(unused.learner.learner_id, unused.source.material_id, run.run_id, document, dsn=unused.dsn)
+        publish_fixture_structure(unused.learner.learner_id, unused.source.material_id, run.run_id, document, dsn=unused.dsn)
     assert request(unused) == ('removing' if state == 'publishing' else 'removed')
     if state == 'publishing':
         assert read(unused, run).cancel_requested_at is not None
-        with pytest.raises(processing.MaterialProcessingError, match='MATERIAL_NOT_DISCARDABLE'):
+        with pytest.raises(SourceError, match='MATERIAL_NOT_DISCARDABLE'):
             create(unused, 'after-delete-intent')
         with pytest.raises(KnowledgeStructureStoreError,match='MATERIAL_RUN_UNAVAILABLE'):
-            publish_knowledge_structure(unused.learner.learner_id, unused.source.material_id, run.run_id, document, dsn=unused.dsn)
+            publish_fixture_structure(unused.learner.learner_id, unused.source.material_id, run.run_id, document, dsn=unused.dsn)
         with pytest.raises(processing.MaterialProcessingCancelled):
             processing._check_cancellation(run.run_id,dsn=unused.dsn)
         discard.finish_material_discards(dsn=unused.dsn)
@@ -126,36 +130,6 @@ def test_published_data_deletes_and_discard_prevents_late_publication(unused, st
         assert db.execute('SELECT count(*) FROM knowledge_structures WHERE material_id=%s', (unused.source.material_id,)).fetchone() == (0,)
 
 
-def test_every_active_run_is_cancelled_and_no_new_run_can_start(unused):
-    first = create(unused); claim(unused)
-    with pytest.raises(processing.MaterialProcessingError,match='REVISION_IN_PROGRESS'):
-        create(unused,'second')
-    # 模擬升級前已保存的多 run；新 API 禁止新增同 Material 的並行意圖。
-    from uuid import uuid4
-    from hashlib import sha256
-    with database_session(unused.dsn) as session:
-        original=session.get(RunRow,first.run_id)
-        values={column.name:getattr(original,column.name) for column in RunRow.__table__.columns}
-        for field in ('output_binding','bundle_manifest'):
-            if values[field] is None:values.pop(field)
-        duplicates=[]
-        for index in (1,2):
-            identity=uuid4()
-            row=RunRow(**{**values,'run_id':identity,'idempotency_key_sha256':sha256(str(identity).encode()).digest(),
-                'status':'running' if index==1 else 'pending','progress_stage':'semantics' if index==1 else 'queued',
-                'worker_token':None,'lease_expires_at':None,'completed_pages':1 if index==1 else 0,'total_pages':1 if index==1 else None})
-            session.add(row);session.flush();duplicates.append(processing._row(row))
-    second,pending=duplicates
-    assert request(unused) == 'removing'
-    assert read(unused, pending).status == 'cancelled'
-    assert read(unused, pending).completed_at == read(unused, pending).cancel_requested_at
-    for run in (first, second): assert read(unused, run).cancel_requested_at is not None
-    with pytest.raises(processing.MaterialProcessingError, match='MATERIAL_NOT_DISCARDABLE'):
-        create(unused, 'after-discard')
-    for index, run in enumerate((first, second)):
-        with pytest.raises(processing.MaterialProcessingCancelled): processing._record_progress(run.run_id, 'publishing', 1, 1, dsn=unused.dsn)
-        assert discard.purge_discarded_material(unused.learner.learner_id, unused.source.material_id, dsn=unused.dsn) == (index == 1)
-    assert_removed(unused)
 
 
 def ordered_race(monkeypatch, f, run, first, second, first_module, second_module, *, lock_material):
@@ -174,7 +148,7 @@ def ordered_race(monkeypatch, f, run, first, second, first_module, second_module
     def invoke(role, action):
         identity.role = role
         try: return action()
-        except (processing.MaterialProcessingError, processing.MaterialProcessingCancelled, discard.MaterialDiscardError) as e: return type(e), str(e)
+        except (processing.MaterialProcessingError, processing.MaterialProcessingCancelled, discard.MaterialDiscardError, SourceError) as e: return type(e), str(e)
     with monkeypatch.context() as patch:
         patch.setattr(first_module, 'database_session', gated)
         patch.setattr(second_module, 'database_session', gated)
@@ -207,9 +181,9 @@ def test_discard_publishing_race_is_ordered_by_row_locks(unused, monkeypatch, di
 
 def test_discard_wins_create_run_race(unused, monkeypatch):
     run = create(unused); claim(unused)
-    first, second = ordered_race(monkeypatch, unused, run, lambda: request(unused), lambda: create(unused, 'racing-create'), discard, processing, lock_material=True)
+    first, second = ordered_race(monkeypatch, unused, run, lambda: request(unused), lambda: create(unused, 'racing-create'), discard, revisions, lock_material=True)
     assert first == 'removing'
-    assert second == (processing.MaterialProcessingError, 'MATERIAL_NOT_DISCARDABLE')
+    assert second == (SourceError, 'MATERIAL_NOT_DISCARDABLE')
     with psycopg.connect(unused.dsn) as c:
         assert c.execute('SELECT count(*) FROM material_processing_runs WHERE material_id=%s', (unused.source.material_id,)).fetchone() == (1,)
 
@@ -322,6 +296,7 @@ class SimulatedProcessCrash(BaseException): pass
 
 @pytest.mark.parametrize('committed', [False, True])
 def test_crash_quarantine_is_reconciled_after_restart(unused, monkeypatch, committed):
+    quarantined=[]
     with monkeypatch.context() as patch:
         if committed:
             patch.setattr(discard, 'reconcile_discarded_sources', lambda **kw: (_ for _ in ()).throw(SimulatedProcessCrash()))
@@ -329,11 +304,13 @@ def test_crash_quarantine_is_reconciled_after_restart(unused, monkeypatch, commi
             original = discard.quarantine_source_pdf
             def crash(session, identity):
                 original(session, identity)
+                quarantined.append(identity)
                 raise SimulatedProcessCrash()
             patch.setattr(discard, 'quarantine_source_pdf', crash)
         with pytest.raises(SimulatedProcessCrash): request(unused)
-    assert (unused.root / '.trash' / unused.source.artifact_id.hex).exists()
-    assert not (unused.root / 'objects' / unused.source.artifact_id.hex).exists()
+    moved=unused.source.artifact_id if committed else quarantined[0]
+    assert (unused.root / '.trash' / moved.hex).exists()
+    assert not (unused.root / 'objects' / moved.hex).exists()
     artifacts.reconcile_discarded_sources(dsn=unused.dsn)
     if committed: assert_removed(unused)
     else:
@@ -443,3 +420,14 @@ def test_0006_adds_only_nullable_intent_and_preserves_old_checksums(clean_databa
     ]:
         with psycopg.connect(clean_database_dsn) as c:
             with pytest.raises(psycopg.errors.CheckViolation): c.execute('UPDATE material_processing_runs SET '+invalid)
+
+def test_active_run_is_cancelled_and_new_revision_cannot_start(unused):
+    run=create(unused);claim(unused)
+    with pytest.raises(SourceError,match='REVISION_IN_PROGRESS'):create(unused,'second')
+    assert request(unused)=='removing'
+    assert read(unused,run).cancel_requested_at is not None
+    with pytest.raises(SourceError,match='MATERIAL_NOT_DISCARDABLE'):create(unused,'after-discard')
+    with pytest.raises(processing.MaterialProcessingCancelled):
+        processing._record_progress(run.run_id,'publishing',1,1,dsn=unused.dsn)
+    assert discard.purge_discarded_material(unused.learner.learner_id,unused.source.material_id,dsn=unused.dsn)
+    assert_removed(unused)

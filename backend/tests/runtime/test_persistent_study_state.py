@@ -62,25 +62,13 @@ def test_concurrent_ensure_serializes_creation(closed_loop):
         assert db.scalar(select(func.count()).select_from(StudySession)) == 1
 
 
-def test_legacy_canonical_and_cross_revision(library_materials):
-    f = library_materials
-    learner, source, dsn = f["learner"], f["first"], f["dsn"]
-    first = create_study_session(learner, source.material_id, f["structure"]["revision"], "one", dsn=dsn)
-    timestamp = datetime.now(UTC)
-    ids = sorted([uuid4(), uuid4()])
-    with database_session(dsn) as db:
-        original = db.get(StudySession, first.study_session_id)
-        original.status = "completed"; original.completed_at = timestamp
-        original.started_at = timestamp + timedelta(days=1)  # A newer completion must not beat active/no_safe.
-        values = {column.name: getattr(original, column.name) for column in StudySession.__table__.columns}
-        for index, identity in enumerate(ids):
-            db.add(StudySession(**{**values, "study_session_id": identity, "status": "no_safe" if index else "active", "started_at": timestamp,
-                "completed_at": None, "idempotency_key_sha256": sha256(str(identity).encode()).digest()}))
-    chosen = create_study_session(learner, source.material_id, f["structure"]["revision"], "ensure-legacy", dsn=dsn)
-    assert chosen.study_session_id == ids[-1]
-    other = create_study_session(learner, source.material_id, f["second_structure"]["revision"], "second-revision", dsn=dsn)
-    assert other.study_session_id != chosen.study_session_id
-    links = read_material_library(learner.learner_id, material_id=source.material_id, dsn=dsn)[0]["study_sessions"]
-    assert {link["study_session_id"] for link in links} == {chosen.study_session_id, other.study_session_id}
-    with database_session(dsn) as db:
-        assert db.scalar(select(func.count()).select_from(StudySession)) == 4
+
+def test_current_revisions_keep_distinct_persistent_states(library_materials):
+    f=library_materials
+    first=create_study_session(f['learner'],f['first'].material_id,f['structure']['revision'],'one',dsn=f['dsn'])
+    repeated=create_study_session(f['learner'],f['first'].material_id,f['structure']['revision'],'same',dsn=f['dsn'])
+    second=create_study_session(f['learner'],f['first'].material_id,f['second_structure']['revision'],'two',dsn=f['dsn'])
+    assert repeated.study_session_id==first.study_session_id
+    assert second.study_session_id!=first.study_session_id
+    links=read_material_library(f['learner'].learner_id,material_id=f['first'].material_id,dsn=f['dsn'])[0]['study_sessions']
+    assert {link['study_session_id'] for link in links}=={first.study_session_id,second.study_session_id}

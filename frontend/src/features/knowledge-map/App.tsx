@@ -12,12 +12,11 @@ export default function KnowledgeMap({ apiClient, route }: {
   route: Extract<AppRoute, { name: "knowledge-map" }>;
 }) {
   const [progress, setProgress] = useState<LearnerProgressView | null>(null);
-  const [savedLearningState, setSavedLearningState] = useState<StudySessionView | null>(null);
+  const [savedLearningState, setSavedLearningState] = useState<Pick<StudySessionView, "study_session_id" | "status"> | null>(null);
   const [isLoadingProgress, setIsLoadingProgress] = useState(true);
   const [progressMessage, setProgressMessage] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [view, setView] = useState<KnowledgeStructureView | null>(null);
-  const [sourceArtifactId, setSourceArtifactId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [startMessage, setStartMessage] = useState<string | null>(null);
   const [isStartingStudy, setIsStartingStudy] = useState(false);
@@ -27,14 +26,12 @@ export default function KnowledgeMap({ apiClient, route }: {
   useEffect(() => {
     let cancelled = false;
     setMessage(null);
-    setProgress(null);
-    setSavedLearningState(null);
     setProgressMessage(null);
     setIsLoadingProgress(true);
     const routeKey = `${route.materialId}:${route.runId}:${route.structureRevision}`;
     if (loadedRoute.current !== routeKey) {
       setView(null);
-      setSourceArtifactId(null);
+      setProgress(null); setSavedLearningState(null);
       loadedRoute.current = routeKey;
     }
     const openCurrentHead = (material: MaterialLibraryItem) => {
@@ -44,34 +41,35 @@ export default function KnowledgeMap({ apiClient, route }: {
       return true;
     };
     const load = async () => {
+      // 教材索引與 immutable map 並行讀取；複習只需要 progress，不重取整份 resume。
+      const materialTask = apiClient.getMaterial(route.materialId).then(material => ({material,error:null}),
+        (error: unknown) => ({material:null,error}));
+      const progressTask = materialTask.then(async result => {
+        if (!result.material) throw result.error;
+        const material = result.material;
+        const head = material.available_structures.find(item => item.knowledge_structure_revision === material.head_revision);
+        if (head && head.knowledge_structure_revision !== route.structureRevision) return null;
+        const saved = material.study_sessions.find(item => item.run_id === route.runId && item.knowledge_structure_revision === route.structureRevision);
+        return saved ? {saved,progress:await apiClient.readProgress(saved.study_session_id,route.structureRevision)} : null;
+      }).then(value => ({value,error:null}), (error: unknown) => ({value:null,error}));
       try {
         const [mapResult, run] = await Promise.all([
-          apiClient.getKnowledgeStructure({ materialId: route.materialId, structureRevision: route.structureRevision })
-            .then(view => ({ view, error: null }), (error: unknown) => ({ view: null, error })),
+          apiClient.getKnowledgeStructure({materialId:route.materialId,structureRevision:route.structureRevision})
+            .then(view => ({view,error:null}), (error: unknown) => ({view:null,error})),
           apiClient.getMaterialRun(route.runId),
         ]);
         if (cancelled) return;
-        if (run.material_id !== route.materialId
-          || run.output_binding?.knowledge_structure_revision !== route.structureRevision) throw new Error("RUN_STRUCTURE_MISMATCH");
-        if (!mapResult.view) {
-          const material = await apiClient.getMaterial(route.materialId);
-          if (cancelled || openCurrentHead(material)) return;
-          throw mapResult.error;
-        }
-        setView(mapResult.view);
-        setSourceArtifactId(run.source_artifact_id);
-        try {
-          const material = await apiClient.getMaterial(route.materialId);
-          if (cancelled || openCurrentHead(material)) return;
-          const saved = material.study_sessions.find(item => item.run_id === route.runId && item.knowledge_structure_revision === route.structureRevision);
-          if (!saved) return;
-          const restored = await apiClient.resumeStudy({ ...route, studySessionId: saved.study_session_id });
-          if (cancelled) return;
-          const { session, progress: next } = restored;
-          setProgress(next);
-          setSavedLearningState(session);
-        } catch {
-          if (!cancelled) setProgressMessage("暫時無法讀取最近的學習進度，仍可瀏覽教材地圖。");
+        if (run.material_id !== route.materialId || run.output_binding?.knowledge_structure_revision !== route.structureRevision) throw new Error("RUN_STRUCTURE_MISMATCH");
+        if (mapResult.view) setView(mapResult.view);
+        const materialResult = await materialTask;
+        if (cancelled || materialResult.material && openCurrentHead(materialResult.material)) return;
+        if (!mapResult.view) throw mapResult.error;
+        const loaded = await progressTask;
+        if (cancelled) return;
+        if (loaded.error) setProgressMessage("暫時無法讀取最近的學習進度，仍可瀏覽教材地圖。");
+        else {
+          setProgress(loaded.value?.progress ?? null);
+          setSavedLearningState(loaded.value?.saved ?? null);
         }
       } catch (error) {
         if (!cancelled) setMessage(errorMessage(error));
@@ -92,7 +90,7 @@ export default function KnowledgeMap({ apiClient, route }: {
       tone="failure"
     />
   );
-  if (!view || !sourceArtifactId) return (
+  if (!view) return (
     <StateView
       description="正在載入教材概念與學習順序。"
       live
@@ -147,7 +145,6 @@ export default function KnowledgeMap({ apiClient, route }: {
       onReturnToRun={() => writeRoute({ name: "material-run", materialId: route.materialId, runId: route.runId })}
       onAddSources={() => writeRoute({ name: "material-sources", materialId: route.materialId })}
       onStartStudy={startStudy}
-      sourceArtifactId={sourceArtifactId}
       startMessage={startMessage}
       view={view}
     />

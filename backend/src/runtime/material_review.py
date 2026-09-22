@@ -1,8 +1,9 @@
 """教材發布前的完整地圖整理；來源、提案與套用對照留在私人 analysis archive。"""
 from copy import deepcopy
+from collections import Counter
 import time
 
-from knowledge_map.material_review import (_pack_review, apply_review, combine_reviews,
+from knowledge_map.material_review import (ReviewError, _pack_review, apply_review, combine_reviews,
                                           response_schema, validate_proposal)
 from knowledge_map.structure import build_knowledge_structure_view, _revision
 from pdf_evidence.ocr_page_evidence import canonical_sha256
@@ -52,8 +53,81 @@ def review_inputs(document):
     return view, units
 
 
+def _checked_review(unit, index, lock, archive, client, check_cancel):
+    """概念覆蓋或來源歸屬錯誤最多補正一次；不套用無法驗證的提案。"""
+    key = canonical_sha256({'source': unit.source_digest, 'request': unit.payload,
+                            'policy': lock['material_review']})
+    rejected = None
+    rejection_code = None
+    repairable = {'REVIEW_CONCEPT_COVERAGE_INVALID', 'REVIEW_CONCEPT_SUPPORT_INVALID'}
+
+    def validate_saved(value):
+        nonlocal rejected, rejection_code
+        try:
+            validate_proposal(unit, value)
+        except ReviewError as error:
+            if str(error) in repairable and rejected is None:
+                rejected = deepcopy(value)
+                rejection_code = str(error)
+            raise
+
+    response = archive.load_review(key, validate_response=validate_saved)
+    if response is not None:
+        validate_proposal(unit, response)
+        return response, 0
+
+    schema = response_schema()
+    schema['properties']['assignments'].update(minItems=len(unit.concepts), maxItems=len(unit.concepts))
+    schema['$defs']['Assignment']['properties']['concept']['enum'] = list(range(len(unit.concepts)))
+    calls = 0
+
+    def request_review(request, attempt):
+        nonlocal calls
+        check_cancel()
+        output = archive.prepare_review_call(index, key, request, attempt=attempt)
+        calls += 1
+        with retain_call_outputs(output):
+            value = request_semantics(client, runtime_lock=lock, task='material_review',
+                                      request=request, response_schema=schema)
+        name = f'call-{index:06d}' + (f'-repair-{attempt:02d}' if attempt else '')
+        archive.save_review(f'{name}/response', value)
+        return value
+
+    if rejected is None:
+        response = request_review(unit.payload, 0)
+        try:
+            validate_saved(response)
+        except ReviewError as error:
+            if str(error) not in repairable:
+                raise
+    if rejected is not None:
+        counts = Counter(row['concept'] for row in rejected['assignments'])
+        expected = set(range(len(unit.concepts)))
+        request = deepcopy(unit.payload)
+        request['review_correction'] = {
+            'error': rejection_code,
+            'missing_concepts': sorted(expected - counts.keys()),
+            'duplicate_concepts': sorted(h for h, count in counts.items() if count > 1),
+            'unexpected_concepts': sorted(counts.keys() - expected),
+            'unsupported_concepts': sorted({a['concept'] for a in rejected['assignments']
+                if a['concept'] in expected and not set(a['evidence']) &
+                set(unit.payload['concepts'][a['concept']]['evidence'])}),
+            'concept_source_bindings': [{'concept': c['h'], 'evidence': c['evidence']} for c in unit.payload['concepts']],
+            'previous_response': rejected,
+            'instruction': '前次提案未通過檢核，不是標準答案。請依提供的教材重新確認衝突或缺漏，回傳完整提案；'
+                           'concept 必須沿用輸入 h，絕不可依回應位置重新編號。每個 h 恰好一筆 assignment；'
+                           '每筆 evidence 必須至少引用該 h 的 concept_source_bindings 中一個來源。'
+                           '不得直接取重複資料的第一筆或最後一筆，也不得只替換 evidence 掩蓋錯誤歸屬。'
+                           '無法由來源確認時，使用 needs_review 保留該概念；仍須遵守來源與歸屬限制。',
+        }
+        response = request_review(request, 1)
+        validate_proposal(unit, response)
+    archive.save_review(f'cache-{key}', response)
+    return response, calls
+
+
 def review_structure(document, lock, archive, check_cancel, progress):
-    """每批只呼叫一次；重試工作只重用相同輸入、設定且已保存的成功回應。"""
+    """重用已保存的有效批次；coverage 失敗只做有界補正，不重跑頁面分析。"""
     if 'material_review' not in lock:
         return document
     view, units = review_inputs(document)
@@ -63,21 +137,8 @@ def review_structure(document, lock, archive, check_cancel, progress):
     with semantic_client() as client:
         for index, unit in enumerate(units, 1):
             check_cancel()
-            request = unit.payload
-            cache_key = canonical_sha256({'source': unit.source_digest, 'request': request,
-                                          'policy': lock['material_review']})
-            response = archive.load_review(cache_key, validate_response=lambda value: validate_proposal(unit, value))
-            if response is None:
-                output = archive.prepare_review_call(index, cache_key, request)
-                calls += 1
-                with retain_call_outputs(output):
-                    response = request_semantics(client, runtime_lock=lock, task='material_review',
-                                                 request=request, response_schema=response_schema())
-                archive.save_review(f'call-{index:06d}/response', response)
-                validate_proposal(unit, response)
-                archive.save_review(f'cache-{cache_key}', response)
-            else:
-                validate_proposal(unit, response)
+            response, new_calls = _checked_review(unit, index, lock, archive, client, check_cancel)
+            calls += new_calls
             reviews.append((unit, response))
             progress('semantics', document['page_count'], document['page_count'])
     unit, proposal = combine_reviews(view, reviews)

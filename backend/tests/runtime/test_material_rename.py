@@ -50,6 +50,7 @@ import runtime.material_discard as material_discard
 @pytest.mark.parametrize('delete_first', [True, False])
 def test_rename_and_delete_serialize_on_the_same_material(unused, monkeypatch, delete_first):
     run = create(unused); claim(unused)
+    original_name=material_storage.read_material_library(unused.learner.learner_id,material_id=unused.source.material_id,dsn=unused.dsn)[0]['display_name']
     def rename():
         try:
             return rename_material(unused.learner.learner_id, unused.source.material_id, '改名後教材', dsn=unused.dsn)
@@ -66,4 +67,4 @@ def test_rename_and_delete_serialize_on_the_same_material(unused, monkeypatch, d
         assert second == 'removing'
     with psycopg.connect(unused.dsn) as db:
         name, deleting = db.execute('SELECT display_name, discard_requested_at IS NOT NULL FROM materials WHERE learner_id=%s AND material_id=%s', (unused.learner.learner_id, unused.source.material_id)).fetchone()
-        assert deleting and name == (None if delete_first else '改名後教材')
+        assert deleting and name == (original_name if delete_first else '改名後教材')

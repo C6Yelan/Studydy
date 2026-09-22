@@ -7,7 +7,7 @@ test("real single-file upload converts, survives reload, downloads and explicitl
   await page.getByRole('button',{name:'登入',exact:true}).click();
   await expect(page.getByRole('heading',{name:'歡迎回來！',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'上傳教材',exact:true}).click();
-  await expect(page.locator('.conversion-note')).toContainText('TXT');
+  await expect(page.locator('.file-drop')).toContainText('TXT');
   await page.getByLabel('選擇教材檔案',{exact:true}).setInputFiles({name:'normalization.txt',mimeType:'text/plain',buffer:Buffer.from('Stacks\nA stack follows LIFO order.\nPush adds an item to the top. Pop removes the top item.\n')});
   await page.getByRole('button',{name:'上傳並確認來源'}).click();
   await expect(page).toHaveURL(/\/materials\/[0-9a-f-]+\/sources$/);
@@ -15,7 +15,7 @@ test("real single-file upload converts, survives reload, downloads and explicitl
   await page.reload();await expect(page.getByRole('button',{name:'開始分析教材'})).toBeVisible();
   const original=await page.getByRole('link',{name:'下載原檔'}).getAttribute('href');
   const content=await page.request.get(original!);expect(content.status()).toBe(200);expect(await content.text()).toContain('LIFO');
-  const preview=await page.getByRole('link',{name:/預覽轉換後 PDF/}).getAttribute('href');
+  const preview=await page.getByRole('link',{name:/預覽 PDF/}).getAttribute('href');
   const pdf=await page.request.get(preview!);expect(pdf.status()).toBe(200);expect((await pdf.body()).subarray(0,4).toString()).toBe('%PDF');
   await page.screenshot({path:info.outputPath('real-ready.png'),fullPage:true});
   await page.getByRole('button',{name:'開始分析教材'}).click();

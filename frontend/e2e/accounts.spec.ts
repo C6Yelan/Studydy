@@ -361,7 +361,7 @@ for (const result of ["success", "expired", "network"] as const) {
           Object.assign(window, { bootstrapStarted: true });
           return new Promise((resolve, reject) => Object.assign(window, { releaseBootstrap: () => {
             if (result === "network") reject(new TypeError("offline"));
-            else if (result === "success") resolve(new Response(null, { status: 204 }));
+            else if (result === "success") resolve(Response.json({schema:"learner-identity/v1",learner_id:"33333333-3333-4333-8333-333333333333"}));
             else resolve(Response.json({ schema: "api-error/v1", request_id: "11111111-1111-4111-8111-111111111111", reason_code: "SESSION_REQUIRED", retryable: false, message: "Request could not be completed." }, { status: 401 }));
           } }));
         }
@@ -383,7 +383,7 @@ test("private routes reject unknown/offline sessions and redirect expired sessio
   await page.route("**/v1/session/refresh", route => route.abort("connectionrefused"));
   await page.goto("/materials");
   await expect(page.getByText("暫時無法完成", { exact: true })).toBeVisible();
-  await expect(page.locator(".app-header")).toHaveCount(0);
+  await expect(page.locator(".app-header")).toBeVisible();
   await expect(page.locator("form.auth-form")).toHaveCount(0);
   await page.unroute("**/v1/session/refresh");
   await page.getByRole("button", { name: "再試一次", exact: true }).click();
@@ -392,9 +392,10 @@ test("private routes reject unknown/offline sessions and redirect expired sessio
   await login(page, "learner_test@example.com");
   await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
   await page.route("**/v1/session/refresh", route => route.abort("connectionrefused"));
-  const refresh = page.waitForRequest("**/v1/session/refresh");
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await refresh;
+  let refreshes=0;page.on('request',request=>{if(request.url().endsWith('/v1/session/refresh'))refreshes++;});
+  await page.evaluate(() => {for(let i=0;i<3;i++)window.dispatchEvent(new Event("focus"));});
+  await page.waitForTimeout(100);
+  expect(refreshes).toBe(0);
   await expect(page.getByRole("navigation", { name: "主要導覽", exact: true })).toBeVisible();
 });
 
@@ -458,3 +459,16 @@ for (const mode of ["login", "register"] as const) {
     });
   }
 }
+
+test('remembered login skips session probes and a revoked cookie is rejected by the data API',async({page})=>{
+  await page.goto('/login');await login(page,'learner_test@example.com');
+  await expect(page.getByRole('button',{name:'登出',exact:true})).toBeVisible();
+  let probes=0;page.on('request',request=>{if(/\/v1\/session(?:\/refresh)?$/.test(request.url())&&request.method()!=='DELETE')probes++;});
+  await page.reload();await expect(page.getByRole('button',{name:'登出',exact:true})).toBeVisible();
+  await page.evaluate(()=>{for(let i=0;i<5;i++)window.dispatchEvent(new Event('focus'));});
+  expect(probes).toBe(0);
+  // 保留前端提示，獨立撤銷 cookie，確認提示無法授權讀取私人資料。
+  await page.request.delete(`${origin}/v1/session`,{headers:{Origin:origin}});
+  await page.reload();await expect(page).toHaveURL(/\/login$/);
+  expect(await page.evaluate(()=>localStorage.getItem('studydy.session-hint'))).toBeNull();
+});

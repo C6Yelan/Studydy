@@ -3,23 +3,19 @@ from __future__ import annotations
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from hashlib import sha256
 import os
 from pathlib import Path
 import stat
 from typing import BinaryIO
-from uuid import UUID, uuid4
+from uuid import UUID
 
-import pymupdf
-from sqlalchemy import insert, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from .tables import Artifact, Material, MaterialSource, SourceNormalization, database_session, deferred_artifact_session
+from .tables import Artifact, database_session
 
 ARTIFACT_ROOT_ENV = "STUDYDY_ARTIFACT_ROOT"
-SOURCE_LIMIT_BYTES = 104_857_600
 _CHUNK = 1024 * 1024
 
 
@@ -27,12 +23,6 @@ class ArtifactError(RuntimeError):
     """Artifact 操作失敗且不揭露路徑、內容或資料庫細節。"""
 
 
-@dataclass(frozen=True)
-class PublishedSourcePdf:
-    material_id: UUID
-    artifact_id: UUID
-    sha256: str
-    size_bytes: int
 
 
 @dataclass(frozen=True)
@@ -86,38 +76,6 @@ def _key_digest(value: str) -> bytes:
     if not 1 <= len(encoded) <= 256:
         raise _error("ARTIFACT_REQUEST_INVALID")
     return sha256(encoded).digest()
-
-
-def _copy_pdf(source: BinaryIO, destination: Path) -> tuple[bytes, int]:
-    digest = sha256()
-    size = 0
-    try:
-        with destination.open("xb") as output:
-            while True:
-                chunk = source.read(_CHUNK)
-                if not isinstance(chunk, bytes):
-                    raise OSError
-                if not chunk:
-                    break
-                size += len(chunk)
-                if size > SOURCE_LIMIT_BYTES:
-                    raise _error("ARTIFACT_TOO_LARGE")
-                output.write(chunk)
-                digest.update(chunk)
-        try:
-            with pymupdf.open(destination) as document:
-                if document.needs_pass or document.is_encrypted or document.page_count < 1:
-                    raise _error("ARTIFACT_PDF_INVALID")
-        except ArtifactError:
-            raise
-        except Exception:
-            raise _error("ARTIFACT_PDF_INVALID") from None
-        destination.chmod(0o400)
-        return digest.digest(), size
-    except ArtifactError:
-        raise
-    except Exception:
-        raise _error("ARTIFACT_PUBLISH_FAILED") from None
 
 
 def _object_path(root: Path, artifact_id: UUID) -> Path:
@@ -215,137 +173,12 @@ def _verify_file(path: Path, expected_digest: bytes, expected_size: int) -> Bina
         raise _error("ARTIFACT_NOT_AVAILABLE") from None
 
 
-def _read_source_receipt(session: Session, learner_id: UUID, key: bytes):
-    return session.execute(
-        select(
-            Material.material_id,
-            Material.source_artifact_id,
-            Artifact.sha256,
-            Artifact.size_bytes,
-            Artifact.kind,
-            Material.upload_request_fingerprint,
-            Material.display_name,
-        )
-        .join(
-            Artifact,
-            (Artifact.artifact_id == Material.source_artifact_id)
-            & (Artifact.learner_id == Material.learner_id)
-            & (Artifact.material_id == Material.material_id),
-        )
-        .where(
-            Material.learner_id == learner_id,
-            Material.upload_idempotency_key_sha256 == key,
-        )
-    ).one_or_none()
 
 
-def _published_source(
-    root: Path, existing: Any, fingerprint: bytes, display_name: str | None
-) -> PublishedSourcePdf:
-    if existing[4] != "source_pdf":
-        raise _error("ARTIFACT_PUBLISH_FAILED")
-    if bytes(existing[5]) != fingerprint or existing[6] != display_name:
-        raise _error("ARTIFACT_IDEMPOTENCY_CONFLICT")
-    file = _verify_file(_object_path(root, existing[1]), bytes(existing[2]), existing[3])
-    file.close()
-    return PublishedSourcePdf(existing[0], existing[1], bytes(existing[2]).hex(), existing[3])
 
 
-def _publish_source(
-    learner_id: UUID,
-    source: BinaryIO,
-    *,
-    key_digest: bytes,
-    display_name: str | None,
-    dsn: str | None,
-) -> PublishedSourcePdf:
-    if not isinstance(learner_id, UUID) or not hasattr(source, "read"):
-        raise _error("ARTIFACT_REQUEST_INVALID")
-    if display_name is not None and (
-        not isinstance(display_name, str) or not 1 <= len(display_name) <= 200
-        or not display_name.strip()
-        or any(ord(char) < 32 or ord(char) == 127 or char in "/\\" for char in display_name)
-    ):
-        raise _error("ARTIFACT_REQUEST_INVALID")
-    root = _root()
-    staging = root / ".staging" / f"{uuid4().hex}.tmp"
-    final: Path | None = None
-    try:
-        digest, size = _copy_pdf(source, staging)
-        fingerprint = sha256(digest + size.to_bytes(8, "big")).digest()
-        with database_session(dsn) as session:
-            existing = _read_source_receipt(session, learner_id, key_digest)
-        if existing is not None:
-            return _published_source(root, existing, fingerprint, display_name)
-
-        material_id = uuid4()
-        artifact_id = uuid4()
-        final = _object_path(root, artifact_id)
-        os.rename(staging, final)
-        try:
-            with deferred_artifact_session(dsn) as session:
-                session.execute(
-                    insert(Material).values(
-                        material_id=material_id,
-                        learner_id=learner_id,
-                        display_name=display_name,
-                        source_artifact_id=artifact_id,
-                        upload_idempotency_key_sha256=key_digest,
-                        upload_request_fingerprint=fingerprint,
-                        created_at=datetime.now(UTC),
-                    )
-                )
-                session.execute(
-                    insert(Artifact).values(
-                        artifact_id=artifact_id,
-                        learner_id=learner_id,
-                        material_id=material_id,
-                        kind="source_pdf",
-                        media_type="application/pdf",
-                        sha256=digest,
-                        size_bytes=size,
-                        created_at=datetime.now(UTC),
-                    )
-                )
-                # 新 v1 PDF 也保存 identity normalization，與 migration 的既有 PDF backfill 一致。
-                now=datetime.now(UTC)
-                session.execute(insert(MaterialSource).values(source_id=artifact_id,learner_id=learner_id,material_id=material_id,
-                    original_artifact_id=artifact_id,original_name=display_name or "material.pdf",media_type="application/pdf",
-                    idempotency_key_sha256=key_digest,request_fingerprint=fingerprint,created_at=now))
-                session.execute(insert(SourceNormalization).values(normalization_id=artifact_id,learner_id=learner_id,material_id=material_id,
-                    source_id=artifact_id,policy={"schema":"normalization-policy/v1","renderer":"pdf-identity"},status="ready",
-                    normalized_artifact_id=artifact_id,created_at=now,updated_at=now))
-        except IntegrityError:
-            final.unlink(missing_ok=True)
-            final = None
-            with database_session(dsn) as session:
-                winner = _read_source_receipt(session, learner_id, key_digest)
-            if winner is None:
-                raise _error("ARTIFACT_PUBLISH_FAILED") from None
-            return _published_source(root, winner, fingerprint, display_name)
-        except Exception:
-            final.unlink(missing_ok=True)
-            raise _error("ARTIFACT_PUBLISH_FAILED") from None
-        return PublishedSourcePdf(material_id, artifact_id, digest.hex(), size)
-    finally:
-        staging.unlink(missing_ok=True)
 
 
-def publish_idempotent_source_pdf(
-    learner_id: UUID,
-    source: BinaryIO,
-    idempotency_key: str,
-    *,
-    dsn: str | None = None,
-    display_name: str | None = None,
-) -> PublishedSourcePdf:
-    return _publish_source(
-        learner_id,
-        source,
-        key_digest=_key_digest(idempotency_key),
-        display_name=display_name,
-        dsn=dsn,
-    )
 
 
 @contextmanager
@@ -360,7 +193,7 @@ def open_verified_source_pdf(
                 select(Artifact.material_id, Artifact.sha256, Artifact.size_bytes).where(
                     Artifact.learner_id == learner_id,
                     Artifact.artifact_id == artifact_id,
-                    Artifact.kind.in_(("source_pdf","normalized_pdf")),
+                    Artifact.kind == "normalized_pdf",
                 )
             ).one_or_none()
         if row is None:

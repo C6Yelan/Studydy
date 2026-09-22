@@ -1,6 +1,6 @@
 # 題目品質與可用性（B5-Q）
 
-依 2026-09-20 使用者要求，品質改良採「安全候選排序」，不設教學品質最低分。保留現有單題 API、三個候選、一次 blind solve、後端評分與學習政策；本文記錄 B5-Q；已完成的 B5-D 題組見 [assessment-sets.md](assessment-sets.md)，B5-R 補強見 [assessment-remediation.md](assessment-remediation.md)。下列各輪驗證與切換依當時狀態記錄。
+依 2026-09-20 使用者要求，品質改良採「安全候選排序」，不設教學品質最低分。目前由 B05 題組使用三個候選、一次 blind solve、後端評分與學習政策；舊單題 API 已移除；本文記錄 B5-Q；已完成的 B5-D 題組見 [assessment-sets.md](assessment-sets.md)，B5-R 補強見 [assessment-remediation.md](assessment-remediation.md)。下列各輪驗證與切換依當時狀態記錄。
 
 ## 正確性與品質分開
 
@@ -24,7 +24,7 @@ runtime lock v19 只調整 assessment 契約與 prompt：generator request v2、
 
 新 provenance 私存選中候選、檢查／安全候選數、品質提示、比較範圍及兩個 prompt hashes；command 身分與 Gemma 分開記錄。公開題目、resume、history 不加入這些欄位或私有答案。
 
-已保存的題目不要求補品質欄位、不改 hash 或 mastery eligibility。出題功能本身沿用既有資料模型；收尾的教材接續修正以 migration 0010 保存工作開始時的非機密設定。後續 B5-D 已將題組模型呼叫移至短交易之外，沿用本頁候選準備與檢查流程。
+歷史紀錄不補欄位、不改 hash 或 mastery eligibility；現行 reader 僅接受 provenance v8，不再提供 v5–v7 相容分支。出題功能本身沿用既有資料模型；收尾的教材接續修正以 migration 0010 保存工作開始時的非機密設定。後續 B5-D 已將題組模型呼叫移至短交易之外，沿用本頁候選準備與檢查流程。
 
 教材與出題設定已解耦：所有教材工作使用同一條執行流程，比對實際影響教材分析的 Python／套件、OCR、semantic service、material semantics 與實際 command 執行身分；不以 assessment 或整份設定的版號決定能否接續。工作保存開始時的設定並核對其原 runtime binding，執行與發布仍使用該份設定，因此不改寫舊 run、KS 或 checkpoint 的 hash。新重試可以重用分析設定相同的已保存進度；設定缺失、損毀或教材依賴改變時停止並明示，不能暗中重新分析。沒有新增 legacy 執行分支或按歷史版本切換的 fallback。
 

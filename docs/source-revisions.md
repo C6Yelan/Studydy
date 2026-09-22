@@ -24,7 +24,7 @@
 
 `bundle-manifest/v2` 將集合內的閱讀序號映射到來源與 normalized page；該序號不代表合併 PDF 頁碼。`knowledge-structure/v4` 使用 `source_set_sha256`，不把集合 digest 偽稱為某份 PDF 的 SHA。原檔／normalized／mapping hash、policy、順序與 bundle hash 皆綁定 run／KS，處理與讀取時驗證。
 
-既有單 PDF 第一次追加時建立缺少的 identity mapping，不改寫舊 KS、題目或答案。已保存 v2／v3 依原契約嚴格驗證，沒有驗證失敗後切換 reader 的 fallback。
+現行追加只接受已有來源集合綁定的 v4 KS；單 PDF identity 補建與未綁定 v2／v3 reader 已移除。既有資料不改寫、不重算。
 
 舊 Evidence／Claims 由已驗證基準重用，以原始與 normalized hash、頁碼、原文、區塊順序及 region 對應到新集合。只對新增來源執行 extraction／必要 OCR／semantic calls。請求包含新 Evidence、既有概念 catalog 及各 Claim 的來源 scope，不反覆送入整份舊頁面 metadata。
 

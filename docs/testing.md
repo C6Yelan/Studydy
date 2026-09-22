@@ -68,29 +68,20 @@ Map route whose processing run points at another revision.
 
 ## Learning resume regression (local only)
 
-B5-Q 的安全／可用性與版本契約見 [assessment-quality.md](assessment-quality.md)。受影響的最小回歸為
-`test_assessment_safety_v1.py`、`runtime/test_assessment_quality.py`、`runtime/test_closed_loop_v1.py`、
-`runtime/test_learning_resume.py` 與 `test_source_normalization.py` 的 command assessment provenance 案例；
-browser 使用 `runtime/test_learning_resume_browser.py`。品質排序不得把合法基礎題或弱干擾項全部拒絕，
-`partial/needs_review` 來源仍須按本題 Evidence 判斷。實際模型比較另記，不能用 fixture 結果冒充。
-
-The runtime suite includes `test_learning_resume.py` and `test_learning_resume_browser.py`.
-The Browser test logs in from independent contexts, enters the existing session through the library,
-reloads the same unanswered and answered questions, selects older sessions, and reads completed and
-no-safe/deferred state. It forwards a real answer submission to the API, then aborts only its response;
-“查回作答結果” must retrieve the committed AnswerEvent. Re-login and same-key replay must return that
-same result. Each restore read keeps all seven product-table snapshots unchanged; the only writes
-are the explicit answer submission and its idempotent replay, which produce one new AnswerEvent.
-Backend model HTTP transport is blocked and must observe zero calls. These tests use controlled
-saved fixtures; they do not perform the later workstation shutdown/restart or model qualification.
+`runtime/test_learning_resume.py` 驗證題組 resume v4 的唯讀性與 owner／版本綁定。
+`test_assessment_sets_browser.py`、`test_assessment_remediation_browser.py` 與
+`test_concept_navigation_browser.py` 驗證整組交卷、回應遺失、補強、重新登入與跨觀念接續。
+模型回應由隔離 fixture 提供，不呼叫真實模型。舊單題 API／書籤與相容測試已移除。
+`runtime/test_assessment_quality.py` 改用題組 worker 檢查品質排序、重複題與目前 provenance；
+不是實際模型品質驗收。
 
 ## 單一觀念題組回歸
 
 現行契約見 [assessment-sets.md](assessment-sets.md)。`runtime/test_assessment_sets.py` 驗證
 動態題數、交易／lease、成員私密性、部分發布、失敗重試、併發與取消／刪除。
 `runtime/test_assessment_sets_browser.py` 以真 API／隔離 DB 在桌機與手機驗證完整題組。
-舊單題生成與 guidance UI 已移除；`product-cutover.spec.ts` 保留已保存單題的作答／回顧／版面案例，
-新生成流程由題組 browser 取代。合成 fixture 不算真實模型品質證據。
+舊單題生成、作答、恢復與 guidance API／UI 已移除；`product-cutover.spec.ts` 保留現行地圖與題組入口回歸，
+`study-layout.spec.ts` 驗證 inline preparing、來源、resume 與無取消入口。合成 fixture 不算真實模型品質證據。
 
 日常 frontend 使用 `frontend/dist`，測試不要覆寫它。改用獨立 build：
 
@@ -107,7 +98,7 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src backend/.venv/bin/pytest -q \
 B5-R 契約見 [assessment-remediation.md](assessment-remediation.md)。核心為
 `runtime/test_assessment_remediation.py`，真 API／DB browser 為
 `runtime/test_assessment_remediation_browser.py`，另保留題組與已存題目的恢復回歸。
-初篩／補強不得重算舊答案，複習及 GET 不增加 AnswerEvent，補強正確不補足獨立掌握證據。
+初篩／補強不得重算舊答案，閱讀及 GET 不增加 AnswerEvent，補強正確不補足獨立掌握證據。
 測試 build 使用獨立 `.studydy-runtime/b05r-frontend`，以 `STUDYDY_E2E_FRONTEND_DIST`
 傳給 browser runner，保持日常 `frontend/dist` 穩定；測試 ports 4183／8002。
 
@@ -130,7 +121,7 @@ B5-R 契約見 [assessment-remediation.md](assessment-remediation.md)。核心�
 ## 跨觀念題組接續
 
 `runtime/test_assessment_concept_navigation.py` 驗證 A 生成中切到 B、不同觀念各自建立及交卷、
-同一觀念防重複，以及 B 不封鎖 A 的複習／補強／失敗重試。
+同一觀念防重複，以及 B 不封鎖 A 的補強／失敗重試。
 `runtime/test_concept_navigation_browser.py` 以真 API／隔離 DB 在桌機與手機操作 A → B → A，
 確認另一視窗已建立同觀念題組時會接續它。整組交卷 browser 的 1536 案例另注入版本前進，
 驗證明確 409 後保留選取、改用最新版本，再遇回應遺失仍只保存一份答案。
@@ -219,3 +210,5 @@ inline errors/focus/correction, password reveal, duplicate-submit protection, sa
 Login/Register navigation and real owner/session isolation. Both pages are checked at
 1536×1024, 1920×1080 and 390×844 for size, centering, overflow and screenshots. Screenshots are
 written only to the ignored browser test output directory. No OAuth or verification flow is tested or implemented.
+
+`test_direct_remediation_migration.py` 驗證 0013 → 0014 升級不改題目、AnswerEvent、題組項目及補強 origin；`test_assessment_remediation.py` 與對應 browser 驗證直接補強、再次答錯、冪等與 assisted semantics。

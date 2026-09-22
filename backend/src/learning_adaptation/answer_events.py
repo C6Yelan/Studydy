@@ -164,7 +164,7 @@ def _feedback(event: StoredAnswerEvent, assessment: Assessment) -> AnswerFeedbac
 
 
 def record_answer(session, study, assessment, selected_option_id, idempotency_key):
-    """在呼叫者的交易中保存已驗證選項；單題歷史與整組交卷共用評分。"""
+    """在呼叫者的交易中保存已驗證選項；由整組交卷統一呼叫評分。"""
     from .assessment_sets import record_set_answer
     study_session_id = study.study_session_id
     assessment_revision, question_id = assessment.assessment_revision, assessment.question_id
@@ -193,60 +193,6 @@ def record_answer(session, study, assessment, selected_option_id, idempotency_ke
     return AnswerSubmission(event, _feedback(event, assessment))
 
 
-def submit_answer(
-    learner: TrustedLearner,
-    study_session_id: UUID,
-    assessment_revision: str,
-    question_id: str,
-    selected_option_id: str,
-    idempotency_key: str,
-    *,
-    dsn: str | None = None,
-) -> AnswerSubmission:
-    if (
-        not isinstance(study_session_id, UUID)
-        or not isinstance(assessment_revision, str) or _ASSESSMENT.fullmatch(assessment_revision) is None
-        or not isinstance(question_id, str) or _QUESTION.fullmatch(question_id) is None
-        or not isinstance(selected_option_id, str) or _OPTION.fullmatch(selected_option_id) is None
-    ):
-        raise AnswerSubmissionError("ANSWER_SUBMISSION_INVALID")
-    learner_id = _learner(learner)
-    key = _key(idempotency_key)
-    fingerprint = _fingerprint(study_session_id, assessment_revision, question_id, selected_option_id)
-    try:
-        with database_session(dsn) as session:
-            material_id=session.scalar(select(StudySession.material_id).where(StudySession.learner_id==learner_id,StudySession.study_session_id==study_session_id))
-            if material_id is None or session.scalar(select(Material.material_id).where(Material.learner_id==learner_id,Material.material_id==material_id).with_for_update()) is None:
-                raise AnswerSubmissionError("ANSWER_STUDY_SESSION_UNAVAILABLE")
-            study = _row(session, learner_id, study_session_id, lock=True)
-            _validate(session, study)
-            assessment = _assessment(session, study, assessment_revision)
-            replay = session.scalar(select(AnswerEvent).where(AnswerEvent.study_session_id == study_session_id, AnswerEvent.idempotency_key_sha256 == key))
-            if replay is not None:
-                if bytes(replay.request_fingerprint) != fingerprint:
-                    raise AnswerSubmissionError("ANSWER_IDEMPOTENCY_CONFLICT")
-                event = _event(replay, assessment, study, assisted=assessment_revision in _assisted_revisions(session, study_session_id))
-                return AnswerSubmission(event, _feedback(event, assessment))
-            from runtime.storage.tables import AssessmentSetItem
-            if session.scalar(select(AssessmentSetItem.set_id).where(AssessmentSetItem.assessment_revision == assessment_revision)) is not None:
-                raise AnswerSubmissionError('ASSESSMENT_SET_CONFLICT')
-            from .assessment_sets import membership_can_submit
-            if (
-                _stored(study).status not in {"active", "no_safe"}
-                or assessment.question_id != question_id
-                or not membership_can_submit(session, study, assessment)
-            ):
-                raise AnswerSubmissionError("ANSWER_SUBMISSION_STALE")
-            option_ids = {option["option_id"] for option in assessment.public_document["options"]}
-            if selected_option_id not in option_ids:
-                raise AnswerSubmissionError("ANSWER_OPTION_INVALID")
-            if session.scalar(select(AnswerEvent.answer_event_id).where(AnswerEvent.study_session_id == study_session_id, AnswerEvent.assessment_revision == assessment_revision)) is not None:
-                raise AnswerSubmissionError("ANSWER_ALREADY_SUBMITTED")
-            return record_answer(session, study, assessment, selected_option_id, idempotency_key)
-    except (AnswerSubmissionError, StudySessionError):
-        raise
-    except Exception:
-        raise AnswerSubmissionError("ANSWER_STORAGE_FAILED") from None
 
 
 def read_answer_events(learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None) -> tuple[StoredAnswerEvent, ...]:
@@ -255,61 +201,25 @@ def read_answer_events(learner: TrustedLearner, study_session_id: UUID, *, dsn: 
         with database_session(dsn) as session:
             study = _row(session, learner_id, study_session_id)
             _validate(session, study)
-            rows = list(session.scalars(select(AnswerEvent).where(AnswerEvent.study_session_id == study_session_id).order_by(AnswerEvent.event_number)))
-            assisted = _assisted_revisions(session, study_session_id)
-            events = tuple(
-                _event(
-                    row,
-                    _assessment(session, study, row.assessment_revision),
-                    study, assisted=row.assessment_revision in assisted,
-                )
-                for row in rows
-            )
-            if [event.event_number for event in events] != list(range(1, len(events) + 1)) or len(events) > study.last_event_number:
-                raise AnswerSubmissionError("ANSWER_EVENT_UNAVAILABLE")
-            return events
+            return _read_events(session, study)
     except (AnswerSubmissionError, StudySessionError):
         raise
     except Exception:
         raise AnswerSubmissionError("ANSWER_STORAGE_FAILED") from None
 
 
-@dataclass(frozen=True)
-class AssessmentRecord:
-    assessment: StoredAssessment
-    feedback: AnswerFeedback | None
-    created_at: datetime
-
-
-def read_assessment_records(
-    learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None,
-) -> tuple[AssessmentRecord, ...]:
-    """讀回原題與已提交的回饋；未答題不產生或公開私人答案。"""
-    learner_id = _learner(learner)
-    try:
-        with database_session(dsn) as session:
-            study = _row(session, learner_id, study_session_id)
-            _validate(session, study)
-            assessments = list(session.scalars(select(Assessment).where(
-                Assessment.study_session_id == study_session_id,
-                Assessment.knowledge_structure_revision == study.knowledge_structure_revision,
-            ).order_by(Assessment.created_at.desc(), Assessment.assessment_revision.desc())))
-            answers = list(session.scalars(select(AnswerEvent).where(
-                AnswerEvent.study_session_id == study_session_id,
-            ).order_by(AnswerEvent.event_number)))
-            if [answer.event_number for answer in answers] != list(range(1, study.last_event_number + 1)):
-                raise AnswerSubmissionError("ANSWER_EVENT_UNAVAILABLE")
-            by_assessment = {answer.assessment_revision: answer for answer in answers}
-            if not set(by_assessment) <= {item.assessment_revision for item in assessments}:
-                raise AnswerSubmissionError("ANSWER_EVENT_UNAVAILABLE")
-            records = []
-            for assessment in assessments:
-                validated = validate_stored_assessment(assessment)
-                answer = by_assessment.get(assessment.assessment_revision)
-                feedback = _feedback(_event(answer, assessment, study), assessment) if answer is not None else None
-                records.append(AssessmentRecord(validated, feedback, assessment.created_at))
-            return tuple(records)
-    except (AnswerSubmissionError, StudySessionError, AssessmentError):
-        raise
-    except Exception:
-        raise AnswerSubmissionError("ANSWER_STORAGE_FAILED") from None
+def _read_events(session, study):
+    """Study 與教材 scope 已在同一 snapshot 驗證；保留逐筆作答與私有答案檢核。"""
+    rows = list(session.scalars(select(AnswerEvent).where(AnswerEvent.study_session_id == study.study_session_id).order_by(AnswerEvent.event_number)))
+    assisted = _assisted_revisions(session, study.study_session_id)
+    events = tuple(
+        _event(
+            row,
+            _assessment(session, study, row.assessment_revision),
+            study, assisted=row.assessment_revision in assisted,
+        )
+        for row in rows
+    )
+    if [event.event_number for event in events] != list(range(1, len(events) + 1)) or len(events) > study.last_event_number:
+        raise AnswerSubmissionError("ANSWER_EVENT_UNAVAILABLE")
+    return events

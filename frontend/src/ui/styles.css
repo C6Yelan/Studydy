@@ -85,11 +85,6 @@
 }
 .map-workspace .claim-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .map-workspace .claim-sources .text-button { min-height: 32px; font-size: .8rem; }
-.map-workspace .source-excerpts { margin-top: 12px; font-size: .82rem; }
-.map-workspace .source-excerpts summary { cursor: pointer; color: var(--text-secondary); }
-.map-workspace .source-excerpts blockquote { margin: 12px 0 0; padding: 12px; border-left: 2px solid var(--border); background: var(--surface); }
-.map-workspace .source-excerpts .claim-text { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-.map-workspace .source-excerpts small { color: var(--text-muted); }
 .map-workspace .claim-text.is-code { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: #F8FAFC; font-family: ui-monospace, SFMono-Regular, Consolas, "Noto Sans TC", monospace; font-size: 14px; font-variant-ligatures: none; }
 
 .map-workspace .concept-claim + .concept-claim { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }

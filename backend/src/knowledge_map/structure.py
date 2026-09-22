@@ -13,7 +13,6 @@ from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
 STRUCTURE_SCHEMA = "knowledge-structure/v2"
-VIEW_SCHEMA = "knowledge-structure-view/v2"
 RELATION_TYPES = {"prerequisite", "part_of", "application", "example", "contrast"}
 RELATION_BASIS = {
     "prerequisite": "dependency",
@@ -1299,6 +1298,11 @@ def validate_knowledge_structure(document: Any) -> bool:
 def build_knowledge_structure_view(document: dict[str, Any]) -> dict[str, Any]:
     if not validate_knowledge_structure(document):
         raise ValueError("KNOWLEDGE_STRUCTURE_INVALID")
+    return _view_from_validated_document(document)
+
+
+def _view_from_validated_document(document: dict[str, Any]) -> dict[str, Any]:
+    """僅供已完成完整結構驗證的讀取／發布流程共用。"""
     evidence = {item["evidence_id"]: item for item in document["evidence"]}
     concepts = []
     for concept in document["concepts"]:
@@ -1326,7 +1330,6 @@ def build_knowledge_structure_view(document: dict[str, Any]) -> dict[str, Any]:
             del claim["projection"]
         concepts.append(public)
     return {
-        "schema": VIEW_SCHEMA,
         "material_id": document["material_id"],
         "knowledge_structure_revision": document["revision"],
         "status": deepcopy(document["status"]),

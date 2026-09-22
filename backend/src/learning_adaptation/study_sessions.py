@@ -7,7 +7,7 @@ import json
 import re
 from uuid import UUID, uuid4
 
-from sqlalchemy import case, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from runtime.learner_session import TrustedLearner
@@ -88,6 +88,11 @@ def _row(session, learner_id: UUID, study_session_id: UUID, *, lock: bool = Fals
 
 def _validate(session, row: StudySession) -> MapContext:
     context = _context(session, row.learner_id, row.material_id, row.knowledge_structure_revision)
+    _validate_context(row, context)
+    return context
+
+
+def _validate_context(row, context):
     concept_ids = {concept.concept_id for concept in context.concepts}
     claim_ids = {claim.claim_id for concept in context.concepts for claim in concept.claims}
     if (
@@ -98,7 +103,6 @@ def _validate(session, row: StudySession) -> MapContext:
         or len(row.deferred_concept_ids) != len(set(row.deferred_concept_ids))
     ):
         raise StudySessionError("STUDY_SESSION_UNAVAILABLE")
-    return context
 
 
 def _stored(row: StudySession) -> StoredStudySession:
@@ -136,13 +140,10 @@ def create_study_session(
             ))
             if initial_intent is not None and bytes(initial_intent.request_fingerprint) != fingerprint:
                 raise StudySessionError("STUDY_SESSION_IDEMPOTENCY_CONFLICT")
-            canonical = session.scalar(select(StudySession).where(
+            canonical = session.scalars(select(StudySession).where(
                 StudySession.learner_id == learner_id, StudySession.material_id == material_id,
                 StudySession.knowledge_structure_revision == knowledge_structure_revision,
-            ).order_by(
-                case((StudySession.status.in_(("active", "no_safe")), 0), else_=1),
-                StudySession.started_at.desc(), StudySession.study_session_id.desc(),
-            ).limit(1))
+            )).one_or_none()
             if canonical is not None:
                 # Later ensure intents are read-only; only the initial creation fingerprint is retained.
                 _validate(session, canonical)

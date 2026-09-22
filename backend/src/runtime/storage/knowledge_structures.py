@@ -10,7 +10,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from knowledge_map.structure import (
-    build_knowledge_structure_view,
+    _view_from_validated_document,
     validate_knowledge_structure,
 )
 from pdf_evidence.ocr_page_evidence import canonical_sha256
@@ -78,17 +78,16 @@ def runtime_binding_is_valid(value: Any) -> bool:
 
 
 def _view(document,material_id):
-    view=build_knowledge_structure_view(document)
-    if "input_binding" in document:
-        view["schema"]="knowledge-structure-view/v3"
-        view["source_resolver"]=f"/v2/materials/{material_id}/knowledge-structures/{document['revision']}/evidence"
-        binding=document['input_binding']
-        sources={item['source_id']:item for item in binding['manifest']['items']}
-        for concept in view['concepts']:
-            for claim in concept['claims']:
-                for evidence in claim['evidence']:
-                    location=binding['bundle']['pages'][evidence['page']-1]
-                    evidence.update(source_id=location['source_id'],source_name=sources[location['source_id']]['original_name'],normalized_page=location['normalized_page'])
+    view=_view_from_validated_document(document)
+    view["schema"]="knowledge-structure-view/v3"
+    view["source_resolver"]=f"/v2/materials/{material_id}/knowledge-structures/{document['revision']}/evidence"
+    binding=document['input_binding']
+    sources={item['source_id']:item for item in binding['manifest']['items']}
+    for concept in view['concepts']:
+        for claim in concept['claims']:
+            for evidence in claim['evidence']:
+                location=binding['bundle']['pages'][evidence['page']-1]
+                evidence.update(source_id=location['source_id'],source_name=sources[location['source_id']]['original_name'],normalized_page=location['normalized_page'])
     return view
 
 
@@ -218,8 +217,6 @@ def publish_knowledge_structure(
             # 品質提示隨結果保留，不阻擋已驗證且含新增內容的地圖發布。
             material.head_revision = document["revision"]
             material.source_artifact_id = locked_run.source_artifact_id
-            if document["schema"] == "knowledge-structure/v4":
-                material.ingestion_kind = "sources-v2"
             session.flush()
             if locked_run.base_revision is not None and not review_only:
                 _prune_unreferenced_structures(session, learner_id, material_id, material.head_revision)
@@ -248,64 +245,58 @@ def _prune_unreferenced_structures(session, owner, material_id, head):
             session.delete(row)
 
 
-def read_knowledge_structure(
-    learner_id: UUID,
-    material_id: UUID,
-    *,
-    run_id: UUID | None = None,
-    revision: str | None = None,
-    dsn: str | None = None,
-) -> StoredKnowledgeStructure:
+def _read_verified_document(session, learner_id, material_id, *, run_id=None, revision=None, dsn=None):
+    """在呼叫者 snapshot 中查 scope 並驗證一次；不為只需 progress 的讀取組裝公開 view。"""
     if (run_id is None) == (revision is None):
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
+    statement = select(
+        KnowledgeStructure.document,
+        MaterialProcessingRun.output_binding,
+        MaterialProcessingRun.runtime_binding,
+        MaterialProcessingRun.source_artifact_id,
+        KnowledgeStructure.structure_revision,
+        KnowledgeStructure.run_id,
+    ).join(
+        MaterialProcessingRun,
+        KnowledgeStructure.run_id == MaterialProcessingRun.run_id,
+    ).where(
+        KnowledgeStructure.learner_id == learner_id,
+        KnowledgeStructure.material_id == material_id,
+        MaterialProcessingRun.learner_id == learner_id,
+        MaterialProcessingRun.material_id == material_id,
+        MaterialProcessingRun.status.in_(("succeeded", "partial")),
+    )
+    statement = statement.where(
+        KnowledgeStructure.run_id == run_id
+        if run_id is not None
+        else KnowledgeStructure.structure_revision == revision
+    )
+    row = session.execute(statement).one_or_none()
+    if row is None:
+        raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
+    document, binding, runtime_binding, source_artifact_id, stored_revision, stored_run_id = row
+    if (
+        not validate_knowledge_structure(document)
+        or document.get("revision") != stored_revision
+        or document.get("run_id") != str(stored_run_id)
+        or not isinstance(binding, dict)
+        or binding != _binding(document)
+        or not isinstance(runtime_binding, dict)
+        or not runtime_binding_is_valid(runtime_binding)
+        or runtime_binding.get("runtime_lock_sha256") != document["provenance"]["runtime_lock_sha256"]
+    ):
+        raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
+    from ..source_resolver import verify_structure_input
+    verify_structure_input(learner_id,stored_run_id,document,dsn=dsn)
+    return document
+
+
+def read_knowledge_structure(learner_id: UUID, material_id: UUID, *, run_id: UUID | None = None,
+                             revision: str | None = None, dsn: str | None = None) -> StoredKnowledgeStructure:
     try:
         with database_session(dsn) as session:
-            statement = select(
-                KnowledgeStructure.document,
-                MaterialProcessingRun.output_binding,
-                MaterialProcessingRun.runtime_binding,
-                MaterialProcessingRun.source_artifact_id,
-                KnowledgeStructure.structure_revision,
-                KnowledgeStructure.run_id,
-            ).join(
-                MaterialProcessingRun,
-                KnowledgeStructure.run_id == MaterialProcessingRun.run_id,
-            ).where(
-                KnowledgeStructure.learner_id == learner_id,
-                KnowledgeStructure.material_id == material_id,
-                MaterialProcessingRun.learner_id == learner_id,
-                MaterialProcessingRun.material_id == material_id,
-                MaterialProcessingRun.status.in_(("succeeded", "partial")),
-            )
-            statement = statement.where(
-                KnowledgeStructure.run_id == run_id
-                if run_id is not None
-                else KnowledgeStructure.structure_revision == revision
-            )
-            row = session.execute(statement).one_or_none()
-        if row is None:
-            raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
-        document, binding, runtime_binding, source_artifact_id, stored_revision, stored_run_id = row
-        if (
-            not validate_knowledge_structure(document)
-            or document.get("revision") != stored_revision
-            or document.get("run_id") != str(stored_run_id)
-            or not isinstance(binding, dict)
-            or binding != _binding(document)
-            or not isinstance(runtime_binding, dict)
-            or not runtime_binding_is_valid(runtime_binding)
-            or runtime_binding.get("runtime_lock_sha256") != document["provenance"]["runtime_lock_sha256"]
-        ):
-            raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
-        from ..source_resolver import verify_structure_input
-        verify_structure_input(learner_id,stored_run_id,document,dsn=dsn)
-        if document["schema"] != "knowledge-structure/v4":
-            with open_verified_source_pdf(learner_id, source_artifact_id, dsn=dsn) as source:
-                if source.material_id != material_id or source.sha256 != document["source_sha256"]:
-                    raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
-        return StoredKnowledgeStructure(
-            document["revision"], deepcopy(document), _view(document,material_id)
-        )
+            document = _read_verified_document(session, learner_id, material_id, run_id=run_id, revision=revision, dsn=dsn)
+        return StoredKnowledgeStructure(document['revision'], deepcopy(document), _view(document, material_id))
     except KnowledgeStructureStoreError:
         raise
     except Exception:

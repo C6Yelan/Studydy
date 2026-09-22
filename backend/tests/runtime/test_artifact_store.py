@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from product_fixtures import seed_pdf
+
 import io
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -11,17 +13,14 @@ import pymupdf
 import pytest
 import runtime.storage.artifacts as artifact_storage
 
-from runtime.storage.artifacts import (
-    ArtifactError,
-    open_verified_source_pdf,
-    publish_idempotent_source_pdf,
-)
+from runtime.storage.artifacts import ArtifactError, open_verified_source_pdf
+from runtime.source_normalization import SourceError
 from runtime.storage.migrations import run_migrations
 
 
 @pytest.fixture
 def artifact_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
     return clean_database_dsn
 
 
@@ -62,7 +61,7 @@ def _learner(dsn: str) -> UUID:
 
 
 def _publish_source(learner_id: UUID, content: bytes, dsn: str):
-    return publish_idempotent_source_pdf(
+    return seed_pdf(
         learner_id, io.BytesIO(content), f"artifact-test-{uuid4()}", dsn=dsn
     )
 
@@ -88,86 +87,18 @@ def test_source_idempotency_replay_and_conflict(
 ) -> None:
     learner = _learner(artifact_database_dsn)
     content = _pdf("one")
-    first = publish_idempotent_source_pdf(learner, io.BytesIO(content), "same", dsn=artifact_database_dsn)
-    replay = publish_idempotent_source_pdf(learner, io.BytesIO(content), "same", dsn=artifact_database_dsn)
+    first = seed_pdf(learner, io.BytesIO(content), "same", dsn=artifact_database_dsn)
+    replay = seed_pdf(learner, io.BytesIO(content), "same", dsn=artifact_database_dsn)
     assert replay == first
-    with pytest.raises(ArtifactError, match="ARTIFACT_IDEMPOTENCY_CONFLICT"):
-        publish_idempotent_source_pdf(learner, io.BytesIO(_pdf("two")), "same", dsn=artifact_database_dsn)
+    with pytest.raises(SourceError, match="IDEMPOTENCY_CONFLICT"):
+        seed_pdf(learner, io.BytesIO(_pdf("two")), "same", dsn=artifact_database_dsn)
     with psycopg.connect(artifact_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM materials").fetchone() == (1,)
-        assert connection.execute("SELECT count(*) FROM artifacts").fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM artifacts").fetchone() == (3,)
 
 
-def test_concurrent_source_publish_rereads_same_winner_or_reports_conflict(
-    artifact_database_dsn: str,
-    artifact_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    learner = _learner(artifact_database_dsn)
-    original_read = artifact_storage._read_source_receipt
-
-    def concurrent_publish(key: str, contents: tuple[bytes, bytes]):
-        barrier = threading.Barrier(2)
-        counter_lock = threading.Lock()
-        prechecks = 0
-
-        def synchronized_read(*arguments):
-            nonlocal prechecks
-            receipt = original_read(*arguments)
-            with counter_lock:
-                prechecks += 1
-                is_initial_read = prechecks <= 2
-            if is_initial_read:
-                barrier.wait(timeout=5)
-            return receipt
-
-        monkeypatch.setattr(artifact_storage, "_read_source_receipt", synchronized_read)
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = [
-                executor.submit(
-                    publish_idempotent_source_pdf,
-                    learner,
-                    io.BytesIO(content),
-                    key,
-                    dsn=artifact_database_dsn,
-                )
-                for content in contents
-            ]
-            outcomes = []
-            for future in futures:
-                try:
-                    outcomes.append(future.result(timeout=10))
-                except ArtifactError as error:
-                    outcomes.append(str(error))
-        monkeypatch.setattr(artifact_storage, "_read_source_receipt", original_read)
-        return outcomes
-
-    same_pdf = _pdf("same concurrent content")
-    same_outcomes = concurrent_publish("concurrent-same", (same_pdf, same_pdf))
-    assert same_outcomes[0] == same_outcomes[1]
-
-    different_outcomes = concurrent_publish(
-        "concurrent-different", (_pdf("first concurrent content"), _pdf("second concurrent content"))
-    )
-    assert sum(isinstance(outcome, str) for outcome in different_outcomes) == 1
-    assert "ARTIFACT_IDEMPOTENCY_CONFLICT" in different_outcomes
 
 
-def test_invalid_pdf_leaves_no_row_or_residue(
-    artifact_database_dsn: str, artifact_root: Path
-) -> None:
-    learner = _learner(artifact_database_dsn)
-    with pytest.raises(ArtifactError, match="ARTIFACT_PDF_INVALID"):
-        publish_idempotent_source_pdf(
-            learner,
-            io.BytesIO(b"not-pdf"),
-            f"invalid-{uuid4()}",
-            dsn=artifact_database_dsn,
-        )
-    with psycopg.connect(artifact_database_dsn) as connection:
-        assert connection.execute("SELECT count(*) FROM materials").fetchone() == (0,)
-    assert list((artifact_root / ".staging").iterdir()) == []
-    assert list((artifact_root / "objects").iterdir()) == []
 
 
 def test_verified_read_rejects_changed_object_hash(
@@ -193,3 +124,37 @@ def test_root_must_be_absolute_private_directory(
         monkeypatch.setenv("STUDYDY_ARTIFACT_ROOT", value)
         with pytest.raises(ArtifactError, match="ARTIFACT_ROOT_INVALID"):
             _publish_source(learner, _pdf(), artifact_database_dsn)
+
+def test_concurrent_source_upload_replays_one_receipt(artifact_database_dsn, artifact_root, monkeypatch):
+    from runtime import source_normalization as sources
+    owner=_learner(artifact_database_dsn)
+    material=sources.create_draft(owner,'Synthetic.pdf','draft',dsn=artifact_database_dsn)
+    monkeypatch.setattr(sources,'conversion_policy',lambda:{'schema':'normalization-policy/v1','renderer':'fixture'})
+    data=_pdf()
+    def upload(content,key):
+        try:return sources.upload_source(owner,material,content,'Synthetic.pdf','application/pdf',key,dsn=artifact_database_dsn)
+        except SourceError as error:return str(error)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures=[executor.submit(upload,data,'same-source') for _ in range(2)]
+        outcomes=[future.result(timeout=10) for future in futures]
+    assert outcomes[0]==outcomes[1] and isinstance(outcomes[0],UUID)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures=[executor.submit(upload,_pdf(str(i)),'different-source') for i in range(2)]
+        outcomes=[future.result(timeout=10) for future in futures]
+    assert sum(isinstance(value,UUID) for value in outcomes)==1
+    assert 'IDEMPOTENCY_CONFLICT' in outcomes
+
+
+def test_failed_normalization_retains_private_source_and_no_public_pdf(artifact_database_dsn,artifact_root,monkeypatch):
+    from runtime import source_normalization as sources
+    from document_normalization.converter import NormalizationError
+    owner=_learner(artifact_database_dsn)
+    material=sources.create_draft(owner,'Invalid.pdf','draft',dsn=artifact_database_dsn)
+    monkeypatch.setattr(sources,'conversion_policy',lambda:{'schema':'normalization-policy/v1','renderer':'fixture'})
+    sources.upload_source(owner,material,b'not-pdf','Invalid.pdf','application/pdf','upload',dsn=artifact_database_dsn)
+    def reject(*args):raise NormalizationError('PDF_DAMAGED')
+    monkeypatch.setattr(sources,'convert',reject)
+    assert sources.normalize_next(dsn=artifact_database_dsn)
+    item=sources.read_sources(owner,material,dsn=artifact_database_dsn)[0]
+    assert item['status']=='failed' and item['normalized_artifact_id'] is None
+    assert (artifact_root/'objects'/item['original_artifact_id'].hex).is_file()

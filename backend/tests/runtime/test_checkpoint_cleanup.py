@@ -1,3 +1,5 @@
+
+from product_fixtures import publish_fixture_structure
 """Checkpoint 依發布交易清理；內容品質提示不影響工作是否需要接續。"""
 import json
 from pathlib import Path

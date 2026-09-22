@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { MaterialLibraryItem, MaterialStructureLink, SourceView, StudySessionLink } from "../../api/contracts";
+import type { MaterialLibraryItem, MaterialStructureLink, StudySessionLink } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
-import { MaterialRunStartControl } from "./MaterialRunStartControl";
 import { MaterialManagement } from "./MaterialManagement";
-import { formatFileSize, materialFailureMessage, materialProgressStageLabel, materialRunLabel } from "./material-flow";
+import { formatFileSize } from "./material-flow";
 
 function openStructure(item: MaterialLibraryItem, structure: MaterialStructureLink) {
   writeRoute({ name: "knowledge-map", materialId: item.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision });
@@ -16,44 +15,6 @@ function openStructure(item: MaterialLibraryItem, structure: MaterialStructureLi
 function openStudy(item: MaterialLibraryItem, session: StudySessionLink) {
   writeRoute({ name: "study-session", materialId: item.material_id, runId: session.run_id,
     structureRevision: session.knowledge_structure_revision, studySessionId: session.study_session_id });
-}
-
-function LibrarySources({ item, apiClient, deleting }: { item: MaterialLibraryItem; apiClient: StudydyApiClient; deleting: boolean }) {
-  const [open, setOpen] = useState(false);
-  const [sources, setSources] = useState<SourceView[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [reload, setReload] = useState(0);
-  useEffect(() => {
-    if (!open || deleting) return;
-    let cancelled = false;
-    let timer: number | undefined;
-    const read = async () => {
-      try {
-        const result = await apiClient.getSources(item.material_id);
-        if (cancelled) return;
-        setSources(result.sources);
-        setError(null);
-        if (result.sources.some(source => source.status === "pending" || source.status === "running")) {
-          timer = window.setTimeout(read, 3000);
-        }
-      } catch (failure) { if (!cancelled) setError(errorMessage(failure)); }
-    };
-    void read();
-    return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [apiClient, item.material_id, item.source_count, item.head_revision, item.latest_attempt?.status, open, deleting, reload]);
-  return <details className="library-sources" onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary>來源檔案（{item.source_count} 份）</summary>
-    {error ? <div role="alert"><p>{error}</p><button className="text-button" disabled={deleting} onClick={() => { setError(null); setReload(value => value + 1); }}>重新讀取來源</button></div>
-      : sources === null ? <p role="status">正在讀取來源…</p>
-      : <ul>{sources.map(source => <li key={source.source_id}>
-        <span className="library-source-name">{source.original_name}</span>
-        <small>{source.included === false ? "尚未納入目前地圖 · " : ""}{source.status === "ready" ? `${source.page_count ?? "—"} 頁` : source.status === "failed" ? "轉換失敗" : "等待或正在轉換"}</small>
-        <div className="library-source-actions">
-          {source.status === "ready" && source.normalized_artifact_id && <a className="text-button material-source-link" href={deleting ? undefined : apiClient.sourceArtifactUrl(source.normalized_artifact_id)} target="_blank" rel="noopener noreferrer" aria-disabled={deleting || undefined} tabIndex={deleting ? -1 : undefined}>{source.media_type === "application/pdf" ? "開啟 PDF" : "轉換後 PDF"} ↗</a>}
-          <a className="text-button material-source-link" href={deleting ? undefined : `/v2/artifacts/${source.original_artifact_id}`} target="_blank" rel="noopener noreferrer" aria-disabled={deleting || undefined} tabIndex={deleting ? -1 : undefined}>下載原檔</a>
-        </div>
-      </li>)}</ul>}
-  </details>;
 }
 
 export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) {
@@ -114,7 +75,6 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
   const normalize = (text: string) => text.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
   const query = normalize(searchQuery);
   const filteredItems = items.filter(item => normalize(item.display_name).includes(query));
-  const clearSearch = () => { setSearchQuery(""); searchInput.current?.focus(); };
   const restoreLibraryFocus = () => (searchInput.current ?? heading.current)?.focus({ preventScroll: true });
   return <section className={libraryClass}>
     <header className="library-header">
@@ -125,11 +85,13 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
     </header>
     {items.length > 0 && <form className="library-search" role="search" onSubmit={event => event.preventDefault()}>
       <input ref={searchInput} type="search" aria-label="搜尋教材名稱" placeholder="搜尋教材名稱…" value={searchQuery}
-        onChange={event => setSearchQuery(event.target.value)} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); clearSearch(); } }} />
+        onChange={event => setSearchQuery(event.target.value)} onKeyDown={event => {
+          // Chromium 原生 search 會用 Escape 清空；僅阻止此預設行為，保留右側 ×。
+          if (event.key === "Escape") event.preventDefault();
+        }} />
     </form>}
     {items.length > 0 && query && filteredItems.length === 0 && <div className="library-search-empty" role="status">
       <h2>找不到符合「{query}」的教材</h2><p>試試其他教材名稱。</p>
-      <button className="text-button" type="button" onClick={clearSearch}>清除搜尋</button>
     </div>}
     {items.length === 0 && <section className="library-empty surface" aria-label="空教材引導">
       <div className="library-empty-illustration"><img src="/assets/Studydy_角色素材/空資料/empty_disappointed.png" alt="Studydy 坐在打開的空箱子旁" /></div>
@@ -143,9 +105,6 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
     {filteredItems.map(item => {
       const latest = item.latest_attempt;
       const available = item.available_structures;
-      const latestHasPublishedMap = !!latest && available.some(structure => structure.run_id === latest.run_id);
-      const latestCompletedWithMap = !!latest && (latest.status === "succeeded" || latest.status === "partial") && latestHasPublishedMap;
-      const showLatestState = !latestCompletedWithMap || !!latest?.base_revision && latest.status === "partial";
       const structure = available.find(value => value.knowledge_structure_revision === item.head_revision) ?? available[0];
       const learningState = structure && item.study_sessions.find(state => state.run_id === structure.run_id && state.knowledge_structure_revision === structure.knowledge_structure_revision);
       const busyRun = latest?.status === "pending" || latest?.status === "running";
@@ -167,23 +126,16 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
           } else pendingRemovals.current.add(item.material_id);
           setReload(value => value + 1);
         }} />
-        <p>{new Date(item.created_at).toLocaleString()} · {formatFileSize(item.size_bytes)}</p>
-        {(item.source_count ?? 1) > 1 && <LibrarySources item={item} apiClient={apiClient} deleting={deleting} />}
-        {item.source_artifact_id && (item.source_count ?? 1) <= 1 && <a className="text-button material-source-link" href={deleting ? undefined : apiClient.sourceArtifactUrl(item.source_artifact_id)} target="_blank" rel="noopener noreferrer" aria-disabled={deleting || undefined} tabIndex={deleting ? -1 : undefined}>{item.ingestion_kind ? "轉換後 PDF" : "原始 PDF"} <span aria-hidden="true">↗</span></a>}
-        {item.source&&(item.source_count ?? 1)<=1&&<a className="text-button material-source-link" href={deleting?undefined:`/v2/artifacts/${item.source.original_artifact_id}`} target="_blank" rel="noopener noreferrer" aria-disabled={deleting || undefined} tabIndex={deleting ? -1 : undefined}>下載原檔 · {item.source.original_name.split(".").pop()?.toUpperCase()}</a>}
-        {showLatestState && <p className={`library-state is-${latest?.status ?? (item.source?.status === "ready" ? "succeeded" : item.source?.status) ?? "uploaded"}`}>{!latest && item.ingestion_kind ? "教材轉換" : "最新處理"}：{latest ? materialRunLabel(latest.status, latest.cancel_requested_at, !!latest.base_revision) : item.ingestion_kind ? item.source?.status==="ready" ? "已轉換，可開始分析" : item.source?.status==="failed" ? "轉換失敗" : "等待或正在轉換" : "已上傳，尚未開始處理"}</p>}
-        {latest && (latest.status === "running" || latest.status === "pending") && <p>{materialProgressStageLabel(latest.progress_stage)} · 已完成 {latest.completed_pages} 頁{latest.total_pages !== null && `／共 ${latest.total_pages} 頁`}</p>}
-        {latest?.status === "failed" && <p>{materialFailureMessage(latest.error_code ?? "")}{available.length > 0 && " 先前已發布的知識地圖仍可開啟。"}</p>}
+        <p className="library-metadata">{new Date(item.created_at).toLocaleDateString()} · {(item.source_count ?? 1) > 1 ? `${item.source_count} 個檔案` : formatFileSize(item.size_bytes)}</p>
+        {busyRun ? <p className="library-state">正在建立知識地圖…</p>
+          : latest?.status === "failed" && <p className="library-state is-failed">知識地圖建立失敗</p>}
         <fieldset className="state-actions" disabled={deleting}>
           {studyAction}{mapAction}
-          {structure && <button className="text-button" onClick={() => writeRoute({ name: "material-sources", materialId: item.material_id })}>新增教材與查看來源</button>}
-          {busyRun ? <button className={structure ? "secondary-button" : "primary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看處理狀態</button> : <>
-            {item.ingestion_kind&&(!latest||latest.status==="failed")&&<button className="primary-button" onClick={()=>writeRoute({name:"material-sources",materialId:item.material_id})}>查看轉換與分析</button>}
-            {!item.ingestion_kind && !latest?.base_revision && item.source_artifact_id && (!latest || latest.status === "failed") && learningState?.status !== "completed" && <MaterialRunStartControl key={`${item.material_id}:${latest?.run_id ?? "new"}`} apiClient={apiClient} materialId={item.material_id} sourceArtifactId={item.source_artifact_id} initial={!latest} primary={!structure && !learningState} />}
-            {latest?.status === "failed" && <button className={structure ? "text-button" : "secondary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看失敗詳情</button>}
-          </>}
+          {busyRun ? <button className={structure ? "text-button" : "primary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看進度</button>
+            : latest?.status === "failed" ? <button className={structure ? "text-button" : "primary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看問題</button>
+            : !structure && <button className="primary-button" type="button" onClick={() => writeRoute({ name: "material-sources", materialId: item.material_id })}>建立知識地圖</button>}
+
         </fieldset>
-        {item.study_sessions.some(session => session.knowledge_structure_revision !== structure?.knowledge_structure_revision) && <details><summary>先前題目與作答</summary><div className="state-actions">{item.study_sessions.filter(session => session.knowledge_structure_revision !== structure?.knowledge_structure_revision).map(session => <button className="text-button" key={session.study_session_id} onClick={() => openStudy(item, session)}>學習紀錄 · {new Date(session.started_at).toLocaleString()}</button>)}</div></details>}
       </article>;
     })}
     </div>

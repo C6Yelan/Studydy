@@ -2,24 +2,21 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from hashlib import sha256
 import json
 import re
-from typing import Any, Callable
+from typing import Any
 import unicodedata
 from uuid import UUID
 
-import httpx
 from sqlalchemy import case, or_, select
-from sqlalchemy.dialects.postgresql import insert
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.learner_session import TrustedLearner
-from runtime.semantic_service import SemanticServiceError, request_semantics, semantic_client
-from runtime.storage.tables import Assessment, KnowledgeStructure, StudySession, database_session
+from runtime.semantic_service import request_semantics, semantic_client
+from runtime.storage.tables import Assessment, StudySession
 
-from .map_context import ClaimContext, ConceptContext, MapContextError, context_from_structure
+from .map_context import ClaimContext, ConceptContext
 
 
 _ID = re.compile(r"[a-z-]+:sha256:[0-9a-f]{64}")
@@ -157,15 +154,9 @@ def _stored(row: Assessment) -> StoredAssessment:
         "model_revision", "policy", "source_evidence_ids",
         "learning_angle", "novelty", "mastery_qualified",
     }
-    quality_version = provenance.get("schema") == "assessment-generation-provenance/v8"
-    modern = quality_version or provenance.get("schema") in {"assessment-generation-provenance/v6","assessment-generation-provenance/v7"}
-    if modern:
-        provenance_fields.add("verification")
-    if quality_version:
-        provenance_fields.update({"quality_selection", "compared_assessment_revisions",
-                                  "prompt_sha256", "check_prompt_sha256", "execution_identity"})
-    command_execution = (provenance.get("schema") == "assessment-generation-provenance/v7"
-                         or quality_version and provenance.get("execution_identity") is not None)
+    provenance_fields.update({"verification", "quality_selection", "compared_assessment_revisions",
+                              "prompt_sha256", "check_prompt_sha256", "execution_identity"})
+    command_execution = provenance.get("execution_identity") is not None
     if command_execution:
         provenance_fields.add("execution_identity")
         execution=provenance.get("execution_identity")
@@ -212,7 +203,7 @@ def _stored(row: Assessment) -> StoredAssessment:
         or set(provenance) != provenance_fields
         or public["schema"] != "single-choice-assessment/v2"
         or private["schema"] != "single-choice-answer/v2"
-        or provenance["schema"] not in {"assessment-generation-provenance/v5", "assessment-generation-provenance/v6", "assessment-generation-provenance/v7", "assessment-generation-provenance/v8"}
+        or provenance["schema"] != "assessment-generation-provenance/v8"
         or revision != row.assessment_revision
         or public["assessment_revision"] != revision
         or private["assessment_revision"] != revision
@@ -278,7 +269,7 @@ def _stored(row: Assessment) -> StoredAssessment:
         or not isinstance(provenance["model_id"],str) or not provenance["model_id"]
         or not isinstance(provenance["model_revision"],str) or not provenance["model_revision"]
         or (not command_execution and (provenance["model_id"]!="google/gemma-4-31B-it-qat-w4a16-ct" or provenance["model_revision"]!="52f3f65bc7a02d555763bc923bd1d9094898219d"))
-        or provenance["policy"] != ("source-span-single-choice/v6" if quality_version else "source-span-single-choice/v5" if modern else "source-span-single-choice/v4")
+        or provenance["policy"] != "source-span-single-choice/v6"
         or provenance["learning_angle"] != row.learning_angle
         or not isinstance(row.learning_angle, str)
         or not row.learning_angle.strip()
@@ -295,33 +286,31 @@ def _stored(row: Assessment) -> StoredAssessment:
         )
     ):
         raise AssessmentError("ASSESSMENT_UNAVAILABLE")
-    if modern:
-        verification = provenance["verification"]
-        if (not isinstance(verification, dict)
-            or set(verification) != {"options", "selected_option_index", "duplicate_prior_index"}
-            or verification["options"] != sorted(option_texts, key=_normalized)
-            or type(verification["selected_option_index"]) is not int
-            or not 0 <= verification["selected_option_index"] < 4
-            or verification["options"][verification["selected_option_index"]] != private["correct_answer"]
-            or verification["duplicate_prior_index"] is not None
-            or row.mastery_qualified is not True):
-            raise AssessmentError("ASSESSMENT_UNAVAILABLE")
-    if quality_version:
-        quality = provenance["quality_selection"]
-        compared = provenance["compared_assessment_revisions"]
-        if (not isinstance(quality, dict)
-            or set(quality) != {"candidate_index", "checked_candidate_count", "safe_candidate_count", "issues"}
-            or any(type(quality[key]) is not int for key in (
-                "candidate_index", "checked_candidate_count", "safe_candidate_count"))
-            or not 1 <= quality["safe_candidate_count"] <= quality["checked_candidate_count"] <= 3
-            or not 0 <= quality["candidate_index"] < quality["checked_candidate_count"]
-            or not _valid_quality_issues(quality["issues"])
-            or not isinstance(compared, list) or len(compared) > _PRIOR_LIMIT
-            or any(not isinstance(item, str) or re.fullmatch(r"assessment:sha256:[0-9a-f]{64}", item) is None for item in compared)
-            or len(compared) != len(set(compared))
-            or any(not isinstance(provenance[key], str) or re.fullmatch(r"[0-9a-f]{64}", provenance[key]) is None
-                   for key in ("prompt_sha256", "check_prompt_sha256"))):
-            raise AssessmentError("ASSESSMENT_UNAVAILABLE")
+    verification = provenance["verification"]
+    if (not isinstance(verification, dict)
+        or set(verification) != {"options", "selected_option_index", "duplicate_prior_index"}
+        or verification["options"] != sorted(option_texts, key=_normalized)
+        or type(verification["selected_option_index"]) is not int
+        or not 0 <= verification["selected_option_index"] < 4
+        or verification["options"][verification["selected_option_index"]] != private["correct_answer"]
+        or verification["duplicate_prior_index"] is not None
+        or row.mastery_qualified is not True):
+        raise AssessmentError("ASSESSMENT_UNAVAILABLE")
+    quality = provenance["quality_selection"]
+    compared = provenance["compared_assessment_revisions"]
+    if (not isinstance(quality, dict)
+        or set(quality) != {"candidate_index", "checked_candidate_count", "safe_candidate_count", "issues"}
+        or any(type(quality[key]) is not int for key in (
+            "candidate_index", "checked_candidate_count", "safe_candidate_count"))
+        or not 1 <= quality["safe_candidate_count"] <= quality["checked_candidate_count"] <= 3
+        or not 0 <= quality["candidate_index"] < quality["checked_candidate_count"]
+        or not _valid_quality_issues(quality["issues"])
+        or not isinstance(compared, list) or len(compared) > _PRIOR_LIMIT
+        or any(not isinstance(item, str) or re.fullmatch(r"assessment:sha256:[0-9a-f]{64}", item) is None for item in compared)
+        or len(compared) != len(set(compared))
+        or any(not isinstance(provenance[key], str) or re.fullmatch(r"[0-9a-f]{64}", provenance[key]) is None
+               for key in ("prompt_sha256", "check_prompt_sha256"))):
+        raise AssessmentError("ASSESSMENT_UNAVAILABLE")
     return StoredAssessment(
         row.assessment_revision, row.study_session_id, row.knowledge_structure_revision,
         row.question_id, row.semantic_identity, row.learning_angle,
@@ -331,25 +320,6 @@ def _stored(row: Assessment) -> StoredAssessment:
     )
 
 
-def _target(session, learner_id: UUID, study_session_id: UUID, claim_id: str) -> tuple[StudySession, ConceptContext, ClaimContext]:
-    study = session.scalar(select(StudySession).where(
-        StudySession.learner_id == learner_id,
-        StudySession.study_session_id == study_session_id,
-    ).with_for_update())
-    if study is None or study.status not in {"active", "no_safe"} or study.current_concept_id is None:
-        raise AssessmentError("ASSESSMENT_SESSION_UNAVAILABLE")
-    document = session.scalar(select(KnowledgeStructure.document).where(
-        KnowledgeStructure.learner_id == learner_id,
-        KnowledgeStructure.material_id == study.material_id,
-        KnowledgeStructure.structure_revision == study.knowledge_structure_revision,
-    ))
-    try:
-        context = context_from_structure(study.material_id, document)
-        concept = next(item for item in context.concepts if item.concept_id == study.current_concept_id)
-        claim = next(item for item in concept.claims if item.claim_id == claim_id)
-    except (MapContextError, StopIteration, TypeError):
-        raise AssessmentError("ASSESSMENT_TARGET_INVALID") from None
-    return study, concept, claim
 
 
 def _request(study: StudySession, concept: ConceptContext, claim: ClaimContext, prior: list[Assessment]) -> dict[str, Any]:
@@ -626,96 +596,11 @@ def _documents(
     return public, private, provenance, mastery_qualified
 
 
-def generate_assessment(
-    learner: TrustedLearner,
-    study_session_id: UUID,
-    target_claim_id: str,
-    idempotency_key: str,
-    local_config: dict[str, Any],
-    *,
-    dsn: str | None = None,
-    client: httpx.Client | None = None,
-    semantic_call: Callable[..., dict[str, Any]] = request_semantics,
-) -> StoredAssessment:
-    learner_id = _learner(learner)
-    if not isinstance(study_session_id, UUID) or not isinstance(target_claim_id, str) or _ID.fullmatch(target_claim_id) is None:
-        raise AssessmentError("ASSESSMENT_REQUEST_INVALID")
-    key = _key(idempotency_key)
-    runtime_lock = local_config.get("runtime_lock")
-    no_safe = False
-    try:
-        with database_session(dsn) as session:
-            study, concept, claim = _target(session, learner_id, study_session_id, target_claim_id)
-            fingerprint = _fingerprint(study_session_id, study.knowledge_structure_revision, target_claim_id)
-            existing = session.scalar(select(Assessment).where(Assessment.study_session_id == study_session_id, Assessment.request_idempotency_key_sha256 == key))
-            if existing is not None:
-                if bytes(existing.request_fingerprint) != fingerprint:
-                    raise AssessmentError("ASSESSMENT_IDEMPOTENCY_CONFLICT")
-                return _stored(existing)
-            from .assessment_sets import has_active_set
-            if has_active_set(session, study_session_id, concept.concept_id):
-                raise AssessmentError('ASSESSMENT_SET_ACTIVE')
-            from pdf_evidence.material_pipeline import MaterialAnalysisError, validate_runtime_lock
-            try:
-                validate_runtime_lock(runtime_lock)
-            except MaterialAnalysisError:
-                raise AssessmentError('ASSESSMENT_CONFIGURATION_INVALID') from None
-            prior = _prior_questions(session, study, claim)
-            used = set(session.scalars(select(Assessment.semantic_identity).where(
-                Assessment.study_session_id == study_session_id,
-                Assessment.knowledge_structure_revision == study.knowledge_structure_revision,
-            )))
-            chosen = prepare_assessment(study, concept, claim, prior, used, runtime_lock=runtime_lock,
-                                        client=client, semantic_call=semantic_call)
-            if chosen is None:
-                if target_claim_id not in study.no_safe_claim_ids:
-                    study.no_safe_claim_ids = [*study.no_safe_claim_ids, target_claim_id]
-                study.status = "no_safe"
-                no_safe = True
-            else:
-                public, private, provenance, mastery_qualified = _documents(
-                    study, concept, claim, chosen,
-                    runtime_lock=runtime_lock,
-                )
-                session.execute(insert(Assessment).values(
-                    assessment_revision=public["assessment_revision"],
-                    study_session_id=study_session_id,
-                    knowledge_structure_revision=study.knowledge_structure_revision,
-                    question_id=public["question_id"],
-                    semantic_identity=chosen["semantic_identity"],
-                    learning_angle=chosen["learning_angle"],
-                    target_concept_id=concept.concept_id,
-                    target_claim_id=claim.claim_id,
-                    public_document=public,
-                    private_answer_document=private,
-                    generation_provenance=provenance,
-                    mastery_qualified=mastery_qualified,
-                    request_idempotency_key_sha256=key,
-                    request_fingerprint=fingerprint,
-                    created_at=datetime.now(UTC),
-                ))
-                study.status = "active"
-                study.no_safe_claim_ids = [
-                    claim_id for claim_id in study.no_safe_claim_ids
-                    if claim_id != target_claim_id
-                ]
-                stored = session.scalar(select(Assessment).where(Assessment.assessment_revision == public["assessment_revision"]))
-                if stored is None:
-                    raise AssessmentError("ASSESSMENT_STORE_FAILED")
-                return _stored(stored)
-        if no_safe:
-            raise AssessmentError("NO_SAFE_ASSESSMENT")
-    except AssessmentError:
-        raise
-    except SemanticServiceError as error:
-        raise AssessmentError(error.reason_code) from None
-    except Exception:
-        raise AssessmentError("ASSESSMENT_STORE_FAILED") from None
 
 
 def prepare_assessment(study, concept, claim, prior, used_identities, *, runtime_lock,
                        client=None, semantic_call=request_semantics):
-    """單題與題組共用同一安全管線；本函式不開 DB transaction，也不發布題目。"""
+    """題組中的各題共用安全管線；本函式不開 DB transaction，也不發布題目。"""
     owned = client is None
     http = semantic_client() if owned else client
     try:
@@ -732,27 +617,3 @@ def prepare_assessment(study, concept, claim, prior, used_identities, *, runtime
     finally:
         if owned:
             http.close()
-
-
-def read_assessment(
-    learner: TrustedLearner,
-    study_session_id: UUID,
-    assessment_revision: str,
-    *,
-    dsn: str | None = None,
-) -> StoredAssessment:
-    learner_id = _learner(learner)
-    try:
-        with database_session(dsn) as session:
-            row = session.scalar(select(Assessment).join(StudySession, StudySession.study_session_id == Assessment.study_session_id).where(
-                StudySession.learner_id == learner_id,
-                Assessment.study_session_id == study_session_id,
-                Assessment.assessment_revision == assessment_revision,
-            ))
-        if row is None:
-            raise AssessmentError("ASSESSMENT_UNAVAILABLE")
-        return _stored(row)
-    except AssessmentError:
-        raise
-    except Exception:
-        raise AssessmentError("ASSESSMENT_UNAVAILABLE") from None

@@ -45,7 +45,7 @@ def test_full_learned_material_delete_preserves_every_other_material(learning_re
         f'/v1/materials/{material_id}/knowledge-structures/{f["structure"]["revision"]}',
         f'/v1/study-sessions/{f["active"].study_session_id}',
         f'/v1/materials/{material_id}/knowledge-structures/{f["structure"]["revision"]}/study-sessions/{f["active"].study_session_id}/resume?run_id={f["structure"]["run_id"]}',
-        f'/v1/study-sessions/{f["active"].study_session_id}/assessments/{f["unanswered"].assessment_revision}']
+        f'/v1/study-sessions/{f["active"].study_session_id}/assessment-sets/{f["set_id"]}']
     for path in paths:
         response = client.get(path)
         assert response.status_code == 404

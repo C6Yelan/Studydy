@@ -1,6 +1,5 @@
 const browserOrigin = process.env.STUDYDY_E2E_BASE_URL ?? "http://127.0.0.1:4173";
 import { expect, test, type Page, type Route } from "@playwright/test";
-import type { AssessmentRecordView } from "../src/api/contracts";
 
 const materialId = "11111111-1111-4111-8111-111111111111";
 const runId = "22222222-2222-4222-8222-222222222222";
@@ -36,7 +35,7 @@ function structureView() {
     }],
   });
   return {
-    schema: "knowledge-structure-view/v2",
+    schema: "knowledge-structure-view/v3", source_resolver: "/v2/materials/11111111-1111-4111-8111-111111111111/knowledge-structures/fixture/evidence",
     material_id: `material:sha256:${"7".repeat(64)}`,
     knowledge_structure_revision: structureRevision,
     status: { processing: "succeeded", quality: "accepted", decision: "retain", reason_codes: [] },
@@ -65,7 +64,7 @@ function structureView() {
 }
 
 const run = {
-  schema: "material-processing-run/v5", cancel_requested_at: null, run_id: runId, material_id: materialId,
+  schema: "material-processing-run/v6", cancel_requested_at: null, run_id: runId, material_id: materialId,
   source_artifact_id: artifactId, status: "succeeded", progress_stage: "completed",
   completed_pages: 2, total_pages: 2, error_code: null,
   created_at: "2026-09-05T00:00:00Z", updated_at: "2026-09-05T00:01:00Z", completed_at: "2026-09-05T00:01:00Z",
@@ -86,7 +85,7 @@ function session(status = "active") {
 }
 
 const progress = {
-  schema: "learner-progress/v3", assessment_cycles: [], study_session_id: sessionId,
+  schema: "learner-progress/v4", assessment_cycles: [], study_session_id: sessionId,
   knowledge_structure_revision: structureRevision, event_watermark: 0,
   current_concept_id: firstConcept, deferred_concept_ids: [],
   concept_states: [
@@ -101,20 +100,22 @@ async function json(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, json: body });
 }
 
-async function routes(page: Page, view = structureView(), readProgress = () => progress, readRecords: () => AssessmentRecordView[] = () => []) {
+async function routes(page: Page, view = structureView(), readProgress = () => progress) {
+  await page.route("**/v2/materials/*/knowledge-structures/*/evidence/*/source", route=>json(route,{schema:"evidence-source/v1",format:"pdf",original_name:"Synthetic.pdf",original_url:`/v1/artifacts/${artifactId}`,preview_url:`/v1/artifacts/${artifactId}#page=1`,normalized_page:1,accuracy:"exact",origin_locators:[],label:"PDF 第 1 頁"}));
   await page.route("**/v2/source-capabilities", route => json(route, { schema: "source-capabilities/v1", quality_notice: "PDF 優先", formats: [
     { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 },
   ] }));
   await page.route("**/v1/session", (route) => route.request().method() === "GET" ? json(route, { schema: "learner-identity/v1", learner_id: sessionId }) : route.fulfill({ status: 204 }));
-  await page.route("**/v1/session/refresh", (route) => route.fulfill({ status: 204 }));
+  await page.route("**/v1/session/refresh", (route) => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
   await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-    schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId,
+    schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
     display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at,
     latest_attempt: run, available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision,
       created_at: run.created_at, status: "succeeded" }], study_sessions: [],
   }));
   await page.route(`**/v1/material-processing-runs/${runId}`, (route) => json(route, run));
   await page.route("**/v1/materials/*/knowledge-structures/**", (route) => json(route, view));
+  await page.route("**/v1/study-sessions/*/progress", route => json(route, readProgress()));
   await page.route("**/v1/study-sessions", (route) => json(route, session(), 201));
   await page.route("**/v1/study-sessions/*/assessment-plan?*", route => {
     const concept = view.concepts.find(item => item.concept_id === new URL(route.request().url()).searchParams.get("concept_id"))!;
@@ -125,11 +126,9 @@ async function routes(page: Page, view = structureView(), readProgress = () => p
   });
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => {
     const currentProgress = readProgress();
-    const records = readRecords();
-    const selected = new URL(route.request().url()).searchParams.get("assessment_revision") ?? records[0]?.assessment.assessment_revision ?? null;
-    return json(route, { schema: "study-resume/v3", assessment_sets: [], selected_set_id: null, session: { ...session(), event_watermark: currentProgress.event_watermark },
+    return json(route, { schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: { ...session(), event_watermark: currentProgress.event_watermark },
       run_id: runId, source_artifact_id: artifactId, knowledge_structure: view, progress: currentProgress,
-      assessments: records, selected_assessment_revision: selected });
+ });
   });
 }
 
@@ -174,11 +173,13 @@ test("map opens concept details and source-backed learning on demand", async ({ 
   await expect(page.getByRole("dialog", { name: "關係詳情" })).toContainText("Stack must be learned before Array traversal.");
   await page.keyboard.press("Escape"); await expect(edge).toBeFocused();
   await openMapConcept(page, "Stack");
+  await page.getByRole("button", { name: /查看第 1 頁來源/ }).click();
   const popup = page.waitForEvent("popup");
-  await page.getByRole("button", { name: /原始教材第 1 頁/ }).click();
+  await page.getByRole("link",{name:"開啟 PDF 來源頁"}).click();
   const source = await popup;
   await expect(source).toHaveURL(`${browserOrigin}/v1/artifacts/${artifactId}#page=1`);
   await source.close();
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "開始學習", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/study-sessions/${sessionId}$`));
 });
@@ -191,7 +192,7 @@ test("mobile map has a modal detail drawer with keyboard focus and source links"
   await openMapConcept(page);
   const dialog = page.getByRole("dialog", { name: "概念詳情" });
   await expect(dialog).toBeInViewport();
-  await expect(dialog.getByRole("button", { name: /原始教材第 1 頁/ })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /查看第 1 頁來源/ })).toBeVisible();
   await expect.poll(() => dialog.evaluate(element => element.matches(":modal"))).toBe(true);
   await page.keyboard.press("Tab");
   await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest(".detail-panel"))).toBe(true);
@@ -229,7 +230,7 @@ test("library loading, read failure and empty state retain usable actions", asyn
 test("reopen rejects a run from a different Knowledge Structure revision", async ({ page }) => {
   await routes(page);
   await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-    schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId,
+    schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
     display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at,
     latest_attempt: run, available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision,
       created_at: run.created_at, status: "succeeded" }], study_sessions: [],
@@ -334,7 +335,7 @@ test("recovered map reads owned progress and continues the same session without 
   await page.setViewportSize({ width: 1366, height: 768 });
   await routes(page);
   await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-    schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId,
+    schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
     display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at,
     latest_attempt: run, available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision,
       created_at: run.created_at, status: "succeeded" }], study_sessions: [
@@ -391,8 +392,13 @@ test("shared shell density keeps standard pages and map workspace bounded", asyn
       }
       if (!["map", "home", "materials", "maps", "upload", "processing", "study"].includes(name) && viewport.width > 900) await expect(page.locator(".sidebar-helper")).toBeVisible();
       if (["home", "materials", "maps", "upload", "processing", "study"].includes(name)) await expect(page.locator(".sidebar-helper")).toHaveCount(0);
-      const widths: Record<string, string> = { home: "1280px", materials: "1280px", maps: "1280px", detail: "1280px", processing: "1280px", upload: "1280px" };
-      if (widths[name]) expect(await page.locator(".app-main > *").first().evaluate(element => getComputedStyle(element).maxWidth)).toBe(widths[name]);
+      if (["home", "materials", "processing", "upload"].includes(name)) {
+        const usable = await page.locator(".app-main").evaluate(el => {
+          const css = getComputedStyle(el);
+          return el.getBoundingClientRect().width - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
+        });
+        expect((await page.locator(".app-main > *").first().boundingBox())!.width).toBeCloseTo(Math.min(usable, 1600), 0);
+      }
       await expect(page.locator(".task-page")).toHaveCount(["upload", "processing"].includes(name) ? 1 : 0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
       await page.screenshot({ path: `/tmp/studydy-dashboard/shell-${name}-${viewport.width}.png`, fullPage: true });
@@ -434,14 +440,14 @@ test("compact learning entry shares loading, starting and new-study authority wi
   let hasHistory = false, completed = false, creates = 0;
   await page.route(`**/v1/materials/${materialId}`, async route => {
     await readingMaterial;
-    return json(route, { schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId,
+    return json(route, { schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
       display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
       available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }],
       study_sessions: hasHistory ? [{ ...session("completed"), run_id: runId }] : [] });
   });
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, {
-    schema: "study-resume/v3", assessment_sets: [], selected_set_id: null, session: session(completed ? "completed" : "active"), run_id: runId,
-    source_artifact_id: artifactId, knowledge_structure: view, progress, assessments: [], selected_assessment_revision: null,
+    schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: session(completed ? "completed" : "active"), run_id: runId,
+    source_artifact_id: artifactId, knowledge_structure: view, progress,
   }));
   await page.route("**/v1/study-sessions", async route => {
     creates++;
@@ -495,7 +501,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
         next_action: { ...progress.next_action, target_concept_id: currentId, target_claim_id: history === "same" ? secondClaim : firstClaim } };
       await routes(page, view, () => savedProgress);
       await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-        schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId,
+        schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
         display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
         available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }],
         study_sessions: history === "none" ? [] : [{ ...saved, run_id: runId }],
@@ -515,11 +521,11 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       });
       await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => {
         const isNew = focused || route.request().url().includes(newSessionId);
-        return json(route, { schema: "study-resume/v3", assessment_sets: [], selected_set_id: null, session: isNew ? created : saved, run_id: runId,
+        return json(route, { schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: isNew ? created : saved, run_id: runId,
           source_artifact_id: artifactId, knowledge_structure: view,
           progress: isNew ? { ...savedProgress, study_session_id: created.study_session_id, current_concept_id: secondConcept,
             next_action: { ...savedProgress.next_action, target_concept_id: secondConcept, target_claim_id: secondClaim } } : savedProgress,
-          assessments: [], selected_assessment_revision: null });
+          });
       });
       await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
       const entry = page.getByRole("region", { name: "學習入口" });
@@ -544,69 +550,82 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
 }
 
 for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 390, height: 844 }]) {
-  for (const kind of ["many", "none", "parallel", "long"] as const) {
-    test(`Concept Detail secondary exploration ${kind} at ${viewport.width}px`, async ({ page }) => {
+  for (const identity of ["id", "name", "unknown"] as const) {
+    test(`Concept Detail concise sources and alias search (${identity}) at ${viewport.width}px`, async ({ page }) => {
       await page.setViewportSize(viewport);
-      const view = workspaceView(kind === "none" ? 1 : kind === "parallel" ? 6 : 9, kind === "long");
-      view.concepts[0].aliases = ["Document alias"];
-      if (kind === "parallel") view.relations.push(
-        { ...view.relations[0], relation_id: `relation:sha256:${"f".repeat(64)}`, type: "contrast", inference_basis: "comparison", learner_reason: "A different perspective on the same concept." },
-        { ...view.relations[0], relation_id: `relation:sha256:${"e".repeat(64)}`, source_concept_id: view.concepts[2].concept_id, target_concept_id: view.concepts[3].concept_id },
-      );
+      const view = workspaceView(6);
+      const concept = view.concepts[0];
+      concept.label = "主機";
+      concept.aliases = ["Host"];
+      const resolver = `/v2/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`;
+      if (identity !== "single") Object.assign(view, { schema: "knowledge-structure-view/v3", source_resolver: resolver });
+      const evidence = [0, 1, 2, 3].map(index => ({ ...concept.claims[0].evidence[0],
+        evidence_id: `evidence:sha256:${String(index + 1).repeat(64)}`,
+        // 原始頁碼刻意相同，確認多來源入口依 normalized_page 分組。
+        page: identity === "single" && index === 3 ? 2 : 1,
+        ...(identity === "id" ? { source_id: index === 2 ? materialId : artifactId } : {}),
+        ...(identity === "unknown" || identity === "single" ? {} : {
+          source_name: identity === "id" || index !== 2 ? "Network.pptx" : "Other.pptx",
+          normalized_page: index === 3 ? 2 : 1,
+        }),
+        quote: "Extraction text should not appear in the concept panel.",
+      }));
+      concept.claims = [
+        { ...concept.claims[0], text: "能參與網路通訊的端點。", evidence: evidence.slice(0, 1) },
+        { ...concept.claims[0], claim_id: firstClaim, text: "主機包括電腦與行動裝置。", evidence: evidence.slice(1) },
+      ];
+      view.concepts.slice(1).forEach(item => { item.claims[0].evidence = [{ ...item.claims[0].evidence[0], evidence_id: `evidence:sha256:${"9".repeat(64)}` }]; });
+      view.relations[0].evidence_refs = evidence.map(item => item.evidence_id);
       await routes(page, view);
+      const resolved: string[] = [];
+      await page.route("**/v2/materials/*/knowledge-structures/*/evidence/*/source", route => {
+        const id = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-2)!);
+        resolved.push(id);
+        const item = evidence.find(item => item.evidence_id === id)!;
+        return json(route, { schema: "evidence-source/v1", format: "pptx", original_name: "Network.pptx",
+          original_url: `/v2/artifacts/${artifactId}`, preview_url: `/v1/artifacts/${artifactId}#page=${item.normalized_page ?? item.page}`,
+          normalized_page: item.normalized_page ?? item.page, accuracy: "exact", origin_locators: [], label: "PDF 來源" });
+      });
       await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
-      if (kind !== "none") {
-        if (kind === "parallel" && viewport.width > 900) {
-          await page.locator(".concept-flow-edge").first().focus();
-          await page.keyboard.press("Enter");
-        } else await openFocusRelation(page, viewport.width <= 900);
-        const relationDetail = page.getByRole("dialog", { name: "關係詳情" });
-        await expect(relationDetail).toContainText(view.relations[0].learner_reason);
-        await expect(relationDetail.getByRole("button", { name: /原始教材第 1 頁/ })).toBeVisible();
-        await page.keyboard.press("Escape");
-      }
-      await openMapConcept(page);
-      const detail = page.getByRole("dialog", { name: "概念詳情" });
-      const explore = detail.locator(".detail-explore");
-      await expect(detail.getByRole("heading", { name: "相關概念", exact: true })).toHaveCount(0);
-      await expect(detail.getByRole("heading", { name: "教材重點", exact: true })).toBeVisible();
-      await expect(detail.locator(".primary-button")).toHaveCount(1);
-      if (kind === "none") await expect(explore).toHaveCount(0);
-      else {
-        await expect(explore.locator("summary")).toHaveText(`延伸探索${kind === "parallel" ? 5 : 8} 個相關概念`);
-        await expect(explore).not.toHaveAttribute("open", "");
-        expect(await detail.locator(".page-list").evaluate(element => element.parentElement?.nextElementSibling?.matches(".detail-explore"))).toBe(true);
-      }
-      await page.screenshot({ path: `/tmp/studydy-detail-explore/${viewport.width}-${kind}-closed.png`, fullPage: viewport.width > 900 });
-      if (kind === "none") return;
-      const summary = explore.locator("summary");
-      await summary.focus(); await page.keyboard.press("Enter");
-      await expect(explore).toHaveAttribute("open", "");
-      await expect(explore).toContainText("依知識地圖中的直接關係，探索其他概念。");
-      await expect(explore).not.toContainText(/連向|來自/);
-      await expect(explore).not.toContainText(view.relations[0].learner_reason);
-      await expect(explore.locator(".detail-explore-item strong")).toHaveText(view.concepts.slice(1).map(concept => concept.label));
-      if (kind === "parallel") {
-        const other = explore.getByRole("button", { name: "先備、對照：前往Concept 2", exact: true });
-        await expect(other).toHaveCount(1);
-        await expect(other.locator("small")).toHaveText("先備、對照");
+      const search = page.getByRole("searchbox", { name: "搜尋概念或關鍵字" });
+      await search.fill("Host");
+      await expect(page.locator(".map-search-results strong")).toHaveText(["主機"]);
+      await search.press("Enter");
+      const detail = page.getByRole("dialog", { name: "概念詳情", exact: true });
+      await expect(detail.getByRole("heading", { name: "主機", exact: true })).toBeVisible();
+      await expect(detail.getByRole("heading", { name: "教材來源", exact: true })).toBeVisible();
+      await expect(detail.getByRole("region", { name: /^教材重點 / })).toHaveCount(2);
+      await expect(detail.getByRole("button", { name: "開始學習", exact: true })).toBeEnabled();
+      await expect(detail).not.toContainText(/對照教材原文|教材中的其他名稱|延伸探索|Extraction text|Host|sha256/);
+      const count = identity === "single" ? 2 : identity === "unknown" ? 4 : 3;
+      const links = detail.getByRole("region", { name: "教材來源", exact: true }).getByRole("button");
+      await expect(links).toHaveCount(count);
+      if (identity !== "single") {
+        for (let index = 0; index < count; index++) {
+          await links.nth(index).click();
+          const source = page.getByRole("dialog", { name: "教材來源", exact: true });
+          const representative = evidence[identity === "unknown" || index === 0 ? index : index + 1];
+          expect(resolved.at(-1)).toBe(representative.evidence_id);
+          await expect(source.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute("href", `/v1/artifacts/${artifactId}#page=${representative.normalized_page ?? representative.page}`);
+          await page.keyboard.press("Escape");
+          await expect(source).toHaveCount(0);
+          await expect(links.nth(index)).toBeFocused();
+        }
       }
       expect(await detail.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
-      await page.screenshot({ path: `/tmp/studydy-detail-explore/${viewport.width}-${kind}-expanded.png`, fullPage: viewport.width > 900 });
-      await summary.focus(); await page.keyboard.press("Space");
-      await expect(explore).not.toHaveAttribute("open", "");
-      await page.keyboard.press("Enter");
-      await detail.evaluate(element => { element.scrollTop = element.scrollHeight; });
-      await explore.getByRole("button").last().click();
-      const target = view.concepts.at(-1)!;
-      await expect(detail.getByRole("heading", { name: target.label, exact: true })).toBeVisible();
-      await expect(detail).toBeFocused();
-      await expect.poll(() => detail.evaluate(element => element.scrollTop)).toBe(0);
-      await expect(detail.locator(".detail-explore")).not.toHaveAttribute("open", "");
-      await expect(page.locator('.navigator-list [aria-current="true"] .navigator-label')).toHaveText(target.label);
-      await expect(page.locator(".concept-flow-node.is-focus")).toContainText(target.label);
-      await page.screenshot({ path: `/tmp/studydy-detail-explore/${viewport.width}-${kind}-navigated.png`, fullPage: viewport.width > 900 });
+      await page.keyboard.press("Escape");
+      await expect(detail).toHaveCount(0);
+      await expect(search).toBeFocused();
+      const edge = await openFocusRelation(page, viewport.width <= 900);
+      const relation = page.getByRole("dialog", { name: "關係詳情", exact: true });
+      await expect(relation).toContainText(view.relations[0].learner_reason);
+      await expect(relation.getByRole("button", { name: /PDF 第|查看第|原始教材第/ })).toHaveCount(count);
+      await relation.getByRole("button", { name: "關閉關係詳情" }).click();
+      await expect(edge).toBeFocused();
+      await openMapConcept(page);
+      await detail.getByRole("button", { name: "關閉概念詳情" }).click();
+      await expect(page.locator(".concept-flow-node.is-focus")).toBeFocused();
     });
   }
 }
@@ -617,7 +636,7 @@ for (const mode of ["複習重點"] as const) {
       concept_states: progress.concept_states.map((state, index) => index ? state : { ...state, status: "needs_review", weak_claim_ids: [firstClaim] }),
     }));
     await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-      schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId,
+      schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
       display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
       available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }],
       study_sessions: [{ ...session(), run_id: runId }],
@@ -668,13 +687,13 @@ async function learningMapRoutes(page: Page, view: ReturnType<typeof structureVi
   };
   await routes(page, view, () => snapshot);
   await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-    schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId, display_name: "Navigation.pdf", size_bytes: 100,
+    schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId, display_name: "Navigation.pdf", size_bytes: 100,
     created_at: run.created_at, latest_attempt: run, available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, status: "succeeded", created_at: run.created_at }],
     study_sessions: hasProgress ? [{ ...saved, run_id: runId }] : [],
   }));
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, {
-    schema: "study-resume/v3", assessment_sets: [], selected_set_id: null, session: saved, run_id: runId, source_artifact_id: artifactId, knowledge_structure: view,
-    progress: snapshot, assessments: [], selected_assessment_revision: null,
+    schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: saved, run_id: runId, source_artifact_id: artifactId, knowledge_structure: view,
+    progress: snapshot,
   }));
 }
 
@@ -718,477 +737,20 @@ test("map tabs cycle and missing path references still fail the strict API contr
 });
 
 
-async function openStudyRecord(page: Page, record: AssessmentRecordView) {
-  const history = page.locator(".study-record-picker");
-  if (await history.getAttribute("open") === null) await history.locator("summary").click();
-  await history.locator(".study-history-row").filter({ has: page.getByText(record.assessment.prompt, { exact: true }) }).click();
-}
-
-async function returnToCurrentStudy(page: Page) {
-  await page.getByRole("button", { name: "返回最新進度", exact: true }).click();
-}
-
-async function studyWorkflowFixture(page: Page) {
-  const view = workspaceView(56);
-  const current = view.concepts[1];
-  current.label = "陣列";
-  current.claims = [0, 1, 2].map(index => ({ ...current.claims[0], claim_id: `claim:sha256:${(900 + index).toString(16).padStart(64, "0")}`,
-    text: ["陣列使用連續空間存放元素。", "陣列中的元素以索引值標示位置。", "索引值從零開始，存取時需注意範圍。"][index] }));
-  const state = {
-    ...structuredClone(progress), current_concept_id: current.concept_id,
-    concept_states: view.concepts.map(concept => ({ ...structuredClone(progress.concept_states[0]), concept_id: concept.concept_id, label: concept.label })),
-    next_action: { ...progress.next_action, target_concept_id: current.concept_id, target_claim_id: current.claims[1].claim_id },
-  };
-  let status = "active";
-  const records: AssessmentRecordView[] = [];
-  const creates: { body: unknown; key: string }[] = [];
-  const applies: unknown[] = [];
-  const answers: unknown[] = [];
-  const resumeSelections: (string | null)[] = [];
-  let completions = 0;
-  let waitForProgress: Promise<void> = Promise.resolve();
-  await routes(page, view, () => state, () => records);
-  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", async route => {
-    await waitForProgress;
-    const query = new URL(route.request().url()).searchParams;
-    expect(query.get("run_id")).toBe(runId);
-    const explicit = query.get("assessment_revision"); resumeSelections.push(explicit);
-    const selected = explicit ?? records.find(record => status === "completed" || record.assessment.target_concept_id === state.current_concept_id)?.assessment.assessment_revision ?? null;
-    return json(route, { schema: "study-resume/v3", assessment_sets: [], selected_set_id: null, session: { ...session(status), current_concept_id: state.current_concept_id, event_watermark: state.event_watermark, deferred_concept_ids: state.deferred_concept_ids,
-      no_safe_claim_ids: [] },
-      run_id: runId, source_artifact_id: artifactId, knowledge_structure: view, progress: state,
-      assessments: records.map(record => ({ ...record, can_submit: !record.feedback && status !== "completed" && record.assessment.target_concept_id === state.current_concept_id })), selected_assessment_revision: selected });
-  });
-  await page.route(`**/v1/study-sessions/${sessionId}/assessments`, route => {
-    creates.push({ body: route.request().postDataJSON(), key: route.request().headers()["idempotency-key"] });
-    return route.abort();
-  });
-  await page.route(`**/v1/study-sessions/${sessionId}/assessments/*/submissions`, route => {
-    const body = route.request().postDataJSON(); answers.push(body);
-    expect(route.request().headers()["idempotency-key"]).toBeTruthy();
-    const record = records.find(record => record.assessment.question_id === body.question_id)!;
-    const correct = body.selected_option_id === record.assessment.options[0].option_id;
-    record.feedback = { schema: "answer-feedback/v2", answer_event_id: "55555555-5555-4555-8555-555555555555", study_session_id: sessionId,
-      assessment_revision: record.assessment.assessment_revision, question_id: record.assessment.question_id, selected_option_id: body.selected_option_id,
-      is_correct: correct, rationale: "教材指出元素依序存放，需使用有效索引位置。", source_evidence_ids: record.assessment.source_evidence_ids, event_number: ++state.event_watermark, created_at: run.created_at };
-    record.can_submit = false;
-    const conceptState = state.concept_states.find(item => item.concept_id === state.current_concept_id)!;
-    Object.assign(conceptState, { status: correct ? "learning" : "needs_review", attempts: 1, correct_answers: correct ? 1 : 0, qualified_correct_items: correct ? 1 : 0,
-      covered_claim_ids: [record.assessment.target_claim_id], latest_is_correct: correct });
-    Object.assign(state, { weaknesses: correct ? [] : [{ concept_id: state.current_concept_id, claim_ids: [record.assessment.target_claim_id], reason: "recent_incorrect" }],
-      next_action: { action: correct ? "advance" : "review_prerequisite", target_concept_id: correct ? view.concepts[2].concept_id : current.concept_id,
-        target_claim_id: correct ? view.concepts[2].claims[0].claim_id : current.claims[0].claim_id, prerequisite_concept_ids: [], reason: correct ? "current_mastered" : "canonical_prerequisite_gap" } });
-    return json(route, record.feedback, 201);
-  });
-  await page.route(`**/v1/study-sessions/${sessionId}/guidance/apply`, route => {
-    applies.push(route.request().postDataJSON());
-    expect(route.request().postDataJSON()).toEqual({ schema: "guidance-apply/v2", guidance_revision: state.guidance_revision });
-    if (state.next_action.action === "complete") status = "completed";
-    else state.current_concept_id = state.next_action.target_concept_id!;
-    state.next_action = { ...progress.next_action, target_concept_id: state.current_concept_id, target_claim_id: view.concepts.find(item => item.concept_id === state.current_concept_id)!.claims[0].claim_id };
-    return json(route, state);
-  });
-  await page.route(`**/v1/study-sessions/${sessionId}/complete`, route => { completions++; status = "completed"; return json(route, session(status)); });
-  await page.context().route(`**/v1/artifacts/${artifactId}`, route => route.fulfill({ contentType: "text/plain", body: "Synthetic source" }));
-  return { view, state, records, creates, answers, applies, resumeSelections, completions: () => completions,
-    saveQuestion: () => {
-      const concept = view.concepts[1];
-      records.unshift({ assessment: { schema: "single-choice-assessment/v2", assessment_revision: `assessment:sha256:${"3".repeat(64)}`,
-        study_session_id: sessionId, knowledge_structure_revision: structureRevision, question_id: `question:sha256:${"4".repeat(64)}`,
-        target_concept_id: concept.concept_id, target_claim_id: concept.claims[1].claim_id,
-        source_evidence_ids: [concept.claims[0].evidence[0].evidence_id], question_type: "single_choice",
-        prompt: "練習 1：依教材內容，何者描述正確？",
-        options: ["元素依序存放在連續空間", "每個元素都不需要索引值", "陣列大小可忽略存取範圍", "任何位置都能安全存取"].map((text, i) => ({ option_id: `option:sha256:${String(i + 1).repeat(64)}`, text }))
-      }, feedback: null, can_submit: true, created_at: run.created_at });
-    },
-    setStatus: (next: string) => { status = next; },
-    holdProgress: () => { let release!: () => void; waitForProgress = new Promise<void>(resolve => { release = resolve; }); return release; } };
-}
-
-for (const [action, title, button] of [
-  ["defer", "先前往下一個可學習的重點", "暫緩並繼續"],
-  ["resume", "回到先前保留的重點", "回到保留重點"],
-  ["complete", "學習內容已完成", "完成學習"],
-]) {
-
-}
-
-test("Materials resumes the exact saved study and completed unanswered records stay read-only", async ({ page }) => {
-  const fixture = await studyWorkflowFixture(page);
-  fixture.saveQuestion();
-  const map = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
-  const study = `${map}/study-sessions/${sessionId}`;
-  await page.route("**/v1/materials", route => json(route, { schema: "material-library/v2", materials: [{
-    schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId, display_name: "Synthetic session material.pdf", size_bytes: 100,
-    created_at: run.created_at, latest_attempt: run, available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }],
-    study_sessions: [{ ...session(), current_concept_id: fixture.state.current_concept_id, run_id: runId }],
-  }] }));
-  await page.goto("/materials"); await page.getByRole("button", { name: "繼續學習", exact: true }).click();
-  await expect(page).toHaveURL(study);
-  await expect(page.locator(".study-header h1")).toHaveText("陣列");
-
-  await expect(page.getByRole("heading", { name: /練習 1：/ })).toBeVisible();
-  const revision = fixture.records[0].assessment.assessment_revision;
-  await page.reload(); await expect(page).toHaveURL(study);
-  expect(fixture.records[0].assessment.assessment_revision).toBe(revision);
-  fixture.setStatus("completed"); // A saved, administratively completed record remains readable.
-  await page.reload();
-  expect(fixture.completions()).toBe(0);
-  await expect(page.getByRole("heading", { name: "學習已完成", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "送出答案", exact: true })).toHaveCount(0);
-  for (const radio of await page.getByRole("radio").all()) await expect(radio).toBeDisabled();
-  expect(fixture.answers).toHaveLength(0);
-  await page.getByRole("navigation", { name: "學習工作區導覽" }).getByRole("button", { name: "知識地圖", exact: true }).click(); await expect(page).toHaveURL(map);
-  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "RESOURCE_NOT_FOUND", retryable: false, message: "Request could not be completed." }, 404));
-  await page.goto(study);
-  await expect(page.getByRole("heading", { name: "無法開啟學習進度", exact: true })).toBeVisible();
-  await expect(page.locator(".current-concept-card")).toHaveCount(0);
-});
-
-for (const width of [1100, 390]) {
-  test(`Saved questions retain long claims and options at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 844 });
-    const fixture = await studyWorkflowFixture(page);
-  fixture.saveQuestion();
-    fixture.view.concepts[1].claims[2].text = "教材中的長說明需保留並自然換行。".repeat(16);
-    const evidence = fixture.view.concepts[1].claims[2].evidence[0];
-    fixture.view.concepts[1].claims[2].evidence.push({ ...evidence, evidence_id: `evidence:sha256:${"a".repeat(64)}`, page: 5, page_ref: `page:sha256:${"5".repeat(64)}`, source_locator: { ...evidence.source_locator, page: 5 } });
-    const study = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${sessionId}`;
-    await page.goto(study);
-
-
-    const question = page.getByRole("heading", { name: /練習 1：/ });
-    await expect(question).toBeVisible();
-    await expect(question).toBeInViewport();
-    fixture.records[0].assessment.options[2].text = "很長的選項也必須完整呈現並允許閱讀，不能因為視窗寬度而截斷。".repeat(4) + "LongUnbrokenOption".repeat(6);
-    await page.reload();
-    await expect(question).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
-    await page.screenshot({ path: `/tmp/studydy-study-workflow/${width}-long-options.png`, fullPage: true });
-    await page.getByRole("radio").nth(2).check(); await page.getByRole("button", { name: "送出答案" }).click();
-    await expect(page.getByRole("heading", { name: "這題需要再想一下" })).toBeVisible();
-  });
-}
-
-for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 390, height: 844 }]) {
-  test(`learning workspace shell stays stable from Map to Study at ${viewport.width}px`, async ({ page }) => {
-    await page.setViewportSize(viewport);
-    await routes(page);
-    const map = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
-    const study = `${map}/study-sessions/${sessionId}`;
-    const nav = page.getByRole("navigation", { name: "學習工作區導覽" });
-    const shellState = async (isStudy = false) => {
-      await expect(page.locator(".app-shell")).toHaveClass("app-shell is-workspace");
-      await expect(page.locator(".app-sidebar, .sidebar-helper, .brand small, .account-avatar")).toHaveCount(0);
-      await expect(nav.getByRole("button")).toHaveText(isStudy ? ["知識地圖", "我的教材"] : ["我的教材"]);
-      await expect(page.getByRole("button", { name: "登出", exact: true })).toBeInViewport();
-      await expect(nav.getByRole("button", { name: "我的教材", exact: true })).toBeInViewport();
-      await expect(nav.getByRole("button", { name: "處理狀態", exact: true })).toHaveCount(0);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
-      expect((await page.locator(".app-main").boundingBox())!.x).toBe(0);
-      const geometry = [];
-      for (const selector of [".app-header", ".brand", ".account-controls"]) geometry.push(await page.locator(selector).boundingBox());
-      expect(geometry[0]!.height).toBe(56);
-      return geometry;
-    };
-    await page.goto(map);
-    await expect(page.locator(".focus-graph")).toBeVisible();
-    await expect(nav.getByRole("button", { name: "知識地圖", exact: true })).toHaveCount(0);
-    const before = await shellState();
-    await page.screenshot({ path: `/tmp/studydy-learning-shell/${viewport.width}-map.png`, fullPage: true });
-    await openMapConcept(page);
-    await page.getByRole("button", { name: "開始學習", exact: true }).click();
-    await expect(page).toHaveURL(study);
-    await expect(page.getByRole("button", { name: /開始本輪 \d+ 題/ })).toBeVisible();
-    await expect(nav.getByRole("button", { name: "知識地圖", exact: true })).not.toHaveAttribute("aria-current");
-    await expect(page.locator(".study-header").getByRole("button", { name: "回到知識地圖" })).toHaveCount(0);
-    await expect(page.locator(".study-header").getByRole("button", { name: "結束學習進度" })).toHaveCount(0);
-    expect(await shellState(true)).toEqual(before);
-    const content = (await page.locator(".study-session-page").boundingBox())!;
-    expect(content.width).toBeLessThanOrEqual(1440);
-    const card = (await page.locator(".current-concept-card").boundingBox())!;
-    expect(card.x).toBeGreaterThan(content.x);
-    await page.screenshot({ path: `/tmp/studydy-learning-shell/${viewport.width}-study.png`, fullPage: true });
-    await nav.getByRole("button", { name: "知識地圖", exact: true }).click(); await expect(page).toHaveURL(map);
-    await expect(nav.getByRole("button")).toHaveText(["我的教材"]);
-    await nav.getByRole("button", { name: "我的教材", exact: true }).click();
-    await expect(page).toHaveURL("/materials");
-    await page.route("**/v1/materials", route => json(route, { schema: "material-library/v2", materials: [] }));
-    await page.goto(study); await nav.getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
-    await expect(page).toHaveURL("/materials"); await expect(page.locator(".app-sidebar")).toHaveCount(1);
-  });
-}
-
-test("leaving for Map and Materials preserves the same active study and saved record", async ({ page }) => {
-  const fixture = await studyWorkflowFixture(page);
-  fixture.saveQuestion();
-  let newSessions = 0;
-  await page.route("**/v1/study-sessions", route => { newSessions++; return json(route, session(), 201); });
-  const map = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
-  const study = `${map}/study-sessions/${sessionId}`;
-  const material = { schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId, display_name: "Synthetic resumed material.pdf", size_bytes: 100,
-    created_at: run.created_at, latest_attempt: run, available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }],
-    study_sessions: [{ ...session(), current_concept_id: fixture.state.current_concept_id, run_id: runId }] };
-  await page.route(`**/v1/materials/${materialId}`, route => json(route, material));
-  await page.route("**/v1/materials", route => json(route, { schema: "material-library/v2", materials: [material] }));
-  await page.goto(study);
-  await expect(page.getByRole("heading", { name: /練習 1：/ })).toBeVisible();
-  const record = structuredClone(fixture.records[0]);
-  const savedProgress = structuredClone(fixture.state);
-  const nav = page.getByRole("navigation", { name: "學習工作區導覽" });
-  await nav.getByRole("button", { name: "知識地圖", exact: true }).click(); await expect(page).toHaveURL(map);
-  await openMapConcept(page, "陣列");
-  await page.getByRole("button", { name: "繼續學習", exact: true }).click();
-  await expect(page).toHaveURL(study);
-  await expect(page.locator(".study-header h1")).toHaveText("陣列");
-  await nav.getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
-  await page.getByRole("button", { name: "繼續學習", exact: true }).click();
-  await expect(page.getByRole("heading", { name: /練習 1：/ })).toBeVisible();
-  await expect(nav.getByRole("button", { name: "處理狀態", exact: true })).toHaveCount(0);
-  await page.goto(study); await page.reload();
-  await expect(page.getByRole("heading", { name: /練習 1：/ })).toBeVisible();
-  expect(fixture.completions()).toBe(0); expect(newSessions).toBe(0);
-  expect(fixture.records[0]).toEqual(record); expect(fixture.state).toEqual(savedProgress);
-  expect(material.study_sessions[0].status).toBe("active"); expect(fixture.answers).toHaveLength(0);
-});
-
-test("unknown advisory binding fails readably without exposing raw concept ids", async ({ page }) => {
-  const fixture = await studyWorkflowFixture(page);
-  fixture.state.next_action.prerequisite_concept_ids = [`concept:sha256:${"f".repeat(64)}`];
-  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${sessionId}`);
-  await expect(page.getByRole("heading", { name: "無法開啟學習進度" })).toBeVisible();
-  await expect(page.locator(".app-main")).not.toContainText("concept:sha256:");
-  expect(fixture.creates).toHaveLength(0);
-  fixture.state.next_action.prerequisite_concept_ids = [];
-  await page.getByRole("button", { name: "重新讀取", exact: true }).click();
-  await expect(page.getByRole("button", { name: /開始本輪 \d+ 題/ })).toBeVisible();
-});
-
-test("late answer progress does not navigate a learner back after leaving", async ({ page }) => {
-  const fixture = await studyWorkflowFixture(page);
-  fixture.saveQuestion();
-  await page.route("**/v1/materials", route => json(route, { schema: "material-library/v2", materials: [] }));
-  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${sessionId}`);
-
-  await expect(page.getByRole("heading", { name: /練習 1：/ })).toBeVisible();
-  const release = fixture.holdProgress();
-  await page.getByRole("radio").first().check(); await page.getByRole("button", { name: "送出答案" }).click();
-  await expect(page.getByRole("heading", { name: "答對了", exact: true })).toBeVisible();
-  await page.getByRole("navigation", { name: "學習工作區導覽" }).getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
-  await expect(page).toHaveURL("/materials");
-  const refreshed = page.waitForResponse(response => response.url().includes("/resume?") && response.ok());
-  release(); await refreshed;
-  await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
-  await expect(page).toHaveURL("/materials");
-});
-
-async function tenAssessmentHistory(page: Page) {
-  const fixture = await studyWorkflowFixture(page);
-  const concept = fixture.view.concepts[1];
-  const records: AssessmentRecordView[] = Array.from({ length: 10 }, (_, index) => {
-    const pending = [0, 3, 6].includes(index);
-    const target = pending && index > 0 ? fixture.view.concepts[0] : concept;
-    const assessment = {
-      schema: "single-choice-assessment/v2" as const, assessment_revision: `assessment:sha256:${(5000 + index).toString(16).padStart(64, "0")}`,
-      study_session_id: sessionId, knowledge_structure_revision: structureRevision,
-      question_id: `question:sha256:${(5100 + index).toString(16).padStart(64, "0")}`,
-      target_concept_id: target.concept_id, target_claim_id: target.claims[0].claim_id,
-      source_evidence_ids: [target.claims[0].evidence[0].evidence_id], question_type: "single_choice" as const,
-      prompt: `教材練習 ${10 - index}：根據 C 語言定義，陣列是由什麼組成的集合？` + (index === 1 ? "請考慮型態、排列與索引所代表的意義。".repeat(8) : ""),
-      options: ["相同型態的元素", "隨機數值", "不同型態且不需要索引的元素，任何位置都可以任意存取。".repeat(5), "未定義的資料"].map((text, option) => ({ option_id: `option:sha256:${String(option + 1).repeat(64)}`, text })),
-    };
-    const correct = index % 2 === 0;
-    return { assessment, created_at: `2026-09-14T00:${String(10 - index).padStart(2, "0")}:00Z`, can_submit: index === 0,
-      feedback: pending ? null : { schema: "answer-feedback/v2" as const, answer_event_id: `55555555-5555-4555-8555-${String(index).padStart(12, "0")}`,
-        study_session_id: sessionId, assessment_revision: assessment.assessment_revision, question_id: assessment.question_id,
-        selected_option_id: assessment.options[correct ? 0 : 1].option_id, is_correct: correct,
-        rationale: "陣列由相同型態的元素組成，並以索引定位元素。", source_evidence_ids: assessment.source_evidence_ids, event_number: 10 - index, created_at: run.created_at },
-    };
-  });
-  fixture.records.push(...records);
-  Object.assign(fixture.state.concept_states[1], { status: "needs_review", attempts: 7, correct_answers: 3, covered_claim_ids: [concept.claims[0].claim_id], weak_claim_ids: [concept.claims[0].claim_id] });
-  fixture.state.next_action.target_claim_id = concept.claims[0].claim_id;
-  return fixture;
-}
-
-for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 390, height: 844 }]) {
-  test(`ten-question history explicitly distinguishes latest progress at ${viewport.width}px`, async ({ page }) => {
-    await page.setViewportSize(viewport);
-    const fixture = await tenAssessmentHistory(page);
-    const study = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${sessionId}`;
-    const shot = async (state: string) => { expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width); await page.screenshot({ path: `/tmp/studydy-assessment-history/${viewport.width}-${state}.png`, fullPage: true }); };
-    await page.goto(study);
-    await expect(page.getByRole("heading", { name: fixture.records[0].assessment.prompt, exact: true })).toBeVisible();
-    await expect(page).toHaveURL(study);
-    await expect(page.getByRole("button", { name: /返回最新進度|回到目前學習/ })).toHaveCount(0);
-    await expect(page.locator(".current-concept-card")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "送出答案", exact: true })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "送出答案", exact: true })).toHaveAttribute("aria-busy", "false");
-    await shot("question");
-    await page.getByRole("radio").nth(1).check();
-    await expect(page.locator(".assessment-options .is-selected")).toHaveCount(1);
-    await expect(page.getByRole("button", { name: "送出答案", exact: true })).toBeEnabled();
-    await shot("selected");
-    const history = page.locator(".study-record-picker");
-    await expect(history.locator("summary")).toHaveText("題目與作答紀錄（10）");
-    await expect(history).not.toHaveAttribute("open", "");
-    await history.locator("summary").focus(); await page.keyboard.press("Space");
-    await expect(history.getByRole("button")).toHaveCount(10);
-    await expect(history.getByRole("combobox")).toHaveCount(0);
-    await expect(history.locator(".study-history-number")).toHaveText(Array.from({ length: 10 }, (_, index) => `第 ${10 - index} 題`));
-    await expect(history.locator(".study-history-status")).toHaveText(fixture.records.map(record => record.feedback ? record.feedback.is_correct ? "答對" : "答錯" : "未作答"));
-    await expect(history.locator(".study-history-chevron svg")).toHaveCount(10);
-    const firstRow = history.getByRole("button").first();
-    await expect(firstRow).toHaveCSS("border-top-style", "solid");
-    await expect(firstRow).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
-    await expect(firstRow).toHaveCSS("cursor", "pointer");
-    await shot("history-expanded");
-    await history.locator("summary").focus(); await page.keyboard.press("Tab");
-    await expect(firstRow).toBeFocused();
-    await expect(firstRow).toHaveCSS("outline-style", "solid");
-    await page.keyboard.press("Enter");
-    await expect(page.getByRole("region", { name: "歷史作答", exact: true })).toContainText("第 10 題");
-    await expect(page.locator(".current-concept-card")).toBeVisible();
-    await expect(page.locator(".study-learning-grid")).not.toHaveClass(/is-question-mode/);
-    await returnToCurrentStudy(page);
-    await expect(page.getByRole("heading", { name: fixture.records[0].assessment.prompt, exact: true })).toBeVisible();
-    await expect(page.locator(".current-concept-card")).toHaveCount(0);
-    await openStudyRecord(page, fixture.records[1]);
-    await expect(page).toHaveURL(study + "/assessments/" + encodeURIComponent(fixture.records[1].assessment.assessment_revision));
-    const historical = page.getByRole("region", { name: "歷史作答", exact: true });
-    await expect(historical).toBeFocused();
-    await expect(historical).toContainText("第 9 題 · 已作答");
-    await expect(page.locator(".current-concept-card")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "這題需要再想一下", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^(送出答案|繼續練習)$/ })).toHaveCount(0);
-    await expect(page.locator(".weakness-card")).toHaveCount(0);
-    await expect(page.locator(".learning-insights")).not.toContainText("最近答案需要複習");
-    await history.locator("summary").click();
-    await expect(history.locator('[aria-current="true"] .study-history-number')).toHaveText("第 9 題");
-    await shot("historical-wrong");
-    await page.reload(); await expect(historical).toContainText("第 9 題");
-    await returnToCurrentStudy(page);
-    await expect(page).toHaveURL(study);
-    await expect(page.getByRole("heading", { name: fixture.records[0].assessment.prompt, exact: true })).toBeVisible();
-    await expect(historical).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "返回最新進度" })).toHaveCount(0);
-    await openStudyRecord(page, fixture.records[2]);
-    await expect(page.getByRole("heading", { name: "答對了", exact: true })).toBeVisible();
-    await expect(historical).toContainText("第 8 題");
-    await expect(page.getByRole("button", { name: "繼續練習" })).toHaveCount(0);
-    await openStudyRecord(page, fixture.records[3]);
-    await expect(historical).toContainText("第 7 題 · 尚未作答");
-    await expect(page.locator(".current-concept-card")).toBeVisible();
-    await expect(page.locator(".study-learning-grid")).not.toHaveClass(/is-question-mode/);
-    await expect(page.getByText("這題目前僅供回顧", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "送出答案" })).toHaveCount(0);
-    for (const option of await page.getByRole("radio").all()) await expect(option).toBeDisabled();
-    await shot("historical-unanswered");
-    await openStudyRecord(page, fixture.records[0]);
-    await expect(historical).toContainText("第 10 題 · 尚未作答");
-    await expect(page.getByRole("radio").first()).toBeEnabled();
-    await returnToCurrentStudy(page);
-    await expect(page.getByRole("button", { name: "返回最新進度" })).toHaveCount(0);
-    Object.assign(fixture.state.concept_states[1], { status: "mastered", attempts: 6, correct_answers: 6, covered_claim_ids: fixture.view.concepts[1].claims.map(claim => claim.claim_id), mastered_claim_ids: fixture.view.concepts[1].claims.map(claim => claim.claim_id) });
-    Object.assign(fixture.state.next_action, { action: "advance", target_concept_id: fixture.view.concepts[2].concept_id, target_claim_id: null });
-    await page.reload();
-    await expect(page.locator(".learning-insights .learning-status")).toHaveText("已掌握");
-    await expect(page.locator(".learning-insights")).toContainText("已掌握 3 / 3 個教材重點");
-    await expect(page.getByRole("button", { name: "開始本觀念題組", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "繼續練習" })).toHaveCount(0);
-    await expect(page.locator(".study-current-action .primary-button")).toHaveCount(1);
-    await shot("mastered-guidance");
-    expect(fixture.answers).toHaveLength(0); expect(fixture.completions()).toBe(0);
-  });
-
-}
-
-async function auditStudyComposition(page: Page, viewport: { width: number; height: number }, name: string) {
-  const workspace = page.locator(".study-workspace"), main = page.locator(".study-main"), rail = page.getByRole("complementary", { name: "學習資訊", exact: true });
-  await expect(workspace).toHaveCount(1); await expect(page.locator(".study-rail")).toHaveCount(1);
-  await expect(page.locator(".study-followup")).toHaveCount(0);
-  await expect(rail).toBeVisible();
-  await expect(rail.getByRole("button", { name: "返回最新進度", exact: true })).toHaveCount(0);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
-  const mainBounds = (await main.boundingBox())!, railBounds = (await rail.boundingBox())!;
-  const headerBounds = (await page.locator(".study-header").boundingBox())!, workspaceBounds = (await workspace.boundingBox())!;
-  expect(Math.abs(headerBounds.x - workspaceBounds.x)).toBeLessThan(1);
-  if (viewport.width >= 1280) {
-    expect(railBounds.x).toBeGreaterThan(mainBounds.x + mainBounds.width);
-    expect(Math.abs(railBounds.y - mainBounds.y)).toBeLessThan(1);
-    expect(railBounds.width).toBeGreaterThanOrEqual(300); expect(railBounds.width).toBeLessThanOrEqual(340);
-    expect(mainBounds.width).toBeGreaterThan(850);
-    if (await rail.locator(".learning-insights").count()) {
-      const metrics = await rail.locator(".insights-summary > span:not(.insights-separator)").all();
-      expect((await metrics[1].boundingBox())!.y).toBeGreaterThan((await metrics[0].boundingBox())!.y);
-      await expect(rail.locator(".insights-separator").first()).toHaveCSS("display", "none");
-    }
-  } else {
-    expect(railBounds.y).toBeGreaterThanOrEqual(mainBounds.y + mainBounds.height);
-    expect(Math.abs(railBounds.width - mainBounds.width)).toBeLessThan(1);
-  }
-  if (await main.locator(".is-question-mode").count()) {
-    const card = (await main.locator(".assessment-card").boundingBox())!;
-    expect(card.width).toBeLessThanOrEqual(780);
-    expect(Math.abs(card.x + card.width / 2 - mainBounds.x - mainBounds.width / 2)).toBeLessThan(1);
-    await expect(page.locator(".current-concept-card")).toHaveCount(0);
-  } else if (viewport.width >= 1280) {
-    expect((await page.locator(".current-concept-card").boundingBox())!.width).toBeGreaterThan(400);
-    expect((await page.locator(".study-current-action").boundingBox())!.width).toBeGreaterThan(400);
-  }
-  await expect(rail).toHaveCSS("overflow-y", "visible");
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: `/tmp/studydy-side-rail/${viewport.width}-${name}.png`, fullPage: true });
-}
-
-for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
-
-
-  test(`study rail ten records historical review and long question at ${viewport.width}px`, async ({ page }) => {
-    await page.setViewportSize(viewport);
-    const fixture = await tenAssessmentHistory(page);
-    const study = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${sessionId}`;
-    await page.goto(study);
-    await expect(page.getByRole("heading", { name: fixture.records[0].assessment.prompt, exact: true })).toBeVisible();
-    await expect(page.locator(".study-record-picker")).not.toHaveAttribute("open", "");
-    await auditStudyComposition(page, viewport, "long-question-history-collapsed");
-    if (viewport.width >= 1280) await expect(page.locator(".study-record-picker summary")).toBeInViewport();
-    const history = page.locator(".study-record-picker");
-    await history.locator("summary").focus(); await page.keyboard.press("Space");
-    await expect(history.locator(".study-history-row")).toHaveCount(10);
-    await expect(history.locator(".study-history-chevron")).toHaveCount(10);
-    await expect(history.locator(".study-history-list")).toHaveCSS("overflow-y", "visible");
-    expect(await history.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
-    if (viewport.width >= 1280 || viewport.width <= 620) {
-      const row = history.locator(".study-history-row").first();
-      expect((await row.locator(".study-history-prompt").boundingBox())!.y).toBeGreaterThan((await row.locator(".study-history-number").boundingBox())!.y);
-    }
-    await auditStudyComposition(page, viewport, "ten-history-expanded");
-    await openStudyRecord(page, fixture.records[1]);
-    await expect(page.getByRole("region", { name: "歷史作答", exact: true })).toBeFocused();
-    await expect(page.getByRole("heading", { name: "這題需要再想一下", exact: true })).toBeVisible();
-    await history.locator("summary").click();
-    await expect(history.locator('[aria-current="true"] .study-history-number')).toHaveText("第 9 題");
-    await auditStudyComposition(page, viewport, "historical");
-    await returnToCurrentStudy(page); await expect(page).toHaveURL(study);
-    await expect(page.locator(".study-learning-grid")).toHaveClass(/is-question-mode/);
-    await expect(page.locator(".current-concept-card")).toHaveCount(0);
-  });
-
-
-}
-
-for (const viewport of [{ width: 1536, height: 1024 }, { width: 1100, height: 800 }, { width: 390, height: 844 }]) {
-  test(`review workspace selection excerpts and study target at ${viewport.width}px`, async ({ page }) => {
+for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1100, height: 800 }, { width: 390, height: 844 }]) {
+  test(`review workspace weak claims sources and study target at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     const view = structureView();
-    const longText = "教材原文保留完整說明，複習入口先呈現節錄。".repeat(30);
-    view.concepts[1].claims = Array.from({ length: 6 }, (_, i) => ({ ...view.concepts[1].claims[0], claim_id: `claim:sha256:${String(i + 1).repeat(64)}`, text: i === 4 ? longText : `教材重點 ${i + 1}` }));
+    const longText = "教材完整說明，保留必要的條件與定義。".repeat(30);
+    view.concepts[1].claims = Array.from({ length: 4 }, (_, i) => ({ ...view.concepts[1].claims[0], claim_id: `claim:sha256:${String(i + 1).repeat(64)}`, text: i === 0 ? longText : `教材重點 ${i + 1}` }));
+    for(const claim of view.concepts[1].claims) for(const evidence of claim.evidence) Object.assign(evidence,{source_id:artifactId,source_name:'Synthetic.pdf',normalized_page:2});
+    view.concepts[1].claims[0].evidence.push({...view.concepts[1].claims[0].evidence[0],evidence_id:`evidence:sha256:${"9".repeat(64)}`});
     const state = structuredClone(progress);
-    state.concept_states.forEach((item, i) => Object.assign(item, { status: "needs_review", attempts: 3, correct_answers: 1, latest_is_correct: false, weak_claim_ids: [view.concepts[i].claims[i ? 4 : 0].claim_id] }));
+    state.concept_states.forEach((item, i) => Object.assign(item, { status: "needs_review", attempts: 3, correct_answers: 1, latest_is_correct: false, weak_claim_ids: i ? [view.concepts[i].claims[0].claim_id, view.concepts[i].claims[2].claim_id] : [view.concepts[i].claims[0].claim_id] }));
     await routes(page, view, () => state);
+    await page.route('**/evidence/*/source',route=>json(route,{schema:'evidence-source/v1',format:'pdf',original_name:'Synthetic.pdf',original_url:`/v1/artifacts/${artifactId}`,preview_url:`/v1/artifacts/${artifactId}#page=2`,normalized_page:2,accuracy:'exact',origin_locators:[],label:'PDF 第 2 頁'}));
     await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-      schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId,
+      schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
       display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
       available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }],
       study_sessions: [{ ...session(), run_id: runId }],
@@ -1207,22 +769,37 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1100, height: 80
     await expect(array).toBeFocused();
     expect(page.url()).toBe(url); expect(creates).toHaveLength(0);
     await expect(page.locator(".review-context h3")).toHaveText("Array");
-    await expect(page.locator(".review-context")).toContainText("最近一次作答尚未答對");
-    await expect(page.locator(".review-points > ol > li")).toHaveCount(4);
-    await expect(page.locator(".review-points > ol > li").first()).toContainText(longText.slice(0, 96) + "…");
-    await expect(page.locator(".review-full-content")).not.toHaveAttribute("open", "");
+    await expect(page.locator('.review-context')).toHaveText('Array');
+    await expect(page.locator('.review-workspace .map-learning-badge')).toHaveCount(0);
+    await expect(page.locator('.review-list button').first()).toHaveText('Stack');
+    await expect(array).toHaveText('Array');
+    await expect(page.locator('.review-workspace')).not.toContainText(/最近一次作答|已掌握|看過重點後/);
+    await expect(page.locator('.review-actions dl')).toHaveCount(0);
+    await expect(page.locator('.review-actions button')).toHaveCount(2);
+    await expect(page.locator('.review-points > ol > li')).toHaveCount(2);
+    await expect(page.locator('.review-points > ol > li > p')).toHaveText([longText,'教材重點 3']);
+    await expect(page.locator('.review-full-content')).toHaveCount(0);
+    await expect(page.getByText('查看完整教材重點',{exact:true})).toHaveCount(0);
+    const points=page.locator('.review-points > ol > li');
+    for(const point of await points.all()) {
+      const source=point.getByRole('button');await expect(source).toHaveCount(1);
+      await source.click();
+      await expect(page.getByRole('dialog',{name:'教材來源'}).getByRole('link',{name:'開啟 PDF 來源頁'})).toHaveAttribute('href',`/v1/artifacts/${artifactId}#page=2`);
+      await page.keyboard.press('Escape');await expect(source).toBeFocused();
+    }
+    await list.getByRole('button',{name:'Stack',exact:true}).click();
+    await expect(page.locator('.review-points > ol > li')).toHaveCount(1);
+    await expect(page.locator('.review-points > ol > li > p')).toHaveText('A stack follows LIFO order.');
+    await array.click();
     await expect(page.locator("#map-panel-review .primary-button")).toHaveCount(1);
     await expect(page.getByRole("dialog")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     const boxes = await Promise.all([".review-list", ".review-context", ".review-actions", ".review-points"].map(selector => page.locator(selector).boundingBox()));
     const [l, c, a, p] = boxes.map(box => box!);
     if (viewport.width >= 1200) { expect(l.x + l.width).toBeLessThan(c.x); expect(c.x + c.width).toBeLessThan(a.x); }
-    if (viewport.width <= 900) { expect(c.y).toBeLessThan(a.y); expect(a.y).toBeLessThan(p.y); expect(p.y).toBeLessThan(l.y); }
+    if (viewport.width <= 900) { expect(l.y + l.height).toBeLessThanOrEqual(c.y); expect(c.y + c.height).toBeLessThanOrEqual(p.y); expect(p.y + p.height).toBeLessThanOrEqual(a.y); }
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: `/tmp/studydy-review-${viewport.width}.png`, fullPage: true });
-    await page.getByText("查看完整教材重點", { exact: true }).click();
-    await expect(page.locator(".review-full-content .concept-claim")).toHaveCount(6);
-    await expect(page.locator(".review-full-content")).toContainText(longText);
     await page.getByRole("button", { name: "繼續這個概念", exact: true }).click();
     await expect.poll(() => creates.length).toBe(1);
     expect(creates[0].current_concept_id).toBe(secondConcept);
@@ -1247,9 +824,10 @@ for (const count of [0, 30]) test(`review ${count} weak concepts preserves membe
     next_action: { ...progress.next_action, target_concept_id: current, target_claim_id: view.concepts[0].claims[0].claim_id },
     concept_states: view.concepts.map((concept, i) => ({ ...progress.concept_states[0], concept_id: concept.concept_id, label: concept.label, status: i < count ? "needs_review" : "learning", weak_claim_ids: i < count ? [concept.claims[0].claim_id] : [] })) };
   await learningMapRoutes(page, view, true);
+  await page.route("**/v1/study-sessions/*/progress", route => json(route, state));
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, {
-    schema: "study-resume/v3", assessment_sets: [], selected_set_id: null, session: { ...session(), current_concept_id: current }, run_id: runId, source_artifact_id: artifactId,
-    knowledge_structure: view, progress: state, assessments: [], selected_assessment_revision: null,
+    schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: { ...session(), current_concept_id: current }, run_id: runId, source_artifact_id: artifactId,
+    knowledge_structure: view, progress: state,
   }));
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
   await page.getByRole("tab", { name: "複習重點", exact: true }).click();
@@ -1271,7 +849,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
   for (const progressState of ["available", "null", "error"]) test(`map has no global learning summary with ${progressState} progress at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await learningMapRoutes(page, learningMap(8), progressState !== "null");
-    if (progressState === "error") await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { detail: "Unavailable" }, 503));
+    if (progressState === "error") await page.route("**/v1/study-sessions/*/progress", route => json(route, { detail: "Unavailable" }, 503));
     await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
     if (progressState === "available") await expect(page.locator(".map-learning-badge").first()).toBeVisible();
     for (const tabName of ["概念地圖", "複習重點"]) {
@@ -1299,63 +877,15 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
   });
 }
 
-for (const viewport of [{ width: 1536, height: 1024 }, { width: 390, height: 844 }]) test(`persistent learning keeps answers across Map focus and reopen at ${viewport.width}px`, async ({ page }) => {
-  await page.setViewportSize(viewport);
-  const f = await studyWorkflowFixture(page);
-  f.saveQuestion();
-  const first = f.view.concepts[1], second = f.view.concepts[2];
-  let exists = false, creates = 0; const focusCalls: string[] = [];
-  const saved = () => ({ ...session(), current_concept_id: f.state.current_concept_id, event_watermark: f.state.event_watermark });
-  const material = () => ({ schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId,
-    display_name: "Persistent material.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
-    available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }],
-    study_sessions: exists ? [{ ...saved(), run_id: runId }] : [] });
-  await page.route(`**/v1/materials/${materialId}`, route => json(route, material()));
-  await page.route("**/v1/materials", route => json(route, { schema: "material-library/v2", materials: [material()] }));
-  await page.route("**/v1/study-sessions", route => { creates++; exists = true; expect(route.request().postDataJSON().current_concept_id).toBe(first.concept_id); return json(route, saved(), 201); });
-  await page.route(`**/v1/study-sessions/${sessionId}/focus`, route => {
-    const target = route.request().postDataJSON().current_concept_id;
-    focusCalls.push(target); f.state.current_concept_id = target;
-    f.state.next_action = { ...f.state.next_action, action: "assess", target_concept_id: target, target_claim_id: f.view.concepts.find(c => c.concept_id === target)!.claims[0].claim_id };
-    return json(route, saved());
-  });
-  const map = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
-  await page.goto(map);
-  await openMapConcept(page, first.label);
-  await page.getByRole("region", { name: "學習入口" }).getByRole("button", { name: "開始學習", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/study-sessions/${sessionId}$`));
-  await page.getByRole("radio").first().check();
-  await page.getByRole("button", { name: "送出答案", exact: true }).click();
-  await expect(page.locator(".learning-insights")).toContainText("答對 1 次");
-  const prior = structuredClone(f.state.concept_states[1]);
-  expect(prior.attempts).toBe(1);
-  await page.getByRole("navigation", { name: "學習工作區導覽" }).getByRole("button", { name: "知識地圖", exact: true }).click();
-  await openMapConcept(page, second.label);
-  await page.getByRole("region", { name: "學習入口" }).getByRole("button", { name: "從這個概念繼續", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/study-sessions/${sessionId}$`));
-  await expect(page.locator(".study-header h1")).toHaveText(second.label);
-  expect(creates).toBe(1); expect(focusCalls).toEqual([second.concept_id]);
-  expect(f.state.concept_states[1]).toEqual(prior);
-  await page.getByRole("navigation", { name: "學習工作區導覽" }).getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
-  await page.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
-  await page.reload();
-  await openMapConcept(page, second.label);
-  await page.getByRole("region", { name: "學習入口" }).getByRole("button", { name: "繼續學習", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/study-sessions/${sessionId}$`));
-  expect(creates).toBe(1); expect(focusCalls).toHaveLength(1);
-  await page.locator(".study-record-picker summary").click();
-  await expect(page.locator(".study-history-row")).toHaveCount(1);
-});
-
 test("completed persistent state is viewed without create or focus", async ({ page }) => {
   const view = structureView();
   await routes(page, view);
   const state = { ...session("completed") };
-  await page.route(`**/v1/materials/${materialId}`, route => json(route, { schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId,
-    display_name: "Completed.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
+  await page.route(`**/v1/materials/${materialId}`, route => json(route, { schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
+    display_name: "Calculus.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
     available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }], study_sessions: [{ ...state, run_id: runId }] }));
-  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "study-resume/v3", assessment_sets: [], selected_set_id: null, session: state, run_id: runId, source_artifact_id: artifactId, knowledge_structure: view,
-    progress: { ...progress, next_action: { ...progress.next_action, action: "complete", target_concept_id: null, target_claim_id: null, reason: "all_mastered" } }, assessments: [], selected_assessment_revision: null }));
+  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: state, run_id: runId, source_artifact_id: artifactId, knowledge_structure: view,
+    progress: { ...progress, next_action: { ...progress.next_action, action: "complete", target_concept_id: null, target_claim_id: null, reason: "all_mastered" } } }));
   const writes: string[] = [];
   page.on("request", request => { if (request.url().includes("/v1/study-sessions") && request.method() !== "GET") writes.push(request.url()); });
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
@@ -1374,14 +904,14 @@ test("a new structure may create a distinct persistent state without focusing th
   await routes(page, view);
   const nextRun = { ...run, run_id: nextRunId, output_binding: { ...run.output_binding, knowledge_structure_revision: nextRevision } };
   await page.route(`**/v1/material-processing-runs/${nextRunId}`, route => json(route, nextRun));
-  await page.route(`**/v1/materials/${materialId}`, route => json(route, { schema: "material-library-item/v2", material_id: materialId, source_artifact_id: artifactId,
+  await page.route(`**/v1/materials/${materialId}`, route => json(route, { schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
     display_name: "Reprocessed.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: nextRun,
     available_structures: [{ run_id: nextRunId, knowledge_structure_revision: nextRevision, created_at: run.created_at, status: "succeeded" }], study_sessions: [{ ...session(), run_id: runId }] }));
   let created = 0;
   const saved = { ...session(), study_session_id: nextStateId, knowledge_structure_revision: nextRevision };
   await page.route("**/v1/study-sessions", route => { created++; expect(route.request().postDataJSON().knowledge_structure_revision).toBe(nextRevision); return json(route, saved, 201); });
-  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "study-resume/v3", assessment_sets: [], selected_set_id: null, session: saved, run_id: nextRunId, source_artifact_id: artifactId, knowledge_structure: view,
-    progress: { ...progress, study_session_id: nextStateId, knowledge_structure_revision: nextRevision }, assessments: [], selected_assessment_revision: null }));
+  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: saved, run_id: nextRunId, source_artifact_id: artifactId, knowledge_structure: view,
+    progress: { ...progress, study_session_id: nextStateId, knowledge_structure_revision: nextRevision } }));
   await page.goto(`/materials/${materialId}/runs/${nextRunId}/knowledge-structures/${encodeURIComponent(nextRevision)}`);
   await openMapConcept(page);
   await page.getByRole("button", { name: "開始學習", exact: true }).click();
@@ -1573,7 +1103,7 @@ test("compact map retains manual viewport through details, progress reload and r
   const view = learningMap(20);
   await learningMapRoutes(page, view, true);
   let fail = true;
-  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", async route => {
+  await page.route("**/v1/study-sessions/*/progress", async route => {
     if (fail) { fail = false; return json(route, { detail: "Unavailable" }, 503); }
     await route.fallback();
   });
@@ -1724,4 +1254,73 @@ for (const width of [1536, 390]) test(`learning navigator scrolls to the final c
   await nav.getByRole('button').first().focus();
   await expect.poll(() => list.evaluate(e => e.scrollTop)).toBe(0);
   await expect(nav.getByRole('button').first()).toBeInViewport();
+});
+
+test('reload restores map presentation while local interaction does not restart authentication',async({page})=>{
+  await page.clock.install();
+  const view=structureView();const state=structuredClone(progress);
+  state.concept_states.forEach((c,i)=>Object.assign(c,{status:'needs_review',weak_claim_ids:[view.concepts[i].claims[0].claim_id]}));
+  await routes(page,view,()=>state);
+  await page.route(`**/v1/materials/${materialId}`,route=>json(route,{schema:'material-library-item/v3',material_id:materialId,source_artifact_id:artifactId,
+    display_name:'Synthetic.pdf',size_bytes:100,created_at:run.created_at,latest_attempt:run,available_structures:[{run_id:runId,knowledge_structure_revision:structureRevision,created_at:run.created_at,status:'succeeded'}],study_sessions:[{...session(),run_id:runId}]}));
+  const auth:string[]=[];page.on('request',request=>{if(/\/v1\/session(?:\/refresh)?$/.test(request.url()))auth.push(request.method()+' '+new URL(request.url()).pathname);});
+  const path=`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
+  await page.goto(path);await page.getByRole('tab',{name:'複習重點',exact:true}).click();
+  await page.locator('.review-list').getByRole('button',{name:'Array',exact:true}).click();
+  await expect(page.locator('.review-context h3')).toHaveText('Array');
+  await page.evaluate(()=>{for(let i=0;i<5;i++)window.dispatchEvent(new Event('focus'));});
+  expect(auth).toEqual(['POST /v1/session/refresh']);
+  await page.reload();
+  await expect(page.getByRole('tab',{name:'複習重點',exact:true})).toHaveAttribute('aria-selected','true');
+  await expect(page.locator('.review-context h3')).toHaveText('Array');
+  expect(auth).toEqual(['POST /v1/session/refresh']);
+  const context=await page.locator('.review-context').elementHandle();
+  await page.clock.fastForward(60*60*1000+1);
+  expect(auth).toEqual(['POST /v1/session/refresh']);
+  expect(await context!.evaluate(node=>node.isConnected)).toBe(true);
+  await expect(page.locator('.review-context h3')).toHaveText('Array');
+  await page.getByRole('tab',{name:'概念地圖',exact:true}).click();
+  await openMapConcept(page,'Array');
+  await page.getByRole('searchbox').fill('Stack');
+  await page.reload();
+  await expect(page.getByRole('searchbox')).toHaveValue('Stack');
+  await expect(page.getByRole('dialog',{name:'概念詳情',exact:true}).getByRole('heading',{name:'Array',exact:true})).toBeVisible();
+  await expect(page).toHaveURL(`${browserOrigin}${path}`);
+});
+
+test('bootstrap and bfcache keep the page frame and route without exposing unverified private content',async({page})=>{
+  await routes(page);
+  const path=`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
+  let release!:()=>void;let gate=new Promise<void>(resolve=>{release=resolve;});
+  await page.route('**/v1/session/refresh',async route=>{await gate;await json(route,{schema:'learner-identity/v1',learner_id:sessionId});});
+  await page.goto(path);
+  await expect(page.locator('.app-header')).toBeVisible();
+  await expect(page.locator('.auth-form,.map-workspace')).toHaveCount(0);
+  await expect(page.getByRole('status')).toHaveText('正在載入…');
+  await expect(page).toHaveURL(`${browserOrigin}${path}`);
+  release();await page.getByRole('tab',{name:'複習重點',exact:true}).click();
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));
+  await expect(page).toHaveURL(`${browserOrigin}${path}`);
+  await expect(page.getByRole('tab',{name:'複習重點',exact:true})).toHaveAttribute('aria-selected','true');
+});
+
+test('review starts its small progress read in parallel and never shows a false empty state',async({page})=>{
+  const view=structureView();const state=structuredClone(progress);
+  Object.assign(state.concept_states[0],{status:'needs_review',weak_claim_ids:[firstClaim]});
+  await routes(page,view,()=>state);
+  await page.route(`**/v1/materials/${materialId}`,route=>json(route,{schema:'material-library-item/v3',material_id:materialId,source_artifact_id:artifactId,
+    display_name:'Synthetic.pdf',size_bytes:100,created_at:run.created_at,latest_attempt:run,available_structures:[{run_id:runId,knowledge_structure_revision:structureRevision,created_at:run.created_at,status:'succeeded'}],study_sessions:[{...session(),run_id:runId}]}));
+  let releaseMap!:()=>void,releaseProgress!:()=>void,progressReads=0,resumes=0;
+  const mapGate=new Promise<void>(resolve=>{releaseMap=resolve;});
+  const progressGate=new Promise<void>(resolve=>{releaseProgress=resolve;});
+  await page.route(`**/v1/materials/${materialId}/knowledge-structures/${encodeURIComponent(structureRevision)}`,async route=>{await mapGate;await json(route,view);});
+  await page.route('**/v1/study-sessions/*/progress',async route=>{progressReads++;await progressGate;await json(route,state);});
+  page.on('request',request=>{if(request.url().includes('/resume?'))resumes++;});
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+  await expect.poll(()=>progressReads).toBe(1);
+  releaseMap();await page.getByRole('tab',{name:'複習重點',exact:true}).click();
+  await expect(page.getByText('正在讀取複習重點…',{exact:true})).toBeVisible();
+  await expect(page.locator('.review-empty')).toHaveCount(0);
+  releaseProgress();await expect(page.locator('.review-list button')).toHaveCount(1);
+  expect(resumes).toBe(0);
 });

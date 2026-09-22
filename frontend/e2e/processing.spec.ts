@@ -8,7 +8,7 @@ const revision = `knowledge-structure:sha256:${"a".repeat(64)}`;
 const path = `/materials/${materialId}/runs/${runId}`;
 const clockTime = new Date("2026-09-12T12:00:00Z");
 const base: MaterialProcessingRunView = {
-  schema: "material-processing-run/v5", cancel_requested_at: null, material_id: materialId, run_id: runId, source_artifact_id: artifactId,
+  schema: "material-processing-run/v6", cancel_requested_at: null, material_id: materialId, run_id: runId, source_artifact_id: artifactId,
   status: "running", progress_stage: "evidence", completed_pages: 3, total_pages: 45,
   created_at: "2026-09-12T11:59:58Z", updated_at: "2026-09-12T11:59:59Z", completed_at: null, error_code: null, output_binding: null,
 };
@@ -20,7 +20,7 @@ function completed(status: "succeeded" | "partial"): MaterialProcessingRunView {
 }
 const cases: Record<string, MaterialProcessingRunView> = {
   pending: { ...base, status: "pending", progress_stage: "queued", total_pages: null, completed_pages: 0 },
-  evidence: base,
+  evidence: { ...base, source_names: ["網路概論.pdf", "傳輸協定.pptx", "應用整合.pdf"] },
   "evidence-full": { ...base, completed_pages: 45 },
   "semantics-zero": { ...base, progress_stage: "semantics", completed_pages: 0 },
   semantics: { ...base, progress_stage: "semantics", completed_pages: 20 },
@@ -38,7 +38,7 @@ const percentages: Record<string, [number, number | null]> = {
   "semantics-36": [89, 80], "semantics-full": [99, 100], publishing: [99, null], "long-elapsed": [3, 7], "unknown-total": [0, null],
 };
 async function session(page: Page) {
-  await page.route("**/v1/session/refresh", route => route.fulfill({ status: 204 }));
+  await page.route("**/v1/session/refresh", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: materialId } }));
 }
 
@@ -61,7 +61,11 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
       await expect(processing.getByRole("button", { name: "取消並刪除教材", exact: true })).toHaveCount(
         name !== "loading" && name !== "api-failure" && (run.status === "pending" || run.status === "running") && run.progress_stage !== "publishing" ? 1 : 0);
       await expect(processing.getByRole("button", { name: "重新分析", exact: true })).toHaveCount(0);
-      expect(await processing.evaluate(element => getComputedStyle(element).maxWidth)).toBe("1280px");
+      const usable = await page.locator(".app-main").evaluate(el => {
+        const css = getComputedStyle(el);
+        return el.getBoundingClientRect().width - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
+      });
+      expect((await processing.boundingBox())!.width).toBeCloseTo(Math.min(usable, 1600), 0);
       if (name === "loading") await expect(processing).toHaveAttribute("aria-live", "polite");
       else if (name === "api-failure") {
         await expect(processing.getByRole("heading", { name: "無法讀取處理狀態", exact: true })).toBeVisible();
@@ -103,9 +107,21 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
         await expect(processing.getByRole("heading", { name: "整體流程進度（估計）", exact: true })).toBeVisible();
         await expect(processing.getByRole("heading", { name: percentages[name][1] === null ? "目前狀態" : "本階段進度", exact: true })).toBeVisible();
         await expect(processing.getByRole("heading", { name: "處理流程", exact: true })).toBeVisible();
-        await expect(processing.locator(".progress-estimate-note")).toHaveText("依已完成的處理階段與頁數估算，代表流程完成度，不代表剩餘時間。");
+        await expect(processing.locator(".progress-estimate-note")).toHaveText("依處理階段與頁數估算，不代表剩餘時間。");
         for (const oldText of ["整體進度（估計）", "目前階段", "實際處理階段", "已經過", "剩餘時間"]) {
           await expect(processing.getByText(oldText, { exact: true })).toHaveCount(0);
+        }
+        const cards = await processing.locator(".processing-grid > section").evaluateAll(es => es.map(e => e.getBoundingClientRect().toJSON()));
+        if (viewport.width > 920) {
+          expect(cards[1].width).toBeCloseTo(320, 0);
+          expect(cards[0].width).toBeGreaterThan(cards[1].width);
+          expect(cards[1].height).toBeLessThan(cards[0].height);
+        }
+        if (name === "evidence") {
+          const progress = (await processing.locator(".processing-status").boundingBox())!;
+          const sources = (await processing.locator(".processing-sources").boundingBox())!;
+          expect(progress.y).toBeLessThan(sources.y);
+          expect(progress.y).toBeLessThan(350);
         }
         const [overall, current] = percentages[name];
         await expect(processing.getByRole("progressbar", { name: `整體流程進度（估計） ${overall}%`, exact: true })).toHaveAttribute("value", String(overall));
@@ -133,7 +149,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
       }
       if (viewport.width > 620 && name !== "failed" && name !== "api-failure") {
         const hero = await processing.locator(".processing-hero").boundingBox();
-        expect(hero!.height).toBeGreaterThanOrEqual(104);
+        if (!await processing.evaluate(el => el.classList.contains("is-processing"))) expect(hero!.height).toBeGreaterThanOrEqual(104);
         const heading = (await processing.locator("h1").boundingBox())!;
         expect(heading.y).toBeCloseTo(hero!.y, 0);
       }

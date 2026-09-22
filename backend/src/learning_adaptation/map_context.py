@@ -46,6 +46,10 @@ class MapContext:
 def context_from_structure(material_id: UUID, document: dict[str, Any]) -> MapContext:
     if not isinstance(material_id, UUID) or not validate_knowledge_structure(document):
         raise MapContextError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
+    return _context_from_validated_document(material_id, document)
+
+
+def _context_from_validated_document(material_id: UUID, document: dict[str, Any]) -> MapContext:
     evidence_by_id = {item["evidence_id"]: item for item in document["evidence"]}
     prerequisites: dict[str, list[str]] = {concept["concept_id"]: [] for concept in document["concepts"]}
     for relation in document["relations"]:
@@ -105,6 +109,6 @@ def read_map_context(
         stored = read_knowledge_structure(
             learner_id, material_id, revision=knowledge_structure_revision, dsn=dsn
         )
-        return context_from_structure(material_id, stored.document)
+        return _context_from_validated_document(material_id, stored.document)
     except (KnowledgeStructureStoreError, MapContextError):
         raise MapContextError("KNOWLEDGE_STRUCTURE_UNAVAILABLE") from None
