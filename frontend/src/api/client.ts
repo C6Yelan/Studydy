@@ -8,7 +8,7 @@ import type {
   KnowledgeStructureRequest,
   KnowledgeStructureView,
   KnownApiReasonCode,
-  LearnerProgressView,
+  LearnerProgressView, GuidanceApply,
   MaterialProcessingRunView,
   MaterialDiscardView,
   MaterialLibraryItem,
@@ -26,7 +26,7 @@ type Json = Record<string, unknown>;
 const knownReasons = new Set<KnownApiReasonCode>([
   "INVALID_EMAIL",
   "INVALID_CREDENTIALS", "ACCOUNT_UNAVAILABLE", "REQUEST_INVALID", "SESSION_REQUIRED", "ORIGIN_NOT_ALLOWED", "RESOURCE_NOT_FOUND",
-  "IDEMPOTENCY_CONFLICT", "ASSESSMENT_SET_CONFLICT", "ASSESSMENT_SET_ACTIVE", "NO_SAFE_ASSESSMENT", "MATERIAL_TOO_LARGE",
+  "LEARNER_GUIDANCE_STALE", "IDEMPOTENCY_CONFLICT", "ASSESSMENT_SET_CONFLICT", "ASSESSMENT_SET_ACTIVE", "NO_SAFE_ASSESSMENT", "MATERIAL_TOO_LARGE",
   "MATERIAL_NOT_DISCARDABLE",
   "SOURCE_NOT_READY", "NORMALIZER_UNAVAILABLE", "DUPLICATE_SOURCE", "REVISION_CONFLICT", "REVISION_IN_PROGRESS", "SOURCE_IN_USE", "SOURCE_BUSY",
   "MATERIAL_PDF_INVALID", "UNSUPPORTED_MEDIA_TYPE", "STORAGE_UNAVAILABLE", "INTERNAL_ERROR",
@@ -249,7 +249,7 @@ function feedback(value: unknown): value is AnswerFeedbackView {
 
 function progress(value: unknown): value is LearnerProgressView {
   const item = object(value);
-  if (!item || item.schema !== "learner-progress/v3" || typeof item.study_session_id !== "string" || !uuid.test(item.study_session_id)
+  if (!item || item.schema !== "learner-progress/v4" || typeof item.study_session_id !== "string" || !uuid.test(item.study_session_id)
     || !revision(item.knowledge_structure_revision, "knowledge-structure") || !Number.isInteger(item.event_watermark)
     || !(item.current_concept_id === null || revision(item.current_concept_id, "concept"))
     || !Array.isArray(item.assessment_cycles) || !item.assessment_cycles.every(cycleSummary)
@@ -279,8 +279,7 @@ function cycleSummary(value: unknown): value is AssessmentCycleSummary {
   const item = object(value);
   return !!item && typeof item.diagnostic_set_id === "string" && uuid.test(item.diagnostic_set_id)
     && revision(item.concept_id, "concept") && Number.isSafeInteger(item.set_version) && Number(item.set_version) > 0
-    && ["in_progress", "needs_review", "ready_for_remediation", "passed", "incomplete", "deferred"].includes(String(item.outcome))
-    && (item.closed_at === null || timestamp(item.closed_at))
+    && ["in_progress", "needs_review", "passed", "incomplete"].includes(String(item.outcome))
     && (item.active_set_id === null || typeof item.active_set_id === "string" && uuid.test(item.active_set_id))
     && ["passed_count", "remediation_passed_count", "pending_count", "unanswered_count", "unavailable_count"].every(key => Number.isSafeInteger(item[key]) && Number(item[key]) >= 0)
     && Number(item.remediation_passed_count) <= Number(item.passed_count);
@@ -316,35 +315,35 @@ function assessmentSet(value: unknown): value is AssessmentSetView {
   if (!assessmentSetSummary(value)) return false;
   const summary = value;
   const item = object(value);
-  if (!item || item.schema !== "assessment-set/v2"
+  if (!item || item.schema !== "assessment-set/v3"
     || typeof item.study_session_id !== "string" || !uuid.test(item.study_session_id)
     || typeof item.material_id !== "string" || !uuid.test(item.material_id)
     || !revision(item.knowledge_structure_revision, "knowledge-structure")
-    || item.selection_policy !== (item.kind === "diagnostic" ? "single-concept-grounded-points/v1" : "reviewed-wrong-points/v1")
+    || item.selection_policy !== (item.kind === "diagnostic" ? "single-concept-grounded-points/v1" : "needs-review-points/v1")
     || !["point_count", "excluded_count", "verified_count"].every(key => Number.isSafeInteger(item[key]) && Number(item[key]) >= 0)
-    || !["can_retry", "can_publish_partial", "can_complete", "can_cancel"].every(key => typeof item[key] === "boolean")
+    || !["can_retry", "can_publish_partial", "can_complete"].every(key => typeof item[key] === "boolean")
     || !Array.isArray(item.items) || item.items.length !== item.requested_count
     || Number(item.verified_count) > Number(item.requested_count)
     || Number(item.point_count) < Number(item.requested_count) + Number(item.excluded_count)
-    || ["runtime_lock_document", "execution_identity", "target_plan", "action_receipts", "review_actions"].some(key => Object.hasOwn(item, key))) return false;
+    || ["runtime_lock_document", "execution_identity", "target_plan", "action_receipts"].some(key => Object.hasOwn(item, key))) return false;
   const cycle = object(item.cycle);
   if (!cycleSummary(item.cycle) || !cycle || cycle.concept_id !== item.target_concept_id
     || cycle.diagnostic_set_id !== (item.kind === "diagnostic" ? item.set_id : item.diagnostic_set_id)
-    || !["can_create_remediation", "can_close", "can_review"].every(key => typeof cycle[key] === "boolean")
+    || !["can_create_remediation"].every(key => typeof cycle[key] === "boolean")
     || !Array.isArray(cycle.points)) return false;
   const results = new Map<string, number>();
   const cycleClaims = new Set<string>();
   for (const point of cycle.points) {
     const row = object(point);
     if (!row || !revision(row.claim_id, "claim") || cycleClaims.has(String(row.claim_id))
-      || !["unavailable", "unanswered", "diagnostic_pass", "needs_review", "reviewed", "remediation_pass", "deferred"].includes(String(row.result))
+      || !["unavailable", "unanswered", "diagnostic_pass", "needs_review", "remediation_pass"].includes(String(row.result))
       || !["latest_answer_event_id", "latest_set_id"].every(key => row[key] === null || typeof row[key] === "string" && uuid.test(row[key] as string))) return false;
     cycleClaims.add(String(row.claim_id)); results.set(String(row.result), (results.get(String(row.result)) ?? 0) + 1);
   }
   const count = (name: string) => results.get(name) ?? 0;
   if (cycle.passed_count !== count("diagnostic_pass") + count("remediation_pass")
     || cycle.remediation_passed_count !== count("remediation_pass")
-    || cycle.pending_count !== count("needs_review") + count("reviewed") + count("deferred")
+    || cycle.pending_count !== count("needs_review")
     || cycle.unanswered_count !== count("unanswered") || Number(cycle.unavailable_count) < count("unavailable")) return false;
   let published = 0, answered = 0, passed = 0, verified = 0;
   const claims = new Set<string>(), revisions = new Set<string>();
@@ -377,7 +376,7 @@ function assessmentSet(value: unknown): value is AssessmentSetView {
 
 function studyResume(value: unknown): value is StudyResumeView {
   const item = object(value);
-  if (!item || item.schema !== "study-resume/v4" || !studySession(item.session)
+  if (!item || item.schema !== "study-resume/v5" || !studySession(item.session)
     || !knowledgeStructure(item.knowledge_structure) || !progress(item.progress)
     || typeof item.run_id !== "string" || !uuid.test(item.run_id)
     || typeof item.source_artifact_id !== "string" || !uuid.test(item.source_artifact_id)
@@ -413,6 +412,7 @@ function safeMessage(reason: ApiReasonCode): string {
   if (reason === "NORMALIZER_UNAVAILABLE") return "轉換工具目前不可用，仍可使用 PDF 上傳。";
   if (reason === "ASSESSMENT_SET_ACTIVE") return "已有尚未完成的題組，可從題組紀錄接續。";
   if (reason === "ASSESSMENT_SET_CONFLICT") return "題組狀態已更新，請重新讀取後繼續。";
+  if (reason === "LEARNER_GUIDANCE_STALE") return "學習進度已更新，請重新確認下一步。";
   if (reason === "NO_SAFE_ASSESSMENT") return "目前沒有可安全提供的新題目。";
   if (reason === "MATERIAL_TOO_LARGE") return "每個檔案不可超過 100 MiB。";
   if (reason === "MATERIAL_PDF_INVALID") return "這份 PDF 已損毀、加密或無法開啟。";
@@ -635,6 +635,14 @@ export class StudydyApiClient {
     return view;
   }
 
+  async applyGuidance(id: string, body: GuidanceApply): Promise<LearnerProgressView> {
+    const value = await this.json(`/v1/study-sessions/${encodeURIComponent(id)}/guidance/apply`, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() }, body: JSON.stringify(body),
+    }, progress);
+    if (value.study_session_id !== id) throw new ApiClientError("schema", "學習進度身分不一致。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
+    return value;
+  }
+
   async focusStudySession(studySessionId: string, currentConceptId: string): Promise<StudySessionView> {
     const state = await this.json(`/v1/study-sessions/${encodeURIComponent(studySessionId)}/focus`, {
       method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
@@ -711,13 +719,6 @@ export class StudydyApiClient {
       || value.items.some(item => item.assessment && (item.feedback === null
         || item.feedback.question_id !== expected.get(item.assessment.assessment_revision)?.question_id
         || item.feedback.selected_option_id !== expected.get(item.assessment.assessment_revision)?.selected_option_id))) throw new ApiClientError("schema", "題組範圍不一致。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
-    return value;
-  }
-
-  async reviewAssessmentPoint(id: string, rootId: string, claimId: string, action: "review" | "defer", version: number, key: string): Promise<AssessmentSetView> {
-    const value = await this.post(`/v1/study-sessions/${encodeURIComponent(id)}/assessment-sets/${encodeURIComponent(rootId)}/reviews`,
-      { schema: "assessment-review/v1", target_claim_id: claimId, action, expected_set_version: version }, key, assessmentSet);
-    if (value.study_session_id !== id || value.set_id !== rootId) throw new ApiClientError("schema", "題組範圍不一致。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
     return value;
   }
 

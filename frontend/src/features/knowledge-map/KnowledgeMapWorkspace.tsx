@@ -375,44 +375,36 @@ function ReviewView({ view, progress, startStudy, busyLabel, studyLabel, initial
   const [selectedId, setSelectedId] = useState(initialConceptId);
   const selected = weak.find(state => state.concept_id === selectedId) ?? weak[0];
   const concept = selected && view.concepts.find(item => item.concept_id === selected.concept_id)!;
-  const reason = (state: typeof selected) => state.latest_is_correct === false
-    ? "最近一次作答尚未答對，建議再確認教材重點。"
-    : "根據最近一次學習結果，建議再看一次這個概念。";
-  const points = concept ? [...concept.claims.filter(claim => selected.weak_claim_ids.includes(claim.claim_id)),
-    ...concept.claims.filter(claim => !selected.weak_claim_ids.includes(claim.claim_id))].slice(0, 4) : [];
-  const excerpt = (text: string) => {
-    const compact = text.replace(/\s+/g, " ").trim();
-    return compact.length > 96 ? `${compact.slice(0, 96)}…` : compact;
-  };
+  const points = concept?.claims.filter(claim => selected.weak_claim_ids.includes(claim.claim_id)) ?? [];
   return <section aria-labelledby="review-title">
     <div className="view-heading"><div><h2 id="review-title">複習重點</h2><p>依最近一次學習結果，以下是建議優先複習的概念。</p></div></div>
     {!concept ? <div className="review-empty"><div><h3>{progress ? "目前沒有需要複習的概念" : "練習後，幫你找出複習方向"}</h3><p>{progress ? "可以回到學習導覽，繼續探索下一個概念。" : "先學習一個概念並作答，這裡就會整理需要補強的重點。"}</p><button className="secondary-button" type="button" onClick={showNavigator}>查看學習導覽</button></div></div> :
       <div className="review-workspace">
-        <header className="review-context">
-          <LearningBadge conceptId={concept.concept_id} progress={progress} />
-          <h3>{concept.label}</h3><p>{reason(selected)}</p>
-        </header>
-        <aside className="review-actions" aria-label="複習行動">
-          <h3>接下來怎麼做</h3><LearningBadge conceptId={concept.concept_id} progress={progress} />
-          {selected.attempts > 0 && <dl><div><dt>作答</dt><dd>{selected.attempts} 次</dd></div><div><dt>答對</dt><dd>{selected.correct_answers} 次</dd></div><div><dt>已掌握重點</dt><dd>{selected.mastered_claim_ids.length} / {concept.claims.length}</dd></div></dl>}
-          <p>看過重點後，回到這個概念繼續閱讀與練習。</p>
-          <button className="primary-button" type="button" disabled={!!busyLabel} onClick={() => startStudy(concept.concept_id)}>{busyLabel ?? studyLabel}</button>
-          <button className="text-button" type="button" onClick={showNavigator}>查看學習導覽<Icon name="chevron-right" /></button>
-        </aside>
-        <section className="review-points" aria-label="選中概念的複習重點" key={concept.concept_id}>
-          <h3>複習重點</h3><p className="review-excerpt-note">優先查看需要補強的教材重點；以下為教材節錄。</p>
-          <ol>{points.map(claim => <li key={claim.claim_id}><p>{excerpt(claim.text)}</p></li>)}</ol>
-          <details className="review-full-content"><summary>查看完整教材重點</summary><ConceptContent claims={concept.claims} apiClient={apiClient} sourceResolver={view.source_resolver} /></details>
-        </section>
         <nav className="review-list" aria-label="需要複習的概念">
           <h3>需要複習 <small>{weak.length} 個概念</small></h3>
           <ul>{weak.map(state => {
             const item = view.concepts.find(item => item.concept_id === state.concept_id)!;
             return <li key={state.concept_id}><button type="button" aria-current={state.concept_id === concept.concept_id ? "true" : undefined} onClick={() => setSelectedId(state.concept_id)}>
-              <strong>{item.label}</strong><span className="map-learning-badge is-needs_review">需要複習</span><small>{reason(state)}</small><Icon name="chevron-right" />
+              <strong>{item.label}</strong><Icon name="chevron-right" />
             </button></li>;
           })}</ul>
         </nav>
+        <header className="review-context"><h3>{concept.label}</h3></header>
+        <section className="review-points" aria-label="選中概念的複習重點" key={concept.concept_id}>
+          <h3>需要補強的重點</h3>
+          <ol>{points.map(claim => <li key={claim.claim_id}>
+            <p>{claim.text}</p>
+            <div className="review-claim-sources" role="group" aria-label="教材來源">
+              {sourceLinks(claim.evidence).map(evidence => <SourceButton key={evidence.evidence_id}
+                apiClient={apiClient} resolver={view.source_resolver} evidence={evidence} />)}
+            </div>
+          </li>)}</ol>
+        </section>
+        <aside className="review-actions" aria-label="複習行動">
+          <h3>接下來怎麼做</h3>
+          <button className="primary-button" type="button" disabled={!!busyLabel} onClick={() => startStudy(concept.concept_id)}>{busyLabel ?? studyLabel}</button>
+          <button className="text-button" type="button" onClick={showNavigator}>查看學習導覽<Icon name="chevron-right" /></button>
+        </aside>
       </div>}
   </section>;
 }

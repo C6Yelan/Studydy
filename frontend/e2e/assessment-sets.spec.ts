@@ -17,10 +17,15 @@ test("whole paper submits once, restores all results and keeps aligned cards", a
   await page.setViewportSize({ width: data.width, height: 900 });
   const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));
   await login(page); await page.goto(studyPath);
+  await expect(page.locator('.assessment-set-panel')).not.toContainText(/這個觀念包含|本輪準備/);
   await page.getByRole("button", { name: "開始本輪 3 題", exact: true }).click();
   await expect(page).toHaveURL(/assessment-sets\/[0-9a-f-]+$/);
   const roundPath = new URL(page.url()).pathname, setId = roundPath.split("/").at(-1)!;
   await expect(page.getByText("0 / 3 題", { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading',{name:'正在準備本輪練習',exact:true})).toBeVisible();
+  await expect(page.getByRole('progressbar',{name:'準備進度'})).toBeVisible();
+  await expect(page.locator('.assessment-set-panel')).not.toContainText('Studydy 正在準備');
+  await expect(page.locator('.preparation-note')).toHaveText('完成後會自動顯示題目；也可以先離開，稍後再回來。');
   await page.reload();
   await expect(page.getByText("0 / 3 題", { exact: true })).toBeVisible();
   await page.request.post("/v1/__test/sets/release", { headers: { Origin: origin } });
@@ -50,7 +55,12 @@ test("whole paper submits once, restores all results and keeps aligned cards", a
   await expect(submit).toBeEnabled();
   const bounds=await page.locator('.assessment-set-item').evaluateAll(elements=>elements.map(e=>{const b=e.getBoundingClientRect();return {x:b.x,y:b.y,width:b.width,bottom:b.bottom};}));
   expect(Math.max(...bounds.map(b=>b.width))-Math.min(...bounds.map(b=>b.width))).toBeLessThan(1);
-  for(let i=1;i<bounds.length;i++){expect(Math.abs(bounds[i].x-bounds[0].x)).toBeLessThan(1);expect(bounds[i].y-bounds[i-1].bottom).toBeGreaterThanOrEqual(16);}
+  if(data.width>=1280){
+    expect(bounds[1].y).toBeCloseTo(bounds[0].y,0);
+    expect(bounds[1].x).toBeGreaterThan(bounds[0].x+bounds[0].width);
+    expect(bounds[2].x).toBeCloseTo(bounds[0].x,0);
+    expect(bounds[2].y).toBeGreaterThanOrEqual(Math.max(bounds[0].bottom,bounds[1].bottom)+16);
+  }else for(let i=1;i<bounds.length;i++){expect(Math.abs(bounds[i].x-bounds[0].x)).toBeLessThan(1);expect(bounds[i].y-bounds[i-1].bottom).toBeGreaterThanOrEqual(16);}
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   if (data.width >= 1280) await expect(page.locator('.study-rail')).toBeInViewport();
   await page.evaluate(()=>window.scrollTo(0,0));
@@ -85,6 +95,9 @@ test("whole paper submits once, restores all results and keeps aligned cards", a
   }
   await page.getByRole('button',{name:'查回交卷結果',exact:true}).click();
   await expect(page.locator('.feedback-card')).toHaveCount(3);
+  await expect(page.locator('.assessment-answer-review')).not.toHaveAttribute('open','');
+  await page.locator('.assessment-answer-review > summary').click();
+  await expect(page.locator('.feedback-card').first()).toBeVisible();
   await expect(page.getByRole('button',{name:'交卷並查看結果',exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'結束初篩，查看結果',exact:true})).toHaveCount(0);
   const done=await (await page.request.get(endpoint)).json();
@@ -95,6 +108,9 @@ test("whole paper submits once, restores all results and keeps aligned cards", a
   const context=await browser.newContext({viewport:{width:data.width,height:900}});const fresh=await context.newPage();
   await login(fresh);await fresh.goto(roundPath);
   await expect(fresh.locator('.feedback-card')).toHaveCount(3);
+  await expect(fresh.locator('.assessment-answer-review')).not.toHaveAttribute('open','');
+  await fresh.locator('.assessment-answer-review > summary').click();
+  await expect(fresh.locator('.feedback-card').first()).toBeVisible();
   expect((await (await fresh.request.get(endpoint)).json()).items.map((i:{feedback:{answer_event_id:string}})=>i.feedback.answer_event_id))
     .toEqual(done.items.map((i:{feedback:{answer_event_id:string}})=>i.feedback.answer_event_id));
   const progress=await (await fresh.request.get(`/v1/study-sessions/${data.session}/progress`)).json();

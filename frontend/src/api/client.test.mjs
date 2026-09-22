@@ -186,13 +186,13 @@ function questionRecord() {
 
 function resumeView() {
   return {
-    schema: "study-resume/v4", assessment_sets: [], selected_set_id: null, run_id: runId, source_artifact_id: libraryItem().source_artifact_id,
+    schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, run_id: runId, source_artifact_id: libraryItem().source_artifact_id,
     session: { schema: "study-session/v2", study_session_id: sessionId, material_id: materialId,
       knowledge_structure_revision: structureRevision, current_concept_id: conceptId,
       no_safe_claim_ids: [], deferred_concept_ids: [], status: "active", event_watermark: 0,
       started_at: "2026-09-11T00:00:00Z", completed_at: null },
     knowledge_structure: structureView(),
-    progress: { schema: "learner-progress/v3", assessment_cycles: [], study_session_id: sessionId, knowledge_structure_revision: structureRevision,
+    progress: { schema: "learner-progress/v4", assessment_cycles: [], study_session_id: sessionId, knowledge_structure_revision: structureRevision,
       event_watermark: 0, current_concept_id: conceptId, deferred_concept_ids: [],
       concept_states: [{ concept_id: conceptId, label: "Stack", status: "not_started" }], weaknesses: [],
       next_action: { action: "assess", target_concept_id: conceptId, target_claim_id: claimId, prerequisite_concept_ids: [], reason: "current_concept" },
@@ -442,17 +442,15 @@ test("assessment sets validate scope, membership, counts and private staging", a
   const record = questionRecord();
   const setId = "55555555-5555-4555-8555-555555555555";
   const base = {
-    schema: "assessment-set/v2", set_id: setId, study_session_id: sessionId, material_id: materialId,
+    schema: "assessment-set/v3", set_id: setId, study_session_id: sessionId, material_id: materialId,
     knowledge_structure_revision: structureRevision, target_concept_id: conceptId,
     kind: "diagnostic", diagnostic_set_id: null, selection_policy: "single-concept-grounded-points/v1",
     status: "preparing", set_version: 2, requested_count: 1, published_count: 0, answered_count: 0, passed_count: 0,
     point_count: 1, excluded_count: 0, verified_count: 1, assessment_revisions: [],
     created_at: "2026-09-20T00:00:00Z", completed_at: null,
-    can_retry: false, can_publish_partial: false, can_complete: false, can_cancel: true,
-    cycle: { diagnostic_set_id: setId, concept_id: conceptId, set_version: 2, outcome: "in_progress", closed_at: null,
-      active_set_id: setId, passed_count: 0, remediation_passed_count: 0, pending_count: 0, unanswered_count: 0, unavailable_count: 1,
-      can_create_remediation: false, can_close: false, can_review: false,
-      points: [{ claim_id: claimId, result: "unavailable", latest_answer_event_id: null, latest_set_id: null }] },
+    can_retry: false, can_publish_partial: false, can_complete: false,
+    cycle: { diagnostic_set_id: setId, concept_id: conceptId, set_version: 2, outcome: "in_progress", active_set_id: setId, passed_count: 0, remediation_passed_count: 0, pending_count: 0, unanswered_count: 0, unavailable_count: 1,
+      can_create_remediation: false, points: [{ claim_id: claimId, result: "unavailable", latest_answer_event_id: null, latest_set_id: null }] },
     items: [{ ordinal: 1, target_claim_id: claimId, state: "verified", attempts: 1, failure_reason: null,
       assessment: null, feedback: null, created_at: null, can_submit: false }],
   };

@@ -28,7 +28,7 @@ from .models import (
     MaterialLibraryItem,
     MaterialRename,
     MaterialLibraryView,
-    LearnerProgressView,
+    LearnerProgressView, GuidanceApply,
     StudySessionCreate,
     StudySessionFocus,
     StudySessionView,
@@ -38,11 +38,11 @@ from .models import (
     project_study_session,
 )
 from learning_adaptation.learner_progress import (
-    derive_learner_progress,
+    derive_learner_progress, apply_guidance,
 )
 from learning_adaptation import assessment_sets
 from .models import (AssessmentSetCreate, AssessmentSetAction, AssessmentPlanView,
-                     AssessmentSetListView, AssessmentSetView, AssessmentReview, AssessmentSetSubmission)
+                     AssessmentSetListView, AssessmentSetView, AssessmentSetSubmission)
 from learning_adaptation.study_sessions import (
     complete_study_session,
     create_study_session,
@@ -84,6 +84,7 @@ from document_normalization.converter import MAX_FILE_BYTES,MIME,configured_pyth
 _COOKIE_NAME = "studydy_session"
 _ERROR_MESSAGE = "Request could not be completed."
 _ERROR_STATUS = {
+    'LEARNER_GUIDANCE_STALE': (409, True),
     'ASSESSMENT_SET_CONFLICT': (409, False),
     'ASSESSMENT_SET_ACTIVE': (409, False),
     "DUPLICATE_SOURCE": (409, False),
@@ -225,7 +226,7 @@ def _fixed_exception(error: Exception) -> str:
         if reason == 'ASSESSMENT_SET_NOT_FOUND':return 'RESOURCE_NOT_FOUND'
         if reason in ('ASSESSMENT_SET_REQUEST_INVALID','ASSESSMENT_SET_TARGET_INVALID'):return 'REQUEST_INVALID'
         return reason if reason in ('ASSESSMENT_SET_CONFLICT', 'ASSESSMENT_SET_ACTIVE') else 'INTERNAL_ERROR'
-    if reason in ('ASSESSMENT_SET_CONFLICT', 'ASSESSMENT_SET_ACTIVE'):return reason
+    if reason in ('ASSESSMENT_SET_CONFLICT', 'ASSESSMENT_SET_ACTIVE', 'LEARNER_GUIDANCE_STALE'):return reason
     if isinstance(error,(SourceError,NormalizationError,MaterialProcessingError)) and reason in _ERROR_STATUS:return reason
     if reason == "MATERIAL_NOT_DISCARDABLE" or (isinstance(error, MaterialDiscardError) and reason == "RESOURCE_NOT_FOUND"):
         return reason
@@ -236,7 +237,6 @@ def _fixed_exception(error: Exception) -> str:
     if "IDEMPOTENCY_CONFLICT" in reason or reason in {
         "MATERIAL_RUN_IDEMPOTENCY_CONFLICT",
         "ANSWER_ALREADY_SUBMITTED",
-        "LEARNER_GUIDANCE_STALE",
         "LEARNER_PROGRESS_STALE",
         "ANSWER_SUBMISSION_STALE",
     }:
@@ -349,8 +349,8 @@ def _install_openapi(app: FastAPI) -> None:
         "/v2/materials/{material_id}/review",
         "/v1/study-sessions",
         "/v1/study-sessions/{study_session_id}/assessment-sets",
-        "/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/{action}",
-        "/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/reviews",
+        "/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/retry",
+        "/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/publish-partial",
         "/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/submissions",
         "/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/remediation",
     }
@@ -874,15 +874,6 @@ def create_app(settings: ApiSettings) -> FastAPI:
             body.expected_set_version, _idempotency_key(request), dsn=settings.dsn)
         return AssessmentSetView.model_validate(assessment_sets.read_set(learner, study_session_id, set_id, dsn=settings.dsn))
 
-    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/reviews', response_model=AssessmentSetView,
-              operation_id='reviewAssessmentPoint', tags=['learning'])
-    def review_assessment_point(request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentReview):
-        _require_query(request, set())
-        learner = _trusted_learner(request, settings)
-        assessment_sets.review_point(learner, study_session_id, set_id, body.target_claim_id, body.action,
-            body.expected_set_version, _idempotency_key(request), dsn=settings.dsn)
-        return AssessmentSetView.model_validate(assessment_sets.read_set(learner, study_session_id, set_id, dsn=settings.dsn))
-
     @app.post('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/remediation', response_model=AssessmentSetView,
               status_code=202, operation_id='createRemediationSet', tags=['learning'])
     def create_remediation_set(request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentSetAction):
@@ -892,17 +883,33 @@ def create_app(settings: ApiSettings) -> FastAPI:
             _idempotency_key(request), deepcopy(settings.local_config), dsn=settings.dsn)
         return AssessmentSetView.model_validate(assessment_sets.read_set(learner, study_session_id, created, dsn=settings.dsn))
 
-    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/{action}', response_model=AssessmentSetView,
-              operation_id='changeAssessmentSet', tags=['learning'])
-    def change_assessment_set(request: Request, study_session_id: UUID, set_id: UUID, action: str, body: AssessmentSetAction):
+    def apply_set_action(request, study_session_id, set_id, body, action):
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
         assessment_sets.change_set(learner, study_session_id, set_id, action, body.expected_set_version,
                                   _idempotency_key(request), dsn=settings.dsn)
         return AssessmentSetView.model_validate(assessment_sets.read_set(learner, study_session_id, set_id, dsn=settings.dsn))
 
+    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/retry', response_model=AssessmentSetView,
+              operation_id='retryAssessmentSet', tags=['learning'])
+    def retry_assessment_set(request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentSetAction):
+        return apply_set_action(request, study_session_id, set_id, body, 'retry')
+
+    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/publish-partial', response_model=AssessmentSetView,
+              operation_id='publishPartialAssessmentSet', tags=['learning'])
+    def publish_partial_assessment_set(request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentSetAction):
+        return apply_set_action(request, study_session_id, set_id, body, 'publish-partial')
 
 
+
+
+
+    @app.post('/v1/study-sessions/{study_session_id}/guidance/apply', response_model=LearnerProgressView,
+              operation_id='applyGuidance', tags=['learning'])
+    def apply_guidance_route(request: Request, study_session_id: UUID, body: GuidanceApply):
+        _require_query(request, set())
+        return project_learner_progress(apply_guidance(_trusted_learner(request, settings), study_session_id,
+            body.guidance_revision, dsn=settings.dsn))
 
     @app.get(
         "/v1/study-sessions/{study_session_id}/progress",

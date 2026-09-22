@@ -1,14 +1,13 @@
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 import { useEffect, useRef, useState } from "react";
 
-import { errorMessage, type StudydyApiClient } from "../../api/client";
+import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { AssessmentSetSummary, KnowledgeStructureView, LearnerProgressView, StudySessionView } from "../../api/contracts";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { assessmentPhase, type AssessmentPhase } from "../assessment/assessment-phase";
 import { AssessmentSetPanel } from "../assessment/AssessmentSetPanel";
-import { LearningInsights } from "../learning-state/LearningInsights";
 import "./styles.css";
 
 type StudyData = {
@@ -44,6 +43,8 @@ export function StudySessionPage({ apiClient, route }: {
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [setPhase, setSetPhase] = useState<AssessmentPhase | null>(null);
+  const [continuing, setContinuing] = useState(false);
+  const [continueError, setContinueError] = useState<string | null>(null);
   const activePage = useRef(false);
   const pageVersion = useRef(0);
 
@@ -64,9 +65,10 @@ export function StudySessionPage({ apiClient, route }: {
     setData(null);
     setMessage(null);
     setRefreshMessage(null);
+    setContinuing(false); setContinueError(null);
     void load().then((next) => {
       if (cancelled) return;
-      if (next.selectedSetId && !route.assessmentSetId) {
+      if (next.selectedSetId && !route.assessmentSetId && next.session.status !== "completed") {
         writeRoute({ ...route, assessmentSetId: next.selectedSetId }, true);
         return;
       }
@@ -98,6 +100,7 @@ export function StudySessionPage({ apiClient, route }: {
   if (!data) return <StateView description="正在復原教材結構與學習進度狀態。" live title="正在讀取學習進度" tone="loading" />;
 
   const completed = data.session.status === "completed";
+  const historySets = data.assessmentSets.filter(group => group.published_count > 0 || ["completed", "cancelled"].includes(group.status));
   const selectedGroup = data.assessmentSets.find(group => group.set_id === data.selectedSetId);
   const visibleConceptId = route.assessmentSetId ? selectedGroup?.target_concept_id : data.progress.current_concept_id;
   const current = data.view.concepts.find((concept) => concept.concept_id === visibleConceptId);
@@ -106,6 +109,38 @@ export function StudySessionPage({ apiClient, route }: {
   const initialSetPhase = assessmentPhase(selectedGroup);
   const layoutMode = setPhase ?? initialSetPhase;
   const preparing = layoutMode === "preparing" || layoutMode === "intervention";
+  const showRail = !preparing && historySets.length > 0;
+  const cycle = data.progress.assessment_cycles.find(item => item.concept_id === data.progress.current_concept_id);
+  const nextAction = data.progress.next_action;
+  const nextConcept = nextAction.action === "advance" ? data.view.concepts.find(item => item.concept_id === nextAction.target_concept_id) : undefined;
+  const currentResult = !completed && !refreshMessage && layoutMode === "result"
+    && selectedGroup?.status === "completed" && cycle && !cycle.active_set_id
+    && ["passed", "incomplete"].includes(cycle.outcome);
+  const canContinue = currentResult && (nextConcept || nextAction.action === "complete")
+    && !data.assessmentSets.some(item => ["preparing", "partial_ready", "ready", "in_progress"].includes(item.status)
+      && (nextAction.action === "complete" || item.target_concept_id === data.progress.current_concept_id));
+  const continueLearning = async () => {
+    if (!canContinue || continuing) return;
+    const version = pageVersion.current;
+    setContinuing(true); setContinueError(null);
+    try {
+      await apiClient.applyGuidance(route.studySessionId, {schema:"guidance-apply/v2",guidance_revision:data.progress.guidance_revision});
+      if (!activePage.current || pageVersion.current !== version) return;
+      setData(null); setSetPhase(null);
+      writeRoute({name:"study-session",materialId:route.materialId,runId:route.runId,
+        structureRevision:route.structureRevision,studySessionId:route.studySessionId}, true);
+      setReload(value => value + 1);
+    } catch (error) {
+      if (!activePage.current || pageVersion.current !== version) return;
+      if (error instanceof ApiClientError && error.reasonCode === "LEARNER_GUIDANCE_STALE") {
+        setContinueError("學習進度已更新，請確認最新下一步後再繼續。");
+        await refresh();
+      } else setContinueError(errorMessage(error));
+    } finally { if (activePage.current && pageVersion.current === version) setContinuing(false); }
+  };
+  const continuation = canContinue ? {busy:continuing, onContinue:continueLearning,
+    label:continuing ? nextAction.action === "complete" ? "正在完成…" : "正在前往下一個觀念…"
+      : nextAction.action === "complete" ? "完成本次學習" : `下一個觀念：${nextConcept!.label}`} : undefined;
   const position = data.view.initial_learning_path.find(step => step.concept_id === current.concept_id)?.position;
   const sourceEvidence = sourceLinks(current.claims.flatMap(claim => claim.evidence));
   const materialCard = <article className="surface current-concept-card" aria-labelledby="study-content-title">
@@ -121,8 +156,9 @@ export function StudySessionPage({ apiClient, route }: {
         <div><p className="eyebrow">學習進度</p><h1>{completed ? "學習已完成" : current.label}</h1>
           <p>{position !== undefined && `第 ${position} / ${data.view.initial_learning_path.length} 個概念`}{!preparing && layoutMode !== "question" && " · 學習進度會自動保存。"}</p></div>
       </header>
+      {continueError && <div className="assessment-error" role="alert">{continueError}</div>}
       {refreshMessage && <div className="assessment-error" role="alert">{refreshMessage}<button className="text-button" onClick={() => void refresh()}>重新讀取</button></div>}
-      <div className={`study-workspace is-${layoutMode}-mode${preparing ? " without-rail" : ""}`}>
+      <div className={`study-workspace is-${layoutMode}-mode${!showRail ? " without-rail" : ""}`}>
         <div className="study-main">
           <div className={`study-learning-grid is-${layoutMode}-mode is-set-mode`}>
             {!preparing && layoutMode !== "question" && (layoutMode === "preparation" ? materialCard : <details className="surface study-material-summary">
@@ -131,20 +167,19 @@ export function StudySessionPage({ apiClient, route }: {
             <div className="study-current-action" id="assessment-panel">
               <AssessmentSetPanel apiClient={apiClient} studySessionId={route.studySessionId}
                 selectedSetId={data.selectedSetId} concept={current} view={data.view}
-                completed={completed} onSetSelected={id => writeRoute({ ...route, assessmentSetId: id })}
+                completed={completed} onSetSelected={id => { writeRoute({ ...route, assessmentSetId: id }); }}
                 onProgressChanged={() => refresh()} onBackToMap={back} initialPhase={initialSetPhase}
-                onPhaseChange={setSetPhase} />
+                onPhaseChange={setSetPhase} continuation={continuation} />
             </div>
           </div>
         </div>
-        {!preparing && <aside className="study-rail" aria-label="學習資訊">
-          <LearningInsights currentConceptId={current.concept_id} totalClaimCount={current.claims.length} progress={data.progress} />
-          {data.assessmentSets.length > 0 && <details className="surface assessment-set-history">
-            <summary>觀念題組紀錄（{data.assessmentSets.length}）</summary><ol>{data.assessmentSets.map((group, index) => {
+        {showRail && <aside className="study-rail" aria-label="學習紀錄">
+          {historySets.length > 0 && <details className="surface assessment-set-history" open>
+            <summary>觀念題組紀錄（{historySets.length}）</summary><ol>{historySets.map((group, index) => {
               const label = data.view.concepts.find(concept => concept.concept_id === group.target_concept_id)?.label ?? "觀念";
               return <li key={group.set_id}><button className="text-button" aria-current={group.set_id === data.selectedSetId ? "true" : undefined}
-                onClick={() => writeRoute({ ...route, assessmentSetId: group.set_id })}>
-                第 {data.assessmentSets.length - index} 組 · {group.kind === "remediation" ? "補強" : "初篩"} · {label} · 已答 {group.answered_count}/{group.published_count}</button></li>;
+                onClick={() => { setContinueError(null); writeRoute({ ...route, assessmentSetId: group.set_id }); }}>
+                第 {historySets.length - index} 組 · {group.kind === "remediation" ? "補強" : "初篩"} · {label} · {group.published_count === 0 ? "此題組已結束" : group.answered_count === 0 ? "尚未作答" : `已答 ${group.answered_count}/${group.published_count}`}</button></li>;
             })}</ol>
           </details>}
         </aside>}

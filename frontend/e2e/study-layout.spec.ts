@@ -40,9 +40,11 @@ for (const viewport of [{width:1536,height:1024},{width:1366,height:768},{width:
     await fixture.open();
     const start = page.getByRole('button', {name:'開始本輪 6 題',exact:true});
     await expect(start).toBeEnabled();
+    await expect(page.locator('.assessment-set-panel')).not.toContainText(/這個觀念包含|本輪準備|目前未納入本輪檢測/);
+    await expect(page.getByText('完成所有題目後一起交卷並查看結果。', {exact:true})).toBeVisible();
     await preparationLayout(page, viewport.width);
     if (viewport.width > 900) await expect(start).toBeInViewport();
-    await expect(page.locator('.assessment-set-history')).not.toHaveAttribute('open','');
+    await expect(page.locator('.assessment-set-history')).toHaveAttribute('open','');
     const sources = page.getByRole('region',{name:'教材來源',exact:true}).getByRole('button');
     await expect(sources).toHaveCount(1);
     await sources.click();
@@ -78,6 +80,10 @@ for (const viewport of [{width:1536,height:1024},{width:1366,height:768},{width:
     await expect(bar).toHaveAttribute('aria-valuenow','33');
     await expect(bar).toHaveAttribute('aria-valuetext','已準備 2 / 6 題');
     const card=page.locator('.assessment-set-header.is-preparing');
+    await expect(card).not.toContainText('Studydy 正在準備');
+    await expect(card.locator('.preparation-note')).toHaveCount(1);
+    await expect(card.locator('.preparation-note')).toHaveText('完成後會自動顯示題目；也可以先離開，稍後再回來。');
+    expect(await card.evaluate(el => el.querySelector('.preparation-heading')?.nextElementSibling?.classList.contains('preparation-progress'))).toBe(true);
     const geometry=await card.evaluate(element=>{
       const rect=element.getBoundingClientRect(), style=getComputedStyle(element);
       return {left:rect.left,gap:rect.top-document.querySelector('.study-header')!.getBoundingClientRect().bottom,width:rect.width,
@@ -85,7 +91,7 @@ for (const viewport of [{width:1536,height:1024},{width:1366,height:768},{width:
     });
     expect(geometry.left).toBeCloseTo(entryGeometry.left,0);
     expect(geometry.gap).toBeCloseTo(entryGeometry.gap,0);
-    expect(geometry.width).toBeCloseTo(entryGeometry.mainWidth,0);
+    expect(geometry.width).toBeCloseTo((await page.locator('.study-workspace').boundingBox())!.width,0);
     for(const key of ['padding','radius','border','shadow'] as const) expect(geometry[key]).toBe(entryGeometry[key]);
     expect(geometry.align).toBe('start');
     await expect(card.locator(':scope > svg')).toHaveCount(0);
@@ -123,9 +129,12 @@ for (const viewport of [{width:1536,height:1024},{width:1366,height:768},{width:
     await expect(page.locator('.current-concept-card')).toHaveCount(0);
     const main = (await page.locator('.study-main').boundingBox())!;
     const question = (await page.locator('.assessment-set-item').first().boundingBox())!;
-    expect(Math.abs(main.width-question.width)).toBeLessThan(1);
-    if (viewport.width > 900) expect(question.width).toBeGreaterThan(900);
+    if (viewport.width >= 1280) {
+      expect(question.width).toBeGreaterThan(440);
+      expect(question.width).toBeLessThan(main.width / 2);
+    }
     else {
+      expect(Math.abs(main.width-question.width)).toBeLessThan(1);
       const options=await page.locator('.assessment-options').first().locator('label').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().x));
       expect(new Set(options).size).toBe(1);
     }
@@ -139,7 +148,6 @@ for (const viewport of [{width:1536,height:1024},{width:1366,height:768},{width:
     await expect(page.locator('.feedback-card')).toHaveCount(6);
     await expect(page.getByRole('article',{name:'待補強重點',exact:true})).toHaveCount(1);
     expect((await page.locator('.assessment-cycle').boundingBox())!.width).toBeCloseTo(main.width,0);
-    await page.locator('.assessment-set-history summary').click();
     await page.locator('.assessment-set-history button').last().click();
     await expect(page).toHaveURL(new RegExp(fixture.historyPath.split('/').at(-1)!+'$'));
     await expect(page.locator('.study-learning-grid')).toHaveClass(/is-result-mode/);
@@ -185,6 +193,8 @@ test('plan loading, generation failure and no-safe remain preparation',async({pa
   await preparationLayout(page,1366);
   release();
   await expect(page.getByRole('button',{name:'開始本輪 0 題',exact:true})).toBeDisabled();
+  await expect(page.getByText('有 6 個教材重點目前未納入本輪檢測。',{exact:true})).toBeVisible();
+  await expect(page.locator('.assessment-set-panel')).not.toContainText(/這個觀念包含|本輪準備|保留為未檢測/);
   await preparationLayout(page,1366);
 });
 

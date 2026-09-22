@@ -215,8 +215,6 @@ class AssessmentSet(Base):
     knowledge_structure_revision: Mapped[str] = mapped_column(Text, nullable=False)
     target_concept_id: Mapped[str] = mapped_column(Text, nullable=False)
     diagnostic_set_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    review_actions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    cycle_closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     target_plan: Mapped[dict] = mapped_column(JSONB, nullable=False)
     requested_count: Mapped[int] = mapped_column(Integer, nullable=False)

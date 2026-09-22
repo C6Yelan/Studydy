@@ -98,7 +98,7 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src backend/.venv/bin/pytest -q \
 B5-R 契約見 [assessment-remediation.md](assessment-remediation.md)。核心為
 `runtime/test_assessment_remediation.py`，真 API／DB browser 為
 `runtime/test_assessment_remediation_browser.py`，另保留題組與已存題目的恢復回歸。
-初篩／補強不得重算舊答案，複習及 GET 不增加 AnswerEvent，補強正確不補足獨立掌握證據。
+初篩／補強不得重算舊答案，閱讀及 GET 不增加 AnswerEvent，補強正確不補足獨立掌握證據。
 測試 build 使用獨立 `.studydy-runtime/b05r-frontend`，以 `STUDYDY_E2E_FRONTEND_DIST`
 傳給 browser runner，保持日常 `frontend/dist` 穩定；測試 ports 4183／8002。
 
@@ -121,7 +121,7 @@ B5-R 契約見 [assessment-remediation.md](assessment-remediation.md)。核心�
 ## 跨觀念題組接續
 
 `runtime/test_assessment_concept_navigation.py` 驗證 A 生成中切到 B、不同觀念各自建立及交卷、
-同一觀念防重複，以及 B 不封鎖 A 的複習／補強／失敗重試。
+同一觀念防重複，以及 B 不封鎖 A 的補強／失敗重試。
 `runtime/test_concept_navigation_browser.py` 以真 API／隔離 DB 在桌機與手機操作 A → B → A，
 確認另一視窗已建立同觀念題組時會接續它。整組交卷 browser 的 1536 案例另注入版本前進，
 驗證明確 409 後保留選取、改用最新版本，再遇回應遺失仍只保存一份答案。
@@ -210,3 +210,5 @@ inline errors/focus/correction, password reveal, duplicate-submit protection, sa
 Login/Register navigation and real owner/session isolation. Both pages are checked at
 1536×1024, 1920×1080 and 390×844 for size, centering, overflow and screenshots. Screenshots are
 written only to the ignored browser test output directory. No OAuth or verification flow is tested or implemented.
+
+`test_direct_remediation_migration.py` 驗證 0013 → 0014 升級不改題目、AnswerEvent、題組項目及補強 origin；`test_assessment_remediation.py` 與對應 browser 驗證直接補強、再次答錯、冪等與 assisted semantics。

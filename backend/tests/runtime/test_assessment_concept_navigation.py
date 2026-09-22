@@ -7,7 +7,7 @@ from learning_adaptation import assessment_sets as sets
 from learning_adaptation.study_sessions import read_study_session
 from test_assessment_sets import closed_loop, concept_fixture, create, read, model_for
 from test_assessment_set_submission import answers_for, send
-from test_assessment_remediation import finish, answer, review, supplement, change
+from test_assessment_remediation import finish, answer, supplement, change
 from test_accounts import _app, ORIGIN, HEADERS
 
 
@@ -62,12 +62,12 @@ def test_enter_and_start_b_while_a_is_generating_then_submit_a_without_changing_
     assert client.get(base).json()['active_set_ids']==[]
 
 
-def test_other_concept_work_does_not_block_review_remediation_or_failed_item_retry(closed_loop):
+def test_other_concept_work_does_not_block_remediation_or_failed_item_retry(closed_loop):
     f=concept_fixture(closed_loop,1);root=create(f);finish(f);answer(f,root,wrong={1})
     other=create_other(f)
-    assert read(f,root)['cycle']['can_review']
+    assert read(f,root)['cycle']['can_create_remediation']
     claim=read(f,root)['cycle']['points'][0]['claim_id']
-    review(f,root,claim);child=supplement(f,root)
+    child=supplement(f,root)
     assert set(sets.list_sets(f['learner'],f['study'].study_session_id,dsn=f['dsn'])['active_set_ids'])=={str(other),str(child)}
     reserved_other=sets.claim_set_work(dsn=f['dsn']);assert reserved_other.set_id==other
     reserved_child=sets.claim_set_work(dsn=f['dsn']);assert reserved_child.set_id==child

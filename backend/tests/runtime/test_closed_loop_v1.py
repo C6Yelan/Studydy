@@ -24,7 +24,7 @@ from runtime.learner_session import TrustedLearner, register_account
 import runtime.material_processing as processing
 from runtime.material_processing import MaterialProcessingError, _record_progress, claim_next_material_processing_run, read_material_processing_run, runtime_binding
 from runtime.storage.knowledge_structures import read_knowledge_structure
-from runtime.storage.migrations import run_migrations
+from runtime.storage.migrations import run_migrations, load_migrations
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 import runtime.api.app as api_app
 
@@ -138,7 +138,7 @@ def _assessment_response(angle: str, prompt: str, evidence_id: str) -> dict:
 
 @pytest.fixture
 def closed_loop(clean_database_dsn, migrations_dir, tmp_path, monkeypatch):
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == tuple(m.version for m in load_migrations(migrations_dir))
     assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == ()
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir(mode=0o700)
@@ -158,7 +158,7 @@ def closed_loop(clean_database_dsn, migrations_dir, tmp_path, monkeypatch):
 
 
 def test_final_schema_contains_only_current_product_tables(clean_database_dsn, migrations_dir):
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == tuple(m.version for m in load_migrations(migrations_dir))
     with psycopg.connect(clean_database_dsn) as connection:
         tables = {
             row[0]

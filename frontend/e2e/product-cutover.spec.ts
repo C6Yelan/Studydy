@@ -85,7 +85,7 @@ function session(status = "active") {
 }
 
 const progress = {
-  schema: "learner-progress/v3", assessment_cycles: [], study_session_id: sessionId,
+  schema: "learner-progress/v4", assessment_cycles: [], study_session_id: sessionId,
   knowledge_structure_revision: structureRevision, event_watermark: 0,
   current_concept_id: firstConcept, deferred_concept_ids: [],
   concept_states: [
@@ -125,7 +125,7 @@ async function routes(page: Page, view = structureView(), readProgress = () => p
   });
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => {
     const currentProgress = readProgress();
-    return json(route, { schema: "study-resume/v4", assessment_sets: [], selected_set_id: null, session: { ...session(), event_watermark: currentProgress.event_watermark },
+    return json(route, { schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: { ...session(), event_watermark: currentProgress.event_watermark },
       run_id: runId, source_artifact_id: artifactId, knowledge_structure: view, progress: currentProgress,
  });
   });
@@ -445,7 +445,7 @@ test("compact learning entry shares loading, starting and new-study authority wi
       study_sessions: hasHistory ? [{ ...session("completed"), run_id: runId }] : [] });
   });
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, {
-    schema: "study-resume/v4", assessment_sets: [], selected_set_id: null, session: session(completed ? "completed" : "active"), run_id: runId,
+    schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: session(completed ? "completed" : "active"), run_id: runId,
     source_artifact_id: artifactId, knowledge_structure: view, progress,
   }));
   await page.route("**/v1/study-sessions", async route => {
@@ -520,7 +520,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       });
       await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => {
         const isNew = focused || route.request().url().includes(newSessionId);
-        return json(route, { schema: "study-resume/v4", assessment_sets: [], selected_set_id: null, session: isNew ? created : saved, run_id: runId,
+        return json(route, { schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: isNew ? created : saved, run_id: runId,
           source_artifact_id: artifactId, knowledge_structure: view,
           progress: isNew ? { ...savedProgress, study_session_id: created.study_session_id, current_concept_id: secondConcept,
             next_action: { ...savedProgress.next_action, target_concept_id: secondConcept, target_claim_id: secondClaim } } : savedProgress,
@@ -691,7 +691,7 @@ async function learningMapRoutes(page: Page, view: ReturnType<typeof structureVi
     study_sessions: hasProgress ? [{ ...saved, run_id: runId }] : [],
   }));
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, {
-    schema: "study-resume/v4", assessment_sets: [], selected_set_id: null, session: saved, run_id: runId, source_artifact_id: artifactId, knowledge_structure: view,
+    schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: saved, run_id: runId, source_artifact_id: artifactId, knowledge_structure: view,
     progress: snapshot,
   }));
 }
@@ -736,15 +736,18 @@ test("map tabs cycle and missing path references still fail the strict API contr
 });
 
 
-for (const viewport of [{ width: 1536, height: 1024 }, { width: 1100, height: 800 }, { width: 390, height: 844 }]) {
-  test(`review workspace selection excerpts and study target at ${viewport.width}px`, async ({ page }) => {
+for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 1100, height: 800 }, { width: 390, height: 844 }]) {
+  test(`review workspace weak claims sources and study target at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     const view = structureView();
-    const longText = "教材原文保留完整說明，複習入口先呈現節錄。".repeat(30);
-    view.concepts[1].claims = Array.from({ length: 6 }, (_, i) => ({ ...view.concepts[1].claims[0], claim_id: `claim:sha256:${String(i + 1).repeat(64)}`, text: i === 4 ? longText : `教材重點 ${i + 1}` }));
+    const longText = "教材完整說明，保留必要的條件與定義。".repeat(30);
+    view.concepts[1].claims = Array.from({ length: 4 }, (_, i) => ({ ...view.concepts[1].claims[0], claim_id: `claim:sha256:${String(i + 1).repeat(64)}`, text: i === 0 ? longText : `教材重點 ${i + 1}` }));
+    for(const claim of view.concepts[1].claims) for(const evidence of claim.evidence) Object.assign(evidence,{source_id:artifactId,source_name:'Synthetic.pdf',normalized_page:2});
+    view.concepts[1].claims[0].evidence.push({...view.concepts[1].claims[0].evidence[0],evidence_id:`evidence:sha256:${"9".repeat(64)}`});
     const state = structuredClone(progress);
-    state.concept_states.forEach((item, i) => Object.assign(item, { status: "needs_review", attempts: 3, correct_answers: 1, latest_is_correct: false, weak_claim_ids: [view.concepts[i].claims[i ? 4 : 0].claim_id] }));
+    state.concept_states.forEach((item, i) => Object.assign(item, { status: "needs_review", attempts: 3, correct_answers: 1, latest_is_correct: false, weak_claim_ids: i ? [view.concepts[i].claims[0].claim_id, view.concepts[i].claims[2].claim_id] : [view.concepts[i].claims[0].claim_id] }));
     await routes(page, view, () => state);
+    await page.route('**/evidence/*/source',route=>json(route,{schema:'evidence-source/v1',format:'pdf',original_name:'Synthetic.pdf',original_url:`/v1/artifacts/${artifactId}`,preview_url:`/v1/artifacts/${artifactId}#page=2`,normalized_page:2,accuracy:'exact',origin_locators:[],label:'PDF 第 2 頁'}));
     await page.route(`**/v1/materials/${materialId}`, route => json(route, {
       schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
       display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
@@ -765,22 +768,37 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1100, height: 80
     await expect(array).toBeFocused();
     expect(page.url()).toBe(url); expect(creates).toHaveLength(0);
     await expect(page.locator(".review-context h3")).toHaveText("Array");
-    await expect(page.locator(".review-context")).toContainText("最近一次作答尚未答對");
-    await expect(page.locator(".review-points > ol > li")).toHaveCount(4);
-    await expect(page.locator(".review-points > ol > li").first()).toContainText(longText.slice(0, 96) + "…");
-    await expect(page.locator(".review-full-content")).not.toHaveAttribute("open", "");
+    await expect(page.locator('.review-context')).toHaveText('Array');
+    await expect(page.locator('.review-workspace .map-learning-badge')).toHaveCount(0);
+    await expect(page.locator('.review-list button').first()).toHaveText('Stack');
+    await expect(array).toHaveText('Array');
+    await expect(page.locator('.review-workspace')).not.toContainText(/最近一次作答|已掌握|看過重點後/);
+    await expect(page.locator('.review-actions dl')).toHaveCount(0);
+    await expect(page.locator('.review-actions button')).toHaveCount(2);
+    await expect(page.locator('.review-points > ol > li')).toHaveCount(2);
+    await expect(page.locator('.review-points > ol > li > p')).toHaveText([longText,'教材重點 3']);
+    await expect(page.locator('.review-full-content')).toHaveCount(0);
+    await expect(page.getByText('查看完整教材重點',{exact:true})).toHaveCount(0);
+    const points=page.locator('.review-points > ol > li');
+    for(const point of await points.all()) {
+      const source=point.getByRole('button');await expect(source).toHaveCount(1);
+      await source.click();
+      await expect(page.getByRole('dialog',{name:'教材來源'}).getByRole('link',{name:'開啟 PDF 來源頁'})).toHaveAttribute('href',`/v1/artifacts/${artifactId}#page=2`);
+      await page.keyboard.press('Escape');await expect(source).toBeFocused();
+    }
+    await list.getByRole('button',{name:'Stack',exact:true}).click();
+    await expect(page.locator('.review-points > ol > li')).toHaveCount(1);
+    await expect(page.locator('.review-points > ol > li > p')).toHaveText('A stack follows LIFO order.');
+    await array.click();
     await expect(page.locator("#map-panel-review .primary-button")).toHaveCount(1);
     await expect(page.getByRole("dialog")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     const boxes = await Promise.all([".review-list", ".review-context", ".review-actions", ".review-points"].map(selector => page.locator(selector).boundingBox()));
     const [l, c, a, p] = boxes.map(box => box!);
     if (viewport.width >= 1200) { expect(l.x + l.width).toBeLessThan(c.x); expect(c.x + c.width).toBeLessThan(a.x); }
-    if (viewport.width <= 900) { expect(c.y).toBeLessThan(a.y); expect(a.y).toBeLessThan(p.y); expect(p.y).toBeLessThan(l.y); }
+    if (viewport.width <= 900) { expect(l.y + l.height).toBeLessThanOrEqual(c.y); expect(c.y + c.height).toBeLessThanOrEqual(p.y); expect(p.y + p.height).toBeLessThanOrEqual(a.y); }
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: `/tmp/studydy-review-${viewport.width}.png`, fullPage: true });
-    await page.getByText("查看完整教材重點", { exact: true }).click();
-    await expect(page.locator(".review-full-content .concept-claim")).toHaveCount(6);
-    await expect(page.locator(".review-full-content")).toContainText(longText);
     await page.getByRole("button", { name: "繼續這個概念", exact: true }).click();
     await expect.poll(() => creates.length).toBe(1);
     expect(creates[0].current_concept_id).toBe(secondConcept);
@@ -806,7 +824,7 @@ for (const count of [0, 30]) test(`review ${count} weak concepts preserves membe
     concept_states: view.concepts.map((concept, i) => ({ ...progress.concept_states[0], concept_id: concept.concept_id, label: concept.label, status: i < count ? "needs_review" : "learning", weak_claim_ids: i < count ? [concept.claims[0].claim_id] : [] })) };
   await learningMapRoutes(page, view, true);
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, {
-    schema: "study-resume/v4", assessment_sets: [], selected_set_id: null, session: { ...session(), current_concept_id: current }, run_id: runId, source_artifact_id: artifactId,
+    schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: { ...session(), current_concept_id: current }, run_id: runId, source_artifact_id: artifactId,
     knowledge_structure: view, progress: state,
   }));
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
@@ -864,7 +882,7 @@ test("completed persistent state is viewed without create or focus", async ({ pa
   await page.route(`**/v1/materials/${materialId}`, route => json(route, { schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
     display_name: "Calculus.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
     available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }], study_sessions: [{ ...state, run_id: runId }] }));
-  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "study-resume/v4", assessment_sets: [], selected_set_id: null, session: state, run_id: runId, source_artifact_id: artifactId, knowledge_structure: view,
+  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: state, run_id: runId, source_artifact_id: artifactId, knowledge_structure: view,
     progress: { ...progress, next_action: { ...progress.next_action, action: "complete", target_concept_id: null, target_claim_id: null, reason: "all_mastered" } } }));
   const writes: string[] = [];
   page.on("request", request => { if (request.url().includes("/v1/study-sessions") && request.method() !== "GET") writes.push(request.url()); });
@@ -890,7 +908,7 @@ test("a new structure may create a distinct persistent state without focusing th
   let created = 0;
   const saved = { ...session(), study_session_id: nextStateId, knowledge_structure_revision: nextRevision };
   await page.route("**/v1/study-sessions", route => { created++; expect(route.request().postDataJSON().knowledge_structure_revision).toBe(nextRevision); return json(route, saved, 201); });
-  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "study-resume/v4", assessment_sets: [], selected_set_id: null, session: saved, run_id: nextRunId, source_artifact_id: artifactId, knowledge_structure: view,
+  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: saved, run_id: nextRunId, source_artifact_id: artifactId, knowledge_structure: view,
     progress: { ...progress, study_session_id: nextStateId, knowledge_structure_revision: nextRevision } }));
   await page.goto(`/materials/${materialId}/runs/${nextRunId}/knowledge-structures/${encodeURIComponent(nextRevision)}`);
   await openMapConcept(page);

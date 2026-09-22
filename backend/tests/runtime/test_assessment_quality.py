@@ -50,7 +50,8 @@ def test_large_prior_context_is_bounded_and_exact_duplicate_is_rejected(closed_l
         assert len(request['prior_questions'])<=1
         if prompts:assert request['prior_questions'][0]['prompt']==prompts[-1]
         prompts.append(prompt)
-        sets.change_set(f['learner'],f['study'].study_session_id,identity,'cancel',group['set_version'],f'close-{i}',dsn=f['dsn'])
+        from test_assessment_remediation import answer
+        answer(f,identity)
     observed.clear();_,group=publish(prompts[0])
     assert group['status']=='failed' and group['verified_count']==0
     assert all(kw['task']=='assessment' for kw in observed)

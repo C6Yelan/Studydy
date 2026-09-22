@@ -14,8 +14,8 @@ from browser_e2e_runner import PORT, local_api, main as run_browser
 from test_assessment_sets import closed_loop, concept_fixture, model_for
 
 
-@pytest.mark.parametrize('width', [1366, 390])
-def test_review_remediation_and_unknown_responses_resume_without_repeating(closed_loop, monkeypatch, width):
+@pytest.mark.parametrize('width', [1536, 390])
+def test_direct_remediation_and_unknown_responses_resume_without_repeating(closed_loop, monkeypatch, width):
     f=concept_fixture(closed_loop, 3)
     monkeypatch.setattr(api,'runtime_binding',lambda _: {})
     app=api.create_app(api.ApiSettings(profile='local',public_origin=f'http://127.0.0.1:{PORT}',
@@ -62,11 +62,11 @@ def test_review_remediation_and_unknown_responses_resume_without_repeating(close
     finally:
         stop.set();thread.join(timeout=10)
     assert not thread.is_alive() and errors==[]
-    assert calls==['assessment','assessment_check']*5
+    assert calls==['assessment','assessment_check']*6
     with database_session(f['dsn']) as session:
         groups=list(session.scalars(select(AssessmentSet).where(AssessmentSet.study_session_id==f['study'].study_session_id)))
-        assert len(groups)==2 and all(group.status=='completed' for group in groups)
+        assert len(groups)==3 and all(group.status=='completed' for group in groups)
         root=next(group for group in groups if group.kind=='diagnostic')
-        assert root.cycle_closed_at is not None
+        assert all(g.diagnostic_set_id==root.set_id for g in groups if g.kind=='remediation')
         answers=list(session.scalars(select(AnswerEvent).where(AnswerEvent.study_session_id==f['study'].study_session_id)))
-        assert len(answers)==5 and sum(answer.is_correct for answer in answers)==3
+        assert len(answers)==6 and sum(answer.is_correct for answer in answers)==3

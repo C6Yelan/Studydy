@@ -71,8 +71,8 @@ B5-Q 的安全候選品質排序、provenance v8 與 source-span-single-choice/v
 B5-D 將一個 Concept 的多個重點預先準備成持久題組。計畫決定動態題數，現有 worker
 逐題在 DB 交易外生成並驗證，最後原子發布；失敗只明確重試未完成題，或選擇部分發布。
 `assessment_sets`／`assessment_set_items` 保存計畫、狀態與成員，作答沿用 AnswerEvent。
-詳見 [單一觀念題組](assessment-sets.md)。B5-R 以同一題組加上初篩關聯與複習決策，
-只對已複習的錯誤重點產生補強；一次新題答對可結束該點本次補強。
+詳見 [單一觀念題組](assessment-sets.md)。B5-R 以同一題組保留初篩關聯，
+直接對所有目前待補強的錯誤重點產生補強；一次新題答對可結束該點本次補強。
 補強作答在投影中保留 assisted 身分，不累計或恢復獨立掌握證據；地圖、進度與歷史共用
 本輪結果。詳見 [錯題補強](assessment-remediation.md)。
 
@@ -103,11 +103,14 @@ recognizable date/ID label. Latest attempts and published revisions are listed i
 failed new attempt cannot hide a prior result. Reopen uses existing exact-revision GET endpoints
 and creates no learning records. There is no separate material-history store.
 
-Study resume (`study-resume/v4`) projects the bound StudySession, KnowledgeStructure,
+Study resume (`study-resume/v5`) projects the bound StudySession, KnowledgeStructure,
 AssessmentSet summaries and derived learner progress. The selected set is explicit in the
 Study Session URL. Published questions and feedback are read through the selected set, using
 its membership and private-answer validators. Reads never create sessions, questions or answers.
-The old single-question generation/submission/history and guidance-apply routes are removed.
+Single-question generation/submission/history routes are removed.
+Completed-cycle navigation applies the current backend `advance` or `complete` decision through
+`POST /v1/study-sessions/{id}/guidance/apply` (`guidance-apply/v2`). The revision is checked under
+the shared Material/Study lock; replay cannot advance twice, and active assessments remain protected.
 There is no separate preparation page or mastery calculation.
 
 Material creation uses the source collection and revision APIs (`/v2/materials`, sources,

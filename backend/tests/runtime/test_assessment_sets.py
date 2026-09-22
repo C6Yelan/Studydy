@@ -198,7 +198,7 @@ def test_api_preserves_scope_private_preparation_and_read_only_resume(closed_loo
     route=f'/v1/materials/{f["source"].material_id}/knowledge-structures/{f["document"]["revision"]}/study-sessions/{sid}/resume'
     restored=client.get(route,params={'run_id':str(f['run'].run_id),'set_id':identity})
     assert restored.status_code==200,restored.json()
-    assert restored.json()['schema']=='study-resume/v4'
+    assert restored.json()['schema']=='study-resume/v5'
     assert restored.json()['selected_set_id']==identity and 'assessments' not in restored.json()
     assert len(calls)==2
     conflict=client.post(base,headers={**HEADERS,'Idempotency-Key':'another-round'},json={
@@ -216,18 +216,15 @@ def test_api_preserves_scope_private_preparation_and_read_only_resume(closed_loo
         sets.read_set(TrustedLearner(uuid4()),sid,work.set_id,dsn=f['dsn'])
 
 
-def test_cancel_during_generation_fences_checker_and_publication(closed_loop):
-    f=concept_fixture(closed_loop,1);identity=create(f);work=sets.claim_set_work(dsn=f['dsn'])
-    calls=[];model=model_for(f,calls=calls)
-    def cancel(client,**kwargs):
-        response=model(client,**kwargs)
-        current=read(f,identity)
-        sets.change_set(f['learner'],f['study'].study_session_id,identity,'cancel',current['set_version'],'cancel-mid-call',dsn=f['dsn'])
-        return response
-    sets.execute_set_work(work,dsn=f['dsn'],semantic_call=cancel)
+def test_ended_study_automatically_cancels_pending_generation(closed_loop):
+    from runtime.storage.tables import StudySession
+    f=concept_fixture(closed_loop,1);identity=create(f)
+    with database_session(f['dsn']) as session:
+        study=session.get(StudySession,f['study'].study_session_id)
+        study.status='completed';study.completed_at=sets._now()
+    assert sets.claim_set_work(dsn=f['dsn']) is None
     result=read(f,identity)
     assert result['status']=='cancelled' and result['published_count']==0
-    assert calls==['assessment']
     assert read_answer_events(f['learner'],f['study'].study_session_id,dsn=f['dsn'])==()
 
 

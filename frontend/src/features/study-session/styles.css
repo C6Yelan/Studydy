@@ -16,7 +16,6 @@
 .study-workspace { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: var(--space-5); }
 .study-main, .study-rail { min-width: 0; }
 .study-rail { display: grid; align-self: start; gap: var(--space-4); }
-.study-rail:empty { display: none; }
 @media (max-width: 900px) { .study-learning-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 620px) {
   .study-session-page { padding: var(--space-5) var(--space-3) var(--space-8); }
@@ -29,13 +28,7 @@
 
 @media (min-width: 1280px) {
   .study-workspace { grid-template-columns: minmax(0, 1fr) clamp(300px, 22vw, 320px); gap: var(--space-6); }
-  .study-workspace:has(> .study-rail:empty) { grid-template-columns: minmax(0, 1fr); }
   .study-main .study-learning-grid.is-preparation-mode { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); }
-  .study-rail .learning-insights { padding: var(--space-4); }
-  .study-rail .insights-heading { gap: var(--space-2); align-items: flex-start; }
-  .study-rail .insights-heading h2 { font-size: 16px; }
-  .study-rail .insights-summary { display: grid; gap: var(--space-1); line-height: 1.55; }
-  .study-rail .insights-separator { display: none; }
 }
 
 /* 準備階段並排教材與檢測入口；真正作答及結果才使用寬版主區。 */
@@ -52,10 +45,7 @@
   .study-workspace:not(.is-preparation-mode) .study-rail { position: sticky; top: 80px; }
 }
 
-/* 同一 Study Session 的主 task；沒有 rail 時沿用 main 的閱讀寬度。 */
+/* 沒有可回顧的紀錄時，主內容直接使用完整 workspace。 */
 .study-workspace.without-rail { grid-template-columns: minmax(0, 1fr); }
 .study-main .study-learning-grid.is-set-mode:not(.is-preparation-mode) { grid-template-columns: minmax(0, 1fr); justify-items: stretch; }
 .study-main .study-learning-grid.is-set-mode:not(.is-preparation-mode) .study-current-action { width: 100%; }
-@media (min-width: 1280px) {
-  .study-workspace.without-rail .study-main { width: calc(100% - clamp(300px, 22vw, 320px) - var(--space-6)); }
-}

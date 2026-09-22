@@ -301,7 +301,7 @@ class AnswerFeedbackView(_Closed):
 
 
 class StudyResumeView(_Closed):
-    schema_: Literal["study-resume/v4"] = Field(default="study-resume/v4", alias="schema")
+    schema_: Literal["study-resume/v5"] = Field(default="study-resume/v5", alias="schema")
     session: StudySessionView
     run_id: UUID
     source_artifact_id: UUID
@@ -356,19 +356,11 @@ class AssessmentPlanView(_Closed):
     excluded: list[AssessmentPlanExcluded]
 
 
-class AssessmentReview(_Closed):
-    schema_: Literal['assessment-review/v1'] = Field(alias='schema')
-    expected_set_version: int = Field(ge=1, strict=True)
-    target_claim_id: str
-    action: Literal['review', 'defer']
-
-
 class AssessmentCycleSummary(_Closed):
     diagnostic_set_id: UUID
     concept_id: str
     set_version: int
-    outcome: Literal['in_progress','needs_review','ready_for_remediation','passed','incomplete','deferred']
-    closed_at: datetime | None
+    outcome: Literal['in_progress','needs_review','passed','incomplete']
     active_set_id: UUID | None
     passed_count: int
     remediation_passed_count: int
@@ -379,15 +371,13 @@ class AssessmentCycleSummary(_Closed):
 
 class AssessmentCyclePoint(_Closed):
     claim_id: str
-    result: Literal['unavailable','unanswered','diagnostic_pass','needs_review','reviewed','remediation_pass','deferred']
+    result: Literal['unavailable','unanswered','diagnostic_pass','needs_review','remediation_pass']
     latest_answer_event_id: UUID | None
     latest_set_id: UUID | None
 
 
 class AssessmentCycleView(AssessmentCycleSummary):
     can_create_remediation: bool
-    can_close: bool
-    can_review: bool
     points: list[AssessmentCyclePoint]
 
 
@@ -428,27 +418,31 @@ class AssessmentSetItemView(_Closed):
 
 
 class AssessmentSetView(AssessmentSetSummary):
-    schema_: Literal['assessment-set/v2'] = Field(alias='schema')
+    schema_: Literal['assessment-set/v3'] = Field(alias='schema')
     study_session_id: UUID
     material_id: UUID
     knowledge_structure_revision: str
-    selection_policy: Literal['single-concept-grounded-points/v1','reviewed-wrong-points/v1']
+    selection_policy: Literal['single-concept-grounded-points/v1','needs-review-points/v1']
     point_count: int
     excluded_count: int
     verified_count: int
     can_retry: bool
     can_publish_partial: bool
     can_complete: bool
-    can_cancel: bool
     items: list[AssessmentSetItemView]
     cycle: AssessmentCycleView
 
 
 
 
+class GuidanceApply(_Closed):
+    schema_: Literal["guidance-apply/v2"] = Field(alias="schema")
+    guidance_revision: str = Field(pattern=r"^learner-guidance:sha256:[0-9a-f]{64}$")
+
+
 class LearnerProgressView(_Closed):
     assessment_cycles: list[AssessmentCycleSummary]
-    schema_: Literal["learner-progress/v3"] = Field(alias="schema")
+    schema_: Literal["learner-progress/v4"] = Field(alias="schema")
     study_session_id: UUID
     knowledge_structure_revision: str
     event_watermark: int
