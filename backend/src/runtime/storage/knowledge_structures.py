@@ -79,16 +79,15 @@ def runtime_binding_is_valid(value: Any) -> bool:
 
 def _view(document,material_id):
     view=build_knowledge_structure_view(document)
-    if "input_binding" in document:
-        view["schema"]="knowledge-structure-view/v3"
-        view["source_resolver"]=f"/v2/materials/{material_id}/knowledge-structures/{document['revision']}/evidence"
-        binding=document['input_binding']
-        sources={item['source_id']:item for item in binding['manifest']['items']}
-        for concept in view['concepts']:
-            for claim in concept['claims']:
-                for evidence in claim['evidence']:
-                    location=binding['bundle']['pages'][evidence['page']-1]
-                    evidence.update(source_id=location['source_id'],source_name=sources[location['source_id']]['original_name'],normalized_page=location['normalized_page'])
+    view["schema"]="knowledge-structure-view/v3"
+    view["source_resolver"]=f"/v2/materials/{material_id}/knowledge-structures/{document['revision']}/evidence"
+    binding=document['input_binding']
+    sources={item['source_id']:item for item in binding['manifest']['items']}
+    for concept in view['concepts']:
+        for claim in concept['claims']:
+            for evidence in claim['evidence']:
+                location=binding['bundle']['pages'][evidence['page']-1]
+                evidence.update(source_id=location['source_id'],source_name=sources[location['source_id']]['original_name'],normalized_page=location['normalized_page'])
     return view
 
 
@@ -218,8 +217,6 @@ def publish_knowledge_structure(
             # 品質提示隨結果保留，不阻擋已驗證且含新增內容的地圖發布。
             material.head_revision = document["revision"]
             material.source_artifact_id = locked_run.source_artifact_id
-            if document["schema"] == "knowledge-structure/v4":
-                material.ingestion_kind = "sources-v2"
             session.flush()
             if locked_run.base_revision is not None and not review_only:
                 _prune_unreferenced_structures(session, learner_id, material_id, material.head_revision)
@@ -299,10 +296,6 @@ def read_knowledge_structure(
             raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
         from ..source_resolver import verify_structure_input
         verify_structure_input(learner_id,stored_run_id,document,dsn=dsn)
-        if document["schema"] != "knowledge-structure/v4":
-            with open_verified_source_pdf(learner_id, source_artifact_id, dsn=dsn) as source:
-                if source.material_id != material_id or source.sha256 != document["source_sha256"]:
-                    raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
         return StoredKnowledgeStructure(
             document["revision"], deepcopy(document), _view(document,material_id)
         )

@@ -2,20 +2,15 @@ import type { SourceView, SourceListView, SourceCapabilities, EvidenceSourceView
 import type { AssessmentCycleSummary, AssessmentPlanView, AssessmentSetSummary, AssessmentSetListView, AssessmentSetAnswer, AssessmentSetView, AssessmentSetAction } from "./contracts";
 import type {
   AnswerFeedbackView,
-  AnswerSubmissionCreate,
   ApiErrorView,
   ApiReasonCode,
-  AssessmentCreate,
   AssessmentView,
-  GuidanceApply,
   KnowledgeStructureRequest,
   KnowledgeStructureView,
   KnownApiReasonCode,
   LearnerProgressView,
-  MaterialProcessingCreate,
   MaterialProcessingRunView,
   MaterialDiscardView,
-  MaterialView,
   MaterialLibraryItem,
   MaterialRename,
   MaterialLibraryView,
@@ -39,7 +34,6 @@ const knownReasons = new Set<KnownApiReasonCode>([
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const sha = /^[0-9a-f]{64}$/;
 const authTimeoutMs = 10_000;
-const maximumPdfBytes = 100 * 1024 * 1024;
 
 function origin(): string {
   return globalThis.location?.origin ?? "http://127.0.0.1:4173";
@@ -57,13 +51,6 @@ function strings(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0);
 }
 
-function material(value: unknown): value is MaterialView {
-  const item = object(value);
-  return !!item && item.schema === "material/v1" && typeof item.material_id === "string" && uuid.test(item.material_id)
-    && typeof item.source_artifact_id === "string" && uuid.test(item.source_artifact_id)
-    && typeof item.source_sha256 === "string" && sha.test(item.source_sha256)
-    && Number.isInteger(item.size_bytes) && Number(item.size_bytes) > 0;
-}
 
 function timestamp(value: unknown): value is string {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value))) return false;
@@ -98,7 +85,7 @@ function materialDiscard(value: unknown): value is MaterialDiscardView {
 
 function materialRun(value: unknown): value is MaterialProcessingRunView {
   const item = object(value);
-  if (!item || !["material-processing-run/v5", "material-processing-run/v6"].includes(String(item.schema)) || !materialAttempt(item)) return false;
+  if (!item || item.schema !== "material-processing-run/v6" || !materialAttempt(item)) return false;
   if (item.base_revision !== undefined && !revision(item.base_revision, "knowledge-structure")) return false;
   if (item.analysis_saved !== undefined && typeof item.analysis_saved !== "boolean") return false;
   if (item.source_names !== undefined && !strings(item.source_names)) return false;
@@ -147,7 +134,7 @@ function evidenceSource(value:unknown): value is EvidenceSourceView {
 function libraryItem(value: unknown): value is MaterialLibraryItem {
   const item = object(value);
   if (item && ((item.head_revision !== undefined && item.head_revision !== null && !revision(item.head_revision,"knowledge-structure")) || (item.source_count !== undefined && (!Number.isInteger(item.source_count) || Number(item.source_count)<0)))) return false;
-  if (!item || !["material-library-item/v2", "material-library-item/v3"].includes(String(item.schema))
+  if (!item || item.schema !== "material-library-item/v3"
     || typeof item.material_id !== "string" || !uuid.test(item.material_id)
     || !(typeof item.source_artifact_id === "string" && uuid.test(item.source_artifact_id) || item.schema === "material-library-item/v3" && item.source_artifact_id === null)
     || (item.source !== undefined && !sourceView(item.source))
@@ -188,7 +175,7 @@ function locator(value: unknown): boolean {
 
 function knowledgeStructure(value: unknown): value is KnowledgeStructureView {
   const item = object(value);
-  if (!item || !["knowledge-structure-view/v2", "knowledge-structure-view/v3"].includes(String(item.schema)) || !revision(item.knowledge_structure_revision, "knowledge-structure")) return false;
+  if (!item || item.schema !== "knowledge-structure-view/v3" || !revision(item.knowledge_structure_revision, "knowledge-structure")) return false;
   if (item.schema === "knowledge-structure-view/v3" && (typeof item.source_resolver !== "string" || !item.source_resolver.startsWith("/v2/materials/"))) return false;
   if (!Array.isArray(item.concepts) || !Array.isArray(item.relations) || !Array.isArray(item.initial_learning_path)) return false;
   const concepts = item.concepts as unknown[];
@@ -390,11 +377,11 @@ function assessmentSet(value: unknown): value is AssessmentSetView {
 
 function studyResume(value: unknown): value is StudyResumeView {
   const item = object(value);
-  if (!item || item.schema !== "study-resume/v3" || !studySession(item.session)
+  if (!item || item.schema !== "study-resume/v4" || !studySession(item.session)
     || !knowledgeStructure(item.knowledge_structure) || !progress(item.progress)
     || typeof item.run_id !== "string" || !uuid.test(item.run_id)
     || typeof item.source_artifact_id !== "string" || !uuid.test(item.source_artifact_id)
-    || !Array.isArray(item.assessments) || !Array.isArray(item.assessment_sets)
+    || !Array.isArray(item.assessment_sets)
     || !item.assessment_sets.every(assessmentSetSummary)
     || !(item.selected_set_id === null || item.assessment_sets.some(group => group.set_id === item.selected_set_id))) return false;
   const session = item.session;
@@ -402,29 +389,7 @@ function studyResume(value: unknown): value is StudyResumeView {
     || item.progress.knowledge_structure_revision !== session.knowledge_structure_revision
     || item.knowledge_structure.knowledge_structure_revision !== session.knowledge_structure_revision
     || item.progress.event_watermark !== session.event_watermark) return false;
-  const membership = new Map<string, AssessmentSetSummary>();
-  for (const group of item.assessment_sets) {
-    for (const id of group.assessment_revisions) {
-      if (membership.has(id)) return false;
-      membership.set(id, group);
-    }
-  }
-  if (!item.assessments.every((value) => {
-    const record = object(value);
-    if (!record || !assessment(record.assessment) || typeof record.created_at !== "string" || typeof record.can_submit !== "boolean") return false;
-    const question = record.assessment;
-    if (question.study_session_id !== session.study_session_id || question.knowledge_structure_revision !== session.knowledge_structure_revision) return false;
-    if (record.feedback !== null && (!feedback(record.feedback)
-      || record.feedback.study_session_id !== session.study_session_id
-      || record.feedback.assessment_revision !== question.assessment_revision
-      || record.feedback.question_id !== question.question_id
-      || !question.options.some(option => option.option_id === (record.feedback as AnswerFeedbackView).selected_option_id))) return false;
-    const group = membership.get(question.assessment_revision);
-    if (group && group.target_concept_id !== question.target_concept_id) return false;
-    return !record.can_submit || (record.feedback === null && session.status !== "completed"
-      && (group ? ["ready", "in_progress"].includes(group.status) : question.target_concept_id === session.current_concept_id));
-  })) return false;
-  return item.selected_assessment_revision === null || item.assessments.some(value => object(object(value)?.assessment)?.assessment_revision === item.selected_assessment_revision);
+  return true;
 }
 
 function apiError(value: unknown): value is ApiErrorView {
@@ -605,12 +570,6 @@ export class StudydyApiClient {
     }, guard);
   }
 
-  async createMaterial(pdf: Blob, key: string = crypto.randomUUID(), displayName?: string): Promise<MaterialView> {
-    if (pdf.type !== "application/pdf" || pdf.size < 1 || pdf.size > maximumPdfBytes) throw new ApiClientError("input", "請選擇有效且不超過 100 MiB 的 PDF。", { reasonCode: "REQUEST_INPUT_INVALID" });
-    const headers: Record<string, string> = { "Content-Type": "application/pdf", Origin: origin(), "Idempotency-Key": key };
-    if (displayName !== undefined) headers["X-Material-Name"] = encodeURIComponent(displayName);
-    return this.json("/v1/materials", { method: "POST", headers, body: pdf }, material);
-  }
 
   sourceCapabilities(): Promise<SourceCapabilities> { return this.json("/v2/source-capabilities",{method:"GET"},capabilities); }
   createDraft(name:string,key:string): Promise<{schema:"material-draft/v1";material_id:string}> {
@@ -648,9 +607,6 @@ export class StudydyApiClient {
     return item;
   }
 
-  createMaterialRun(body: MaterialProcessingCreate, key: string = crypto.randomUUID()): Promise<MaterialProcessingRunView> {
-    return this.post("/v1/material-processing-runs", body, key, materialRun);
-  }
 
   getMaterialRun(runId: string): Promise<MaterialProcessingRunView> {
     return this.json(`/v1/material-processing-runs/${encodeURIComponent(runId)}`, { method: "GET" }, materialRun);
@@ -692,9 +648,8 @@ export class StudydyApiClient {
     return this.post("/v1/study-sessions", body, key, studySession);
   }
 
-  async resumeStudy(request: { materialId: string; structureRevision: string; studySessionId: string; runId: string; assessmentRevision?: string; assessmentSetId?: string }): Promise<StudyResumeView> {
+  async resumeStudy(request: { materialId: string; structureRevision: string; studySessionId: string; runId: string; assessmentSetId?: string }): Promise<StudyResumeView> {
     const query = new URLSearchParams({ run_id: request.runId });
-    if (request.assessmentRevision) query.set("assessment_revision", request.assessmentRevision);
     if (request.assessmentSetId) query.set("set_id", request.assessmentSetId);
     let restored: StudyResumeView;
     // Worker 可能恰好發布題目；僅對 snapshot 衝突補讀，絕不重播建立或作答。
@@ -709,15 +664,10 @@ export class StudydyApiClient {
     }
     if (restored.session.material_id !== request.materialId || restored.session.study_session_id !== request.studySessionId
       || restored.session.knowledge_structure_revision !== request.structureRevision || restored.run_id !== request.runId
-      || (request.assessmentRevision !== undefined && restored.selected_assessment_revision !== request.assessmentRevision)
       || (request.assessmentSetId !== undefined && restored.selected_set_id !== request.assessmentSetId)) {
       throw new ApiClientError("schema", "學習紀錄與教材版本不一致。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
     }
     return restored;
-  }
-
-  completeStudySession(id: string): Promise<StudySessionView> {
-    return this.json(`/v1/study-sessions/${encodeURIComponent(id)}/complete`, { method: "POST", headers: { Origin: origin() } }, studySession);
   }
 
   async readAssessmentPlan(id: string, conceptId: string): Promise<AssessmentPlanView> {
@@ -778,17 +728,8 @@ export class StudydyApiClient {
     return value;
   }
 
-  createAssessment(id: string, body: AssessmentCreate, key: string = crypto.randomUUID()): Promise<AssessmentView> {
-    return this.post(`/v1/study-sessions/${encodeURIComponent(id)}/assessments`, body, key, assessment);
-  }
 
-  submitAssessmentAnswer(id: string, revision: string, body: AnswerSubmissionCreate, key: string = crypto.randomUUID()): Promise<AnswerFeedbackView> {
-    return this.post(`/v1/study-sessions/${encodeURIComponent(id)}/assessments/${encodeURIComponent(revision)}/submissions`, body, key, feedback);
-  }
 
-  applyGuidance(id: string, body: GuidanceApply): Promise<LearnerProgressView> {
-    return this.json(`/v1/study-sessions/${encodeURIComponent(id)}/guidance/apply`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin() }, body: JSON.stringify(body) }, progress);
-  }
 
   sourceArtifactUrl(id: string, page?: number): string {
     return `/v1/artifacts/${encodeURIComponent(id)}${page ? `#page=${page}` : ""}`;

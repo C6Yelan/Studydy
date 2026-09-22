@@ -33,9 +33,6 @@ test("task routes are canonical; removed collections and detail bookmarks are no
   assert.equal(readRoute("/knowledge-maps").isCanonical, false);
 });
 
-test("selected saved assessments survive canonical study URLs", () => {
-  const route = { name: "study-session", materialId, runId, structureRevision, studySessionId,
-    assessmentRevision: `assessment:sha256:${"c".repeat(64)}` };
-  assert.deepEqual(readRoute(routePath(route)), { route, isCanonical: true });
-  assert.throws(() => routePath({ ...route, assessmentRevision: "not-an-assessment" }));
+test("retired single-assessment bookmarks are not routes", () => {
+  assert.equal(readRoute(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${studySessionId}/assessments/${encodeURIComponent(`assessment:sha256:${"c".repeat(64)}`)}`).isCanonical,false);
 });

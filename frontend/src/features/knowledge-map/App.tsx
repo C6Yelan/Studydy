@@ -17,7 +17,6 @@ export default function KnowledgeMap({ apiClient, route }: {
   const [progressMessage, setProgressMessage] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [view, setView] = useState<KnowledgeStructureView | null>(null);
-  const [sourceArtifactId, setSourceArtifactId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [startMessage, setStartMessage] = useState<string | null>(null);
   const [isStartingStudy, setIsStartingStudy] = useState(false);
@@ -34,7 +33,6 @@ export default function KnowledgeMap({ apiClient, route }: {
     const routeKey = `${route.materialId}:${route.runId}:${route.structureRevision}`;
     if (loadedRoute.current !== routeKey) {
       setView(null);
-      setSourceArtifactId(null);
       loadedRoute.current = routeKey;
     }
     const openCurrentHead = (material: MaterialLibraryItem) => {
@@ -59,7 +57,6 @@ export default function KnowledgeMap({ apiClient, route }: {
           throw mapResult.error;
         }
         setView(mapResult.view);
-        setSourceArtifactId(run.source_artifact_id);
         try {
           const material = await apiClient.getMaterial(route.materialId);
           if (cancelled || openCurrentHead(material)) return;
@@ -92,7 +89,7 @@ export default function KnowledgeMap({ apiClient, route }: {
       tone="failure"
     />
   );
-  if (!view || !sourceArtifactId) return (
+  if (!view) return (
     <StateView
       description="正在載入教材概念與學習順序。"
       live
@@ -147,7 +144,6 @@ export default function KnowledgeMap({ apiClient, route }: {
       onReturnToRun={() => writeRoute({ name: "material-run", materialId: route.materialId, runId: route.runId })}
       onAddSources={() => writeRoute({ name: "material-sources", materialId: route.materialId })}
       onStartStudy={startStudy}
-      sourceArtifactId={sourceArtifactId}
       startMessage={startMessage}
       view={view}
     />

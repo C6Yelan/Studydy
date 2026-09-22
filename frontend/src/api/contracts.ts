@@ -34,19 +34,7 @@ export type ApiErrorView = {
   message: "Request could not be completed.";
 };
 
-export type MaterialView = {
-  schema: "material/v1";
-  material_id: string;
-  source_artifact_id: string;
-  source_sha256: string;
-  size_bytes: number;
-};
 
-export type MaterialProcessingCreate = {
-  schema: "material-processing-create/v1";
-  material_id: string;
-  source_artifact_id: string;
-};
 
 export type MaterialOutputBinding = {
   schema: "material-run-output-binding/v4";
@@ -71,7 +59,7 @@ export type MaterialProcessingRunView = {
   analysis_saved?: boolean;
   base_revision?: string;
   source_names?: string[];
-  schema: "material-processing-run/v5" | "material-processing-run/v6";
+  schema: "material-processing-run/v6";
   input_source_set_id?: string;
   cancel_requested_at: string | null;
   run_id: string;
@@ -111,7 +99,7 @@ export type StudySessionLink = {
 export type MaterialLibraryItem = {
   head_revision?: string | null;
   source_count?: number;
-  schema: "material-library-item/v2" | "material-library-item/v3";
+  schema: "material-library-item/v3";
   ingestion_kind?: "sources-v2";
   source?: SourceView;
   material_id: string;
@@ -152,8 +140,8 @@ export type EvidenceView = {
 export type RelationType = "prerequisite" | "part_of" | "application" | "example" | "contrast";
 
 export type KnowledgeStructureView = {
-  schema: "knowledge-structure-view/v2" | "knowledge-structure-view/v3";
-  source_resolver?: string;
+  schema: "knowledge-structure-view/v3";
+  source_resolver: string;
   material_id: string;
   knowledge_structure_revision: string;
   status: {
@@ -230,7 +218,6 @@ export type StudySessionView = {
   event_watermark: number;
 };
 
-export type AssessmentCreate = { schema: "assessment-create/v2"; target_claim_id: string };
 export type AssessmentOptionView = { option_id: string; text: string };
 export type AssessmentView = {
   schema: "single-choice-assessment/v2";
@@ -246,11 +233,6 @@ export type AssessmentView = {
   options: AssessmentOptionView[];
 };
 
-export type AnswerSubmissionCreate = {
-  schema: "answer-submission-create/v2";
-  question_id: string;
-  selected_option_id: string;
-};
 
 export type AnswerFeedbackView = {
   schema: "answer-feedback/v2";
@@ -301,7 +283,6 @@ export type LearnerProgressView = {
   guidance_revision: string;
 };
 
-export type GuidanceApply = { schema: "guidance-apply/v2"; guidance_revision: string };
 
 export type AssessmentRecordView = {
   assessment: AssessmentView;
@@ -311,14 +292,12 @@ export type AssessmentRecordView = {
 };
 
 export type StudyResumeView = {
-  schema: "study-resume/v3";
+  schema: "study-resume/v4";
   session: StudySessionView;
   run_id: string;
   source_artifact_id: string;
   knowledge_structure: KnowledgeStructureView;
   progress: LearnerProgressView;
-  assessments: AssessmentRecordView[];
-  selected_assessment_revision: string | null;
   assessment_sets: AssessmentSetSummary[];
   selected_set_id: string | null;
 };

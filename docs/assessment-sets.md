@@ -18,17 +18,19 @@ B5-Q 出題檢查與候選排序、B5-D 題組及 B5-R 錯題補強均已實作�
 
 發布後一次看到整組，**選完所有已發布題目再一次交卷**。交卷前可修改選項，單純選取不算保存，也不逐題顯示正誤。伺服器在同一交易驗證並保存整組答案，任一項失敗全部回滾；成功時同時結束本組、顯示完整回饋與補強建議，不再另按結束初篩／補強。回應遺失可查回整組結果或以相同意圖重送，不重複計分。已完成或取消的題組可回顧，重新整理與重新登入不重新出題。
 
-題組不再接受個別題目的新增作答；切換前同意圖的已存單題回應仍可查回。切換前已保存的個別答案不改寫，完成整組時只保存尚缺的答案；未分組的既有單題紀錄仍能正常讀取／作答。已發布但省略的重點維持未檢測，整組交卷只要求作答實際發布的題目。
+題組只接受整組交卷；獨立單題生成、讀取、提交與舊 guidance API 已移除，不再提供未分組單題的相容讀取。已保存的資料不改寫。已發布但省略的重點維持未檢測，整組交卷只要求作答實際發布的題目。
 
 摘要顯示本次通過、待複習、尚未作答與未檢測。**結束本輪不代表已掌握**；原有學習 reducer 仍要求每個重點兩道不同的合格正確題且最新作答正確。未出題、生成失敗或未答不算學生答錯。本批完成題組功能；錯題導向的新補強輪已由 [B5-R](assessment-remediation.md) 接上；補強只計入本次改善，不累計為獨立掌握證據，原答案與資格不改寫。
 
 ## 保存與併發邊界
 
-migration `0011_assessment_sets.sql` 新增 `assessment_sets`／`assessment_set_items`，不重寫既有教材、題目、答案或 hashes。不同觀念可各自保留進行中的題組；同一 StudySession／Concept 不重複建立進行中的題組。資料庫唯一限制、完整 scope 外鍵及發布不可變 trigger 保護成員關係。原始單題仍可讀取與作答，但使用者的新出題入口統一為觀念題組，已移除舊單題生成與 guidance 元件。
+migration `0011_assessment_sets.sql` 新增 `assessment_sets`／`assessment_set_items`，不重寫既有教材、題目、答案或 hashes。不同觀念可各自保留進行中的題組；同一 StudySession／Concept 不重複建立進行中的題組。資料庫唯一限制、完整 scope 外鍵及發布不可變 trigger 保護成員關係。前後端僅使用觀念題組入口；沒有單題歷史路由或舊 guidance 元件／API。
 
 預留與提交使用短交易，模型呼叫在交易外。逐題 lease／token 配合心跳防止晚到結果發布，過期工作記為中斷而非自動再呼叫模型。已驗證結果遇到不確定的 DB commit 最多補存一次相同結果，不重新出題。取消或刪除教材會失效化工作；實際刪除時先清理題組成員，再清理原有題目與學習記錄。
 
-作答權限以伺服器的已發布題組成員為準，不能靠前端傳入 Claim 或取消所有 current-focus 檢查。舊的未分組題目維持原範圍限制。公開讀取不包含執行設定、原始候選、私有正解或未發布的題目。
+作答權限以伺服器的已發布題組成員為準，不能靠前端傳入 Claim 或取消所有 current-focus 檢查。公開讀取不包含執行設定、原始候選、私有正解或未發布的題目。
+
+學生介面不提供取消題組入口；backend `cancel` 保留給內部恢復。等待內容是同一 AssessmentSetPanel 的 preparing 狀態，沒有額外 preparation route。
 
 ## API
 
@@ -40,7 +42,7 @@ migration `0011_assessment_sets.sql` 新增 `assessment_sets`／`assessment_set_
 | 整組交卷 | `POST .../assessment-sets/{set_id}/submissions`，含全部已發布題目選項、版本與操作意圖 |
 | 明確重試／部分發布／完成／取消 | `POST .../{set_id}/{retry|publish-partial|complete|cancel}` |
 
-建立帶 `target_concept_id` 與 Idempotency-Key，不接受前端任填題數；修改帶版本與 Idempotency-Key。現行 `study-resume/v3` 包含題組摘要與選取 ID，URL 可指向原題組。讀取使用一致 snapshot，過期讀取不覆蓋較新版本；明確版本衝突讀回最新狀態，未知結果保留原操作意圖。
+建立帶 `target_concept_id` 與 Idempotency-Key，不接受前端任填題數；修改帶版本與 Idempotency-Key。現行 `study-resume/v4` 只包含題組摘要與選取 ID，不再投影 `assessments`／`selected_assessment_revision`，URL 可指向原題組。讀取使用一致 snapshot，過期讀取不覆蓋較新版本；明確版本衝突讀回最新狀態，未知結果保留原操作意圖。
 
 ## 驗證與實際限制（2026-09-20）
 
@@ -82,7 +84,7 @@ migration `0011_assessment_sets.sql` 新增 `assessment_sets`／`assessment_set_
 
 使用者明確指出：未完成 A 不應阻止進入 B。原本的全 StudySession 單一進行中題組限制範圍過大，現已移除切換焦點的封鎖；migration 0013 把唯一索引改為 `(study_session_id, target_concept_id)`。A 可以繼續準備／保留未答題，B 可以瀏覽、建立及作答自己的題組，回到 A 接續原題。
 
-題組作答依原 owner、KS、Concept 與不可變成員驗證，不依目前導覽焦點授權。前端 resume 的檢查也按同一規則處理；未分組單題仍維持原有焦點規則。題組頁 URL 固定指向實際題組，另一視窗切換焦點不改掉本頁內容。重試、複習及補強也只受同一觀念中的進行中題組限制。
+題組作答依原 owner、KS、Concept 與不可變成員驗證，不依目前導覽焦點授權。前端 resume 的檢查也按同一規則處理。題組頁 URL 固定指向實際題組，另一視窗切換焦點不改掉本頁內容。重試、複習及補強也只受同一觀念中的進行中題組限制。
 
 題組列表改為 `assessment-set-list/v3`，`active_set_ids` 如實列出多個觀念各自的進行中題組；同一觀念重複建立回 `ASSESSMENT_SET_ACTIVE`，前端接續該觀念原題組，不重跑模型。版本衝突另用原 `ASSESSMENT_SET_CONFLICT`：明確拒絕的交卷會讀回最新狀態、保留選項，下一次確認用最新版本送出；網路結果未知仍沿用原提交意圖查回，不冒然換 key 重送。
 

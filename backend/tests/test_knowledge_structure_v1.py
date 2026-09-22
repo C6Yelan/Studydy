@@ -304,7 +304,8 @@ def test_relations_keep_endpoint_order_and_only_prerequisite_orders_path(source,
     assert contrast["learner_reason"] == comparison["learner_reason"]
     assert [labels[step["concept_id"]] for step in structure["initial_learning_path"]] == ["Pointer", "Array"]
     view = build_knowledge_structure_view(structure)
-    assert view["schema"] == "knowledge-structure-view/v2"
+    # 公開 view schema／resolver 由 owned runtime projection 加入。
+    assert "schema" not in view
     assert view["concepts"][0]["claims"][0]["evidence"][0]["page"] == 1
 
 

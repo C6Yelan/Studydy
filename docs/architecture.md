@@ -6,7 +6,7 @@ Production has one semantic path:
 PDF → native Evidence / optional OCR → document sections + Evidence bundle
     → resident Gemma 4 unified semantics → deterministic projection
     → Document Tree + canonical Concepts + typed Relations + Initial Path
-    → StudySession + Assessment + learner guidance
+    → StudySession + AssessmentSet + AnswerEvent
 ```
 
 Supplementary resource recommendation (Agent 2) is removed. Concepts retain only the uploaded
@@ -103,12 +103,17 @@ recognizable date/ID label. Latest attempts and published revisions are listed i
 failed new attempt cannot hide a prior result. Reopen uses existing exact-revision GET endpoints
 and creates no learning records. There is no separate material-history store.
 
-Study resume is a read projection of the existing StudySession, exact KnowledgeStructure,
-AssessmentSet、Assessment 與 AnswerEvent。它使用 the existing assessment/event validators, feedback projection
-and derived progress. The material library exposes one canonical persistent state per structure revision; the learner hub opens the selected Material head. Question
-selection is explicit in the browser URL. Reads never create sessions/questions/answers or apply
-guidance. Completed sessions remain readable, and feedback is exposed only for a validated saved
-AnswerEvent. There is no separate mastery calculation; set history comes from the persisted sets.
+Study resume (`study-resume/v4`) projects the bound StudySession, KnowledgeStructure,
+AssessmentSet summaries and derived learner progress. The selected set is explicit in the
+Study Session URL. Published questions and feedback are read through the selected set, using
+its membership and private-answer validators. Reads never create sessions, questions or answers.
+The old single-question generation/submission/history and guidance-apply routes are removed.
+There is no separate preparation page or mastery calculation.
+
+Material creation uses the source collection and revision APIs (`/v2/materials`, sources,
+revisions); direct `/v1/materials` POST and `/v1/material-processing-runs` POST are retired.
+Public readers accept the current source-aware view/run/library contracts only. Historical
+migration files and persisted rows are not deleted or rewritten by this cleanup.
 
 B3-A appends immutable source snapshots and analyzes only added sources, retaining verified prior
 Evidence and semantic content. PDFs remain separate, with source-aware reading positions in a v4

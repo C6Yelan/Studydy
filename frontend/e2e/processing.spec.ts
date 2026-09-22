@@ -8,7 +8,7 @@ const revision = `knowledge-structure:sha256:${"a".repeat(64)}`;
 const path = `/materials/${materialId}/runs/${runId}`;
 const clockTime = new Date("2026-09-12T12:00:00Z");
 const base: MaterialProcessingRunView = {
-  schema: "material-processing-run/v5", cancel_requested_at: null, material_id: materialId, run_id: runId, source_artifact_id: artifactId,
+  schema: "material-processing-run/v6", cancel_requested_at: null, material_id: materialId, run_id: runId, source_artifact_id: artifactId,
   status: "running", progress_stage: "evidence", completed_pages: 3, total_pages: 45,
   created_at: "2026-09-12T11:59:58Z", updated_at: "2026-09-12T11:59:59Z", completed_at: null, error_code: null, output_binding: null,
 };

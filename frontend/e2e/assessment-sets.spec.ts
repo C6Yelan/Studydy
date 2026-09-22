@@ -20,9 +20,9 @@ test("whole paper submits once, restores all results and keeps aligned cards", a
   await page.getByRole("button", { name: "開始本輪 3 題", exact: true }).click();
   await expect(page).toHaveURL(/assessment-sets\/[0-9a-f-]+$/);
   const roundPath = new URL(page.url()).pathname, setId = roundPath.split("/").at(-1)!;
-  await expect(page.getByText("已備妥 0／3 題", { exact: true })).toBeVisible();
+  await expect(page.getByText("0 / 3 題", { exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByText("已備妥 0／3 題", { exact: true })).toBeVisible();
+  await expect(page.getByText("0 / 3 題", { exact: true })).toBeVisible();
   await page.request.post("/v1/__test/sets/release", { headers: { Origin: origin } });
   await expect(page.locator(".assessment-set-item")).toHaveCount(3);
   const endpoint=`/v1/study-sessions/${data.session}/assessment-sets/${setId}`;

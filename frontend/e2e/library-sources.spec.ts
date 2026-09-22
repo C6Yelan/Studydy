@@ -10,7 +10,7 @@ for (const width of [1536, 390]) {
     await page.route("**/v1/session/refresh", route => route.fulfill({ status: 204 }));
     await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: id } }));
     const item = {
-      schema: "material-library-item/v2", material_id: id, source_artifact_id: pdf,
+      schema: "material-library-item/v3", material_id: id, source_artifact_id: pdf,
       display_name: "資料結構", size_bytes: 1200, created_at: "2026-09-20T00:00:00Z",
       source_count: 3, latest_attempt: null, available_structures: [{
         run_id: pdf, knowledge_structure_revision: `knowledge-structure:sha256:${"a".repeat(64)}`,

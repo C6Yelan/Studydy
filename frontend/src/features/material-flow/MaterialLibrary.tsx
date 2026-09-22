@@ -5,7 +5,6 @@ import type { MaterialLibraryItem, MaterialStructureLink, StudySessionLink } fro
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
-import { MaterialRunStartControl } from "./MaterialRunStartControl";
 import { MaterialManagement } from "./MaterialManagement";
 import { formatFileSize } from "./material-flow";
 
@@ -134,9 +133,8 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
           {studyAction}{mapAction}
           {busyRun ? <button className={structure ? "text-button" : "primary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看進度</button>
             : latest?.status === "failed" ? <button className={structure ? "text-button" : "primary-button"} type="button" onClick={() => writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id })}>查看問題</button>
-            : !structure && (item.ingestion_kind || !item.source_artifact_id || latest
-              ? <button className="primary-button" type="button" onClick={() => writeRoute({ name: "material-sources", materialId: item.material_id })}>建立知識地圖</button>
-              : <MaterialRunStartControl key={item.material_id} apiClient={apiClient} materialId={item.material_id} sourceArtifactId={item.source_artifact_id} initial />)}
+            : !structure && <button className="primary-button" type="button" onClick={() => writeRoute({ name: "material-sources", materialId: item.material_id })}>建立知識地圖</button>}
+
         </fieldset>
       </article>;
     })}

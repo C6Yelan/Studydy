@@ -7,7 +7,7 @@ const created = "2026-09-12T12:00:00Z";
 const longName = "資料結構補充講義_" + "VeryLongUnbrokenMaterialFilename".repeat(4) + ".pdf";
 function item(index: number, state: "no-run" | "failed" | "cancelled" | "running" | "pending" | "succeeded" | "partial", map = false, study = false): MaterialLibraryItem {
   const success = state === "succeeded" || state === "partial";
-  return { schema: "material-library-item/v2", material_id: id(index), source_artifact_id: id(index+100), display_name: index === 4 ? longName : `資料結構 第 ${index} 章.pdf`, size_bytes: 1024, created_at: created,
+  return { schema: "material-library-item/v3", material_id: id(index), source_artifact_id: id(index+100), display_name: index === 4 ? longName : `資料結構 第 ${index} 章.pdf`, size_bytes: 1024, created_at: created,
     latest_attempt: state === "no-run" ? null : { run_id: id(index+200), status: state,
       progress_stage: success ? "completed" : state === "pending" ? "queued" : "semantics", completed_pages: success ? 4 : 0, total_pages: state === "pending" ? null : 4,
       error_code: state === "failed" ? "NO_USABLE_EVIDENCE" : null, cancel_requested_at: state === "cancelled" ? created : null, created_at: created },

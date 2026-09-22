@@ -205,7 +205,7 @@ export function RunView({ apiClient, route }: {
   if (run.status === "failed") return (
     <section className="processing-page task-page terminal-failure">
       <StateView
-        action={<><MaterialRunStartControl apiClient={apiClient} materialId={run.material_id} sourceArtifactId={run.source_artifact_id} retryRun={run.input_source_set_id ? {runId:run.run_id,saved:!!run.analysis_saved} : undefined} /><button className="secondary-button" type="button" onClick={() => writeRoute({ name: "materials" })}>返回教材庫</button></>}
+        action={<><MaterialRunStartControl apiClient={apiClient} materialId={run.material_id} retryRun={{runId:run.run_id,saved:!!run.analysis_saved}} /><button className="secondary-button" type="button" onClick={() => writeRoute({ name: "materials" })}>返回教材庫</button></>}
         description={materialFailureMessage(run.error_code ?? "MATERIAL_ANALYSIS_FAILED")}
         image="/assets/studydy/failure-confused.png" title="教材處理失敗" tone="failure"
       />
@@ -374,7 +374,7 @@ function RevisionRun({ apiClient, run, now, onChange }: { apiClient: StudydyApiC
       {run.status === "failed" && run.analysis_saved && <p role="status">已完成的分析批次保存在本機，使用相同來源與設定重試會接續未完成的部分。</p>}
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="state-actions">
-        {run.status === "failed" && <MaterialRunStartControl apiClient={apiClient} materialId={run.material_id} sourceArtifactId={run.source_artifact_id} retryRun={{runId:run.run_id,saved:!!run.analysis_saved}} />}
+        {run.status === "failed" && <MaterialRunStartControl apiClient={apiClient} materialId={run.material_id} retryRun={{runId:run.run_id,saved:!!run.analysis_saved}} />}
         {current && <button className="primary-button" onClick={() => writeRoute({ name: "knowledge-map", materialId: run.material_id, runId: current.run_id, structureRevision: current.knowledge_structure_revision })}>開啟目前地圖</button>}
         {study && <button className="secondary-button" onClick={() => writeRoute({ name: "study-session", materialId: run.material_id, runId: study.run_id, structureRevision: study.knowledge_structure_revision, studySessionId: study.study_session_id })}>繼續學習</button>}
         <button className="text-button" onClick={() => writeRoute({ name: "material-sources", materialId: run.material_id })}>查看來源與新增教材</button>

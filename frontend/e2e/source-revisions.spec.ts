@@ -26,7 +26,7 @@ for (const width of [1536, 390]) test(`append queue and run-only cancellation pr
   await page.route(`**/v1/materials/${material}`, route => { if (route.request().method() === "DELETE") wholeDeletes++; return route.fulfill({ json: item() }); });
   await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [item()] } }));
   await page.route(`**/v1/material-processing-runs/${oldRun}`, route => route.fulfill({ json: {
-    schema: "material-processing-run/v5", run_id: oldRun, material_id: material, source_artifact_id: uuid(13),
+    schema: "material-processing-run/v6", run_id: oldRun, material_id: material, source_artifact_id: uuid(13),
     status: "running", progress_stage: "semantics", completed_pages: 1, total_pages: 3,
     output_binding: null, error_code: null, cancel_requested_at: null, created_at: timestamp, updated_at: timestamp, completed_at: null,
   } }));

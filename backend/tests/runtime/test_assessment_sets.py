@@ -1,3 +1,5 @@
+
+from product_fixtures import seed_pdf, seed_run, publish_fixture_structure
 """單一觀念、多個重點的真 PostgreSQL／API 題組；模型使用受控回應。"""
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
@@ -13,20 +15,18 @@ from sqlalchemy import select
 
 from knowledge_map.structure import SemanticState, apply_semantic_response, build_document_context, build_knowledge_structure
 from learning_adaptation import assessment_sets as sets
-from learning_adaptation.answer_events import read_answer_events, submit_answer, AnswerSubmissionError
+from learning_adaptation.answer_events import read_answer_events, AnswerSubmissionError
 from learning_adaptation.study_sessions import create_study_session
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.learner_session import TrustedLearner
-from runtime.material_processing import create_material_processing_run, claim_next_material_processing_run, _record_progress
+from runtime.material_processing import claim_next_material_processing_run, _record_progress
 from runtime.semantic_service import SemanticServiceError
-from runtime.storage.artifacts import publish_idempotent_source_pdf
-from runtime.storage.knowledge_structures import publish_knowledge_structure
 from runtime.storage.tables import Assessment, AssessmentSet, AssessmentSetItem, StudySession, database_session
 from test_closed_loop_v1 import closed_loop
 from test_accounts import _app, ORIGIN, HEADERS
 
 
-def concept_fixture(closed_loop, count=3, *, facts=None, label="Signals", evidence_kind="paragraph"):
+def concept_fixture(closed_loop, count=3, *, facts=None, label="Signals", evidence_kind="paragraph", source_review_required=False):
     learner, _, settings, _, dsn, token = closed_loop
     points = [f'Signal {index} uses code{index}.' for index in range(count)] if facts is None else facts
     count = len(points)
@@ -37,8 +37,8 @@ def concept_fixture(closed_loop, count=3, *, facts=None, label="Signals", eviden
             page.insert_text((72, 72 + index * 22), value)
         regions = [list(page.search_for(value)[0]) for value in facts]
         payload = pdf.tobytes()
-    source = publish_idempotent_source_pdf(learner.learner_id, io.BytesIO(payload), str(uuid4()), dsn=dsn)
-    run = create_material_processing_run(learner.learner_id, source.material_id, source.artifact_id,
+    source = seed_pdf(learner.learner_id, io.BytesIO(payload), str(uuid4()), dsn=dsn)
+    run = seed_run(learner.learner_id, source.material_id, source.artifact_id,
                                         str(uuid4()), settings, dsn=dsn)
     assert claim_next_material_processing_run(dsn=dsn).run.run_id == run.run_id
     for stage in ('evidence','semantics','publishing'):
@@ -57,6 +57,7 @@ def concept_fixture(closed_loop, count=3, *, facts=None, label="Signals", eviden
             'page_ref':page_ref,'page_number':1,'evidence_blocks':blocks}
     context = build_document_context([page], page_count=1)
     state = SemanticState()
+    state.source_review_required = source_review_required
     apply_semantic_response({'concepts':[
         {'k':'signals','l':label,'a':[],'c':[{'m':None,'s':[index]} for index in range(count)]},
         {'k':'other','l':'Other topic','a':[],'c':[{'m':None,'s':[count]}]},
@@ -65,7 +66,7 @@ def concept_fixture(closed_loop, count=3, *, facts=None, label="Signals", eviden
     document = build_knowledge_structure(context,state,source_sha256=source.sha256,run_id=str(run.run_id),
         produced_at='2026-09-20T00:00:00+00:00',runtime_lock_sha256=canonical_sha256(lock),
         model_id=lock['semantic_service']['model_id'],model_revision=lock['semantic_service']['revision'],semantic_calls=1,ocr_calls=0)
-    publish_knowledge_structure(learner.learner_id,source.material_id,run.run_id,document,dsn=dsn)
+    publish_fixture_structure(learner.learner_id,source.material_id,run.run_id,document,dsn=dsn)
     concept = next(item for item in document['concepts'] if item['label']==label)
     study = create_study_session(learner,source.material_id,document['revision'],str(uuid4()),
                                  current_concept_id=concept['concept_id'],dsn=dsn)
@@ -197,8 +198,8 @@ def test_api_preserves_scope_private_preparation_and_read_only_resume(closed_loo
     route=f'/v1/materials/{f["source"].material_id}/knowledge-structures/{f["document"]["revision"]}/study-sessions/{sid}/resume'
     restored=client.get(route,params={'run_id':str(f['run'].run_id),'set_id':identity})
     assert restored.status_code==200,restored.json()
-    assert restored.json()['schema']=='study-resume/v3'
-    assert restored.json()['selected_set_id']==identity and restored.json()['assessments']==[]
+    assert restored.json()['schema']=='study-resume/v4'
+    assert restored.json()['selected_set_id']==identity and 'assessments' not in restored.json()
     assert len(calls)==2
     conflict=client.post(base,headers={**HEADERS,'Idempotency-Key':'another-round'},json={
         'schema':'assessment-set-create/v1','target_concept_id':f['concept']['concept_id']})

@@ -5,7 +5,7 @@ const id = "11111111-1111-4111-8111-111111111111";
 const revision = `knowledge-structure:sha256:${"a".repeat(64)}`;
 const longName = "資料結構與演算法：堆疊、佇列、遞迴與樹狀結構的概念整理及練習講義_" + "LongMaterialFilename".repeat(5) + ".pdf";
 const material: MaterialLibraryItem = {
-  schema: "material-library-item/v2", material_id: id, source_artifact_id: id, display_name: longName,
+  schema: "material-library-item/v3", material_id: id, source_artifact_id: id, display_name: longName,
   size_bytes: 100, created_at: "2026-09-12T00:00:00Z", latest_attempt: null,
   available_structures: [{ run_id: id, knowledge_structure_revision: revision, created_at: "2026-09-12T00:00:00Z", status: "succeeded" }],
   study_sessions: [],

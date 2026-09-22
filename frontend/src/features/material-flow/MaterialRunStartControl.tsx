@@ -3,9 +3,9 @@ import { errorMessage, type StudydyApiClient } from "../../api/client";
 import { writeRoute } from "../../app/routes";
 
 // One create intent per mounted material/run context; a lost response must not create another run.
-export function MaterialRunStartControl({ apiClient, materialId, sourceArtifactId, initial = false, primary = true, retryRun }: {
-  apiClient: StudydyApiClient; materialId: string; sourceArtifactId: string; initial?: boolean; primary?: boolean;
-  retryRun?: { runId: string; saved: boolean };
+export function MaterialRunStartControl({ apiClient, materialId, primary = true, retryRun }: {
+  apiClient: StudydyApiClient; materialId: string; primary?: boolean;
+  retryRun: { runId: string; saved: boolean };
 }) {
   const intent = useRef<string | null>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -20,8 +20,7 @@ export function MaterialRunStartControl({ apiClient, materialId, sourceArtifactI
     inFlight.current = true; setBusy(true); setFailure(null);
     intent.current ??= crypto.randomUUID();
     try {
-      const next = retryRun ? await apiClient.retryRevision(retryRun.runId, intent.current)
-        : await apiClient.createMaterialRun({ schema: "material-processing-create/v1", material_id: materialId, source_artifact_id: sourceArtifactId }, intent.current);
+      const next = await apiClient.retryRevision(retryRun.runId, intent.current);
       if (!mounted.current) return;
       intent.current = null;
       writeRoute({ name: "material-run", materialId, runId: next.run_id });
@@ -33,7 +32,7 @@ export function MaterialRunStartControl({ apiClient, materialId, sourceArtifactI
     }
   };
   return <>
-    <button ref={button} className={primary ? "primary-button" : "secondary-button"} type="button" disabled={busy} onClick={() => void start()}>{busy ? "正在重新處理…" : retryRun ? retryRun.saved ? "接續已保存的分析" : "重新分析原來源" : initial ? "建立知識地圖" : "重新處理教材"}</button>
+    <button ref={button} className={primary ? "primary-button" : "secondary-button"} type="button" disabled={busy} onClick={() => void start()}>{busy ? "正在重新處理…" : retryRun.saved ? "接續已保存的分析" : "重新分析原來源"}</button>
     {busy && <span className="material-recovery-status" role="status">正在重新處理…</span>}
     {failure && <p className="form-error material-recovery-error" role="alert">{failure}</p>}
   </>;

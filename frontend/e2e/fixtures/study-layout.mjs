@@ -25,13 +25,13 @@ export async function studyLayoutFixture(page, initialStage = "preparation") {
   const feedback = (assessment,i) => ({schema:"answer-feedback/v2",answer_event_id:uuid(100+i),study_session_id:session,
     assessment_revision:assessment.assessment_revision,question_id:assessment.question_id,selected_option_id:assessment.options[i===5?1:0].option_id,
     is_correct:i!==5,rationale:"請依照教材描述的通訊角色判斷。",source_evidence_ids:assessment.source_evidence_ids,event_number:i+1,created_at:timestamp});
-  let stage=initialStage, partial=false, version=1;
+  let stage=initialStage, partial=false, version=1, preparedCount=2;
   const requests=[];
   const group = (historical=false) => {
     const status=historical?"completed":stage==="submitted"?"completed":stage;
     const closed=status==="completed", published=["ready","in_progress","completed"].includes(status)?(partial&&!historical?4:6):0;
     const items=claims.map((claim,i)=>{const assessment=i<published?question(i,historical?20:0):null;
-      return {ordinal:i+1,target_claim_id:claim.claim_id,state:assessment?"published":status==="preparing"?(i<2?"verified":i===2?"generating":"pending"):status==="partial_ready"&&i<4?"verified":"failed",
+      return {ordinal:i+1,target_claim_id:claim.claim_id,state:assessment?"published":status==="preparing"?(i<preparedCount?"verified":i===preparedCount?"generating":"pending"):status==="partial_ready"&&i<4?"verified":"failed",
         attempts:1,failure_reason:null,assessment,feedback:assessment&&closed?feedback(assessment,i):null,created_at:assessment?timestamp:null,can_submit:!!assessment&&!closed};});
     const passed=closed?Math.min(5,published):0, pending=closed&&published===6?1:0;
     return {schema:"assessment-set/v2",kind:"diagnostic",diagnostic_set_id:null,set_id:historical?historyId:setId,target_concept_id:conceptId,
@@ -45,27 +45,24 @@ export async function studyLayoutFixture(page, initialStage = "preparation") {
         can_create_remediation:false,can_close:closed,can_review:closed,
         points:claims.map((c,i)=>({claim_id:c.claim_id,result:closed?(i>=published?"unavailable":i===5?"needs_review":"diagnostic_pass"):"unanswered",latest_answer_event_id:closed?uuid(100+i):null,latest_set_id:closed?(historical?historyId:setId):null}))},items};
   };
-  const legacyQuestion=question(0,40);
-  const legacy={assessment:legacyQuestion,feedback:feedback(legacyQuestion,0),created_at:timestamp,can_submit:false};
   const basePath=`/materials/${material}/runs/${run}/knowledge-structures/${encodeURIComponent(revision)}/study-sessions/${session}`;
   await page.route(/\/v[12]\//,async route=>{
     const request=route.request(), address=request.url(), path=address.replace(/^https?:\/\/[^/]+/, "").split("?")[0];
     const query=Object.fromEntries((address.split("?")[1]??"").split("&").map(pair=>pair.split("=").map(decodeURIComponent)));
     const send=(json,status=200)=>route.fulfill({json,status});
-    if(request.method()!=="GET")requests.push({path,body:request.postData()});
+    if(request.method()!=="GET")requests.push({path,body:request.postData(),key:request.headers()["idempotency-key"]});
     if(path==="/v1/session/refresh")return route.fulfill({status:204});
     if(path==="/v1/session")return send({schema:"learner-identity/v1",learner_id:uuid(9)});
     if(path==="/v2/source-capabilities")return send({schema:"source-capabilities/v1",quality_notice:"PDF",formats:[]});
     if(path.endsWith("/source"))return send({schema:"evidence-source/v1",format:"pptx",original_name:"01_網路模型與資料傳輸.pptx",original_url:`/v2/artifacts/${artifact}`,preview_url:`/v1/artifacts/${artifact}#page=1`,normalized_page:1,accuracy:"exact",origin_locators:[],label:"PDF 第 1 頁"});
     if(path.endsWith("/resume")) {
-      const active=!["preparation","legacy","no-safe"].includes(stage), historical=query.set_id===historyId;
+      const active=!["preparation","no-safe"].includes(stage), historical=query.set_id===historyId;
       const selected=historical?group(true):active?group():null;
       const progress={schema:"learner-progress/v3",assessment_cycles:selected?[selected.cycle]:[],study_session_id:session,knowledge_structure_revision:revision,event_watermark:1,
         current_concept_id:conceptId,deferred_concept_ids:[],concept_states:[{concept_id:conceptId,label:"伺服器",status:"learning",attempts:1,correct_answers:1,qualified_correct_items:1,covered_claim_ids:[claims[0].claim_id],mastered_claim_ids:[],weak_claim_ids:[],latest_is_correct:true}],weaknesses:[],
         next_action:{action:"assess",target_concept_id:conceptId,target_claim_id:claims[0].claim_id,prerequisite_concept_ids:[],reason:"current_concept"},guidance_revision:rev("learner-guidance",1)};
-      return send({schema:"study-resume/v3",session:{schema:"study-session/v2",study_session_id:session,material_id:material,knowledge_structure_revision:revision,current_concept_id:conceptId,deferred_concept_ids:[],no_safe_claim_ids:[],status:"active",started_at:timestamp,completed_at:null,event_watermark:1},
-        progress,knowledge_structure:view,source_artifact_id:artifact,run_id:run,assessment_sets:active?[group(),group(true)]:[group(true)],selected_set_id:selected?.set_id??null,
-        assessments:[legacy],selected_assessment_revision:stage==="legacy"||!!query.assessment_revision?legacyQuestion.assessment_revision:null});
+      return send({schema:"study-resume/v4",session:{schema:"study-session/v2",study_session_id:session,material_id:material,knowledge_structure_revision:revision,current_concept_id:conceptId,deferred_concept_ids:[],no_safe_claim_ids:[],status:"active",started_at:timestamp,completed_at:null,event_watermark:1},
+        progress,knowledge_structure:view,source_artifact_id:artifact,run_id:run,assessment_sets:active?[group(),group(true)]:[group(true)],selected_set_id:selected?.set_id??null});
     }
     if(path.endsWith("/assessment-plan"))return send({schema:"assessment-plan/v1",study_session_id:session,knowledge_structure_revision:revision,policy:"single-concept-grounded-points/v1",concept_id:conceptId,point_count:6,requested_count:stage==="no-safe"?0:6,targets:stage==="no-safe"?[]:claims.map(c=>({claim_id:c.claim_id,covered_claim_ids:[c.claim_id],reason:"distinct_grounded_point"})),excluded:stage==="no-safe"?claims.map(c=>({claim_id:c.claim_id,reason:"no_content_evidence"})):[]});
     if(path.endsWith("/assessment-sets")&&request.method()==="POST"){stage="preparing";version++;return send(group(),202);}
@@ -77,5 +74,5 @@ export async function studyLayoutFixture(page, initialStage = "preparation") {
     throw new Error(`Unexpected layout fixture request: ${request.method()} ${path}`);
   });
   return {path:basePath, historyPath:`${basePath}/assessment-sets/${historyId}`, requests,
-    setStage(next){stage=next;version++;}, async open(){await page.goto(basePath);await page.locator('.assessment-set-header, .assessment-card').first().waitFor();}};
+    setStage(next){stage=next;version++;}, setPreparedCount(count){preparedCount=count;version++;}, async open(){await page.goto(basePath);await page.locator('.assessment-set-header, .assessment-card').first().waitFor();}};
 }

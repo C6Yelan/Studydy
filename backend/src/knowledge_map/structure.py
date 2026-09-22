@@ -13,7 +13,6 @@ from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
 STRUCTURE_SCHEMA = "knowledge-structure/v2"
-VIEW_SCHEMA = "knowledge-structure-view/v2"
 RELATION_TYPES = {"prerequisite", "part_of", "application", "example", "contrast"}
 RELATION_BASIS = {
     "prerequisite": "dependency",
@@ -1326,7 +1325,6 @@ def build_knowledge_structure_view(document: dict[str, Any]) -> dict[str, Any]:
             del claim["projection"]
         concepts.append(public)
     return {
-        "schema": VIEW_SCHEMA,
         "material_id": document["material_id"],
         "knowledge_structure_revision": document["revision"],
         "status": deepcopy(document["status"]),

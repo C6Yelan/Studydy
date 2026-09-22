@@ -17,7 +17,7 @@ test('unfinished A does not block B and switching back resumes A',async({page})=
   await page.getByRole('button',{name:'登入',exact:true}).click();
   await expect(page.getByRole('heading',{name:'歡迎回來！',level:1,exact:true})).toBeVisible();
   await page.goto(study);await page.getByRole('button',{name:'開始本輪 1 題',exact:true}).click();
-  await expect(page.getByText('已備妥 0／1 題',{exact:true})).toBeVisible();
+  await expect(page.getByText('0 / 1 題',{exact:true})).toBeVisible();
   const firstUrl=page.url(),firstId=firstUrl.split('/').at(-1)!;
   await page.getByRole('navigation',{name:'學習工作區導覽'}).getByRole('button',{name:'知識地圖',exact:true}).click();
   await openConcept(page,'Other topic');

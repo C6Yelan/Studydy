@@ -1,18 +1,16 @@
 import { SourceButton, sourceLinks } from "./SourceButton";
 import type { StudydyApiClient } from "../api/client";
 import type { KnowledgeStructureView } from "../api/contracts";
-import { Icon } from "./Icon";
 import { claimText } from "./claim-text";
 
 type Claim = KnowledgeStructureView["concepts"][number]["claims"][number];
 
-export function ConceptContent({ claims, apiClient, sourceArtifactId, sourceResolver }: {
+export function ConceptContent({ claims, apiClient, sourceResolver }: {
   claims: Claim[];
   apiClient: StudydyApiClient;
-  sourceArtifactId: string;
-  sourceResolver?: string;
+  sourceResolver: string;
 }) {
-  const references = sourceLinks(claims.flatMap(claim => claim.evidence), sourceResolver);
+  const references = sourceLinks(claims.flatMap(claim => claim.evidence));
   return <>
     {claims.map((claim, index) => {
       const text = claimText(claim);
@@ -25,9 +23,7 @@ export function ConceptContent({ claims, apiClient, sourceArtifactId, sourceReso
     })}
     <section className="concept-sources" aria-label="教材來源">
       <h3>教材來源</h3>
-      <div className="claim-sources">{references.map((evidence) => <SourceButton key={evidence.evidence_id} apiClient={apiClient} artifactId={sourceArtifactId} page={evidence.page} resolver={sourceResolver} evidenceId={evidence.evidence_id} evidence={evidence}>
-        原始教材第 {evidence.page} 頁<Icon name="chevron-right" size={16} />
-      </SourceButton>)}</div>
+      <div className="claim-sources">{references.map((evidence) => <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} />)}</div>
     </section>
   </>;
 }

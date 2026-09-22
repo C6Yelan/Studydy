@@ -28,7 +28,7 @@ test("wrong points form a new group and survive lost review/create responses", a
   await expect(reviews).toHaveCount(2);
   await expect(reviews.nth(0)).toContainText("Signal 1 uses code1.");
   await expect(reviews.nth(1)).toContainText("Signal 2 uses code2.");
-  await expect(reviews.first().getByRole("button", { name: "查看教材第 1 頁" })).toBeVisible();
+  await expect(reviews.first().getByRole("button", { name: /PDF 第 1 頁/ })).toBeVisible();
   let lostReview = false;
   await page.route("**/assessment-sets/*/reviews", async route => {
     if (lostReview) { await route.continue(); return; }

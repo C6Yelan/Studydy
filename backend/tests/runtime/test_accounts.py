@@ -14,7 +14,7 @@ from runtime.learner_session import (
     resolve_session, revoke_session,
 )
 from runtime.storage.migrations import run_migrations
-from test_closed_loop_v1 import closed_loop, _settings, Client, generate_assessment, _assessment_response
+from test_closed_loop_v1 import closed_loop, _settings, Client, _assessment_response
 
 PASSWORD = "Synthetic account password 42"
 ORIGIN = "https://studydy.test"
@@ -104,93 +104,6 @@ def test_refresh_never_revives_expired_or_revoked_tokens(clean_database_dsn):
     assert refresh_session("invalid-token", dsn=clean_database_dsn) is None
 
 
-def test_http_accounts_preserve_identity_and_protect_existing_resources(closed_loop, tmp_path, monkeypatch):
-    learner, source, settings, structure, dsn, _ = closed_loop
-    app = _app(dsn, tmp_path, monkeypatch)
-    client = TestClient(app, base_url=ORIGIN)
-    assert client.get("/v1/session").status_code == 401
-    assert client.post("/v1/session", headers=HEADERS).status_code == 405
-    assert client.post("/v1/accounts", json={"email": "other@example.com", "password": PASSWORD}).status_code == 403
-    assert client.post("/v1/session/login", headers={"Origin": "https://other.test"}, json={"email": "learner_test@example.com", "password": PASSWORD}).status_code == 403
-    for credentials in ({"email": "x", "password": PASSWORD}, {"email": "valid@example.com", "password": "short"}, {"email": "valid@example.com", "password": PASSWORD, "learner_id": str(learner.learner_id)}):
-        assert client.post("/v1/accounts", headers=HEADERS, json=credentials).status_code == 400
-    invalid_email = client.post("/v1/accounts", headers=HEADERS, json={"email": "learner@localhost", "password": PASSWORD})
-    assert invalid_email.status_code == 400
-    assert invalid_email.json()["reason_code"] == "INVALID_EMAIL"
-    assert "learner@localhost" not in invalid_email.text
-    login = client.post("/v1/session/login", headers=HEADERS, json={"email": "learner_test@example.com", "password": "Synthetic test password 42"})
-    assert login.status_code == 200
-    assert login.json() == {"schema": "learner-identity/v1", "learner_id": str(learner.learner_id)}
-    assert all(flag in login.headers["set-cookie"] for flag in ("HttpOnly", "Secure", "SameSite=strict", "Max-Age=604800"))
-    assert client.get("/v1/session").json() == login.json()
-    paths = [f"/v1/materials/{source.material_id}/knowledge-structures/{structure['revision']}", f"/v1/material-processing-runs/{structure['run_id']}", f"/v1/artifacts/{source.artifact_id}"]
-    for path in paths:
-        response = client.get(path)
-        assert response.status_code == 200
-        assert response.headers["cache-control"] == "private, no-store"
-    study = client.post("/v1/study-sessions", headers={**HEADERS, "Idempotency-Key": "account-study"}, json={"schema": "study-session-create/v2", "material_id": str(source.material_id), "knowledge_structure_revision": structure["revision"]})
-    assert study.status_code == 201
-    paths.append(f"/v1/study-sessions/{study.json()['study_session_id']}")
-    study_path = paths[-1]
-    concept = structure["concepts"][0]
-    assessment = generate_assessment(
-        learner, UUID(study.json()["study_session_id"]), concept["claims"][0]["claim_id"], "account-assessment", settings,
-        dsn=dsn, client=Client(), semantic_call=lambda *_args, **_kwargs: _assessment_response(
-            "definition", "根據教材，Stack 使用哪種順序？", concept["evidence_refs"][0]),
-    )
-    assessment_path = study_path + "/assessments/" + assessment.assessment_revision
-    paths.extend([study_path + "/progress", assessment_path])
-    answer = {"schema": "answer-submission-create/v2", "question_id": assessment.question_id,
-              "selected_option_id": assessment.private_answer_document["correct_option_id"]}
-    answer_headers = {**HEADERS, "Idempotency-Key": "account-answer"}
-    submitted = client.post(assessment_path + "/submissions", headers=answer_headers, json=answer)
-    assert submitted.status_code == 201
-    old_token = client.cookies.get("studydy_session")
-    assert client.delete("/v1/session", headers=HEADERS).status_code == 204
-    assert client.get("/v1/session").status_code == 401
-    assert resolve_session(old_token, dsn=dsn) is None
-    expired_client = TestClient(app, base_url=ORIGIN)
-    expired_client.cookies.set("studydy_session", old_token)
-    rejected_refresh = expired_client.post("/v1/session/refresh", headers=HEADERS)
-    assert rejected_refresh.status_code == 401 and "set-cookie" not in rejected_refresh.headers
-    registered = client.post("/v1/accounts", headers=HEADERS, json={"email": "account_b@example.com", "password": PASSWORD})
-    assert registered.status_code == 201 and registered.json() != login.json()
-    for path in paths:
-        denied = client.get(path)
-        assert denied.status_code == 404
-        assert denied.headers["cache-control"] == "private, no-store"
-    denied = client.post(study_path + "/complete", headers=HEADERS)
-    assert denied.status_code == 404
-    assert client.post(assessment_path + "/submissions", headers=answer_headers, json=answer).status_code == 404
-    assert client.post(study_path + "/assessments", headers={**HEADERS, "Idempotency-Key": "foreign-assessment"},
-                       json={"schema": "assessment-create/v2", "target_claim_id": concept["claims"][0]["claim_id"]}).status_code == 404
-    client.delete("/v1/session", headers=HEADERS)
-    # 獨立 cookie jar 模擬新 browser profile，沒有複製 token。
-    fresh = TestClient(app, base_url=ORIGIN)
-    wrong = fresh.post("/v1/session/login", headers=HEADERS, json={"email": "learner_test@example.com", "password": "Wrong synthetic password"})
-    assert wrong.status_code == 401 and not fresh.cookies
-    absent = fresh.post("/v1/session/login", headers=HEADERS, json={"email": "absent@example.com", "password": PASSWORD})
-    assert absent.status_code == wrong.status_code
-    assert absent.json()["reason_code"] == wrong.json()["reason_code"] == "INVALID_CREDENTIALS"
-    assert absent.json()["message"] == wrong.json()["message"]
-    assert not fresh.cookies
-    again = fresh.post("/v1/session/login", headers=HEADERS, json={"email": "learner_test@example.com", "password": "Synthetic test password 42"})
-    assert again.json() == login.json()
-    assert fresh.get(study_path).status_code == 200
-    replay = fresh.post(assessment_path + "/submissions", headers=answer_headers, json=answer)
-    assert replay.json() == submitted.json()
-    assert "correct_option_id" not in fresh.get(assessment_path).json()
-    with psycopg.connect(dsn) as connection:
-        assert connection.execute("SELECT learner_id FROM materials WHERE material_id=%s", (source.material_id,)).fetchone() == (learner.learner_id,)
-        assert connection.execute("SELECT s.learner_id FROM answer_events a JOIN study_sessions s USING (study_session_id)").fetchall() == [(learner.learner_id,)]
-    schema = app.openapi()
-    credentials = schema["components"]["schemas"]["AccountCredentials"]
-    assert set(credentials["properties"]) == {"email", "password"}
-    assert credentials["properties"]["email"]["format"] == "email"
-    assert client.post("/v1/accounts", headers=HEADERS, json={"username": "old_name", "password": PASSWORD}).status_code == 400
-    assert "post" not in schema["paths"]["/v1/session"]
-    assert "security" not in schema["paths"]["/v1/accounts"]["post"]
-    assert schema["paths"]["/v1/session"]["get"]["security"]
 
 
 def test_email_cutover_retires_old_credentials_and_sessions_without_deleting_owned_data(clean_database_dsn, migrations_dir, tmp_path):

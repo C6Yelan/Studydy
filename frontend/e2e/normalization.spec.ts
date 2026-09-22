@@ -120,7 +120,7 @@ for (const viewport of [{width:1920,height:1080},{width:1536,height:1024},{width
     const item = () => ({schema:"material-library-item/v3", ingestion_kind:"sources-v2", material_id:material,
       source_artifact_id:source, display_name:filename, size_bytes:204800, created_at:"2026-09-17T00:00:00Z",
       latest_attempt:null, available_structures:[], study_sessions:[], source:job()});
-    const run = {schema:"material-processing-run/v5", run_id:normalization, material_id:material,
+    const run = {schema:"material-processing-run/v6", run_id:normalization, material_id:material,
       source_artifact_id:source, status:"running", progress_stage:"evidence", cancel_requested_at:null,
       completed_pages:3, total_pages:12, error_code:null, created_at:"2026-09-18T00:00:00Z",
       updated_at:"2026-09-18T00:01:00Z", completed_at:null, output_binding:null};

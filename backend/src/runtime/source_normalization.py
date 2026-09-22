@@ -16,7 +16,7 @@ class SourceError(RuntimeError):pass
 
 def _material(session,owner,identity):
     row=session.scalar(select(Material).where(Material.learner_id==owner,Material.material_id==identity).with_for_update())
-    if row is None:raise SourceError('RESOURCE_NOT_FOUND')
+    if row is None or row.ingestion_kind!='sources-v2':raise SourceError('RESOURCE_NOT_FOUND')
     if row.discard_requested_at is not None:raise SourceError('MATERIAL_NOT_DISCARDABLE')
     return row
 
@@ -65,15 +65,12 @@ def upload_source(owner,material_id,data,name,media,key,*,dsn=None):
 def read_sources(owner,material_id,*,dsn=None):
     with database_session(dsn) as session:
         material=session.scalar(select(Material).where(Material.learner_id==owner,Material.material_id==material_id))
-        if material is None:raise SourceError('RESOURCE_NOT_FOUND')
+        if material is None or material.ingestion_kind!='sources-v2':raise SourceError('RESOURCE_NOT_FOUND')
         from .source_revisions import current_revision
         from .storage.tables import KnowledgeStructure
         revision=current_revision(session,material)
         structure=session.scalar(select(KnowledgeStructure).where(KnowledgeStructure.learner_id==owner,KnowledgeStructure.material_id==material_id,KnowledgeStructure.structure_revision==revision)) if revision else None
-        included={item['source_id'] for item in structure.document.get('input_binding',{}).get('manifest',{}).get('items',[])} if structure else set()
-        if structure and not included:
-            source=session.scalar(select(MaterialSource).where(MaterialSource.material_id==material_id,MaterialSource.original_artifact_id==material.source_artifact_id))
-            if source:included.add(str(source.source_id))
+        included={item['source_id'] for item in structure.document['input_binding']['manifest']['items']} if structure else set()
         rows=session.execute(select(MaterialSource,SourceNormalization).join(SourceNormalization,SourceNormalization.source_id==MaterialSource.source_id)
              .where(MaterialSource.learner_id==owner,MaterialSource.material_id==material_id).distinct(MaterialSource.source_id).order_by(MaterialSource.source_id,SourceNormalization.created_at.desc())).all()
         rows=sorted(rows,key=lambda pair:pair[0].created_at)
@@ -108,7 +105,7 @@ def normalize_next(*,dsn=None):
             metadata=write_blob(session,owner,material_id,canonical_bytes(mapping),'source_mapping','application/json')
             job.normalized_artifact_id=normalized.artifact_id;job.mapping_artifact_id=metadata.artifact_id
             job.page_count=mapping['page_count'];job.status='ready';job.lease_token=None;job.lease_expires_at=None;job.updated_at=datetime.now(UTC)
-            # 相容既有單來源 library/run projection；真正 provenance 綁在 SourceSet。
+            # 保存教材代表 PDF；完整來源與頁碼由 SourceSet 綁定。
             if material.source_artifact_id is None:
                 material.source_artifact_id=normalized.artifact_id
     except Exception as error:

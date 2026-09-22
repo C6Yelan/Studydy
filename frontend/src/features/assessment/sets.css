@@ -54,3 +54,23 @@
   .assessment-set-submit-row .primary-button { width: 100%; }
   .assessment-set-summary > span:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
+
+.assessment-set-header.is-preparing { display: grid; gap: var(--space-5); padding: var(--space-6); text-align: start; overflow-wrap: anywhere; }
+.assessment-set-header.is-preparing h2 { margin: var(--space-2) 0 0; font-size: 22px; line-height: 1.45; }
+.assessment-set-header.is-preparing h2:focus { outline: none; }
+.assessment-set-header.is-preparing p { margin: 0; line-height: 1.7; }
+.preparation-progress { width: 100%; display: grid; gap: var(--space-3); }
+.preparation-progress-heading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+.preparation-progress-heading h3 { margin: 0; font-size: 14px; color: var(--text-secondary); }
+.preparation-progress-heading > p { font-weight: 600; font-variant-numeric: tabular-nums; }
+.preparation-progress-track { height: 10px; overflow: hidden; border-radius: 999px; background: var(--page-cool-2); }
+.preparation-progress-track > span { display: block; height: 100%; background: var(--studydy-blue); border-radius: inherit; }
+/* 靜態條紋代表進度未知，不使用時間推進或動畫，也適用 reduced-motion。 */
+.preparation-progress-track.is-indeterminate > span { width: 100%; background: repeating-linear-gradient(120deg, var(--studydy-blue-soft) 0 10px, var(--page-cool-2) 10px 20px); }
+.assessment-set-header.is-preparing .preparation-note { color: var(--text-secondary); font-size: 14px; }
+.assessment-set-header.is-preparing .assessment-set-actions { justify-content: flex-start; }
+.assessment-set-header.is-preparing .preparation-navigation { justify-content: flex-start; border-top: 1px solid var(--border); padding-top: var(--space-4); gap: var(--space-3); }
+.preparation-navigation .text-button { min-height: 44px; }
+.assessment-set-header.is-preparing .assessment-error { width: 100%; text-align: left; }
+
+@media (max-width: 620px) { .assessment-set-header.is-preparing { padding: var(--space-5); } }

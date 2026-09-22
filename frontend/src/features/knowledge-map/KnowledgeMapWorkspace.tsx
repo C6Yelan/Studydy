@@ -91,10 +91,10 @@ function nodeKeyboardAction(open: () => void, title: string) {
   };
 }
 
-function ConceptDetail({ apiClient, concept, close, sourceArtifactId, view, progress, studyAction }: {
+function ConceptDetail({ apiClient, concept, close, view, progress, studyAction }: {
   view: KnowledgeStructureView; progress: LearnerProgressView | null;
   apiClient: StudydyApiClient;
-  concept: Concept; close: () => void; sourceArtifactId: string; studyAction: ReactNode;
+  concept: Concept; close: () => void; studyAction: ReactNode;
 }) {
   return (
     <DetailPanel label="概念詳情" focusKey={concept.concept_id} close={close}>
@@ -106,7 +106,7 @@ function ConceptDetail({ apiClient, concept, close, sourceArtifactId, view, prog
       {studyAction}
       <section>
         <h3>教材重點</h3>
-        <ConceptContent claims={concept.claims} apiClient={apiClient} sourceArtifactId={sourceArtifactId} sourceResolver={view.source_resolver} />
+        <ConceptContent claims={concept.claims} apiClient={apiClient} sourceResolver={view.source_resolver} />
       </section>
     </DetailPanel>
   );
@@ -353,23 +353,23 @@ function MapGraph({ openConcept, selectedConceptId, view, openRelation, progress
   </section>;
 }
 
-function RelationDetail({ relation, view, apiClient, sourceArtifactId, close, openConcept }: {
+function RelationDetail({ relation, view, apiClient, close, openConcept }: {
   relation: KnowledgeStructureView["relations"][number]; view: KnowledgeStructureView;
-  apiClient: StudydyApiClient; sourceArtifactId: string; close: () => void; openConcept: (id: string) => void;
+  apiClient: StudydyApiClient; close: () => void; openConcept: (id: string) => void;
 }) {
   const evidence = view.concepts.flatMap((concept) => concept.claims.flatMap((claim) => claim.evidence)).filter((item) => relation.evidence_refs.includes(item.evidence_id));
   return <DetailPanel label="關係詳情" focusKey={relation.relation_id} close={close}>
     <header><div><span className="detail-kicker">概念之間的關係</span><h2>{relationLabels[relation.type]}</h2></div><button className="panel-close" type="button" aria-label="關閉關係詳情" onClick={close}>×</button></header>
     <section className="relation-direction">{[relation.source_concept_id, relation.target_concept_id].map((id, index) => <div key={index}>{index === 1 && <span aria-hidden="true">↓</span>}<button className="detail-related" type="button" onClick={() => openConcept(id)}><small>{index === 0 ? "來源概念" : "目標概念"}</small><strong>{view.concepts.find((concept) => concept.concept_id === id)?.label}</strong></button></div>)}</section>
     <section><h3>為什麼有這個關係？</h3><p className="claim-text">{relation.learner_reason}</p></section>
-    <section><h3>教材來源</h3>{sourceLinks(evidence, view.source_resolver).map((item) => <SourceButton key={item.evidence_id} apiClient={apiClient} artifactId={sourceArtifactId} page={item.page} resolver={view.source_resolver} evidenceId={item.evidence_id} evidence={item}>原始教材第 {item.page} 頁<Icon name="chevron-right" /></SourceButton>)}{evidence.length === 0 && <p>可從來源與目標概念查看相關教材。</p>}</section>
+    <section><h3>教材來源</h3>{sourceLinks(evidence).map((item) => <SourceButton key={item.evidence_id} apiClient={apiClient} resolver={view.source_resolver} evidence={item} />)}{evidence.length === 0 && <p>可從來源與目標概念查看相關教材。</p>}</section>
   </DetailPanel>;
 }
 
-function ReviewView({ view, progress, startStudy, busyLabel, studyLabel, initialConceptId, showNavigator, apiClient, sourceArtifactId }: {
+function ReviewView({ view, progress, startStudy, busyLabel, studyLabel, initialConceptId, showNavigator, apiClient }: {
   view: KnowledgeStructureView; progress: LearnerProgressView | null; initialConceptId: string;
   startStudy: (id: string) => void; busyLabel: string | null; studyLabel: string; showNavigator: () => void;
-  apiClient: StudydyApiClient; sourceArtifactId: string;
+  apiClient: StudydyApiClient;
 }) {
   const weak = progress?.concept_states.filter((state) => state.status === "needs_review") ?? [];
   const [selectedId, setSelectedId] = useState(initialConceptId);
@@ -402,7 +402,7 @@ function ReviewView({ view, progress, startStudy, busyLabel, studyLabel, initial
         <section className="review-points" aria-label="選中概念的複習重點" key={concept.concept_id}>
           <h3>複習重點</h3><p className="review-excerpt-note">優先查看需要補強的教材重點；以下為教材節錄。</p>
           <ol>{points.map(claim => <li key={claim.claim_id}><p>{excerpt(claim.text)}</p></li>)}</ol>
-          <details className="review-full-content"><summary>查看完整教材重點</summary><ConceptContent claims={concept.claims} apiClient={apiClient} sourceArtifactId={sourceArtifactId} sourceResolver={view.source_resolver} /></details>
+          <details className="review-full-content"><summary>查看完整教材重點</summary><ConceptContent claims={concept.claims} apiClient={apiClient} sourceResolver={view.source_resolver} /></details>
         </section>
         <nav className="review-list" aria-label="需要複習的概念">
           <h3>需要複習 <small>{weak.length} 個概念</small></h3>
@@ -417,7 +417,7 @@ function ReviewView({ view, progress, startStudy, busyLabel, studyLabel, initial
   </section>;
 }
 
-export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, learningStateStatus, progressMessage, onReloadProgress, isStartingStudy, onReturnToRun, onAddSources, onStartStudy, sourceArtifactId, startMessage, view }: {
+export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, learningStateStatus, progressMessage, onReloadProgress, isStartingStudy, onReturnToRun, onAddSources, onStartStudy, startMessage, view }: {
   apiClient: StudydyApiClient;
   progress: LearnerProgressView | null;
   learningStateStatus: StudySessionView["status"] | null;
@@ -428,7 +428,6 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
   onReturnToRun: () => void;
   onAddSources: () => void;
   onStartStudy: (conceptId: string) => void;
-  sourceArtifactId: string;
   startMessage: string | null;
   view: KnowledgeStructureView;
 }) {
@@ -513,7 +512,7 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
     </button>
   </section>;
   const detail = selectedRelation || selectedConcept ? <>
-        {selectedRelation && <RelationDetail relation={selectedRelation} view={view} apiClient={apiClient} sourceArtifactId={sourceArtifactId} close={closeDetail} openConcept={openConceptDetail} />}
+        {selectedRelation && <RelationDetail relation={selectedRelation} view={view} apiClient={apiClient} close={closeDetail} openConcept={openConceptDetail} />}
         {selectedConcept && (
           <ConceptDetail
             apiClient={apiClient}
@@ -522,7 +521,7 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
             concept={selectedConcept}
             studyAction={focusStudyAction}
             progress={progress}
-            sourceArtifactId={sourceArtifactId}
+
           />
         )}
   </> : null;
@@ -578,7 +577,7 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
           {mode === "focus" && (
             <ReactFlowProvider><MapGraph selectedRelationId={relationId} progress={progress} openRelation={openRelation} openConcept={openConceptDetail} selectedConceptId={selectedConceptId} detail={detail} view={view} /></ReactFlowProvider>
           )}
-          {mode === "review" && (progressMessage ? <div className="review-empty"><div><h2>暫時無法顯示複習重點</h2><p>重新讀取進度後，即可查看最近一次學習的複習方向。</p><button className="primary-button" type="button" onClick={onReloadProgress}>重新讀取進度</button></div></div> : <ReviewView view={view} progress={progress} startStudy={onStartStudy} busyLabel={busyStudyLabel} studyLabel={learningStateStatus === "completed" ? "查看學習成果" : "繼續這個概念"} initialConceptId={selectedConceptId} showNavigator={() => selectMode("focus")} apiClient={apiClient} sourceArtifactId={sourceArtifactId} />)}
+          {mode === "review" && (progressMessage ? <div className="review-empty"><div><h2>暫時無法顯示複習重點</h2><p>重新讀取進度後，即可查看最近一次學習的複習方向。</p><button className="primary-button" type="button" onClick={onReloadProgress}>重新讀取進度</button></div></div> : <ReviewView view={view} progress={progress} startStudy={onStartStudy} busyLabel={busyStudyLabel} studyLabel={learningStateStatus === "completed" ? "查看學習成果" : "繼續這個概念"} initialConceptId={selectedConceptId} showNavigator={() => selectMode("focus")} apiClient={apiClient} />)}
         </div>
       </div>
 

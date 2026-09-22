@@ -7,10 +7,7 @@ from .structure import SemanticState
 
 
 def page_source(document, page):
-    binding = document.get("input_binding")
-    if binding is None:
-        digest = document["source_sha256"]
-        return canonical_sha256({"original": digest, "normalized": digest}), page
+    binding = document["input_binding"]
     location = binding["bundle"]["pages"][page - 1]
     item = next(item for item in binding["manifest"]["items"] if item["source_id"] == location["source_id"])
     return canonical_sha256({"original": item["original_sha256"], "normalized": item["normalized_sha256"]}), location["normalized_page"]

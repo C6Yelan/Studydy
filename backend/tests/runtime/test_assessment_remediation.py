@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from learning_adaptation import assessment_sets as sets
-from learning_adaptation.answer_events import submit_answer, read_answer_events
+from learning_adaptation.answer_events import read_answer_events
 from learning_adaptation.learner_progress import derive_learner_progress
 from runtime.storage.tables import Assessment, database_session
 from test_assessment_sets import closed_loop, concept_fixture, create, read, model_for

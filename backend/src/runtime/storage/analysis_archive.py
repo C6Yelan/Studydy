@@ -161,9 +161,10 @@ class AnalysisArchive:
     def save_review(self, name, data):
         self._write(f'review/{name}.json', data)
 
-    def prepare_review_call(self, index, key, request):
-        self.save_review(f'call-{index:06d}/request', {'cache_key': key, 'request': request})
-        return self.directory/'review'/f'call-{index:06d}'
+    def prepare_review_call(self, index, key, request, *, attempt=0):
+        name = f'call-{index:06d}' + (f'-repair-{attempt:02d}' if attempt else '')
+        self.save_review(f'{name}/request', {'cache_key': key, 'request': request})
+        return self.directory/'review'/name
 
     def load_review(self, key, *, validate_response=None):
         # 同來源／模型設定的明確重試可接續；不重播未知或損毀的回應。
@@ -172,7 +173,7 @@ class AnalysisArchive:
                 MaterialProcessingRun.learner_id == self.run.learner_id,
                 MaterialProcessingRun.material_id == self.run.material_id,
                 MaterialProcessingRun.status.in_(('failed', 'cancelled')),
-                MaterialProcessingRun.created_at < self.run.created_at)).all()
+                MaterialProcessingRun.created_at < self.run.created_at).order_by(MaterialProcessingRun.created_at.desc())).all()
             candidates = [(r.run_id, _signature(r)) for r in prior if _same_analysis(r, self.run)]
         for run_id, signature in [(self.run.run_id, self.signature), *candidates]:
             directory = self.directory.parent/run_id.hex/'review'
@@ -182,7 +183,7 @@ class AnalysisArchive:
                     # 驗證器修正後，可以重新核對原始回應；不用為同一輸入再付一次推論費用。
                     if validate_response is None:
                         continue
-                    for request_path in directory.glob('call-*/request.json'):
+                    for request_path in sorted(directory.glob('call-*/request.json'), reverse=True):
                         request = json.loads(request_path.read_bytes())
                         if (request['signature'] != signature or request['run_id'] != str(run_id)
                             or request['data_sha256'] != canonical_sha256(request['data'])):

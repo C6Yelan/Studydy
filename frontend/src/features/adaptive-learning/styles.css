@@ -1,6 +1,0 @@
-.adaptive-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-5); padding: var(--space-5); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--studydy-blue-soft); }
-.adaptive-copy h2, .adaptive-copy > p:not(.eyebrow) { margin: 0; }
-.adaptive-copy h2 { font-size: 20px; }
-.adaptive-copy > p:not(.eyebrow) { margin-top: var(--space-2); color: var(--text-secondary); }
-.adaptive-meta { margin-top: var(--space-3); color: var(--text-secondary); font-size: 14px; overflow-wrap: anywhere; }
-@media (max-width: 760px) { .adaptive-card { grid-template-columns: minmax(0, 1fr); } .adaptive-card .primary-button { width: 100%; } }

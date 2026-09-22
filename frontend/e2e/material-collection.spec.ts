@@ -7,7 +7,7 @@ const latestRun = "33333333-3333-4333-8333-333333333333";
 const studyId = "44444444-4444-4444-8444-444444444444";
 const revision = `knowledge-structure:sha256:${"a".repeat(64)}`;
 const mapPath = `/materials/${materialId}/runs/${publishedRun}/knowledge-structures/${encodeURIComponent(revision)}`;
-const base: MaterialLibraryItem = { schema: "material-library-item/v2", material_id: materialId, source_artifact_id: materialId,
+const base: MaterialLibraryItem = { schema: "material-library-item/v3", material_id: materialId, source_artifact_id: materialId,
   display_name: "資料結構講義.pdf", size_bytes: 1200, created_at: "2026-09-12T00:00:00Z", latest_attempt: null, available_structures: [], study_sessions: [] };
 const run: MaterialAttemptView = { cancel_requested_at: null, run_id: latestRun, status: "running", progress_stage: "semantics", completed_pages: 2, total_pages: 8,
   error_code: null, created_at: "2026-09-12T01:00:00Z" };

@@ -1,3 +1,5 @@
+
+from product_fixtures import publish_fixture_structure
 """B3-A 的真 DB／真 PDF 行為測試；模型 transport 由 fixture 阻擋。"""
 from copy import deepcopy
 import io
@@ -148,35 +150,6 @@ def test_run_only_cancel_retains_head_and_unreferenced_old_map_is_pruned_on_succ
     assert start([second],'cancel',old['revision']).run_id==run.run_id
 
 
-def test_unchanged_claim_inherits_actual_answers_and_late_old_tab_answer(revisions):
-    from learning_adaptation.answer_events import submit_answer,read_assessment_records
-    from learning_adaptation.learner_progress import derive_learner_progress
-    from test_closed_loop_v1 import generate_assessment,Client,_assessment_response
-    learner,material,settings,dsn,add,start,execute,r1,old,_=revisions
-    prior=create_study_session(learner,material,old['revision'],'old-study',dsn=dsn)
-    concept=old['concepts'][0]
-    def question(key):
-        return generate_assessment(learner,prior.study_session_id,concept['claims'][0]['claim_id'],key,settings,
-            dsn=dsn,client=Client(),semantic_call=lambda *_args,**_kw:_assessment_response(key,f'{key}: Which removal order?',concept['evidence_refs'][0]))
-    first=question('First question');second=question('Second question')
-    submit_answer(learner,prior.study_session_id,first.assessment_revision,first.question_id,
-        first.private_answer_document['correct_option_id'],'answer-one',dsn=dsn)
-    addition=add('B.pdf','A queue removes the first inserted element first.')
-    start([addition],'append-after-answers',old['revision'])
-    # 更新已排程時仍可提交原題，切換後由同一份真實事件推導進度。
-    submit_answer(learner,prior.study_session_id,second.assessment_revision,second.question_id,
-        second.private_answer_document['correct_option_id'],'answer-two',dsn=dsn)
-    records=read_assessment_records(learner,prior.study_session_id,dsn=dsn)
-    result=execute();assert result.status=='succeeded',result.error_code
-    new=create_study_session(learner,material,result.output_binding['knowledge_structure_revision'],'new-study',dsn=dsn)
-    progress=derive_learner_progress(learner,new.study_session_id,dsn=dsn)
-    assert sorted(state.status for state in progress.concept_states)==['mastered','not_started']
-    assert progress.event_watermark==0
-    assert read_assessment_records(learner,prior.study_session_id,dsn=dsn)==records
-    third=question('Late old tab question')
-    wrong=next(option['option_id'] for option in third.public_document['options'] if option['option_id']!=third.private_answer_document['correct_option_id'])
-    submit_answer(learner,prior.study_session_id,third.assessment_revision,third.question_id,wrong,'late-answer',dsn=dsn)
-    assert sorted(state.status for state in derive_learner_progress(learner,new.study_session_id,dsn=dsn).concept_states)==['needs_review','not_started']
 
 
 def test_late_upload_does_not_change_frozen_input_and_duplicate_bytes_are_rejected(revisions):
@@ -387,8 +360,7 @@ def test_empty_update_never_replaces_head_even_with_a_review_flag(revisions,monk
     from pdf_evidence import material_pipeline
     import runtime.material_processing as processing
     learner,material,settings,dsn,add,start,execute,r1,old,_=revisions
-    # B02 的部分單 PDF 資料尚無 head pointer；失敗的追加不能清掉其基準圖。
-    with database_session(dsn) as session:session.get(Material,material).head_revision=None
+    # 失敗的追加不能清掉已發布來源集合的 head。
     second=add('B.pdf','A new source requiring review.')
     run=start([second],'review',old['revision'])
     def semantics(*_args,**_kwargs):
@@ -568,20 +540,6 @@ def test_worker_renews_lease_while_semantic_call_is_waiting(revisions,monkeypatc
     assert result.status=='succeeded',result.error_code
 
 
-def test_existing_single_pdf_can_append_without_rewriting_its_structure(revisions,closed_loop):
-    learner,source,settings,old,dsn,_=closed_loop
-    from runtime.source_revisions import create_revision
-    from runtime.storage.source_artifacts import open_verified_artifact
-    original=deepcopy(old)
-    create_study_session(learner,source.material_id,old['revision'],'existing-pdf-study',dsn=dsn)
-    identity=upload_source(learner.learner_id,source.material_id,pdf('New topic content.'),'B.pdf','application/pdf','legacy-addition',dsn=dsn)
-    normalize_next(dsn=dsn)
-    normalization=next(item['normalization_id'] for item in read_sources(learner.learner_id,source.material_id,dsn=dsn) if item['source_id']==identity)
-    create_revision(learner.learner_id,source.material_id,[normalization],'existing-pdf-update',settings,base_revision=old['revision'],dsn=dsn)
-    claim=claim_next_material_processing_run(dsn=dsn)
-    result=execute_claimed_material_processing_run(claim,settings,dsn=dsn)
-    assert result.status=='succeeded',result.error_code
-    assert read_knowledge_structure(learner.learner_id,source.material_id,revision=old['revision'],dsn=dsn).document==original
 
 
 def test_staged_source_removal_is_owned_and_keeps_published_sources(revisions):

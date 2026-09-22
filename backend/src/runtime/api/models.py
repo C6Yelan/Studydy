@@ -29,18 +29,8 @@ class LearnerIdentityView(_Closed):
     learner_id: UUID
 
 
-class MaterialView(_Closed):
-    schema_: Literal["material/v1"] = Field(alias="schema")
-    material_id: UUID
-    source_artifact_id: UUID
-    source_sha256: str
-    size_bytes: int
 
 
-class MaterialProcessingCreate(_Closed):
-    schema_: Literal["material-processing-create/v1"] = Field(alias="schema")
-    material_id: UUID
-    source_artifact_id: UUID
 
 
 class MaterialOutputBindingView(_Closed):
@@ -66,7 +56,7 @@ class MaterialProcessingRunView(_Closed):
     analysis_saved: bool = False
     base_revision: str | None = Field(default=None,exclude_if=lambda value:value is None)
     source_names: list[str] | None = Field(default=None,exclude_if=lambda value:value is None)
-    schema_: Literal["material-processing-run/v5", "material-processing-run/v6"] = Field(alias="schema")
+    schema_: Literal["material-processing-run/v6"] = Field(alias="schema")
     input_source_set_id: UUID | None = Field(default=None,exclude_if=lambda value:value is None)
     run_id: UUID
     material_id: UUID
@@ -128,7 +118,7 @@ class SourceView(_Closed):
 class MaterialLibraryItem(_Closed):
     head_revision: str | None = None
     source_count: int = 1
-    schema_: Literal["material-library-item/v2", "material-library-item/v3"] = Field(alias="schema")
+    schema_: Literal["material-library-item/v3"] = Field(alias="schema")
     source: SourceView | None = Field(default=None,exclude_if=lambda value:value is None)
     ingestion_kind: Literal["sources-v2"] | None = Field(default=None,exclude_if=lambda value:value is None)
     material_id: UUID
@@ -232,8 +222,8 @@ class ExcludedPageView(_Closed):
 
 
 class KnowledgeStructureView(_Closed):
-    schema_: Literal["knowledge-structure-view/v2", "knowledge-structure-view/v3"] = Field(alias="schema")
-    source_resolver: str | None = Field(default=None,exclude_if=lambda value:value is None)
+    schema_: Literal["knowledge-structure-view/v3"] = Field(alias="schema")
+    source_resolver: str
     material_id: str
     knowledge_structure_revision: str
     status: StatusView
@@ -271,9 +261,6 @@ class StudySessionView(_Closed):
     event_watermark: int
 
 
-class AssessmentCreate(_Closed):
-    schema_: Literal["assessment-create/v2"] = Field(alias="schema")
-    target_claim_id: str
 
 
 class AssessmentOptionView(_Closed):
@@ -295,10 +282,6 @@ class AssessmentView(_Closed):
     options: list[AssessmentOptionView]
 
 
-class AnswerSubmissionCreate(_Closed):
-    schema_: Literal["answer-submission-create/v2"] = Field(alias="schema")
-    question_id: str
-    selected_option_id: str
 
 
 class AnswerFeedbackView(_Closed):
@@ -315,22 +298,15 @@ class AnswerFeedbackView(_Closed):
     created_at: datetime
 
 
-class AssessmentRecordView(_Closed):
-    assessment: AssessmentView
-    feedback: AnswerFeedbackView | None
-    created_at: datetime
-    can_submit: bool
 
 
 class StudyResumeView(_Closed):
-    schema_: Literal["study-resume/v3"] = Field(default="study-resume/v3", alias="schema")
+    schema_: Literal["study-resume/v4"] = Field(default="study-resume/v4", alias="schema")
     session: StudySessionView
     run_id: UUID
     source_artifact_id: UUID
     knowledge_structure: KnowledgeStructureView
     progress: LearnerProgressView
-    assessments: list[AssessmentRecordView]
-    selected_assessment_revision: str | None
     assessment_sets: list[AssessmentSetSummary]
     selected_set_id: UUID | None
 
@@ -468,9 +444,6 @@ class AssessmentSetView(AssessmentSetSummary):
     cycle: AssessmentCycleView
 
 
-class GuidanceApply(_Closed):
-    schema_: Literal["guidance-apply/v2"] = Field(alias="schema")
-    guidance_revision: str
 
 
 class LearnerProgressView(_Closed):
@@ -491,7 +464,7 @@ def project_material_run(run: Any) -> MaterialProcessingRunView:
     from ..storage.analysis_archive import has_analysis_checkpoint
     return MaterialProcessingRunView.model_validate({
         "analysis_saved": run.status == "failed" and has_analysis_checkpoint(run.learner_id, run.material_id, run.run_id),
-        "schema": "material-processing-run/v6" if getattr(run,"input_source_set_id",None) else "material-processing-run/v5",
+        "schema": "material-processing-run/v6",
         "input_source_set_id":getattr(run,"input_source_set_id",None),
         "base_revision":getattr(run,"base_revision",None),
         "source_names":list(run.source_names) if getattr(run,"source_names",()) else None,

@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../api/client";
 import type { EvidenceSourceView, EvidenceView } from "../api/contracts";
 
-export function sourceLinks(evidence: EvidenceView[], resolver?: string): EvidenceView[] {
+export function sourceLinks(evidence: EvidenceView[]): EvidenceView[] {
   // 僅合併同教材同 PDF 頁的入口，保留代表 Evidence 供 resolver 回查；不修改 Evidence。
-  const links = new Map<string | number, EvidenceView>();
+  const links = new Map<string, EvidenceView>();
   for (const item of evidence) {
-    const key = !resolver ? item.page : JSON.stringify([
+    const key = JSON.stringify([
       item.source_id ? ["id", item.source_id] : item.source_name ? ["name", item.source_name] : ["evidence", item.evidence_id],
       item.normalized_page ?? item.page,
     ]);
@@ -15,18 +15,17 @@ export function sourceLinks(evidence: EvidenceView[], resolver?: string): Eviden
   return [...links.values()];
 }
 
-export function SourceButton({apiClient,artifactId,page,evidenceId,resolver,children,evidence}:{apiClient:StudydyApiClient;artifactId:string;page:number;evidenceId?:string;resolver?:string;children:ReactNode;evidence?:EvidenceView}) {
+export function SourceButton({apiClient,resolver,evidence}:{apiClient:StudydyApiClient;resolver:string;evidence:EvidenceView}) {
   const [source,setSource]=useState<EvidenceSourceView|null>(null);
   const [error,setError]=useState<string|null>(null);const [busy,setBusy]=useState(false);
   const dialog=useRef<HTMLDialogElement>(null);const opener=useRef<HTMLButtonElement>(null);
   useEffect(()=>{if(source)dialog.current?.showModal();},[source]);
   const open=async()=>{
-    if(!resolver){window.open(apiClient.sourceArtifactUrl(artifactId,page),"_blank","noopener,noreferrer");return;}
-    if(!evidenceId||busy)return;setBusy(true);setError(null);
-    try{setSource(await apiClient.resolveEvidence(resolver,evidenceId));}catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+    if(busy)return;setBusy(true);setError(null);
+    try{setSource(await apiClient.resolveEvidence(resolver,evidence.evidence_id));}catch(e){setError(errorMessage(e));}finally{setBusy(false);}
   };
   return <>
-    <button ref={opener} className="text-button" type="button" disabled={busy} onClick={()=>void open()} aria-haspopup={resolver?"dialog":undefined}>{resolver?busy?"正在讀取來源…":evidence?.source_name?`${evidence.source_name} · PDF 第 ${evidence.normalized_page ?? page} 頁`:`查看第 ${evidence?.normalized_page ?? page} 頁來源`:children}</button>
+    <button ref={opener} className="text-button" type="button" disabled={busy} onClick={()=>void open()} aria-haspopup="dialog">{busy?"正在讀取來源…":evidence.source_name?`${evidence.source_name} · PDF 第 ${evidence.normalized_page ?? evidence.page} 頁`:`查看第 ${evidence.normalized_page ?? evidence.page} 頁來源`}</button>
     {error&&<p role="alert" className="form-error">{error}</p>}
     {source&&<dialog ref={dialog} className="source-dialog" aria-label="教材來源" onCancel={event=>{event.preventDefault();event.stopPropagation();dialog.current?.close();}} onKeyDown={event=>{if(event.key==="Escape")event.stopPropagation();}} onClose={()=>{setSource(null);opener.current?.focus();}}>
       <h2>{source.original_name}</h2><p>{source.label}</p>

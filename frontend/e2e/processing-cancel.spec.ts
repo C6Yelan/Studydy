@@ -5,7 +5,7 @@ const mid = "11111111-1111-4111-8111-111111111111";
 const rid = "22222222-2222-4222-8222-222222222222";
 const path = `/materials/${mid}/runs/${rid}`;
 const time = new Date("2026-09-12T12:00:00Z");
-const base: MaterialProcessingRunView = { schema: "material-processing-run/v5", run_id: rid, material_id: mid, source_artifact_id: mid,
+const base: MaterialProcessingRunView = { schema: "material-processing-run/v6", run_id: rid, material_id: mid, source_artifact_id: mid,
   status: "running", progress_stage: "evidence", completed_pages: 3, total_pages: 45, cancel_requested_at: null,
   output_binding: null, error_code: null, created_at: "2026-09-12T11:59:00Z", updated_at: "2026-09-12T11:59:59Z", completed_at: null };
 const requested = (run = base): MaterialProcessingRunView => ({ ...run, cancel_requested_at: time.toISOString(), updated_at: time.toISOString() });
