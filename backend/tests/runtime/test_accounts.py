@@ -167,3 +167,19 @@ def test_email_normalization_and_syntax_validation_never_query_dns(clean_databas
         assert connection.execute("SELECT email FROM learners").fetchone() == ("learner+tag@example.com",)
     with pytest.raises(SessionError, match="ACCOUNT_UNAVAILABLE"):
         register_account("learner+tag@Example.Com", PASSWORD, dsn=clean_database_dsn)
+
+
+def test_refresh_returns_the_already_verified_identity_without_replacing_session(clean_database_dsn,tmp_path,monkeypatch):
+    run_migrations(clean_database_dsn)
+    client=TestClient(_app(clean_database_dsn,tmp_path,monkeypatch),base_url=ORIGIN)
+    created=client.post('/v1/accounts',headers=HEADERS,json={'email':'refresh@example.com','password':PASSWORD})
+    assert created.status_code==201
+    cookie=client.cookies.get('studydy_session')
+    refreshed=client.post('/v1/session/refresh',headers=HEADERS)
+    assert refreshed.status_code==200 and refreshed.json()==created.json()
+    assert refreshed.json()['schema']=='learner-identity/v1'
+    assert client.cookies.get('studydy_session')==cookie
+    with psycopg.connect(clean_database_dsn) as connection:
+        assert connection.execute('SELECT count(*) FROM learner_sessions').fetchone()==(1,)
+    client.delete('/v1/session',headers=HEADERS)
+    assert client.post('/v1/session/refresh',headers=HEADERS).status_code==401

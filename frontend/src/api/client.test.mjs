@@ -75,9 +75,9 @@ test("unknown relation type and leaked private answer fail closed", async () => 
 
 test("session refresh is coalesced and safe API errors stay fixed", async () => {
   let calls = 0;
-  const client = new StudydyApiClient(async (path) => { calls += 1; return path.endsWith("refresh") ? new Response(null, { status: 204 }) : Response.json({ schema: "learner-identity/v1", learner_id: sessionId }); });
+  const client = new StudydyApiClient(async (path) => { calls += 1; return Response.json({ schema: "learner-identity/v1", learner_id: sessionId }); });
   await Promise.all([client.ensureSession(), client.ensureSession(), client.ensureSession()]);
-  assert.equal(calls, 2);
+  assert.equal(calls, 1);
 
   const paths = [];
   const recovered = new StudydyApiClient(async (input) => {
@@ -256,7 +256,7 @@ for (const operation of ["refresh", "identity", "login", "register", "logout"]) 
     const client = new StudydyApiClient(async (path, init) => {
       signals.push(init.signal);
       if (hang) return new Promise(() => {});
-      return path.endsWith("refresh") || init.method === "DELETE" ? new Response(null, { status: 204 })
+      return init.method === "DELETE" ? new Response(null, { status: 204 })
         : Response.json({ schema: "learner-identity/v1", learner_id: sessionId });
     });
     const invoke = () => operation === "refresh" ? client.ensureSession() : operation === "identity" ? client.currentIdentity()

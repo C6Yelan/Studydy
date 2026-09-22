@@ -131,3 +131,9 @@ B3-B creates the initial map from one or more ordered, ready sources using the s
 All uploads enter the source confirmation page before semantic analysis; per-file retries reuse
 their upload receipts. Initial source ordering is frozen by the revision request, with no second
 KnowledgeStructure schema or merged PDF.
+
+Knowledge Map reads material metadata alongside its immutable structure and run binding. If a study
+exists, it reads the small learner-progress response rather than fetching the full StudySession
+resume envelope again. Progress and resume share a repeatable-read database snapshot: source-bound
+structure validation, study scope, AnswerEvents, assisted evidence and cycle projection are reused
+within that read. No global cache replaces owner or source checks.

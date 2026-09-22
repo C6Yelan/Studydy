@@ -366,25 +366,24 @@ function RelationDetail({ relation, view, apiClient, close, openConcept }: {
   </DetailPanel>;
 }
 
-function ReviewView({ view, progress, startStudy, busyLabel, studyLabel, initialConceptId, showNavigator, apiClient }: {
-  view: KnowledgeStructureView; progress: LearnerProgressView | null; initialConceptId: string;
+function ReviewView({ view, progress, startStudy, busyLabel, studyLabel, selectedId, onSelect, showNavigator, apiClient, loading }: {
+  view: KnowledgeStructureView; progress: LearnerProgressView | null; selectedId: string; onSelect: (id: string) => void;
   startStudy: (id: string) => void; busyLabel: string | null; studyLabel: string; showNavigator: () => void;
-  apiClient: StudydyApiClient;
+  apiClient: StudydyApiClient; loading: boolean;
 }) {
   const weak = progress?.concept_states.filter((state) => state.status === "needs_review") ?? [];
-  const [selectedId, setSelectedId] = useState(initialConceptId);
   const selected = weak.find(state => state.concept_id === selectedId) ?? weak[0];
   const concept = selected && view.concepts.find(item => item.concept_id === selected.concept_id)!;
   const points = concept?.claims.filter(claim => selected.weak_claim_ids.includes(claim.claim_id)) ?? [];
   return <section aria-labelledby="review-title">
     <div className="view-heading"><div><h2 id="review-title">複習重點</h2><p>依最近一次學習結果，以下是建議優先複習的概念。</p></div></div>
-    {!concept ? <div className="review-empty"><div><h3>{progress ? "目前沒有需要複習的概念" : "練習後，幫你找出複習方向"}</h3><p>{progress ? "可以回到學習導覽，繼續探索下一個概念。" : "先學習一個概念並作答，這裡就會整理需要補強的重點。"}</p><button className="secondary-button" type="button" onClick={showNavigator}>查看學習導覽</button></div></div> :
+    {loading && !progress ? <p role="status">正在讀取複習重點…</p> : !concept ? <div className="review-empty"><div><h3>{progress ? "目前沒有需要複習的概念" : "練習後，幫你找出複習方向"}</h3><p>{progress ? "可以回到學習導覽，繼續探索下一個概念。" : "先學習一個概念並作答，這裡就會整理需要補強的重點。"}</p><button className="secondary-button" type="button" onClick={showNavigator}>查看學習導覽</button></div></div> :
       <div className="review-workspace">
         <nav className="review-list" aria-label="需要複習的概念">
           <h3>需要複習 <small>{weak.length} 個概念</small></h3>
           <ul>{weak.map(state => {
             const item = view.concepts.find(item => item.concept_id === state.concept_id)!;
-            return <li key={state.concept_id}><button type="button" aria-current={state.concept_id === concept.concept_id ? "true" : undefined} onClick={() => setSelectedId(state.concept_id)}>
+            return <li key={state.concept_id}><button type="button" aria-current={state.concept_id === concept.concept_id ? "true" : undefined} onClick={() => onSelect(state.concept_id)}>
               <strong>{item.label}</strong><Icon name="chevron-right" />
             </button></li>;
           })}</ul>
@@ -424,18 +423,35 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
   view: KnowledgeStructureView;
 }) {
   const initialConceptId = progress?.current_concept_id ?? initialFocusConceptId(view);
-  const [mode, setMode] = useState<Mode>("focus");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedConceptId, setSelectedConceptId] = useState(initialConceptId);
-  const [detailConceptId, setDetailConceptId] = useState<string | null>(null);
-  const [relationId, setRelationId] = useState<string | null>(null);
+  // 只記住目前瀏覽器紀錄的呈現位置；登入、作答與 learner progress 仍由 API 管理。
+  const [restored] = useState(() => {
+    const saved = window.history.state?.knowledgeMap;
+    if (saved?.revision !== view.knowledge_structure_revision) return null;
+    const conceptId = (id: unknown) => typeof id === "string" && view.concepts.some(c => c.concept_id === id) ? id : null;
+    return {mode: saved.mode === "review" ? "review" as const : "focus" as const,
+      search: typeof saved.search === "string" ? saved.search : "",
+      concept: conceptId(saved.concept), review: conceptId(saved.review), detail: conceptId(saved.detail),
+      relation: typeof saved.relation === "string" && view.relations.some(r => r.relation_id === saved.relation) ? saved.relation as string : null};
+  });
+  const [mode, setMode] = useState<Mode>(restored?.mode ?? "focus");
+  const [searchQuery, setSearchQuery] = useState(restored?.search ?? "");
+  const [selectedConceptId, setSelectedConceptId] = useState(restored?.concept ?? initialConceptId);
+  const [reviewConceptId, setReviewConceptId] = useState(restored?.review ?? initialConceptId);
+  const [detailConceptId, setDetailConceptId] = useState<string | null>(restored?.detail ?? null);
+  const [relationId, setRelationId] = useState<string | null>(restored?.relation ?? null);
+  useEffect(() => {
+    window.history.replaceState({...window.history.state, knowledgeMap: {
+      revision:view.knowledge_structure_revision,mode,search:searchQuery,concept:selectedConceptId,
+      review:reviewConceptId,detail:detailConceptId,relation:relationId,
+    }}, "", window.location.href);
+  }, [view.knowledge_structure_revision,mode,searchQuery,selectedConceptId,reviewConceptId,detailConceptId,relationId]);
   const opener = useRef<RestoreFocus | null>(null);
   const restoreFrame = useRef(0);
   useEffect(() => () => cancelAnimationFrame(restoreFrame.current), []);
   const searchInput = useRef<HTMLInputElement>(null);
   const searchResultsElement = useRef<HTMLDivElement>(null);
   const tabs = useRef(new Map<Mode, HTMLButtonElement>());
-  const hasBrowsed = useRef(false);
+  const hasBrowsed = useRef(!!restored?.concept);
   useEffect(() => {
     if (!hasBrowsed.current && progress?.current_concept_id && view.concepts.some(concept => concept.concept_id === progress.current_concept_id)) {
       setSelectedConceptId(progress.current_concept_id);
@@ -569,7 +585,7 @@ export function KnowledgeMapWorkspace({ apiClient, progress, isLoadingProgress, 
           {mode === "focus" && (
             <ReactFlowProvider><MapGraph selectedRelationId={relationId} progress={progress} openRelation={openRelation} openConcept={openConceptDetail} selectedConceptId={selectedConceptId} detail={detail} view={view} /></ReactFlowProvider>
           )}
-          {mode === "review" && (progressMessage ? <div className="review-empty"><div><h2>暫時無法顯示複習重點</h2><p>重新讀取進度後，即可查看最近一次學習的複習方向。</p><button className="primary-button" type="button" onClick={onReloadProgress}>重新讀取進度</button></div></div> : <ReviewView view={view} progress={progress} startStudy={onStartStudy} busyLabel={busyStudyLabel} studyLabel={learningStateStatus === "completed" ? "查看學習成果" : "繼續這個概念"} initialConceptId={selectedConceptId} showNavigator={() => selectMode("focus")} apiClient={apiClient} />)}
+          {mode === "review" && (progressMessage ? <div className="review-empty"><div><h2>暫時無法顯示複習重點</h2><p>重新讀取進度後，即可查看最近一次學習的複習方向。</p><button className="primary-button" type="button" onClick={onReloadProgress}>重新讀取進度</button></div></div> : <ReviewView loading={isLoadingProgress} view={view} progress={progress} startStudy={onStartStudy} busyLabel={busyStudyLabel} studyLabel={learningStateStatus === "completed" ? "查看學習成果" : "繼續這個概念"} selectedId={reviewConceptId} onSelect={setReviewConceptId} showNavigator={() => selectMode("focus")} apiClient={apiClient} />)}
         </div>
       </div>
 

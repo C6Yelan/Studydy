@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiClientError, errorMessage, StudydyApiClient, type LearnerIdentity } from "./api/client";
+import { readSessionHint, saveSessionHint } from "./api/session-hint";
 import { AppShell } from "./app/AppShell";
 import { readRoute, writeRoute, type AppRoute } from "./app/routes";
 import { MaterialFlow } from "./features/material-flow/MaterialFlow";
 import { StateView } from "./ui/StateView";
-import { AccountFrame, AccountPage } from "./features/account/AccountPage";
+import { AccountPage } from "./features/account/AccountPage";
 
 type SessionState =
   | { status: "starting" }
@@ -17,9 +18,11 @@ export default function App() {
   const [route, setRoute] = useState<AppRoute>(() => readRoute(window.location.pathname).route);
   const [session, setSession] = useState<SessionState>({ status: "starting" });
   const currentClient = useRef<StudydyApiClient | null>(null);
+  const clientVersion = useRef(0);
   const channel = useRef<BroadcastChannel | null>(null);
 
-  const clearPrivateView = useCallback(() => {
+  const clearPrivateView = useCallback((forgetHint = true) => {
+    if (forgetHint) saveSessionHint(null);
     currentClient.current?.invalidate();
     currentClient.current = null;
     setSession({ status: "signed-out" });
@@ -32,6 +35,7 @@ export default function App() {
   const newClient = useCallback(() => {
     currentClient.current?.invalidate();
     const api = new StudydyApiClient();
+    clientVersion.current += 1;
     currentClient.current = api;
     api.onSessionExpired = () => {
       if (currentClient.current === api) clearPrivateView();
@@ -42,9 +46,16 @@ export default function App() {
   const startSession = useCallback(() => {
     setSession({ status: "starting" });
     const api = newClient();
+    const remembered = readSessionHint();
+    if (remembered) {
+      if (["/login", "/register"].includes(window.location.pathname)) writeRoute({name:"home"}, true);
+      setSession({status:"ready",identity:remembered,api});
+      return;
+    }
     void api.ensureSession().then(
       (identity) => { if (currentClient.current === api) {
         if (["/login", "/register"].includes(window.location.pathname)) writeRoute({ name: "home" }, true);
+        saveSessionHint(identity);
         setSession({ status: "ready", identity, api });
       } },
       (error) => {
@@ -73,8 +84,8 @@ export default function App() {
   useEffect(() => {
     startSession();
     channel.current = new BroadcastChannel("studydy-account");
-    channel.current.onmessage = clearPrivateView;
-    const restorePage = (event: PageTransitionEvent) => { if (event.persisted) { clearPrivateView(); window.location.reload(); } };
+    channel.current.onmessage = () => clearPrivateView(false);
+    const restorePage = (event: PageTransitionEvent) => { if (event.persisted) startSession(); };
     window.addEventListener("pageshow", restorePage);
     return () => {
       currentClient.current?.invalidate();
@@ -82,18 +93,6 @@ export default function App() {
       window.removeEventListener("pageshow", restorePage);
     };
   }, [startSession, clearPrivateView]);
-
-  useEffect(() => {
-    if (session.status !== "ready") return;
-    const refresh = () => {
-      void session.api.ensureSession().then((identity) => {
-        if (currentClient.current === session.api && identity.learner_id !== session.identity.learner_id) clearPrivateView();
-      }).catch(() => { /* 401 由 client 清除畫面；暫時連線失敗不重送產品寫入。 */ });
-    };
-    const timer = window.setInterval(refresh, 60 * 60 * 1000);
-    window.addEventListener("focus", refresh);
-    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); };
-  }, [session, clearPrivateView]);
 
   useEffect(() => {
     const readLocation = () => {
@@ -119,15 +118,16 @@ export default function App() {
       if (currentClient.current !== api) return;
       writeRoute({ name: "home" }, true);
       channel.current?.postMessage("identity-changed");
+      saveSessionHint(identity);
       setSession({ status: "ready", identity, api });
     }} />;
-    return <AccountFrame mode={mode}>{session.status === "starting"
-      ? <StateView description="正在確認帳戶狀態，請稍候。" live title="連線中" tone="loading" />
+    return <AppShell route={route}>{session.status === "starting"
+      ? <p className="app-loading" role="status">正在載入…</p>
       : <StateView action={<button className="primary-button" type="button" onClick={() => session.logoutPending ? void logout() : startSession()}>再試一次</button>}
-          description={session.message} title="暫時無法完成" tone="failure" />}</AccountFrame>;
+          description={session.message} title="暫時無法完成" tone="failure" />}</AppShell>;
   }
   return <AppShell route={route}
     accountAction={<button className="secondary-button" type="button" onClick={() => void logout()}>登出</button>}>
-    <MaterialFlow key={session.identity.learner_id} apiClient={session.api} route={route} />
+    <MaterialFlow key={`${session.identity.learner_id}/${clientVersion.current}`} apiClient={session.api} route={route} />
   </AppShell>;
 }

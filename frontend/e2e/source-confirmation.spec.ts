@@ -23,7 +23,7 @@ for (const width of [1536, 1366, 390]) test.describe(`compact source confirmatio
       latest_attempt: run, study_sessions: [], available_structures: append ? [{ run_id: runId, knowledge_structure_revision: revision, status: "succeeded", created_at: stamp }] : [] });
     const listing = () => ({ schema: "material-sources/v1", material_id: material, sources });
     await page.route("**/v1/session", r => r.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }));
-    await page.route("**/v1/session/refresh", r => r.fulfill({ status: 204 }));
+    await page.route("**/v1/session/refresh", r => r.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
     await page.route("**/v2/source-capabilities", r => r.fulfill({ json: { schema: "source-capabilities/v1", quality_notice: "PDF", formats: [
       { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 }, { extension: ".txt", media_type: "text/plain", max_bytes: 104857600 },
     ] } }));

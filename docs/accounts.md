@@ -28,7 +28,7 @@ PYTHONPATH=backend/src backend/.venv/bin/python -c 'from runtime.storage.migrati
 2. 密碼為 15–128 個字元，可包含空格，註冊時需再次確認；沒有密碼重設服務，請自行妥善保存。
 3. 註冊成功後進入首頁，可從側邊導覽前往教材庫；右上角「登出」只撤銷本次授權，不刪除資料。
 4. 新瀏覽器輸入相同帳密，後端會取得同一 learner。其他瀏覽器的有效 session 可繼續使用。
-5. session 有效時沿用 idle refresh（7 天，最長 30 天）；過期需重新登入。失敗的上傳／作答
+5. 後端保留 7 天 idle／最長 30 天期限；前端登入提示不延長授權，過期需重新登入。失敗的上傳／作答
    不會自動重送，請登入後明確操作。登出失敗時私有畫面仍清空，請按「再試一次」完成登出。
 
 登入後可從[教材庫](material-library.md)找回教材；可[接續原學習並查看題目與作答](learning-resume.md)。原有直接網址仍受後端 owner 檢查保護。
@@ -45,7 +45,7 @@ PYTHONPATH=backend/src backend/.venv/bin/python -c 'from runtime.storage.migrati
 | `POST /v1/accounts` | JSON `{email, password}`；201，建立帳號並登入 |
 | `POST /v1/session/login` | 同樣 JSON；200，驗證帳密並登入原 learner |
 | `GET /v1/session` | 200，回傳 `learner-identity/v1` 與 `learner_id`；無有效 session 為 401 |
-| `POST /v1/session/refresh` | 空 body；204，僅延長仍有效的既有 session |
+| `POST /v1/session/refresh` | 空 body；200，延長仍有效的既有 session，並直接回傳 `learner-identity/v1` |
 | `DELETE /v1/session` | 空 body；204，冪等撤銷本次 session 並移除 cookie |
 
 舊匿名 `POST /v1/session` 已移除。帳密錯誤統一回 `INVALID_CREDENTIALS`，Email 重複回
@@ -67,3 +67,5 @@ Password scrypt 成本、隨機 salt、constant-time digest comparison、session
 [本地帳號測試方式](testing.md#account-regression-local-only) 不需要雲端 pod 或模型啟動。
 
 登入／註冊的版型與保留的功能差異見[帳號入口視覺](auth-visual.md)。
+
+前端成功登入後只保存非憑證的 learner identity 提示。重新整理／回到頁面時直接以提示還原 application frame，依實際資料 API 的 401 清除失效狀態；不做 focus 或定時登入檢測。沒有提示時才以一次 refresh 還原仍有效的 cookie。資料內容不以這份提示授權，token 仍是 HttpOnly cookie，owner/session 檢查、期限、撤銷與跨頁登出不變。

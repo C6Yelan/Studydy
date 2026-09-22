@@ -90,7 +90,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     const query=Object.fromEntries((address.split("?")[1]??"").split("&").map(pair=>pair.split("=").map(decodeURIComponent)));
     const send=(json,status=200)=>route.fulfill({json,status});
     if(request.method()!=="GET")requests.push({path,body:request.postData(),key:request.headers()["idempotency-key"]});
-    if(path==="/v1/session/refresh")return route.fulfill({status:204});
+    if(path==="/v1/session/refresh")return route.fulfill({json:{schema:"learner-identity/v1",learner_id:"33333333-3333-4333-8333-333333333333"}});
     if(path==="/v1/session")return send({schema:"learner-identity/v1",learner_id:uuid(9)});
     if(path==="/v2/source-capabilities")return send({schema:"source-capabilities/v1",quality_notice:"PDF",formats:[]});
     if(path.endsWith("/source"))return send({schema:"evidence-source/v1",format:"pptx",original_name:"01_網路模型與資料傳輸.pptx",original_url:`/v2/artifacts/${artifact}`,preview_url:`/v1/artifacts/${artifact}#page=1`,normalized_page:1,accuracy:"exact",origin_locators:[],label:"PDF 第 1 頁"});

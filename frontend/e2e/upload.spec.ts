@@ -13,7 +13,7 @@ async function setup(page: Page) {
     starts: [] as { key: string; body: { normalization_ids: string[]; base_revision: string | null } }[],
     uploadLost: false, runLost: false, draftLost: false, conversionFailed: false, deleted: 0, run: null as MaterialProcessingRunView | null };
   await page.route("**/v1/session", r => r.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }));
-  await page.route("**/v1/session/refresh", r => r.fulfill({ status: 204 }));
+  await page.route("**/v1/session/refresh", r => r.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
   await page.route("**/v2/source-capabilities", r => r.fulfill({ json: { schema: "source-capabilities/v1", quality_notice: "PDF 優先", formats: [
     { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 }, { extension: ".txt", media_type: "text/plain", max_bytes: 104857600 },
   ] } }));

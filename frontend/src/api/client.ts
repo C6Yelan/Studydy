@@ -475,8 +475,7 @@ export class StudydyApiClient {
   async ensureSession(): Promise<LearnerIdentity> {
     this.requireActive();
     if (!this.sessionReady) {
-      this.sessionReady = this.request("/v1/session/refresh", { method: "POST", headers: { Origin: origin() } }, authTimeoutMs)
-        .then(() => this.currentIdentity())
+      this.sessionReady = this.json("/v1/session/refresh", { method: "POST", headers: { Origin: origin() } }, identity, authTimeoutMs)
         .finally(() => { this.sessionReady = null; });
     }
     return this.sessionReady;
@@ -633,6 +632,14 @@ export class StudydyApiClient {
     const view = await this.json(`/v1/materials/${encodeURIComponent(request.materialId)}/knowledge-structures/${encodeURIComponent(request.structureRevision)}`, { method: "GET" }, knowledgeStructure);
     if (view.knowledge_structure_revision !== request.structureRevision) throw new ApiClientError("schema", "教材結構版本不一致。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
     return view;
+  }
+
+  async readProgress(id: string, structureRevision: string): Promise<LearnerProgressView> {
+    const value = await this.json(`/v1/study-sessions/${encodeURIComponent(id)}/progress`, {method:"GET"}, progress);
+    if (value.study_session_id !== id || value.knowledge_structure_revision !== structureRevision) {
+      throw new ApiClientError("schema", "學習進度與教材版本不一致。", {reasonCode:"RESPONSE_SCHEMA_MISMATCH"});
+    }
+    return value;
   }
 
   async applyGuidance(id: string, body: GuidanceApply): Promise<LearnerProgressView> {

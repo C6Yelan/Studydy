@@ -250,19 +250,16 @@ def _cycle(session, study, root):
         'points': points}
 
 
-def read_cycles(learner, sid, *, dsn=None):
-    with database_session(dsn) as session:
-        session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
-        study, _, _ = _scope(session, learner, sid)
-        roots = list(session.scalars(select(AssessmentSet).where(AssessmentSet.study_session_id == sid,
-            AssessmentSet.kind == 'diagnostic').order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)))
-        latest = {}
-        for root in roots:
-            if root.target_concept_id not in latest:
-                cycle = _cycle(session, study, root)
-                latest[root.target_concept_id] = {key: value for key, value in cycle.items()
-                    if key not in ('points', 'can_create_remediation')}
-        return list(latest.values())
+def _read_cycles(session, study):
+    roots = list(session.scalars(select(AssessmentSet).where(AssessmentSet.study_session_id == study.study_session_id,
+        AssessmentSet.kind == 'diagnostic').order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)))
+    latest = {}
+    for root in roots:
+        if root.target_concept_id not in latest:
+            cycle = _cycle(session, study, root)
+            latest[root.target_concept_id] = {key: value for key, value in cycle.items()
+                if key not in ('points', 'can_create_remediation')}
+    return list(latest.values())
 
 
 def create_remediation(learner, sid, root_id, expected_version, key, local_config, *, dsn=None):
@@ -319,13 +316,15 @@ def list_sets(learner, sid, *, dsn=None):
     with database_session(dsn) as session:
         session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
         study, _, _ = _scope(session, learner, sid)
-        groups = list(session.scalars(select(AssessmentSet).where(AssessmentSet.study_session_id == sid)
-                                      .order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)))
-        return {'schema': 'assessment-set-list/v3', 'study_session_id': str(sid),
-                'knowledge_structure_revision': study.knowledge_structure_revision,
-                'active_set_ids': [str(item.set_id) for item in groups if item.status in ACTIVE],
-                'sets': [_summary(session, group) for group in groups]}
+        return _list_sets(session, study)
 
+def _list_sets(session, study):
+    groups = list(session.scalars(select(AssessmentSet).where(AssessmentSet.study_session_id == study.study_session_id)
+                                  .order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)))
+    return {'schema': 'assessment-set-list/v3', 'study_session_id': str(study.study_session_id),
+            'knowledge_structure_revision': study.knowledge_structure_revision,
+            'active_set_ids': [str(item.set_id) for item in groups if item.status in ACTIVE],
+            'sets': [_summary(session, group) for group in groups]}
 
 def read_set(learner, sid, set_id, *, dsn=None):
     from .answer_events import _event, _feedback

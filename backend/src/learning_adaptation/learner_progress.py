@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from uuid import UUID
+from contextlib import contextmanager
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.learner_session import TrustedLearner
-from runtime.storage.tables import StudySession, Material, database_session
+from runtime.storage.tables import Material, database_session
 
-from .answer_events import read_answer_events
+from .answer_events import _read_events
 from .learning_states import ConceptLearningState, derive_learning_states
-from .map_context import ConceptContext, read_map_context
-from .study_sessions import StoredStudySession, read_study_session
+from .map_context import ConceptContext, _context_from_validated_document
+from .study_sessions import StoredStudySession, _learner, _row, _stored, _validate_context
 
 
 class LearnerProgressError(RuntimeError):
@@ -142,36 +143,42 @@ def _snapshot(
     )
 
 
-def derive_learner_progress(
-    learner: TrustedLearner,
-    study_session_id: UUID,
-    *,
-    dsn: str | None = None,
-) -> LearnerProgressSnapshot:
-    try:
-        session = read_study_session(learner, study_session_id, dsn=dsn)
-        context = read_map_context(
-            learner.learner_id,
-            session.material_id,
-            session.knowledge_structure_revision,
-            dsn=dsn,
-        )
-        from .assessment_sets import read_cycles
-        cycles = read_cycles(learner, study_session_id, dsn=dsn)
-        events = read_answer_events(learner, study_session_id, dsn=dsn)
-        if len(events) != session.last_event_number:
-            raise LearnerProgressError("LEARNER_PROGRESS_STALE")
-        from .inherited_progress import inherited_answers
-        inherited = inherited_answers(learner, session, dsn=dsn)
-        # 未跨版本時保留原有 event_number 順序；只有跨 session 的證據需要合併時間序。
-        evidence = tuple(sorted((*inherited, *events), key=lambda event: (event.created_at, str(event.answer_event_id)))) if inherited else events
-        if cycles != read_cycles(learner, study_session_id, dsn=dsn):
-            raise LearnerProgressError('LEARNER_PROGRESS_STALE')
-        return _snapshot(session, context, derive_learning_states(context, evidence), cycles)
-    except LearnerProgressError:
-        raise
-    except Exception:
-        raise LearnerProgressError("LEARNER_PROGRESS_UNAVAILABLE") from None
+@contextmanager
+def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=None):
+    """同次讀取共用已驗證教材與一致 DB snapshot，不以重讀全部資料來偵測競態。"""
+    from runtime.storage.knowledge_structures import _read_verified_document
+    from .assessment_sets import _read_cycles
+    from .inherited_progress import inherited_answers
+    with database_session(dsn) as db:
+        try:
+            db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
+            row = _row(db, _learner(learner), study_session_id)
+            material = db.scalar(select(Material.material_id).where(Material.learner_id == learner.learner_id,
+                Material.material_id == row.material_id, Material.discard_requested_at.is_(None)))
+            if material is None:
+                raise LearnerProgressError('LEARNER_PROGRESS_UNAVAILABLE')
+            document = _read_verified_document(db, learner.learner_id, row.material_id,
+                revision=row.knowledge_structure_revision, dsn=dsn)
+            context = _context_from_validated_document(row.material_id, document)
+            _validate_context(row, context)
+            study = _stored(row)
+            events = _read_events(db, row)
+            if len(events) != study.last_event_number:
+                raise LearnerProgressError('LEARNER_PROGRESS_STALE')
+            cycles = _read_cycles(db, row)
+            inherited = inherited_answers(db, learner, study, document, dsn=dsn)
+            evidence = tuple(sorted((*inherited, *events), key=lambda event: (event.created_at, str(event.answer_event_id)))) if inherited else events
+            snapshot = _snapshot(study, context, derive_learning_states(context, evidence), cycles)
+        except LearnerProgressError:
+            raise
+        except Exception:
+            raise LearnerProgressError('LEARNER_PROGRESS_UNAVAILABLE') from None
+        yield db, study, document, snapshot
+
+
+def derive_learner_progress(learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None) -> LearnerProgressSnapshot:
+    with progress_snapshot(learner, study_session_id, dsn=dsn) as (_, _, _, progress):
+        return progress
 
 
 def apply_guidance(learner: TrustedLearner, study_session_id: UUID, guidance_revision: str, *, dsn: str | None = None) -> LearnerProgressSnapshot:

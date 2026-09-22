@@ -7,7 +7,7 @@ for (const width of [1920, 1536, 1366, 1024, 900, 768, 390, 320]) {
     const unexpected: string[] = [];
     await page.route("**/v1/**", route => {
       const path = new URL(route.request().url()).pathname;
-      if (path === "/v1/session/refresh") return route.fulfill({ status: 204 });
+      if (path === "/v1/session/refresh") return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } });
       if (path === "/v1/session") return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: id } });
       if (path === "/v2/source-capabilities") return route.fulfill({json:{schema:"source-capabilities/v1",formats:[{extension:".pdf",media_type:"application/pdf",max_bytes:104857600}],quality_notice:"PDF"}});
       if (path === "/v1/materials") return route.fulfill({ json: { schema: "material-library/v2", materials: [] } });
@@ -40,7 +40,7 @@ test("full-page failure uses the reading frame and keyboard retry without writes
   const writes: string[] = [];
   await page.route("**/v1/**", route => {
     const path = new URL(route.request().url()).pathname;
-    if (path === "/v1/session/refresh") return route.fulfill({ status: 204 });
+    if (path === "/v1/session/refresh") return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } });
     if (path === "/v1/session") return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: id } });
     if (route.request().method() !== "GET") writes.push(path);
     return route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: id, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Unavailable" } });

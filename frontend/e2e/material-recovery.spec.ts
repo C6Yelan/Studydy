@@ -14,7 +14,7 @@ const item: MaterialLibraryItem = { schema: "material-library-item/v3", material
   display_name: "資料結構講義.pdf", size_bytes: 4096, created_at: stamp, latest_attempt: oldRun, available_structures: [], study_sessions: [] };
 async function setup(page: Page) {
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: materialId } }));
-  await page.route("**/v1/session/refresh", route => route.fulfill({ status: 204 }));
+  await page.route("**/v1/session/refresh", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
   await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [item] } }));
   await page.route(`**/v1/material-processing-runs/${oldId}`, route => route.fulfill({ json: oldRun }));
   await page.route(`**/v1/material-processing-runs/${newId}`, route => route.fulfill({ json: newRun }));

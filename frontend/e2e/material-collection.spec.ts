@@ -38,7 +38,7 @@ function materials(state: State): MaterialLibraryItem[] {
   return [material(state)];
 }
 async function signedIn(page: Page) {
-  await page.route("**/v1/session/refresh", route => route.fulfill({ status: 204 }));
+  await page.route("**/v1/session/refresh", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: materialId } }));
 }
 

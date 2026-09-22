@@ -201,20 +201,25 @@ def read_answer_events(learner: TrustedLearner, study_session_id: UUID, *, dsn: 
         with database_session(dsn) as session:
             study = _row(session, learner_id, study_session_id)
             _validate(session, study)
-            rows = list(session.scalars(select(AnswerEvent).where(AnswerEvent.study_session_id == study_session_id).order_by(AnswerEvent.event_number)))
-            assisted = _assisted_revisions(session, study_session_id)
-            events = tuple(
-                _event(
-                    row,
-                    _assessment(session, study, row.assessment_revision),
-                    study, assisted=row.assessment_revision in assisted,
-                )
-                for row in rows
-            )
-            if [event.event_number for event in events] != list(range(1, len(events) + 1)) or len(events) > study.last_event_number:
-                raise AnswerSubmissionError("ANSWER_EVENT_UNAVAILABLE")
-            return events
+            return _read_events(session, study)
     except (AnswerSubmissionError, StudySessionError):
         raise
     except Exception:
         raise AnswerSubmissionError("ANSWER_STORAGE_FAILED") from None
+
+
+def _read_events(session, study):
+    """Study 與教材 scope 已在同一 snapshot 驗證；保留逐筆作答與私有答案檢核。"""
+    rows = list(session.scalars(select(AnswerEvent).where(AnswerEvent.study_session_id == study.study_session_id).order_by(AnswerEvent.event_number)))
+    assisted = _assisted_revisions(session, study.study_session_id)
+    events = tuple(
+        _event(
+            row,
+            _assessment(session, study, row.assessment_revision),
+            study, assisted=row.assessment_revision in assisted,
+        )
+        for row in rows
+    )
+    if [event.event_number for event in events] != list(range(1, len(events) + 1)) or len(events) > study.last_event_number:
+        raise AnswerSubmissionError("ANSWER_EVENT_UNAVAILABLE")
+    return events

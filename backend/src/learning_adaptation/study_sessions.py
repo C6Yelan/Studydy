@@ -88,6 +88,11 @@ def _row(session, learner_id: UUID, study_session_id: UUID, *, lock: bool = Fals
 
 def _validate(session, row: StudySession) -> MapContext:
     context = _context(session, row.learner_id, row.material_id, row.knowledge_structure_revision)
+    _validate_context(row, context)
+    return context
+
+
+def _validate_context(row, context):
     concept_ids = {concept.concept_id for concept in context.concepts}
     claim_ids = {claim.claim_id for concept in context.concepts for claim in concept.claims}
     if (
@@ -98,7 +103,6 @@ def _validate(session, row: StudySession) -> MapContext:
         or len(row.deferred_concept_ids) != len(set(row.deferred_concept_ids))
     ):
         raise StudySessionError("STUDY_SESSION_UNAVAILABLE")
-    return context
 
 
 def _stored(row: StudySession) -> StoredStudySession:

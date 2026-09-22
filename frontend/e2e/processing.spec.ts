@@ -38,7 +38,7 @@ const percentages: Record<string, [number, number | null]> = {
   "semantics-36": [89, 80], "semantics-full": [99, 100], publishing: [99, null], "long-elapsed": [3, 7], "unknown-total": [0, null],
 };
 async function session(page: Page) {
-  await page.route("**/v1/session/refresh", route => route.fulfill({ status: 204 }));
+  await page.route("**/v1/session/refresh", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: materialId } }));
 }
 

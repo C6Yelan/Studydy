@@ -11,7 +11,7 @@ for (const width of [1536, 390]) test(`append queue and run-only cancellation pr
   await page.clock.setFixedTime(new Date("2026-09-18T00:01:30Z"));
   const lastFilename = `C-${"LongChapterFilename".repeat(5)}.pdf`;
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }));
-  await page.route("**/v1/session/refresh", route => route.fulfill({ status: 204 }));
+  await page.route("**/v1/session/refresh", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
   await page.route("**/v2/source-capabilities", route => route.fulfill({ json: { schema: "source-capabilities/v1", quality_notice: "PDF 優先", formats: [
     { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 },
     { extension: ".txt", media_type: "text/plain", max_bytes: 104857600 },
@@ -116,7 +116,7 @@ for (const width of [1536, 390]) test(`quality notices stay in processing while 
     ],
   };
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }));
-  await page.route("**/v1/session/refresh", route => route.fulfill({ status: 204 }));
+  await page.route("**/v1/session/refresh", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
   await page.route(`**/v1/material-processing-runs/${newRun}`, route => route.fulfill({ json: run }));
   await page.route(`**/v1/materials/${material}`, route => route.fulfill({ json: item }));
   await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [item] } }));

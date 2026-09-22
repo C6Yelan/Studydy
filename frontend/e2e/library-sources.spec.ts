@@ -7,7 +7,7 @@ const office = "33333333-3333-4333-8333-333333333333";
 for (const width of [1536, 390]) {
   test(`multi-source bookshelf opens existing source management at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    await page.route("**/v1/session/refresh", route => route.fulfill({ status: 204 }));
+    await page.route("**/v1/session/refresh", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
     await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: id } }));
     const item = {
       schema: "material-library-item/v3", material_id: id, source_artifact_id: pdf,

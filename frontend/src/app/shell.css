@@ -46,3 +46,5 @@
   .workspace-nav svg { display: none; }
   .is-workspace .account-controls .secondary-button { min-width: 52px; padding: 4px 8px; }
 }
+
+.app-loading { margin: 0; padding: var(--space-6); color: var(--text-secondary); }

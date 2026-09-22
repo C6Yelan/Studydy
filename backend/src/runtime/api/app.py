@@ -38,7 +38,7 @@ from .models import (
     project_study_session,
 )
 from learning_adaptation.learner_progress import (
-    derive_learner_progress, apply_guidance,
+    derive_learner_progress, apply_guidance, progress_snapshot,
 )
 from learning_adaptation import assessment_sets
 from .models import (AssessmentSetCreate, AssessmentSetAction, AssessmentPlanView,
@@ -546,8 +546,8 @@ def create_app(settings: ApiSettings) -> FastAPI:
         _require_query(request, set())
         return LearnerIdentityView(learner_id=_trusted_learner(request, settings).learner_id)
 
-    @app.post("/v1/session/refresh", status_code=204, operation_id="refreshSession", tags=["session"])
-    async def refresh_session_route(request: Request, response: Response) -> None:
+    @app.post("/v1/session/refresh", response_model=LearnerIdentityView, operation_id="refreshSession", tags=["session"])
+    async def refresh_session_route(request: Request, response: Response) -> LearnerIdentityView:
         _require_query(request, set())
         await _require_empty_body(request)
         raw_token = request.cookies.get(_COOKIE_NAME)
@@ -555,6 +555,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         if learner is None:
             raise _ApiFailure("SESSION_REQUIRED")
         _set_session_cookie(response, raw_token or "", settings)
+        return LearnerIdentityView(learner_id=learner.learner_id)
 
     @app.delete("/v1/session", status_code=204, operation_id="deleteSession", tags=["session"])
     async def delete_session_route(request: Request, response: Response) -> None:
@@ -720,7 +721,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         operation_id="getKnowledgeStructure",
         tags=["review"],
     )
-    async def read_map_route(request: Request, material_id: UUID, structure_revision: str) -> KnowledgeStructureView:
+    def read_map_route(request: Request, material_id: UUID, structure_revision: str) -> KnowledgeStructureView:
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
         stored = read_knowledge_structure(
@@ -739,31 +740,21 @@ def create_app(settings: ApiSettings) -> FastAPI:
     ) -> StudyResumeView:
         _require_query(request, {"run_id", "set_id"})
         learner = _trusted_learner(request, settings)
-        study = read_study_session(learner, study_session_id, dsn=settings.dsn)
-        if study.material_id != material_id or study.knowledge_structure_revision != structure_revision:
-            raise _ApiFailure("RESOURCE_NOT_FOUND")
-        structure = read_knowledge_structure(learner.learner_id, material_id, revision=structure_revision, dsn=settings.dsn)
-        if structure.document["run_id"] != str(run_id):
-            raise _ApiFailure("RESOURCE_NOT_FOUND")
-        run = read_material_processing_run(learner.learner_id, run_id, dsn=settings.dsn)
-        rounds = assessment_sets.list_sets(learner, study_session_id, dsn=settings.dsn)
-        progress = derive_learner_progress(learner, study_session_id, dsn=settings.dsn)
-        # 讀取期間若有提交或 guidance 變動，拒絕混合兩個時點的狀態，交由使用者重讀。
-        if (read_study_session(learner, study_session_id, dsn=settings.dsn) != study
-            or progress.event_watermark != study.last_event_number
-            or derive_learner_progress(learner, study_session_id, dsn=settings.dsn).guidance_revision != progress.guidance_revision
-            or assessment_sets.list_sets(learner, study_session_id, dsn=settings.dsn) != rounds):
-            raise _ApiFailure("IDEMPOTENCY_CONFLICT")
-        selected_set = str(set_id) if set_id is not None else next((group['set_id'] for group in rounds['sets']
-            if group['target_concept_id'] == study.current_concept_id), None)
-        if selected_set is not None and selected_set not in {group['set_id'] for group in rounds['sets']}:
-            raise _ApiFailure('RESOURCE_NOT_FOUND')
-        return StudyResumeView(
-            session=project_study_session(study), run_id=run_id, source_artifact_id=run.source_artifact_id,
-            knowledge_structure=KnowledgeStructureView.model_validate(structure.view),
-            progress=project_learner_progress(progress),
-            assessment_sets=rounds['sets'], selected_set_id=selected_set,
-        )
+        with progress_snapshot(learner, study_session_id, dsn=settings.dsn) as (db, study, document, progress):
+            if study.material_id != material_id or study.knowledge_structure_revision != structure_revision or document['run_id'] != str(run_id):
+                raise _ApiFailure('RESOURCE_NOT_FOUND')
+            from ..storage.knowledge_structures import _view
+            run = read_material_processing_run(learner.learner_id, run_id, dsn=settings.dsn)
+            rounds = assessment_sets._list_sets(db, study)
+            selected_set = str(set_id) if set_id is not None else next((group['set_id'] for group in rounds['sets']
+                if group['target_concept_id'] == study.current_concept_id), None)
+            if selected_set is not None and selected_set not in {group['set_id'] for group in rounds['sets']}:
+                raise _ApiFailure('RESOURCE_NOT_FOUND')
+            return StudyResumeView(
+                session=project_study_session(study), run_id=run_id, source_artifact_id=run.source_artifact_id,
+                knowledge_structure=KnowledgeStructureView.model_validate(_view(document,material_id)),
+                progress=project_learner_progress(progress), assessment_sets=rounds['sets'], selected_set_id=selected_set,
+            )
 
     @app.post(
         "/v1/study-sessions",
@@ -918,7 +909,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         operation_id="getLearnerProgress",
         tags=["learning"],
     )
-    async def read_learner_progress_route(
+    def read_learner_progress_route(
         request: Request, study_session_id: UUID
     ) -> LearnerProgressView:
         _require_query(request, set())
