@@ -42,7 +42,12 @@ test("fresh profiles discover their own materials and reopen both exact publishe
   const fresh = await browser.newContext();
   const freshPage = await fresh.newPage();
   await login(freshPage, "learner_test@example.com");
-  expect(await freshPage.evaluate(() => localStorage.length)).toBe(0);
+  // 只允許公開登入身分提示；教材定位、內容與憑證仍不得存入 localStorage。
+  expect(await freshPage.evaluate(() => Object.keys(localStorage))).toEqual(["studydy.session-hint"]);
+  expect(await freshPage.evaluate(() => JSON.parse(localStorage.getItem("studydy.session-hint")!))).toEqual({
+    schema: "learner-identity/v1",
+    learner_id: expect.any(String),
+  });
   await expect(freshPage.locator(".sidebar-helper")).toHaveCount(0);
   await expect(freshPage.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveClass("primary-button");
   await freshPage.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
