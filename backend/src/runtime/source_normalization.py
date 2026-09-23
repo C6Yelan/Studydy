@@ -66,9 +66,8 @@ def read_sources(owner,material_id,*,dsn=None):
     with database_session(dsn) as session:
         material=session.scalar(select(Material).where(Material.learner_id==owner,Material.material_id==material_id))
         if material is None or material.ingestion_kind!='sources-v2':raise SourceError('RESOURCE_NOT_FOUND')
-        from .source_revisions import current_revision
         from .storage.tables import KnowledgeStructure
-        revision=current_revision(session,material)
+        revision=material.head_revision
         structure=session.scalar(select(KnowledgeStructure).where(KnowledgeStructure.learner_id==owner,KnowledgeStructure.material_id==material_id,KnowledgeStructure.structure_revision==revision)) if revision else None
         included={item['source_id'] for item in structure.document['input_binding']['manifest']['items']} if structure else set()
         rows=session.execute(select(MaterialSource,SourceNormalization).join(SourceNormalization,SourceNormalization.source_id==MaterialSource.source_id)

@@ -133,8 +133,7 @@ def publish_knowledge_structure(
                 or (worker_token is not None and (locked_run.worker_token != worker_token or locked_run.lease_expires_at <= datetime.now(UTC)))):
                 raise KnowledgeStructureStoreError("MATERIAL_RUN_UNAVAILABLE")
             if locked_run.base_revision is not None:
-                from ..source_revisions import current_revision
-                if current_revision(session, material) != locked_run.base_revision:
+                if material.head_revision != locked_run.base_revision:
                     raise KnowledgeStructureStoreError("REVISION_CONFLICT")
                 base = session.scalar(select(KnowledgeStructure.document).where(
                     KnowledgeStructure.learner_id == learner_id,

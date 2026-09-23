@@ -14,10 +14,6 @@ from .storage.tables import (Artifact, KnowledgeStructure, MaterialProcessingRun
     MaterialSourceSet, MaterialSourceSetItem, SourceNormalization, database_session)
 
 
-def current_revision(session, material):
-    return material.head_revision
-
-
 def _descriptor(session, job):
     source = session.get(MaterialSource, job.source_id)
     original = session.get(Artifact, source.original_artifact_id)
@@ -85,7 +81,7 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
                 if bytes(existing.request_fingerprint) != _fingerprint(material_id, normalization_ids, existing.runtime_binding, base_revision):
                     raise SourceError("IDEMPOTENCY_CONFLICT")
                 return _row(existing)
-            if current_revision(session, material) != base_revision:
+            if material.head_revision != base_revision:
                 raise SourceError("REVISION_CONFLICT")
             if session.scalar(select(MaterialProcessingRun.run_id).where(MaterialProcessingRun.material_id == material_id,
                     MaterialProcessingRun.status.in_(("pending", "running")))):
@@ -105,7 +101,7 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
                 if bytes(existing.request_fingerprint) != _fingerprint(material_id, normalization_ids, existing.runtime_binding, base_revision):
                     raise SourceError("IDEMPOTENCY_CONFLICT")
                 return _row(existing)
-            if current_revision(session, material) != base_revision:
+            if material.head_revision != base_revision:
                 raise SourceError("REVISION_CONFLICT")
             if session.scalar(select(MaterialProcessingRun.run_id).where(MaterialProcessingRun.material_id == material_id,
                     MaterialProcessingRun.status.in_(("pending", "running")))):

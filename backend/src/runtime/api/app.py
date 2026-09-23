@@ -394,15 +394,15 @@ def _install_openapi(app: FastAPI) -> None:
                             "schema": {"type": "string", "minLength": 1, "maxLength": 256},
                         }
                     )
-                if path in {"/v1/materials", "/v2/materials/{material_id}/sources"} and method == "post":
+                if path == "/v2/materials/{material_id}/sources" and method == "post":
                     operation.setdefault("parameters", []).append({
-                        "name": "X-Material-Name", "in": "header", "required": path.startswith("/v2/"),
+                        "name": "X-Material-Name", "in": "header", "required": True,
                         "description": "URI-encoded UTF-8 filename, 1–200 decoded characters; first upload owns the name.",
                         "schema": {"type": "string", "maxLength": 2400},
                     })
                     operation["requestBody"] = {
                         "required": True,
-                        "content": {media:{"schema":{"type":"string","format":"binary"}} for media in (MIME.values() if path.startswith("/v2/") else ["application/pdf"])},
+                        "content": {media:{"schema":{"type":"string","format":"binary"}} for media in MIME.values()},
                     }
                 if path == "/v1/artifacts/{artifact_id}" and method == "get":
                     operation["responses"]["200"] = {
@@ -432,7 +432,7 @@ def _install_openapi(app: FastAPI) -> None:
                     response_codes.add(404)
                 if path in idempotent_paths and method == "post":
                     response_codes.add(409)
-                if path in {"/v1/materials","/v2/materials/{material_id}/sources"} and method == "post":
+                if path == "/v2/materials/{material_id}/sources" and method == "post":
                     response_codes.update({413, 415})
                 if (
                     path

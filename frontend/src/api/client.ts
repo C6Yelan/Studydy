@@ -136,10 +136,10 @@ function libraryItem(value: unknown): value is MaterialLibraryItem {
   if (item && ((item.head_revision !== undefined && item.head_revision !== null && !revision(item.head_revision,"knowledge-structure")) || (item.source_count !== undefined && (!Number.isInteger(item.source_count) || Number(item.source_count)<0)))) return false;
   if (!item || item.schema !== "material-library-item/v3"
     || typeof item.material_id !== "string" || !uuid.test(item.material_id)
-    || !(typeof item.source_artifact_id === "string" && uuid.test(item.source_artifact_id) || item.schema === "material-library-item/v3" && item.source_artifact_id === null)
+    || !(typeof item.source_artifact_id === "string" && uuid.test(item.source_artifact_id) || item.source_artifact_id === null)
     || (item.source !== undefined && !sourceView(item.source))
     || typeof item.display_name !== "string" || !item.display_name.trim()
-    || !Number.isInteger(item.size_bytes) || Number(item.size_bytes) < (item.schema === "material-library-item/v3" ? 0 : 1)
+    || !Number.isInteger(item.size_bytes) || Number(item.size_bytes) < 0
     || typeof item.created_at !== "string" || !Number.isFinite(Date.parse(item.created_at))
     || !Array.isArray(item.available_structures) || !Array.isArray(item.study_sessions)) return false;
   if (!item.study_sessions.every((value) => {
@@ -176,7 +176,7 @@ function locator(value: unknown): boolean {
 function knowledgeStructure(value: unknown): value is KnowledgeStructureView {
   const item = object(value);
   if (!item || item.schema !== "knowledge-structure-view/v3" || !revision(item.knowledge_structure_revision, "knowledge-structure")) return false;
-  if (item.schema === "knowledge-structure-view/v3" && (typeof item.source_resolver !== "string" || !item.source_resolver.startsWith("/v2/materials/"))) return false;
+  if (typeof item.source_resolver !== "string" || !item.source_resolver.startsWith("/v2/materials/")) return false;
   if (!Array.isArray(item.concepts) || !Array.isArray(item.relations) || !Array.isArray(item.initial_learning_path)) return false;
   const concepts = item.concepts as unknown[];
   const conceptIds: string[] = [];

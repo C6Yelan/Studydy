@@ -22,10 +22,8 @@ def read_material_library(
         with database_session(dsn) as session:
             statement = select(
                 Material.material_id, Material.source_artifact_id, Material.display_name,
-                Material.created_at, Artifact.size_bytes, Material.ingestion_kind, Material.head_revision,
-            ).outerjoin(Artifact, (Artifact.artifact_id == Material.source_artifact_id)
-                   & (Artifact.material_id == Material.material_id)
-                   & (Artifact.learner_id == Material.learner_id)).where(Material.learner_id == learner_id, Material.ingestion_kind == "sources-v2")
+                Material.created_at, Material.ingestion_kind, Material.head_revision,
+            ).where(Material.learner_id == learner_id, Material.ingestion_kind == "sources-v2")
             if material_id is not None:
                 statement = statement.where(Material.material_id == material_id)
             materials = session.execute(statement.order_by(Material.created_at.desc(), Material.material_id.desc())).mappings().all()
@@ -93,7 +91,7 @@ def read_material_library(
     return [{
         **{key:value for key,value in row.items() if key!="ingestion_kind"},
         "schema": "material-library-item/v3",
-        "size_bytes":original_sizes.get(row["material_id"],row["size_bytes"] or 0),
+        "size_bytes":original_sizes[row["material_id"]],
         "source_count":counts[row["material_id"]],
         "source":sources.get(row["material_id"]),"ingestion_kind":"sources-v2",
         "display_name": row["display_name"] or f"教材 {row['created_at']:%Y-%m-%d} · {str(row['material_id'])[:8]}",
