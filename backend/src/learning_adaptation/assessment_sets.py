@@ -164,6 +164,10 @@ def membership_can_submit(session, study, assessment):
     membership = session.execute(select(AssessmentSetItem, AssessmentSet).join(AssessmentSet,
         AssessmentSet.set_id == AssessmentSetItem.set_id).where(
         AssessmentSetItem.assessment_revision == assessment.assessment_revision)).first()
+    return _membership_can_submit(study, assessment, membership)
+
+
+def _membership_can_submit(study, assessment, membership):
     if membership is None:
         return study.status in ('active', 'no_safe') and study.current_concept_id == assessment.target_concept_id
     item, group = membership
@@ -191,24 +195,44 @@ def record_set_answer(session, assessment):
         _touch_diagnostic(session, group)
 
 
-def _cycle(session, study, root):
-    """同一初篩及其補強的投影；AnswerEvent 是唯一作答事實，不保存閱讀確認或暫緩決定。"""
-    family = list(session.scalars(select(AssessmentSet).where(
-        (AssessmentSet.set_id == root.set_id) | (AssessmentSet.diagnostic_set_id == root.set_id))
+def _cycle_rows(session, study, roots):
+    families = {root.set_id: [] for root in roots}
+    if not families:
+        return families, {}, {}, {}
+    groups = list(session.scalars(select(AssessmentSet).where(
+        AssessmentSet.set_id.in_(families) | AssessmentSet.diagnostic_set_id.in_(families))
         .order_by(AssessmentSet.created_at, AssessmentSet.set_id)))
+    for group in groups:
+        root_id = group.set_id if group.set_id in families else group.diagnostic_set_id
+        families[root_id].append(group)
+    items, answers = _set_rows(session, study, groups)
+    active = {}
+    for set_id, concept_id in session.execute(select(AssessmentSet.set_id, AssessmentSet.target_concept_id).where(
+        AssessmentSet.study_session_id == study.study_session_id, AssessmentSet.status.in_(ACTIVE),
+        AssessmentSet.target_concept_id.in_({root.target_concept_id for root in roots}))):
+        active.setdefault(concept_id, set()).add(set_id)
+    return families, items, answers, active
+
+
+def _cycle(session, study, root):
+    # Mutation callers still load fresh rows inside their existing lock-time transaction.
+    return _project_cycle(study, root, _cycle_rows(session, study, [root]))
+
+
+def _project_cycle(study, root, data):
+    """同一初篩及其補強的投影；AnswerEvent 是唯一作答事實，不保存閱讀確認或暫緩決定。"""
+    families, members, answers, active_sets = data
+    family = families[root.set_id]
     groups = {group.set_id: group for group in family}
-    items = list(session.scalars(select(AssessmentSetItem).where(AssessmentSetItem.set_id.in_(groups))))
+    items = [item for group in family for item in members[group.set_id]]
     by_revision = {item.assessment_revision: item for item in items if item.assessment_revision}
-    events = list(session.scalars(select(AnswerEvent).where(AnswerEvent.study_session_id == study.study_session_id,
-        AnswerEvent.assessment_revision.in_(by_revision)).order_by(AnswerEvent.event_number))) if by_revision else []
+    events = sorted((event for group in family for event in answers[group.set_id]), key=lambda event: event.event_number)
     by_claim = {}
     for event in events:
         by_claim.setdefault(event.target_claim_id, []).append(event)
     initial = {item.target_claim_id: item for item in items if item.set_id == root.set_id}
     active = next((group for group in family if group.status in ACTIVE), None)
-    other_active = session.scalar(select(AssessmentSet.set_id).where(
-        AssessmentSet.study_session_id == study.study_session_id, AssessmentSet.status.in_(ACTIVE),
-        AssessmentSet.set_id.not_in(groups), AssessmentSet.target_concept_id == root.target_concept_id).limit(1)) is not None
+    other_active = bool(active_sets.get(root.target_concept_id, set()).difference(groups))
     points = []
     for target in root.target_plan['targets']:
         claim_id = target['claim_id']
@@ -255,11 +279,10 @@ def _read_cycles(session, study):
         AssessmentSet.kind == 'diagnostic').order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)))
     latest = {}
     for root in roots:
-        if root.target_concept_id not in latest:
-            cycle = _cycle(session, study, root)
-            latest[root.target_concept_id] = {key: value for key, value in cycle.items()
-                if key not in ('points', 'can_create_remediation')}
-    return list(latest.values())
+        latest.setdefault(root.target_concept_id, root)
+    data = _cycle_rows(session, study, list(latest.values()))
+    return [{key: value for key, value in _project_cycle(study, root, data).items()
+             if key not in ('points', 'can_create_remediation')} for root in latest.values()]
 
 
 def create_remediation(learner, sid, root_id, expected_version, key, local_config, *, dsn=None):
@@ -299,11 +322,28 @@ def create_remediation(learner, sid, root_id, expected_version, key, local_confi
         return group.set_id
 
 
-def _summary(session, group, items=None):
-    rows = _items(session, group) if items is None else items
+def _set_rows(session, study, groups):
+    """只重用呼叫者 snapshot 內的 rows；不跨請求保存或快取。"""
+    items = {group.set_id: [] for group in groups}
+    answers = {group.set_id: [] for group in groups}
+    if not items:
+        return items, answers
+    by_revision = {}
+    for item in session.scalars(select(AssessmentSetItem).where(AssessmentSetItem.set_id.in_(items))
+                               .order_by(AssessmentSetItem.set_id, AssessmentSetItem.ordinal)):
+        items[item.set_id].append(item)
+        if item.assessment_revision:
+            by_revision[item.assessment_revision] = item.set_id
+    if by_revision:
+        for event in session.scalars(select(AnswerEvent).where(
+            AnswerEvent.study_session_id == study.study_session_id,
+            AnswerEvent.assessment_revision.in_(by_revision)).order_by(AnswerEvent.event_number)):
+            answers[by_revision[event.assessment_revision]].append(event)
+    return items, answers
+
+
+def _summary(group, rows, answers):
     revisions = [item.assessment_revision for item in rows if item.assessment_revision]
-    answers = list(session.scalars(select(AnswerEvent).where(AnswerEvent.study_session_id == group.study_session_id,
-                                                            AnswerEvent.assessment_revision.in_(revisions)))) if revisions else []
     return {'set_id': str(group.set_id), 'target_concept_id': group.target_concept_id,
             'kind': group.kind, 'diagnostic_set_id': str(group.diagnostic_set_id) if group.diagnostic_set_id else None,
             'status': group.status, 'set_version': group.set_version, 'requested_count': group.requested_count,
@@ -321,10 +361,11 @@ def list_sets(learner, sid, *, dsn=None):
 def _list_sets(session, study):
     groups = list(session.scalars(select(AssessmentSet).where(AssessmentSet.study_session_id == study.study_session_id)
                                   .order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)))
+    items, answers = _set_rows(session, study, groups)
     return {'schema': 'assessment-set-list/v3', 'study_session_id': str(study.study_session_id),
             'knowledge_structure_revision': study.knowledge_structure_revision,
             'active_set_ids': [str(item.set_id) for item in groups if item.status in ACTIVE],
-            'sets': [_summary(session, group) for group in groups]}
+            'sets': [_summary(group, items[group.set_id], answers[group.set_id]) for group in groups]}
 
 def read_set(learner, sid, set_id, *, dsn=None):
     from .answer_events import _event, _feedback
@@ -333,28 +374,34 @@ def read_set(learner, sid, set_id, *, dsn=None):
         session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
         study, context, _ = _scope(session, learner, sid)
         group = _round(session, study, set_id)
-        rows = _items(session, group)
+        root = session.get(AssessmentSet, group.diagnostic_set_id) if group.diagnostic_set_id else group
+        cycle_data = _cycle_rows(session, study, [root])
+        _, items, answers, active_sets = cycle_data
+        rows = items[group.set_id]
+        events = {event.assessment_revision: event for event in answers[group.set_id]}
+        revisions = [item.assessment_revision for item in rows if item.assessment_revision is not None]
+        stored_assessments = {row.assessment_revision: row for row in session.scalars(select(Assessment).where(
+            Assessment.assessment_revision.in_(revisions)))} if revisions else {}
         projected = []
         for item in rows:
             public = feedback = created = None
             can_submit = False
             if item.assessment_revision is not None:
-                assessment = session.get(Assessment, item.assessment_revision)
+                assessment = stored_assessments.get(item.assessment_revision)
                 stored = assessments._stored(assessment)
                 public, created = stored.public_document, assessment.created_at
-                event = session.scalar(select(AnswerEvent).where(AnswerEvent.study_session_id == sid,
-                    AnswerEvent.assessment_revision == item.assessment_revision))
+                event = events.get(item.assessment_revision)
                 if event is not None:
                     feedback = project_answer_feedback(_feedback(_event(event, assessment, study), assessment)).model_dump(by_alias=True)
                 else:
-                    can_submit = membership_can_submit(session, study, assessment)
+                    # The UNIQUE assessment_revision membership and immutable scope are enforced by migration 0011.
+                    # _round and the same membership predicate still validate the current read.
+                    can_submit = _membership_can_submit(study, assessment, (item, group))
             projected.append({'ordinal': item.ordinal, 'target_claim_id': item.target_claim_id,
                 'state': item.state, 'attempts': item.attempts, 'failure_reason': item.failure_reason,
                 'assessment': public, 'feedback': feedback, 'created_at': created, 'can_submit': can_submit})
-        summary = _summary(session, group, rows)
-        other_active = session.scalar(select(AssessmentSet.set_id).where(AssessmentSet.study_session_id == sid,
-            AssessmentSet.set_id != set_id, AssessmentSet.status.in_(ACTIVE),
-            AssessmentSet.target_concept_id == group.target_concept_id).limit(1)) is not None
+        summary = _summary(group, rows, answers[group.set_id])
+        other_active = bool(active_sets.get(group.target_concept_id, set()) - {set_id})
         return {'schema': 'assessment-set/v3', 'study_session_id': str(sid),
                 'material_id': str(study.material_id), 'knowledge_structure_revision': study.knowledge_structure_revision,
                 **summary, 'kind': group.kind, 'selection_policy': group.target_plan['policy'],
@@ -365,7 +412,7 @@ def read_set(learner, sid, set_id, *, dsn=None):
                 'can_publish_partial': group.status == 'partial_ready' and any(item.state == 'verified' for item in rows),
                 'can_complete': group.status in ('ready', 'in_progress'),
                 'items': projected,
-                'cycle': _cycle(session, study, session.get(AssessmentSet, group.diagnostic_set_id) if group.diagnostic_set_id else group)}
+                'cycle': _project_cycle(study, root, cycle_data)}
 
 
 def _assessment_row(study, item, prepared):

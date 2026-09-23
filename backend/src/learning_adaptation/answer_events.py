@@ -90,6 +90,10 @@ def _assessment(session, study, revision: str) -> Assessment:
         Assessment.knowledge_structure_revision == study.knowledge_structure_revision,
         Assessment.assessment_revision == revision,
     ))
+    return _validated_assessment(row)
+
+
+def _validated_assessment(row: Assessment | None) -> Assessment:
     if row is None or not isinstance(row.public_document, dict) or not isinstance(row.private_answer_document, dict):
         raise AnswerSubmissionError("ANSWER_ASSESSMENT_UNAVAILABLE")
     try:
@@ -212,10 +216,16 @@ def _read_events(session, study):
     """Study 與教材 scope 已在同一 snapshot 驗證；保留逐筆作答與私有答案檢核。"""
     rows = list(session.scalars(select(AnswerEvent).where(AnswerEvent.study_session_id == study.study_session_id).order_by(AnswerEvent.event_number)))
     assisted = _assisted_revisions(session, study.study_session_id)
+    revisions = {row.assessment_revision for row in rows}
+    assessments = {row.assessment_revision: row for row in session.scalars(select(Assessment).where(
+        Assessment.study_session_id == study.study_session_id,
+        Assessment.knowledge_structure_revision == study.knowledge_structure_revision,
+        Assessment.assessment_revision.in_(revisions),
+    ))} if revisions else {}
     events = tuple(
         _event(
             row,
-            _assessment(session, study, row.assessment_revision),
+            _validated_assessment(assessments.get(row.assessment_revision)),
             study, assisted=row.assessment_revision in assisted,
         )
         for row in rows
