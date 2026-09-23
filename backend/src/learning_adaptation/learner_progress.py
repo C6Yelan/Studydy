@@ -61,48 +61,116 @@ def _concept(context, concept_id: str | None) -> ConceptContext | None:
 def _first_unmastered_claim(concept: ConceptContext, states: dict[str, ConceptLearningState]) -> str | None:
     state = states[concept.concept_id]
     weak = set(state.weak_claim_ids)
-    uncovered = [claim.claim_id for claim in concept.claims if claim.claim_id not in state.covered_claim_ids]
-    remaining = [claim.claim_id for claim in concept.claims if claim.claim_id not in state.mastered_claim_ids]
-    return next((claim.claim_id for claim in concept.claims if claim.claim_id in weak), None) or (uncovered[0] if uncovered else remaining[0] if remaining else None)
+    uncovered = [
+        claim.claim_id for claim in concept.claims
+        if claim.claim_id not in state.covered_claim_ids
+    ]
+    remaining = [
+        claim.claim_id for claim in concept.claims
+        if claim.claim_id not in state.mastered_claim_ids
+    ]
+    return next(
+        (claim.claim_id for claim in concept.claims if claim.claim_id in weak), None
+    ) or (uncovered[0] if uncovered else remaining[0] if remaining else None)
 
 
-def _next_action(context, session: StoredStudySession, states: list[ConceptLearningState], cycles) -> NextAction:
+def _next_action(
+    context, session: StoredStudySession, states: list[ConceptLearningState], cycles
+) -> NextAction:
     by_id = {state.concept_id: state for state in states}
     current = _concept(context, session.current_concept_id)
     deferred = set(session.deferred_concept_ids)
     no_safe = set(session.no_safe_claim_ids)
     if current is None:
-        target = next((item for item in context.initial_learning_path if by_id[item].status != "mastered"), None)
-        return NextAction(action="advance" if target else "complete", target_concept_id=target, target_claim_id=None, prerequisite_concept_ids=[], reason="initial_path" if target else "all_mastered")
+        target = next(
+            (item for item in context.initial_learning_path if by_id[item].status != "mastered"),
+            None,
+        )
+        return NextAction(
+            action="advance" if target else "complete",
+            target_concept_id=target,
+            target_claim_id=None,
+            prerequisite_concept_ids=[],
+            reason="initial_path" if target else "all_mastered",
+        )
     cycle = next((item for item in cycles if item['concept_id'] == current.concept_id), None)
     if cycle is not None:
         if cycle['active_set_id']:
-            return NextAction(action='continue_set', target_concept_id=current.concept_id,
-                target_claim_id=None, prerequisite_concept_ids=[], reason='active_assessment_set')
+            return NextAction(
+                action='continue_set', target_concept_id=current.concept_id,
+                target_claim_id=None, prerequisite_concept_ids=[], reason='active_assessment_set',
+            )
         if cycle['outcome'] == 'needs_review':
-            return NextAction(action='remediate',
-                target_concept_id=current.concept_id, target_claim_id=None, prerequisite_concept_ids=[], reason='diagnostic_wrong_points')
+            return NextAction(
+                action='remediate', target_concept_id=current.concept_id,
+                target_claim_id=None, prerequisite_concept_ids=[], reason='diagnostic_wrong_points',
+            )
         if cycle['outcome'] in ('passed', 'incomplete'):
-            finished = {item['concept_id'] for item in cycles if item['outcome'] in ('passed', 'incomplete') and not item['active_set_id']}
-            target = next((identity for identity in context.initial_learning_path if identity not in finished), None)
-            return NextAction(action='advance' if target else 'complete', target_concept_id=target,
-                target_claim_id=None, prerequisite_concept_ids=[], reason='round_finished')
+            finished = {
+                item['concept_id'] for item in cycles
+                if item['outcome'] in ('passed', 'incomplete') and not item['active_set_id']
+            }
+            target = next(
+                (identity for identity in context.initial_learning_path if identity not in finished),
+                None,
+            )
+            return NextAction(
+                action='advance' if target else 'complete', target_concept_id=target,
+                target_claim_id=None, prerequisite_concept_ids=[], reason='round_finished',
+            )
     state = by_id[current.concept_id]
     target_claim = _first_unmastered_claim(current, by_id)
     if target_claim in no_safe:
-        target = next((item for item in context.initial_learning_path if item != current.concept_id and item not in deferred and by_id[item].status != "mastered"), None)
-        return NextAction(action="defer" if target else "no_safe", target_concept_id=target, target_claim_id=target_claim, prerequisite_concept_ids=[], reason="no_safe_assessment")
+        target = next(
+            (
+                item for item in context.initial_learning_path
+                if item != current.concept_id and item not in deferred
+                and by_id[item].status != "mastered"
+            ),
+            None,
+        )
+        return NextAction(
+            action="defer" if target else "no_safe", target_concept_id=target,
+            target_claim_id=target_claim, prerequisite_concept_ids=[], reason="no_safe_assessment",
+        )
     if state.status != "mastered":
-        unmet = [concept_id for concept_id in current.prerequisite_ids if by_id[concept_id].status != "mastered"]
-        return NextAction(action="assess", target_concept_id=current.concept_id, target_claim_id=target_claim,
-                          prerequisite_concept_ids=unmet, reason="canonical_prerequisite_gap" if unmet else "current_concept")
-    target = next((item for item in context.initial_learning_path if by_id[item].status != "mastered" and item not in deferred), None)
+        unmet = [
+            concept_id for concept_id in current.prerequisite_ids
+            if by_id[concept_id].status != "mastered"
+        ]
+        return NextAction(
+            action="assess", target_concept_id=current.concept_id,
+            target_claim_id=target_claim, prerequisite_concept_ids=unmet,
+            reason="canonical_prerequisite_gap" if unmet else "current_concept",
+        )
+    target = next(
+        (
+            item for item in context.initial_learning_path
+            if by_id[item].status != "mastered" and item not in deferred
+        ),
+        None,
+    )
     if target:
-        return NextAction(action="advance", target_concept_id=target, target_claim_id=None, prerequisite_concept_ids=[], reason="initial_path")
-    resumed = next((item for item in context.initial_learning_path if item in deferred and by_id[item].status != "mastered"), None)
+        return NextAction(
+            action="advance", target_concept_id=target, target_claim_id=None,
+            prerequisite_concept_ids=[], reason="initial_path",
+        )
+    resumed = next(
+        (
+            item for item in context.initial_learning_path
+            if item in deferred and by_id[item].status != "mastered"
+        ),
+        None,
+    )
     if resumed:
-        return NextAction(action="resume", target_concept_id=resumed, target_claim_id=None, prerequisite_concept_ids=[], reason="resume_deferred")
-    return NextAction(action="complete", target_concept_id=None, target_claim_id=None, prerequisite_concept_ids=[], reason="all_mastered")
+        return NextAction(
+            action="resume", target_concept_id=resumed, target_claim_id=None,
+            prerequisite_concept_ids=[], reason="resume_deferred",
+        )
+    return NextAction(
+        action="complete", target_concept_id=None, target_claim_id=None,
+        prerequisite_concept_ids=[], reason="all_mastered",
+    )
 
 
 def _snapshot(
@@ -112,7 +180,11 @@ def _snapshot(
     cycles,
 ) -> LearnerProgressSnapshot:
     weaknesses = [
-        WeaknessFinding(concept_id=state.concept_id, claim_ids=state.weak_claim_ids, reason="latest_answer_incorrect")
+        WeaknessFinding(
+            concept_id=state.concept_id,
+            claim_ids=state.weak_claim_ids,
+            reason="latest_answer_incorrect",
+        )
         for state in states if state.weak_claim_ids
     ]
     action = _next_action(context, session, list(states), cycles)
@@ -153,12 +225,17 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
         try:
             db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
             row = _row(db, _learner(learner), study_session_id)
-            material = db.scalar(select(Material.material_id).where(Material.learner_id == learner.learner_id,
-                Material.material_id == row.material_id, Material.discard_requested_at.is_(None)))
+            material = db.scalar(select(Material.material_id).where(
+                Material.learner_id == learner.learner_id,
+                Material.material_id == row.material_id,
+                Material.discard_requested_at.is_(None),
+            ))
             if material is None:
                 raise LearnerProgressError('LEARNER_PROGRESS_UNAVAILABLE')
-            document = _read_verified_document(db, learner.learner_id, row.material_id,
-                revision=row.knowledge_structure_revision, dsn=dsn)
+            document = _read_verified_document(
+                db, learner.learner_id, row.material_id,
+                revision=row.knowledge_structure_revision, dsn=dsn,
+            )
             context = _context_from_validated_document(row.material_id, document)
             _validate_context(row, context)
             study = _stored(row)
@@ -167,7 +244,13 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
                 raise LearnerProgressError('LEARNER_PROGRESS_STALE')
             cycles = _read_cycles(db, row)
             inherited = inherited_answers(db, learner, study, document, dsn=dsn)
-            evidence = tuple(sorted((*inherited, *events), key=lambda event: (event.created_at, str(event.answer_event_id)))) if inherited else events
+            evidence = (
+                tuple(sorted(
+                    (*inherited, *events),
+                    key=lambda event: (event.created_at, str(event.answer_event_id)),
+                ))
+                if inherited else events
+            )
             snapshot = _snapshot(study, context, derive_learning_states(context, evidence), cycles)
         except LearnerProgressError:
             raise
@@ -176,12 +259,17 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
         yield db, study, document, snapshot
 
 
-def derive_learner_progress(learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None) -> LearnerProgressSnapshot:
+def derive_learner_progress(
+    learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None
+) -> LearnerProgressSnapshot:
     with progress_snapshot(learner, study_session_id, dsn=dsn) as (_, _, _, progress):
         return progress
 
 
-def apply_guidance(learner: TrustedLearner, study_session_id: UUID, guidance_revision: str, *, dsn: str | None = None) -> LearnerProgressSnapshot:
+def apply_guidance(
+    learner: TrustedLearner, study_session_id: UUID, guidance_revision: str,
+    *, dsn: str | None = None,
+) -> LearnerProgressSnapshot:
     """只套用目前權威投影的 advance/complete；同 revision 重播不會多前進一步。"""
     from datetime import UTC, datetime
     from .assessment_sets import _scope, has_active_set
@@ -192,10 +280,16 @@ def apply_guidance(learner: TrustedLearner, study_session_id: UUID, guidance_rev
             if stored.last_applied_guidance_revision != guidance_revision:
                 before = derive_learner_progress(learner, study_session_id, dsn=dsn)
                 action = before.next_action
-                if (stored.status not in ('active', 'no_safe') or before.guidance_revision != guidance_revision
-                    or action.action not in ('advance', 'complete')):
+                if (
+                    stored.status not in ('active', 'no_safe')
+                    or before.guidance_revision != guidance_revision
+                    or action.action not in ('advance', 'complete')
+                ):
                     raise LearnerProgressError('LEARNER_GUIDANCE_STALE')
-                if has_active_set(session, study_session_id, stored.current_concept_id if action.action == 'advance' else None):
+                active_concept = (
+                    stored.current_concept_id if action.action == 'advance' else None
+                )
+                if has_active_set(session, study_session_id, active_concept):
                     raise LearnerProgressError('ASSESSMENT_SET_ACTIVE')
                 if action.action == 'advance':
                     if action.target_concept_id is None:

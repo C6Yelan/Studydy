@@ -5,7 +5,6 @@ from typing import Any
 from uuid import UUID
 
 from knowledge_map.structure import validate_knowledge_structure
-from runtime.storage.knowledge_structures import KnowledgeStructureStoreError, read_knowledge_structure
 
 
 class MapContextError(RuntimeError):
@@ -96,19 +95,3 @@ def _context_from_validated_document(material_id: UUID, document: dict[str, Any]
         tuple(concepts),
         tuple(step["concept_id"] for step in document["initial_learning_path"]),
     )
-
-
-def read_map_context(
-    learner_id: UUID,
-    material_id: UUID,
-    knowledge_structure_revision: str,
-    *,
-    dsn: str | None = None,
-) -> MapContext:
-    try:
-        stored = read_knowledge_structure(
-            learner_id, material_id, revision=knowledge_structure_revision, dsn=dsn
-        )
-        return _context_from_validated_document(material_id, stored.document)
-    except (KnowledgeStructureStoreError, MapContextError):
-        raise MapContextError("KNOWLEDGE_STRUCTURE_UNAVAILABLE") from None

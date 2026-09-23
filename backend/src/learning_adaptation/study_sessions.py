@@ -54,13 +54,19 @@ def _key(value: str) -> bytes:
 
 def _fingerprint(material_id: UUID, revision: str, concept_id: str | None) -> bytes:
     return sha256(json.dumps(
-        {"material_id": str(material_id), "knowledge_structure_revision": revision, "current_concept_id": concept_id},
+        {
+            "material_id": str(material_id),
+            "knowledge_structure_revision": revision,
+            "current_concept_id": concept_id,
+        },
         sort_keys=True,
         separators=(",", ":"),
     ).encode()).digest()
 
 
-def _context(session, learner_id: UUID, material_id: UUID, revision: str, *, lock: bool = False) -> MapContext:
+def _context(
+    session, learner_id: UUID, material_id: UUID, revision: str, *, lock: bool = False
+) -> MapContext:
     statement = select(KnowledgeStructure.document).where(
         KnowledgeStructure.learner_id == learner_id,
         KnowledgeStructure.material_id == material_id,
@@ -106,7 +112,10 @@ def _validate_context(row, context):
 
 
 def _stored(row: StudySession) -> StoredStudySession:
-    if row.status not in {"active", "no_safe", "completed"} or (row.status == "completed") != (row.completed_at is not None):
+    if (
+        row.status not in {"active", "no_safe", "completed"}
+        or (row.status == "completed") != (row.completed_at is not None)
+    ):
         raise StudySessionError("STUDY_SESSION_LIFECYCLE_CONFLICT")
     return StoredStudySession(
         row.study_session_id, row.learner_id, row.material_id,
@@ -127,13 +136,17 @@ def create_study_session(
     dsn: str | None = None,
 ) -> StoredStudySession:
     learner_id = _learner(learner)
-    if not isinstance(material_id, UUID) or not isinstance(knowledge_structure_revision, str) or _REVISION.fullmatch(knowledge_structure_revision) is None:
+    if (
+        not isinstance(material_id, UUID)
+        or not isinstance(knowledge_structure_revision, str)
+        or _REVISION.fullmatch(knowledge_structure_revision) is None
+    ):
         raise StudySessionError("STUDY_SESSION_REQUEST_INVALID")
     key = _key(idempotency_key)
     fingerprint = _fingerprint(material_id, knowledge_structure_revision, current_concept_id)
     try:
         with database_session(dsn) as session:
-            # Serialize ensure requests on the immutable structure identity, including the first insert.
+            # 在不可變的地圖身分上序列化建立請求，包括首次寫入。
             context = _context(session, learner_id, material_id, knowledge_structure_revision, lock=True)
             initial_intent = session.scalar(select(StudySession).where(
                 StudySession.learner_id == learner_id, StudySession.idempotency_key_sha256 == key,
@@ -145,12 +158,16 @@ def create_study_session(
                 StudySession.knowledge_structure_revision == knowledge_structure_revision,
             )).one_or_none()
             if canonical is not None:
-                # Later ensure intents are read-only; only the initial creation fingerprint is retained.
+                # 後續同範圍請求只讀取既有 session；建立時的意圖指紋保持不變。
                 _validate(session, canonical)
                 return _stored(canonical)
             known = {concept.concept_id for concept in context.concepts}
             from .inherited_progress import preferred_focus
-            selected = current_concept_id or preferred_focus(session, learner_id, material_id, knowledge_structure_revision) or (context.initial_learning_path[0] if context.initial_learning_path else None)
+            selected = (
+                current_concept_id
+                or preferred_focus(session, learner_id, material_id, knowledge_structure_revision)
+                or (context.initial_learning_path[0] if context.initial_learning_path else None)
+            )
             if selected not in known:
                 raise StudySessionError("STUDY_SESSION_TARGET_INVALID")
             session.execute(insert(StudySession).values(
@@ -160,8 +177,13 @@ def create_study_session(
                 last_applied_guidance_revision=None, last_applied_progress_sha256=None,
                 status="active", idempotency_key_sha256=key, request_fingerprint=fingerprint,
                 started_at=datetime.now(UTC), completed_at=None, last_event_number=0,
-            ).on_conflict_do_nothing(index_elements=[StudySession.learner_id, StudySession.idempotency_key_sha256]))
-            stored = session.scalar(select(StudySession).where(StudySession.learner_id == learner_id, StudySession.idempotency_key_sha256 == key))
+            ).on_conflict_do_nothing(index_elements=[
+                StudySession.learner_id, StudySession.idempotency_key_sha256,
+            ]))
+            stored = session.scalar(select(StudySession).where(
+                StudySession.learner_id == learner_id,
+                StudySession.idempotency_key_sha256 == key,
+            ))
             if stored is None or bytes(stored.request_fingerprint) != fingerprint:
                 raise StudySessionError("STUDY_SESSION_IDEMPOTENCY_CONFLICT")
             _validate(session, stored)
@@ -172,7 +194,9 @@ def create_study_session(
         raise StudySessionError("STUDY_SESSION_STORAGE_FAILED") from None
 
 
-def read_study_session(learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None) -> StoredStudySession:
+def read_study_session(
+    learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None
+) -> StoredStudySession:
     learner_id = _learner(learner)
     try:
         with database_session(dsn) as session:
@@ -185,14 +209,20 @@ def read_study_session(learner: TrustedLearner, study_session_id: UUID, *, dsn: 
         raise StudySessionError("STUDY_SESSION_STORAGE_FAILED") from None
 
 
-def set_current_study_concept(learner: TrustedLearner, study_session_id: UUID, concept_id: str, *, dsn: str | None = None) -> StoredStudySession:
+def set_current_study_concept(
+    learner: TrustedLearner, study_session_id: UUID, concept_id: str,
+    *, dsn: str | None = None,
+) -> StoredStudySession:
     learner_id = _learner(learner)
     try:
         with database_session(dsn) as session:
             stored = _row(session, learner_id, study_session_id, lock=True)
             context = _validate(session, stored)
             # 焦點只決定導覽位置；已建立題組由自己的 Concept／KS／成員綁定保護。
-            if stored.status not in {"active", "no_safe"} or concept_id not in {concept.concept_id for concept in context.concepts}:
+            if (
+                stored.status not in {"active", "no_safe"}
+                or concept_id not in {concept.concept_id for concept in context.concepts}
+            ):
                 raise StudySessionError("STUDY_SESSION_TARGET_INVALID")
             stored.current_concept_id = concept_id
             stored.status = "active"
@@ -205,7 +235,9 @@ def set_current_study_concept(learner: TrustedLearner, study_session_id: UUID, c
         raise StudySessionError("STUDY_SESSION_STORAGE_FAILED") from None
 
 
-def complete_study_session(learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None) -> StoredStudySession:
+def complete_study_session(
+    learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None
+) -> StoredStudySession:
     learner_id = _learner(learner)
     try:
         with database_session(dsn) as session:
