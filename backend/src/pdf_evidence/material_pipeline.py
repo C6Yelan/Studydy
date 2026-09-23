@@ -41,7 +41,7 @@ from .ocr_page_evidence import (
     extract_page,
     route_page,
 )
-from .source_pdf import snapshot_whole_document_request
+from .source_set import collect_source_set
 
 
 Progress = Callable[[str, int, int], None]
@@ -54,7 +54,7 @@ class MaterialAnalysisError(RuntimeError):
 
 
 def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, Any]:
-    """依實際用途驗證元件契約；整份設定的版本只作稽核，不決定教材能否接續。"""
+    """依實際用途驗證目前 v1 的元件契約。"""
 
     try:
         if not isinstance(lock, dict) or set(lock) - {'material_review'} != {
@@ -75,8 +75,7 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
         assessment_settings = lock["assessment"]
         ocr = lock["ocr"]
         if (
-            not isinstance(lock["schema"], str)
-            or re.fullmatch(r"studydy-runtime-lock/v[1-9][0-9]*", lock["schema"]) is None
+            lock["schema"] != "studydy-runtime-lock/v1"
             or lock["python"] != "3.12"
             or lock["packages"] != {
                 "studydy-local-ai": "0.1.0",
@@ -245,7 +244,9 @@ def _page_evidence(
                     "runtime_lock_sha256": canonical_sha256(settings["runtime_lock"]),
                 }
                 if route == "native_sufficient":
-                    artifact = build_native_page_evidence(page, input_binding=binding, produced_at=produced_at)
+                    artifact = build_native_page_evidence(
+                        page, input_binding=binding, produced_at=produced_at,
+                    )
                 else:
                     if ocr is None:
                         ocr = start_ocr_process(settings)
@@ -263,9 +264,16 @@ def _page_evidence(
                         },
                         None,
                     )
-                    if set(response) != {"schema", "request_id", "blocks"} or response["schema"] != "local-ocr-response/v1" or response["request_id"] != f"page-{page_number}":
+                    if (
+                        set(response) != {"schema", "request_id", "blocks"}
+                        or response["schema"] != "local-ocr-response/v1"
+                        or response["request_id"] != f"page-{page_number}"
+                    ):
                         raise LocalAIError("CHILD_RESPONSE_INVALID")
-                    artifact = build_page_evidence(page, response["blocks"], input_binding=binding, produced_at=produced_at)
+                    artifact = build_page_evidence(
+                        page, response["blocks"],
+                        input_binding=binding, produced_at=produced_at,
+                    )
                 pages.append(artifact)
             except (LocalAIError, ValueError) as error:
                 excluded.append(_excluded(page, _reason(error)))
@@ -288,7 +296,8 @@ def _page_evidence(
 
 
 def analyze_material(
-    request: dict[str, Any],
+    source_inputs: list[dict[str, Any]],
+    input_binding: dict[str, Any],
     settings: dict[str, Any],
     *,
     run_id: str | None = None,
@@ -297,8 +306,6 @@ def analyze_material(
     cancellation_check: Callable[[], None] | None = None,
     client: httpx.Client | None = None,
     semantic_call: Callable[..., dict[str, Any]] = request_semantics,
-    source_inputs: list[dict[str, Any]] | None = None,
-    input_binding: dict[str, Any] | None = None,
     base_structure: dict[str, Any] | None = None,
     analysis_archive: Any | None = None,
 ) -> dict[str, Any]:
@@ -310,14 +317,13 @@ def analyze_material(
     report = progress_callback or (lambda _stage, _completed, _total: None)
     check_cancel = cancellation_check or (lambda: None)
     runtime_root = Path(settings["private_runtime_root"])
+    source_digest = input_binding["source_set_digest"]
     restored = analysis_archive.load_checkpoint() if analysis_archive is not None else None
     with material_analysis_lock(runtime_root):
         check_cancel()
         if restored is not None:
             context = restored["context"]
-            checked = {"expected_source_sha256": restored["source_sha256"]}
-            expected_digest = input_binding["source_set_digest"] if input_binding else request["expected_source_sha256"]
-            if checked["expected_source_sha256"] != expected_digest:
+            if restored["source_sha256"] != source_digest:
                 raise MaterialAnalysisError("ANALYSIS_CHECKPOINT_INVALID")
             page_numbers = list(range(1, context["page_count"] + 1))
             state = SemanticState(**restored["state"])
@@ -332,23 +338,16 @@ def analyze_material(
         else:
             evidence_started = time.monotonic()
             with tempfile.TemporaryDirectory(prefix="studydy-source-") as directory:
-                if source_inputs is not None:
-                    from .source_set import collect_source_set
-                    checked = {"expected_source_sha256": input_binding["source_set_digest"]}
-                    page_numbers = list(range(1, len(input_binding["bundle"]["pages"]) + 1))
-                    pages, excluded, ocr_calls = collect_source_set(source_inputs, input_binding, base_structure,
-                        Path(directory), settings, resolved_time, report, check_cancel, _page_evidence)
-                else:
-                    snapshot = Path(directory) / "source.pdf"
-                    checked = snapshot_whole_document_request(request, snapshot)
-                    page_numbers = checked["page_numbers"]
-                    pages, excluded, ocr_calls = _page_evidence(snapshot, checked["expected_source_sha256"],
-                        page_numbers, settings, resolved_time, report, check_cancel)
+                page_numbers = list(range(1, len(input_binding["bundle"]["pages"]) + 1))
+                pages, excluded, ocr_calls = collect_source_set(
+                    source_inputs, input_binding, base_structure, Path(directory),
+                    settings, resolved_time, report, check_cancel, _page_evidence,
+                )
             evidence_duration_ms = round((time.monotonic() - evidence_started) * 1000)
             check_cancel()
             context = build_document_context(
                 pages, page_count=len(page_numbers), excluded_pages=excluded,
-                source_pages=input_binding["bundle"]["pages"] if input_binding else None,
+                source_pages=input_binding["bundle"]["pages"],
             )
             if base_structure is not None:
                 from knowledge_map.source_identity import seed_incremental_state
@@ -372,16 +371,25 @@ def analyze_material(
             cursor = 0
         semantic_started = time.monotonic()
         complete = bool(restored and restored.get("complete"))
-        evidence_indices = {item["evidence_id"]: index for index, item in enumerate(context["evidence"])}
+        evidence_indices = {
+            item["evidence_id"]: index
+            for index, item in enumerate(context["evidence"])
+        }
+
         def save_checkpoint():
             if analysis_archive is not None:
                 analysis_archive.save_checkpoint({
-                    "context": context, "state": asdict(state), "cursor": cursor,
+                    "context": context,
+                    "state": asdict(state),
+                    "cursor": cursor,
                     "complete": complete,
-                    "source_sha256": checked["expected_source_sha256"],
-                    "semantic_calls": semantic_calls, "ocr_calls": ocr_calls,
+                    "source_sha256": source_digest,
+                    "semantic_calls": semantic_calls,
+                    "ocr_calls": ocr_calls,
                     "evidence_duration_ms": evidence_duration_ms,
-                    "semantic_duration_ms": previous_semantic_ms + round((time.monotonic() - semantic_started) * 1000),
+                    "semantic_duration_ms": previous_semantic_ms + round(
+                        (time.monotonic() - semantic_started) * 1000
+                    ),
                 })
         save_checkpoint()
         owned_client = client is None and not complete
@@ -409,11 +417,17 @@ def analyze_material(
                     check_cancel()
                     candidate_state = deepcopy(state)
                     try:
-                        response = analysis_archive.reuse_review_response(request_document) if analysis_archive is not None else None
+                        response = (
+                            analysis_archive.reuse_review_response(request_document)
+                            if analysis_archive is not None else None
+                        )
                         if response is None:
                             semantic_calls += 1
                             from runtime.command_semantics import retain_call_outputs
-                            output_directory = analysis_archive.prepare_call(semantic_calls, request_document) if analysis_archive is not None else None
+                            output_directory = (
+                                analysis_archive.prepare_call(semantic_calls, request_document)
+                                if analysis_archive is not None else None
+                            )
                             with retain_call_outputs(output_directory):
                                 response = semantic_call(
                                     http,
@@ -421,16 +435,24 @@ def analyze_material(
                                     task="material_semantics",
                                     request=request_document,
                                     response_schema=semantic_response_schema([
-                                        row[0] for section in request_document["sections"] for row in section["evidence"]
+                                        row[0]
+                                        for section in request_document["sections"]
+                                        for row in section["evidence"]
                                     ], incremental=base_structure is not None),
                                 )
                         if analysis_archive is not None:
                             analysis_archive.save_response(semantic_calls, request_document, response)
                         if base_structure is not None:
-                            if not isinstance(response, dict) or type(response.get("review_required")) is not bool:
+                            if (
+                                not isinstance(response, dict)
+                                or type(response.get("review_required")) is not bool
+                            ):
                                 raise ValueError("SEMANTIC_OUTPUT_INVALID")
                             candidate_state.source_review_required |= response["review_required"]
-                            response = {key: value for key, value in response.items() if key != "review_required"}
+                            response = {
+                                key: value for key, value in response.items()
+                                if key != "review_required"
+                            }
                         apply_semantic_response(
                             response,
                             context=context,
@@ -460,13 +482,16 @@ def analyze_material(
             save_checkpoint()
         semantic_duration_ms = previous_semantic_ms + round((time.monotonic() - semantic_started) * 1000)
     from runtime.command_semantics import identity
-    command=identity(lock)
-    service = lock["semantic_service"] if command is None else {"model_id":command["model_id"],"revision":command["model_revision"]}
+    command = identity(lock)
+    service = (
+        lock["semantic_service"] if command is None
+        else {"model_id": command["model_id"], "revision": command["model_revision"]}
+    )
     try:
         return build_structure_draft(
             context,
             state,
-            source_sha256=checked["expected_source_sha256"],
+            source_sha256=source_digest,
             run_id=resolved_run,
             produced_at=resolved_time,
             runtime_lock_sha256=canonical_sha256(lock) if command is None else command["runtime_lock_sha256"],

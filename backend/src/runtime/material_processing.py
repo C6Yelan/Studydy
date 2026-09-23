@@ -526,8 +526,8 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn):
                         with path.open('xb') as destination:
                             while chunk:=source.file.read(1024*1024):destination.write(chunk)
                     sources.append({'media_type':'application/pdf','source_path':str(path),'expected_source_sha256':item['normalized_sha256']})
-                structure=analyze_material(sources[0],deepcopy(local_config),run_id=str(run.run_id),
-                    source_inputs=sources,input_binding=binding,base_structure=base,
+                structure=analyze_material(sources,binding,deepcopy(local_config),run_id=str(run.run_id),
+                    base_structure=base,
                     progress_callback=progress,cancellation_check=check_cancel,analysis_archive=archive)
             else:
                 raise MaterialProcessingError("SOURCE_BINDING_INVALID")

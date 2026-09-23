@@ -66,8 +66,10 @@ def test_source_round_trip_freeze_resume_and_owned_delete(closed_loop,normalizer
         return {'concepts':[{'k':'stack','l':'Stack','a':[],'c':[{'m':None,'s':[handle]}]}],'relations':[]}
     from runtime.source_resolver import _input
     source_request={'media_type':'application/pdf','source_path':str(source_path),'expected_source_sha256':source_sha}
-    document=material_pipeline.analyze_material(source_request,
-                settings,run_id=str(run.run_id),semantic_call=semantics,source_inputs=[source_request],input_binding=_input(owner,run.run_id,dsn=dsn))
+    document=material_pipeline.analyze_material(
+        [source_request], _input(owner,run.run_id,dsn=dsn), settings,
+        run_id=str(run.run_id), semantic_call=semantics,
+    )
     document=bind_structure_input(owner,run.run_id,document,dsn=dsn)
     published=publish_fixture_structure(owner,material,run.run_id,document,dsn=dsn)
     assert published.document['schema']=='knowledge-structure/v1'

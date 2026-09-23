@@ -191,6 +191,15 @@ def test_wrong_contract_is_rejected_by_lock_and_client_before_network(field, val
             preflight_semantic_service(lock, client=client)
 
 
+def test_runtime_lock_accepts_only_v1():
+    from pdf_evidence.material_pipeline import MaterialAnalysisError, validate_runtime_lock
+
+    lock = _lock()
+    lock["schema"] = "studydy-runtime-lock/v2"
+    with pytest.raises(MaterialAnalysisError, match="RUNTIME_LOCK_INVALID"):
+        validate_runtime_lock(lock)
+
+
 @pytest.mark.parametrize("model,context", [
     ("example/other-model", 32768),
     ("google/gemma-4-31B-it-qat-w4a16-ct", 16384),

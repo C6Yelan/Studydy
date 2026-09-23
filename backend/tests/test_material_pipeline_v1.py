@@ -45,6 +45,25 @@ def _request(path: Path) -> dict:
     }
 
 
+def _analyze(source: Path, settings: dict, **kwargs):
+    request = _request(source)
+    digest = request["expected_source_sha256"]
+    with pymupdf.open(source) as document:
+        page_count = document.page_count
+    binding = {
+        "source_set_digest": digest,
+        "manifest": {"items": [{
+            "normalized_sha256": digest,
+            "page_count": page_count,
+        }]},
+        "bundle": {"pages": [
+            {"page": page, "source_id": "synthetic-source", "normalized_page": page}
+            for page in range(1, page_count + 1)
+        ]},
+    }
+    return pipeline.analyze_material([request], binding, settings, **kwargs)
+
+
 def _semantic(calls: list[dict]):
     def call(_client, **arguments):
         request = arguments["request"]
@@ -67,8 +86,8 @@ def test_eight_native_pages_use_one_unified_semantic_call_without_ocr(tmp_path, 
     _pdf(source, 8)
     monkeypatch.setattr(pipeline, "start_ocr_process", lambda _settings: (_ for _ in ()).throw(AssertionError("native PDF must not load OCR")))
     calls: list[dict] = []
-    structure = pipeline.analyze_material(
-        _request(source), _settings(tmp_path), client=Client(), semantic_call=_semantic(calls)
+    structure = _analyze(
+        source, _settings(tmp_path), client=Client(), semantic_call=_semantic(calls)
     )
     assert structure["metrics"]["semantic_calls"] == 1
     assert structure["metrics"]["ocr_calls"] == 0
@@ -99,7 +118,7 @@ def test_multiple_bundles_report_incremental_semantic_progress(tmp_path):
             return httpx.Response(200, json={"count": count, "max_model_len": 32768}, request=httpx.Request("POST", url))
     calls = []
     progress = []
-    pipeline.analyze_material(_request(source), _settings(tmp_path), client=BudgetClient(),
+    _analyze(source, _settings(tmp_path), client=BudgetClient(),
                               semantic_call=_semantic(calls), progress_callback=lambda stage, done, total: progress.append((stage, done, total)))
     assert len(calls) > 1
     assert {row[1] for call in calls for section in call["sections"] for row in section["evidence"]} == {1, 2, 3}
@@ -118,7 +137,7 @@ def test_command_uses_shared_batching_and_carries_concepts_across_all_ninety_pag
     source=tmp_path/'ninety.pdf';_pdf(source,90)
     settings=_settings(tmp_path)
     calls=[];progress=[]
-    structure=pipeline.analyze_material(_request(source),settings,client=Client(),semantic_call=_semantic(calls),
+    structure=_analyze(source,settings,client=Client(),semantic_call=_semantic(calls),
         progress_callback=lambda stage,done,total:progress.append((stage,done,total)))
     assert len(calls)>1 and structure['metrics']['semantic_calls']==len(calls)
     rows=[row for call in calls for section in call['sections'] for row in section['evidence']]
@@ -137,8 +156,8 @@ def test_ocr_failure_excludes_only_scan_and_semantics_still_runs(tmp_path, monke
     _pdf(source, 2, blank_first=True)
     monkeypatch.setattr(pipeline, "start_ocr_process", lambda _settings: FailedOcr())
     calls: list[dict] = []
-    structure = pipeline.analyze_material(
-        _request(source), _settings(tmp_path), client=Client(), semantic_call=_semantic(calls)
+    structure = _analyze(
+        source, _settings(tmp_path), client=Client(), semantic_call=_semantic(calls)
     )
     assert structure["metrics"]["ocr_calls"] == 1
     assert structure["metrics"]["semantic_calls"] == 1
@@ -164,7 +183,7 @@ def test_cancellation_before_semantics_never_opens_a_model_request(tmp_path, mon
         if requested: raise Cancelled()
     monkeypatch.setattr(pipeline, "semantic_client", lambda: (_ for _ in ()).throw(AssertionError("no model client after cancellation")))
     with pytest.raises(Cancelled):
-        pipeline.analyze_material(_request(source), _settings(tmp_path), progress_callback=report, cancellation_check=check)
+        _analyze(source, _settings(tmp_path), progress_callback=report, cancellation_check=check)
 
 
 def test_cancellation_stops_semantic_retries_and_next_bundles(tmp_path, monkeypatch):
@@ -190,7 +209,7 @@ def test_cancellation_stops_semantic_retries_and_next_bundles(tmp_path, monkeypa
         with monkeypatch.context() as patch:
             patch.setattr(pipeline, "build_semantic_bundles", two_bundles)
             with pytest.raises(Cancelled):
-                pipeline.analyze_material(_request(source), _settings(tmp_path), client=Client(), semantic_call=semantic, cancellation_check=check)
+                _analyze(source, _settings(tmp_path), client=Client(), semantic_call=semantic, cancellation_check=check)
         assert len(calls) == 1
 
 
@@ -205,7 +224,7 @@ def test_cancellation_at_evidence_checkpoint_does_not_start_the_next_page(tmp_pa
     monkeypatch.setattr(pipeline, "extract_page", extract)
     def report(*_args): raise Cancelled()
     with pytest.raises(Cancelled):
-        pipeline.analyze_material(_request(source), _settings(tmp_path), client=Client(), progress_callback=report)
+        _analyze(source, _settings(tmp_path), client=Client(), progress_callback=report)
     assert pages == [1]
 
 
@@ -216,7 +235,7 @@ def test_bundle_input_limit_keeps_reason_without_model_call(tmp_path, monkeypatc
     monkeypatch.setattr(pipeline, "material_request_fits", lambda *args: False)
     calls = []
     with pytest.raises(pipeline.MaterialAnalysisError, match="SEMANTIC_INPUT_TOO_LARGE"):
-        pipeline.analyze_material(_request(source), _settings(tmp_path), client=Client(), semantic_call=_semantic(calls))
+        _analyze(source, _settings(tmp_path), client=Client(), semantic_call=_semantic(calls))
     assert calls == []
 
 
@@ -227,4 +246,4 @@ def test_command_budget_failure_keeps_reason(tmp_path):
     def exhausted(*args, **kwargs):
         raise pipeline.SemanticServiceError("SEMANTIC_BUDGET_EXHAUSTED")
     with pytest.raises(pipeline.MaterialAnalysisError, match="SEMANTIC_BUDGET_EXHAUSTED"):
-        pipeline.analyze_material(_request(source), _settings(tmp_path), client=Client(), semantic_call=exhausted)
+        _analyze(source, _settings(tmp_path), client=Client(), semantic_call=exhausted)
