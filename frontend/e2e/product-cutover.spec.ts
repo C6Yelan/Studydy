@@ -101,7 +101,7 @@ async function json(route: Route, body: unknown, status = 200) {
 }
 
 async function routes(page: Page, view = structureView(), readProgress = () => progress) {
-  await page.route("**/v2/materials/*/knowledge-structures/*/evidence/*/source", route=>json(route,{schema:"evidence-source/v1",format:"pdf",original_name:"Synthetic.pdf",original_url:`/v1/artifacts/${artifactId}`,preview_url:`/v1/artifacts/${artifactId}#page=1`,normalized_page:1,accuracy:"exact",origin_locators:[],label:"PDF 第 1 頁"}));
+  await page.route("**/v2/materials/*/knowledge-structures/*/evidence/*/source", route=>json(route,{schema:"evidence-source/v1",format:"pdf",original_name:"Synthetic.pdf",original_url:`/v2/artifacts/${artifactId}`,preview_url:`/v1/artifacts/${artifactId}#page=1`,normalized_page:1,accuracy:"exact",origin_locators:[],label:"PDF 第 1 頁"}));
   await page.route("**/v2/source-capabilities", route => json(route, { schema: "source-capabilities/v1", quality_notice: "PDF 優先", formats: [
     { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 },
   ] }));

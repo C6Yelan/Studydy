@@ -1,6 +1,8 @@
 # B2-P：文件轉檔可行性實驗
 
-本目錄是獨立 prototype，只使用自行產生的合成教材。**未接正式 upload／API／DB／worker，未執行 B2-I。** 不可直接當成對外上傳服務。
+本目錄保存 2026-09-17 的獨立 prototype 與合成教材實驗，不是 current production 實作。
+下文「未整合／未執行 B2-I」描述當時階段；目前整合與限制見 [文件正規化](../../docs/document-normalization.md) 及 [來源版本](../../docs/source-revisions.md)。
+保留原實驗結果、限制與隔離依據；不可直接把 probe 當成對外上傳服務。
 
 ## 本次結論（2026-09-17）
 

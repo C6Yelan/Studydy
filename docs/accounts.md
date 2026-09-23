@@ -1,11 +1,11 @@
 # 帳號與固定學習身分
 
 先依 [工作站啟停說明](runbook/A40_FINAL_WORKSTATION.md) 準備既有本地服務。
-正式產品仍沿用現行模型 preflight，不新增無 GPU 模式。
+帳號與既有資料讀取不要求模型在線；分析與出題仍保留各自執行時的模型檢查。
 
 ## Migration
 
-先停止產品寫入；若資料需要保留，人工私下備份原 DB 與整套原始 PDF store。
+先停止產品寫入；若資料需要保留，人工私下備份原 DB 與完整 artifact store（原檔、轉換後 PDF 及來源 mapping）。
 保持既有 `STUDYDY_DATABASE_DSN` 和 `STUDYDY_ARTIFACT_ROOT`，不要清空或更換位置。
 在已設定私有環境欄位的 shell，從 repository root 執行：
 
@@ -13,9 +13,13 @@
 PYTHONPATH=backend/src backend/.venv/bin/python -c 'from runtime.storage.migrations import run_migrations; print(run_migrations())'
 ```
 
-空 DB 套用 `(1, 2, 3, 4)`；已套用前三版的 DB 只執行 `0004_email_credentials.sql`；重跑回傳 `()`。
-`0001`～`0003` 保持原始內容與 checksum，不刪除 ledger 或修改舊 SQL。
+空 DB 依 `load_migrations()` 順序套用全部 migration；既有 DB 先核對 ledger/checksum，再套用全部未執行版本。
+本文件更新基準包含 `0001`～`0014`，不是只升級到 `0004`；已全部套用時重跑回傳 `()`。
+所有歷史 SQL 與 checksum 保持原樣，不刪除 ledger，也不以重新建立資料庫取代升級。
 
+### 歷史背景：0004 Email cutover
+
+以下是當時 `0004` 的一次性資料處理，不是每次啟動或每次 migration 都清除帳號。
 `0004` 將 credential column 從 `username` 改為唯一的 `email`，不保留 username alias。
 依此次 pre-release cutover 決定，舊帳號的 credentials 清除、所有尚有效的舊 sessions 撤銷；
 需要重新以 Email 註冊。`learner_id`、教材、Knowledge Structure、學習與作答資料保留原 owner，

@@ -3,17 +3,24 @@
 Production has one semantic path:
 
 ```text
-PDF → native Evidence / optional OCR → document sections + Evidence bundle
+Original sources → normalization → source collection / revision
+    → PDF Evidence / optional OCR → document sections + Evidence bundle
     → resident Gemma 4 unified semantics → deterministic projection
     → Document Tree + canonical Concepts + typed Relations + Initial Path
     → StudySession + AssessmentSet + AnswerEvent
 ```
 
 Supplementary resource recommendation (Agent 2) is removed. Concepts retain only the uploaded
-material's Evidence and PDF locators. Knowledge Structure and its public view use schema v2, with
-no resource-library fields or separate resource PDF kind. Fresh pre-release databases use the
-initial migration followed by additive learner-credentials and material-name migrations; historical evaluation
-artifacts remain separate and are not rewritten.
+material's Evidence and PDF locators, with no resource-library fields or separate resource PDF kind.
+Schema versions describe different boundaries: `knowledge-structure/v2` (or v3 with command execution
+identity) is a construction artifact; source binding produces the persisted `knowledge-structure/v4`.
+The source-aware API projects `knowledge-structure-view/v3`. Intermediate versions are not retired
+public API aliases. Fresh databases apply all current migrations, not only the early credential/name
+upgrades; historical evaluation artifacts remain separate and are not rewritten.
+
+Material creation uses `POST /v2/materials`, source uploads and explicit revision creation.
+`POST /v1/materials` is retired; existing v1 material GET/DELETE/rename readers and actions remain.
+Original downloads use `/v2/artifacts/{id}`; normalized PDF previews use `/v1/artifacts/{id}` with page locators.
 
 Gemma 4 owns Concept boundaries, Claim meaning, cross-section consolidation, Relation proposals/reasons,
 and Assessment semantics. Code owns source identity, Evidence/span binding, exact technical literals,

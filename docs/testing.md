@@ -21,17 +21,18 @@ backend/.venv/bin/python backend/tests/runtime/browser_e2e_runner.py
 
 Backend tests create a pinned disposable PostgreSQL 18 container unless a private
 `STUDYDY_TEST_POSTGRES_DSN` pointing at a dedicated `studydy_test*` control database is supplied.
-They cover fresh installation and the additive credentials and material-name migrations, owner isolation, immutable Knowledge Structure, source-bound
+They cover fresh installation through all current migrations, upgrade/replay checks, owner isolation, immutable Knowledge Structure, source-bound
 Assessment, private answer, server-side scoring, append-only AnswerEvent, mastery, guidance,
 idempotency, stale state, and the HTTP API closed loop.
 
 Email credentials use `0004_email_credentials.sql`: old development credentials are cleared and old sessions revoked once; learner IDs and owned records remain. Auth tests cover normalized Email uniqueness, invalid syntax, generic login failures, hashing/session regressions and the new schema. No Email DNS lookup or model call is used.
 
-The accepted Knowledge Structure v2 schema can be upgraded with `0002_learner_credentials.sql`;
-existing learner IDs and owners remain unchanged. `0003_material_display_name.sql` adds names.
-Migration tests upgrade the accepted schema with saved synthetic records, verify the records and
-old upload receipts remain readable, and verify a repeat migration is a no-op. Databases
-from before the accepted initial-schema checksum still require a separate migration decision.
+Current installation applies every migration returned by `load_migrations()` (0001–0014 at this documentation update).
+An existing ledger is checked before all unapplied versions run; replay is a no-op. Historical SQL is immutable.
+The earlier accepted-schema upgrades added credentials in `0002` and names in `0003`; that historical
+coverage is not a complete current installation recipe. Upgrade fixtures preserve synthetic records
+and old upload receipts. Databases preceding the accepted initial-schema checksum still require a
+separate migration decision; cleanup does not reset them.
 
 The standalone browser runner starts only a disposable Vite process. Its API fixtures use the final public
 contract and verify Document Tree layout, the five Relation styles/reason interaction, Evidence
@@ -68,10 +69,10 @@ Map route whose processing run points at another revision.
 
 ## Learning resume regression (local only)
 
-`runtime/test_learning_resume.py` 驗證題組 resume v4 的唯讀性與 owner／版本綁定。
+`runtime/test_learning_resume.py` 驗證題組 `study-resume/v5` 的唯讀性與 owner／版本綁定。
 `test_assessment_sets_browser.py`、`test_assessment_remediation_browser.py` 與
 `test_concept_navigation_browser.py` 驗證整組交卷、回應遺失、補強、重新登入與跨觀念接續。
-模型回應由隔離 fixture 提供，不呼叫真實模型。舊單題 API／書籤與相容測試已移除。
+模型回應由隔離 fixture 提供，不呼叫真實模型。舊單題 API／書籤已移除；退休入口拒絕與既存答案保留的回歸仍須保留。
 `runtime/test_assessment_quality.py` 改用題組 worker 檢查品質排序、重複題與目前 provenance；
 不是實際模型品質驗收。
 
@@ -80,7 +81,8 @@ Map route whose processing run points at another revision.
 現行契約見 [assessment-sets.md](assessment-sets.md)。`runtime/test_assessment_sets.py` 驗證
 動態題數、交易／lease、成員私密性、部分發布、失敗重試、併發與取消／刪除。
 `runtime/test_assessment_sets_browser.py` 以真 API／隔離 DB 在桌機與手機驗證完整題組。
-舊單題生成、作答、恢復與 guidance API／UI 已移除；`product-cutover.spec.ts` 保留現行地圖與題組入口回歸，
+舊單題生成、作答與恢復 API／UI 已移除；現行 `guidance-apply/v2` 仍套用後端 advance/complete。
+`product-cutover.spec.ts` 保留現行地圖與題組入口回歸，
 `study-layout.spec.ts` 驗證 inline preparing、來源、resume 與無取消入口。合成 fixture 不算真實模型品質證據。
 
 日常 frontend 使用 `frontend/dist`，測試不要覆寫它。改用獨立 build：
