@@ -4,7 +4,7 @@ import json
 from uuid import UUID
 from sqlalchemy import select
 from pdf_evidence.ocr_page_evidence import canonical_sha256
-from knowledge_map.structure import _revision
+from knowledge_map.structure import finalize_knowledge_structure
 from .storage.tables import MaterialProcessingRun,MaterialSourceSet,MaterialSourceSetItem,Artifact,SourceNormalization,database_session
 from .storage.source_artifacts import open_verified_artifact
 from .source_normalization import SourceError
@@ -22,7 +22,7 @@ def _input(owner,run_id,*,dsn=None):
         if (canonical_sha256(manifest)!=source_set.digest or canonical_sha256(bundle)!=run.bundle_manifest_sha256
             or bundle.get('source_set_digest')!=source_set.digest
             or len(members)!=len(manifest['items']) or not members):raise SourceError('SOURCE_BINDING_INVALID')
-        if bundle.get('schema') != 'bundle-manifest/v2':raise SourceError('SOURCE_BINDING_INVALID')
+        if bundle.get('schema') != 'bundle-manifest/v1':raise SourceError('SOURCE_BINDING_INVALID')
         for ordinal,(member,item) in enumerate(zip(members,manifest['items']),1):
             if member.ordinal!=ordinal or str(member.source_id)!=item['source_id'] or str(member.normalization_id)!=item['normalization_id']:raise SourceError('SOURCE_BINDING_INVALID')
             job=session.get(SourceNormalization,member.normalization_id)
@@ -42,7 +42,7 @@ def _input(owner,run_id,*,dsn=None):
             for n in range(1,item['page_count']+1):
                 expected_pages.append({'page':len(expected_pages)+1,'source_id':item['source_id'],'normalized_page':n})
         if bundle['pages']!=expected_pages:raise SourceError('SOURCE_BINDING_INVALID')
-        binding={'schema':'structure-input-binding/v2','source_set_id':str(source_set.source_set_id),'source_set_digest':source_set.digest,
+        binding={'schema':'structure-input-binding/v1','source_set_id':str(source_set.source_set_id),'source_set_digest':source_set.digest,
                  'bundle_manifest_sha256':run.bundle_manifest_sha256,'manifest':manifest,'bundle':bundle}
         binding['base_revision']=run.base_revision
     for item in manifest['items']:
@@ -54,11 +54,7 @@ def _input(owner,run_id,*,dsn=None):
 
 def bind_structure_input(owner,run_id,document,*,dsn=None):
     binding=_input(owner,run_id,dsn=dsn)
-    result=deepcopy(document);result['input_binding']=binding
-    if result.pop('source_sha256')!=binding['source_set_digest']:raise SourceError('SOURCE_BINDING_INVALID')
-    result['schema']='knowledge-structure/v4';result['source_set_sha256']=binding['source_set_digest']
-    result['revision']=_revision(result)
-    return result
+    return finalize_knowledge_structure(document, binding)
 
 
 def verify_structure_input(owner,run_id,document,*,dsn=None):
@@ -67,7 +63,7 @@ def verify_structure_input(owner,run_id,document,*,dsn=None):
     with database_session(dsn) as session:
         run=session.get(MaterialProcessingRun,run_id)
         if run is None or run.runtime_binding['model_id']!=document['provenance']['model_id'] or run.runtime_binding['model_revision']!=document['provenance']['model_revision']:raise SourceError('SOURCE_BINDING_INVALID')
-        expected_execution=run.runtime_binding['semantic_service'] if run.runtime_binding['schema']=='material-runtime-binding/v2' else None
+        expected_execution=run.runtime_binding['semantic_service'] if run.runtime_binding['semantic_service'].get('transport')=='command' else None
         if document.get('execution_identity')!=expected_execution:raise SourceError('SOURCE_BINDING_INVALID')
 
 
@@ -96,6 +92,6 @@ def resolve_evidence_source(owner,material_id,revision,evidence_id,*,dsn=None):
     elif mapping['format']=='pptx' and locators:label=f"原教材第 {locators[0]['original_slide_number']} 張投影片（轉換後第 {page} 頁）"
     elif mapping['format'] in ('txt','md') and locators:label=f"原文第 {min(l['line_start'] for l in locators)}–{max(l['line_end'] for l in locators)} 行（轉換後第 {page} 頁）"
     return {'schema':'evidence-source/v1','format':mapping['format'],'original_name':item['original_name'],
-            'original_url':f"/v2/artifacts/{item['original_artifact_id']}",
+            'original_url':f"/v1/artifacts/{item['original_artifact_id']}/download",
             'preview_url':f"/v1/artifacts/{item['normalized_artifact_id']}#page={page}",
             'normalized_page':page,'accuracy':accuracy,'origin_locators':locators,'label':label}

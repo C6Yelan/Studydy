@@ -1,3 +1,4 @@
+from structure_fixtures import build_knowledge_structure
 from copy import deepcopy
 import pytest
 
@@ -7,7 +8,6 @@ from knowledge_map.structure import (
     _revision,
     apply_semantic_response as apply_wire_response,
     build_document_context,
-    build_knowledge_structure,
     build_knowledge_structure_view,
     build_semantic_bundles,
     semantic_request,
@@ -20,6 +20,30 @@ from pdf_evidence.ocr_page_evidence import canonical_sha256
 RUN_ID = "00000000-0000-4000-8000-000000000001"
 PRODUCED_AT = "2026-09-05T00:00:00+00:00"
 MODEL_REVISION = "52f3f65bc7a02d555763bc923bd1d9094898219d"
+
+
+def test_only_bound_v1_is_a_publishable_structure():
+    from knowledge_map.structure import build_structure_draft, finalize_knowledge_structure
+
+    context = build_document_context([_page(1, [_block(1, 0, 'paragraph', 'A stack uses LIFO.')])], page_count=1)
+    arguments = dict(source_sha256='1' * 64, run_id=RUN_ID, produced_at=PRODUCED_AT,
+                     runtime_lock_sha256='0' * 64, model_id='google/gemma-4-31B-it-qat-w4a16-ct',
+                     model_revision=MODEL_REVISION, semantic_calls=1, ocr_calls=0)
+    draft = build_structure_draft(context, SemanticState(), **arguments)
+    assert 'schema' not in draft and 'revision' not in draft
+    assert not validate_knowledge_structure(draft)
+    final = build_knowledge_structure(context, SemanticState(), **arguments)
+    assert final['schema'] == 'knowledge-structure/v1' and 'source_sha256' not in final
+    assert finalize_knowledge_structure(draft, final['input_binding']) == final
+    for version in (2, 3, 4):
+        old = deepcopy(final)
+        old['schema'] = f'knowledge-structure/v{version}'
+        old['revision'] = _revision(old)
+        assert not validate_knowledge_structure(old)
+    mismatch = deepcopy(final['input_binding'])
+    mismatch['source_set_digest'] = '2' * 64
+    with pytest.raises(ValueError, match='KNOWLEDGE_STRUCTURE_INVALID'):
+        finalize_knowledge_structure(draft, mismatch)
 
 
 def _compact_response(response, context):
@@ -86,7 +110,7 @@ def _block(page: int, order: int, kind: str, text: str) -> dict:
 
 def _page(number: int, blocks: list[dict]) -> dict:
     return {
-        "schema": "page-evidence/v4",
+        "schema": "page-evidence/v1",
         "material_id": "material:sha256:" + "1" * 64,
         "page_ref": "page:sha256:" + canonical_sha256(
             {"source_sha256": "1" * 64, "page_number": number}

@@ -13,14 +13,13 @@
 PYTHONPATH=backend/src backend/.venv/bin/python -c 'from runtime.storage.migrations import run_migrations; print(run_migrations())'
 ```
 
-空 DB 套用 `(1, 2, 3, 4)`；已套用前三版的 DB 只執行 `0004_email_credentials.sql`；重跑回傳 `()`。
-`0001`～`0003` 保持原始內容與 checksum，不刪除 ledger 或修改舊 SQL。
+空 DB 套用四份領域 baseline `(1, 2, 3, 4)`；已完成相同 baseline 的 DB 重跑回傳 `()`。
+`0001_identity_and_materials.sql` 直接建立 Email credentials，不清除帳號或撤銷 session。
 
-`0004` 將 credential column 從 `username` 改為唯一的 `email`，不保留 username alias。
-依此次 pre-release cutover 決定，舊帳號的 credentials 清除、所有尚有效的舊 sessions 撤銷；
-需要重新以 Email 註冊。`learner_id`、教材、Knowledge Structure、學習與作答資料保留原 owner，
-不刪除、不自動歸戶到新帳號，也不推導假的 Email。這不是長期的雙登入或相容 reader。
-在正式資料上套用前先完成備份，停止舊版本的產品程序；舊程式不能搭配新的 Email schema。
+2026-09-23 前的 14 版帳本屬於舊基準，不能直接執行新 baseline 或只改 checksum。
+須先備份、確認舊帳本及最終結構與資料轉換一致，再於停止產品寫入期間一次性接軌帳本。
+新舊 SQL 不混用；已套用的新版 migration 不再改寫，後續變更從 0005 接續。
+本機切換與備份位置見 [本地環境](local-environment.md)。
 
 ## 使用
 

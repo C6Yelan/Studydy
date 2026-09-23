@@ -12,7 +12,7 @@ from uuid import UUID
 from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 
 
-STRUCTURE_SCHEMA = "knowledge-structure/v2"
+STRUCTURE_SCHEMA = "knowledge-structure/v1"
 RELATION_TYPES = {"prerequisite", "part_of", "application", "example", "contrast"}
 RELATION_BASIS = {
     "prerequisite": "dependency",
@@ -72,7 +72,7 @@ def _ordered_pages(pages: Any) -> list[dict[str, Any]]:
     evidence_ids: set[str] = set()
     for page in ordered:
         blocks = page.get("evidence_blocks")
-        if page.get("schema") != "page-evidence/v4" or not isinstance(blocks, list) or not blocks:
+        if page.get("schema") != "page-evidence/v1" or not isinstance(blocks, list) or not blocks:
             raise ValueError("DOCUMENT_EVIDENCE_INVALID")
         if page.get("page_ref") != _id(
             "page",
@@ -656,7 +656,7 @@ def _revision(document: dict[str, Any]) -> str:
     return _id("knowledge-structure", identity)
 
 
-def build_knowledge_structure(
+def build_structure_draft(
     context: dict[str, Any],
     state: SemanticState,
     *,
@@ -811,7 +811,6 @@ def build_knowledge_structure(
         "reason_codes": reasons,
     }
     document = {
-        "schema": STRUCTURE_SCHEMA if execution_identity is None else "knowledge-structure/v3",
         "material_id": context["material_id"],
         "source_sha256": source_sha256,
         "run_id": run_id,
@@ -820,7 +819,7 @@ def build_knowledge_structure(
             "runtime_lock_sha256": runtime_lock_sha256,
             "model_id": model_id,
             "model_revision": model_revision,
-            "semantic_policy": "unified-material-evidence-projection/v3",
+            "semantic_policy": "unified-material-evidence-projection/v1",
         },
         "page_count": context["page_count"],
         "evidence": deepcopy(context["evidence"]),
@@ -842,6 +841,50 @@ def build_knowledge_structure(
     }
     if execution_identity is not None:document["execution_identity"]=deepcopy(execution_identity)
     if state.source_review_required:document["source_review_required"]=True
+    if not validate_structure_draft(document):
+        raise ValueError("KNOWLEDGE_STRUCTURE_INVALID")
+    return document
+
+
+_DRAFT_FIELDS = {
+    "material_id", "source_sha256", "run_id", "produced_at", "provenance",
+    "page_count", "evidence", "excluded_pages", "document_tree", "concepts",
+    "relations", "initial_learning_path", "metrics", "status",
+}
+
+
+def _structure_fields(document, required):
+    fields = set(required)
+    if "source_review_required" in document:
+        if document["source_review_required"] is not True:
+            return False
+        fields.add("source_review_required")
+    if "execution_identity" in document:
+        execution = document["execution_identity"]
+        if (not isinstance(execution, dict)
+            or set(execution) != {"transport", "model_id", "model_revision", "config_sha256", "runtime_lock_sha256"}
+            or execution["transport"] != "command"
+            or any(not isinstance(execution[k], str) or re.fullmatch(r"[0-9a-f]{64}", execution[k]) is None
+                   for k in ("config_sha256", "runtime_lock_sha256"))):
+            return False
+        fields.add("execution_identity")
+    return set(document) == fields
+
+
+def validate_structure_draft(document: Any) -> bool:
+    """未綁定來源的內部分析結果；沒有正式 schema 或 revision，不可直接發布。"""
+    return (isinstance(document, dict) and _structure_fields(document, _DRAFT_FIELDS)
+            and _validate_structure_content(document, document["source_sha256"]))
+
+
+def finalize_knowledge_structure(draft: dict[str, Any], input_binding: dict[str, Any]) -> dict[str, Any]:
+    """完成來源集合綁定後，才建立唯一正式契約及其內容雜湊。"""
+    if not validate_structure_draft(draft):
+        raise ValueError("KNOWLEDGE_STRUCTURE_DRAFT_INVALID")
+    document = deepcopy(draft)
+    document["source_set_sha256"] = document.pop("source_sha256")
+    document["input_binding"] = deepcopy(input_binding)
+    document["schema"] = STRUCTURE_SCHEMA
     document["revision"] = _revision(document)
     if not validate_knowledge_structure(document):
         raise ValueError("KNOWLEDGE_STRUCTURE_INVALID")
@@ -849,42 +892,30 @@ def build_knowledge_structure(
 
 
 def validate_knowledge_structure(document: Any) -> bool:
-    """重驗 final artifact 的 identity、lineage、Relation 與 Path authority。"""
-
+    """只接受已綁定來源的 knowledge-structure/v1；重驗 revision 與內容。"""
     try:
-        digest_field = "source_set_sha256" if isinstance(document, dict) and document.get("schema") == "knowledge-structure/v4" else "source_sha256"
-        source_digest = document[digest_field]
-        fields = {
-            "schema", "revision", "material_id", "source_sha256", "run_id", "produced_at",
-            "provenance", "page_count", "evidence", "excluded_pages", "document_tree",
-            "concepts", "relations", "initial_learning_path", "metrics", "status",
-        }
-        if isinstance(document, dict) and "source_review_required" in document:
-            if document["source_review_required"] is not True:return False
-            fields.add("source_review_required")
-        if digest_field == "source_set_sha256":
-            fields.remove("source_sha256")
-            fields.add(digest_field)
-            binding = document.get("input_binding")
-            if not isinstance(binding, dict) or binding.get("source_set_digest") != source_digest:
-                return False
-        if isinstance(document,dict) and document.get("schema") in {"knowledge-structure/v3", "knowledge-structure/v4"} and "input_binding" in document:
-            fields.add("input_binding")
-        execution=document.get("execution_identity") if isinstance(document,dict) else None
-        if execution is not None:
-            fields.add("execution_identity")
-            if document.get("schema") not in {"knowledge-structure/v3", "knowledge-structure/v4"} or not isinstance(execution,dict) or set(execution)!={"transport","model_id","model_revision","config_sha256","runtime_lock_sha256"}:return False
-            if execution["transport"]!="command" or any(not isinstance(execution[k],str) or re.fullmatch(r"[0-9a-f]{64}",execution[k]) is None for k in ("config_sha256","runtime_lock_sha256")):return False
-        if (
-            not isinstance(document, dict)
-            or set(document) != fields
-            or document["schema"] not in {STRUCTURE_SCHEMA,"knowledge-structure/v3","knowledge-structure/v4"}
-            or document["revision"] != _revision(document)
-            or not isinstance(source_digest, str)
-            or re.fullmatch(r"[0-9a-f]{64}", source_digest) is None
-            or document["material_id"] != f"material:sha256:{source_digest}"
-        ):
+        fields = (_DRAFT_FIELDS - {"source_sha256"}) | {"schema", "revision", "source_set_sha256", "input_binding"}
+        if not isinstance(document, dict) or not _structure_fields(document, fields):
             return False
+        binding = document["input_binding"]
+        if (document["schema"] != STRUCTURE_SCHEMA or document["revision"] != _revision(document)
+            or not isinstance(binding, dict) or binding.get("schema") != "structure-input-binding/v1"
+            or set(binding) != {"schema", "source_set_id", "source_set_digest", "bundle_manifest_sha256", "manifest", "bundle", "base_revision"}
+            or not isinstance(binding["manifest"], dict) or binding["manifest"].get("schema") != "source-set/v1"
+            or not isinstance(binding["bundle"], dict) or binding["bundle"].get("schema") != "bundle-manifest/v1"
+            or binding["source_set_digest"] != document["source_set_sha256"]):
+            return False
+        return _validate_structure_content(document, document["source_set_sha256"])
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _validate_structure_content(document, source_digest):
+    try:
+        if (not isinstance(source_digest, str) or re.fullmatch(r"[0-9a-f]{64}", source_digest) is None
+            or document["material_id"] != f"material:sha256:{source_digest}"):
+            return False
+        execution = document.get("execution_identity")
         provenance = document["provenance"]
         try:
             produced_at = datetime.fromisoformat(document["produced_at"])
@@ -902,7 +933,7 @@ def validate_knowledge_structure(document: Any) -> bool:
             or not isinstance(provenance["model_revision"],str) or not provenance["model_revision"]
             or (execution is None and (provenance["model_id"]!="google/gemma-4-31B-it-qat-w4a16-ct" or provenance["model_revision"]!="52f3f65bc7a02d555763bc923bd1d9094898219d"))
             or (execution is not None and any(execution[k]!=provenance[k] for k in ("model_id","model_revision","runtime_lock_sha256")))
-            or provenance["semantic_policy"] != "unified-material-evidence-projection/v3"
+            or provenance["semantic_policy"] != "unified-material-evidence-projection/v1"
         ):
             return False
         evidence = document["evidence"]

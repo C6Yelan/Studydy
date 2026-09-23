@@ -24,7 +24,7 @@ Learner next action：有 active set → `continue_set`；needs_review → `reme
 
 ## Storage 與 API
 
-`assessment_sets.kind`、`diagnostic_set_id`、`remediation_origin_scope` 與 origin immutability trigger 維持補強歸屬。Migration 0014 移除不再需要的流程確認 metadata，並更新既有補強 target_plan 的 policy 名稱；既有目標、題目、答案與來源保持不變。通用 `action_receipts` 保留重試／部分發布／提交的冪等能力。
+`assessment_sets.kind`、`diagnostic_set_id`、`remediation_origin_scope` 與 origin immutability trigger 維持補強歸屬。`0004_assessment_sets.sql` 直接建立最終題組結構，不含已退役的流程確認 metadata。既有 DB 接軌前須已完成補強 target_plan policy 轉換；既有目標、題目、答案與來源保持不變。通用 `action_receipts` 保留重試／部分發布／提交的冪等能力。
 
 | 操作 | API |
 |---|---|
@@ -36,7 +36,7 @@ Learner next action：有 active set → `continue_set`；needs_review → `reme
 
 建立補強使用初篩版本與 Idempotency-Key。同意圖重播回同一題組；版本衝突或同觀念 active set 不建立另一組。GET、reload 與重新登入不出題。
 
-公開契約：`assessment-set/v3`、`learner-progress/v4`、`study-resume/v5`。所有受控 consumer 一起使用目前版本。題組清單 `assessment-set-list/v3` 的 shape 未變。
+公開契約：`assessment-set/v1`、`learner-progress/v1`、`study-resume/v1`。所有受控 consumer 一起使用目前版本。題組清單 `assessment-set-list/v1` 的 shape 未變。
 
 Internal cancellation 僅用於終止的 StudySession 等安全處理，不提供學生取消 action。
 
@@ -46,4 +46,4 @@ Internal cancellation 僅用於終止的 StudySession 等安全處理，不提�
 
 真 API browser 在桌面與手機走初篩 → 直接補強 → 再錯 → 再次補強 → 通過，並測回應遺失與重新登入。模型由受控 fixture 提供，這是功能驗證，不是題目品質驗收。
 
-完成結果的主要 CTA 依最新 next_action 顯示下一個觀念或完成本次學習。StudySessionPage 使用 `guidance-apply/v2` 套用 guidance_revision，成功後清除上一題組 route 並 resume 同一 session。失敗留在結果，stale 只重新讀取下一步；不以地圖或前端路徑索引作中轉。
+完成結果的主要 CTA 依最新 next_action 顯示下一個觀念或完成本次學習。StudySessionPage 使用 `guidance-apply/v1` 套用 guidance_revision，成功後清除上一題組 route 並 resume 同一 session。失敗留在結果，stale 只重新讀取下一步；不以地圖或前端路徑索引作中轉。

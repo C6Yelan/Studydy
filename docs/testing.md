@@ -21,17 +21,27 @@ backend/.venv/bin/python backend/tests/runtime/browser_e2e_runner.py
 
 Backend tests create a pinned disposable PostgreSQL 18 container unless a private
 `STUDYDY_TEST_POSTGRES_DSN` pointing at a dedicated `studydy_test*` control database is supplied.
-They cover fresh installation and the additive credentials and material-name migrations, owner isolation, immutable Knowledge Structure, source-bound
-Assessment, private answer, server-side scoring, append-only AnswerEvent, mastery, guidance,
+They cover the four domain baselines, owner isolation, immutable Knowledge Structure, source-bound
+Assessment, private answers, server-side scoring, append-only AnswerEvent, mastery, guidance,
 idempotency, stale state, and the HTTP API closed loop.
 
-Email credentials use `0004_email_credentials.sql`: old development credentials are cleared and old sessions revoked once; learner IDs and owned records remain. Auth tests cover normalized Email uniqueness, invalid syntax, generic login failures, hashing/session regressions and the new schema. No Email DNS lookup or model call is used.
+`runtime/test_migrations.py` verifies fresh installation, repeat no-op with saved credentials/sessions,
+ledger checksum/sequence rejection, concurrent installation, and transactional rollback/retry of the
+next migration. Old development-step upgrade tests have been removed. Auth tests retain normalized
+Email uniqueness, syntax validation, hashing, session safety and owner isolation; no DNS or model call is used.
 
-The accepted Knowledge Structure v2 schema can be upgraded with `0002_learner_credentials.sql`;
-existing learner IDs and owners remain unchanged. `0003_material_display_name.sql` adds names.
-Migration tests upgrade the accepted schema with saved synthetic records, verify the records and
-old upload receipts remain readable, and verify a repeat migration is a no-op. Databases
-from before the accepted initial-schema checksum still require a separate migration decision.
+The source-collection baseline also verifies that a draft can have no representative PDF, draft
+creation remains idempotent, the library omits the retired ingestion marker, and the database rejects
+the retired `source_pdf` artifact kind. `seed_pdf()` continues to exercise the current source workflow.
+
+契約 v1 回歸另外驗證：內部分析草稿不能發布、正式 KS 只接受 v1（重新計算舊標籤的 hash 也拒絕）、
+DB 拒絕缺少 schema 的 JSON、所有產品路由唯一且位於 `/v1/`。來源 API 測試涵蓋原檔下載與
+normalized PDF 預覽的不同 MIME／標頭、owner 隔離、錯誤 artifact 類型及退役 `/v2` 路由。
+
+The 2026-09-23 baseline adoption compares the old final schema with a fresh baseline in isolated
+PostgreSQL, rehearses backup restore and ledger adoption/rollback, and checks all product-table
+contents and artifact files before/after. This is a one-time local cutover, not an automatic path in
+the migration runner. Historical SQL is available in Git and the private cutover backup.
 
 The standalone browser runner starts only a disposable Vite process. Its API fixtures use the final public
 contract and verify Document Tree layout, the five Relation styles/reason interaction, Evidence
@@ -68,7 +78,7 @@ Map route whose processing run points at another revision.
 
 ## Learning resume regression (local only)
 
-`runtime/test_learning_resume.py` 驗證題組 resume v4 的唯讀性與 owner／版本綁定。
+`runtime/test_learning_resume.py` 驗證題組 resume v1 的唯讀性與 owner／版本綁定。
 `test_assessment_sets_browser.py`、`test_assessment_remediation_browser.py` 與
 `test_concept_navigation_browser.py` 驗證整組交卷、回應遺失、補強、重新登入與跨觀念接續。
 模型回應由隔離 fixture 提供，不呼叫真實模型。舊單題 API／書籤與相容測試已移除。
@@ -135,11 +145,11 @@ B5-R 契約見 [assessment-remediation.md](assessment-remediation.md)。核心�
 
 `runtime/test_material_runtime.py` 驗證出題設定改變後，pending 工作可用原設定完成，
 failed checkpoint 可在新重試中沿用且不增加已完成部分的模型呼叫；教材 prompt、
-實際模型改變或設定缺失／損毀時停止。migration 0010 新增 `runtime_lock_document`，
+實際模型改變或設定缺失／損毀時停止。`0002_sources_and_processing.sql` 包含 `runtime_lock_document`，
 既有欄位與 hashes 保持不變；新舊資料統一走相同的教材設定比對流程。
 
 B3-A／B3-B 的核心案例在 `test_source_revisions.py`、`test_source_identity.py` 與
-`test_source_revision_migration.py`；真 API/DB browser 在 `test_source_revisions_browser.py`。
+`test_migrations.py`；真 API/DB browser 在 `test_source_revisions_browser.py`。
 後者仍使用受控語意回應，不是模型品質驗收。可用
 `STUDYDY_E2E_FRONTEND_PORT=4183 STUDYDY_E2E_API_PORT=8002` 避開產品 ports。
 瀏覽器請求次數／版面驗收以 `browser_e2e_runner.main(..., production=True)` 檢查正式建置；
@@ -186,12 +196,13 @@ PYTHONPATH=backend/src backend/.venv/bin/python backend/scripts/a40_final_qualif
   --review '<PRIVATE_REVIEW_JSON>' --output '<PRIVATE_OUTPUT>'
 ```
 
-The v2 review records explicit reviewed/usable counts and known limitations. Semantic acceptance
+The v1 review records explicit reviewed/usable counts and known limitations. Semantic acceptance
 uses 85%; source/revision binding, complete canonical Path, truthful failure, private-answer safety,
 zero observed false mastery, and runtime liveness remain required. The scorer does not invent
 literal-fidelity percentages or enforce the retired 8-page/180-second timing gate.
 
-The CLI material run is a diagnostic path. Final product acceptance also needs the real browser/API
+The CLI material run saves an unpublished analysis draft; its `analysis-draft:sha256:` identity binds
+manual review without presenting the draft as a persisted Knowledge Structure. Final product acceptance also needs the real browser/API
 loop: upload, progress, Map/Path, source PDF locator, Assessment/Answer, guidance, and reload/reopen.
 Store that evidence privately and bind its manual review to the exact artifact revision. Never mark
 unexecuted browser checks true in the review example.
@@ -211,4 +222,4 @@ Login/Register navigation and real owner/session isolation. Both pages are check
 1536×1024, 1920×1080 and 390×844 for size, centering, overflow and screenshots. Screenshots are
 written only to the ignored browser test output directory. No OAuth or verification flow is tested or implemented.
 
-`test_direct_remediation_migration.py` 驗證 0013 → 0014 升級不改題目、AnswerEvent、題組項目及補強 origin；`test_assessment_remediation.py` 與對應 browser 驗證直接補強、再次答錯、冪等與 assisted semantics。
+`test_migrations.py` 驗證最終 baseline 與 migration 保護；`test_assessment_remediation.py` 與對應 browser 驗證直接補強、再次答錯、冪等與 assisted semantics。

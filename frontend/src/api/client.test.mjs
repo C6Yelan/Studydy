@@ -14,12 +14,12 @@ const blockId = `block:sha256:${"e".repeat(64)}`;
 
 function runView() {
   return {
-    schema: "material-processing-run/v6", cancel_requested_at: null, run_id: runId, material_id: materialId,
+    schema: "material-processing-run/v1", cancel_requested_at: null, run_id: runId, material_id: materialId,
     source_artifact_id: "44444444-4444-4444-8444-444444444444", status: "succeeded",
     progress_stage: "completed", completed_pages: 1, total_pages: 1, error_code: null,
     created_at: "2026-09-05T00:00:00Z", updated_at: "2026-09-05T00:00:01Z", completed_at: "2026-09-05T00:00:01Z",
     output_binding: {
-      schema: "material-run-output-binding/v4", knowledge_structure_revision: structureRevision,
+      schema: "material-run-output-binding/v1", knowledge_structure_revision: structureRevision,
       runtime_lock_sha256: "f".repeat(64), page_count: 1, processing: "succeeded",
       quality: "accepted", decision: "retain", reason_codes: [], ocr_calls: 0, semantic_calls: 1,
     },
@@ -28,7 +28,7 @@ function runView() {
 
 function structureView() {
   return {
-    schema: "knowledge-structure-view/v3", source_resolver: "/v2/materials/11111111-1111-4111-8111-111111111111/knowledge-structures/fixture/evidence", material_id: `material:sha256:${"1".repeat(64)}`,
+    schema: "knowledge-structure-view/v1", source_resolver: "/v1/materials/11111111-1111-4111-8111-111111111111/knowledge-structures/fixture/evidence", material_id: `material:sha256:${"1".repeat(64)}`,
     knowledge_structure_revision: structureRevision,
     status: { processing: "succeeded", quality: "accepted", decision: "retain", reason_codes: [] },
     document_tree: { material_id: `material:sha256:${"1".repeat(64)}`, sections: [{ section_id: `section:sha256:${"2".repeat(64)}`, title: "Stacks", order: 0, heading_evidence_id: null, concept_ids: [conceptId] }] },
@@ -105,7 +105,7 @@ test("expired writes are never replayed and retire the client", async () => {
   client.onSessionExpired = () => expired++;
   await assert.rejects(client.createDraft("教材","create"), (error) => error.reasonCode === "SESSION_REQUIRED");
   await assert.rejects(client.getMaterialRun(runId));
-  assert.deepEqual(paths, ["/v2/materials"]);
+  assert.deepEqual(paths, ["/v1/materials"]);
   assert.equal(expired, 1);
 });
 
@@ -141,7 +141,7 @@ test("responses still parsing at logout cannot publish private data", async () =
 });
 
 function libraryItem() {
-  return { schema: "material-library-item/v3", material_id: materialId,
+  return { schema: "material-library-item/v1", material_id: materialId,
     source_artifact_id: "44444444-4444-4444-8444-444444444444", display_name: "堆疊.pdf",
     size_bytes: 120, created_at: "2026-09-11T00:00:00Z", latest_attempt: null, study_sessions: [],
     available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision,
@@ -153,7 +153,7 @@ test("material library reads use server identity and carry exact published revis
   const item = libraryItem();
   const client = new StudydyApiClient(async (path, init) => {
     requests.push([path, init.method]);
-    return Response.json(path === "/v1/materials" ? { schema: "material-library/v2", materials: [item] } : item);
+    return Response.json(path === "/v1/materials" ? { schema: "material-library/v1", materials: [item] } : item);
   });
   assert.equal((await client.listMaterials()).materials[0].available_structures[0].knowledge_structure_revision, structureRevision);
   assert.deepEqual(await client.getMaterial(materialId), item);
@@ -164,7 +164,7 @@ test("material library reads use server identity and carry exact published revis
 test("library rejects invalid lifecycle and uploaded filenames use UTF-8 encoding", async () => {
   const item = libraryItem();
   item.available_structures[0].status = "failed";
-  const invalid = new StudydyApiClient(async () => Response.json({ schema: "material-library/v2", materials: [item] }));
+  const invalid = new StudydyApiClient(async () => Response.json({ schema: "material-library/v1", materials: [item] }));
   await assert.rejects(invalid.listMaterials(), error => error.kind === "schema");
   const client = new StudydyApiClient(async (_path, init) => {
     assert.equal(init.headers["X-Material-Name"], encodeURIComponent("陣列 & 堆疊.pdf"));
@@ -175,7 +175,7 @@ test("library rejects invalid lifecycle and uploaded filenames use UTF-8 encodin
 
 function questionRecord() {
   const question = {
-    schema: "single-choice-assessment/v2", assessment_revision: `assessment:sha256:${"4".repeat(64)}`,
+    schema: "single-choice-assessment/v1", assessment_revision: `assessment:sha256:${"4".repeat(64)}`,
     study_session_id: sessionId, knowledge_structure_revision: structureRevision,
     question_id: `question:sha256:${"5".repeat(64)}`, target_concept_id: conceptId,
     target_claim_id: claimId, source_evidence_ids: [evidenceId], question_type: "single_choice",
@@ -186,13 +186,13 @@ function questionRecord() {
 
 function resumeView() {
   return {
-    schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, run_id: runId, source_artifact_id: libraryItem().source_artifact_id,
-    session: { schema: "study-session/v2", study_session_id: sessionId, material_id: materialId,
+    schema: "study-resume/v1", assessment_sets: [], selected_set_id: null, run_id: runId, source_artifact_id: libraryItem().source_artifact_id,
+    session: { schema: "study-session/v1", study_session_id: sessionId, material_id: materialId,
       knowledge_structure_revision: structureRevision, current_concept_id: conceptId,
       no_safe_claim_ids: [], deferred_concept_ids: [], status: "active", event_watermark: 0,
       started_at: "2026-09-11T00:00:00Z", completed_at: null },
     knowledge_structure: structureView(),
-    progress: { schema: "learner-progress/v4", assessment_cycles: [], study_session_id: sessionId, knowledge_structure_revision: structureRevision,
+    progress: { schema: "learner-progress/v1", assessment_cycles: [], study_session_id: sessionId, knowledge_structure_revision: structureRevision,
       event_watermark: 0, current_concept_id: conceptId, deferred_concept_ids: [],
       concept_states: [{ concept_id: conceptId, label: "Stack", status: "not_started" }], weaknesses: [],
       next_action: { action: "assess", target_concept_id: conceptId, target_claim_id: claimId, prerequisite_concept_ids: [], reason: "current_concept" },
@@ -344,7 +344,7 @@ function cancellationView(status) {
   return view;
 }
 
-test("v5 run guards accept canonical cancellation states and reject invalid lifecycle/timestamps", async () => {
+test("v1 run guards accept canonical cancellation states and reject invalid lifecycle/timestamps", async () => {
   for (const status of ["pending", "running", "cancelled", "failed", "succeeded", "partial"]) {
     const value = cancellationView(status);
     const client = new StudydyApiClient(async () => Response.json(value));
@@ -367,7 +367,7 @@ test("v5 run guards accept canonical cancellation states and reject invalid life
     ["cancelled", v => { v.cancel_requested_at = "2026-09-05T24:00:00Z"; }],
     ["running", v => { delete v.cancel_requested_at; }],
     ["running", v => { v.updated_at = "invalid"; }],
-    ["running", v => { v.schema = "material-processing-run/v4"; }],
+    ["running", v => { v.schema = "material-processing-run/v2"; }],
   ]) {
     const value = cancellationView(status); corrupt(value);
     await assert.rejects(new StudydyApiClient(async () => Response.json(value)).getMaterialRun(runId), e => e.kind === "schema");
@@ -399,13 +399,13 @@ test("discardMaterial sends the canonical empty DELETE and validates its respons
   }
 });
 
-test("v2 library attempts preserve cancellation intent while older published maps remain usable", async () => {
+test("v1 library attempts preserve cancellation intent while older published maps remain usable", async () => {
   for (const status of ["running", "cancelled"]) {
     const item = libraryItem();
     const value = cancellationView(status);
     if (status === "running") value.cancel_requested_at = "2026-09-05T00:00:01Z";
     item.latest_attempt = Object.fromEntries(["run_id", "status", "progress_stage", "completed_pages", "total_pages", "error_code", "created_at", "cancel_requested_at"].map(key => [key, value[key]]));
-    const client = new StudydyApiClient(async () => Response.json({ schema: "material-library/v2", materials: [item] }));
+    const client = new StudydyApiClient(async () => Response.json({ schema: "material-library/v1", materials: [item] }));
     assert.equal((await client.listMaterials()).materials[0].available_structures.length, 1);
     item.latest_attempt.cancel_requested_at = "invalid";
     await assert.rejects(client.listMaterials(), e => e.kind === "schema");
@@ -442,7 +442,7 @@ test("assessment sets validate scope, membership, counts and private staging", a
   const record = questionRecord();
   const setId = "55555555-5555-4555-8555-555555555555";
   const base = {
-    schema: "assessment-set/v3", set_id: setId, study_session_id: sessionId, material_id: materialId,
+    schema: "assessment-set/v1", set_id: setId, study_session_id: sessionId, material_id: materialId,
     knowledge_structure_revision: structureRevision, target_concept_id: conceptId,
     kind: "diagnostic", diagnostic_set_id: null, selection_policy: "single-concept-grounded-points/v1",
     status: "preparing", set_version: 2, requested_count: 1, published_count: 0, answered_count: 0, passed_count: 0,
@@ -502,7 +502,7 @@ test("active set lists allow different concepts and identify duplicate creation 
   const firstId="55555555-5555-4555-8555-555555555555",secondId="66666666-6666-4666-8666-666666666666";
   const summary={set_id:firstId,target_concept_id:conceptId,kind:"diagnostic",diagnostic_set_id:null,status:"preparing",set_version:1,
     requested_count:1,published_count:0,answered_count:0,passed_count:0,assessment_revisions:[],created_at:"2026-09-20T00:00:00Z",completed_at:null};
-  const list={schema:"assessment-set-list/v3",study_session_id:sessionId,knowledge_structure_revision:structureRevision,
+  const list={schema:"assessment-set-list/v1",study_session_id:sessionId,knowledge_structure_revision:structureRevision,
     active_set_ids:[firstId,secondId],sets:[summary,{...summary,set_id:secondId,target_concept_id:`concept:sha256:${"e".repeat(64)}`} ]};
   const read=value=>new StudydyApiClient(async()=>Response.json(value)).listAssessmentSets(sessionId);
   assert.equal((await read(list)).active_set_ids.length,2);

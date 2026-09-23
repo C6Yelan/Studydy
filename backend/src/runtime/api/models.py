@@ -34,7 +34,7 @@ class LearnerIdentityView(_Closed):
 
 
 class MaterialOutputBindingView(_Closed):
-    schema_: Literal["material-run-output-binding/v4"] = Field(alias="schema")
+    schema_: Literal["material-run-output-binding/v1"] = Field(alias="schema")
     knowledge_structure_revision: str
     runtime_lock_sha256: str
     page_count: int
@@ -56,7 +56,7 @@ class MaterialProcessingRunView(_Closed):
     analysis_saved: bool = False
     base_revision: str | None = Field(default=None,exclude_if=lambda value:value is None)
     source_names: list[str] | None = Field(default=None,exclude_if=lambda value:value is None)
-    schema_: Literal["material-processing-run/v6"] = Field(alias="schema")
+    schema_: Literal["material-processing-run/v1"] = Field(alias="schema")
     input_source_set_id: UUID | None = Field(default=None,exclude_if=lambda value:value is None)
     run_id: UUID
     material_id: UUID
@@ -118,9 +118,8 @@ class SourceView(_Closed):
 class MaterialLibraryItem(_Closed):
     head_revision: str | None = None
     source_count: int = 1
-    schema_: Literal["material-library-item/v3"] = Field(alias="schema")
+    schema_: Literal["material-library-item/v1"] = Field(alias="schema")
     source: SourceView | None = Field(default=None,exclude_if=lambda value:value is None)
-    ingestion_kind: Literal["sources-v2"] | None = Field(default=None,exclude_if=lambda value:value is None)
     material_id: UUID
     source_artifact_id: UUID | None
     display_name: str
@@ -137,7 +136,7 @@ class MaterialRename(_Closed):
 
 
 class MaterialLibraryView(_Closed):
-    schema_: Literal["material-library/v2"] = Field(default="material-library/v2", alias="schema")
+    schema_: Literal["material-library/v1"] = Field(default="material-library/v1", alias="schema")
     materials: list[MaterialLibraryItem]
 
 
@@ -222,7 +221,7 @@ class ExcludedPageView(_Closed):
 
 
 class KnowledgeStructureView(_Closed):
-    schema_: Literal["knowledge-structure-view/v3"] = Field(alias="schema")
+    schema_: Literal["knowledge-structure-view/v1"] = Field(alias="schema")
     source_resolver: str
     material_id: str
     knowledge_structure_revision: str
@@ -236,7 +235,7 @@ class KnowledgeStructureView(_Closed):
 
 class StudySessionCreate(_Closed):
     """Ensure a persistent state; current_concept_id applies only to its initial creation."""
-    schema_: Literal["study-session-create/v2"] = Field(alias="schema")
+    schema_: Literal["study-session-create/v1"] = Field(alias="schema")
     material_id: UUID
     knowledge_structure_revision: str
     current_concept_id: str | None = None
@@ -248,7 +247,7 @@ class StudySessionFocus(_Closed):
 
 
 class StudySessionView(_Closed):
-    schema_: Literal["study-session/v2"] = Field(alias="schema")
+    schema_: Literal["study-session/v1"] = Field(alias="schema")
     study_session_id: UUID
     material_id: UUID
     knowledge_structure_revision: str
@@ -269,7 +268,7 @@ class AssessmentOptionView(_Closed):
 
 
 class AssessmentView(_Closed):
-    schema_: Literal["single-choice-assessment/v2"] = Field(alias="schema")
+    schema_: Literal["single-choice-assessment/v1"] = Field(alias="schema")
     assessment_revision: str
     study_session_id: UUID
     knowledge_structure_revision: str
@@ -285,7 +284,7 @@ class AssessmentView(_Closed):
 
 
 class AnswerFeedbackView(_Closed):
-    schema_: Literal["answer-feedback/v2"] = Field(alias="schema")
+    schema_: Literal["answer-feedback/v1"] = Field(alias="schema")
     answer_event_id: UUID
     study_session_id: UUID
     assessment_revision: str
@@ -301,7 +300,7 @@ class AnswerFeedbackView(_Closed):
 
 
 class StudyResumeView(_Closed):
-    schema_: Literal["study-resume/v5"] = Field(default="study-resume/v5", alias="schema")
+    schema_: Literal["study-resume/v1"] = Field(default="study-resume/v1", alias="schema")
     session: StudySessionView
     run_id: UUID
     source_artifact_id: UUID
@@ -398,7 +397,7 @@ class AssessmentSetSummary(_Closed):
 
 
 class AssessmentSetListView(_Closed):
-    schema_: Literal['assessment-set-list/v3'] = Field(alias='schema')
+    schema_: Literal['assessment-set-list/v1'] = Field(alias='schema')
     study_session_id: UUID
     knowledge_structure_revision: str
     active_set_ids: list[UUID]
@@ -418,7 +417,7 @@ class AssessmentSetItemView(_Closed):
 
 
 class AssessmentSetView(AssessmentSetSummary):
-    schema_: Literal['assessment-set/v3'] = Field(alias='schema')
+    schema_: Literal['assessment-set/v1'] = Field(alias='schema')
     study_session_id: UUID
     material_id: UUID
     knowledge_structure_revision: str
@@ -436,13 +435,13 @@ class AssessmentSetView(AssessmentSetSummary):
 
 
 class GuidanceApply(_Closed):
-    schema_: Literal["guidance-apply/v2"] = Field(alias="schema")
+    schema_: Literal["guidance-apply/v1"] = Field(alias="schema")
     guidance_revision: str = Field(pattern=r"^learner-guidance:sha256:[0-9a-f]{64}$")
 
 
 class LearnerProgressView(_Closed):
     assessment_cycles: list[AssessmentCycleSummary]
-    schema_: Literal["learner-progress/v4"] = Field(alias="schema")
+    schema_: Literal["learner-progress/v1"] = Field(alias="schema")
     study_session_id: UUID
     knowledge_structure_revision: str
     event_watermark: int
@@ -458,7 +457,7 @@ def project_material_run(run: Any) -> MaterialProcessingRunView:
     from ..storage.analysis_archive import has_analysis_checkpoint
     return MaterialProcessingRunView.model_validate({
         "analysis_saved": run.status == "failed" and has_analysis_checkpoint(run.learner_id, run.material_id, run.run_id),
-        "schema": "material-processing-run/v6",
+        "schema": "material-processing-run/v1",
         "input_source_set_id":getattr(run,"input_source_set_id",None),
         "base_revision":getattr(run,"base_revision",None),
         "source_names":list(run.source_names) if getattr(run,"source_names",()) else None,
@@ -472,7 +471,7 @@ def project_material_run(run: Any) -> MaterialProcessingRunView:
 
 def project_study_session(session: Any) -> StudySessionView:
     return StudySessionView.model_validate({
-        "schema": "study-session/v2",
+        "schema": "study-session/v1",
         "study_session_id": session.study_session_id,
         "material_id": session.material_id,
         "knowledge_structure_revision": session.knowledge_structure_revision,

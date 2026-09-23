@@ -129,7 +129,7 @@ def _snapshot(
         "policy": "diagnostic-remediation/v1",
     }
     return LearnerProgressSnapshot(
-        schema_="learner-progress/v4",
+        schema_="learner-progress/v1",
         study_session_id=session.study_session_id,
         knowledge_structure_revision=session.knowledge_structure_revision,
         event_watermark=session.last_event_number,

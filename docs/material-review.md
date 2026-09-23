@@ -2,7 +2,7 @@
 
 提供共用檢核模組、正式 worker 消費者與離線 CLI，使用已保存的來源及分析結果。
 可沿用 command transport 的開發模型，或既有 locked Gemma HTTP transport；沒有第二套 provider 平台。
-runtime lock v20 的 `material_review` 設定啟用發布前檢核。新教材及追加來源在初始分析後執行；
+runtime lock v1 的 `material_review` 設定啟用發布前檢核。新教材及追加來源在初始分析後執行；
 已發布教材可以只重整，不重跑 OCR 或初始分析。舊工作保存的設定與資料 hash 不改寫。
 
 ## 正式產品流程
@@ -19,7 +19,7 @@ worker 依來源與連續頁段建立批次，同一頁的分類／表格不拆�
 既有教材的已登入呼叫入口：
 
 ```text
-POST /v2/materials/{material_id}/review
+POST /v1/materials/{material_id}/review
 Idempotency-Key: <unique-key>
 {"schema":"material-review-create/v1","base_revision":"<current-revision>"}
 ```

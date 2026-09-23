@@ -10,7 +10,7 @@ Knowledge Map／複習頁並行讀取教材索引、run 與 immutable Knowledge 
 
 `GET /v1/materials/{material}/knowledge-structures/{revision}/study-sessions/{sid}/resume?run_id={run}&set_id={optional_set}`
 
-回應 `study-resume/v5`：session、run/source identity、knowledge_structure、learner-progress/v4、assessment_sets 與 selected_set_id。明確題組 URL 恢復同一題組；預設選取當前觀念最新題組。唯讀操作不建立題目、重播生成或保存作答。
+回應 `study-resume/v1`：session、run/source identity、knowledge_structure、learner-progress/v1、assessment_sets 與 selected_set_id。明確題組 URL 恢復同一題組；預設選取當前觀念最新題組。唯讀操作不建立題目、重播生成或保存作答。
 
 ## 一致性與驗證
 
@@ -20,6 +20,6 @@ Progress 和 resume 共用一次 repeatable-read、read-only DB snapshot。教�
 
 ## 繼續學習
 
-初篩錯誤重點可直接補強；補強通過不增加獨立 mastery evidence。完成結果使用 backend next_action 的 advance／complete，套用 `guidance-apply/v2` 後清除上一題組 route，resume 同一 StudySession。
+初篩錯誤重點可直接補強；補強通過不增加獨立 mastery evidence。完成結果使用 backend next_action 的 advance／complete，套用 `guidance-apply/v1` 後清除上一題組 route，resume 同一 StudySession。
 
-`study-session-focus/v1` 是明確選擇概念的操作，不能代替 guidance authority。第一次建立仍使用 `study-session-create/v2`；已有 state 時不重建或清空進度。完成狀態由 backend 保存，前端不自行宣告完成。
+`study-session-focus/v1` 是明確選擇概念的操作，不能代替 guidance authority。第一次建立仍使用 `study-session-create/v1`；已有 state 時不重建或清空進度。完成狀態由 backend 保存，前端不自行宣告完成。

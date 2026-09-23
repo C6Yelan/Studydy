@@ -1,3 +1,4 @@
+from structure_fixtures import build_knowledge_structure
 
 from product_fixtures import seed_pdf, seed_run, publish_fixture_structure
 """單一觀念、多個重點的真 PostgreSQL／API 題組；模型使用受控回應。"""
@@ -13,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from knowledge_map.structure import SemanticState, apply_semantic_response, build_document_context, build_knowledge_structure
+from knowledge_map.structure import SemanticState, apply_semantic_response, build_document_context
 from learning_adaptation import assessment_sets as sets
 from learning_adaptation.answer_events import read_answer_events, AnswerSubmissionError
 from learning_adaptation.study_sessions import create_study_session
@@ -53,7 +54,7 @@ def concept_fixture(closed_loop, count=3, *, facts=None, label="Signals", eviden
         blocks.append({'evidence_id':'evidence:sha256:'+canonical_sha256(content),'block_id':block_id,
             'kind':evidence_kind,'source':'native_text','text':value,'reading_order':index,
             'locator':{'page':1,'block_id':block_id,'region':region}})
-    page = {'schema':'page-evidence/v4','material_id':'material:sha256:'+source.sha256,
+    page = {'schema':'page-evidence/v1','material_id':'material:sha256:'+source.sha256,
             'page_ref':page_ref,'page_number':1,'evidence_blocks':blocks}
     context = build_document_context([page], page_count=1)
     state = SemanticState()
@@ -95,9 +96,9 @@ def model_for(fixture, *, fail=(), calls=None):
                 'supporting_evidence_ids':[request['claim']['evidence'][0]['evidence_id']],
                 'distractors':[f'wrong{number}a',f'wrong{number}b',f'wrong{number}c']}
             answers[candidate['prompt']]=candidate['correct_answer']
-            return {'schema':'assessment-semantics-response/v2','candidates':[
+            return {'schema':'assessment-semantics-response/v1','candidates':[
                 candidate,{**candidate,'safety':'reject'},{**candidate,'safety':'reject'}]}
-        return {'schema':'assessment-check-response/v2','verdicts':[
+        return {'schema':'assessment-check-response/v1','verdicts':[
             {'question_index':question['question_index'],'answer_status':'unique',
              'selected_option_index':question['options'].index(answers[question['prompt']]),
              'duplicate_prior_index':None,'quality_issues':[]}
@@ -198,7 +199,7 @@ def test_api_preserves_scope_private_preparation_and_read_only_resume(closed_loo
     route=f'/v1/materials/{f["source"].material_id}/knowledge-structures/{f["document"]["revision"]}/study-sessions/{sid}/resume'
     restored=client.get(route,params={'run_id':str(f['run'].run_id),'set_id':identity})
     assert restored.status_code==200,restored.json()
-    assert restored.json()['schema']=='study-resume/v5'
+    assert restored.json()['schema']=='study-resume/v1'
     assert restored.json()['selected_set_id']==identity and 'assessments' not in restored.json()
     assert len(calls)==2
     conflict=client.post(base,headers={**HEADERS,'Idempotency-Key':'another-round'},json={

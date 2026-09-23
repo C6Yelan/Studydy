@@ -31,56 +31,46 @@ class StoredKnowledgeStructure:
 
 
 def runtime_binding_is_valid(value: Any) -> bool:
+    """同一 v1 envelope；依現行 command／HTTP transport 驗證執行身分。"""
+    def digest(value):
+        return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+
     try:
-        if isinstance(value,dict) and value.get("schema")=="material-runtime-binding/v2":
-            identity={k:v for k,v in value.items() if k!="runtime_binding_sha256"}
-            service=value.get("semantic_service",{})
-            return (set(value)=={"schema","python","runtime_lock_sha256","model_id","model_revision","semantic_service","ocr","policy","runtime_binding_sha256"}
-                    and value["runtime_binding_sha256"]==canonical_sha256(identity)
-                    and set(service)=={"transport","model_id","model_revision","config_sha256","runtime_lock_sha256"}
-                    and service["transport"]=="command" and service["model_id"]==value["model_id"]
-                    and service["model_revision"]==value["model_revision"] and service["runtime_lock_sha256"]==value["runtime_lock_sha256"]
-                    and all(isinstance(service[k],str) and len(service[k])==64 for k in ("config_sha256","runtime_lock_sha256")))
         if not isinstance(value, dict) or set(value) != {
             "schema", "python", "runtime_lock_sha256", "model_id", "model_revision",
             "semantic_service", "ocr", "policy", "runtime_binding_sha256",
         }:
             return False
-        identity = {
-            key: item for key, item in value.items() if key != "runtime_binding_sha256"
-        }
-        return (
-            value["schema"] == "material-runtime-binding/v1"
-            and value["python"] == "3.12"
-            and value["runtime_binding_sha256"] == canonical_sha256(identity)
-            and isinstance(value["runtime_lock_sha256"], str)
-            and len(value["runtime_lock_sha256"]) == 64
-            and all(character in "0123456789abcdef" for character in value["runtime_lock_sha256"])
-            and value["model_id"] == "google/gemma-4-31B-it-qat-w4a16-ct"
-            and value["model_revision"] == "52f3f65bc7a02d555763bc923bd1d9094898219d"
-            and value["semantic_service"] == {
-                "base_url": "http://127.0.0.1:18000",
-                "max_model_len": 32768,
-                "server": {
-                    "package": "vllm", "version": "0.28.0", "python": "3.12",
-                    "torch": "2.13.0+cu130", "cuda": "13.0",
-                    "transformers": "5.15.1",
-                },
-            }
-            and value["ocr"] == {
-                "model_id": "Unlimited-OCR",
-                "revision": "07dea832e22aefee32ad281d4b80551282e1c168",
-            }
-            and value["policy"] == "evidence-unified-semantics-product/v1"
-        )
+        identity = {key: item for key, item in value.items() if key != "runtime_binding_sha256"}
+        if (value["schema"] != "material-runtime-binding/v1" or value["python"] != "3.12"
+            or value["runtime_binding_sha256"] != canonical_sha256(identity)
+            or not digest(value["runtime_lock_sha256"])
+            or value["policy"] != "evidence-unified-semantics-product/v1"
+            or value["ocr"] != {"model_id": "Unlimited-OCR", "revision": "07dea832e22aefee32ad281d4b80551282e1c168"}):
+            return False
+        service = value["semantic_service"]
+        if not isinstance(service, dict):
+            return False
+        if service.get("transport") == "command":
+            return (set(service) == {"transport", "model_id", "model_revision", "config_sha256", "runtime_lock_sha256"}
+                    and all(isinstance(value[k], str) and value[k] and service[k] == value[k]
+                            for k in ("model_id", "model_revision", "runtime_lock_sha256"))
+                    and digest(service["config_sha256"]))
+        return (value["model_id"] == "google/gemma-4-31B-it-qat-w4a16-ct"
+                and value["model_revision"] == "52f3f65bc7a02d555763bc923bd1d9094898219d"
+                and service == {
+                    "base_url": "http://127.0.0.1:18000", "max_model_len": 32768,
+                    "server": {"package": "vllm", "version": "0.28.0", "python": "3.12",
+                               "torch": "2.13.0+cu130", "cuda": "13.0", "transformers": "5.15.1"},
+                })
     except (KeyError, TypeError, ValueError):
         return False
 
 
 def _view(document,material_id):
     view=_view_from_validated_document(document)
-    view["schema"]="knowledge-structure-view/v3"
-    view["source_resolver"]=f"/v2/materials/{material_id}/knowledge-structures/{document['revision']}/evidence"
+    view["schema"]="knowledge-structure-view/v1"
+    view["source_resolver"]=f"/v1/materials/{material_id}/knowledge-structures/{document['revision']}/evidence"
     binding=document['input_binding']
     sources={item['source_id']:item for item in binding['manifest']['items']}
     for concept in view['concepts']:
@@ -93,7 +83,7 @@ def _view(document,material_id):
 
 def _binding(document: dict[str, Any]) -> dict[str, Any]:
     return {
-        "schema": "material-run-output-binding/v4",
+        "schema": "material-run-output-binding/v1",
         "knowledge_structure_revision": document["revision"],
         "runtime_lock_sha256": document["provenance"]["runtime_lock_sha256"],
         "page_count": document["page_count"],

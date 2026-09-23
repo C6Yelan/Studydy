@@ -12,7 +12,7 @@ import tempfile
 MIME={'.pdf':'application/pdf','.doc':'application/msword','.ppt':'application/vnd.ms-powerpoint','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       '.pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation','.txt':'text/plain','.md':'text/markdown'}
 MAX_FILE_BYTES=100*1024*1024
-POLICY={'schema':'normalization-policy/v1','version':3,'olefile':'0.47','max_file_bytes':MAX_FILE_BYTES,'libreoffice':'26.2.5.2','pymupdf':'1.28.0','markdown_it':'3.0.0',
+POLICY={'schema':'normalization-policy/v1','version':1,'olefile':'0.47','max_file_bytes':MAX_FILE_BYTES,'libreoffice':'26.2.5.2','pymupdf':'1.28.0','markdown_it':'3.0.0',
         'visible_slides_only':True,'notes':False,'remote_resources':False,'text_columns':72}
 
 class NormalizationError(RuntimeError):pass

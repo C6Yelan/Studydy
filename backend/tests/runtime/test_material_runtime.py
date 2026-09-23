@@ -19,7 +19,7 @@ def test_only_material_dependencies_and_actual_model_define_resume_compatibility
     config = _settings(tmp_path)
     first = processing.runtime_binding(config)
     changed = deepcopy(config)
-    changed['runtime_lock']['schema'] = 'studydy-runtime-lock/v20'
+    changed['runtime_lock']['schema'] = 'studydy-runtime-lock/v1'
     changed['runtime_lock']['assessment'] = {'prompt': 'new assessment contract is irrelevant to material processing'}
     second = processing.runtime_binding(changed)
     assert first != second
@@ -49,7 +49,7 @@ def test_pending_run_uses_its_frozen_settings_after_assessment_update(revisions)
     original_lock = deepcopy(settings['runtime_lock'])
     run = start([second], 'pending-before-update', old['revision'])
     settings['runtime_lock'] = deepcopy(original_lock)
-    settings['runtime_lock']['schema'] = 'studydy-runtime-lock/v20'
+    settings['runtime_lock']['schema'] = 'studydy-runtime-lock/v1'
     settings['runtime_lock']['assessment'] = {'prompt': 'changed after the work was created'}
     before = len(calls)
     assert start([second], 'pending-before-update', old['revision']).run_id == run.run_id
@@ -74,7 +74,7 @@ def test_failed_checkpoint_resumes_after_assessment_update_without_repeating_mod
     before_checkpoint = path.read_bytes()
     original_runtime = deepcopy(run.runtime_binding)
     settings['runtime_lock'] = deepcopy(settings['runtime_lock'])
-    settings['runtime_lock']['schema'] = 'studydy-runtime-lock/v20'
+    settings['runtime_lock']['schema'] = 'studydy-runtime-lock/v1'
     settings['runtime_lock']['assessment']['prompt'] += ' New quality guidance.'
     retry = start([second], 'after-update-retry', old['revision'])
     assert path.read_bytes() == before_checkpoint
@@ -91,7 +91,7 @@ def test_failed_checkpoint_resumes_after_assessment_update_without_repeating_mod
     assert not path.exists() and not (completed / 'checkpoint.json').exists()
 
 
-@pytest.mark.parametrize('changed', ['material_prompt', 'missing_snapshot', 'tampered_snapshot'])
+@pytest.mark.parametrize('changed', ['material_prompt', 'tampered_snapshot'])
 def test_unverified_or_changed_material_runtime_never_silently_restarts(revisions, monkeypatch, changed):
     learner, material, settings, dsn, add, start, execute, _, old, calls = revisions
     second = add('B.pdf', 'A queue removes the first inserted element first.')
@@ -108,7 +108,7 @@ def test_unverified_or_changed_material_runtime_never_silently_restarts(revision
     else:
         with database_session(dsn) as session:
             row = session.get(MaterialProcessingRun, run.run_id)
-            row.runtime_lock_document = None if changed == 'missing_snapshot' else {**row.runtime_lock_document, 'schema': 'tampered'}
+            row.runtime_lock_document = {**row.runtime_lock_document, 'schema': 'tampered'}
     start([second], 'must-not-restart', old['revision'])
     before = len(calls)
     result = execute()

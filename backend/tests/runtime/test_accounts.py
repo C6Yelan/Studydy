@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-import shutil
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
@@ -28,28 +27,6 @@ def _app(dsn, tmp_path, monkeypatch):
         profile="test", public_origin=ORIGIN, secure_cookie=True,
         local_config=_settings(tmp_path), dsn=dsn,
     ))
-
-
-def test_additive_migration_preserves_anonymous_owner_and_session(clean_database_dsn, migrations_dir, tmp_path):
-    old = tmp_path / "accepted-migrations"
-    old.mkdir()
-    shutil.copyfile(migrations_dir / "0001_final_schema.sql", old / "0001_final_schema.sql")
-    assert run_migrations(clean_database_dsn, migrations_dir=old) == (1,)
-    learner_id = uuid4()
-    old_session_id = uuid4()
-    with psycopg.connect(clean_database_dsn) as connection:
-        connection.execute("INSERT INTO learners (learner_id,created_at) VALUES (%s,now())", (learner_id,))
-        connection.execute(
-            "INSERT INTO learner_sessions VALUES (%s,%s,%s,now(),now()+interval '7 days',now()+interval '30 days',NULL,now())",
-            (old_session_id, learner_id, bytes(32)),
-        )
-        old_session = connection.execute("SELECT * FROM learner_sessions WHERE session_id=%s", (old_session_id,)).fetchone()
-    shutil.copyfile(migrations_dir / "0002_learner_credentials.sql", old / "0002_learner_credentials.sql")
-    assert run_migrations(clean_database_dsn, migrations_dir=old) == (2,)
-    assert run_migrations(clean_database_dsn, migrations_dir=old) == ()
-    with psycopg.connect(clean_database_dsn) as connection:
-        assert connection.execute("SELECT * FROM learner_sessions WHERE session_id=%s", (old_session_id,)).fetchone() == old_session
-        assert connection.execute("SELECT username,password_hash FROM learners WHERE learner_id=%s", (learner_id,)).fetchone() == (None, None)
 
 
 def test_credentials_are_salted_unique_and_registration_is_atomic(clean_database_dsn):
@@ -104,41 +81,6 @@ def test_refresh_never_revives_expired_or_revoked_tokens(clean_database_dsn):
     assert refresh_session("invalid-token", dsn=clean_database_dsn) is None
 
 
-
-
-def test_email_cutover_retires_old_credentials_and_sessions_without_deleting_owned_data(clean_database_dsn, migrations_dir, tmp_path):
-    """一次性清除舊登入資料；owner、教材及已撤銷 session 的歷史仍保留。"""
-    from hashlib import sha256
-    from runtime.learner_session import _encode_token
-
-    previous = tmp_path / "before-email"
-    previous.mkdir()
-    for name in ("0001_final_schema.sql", "0002_learner_credentials.sql", "0003_material_display_name.sql"):
-        shutil.copyfile(migrations_dir / name, previous / name)
-    assert run_migrations(clean_database_dsn, migrations_dir=previous) == (1, 2, 3)
-    learner_id, session_id, material_id, artifact_id = (uuid4() for _ in range(4))
-    old_token = bytes(range(32))
-    with psycopg.connect(clean_database_dsn) as connection:
-        connection.execute("INSERT INTO learners (learner_id,created_at,username,password_hash) VALUES (%s,now(),'old_account','old-fixture-hash')", (learner_id,))
-        connection.execute("INSERT INTO learner_sessions VALUES (%s,%s,%s,now(),now()+interval '7 days',now()+interval '30 days',NULL,now())", (session_id, learner_id, sha256(old_token).digest()))
-        connection.execute("INSERT INTO materials (material_id,learner_id,source_artifact_id,upload_idempotency_key_sha256,upload_request_fingerprint,created_at,display_name) VALUES (%s,%s,%s,%s,%s,now(),'Synthetic.pdf')", (material_id, learner_id, artifact_id, bytes(32), bytes(32)))
-        connection.execute("INSERT INTO artifacts VALUES (%s,%s,%s,'source_pdf','application/pdf',%s,1,now())", (artifact_id, learner_id, material_id, bytes(32)))
-        material = connection.execute("SELECT * FROM materials").fetchone()
-        owner = connection.execute("SELECT learner_id,created_at FROM learners").fetchone()
-    assert run_migrations(clean_database_dsn) == (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
-    with psycopg.connect(clean_database_dsn) as connection:
-        columns = {row[0] for row in connection.execute("SELECT column_name FROM information_schema.columns WHERE table_name='learners'")}
-        assert "email" in columns and "username" not in columns
-        assert connection.execute("SELECT email,password_hash FROM learners").fetchone() == (None, None)
-        assert connection.execute("SELECT learner_id,created_at FROM learners").fetchone() == owner
-        assert connection.execute("SELECT material_id,learner_id,source_artifact_id,upload_idempotency_key_sha256,upload_request_fingerprint,created_at,display_name FROM materials").fetchone() == material
-        assert connection.execute("SELECT discard_requested_at FROM materials").fetchone() == (None,)
-        assert connection.execute("SELECT revoked_at IS NOT NULL FROM learner_sessions WHERE session_id=%s", (session_id,)).fetchone() == (True,)
-    assert resolve_session(_encode_token(old_token), dsn=clean_database_dsn) is None
-    fresh = register_account("new_account@example.com", PASSWORD, dsn=clean_database_dsn)
-    assert fresh.learner_id != learner_id
-    assert run_migrations(clean_database_dsn) == ()
-    assert resolve_session(fresh.raw_token, dsn=clean_database_dsn).learner_id == fresh.learner_id
 
 
 @pytest.mark.parametrize("email", ["", "not-an-email", "a@", "a b@example.com", "a..b@example.com", "a@example..com", "a@localhost"])

@@ -341,12 +341,12 @@ def _verified_source_iterator(context: Any, source: Any) -> Iterator[bytes]:
 
 
 def _install_openapi(app: FastAPI) -> None:
-    """補上 raw PDF、cookie/header 與固定錯誤契約。"""
+    """補上來源上傳、原檔下載、PDF 預覽與 cookie/header 的固定契約。"""
 
     idempotent_paths = {
-        "/v2/materials", "/v2/materials/{material_id}/sources", "/v2/materials/{material_id}/revisions",
-        "/v2/material-processing-runs/{run_id}/retry",
-        "/v2/materials/{material_id}/review",
+        "/v1/materials", "/v1/materials/{material_id}/sources", "/v1/materials/{material_id}/revisions",
+        "/v1/material-processing-runs/{run_id}/retry",
+        "/v1/materials/{material_id}/review",
         "/v1/study-sessions",
         "/v1/study-sessions/{study_session_id}/assessment-sets",
         "/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/retry",
@@ -394,24 +394,30 @@ def _install_openapi(app: FastAPI) -> None:
                             "schema": {"type": "string", "minLength": 1, "maxLength": 256},
                         }
                     )
-                if path in {"/v1/materials", "/v2/materials/{material_id}/sources"} and method == "post":
+                if path == "/v1/materials/{material_id}/sources" and method == "post":
                     operation.setdefault("parameters", []).append({
-                        "name": "X-Material-Name", "in": "header", "required": path.startswith("/v2/"),
+                        "name": "X-Material-Name", "in": "header", "required": True,
                         "description": "URI-encoded UTF-8 filename, 1–200 decoded characters; first upload owns the name.",
                         "schema": {"type": "string", "maxLength": 2400},
                     })
                     operation["requestBody"] = {
                         "required": True,
-                        "content": {media:{"schema":{"type":"string","format":"binary"}} for media in (MIME.values() if path.startswith("/v2/") else ["application/pdf"])},
+                        "content": {media:{"schema":{"type":"string","format":"binary"}} for media in MIME.values()},
                     }
                 if path == "/v1/artifacts/{artifact_id}" and method == "get":
                     operation["responses"]["200"] = {
-                        "description": "Verified source PDF",
+                        "description": "Verified normalized PDF preview",
                         "content": {
                             "application/pdf": {
                                 "schema": {"type": "string", "format": "binary"}
                             }
                         },
+                    }
+                if path == "/v1/artifacts/{artifact_id}/download" and method == "get":
+                    operation["responses"]["200"] = {
+                        "description": "Owner-authorized original file download",
+                        "content": {media: {"schema": {"type": "string", "format": "binary"}} for media in MIME.values()},
+                        "headers": {"Content-Disposition": {"schema": {"type": "string"}, "description": "Attachment with original filename"}},
                     }
                 if path not in public_paths:
                     operation["security"] = [{"CookieSession": []}]
@@ -432,7 +438,7 @@ def _install_openapi(app: FastAPI) -> None:
                     response_codes.add(404)
                 if path in idempotent_paths and method == "post":
                     response_codes.add(409)
-                if path in {"/v1/materials","/v2/materials/{material_id}/sources"} and method == "post":
+                if path == "/v1/materials/{material_id}/sources" and method == "post":
                     response_codes.update({413, 415})
                 if (
                     path
@@ -599,19 +605,19 @@ def create_app(settings: ApiSettings) -> FastAPI:
             discarding=material.discard_requested_at is not None
         return SourceListView(material_id=material_id,sources=sources,discard_requested=discarding)
 
-    @app.get("/v2/source-capabilities",response_model=SourceCapabilities)
+    @app.get("/v1/source-capabilities",response_model=SourceCapabilities)
     def source_capabilities(request:Request):
         _require_query(request,set());_trusted_learner(request,settings)
         enabled=configured_python() is not None
         return SourceCapabilities(formats=[{"extension":ext,"media_type":media,"max_bytes":MAX_FILE_BYTES} for ext,media in MIME.items() if ext==".pdf" or enabled],
             quality_notice="建議優先上傳 PDF。其他支援格式會自動轉為 PDF，轉換品質不保證，請檢查轉換後內容。")
 
-    @app.post("/v2/materials",status_code=201,response_model=MaterialDraftView)
+    @app.post("/v1/materials",status_code=201,response_model=MaterialDraftView)
     def create_material_draft(request:Request,body:MaterialDraftCreate):
         _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
         return MaterialDraftView(material_id=create_draft(owner,body.display_name,_idempotency_key(request),dsn=settings.dsn))
 
-    @app.post("/v2/materials/{material_id}/sources",status_code=202,response_model=SourceListView)
+    @app.post("/v1/materials/{material_id}/sources",status_code=202,response_model=SourceListView)
     async def upload_material_source(request:Request,material_id:UUID):
         _require_query(request,set());owner=_trusted_learner(request,settings).learner_id;key=_idempotency_key(request)
         names=request.headers.getlist("x-material-name")
@@ -625,23 +631,23 @@ def create_app(settings: ApiSettings) -> FastAPI:
         await run_in_threadpool(upload_source,owner,material_id,bytes(data),name,request.headers.get("content-type"),key,dsn=settings.dsn)
         return source_listing(owner,material_id)
 
-    @app.get("/v2/materials/{material_id}/sources",response_model=SourceListView)
+    @app.get("/v1/materials/{material_id}/sources",response_model=SourceListView)
     def get_material_sources(request:Request,material_id:UUID):
         _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
         return source_listing(owner,material_id)
 
-    @app.post("/v2/materials/{material_id}/sources/{normalization_id}/retry",response_model=SourceListView)
+    @app.post("/v1/materials/{material_id}/sources/{normalization_id}/retry",response_model=SourceListView)
     async def retry_material_source(request:Request,material_id:UUID,normalization_id:UUID):
         _require_query(request,set());await _require_empty_body(request);owner=_trusted_learner(request,settings).learner_id
         retry_normalization(owner,material_id,normalization_id,dsn=settings.dsn)
         return source_listing(owner,material_id)
 
-    @app.post("/v2/materials/{material_id}/revisions",status_code=202,response_model=MaterialProcessingRunView)
+    @app.post("/v1/materials/{material_id}/revisions",status_code=202,response_model=MaterialProcessingRunView)
     def create_material_revision(request:Request,material_id:UUID,body:RevisionCreate):
         _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
         return project_material_run(create_revision(owner,material_id,body.normalization_ids,_idempotency_key(request),deepcopy(settings.local_config),base_revision=body.base_revision,dsn=settings.dsn))
 
-    @app.post("/v2/material-processing-runs/{run_id}/cancel",response_model=MaterialProcessingRunView)
+    @app.post("/v1/material-processing-runs/{run_id}/cancel",response_model=MaterialProcessingRunView)
     def cancel_material_revision(request:Request,run_id:UUID,body:RevisionCancel):
         from ..material_processing import request_material_processing_cancellation,read_material_processing_run
         _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
@@ -649,32 +655,32 @@ def create_app(settings: ApiSettings) -> FastAPI:
         if run.base_revision!=body.base_revision:raise _ApiFailure('REQUEST_INVALID')
         return project_material_run(request_material_processing_cancellation(owner,run_id,update_only=True,dsn=settings.dsn))
 
-    @app.post("/v2/materials/{material_id}/review", status_code=202, response_model=MaterialProcessingRunView)
+    @app.post("/v1/materials/{material_id}/review", status_code=202, response_model=MaterialProcessingRunView)
     def review_material_revision(request: Request, material_id: UUID, body: MaterialReviewCreate):
         _require_query(request, set())
         owner = _trusted_learner(request, settings).learner_id
         return project_material_run(create_revision(owner, material_id, [], _idempotency_key(request),
             deepcopy(settings.local_config), base_revision=body.base_revision, dsn=settings.dsn))
 
-    @app.post("/v2/material-processing-runs/{run_id}/retry",status_code=202,response_model=MaterialProcessingRunView)
+    @app.post("/v1/material-processing-runs/{run_id}/retry",status_code=202,response_model=MaterialProcessingRunView)
     async def retry_material_revision(request:Request,run_id:UUID):
         from ..source_revisions import retry_revision
         _require_query(request,set());await _require_empty_body(request)
         owner=_trusted_learner(request,settings).learner_id
         return project_material_run(await run_in_threadpool(retry_revision,owner,run_id,_idempotency_key(request),deepcopy(settings.local_config),dsn=settings.dsn))
 
-    @app.delete("/v2/materials/{material_id}/sources/{source_id}",response_model=SourceListView)
+    @app.delete("/v1/materials/{material_id}/sources/{source_id}",response_model=SourceListView)
     async def remove_material_source(request:Request,material_id:UUID,source_id:UUID):
         _require_query(request,set());await _require_empty_body(request);owner=_trusted_learner(request,settings).learner_id
         remove_staged_source(owner,material_id,source_id,dsn=settings.dsn)
         return source_listing(owner,material_id)
 
-    @app.get("/v2/materials/{material_id}/knowledge-structures/{revision}/evidence/{evidence_id}/source",response_model=EvidenceSourceView)
+    @app.get("/v1/materials/{material_id}/knowledge-structures/{revision}/evidence/{evidence_id}/source",response_model=EvidenceSourceView)
     def evidence_source(request:Request,material_id:UUID,revision:str,evidence_id:str):
         _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
         return resolve_evidence_source(owner,material_id,revision,evidence_id,dsn=settings.dsn)
 
-    @app.get("/v2/artifacts/{artifact_id}",response_class=StreamingResponse)
+    @app.get("/v1/artifacts/{artifact_id}/download",response_class=StreamingResponse)
     def original_artifact(request:Request,artifact_id:UUID):
         _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
         with database_session(settings.dsn) as session:

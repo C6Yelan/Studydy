@@ -35,7 +35,7 @@ function structureView() {
     }],
   });
   return {
-    schema: "knowledge-structure-view/v3", source_resolver: "/v2/materials/11111111-1111-4111-8111-111111111111/knowledge-structures/fixture/evidence",
+    schema: "knowledge-structure-view/v1", source_resolver: "/v1/materials/11111111-1111-4111-8111-111111111111/knowledge-structures/fixture/evidence",
     material_id: `material:sha256:${"7".repeat(64)}`,
     knowledge_structure_revision: structureRevision,
     status: { processing: "succeeded", quality: "accepted", decision: "retain", reason_codes: [] },
@@ -64,12 +64,12 @@ function structureView() {
 }
 
 const run = {
-  schema: "material-processing-run/v6", cancel_requested_at: null, run_id: runId, material_id: materialId,
+  schema: "material-processing-run/v1", cancel_requested_at: null, run_id: runId, material_id: materialId,
   source_artifact_id: artifactId, status: "succeeded", progress_stage: "completed",
   completed_pages: 2, total_pages: 2, error_code: null,
   created_at: "2026-09-05T00:00:00Z", updated_at: "2026-09-05T00:01:00Z", completed_at: "2026-09-05T00:01:00Z",
   output_binding: {
-    schema: "material-run-output-binding/v4", knowledge_structure_revision: structureRevision,
+    schema: "material-run-output-binding/v1", knowledge_structure_revision: structureRevision,
     runtime_lock_sha256: "9".repeat(64), page_count: 2, processing: "succeeded",
     quality: "accepted", decision: "retain", reason_codes: [], ocr_calls: 0, semantic_calls: 1,
   },
@@ -77,7 +77,7 @@ const run = {
 
 function session(status = "active") {
   return {
-    schema: "study-session/v2", study_session_id: sessionId, material_id: materialId,
+    schema: "study-session/v1", study_session_id: sessionId, material_id: materialId,
     knowledge_structure_revision: structureRevision, current_concept_id: firstConcept,
     deferred_concept_ids: [], no_safe_claim_ids: [], status, started_at: "2026-09-05T00:01:00Z",
     completed_at: status === "completed" ? "2026-09-05T00:02:00Z" : null, event_watermark: 0,
@@ -85,7 +85,7 @@ function session(status = "active") {
 }
 
 const progress = {
-  schema: "learner-progress/v4", assessment_cycles: [], study_session_id: sessionId,
+  schema: "learner-progress/v1", assessment_cycles: [], study_session_id: sessionId,
   knowledge_structure_revision: structureRevision, event_watermark: 0,
   current_concept_id: firstConcept, deferred_concept_ids: [],
   concept_states: [
@@ -101,14 +101,14 @@ async function json(route: Route, body: unknown, status = 200) {
 }
 
 async function routes(page: Page, view = structureView(), readProgress = () => progress) {
-  await page.route("**/v2/materials/*/knowledge-structures/*/evidence/*/source", route=>json(route,{schema:"evidence-source/v1",format:"pdf",original_name:"Synthetic.pdf",original_url:`/v1/artifacts/${artifactId}`,preview_url:`/v1/artifacts/${artifactId}#page=1`,normalized_page:1,accuracy:"exact",origin_locators:[],label:"PDF 第 1 頁"}));
-  await page.route("**/v2/source-capabilities", route => json(route, { schema: "source-capabilities/v1", quality_notice: "PDF 優先", formats: [
+  await page.route("**/v1/materials/*/knowledge-structures/*/evidence/*/source", route=>json(route,{schema:"evidence-source/v1",format:"pdf",original_name:"Synthetic.pdf",original_url:`/v1/artifacts/${artifactId}`,preview_url:`/v1/artifacts/${artifactId}#page=1`,normalized_page:1,accuracy:"exact",origin_locators:[],label:"PDF 第 1 頁"}));
+  await page.route("**/v1/source-capabilities", route => json(route, { schema: "source-capabilities/v1", quality_notice: "PDF 優先", formats: [
     { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 },
   ] }));
   await page.route("**/v1/session", (route) => route.request().method() === "GET" ? json(route, { schema: "learner-identity/v1", learner_id: sessionId }) : route.fulfill({ status: 204 }));
   await page.route("**/v1/session/refresh", (route) => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
   await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-    schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
+    schema: "material-library-item/v1", material_id: materialId, source_artifact_id: artifactId,
     display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at,
     latest_attempt: run, available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision,
       created_at: run.created_at, status: "succeeded" }], study_sessions: [],
@@ -126,7 +126,7 @@ async function routes(page: Page, view = structureView(), readProgress = () => p
   });
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => {
     const currentProgress = readProgress();
-    return json(route, { schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: { ...session(), event_watermark: currentProgress.event_watermark },
+    return json(route, { schema: "study-resume/v1", assessment_sets: [], selected_set_id: null, session: { ...session(), event_watermark: currentProgress.event_watermark },
       run_id: runId, source_artifact_id: artifactId, knowledge_structure: view, progress: currentProgress,
  });
   });
@@ -158,7 +158,7 @@ async function openFocusRelation(page: Page, _mobile: boolean) {
 test("map opens concept details and source-backed learning on demand", async ({ page }) => {
   await routes(page);
   await page.route("**/v1/study-sessions", route => {
-    expect(route.request().postDataJSON()).toEqual({ schema: "study-session-create/v2", material_id: materialId,
+    expect(route.request().postDataJSON()).toEqual({ schema: "study-session-create/v1", material_id: materialId,
       knowledge_structure_revision: structureRevision, current_concept_id: firstConcept });
     return json(route, session(), 201);
   });
@@ -213,7 +213,7 @@ test("library loading, read failure and empty state retain usable actions", asyn
       await ready;
       return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Request could not be completed." }, 503);
     }
-    return json(route, { schema: "material-library/v2", materials: [] });
+    return json(route, { schema: "material-library/v1", materials: [] });
   });
   await page.goto("/materials");
   await expect(page.getByRole("heading", { name: "正在讀取教材庫", exact: true })).toBeVisible();
@@ -230,7 +230,7 @@ test("library loading, read failure and empty state retain usable actions", asyn
 test("reopen rejects a run from a different Knowledge Structure revision", async ({ page }) => {
   await routes(page);
   await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-    schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
+    schema: "material-library-item/v1", material_id: materialId, source_artifact_id: artifactId,
     display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at,
     latest_attempt: run, available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision,
       created_at: run.created_at, status: "succeeded" }], study_sessions: [],
@@ -238,7 +238,7 @@ test("reopen rejects a run from a different Knowledge Structure revision", async
   await page.route(`**/v1/material-processing-runs/${runId}`, route => json(route, {
     ...run, output_binding: { ...run.output_binding, knowledge_structure_revision: `knowledge-structure:sha256:${"7".repeat(64)}` },
   }));
-  await page.route("**/v1/materials", route => json(route, { schema: "material-library/v2", materials: [] }));
+  await page.route("**/v1/materials", route => json(route, { schema: "material-library/v1", materials: [] }));
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
   await expect(page.getByRole("heading", { name: "無法讀取知識地圖", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "查看學習成果", exact: true })).toHaveCount(0);
@@ -251,7 +251,7 @@ test("dashboard keeps hero and overview through a read failure and retry", async
   let unavailable = true;
   await page.route('**/v1/materials', route => unavailable
     ? json(route, { schema: 'api-error/v1', request_id: sessionId, reason_code: 'STORAGE_UNAVAILABLE', retryable: true, message: 'Request could not be completed.' }, 503)
-    : json(route, { schema: 'material-library/v2', materials: [] }));
+    : json(route, { schema: 'material-library/v1', materials: [] }));
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '歡迎回來！', exact: true })).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('資料服務暫時無法使用');
@@ -335,7 +335,7 @@ test("recovered map reads owned progress and continues the same session without 
   await page.setViewportSize({ width: 1366, height: 768 });
   await routes(page);
   await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-    schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
+    schema: "material-library-item/v1", material_id: materialId, source_artifact_id: artifactId,
     display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at,
     latest_attempt: run, available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision,
       created_at: run.created_at, status: "succeeded" }], study_sessions: [
@@ -369,7 +369,7 @@ test("recovered map reads owned progress and continues the same session without 
 
 test("shared shell density keeps standard pages and map workspace bounded", async ({ page }) => {
   await routes(page);
-  await page.route("**/v1/materials", route => json(route, { schema: "material-library/v2", materials: [] }));
+  await page.route("**/v1/materials", route => json(route, { schema: "material-library/v1", materials: [] }));
   const map = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
   for (const viewport of [{ width: 1536, height: 1024 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
@@ -440,18 +440,18 @@ test("compact learning entry shares loading, starting and new-study authority wi
   let hasHistory = false, completed = false, creates = 0;
   await page.route(`**/v1/materials/${materialId}`, async route => {
     await readingMaterial;
-    return json(route, { schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
+    return json(route, { schema: "material-library-item/v1", material_id: materialId, source_artifact_id: artifactId,
       display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
       available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }],
       study_sessions: hasHistory ? [{ ...session("completed"), run_id: runId }] : [] });
   });
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, {
-    schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: session(completed ? "completed" : "active"), run_id: runId,
+    schema: "study-resume/v1", assessment_sets: [], selected_set_id: null, session: session(completed ? "completed" : "active"), run_id: runId,
     source_artifact_id: artifactId, knowledge_structure: view, progress,
   }));
   await page.route("**/v1/study-sessions", async route => {
     creates++;
-    expect(route.request().postDataJSON()).toEqual({ schema: "study-session-create/v2", material_id: materialId,
+    expect(route.request().postDataJSON()).toEqual({ schema: "study-session-create/v1", material_id: materialId,
       knowledge_structure_revision: structureRevision, current_concept_id: firstConcept });
     await startingStudy;
     completed = false;
@@ -501,7 +501,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
         next_action: { ...progress.next_action, target_concept_id: currentId, target_claim_id: history === "same" ? secondClaim : firstClaim } };
       await routes(page, view, () => savedProgress);
       await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-        schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
+        schema: "material-library-item/v1", material_id: materialId, source_artifact_id: artifactId,
         display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
         available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }],
         study_sessions: history === "none" ? [] : [{ ...saved, run_id: runId }],
@@ -521,7 +521,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       });
       await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => {
         const isNew = focused || route.request().url().includes(newSessionId);
-        return json(route, { schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: isNew ? created : saved, run_id: runId,
+        return json(route, { schema: "study-resume/v1", assessment_sets: [], selected_set_id: null, session: isNew ? created : saved, run_id: runId,
           source_artifact_id: artifactId, knowledge_structure: view,
           progress: isNew ? { ...savedProgress, study_session_id: created.study_session_id, current_concept_id: secondConcept,
             next_action: { ...savedProgress.next_action, target_concept_id: secondConcept, target_claim_id: secondClaim } } : savedProgress,
@@ -541,7 +541,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       await entry.getByRole("button", { name: label, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/study-sessions/${history === "none" ? newSessionId : sessionId}$`));
       await expect(page.getByRole("heading", { name: "陣列", level: 1, exact: true })).toBeVisible();
-      expect(requests).toEqual(history === "same" ? [] : history === "different" ? [{ schema: "study-session-focus/v1", current_concept_id: secondConcept }] : [{ schema: "study-session-create/v2", material_id: materialId,
+      expect(requests).toEqual(history === "same" ? [] : history === "different" ? [{ schema: "study-session-focus/v1", current_concept_id: secondConcept }] : [{ schema: "study-session-create/v1", material_id: materialId,
         knowledge_structure_revision: structureRevision, current_concept_id: secondConcept }]);
       expect(writes).toEqual(history === "same" ? [] : history === "different" ? [`POST /v1/study-sessions/${sessionId}/focus`] : ["POST /v1/study-sessions"]);
       expect(saved.current_concept_id).toBe(currentId);
@@ -557,8 +557,8 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       const concept = view.concepts[0];
       concept.label = "主機";
       concept.aliases = ["Host"];
-      const resolver = `/v2/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`;
-      if (identity !== "single") Object.assign(view, { schema: "knowledge-structure-view/v3", source_resolver: resolver });
+      const resolver = `/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`;
+      if (identity !== "single") Object.assign(view, { schema: "knowledge-structure-view/v1", source_resolver: resolver });
       const evidence = [0, 1, 2, 3].map(index => ({ ...concept.claims[0].evidence[0],
         evidence_id: `evidence:sha256:${String(index + 1).repeat(64)}`,
         // 原始頁碼刻意相同，確認多來源入口依 normalized_page 分組。
@@ -578,12 +578,12 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       view.relations[0].evidence_refs = evidence.map(item => item.evidence_id);
       await routes(page, view);
       const resolved: string[] = [];
-      await page.route("**/v2/materials/*/knowledge-structures/*/evidence/*/source", route => {
+      await page.route("**/v1/materials/*/knowledge-structures/*/evidence/*/source", route => {
         const id = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-2)!);
         resolved.push(id);
         const item = evidence.find(item => item.evidence_id === id)!;
         return json(route, { schema: "evidence-source/v1", format: "pptx", original_name: "Network.pptx",
-          original_url: `/v2/artifacts/${artifactId}`, preview_url: `/v1/artifacts/${artifactId}#page=${item.normalized_page ?? item.page}`,
+          original_url: `/v1/artifacts/${artifactId}/download`, preview_url: `/v1/artifacts/${artifactId}#page=${item.normalized_page ?? item.page}`,
           normalized_page: item.normalized_page ?? item.page, accuracy: "exact", origin_locators: [], label: "PDF 來源" });
       });
       await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
@@ -636,7 +636,7 @@ for (const mode of ["複習重點"] as const) {
       concept_states: progress.concept_states.map((state, index) => index ? state : { ...state, status: "needs_review", weak_claim_ids: [firstClaim] }),
     }));
     await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-      schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
+      schema: "material-library-item/v1", material_id: materialId, source_artifact_id: artifactId,
       display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
       available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }],
       study_sessions: [{ ...session(), run_id: runId }],
@@ -687,12 +687,12 @@ async function learningMapRoutes(page: Page, view: ReturnType<typeof structureVi
   };
   await routes(page, view, () => snapshot);
   await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-    schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId, display_name: "Navigation.pdf", size_bytes: 100,
+    schema: "material-library-item/v1", material_id: materialId, source_artifact_id: artifactId, display_name: "Navigation.pdf", size_bytes: 100,
     created_at: run.created_at, latest_attempt: run, available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, status: "succeeded", created_at: run.created_at }],
     study_sessions: hasProgress ? [{ ...saved, run_id: runId }] : [],
   }));
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, {
-    schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: saved, run_id: runId, source_artifact_id: artifactId, knowledge_structure: view,
+    schema: "study-resume/v1", assessment_sets: [], selected_set_id: null, session: saved, run_id: runId, source_artifact_id: artifactId, knowledge_structure: view,
     progress: snapshot,
   }));
 }
@@ -750,7 +750,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
     await routes(page, view, () => state);
     await page.route('**/evidence/*/source',route=>json(route,{schema:'evidence-source/v1',format:'pdf',original_name:'Synthetic.pdf',original_url:`/v1/artifacts/${artifactId}`,preview_url:`/v1/artifacts/${artifactId}#page=2`,normalized_page:2,accuracy:'exact',origin_locators:[],label:'PDF 第 2 頁'}));
     await page.route(`**/v1/materials/${materialId}`, route => json(route, {
-      schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
+      schema: "material-library-item/v1", material_id: materialId, source_artifact_id: artifactId,
       display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
       available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }],
       study_sessions: [{ ...session(), run_id: runId }],
@@ -826,7 +826,7 @@ for (const count of [0, 30]) test(`review ${count} weak concepts preserves membe
   await learningMapRoutes(page, view, true);
   await page.route("**/v1/study-sessions/*/progress", route => json(route, state));
   await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, {
-    schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: { ...session(), current_concept_id: current }, run_id: runId, source_artifact_id: artifactId,
+    schema: "study-resume/v1", assessment_sets: [], selected_set_id: null, session: { ...session(), current_concept_id: current }, run_id: runId, source_artifact_id: artifactId,
     knowledge_structure: view, progress: state,
   }));
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
@@ -881,10 +881,10 @@ test("completed persistent state is viewed without create or focus", async ({ pa
   const view = structureView();
   await routes(page, view);
   const state = { ...session("completed") };
-  await page.route(`**/v1/materials/${materialId}`, route => json(route, { schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
+  await page.route(`**/v1/materials/${materialId}`, route => json(route, { schema: "material-library-item/v1", material_id: materialId, source_artifact_id: artifactId,
     display_name: "Calculus.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,
     available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }], study_sessions: [{ ...state, run_id: runId }] }));
-  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: state, run_id: runId, source_artifact_id: artifactId, knowledge_structure: view,
+  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "study-resume/v1", assessment_sets: [], selected_set_id: null, session: state, run_id: runId, source_artifact_id: artifactId, knowledge_structure: view,
     progress: { ...progress, next_action: { ...progress.next_action, action: "complete", target_concept_id: null, target_claim_id: null, reason: "all_mastered" } } }));
   const writes: string[] = [];
   page.on("request", request => { if (request.url().includes("/v1/study-sessions") && request.method() !== "GET") writes.push(request.url()); });
@@ -904,13 +904,13 @@ test("a new structure may create a distinct persistent state without focusing th
   await routes(page, view);
   const nextRun = { ...run, run_id: nextRunId, output_binding: { ...run.output_binding, knowledge_structure_revision: nextRevision } };
   await page.route(`**/v1/material-processing-runs/${nextRunId}`, route => json(route, nextRun));
-  await page.route(`**/v1/materials/${materialId}`, route => json(route, { schema: "material-library-item/v3", material_id: materialId, source_artifact_id: artifactId,
+  await page.route(`**/v1/materials/${materialId}`, route => json(route, { schema: "material-library-item/v1", material_id: materialId, source_artifact_id: artifactId,
     display_name: "Reprocessed.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: nextRun,
     available_structures: [{ run_id: nextRunId, knowledge_structure_revision: nextRevision, created_at: run.created_at, status: "succeeded" }], study_sessions: [{ ...session(), run_id: runId }] }));
   let created = 0;
   const saved = { ...session(), study_session_id: nextStateId, knowledge_structure_revision: nextRevision };
   await page.route("**/v1/study-sessions", route => { created++; expect(route.request().postDataJSON().knowledge_structure_revision).toBe(nextRevision); return json(route, saved, 201); });
-  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "study-resume/v5", assessment_sets: [], selected_set_id: null, session: saved, run_id: nextRunId, source_artifact_id: artifactId, knowledge_structure: view,
+  await page.route("**/v1/materials/*/knowledge-structures/*/study-sessions/*/resume?*", route => json(route, { schema: "study-resume/v1", assessment_sets: [], selected_set_id: null, session: saved, run_id: nextRunId, source_artifact_id: artifactId, knowledge_structure: view,
     progress: { ...progress, study_session_id: nextStateId, knowledge_structure_revision: nextRevision } }));
   await page.goto(`/materials/${materialId}/runs/${nextRunId}/knowledge-structures/${encodeURIComponent(nextRevision)}`);
   await openMapConcept(page);
@@ -954,12 +954,12 @@ for (const width of [320, 390, 1366, 1920]) {
 }
 
 for(const width of [1536,390]) test(`local map normalized source resolver distinguishes original and converted PDF at ${width}px`,async({page},info)=>{
-  const resolver=`/v2/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`;
+  const resolver=`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`;
   await page.setViewportSize({width,height:1024});
-  await routes(page,{...structureView(),schema:"knowledge-structure-view/v3",source_resolver:resolver} as ReturnType<typeof structureView>);
+  await routes(page,{...structureView(),schema:"knowledge-structure-view/v1",source_resolver:resolver} as ReturnType<typeof structureView>);
   let reads=0;
-  await page.route("**/v2/materials/*/knowledge-structures/*/evidence/*/source",route=>{
-    reads++;return json(route,{schema:"evidence-source/v1",format:"docx",original_name:"notes.docx",original_url:`/v2/artifacts/${artifactId}`,
+  await page.route("**/v1/materials/*/knowledge-structures/*/evidence/*/source",route=>{
+    reads++;return json(route,{schema:"evidence-source/v1",format:"docx",original_name:"notes.docx",original_url:`/v1/artifacts/${artifactId}/download`,
       preview_url:`/v1/artifacts/${artifactId}#page=1`,normalized_page:1,accuracy:"ambiguous",origin_locators:[{paragraph:2}],label:"轉換後第 1 頁"});
   });
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
@@ -968,7 +968,7 @@ for(const width of [1536,390]) test(`local map normalized source resolver distin
   await page.getByRole("button",{name:"查看第 1 頁來源",exact:true}).click();
   const dialog=page.getByRole("dialog",{name:"教材來源",exact:true});
   await expect(dialog).toContainText("轉換後第 1 頁");await expect(dialog).toContainText("可能對應多處");
-  await expect(dialog.getByRole("link",{name:"下載原檔"})).toHaveAttribute("href",`/v2/artifacts/${artifactId}`);
+  await expect(dialog.getByRole("link",{name:"下載原檔"})).toHaveAttribute("href",`/v1/artifacts/${artifactId}/download`);
   await expect(dialog.getByRole("link",{name:"開啟 PDF 來源頁"})).toHaveAttribute("href",`/v1/artifacts/${artifactId}#page=1`);
   await page.screenshot({path:info.outputPath("source-dialog.png"),fullPage:true});
   await page.keyboard.press("Escape");await expect(dialog).toHaveCount(0);
@@ -1261,7 +1261,7 @@ test('reload restores map presentation while local interaction does not restart 
   const view=structureView();const state=structuredClone(progress);
   state.concept_states.forEach((c,i)=>Object.assign(c,{status:'needs_review',weak_claim_ids:[view.concepts[i].claims[0].claim_id]}));
   await routes(page,view,()=>state);
-  await page.route(`**/v1/materials/${materialId}`,route=>json(route,{schema:'material-library-item/v3',material_id:materialId,source_artifact_id:artifactId,
+  await page.route(`**/v1/materials/${materialId}`,route=>json(route,{schema:'material-library-item/v1',material_id:materialId,source_artifact_id:artifactId,
     display_name:'Synthetic.pdf',size_bytes:100,created_at:run.created_at,latest_attempt:run,available_structures:[{run_id:runId,knowledge_structure_revision:structureRevision,created_at:run.created_at,status:'succeeded'}],study_sessions:[{...session(),run_id:runId}]}));
   const auth:string[]=[];page.on('request',request=>{if(/\/v1\/session(?:\/refresh)?$/.test(request.url()))auth.push(request.method()+' '+new URL(request.url()).pathname);});
   const path=`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
@@ -1308,7 +1308,7 @@ test('review starts its small progress read in parallel and never shows a false 
   const view=structureView();const state=structuredClone(progress);
   Object.assign(state.concept_states[0],{status:'needs_review',weak_claim_ids:[firstClaim]});
   await routes(page,view,()=>state);
-  await page.route(`**/v1/materials/${materialId}`,route=>json(route,{schema:'material-library-item/v3',material_id:materialId,source_artifact_id:artifactId,
+  await page.route(`**/v1/materials/${materialId}`,route=>json(route,{schema:'material-library-item/v1',material_id:materialId,source_artifact_id:artifactId,
     display_name:'Synthetic.pdf',size_bytes:100,created_at:run.created_at,latest_attempt:run,available_structures:[{run_id:runId,knowledge_structure_revision:structureRevision,created_at:run.created_at,status:'succeeded'}],study_sessions:[{...session(),run_id:runId}]}));
   let releaseMap!:()=>void,releaseProgress!:()=>void,progressReads=0,resumes=0;
   const mapGate=new Promise<void>(resolve=>{releaseMap=resolve;});

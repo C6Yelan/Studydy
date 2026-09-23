@@ -83,7 +83,7 @@ def assessment_response_schema() -> dict[str, Any]:
         "additionalProperties": False,
         "required": ["schema", "candidates"],
         "properties": {
-            "schema": {"type": "string", "const": "assessment-semantics-response/v2"},
+            "schema": {"type": "string", "const": "assessment-semantics-response/v1"},
             "candidates": {"type": "array", "minItems": 3, "maxItems": 3, "items": candidate},
         },
     }
@@ -201,9 +201,9 @@ def _stored(row: Assessment) -> StoredAssessment:
         set(public) != public_fields
         or set(private) != private_fields
         or set(provenance) != provenance_fields
-        or public["schema"] != "single-choice-assessment/v2"
-        or private["schema"] != "single-choice-answer/v2"
-        or provenance["schema"] != "assessment-generation-provenance/v8"
+        or public["schema"] != "single-choice-assessment/v1"
+        or private["schema"] != "single-choice-answer/v1"
+        or provenance["schema"] != "assessment-generation-provenance/v1"
         or revision != row.assessment_revision
         or public["assessment_revision"] != revision
         or private["assessment_revision"] != revision
@@ -269,7 +269,7 @@ def _stored(row: Assessment) -> StoredAssessment:
         or not isinstance(provenance["model_id"],str) or not provenance["model_id"]
         or not isinstance(provenance["model_revision"],str) or not provenance["model_revision"]
         or (not command_execution and (provenance["model_id"]!="google/gemma-4-31B-it-qat-w4a16-ct" or provenance["model_revision"]!="52f3f65bc7a02d555763bc923bd1d9094898219d"))
-        or provenance["policy"] != "source-span-single-choice/v6"
+        or provenance["policy"] != "source-span-single-choice/v1"
         or provenance["learning_angle"] != row.learning_angle
         or not isinstance(row.learning_angle, str)
         or not row.learning_angle.strip()
@@ -324,7 +324,7 @@ def _stored(row: Assessment) -> StoredAssessment:
 
 def _request(study: StudySession, concept: ConceptContext, claim: ClaimContext, prior: list[Assessment]) -> dict[str, Any]:
     return {
-        "schema": "assessment-semantics-request/v2",
+        "schema": "assessment-semantics-request/v1",
         "knowledge_structure_revision": study.knowledge_structure_revision,
         "concept": {"concept_id": concept.concept_id, "label": concept.label},
         "claim": {
@@ -439,7 +439,7 @@ def assessment_check_schema(count: int, prior_count: int) -> dict[str, Any]:
         "type": "object", "additionalProperties": False,
         "required": ["schema", "verdicts"],
         "properties": {
-            "schema": {"type": "string", "const": "assessment-check-response/v2"},
+            "schema": {"type": "string", "const": "assessment-check-response/v1"},
             "verdicts": {"type": "array", "minItems": count, "maxItems": count,
                 "items": {"type": "object", "additionalProperties": False,
                     "required": ["question_index", "answer_status", "selected_option_index", "duplicate_prior_index", "quality_issues"],
@@ -468,7 +468,7 @@ def _checked_candidate(client, runtime_lock, claim, candidates, prior, semantic_
     response = semantic_call(
         client, runtime_lock=runtime_lock, task="assessment_check",
         request={
-            "schema": "assessment-check-request/v2",
+            "schema": "assessment-check-request/v1",
             "claim": claim.text,
             "evidence": [{"evidence_id": item.evidence_id, "exact_text": item.quote} for item in claim.evidence],
             "questions": questions,
@@ -481,7 +481,7 @@ def _checked_candidate(client, runtime_lock, claim, candidates, prior, semantic_
         response_schema=assessment_check_schema(len(questions), len(prior)),
     )
     if (not isinstance(response, dict) or set(response) != {"schema", "verdicts"}
-        or response["schema"] != "assessment-check-response/v2"
+        or response["schema"] != "assessment-check-response/v1"
         or not isinstance(response["verdicts"], list) or len(response["verdicts"]) != len(questions)):
         raise AssessmentError("ASSESSMENT_CHECK_INVALID")
     checked = {}
@@ -545,7 +545,7 @@ def _documents(
     # Novelty and angle remain provenance only; old stored eligibility is not rewritten.
     mastery_qualified = True
     public_core = {
-        "schema": "single-choice-assessment/v2",
+        "schema": "single-choice-assessment/v1",
         "study_session_id": str(study.study_session_id),
         "knowledge_structure_revision": study.knowledge_structure_revision,
         "question_id": question_id,
@@ -557,7 +557,7 @@ def _documents(
         "options": option_documents,
     }
     private_core = {
-        "schema": "single-choice-answer/v2",
+        "schema": "single-choice-answer/v1",
         "question_id": question_id,
         "correct_option_id": correct_option_id,
         "correct_answer": candidate["correct_answer"],
@@ -567,7 +567,7 @@ def _documents(
     command=identity(runtime_lock)
     service = runtime_lock["semantic_service"] if command is None else {"model_id":command["model_id"],"revision":command["model_revision"]}
     provenance_core = {
-        "schema": "assessment-generation-provenance/v8",
+        "schema": "assessment-generation-provenance/v1",
         "runtime_lock_sha256": canonical_sha256(runtime_lock) if command is None else command["runtime_lock_sha256"],
         "model_id": service["model_id"],
         "model_revision": service["revision"],
@@ -608,7 +608,7 @@ def prepare_assessment(study, concept, claim, prior, used_identities, *, runtime
                                  request=_request(study, concept, claim, prior),
                                  response_schema=assessment_response_schema())
         if (not isinstance(response, dict) or set(response) != {'schema', 'candidates'}
-            or response['schema'] != 'assessment-semantics-response/v2'
+            or response['schema'] != 'assessment-semantics-response/v1'
             or not isinstance(response['candidates'], list) or len(response['candidates']) != 3):
             raise AssessmentError('ASSESSMENT_OUTPUT_INVALID')
         candidates = [projected for item in response['candidates']

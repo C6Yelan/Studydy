@@ -16,7 +16,7 @@ class SourceError(RuntimeError):pass
 
 def _material(session,owner,identity):
     row=session.scalar(select(Material).where(Material.learner_id==owner,Material.material_id==identity).with_for_update())
-    if row is None or row.ingestion_kind!='sources-v2':raise SourceError('RESOURCE_NOT_FOUND')
+    if row is None:raise SourceError('RESOURCE_NOT_FOUND')
     if row.discard_requested_at is not None:raise SourceError('MATERIAL_NOT_DISCARDABLE')
     return row
 
@@ -25,14 +25,14 @@ def _name(value):
     return value
 
 def create_draft(owner,name,key,*,dsn=None):
-    name=_name(name);digest=_key_digest(key);fingerprint=bytes.fromhex(canonical_sha256({'name':name,'version':2}))
+    name=_name(name);digest=_key_digest(key);fingerprint=bytes.fromhex(canonical_sha256({'name':name,'version':1}))
     with database_session(dsn) as session:
         session.scalar(select(Learner).where(Learner.learner_id==owner).with_for_update())
         existing=session.scalar(select(Material).where(Material.learner_id==owner,Material.upload_idempotency_key_sha256==digest))
         if existing:
-            if existing.ingestion_kind!='sources-v2' or bytes(existing.upload_request_fingerprint)!=fingerprint:raise SourceError('IDEMPOTENCY_CONFLICT')
+            if bytes(existing.upload_request_fingerprint)!=fingerprint:raise SourceError('IDEMPOTENCY_CONFLICT')
             return existing.material_id
-        row=Material(material_id=uuid4(),learner_id=owner,source_artifact_id=None,ingestion_kind='sources-v2',display_name=name,
+        row=Material(material_id=uuid4(),learner_id=owner,source_artifact_id=None,display_name=name,
                      upload_idempotency_key_sha256=digest,upload_request_fingerprint=fingerprint,created_at=datetime.now(UTC))
         session.add(row);session.flush();return row.material_id
 
@@ -65,7 +65,7 @@ def upload_source(owner,material_id,data,name,media,key,*,dsn=None):
 def read_sources(owner,material_id,*,dsn=None):
     with database_session(dsn) as session:
         material=session.scalar(select(Material).where(Material.learner_id==owner,Material.material_id==material_id))
-        if material is None or material.ingestion_kind!='sources-v2':raise SourceError('RESOURCE_NOT_FOUND')
+        if material is None:raise SourceError('RESOURCE_NOT_FOUND')
         from .source_revisions import current_revision
         from .storage.tables import KnowledgeStructure
         revision=current_revision(session,material)

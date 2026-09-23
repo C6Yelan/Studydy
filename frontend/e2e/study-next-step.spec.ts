@@ -25,7 +25,7 @@ for(const width of [1536,1366,390]) {
     await expect(page.getByRole('button',{name:'開始本輪 6 題',exact:true})).toBeVisible();
     const requests=fixture.requests.filter(r=>r.path.endsWith('/guidance/apply'));
     expect(requests).toHaveLength(1);
-    expect(JSON.parse(requests[0].body!)).toEqual({schema:'guidance-apply/v2',guidance_revision:'learner-guidance:sha256:'+ '1'.padStart(64,'0')});
+    expect(JSON.parse(requests[0].body!)).toEqual({schema:'guidance-apply/v1',guidance_revision:'learner-guidance:sha256:'+ '1'.padStart(64,'0')});
     expect(fixture.requests.some(r=>r.path.endsWith('/focus'))).toBe(false);
   });
 

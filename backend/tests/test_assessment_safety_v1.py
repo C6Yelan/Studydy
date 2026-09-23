@@ -87,7 +87,7 @@ def test_exact_duplicate_is_blocked_but_checked_item_does_not_require_novelty():
     def solve(_client, **kwargs):
         assert "correct_answer" not in kwargs["request"]["questions"][0]
         assert "novelty" not in kwargs["request"]["questions"][0]
-        return {"schema": "assessment-check-response/v2", "verdicts": [{
+        return {"schema": "assessment-check-response/v1", "verdicts": [{
             "question_index": 0, "answer_status": "unique",
             "selected_option_index": options.index("8 bytes"), "duplicate_prior_index": None, "quality_issues": [],
         }]}
@@ -112,7 +112,7 @@ def test_exact_duplicate_is_blocked_but_checked_item_does_not_require_novelty():
     public, private, provenance, qualified = _documents(
         study, concept, _claim(), projected, runtime_lock=lock
     )
-    assert public["schema"] == "single-choice-assessment/v2"
+    assert public["schema"] == "single-choice-assessment/v1"
     assert "correct_option_id" not in public
     assert private["correct_answer"] == "8 bytes"
     assert provenance["model_id"] == "google/gemma-4-31B-it-qat-w4a16-ct"
@@ -143,7 +143,7 @@ def test_blind_check_blocks_no_answer_ambiguity_wrong_key_and_paraphrase(status,
     ]})]
     def solve(_client, **kwargs):
         assert kwargs["request"]["questions"][0]["options"] == ["1", "char", "float", "int"]
-        return {"schema": "assessment-check-response/v2", "verdicts": [{
+        return {"schema": "assessment-check-response/v1", "verdicts": [{
             "question_index": 0, "answer_status": status,
             "selected_option_index": selected, "duplicate_prior_index": duplicate, "quality_issues": [],
         }]}
@@ -156,7 +156,7 @@ def test_false_safe_numeric_answer_to_type_question_is_not_published():
     ))
     candidate = {"prompt": "What is the type of ch?", "correct_answer": "1",
                  "options": ["1", "char[]", "float", "int"]}
-    response = {"schema": "assessment-check-response/v2", "verdicts": [{
+    response = {"schema": "assessment-check-response/v1", "verdicts": [{
         "question_index": 0, "answer_status": "none", "selected_option_index": None,
         "duplicate_prior_index": None, "quality_issues": [],
     }]}
@@ -167,7 +167,7 @@ def test_malformed_blind_check_cannot_be_treated_as_valid():
     candidate = _candidate(_proposal(), _claim(), set())
     with pytest.raises(AssessmentError, match="ASSESSMENT_CHECK_INVALID"):
         _checked_candidate(None, {}, _claim(), [candidate], [], lambda *_a, **_k: {
-            "schema": "assessment-check-response/v2", "verdicts": [{
+            "schema": "assessment-check-response/v1", "verdicts": [{
                 "question_index": 0, "answer_status": "unique", "selected_option_index": True,
                 "duplicate_prior_index": None, "quality_issues": [],
             }],
@@ -185,7 +185,7 @@ def _ranked_candidates(issues, *, rejected=()):
         calls.append(kwargs)
         request = kwargs["request"]
         assert all(set(question) == {"question_index", "prompt", "options"} for question in request["questions"])
-        return {"schema": "assessment-check-response/v2", "verdicts": [
+        return {"schema": "assessment-check-response/v1", "verdicts": [
             {"question_index": index,
              "answer_status": "multiple" if index in rejected else "unique",
              "selected_option_index": None if index in rejected else question["options"].index("'\\0'"),
@@ -238,7 +238,7 @@ def test_same_answer_to_a_different_attribute_is_not_automatically_duplicate():
             {"text": text} for text in candidate["options"]]},
     )]
     def solve(_client, **kwargs):
-        return {"schema": "assessment-check-response/v2", "verdicts": [{
+        return {"schema": "assessment-check-response/v1", "verdicts": [{
             "question_index": 0, "answer_status": "unique",
             "selected_option_index": kwargs["request"]["questions"][0]["options"].index("'\\0'"),
             "duplicate_prior_index": None, "quality_issues": [],

@@ -20,11 +20,11 @@ generator 與 checker 使用相同集合，checker 只接收歷史題目及選�
 
 ## 版本與資料保存
 
-runtime lock v19 只調整 assessment 契約與 prompt：generator request v2、checker request／response v2、policy `source-span-single-choice/v6`、provenance v8。model、OCR、material semantics、context 與 generation budgets 保持原設定。command 執行器仍由私人設定注入。
+現行 runtime lock、generator request、checker request／response、policy `source-span-single-choice/v1` 與 provenance 均為 v1；沿用各自最新資料形狀與 prompt。model、OCR、material semantics、context 與 generation budgets 保持原設定。command 執行器仍由私人設定注入。
 
 新 provenance 私存選中候選、檢查／安全候選數、品質提示、比較範圍及兩個 prompt hashes；command 身分與 Gemma 分開記錄。公開題目、resume、history 不加入這些欄位或私有答案。
 
-歷史紀錄不補欄位、不改 hash 或 mastery eligibility；現行 reader 僅接受 provenance v8，不再提供 v5–v7 相容分支。出題功能本身沿用既有資料模型；收尾的教材接續修正以 migration 0010 保存工作開始時的非機密設定。後續 B5-D 已將題組模型呼叫移至短交易之外，沿用本頁候選準備與檢查流程。
+歷史紀錄不補欄位、不改 hash 或 mastery eligibility；現行 reader 僅接受 provenance v1，不提供舊版相容分支。出題功能本身沿用既有資料模型；教材接續所需的非機密設定由現行 `0002_sources_and_processing.sql` 保存。後續 B5-D 已將題組模型呼叫移至短交易之外，沿用本頁候選準備與檢查流程。
 
 教材與出題設定已解耦：所有教材工作使用同一條執行流程，比對實際影響教材分析的 Python／套件、OCR、semantic service、material semantics 與實際 command 執行身分；不以 assessment 或整份設定的版號決定能否接續。工作保存開始時的設定並核對其原 runtime binding，執行與發布仍使用該份設定，因此不改寫舊 run、KS 或 checkpoint 的 hash。新重試可以重用分析設定相同的已保存進度；設定缺失、損毀或教材依賴改變時停止並明示，不能暗中重新分析。沒有新增 legacy 執行分支或按歷史版本切換的 fallback。
 
@@ -32,7 +32,7 @@ runtime lock v19 只調整 assessment 契約與 prompt：generator request v2、
 
 ## 驗證範圍
 
-`test_assessment_safety_v1.py` 驗證安全優先、品質排序、所有候選皆有品質提示仍可發布，以及合法基礎題與相同答案不同問題。`runtime/test_assessment_quality.py` 用真 PostgreSQL 與受控語意 fixture 驗證部分來源仍可出題、跨 Claim 重複不產生錯答、比較集合限界與 v6／v7 舊題讀取；既有閉環測試保留 v5、評分、重播與恢復契約。
+`test_assessment_safety_v1.py` 驗證安全優先、品質排序、所有候選皆有品質提示仍可發布，以及合法基礎題與相同答案不同問題。`runtime/test_assessment_quality.py` 用真 PostgreSQL 與受控語意 fixture 驗證部分來源仍可出題、跨 Claim 重複不產生錯答、比較集合限界與現行 provenance v1 讀取；閉環測試保留評分、重播與恢復契約。
 
 這些測試證明程式行為，不證明真實模型品質。替代模型舊新比較與正式 Gemma 品質需分別記錄；未執行的檢查不算通過。
 

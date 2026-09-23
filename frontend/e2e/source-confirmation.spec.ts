@@ -18,17 +18,17 @@ for (const width of [1536, 1366, 390]) test.describe(`compact source confirmatio
     let releaseUpload!: () => void, releaseRefresh!: () => void, holdRefresh = false;
     const uploadPending = new Promise<void>(resolve => { releaseUpload = resolve; });
     const refreshPending = new Promise<void>(resolve => { releaseRefresh = resolve; });
-    const item = (): MaterialLibraryItem => ({ schema: "material-library-item/v3", ingestion_kind: "sources-v2", material_id: material,
+    const item = (): MaterialLibraryItem => ({ schema: "material-library-item/v1", material_id: material,
       display_name: "網路概論", source_artifact_id: uuid(40), source_count: sources.length, size_bytes: 1024, created_at: stamp,
       latest_attempt: run, study_sessions: [], available_structures: append ? [{ run_id: runId, knowledge_structure_revision: revision, status: "succeeded", created_at: stamp }] : [] });
     const listing = () => ({ schema: "material-sources/v1", material_id: material, sources });
     await page.route("**/v1/session", r => r.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }));
     await page.route("**/v1/session/refresh", r => r.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
-    await page.route("**/v2/source-capabilities", r => r.fulfill({ json: { schema: "source-capabilities/v1", quality_notice: "PDF", formats: [
+    await page.route("**/v1/source-capabilities", r => r.fulfill({ json: { schema: "source-capabilities/v1", quality_notice: "PDF", formats: [
       { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 }, { extension: ".txt", media_type: "text/plain", max_bytes: 104857600 },
     ] } }));
     await page.route(`**/v1/materials/${material}`, r => r.fulfill({ json: item() }));
-    await page.route(`**/v2/materials/${material}/sources`, async r => {
+    await page.route(`**/v1/materials/${material}/sources`, async r => {
       if (r.request().method() === "POST") {
         uploads++; uploadKeys.push(r.request().headers()["idempotency-key"]);
         if (loseUpload) { await uploadPending; loseUpload = false; return r.abort("connectionreset"); }
@@ -40,19 +40,19 @@ for (const width of [1536, 1366, 390]) test.describe(`compact source confirmatio
       }
       return r.fulfill({ json: listing() });
     });
-    await page.route(`**/v2/materials/${material}/sources/*`, r => {
+    await page.route(`**/v1/materials/${material}/sources/*`, r => {
       expect(r.request().method()).toBe("DELETE");
       const id = r.request().url().split("/").at(-1)!; removed.push(id);
       expect(sources.find(s => s.source_id === id)?.included).toBe(false);
       sources = sources.filter(s => s.source_id !== id); return r.fulfill({ json: listing() });
     });
-    await page.route(`**/v2/materials/${material}/sources/*/retry`, r => {
+    await page.route(`**/v1/materials/${material}/sources/*/retry`, r => {
       retries++; sources[2] = { ...sources[2], status: "ready", normalized_artifact_id: uuid(42), page_count: 10, error_code: null };
       return r.fulfill({ json: listing() });
     });
-    await page.route(`**/v2/materials/${material}/revisions`, r => {
+    await page.route(`**/v1/materials/${material}/revisions`, r => {
       starts.push(r.request().postDataJSON());
-      run = { schema: "material-processing-run/v6", run_id: uuid(3), material_id: material, source_artifact_id: uuid(40),
+      run = { schema: "material-processing-run/v1", run_id: uuid(3), material_id: material, source_artifact_id: uuid(40),
         status: "pending", progress_stage: "queued", completed_pages: 0, total_pages: null, output_binding: null,
         error_code: null, cancel_requested_at: null, created_at: stamp, updated_at: stamp, completed_at: null };
       return r.fulfill({ status: 202, json: run });

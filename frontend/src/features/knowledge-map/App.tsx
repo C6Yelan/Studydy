@@ -111,7 +111,7 @@ export default function KnowledgeMap({ apiClient, route }: {
     setStartMessage(null);
     try {
       let session = savedLearningState ? await apiClient.focusStudySession(savedLearningState.study_session_id, conceptId) : await apiClient.createStudySession({
-        schema: "study-session-create/v2",
+        schema: "study-session-create/v1",
         material_id: route.materialId,
         knowledge_structure_revision: route.structureRevision,
         current_concept_id: conceptId,

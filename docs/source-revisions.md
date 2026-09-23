@@ -8,29 +8,29 @@
 
 每份檔案保留獨立 Idempotency-Key；部分上傳失敗只重試尚未收到成功回應的檔案，已確認上傳者不重送。確認頁可逐檔預覽、重試轉換、明確移除未封存來源，並調整這次初始來源的順序。顯示份數、全部 ready 後的總頁數與原檔總容量。有 pending／failed 檔或尚未完成的上傳時不自動開始，也不默默略過來源。
 
-使用者確認後提交 `base_revision=null` 與有序 ready normalization 清單，沿用同一 SourceSet、worker、KS v4、發布及來源回查流程。開始後輸入集合固定，後來上傳者不混入。初次多檔建立後可直接使用 B3-A 追加；既有來源不開放重排。B3-B 沒有新增資料庫 migration 或更動模型 prompt／runtime lock。
+使用者確認後提交 `base_revision=null` 與有序 ready normalization 清單，沿用同一 SourceSet、worker、KS v1、發布及來源回查流程。開始後輸入集合固定，後來上傳者不混入。初次多檔建立後可直接使用 B3-A 追加；既有來源不開放重排。B3-B 沒有新增資料庫 migration 或更動模型 prompt／runtime lock。
 
 ## API 與輸入
 
-- `POST /v2/materials/{id}/sources` 保存原檔與轉換工作，不自動開始分析。同一 Material 的相同原檔 SHA 明確拒絕；同名不同 bytes 可分別保存。
-- 使用者預覽、勾選後，以 `POST /v2/materials/{id}/revisions` 提交 `material-revision-create/v1`、目前 `base_revision`、有序 `normalization_ids` 和 Idempotency-Key。後端從 base 取得原有成員，再附加選定且 ready 的來源。
+- `POST /v1/materials/{id}/sources` 保存原檔與轉換工作，不自動開始分析。同一 Material 的相同原檔 SHA 明確拒絕；同名不同 bytes 可分別保存。
+- 使用者預覽、勾選後，以 `POST /v1/materials/{id}/revisions` 提交 `material-revision-create/v1`、目前 `base_revision`、有序 `normalization_ids` 和 Idempotency-Key。後端從 base 取得原有成員，再附加選定且 ready 的來源。
 - SourceSet、run 與 fingerprint 同交易封存；後來上傳的檔案不混入。每 Material 最多一個 active operation。同意圖重播回同 run，包括 head 已切換後；改順序、錯 base、競爭更新回 409。`base_revision=null` 接受一份或多份 ready normalization。
-- `POST /v2/material-processing-runs/{run_id}/cancel` 的 closed body 為 `{schema:"material-revision-cancel/v1",base_revision:...}`，僅取消該次追加。重播回已保存狀態；已完成的 run 保留結果。
-- `DELETE /v2/materials/{id}/sources/{source_id}` 只清理未被 SourceSet／run 引用且沒有運行中轉檔工作的 staged source。已分析來源可取消勾選，不可刪改已發布集合。
+- `POST /v1/material-processing-runs/{run_id}/cancel` 的 closed body 為 `{schema:"material-revision-cancel/v1",base_revision:...}`，僅取消該次追加。重播回已保存狀態；已完成的 run 保留結果。
+- `DELETE /v1/materials/{id}/sources/{source_id}` 只清理未被 SourceSet／run 引用且沒有運行中轉檔工作的 staged source。已分析來源可取消勾選，不可刪改已發布集合。
 
 沿用 owner、Origin、artifact 權限邊界。GET、預覽與登入不啟動模型或建立學習紀錄。
 
 ## 來源與增量語意
 
-`bundle-manifest/v2` 將集合內的閱讀序號映射到來源與 normalized page；該序號不代表合併 PDF 頁碼。`knowledge-structure/v4` 使用 `source_set_sha256`，不把集合 digest 偽稱為某份 PDF 的 SHA。原檔／normalized／mapping hash、policy、順序與 bundle hash 皆綁定 run／KS，處理與讀取時驗證。
+`bundle-manifest/v1` 將集合內的閱讀序號映射到來源與 normalized page；該序號不代表合併 PDF 頁碼。`knowledge-structure/v1` 使用 `source_set_sha256`，不把集合 digest 偽稱為某份 PDF 的 SHA。原檔／normalized／mapping hash、policy、順序與 bundle hash 皆綁定 run／KS，處理與讀取時驗證。
 
-現行追加只接受已有來源集合綁定的 v4 KS；單 PDF identity 補建與未綁定 v2／v3 reader 已移除。既有資料不改寫、不重算。
+現行追加只接受已綁來源的 `knowledge-structure/v1`。分析 builder 產生沒有 schema／revision 的內部草稿，來源綁定完成才建立正式 v1 與 revision；持久 reader 不接受草稿。
 
 舊 Evidence／Claims 由已驗證基準重用，以原始與 normalized hash、頁碼、原文、區塊順序及 region 對應到新集合。只對新增來源執行 extraction／必要 OCR／semantic calls。請求包含新 Evidence、既有概念 catalog 及各 Claim 的來源 scope，不反覆送入整份舊頁面 metadata。
 
 沿用 Claim grounding、字面值保護及 Relation validators。模型的 `review_required=true` 只是來源 scope／概念分組的複核提示，不能據此認定教材互相矛盾，也不停止整次更新。可回查的新增 Claims 照常納入，既有 Claims 不改寫；提示以 `source_review_required=true` 與 `SOURCE_REVIEW_SUGGESTED` 保存，品質為 `needs_review`。此版本沒有任意語意修訂或自動衝突裁決引擎。
 
-runtime lock v18 的 material request 為 v3、response 為 v5，記錄來源 scope 與 review flag。bundle policy 為 `contiguous-evidence-new-input/v4`：Gemma 與 command 都使用既有連續 Evidence 分批器、章節邊界及累積概念；每批新增內容目標沿用 1536。Gemma 使用服務端 tokenizer，command 在本機以 ASCII 四字元、其餘每字元估一單位；這不是 Luna 的實際 token 計數，不能宣稱批次邊界完全相同。command 的累積概念不計入新增內容目標，也不以它拒收整份教材；單一區塊不截斷。Gemma model／revision、generation、OCR routing 及既有 context 檢查不變；開發執行器與替代模型仍由私人設定注入。
+runtime lock、material request 與 response 均使用 v1，記錄來源 scope 與 review flag。bundle policy 為 `contiguous-evidence-new-input/v1`：Gemma 與 command 都使用既有連續 Evidence 分批器、章節邊界及累積概念；每批新增內容目標沿用 1536。Gemma 使用服務端 tokenizer，command 在本機以 ASCII 四字元、其餘每字元估一單位；這不是 Luna 的實際 token 計數，不能宣稱批次邊界完全相同。command 的累積概念不計入新增內容目標，也不以它拒收整份教材；單一區塊不截斷。Gemma model／revision、generation、OCR routing 及既有 context 檢查不變；開發執行器與替代模型仍由私人設定注入。
 
 ## 學習進度
 
@@ -52,7 +52,7 @@ Worker lease 為 10 分鐘，由 checkpoints 及處理期間每 30 秒的存活�
 
 分析完成每一批後，先將 Evidence context、累積語意狀態、精確 Evidence 游標與工作量原子保存，才更新頁數進度。保存位於 private artifact root 的 `analysis/{learner}/{material}/{run}/`；目錄 0700、checkpoint 0600。checkpoint 用於進行中或失敗工作的接續，地圖發布交易 commit 後即清理；`partial`、`needs_review` 或 `source_review_required` 品質提示不延長其保留時間。模型呼叫的輸入、schema、原始回應及 stdout／stderr 仍保留作私人查核資料，不寫一般 log／Git；本次清理不刪原檔、正式地圖或作答紀錄。
 
-明確重試會建立新 run，僅從同 owner／Material、相同來源 artifact／SourceSet／base revision 與教材分析設定的失敗作業接續。migration 0010 的 `runtime_lock_document` 保存工作開始時的非機密設定，先核對原始 runtime binding，再比較 Python／套件、OCR、教材語意設定及實際模型執行身分；assessment 與整份 lock 版號不參與相容性判定。所有工作使用同一套流程，沒有 legacy 分支。
+明確重試會建立新 run，僅從同 owner／Material、相同來源 artifact／SourceSet／base revision 與教材分析設定的失敗作業接續。`0002_sources_and_processing.sql` 的 `runtime_lock_document` 保存工作開始時的非機密設定，先核對原始 runtime binding，再比較 Python／套件、OCR、教材語意設定及實際模型執行身分；assessment 與整份 lock 版號不參與相容性判定。所有工作使用同一套流程，沒有 legacy 分支。
 
 來源 bytes 仍先經原有 hash 驗證，checkpoint 的 digest 與 signature 仍對應其原 run，不改寫成新 hash。進度損毀回 `ANALYSIS_CHECKPOINT_INVALID`；原設定缺失或教材分析依賴不一致回 `ANALYSIS_RUNTIME_CHANGED`，不暗中改成全量重跑。已建立的 pending／running 工作使用其封存設定執行及發布，只改出題設定不會讓最後發布因版本不同而失敗。游標是區塊位置，所以最後一頁有多批時，也不會把 `90 / 90` 誤當全部分析完成。
 
@@ -64,7 +64,7 @@ Worker lease 為 10 分鐘，由 checkpoints 及處理期間每 30 秒的存活�
 
 `material-processing-run` 回應帶 `analysis_saved`，失敗頁據此顯示「接續已保存的分析」。沒有保存資料的舊失敗作業不宣稱可恢復。
 
-失敗頁直接呼叫 `POST /v2/material-processing-runs/{run_id}/retry`（空 body、Origin 與 Idempotency-Key）。後端從該次 frozen SourceSet／base run receipts 取回原追加清單與順序，再建立重試 run；不重新讀取 staged 清單來猜使用者意圖，也不納入後來上傳的檔案。回應遺失沿用同 key，即使 head 已切換、舊完整 KS 已清理也可重播。修改來源是另一個明確操作。
+失敗頁直接呼叫 `POST /v1/material-processing-runs/{run_id}/retry`（空 body、Origin 與 Idempotency-Key）。後端從該次 frozen SourceSet／base run receipts 取回原追加清單與順序，再建立重試 run；不重新讀取 staged 清單來猜使用者意圖，也不納入後來上傳的檔案。回應遺失沿用同 key，即使 head 已切換、舊完整 KS 已清理也可重播。修改來源是另一個明確操作。
 
 若先前失敗原因是完全沒有可用概念／新增知識，重試仍重用 Evidence，但會重試語意步驟，不會卡在反覆組裝同一個空結果。原模型回應仍保留以供查核。
 
@@ -76,9 +76,9 @@ Worker lease 為 10 分鐘，由 checkpoints 及處理期間每 30 秒的存活�
 
 ## 升級與驗證
 
-新增 `0009_material_source_revisions.sql`，0001–0008 不改寫。測試涵蓋 fresh、B02 帶原題／答案／no-safe／completed 的升級，以及 repeat no-op。產品 DB 升級、服務切換仍需獨立授權；寫入 v4 後採 forward repair 或經授權備份恢復，不直接切回不支援 v4 的 binary。
+`0002_sources_and_processing.sql` 直接建立最終來源版本／lease／runtime snapshot 結構。測試涵蓋 fresh、repeat no-op 與來源及學習資料契約。舊 14 版帳本須先完成受控的 baseline 接軌。產品 DB 升級、服務切換仍需獨立授權；切換到 v1 後採 forward repair 或經授權備份恢復，不直接切回舊契約 binary。
 
-`test_source_revisions.py` 覆蓋增量輸入、重播／競爭、late upload、取消發布、fencing、進度承接與 staged cleanup。`test_source_identity.py` 驗證來源穩定與歧義拒絕；`test_source_revision_migration.py` 比對升級前後舊資料。`test_source_revisions_browser.py` 使用真 API／DB／轉檔／worker 與受控語意 fixture，驗證 desktop／390px、reload、來源與已保存作答；`source-revisions.spec.ts` 驗證佇列和取消不發整份教材 DELETE。
+`test_source_revisions.py` 覆蓋增量輸入、重播／競爭、late upload、取消發布、fencing、進度承接與 staged cleanup。`test_source_identity.py` 驗證來源穩定與歧義拒絕；`test_migrations.py` 驗證 baseline、帳本保護及重跑不改資料。`test_source_revisions_browser.py` 使用真 API／DB／轉檔／worker 與受控語意 fixture，驗證 desktop／390px、reload、來源與已保存作答；`source-revisions.spec.ts` 驗證佇列和取消不發整份教材 DELETE。
 
 合成測試只證明功能契約。真實替代模型須另外記錄狀態、來源、coverage、呼叫量與限制；`needs_review` 不算 accepted。尚未宣告大型教材容量、任意來源衝突或正式模型品質通過。
 

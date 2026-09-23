@@ -3,12 +3,14 @@ from copy import deepcopy
 from uuid import uuid4
 
 import pytest
+import psycopg
 from fastapi.testclient import TestClient
 
 from learning_adaptation import assessment_sets as sets
 from learning_adaptation.answer_events import read_answer_events
 from learning_adaptation.learner_progress import derive_learner_progress
 from runtime.storage.tables import Assessment, database_session
+from runtime.storage.database import connect_database
 from test_assessment_sets import closed_loop, concept_fixture, create, read, model_for
 from test_accounts import _app, ORIGIN, HEADERS
 
@@ -55,6 +57,17 @@ def supplement(f, group_id, key=None):
     cycle = read(f, group_id)['cycle']
     return sets.create_remediation(f['learner'], f['study'].study_session_id, group_id,
         cycle['set_version'], key or str(uuid4()), f['settings'], dsn=f['dsn'])
+
+
+def test_remediation_origin_is_immutable_in_database(closed_loop):
+    f = concept_fixture(closed_loop, 1)
+    root = create(f); finish(f); answer(f, root, wrong={1})
+    child = supplement(f, root)
+    with connect_database(f['dsn']) as connection:
+        with pytest.raises(psycopg.Error, match='assessment set origin is immutable'):
+            with connection.transaction():
+                connection.execute("UPDATE assessment_sets SET diagnostic_set_id=NULL,kind='diagnostic' WHERE set_id=%s", (child,))
+        assert connection.execute('SELECT diagnostic_set_id FROM assessment_sets WHERE set_id=%s', (child,)).fetchone() == (root,)
 
 
 def test_current_wrong_points_directly_form_group_and_retry_only_remaining_errors(closed_loop):
@@ -137,9 +150,9 @@ def test_direct_remediation_http_replay_is_scoped_and_get_does_not_create(closed
     assert 'runtime_lock_document' not in replay.json()
     operations={route:methods for route,methods in client.app.openapi()['paths'].items() if '/assessment-sets/' in route}
     assert {path.rsplit('/',1)[-1] for path in operations}=={'{set_id}','submissions','remediation','retry','publish-partial'}
-    assert created.json()['schema']=='assessment-set/v3'
+    assert created.json()['schema']=='assessment-set/v1'
     schema=client.app.openapi()
-    for name,version in [('AssessmentSetView','assessment-set/v3'),('LearnerProgressView','learner-progress/v4'),('StudyResumeView','study-resume/v5')]:
+    for name,version in [('AssessmentSetView','assessment-set/v1'),('LearnerProgressView','learner-progress/v1'),('StudyResumeView','study-resume/v1')]:
         assert schema['components']['schemas'][name]['properties']['schema']['const']==version
     for suffix in ('retry','publish-partial','remediation','submissions'):
         path=f'/v1/study-sessions/{{study_session_id}}/assessment-sets/{{set_id}}/{suffix}'

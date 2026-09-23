@@ -12,25 +12,25 @@ for (const width of [1536, 390]) test(`append queue and run-only cancellation pr
   const lastFilename = `C-${"LongChapterFilename".repeat(5)}.pdf`;
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }));
   await page.route("**/v1/session/refresh", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
-  await page.route("**/v2/source-capabilities", route => route.fulfill({ json: { schema: "source-capabilities/v1", quality_notice: "PDF 優先", formats: [
+  await page.route("**/v1/source-capabilities", route => route.fulfill({ json: { schema: "source-capabilities/v1", quality_notice: "PDF 優先", formats: [
     { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 },
     { extension: ".txt", media_type: "text/plain", max_bytes: 104857600 },
   ] } }));
   const sources: SourceView[] = [{ source_id: uuid(10), normalization_id: uuid(11), original_artifact_id: uuid(12), normalized_artifact_id: uuid(13), original_name: "A.pdf", media_type: "application/pdf", status: "ready", page_count: 1, error_code: null, included: true }];
   let run: MaterialProcessingRunView | null = null;
   let wholeDeletes = 0, cancels = 0, starts = 0;
-  const item = () => ({ schema: "material-library-item/v3", ingestion_kind: "sources-v2", material_id: material,
+  const item = () => ({ schema: "material-library-item/v1", material_id: material,
     head_revision: revision, source_count: sources.length, source_artifact_id: uuid(13), display_name: "資料結構", size_bytes: 1024, created_at: timestamp,
     source: sources[0], latest_attempt: run, available_structures: [{ run_id: oldRun, knowledge_structure_revision: revision, created_at: timestamp, status: "succeeded" }],
     study_sessions: [{ study_session_id: study, run_id: oldRun, knowledge_structure_revision: revision, current_concept_id: `concept:sha256:${"b".repeat(64)}`, status: "active", started_at: timestamp }] });
   await page.route(`**/v1/materials/${material}`, route => { if (route.request().method() === "DELETE") wholeDeletes++; return route.fulfill({ json: item() }); });
-  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [item()] } }));
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v1", materials: [item()] } }));
   await page.route(`**/v1/material-processing-runs/${oldRun}`, route => route.fulfill({ json: {
-    schema: "material-processing-run/v6", run_id: oldRun, material_id: material, source_artifact_id: uuid(13),
+    schema: "material-processing-run/v1", run_id: oldRun, material_id: material, source_artifact_id: uuid(13),
     status: "running", progress_stage: "semantics", completed_pages: 1, total_pages: 3,
     output_binding: null, error_code: null, cancel_requested_at: null, created_at: timestamp, updated_at: timestamp, completed_at: null,
   } }));
-  await page.route(`**/v2/materials/${material}/sources`, route => {
+  await page.route(`**/v1/materials/${material}/sources`, route => {
     if (route.request().method() === "POST") {
       const index = sources.length;
       sources.push({ source_id: uuid(20 + index), normalization_id: uuid(30 + index), original_artifact_id: uuid(40 + index), normalized_artifact_id: uuid(50 + index),
@@ -38,14 +38,14 @@ for (const width of [1536, 390]) test(`append queue and run-only cancellation pr
     }
     return route.fulfill({ json: { schema: "material-sources/v1", material_id: material, sources } });
   });
-  await page.route(`**/v2/materials/${material}/revisions`, route => {
+  await page.route(`**/v1/materials/${material}/revisions`, route => {
     starts++;
     expect(route.request().postDataJSON()).toEqual({ schema: "material-revision-create/v1", base_revision: revision, normalization_ids: [uuid(31), uuid(32)] });
-    run = { schema: "material-processing-run/v6", run_id: newRun, material_id: material, input_source_set_id: uuid(9), base_revision: revision, source_names: ["A.pdf", "B.txt", lastFilename], source_artifact_id: uuid(13), status: "running", progress_stage: "semantics", completed_pages: 1, total_pages: 3, output_binding: null, error_code: null, cancel_requested_at: null, created_at: timestamp, updated_at: timestamp, completed_at: null };
+    run = { schema: "material-processing-run/v1", run_id: newRun, material_id: material, input_source_set_id: uuid(9), base_revision: revision, source_names: ["A.pdf", "B.txt", lastFilename], source_artifact_id: uuid(13), status: "running", progress_stage: "semantics", completed_pages: 1, total_pages: 3, output_binding: null, error_code: null, cancel_requested_at: null, created_at: timestamp, updated_at: timestamp, completed_at: null };
     return route.fulfill({ status: 202, json: run });
   });
   await page.route(`**/v1/material-processing-runs/${newRun}`, route => route.fulfill({ json: run }));
-  await page.route(`**/v2/material-processing-runs/${newRun}/cancel`, route => {
+  await page.route(`**/v1/material-processing-runs/${newRun}/cancel`, route => {
     cancels++;
     expect(route.request().postDataJSON()).toEqual({ schema: "material-revision-cancel/v1", base_revision: revision });
     if (!run) throw new Error("RUN_NOT_STARTED");
@@ -100,16 +100,16 @@ for (const width of [1536, 390]) test(`quality notices stay in processing while 
   await page.setViewportSize({ width, height: 844 });
   const newRevision = `knowledge-structure:sha256:${"c".repeat(64)}`;
   const run: MaterialProcessingRunView = {
-    schema: "material-processing-run/v6", run_id: newRun, material_id: material, base_revision: revision,
+    schema: "material-processing-run/v1", run_id: newRun, material_id: material, base_revision: revision,
     source_names: ["A.pdf", "B.pdf"], source_artifact_id: uuid(13), status: "partial", progress_stage: "completed",
     completed_pages: 2, total_pages: 2, error_code: null, cancel_requested_at: null,
     created_at: timestamp, updated_at: timestamp, completed_at: timestamp,
-    output_binding: { schema: "material-run-output-binding/v4", knowledge_structure_revision: newRevision,
+    output_binding: { schema: "material-run-output-binding/v1", knowledge_structure_revision: newRevision,
       runtime_lock_sha256: "d".repeat(64), page_count: 2, processing: "partial", quality: "needs_review",
       decision: "review", reason_codes: ["RELATIONS_REJECTED"], ocr_calls: 0, semantic_calls: 1 },
   };
   const item: MaterialLibraryItem = {
-    schema: "material-library-item/v3", material_id: material, head_revision: newRevision,
+    schema: "material-library-item/v1", material_id: material, head_revision: newRevision,
     source_artifact_id: uuid(13), display_name: "資料結構", size_bytes: 1024, created_at: timestamp,
     latest_attempt: run, study_sessions: [], available_structures: [
       { run_id: newRun, knowledge_structure_revision: newRevision, created_at: timestamp, status: "partial", base_revision: revision },
@@ -119,7 +119,7 @@ for (const width of [1536, 390]) test(`quality notices stay in processing while 
   await page.route("**/v1/session/refresh", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
   await page.route(`**/v1/material-processing-runs/${newRun}`, route => route.fulfill({ json: run }));
   await page.route(`**/v1/materials/${material}`, route => route.fulfill({ json: item }));
-  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [item] } }));
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v1", materials: [item] } }));
   await page.route("**/v1/materials/*/knowledge-structures/*", route => route.fulfill({ status: 503, json: {} }));
   await page.goto(`/materials/${material}/runs/${newRun}`);
   await expect(page.getByRole("heading", { name: "教材更新完成", exact: true })).toBeVisible();

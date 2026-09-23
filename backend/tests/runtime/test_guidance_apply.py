@@ -25,7 +25,7 @@ def test_apply_advance_complete_and_replay_preserves_session_and_answers(closed_
     before=progress(f);assert before.next_action.action=='advance'
     client=TestClient(_app(f['dsn'],tmp_path,monkeypatch),base_url=ORIGIN);client.cookies.set('studydy_session',f['token'])
     sid=f['study'].study_session_id;url=f'/v1/study-sessions/{sid}/guidance/apply'
-    body={'schema':'guidance-apply/v2','guidance_revision':before.guidance_revision}
+    body={'schema':'guidance-apply/v1','guidance_revision':before.guidance_revision}
     stale=client.post(url,headers=HEADERS,json={**body,'guidance_revision':'learner-guidance:sha256:'+'f'*64})
     assert stale.status_code==409 and stale.json()['reason_code']=='LEARNER_GUIDANCE_STALE'
     result=client.post(url,headers=HEADERS,json=body)

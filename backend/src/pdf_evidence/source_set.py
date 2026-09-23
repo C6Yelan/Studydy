@@ -43,7 +43,7 @@ def collect_source_set(inputs, binding, base, directory, settings, produced_at, 
             for number in range(offset + 1, offset + count + 1):
                 old = [e for e in base["evidence"] if e["page"] == number]
                 if old:
-                    page = {"schema": "page-evidence/v4", "evidence_blocks": [
+                    page = {"schema": "page-evidence/v1", "evidence_blocks": [
                         {"kind": e["kind"], "source": e["source"], "text": e["exact_text"],
                          "reading_order": e["block_order"], "locator": deepcopy(e["source_locator"])} for e in old]}
                     pages.append(rebase_page(page, digest, number))

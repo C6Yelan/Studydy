@@ -124,7 +124,7 @@ export function StudySessionPage({ apiClient, route }: {
     const version = pageVersion.current;
     setContinuing(true); setContinueError(null);
     try {
-      await apiClient.applyGuidance(route.studySessionId, {schema:"guidance-apply/v2",guidance_revision:data.progress.guidance_revision});
+      await apiClient.applyGuidance(route.studySessionId, {schema:"guidance-apply/v1",guidance_revision:data.progress.guidance_revision});
       if (!activePage.current || pageVersion.current !== version) return;
       setData(null); setSetPhase(null);
       writeRoute({name:"study-session",materialId:route.materialId,runId:route.runId,

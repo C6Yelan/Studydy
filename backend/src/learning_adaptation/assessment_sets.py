@@ -321,7 +321,7 @@ def list_sets(learner, sid, *, dsn=None):
 def _list_sets(session, study):
     groups = list(session.scalars(select(AssessmentSet).where(AssessmentSet.study_session_id == study.study_session_id)
                                   .order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)))
-    return {'schema': 'assessment-set-list/v3', 'study_session_id': str(study.study_session_id),
+    return {'schema': 'assessment-set-list/v1', 'study_session_id': str(study.study_session_id),
             'knowledge_structure_revision': study.knowledge_structure_revision,
             'active_set_ids': [str(item.set_id) for item in groups if item.status in ACTIVE],
             'sets': [_summary(session, group) for group in groups]}
@@ -355,7 +355,7 @@ def read_set(learner, sid, set_id, *, dsn=None):
         other_active = session.scalar(select(AssessmentSet.set_id).where(AssessmentSet.study_session_id == sid,
             AssessmentSet.set_id != set_id, AssessmentSet.status.in_(ACTIVE),
             AssessmentSet.target_concept_id == group.target_concept_id).limit(1)) is not None
-        return {'schema': 'assessment-set/v3', 'study_session_id': str(sid),
+        return {'schema': 'assessment-set/v1', 'study_session_id': str(sid),
                 'material_id': str(study.material_id), 'knowledge_structure_revision': study.knowledge_structure_revision,
                 **summary, 'kind': group.kind, 'selection_policy': group.target_plan['policy'],
                 'point_count': group.target_plan['point_count'], 'excluded_count': len(group.target_plan['excluded']),

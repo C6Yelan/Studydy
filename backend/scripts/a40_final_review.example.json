@@ -1,5 +1,5 @@
 {
-  "schema": "a40-final-review/v2",
+  "schema": "a40-final-review/v1",
   "run_sha256": "REPLACE_WITH_PRIVATE_RUN_SHA256",
   "materials": {
     "array_45": {

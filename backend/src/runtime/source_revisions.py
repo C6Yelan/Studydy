@@ -93,7 +93,7 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
             before = session.scalar(select(KnowledgeStructure).where(KnowledgeStructure.learner_id == owner,
                 KnowledgeStructure.material_id == material_id, KnowledgeStructure.structure_revision == base_revision)) if base_revision else None
             old_binding = deepcopy(before.document["input_binding"]) if before else None
-            if not normalization_ids and (not old_binding or old_binding['schema'] != 'structure-input-binding/v2'):
+            if not normalization_ids and (not old_binding or old_binding['schema'] != 'structure-input-binding/v1'):
                 raise SourceError("REQUEST_INVALID")
         old_items = deepcopy(old_binding["manifest"]["items"]) if old_binding else []
         runtime = runtime_binding(config)
@@ -140,7 +140,7 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
             for item in items:
                 for n in range(1, item["page_count"] + 1):
                     pages.append({"page": len(pages) + 1, "source_id": item["source_id"], "normalized_page": n})
-            bundle = {"schema": "bundle-manifest/v2", "source_set_digest": manifest_hash,
+            bundle = {"schema": "bundle-manifest/v1", "source_set_digest": manifest_hash,
                 "processing_policy": "source-boundary-incremental/v1", "pages": pages,
                 "source_names": [item["original_name"] for item in items]}
             row = MaterialProcessingRun(run_id=uuid4(), learner_id=owner, material_id=material_id,

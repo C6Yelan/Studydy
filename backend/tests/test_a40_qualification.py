@@ -77,13 +77,13 @@ def test_score_uses_85_percent_semantics_and_keeps_runtime_failures_blocking(
         "peak_vram_mib": 40000, "gpu": {"memory_mib": 46080},
     }
     for role in qualification.QUALITY_ROLES:
-        structure = {"revision": role, "source_sha256": qualification.ARRAY_SOURCE_SHA256, "page_count": 45, "concepts": [{}]}
+        structure = { "source_sha256": qualification.ARRAY_SOURCE_SHA256, "page_count": 45, "concepts": [{}]}
         qualification._write(output / f"{role}.private.json", structure)
         summary["materials"][role] = {
-            "revision": role, "source_sha256": qualification.ARRAY_SOURCE_SHA256,
+            "revision": qualification._draft_revision(structure), "source_sha256": qualification.ARRAY_SOURCE_SHA256,
         }
         review["materials"][role].update(
-            revision=role, reviewed_units=20, usable_units=usable_units,
+            revision=qualification._draft_revision(structure), reviewed_units=20, usable_units=usable_units,
         )
     review["assessment"].update(reviewed_questions=20, usable_questions=17)
     review["runtime"]["oom"] = oom

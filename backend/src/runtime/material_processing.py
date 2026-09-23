@@ -73,10 +73,10 @@ class MaterialProcessingRun:
     updated_at: datetime
     completed_at: datetime | None
     cancel_requested_at: datetime | None
-    input_source_set_id: UUID | None = None
+    input_source_set_id: UUID
+    runtime_lock_document: dict[str, Any] = field(repr=False)
     base_revision: str | None = None
     source_names: tuple[str, ...] = ()
-    runtime_lock_document: dict[str, Any] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -121,7 +121,7 @@ def _row(row: RunRow) -> MaterialProcessingRun:
             row.status in {"succeeded", "partial"}
             and isinstance(output, dict)
             and set(output) == fields
-            and output["schema"] == "material-run-output-binding/v4"
+            and output["schema"] == "material-run-output-binding/v1"
             and re.fullmatch(
                 r"knowledge-structure:sha256:[0-9a-f]{64}",
                 output["knowledge_structure_revision"],
@@ -162,9 +162,9 @@ def _row(row: RunRow) -> MaterialProcessingRun:
         row.run_id, row.learner_id, row.material_id, row.source_artifact_id,
         deepcopy(row.runtime_binding), row.status, row.progress_stage,
         row.completed_pages, row.total_pages, row.error_code,
-        deepcopy(row.output_binding), row.created_at, row.updated_at, row.completed_at, row.cancel_requested_at, row.input_source_set_id, row.base_revision,
-        tuple((row.bundle_manifest or {}).get('source_names', [])),
-        deepcopy(row.runtime_lock_document),
+        deepcopy(row.output_binding), row.created_at, row.updated_at, row.completed_at,
+        row.cancel_requested_at, row.input_source_set_id, deepcopy(row.runtime_lock_document),
+        row.base_revision, tuple(row.bundle_manifest.get('source_names', [])),
     )
 
 
@@ -227,7 +227,7 @@ def runtime_binding(local_config: Any) -> dict[str, Any]:
     from .command_semantics import identity
     command=identity(lock)
     if command is not None:
-        binding.update(schema="material-runtime-binding/v2", model_id=command["model_id"], model_revision=command["model_revision"],
+        binding.update(model_id=command["model_id"], model_revision=command["model_revision"],
                        runtime_lock_sha256=command["runtime_lock_sha256"], semantic_service=command)
     binding["runtime_binding_sha256"] = canonical_sha256(binding)
     if not runtime_binding_is_valid(binding):
@@ -518,7 +518,7 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn):
                 structure['revision'] = _revision(structure)
                 progress('evidence', structure['page_count'], structure['page_count'])
                 progress('semantics', structure['page_count'], structure['page_count'])
-            elif binding is not None and binding['schema']=='structure-input-binding/v2':
+            elif binding is not None and binding['schema']=='structure-input-binding/v1':
                 sources=[]
                 for index,item in enumerate(binding['manifest']['items']):
                     path=Path(directory)/f'source-{index}.pdf'

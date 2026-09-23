@@ -82,7 +82,7 @@ def test_current_command_provenance_is_read_without_live_configuration(closed_lo
     assert group['status']=='ready'
     with database_session(f['dsn']) as session:
         stored=_stored(session.get(Assessment,group['assessment_revisions'][0]))
-    assert stored.generation_provenance['schema']=='assessment-generation-provenance/v8'
+    assert stored.generation_provenance['schema']=='assessment-generation-provenance/v1'
     assert stored.generation_provenance['execution_identity']['transport']=='command'
     monkeypatch.delenv('STUDYDY_SEMANTIC_COMMAND_CONFIG')
     assert read(f,identity)==group

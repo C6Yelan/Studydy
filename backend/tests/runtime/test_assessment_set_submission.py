@@ -37,7 +37,7 @@ def test_whole_set_submission_publishes_all_feedback_and_replays_once(closed_loo
     group=read(f,identity);answers=answers_for(f,identity)
     one=answers[0]
     rejected=client.post(f'/v1/study-sessions/{sid}/assessments/{one["assessment_revision"]}/submissions',
-        headers={**HEADERS,'Idempotency-Key':'individual'},json={'schema':'answer-submission-create/v2',
+        headers={**HEADERS,'Idempotency-Key':'individual'},json={'schema':'answer-submission-create/v1',
         'question_id':one['question_id'],'selected_option_id':one['selected_option_id']})
     assert rejected.status_code==404
     assert read(f,identity)['answered_count']==0

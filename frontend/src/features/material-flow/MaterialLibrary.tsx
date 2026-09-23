@@ -26,7 +26,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
     if (starting) return;
     setStarting(item.material_id);
     try {
-      const session = await apiClient.createStudySession({ schema: "study-session-create/v2", material_id: item.material_id, knowledge_structure_revision: structure.knowledge_structure_revision });
+      const session = await apiClient.createStudySession({ schema: "study-session-create/v1", material_id: item.material_id, knowledge_structure_revision: structure.knowledge_structure_revision });
       writeRoute({ name: "study-session", materialId: item.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision, studySessionId: session.study_session_id });
     } catch (error) { setMessage(errorMessage(error)); }
     finally { setStarting(null); }

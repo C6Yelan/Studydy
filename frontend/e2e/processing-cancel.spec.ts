@@ -5,7 +5,7 @@ const mid = "11111111-1111-4111-8111-111111111111";
 const rid = "22222222-2222-4222-8222-222222222222";
 const path = `/materials/${mid}/runs/${rid}`;
 const time = new Date("2026-09-12T12:00:00Z");
-const base: MaterialProcessingRunView = { schema: "material-processing-run/v6", run_id: rid, material_id: mid, source_artifact_id: mid,
+const base: MaterialProcessingRunView = { schema: "material-processing-run/v1", run_id: rid, material_id: mid, source_artifact_id: mid,
   status: "running", progress_stage: "evidence", completed_pages: 3, total_pages: 45, cancel_requested_at: null,
   output_binding: null, error_code: null, created_at: "2026-09-12T11:59:00Z", updated_at: "2026-09-12T11:59:59Z", completed_at: null };
 const requested = (run = base): MaterialProcessingRunView => ({ ...run, cancel_requested_at: time.toISOString(), updated_at: time.toISOString() });
@@ -17,7 +17,7 @@ async function setup(page: Page) {
   await page.clock.install({ time }); await page.clock.pauseAt(time);
   await page.route("**/v1/session/refresh", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
   await page.route("**/v1/session", route => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: mid } }));
-  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [] } }));
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v1", materials: [] } }));
 }
 async function confirm(page: Page) {
   await page.getByRole("button", { name: "取消並刪除教材", exact: true }).click();
@@ -109,7 +109,7 @@ test("publishing finishes safely while accepted deletion keeps polling to purge"
   await expect(page.getByRole("heading", { name: "正在取消並刪除教材", exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
   state = { ...state, status: "succeeded", progress_stage: "completed", completed_at: time.toISOString(),
-    output_binding: { schema: "material-run-output-binding/v4", knowledge_structure_revision: `knowledge-structure:sha256:${"a".repeat(64)}`, runtime_lock_sha256: "b".repeat(64), page_count: 45, processing: "succeeded", quality: "accepted", decision: "retain", reason_codes: [], ocr_calls: 0, semantic_calls: 1 } };
+    output_binding: { schema: "material-run-output-binding/v1", knowledge_structure_revision: `knowledge-structure:sha256:${"a".repeat(64)}`, runtime_lock_sha256: "b".repeat(64), page_count: 45, processing: "succeeded", quality: "accepted", decision: "retain", reason_codes: [], ocr_calls: 0, semantic_calls: 1 } };
   await page.clock.runFor(1500);
   await expect(page.getByRole("heading", { name: "正在刪除教材…", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveCount(0);

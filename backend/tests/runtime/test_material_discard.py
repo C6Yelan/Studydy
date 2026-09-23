@@ -332,7 +332,7 @@ def test_unlink_failure_is_private_and_retried(unused, monkeypatch):
     assert_removed(unused)
 
 
-def test_discard_transport_owner_contract_and_cancel_surface_removed(unused, monkeypatch):
+def test_discard_transport_owner_contract_and_revision_cancel_requires_body(unused, monkeypatch):
     monkeypatch.setattr(api_app, 'runtime_binding', lambda _: {})
     app = api_app.create_app(api_app.ApiSettings(profile='local', public_origin=ORIGIN, secure_cookie=False, local_config=unused.settings, dsn=unused.dsn))
     client = TestClient(app, base_url=ORIGIN)
@@ -355,7 +355,8 @@ def test_discard_transport_owner_contract_and_cancel_surface_removed(unused, mon
     response = client.delete(url, headers=headers)
     assert response.status_code == 202 and response.json() == {'schema': 'material-discard/v1', 'material_id': str(unused.source.material_id), 'state': 'removing'}
     assert client.delete(url, headers=headers).json() == response.json()
-    assert client.post(f'/v1/material-processing-runs/{run.run_id}/cancel', headers=headers).status_code == 404
+    assert client.post(f'/v1/material-processing-runs/{run.run_id}/cancel', headers=headers).status_code == 400
+    assert client.post(f'/v2/material-processing-runs/{run.run_id}/cancel', headers=headers).status_code == 404
     processing._record_failure(run.run_id, 'IN_FLIGHT_ERROR', dsn=unused.dsn)
     assert read(unused, run).status == 'cancelled'
     removed = client.delete(url, headers=headers)
@@ -364,7 +365,8 @@ def test_discard_transport_owner_contract_and_cancel_surface_removed(unused, mon
     assert not (unused.root / "objects" / unused.source.artifact_id.hex).exists()
     assert not (unused.root / "objects" / unused.original_source.artifact_id.hex).exists()
     schema = app.openapi()
-    assert '/v1/material-processing-runs/{run_id}/cancel' not in schema['paths']
+    assert '/v1/material-processing-runs/{run_id}/cancel' in schema['paths']
+    assert '/v2/material-processing-runs/{run_id}/cancel' not in schema['paths']
     operation = schema['paths']['/v1/materials/{material_id}']['delete']
     assert operation['security'] == [{'CookieSession': []}]
     assert any(p['name'] == 'Origin' and p['required'] for p in operation['parameters'])
@@ -387,39 +389,76 @@ def test_discard_api_filesystem_failure_is_safe_503_and_retryable(unused, monkey
     assert_removed(unused)
 
 
-def test_0006_adds_only_nullable_intent_and_preserves_old_checksums(clean_database_dsn, migrations_dir, tmp_path):
-    old = tmp_path / 'old-migrations'; old.mkdir()
-    for path in migrations_dir.glob('*.sql'):
-        if int(path.name[:4]) <= 5: (old / path.name).write_bytes(path.read_bytes())
-    assert run_migrations(clean_database_dsn, migrations_dir=old) == (1, 2, 3, 4, 5)
-    with psycopg.connect(clean_database_dsn) as c:
-        c.execute('SET CONSTRAINTS ALL DEFERRED')
-        learner, mid, aid, rid = uuid4(), uuid4(), uuid4(), uuid4()
-        c.execute('INSERT INTO learners VALUES (%s,now())', (learner,))
-        c.execute('INSERT INTO materials(material_id,learner_id,source_artifact_id,upload_idempotency_key_sha256,upload_request_fingerprint,created_at) VALUES (%s,%s,%s,%s,%s,now())', (mid,learner,aid,bytes(32),bytes(32)))
-        c.execute("INSERT INTO artifacts VALUES (%s,%s,%s,'source_pdf','application/pdf',%s,1,now())", (aid,learner,mid,bytes(32)))
-        c.execute("INSERT INTO material_processing_runs(run_id,learner_id,material_id,source_artifact_id,idempotency_key_sha256,request_fingerprint,runtime_binding,status,progress_stage,created_at,updated_at,completed_at,cancel_requested_at) VALUES (%s,%s,%s,%s,%s,%s,'{}','cancelled','queued',now(),now(),now(),now())", (rid,learner,mid,aid,bytes(32),bytes(32)))
-        before = c.execute('SELECT row_to_json(m) FROM materials m').fetchone()[0]
-        run_before = c.execute('SELECT row_to_json(r) FROM material_processing_runs r').fetchone()[0]
-        checksums = c.execute('SELECT version,sql_sha256 FROM schema_migrations ORDER BY version').fetchall()
-    through_six=tmp_path/"through-six";through_six.mkdir()
-    for path in migrations_dir.glob("*.sql"):
-        if int(path.name[:4])<=6:(through_six/path.name).write_bytes(path.read_bytes())
-    assert run_migrations(clean_database_dsn,migrations_dir=through_six) == (6,)
-    assert run_migrations(clean_database_dsn,migrations_dir=through_six) == ()
-    with psycopg.connect(clean_database_dsn) as c:
-        after = c.execute('SELECT row_to_json(m) FROM materials m').fetchone()[0]
-        assert after.pop('discard_requested_at') is None and after == before
-        assert c.execute('SELECT row_to_json(r) FROM material_processing_runs r').fetchone()[0] == run_before
-        assert c.execute('SELECT version,sql_sha256 FROM schema_migrations WHERE version<=5 ORDER BY version').fetchall() == checksums
+def test_final_schema_enforces_cancelled_run_constraints(clean_database_dsn):
+    run_migrations(clean_database_dsn)
+    learner_id, material_id, artifact_id, source_set_id, run_id = (uuid4() for _ in range(5))
+    with psycopg.connect(clean_database_dsn) as connection:
+        connection.execute(
+            "INSERT INTO learners (learner_id, created_at) VALUES (%s, now())",
+            (learner_id,),
+        )
+        connection.execute(
+            """INSERT INTO materials (
+                   material_id, learner_id, source_artifact_id,
+                   upload_idempotency_key_sha256, upload_request_fingerprint,
+                   created_at, display_name
+               ) VALUES (%s, %s, %s, %s, %s, now(), 'Synthetic.pdf')""",
+            (material_id, learner_id, artifact_id, bytes(32), bytes(32)),
+        )
+        connection.execute(
+            """INSERT INTO material_source_sets (
+                   source_set_id, learner_id, material_id, manifest, digest, created_at
+               ) VALUES (%s, %s, %s, '{}', %s, now())""",
+            (source_set_id, learner_id, material_id, '0' * 64),
+        )
+        connection.execute(
+            """INSERT INTO artifacts (
+                   artifact_id, learner_id, material_id, kind, media_type,
+                   sha256, size_bytes, created_at
+               ) VALUES (
+                   %s, %s, %s, 'normalized_pdf', 'application/pdf', %s, 1, now()
+               )""",
+            (artifact_id, learner_id, material_id, bytes(32)),
+        )
+        connection.execute(
+            """INSERT INTO material_processing_runs (
+                   run_id, learner_id, material_id, source_artifact_id,
+                   idempotency_key_sha256, request_fingerprint, runtime_binding,
+                   input_source_set_id, bundle_manifest, bundle_manifest_sha256,
+                   runtime_lock_document,
+                   status, progress_stage, created_at, updated_at,
+                   completed_at, cancel_requested_at
+               ) VALUES (
+                   %s, %s, %s, %s, %s, %s, '{}', %s, '{}', %s, '{}',
+                   'cancelled', 'queued',
+                   now(), now(), now(), now()
+               )""",
+            (run_id, learner_id, material_id, artifact_id, bytes(32), bytes(32),
+             source_set_id, '0' * 64),
+        )
+        assert connection.execute(
+            "SELECT discard_requested_at FROM materials"
+        ).fetchone() == (None,)
     for invalid in [
-        "cancel_requested_at=NULL", "completed_at=NULL", "error_code='ERROR'", "output_binding='{}'",
-        "status='running',completed_at=NULL,progress_stage='publishing'",
-        "status='pending',completed_at=NULL", "status='failed',error_code='ERROR'",
-        "status='succeeded',progress_stage='completed',output_binding='{}'",
+        "cancel_requested_at = NULL",
+        "completed_at = NULL",
+        "error_code = 'ERROR'",
+        "output_binding = '{}'",
+        "status = 'pending', completed_at = NULL",
+        "status = 'failed', error_code = 'ERROR'",
+        "status = 'succeeded', progress_stage = 'completed', output_binding = '{}'",
     ]:
-        with psycopg.connect(clean_database_dsn) as c:
-            with pytest.raises(psycopg.errors.CheckViolation): c.execute('UPDATE material_processing_runs SET '+invalid)
+        with psycopg.connect(clean_database_dsn) as connection:
+            with pytest.raises(psycopg.errors.CheckViolation):
+                connection.execute(f"UPDATE material_processing_runs SET {invalid}")
+    # 最終規則允許 publishing 尚未提交時保存取消意圖。
+    with psycopg.connect(clean_database_dsn) as connection:
+        connection.execute(
+            """UPDATE material_processing_runs
+               SET status = 'running', completed_at = NULL,
+                   progress_stage = 'publishing'"""
+        )
+
 
 def test_active_run_is_cancelled_and_new_revision_cannot_start(unused):
     run=create(unused);claim(unused)

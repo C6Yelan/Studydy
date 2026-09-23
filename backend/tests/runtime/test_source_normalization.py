@@ -70,12 +70,12 @@ def test_source_round_trip_freeze_resume_and_owned_delete(closed_loop,normalizer
                 settings,run_id=str(run.run_id),semantic_call=semantics,source_inputs=[source_request],input_binding=_input(owner,run.run_id,dsn=dsn))
     document=bind_structure_input(owner,run.run_id,document,dsn=dsn)
     published=publish_fixture_structure(owner,material,run.run_id,document,dsn=dsn)
-    assert published.document['schema']=='knowledge-structure/v4'
-    assert published.view['schema']=='knowledge-structure-view/v3'
+    assert published.document['schema']=='knowledge-structure/v1'
+    assert published.view['schema']=='knowledge-structure-view/v1'
     evidence=document['evidence'][0]['evidence_id']
     source=resolve_evidence_source(owner,material,published.revision,evidence,dsn=dsn)
     assert source['format']=='txt' and source['normalized_page']==1 and '原文第' in source['label']
-    assert source['original_url'].startswith('/v2/artifacts/')
+    assert source['original_url'].startswith('/v1/artifacts/')
     with pytest.raises(Exception):resolve_evidence_source(uuid4(),material,published.revision,evidence,dsn=dsn)
     assert read_knowledge_structure(owner,old_source.material_id,revision=old_structure['revision'],dsn=dsn).document==old_structure
     assert read_knowledge_structure(owner,material,revision=published.revision,dsn=dsn).document==document
@@ -124,15 +124,15 @@ def test_source_api_origin_owner_download_and_no_model(closed_loop,normalizer,mo
     app=api.create_app(api.ApiSettings(profile='local',public_origin='http://127.0.0.1:4173',secure_cookie=False,local_config=settings,dsn=dsn))
     client=TestClient(app);client.cookies.set('studydy_session',token)
     headers={'Origin':'http://127.0.0.1:4173','Idempotency-Key':'api-draft'}
-    assert client.post('/v2/materials',json={'schema':'material-draft-create/v1','display_name':'source.md'}).status_code==403
-    response=client.post('/v2/materials',json={'schema':'material-draft-create/v1','display_name':'source.md'},headers=headers)
+    assert client.post('/v1/materials',json={'schema':'material-draft-create/v1','display_name':'source.md'}).status_code==403
+    response=client.post('/v1/materials',json={'schema':'material-draft-create/v1','display_name':'source.md'},headers=headers)
     assert response.status_code==201,response.text
-    material=response.json()['material_id'];path=f'/v2/materials/{material}/sources'
+    material=response.json()['material_id'];path=f'/v1/materials/{material}/sources'
     upload={**headers,'Idempotency-Key':'api-upload','Content-Type':'text/markdown','X-Material-Name':'source.md'}
     received=client.post(path,content=b'# Stacks\n\nA stack follows LIFO order.\n',headers=upload)
     assert received.status_code==202,received.text
     original=received.json()['sources'][0]['original_artifact_id']
-    own=client.get(f'/v2/artifacts/{original}')
+    own=client.get(f'/v1/artifacts/{original}/download')
     assert own.status_code==200 and own.headers['content-disposition'].startswith('attachment;')
     assert own.headers['x-content-type-options']=='nosniff' and own.headers['cache-control']=='private, no-store'
     assert client.get(f'/v1/artifacts/{original}').status_code==404
@@ -140,12 +140,26 @@ def test_source_api_origin_owner_download_and_no_model(closed_loop,normalizer,mo
     account=foreign.post('/v1/accounts',json={'email':'source_b@example.com','password':'Synthetic test password 42'},headers=headers)
     assert account.status_code==201
     assert foreign.get(path).status_code==404
-    assert foreign.get(f'/v2/artifacts/{original}').status_code==404
+    assert foreign.get(f'/v1/artifacts/{original}/download').status_code==404
     assert normalize_next(dsn=dsn)
     ready=client.get(path).json()['sources'][0]
-    run=client.post(f'/v2/materials/{material}/revisions',json={'schema':'material-revision-create/v1','base_revision':None,'normalization_ids':[ready['normalization_id']]},headers={**headers,'Idempotency-Key':'revision'})
+    preview=client.get(f"/v1/artifacts/{ready['normalized_artifact_id']}")
+    assert preview.status_code == 200 and preview.headers['content-type'] == 'application/pdf'
+    assert 'content-disposition' not in preview.headers and preview.headers['etag'].startswith('"sha256:')
+    assert client.get(f"/v1/artifacts/{ready['normalized_artifact_id']}/download").status_code == 404
+    assert foreign.get(f"/v1/artifacts/{ready['normalized_artifact_id']}").status_code == 404
+    assert client.get(f'/v2/artifacts/{original}').status_code == 404
+    route_keys = [(method, route.path) for route in app.routes for method in getattr(route, 'methods', ())]
+    assert len(route_keys) == len(set(route_keys))
+    contract = app.openapi()['paths']
+    assert all(route.startswith('/v1/') for route in contract)
+    assert set(contract['/v1/materials']['post']['requestBody']['content']) == {'application/json'}
+    assert 'text/markdown' in contract['/v1/materials/{material_id}/sources']['post']['requestBody']['content']
+    assert 'application/pdf' in contract['/v1/artifacts/{artifact_id}']['get']['responses']['200']['content']
+    assert 'text/markdown' in contract['/v1/artifacts/{artifact_id}/download']['get']['responses']['200']['content']
+    run=client.post(f'/v1/materials/{material}/revisions',json={'schema':'material-revision-create/v1','base_revision':None,'normalization_ids':[ready['normalization_id']]},headers={**headers,'Idempotency-Key':'revision'})
     assert run.status_code==202,run.text
-    assert run.json()['schema']=='material-processing-run/v6' and run.json()['input_source_set_id']
+    assert run.json()['schema']=='material-processing-run/v1' and run.json()['input_source_set_id']
     before=client.get(path).json()
     assert client.get(path).json()==before
     assert attempts==[]

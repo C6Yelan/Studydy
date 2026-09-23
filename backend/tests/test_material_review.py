@@ -1,3 +1,4 @@
+from structure_fixtures import build_knowledge_structure
 from copy import deepcopy
 
 import pytest
@@ -16,7 +17,7 @@ def view():
         concepts.append({'concept_id':f'c{i}','label':label,'aliases':['Efficiency','Effectiveness'] if i==4 else [],
                          'section_ids':['s0'],
                          'claims':[{'claim_id':f'q{i}','text':text,'evidence':[evidence]}]})
-    return {'schema':'knowledge-structure-view/v3','knowledge_structure_revision':'original',
+    return {'schema':'knowledge-structure-view/v1','knowledge_structure_revision':'original',
             'concepts':concepts,'document_tree':{'sections':[{'section_id':'s0','title':'角色分類'}]},
             'relations':[{'relation_id':'r0','source_concept_id':'c1','target_concept_id':'c0',
                           'type':'part_of','learner_reason':'甲是分類之一。','evidence_refs':['e0','e1']},
@@ -52,7 +53,7 @@ def test_complete_unit_grouping_preserves_individual_points_sources_and_original
 def test_applied_groups_are_valid_canonical_claims_with_new_ids_and_unchanged_evidence():
     from test_knowledge_structure_v1 import _block, _page
     from knowledge_map.structure import (SemanticState, build_document_context, apply_semantic_response,
-                                         build_knowledge_structure, validate_knowledge_structure)
+                                         validate_knowledge_structure)
     from knowledge_map.material_review import apply_review
     from runtime.material_review import review_inputs
     context = build_document_context([_page(1, [_block(1, 0, 'paragraph', '管理角色包含資訊傳播與對外聯絡。'),

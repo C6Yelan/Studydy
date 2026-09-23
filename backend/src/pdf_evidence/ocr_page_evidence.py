@@ -10,9 +10,9 @@ import unicodedata
 import pymupdf
 
 
-PAGE_SCHEMA = "page-evidence/v4"
-NATIVE_SCHEMA = "page-native/v3"
-PROCESSING_POLICY = "native-first-page-evidence/v7"
+PAGE_SCHEMA = "page-evidence/v1"
+NATIVE_SCHEMA = "page-native/v1"
+PROCESSING_POLICY = "native-first-page-evidence/v1"
 NORMALIZER_POLICY = "ocr-text-nfc-line-preserving/v1"
 RENDER_DPI = 200
 PDF_POINTS_PER_INCH = 72

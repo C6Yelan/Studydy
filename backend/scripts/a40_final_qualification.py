@@ -17,7 +17,7 @@ from typing import Any
 
 import pymupdf
 
-from knowledge_map.structure import validate_knowledge_structure
+from knowledge_map.structure import validate_structure_draft
 from pdf_evidence.material_pipeline import analyze_material
 from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 from runtime.local_app import read_local_ai_config_from_environment
@@ -221,7 +221,7 @@ def run(inputs: dict[str, Path], output: Path) -> int:
             structure = analyze_material(request, settings)
             elapsed = time.monotonic() - started
             if (
-                not validate_knowledge_structure(structure)
+                not validate_structure_draft(structure)
                 or structure["status"]["processing"] == "failed"
                 or not structure["concepts"]
             ):
@@ -230,7 +230,7 @@ def run(inputs: dict[str, Path], output: Path) -> int:
             summaries[role] = {
                 "source_sha256": structure["source_sha256"],
                 "page_count": structure["page_count"],
-                "revision": structure["revision"],
+                "revision": _draft_revision(structure),
                 "processing": structure["status"]["processing"],
                 "concepts": len(structure["concepts"]),
                 "relations": len(structure["relations"]),
@@ -248,7 +248,7 @@ def run(inputs: dict[str, Path], output: Path) -> int:
     if before != after:
         raise QualificationError("RESIDENT_SEMANTIC_RELOADED")
     summary = {
-        "schema": "a40-final-run/v2",
+        "schema": "a40-final-run/v1",
         "produced_at": datetime.now(UTC).isoformat(),
         "candidate_sha": subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, check=True, capture_output=True, text=True).stdout.strip(),
         "runtime_binding_sha256": binding["runtime_binding_sha256"],
@@ -267,11 +267,15 @@ def run(inputs: dict[str, Path], output: Path) -> int:
     return 0
 
 
+def _draft_revision(draft: dict[str, Any]) -> str:
+    return 'analysis-draft:sha256:' + canonical_sha256(draft)
+
+
 def _automatic_gates(structure: dict[str, Any]) -> dict[str, Any]:
     concept_ids = {concept["concept_id"] for concept in structure["concepts"]}
     path_ids = [step["concept_id"] for step in structure["initial_learning_path"]]
     return {
-        "structure_valid": validate_knowledge_structure(structure),
+        "structure_valid": validate_structure_draft(structure),
         "path_complete": bool(concept_ids) and len(path_ids) == len(concept_ids) and set(path_ids) == concept_ids,
     }
 
@@ -292,7 +296,7 @@ def score(review_path: Path, output: Path) -> int:
     review = _read(review_path)
     if (
         set(review) != {"schema", "run_sha256", "materials", "assessment", "closed_loop", "runtime"}
-        or review.get("schema") != "a40-final-review/v2"
+        or review.get("schema") != "a40-final-review/v1"
         or review.get("run_sha256") != run_summary.get("run_sha256")
         or canonical_sha256({key: value for key, value in run_summary.items() if key != "run_sha256"}) != run_summary.get("run_sha256")
         or run_summary.get("candidate_sha") != subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, check=True, capture_output=True, text=True).stdout.strip()
@@ -308,7 +312,7 @@ def score(review_path: Path, output: Path) -> int:
         raise QualificationError("QUALIFICATION_REVIEW_INVALID")
     automatic = _automatic_gates(structure)
     material_pass = _review_counts(human, "reviewed_units", "usable_units") and all(automatic.values()) and (
-        structure["revision"] == human["revision"] == run_summary["materials"]["array_45"]["revision"]
+        _draft_revision(structure) == human["revision"] == run_summary["materials"]["array_45"]["revision"]
         and structure["source_sha256"] == run_summary["materials"]["array_45"]["source_sha256"] == ARRAY_SOURCE_SHA256
         and structure["page_count"] == 45
     )
@@ -331,7 +335,7 @@ def score(review_path: Path, output: Path) -> int:
         and runtime["oom"] == 0 and runtime["engine_death"] == 0
         and runtime["python_minors"] == ["3.12"] and runtime["mdeberta_decision"] == "REMOVE"
     )
-    result = {"schema": "a40-final-qualification/v2", "candidate_sha": run_summary["candidate_sha"],
+    result = {"schema": "a40-final-qualification/v1", "candidate_sha": run_summary["candidate_sha"],
               "run_sha256": run_summary["run_sha256"], "pass": material_pass and assessment_pass and closed_loop_pass and runtime_pass,
               "material_pass": material_pass, "assessment_pass": assessment_pass, "closed_loop_pass": closed_loop_pass,
               "runtime_pass": runtime_pass, "automatic": automatic, "mdeberta_decision": "REMOVE"}

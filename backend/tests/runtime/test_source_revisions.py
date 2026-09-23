@@ -71,7 +71,7 @@ def test_append_uses_only_new_semantics_preserves_history_and_replays_after_prom
     result=execute()
     assert result.status=='succeeded',result.error_code
     newest=read_knowledge_structure(learner.learner_id,material,run_id=result.run_id,dsn=dsn).document
-    assert newest['schema']=='knowledge-structure/v4' and 'source_sha256' not in newest
+    assert newest['schema']=='knowledge-structure/v1' and 'source_sha256' not in newest
     assert newest['page_count']==2 and len(newest['input_binding']['manifest']['items'])==2
     assert requests[-1]['existing_concepts']
     assert {row[1] for section in requests[-1]['sections'] for row in section['evidence']}=={2}
@@ -197,7 +197,7 @@ def test_retry_after_completed_analysis_reuses_saved_results_without_model_or_oc
     def fail(*_args,**_kwargs):raise ValueError('KNOWLEDGE_STRUCTURE_INVALID')
     with monkeypatch.context() as patch:
         patch.setattr(material_pipeline if failure_stage=='construction' else processing,
-                      'build_knowledge_structure' if failure_stage=='construction' else 'publish_knowledge_structure',fail)
+                      'build_structure_draft' if failure_stage=='construction' else 'publish_knowledge_structure',fail)
         failed=execute()
     assert failed.status=='failed'
     if failure_stage=='construction':assert failed.error_code=='KNOWLEDGE_STRUCTURE_INVALID'
@@ -235,7 +235,7 @@ def test_checkpoint_write_failure_stops_before_model_and_corrupt_checkpoint_neve
     assert failed.error_code=='ANALYSIS_ARTIFACT_WRITE_FAILED' and len(requests)==before
     run=start([second],'save-before-construction',old['revision'])
     with monkeypatch.context() as patch:
-        patch.setattr(material_pipeline,'build_knowledge_structure',lambda *_args,**_kwargs:(_ for _ in ()).throw(ValueError('KNOWLEDGE_STRUCTURE_INVALID')))
+        patch.setattr(material_pipeline,'build_structure_draft',lambda *_args,**_kwargs:(_ for _ in ()).throw(ValueError('KNOWLEDGE_STRUCTURE_INVALID')))
         assert execute().error_code=='KNOWLEDGE_STRUCTURE_INVALID'
     path=_material_directory(learner.learner_id,material)/run.run_id.hex/'checkpoint.json'
     saved=json.loads(path.read_text());saved['data']['cursor']=0;path.write_text(json.dumps(saved))
@@ -284,12 +284,12 @@ def test_retry_api_reuses_exact_frozen_order_and_ignores_later_uploads(revisions
     c=add('C.pdf','A binary tree has left and right child nodes.')
     original=create_revision(learner.learner_id,material,[c,b],'frozen-failed',settings,base_revision=old['revision'] if append else None,dsn=dsn)
     with monkeypatch.context() as patch:
-        patch.setattr(material_pipeline,'build_knowledge_structure',lambda *_a,**_kw:(_ for _ in ()).throw(ValueError('KNOWLEDGE_STRUCTURE_INVALID')))
+        patch.setattr(material_pipeline,'build_structure_draft',lambda *_a,**_kw:(_ for _ in ()).throw(ValueError('KNOWLEDGE_STRUCTURE_INVALID')))
         assert execute().status=='failed'
     add('D.pdf','A later source must not silently join the retry.')
     app=api.create_app(api.ApiSettings(profile='local',public_origin='http://127.0.0.1:4173',secure_cookie=False,local_config=settings,dsn=dsn))
     client=TestClient(app);client.cookies.set('studydy_session',closed_loop[-1])
-    route=f'/v2/material-processing-runs/{original.run_id}/retry'
+    route=f'/v1/material-processing-runs/{original.run_id}/retry'
     headers={'Origin':'http://127.0.0.1:4173','Idempotency-Key':'retry-frozen'}
     assert client.post(route).status_code==403
     assert client.post(route,json={'unexpected':True},headers=headers).status_code==400

@@ -21,5 +21,5 @@ test("real single-file upload converts, survives reload, downloads and explicitl
   await page.getByRole('button',{name:'開始分析教材'}).click();
   await expect(page).toHaveURL(/\/runs\/[0-9a-f-]+$/);await expect(page.getByRole('heading',{name:'等待開始處理',exact:true})).toBeVisible();
   const library=await page.request.get('/v1/materials');const item=(await library.json()).materials.find((m:{display_name:string})=>m.display_name==='normalization.txt');
-  expect(item.schema).toBe('material-library-item/v3');expect(item.source.status).toBe('ready');expect(item.latest_attempt.status).toBe('pending');
+  expect(item.schema).toBe('material-library-item/v1');expect(item.source.status).toBe('ready');expect(item.latest_attempt.status).toBe('pending');
 });

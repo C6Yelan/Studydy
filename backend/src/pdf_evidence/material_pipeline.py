@@ -21,7 +21,7 @@ from knowledge_map.structure import (
     SemanticState,
     apply_semantic_response,
     build_document_context,
-    build_knowledge_structure,
+    build_structure_draft,
     build_semantic_bundles,
     semantic_request,
     semantic_response_schema,
@@ -65,7 +65,7 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
         if 'material_review' in lock:
             review = lock['material_review']
             if (set(review) != {'policy', 'prompt', 'max_tokens', 'generation'}
-                or review['policy'] != 'material-review/v2' or not isinstance(review['prompt'], str)
+                or review['policy'] != 'material-review/v1' or not isinstance(review['prompt'], str)
                 or not review['prompt'].strip() or type(review['max_tokens']) is not int
                 or not 1 <= review['max_tokens'] < lock['semantic_service']['max_model_len']
                 or review['generation'] != lock['material_semantics']['generation']):
@@ -116,9 +116,9 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
                 "request_schema", "response_schema", "bundle_policy",
                 "max_tokens", "prompt", "retry_attempts", "generation", "max_new_input_tokens",
             }
-            or material["request_schema"] != "material-semantics-request/v3"
-            or material["response_schema"] != "material-semantics-response/v5"
-            or material["bundle_policy"] != "contiguous-evidence-new-input/v4"
+            or material["request_schema"] != "material-semantics-request/v1"
+            or material["response_schema"] != "material-semantics-response/v1"
+            or material["bundle_policy"] != "contiguous-evidence-new-input/v1"
             or material["max_new_input_tokens"] != 1536
             or material["max_tokens"] != 8192
             or material["generation"] != {
@@ -132,12 +132,12 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
                 "provenance_schema", "policy", "candidate_count", "option_count",
                 "max_tokens", "generation", "prompt", "check_max_tokens", "check_generation", "check_prompt",
             }
-            or assessment_settings["request_schema"] != "assessment-semantics-request/v2"
-            or assessment_settings["response_schema"] != "assessment-semantics-response/v2"
-            or assessment_settings["public_schema"] != "single-choice-assessment/v2"
-            or assessment_settings["private_schema"] != "single-choice-answer/v2"
-            or assessment_settings["provenance_schema"] != "assessment-generation-provenance/v8"
-            or assessment_settings["policy"] != "source-span-single-choice/v6"
+            or assessment_settings["request_schema"] != "assessment-semantics-request/v1"
+            or assessment_settings["response_schema"] != "assessment-semantics-response/v1"
+            or assessment_settings["public_schema"] != "single-choice-assessment/v1"
+            or assessment_settings["private_schema"] != "single-choice-answer/v1"
+            or assessment_settings["provenance_schema"] != "assessment-generation-provenance/v1"
+            or assessment_settings["policy"] != "source-span-single-choice/v1"
             or assessment_settings["candidate_count"] != 3
             or assessment_settings["option_count"] != 4
             or assessment_settings["max_tokens"] != 4096
@@ -154,9 +154,9 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
             }
             or not isinstance(assessment_settings["check_prompt"], str)
             or not assessment_settings["check_prompt"]))
-            or ocr["page_schema"] != "page-evidence/v4"
-            or ocr["native_schema"] != "page-native/v3"
-            or ocr["processing_policy"] != "native-first-page-evidence/v7"
+            or ocr["page_schema"] != "page-evidence/v1"
+            or ocr["native_schema"] != "page-native/v1"
+            or ocr["processing_policy"] != "native-first-page-evidence/v1"
             or ocr["normalizer_policy"] != "ocr-text-nfc-line-preserving/v1"
             or material["retry_attempts"] != 2
         ):
@@ -302,7 +302,7 @@ def analyze_material(
     base_structure: dict[str, Any] | None = None,
     analysis_archive: Any | None = None,
 ) -> dict[str, Any]:
-    """Evidence → 設定的語意模型 → deterministic canonical structure。"""
+    """Evidence → 語意模型 → 未綁來源的內部草稿；發布前須完成正式來源綁定。"""
 
     lock = validate_runtime_lock(settings.get("runtime_lock"), assessment=False)
     resolved_run = run_id or str(uuid4())
@@ -463,7 +463,7 @@ def analyze_material(
     command=identity(lock)
     service = lock["semantic_service"] if command is None else {"model_id":command["model_id"],"revision":command["model_revision"]}
     try:
-        return build_knowledge_structure(
+        return build_structure_draft(
             context,
             state,
             source_sha256=checked["expected_source_sha256"],

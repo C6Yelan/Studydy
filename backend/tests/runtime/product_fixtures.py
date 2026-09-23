@@ -16,7 +16,7 @@ from runtime.storage.tables import Material, MaterialProcessingRun, SourceNormal
 from runtime.storage.knowledge_structures import publish_knowledge_structure
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from pdf_evidence.source_set import rebase_page
-from knowledge_map.structure import build_document_context, SemanticState, apply_semantic_response, build_knowledge_structure
+from knowledge_map.structure import build_document_context, SemanticState, apply_semantic_response, build_structure_draft
 
 
 def seed_pdf(owner, stream, key, *, dsn, display_name=None):
@@ -49,13 +49,13 @@ def seed_run(owner, material, artifact, key, settings, *, dsn):
 
 def publish_fixture_structure(owner, material, run, document, *, dsn, **kwargs):
     binding=_input(owner,run,dsn=dsn)
-    if document.get('schema')!='knowledge-structure/v4':
-        # 此處的 v2/v3 是 builder 的中間產物，不是 runtime reader 的舊資料相容。
+    if document.get('input_binding') != binding:
+        # fixture 的來源身分須重新綁到本次 SourceSet；草稿沒有正式 schema 或 revision。
         rows=document['evidence'];pages=[]
         for number in range(1,document['page_count']+1):
             blocks=[{'kind':e['kind'],'source':e['source'],'text':e['exact_text'],'reading_order':e['block_order'],
                 'locator':deepcopy(e['source_locator'])} for e in rows if e['page']==number]
-            if blocks:pages.append(rebase_page({'schema':'page-evidence/v4','evidence_blocks':blocks},binding['source_set_digest'],number))
+            if blocks:pages.append(rebase_page({'schema':'page-evidence/v1','evidence_blocks':blocks},binding['source_set_digest'],number))
         context=build_document_context(pages,page_count=document['page_count'],source_pages=binding['bundle']['pages'])
         indexes={e['evidence_id']:i for i,e in enumerate(rows)}
         keys={c['concept_id']:f'concept_{i}' for i,c in enumerate(document['concepts'])}
@@ -68,7 +68,7 @@ def publish_fixture_structure(owner, material, run, document, *, dsn, **kwargs):
         apply_semantic_response(response,context=context,bundle={'sections':context['sections'],'evidence':context['evidence']},state=state)
         with database_session(dsn) as session:
             provenance=deepcopy(session.get(MaterialProcessingRun,run).runtime_binding)
-        result=build_knowledge_structure(context,state,source_sha256=binding['source_set_digest'],run_id=str(run),
+        result=build_structure_draft(context,state,source_sha256=binding['source_set_digest'],run_id=str(run),
             produced_at=document['produced_at'],runtime_lock_sha256=provenance['runtime_lock_sha256'],model_id=provenance['model_id'],
             model_revision=provenance['model_revision'],semantic_calls=document['metrics']['semantic_calls'],ocr_calls=document['metrics']['ocr_calls'],
             execution_identity=document.get('execution_identity'))

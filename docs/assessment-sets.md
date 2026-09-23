@@ -4,7 +4,7 @@
 
 ## B05 階段狀態（2026-09-20）
 
-B5-Q 出題檢查與候選排序、B5-D 題組及 B5-R 錯題補強均已實作並載入日常服務，功能驗證紀錄見下文及對應文件。現行資料庫為 migration 0013；整組一次交卷，不同觀念可各自保留未完成題組。開發模型實跑通過限於記錄的 Luna 案例，不代表一般教材品質或正式 Gemma 品質驗收。
+B5-Q 出題檢查與候選排序、B5-D 題組及 B5-R 錯題補強均已實作並載入日常服務，功能驗證紀錄見下文及對應文件。當時資料庫使用舊 migration 鏈；2026-09-23 才接軌目前的四份領域 baseline（0001～0004）。整組一次交卷，不同觀念可各自保留未完成題組。開發模型實跑通過限於記錄的 Luna 案例，不代表一般教材品質或正式 Gemma 品質驗收。
 
 待改善項目包括題目重要性、答案線索與干擾選項，以及計畫階段未合併語意重疊重點，造成出題時被判重複而生成不足。依使用者決定，整體 UI／UX 留待後續集中整理，阻擋使用或影響資料保存的問題仍需即時修正。這些限制不阻擋進入 B06 整體流程驗收，也不能在後續驗收中省略或冒稱已解決。
 
@@ -24,7 +24,7 @@ B5-Q 出題檢查與候選排序、B5-D 題組及 B5-R 錯題補強均已實作�
 
 ## 保存與併發邊界
 
-migration `0011_assessment_sets.sql` 新增 `assessment_sets`／`assessment_set_items`，不重寫既有教材、題目、答案或 hashes。不同觀念可各自保留進行中的題組；同一 StudySession／Concept 不重複建立進行中的題組。資料庫唯一限制、完整 scope 外鍵及發布不可變 trigger 保護成員關係。前後端僅使用觀念題組入口；沒有單題歷史路由或舊 guidance 元件／API。
+migration `0004_assessment_sets.sql` 建立 `assessment_sets`／`assessment_set_items`，不重寫既有教材、題目、答案或 hashes。不同觀念可各自保留進行中的題組；同一 StudySession／Concept 不重複建立進行中的題組。資料庫唯一限制、完整 scope 外鍵及發布不可變 trigger 保護成員關係。前後端僅使用觀念題組入口；沒有單題歷史路由或舊 guidance 元件／API。
 
 預留與提交使用短交易，模型呼叫在交易外。逐題 lease／token 配合心跳防止晚到結果發布，過期工作記為中斷而非自動再呼叫模型。已驗證結果遇到不確定的 DB commit 最多補存一次相同結果，不重新出題。取消或刪除教材會失效化工作；實際刪除時先清理題組成員，再清理原有題目與學習記錄。
 
@@ -42,7 +42,7 @@ migration `0011_assessment_sets.sql` 新增 `assessment_sets`／`assessment_set_
 | 整組交卷 | `POST .../assessment-sets/{set_id}/submissions`，含全部已發布題目選項、版本與操作意圖 |
 | 明確重試／部分發布 | `POST .../{set_id}/{retry|publish-partial}` |
 
-建立帶 `target_concept_id` 與 Idempotency-Key，不接受前端任填題數；修改帶版本與 Idempotency-Key。現行 `study-resume/v5` 只包含題組摘要與選取 ID，不再投影 `assessments`／`selected_assessment_revision`，URL 可指向原題組。讀取使用一致 snapshot，過期讀取不覆蓋較新版本；明確版本衝突讀回最新狀態，未知結果保留原操作意圖。
+建立帶 `target_concept_id` 與 Idempotency-Key，不接受前端任填題數；修改帶版本與 Idempotency-Key。現行 `study-resume/v1` 只包含題組摘要與選取 ID，不再投影 `assessments`／`selected_assessment_revision`，URL 可指向原題組。讀取使用一致 snapshot，過期讀取不覆蓋較新版本；明確版本衝突讀回最新狀態，未知結果保留原操作意圖。
 
 ## 驗證與實際限制（2026-09-20）
 
@@ -86,7 +86,7 @@ migration `0011_assessment_sets.sql` 新增 `assessment_sets`／`assessment_set_
 
 題組作答依原 owner、KS、Concept 與不可變成員驗證，不依目前導覽焦點授權。前端 resume 的檢查也按同一規則處理。題組頁 URL 固定指向實際題組，另一視窗切換焦點不改掉本頁內容。重試及補強也只受同一觀念中的進行中題組限制。
 
-題組列表改為 `assessment-set-list/v3`，`active_set_ids` 如實列出多個觀念各自的進行中題組；同一觀念重複建立回 `ASSESSMENT_SET_ACTIVE`，前端接續該觀念原題組，不重跑模型。版本衝突另用原 `ASSESSMENT_SET_CONFLICT`：明確拒絕的交卷會讀回最新狀態、保留選項，下一次確認用最新版本送出；網路結果未知仍沿用原提交意圖查回，不冒然換 key 重送。
+題組列表改為 `assessment-set-list/v1`，`active_set_ids` 如實列出多個觀念各自的進行中題組；同一觀念重複建立回 `ASSESSMENT_SET_ACTIVE`，前端接續該觀念原題組，不重跑模型。版本衝突另用原 `ASSESSMENT_SET_CONFLICT`：明確拒絕的交卷會讀回最新狀態、保留選項，下一次確認用最新版本送出；網路結果未知仍沿用原提交意圖查回，不冒然換 key 重送。
 
 
 跨觀念修正驗證：題組／交卷／補強／切換核心 31 passed，既有閉環、恢復與 migration 回歸 34 passed；桌機與手機真 API／DB 的 A → B → A 接續 2 passed，另有版本衝突後重送與補強 browser 2 passed；前端 Node 49 passed，TypeScript／build 通過。首次 browser 找到前端 resume 還以目前焦點拒絕其他觀念的已發布題目，已改為依題組成員驗證後通過；未分組單題的範圍檢查保留。

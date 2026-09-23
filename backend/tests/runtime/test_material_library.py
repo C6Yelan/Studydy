@@ -106,7 +106,7 @@ def test_library_owns_all_materials_and_keeps_prior_versions(library_materials, 
     empty = register_account("empty_library@example.com", "Synthetic test password 42", dsn=dsn)
     client.cookies.clear()
     client.cookies.set("studydy_session", empty.raw_token)
-    assert client.get("/v1/materials").json() == {"schema": "material-library/v2", "materials": []}
+    assert client.get("/v1/materials").json() == {"schema": "material-library/v1", "materials": []}
     def unavailable(*_args, **_kwargs):
         raise SQLAlchemyError("synthetic-storage-detail-not-for-response")
     monkeypatch.setattr(material_storage, "database_session", unavailable)
@@ -136,12 +136,13 @@ def test_named_draft_is_owned_and_idempotent(closed_loop,tmp_path,monkeypatch):
     client.cookies.set('studydy_session',token)
     headers={**HEADERS,'Idempotency-Key':'named-draft'}
     body={'schema':'material-draft-create/v1','display_name':'陣列.pdf'}
-    created=client.post('/v2/materials',headers=headers,json=body)
+    created=client.post('/v1/materials',headers=headers,json=body)
     assert created.status_code==201
-    assert client.post('/v2/materials',headers=headers,json=body).json()==created.json()
+    assert client.post('/v1/materials',headers=headers,json=body).json()==created.json()
     item=client.get('/v1/materials/'+created.json()['material_id']).json()
     assert item['display_name']=='陣列.pdf' and item['latest_attempt'] is None
-    assert client.post('/v2/materials',headers=headers,json={**body,'display_name':'different.pdf'}).status_code==409
+    assert client.post('/v1/materials',headers=headers,json={**body,'display_name':'different.pdf'}).status_code==409
     for invalid in ['\x00.pdf','../private.pdf','x'*201]:
-        assert client.post('/v2/materials',headers={**headers,'Idempotency-Key':'invalid'},json={**body,'display_name':invalid}).status_code==400
-    assert client.post('/v1/materials',headers=HEADERS,content=b'retired').status_code in (404,405)
+        assert client.post('/v1/materials',headers={**headers,'Idempotency-Key':'invalid'},json={**body,'display_name':invalid}).status_code==400
+    assert client.post('/v1/materials',headers=HEADERS,content=b'retired').status_code == 400
+    assert client.post('/v2/materials',headers=HEADERS,content=b'retired').status_code == 404

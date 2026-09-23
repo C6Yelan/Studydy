@@ -23,7 +23,7 @@ def test_resume_reads_current_sets_without_single_question_projection(learning_r
     response=client.get(path,params={'run_id':f['structure']['run_id'],'set_id':str(f['set_id'])})
     assert response.status_code==200
     view=response.json()
-    assert view['schema']=='study-resume/v5' and view['selected_set_id']==str(f['set_id'])
+    assert view['schema']=='study-resume/v1' and view['selected_set_id']==str(f['set_id'])
     assert not {'assessments','selected_assessment_revision'} & view.keys()
     assert product_snapshot(f['dsn'])==before
     assert client.get(path,params={'run_id':f['structure']['run_id'],'assessment_revision':'retired'}).status_code==400

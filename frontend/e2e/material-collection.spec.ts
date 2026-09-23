@@ -7,7 +7,7 @@ const latestRun = "33333333-3333-4333-8333-333333333333";
 const studyId = "44444444-4444-4444-8444-444444444444";
 const revision = `knowledge-structure:sha256:${"a".repeat(64)}`;
 const mapPath = `/materials/${materialId}/runs/${publishedRun}/knowledge-structures/${encodeURIComponent(revision)}`;
-const base: MaterialLibraryItem = { schema: "material-library-item/v3", material_id: materialId, source_artifact_id: materialId,
+const base: MaterialLibraryItem = { schema: "material-library-item/v1", material_id: materialId, source_artifact_id: materialId,
   display_name: "資料結構講義.pdf", size_bytes: 1200, created_at: "2026-09-12T00:00:00Z", latest_attempt: null, available_structures: [], study_sessions: [] };
 const run: MaterialAttemptView = { cancel_requested_at: null, run_id: latestRun, status: "running", progress_stage: "semantics", completed_pages: 2, total_pages: 8,
   error_code: null, created_at: "2026-09-12T01:00:00Z" };
@@ -50,7 +50,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
       let release!: () => void; const loading = new Promise<void>(resolve => { release = resolve; });
       await page.route("**/v1/materials", async route => {
         if (state === "loading") await loading;
-        return fail ? route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: materialId, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Unavailable" } }) : route.fulfill({ json: { schema: "material-library/v2", materials: list } });
+        return fail ? route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: materialId, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Unavailable" } }) : route.fulfill({ json: { schema: "material-library/v1", materials: list } });
       });
       await page.goto("/materials");
       if (state === "loading") { await expect(page.getByRole("heading", { name: "正在讀取教材庫" })).toBeVisible(); await expect(page.getByRole("searchbox")).toHaveCount(0); release(); }
@@ -91,7 +91,7 @@ test("latest structure controls exact saved learning binding, never an older sta
   const newerRevision = `knowledge-structure:sha256:${"b".repeat(64)}`;
   const item = material("active");
   item.available_structures.unshift({ ...published, run_id: newerRun, knowledge_structure_revision: newerRevision });
-  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [item] } }));
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v1", materials: [item] } }));
   await page.goto("/materials");
   await expect(page.getByRole("article").locator(".primary-button")).toHaveText("開啟知識地圖");
   await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toHaveCount(0);
@@ -106,7 +106,7 @@ test("latest structure controls exact saved learning binding, never an older sta
 test("direct hub polls an active run until a usable map is published", async ({ page }) => {
   await signedIn(page); await page.clock.install();
   let reads = 0;
-  await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v2", materials: [material(reads === 1 ? "pending" : "map")] } }); });
+  await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v1", materials: [material(reads === 1 ? "pending" : "map")] } }); });
   await page.goto("/materials");
   await expect(page.getByRole("article").locator(".primary-button")).toHaveText("查看進度");
   await page.clock.runFor(3000);
@@ -120,7 +120,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
   test(`material name search stays local and clears only through the native cancel control at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport); await signedIn(page);
     let reads = 0;
-    await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v2", materials: searchItems() } }); });
+    await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v1", materials: searchItems() } }); });
     await page.goto("/materials");
     const input = page.getByRole("searchbox", { name: "搜尋教材名稱", exact: true });
     await expect(input).toBeVisible(); await expect(input).toHaveAttribute("placeholder", "搜尋教材名稱…");
@@ -172,7 +172,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
 test("polling reapplies the same material-name query to refreshed data", async ({ page }) => {
   await signedIn(page); await page.clock.install();
   let items = [{ ...searchItems()[0], latest_attempt: run }, searchItems()[1]], reads = 0;
-  await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v2", materials: items } }); });
+  await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v1", materials: items } }); });
   await page.goto("/materials");
   const input = page.getByRole("searchbox", { name: "搜尋教材名稱" });
   await input.fill("python");
@@ -188,7 +188,7 @@ test("polling reapplies the same material-name query to refreshed data", async (
 test("removing a search match preserves query and shows search no-result", async ({ page }) => {
   await signedIn(page);
   let items = searchItems(); let deletes = 0;
-  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: items } }));
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v1", materials: items } }));
   await page.route(`**/v1/materials/${items[0].material_id}`, route => {
     expect(route.request().method()).toBe("DELETE"); deletes++;
     const removed = items[0]; items = items.slice(1);
@@ -223,7 +223,7 @@ for (const viewport of [
     ...material(state), material_id: `10000000-1111-4111-8111-${String(index + 1).padStart(12, "0")}`,
     display_name: names[index], source_count: index === 1 || index === 2 ? 3 : 1,
   }));
-  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: items } }));
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v1", materials: items } }));
   await page.goto("/materials");
   const cards = page.locator(".library-item");
   await expect(cards).toHaveCount(5);

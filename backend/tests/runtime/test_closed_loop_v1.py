@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from structure_fixtures import build_knowledge_structure
+
 from product_fixtures import seed_pdf, seed_run, publish_fixture_structure
 
 import io
@@ -15,7 +17,7 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
-from knowledge_map.structure import SemanticState, apply_semantic_response, build_document_context, build_knowledge_structure
+from knowledge_map.structure import SemanticState, apply_semantic_response, build_document_context
 from learning_adaptation.answer_events import AnswerSubmissionError, read_answer_events
 from learning_adaptation.assessments import AssessmentError
 from learning_adaptation.learner_progress import LearnerProgressError, derive_learner_progress
@@ -80,7 +82,7 @@ def _page(source_sha256: str) -> dict:
         }
     )
     return {
-        "schema": "page-evidence/v4",
+        "schema": "page-evidence/v1",
         "material_id": "material:sha256:" + source_sha256,
         "page_ref": page_ref,
         "page_number": 1,
@@ -133,7 +135,7 @@ def _assessment_response(angle: str, prompt: str, evidence_id: str) -> dict:
             "PRIORITY",
         ],
     }
-    return {"schema": "assessment-semantics-response/v2", "candidates": [candidate, {**candidate, "safety": "reject"}, {**candidate, "safety": "reject"}]}
+    return {"schema": "assessment-semantics-response/v1", "candidates": [candidate, {**candidate, "safety": "reject"}, {**candidate, "safety": "reject"}]}
 
 
 @pytest.fixture
@@ -178,6 +180,18 @@ def test_final_schema_contains_only_current_product_tables(clean_database_dsn, m
         "answer_events", "assessment_sets", "assessment_set_items", "material_sources", "source_normalizations", "material_source_sets", "material_source_set_items",
     }
     assert not any("formal_concept" in column or "verifier" in column for column in columns)
+
+
+@pytest.mark.parametrize('version', ['knowledge-structure/v2', 'knowledge-structure/v3', 'knowledge-structure/v4', None])
+def test_database_accepts_only_explicit_v1_structure(closed_loop, version):
+    _, _, _, _, dsn, _ = closed_loop
+    with psycopg.connect(dsn) as connection:
+        with pytest.raises(psycopg.errors.CheckViolation, match='knowledge_structure_version'):
+            with connection.transaction():
+                if version is None:
+                    connection.execute("UPDATE knowledge_structures SET document=document-'schema'")
+                else:
+                    connection.execute("UPDATE knowledge_structures SET document=jsonb_set(document,'{schema}',to_jsonb(%s::text))", (version,))
 
 
 def test_terminal_material_run_tamper_cannot_report_false_success(closed_loop):

@@ -1,8 +1,9 @@
+from structure_fixtures import build_knowledge_structure
 from copy import deepcopy
 import pytest
 
 from knowledge_map.source_identity import unchanged_claims, seed_incremental_state
-from knowledge_map.structure import SemanticState, build_document_context, build_knowledge_structure, apply_semantic_response
+from knowledge_map.structure import SemanticState, build_document_context, apply_semantic_response
 from pdf_evidence.source_set import rebase_page
 from test_knowledge_structure_v1 import _page, _block, RUN_ID, PRODUCED_AT, MODEL_REVISION
 
@@ -14,11 +15,11 @@ def structure(context, state, digest):
 
 
 @pytest.mark.parametrize('binding',[None,[], 'invalid'])
-def test_v4_rejects_malformed_source_binding(binding):
+def test_v1_rejects_malformed_source_binding(binding):
     from knowledge_map.structure import validate_knowledge_structure, _revision
     context=build_document_context([_page(1,[_block(1,0,'paragraph','A stack uses LIFO.')])],page_count=1)
     document=structure(context,SemanticState(),'1'*64)
-    document.update(schema='knowledge-structure/v4',source_set_sha256=document.pop('source_sha256'),input_binding=binding)
+    document['input_binding'] = binding
     document['revision']=_revision(document)
     assert validate_knowledge_structure(document) is False
 

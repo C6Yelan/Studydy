@@ -38,7 +38,7 @@ export type ApiErrorView = {
 
 
 export type MaterialOutputBinding = {
-  schema: "material-run-output-binding/v4";
+  schema: "material-run-output-binding/v1";
   knowledge_structure_revision: string;
   runtime_lock_sha256: string;
   page_count: number;
@@ -60,7 +60,7 @@ export type MaterialProcessingRunView = {
   analysis_saved?: boolean;
   base_revision?: string;
   source_names?: string[];
-  schema: "material-processing-run/v6";
+  schema: "material-processing-run/v1";
   input_source_set_id?: string;
   cancel_requested_at: string | null;
   run_id: string;
@@ -100,8 +100,7 @@ export type StudySessionLink = {
 export type MaterialLibraryItem = {
   head_revision?: string | null;
   source_count?: number;
-  schema: "material-library-item/v3";
-  ingestion_kind?: "sources-v2";
+  schema: "material-library-item/v1";
   source?: SourceView;
   material_id: string;
   source_artifact_id: string | null;
@@ -114,7 +113,7 @@ export type MaterialLibraryItem = {
 };
 
 export type MaterialLibraryView = {
-  schema: "material-library/v2";
+  schema: "material-library/v1";
   materials: MaterialLibraryItem[];
 };
 
@@ -141,7 +140,7 @@ export type EvidenceView = {
 export type RelationType = "prerequisite" | "part_of" | "application" | "example" | "contrast";
 
 export type KnowledgeStructureView = {
-  schema: "knowledge-structure-view/v3";
+  schema: "knowledge-structure-view/v1";
   source_resolver: string;
   material_id: string;
   knowledge_structure_revision: string;
@@ -199,14 +198,14 @@ export type StudySessionFocus = {
 };
 
 export type StudySessionCreate = {
-  schema: "study-session-create/v2";
+  schema: "study-session-create/v1";
   material_id: string;
   knowledge_structure_revision: string;
   current_concept_id?: string | null;
 };
 
 export type StudySessionView = {
-  schema: "study-session/v2";
+  schema: "study-session/v1";
   study_session_id: string;
   material_id: string;
   knowledge_structure_revision: string;
@@ -221,7 +220,7 @@ export type StudySessionView = {
 
 export type AssessmentOptionView = { option_id: string; text: string };
 export type AssessmentView = {
-  schema: "single-choice-assessment/v2";
+  schema: "single-choice-assessment/v1";
   assessment_revision: string;
   study_session_id: string;
   knowledge_structure_revision: string;
@@ -236,7 +235,7 @@ export type AssessmentView = {
 
 
 export type AnswerFeedbackView = {
-  schema: "answer-feedback/v2";
+  schema: "answer-feedback/v1";
   answer_event_id: string;
   study_session_id: string;
   assessment_revision: string;
@@ -270,10 +269,10 @@ export type NextActionView = {
   reason: string;
 };
 
-export type GuidanceApply = { schema: "guidance-apply/v2"; guidance_revision: string };
+export type GuidanceApply = { schema: "guidance-apply/v1"; guidance_revision: string };
 
 export type LearnerProgressView = {
-  schema: "learner-progress/v4";
+  schema: "learner-progress/v1";
   assessment_cycles: AssessmentCycleSummary[];
   study_session_id: string;
   knowledge_structure_revision: string;
@@ -295,7 +294,7 @@ export type AssessmentRecordView = {
 };
 
 export type StudyResumeView = {
-  schema: "study-resume/v5";
+  schema: "study-resume/v1";
   session: StudySessionView;
   run_id: string;
   source_artifact_id: string;
@@ -333,7 +332,7 @@ export type AssessmentSetSummary = {
 };
 
 export type AssessmentSetListView = {
-  schema: "assessment-set-list/v3"; study_session_id: string; knowledge_structure_revision: string;
+  schema: "assessment-set-list/v1"; study_session_id: string; knowledge_structure_revision: string;
   active_set_ids: string[]; sets: AssessmentSetSummary[];
 };
 
@@ -344,7 +343,7 @@ export type AssessmentSetItem = {
 };
 
 export type AssessmentSetView = AssessmentSetSummary & {
-  schema: "assessment-set/v3"; study_session_id: string; material_id: string; knowledge_structure_revision: string;
+  schema: "assessment-set/v1"; study_session_id: string; material_id: string; knowledge_structure_revision: string;
   cycle: AssessmentCycleView; selection_policy: "single-concept-grounded-points/v1" | "needs-review-points/v1";
   point_count: number; excluded_count: number; verified_count: number;
   can_retry: boolean; can_publish_partial: boolean; can_complete: boolean;

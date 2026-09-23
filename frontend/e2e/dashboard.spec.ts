@@ -5,7 +5,7 @@ const id = "11111111-1111-4111-8111-111111111111";
 const revision = `knowledge-structure:sha256:${"a".repeat(64)}`;
 const longName = "資料結構與演算法：堆疊、佇列、遞迴與樹狀結構的概念整理及練習講義_" + "LongMaterialFilename".repeat(5) + ".pdf";
 const material: MaterialLibraryItem = {
-  schema: "material-library-item/v3", material_id: id, source_artifact_id: id, display_name: longName,
+  schema: "material-library-item/v1", material_id: id, source_artifact_id: id, display_name: longName,
   size_bytes: 100, created_at: "2026-09-12T00:00:00Z", latest_attempt: null,
   available_structures: [{ run_id: id, knowledge_structure_revision: revision, created_at: "2026-09-12T00:00:00Z", status: "succeeded" }],
   study_sessions: [],
@@ -30,7 +30,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1536, height: 10
         study_sessions: hasState ? [{ ...active, status: state as "active" | "no_safe" | "completed" }] : [] }];
       await page.route("**/v1/materials", async route => {
         if (waiting) await pending;
-        return failed ? route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: id, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Request could not be completed." } }) : route.fulfill({ json: { schema: "material-library/v2", materials: items } });
+        return failed ? route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: id, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Request could not be completed." } }) : route.fulfill({ json: { schema: "material-library/v1", materials: items } });
       });
       await page.goto("/");
       const home = page.locator(".dashboard");
@@ -93,7 +93,7 @@ test("home chooses active exact-bound state before newer completion and ignores 
     { ...material, material_id: secondId, display_name: "Linear Algebra.pdf", study_sessions: [{ ...active, status: "no_safe" }] },
     { ...material, material_id: staleId, display_name: "Probability.pdf", study_sessions: [{ ...active, knowledge_structure_revision: `knowledge-structure:sha256:${"b".repeat(64)}`, started_at: "2026-09-15T00:00:00Z" }] },
   ];
-  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: items } }));
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v1", materials: items } }));
   await page.goto("/");
   await expect(page.locator(".dashboard-resume p")).toHaveText("Linear Algebra.pdf");
   await page.getByRole("button", { name: "繼續學習", exact: true }).click();
@@ -112,7 +112,7 @@ test("home chooses active exact-bound state before newer completion and ignores 
 test("all four overview stats use Materials and count only exact canonical states", async ({ page }) => {
   await signedIn(page);
   const stale = { ...active, study_session_id: "33333333-3333-4333-8333-333333333333", knowledge_structure_revision: `knowledge-structure:sha256:${"b".repeat(64)}` };
-  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [{ ...material, study_sessions: [stale, active, { ...active, study_session_id: "22222222-2222-4222-8222-222222222222" }] }] } }));
+  await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v1", materials: [{ ...material, study_sessions: [stale, active, { ...active, study_session_id: "22222222-2222-4222-8222-222222222222" }] }] } }));
   await page.goto("/");
   await expect(page.locator(".dashboard-stat strong")).toHaveText(["1", "1", "1", "0"]);
   for (const stat of await page.locator(".dashboard-stat").all()) {

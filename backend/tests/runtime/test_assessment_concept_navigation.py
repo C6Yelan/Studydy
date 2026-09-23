@@ -26,8 +26,8 @@ def other_model(_client,**kwargs):
         item={'learning_angle':'topic code','novelty':'distinct','safety':'safe','prompt':'Which code does the other topic use?',
             'correct_answer':'EXTERNAL','supporting_evidence_ids':[claim['evidence'][0]['evidence_id']],
             'distractors':['INTERNAL','NATIVE','SIGNAL']}
-        return {'schema':'assessment-semantics-response/v2','candidates':[item,{**item,'safety':'reject'},{**item,'safety':'reject'}]}
-    return {'schema':'assessment-check-response/v2','verdicts':[{'question_index':q['question_index'],'answer_status':'unique',
+        return {'schema':'assessment-semantics-response/v1','candidates':[item,{**item,'safety':'reject'},{**item,'safety':'reject'}]}
+    return {'schema':'assessment-check-response/v1','verdicts':[{'question_index':q['question_index'],'answer_status':'unique',
         'selected_option_index':q['options'].index('EXTERNAL'),'duplicate_prior_index':None,'quality_issues':[]}
         for q in kwargs['request']['questions']]}
 
@@ -46,7 +46,7 @@ def test_enter_and_start_b_while_a_is_generating_then_submit_a_without_changing_
         json={'schema':'assessment-set-create/v1','target_concept_id':other['concept_id']})
     assert created.status_code==202,created.json();second=UUID(created.json()['set_id'])
     listing=client.get(base).json()
-    assert listing['schema']=='assessment-set-list/v3' and set(listing['active_set_ids'])=={str(first),str(second)}
+    assert listing['schema']=='assessment-set-list/v1' and set(listing['active_set_ids'])=={str(first),str(second)}
     duplicate=client.post(base,headers={**HEADERS,'Idempotency-Key':'same-concept-duplicate'},
         json={'schema':'assessment-set-create/v1','target_concept_id':f['concept']['concept_id']})
     assert duplicate.status_code==409 and duplicate.json()['reason_code']=='ASSESSMENT_SET_ACTIVE'

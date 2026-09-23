@@ -29,7 +29,7 @@ class AnswerSubmissionError(RuntimeError):
 class AnswerFeedback(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_: str = Field(alias="schema", pattern=r"^answer-feedback/v2$")
+    schema_: str = Field(alias="schema", pattern=r"^answer-feedback/v1$")
     answer_event_id: UUID
     study_session_id: UUID
     assessment_revision: str
@@ -149,7 +149,7 @@ def _event(row: AnswerEvent, assessment: Assessment, study, *, assisted=False) -
 
 def _feedback(event: StoredAnswerEvent, assessment: Assessment) -> AnswerFeedback:
     return AnswerFeedback.model_validate({
-        "schema": "answer-feedback/v2",
+        "schema": "answer-feedback/v1",
         "answer_event_id": event.answer_event_id,
         "study_session_id": event.study_session_id,
         "assessment_revision": event.assessment_revision,
