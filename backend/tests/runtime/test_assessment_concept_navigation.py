@@ -5,7 +5,8 @@ from fastapi.testclient import TestClient
 
 from learning_adaptation import assessment_sets as sets
 from learning_adaptation.study_sessions import read_study_session
-from test_assessment_sets import closed_loop, concept_fixture, create, read, model_for
+from test_closed_loop_v1 import closed_loop
+from assessment_fixtures import concept_fixture, create, read, model_for
 from test_assessment_set_submission import answers_for, send
 from test_assessment_remediation import finish, answer, supplement, change
 from test_accounts import _app, ORIGIN, HEADERS

@@ -8,7 +8,8 @@ import runtime.api.app as api
 from learning_adaptation import assessment_sets as sets
 from runtime.storage.tables import AssessmentSet,AnswerEvent,database_session
 from browser_e2e_runner import PORT,local_api,main as run_browser
-from test_assessment_sets import closed_loop,concept_fixture,model_for
+from test_closed_loop_v1 import closed_loop
+from assessment_fixtures import concept_fixture, model_for
 from test_assessment_concept_navigation import other_model,other_concept
 
 

@@ -6,7 +6,8 @@ from runtime.storage.tables import Assessment, database_session
 from learning_adaptation import assessment_sets as sets
 from learning_adaptation.assessments import _stored, AssessmentError
 from learning_adaptation.answer_events import read_answer_events
-from test_assessment_sets import closed_loop, concept_fixture, create, read, model_for
+from test_closed_loop_v1 import closed_loop
+from assessment_fixtures import concept_fixture, create, read, model_for
 
 
 def test_partial_review_flag_keeps_safe_recall_and_duplicate_does_not_score(closed_loop):

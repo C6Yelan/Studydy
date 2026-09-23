@@ -3,7 +3,7 @@ import pytest
 from fastapi.testclient import TestClient
 from test_closed_loop_v1 import closed_loop
 from test_material_library import library_materials, product_snapshot
-from test_assessment_sets import concept_fixture, create, finish, read
+from assessment_fixtures import concept_fixture, create, finish, read
 from test_assessment_remediation import answer
 from test_accounts import _app, ORIGIN, HEADERS
 

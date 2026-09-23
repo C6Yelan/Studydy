@@ -9,7 +9,8 @@ from learning_adaptation import assessment_sets as sets
 from learning_adaptation.answer_events import read_answer_events
 from learning_adaptation.learner_progress import derive_learner_progress
 from runtime.storage.tables import Assessment, database_session
-from test_assessment_sets import closed_loop, concept_fixture, create, read, model_for
+from test_closed_loop_v1 import closed_loop
+from assessment_fixtures import concept_fixture, create, read, model_for
 from test_accounts import _app, ORIGIN, HEADERS
 
 

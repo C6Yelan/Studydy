@@ -11,7 +11,8 @@ import runtime.api.app as api
 from learning_adaptation import assessment_sets as sets
 from runtime.storage.tables import AnswerEvent, AssessmentSet, database_session
 from browser_e2e_runner import PORT, local_api, main as run_browser
-from test_assessment_sets import concept_fixture, model_for, closed_loop
+from test_closed_loop_v1 import closed_loop
+from assessment_fixtures import concept_fixture, model_for
 
 
 @pytest.mark.parametrize('width',[1920,1536,1366,390])

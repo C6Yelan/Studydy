@@ -9,7 +9,8 @@ from fastapi.testclient import TestClient
 from learning_adaptation.learner_progress import apply_guidance, derive_learner_progress, LearnerProgressError
 from learning_adaptation.study_sessions import read_study_session
 from runtime.learner_session import TrustedLearner
-from test_assessment_sets import closed_loop, concept_fixture, create, read
+from test_closed_loop_v1 import closed_loop
+from assessment_fixtures import concept_fixture, create, read
 from test_assessment_remediation import finish, answer
 from learning_adaptation import assessment_sets as sets
 from test_accounts import _app, ORIGIN, HEADERS

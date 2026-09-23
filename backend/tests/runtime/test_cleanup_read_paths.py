@@ -12,7 +12,7 @@ from learning_adaptation import answer_events, assessment_sets as sets
 from learning_adaptation.assessments import AssessmentError
 from runtime.storage.tables import Assessment, database_session
 from test_closed_loop_v1 import closed_loop
-import test_assessment_sets as fixtures
+import assessment_fixtures as fixtures
 
 
 @contextmanager

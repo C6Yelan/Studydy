@@ -10,7 +10,8 @@ from sqlalchemy import select
 
 from learning_adaptation import answer_events, assessment_sets as sets
 from runtime.storage.tables import Assessment, AnswerEvent, StudySession, database_session
-from test_assessment_sets import closed_loop, concept_fixture, create, finish, read
+from test_closed_loop_v1 import closed_loop
+from assessment_fixtures import concept_fixture, create, finish, read
 from test_accounts import _app, ORIGIN, HEADERS
 
 

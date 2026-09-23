@@ -2,7 +2,8 @@
 from concurrent.futures import ThreadPoolExecutor
 from learning_adaptation.learner_progress import derive_learner_progress, progress_snapshot
 from learning_adaptation.assessment_sets import _list_sets
-from test_assessment_sets import closed_loop, concept_fixture, create, read
+from test_closed_loop_v1 import closed_loop
+from assessment_fixtures import concept_fixture, create, read
 from test_assessment_remediation import finish, answer
 
 

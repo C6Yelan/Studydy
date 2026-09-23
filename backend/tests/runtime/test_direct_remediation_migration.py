@@ -7,7 +7,8 @@ import pytest
 
 from runtime.storage.database import connect_database
 from runtime.storage.migrations import DEFAULT_MIGRATIONS_DIR, run_migrations
-from test_assessment_sets import closed_loop, concept_fixture, create, read
+from test_closed_loop_v1 import closed_loop
+from assessment_fixtures import concept_fixture, create, read
 from test_assessment_remediation import finish, answer, supplement
 
 
