@@ -790,26 +790,11 @@ def build_knowledge_structure(
                 "concept_ids": concept_ids,
             }
         )
-    reasons = []
-    if context["excluded_pages"]:
-        reasons.append("PAGES_EXCLUDED")
-    if state.rejected_claims:
-        reasons.append("CLAIMS_REJECTED")
-    if state.literal_repairs:
-        reasons.append("LITERALS_RESTORED_FROM_SOURCE")
     rejected_relations += state.rejected_relations
-    if rejected_relations:
-        reasons.append("RELATIONS_REJECTED")
-    if state.source_review_required:
-        reasons.append("SOURCE_REVIEW_SUGGESTED")
-    if not concepts:
-        reasons.append("NO_CANONICAL_CONCEPT")
-    status = {
-        "processing": "partial" if reasons and concepts else ("failed" if not concepts else "succeeded"),
-        "quality": "needs_review" if reasons else "accepted",
-        "decision": "reject" if not concepts else ("review" if reasons else "retain"),
-        "reason_codes": reasons,
-    }
+    status = _structure_status(
+        bool(concepts), bool(context["excluded_pages"]), state.rejected_claims,
+        state.literal_repairs, rejected_relations, state.source_review_required,
+    )
     document = {
         "schema": STRUCTURE_SCHEMA if execution_identity is None else "knowledge-structure/v3",
         "material_id": context["material_id"],
@@ -1271,28 +1256,34 @@ def validate_knowledge_structure(document: Any) -> bool:
             return False
         if document["initial_learning_path"] != _path(concepts, relations):
             return False
-        reasons = []
-        if excluded_pages:
-            reasons.append("PAGES_EXCLUDED")
-        if metrics["rejected_claims"]:
-            reasons.append("CLAIMS_REJECTED")
-        if metrics["literal_repairs"]:
-            reasons.append("LITERALS_RESTORED_FROM_SOURCE")
-        if metrics["rejected_relations"]:
-            reasons.append("RELATIONS_REJECTED")
-        if document.get("source_review_required", False):
-            reasons.append("SOURCE_REVIEW_SUGGESTED")
-        if not concepts:
-            reasons.append("NO_CANONICAL_CONCEPT")
-        expected_status = {
-            "processing": "partial" if reasons and concepts else ("failed" if not concepts else "succeeded"),
-            "quality": "needs_review" if reasons else "accepted",
-            "decision": "reject" if not concepts else ("review" if reasons else "retain"),
-            "reason_codes": reasons,
-        }
+        expected_status = _structure_status(
+            bool(concepts), bool(excluded_pages), metrics["rejected_claims"],
+            metrics["literal_repairs"], metrics["rejected_relations"],
+            document.get("source_review_required", False),
+        )
         return document["status"] == expected_status
     except (KeyError, TypeError, ValueError):
         return False
+
+
+def _structure_status(has_concepts: bool, pages_excluded: bool, rejected_claims: int,
+                      literal_repairs: int, rejected_relations: int,
+                      source_review_required: bool) -> dict[str, Any]:
+    """共用狀態投影；呼叫端仍各自負責候選建構或完整 artifact 驗證。"""
+    reasons = [reason for present, reason in (
+        (pages_excluded, "PAGES_EXCLUDED"),
+        (rejected_claims, "CLAIMS_REJECTED"),
+        (literal_repairs, "LITERALS_RESTORED_FROM_SOURCE"),
+        (rejected_relations, "RELATIONS_REJECTED"),
+        (source_review_required, "SOURCE_REVIEW_SUGGESTED"),
+        (not has_concepts, "NO_CANONICAL_CONCEPT"),
+    ) if present]
+    return {
+        "processing": "partial" if reasons and has_concepts else ("failed" if not has_concepts else "succeeded"),
+        "quality": "needs_review" if reasons else "accepted",
+        "decision": "reject" if not has_concepts else ("review" if reasons else "retain"),
+        "reason_codes": reasons,
+    }
 
 
 def build_knowledge_structure_view(document: dict[str, Any]) -> dict[str, Any]:
