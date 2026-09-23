@@ -1,6 +1,7 @@
 # Studydy
 
 開發與執行都使用這份 checkout。**本機跑 backend、frontend、持久化 PostgreSQL 與 PDF store；Pod 只提供 Gemma 4 AI。**
+現行本機服務以 Linux 為執行環境；Windows／macOS 尚無原生啟動流程。換一台 Linux 主機時，須重新配置本機依賴及私密設定。
 
 新對話或恢復環境時，先讀 [本地環境說明](docs/local-environment.md)，再從本目錄執行：
 

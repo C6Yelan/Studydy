@@ -177,35 +177,18 @@ Success means the OCR model loads once and closes cleanly, while the existing Ge
 health, vLLM version, served-model, 32K context, and tokenizer checks. No verifier or second model
 lifecycle is loaded.
 
-## A40 final qualification
+## Real-model qualification
 
-The active primary input is the approved 45-page C array/string PDF. The runner verifies its exact
-source SHA and page count; there is no default additional textbook or 8-page benchmark rerun.
-The current source SHA-256 is `07b1c1c1352934f75cc5182aa15db8a702138861f7557f470f9200ac33b06d13`,
-matching competition final. The CLI `run` command below is a same-host A40 diagnostic.
-For local OCR plus remote Gemma, use the normal product upload/worker pipeline and
-collect its artifact and remote runtime observations before applying the same `score` gate.
-Use a fresh private output directory under ignored `.studydy-runtime/`, or a mode-0700 directory
-named `/tmp/studydy-*` when the network filesystem cannot preserve Unix permissions.
+Current model quality must be checked through the product upload, worker, and browser/API flow
+against the model and runtime in `local_ai/runtime-lock.json`. Record the exact source and artifact
+revision, reviewed/usable counts, limitations, source locators, Assessment/Answer results, and runtime
+failures privately. The material review gate remains 85%; source/revision binding, complete canonical
+Path, truthful failure, private-answer safety, zero observed false mastery, and runtime liveness are
+also required. Do not count fixture tests or unexecuted browser steps as real-model evidence.
 
-```bash
-PYTHONPATH=backend/src backend/.venv/bin/python backend/scripts/a40_final_qualification.py run \
-  --array '<APPROVED_45_PAGE_PDF>' --output '<NEW_PRIVATE_OUTPUT>'
-
-PYTHONPATH=backend/src backend/.venv/bin/python backend/scripts/a40_final_qualification.py score \
-  --review '<PRIVATE_REVIEW_JSON>' --output '<PRIVATE_OUTPUT>'
-```
-
-The v1 review records explicit reviewed/usable counts and known limitations. Semantic acceptance
-uses 85%; source/revision binding, complete canonical Path, truthful failure, private-answer safety,
-zero observed false mastery, and runtime liveness remain required. The scorer does not invent
-literal-fidelity percentages or enforce the retired 8-page/180-second timing gate.
-
-The CLI material run saves an unpublished analysis draft; its `analysis-draft:sha256:` identity binds
-manual review without presenting the draft as a persisted Knowledge Structure. Final product acceptance also needs the real browser/API
-loop: upload, progress, Map/Path, source PDF locator, Assessment/Answer, guidance, and reload/reopen.
-Store that evidence privately and bind its manual review to the exact artifact revision. Never mark
-unexecuted browser checks true in the review example.
+The [Gemma qualification record](gemma-runtime-qualification.md) describes the historical A40 run
+and its actual limitations. Its hardware choice is not a requirement for the current local OCR plus
+remote semantic service.
 
 ## Auth UX regression
 

@@ -4,7 +4,8 @@ PDF 是主要教材格式。其他已開放格式上傳後自動轉成 PDF，轉
 
 ## 環境與啟用
 
-PDF、DOC／DOCX、PPT／PPTX、UTF-8 TXT／Markdown 的單檔上限統一為 100 MiB（104,857,600 bytes），包含原 PDF v1 與新來源端點；轉換後 PDF 也使用相同單檔上限。不另設頁數、段落數、ZIP 項目數、解壓總量或壓縮比使用門檻。需要 LibreOffice **26.2.5.2** Writer/Impress、bubblewrap、fontconfig、Noto CJK 與一個獨立的 Python 3.12 converter 環境。不要修改正式版與競賽版共用的 backend/.venv。
+PDF、DOC／DOCX、PPT／PPTX、UTF-8 TXT／Markdown 的單檔上限統一為 100 MiB（104,857,600 bytes）；轉換後 PDF 也使用相同單檔上限。不另設頁數、段落數、ZIP 項目數、解壓總量或壓縮比使用門檻。需要 LibreOffice **26.2.5.2** Writer/Impress、bubblewrap、fontconfig、Noto CJK 與一個獨立的 Python 3.12 converter 環境。不要修改正式版與競賽版共用的 backend/.venv。
+目前隔離命令依賴 Linux namespace、`/usr` 目錄布局、`/etc/fonts` 及 `/usr/lib/libreoffice/program/soffice`；換 Linux 主機也須核對這些實際路徑與轉檔測試，不能只複製虛擬環境。
 
 ```bash
 uv venv --python backend/.venv/bin/python .studydy-runtime/normalizer-venv
@@ -16,14 +17,14 @@ export STUDYDY_NORMALIZER_PYTHON="$PWD/.studydy-runtime/normalizer-venv/bin/pyth
 
 未設定 converter 時初次上傳只宣告 PDF 來源格式。來源轉檔／追加須有本節的 normalizer 設定。現行來源與處理結構由 `0001_identity_and_materials.sql`／`0002_sources_and_processing.sql` 建立；不要在未完成 baseline 接軌的舊帳本上套用新 SQL。正式 DB 升級須依工作區資料政策，先有明確授權、可驗證備份與回復計畫。這裡的指令不是自動套用正式資料的授權。
 
-Normalization policy 的 `version` 已升為 3（加入 olefile 0.47 的舊 Office 辨識），包含統一檔案大小設定；已完成的舊 normalization／SourceSet 不改寫，新操作採新 policy。執行期記憶體與逾時防護繼續保留，無法完成時回報失敗。
+現行 normalization policy 為 v1，記錄轉檔套件版本、中文字型清單雜湊及統一檔案大小設定。既有 ready 來源已在 v1 契約切換時完成 metadata 接軌；轉檔失敗會明確回報，不把失敗產物當作 ready。
 
 ## 資料生命週期
 
 1. `POST /v1/materials`：建立草稿，body 為 `material-draft-create/v1` + `display_name`，使用 Idempotency-Key。
 2. `POST /v1/materials/{id}/sources`：raw bytes、實際 MIME、URL-encoded `X-Material-Name` 與獨立 Idempotency-Key。保存原檔 receipt 和 pending normalization，HTTP request 不執行轉檔。
 3. worker 領取 source normalization，轉檔在 DB transaction 外；120 秒 lease、最大 60 秒子程序 wall time。意外中斷後 expired lease 可重領，最多 3 次；使用者可明確 POST retry。
-4. ready 原子發布 normalized PDF／mapping。失敗保留原檔與固定錯誤代碼。改變 renderer policy 後重試會建立新 normalization record，不改寫舊 ready record。
+4. ready 原子發布 normalized PDF／mapping。失敗保留原檔與固定錯誤代碼；明確重試只重設同一筆 job 的失敗狀態，不建立舊版並行紀錄或改寫其政策。已 ready 的來源綁定保持不可變。
 5. `POST /v1/materials/{id}/revisions`：初次使用 `material-revision-create/v1`、`base_revision: null`、一份或多份 ready `normalization_ids`、獨立 Idempotency-Key。短交易內封存有序 SourceSet 與 run。B3-A 起沿用各來源 normalized PDF，以集合閱讀序號映射來源頁碼，不另存合併 PDF。
 6. UI 用既有 run 頁顯示分析；開始分析是明確操作，GET／reload 不生成、不轉檔。新 run 回應 `material-processing-run/v1` 並帶 `input_source_set_id`；reader 只接受 v1。
 
@@ -56,7 +57,7 @@ Map、Relation、Study、Assessment 共用來源按鈕，分開「開啟 PDF 來
 
 ## 隔離與限制
 
-所有格式的解析（含 Story）在無網路 bubblewrap 中執行；只掛必要唯讀系統／Python／renderer／input 路徑，output 可寫，profile/temp 在獨立 tmpfs。子程序 CPU 45 秒、address space 2 GiB、單檔 100 MiB、128 descriptors、wall time 60 秒；NPROC 1024 為每 UID 限制，不是 cgroup 的每 job aggregate memory/process quota。
+所有格式的解析（含 Story）在無網路 bubblewrap 中執行；只掛必要唯讀系統／Python／renderer／input 路徑，output 可寫，profile/temp 在獨立 tmpfs。整次轉檔（含 LibreOffice）共用 60 秒 wall timeout；子程序設有 address space 2 GiB、單檔 100 MiB、128 descriptors 上限。NPROC 1024 為每 UID 限制，不是 cgroup 的每 job aggregate memory/process quota。
 
 舊 DOC／PPT 使用 olefile 0.47 辨識 OLE 容器和 Word／PowerPoint stream，拒絕可辨識的巨集、主動物件及加密容器；不支援或受密碼保護的內容會如實失敗。LibreOffice 使用最高巨集安全層級的獨立 profile。
 

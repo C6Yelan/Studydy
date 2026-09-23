@@ -51,6 +51,13 @@ python3 ops/local/manage.py stop
 
 ## 目前日常服務與資料契約
 
+2026-09-23 移除來源轉檔在政策變動時建立第二筆 job、讀取端選最新 job 的開發相容路徑。
+現行同一來源只能有一筆 normalization；失敗重試只重設該筆狀態，不改寫保存的政策，
+政策不符時轉檔如實失敗。切換前 9 筆來源與 9 筆 normalization 一一對應、無活動工作；
+產品 DB 備份後完成交易乾跑與回滾，再新增唯一約束並接軌 0002 checksum。15 張產品表
+資料摘要未變，runner 重跑回傳 `()`，服務已恢復。隔離來源轉檔測試 17 項通過。
+私人備份與核對紀錄：`../.studydy-product/backups/normalization-single-job-20260923T124935Z/`。
+
 2026-09-23 收緊現行 baseline 的資料約束：教材名稱必填；ready 轉檔必須同時保存 normalized PDF、
 mapping 與頁數，其他狀態不得帶有這些輸出；教材處理工作必須綁定 SourceSet、bundle manifest
 及啟動時的 runtime lock snapshot。已移除舊工作可全空的 bundle 分支。切換前確認 3 筆教材、

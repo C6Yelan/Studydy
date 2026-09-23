@@ -1,6 +1,6 @@
 # 教材分析結果的檢核與整理
 
-提供共用檢核模組、正式 worker 消費者與離線 CLI，使用已保存的來源及分析結果。
+提供共用檢核模組與正式 worker 消費者，使用已保存的來源及分析結果。
 可沿用 command transport 的開發模型，或既有 locked Gemma HTTP transport；沒有第二套 provider 平台。
 runtime lock v1 的 `material_review` 設定啟用發布前檢核。新教材及追加來源在初始分析後執行；
 已發布教材可以只重整，不重跑 OCR 或初始分析。舊工作保存的設定與資料 hash 不改寫。
@@ -63,27 +63,8 @@ Concept、Claim、Evidence、Relation 都由程式建立短整數索引；模型
 反轉或移除可重述原型別；若同時指定不同型別則拒絕，型別更正必須明確使用 retype。
 例子收進單元後，原方向或型別有疑慮仍會留下提示，不能藉由不畫邊而掩蓋錯誤。
 
-離線輸出為 `material-review-projection/v1`，不是正式 KS，`publication_authorized=false`、`status=needs_review`。
+整理投影為 `material-review-projection/v1`，不是正式 KS，`publication_authorized=false`、`status=needs_review`。
 結構檢查通過不代表語意或教學品質通過；本模組不自行搬移舊作答到新觀念，也不重算掌握狀態。
-
-## 離線使用
-
-從 repository root 執行。輸入、回應、預覽與來源對照均只寫到新建的私人目錄。
-輸出可位於工作區 `.studydy-product/experiments/`、repo `.studydy-runtime/`，或 `/tmp/studydy-*`。
-已有目錄會拒絕，不覆寫過去的失敗。模型呼叫仍須符合當次資料與費用授權。
-
-```bash
-# 不呼叫模型，只準備輸入與來源綁定。
-PYTHONPATH=backend/src backend/.venv/bin/python backend/scripts/review_material.py \
-  --view '<PRIVATE_VIEW_JSON>' --source-id '<EXISTING_SOURCE_ID>' \
-  --pages 14:21 --title '完整教學單元名稱' --output '<NEW_PRIVATE_OUTPUT>'
-
-# 明確執行一次：加 --generate；使用已設定的 command transport 或既有 Gemma。
-# 重驗已保存回應：加 --response '<PRIOR_OUTPUT>/response.json'；不呼叫模型。
-```
-
-重驗會核對原回應目錄的來源 digest、revision、頁段及所有索引綁定，拒絕把其他單元回應套過來。
-原模型輸出與初次失敗狀態保持原樣；每次重驗另外保存。`preview.md` 供檢查分組、案例、別名、文字更正與待確認事項。
 
 `combine_reviews` 可彙整互不重疊的小節提案，重新檢查整張圖的來源完整性與學習順序。
 `add_relation_corrections` 用於後續聚焦關係的檢核，只加入已綁定的關係更正，不覆蓋先前觀念歸屬。

@@ -71,7 +71,7 @@ def read_material_library(
             ).where(StudySession.learner_id == learner_id, StudySession.material_id.in_(ids))
               .order_by(StudySession.started_at.desc(), StudySession.study_session_id.desc())).mappings().all()
             source_rows=session.execute(select(MaterialSource,SourceNormalization,Artifact.size_bytes).join(SourceNormalization,SourceNormalization.source_id==MaterialSource.source_id).join(Artifact,Artifact.artifact_id==MaterialSource.original_artifact_id)
-                .where(MaterialSource.learner_id==learner_id,MaterialSource.material_id.in_(ids)).distinct(MaterialSource.source_id).order_by(MaterialSource.source_id,SourceNormalization.created_at.desc())).all()
+                .where(MaterialSource.learner_id==learner_id,MaterialSource.material_id.in_(ids)).order_by(MaterialSource.source_id)).all()
     except (DatabaseConfigurationError, SQLAlchemyError):
         raise MaterialLibraryError("MATERIAL_LIBRARY_STORAGE_FAILED") from None
 

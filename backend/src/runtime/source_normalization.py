@@ -72,8 +72,8 @@ def read_sources(owner,material_id,*,dsn=None):
         structure=session.scalar(select(KnowledgeStructure).where(KnowledgeStructure.learner_id==owner,KnowledgeStructure.material_id==material_id,KnowledgeStructure.structure_revision==revision)) if revision else None
         included={item['source_id'] for item in structure.document['input_binding']['manifest']['items']} if structure else set()
         rows=session.execute(select(MaterialSource,SourceNormalization).join(SourceNormalization,SourceNormalization.source_id==MaterialSource.source_id)
-             .where(MaterialSource.learner_id==owner,MaterialSource.material_id==material_id).distinct(MaterialSource.source_id).order_by(MaterialSource.source_id,SourceNormalization.created_at.desc())).all()
-        rows=sorted(rows,key=lambda pair:pair[0].created_at)
+             .where(MaterialSource.learner_id==owner,MaterialSource.material_id==material_id)
+             .order_by(MaterialSource.created_at,MaterialSource.source_id)).all()
         return [{'source_id':s.source_id,'normalization_id':n.normalization_id,'original_artifact_id':s.original_artifact_id,
                  'included':str(s.source_id) in included,
                  'original_name':s.original_name,'media_type':s.media_type,'status':n.status,'error_code':n.error_code,
@@ -123,12 +123,7 @@ def retry_normalization(owner,material_id,identity,*,dsn=None):
         job=session.scalar(select(SourceNormalization).where(SourceNormalization.learner_id==owner,SourceNormalization.material_id==material_id,SourceNormalization.normalization_id==identity).with_for_update())
         if job is None:raise SourceError('RESOURCE_NOT_FOUND')
         if job.status=='failed':
-            policy=conversion_policy();now=datetime.now(UTC)
-            if job.policy!=policy:
-                session.add(SourceNormalization(normalization_id=uuid4(),learner_id=owner,material_id=material_id,source_id=job.source_id,
-                            policy=policy,status='pending',created_at=now,updated_at=now))
-            else:
-                job.status='pending';job.error_code=None;job.attempt=0;job.updated_at=now
+            job.status='pending';job.error_code=None;job.attempt=0;job.updated_at=datetime.now(UTC)
 
 
 def remove_staged_source(owner,material_id,source_id,*,dsn=None):

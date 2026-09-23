@@ -211,19 +211,31 @@ def test_replay_does_not_require_converter_or_current_model_config(closed_loop,n
     assert create_revision(owner,material,[job['normalization_id']],'replay-run',{},dsn=dsn).run_id==run.run_id
 
 
-def test_changed_conversion_policy_creates_new_job_without_rewriting_old_one(closed_loop,normalizer):
+def test_failed_conversion_retry_reuses_one_job_without_policy_migration(closed_loop,normalizer):
     from runtime.source_normalization import retry_normalization
     owner=closed_loop[0].learner_id;dsn=closed_loop[4]
     material=create_draft(owner,'policy.txt','policy-draft',dsn=dsn)
     upload_source(owner,material,TEXT,'policy.txt','text/plain','policy-upload',dsn=dsn)
     old=read_sources(owner,material,dsn=dsn)[0]['normalization_id']
+    with psycopg.connect(dsn) as connection:
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            with connection.transaction():
+                connection.execute("""INSERT INTO source_normalizations (
+                    normalization_id,learner_id,material_id,source_id,policy,status,created_at,updated_at
+                ) SELECT %s,learner_id,material_id,source_id,policy,'pending',now(),now()
+                  FROM source_normalizations WHERE normalization_id=%s""",(uuid4(),old))
     with database_session(dsn) as session:
-        job=session.get(SourceNormalization,old);job.status='failed';job.error_code='NORMALIZER_VERSION_MISMATCH';job.policy={**job.policy,'version':0}
+        job=session.get(SourceNormalization,old);job.status='failed';job.error_code='NORMALIZATION_FAILED'
+        original_policy=deepcopy(job.policy)
     retry_normalization(owner,material,old,dsn=dsn)
-    latest=read_sources(owner,material,dsn=dsn)[0];assert latest['normalization_id']!=old
+    latest=read_sources(owner,material,dsn=dsn)[0]
+    assert latest['normalization_id']==old and latest['status']=='pending'
+    with database_session(dsn) as session:
+        assert session.get(SourceNormalization,old).policy==original_policy
+        assert len(session.scalars(select(SourceNormalization.normalization_id).where(
+            SourceNormalization.source_id==latest['source_id'])).all())==1
     assert normalize_next(dsn=dsn)
     assert read_sources(owner,material,dsn=dsn)[0]['status']=='ready'
-    with database_session(dsn) as session:assert session.get(SourceNormalization,old).status=='failed'
 
 
 

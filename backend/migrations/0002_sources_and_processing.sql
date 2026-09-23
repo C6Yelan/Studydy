@@ -19,7 +19,7 @@ CREATE TABLE source_normalizations (
     normalization_id uuid PRIMARY KEY,
     learner_id uuid NOT NULL,
     material_id uuid NOT NULL,
-    source_id uuid NOT NULL,
+    source_id uuid NOT NULL UNIQUE,
     policy jsonb NOT NULL,
     status text NOT NULL CHECK (status IN ('pending', 'running', 'ready', 'failed')),
     attempt integer NOT NULL DEFAULT 0 CHECK (attempt >= 0),

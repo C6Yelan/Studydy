@@ -1,6 +1,6 @@
 # 帳號與固定學習身分
 
-先依 [工作站啟停說明](runbook/A40_FINAL_WORKSTATION.md) 準備既有本地服務。
+先依 [本機環境說明](local-environment.md) 準備既有服務。
 正式產品仍沿用現行模型 preflight，不新增無 GPU 模式。
 
 ## Migration
