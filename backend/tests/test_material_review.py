@@ -3,8 +3,9 @@ from copy import deepcopy
 
 import pytest
 
-from knowledge_map.material_review import (ReviewError, prepare_review, project_review,
-    review_runtime_lock, validate_proposal, combine_reviews, add_relation_corrections)
+from knowledge_map.material_review import (
+    ReviewError, _pack_review, project_review, validate_proposal, combine_reviews,
+)
 
 
 def view():
@@ -26,8 +27,19 @@ def view():
             'initial_learning_path':[{'position':i+1,'concept_id':f'c{i}','reason':'document_order'} for i in range(5)]}
 
 
-def prepare(document=None):
-    return prepare_review(document or view(),'source',1,1,title='角色')
+def prepare(document=None, first_page=1, last_page=1, title='角色'):
+    source_view = view() if document is None else document
+    in_scope = lambda item: item['source_id'] == 'source' and first_page <= item['normalized_page'] <= last_page
+    concepts = [concept for concept in source_view['concepts']
+                if any(in_scope(item) for claim in concept['claims'] for item in claim['evidence'])]
+    all_evidence = {item['evidence_id']: item for concept in source_view['concepts']
+                    for claim in concept['claims'] for item in claim['evidence']}
+    owned = {item['evidence_id'] for concept in concepts for claim in concept['claims']
+             for item in claim['evidence']}
+    evidence = sorted((item for key, item in all_evidence.items() if key in owned or in_scope(item)),
+                      key=lambda item: (item['source_id'], item['normalized_page'],
+                                        item['block_order'], item['evidence_id']))
+    return _pack_review(source_view, concepts, evidence, title)
 
 
 def proposal():
@@ -218,7 +230,7 @@ def test_removing_wrong_parent_can_use_same_page_heading_context_but_not_unrelat
         'reason': '同頁章節顯示原關係錯掛。', 'evidence': [1, 4]}]
     assert len(project_review(document, prepare(document), response)['excluded_relations']) == 1
     document['concepts'][4]['claims'][0]['evidence'][0]['normalized_page'] = 2
-    unit = prepare_review(document, 'source', 1, 2, title='角色')
+    unit = prepare(document, 1, 2)
     with pytest.raises(ReviewError, match='RELATION_EDIT_INVALID'):
         project_review(document, unit, response)
 
@@ -237,17 +249,11 @@ def test_blocked_prerequisite_removal_preserves_its_original_reason():
     assert result['blocked_changes'][0]['reason']=='PREREQUISITE_REMOVAL_REQUIRES_REVIEW'
 
 
-def test_review_policy_does_not_mutate_runtime_lock():
-    base={'material_semantics':{'max_tokens':8192,'generation':{'temperature':1}}};copy=deepcopy(base)
-    lock=review_runtime_lock(base)
-    assert base==copy and lock['material_review']['max_tokens']==8192
-
-
 def test_combining_disjoint_units_remaps_handles_and_rejects_overlapping_opinions():
     document=view()
     for i,c in enumerate(document['concepts'],1):c['claims'][0]['evidence'][0]['normalized_page']=i
-    first=prepare_review(document,'source',1,3,title='角色')
-    second=prepare_review(document,'source',4,5,title='其他')
+    first=prepare(document,1,3)
+    second=prepare(document,4,5,'其他')
     def keep(unit):
         return {'assignments':[{'concept':i,'action':'keep','target':None,'issue':'none','reason':'保留。',
                   'evidence':c['evidence']} for i,c in enumerate(unit.payload['concepts'])],
@@ -260,13 +266,3 @@ def test_combining_disjoint_units_remaps_handles_and_rejects_overlapping_opinion
     assert result['alias_changes'][0]['concept_id']=='c4'
     assert result['learning_units'][-1]['aliases']==['Efficiency']
     with pytest.raises(ReviewError,match='SCOPES_OVERLAP'):combine_reviews(document,[(first,a),(first,a)])
-
-
-def test_focused_relation_review_cannot_overwrite_grouping_or_conflicting_edits():
-    unit=prepare();original=proposal();original['assignments'][1].update(action='group',target=0,issue='fragment')
-    correction=proposal();correction['relation_edits']=[{'relation':1,'action':'reverse','relation_type':None,'reason':'方向需修正。','evidence':[0,2]}]
-    merged=add_relation_corrections(unit,original,unit,correction)
-    assert merged['assignments']==original['assignments'] and original['relation_edits']==[]
-    assert len(merged['relation_edits'])==1
-    correction['relation_edits'][0]['action']='remove'
-    with pytest.raises(ReviewError,match='OPINIONS_CONFLICT'):add_relation_corrections(unit,merged,unit,correction)

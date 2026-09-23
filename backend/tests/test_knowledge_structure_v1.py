@@ -4,7 +4,6 @@ import pytest
 
 from knowledge_map.structure import (
     SemanticState,
-    _project_claim,
     _revision,
     apply_semantic_response as apply_wire_response,
     build_document_context,
@@ -13,7 +12,10 @@ from knowledge_map.structure import (
     semantic_request,
     semantic_response_schema,
     validate_knowledge_structure,
+    validate_structure_draft,
 )
+from knowledge_map.semantic_projection import _project_claim
+from knowledge_map.structure_rules import RELATION_BASIS
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 
 
@@ -32,8 +34,15 @@ def test_only_bound_v1_is_a_publishable_structure():
     draft = build_structure_draft(context, SemanticState(), **arguments)
     assert 'schema' not in draft and 'revision' not in draft
     assert not validate_knowledge_structure(draft)
+    invalid_draft = deepcopy(draft)
+    invalid_draft['run_id'] = 0
+    assert not validate_structure_draft(invalid_draft)
     final = build_knowledge_structure(context, SemanticState(), **arguments)
     assert final['schema'] == 'knowledge-structure/v1' and 'source_sha256' not in final
+    invalid_final = deepcopy(final)
+    invalid_final['run_id'] = 0
+    invalid_final['revision'] = _revision(invalid_final)
+    assert not validate_knowledge_structure(invalid_final)
     assert finalize_knowledge_structure(draft, final['input_binding']) == final
     for version in (2, 3, 4):
         old = deepcopy(final)
@@ -553,7 +562,6 @@ def test_compact_wire_keeps_all_source_text_without_canonical_metadata():
 
 @pytest.mark.parametrize("relation_type", ["prerequisite", "part_of", "application", "example", "contrast"])
 def test_compact_wire_reconstructs_relation_basis_and_canonical_support(relation_type):
-    from knowledge_map.structure import RELATION_BASIS
     context = _context()
     wire = _compact_response(_response(context), context)
     wire["relations"][0]["k"] = relation_type
