@@ -11,9 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from runtime.learner_session import TrustedLearner
-from runtime.storage.tables import KnowledgeStructure, StudySession, database_session
+from runtime.storage.tables import StudySession, database_session
 
-from .map_context import MapContext, MapContextError, context_from_structure
+from .map_context import MapContext, _context_from_validated_document
+from runtime.storage.knowledge_structures import _read_verified_document, KnowledgeStructureStoreError
+from runtime.source_normalization import SourceError
 
 
 _REVISION = re.compile(r"knowledge-structure:sha256:[0-9a-f]{64}")
@@ -67,17 +69,10 @@ def _fingerprint(material_id: UUID, revision: str, concept_id: str | None) -> by
 def _context(
     session, learner_id: UUID, material_id: UUID, revision: str, *, lock: bool = False
 ) -> MapContext:
-    statement = select(KnowledgeStructure.document).where(
-        KnowledgeStructure.learner_id == learner_id,
-        KnowledgeStructure.material_id == material_id,
-        KnowledgeStructure.structure_revision == revision,
-    )
-    document = session.scalar(statement.with_for_update() if lock else statement)
-    if not isinstance(document, dict):
-        raise StudySessionError("STUDY_SESSION_MAP_UNAVAILABLE")
     try:
-        return context_from_structure(material_id, document)
-    except MapContextError:
+        document = _read_verified_document(session, learner_id, material_id, revision=revision, lock=lock)
+        return _context_from_validated_document(material_id, document)
+    except (KnowledgeStructureStoreError, SourceError):
         raise StudySessionError("STUDY_SESSION_MAP_UNAVAILABLE") from None
 
 

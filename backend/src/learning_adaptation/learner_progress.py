@@ -234,7 +234,7 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
                 raise LearnerProgressError('LEARNER_PROGRESS_UNAVAILABLE')
             document = _read_verified_document(
                 db, learner.learner_id, row.material_id,
-                revision=row.knowledge_structure_revision, dsn=dsn,
+                revision=row.knowledge_structure_revision,
             )
             context = _context_from_validated_document(row.material_id, document)
             _validate_context(row, context)
@@ -243,7 +243,7 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
             if len(events) != study.last_event_number:
                 raise LearnerProgressError('LEARNER_PROGRESS_STALE')
             cycles = _read_cycles(db, row)
-            inherited = inherited_answers(db, learner, study, document, dsn=dsn)
+            inherited = inherited_answers(db, learner, study, document)
             evidence = (
                 tuple(sorted(
                     (*inherited, *events),

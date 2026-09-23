@@ -70,7 +70,6 @@ def publish_fixture_structure(owner, material, run, document, *, dsn, **kwargs):
             provenance=deepcopy(session.get(MaterialProcessingRun,run).runtime_binding)
         result=build_structure_draft(context,state,source_sha256=binding['source_set_digest'],run_id=str(run),
             produced_at=document['produced_at'],runtime_lock_sha256=provenance['runtime_lock_sha256'],model_id=provenance['model_id'],
-            model_revision=provenance['model_revision'],semantic_calls=document['metrics']['semantic_calls'],ocr_calls=document['metrics']['ocr_calls'],
-            execution_identity=document.get('execution_identity'))
+            model_revision=provenance['model_revision'],semantic_calls=document['metrics']['semantic_calls'],ocr_calls=document['metrics']['ocr_calls'])
         result=bind_structure_input(owner,run,result,dsn=dsn);document.clear();document.update(result)
     return publish_knowledge_structure(owner,material,run,document,dsn=dsn,**kwargs)

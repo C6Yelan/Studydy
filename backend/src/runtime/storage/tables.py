@@ -218,7 +218,6 @@ class AssessmentSet(Base):
     target_plan: Mapped[dict] = mapped_column(JSONB, nullable=False)
     requested_count: Mapped[int] = mapped_column(Integer, nullable=False)
     runtime_lock_document: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    execution_identity: Mapped[dict] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     set_version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)

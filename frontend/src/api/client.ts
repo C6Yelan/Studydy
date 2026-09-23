@@ -326,7 +326,7 @@ function assessmentSet(value: unknown): value is AssessmentSetView {
     || !Array.isArray(item.items) || item.items.length !== item.requested_count
     || Number(item.verified_count) > Number(item.requested_count)
     || Number(item.point_count) < Number(item.requested_count) + Number(item.excluded_count)
-    || ["runtime_lock_document", "execution_identity", "target_plan", "action_receipts"].some(key => Object.hasOwn(item, key))) return false;
+    || ["runtime_lock_document", "target_plan", "action_receipts"].some(key => Object.hasOwn(item, key))) return false;
   const cycle = object(item.cycle);
   if (!cycleSummary(item.cycle) || !cycle || cycle.concept_id !== item.target_concept_id
     || cycle.diagnostic_set_id !== (item.kind === "diagnostic" ? item.set_id : item.diagnostic_set_id)

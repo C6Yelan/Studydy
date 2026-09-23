@@ -522,10 +522,10 @@ def test_runtime_timings_do_not_change_content_revision():
     for field, value in [("model_id", "example/other-model"), ("model_revision", "a" * 40)]:
         tampered = deepcopy(fast)
         tampered["provenance"][field] = value
-        tampered["revision"] = _revision(tampered)
+        # 改變 provenance 不得沿用原 revision；合法模型身分由執行快照另行核對。
         assert not validate_knowledge_structure(tampered)
-        with pytest.raises(ValueError, match="MATERIAL_IDENTITY_INVALID"):
-            build_knowledge_structure(context, state, **{**arguments, field: value})
+        changed = build_knowledge_structure(context, state, **{**arguments, field: value})
+        assert validate_knowledge_structure(changed) and changed["revision"] != fast["revision"]
     tampered = deepcopy(fast)
     tampered["evidence"][0]["exact_text"] += " changed"
     tampered["revision"] = _revision(tampered)

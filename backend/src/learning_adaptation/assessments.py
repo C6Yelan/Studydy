@@ -13,7 +13,7 @@ from sqlalchemy import case, or_, select
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.semantic_service import request_semantics, semantic_client
-from runtime.storage.tables import Assessment, StudySession
+from runtime.storage.tables import Assessment, StudySession, AssessmentSet, AssessmentSetItem
 
 from .map_context import ClaimContext, ConceptContext
 
@@ -135,7 +135,43 @@ def _fingerprint(study_session_id: UUID, revision: str, claim_id: str) -> bytes:
     ).encode()).digest()
 
 
-def _stored(row: Assessment) -> StoredAssessment:
+def _provenance(group):
+    """一個題組的保存設定只驗證一次，供同次交易的題目共用。"""
+    lock = group.runtime_lock_document
+    if not isinstance(lock, dict) or lock.get('schema') != 'studydy-runtime-lock/v1':
+        raise AssessmentError("ASSESSMENT_UNAVAILABLE")
+    try:
+        service, settings = lock['semantic_service'], lock['assessment']
+        if any(not isinstance(service[k], str) or not service[k].strip() for k in ('model_id', 'revision')):
+            raise AssessmentError("ASSESSMENT_UNAVAILABLE")
+        return {
+            'model_id': service['model_id'], 'model_revision': service['revision'],
+            'runtime_lock_sha256': canonical_sha256(lock),
+            'policy': settings['policy'],
+            'prompt_sha256': sha256(settings['prompt'].encode()).hexdigest(),
+            'check_prompt_sha256': sha256(settings['check_prompt'].encode()).hexdigest(),
+        }
+    except (KeyError, TypeError, AttributeError):
+        raise AssessmentError("ASSESSMENT_UNAVAILABLE") from None
+
+
+def _provenance_for_row(session, row, by_set):
+    # 必須回到生成該題的題組，不能用目前出題設定或教材分析模型代替。
+    group = session.scalar(select(AssessmentSet).join(
+        AssessmentSetItem, AssessmentSetItem.set_id == AssessmentSet.set_id,
+    ).where(
+        AssessmentSetItem.assessment_revision == row.assessment_revision,
+        AssessmentSet.study_session_id == row.study_session_id,
+        AssessmentSet.knowledge_structure_revision == row.knowledge_structure_revision,
+    ))
+    if group is None:
+        raise AssessmentError("ASSESSMENT_UNAVAILABLE")
+    if group.set_id not in by_set:
+        by_set[group.set_id] = _provenance(group)
+    return by_set[group.set_id]
+
+
+def _stored(row: Assessment, expected_provenance: dict) -> StoredAssessment:
     public = row.public_document
     private = row.private_answer_document
     provenance = row.generation_provenance
@@ -157,26 +193,10 @@ def _stored(row: Assessment) -> StoredAssessment:
     }
     provenance_fields.update({
         "verification", "quality_selection", "compared_assessment_revisions",
-        "prompt_sha256", "check_prompt_sha256", "execution_identity",
+        "prompt_sha256", "check_prompt_sha256",
     })
-    command_execution = provenance.get("execution_identity") is not None
-    if command_execution:
-        execution = provenance.get("execution_identity")
-        if (
-            not isinstance(execution, dict)
-            or set(execution) != {
-                "transport", "model_id", "model_revision",
-                "config_sha256", "runtime_lock_sha256",
-            }
-            or execution.get("transport") != "command"
-            or any(
-                execution.get(key) != provenance.get(key)
-                for key in ("model_id", "model_revision", "runtime_lock_sha256")
-            )
-            or not isinstance(execution.get("config_sha256"), str)
-            or re.fullmatch(r"[0-9a-f]{64}", execution["config_sha256"]) is None
-        ):
-            raise AssessmentError("ASSESSMENT_UNAVAILABLE")
+    if any(provenance.get(key) != value for key, value in expected_provenance.items()):
+        raise AssessmentError("ASSESSMENT_UNAVAILABLE")
     try:
         options = public["options"]
         option_ids = [option["option_id"] for option in options]
@@ -283,13 +303,6 @@ def _stored(row: Assessment) -> StoredAssessment:
         or not provenance["model_id"]
         or not isinstance(provenance["model_revision"], str)
         or not provenance["model_revision"]
-        or (
-            not command_execution
-            and (
-                provenance["model_id"] != "google/gemma-4-31B-it-qat-w4a16-ct"
-                or provenance["model_revision"] != "52f3f65bc7a02d555763bc923bd1d9094898219d"
-            )
-        )
         or provenance["policy"] != "source-span-single-choice/v1"
         or provenance["learning_angle"] != row.learning_angle
         or not isinstance(row.learning_angle, str)
@@ -356,7 +369,7 @@ def _stored(row: Assessment) -> StoredAssessment:
 
 def _request(
     study: StudySession, concept: ConceptContext, claim: ClaimContext,
-    prior: list[Assessment],
+    prior: list[StoredAssessment],
 ) -> dict[str, Any]:
     return {
         "schema": "assessment-semantics-request/v1",
@@ -381,7 +394,7 @@ def _request(
     }
 
 
-def _prior_questions(session, study: StudySession, claim: ClaimContext) -> list[Assessment]:
+def _prior_questions(session, study: StudySession, claim: ClaimContext) -> list[StoredAssessment]:
     """同 session／exact KS 的有限比較集合；跨 Claim 同來源者優先，不宣稱全歷史去重。"""
     overlap = or_(*(
         Assessment.public_document["source_evidence_ids"].contains([item.evidence_id])
@@ -396,8 +409,9 @@ def _prior_questions(session, study: StudySession, claim: ClaimContext) -> list[
         Assessment.created_at.desc(), Assessment.assessment_revision,
     ).limit(32))
     prior, size = [], 0
+    by_set = {}
     for row in rows:
-        _stored(row)
+        stored = _stored(row, _provenance_for_row(session, row, by_set))
         # 兩個 prompt 都放完整題目；只限比較集合，不截斷來源或題幹。
         entry = {
             "prompt": row.public_document["prompt"],
@@ -408,7 +422,7 @@ def _prior_questions(session, study: StudySession, claim: ClaimContext) -> list[
         cost = len(json.dumps(entry, ensure_ascii=False).encode("utf-8"))
         if size + cost > _PRIOR_CONTEXT_MAX_BYTES:
             continue
-        prior.append(row)
+        prior.append(stored)
         size += cost
         if len(prior) == _PRIOR_LIMIT:
             break
@@ -671,18 +685,10 @@ def _documents(
             if evidence.evidence_id in candidate["supporting_evidence_ids"]
         ),
     }
-    from runtime.command_semantics import identity
-    command = identity(runtime_lock)
-    service = (
-        runtime_lock["semantic_service"] if command is None
-        else {"model_id": command["model_id"], "revision": command["model_revision"]}
-    )
+    service = runtime_lock["semantic_service"]
     provenance_core = {
         "schema": "assessment-generation-provenance/v1",
-        "runtime_lock_sha256": (
-            canonical_sha256(runtime_lock)
-            if command is None else command["runtime_lock_sha256"]
-        ),
+        "runtime_lock_sha256": canonical_sha256(runtime_lock),
         "model_id": service["model_id"],
         "model_revision": service["revision"],
         "policy": runtime_lock["assessment"]["policy"],
@@ -695,7 +701,6 @@ def _documents(
         "compared_assessment_revisions": list(candidate["compared_assessment_revisions"]),
         "prompt_sha256": sha256(runtime_lock["assessment"]["prompt"].encode()).hexdigest(),
         "check_prompt_sha256": sha256(runtime_lock["assessment"]["check_prompt"].encode()).hexdigest(),
-        "execution_identity": deepcopy(command),
     }
     revision = "assessment:sha256:" + canonical_sha256(
         {

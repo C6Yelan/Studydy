@@ -10,7 +10,6 @@ CREATE TABLE assessment_sets (
     target_plan jsonb NOT NULL,
     requested_count integer NOT NULL CHECK (requested_count >= 0),
     runtime_lock_document jsonb NOT NULL,
-    execution_identity jsonb NOT NULL,
     status text NOT NULL CHECK (
         status IN ('preparing', 'partial_ready', 'failed', 'ready',
                    'in_progress', 'completed', 'cancelled')
@@ -93,12 +92,12 @@ BEGIN
             NEW.learner_id, NEW.material_id, NEW.study_session_id,
             NEW.knowledge_structure_revision, NEW.target_concept_id,
             NEW.target_plan, NEW.requested_count, NEW.runtime_lock_document,
-            NEW.execution_identity, NEW.sealed_at
+            NEW.sealed_at
         ) IS DISTINCT FROM ROW(
             OLD.learner_id, OLD.material_id, OLD.study_session_id,
             OLD.knowledge_structure_revision, OLD.target_concept_id,
             OLD.target_plan, OLD.requested_count, OLD.runtime_lock_document,
-            OLD.execution_identity, OLD.sealed_at
+            OLD.sealed_at
         ) THEN
         RAISE EXCEPTION 'sealed assessment set scope is immutable';
     END IF;

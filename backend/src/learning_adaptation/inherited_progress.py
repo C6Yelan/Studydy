@@ -66,7 +66,7 @@ def preferred_focus(session, owner, material_id, revision):
     return next(iter(matched_concepts)) if len(matched_concepts) == 1 else None
 
 
-def inherited_answers(session, learner, study, document, *, dsn=None):
+def inherited_answers(session, learner, study, document):
     current = session.scalar(select(KnowledgeStructure).where(
         KnowledgeStructure.learner_id == learner.learner_id,
         KnowledgeStructure.material_id == study.material_id,
@@ -95,7 +95,7 @@ def inherited_answers(session, learner, study, document, *, dsn=None):
     inherited = []
     for session_id, revision in previous_sessions:
         previous = _read_verified_document(
-            session, learner.learner_id, study.material_id, revision=revision, dsn=dsn
+            session, learner.learner_id, study.material_id, revision=revision
         )
         matches = unchanged_claims(previous, document)
         if not matches:

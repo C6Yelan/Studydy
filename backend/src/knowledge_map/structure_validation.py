@@ -28,23 +28,6 @@ def _structure_fields(document, required):
         if document["source_review_required"] is not True:
             return False
         fields.add("source_review_required")
-    if "execution_identity" in document:
-        execution = document["execution_identity"]
-        if (
-            not isinstance(execution, dict)
-            or set(execution) != {
-                "transport", "model_id", "model_revision",
-                "config_sha256", "runtime_lock_sha256",
-            }
-            or execution["transport"] != "command"
-            or any(
-                not isinstance(execution[k], str)
-                or re.fullmatch(r"[0-9a-f]{64}", execution[k]) is None
-                for k in ("config_sha256", "runtime_lock_sha256")
-            )
-        ):
-            return False
-        fields.add("execution_identity")
     return set(document) == fields
 
 
@@ -537,7 +520,6 @@ def _validate_structure_content(document, source_digest):
             or document["material_id"] != f"material:sha256:{source_digest}"
         ):
             return False
-        execution = document.get("execution_identity")
         provenance = document["provenance"]
         try:
             produced_at = datetime.fromisoformat(document["produced_at"])
@@ -553,20 +535,6 @@ def _validate_structure_content(document, source_digest):
             or re.fullmatch(r"[0-9a-f]{64}", provenance["runtime_lock_sha256"]) is None
             or not isinstance(provenance["model_id"], str) or not provenance["model_id"]
             or not isinstance(provenance["model_revision"], str) or not provenance["model_revision"]
-            or (
-                execution is None
-                and (
-                    provenance["model_id"] != "google/gemma-4-31B-it-qat-w4a16-ct"
-                    or provenance["model_revision"] != "52f3f65bc7a02d555763bc923bd1d9094898219d"
-                )
-            )
-            or (
-                execution is not None
-                and any(
-                    execution[k] != provenance[k]
-                    for k in ("model_id", "model_revision", "runtime_lock_sha256")
-                )
-            )
             or provenance["semantic_policy"] != "unified-material-evidence-projection/v1"
         ):
             return False

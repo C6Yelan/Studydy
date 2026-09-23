@@ -18,6 +18,7 @@ python3 ops/local/manage.py start
 
 瀏覽器入口：<http://127.0.0.1:4173>。`start` 使用正式 backend 與 worker，Pod 離線仍可使用本機功能；AI 操作不可用時回報錯誤。資料留在既有 product DB，不建立 disposable DB。
 
+- [語意模型設定（HTTP）](docs/local-environment.md#語意模型設定)
 - [資料、私密設定、啟停與換 Pod](docs/local-environment.md)
 - [帳號與登入](docs/accounts.md)
 - [測試與模型 qualification](docs/testing.md)

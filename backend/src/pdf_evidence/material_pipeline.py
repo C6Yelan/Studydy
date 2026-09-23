@@ -96,8 +96,8 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
                 "model_id", "revision", "api_protocol", "base_url", "max_model_len",
                 "max_num_seqs", "server", "authentication",
             }
-            or semantic["model_id"] != "google/gemma-4-31B-it-qat-w4a16-ct"
-            or semantic["revision"] != "52f3f65bc7a02d555763bc923bd1d9094898219d"
+            or not isinstance(semantic["model_id"], str) or not semantic["model_id"].strip()
+            or not isinstance(semantic["revision"], str) or not semantic["revision"].strip()
             or semantic["api_protocol"] != "openai-chat-completions/v1"
             or semantic["base_url"] != "http://127.0.0.1:18000"
             or semantic["max_model_len"] != 32768
@@ -202,7 +202,6 @@ def _reason(error: Exception) -> str:
         "SEMANTIC_OUTPUT_INVALID", "SEMANTIC_OUTPUT_TRUNCATED",
         "SEMANTIC_INPUT_TOO_LARGE", "SEMANTIC_BUDGET_EXHAUSTED",
         "KNOWLEDGE_STRUCTURE_INVALID", "MATERIAL_IDENTITY_INVALID",
-        "SEMANTIC_ARTIFACT_WRITE_FAILED",
     }
     return reason if reason in allowed else "MATERIAL_ANALYSIS_FAILED"
 
@@ -423,23 +422,19 @@ def analyze_material(
                         )
                         if response is None:
                             semantic_calls += 1
-                            from runtime.command_semantics import retain_call_outputs
-                            output_directory = (
+                            if analysis_archive is not None:
                                 analysis_archive.prepare_call(semantic_calls, request_document)
-                                if analysis_archive is not None else None
+                            response = semantic_call(
+                                http,
+                                runtime_lock=lock,
+                                task="material_semantics",
+                                request=request_document,
+                                response_schema=semantic_response_schema([
+                                    row[0]
+                                    for section in request_document["sections"]
+                                    for row in section["evidence"]
+                                ], incremental=base_structure is not None),
                             )
-                            with retain_call_outputs(output_directory):
-                                response = semantic_call(
-                                    http,
-                                    runtime_lock=lock,
-                                    task="material_semantics",
-                                    request=request_document,
-                                    response_schema=semantic_response_schema([
-                                        row[0]
-                                        for section in request_document["sections"]
-                                        for row in section["evidence"]
-                                    ], incremental=base_structure is not None),
-                                )
                         if analysis_archive is not None:
                             analysis_archive.save_response(semantic_calls, request_document, response)
                         if base_structure is not None:
@@ -481,12 +476,7 @@ def analyze_material(
                 http.close()
             save_checkpoint()
         semantic_duration_ms = previous_semantic_ms + round((time.monotonic() - semantic_started) * 1000)
-    from runtime.command_semantics import identity
-    command = identity(lock)
-    service = (
-        lock["semantic_service"] if command is None
-        else {"model_id": command["model_id"], "revision": command["model_revision"]}
-    )
+    service = lock["semantic_service"]
     try:
         return build_structure_draft(
             context,
@@ -494,10 +484,9 @@ def analyze_material(
             source_sha256=source_digest,
             run_id=resolved_run,
             produced_at=resolved_time,
-            runtime_lock_sha256=canonical_sha256(lock) if command is None else command["runtime_lock_sha256"],
+            runtime_lock_sha256=canonical_sha256(lock),
             model_id=service["model_id"],
             model_revision=service["revision"],
-            execution_identity=command,
             semantic_calls=semantic_calls,
             ocr_calls=ocr_calls,
             evidence_duration_ms=evidence_duration_ms,

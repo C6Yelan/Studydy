@@ -32,7 +32,6 @@ def build_structure_draft(
     ocr_calls: int,
     evidence_duration_ms: int = 0,
     semantic_duration_ms: int = 0,
-    execution_identity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     try:
         parsed_time = datetime.fromisoformat(produced_at)
@@ -45,13 +44,6 @@ def build_structure_draft(
         or re.fullmatch(r"[0-9a-f]{64}", runtime_lock_sha256) is None
         or not isinstance(model_id, str) or not model_id
         or not isinstance(model_revision, str) or not model_revision
-        or (
-            execution_identity is None
-            and (
-                model_id != "google/gemma-4-31B-it-qat-w4a16-ct"
-                or model_revision != "52f3f65bc7a02d555763bc923bd1d9094898219d"
-            )
-        )
     ):
         raise ValueError("MATERIAL_IDENTITY_INVALID")
     evidence_by_id = {item["evidence_id"]: item for item in context["evidence"]}
@@ -217,8 +209,6 @@ def build_structure_draft(
         },
         "status": status,
     }
-    if execution_identity is not None:
-        document["execution_identity"] = deepcopy(execution_identity)
     if state.source_review_required:
         document["source_review_required"] = True
     if not validate_structure_draft(document):

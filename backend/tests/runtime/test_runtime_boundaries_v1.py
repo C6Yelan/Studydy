@@ -42,16 +42,17 @@ def test_local_config_has_one_python_one_semantic_lock_and_no_verifier(tmp_path)
 
 @pytest.mark.parametrize("field,value", [("model_id", "example/other-model"), ("model_revision", "a" * 40)])
 def test_stored_runtime_binding_rejects_wrong_identity_even_with_valid_hash(tmp_path, field, value):
-    """重算 binding hash 不能讓未批准的模型或 revision 通過。"""
+    """重算 binding hash 不能讓與保存快照不同的模型身分通過。"""
     from pdf_evidence.ocr_page_evidence import canonical_sha256
-    from runtime.storage.knowledge_structures import runtime_binding_is_valid
-    binding = runtime_binding(local_app.read_local_ai_config_from_environment(_environment(tmp_path)))
-    assert runtime_binding_is_valid(binding)
+    from runtime.material_runtime import lock_matches_binding
+    config = local_app.read_local_ai_config_from_environment(_environment(tmp_path))
+    binding = runtime_binding(config)
+    assert lock_matches_binding(config['runtime_lock'], binding)
     binding[field] = value
     binding["runtime_binding_sha256"] = canonical_sha256({
         key: item for key, item in binding.items() if key != "runtime_binding_sha256"
     })
-    assert not runtime_binding_is_valid(binding)
+    assert not lock_matches_binding(config['runtime_lock'], binding)
 
 
 def test_local_app_composition_validates_settings_without_ai_then_starts_uvicorn(tmp_path, monkeypatch):
@@ -112,8 +113,8 @@ def test_worker_recovers_once_and_does_not_own_model_lifecycle(monkeypatch):
 def test_source_tree_has_no_semantic_process_owner_or_retired_semantic_modules():
     root = Path(__file__).parents[3]
     production = "\n".join(path.read_text(encoding="utf-8") for path in (root / "backend/src").rglob("*.py"))
-    # B2-I 明確允許 OCR、受限轉檔與設定注入的 command transport；其他模組不可另起模型生命週期。
-    for boundary in ("pdf_evidence/local_ai_process.py","document_normalization/converter.py","runtime/command_semantics.py"):
+    # 只允許 OCR 與受限轉檔啟動子程序；語意模型只走 HTTP。
+    for boundary in ("pdf_evidence/local_ai_process.py","document_normalization/converter.py"):
         production=production.replace((root/"backend/src"/boundary).read_text(),"")
     assert "subprocess.Popen" not in production
     assert not (root / "backend/src/pdf_evidence/text_first_run.py").exists()

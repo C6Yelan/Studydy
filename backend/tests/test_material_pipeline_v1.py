@@ -127,17 +127,18 @@ def test_multiple_bundles_report_incremental_semantic_progress(tmp_path):
     assert completed[0] < 3 and completed[-1] == 3
 
 
-def test_command_uses_shared_batching_and_carries_concepts_across_all_ninety_pages(tmp_path,monkeypatch):
-    import sys
+def test_http_batching_carries_concepts_across_all_ninety_pages(tmp_path):
     from runtime.semantic_service import material_request_fits
-    config={'schema':'semantic-command-config/v1','argv':[sys.executable,'-c','raise AssertionError("model not authorized")'],
-            'model_id':'synthetic-model','model_revision':'fixture-v1'}
-    config_path=tmp_path/'command.json';config_path.write_text(json.dumps(config))
-    monkeypatch.setenv('STUDYDY_SEMANTIC_COMMAND_CONFIG',str(config_path))
+    class BudgetClient:
+        def post(self, url, **kwargs):
+            assert url.endswith('/tokenize')
+            request = json.loads(kwargs['json']['messages'][-1]['content'].split('\nINPUT:\n', 1)[1])
+            count = 700 * sum(len(section['evidence']) for section in request['sections'])
+            return httpx.Response(200, json={'count': count, 'max_model_len': 32768}, request=httpx.Request('POST', url))
     source=tmp_path/'ninety.pdf';_pdf(source,90)
     settings=_settings(tmp_path)
     calls=[];progress=[]
-    structure=_analyze(source,settings,client=Client(),semantic_call=_semantic(calls),
+    structure=_analyze(source,settings,client=BudgetClient(),semantic_call=_semantic(calls),
         progress_callback=lambda stage,done,total:progress.append((stage,done,total)))
     assert len(calls)>1 and structure['metrics']['semantic_calls']==len(calls)
     rows=[row for call in calls for section in call['sections'] for row in section['evidence']]
@@ -146,7 +147,7 @@ def test_command_uses_shared_batching_and_carries_concepts_across_all_ninety_pag
     assert len(rows)==len(structure['evidence']),'Evidence missing from the submitted input'
     assert all(call['existing_concepts'] for call in calls[1:])
     assert len(calls[-1]['existing_concepts'][0]['c'])>len(calls[1]['existing_concepts'][0]['c'])
-    assert all(material_request_fits(None,settings['runtime_lock'],call) for call in calls)
+    assert all(material_request_fits(BudgetClient(),settings['runtime_lock'],call) for call in calls)
     completed=[done for stage,done,_ in progress if stage=='semantics']
     assert completed==sorted(completed) and completed[0]<90 and completed[-1]==90
 

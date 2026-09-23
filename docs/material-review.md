@@ -1,7 +1,7 @@
 # 教材分析結果的檢核與整理
 
 提供共用檢核模組與正式 worker 消費者，使用已保存的來源及分析結果。
-可沿用 command transport 的開發模型，或既有 locked Gemma HTTP transport；沒有第二套 provider 平台。
+使用 runtime lock 指定的 HTTP 語意服務，與教材分析共用模型設定與完整性驗證。
 runtime lock v1 的 `material_review` 設定啟用發布前檢核。新教材及追加來源在初始分析後執行；
 已發布教材可以只重整，不重跑 OCR 或初始分析。舊工作保存的設定與資料 hash 不改寫。
 
@@ -74,7 +74,7 @@ Concept、Claim、Evidence、Relation 都由程式建立短整數索引；模型
 ```bash
 PYTHONPATH=backend/src:backend/tests:local_ai/src backend/.venv/bin/pytest -q \
   backend/tests/test_material_review.py backend/tests/test_semantic_service_v1.py \
-  backend/tests/test_command_semantics.py backend/tests/test_knowledge_structure_v1.py
+  backend/tests/test_semantic_service_v1.py backend/tests/test_knowledge_structure_v1.py
 ```
 
 合成測試覆蓋歸屬與完整性、案例保存、核心保護、數值／程式保護、來源身分、先備循環與共用 transport。

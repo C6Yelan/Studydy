@@ -2,9 +2,9 @@
 from copy import deepcopy
 from types import SimpleNamespace
 import pytest
-from runtime.storage.tables import Assessment, database_session
+from runtime.storage.tables import Assessment, AssessmentSet, database_session
 from learning_adaptation import assessment_sets as sets
-from learning_adaptation.assessments import _stored, AssessmentError
+from learning_adaptation.assessments import _stored, _provenance, AssessmentError
 from learning_adaptation.answer_events import read_answer_events
 from test_assessment_sets import closed_loop, concept_fixture, create, read, model_for
 
@@ -64,25 +64,7 @@ def test_retired_provenance_is_not_read_as_current(closed_loop,version):
     group=read(f,identity)
     with database_session(f['dsn']) as session:
         row=session.get(Assessment,group['assessment_revisions'][0])
+        expected = _provenance(session.get(AssessmentSet, identity))
         saved=SimpleNamespace(**{c.name:deepcopy(getattr(row,c.name)) for c in Assessment.__table__.columns})
     saved.generation_provenance['schema']=f'assessment-generation-provenance/v{version}'
-    with pytest.raises(AssessmentError,match='UNAVAILABLE'):_stored(saved)
-
-def test_current_command_provenance_is_read_without_live_configuration(closed_loop,tmp_path,monkeypatch):
-    import json
-    import sys
-    from test_assessment_sets import finish
-    f=concept_fixture(closed_loop,1)
-    config=tmp_path/'command.json'
-    config.write_text(json.dumps({'schema':'semantic-command-config/v1','argv':[sys.executable,'-c','print("{}")'],
-        'model_id':'fixture-command-model','model_revision':'fixture-revision'}))
-    monkeypatch.setenv('STUDYDY_SEMANTIC_COMMAND_CONFIG',str(config))
-    identity=create(f);finish(f)
-    group=read(f,identity)
-    assert group['status']=='ready'
-    with database_session(f['dsn']) as session:
-        stored=_stored(session.get(Assessment,group['assessment_revisions'][0]))
-    assert stored.generation_provenance['schema']=='assessment-generation-provenance/v1'
-    assert stored.generation_provenance['execution_identity']['transport']=='command'
-    monkeypatch.delenv('STUDYDY_SEMANTIC_COMMAND_CONFIG')
-    assert read(f,identity)==group
+    with pytest.raises(AssessmentError,match='UNAVAILABLE'):_stored(saved, expected)

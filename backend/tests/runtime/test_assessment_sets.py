@@ -210,7 +210,7 @@ def test_api_preserves_scope_private_preparation_and_read_only_resume(closed_loo
     finish(f)
     ready=client.get(f'{base}/{identity}').json()
     assert ready['published_count']==3
-    assert not {'runtime_lock_document','execution_identity','target_plan','action_receipts'} & ready.keys()
+    assert not {'runtime_lock_document','target_plan','action_receipts'} & ready.keys()
     for item in ready['items']:
         assert not {'prepared_document','correct_option_id','generation_provenance'} & item.keys()
     with pytest.raises(sets.AssessmentSetError,match='NOT_FOUND'):

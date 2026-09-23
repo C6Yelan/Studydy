@@ -10,7 +10,6 @@ from urllib.parse import urlsplit
 import httpx
 
 from pdf_evidence.ocr_page_evidence import canonical_bytes
-from . import command_semantics
 
 
 API_KEY_ENV = "VLLM_API_KEY"
@@ -76,8 +75,8 @@ def _service(lock: Any) -> dict[str, Any]:
         origin = _origin(service["base_url"])
         if (
             lock["python"] != "3.12"
-            or service["model_id"] != "google/gemma-4-31B-it-qat-w4a16-ct"
-            or service["revision"] != "52f3f65bc7a02d555763bc923bd1d9094898219d"
+            or not isinstance(service["model_id"], str) or not service["model_id"].strip()
+            or not isinstance(service["revision"], str) or not service["revision"].strip()
             or origin != "http://127.0.0.1:18000"
             or service["max_model_len"] != 32768
             or service["max_num_seqs"] != 1
@@ -95,8 +94,6 @@ def preflight_semantic_service(
 ) -> None:
     """確認既有 resident vLLM 的版本、模型與 32K tokenizer contract。"""
 
-    if command_semantics.settings() is not None:
-        return
     service = _service(runtime_lock)
     owned = client is None
     http = semantic_client() if client is None else client
@@ -218,12 +215,6 @@ def request_semantics(
 ) -> dict[str, Any]:
     """所有產品語意共用同一 resident service 與同一 transport boundary。"""
 
-    if command_semantics.settings() is not None:
-        try:
-            task_lock=runtime_lock["assessment" if task=="assessment_check" else task]
-            return command_semantics.request(task_lock[("check_" if task=="assessment_check" else "")+"prompt"],request,response_schema)
-        except command_semantics.CommandSemanticError as error:
-            raise SemanticServiceError(str(error)) from None
     service = _service(runtime_lock)
     try:
         task_lock = runtime_lock["assessment" if task == "assessment_check" else task]
@@ -297,20 +288,8 @@ def request_semantics(
 def material_request_fits(
     client: httpx.Client, runtime_lock: dict[str, Any], request: dict[str, Any]
 ) -> bool:
-    """共用分批器的容量判斷；command 僅估算新增內容的批量，不設總量門檻。"""
+    """以模型服務 tokenizer 計算分批容量；不截斷單一來源區塊。"""
 
-    config=command_semantics.settings()
-    if config is not None:
-        if sum(len(section["evidence"]) for section in request["sections"]) <= 1:
-            # 單一來源區塊不截斷；超過批量目標仍完整交給執行器。
-            return True
-        fresh_request = {**request, "existing_concepts": []}
-        text = _messages(runtime_lock["material_semantics"]["prompt"], fresh_request)[0]["content"]
-        # CLI 沒有 tokenizer endpoint。ASCII 每四字元、其餘每字元估一單位，
-        # 只用來選擇同一分批器的批次大小，不冒稱模型的實際 token 數。
-        ascii_count = sum(character.isascii() for character in text)
-        estimated = (ascii_count + 3) // 4 + len(text) - ascii_count
-        return estimated <= runtime_lock["material_semantics"]["max_new_input_tokens"]
     service = _service(runtime_lock)
     task = runtime_lock["material_semantics"]
     try:

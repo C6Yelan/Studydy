@@ -3,7 +3,6 @@ from product_fixtures import publish_fixture_structure
 """單一教材執行流程：出題設定可獨立更新，原 run／checkpoint 身分不改寫。"""
 from copy import deepcopy
 import json
-import sys
 
 import pytest
 
@@ -30,17 +29,13 @@ def test_only_material_dependencies_and_actual_model_define_resume_compatibility
     assert not same_material_runtime(config['runtime_lock'], first, changed['runtime_lock'], third)
 
 
-def test_command_model_change_is_not_treated_as_an_assessment_only_update(tmp_path, monkeypatch):
+def test_http_model_change_is_not_an_assessment_only_update(tmp_path):
     config = _settings(tmp_path)
-    path = tmp_path / 'command.json'
-    execution = {'schema': 'semantic-command-config/v1', 'argv': [sys.executable, '-c', 'raise SystemExit(99)'],
-                 'model_id': 'first-test-model', 'model_revision': 'test-revision'}
-    path.write_text(json.dumps(execution))
-    monkeypatch.setenv('STUDYDY_SEMANTIC_COMMAND_CONFIG', str(path))
     first = processing.runtime_binding(config)
-    path.write_text(json.dumps({**execution, 'model_id': 'second-test-model'}))
-    second = processing.runtime_binding(config)
-    assert not same_material_runtime(config['runtime_lock'], first, config['runtime_lock'], second)
+    changed = deepcopy(config)
+    changed['runtime_lock']['semantic_service'].update(model_id='example/second-model', revision='a' * 40)
+    second = processing.runtime_binding(changed)
+    assert not same_material_runtime(config['runtime_lock'], first, changed['runtime_lock'], second)
 
 
 def test_pending_run_uses_its_frozen_settings_after_assessment_update(revisions):

@@ -30,7 +30,11 @@
 
 沿用 Claim grounding、字面值保護及 Relation validators。模型的 `review_required=true` 只是來源 scope／概念分組的複核提示，不能據此認定教材互相矛盾，也不停止整次更新。可回查的新增 Claims 照常納入，既有 Claims 不改寫；提示以 `source_review_required=true` 與 `SOURCE_REVIEW_SUGGESTED` 保存，品質為 `needs_review`。此版本沒有任意語意修訂或自動衝突裁決引擎。
 
-runtime lock、material request 與 response 均使用 v1，記錄來源 scope 與 review flag。bundle policy 為 `contiguous-evidence-new-input/v1`：Gemma 與 command 都使用既有連續 Evidence 分批器、章節邊界及累積概念；每批新增內容目標沿用 1536。Gemma 使用服務端 tokenizer，command 在本機以 ASCII 四字元、其餘每字元估一單位；這不是 Luna 的實際 token 計數，不能宣稱批次邊界完全相同。command 的累積概念不計入新增內容目標，也不以它拒收整份教材；單一區塊不截斷。Gemma model／revision、generation、OCR routing 及既有 context 檢查不變；開發執行器與替代模型仍由私人設定注入。
+runtime lock、material request 與 response 均使用 v1，記錄來源 scope 與 review flag。
+`contiguous-evidence-new-input/v1` 使用 HTTP 模型服務的 tokenizer 安排連續 Evidence 分批，
+保留章節邊界與累積概念；每批新增內容目標為 1536，單一來源區塊不截斷。
+模型與服務設定統一由 runtime lock 提供，不另啟 CLI 或估算另一套 tokenizer。
+
 
 ## 學習進度
 
@@ -81,6 +85,10 @@ Worker lease 為 10 分鐘，由 checkpoints 及處理期間每 30 秒的存活�
 `test_source_revisions.py` 覆蓋增量輸入、重播／競爭、late upload、取消發布、fencing、進度承接與 staged cleanup。`test_source_identity.py` 驗證來源穩定與歧義拒絕；`test_migrations.py` 驗證 baseline、帳本保護及重跑不改資料。`test_source_revisions_browser.py` 使用真 API／DB／轉檔／worker 與受控語意 fixture，驗證 desktop／390px、reload、來源與已保存作答；`source-revisions.spec.ts` 驗證佇列和取消不發整份教材 DELETE。
 
 合成測試只證明功能契約。真實替代模型須另外記錄狀態、來源、coverage、呼叫量與限制；`needs_review` 不算 accepted。尚未宣告大型教材容量、任意來源衝突或正式模型品質通過。
+
+## 歷史開發驗證
+
+以下依當時執行路徑記錄；command transport 已退役，不是現行設定或部署指引。
 
 ### 本次開發驗證（2026-09-19）
 

@@ -7,7 +7,21 @@ Backend、frontend、runtime lock 與資料庫只接受此契約；第三方 API
 `build_structure_draft()` 產生未綁來源的內部草稿，沒有正式 schema 或 revision。
 `finalize_knowledge_structure()` 在來源集合綁定後產生唯一的 `knowledge-structure/v1`，
 revision 包含正式契約與 binding；舊 revision 不能只換 schema 標籤沿用。持久層拒絕未標 schema
-或其他版本的結構。HTTP 與 command 共用 runtime-binding v1，以現行 transport 區分執行方式。
+或其他版本的結構。語意推論只走 HTTP；runtime-binding v1 保存該次 HTTP 模型與服務身分。
+
+語意模型 ID／revision 由執行設定指定。教材以該 run 保存的 runtime lock／binding 核對 provenance，
+題目以生成它的題組保存的 runtime lock 核對模型、policy 與 prompt hashes；
+教材模型與出題模型可以不同。結構 validator 保護資料形狀、內容 revision 與來源關係，
+不把某個模型名稱當成內容有效性的條件；不提供舊版本 reader 或缺少快照時的放行分支。
+服務 preflight 仍檢查已設定模型的 discovery、server version、context 與 tokenizer，
+模型實際權重 revision 仍須部署證據確認。換模型需另行完成品質驗收，Gemma 的既有驗收不自動適用。
+
+一般地圖／學習讀取在同一 DB snapshot 核對保存結構、runtime 與來源集合 metadata，
+不為顯示已存內容掃描所有原檔。來源發布時完整核對 original／normalized／mapping bytes；
+下載、PDF 預覽、分析輸入及 Evidence mapping 使用時，各自完整驗證實際開啟的檔案。
+因此原檔損毀不會讓保存地圖消失，但使用損毀檔案或發布新結果必須失敗。
+題組設定在同一次交易中共用已驗證的 provenance，prior question 直接傳遞已驗證結果；
+沒有跨請求 hash 快取，內容 revision、私密答案、冪等與 checkpoint 檢查保留。
 
 | Artifact 操作 | 路由 | 邊界與回應 |
 |---|---|---|

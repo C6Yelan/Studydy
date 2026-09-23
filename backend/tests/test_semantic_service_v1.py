@@ -12,6 +12,33 @@ def _lock() -> dict:
     return json.loads((Path(__file__).parents[2] / "local_ai/runtime-lock.json").read_text())
 
 
+def test_model_selected_by_lock_is_used_and_wrong_served_identity_is_rejected(monkeypatch):
+    from pdf_evidence.material_pipeline import validate_runtime_lock
+
+    lock = _lock()
+    lock['semantic_service'].update(model_id='example/semantic-model', revision='a' * 40)
+    assert validate_runtime_lock(lock) is lock
+    served_id = lock['semantic_service']['model_id']
+    calls = []
+    def respond(request):
+        if request.url.path == '/health': return httpx.Response(200)
+        if request.url.path == '/version': return httpx.Response(200, json={'version': '0.28.0'})
+        if request.url.path == '/v1/models':
+            return httpx.Response(200, json={'data': [{'id': served_id, 'max_model_len': 32768}]})
+        body = json.loads(request.content)
+        assert body['model'] == 'example/semantic-model'
+        if request.url.path == '/tokenize': return httpx.Response(200, json={'count': 10, 'max_model_len': 32768})
+        calls.append(request.url.path)
+        return httpx.Response(200, json={'choices': [{'finish_reason': 'stop', 'message': {'content': '{}'}}]})
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        preflight_semantic_service(lock, client=client)
+        assert request_semantics(client, runtime_lock=lock, task='assessment', request={}, response_schema={}) == {}
+        served_id = 'example/wrong-model'
+        with pytest.raises(SemanticServiceError, match='SEMANTIC_SERVICE_IDENTITY_MISMATCH'):
+            preflight_semantic_service(lock, client=client)
+    assert calls == ['/v1/chat/completions']
+
+
 def test_material_review_uses_existing_gemma_transport_and_context_check():
     observed=[]
     def respond(request):
@@ -101,7 +128,7 @@ def test_material_packing_and_generation_share_exact_token_budget(count, fits):
     assert sum(path == "/v1/chat/completions" for path, _ in requests) == int(fits)
 
 
-def test_non_loopback_or_second_runtime_contract_is_rejected_before_network():
+def test_non_loopback_or_empty_model_is_rejected_before_network():
     lock = _lock()
     lock["semantic_service"]["base_url"] = "http://example.test:8000"
     with httpx.Client(transport=httpx.MockTransport(lambda _request: (_ for _ in ()).throw(AssertionError()))) as client:
@@ -109,7 +136,7 @@ def test_non_loopback_or_second_runtime_contract_is_rejected_before_network():
             request_semantics(client, runtime_lock=lock, task="material_semantics", request={}, response_schema={})
 
     second = deepcopy(_lock())
-    second["semantic_service"]["model_id"] = "example/other-model"
+    second["semantic_service"]["model_id"] = ""
     with httpx.Client(transport=httpx.MockTransport(lambda _request: (_ for _ in ()).throw(AssertionError()))) as client:
         with pytest.raises(SemanticServiceError):
             request_semantics(client, runtime_lock=second, task="assessment", request={}, response_schema={})
@@ -170,14 +197,14 @@ def test_offline_ai_requests_keep_existing_retryable_api_error(failure):
 
 
 @pytest.mark.parametrize("field,value", [
-    ("model_id", "example/other-model"),
-    ("revision", "a" * 40),
+    ("model_id", ""),
+    ("revision", " "),
     ("base_url", "http://127.0.0.1:18001"),
     ("max_model_len", 16384),
     ("max_num_seqs", 2),
 ])
 def test_wrong_contract_is_rejected_by_lock_and_client_before_network(field, value):
-    """即使 revision 格式合法，也只能接受已 qualification 的單一模型。"""
+    """模型身分不可為空；服務網路位置與能力限制仍在呼叫前檢查。"""
     from pdf_evidence.material_pipeline import MaterialAnalysisError, validate_runtime_lock
     lock = _lock()
     validate_runtime_lock(lock)

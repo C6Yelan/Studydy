@@ -156,7 +156,6 @@ class AnalysisArchive:
 
     def prepare_call(self,index,request):
         self._write(f'call-{index:06d}/request.json',request)
-        return self.directory/f'call-{index:06d}'
 
     def save_review(self, name, data):
         self._write(f'review/{name}.json', data)
@@ -164,7 +163,6 @@ class AnalysisArchive:
     def prepare_review_call(self, index, key, request, *, attempt=0):
         name = f'call-{index:06d}' + (f'-repair-{attempt:02d}' if attempt else '')
         self.save_review(f'{name}/request', {'cache_key': key, 'request': request})
-        return self.directory/'review'/name
 
     def load_review(self, key, *, validate_response=None):
         # 同來源／模型設定的明確重試可接續；不重播未知或損毀的回應。
@@ -304,14 +302,6 @@ def reconcile_published_checkpoints(*, dsn):
 def remove_material_analysis(owner,material):
     path=_material_directory(owner,material)
     if not path.exists():return
-    for record in path.glob('*/call-*/working-directory.json'):
-        value=json.loads(record.read_bytes())
-        working=Path(value['path'])
-        if not working.exists():continue
-        if (working.parent!=Path(tempfile.gettempdir()) or not working.name.startswith('studydy-semantic-')
-            or working.is_symlink() or (working/'.archive-owner').read_text()!=value['nonce']):
-            raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_INVALID')
-        shutil.rmtree(working)
     shutil.rmtree(path)
 
 

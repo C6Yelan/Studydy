@@ -12,7 +12,7 @@ from sqlalchemy import select
 from runtime.learner_session import TrustedLearner
 from runtime.storage.tables import AnswerEvent, Assessment, database_session
 
-from .assessments import AssessmentError, _stored as validate_stored_assessment
+from .assessments import AssessmentError, _stored as validate_stored_assessment, _provenance_for_row
 from .study_sessions import StudySessionError, _learner, _row, _validate
 
 
@@ -83,7 +83,7 @@ def _fingerprint(session_id: UUID, assessment: str, question: str, option: str) 
     ).encode()).digest()
 
 
-def _assessment(session, study, revision: str) -> Assessment:
+def _assessment(session, study, revision: str, provenance_by_set) -> Assessment:
     row = session.scalar(select(Assessment).where(
         Assessment.study_session_id == study.study_session_id,
         Assessment.knowledge_structure_revision == study.knowledge_structure_revision,
@@ -96,7 +96,7 @@ def _assessment(session, study, revision: str) -> Assessment:
     ):
         raise AnswerSubmissionError("ANSWER_ASSESSMENT_UNAVAILABLE")
     try:
-        validate_stored_assessment(row)
+        validate_stored_assessment(row, _provenance_for_row(session, row, provenance_by_set))
     except AssessmentError:
         raise AnswerSubmissionError("ANSWER_ASSESSMENT_UNAVAILABLE")
     return row
@@ -222,10 +222,11 @@ def _read_events(session, study):
         ).order_by(AnswerEvent.event_number)
     ))
     assisted = _assisted_revisions(session, study.study_session_id)
+    provenance_by_set = {}
     events = tuple(
         _event(
             row,
-            _assessment(session, study, row.assessment_revision),
+            _assessment(session, study, row.assessment_revision, provenance_by_set),
             study, assisted=row.assessment_revision in assisted,
         )
         for row in rows

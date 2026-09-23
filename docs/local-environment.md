@@ -39,6 +39,17 @@ python3 ops/local/manage.py stop
 
 `stop` 只停止這組本機 frontend／backend／SSH 通道，不刪資料、不停止 PostgreSQL 或 Pod。要關掉 AI 費用，須另行明確停止 Pod；關閉 SSH 或 HTTP client 不代表遠端推論已取消。
 
+## 語意模型設定
+
+語意模型只有 HTTP 入口。設定檔為 `local_ai/runtime-lock.json`，模型身分位於
+`semantic_service.model_id` 與 `semantic_service.revision`；實際服務必須載入對應模型。
+本機沿用 `http://127.0.0.1:18000` 的既有通道與目前服務契約。這是部署層設定，沒有每位使用者的模型選單。
+修改設定後，以 `python3 ops/local/manage.py stop` 再 `start` 重載；工作保存自己的 runtime lock snapshot。
+模型 preflight 與品質驗收分開處理，設定可載入不代表新模型品質已合格。
+
+私人啟動設定只保留 DB／store／normalizer 等本機資訊，不再提供 command 執行器設定。
+模型通道若離線，教材分析與出題會如實失敗，不切到其他執行器或自動重跑。
+
 ## 換正常 Pod
 
 1. 使用新的 SSH 入口更新私密 `pod-connection.json`；不要把實際值寫進 repo。
@@ -50,6 +61,26 @@ python3 ops/local/manage.py stop
 新對話先讀本文件與 `status`，不要從歷史實驗目錄找舊 launcher、查 Serverless endpoint 或擅自排入模型測試。執行真實推論前要遵守當次使用者指定的 request 數量與預算。
 
 ## 目前日常服務與資料契約
+
+2026-09-23 已依使用者授權退役 command transport，語意推論統一為 HTTP。
+移除 CLI 執行器、私人設定入口、token 估算分支、command 特有 binding／provenance 與測試；
+KS 與題目不再接受 `execution_identity`，題組表的重複欄位也已移除，保留完整 runtime lock snapshot。
+教材分批使用 HTTP tokenizer；analysis archive 仍保存請求、已解碼回應與 checkpoint。
+
+切換前核對無處理作業、地圖、學習／作答或題組資料，且沒有活動工作。完成私人 DB 與啟動設定
+備份、隔離還原、schema 比對、交易回滾後，受控移除空題組表欄位並採認 0004 checksum；
+0001～0003 帳本不變。比較記錄了一個既有自動 CHECK 名稱差異：來源正規化表的
+`source_normalizations_check2` 與新建 DB 的 `source_normalizations_check1` 條件相同；此次未變更該表。
+
+正式版私人設定已移除 command 入口，原設定留在私人備份。前後端已重載，3 筆教材、
+9 筆 ready 來源／正規化、27 個 artifact 及全部實體檔案核對保留；15 張產品表的資料摘要不變。
+Migration 重跑回傳 `()`；首頁 200、未登入 session 401。既有模型通道 `/health` 為 503，
+使用者已明確接受沿用目前設定並暫時離線，因此本次沒有模型生成、重新分析或品質驗收。
+
+完整非 browser 後端回歸 373 passed；前端 6 項 Node 測試、TypeScript 檢查通過。
+移除最後兩個 command 專屬錯誤碼顯示分支後，另重驗受影響的 pipeline 與前端測試。
+私人切換證據：`../.studydy-product/backups/retire-command-20260923T152205Z/`，包含
+切換前 DB／private-config／command 設定、原 SQL、隔離演練、帳本與資料／檔案驗證紀錄。
 
 2026-09-23 移除來源轉檔在政策變動時建立第二筆 job、讀取端選最新 job 的開發相容路徑。
 現行同一來源只能有一筆 normalization；失敗重試只重設該筆狀態，不改寫保存的政策，

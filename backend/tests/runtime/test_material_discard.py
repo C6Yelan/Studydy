@@ -230,7 +230,7 @@ def test_real_worker_finishes_discard_without_model_calls(unused, monkeypatch, r
     if restart:
         claim(unused)
         assert request(unused) == 'removing'
-    def analyze(_request, _settings, *, progress_callback, **kwargs):
+    def analyze(_sources, _binding, _settings, *, progress_callback, **kwargs):
         assert not restart
         progress_callback('evidence', 0, 1)
         entered.set(); assert release.wait(10)

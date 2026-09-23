@@ -23,9 +23,9 @@ from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime.semantic_service import SemanticServiceError, preflight_semantic_service
 
 from .storage.artifacts import open_verified_source_pdf
-from .storage.knowledge_structures import KnowledgeStructureStoreError, publish_knowledge_structure, runtime_binding_is_valid
+from .storage.knowledge_structures import KnowledgeStructureStoreError, publish_knowledge_structure
 from .storage.analysis_archive import AnalysisArchive, AnalysisArchiveError, cleanup_published_checkpoints
-from .material_runtime import same_material_runtime
+from .material_runtime import same_material_runtime, runtime_binding_is_valid
 from .material_review import review_structure
 from knowledge_map.material_review import ReviewError
 from .storage.tables import Learner, Material, MaterialProcessingRun as RunRow, database_session
@@ -224,14 +224,7 @@ def runtime_binding(local_config: Any) -> dict[str, Any]:
         "ocr": {"model_id": lock["ocr"]["model_id"], "revision": lock["ocr"]["revision"]},
         "policy": "evidence-unified-semantics-product/v1",
     }
-    from .command_semantics import identity
-    command=identity(lock)
-    if command is not None:
-        binding.update(model_id=command["model_id"], model_revision=command["model_revision"],
-                       runtime_lock_sha256=command["runtime_lock_sha256"], semantic_service=command)
     binding["runtime_binding_sha256"] = canonical_sha256(binding)
-    if not runtime_binding_is_valid(binding):
-        raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH")
     return binding
 
 
@@ -273,8 +266,7 @@ def _prepare_runtime_root(value: str) -> None:
 
 
 def runtime_preflight(local_config: Any) -> dict[str, Any]:
-    from .command_semantics import settings
-    binding = runtime_binding(local_config) if settings() is not None else validate_installed_local_runtime(local_config)
+    binding = validate_installed_local_runtime(local_config)
     assert isinstance(local_config, dict)
     try:
         preflight_semantic_service(local_config["runtime_lock"])
@@ -509,10 +501,6 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn):
                 structure.update(run_id=str(run.run_id), produced_at=datetime.now(UTC).isoformat(), input_binding=binding)
                 structure['provenance'].update(runtime_lock_sha256=run.runtime_binding['runtime_lock_sha256'],
                     model_id=run.runtime_binding['model_id'], model_revision=run.runtime_binding['model_revision'])
-                if run.runtime_binding['semantic_service'].get('transport') == 'command':
-                    structure['execution_identity'] = deepcopy(run.runtime_binding['semantic_service'])
-                else:
-                    structure.pop('execution_identity', None)
                 # 原分析的費用留在舊 run；新 run 只計本次檢核。
                 structure['metrics'].update(ocr_calls=0, evidence_duration_ms=0, semantic_duration_ms=0)
                 structure['revision'] = _revision(structure)

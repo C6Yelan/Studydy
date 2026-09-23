@@ -20,13 +20,13 @@ generator 與 checker 使用相同集合，checker 只接收歷史題目及選�
 
 ## 版本與資料保存
 
-現行 runtime lock、generator request、checker request／response、policy `source-span-single-choice/v1` 與 provenance 均為 v1；沿用各自最新資料形狀與 prompt。model、OCR、material semantics、context 與 generation budgets 保持原設定。command 執行器仍由私人設定注入。
+現行 runtime lock、generator request、checker request／response、policy `source-span-single-choice/v1` 與 provenance 均為 v1；沿用各自最新資料形狀與 prompt。model、OCR、material semantics、context 與 generation budgets 保持原設定。語意模型由 runtime lock 指定並透過 HTTP 呼叫。
 
-新 provenance 私存選中候選、檢查／安全候選數、品質提示、比較範圍及兩個 prompt hashes；command 身分與 Gemma 分開記錄。公開題目、resume、history 不加入這些欄位或私有答案。
+新 provenance 私存選中候選、檢查／安全候選數、品質提示、比較範圍及兩個 prompt hashes；模型身分與 runtime lock hash 一併保存。公開題目、resume、history 不加入這些欄位或私有答案。
 
 歷史紀錄不補欄位、不改 hash 或 mastery eligibility；現行 reader 僅接受 provenance v1，不提供舊版相容分支。出題功能本身沿用既有資料模型；教材接續所需的非機密設定由現行 `0002_sources_and_processing.sql` 保存。後續 B5-D 已將題組模型呼叫移至短交易之外，沿用本頁候選準備與檢查流程。
 
-教材與出題設定已解耦：所有教材工作使用同一條執行流程，比對實際影響教材分析的 Python／套件、OCR、semantic service、material semantics 與實際 command 執行身分；不以 assessment 或整份設定的版號決定能否接續。工作保存開始時的設定並核對其原 runtime binding，執行與發布仍使用該份設定，因此不改寫舊 run、KS 或 checkpoint 的 hash。新重試可以重用分析設定相同的已保存進度；設定缺失、損毀或教材依賴改變時停止並明示，不能暗中重新分析。沒有新增 legacy 執行分支或按歷史版本切換的 fallback。
+教材與出題設定已解耦：所有教材工作使用同一條執行流程，比對實際影響教材分析的 Python／套件、OCR、semantic service與 material semantics；不以 assessment 或整份設定的版號決定能否接續。工作保存開始時的設定並核對其原 runtime binding，執行與發布仍使用該份設定，因此不改寫舊 run、KS 或 checkpoint 的 hash。新重試可以重用分析設定相同的已保存進度；設定缺失、損毀或教材依賴改變時停止並明示，不能暗中重新分析。沒有新增 legacy 執行分支或按歷史版本切換的 fallback。
 
 2026-09-20 後續已修正 [checkpoint 生命週期](source-revisions.md#分批保存與失敗重試)：地圖發布成功即清理，不受 `needs_review` 影響。已完成教材不需要 checkpoint 接續，也不因品質提示阻擋服務切換。
 

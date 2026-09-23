@@ -38,6 +38,12 @@ the retired `source_pdf` artifact kind. `seed_pdf()` continues to exercise the c
 DB 拒絕缺少 schema 的 JSON、所有產品路由唯一且位於 `/v1/`。來源 API 測試涵蓋原檔下載與
 normalized PDF 預覽的不同 MIME／標頭、owner 隔離、錯誤 artifact 類型及退役 `/v2` 路由。
 
+`runtime/test_validation_boundaries.py` 使用合成資料檢查不同教材／出題模型各自綁定執行快照，
+重算內容 hash 仍不能偽造另一個模型的 provenance；讀地圖／題組／進度不開來源檔，
+Evidence locator 只驗證所用 mapping。三種來源檔損毀均在使用與發布邊界拒絕；prior 題目
+只完整驗證一次，同一題組設定於交易內共用。語意服務測試以 MockTransport 驗證設定中的模型
+被實際送入請求，discovery 回傳不同模型仍拒絕。這些是程式契約測試，不是新模型品質驗收。
+
 The 2026-09-23 baseline adoption compares the old final schema with a fresh baseline in isolated
 PostgreSQL, rehearses backup restore and ledger adoption/rollback, and checks all product-table
 contents and artifact files before/after. This is a one-time local cutover, not an automatic path in

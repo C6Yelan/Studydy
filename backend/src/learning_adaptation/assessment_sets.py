@@ -13,16 +13,15 @@ from sqlalchemy import select, text
 
 from pdf_evidence.material_pipeline import validate_runtime_lock
 from pdf_evidence.ocr_page_evidence import canonical_sha256
-from runtime import command_semantics
 from runtime.learner_session import TrustedLearner
 from runtime.semantic_service import SemanticServiceError, request_semantics
-from runtime.storage.artifacts import _root
 from runtime.storage.tables import (
     Assessment, AssessmentSet, AssessmentSetItem, AnswerEvent,
     KnowledgeStructure, Material, StudySession, database_session,
 )
 from . import assessments
-from .map_context import context_from_structure
+from .map_context import _context_from_validated_document
+from runtime.storage.knowledge_structures import _read_verified_document
 
 ACTIVE = ('preparing', 'partial_ready', 'ready', 'in_progress')
 LEASE_SECONDS = 600
@@ -39,16 +38,6 @@ def _key(value):
 
 def _now():
     return datetime.now(UTC)
-
-
-def _execution(lock):
-    command = command_semantics.identity(lock)
-    return command if command is not None else {
-        'transport': 'http',
-        'model_id': lock['semantic_service']['model_id'],
-        'model_revision': lock['semantic_service']['revision'],
-        'runtime_lock_sha256': canonical_sha256(lock),
-    }
 
 
 def _scope(session, learner, sid, *, lock=False):
@@ -72,14 +61,9 @@ def _scope(session, learner, sid, *, lock=False):
     study = session.scalar(query.with_for_update() if lock else query)
     if study is None:
         raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
-    document = session.scalar(select(KnowledgeStructure.document).where(
-        KnowledgeStructure.learner_id == learner.learner_id,
-        KnowledgeStructure.material_id == material_id,
-        KnowledgeStructure.structure_revision == study.knowledge_structure_revision,
-    ))
-    if document is None:
-        raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
-    context = context_from_structure(material_id, document)
+    document = _read_verified_document(session, learner.learner_id, material_id,
+                                       revision=study.knowledge_structure_revision)
+    context = _context_from_validated_document(material_id, document)
     return study, context, document
 
 
@@ -181,7 +165,7 @@ def create_set(learner, sid, concept_id, idempotency_key, local_config, *, dsn=N
             study_session_id=sid, knowledge_structure_revision=study.knowledge_structure_revision,
             target_concept_id=concept_id, kind='diagnostic', target_plan=plan,
             requested_count=len(plan['targets']),
-            runtime_lock_document=lock, execution_identity=_execution(lock),
+            runtime_lock_document=lock,
             status='preparing' if plan['targets'] else 'failed', set_version=1,
             idempotency_key_sha256=key, request_fingerprint=fingerprint, action_receipts={},
             created_at=_now(), updated_at=_now())
@@ -369,7 +353,7 @@ def create_remediation(learner, sid, root_id, expected_version, key, local_confi
             study_session_id=sid, knowledge_structure_revision=study.knowledge_structure_revision,
             target_concept_id=root.target_concept_id, kind='remediation', diagnostic_set_id=root.set_id,
             target_plan=plan, requested_count=len(targets),
-            runtime_lock_document=lock, execution_identity=_execution(lock),
+            runtime_lock_document=lock,
             status='preparing', set_version=1, idempotency_key_sha256=digest, request_fingerprint=fingerprint,
             action_receipts={}, created_at=_now(), updated_at=_now())
         session.add(group); session.flush()
@@ -438,13 +422,14 @@ def read_set(learner, sid, set_id, *, dsn=None):
         study, context, _ = _scope(session, learner, sid)
         group = _round(session, study, set_id)
         rows = _items(session, group)
+        expected_provenance = assessments._provenance(group)
         projected = []
         for item in rows:
             public = feedback = created = None
             can_submit = False
             if item.assessment_revision is not None:
                 assessment = session.get(Assessment, item.assessment_revision)
-                stored = assessments._stored(assessment)
+                stored = assessments._stored(assessment, expected_provenance)
                 public, created = stored.public_document, assessment.created_at
                 event = session.scalar(select(AnswerEvent).where(AnswerEvent.study_session_id == sid,
                     AnswerEvent.assessment_revision == item.assessment_revision))
@@ -525,10 +510,11 @@ def _assessment_row(study, item, prepared):
 def _seal(session, study, group, items):
     if group.sealed_at is not None:
         raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
+    expected_provenance = assessments._provenance(group)
     for item in items:
         if item.state == 'verified':
             row = _assessment_row(study, item, item.prepared_document)
-            assessments._stored(row)
+            assessments._stored(row, expected_provenance)
             session.add(row); session.flush()
             item.assessment_revision = row.assessment_revision
             item.state, item.prepared_document = 'published', None
@@ -582,8 +568,9 @@ def submit_set_answers(learner, sid, set_id, answers, expected_version, idempote
         if not items or set(by_revision) != {item.assessment_revision for item in items}:
             raise AssessmentSetError('ASSESSMENT_SET_REQUEST_INVALID')
         validated = []
+        provenance_by_set = {group.set_id: assessments._provenance(group)}
         for item in items:
-            row = answer_events._assessment(session, study, item.assessment_revision)
+            row = answer_events._assessment(session, study, item.assessment_revision, provenance_by_set)
             answer = by_revision[row.assessment_revision]
             if (
                 answer['question_id'] != row.question_id
@@ -782,13 +769,14 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics):
                 raise AssessmentSetError('ASSESSMENT_SET_STALE_WORK')
             concept = next(item for item in context.concepts if item.concept_id == group.target_concept_id)
             claim = next(point for point in concept.claims if point.claim_id == item.target_claim_id)
-            lock, execution = deepcopy(group.runtime_lock_document), deepcopy(group.execution_identity)
+            lock = deepcopy(group.runtime_lock_document)
             study_data = SimpleNamespace(study_session_id=study.study_session_id,
                                          knowledge_structure_revision=study.knowledge_structure_revision)
-            prior = [assessments._stored(row) for row in assessments._prior_questions(session, study, claim)]
+            prior = assessments._prior_questions(session, study, claim)
+            expected_provenance = assessments._provenance(group)
             verified = [row for row in _items(session, group) if row.state == 'verified']
             staged = [
-                assessments._stored(_assessment_row(study, row, row.prepared_document))
+                assessments._stored(_assessment_row(study, row, row.prepared_document), expected_provenance)
                 for row in verified
             ]
             used = set(session.scalars(select(Assessment.semantic_identity).where(
@@ -796,31 +784,16 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics):
             )))
             used.update(row.semantic_identity for row in staged)
             prior = _bounded_prior([*staged, *prior], claim)
-            scope = (study.learner_id, study.material_id, item.attempts)
-        if _execution(lock) != execution:
-            raise assessments.AssessmentError('ASSESSMENT_CONFIGURATION_INVALID')
 
         def model(client, **kwargs):
             with database_session(dsn) as session:
                 _leased(session, work)
-                directory = (
-                    _root() / 'analysis' / scope[0].hex / scope[1].hex
-                    / f'assessment-set-{work.set_id.hex}'
-                    / f'call-{work.ordinal:04d}-{scope[2]}-{kwargs["task"]}'
-                )
-                for parent in reversed([directory, *list(directory.parents)[:4]]):
-                    if parent.is_symlink():
-                        raise assessments.AssessmentError('ASSESSMENT_STORE_FAILED')
-                    parent.mkdir(mode=0o700, exist_ok=True)
-            with command_semantics.retain_call_outputs(directory):
-                return semantic_call(client, **kwargs)
+            return semantic_call(client, **kwargs)
 
         chosen = assessments.prepare_assessment(
             study_data, concept, claim, prior, used,
             runtime_lock=lock, semantic_call=model,
         )
-        if _execution(lock) != execution:
-            raise assessments.AssessmentError('ASSESSMENT_CONFIGURATION_INVALID')
         if chosen is None:
             reason = 'NO_SAFE_ASSESSMENT'
         else:
@@ -834,13 +807,12 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics):
     except (
         assessments.AssessmentError,
         SemanticServiceError,
-        command_semantics.CommandSemanticError,
     ) as error:
         allowed = {'NO_SAFE_ASSESSMENT', 'ASSESSMENT_OUTPUT_INVALID', 'ASSESSMENT_CHECK_INVALID',
                    'ASSESSMENT_CONFIGURATION_INVALID', 'SEMANTIC_SERVICE_UNAVAILABLE',
                    'SEMANTIC_SERVICE_TIMEOUT',
                    'SEMANTIC_RESPONSE_INVALID', 'SEMANTIC_INPUT_TOO_LARGE', 'SEMANTIC_OUTPUT_TRUNCATED',
-                   'SEMANTIC_ARTIFACT_WRITE_FAILED', 'ASSESSMENT_STORE_FAILED'}
+                   'ASSESSMENT_STORE_FAILED'}
         reason = str(error) if str(error) in allowed else 'ASSESSMENT_GENERATION_FAILED'
     except Exception:
         reason = 'ASSESSMENT_GENERATION_FAILED'

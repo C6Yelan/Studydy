@@ -84,7 +84,7 @@ export function materialRunLabel(status: MaterialProcessingRunView["status"], ca
 
 export function materialFailureMessage(errorCode: string): string {
   if (errorCode === "KNOWLEDGE_STRUCTURE_INVALID") return "分析結果在組裝地圖時未通過結構檢查，尚未發布地圖。";
-  if (errorCode === "ANALYSIS_ARTIFACT_WRITE_FAILED" || errorCode === "SEMANTIC_ARTIFACT_WRITE_FAILED") return "分析產物無法寫入本機儲存空間，處理已停止。";
+  if (errorCode === "ANALYSIS_ARTIFACT_WRITE_FAILED") return "分析產物無法寫入本機儲存空間，處理已停止。";
   if (errorCode === "ANALYSIS_CHECKPOINT_INVALID") return "已保存的分析資料未通過完整性檢查，處理已停止，沒有自動重新分析。";
   if (errorCode === "ANALYSIS_RUNTIME_CHANGED") return "已保存的分析進度與目前的教材分析設定不一致，已停止接續，沒有自動重新分析教材。";
   if (errorCode === "NO_USABLE_ADDED_CONTENT") return "新增教材沒有產生可用的知識內容，目前地圖與學習紀錄已保留。";
