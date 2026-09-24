@@ -103,7 +103,7 @@ def test_invalid_source_failure_is_durable_and_get_is_read_only(closed_loop,norm
 @pytest.mark.parametrize('extension',['.docx','.pptx','.txt','.md'])
 def test_real_converter_inside_sandbox(extension,normalizer):
     import pymupdf
-    if extension in ('.docx','.pptx'):data=(ROOT/'backend/tests/fixtures/normalization'/('sample'+extension)).read_bytes()
+    if extension in ('.docx','.pptx'):data=(ROOT/'backend/tests/fixtures'/('sample'+extension)).read_bytes()
     else:data=(('# Text\n' if extension=='.md' else '')+'中文字與 code\n'+'long_line_'*40+'\n<script>never_execute</script>\n![remote](https://example.invalid/asset)\n').encode()
     pdf,mapping=convert(data,extension,MIME[extension],conversion_policy())
     with pymupdf.open(stream=pdf,filetype='pdf') as document:
@@ -247,7 +247,7 @@ def test_failed_conversion_retry_reuses_one_job_without_policy_migration(closed_
 def test_embedded_active_office_parts_are_rejected_in_sandbox(part,normalizer):
     import zipfile
     from document_normalization.converter import NormalizationError
-    original=ROOT/'backend/tests/fixtures/normalization/sample.docx'
+    original=ROOT/'backend/tests/fixtures/sample.docx'
     buffer=io.BytesIO()
     with zipfile.ZipFile(original) as old,zipfile.ZipFile(buffer,'w',zipfile.ZIP_DEFLATED) as modified:
         for name in old.namelist():modified.writestr(name,old.read(name))
@@ -276,7 +276,7 @@ def test_discard_waits_for_source_lease_then_cleans_all_artifacts(closed_loop,no
 def test_legacy_office_source_is_saved_and_converted(closed_loop,normalizer,extension,expected_pages):
     owner=closed_loop[0].learner_id;dsn=closed_loop[4]
     material=create_draft(owner,'sample'+extension,'legacy-draft'+extension,dsn=dsn)
-    data=(ROOT/'backend/tests/fixtures/normalization'/('sample'+extension)).read_bytes()
+    data=(ROOT/'backend/tests/fixtures'/('sample'+extension)).read_bytes()
     upload_source(owner,material,data,'sample'+extension,MIME[extension],'legacy-upload'+extension,dsn=dsn)
     assert normalize_next(dsn=dsn)
     source=read_sources(owner,material,dsn=dsn)[0]

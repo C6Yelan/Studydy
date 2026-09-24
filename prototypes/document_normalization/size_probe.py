@@ -40,7 +40,7 @@ def image_docx(path,count,edge=1024):
         z.writestr('_rels/.rels',f'<Relationships xmlns="{PKG}"><Relationship Id="rId1" Type="{R}/officeDocument" Target="word/document.xml"/></Relationships>')
 
 def image_pptx(path,count,edge=1024):
-    with zipfile.ZipFile(ROOT/'backend/tests/fixtures/normalization/sample.pptx') as original,zipfile.ZipFile(path,'w',zipfile.ZIP_STORED) as z:
+    with zipfile.ZipFile(ROOT/'backend/tests/fixtures/sample.pptx') as original,zipfile.ZipFile(path,'w',zipfile.ZIP_STORED) as z:
         presentation=E.fromstring(original.read('ppt/presentation.xml'));slides=presentation.find(f'{{{P}}}sldIdLst');slides.clear()
         rels=E.fromstring(original.read('ppt/_rels/presentation.xml.rels'))
         for rel in list(rels):
@@ -68,7 +68,7 @@ def image_pptx(path,count,edge=1024):
         z.writestr('ppt/presentation.xml',E.tostring(presentation));z.writestr('ppt/_rels/presentation.xml.rels',E.tostring(rels));z.writestr('[Content_Types].xml',E.tostring(content_types))
 
 def dense_docx(path,paragraphs):
-    with zipfile.ZipFile(ROOT/'backend/tests/fixtures/normalization/sample.docx') as original,zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED) as z:
+    with zipfile.ZipFile(ROOT/'backend/tests/fixtures/sample.docx') as original,zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED) as z:
         for name in original.namelist():
             data=original.read(name)
             if name=='word/document.xml':
