@@ -1,4 +1,5 @@
 """失敗保留可續接狀態；發布完成清理 checkpoint，品質提示不阻擋清理。"""
+
 from pathlib import Path
 import json
 import logging
@@ -24,138 +25,186 @@ class AnalysisArchiveError(RuntimeError):
 _logger = logging.getLogger(__name__)
 
 
-def _signature(run):
+def _checkpoint_input_digest(run):
     return canonical_sha256({
-        'source_artifact_id':str(run.source_artifact_id),
-        'source_set_id':str(run.input_source_set_id),
-        'base_revision':run.base_revision,
-        'runtime_binding':run.runtime_binding,
+        'source_artifact_id': str(run.source_artifact_id),
+        'source_set_id': str(run.input_source_set_id),
+        'base_revision': run.base_revision,
+        'runtime_binding': run.runtime_binding,
     })
 
 
-def _material_directory(owner,material):
-    return _root()/'analysis'/owner.hex/material.hex
+def _material_directory(owner, material):
+    return _root() / 'analysis' / owner.hex / material.hex
 
 
-def _same_inputs(first, second):
-    return (first.source_artifact_id == second.source_artifact_id
-            and first.input_source_set_id == second.input_source_set_id
-            and first.base_revision == second.base_revision)
+def _same_analysis_inputs(first, second):
+    return (
+        first.source_artifact_id == second.source_artifact_id
+        and first.input_source_set_id == second.input_source_set_id
+        and first.base_revision == second.base_revision
+    )
 
 
-def _same_analysis(first, second):
-    return _same_inputs(first, second) and same_material_runtime(
-        first.runtime_lock_document, first.runtime_binding, second.runtime_lock_document, second.runtime_binding)
+def _can_reuse_analysis(first, second):
+    return _same_analysis_inputs(first, second) and same_material_runtime(
+        first.runtime_lock_document,
+        first.runtime_binding,
+        second.runtime_lock_document,
+        second.runtime_binding,
+    )
+
+
+def _read_envelope(path, run_id, signature):
+    saved = json.loads(path.read_bytes())
+    if (
+        saved['signature'] != signature
+        or saved['run_id'] != str(run_id)
+        or canonical_sha256(saved['data']) != saved['data_sha256']
+    ):
+        raise ValueError
+    return saved
 
 
 class AnalysisArchive:
-    def __init__(self,claim,*,dsn):
-        self.run=claim.run
-        self.worker_token=claim.worker_token
-        self.dsn=dsn
-        self.directory=_material_directory(self.run.learner_id,self.run.material_id)/self.run.run_id.hex
-        self.signature=_signature(self.run)
-        self.reused_from=None
-        self._loaded=False
-        self._checkpoint=None
-        self._review_response_runs=[]
-        self._replayed_responses=set()
-        self.review_reuses=[]
+    def __init__(self, claim, *, dsn):
+        self.run = claim.run
+        self.worker_token = claim.worker_token
+        self.dsn = dsn
+        self.directory = _material_directory(self.run.learner_id, self.run.material_id) / self.run.run_id.hex
+        self.signature = _checkpoint_input_digest(self.run)
+        self.reused_from = None
+        self._loaded = False
+        self._checkpoint = None
+        self._review_response_runs = []
+        self._replayed_responses = set()
+        self.review_reuses = []
 
     def load_checkpoint(self):
-        if self._loaded:return self._checkpoint
+        if self._loaded:
+            return self._checkpoint
         with database_session(self.dsn) as session:
-            prior=session.scalars(select(MaterialProcessingRun).where(
-                MaterialProcessingRun.learner_id==self.run.learner_id,
-                MaterialProcessingRun.material_id==self.run.material_id,
-                MaterialProcessingRun.status=='failed',
-                MaterialProcessingRun.created_at<self.run.created_at,
+            prior = session.scalars(select(MaterialProcessingRun).where(
+                MaterialProcessingRun.learner_id == self.run.learner_id,
+                MaterialProcessingRun.material_id == self.run.material_id,
+                MaterialProcessingRun.status == 'failed',
+                MaterialProcessingRun.created_at < self.run.created_at,
             ).order_by(MaterialProcessingRun.created_at.desc())).all()
-            candidates=[]
+            candidates = []
             for row in prior:
-                if not _same_inputs(row, self.run):continue
-                path=self.directory.parent/row.run_id.hex/'checkpoint.json'
-                if not path.exists():continue
-                if not _same_analysis(row, self.run):
+                if not _same_analysis_inputs(row, self.run):
+                    continue
+                path = self.directory.parent / row.run_id.hex / 'checkpoint.json'
+                if not path.exists():
+                    continue
+                if not _can_reuse_analysis(row, self.run):
                     raise AnalysisArchiveError('ANALYSIS_RUNTIME_CHANGED')
-                candidates.append((row.run_id,row.error_code,_signature(row)))
-        self._review_response_runs=[(run_id,signature) for run_id,error_code,signature in candidates if error_code=='SOURCE_UPDATE_NEEDS_REVIEW']
-        for run_id,error_code,signature in candidates:
-            path=self.directory.parent/run_id.hex/'checkpoint.json'
-            if not path.exists():continue
+                candidates.append((row.run_id, row.error_code, _checkpoint_input_digest(row)))
+        self._review_response_runs = [
+            (run_id, signature)
+            for run_id, error_code, signature in candidates
+            if error_code == 'SOURCE_UPDATE_NEEDS_REVIEW'
+        ]
+        for run_id, error_code, signature in candidates:
+            path = self.directory.parent / run_id.hex / 'checkpoint.json'
+            if not path.exists():
+                continue
             try:
-                saved=json.loads(path.read_bytes())
-                if (saved['signature']!=signature or saved['run_id']!=str(run_id)
-                    or canonical_sha256(saved['data'])!=saved['data_sha256']):raise ValueError
-                self.reused_from=str(run_id)
-                self._checkpoint=saved['data'];self._loaded=True
-                if error_code in {'NO_CANONICAL_CONCEPT','NO_USABLE_ADDED_CONTENT'}:
+                saved = _read_envelope(path, run_id, signature)
+                self.reused_from = str(run_id)
+                self._checkpoint = saved['data']
+                self._loaded = True
+                if error_code in {'NO_CANONICAL_CONCEPT', 'NO_USABLE_ADDED_CONTENT'}:
                     # 沒有可用語意結果時保留 Evidence，重試語意，不能永遠重組同一個空結果。
-                    self._checkpoint['restart_semantics']=True
-                    self._checkpoint['complete']=False
+                    self._checkpoint['restart_semantics'] = True
+                    self._checkpoint['complete'] = False
                 return self._checkpoint
-            except (OSError,ValueError,KeyError,TypeError):
+            except (OSError, ValueError, KeyError, TypeError):
                 raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_INVALID') from None
-        self._loaded=True
+        self._loaded = True
         return None
 
-    def reuse_review_response(self,request):
-        """舊流程僅因複核旗標拒絕的回應，可在同一輸入上重用，不再付一次模型成本。"""
-        if self._checkpoint is None or self._checkpoint.get('restart_semantics'):return None
-        for run_id,signature in self._review_response_runs:
-            for path in sorted((self.directory.parent/run_id.hex).glob('call-*/decoded.json'),reverse=True):
-                if path in self._replayed_responses:continue
+    def reuse_review_response(self, request):
+        """同一輸入重試時沿用僅因複核旗標拒絕的回應，避免重複推論。"""
+        if self._checkpoint is None or self._checkpoint.get('restart_semantics'):
+            return None
+        for run_id, signature in self._review_response_runs:
+            for path in sorted((self.directory.parent / run_id.hex).glob('call-*/decoded.json'), reverse=True):
+                if path in self._replayed_responses:
+                    continue
                 try:
-                    saved=json.loads(path.read_bytes());data=saved['data']
-                    if (saved['signature']!=signature or saved['run_id']!=str(run_id)
-                        or canonical_sha256(data)!=saved['data_sha256']):raise ValueError
+                    data = _read_envelope(path, run_id, signature)['data']
                     # checkpoint 的 JSON 會排序字典 key；catalog 的陣列順序因此可能改變。
                     # 概念以 k 識別，比對完整內容，但不把 catalog 排序誤當輸入改變。
-                    original_request={**data['request'],'existing_concepts':sorted(data['request'].get('existing_concepts',[]),key=lambda item:item['k'])}
-                    current_request={**request,'existing_concepts':sorted(request.get('existing_concepts',[]),key=lambda item:item['k'])}
-                    if original_request==current_request and data['response'].get('review_required') is True:
+                    original_request = {
+                        **data['request'],
+                        'existing_concepts': sorted(data['request'].get('existing_concepts', []), key=lambda item: item['k']),
+                    }
+                    current_request = {
+                        **request,
+                        'existing_concepts': sorted(request.get('existing_concepts', []), key=lambda item: item['k']),
+                    }
+                    if original_request == current_request and data['response'].get('review_required') is True:
                         self._replayed_responses.add(path)
                         return data['response']
-                except (OSError,ValueError,KeyError,TypeError):
+                except (OSError, ValueError, KeyError, TypeError):
                     raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_INVALID') from None
         return None
 
-    def _write(self,name,data):
+    def _write(self, name, data):
         try:
+            # 序列化與 hash 不需要教材鎖；檔案發布仍與刪除共用交易邊界。
+            encoded = canonical_bytes({
+                'run_id': str(self.run.run_id),
+                'signature': self.signature,
+                'reused_from_run': self.reused_from,
+                'data_sha256': canonical_sha256(data),
+                'data': data,
+            })
             # 與整份教材刪除共用鎖序，禁止晚到 worker 重新建立已刪除的私人資料。
             with database_session(self.dsn) as session:
-                material=session.scalar(select(Material).where(Material.learner_id==self.run.learner_id,
-                    Material.material_id==self.run.material_id).with_for_update())
-                run=session.scalar(select(MaterialProcessingRun).where(MaterialProcessingRun.run_id==self.run.run_id).with_for_update())
-                if (material is None or material.discard_requested_at is not None or run is None
-                    or run.worker_token!=self.worker_token or run.status!='running'):
+                material = session.scalar(select(Material).where(
+                    Material.learner_id == self.run.learner_id,
+                    Material.material_id == self.run.material_id,
+                ).with_for_update())
+                run = session.scalar(select(MaterialProcessingRun).where(
+                    MaterialProcessingRun.run_id == self.run.run_id,
+                ).with_for_update())
+                if (
+                    material is None or material.discard_requested_at is not None or run is None
+                    or run.worker_token != self.worker_token or run.status != 'running'
+                ):
                     raise AnalysisArchiveError('MATERIAL_RUN_UNAVAILABLE')
-                for directory in reversed([self.directory,*list(self.directory.parents)[:3]]):
-                    directory.mkdir(mode=0o700,exist_ok=True)
-                    details=directory.stat(follow_symlinks=False)
-                    if not stat.S_ISDIR(details.st_mode) or stat.S_IMODE(details.st_mode)!=0o700:raise OSError
-                destination=self.directory/name
-                destination.parent.mkdir(mode=0o700,exist_ok=True)
-                if destination.parent.is_symlink():raise OSError
-                envelope={'run_id':str(self.run.run_id),'signature':self.signature,'reused_from_run':self.reused_from,
-                          'data_sha256':canonical_sha256(data),'data':data}
-                with tempfile.NamedTemporaryFile(dir=self.directory,prefix='.writing-',delete=False) as stream:
-                    temporary=Path(stream.name)
-                    stream.write(canonical_bytes(envelope));stream.flush();os.fsync(stream.fileno())
-                os.replace(temporary,destination)
+                for directory in reversed([self.directory, *list(self.directory.parents)[:3]]):
+                    directory.mkdir(mode=0o700, exist_ok=True)
+                    details = directory.stat(follow_symlinks=False)
+                    if not stat.S_ISDIR(details.st_mode) or stat.S_IMODE(details.st_mode) != 0o700:
+                        raise OSError
+                destination = self.directory / name
+                destination.parent.mkdir(mode=0o700, exist_ok=True)
+                if destination.parent.is_symlink():
+                    raise OSError
+                with tempfile.NamedTemporaryFile(dir=self.directory, prefix='.writing-', delete=False) as stream:
+                    temporary = Path(stream.name)
+                    stream.write(encoded)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, destination)
                 _sync_directory(destination.parent)
-        except AnalysisArchiveError:raise
-        except Exception:raise AnalysisArchiveError('ANALYSIS_ARTIFACT_WRITE_FAILED') from None
+        except AnalysisArchiveError:
+            raise
+        except Exception:
+            raise AnalysisArchiveError('ANALYSIS_ARTIFACT_WRITE_FAILED') from None
         # 寫入失敗的 .writing-* 也保留，開發診斷不能把唯一的新資料再清掉。
 
-    def save_checkpoint(self,data):
-        self._write('checkpoint.json',data)
+    def save_checkpoint(self, data):
+        self._write('checkpoint.json', data)
 
-    def save_response(self,index,request,response):
-        self._write(f'call-{index:06d}/decoded.json',{'request':request,'response':response})
+    def save_response(self, index, request, response):
+        self._write(f'call-{index:06d}/decoded.json', {'request': request, 'response': response})
 
-    def prepare_call(self,index,request):
-        self._write(f'call-{index:06d}/request.json',request)
+    def prepare_call(self, index, request):
+        self._write(f'call-{index:06d}/request.json', request)
 
     def save_review(self, name, data):
         self._write(f'review/{name}.json', data)
@@ -172,51 +221,49 @@ class AnalysisArchive:
                 MaterialProcessingRun.material_id == self.run.material_id,
                 MaterialProcessingRun.status.in_(('failed', 'cancelled')),
                 MaterialProcessingRun.created_at < self.run.created_at).order_by(MaterialProcessingRun.created_at.desc())).all()
-            candidates = [(r.run_id, _signature(r)) for r in prior if _same_analysis(r, self.run)]
+            candidates = [(r.run_id, _checkpoint_input_digest(r)) for r in prior if _can_reuse_analysis(r, self.run)]
         for run_id, signature in [(self.run.run_id, self.signature), *candidates]:
-            directory = self.directory.parent/run_id.hex/'review'
-            path = directory/f'cache-{key}.json'
+            directory = self.directory.parent / run_id.hex / 'review'
+            path = directory / f'cache-{key}.json'
             try:
-                if not path.exists():
+                if path.exists():
+                    response = _read_envelope(path, run_id, signature)['data']
+                    reuse_kind = 'saved_response'
+                else:
                     # 驗證器修正後，可以重新核對原始回應；不用為同一輸入再付一次推論費用。
                     if validate_response is None:
                         continue
                     for request_path in sorted(directory.glob('call-*/request.json'), reverse=True):
-                        request = json.loads(request_path.read_bytes())
-                        if (request['signature'] != signature or request['run_id'] != str(run_id)
-                            or request['data_sha256'] != canonical_sha256(request['data'])):
-                            raise ValueError
+                        request = _read_envelope(request_path, run_id, signature)
                         if request['data'].get('cache_key') != key:
                             continue
-                        candidate_path = request_path.parent/'response.json'
+                        candidate_path = request_path.parent / 'response.json'
                         if not candidate_path.exists():
                             continue
-                        candidate = json.loads(candidate_path.read_bytes())
-                        if (candidate['signature'] != signature or candidate['run_id'] != str(run_id)
-                            or candidate['data_sha256'] != canonical_sha256(candidate['data'])):
-                            raise ValueError
+                        response = _read_envelope(candidate_path, run_id, signature)['data']
                         try:
-                            validate_response(candidate['data'])
+                            validate_response(response)
                         except ValueError:
                             continue
-                        self.review_reuses.append({'run_id': str(run_id), 'cache_key': key, 'kind': 'revalidated_response'})
-                        return candidate['data']
-                    continue
-                value = json.loads(path.read_bytes())
-                if (value['signature'] != signature or value['run_id'] != str(run_id)
-                    or value['data_sha256'] != canonical_sha256(value['data'])):
-                    raise ValueError
-                self.review_reuses.append({'run_id': str(run_id), 'cache_key': key, 'kind': 'saved_response'})
-                return value['data']
+                        reuse_kind = 'revalidated_response'
+                        break
+                    else:
+                        continue
+                self.review_reuses.append({'run_id': str(run_id), 'cache_key': key, 'kind': reuse_kind})
+                return response
             except Exception:
                 raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_INVALID') from None
         return None
 
-    def save_failure(self,error):
+    def save_failure(self, error):
         # 不保存 exception message／locals，避免把 DSN 或私人答案寫入一般診斷。
-        self._write('failure.json',{'exception_type':type(error).__name__,
-            'frames':[{'file':Path(frame.filename).name,'function':frame.name,'line':frame.lineno}
-                      for frame in traceback.extract_tb(error.__traceback__)]})
+        self._write('failure.json', {
+            'exception_type': type(error).__name__,
+            'frames': [
+                {'file': Path(frame.filename).name, 'function': frame.name, 'line': frame.lineno}
+                for frame in traceback.extract_tb(error.__traceback__)
+            ],
+        })
 
 
 def _checkpoint_directory(owner, material, run_id):
@@ -251,10 +298,7 @@ def cleanup_published_checkpoints(owner, material_id, run_id, *, dsn):
             receipt = {'run_id': str(run_id),
                        'knowledge_structure_revision': run.output_binding['knowledge_structure_revision']}
             try:
-                saved = json.loads(checkpoint.read_bytes())
-                if (saved['run_id'] != str(run_id) or saved['signature'] != _signature(run)
-                    or saved['data_sha256'] != canonical_sha256(saved['data'])):
-                    raise ValueError
+                saved = _read_envelope(checkpoint, run_id, _checkpoint_input_digest(run))
                 receipt['reused_from_run'] = saved['reused_from_run']
             except (ValueError, KeyError, TypeError):
                 # 發布已由 DB 確認；損毀的恢復狀態不再有用途，也不能反過來卡住清理。
@@ -269,7 +313,7 @@ def cleanup_published_checkpoints(owner, material_id, run_id, *, dsn):
                 MaterialProcessingRun.learner_id == owner, MaterialProcessingRun.material_id == material_id,
                 MaterialProcessingRun.status == 'failed', MaterialProcessingRun.created_at < run.created_at))
             for failed in prior:
-                if not _same_analysis(failed, run):
+                if not _can_reuse_analysis(failed, run):
                     continue
                 previous = _checkpoint_directory(owner, material_id, failed.run_id)
                 path = previous / 'checkpoint.json'

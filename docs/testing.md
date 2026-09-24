@@ -157,6 +157,24 @@ B5-R 契約見 [assessment-remediation.md](assessment-remediation.md)。核心�
 
 ## Runtime verification
 
+`runtime/test_runtime_boundaries_v1.py` 以受控儲存等待驗證移除來源與 PDF 預覽不阻塞
+同一 event loop 的其他 API 請求，並確認空 body 驗證仍在儲存操作前拒絕額外內容。
+Runtime 設定／安裝驗證從 `material_runtime.py` 測試，來源定位則從
+`storage/knowledge_structures.py` 進入；既有來源、發布與接續測試保留原行為斷言。
+
+鎖與等待的回歸：`test_material_pipeline_v1.py` 驗證原生文字分析不取 OCR 鎖、
+sidecar 存活期間保持互斥且在語意推論前釋放；`test_local_ai_process_v1.py` 驗證
+OCR 結束時忽略 EOF 的子程序會被回收。Gemma 與 OCR 推論本身仍保留原有無時間上限政策。
+`runtime/test_artifact_store.py` 驗證清理跳過尚未提交的寫入／刪除，後續依 DB commit 或
+rollback 保留、移除或還原檔案，以及 DB 等鎖逾時會完整回滾、後續交易仍可用。
+產品 ORM 連線等待 5 秒、取鎖等待 5 秒、單一 SQL 60 秒；不設定 idle transaction 逾時，
+避免檔案尚在寫入時 DB 提前釋放保護鎖。checkpoint 的 hash／序列化在取鎖前完成，
+寫檔與發布仍保留交易保護。
+`runtime/test_runtime_boundaries_v1.py` 驗證啟動等待 5 秒、停止等待 10 秒後如實回報失敗，
+晚到 worker 不再領取下一份工作。停止逾時不代表目前工作已停止；程序退出後，
+未完成工作依既有 lease／checkpoint 恢復。`test_source_revisions.py` 與
+`test_assessment_sets.py` 另驗證 heartbeat 遇短暫儲存失敗會續試，失效工作仍停止。
+
 `runtime/test_checkpoint_cleanup.py` 以隔離 PostgreSQL 驗證發布後清理，包括
 `partial/needs_review`、未發布失敗保留、清理失敗補做與晚到 worker 禁止重建 checkpoint。
 配合 `test_source_revisions.py` 的接續案例及 `test_material_full_delete.py` 檢查清理範圍；

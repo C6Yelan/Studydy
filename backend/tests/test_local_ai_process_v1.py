@@ -24,22 +24,18 @@ def test_timeout_aborts_only_owned_ocr_child():
     child.close()
 
 
-def test_close_waits_without_deadline_after_stdin_eof(monkeypatch):
+def test_close_reaps_child_that_ignores_stdin_eof(monkeypatch):
+    import pdf_evidence.local_ai_process as process_module
+    monkeypatch.setattr(process_module, '_OCR_CLOSE_TIMEOUT_SECONDS', 0.02)
     child = LocalAIProcess(
-        [sys.executable, "-c", "import sys; sys.stdin.buffer.read()"],
+        [sys.executable, "-c", "import sys,time; sys.stdin.buffer.read(); time.sleep(10)"],
         request_limit=100,
         response_limit=100,
     )
-    wait = child._process.wait
-
-    def wait_after_eof(timeout=None):
-        assert child._process.stdin.closed
-        assert timeout is None
-        return wait()
-
-    monkeypatch.setattr(child._process, "wait", wait_after_eof)
+    with pytest.raises(LocalAIError, match='CHILD_TIMEOUT'):
+        child.close()
+    assert child._process.poll() is not None
     child.close()
-    assert child._process.returncode == 0
 
 
 def test_child_failure_and_limits_do_not_expose_stderr():

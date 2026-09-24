@@ -1,4 +1,3 @@
-
 from product_fixtures import publish_fixture_structure
 """B3-A 的真 DB／真 PDF 行為測試；模型 transport 由 fixture 阻擋。"""
 from copy import deepcopy
@@ -13,11 +12,11 @@ from test_closed_loop_v1 import closed_loop
 from test_source_normalization import normalizer
 from runtime.source_normalization import create_draft, upload_source, read_sources, normalize_next, SourceError
 from runtime.source_revisions import create_revision
+from runtime.material_runtime import runtime_binding
 from runtime.material_processing import (claim_next_material_processing_run, execute_claimed_material_processing_run,
-    request_material_processing_cancellation, read_material_processing_run, runtime_binding)
-from runtime.storage.knowledge_structures import read_knowledge_structure
+    request_material_processing_cancellation, read_material_processing_run)
+from runtime.storage.knowledge_structures import read_knowledge_structure, resolve_evidence_source
 from runtime.storage.tables import database_session, Material, MaterialSourceSet, KnowledgeStructure
-from runtime.source_resolver import resolve_evidence_source
 from learning_adaptation.study_sessions import create_study_session
 
 
@@ -521,8 +520,12 @@ def test_worker_renews_lease_while_semantic_call_is_waiting(revisions,monkeypatc
     actual_analysis=processing.analyze_material
     actual_check=processing._check_cancellation
     renewed=Event()
+    transient_failures=[]
     monkeypatch.setattr(processing,'_LEASE_HEARTBEAT_SECONDS',0.05)
     def observe(*args,**kwargs):
+        if current_thread().name=='studydy-material-lease' and not transient_failures:
+            transient_failures.append(True)
+            raise processing.MaterialProcessingError('MATERIAL_RUN_STORAGE_FAILED')
         actual_check(*args,**kwargs)
         if current_thread().name=='studydy-material-lease':renewed.set()
     monkeypatch.setattr(processing,'_check_cancellation',observe)
@@ -538,6 +541,7 @@ def test_worker_renews_lease_while_semantic_call_is_waiting(revisions,monkeypatc
     monkeypatch.setattr(processing,'analyze_material',waiting_analysis)
     result=execute()
     assert result.status=='succeeded',result.error_code
+    assert transient_failures == [True]
 
 
 

@@ -3,14 +3,9 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from hashlib import sha256
-import importlib.metadata
-import json
 import logging
-import os
 from pathlib import Path
 import re
-import stat
 import tempfile
 from threading import Event, Thread
 from typing import Any
@@ -18,42 +13,29 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import case, func, select, update
 
-from pdf_evidence.material_pipeline import MaterialAnalysisError, analyze_material, validate_runtime_lock
-from pdf_evidence.ocr_page_evidence import canonical_sha256
-from runtime.semantic_service import SemanticServiceError, preflight_semantic_service
+from pdf_evidence.material_pipeline import MaterialAnalysisError, analyze_material
+from runtime.semantic_service import SemanticServiceError
 
-from .storage.artifacts import open_verified_source_pdf
 from .storage.knowledge_structures import KnowledgeStructureStoreError, publish_knowledge_structure
 from .storage.analysis_archive import AnalysisArchive, AnalysisArchiveError, cleanup_published_checkpoints
-from .material_runtime import same_material_runtime, runtime_binding_is_valid
+from .material_runtime import (
+    MaterialRuntimeError, runtime_binding, runtime_preflight,
+    same_material_runtime, runtime_binding_is_valid,
+)
 from .material_review import review_structure
 from knowledge_map.material_review import ReviewError
-from .storage.tables import Learner, Material, MaterialProcessingRun as RunRow, database_session
+from .storage.tables import Material, MaterialProcessingRun as RunRow, database_session
 
 
-_CONFIG_KEYS = {"private_runtime_root", "runtime_lock", "python_executable", "site_packages", "ocr_model_root"}
 _LEASE_HEARTBEAT_SECONDS = 30
-_RUNTIME_COMPONENTS = {"layout", "runtime_lock", "python_runtime", "ocr_package", "ocr_model", "semantic_service"}
-_RUNTIME_REASONS = {
-    "LOCAL_RUNTIME_MISSING", "LOCAL_RUNTIME_UNSAFE_TARGET", "LOCAL_RUNTIME_NOT_EXECUTABLE",
-    "LOCAL_RUNTIME_VERSION_MISMATCH", "LOCAL_RUNTIME_SMOKE_FAILED",
-    "LOCAL_RUNTIME_SETTINGS_MISMATCH", "LOCAL_RUNTIME_LOCK_MISMATCH", "LOCAL_RUNTIME_WRITE_FAILED",
-}
 
 
 class MaterialProcessingError(RuntimeError):
-    def __init__(self, message: str, *, component: str | None = None, reason: str | None = None) -> None:
-        super().__init__(message)
-        self.component = component if component in _RUNTIME_COMPONENTS else None
-        self.reason = reason if reason in _RUNTIME_REASONS else None
+    """教材工作狀態或儲存失敗，只使用固定原因碼。"""
 
 
 class MaterialProcessingCancelled(RuntimeError):
     """此 run 已在安全 checkpoint 完成取消，正常離開 worker。"""
-
-
-def _runtime_error(component: str, reason: str) -> MaterialProcessingError:
-    return MaterialProcessingError("MATERIAL_CONFIGURATION_INVALID", component=component, reason=reason)
 
 
 @dataclass(frozen=True)
@@ -166,119 +148,6 @@ def _row(row: RunRow) -> MaterialProcessingRun:
         row.cancel_requested_at, row.input_source_set_id, deepcopy(row.runtime_lock_document),
         row.base_revision, tuple(row.bundle_manifest.get('source_names', [])),
     )
-
-
-def _digest(value: Any) -> bytes:
-    try:
-        return sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).digest()
-    except (TypeError, ValueError):
-        raise MaterialProcessingError("MATERIAL_RUN_INVALID") from None
-
-
-def _key(value: str) -> bytes:
-    if not isinstance(value, str) or not 1 <= len(value.encode()) <= 256:
-        raise MaterialProcessingError("MATERIAL_RUN_INVALID")
-    return sha256(value.encode()).digest()
-
-
-def _existing_path(value: str, *, directory: bool, component: str) -> Path:
-    try:
-        path = Path(value)
-        mode = path.stat().st_mode
-    except (OSError, TypeError):
-        raise _runtime_error(component, "LOCAL_RUNTIME_MISSING") from None
-    if not path.is_absolute() or (stat.S_ISDIR(mode) if directory else stat.S_ISREG(mode)) is False:
-        raise _runtime_error(component, "LOCAL_RUNTIME_UNSAFE_TARGET")
-    return path
-
-
-def runtime_binding(local_config: Any) -> dict[str, Any]:
-    if not isinstance(local_config, dict) or set(local_config) != _CONFIG_KEYS:
-        raise _runtime_error("layout", "LOCAL_RUNTIME_SETTINGS_MISMATCH")
-    try:
-        root = Path(local_config["private_runtime_root"])
-        site_packages = Path(local_config["site_packages"])
-        install_root = site_packages.parents[4]
-        expected = {
-            "private_runtime_root": install_root / "runtime",
-            "python_executable": install_root / "ocr/runtime/bin/python3.12",
-            "site_packages": install_root / "ocr/runtime/lib/python3.12/site-packages",
-            "ocr_model_root": install_root / "models/unlimited-ocr",
-        }
-        if root.is_symlink() or any(Path(local_config[key]) != path for key, path in expected.items()):
-            raise ValueError
-        lock = validate_runtime_lock(local_config["runtime_lock"], assessment=False)
-    except (IndexError, KeyError, MaterialAnalysisError, TypeError, ValueError):
-        raise _runtime_error("runtime_lock", "LOCAL_RUNTIME_LOCK_MISMATCH") from None
-    binding = {
-        "schema": "material-runtime-binding/v1",
-        "python": lock["python"],
-        "runtime_lock_sha256": canonical_sha256(lock),
-        "model_id": lock["semantic_service"]["model_id"],
-        "model_revision": lock["semantic_service"]["revision"],
-        "semantic_service": {
-            "base_url": lock["semantic_service"]["base_url"],
-            "max_model_len": lock["semantic_service"]["max_model_len"],
-            "server": deepcopy(lock["semantic_service"]["server"]),
-        },
-        "ocr": {"model_id": lock["ocr"]["model_id"], "revision": lock["ocr"]["revision"]},
-        "policy": "evidence-unified-semantics-product/v1",
-    }
-    binding["runtime_binding_sha256"] = canonical_sha256(binding)
-    return binding
-
-
-def validate_installed_local_runtime(local_config: Any) -> dict[str, Any]:
-    binding = runtime_binding(local_config)
-    assert isinstance(local_config, dict)
-    executable = _existing_path(local_config["python_executable"], directory=False, component="python_runtime")
-    if not os.access(executable, os.X_OK):
-        raise _runtime_error("python_runtime", "LOCAL_RUNTIME_NOT_EXECUTABLE")
-    site_packages = _existing_path(local_config["site_packages"], directory=True, component="ocr_package")
-    model_root = _existing_path(local_config["ocr_model_root"], directory=True, component="ocr_model")
-    _existing_path(str(model_root / "config.json"), directory=False, component="ocr_model")
-    lock = local_config["runtime_lock"]
-    expected = lock["packages"]
-    try:
-        distributions = importlib.metadata.distributions(path=[str(site_packages)])
-        installed = {
-            distribution.metadata["Name"].lower().replace("_", "-"): distribution.version
-            for distribution in distributions
-            if distribution.metadata.get("Name")
-        }
-    except Exception:
-        raise _runtime_error("ocr_package", "LOCAL_RUNTIME_VERSION_MISMATCH") from None
-    if any(installed.get(name.replace("_", "-")) != version for name, version in expected.items() if name != "backend"):
-        raise _runtime_error("ocr_package", "LOCAL_RUNTIME_VERSION_MISMATCH")
-    return binding
-
-
-def _prepare_runtime_root(value: str) -> None:
-    path = Path(value)
-    if not path.is_absolute() or path.is_symlink():
-        raise _runtime_error("layout", "LOCAL_RUNTIME_UNSAFE_TARGET")
-    try:
-        path.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if not os.access(path, os.R_OK | os.W_OK | os.X_OK):
-            raise OSError
-    except OSError:
-        raise _runtime_error("layout", "LOCAL_RUNTIME_WRITE_FAILED") from None
-
-
-def runtime_preflight(local_config: Any) -> dict[str, Any]:
-    binding = validate_installed_local_runtime(local_config)
-    assert isinstance(local_config, dict)
-    try:
-        preflight_semantic_service(local_config["runtime_lock"])
-    except SemanticServiceError as error:
-        reason = "LOCAL_RUNTIME_SETTINGS_MISMATCH" if error.reason_code.endswith(("CONFIG_INVALID", "IDENTITY_MISMATCH")) else "LOCAL_RUNTIME_MISSING"
-        raise _runtime_error("semantic_service", reason) from None
-    _prepare_runtime_root(local_config["private_runtime_root"])
-    return binding
-
-
-
-
 
 
 def read_material_processing_run(learner_id: UUID, run_id: UUID, *, dsn: str | None = None) -> MaterialProcessingRun:
@@ -457,8 +326,12 @@ def execute_claimed_material_processing_run(
         while not stop.wait(_LEASE_HEARTBEAT_SECONDS):
             try:
                 _check_cancellation(claim.run.run_id, worker_token=claim.worker_token, dsn=dsn)
-            except (MaterialProcessingCancelled, MaterialProcessingError):
+            except MaterialProcessingCancelled:
                 return
+            except MaterialProcessingError as error:
+                if str(error) != "MATERIAL_RUN_STORAGE_FAILED":
+                    return
+                # 短暫等鎖失敗不代表 worker 已失效；下次 heartbeat 重新核對 token。
     heartbeat = Thread(target=keep_lease_alive, name="studydy-material-lease", daemon=True)
     heartbeat.start()
     try:
@@ -531,7 +404,7 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn):
         publish_knowledge_structure(run.learner_id, run.material_id, run.run_id, structure, worker_token=claim.worker_token, dsn=dsn)
     except MaterialProcessingCancelled:
         pass
-    except (KnowledgeStructureStoreError, MaterialAnalysisError, MaterialProcessingError, AnalysisArchiveError, ReviewError, SemanticServiceError) as error:
+    except (KnowledgeStructureStoreError, MaterialAnalysisError, MaterialProcessingError, MaterialRuntimeError, AnalysisArchiveError, ReviewError, SemanticServiceError) as error:
         try:
             if archive is not None: archive.save_failure(error)
         except AnalysisArchiveError: pass

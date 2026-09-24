@@ -7,7 +7,7 @@ import json
 import pytest
 
 import runtime.material_processing as processing
-from runtime.material_runtime import lock_matches_binding, same_material_runtime
+from runtime.material_runtime import lock_matches_binding, same_material_runtime, runtime_binding
 from runtime.storage.analysis_archive import _material_directory
 from runtime.storage.tables import MaterialProcessingRun, database_session
 from test_closed_loop_v1 import _settings
@@ -16,25 +16,25 @@ from test_source_revisions import revisions, closed_loop, normalizer
 
 def test_only_material_dependencies_and_actual_model_define_resume_compatibility(tmp_path):
     config = _settings(tmp_path)
-    first = processing.runtime_binding(config)
+    first = runtime_binding(config)
     changed = deepcopy(config)
     changed['runtime_lock']['schema'] = 'studydy-runtime-lock/v1'
     changed['runtime_lock']['assessment'] = {'prompt': 'new assessment contract is irrelevant to material processing'}
-    second = processing.runtime_binding(changed)
+    second = runtime_binding(changed)
     assert first != second
     assert same_material_runtime(config['runtime_lock'], first, changed['runtime_lock'], second)
     assert not lock_matches_binding(changed['runtime_lock'], first)
     changed['runtime_lock']['material_semantics']['prompt'] += ' Different material instructions.'
-    third = processing.runtime_binding(changed)
+    third = runtime_binding(changed)
     assert not same_material_runtime(config['runtime_lock'], first, changed['runtime_lock'], third)
 
 
 def test_http_model_change_is_not_an_assessment_only_update(tmp_path):
     config = _settings(tmp_path)
-    first = processing.runtime_binding(config)
+    first = runtime_binding(config)
     changed = deepcopy(config)
     changed['runtime_lock']['semantic_service'].update(model_id='example/second-model', revision='a' * 40)
-    second = processing.runtime_binding(changed)
+    second = runtime_binding(changed)
     assert not same_material_runtime(config['runtime_lock'], first, changed['runtime_lock'], second)
 
 

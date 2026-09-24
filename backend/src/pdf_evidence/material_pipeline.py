@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -166,7 +166,9 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
 
 
 @contextmanager
-def material_analysis_lock(runtime_root: Path, *, wait_seconds: float = 5):
+def material_analysis_lock(
+    runtime_root: Path, *, wait_seconds: float = 5, cancellation_check: Callable[[], None] | None = None,
+):
     """避免同時載入多個 OCR sidecar；resident Gemma lifecycle 不在此鎖內。"""
 
     if not runtime_root.is_absolute() or runtime_root.is_symlink() or wait_seconds < 0:
@@ -179,6 +181,8 @@ def material_analysis_lock(runtime_root: Path, *, wait_seconds: float = 5):
     try:
         deadline = time.monotonic() + wait_seconds
         while True:
+            if cancellation_check is not None:
+                cancellation_check()
             try:
                 fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
@@ -228,6 +232,7 @@ def _page_evidence(
     excluded: list[dict[str, Any]] = []
     ocr_calls = 0
     ocr = None
+    ocr_lock = ExitStack()
     document = pymupdf.open(source_path)
     try:
         for completed, page_number in enumerate(page_numbers, start=1):
@@ -248,7 +253,15 @@ def _page_evidence(
                     )
                 else:
                     if ocr is None:
-                        ocr = start_ocr_process(settings)
+                        # 只在真正使用 OCR 時鎖住 sidecar，直到 close／abort 完成。
+                        ocr_lock.enter_context(material_analysis_lock(
+                            Path(settings["private_runtime_root"]), cancellation_check=cancellation_check,
+                        ))
+                        try:
+                            ocr = start_ocr_process(settings)
+                        except Exception:
+                            ocr_lock.close()
+                            raise
                     ocr_calls += 1
                     response = ocr.request(
                         {
@@ -288,7 +301,10 @@ def _page_evidence(
         if ocr is not None:
             ocr.close()
     finally:
-        document.close()
+        try:
+            document.close()
+        finally:
+            ocr_lock.close()
     if not pages:
         raise MaterialAnalysisError("NO_USABLE_EVIDENCE")
     return pages, excluded, ocr_calls
@@ -315,167 +331,165 @@ def analyze_material(
     resolved_time = produced_at or datetime.now(UTC).isoformat()
     report = progress_callback or (lambda _stage, _completed, _total: None)
     check_cancel = cancellation_check or (lambda: None)
-    runtime_root = Path(settings["private_runtime_root"])
     source_digest = input_binding["source_set_digest"]
     restored = analysis_archive.load_checkpoint() if analysis_archive is not None else None
-    with material_analysis_lock(runtime_root):
-        check_cancel()
-        if restored is not None:
-            context = restored["context"]
-            if restored["source_sha256"] != source_digest:
-                raise MaterialAnalysisError("ANALYSIS_CHECKPOINT_INVALID")
-            page_numbers = list(range(1, context["page_count"] + 1))
-            state = SemanticState(**restored["state"])
-            cursor = restored["cursor"]
-            semantic_calls = restored["semantic_calls"]
-            ocr_calls = restored["ocr_calls"]
-            evidence_duration_ms = restored["evidence_duration_ms"]
-            previous_semantic_ms = restored["semantic_duration_ms"]
-            report("evidence", len(page_numbers), len(page_numbers))
-            if cursor and not restored.get("restart_semantics"):
-                report("semantics", context["evidence"][cursor - 1]["page"], len(page_numbers))
-        else:
-            evidence_started = time.monotonic()
-            with tempfile.TemporaryDirectory(prefix="studydy-source-") as directory:
-                page_numbers = list(range(1, len(input_binding["bundle"]["pages"]) + 1))
-                pages, excluded, ocr_calls = collect_source_set(
-                    source_inputs, input_binding, base_structure, Path(directory),
-                    settings, resolved_time, report, check_cancel, _page_evidence,
-                )
-            evidence_duration_ms = round((time.monotonic() - evidence_started) * 1000)
-            check_cancel()
-            context = build_document_context(
-                pages, page_count=len(page_numbers), excluded_pages=excluded,
-                source_pages=input_binding["bundle"]["pages"],
+    check_cancel()
+    if restored is not None:
+        context = restored["context"]
+        if restored["source_sha256"] != source_digest:
+            raise MaterialAnalysisError("ANALYSIS_CHECKPOINT_INVALID")
+        page_numbers = list(range(1, context["page_count"] + 1))
+        state = SemanticState(**restored["state"])
+        cursor = restored["cursor"]
+        semantic_calls = restored["semantic_calls"]
+        ocr_calls = restored["ocr_calls"]
+        evidence_duration_ms = restored["evidence_duration_ms"]
+        previous_semantic_ms = restored["semantic_duration_ms"]
+        report("evidence", len(page_numbers), len(page_numbers))
+        if cursor and not restored.get("restart_semantics"):
+            report("semantics", context["evidence"][cursor - 1]["page"], len(page_numbers))
+    else:
+        evidence_started = time.monotonic()
+        with tempfile.TemporaryDirectory(prefix="studydy-source-") as directory:
+            page_numbers = list(range(1, len(input_binding["bundle"]["pages"]) + 1))
+            pages, excluded, ocr_calls = collect_source_set(
+                source_inputs, input_binding, base_structure, Path(directory),
+                settings, resolved_time, report, check_cancel, _page_evidence,
             )
-            if base_structure is not None:
-                from knowledge_map.source_identity import seed_incremental_state
-                state = seed_incremental_state(base_structure, context, input_binding)
-                context["incremental"] = True
-                state.rejected_claims = base_structure["metrics"]["rejected_claims"]
-                state.rejected_relations = base_structure["metrics"]["rejected_relations"]
-                state.literal_repairs = base_structure["metrics"]["literal_repairs"]
-            else:
-                state = SemanticState()
-            cursor = semantic_calls = previous_semantic_ms = 0
-        if restored is not None and restored.get("restart_semantics"):
-            if base_structure is not None:
-                from knowledge_map.source_identity import seed_incremental_state
-                state = seed_incremental_state(base_structure, context, input_binding)
-                state.rejected_claims = base_structure["metrics"]["rejected_claims"]
-                state.rejected_relations = base_structure["metrics"]["rejected_relations"]
-                state.literal_repairs = base_structure["metrics"]["literal_repairs"]
-            else:
-                state = SemanticState()
-            cursor = 0
-        semantic_started = time.monotonic()
-        complete = bool(restored and restored.get("complete"))
-        evidence_indices = {
-            item["evidence_id"]: index
-            for index, item in enumerate(context["evidence"])
-        }
+        evidence_duration_ms = round((time.monotonic() - evidence_started) * 1000)
+        check_cancel()
+        context = build_document_context(
+            pages, page_count=len(page_numbers), excluded_pages=excluded,
+            source_pages=input_binding["bundle"]["pages"],
+        )
+        if base_structure is not None:
+            from knowledge_map.source_identity import seed_incremental_state
+            state = seed_incremental_state(base_structure, context, input_binding)
+            context["incremental"] = True
+            state.rejected_claims = base_structure["metrics"]["rejected_claims"]
+            state.rejected_relations = base_structure["metrics"]["rejected_relations"]
+            state.literal_repairs = base_structure["metrics"]["literal_repairs"]
+        else:
+            state = SemanticState()
+        cursor = semantic_calls = previous_semantic_ms = 0
+    if restored is not None and restored.get("restart_semantics"):
+        if base_structure is not None:
+            from knowledge_map.source_identity import seed_incremental_state
+            state = seed_incremental_state(base_structure, context, input_binding)
+            state.rejected_claims = base_structure["metrics"]["rejected_claims"]
+            state.rejected_relations = base_structure["metrics"]["rejected_relations"]
+            state.literal_repairs = base_structure["metrics"]["literal_repairs"]
+        else:
+            state = SemanticState()
+        cursor = 0
+    semantic_started = time.monotonic()
+    complete = bool(restored and restored.get("complete"))
+    evidence_indices = {
+        item["evidence_id"]: index
+        for index, item in enumerate(context["evidence"])
+    }
 
-        def save_checkpoint():
-            if analysis_archive is not None:
-                analysis_archive.save_checkpoint({
-                    "context": context,
-                    "state": asdict(state),
-                    "cursor": cursor,
-                    "complete": complete,
-                    "source_sha256": source_digest,
-                    "semantic_calls": semantic_calls,
-                    "ocr_calls": ocr_calls,
-                    "evidence_duration_ms": evidence_duration_ms,
-                    "semantic_duration_ms": previous_semantic_ms + round(
-                        (time.monotonic() - semantic_started) * 1000
-                    ),
-                })
-        save_checkpoint()
-        owned_client = client is None and not complete
-        http = semantic_client() if owned_client else client
-        try:
-            bundles = iter(build_semantic_bundles(
-                context, state=state,
-                fits=lambda request: material_request_fits(http, lock, request),
-                minimum_page=base_structure["page_count"] + 1 if base_structure else 1,
-                minimum_evidence_index=cursor,
-            ))
-            while True:
+    def save_checkpoint():
+        if analysis_archive is not None:
+            analysis_archive.save_checkpoint({
+                "context": context,
+                "state": asdict(state),
+                "cursor": cursor,
+                "complete": complete,
+                "source_sha256": source_digest,
+                "semantic_calls": semantic_calls,
+                "ocr_calls": ocr_calls,
+                "evidence_duration_ms": evidence_duration_ms,
+                "semantic_duration_ms": previous_semantic_ms + round(
+                    (time.monotonic() - semantic_started) * 1000
+                ),
+            })
+    save_checkpoint()
+    owned_client = client is None and not complete
+    http = semantic_client() if owned_client else client
+    try:
+        bundles = iter(build_semantic_bundles(
+            context, state=state,
+            fits=lambda request: material_request_fits(http, lock, request),
+            minimum_page=base_structure["page_count"] + 1 if base_structure else 1,
+            minimum_evidence_index=cursor,
+        ))
+        while True:
+            check_cancel()
+            try:
+                bundle = next(bundles)
+            except StopIteration:
+                complete = True
+                break
+            except ValueError as error:
+                # 分批器也可能在呼叫模型前拒絕輸入，保留可公開的原因碼。
+                raise MaterialAnalysisError(_reason(error)) from None
+            request_document = semantic_request(context, bundle, state)
+            last_error: Exception | None = None
+            for _attempt in range(lock["material_semantics"]["retry_attempts"]):
                 check_cancel()
+                candidate_state = deepcopy(state)
                 try:
-                    bundle = next(bundles)
-                except StopIteration:
-                    complete = True
-                    break
-                except ValueError as error:
-                    # 分批器也可能在呼叫模型前拒絕輸入，保留可公開的原因碼。
-                    raise MaterialAnalysisError(_reason(error)) from None
-                request_document = semantic_request(context, bundle, state)
-                last_error: Exception | None = None
-                for _attempt in range(lock["material_semantics"]["retry_attempts"]):
-                    check_cancel()
-                    candidate_state = deepcopy(state)
-                    try:
-                        response = (
-                            analysis_archive.reuse_review_response(request_document)
-                            if analysis_archive is not None else None
-                        )
-                        if response is None:
-                            semantic_calls += 1
-                            if analysis_archive is not None:
-                                analysis_archive.prepare_call(semantic_calls, request_document)
-                            response = semantic_call(
-                                http,
-                                runtime_lock=lock,
-                                task="material_semantics",
-                                request=request_document,
-                                response_schema=semantic_response_schema([
-                                    row[0]
-                                    for section in request_document["sections"]
-                                    for row in section["evidence"]
-                                ], incremental=base_structure is not None),
-                            )
+                    response = (
+                        analysis_archive.reuse_review_response(request_document)
+                        if analysis_archive is not None else None
+                    )
+                    if response is None:
+                        semantic_calls += 1
                         if analysis_archive is not None:
-                            analysis_archive.save_response(semantic_calls, request_document, response)
-                        if base_structure is not None:
-                            if (
-                                not isinstance(response, dict)
-                                or type(response.get("review_required")) is not bool
-                            ):
-                                raise ValueError("SEMANTIC_OUTPUT_INVALID")
-                            candidate_state.source_review_required |= response["review_required"]
-                            response = {
-                                key: value for key, value in response.items()
-                                if key != "review_required"
-                            }
-                        apply_semantic_response(
-                            response,
-                            context=context,
-                            bundle=bundle,
-                            state=candidate_state,
+                            analysis_archive.prepare_call(semantic_calls, request_document)
+                        response = semantic_call(
+                            http,
+                            runtime_lock=lock,
+                            task="material_semantics",
+                            request=request_document,
+                            response_schema=semantic_response_schema([
+                                row[0]
+                                for section in request_document["sections"]
+                                for row in section["evidence"]
+                            ], incremental=base_structure is not None),
                         )
-                        state.concepts = candidate_state.concepts
-                        state.relations = candidate_state.relations
-                        state.rejected_claims = candidate_state.rejected_claims
-                        state.rejected_relations = candidate_state.rejected_relations
-                        state.literal_repairs = candidate_state.literal_repairs
-                        state.source_review_required = candidate_state.source_review_required
-                        last_error = None
-                        break
-                    except SemanticServiceError as error:
-                        last_error = error
-                    except ValueError as error:
-                        last_error = error
-                if last_error is not None:
-                    raise MaterialAnalysisError(_reason(last_error)) from None
-                cursor = evidence_indices[bundle["evidence"][-1]["evidence_id"]] + 1
-                save_checkpoint()
-                report("semantics", bundle["evidence"][-1]["page"], len(page_numbers))
-        finally:
-            if owned_client:
-                http.close()
+                    if analysis_archive is not None:
+                        analysis_archive.save_response(semantic_calls, request_document, response)
+                    if base_structure is not None:
+                        if (
+                            not isinstance(response, dict)
+                            or type(response.get("review_required")) is not bool
+                        ):
+                            raise ValueError("SEMANTIC_OUTPUT_INVALID")
+                        candidate_state.source_review_required |= response["review_required"]
+                        response = {
+                            key: value for key, value in response.items()
+                            if key != "review_required"
+                        }
+                    apply_semantic_response(
+                        response,
+                        context=context,
+                        bundle=bundle,
+                        state=candidate_state,
+                    )
+                    state.concepts = candidate_state.concepts
+                    state.relations = candidate_state.relations
+                    state.rejected_claims = candidate_state.rejected_claims
+                    state.rejected_relations = candidate_state.rejected_relations
+                    state.literal_repairs = candidate_state.literal_repairs
+                    state.source_review_required = candidate_state.source_review_required
+                    last_error = None
+                    break
+                except SemanticServiceError as error:
+                    last_error = error
+                except ValueError as error:
+                    last_error = error
+            if last_error is not None:
+                raise MaterialAnalysisError(_reason(last_error)) from None
+            cursor = evidence_indices[bundle["evidence"][-1]["evidence_id"]] + 1
             save_checkpoint()
-        semantic_duration_ms = previous_semantic_ms + round((time.monotonic() - semantic_started) * 1000)
+            report("semantics", bundle["evidence"][-1]["page"], len(page_numbers))
+    finally:
+        if owned_client:
+            http.close()
+        save_checkpoint()
+    semantic_duration_ms = previous_semantic_ms + round((time.monotonic() - semantic_started) * 1000)
     service = lock["semantic_service"]
     try:
         return build_structure_draft(

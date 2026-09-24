@@ -10,9 +10,8 @@ from learning_adaptation import assessment_sets as sets, assessments
 from learning_adaptation.learner_progress import derive_learner_progress
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime import material_processing
-from runtime.source_resolver import resolve_evidence_source
 from runtime.storage import artifacts, source_artifacts
-from runtime.storage.knowledge_structures import read_knowledge_structure, KnowledgeStructureStoreError
+from runtime.storage.knowledge_structures import read_knowledge_structure, KnowledgeStructureStoreError, resolve_evidence_source
 from runtime.storage.tables import Assessment, AssessmentSet, MaterialProcessingRun, database_session
 from test_assessment_sets import closed_loop, concept_fixture, create, read, model_for
 from test_assessment_remediation import finish, answer

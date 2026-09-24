@@ -13,7 +13,8 @@ from sqlalchemy import select
 from document_normalization.converter import convert,conversion_policy,MIME
 from runtime.source_normalization import create_draft,upload_source,read_sources,normalize_next,SourceError
 from runtime.source_revisions import create_revision
-from runtime.source_resolver import bind_structure_input,resolve_evidence_source
+from runtime.source_resolver import bind_structure_input
+from runtime.storage.knowledge_structures import resolve_evidence_source
 from runtime.storage.knowledge_structures import read_knowledge_structure
 from runtime.storage.source_artifacts import open_verified_artifact
 from runtime.storage.tables import MaterialSourceSet,SourceNormalization,Artifact,database_session

@@ -20,6 +20,11 @@ IDLE_LIFETIME = timedelta(days=7)
 ABSOLUTE_LIFETIME = timedelta(days=30)
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _EMAIL_ADDRESS = TypeAdapter(EmailStr)
+_CURRENT_SCRYPT = (2**14, 8, 5)
+_SCRYPT_MAXMEM = {
+    _CURRENT_SCRYPT: 32 * 1024 * 1024,
+    (2**17, 8, 1): 256 * 1024 * 1024,
+}
 
 
 class SessionError(RuntimeError):
@@ -83,17 +88,23 @@ def _credentials(email: str, password: str) -> str:
     return email
 
 
-def _password_digest(password: str, salt: bytes) -> bytes:
-    # 使用標準函式庫 scrypt；128 MiB 記憶體成本，密碼不截斷或寫入 log。
-    return scrypt(password.encode("utf-8"), salt=salt, n=2**17, r=8, p=1,
-                  maxmem=256 * 1024 * 1024, dklen=32)
+def _password_digest(password: str, salt: bytes, profile: tuple[int, int, int] = _CURRENT_SCRYPT) -> bytes:
+    # 新雜湊約使用 16 MiB；既存雜湊依記錄的參數驗證，密碼不截斷。
+    n, r, p = profile
+    return scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p,
+                  maxmem=_SCRYPT_MAXMEM[profile], dklen=32)
+
+
+def _password_hash(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    n, r, p = _CURRENT_SCRYPT
+    return f"scrypt${n}${r}${p}${salt.hex()}${_password_digest(password, salt).hex()}"
 
 
 def register_account(email: str, password: str, *, dsn: str | None = None) -> CreatedSession:
     """原子建立 credentials、Learner 與 session，不接管既有匿名資料。"""
     email = _credentials(email, password)
-    salt = secrets.token_bytes(16)
-    password_hash = "scrypt$131072$8$1$" + salt.hex() + "$" + _password_digest(password, salt).hex()
+    password_hash = _password_hash(password)
     learner_id = uuid4()
     try:
         with database_session(dsn) as session:
@@ -116,12 +127,21 @@ def login_account(email: str, password: str, *, dsn: str | None = None) -> Creat
     try:
         with database_session(dsn) as session:
             learner = session.scalar(select(Learner).where(Learner.email == email))
-            # 不存在的帳號也執行同成本雜湊，錯誤訊息不區分帳號或密碼。
+            # 不存在的帳號也執行雜湊，避免立即返回；舊雜湊首次登入仍用原參數。
             stored = learner.password_hash if learner is not None else None
-            salt = bytes.fromhex(stored.split("$")[4]) if stored else bytes(16)
-            digest = _password_digest(password, salt)
-            if stored is None or not secrets.compare_digest(digest.hex(), stored.split("$")[5]):
+            parts = stored.split("$") if stored else None
+            try:
+                profile = tuple(map(int, parts[1:4])) if parts else _CURRENT_SCRYPT
+                if parts and (len(parts) != 6 or parts[0] != "scrypt" or profile not in _SCRYPT_MAXMEM):
+                    raise ValueError
+                salt = bytes.fromhex(parts[4]) if parts else bytes(16)
+            except (TypeError, ValueError):
+                raise SessionError("INVALID_CREDENTIALS") from None
+            digest = _password_digest(password, salt, profile)
+            if stored is None or not secrets.compare_digest(digest.hex(), parts[5]):
                 raise SessionError("INVALID_CREDENTIALS")
+            if profile != _CURRENT_SCRYPT:
+                learner.password_hash = _password_hash(password)
             created = _add_session(session, learner.learner_id)
     except (DatabaseConfigurationError, SQLAlchemyError):
         raise SessionError("SESSION_STORAGE_FAILED") from None

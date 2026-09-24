@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from hashlib import scrypt
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
@@ -36,7 +37,7 @@ def test_credentials_are_salted_unique_and_registration_is_atomic(clean_database
     with psycopg.connect(clean_database_dsn) as connection:
         hashes = [row[0] for row in connection.execute("SELECT password_hash FROM learners")]
     assert len(set(hashes)) == 2
-    assert all(value.startswith("scrypt$131072$8$1$") and PASSWORD not in value for value in hashes)
+    assert all(value.startswith("scrypt$16384$8$5$") and PASSWORD not in value for value in hashes)
     assert login_account(" FIRST_USER@EXAMPLE.COM ", PASSWORD, dsn=clean_database_dsn).learner_id == first.learner_id
     for email in ("first_user@example.com", "absent_user@example.com"):
         with pytest.raises(SessionError, match="INVALID_CREDENTIALS"):
@@ -53,6 +54,28 @@ def test_credentials_are_salted_unique_and_registration_is_atomic(clean_database
     with psycopg.connect(clean_database_dsn) as connection:
         assert connection.execute("SELECT count(*) FROM learners").fetchone() == (3,)
         assert connection.execute("SELECT count(*) FROM learner_sessions").fetchone() == (4,)
+
+
+def test_existing_scrypt_hash_is_upgraded_after_login(clean_database_dsn):
+    run_migrations(clean_database_dsn)
+    created = register_account("existing@example.com", PASSWORD, dsn=clean_database_dsn)
+    salt = bytes(range(16))
+    digest = scrypt(PASSWORD.encode(), salt=salt, n=2**17, r=8, p=1,
+                    maxmem=256 * 1024 * 1024, dklen=32)
+    previous_hash = f"scrypt$131072$8$1${salt.hex()}${digest.hex()}"
+    with psycopg.connect(clean_database_dsn) as connection:
+        connection.execute(
+            "UPDATE learners SET password_hash=%s WHERE learner_id=%s",
+            (previous_hash, created.learner_id),
+        )
+
+    assert login_account("existing@example.com", PASSWORD, dsn=clean_database_dsn).learner_id == created.learner_id
+    with psycopg.connect(clean_database_dsn) as connection:
+        upgraded = connection.execute(
+            "SELECT password_hash FROM learners WHERE learner_id=%s", (created.learner_id,),
+        ).fetchone()[0]
+    assert upgraded.startswith("scrypt$16384$8$5$") and upgraded != previous_hash
+    assert login_account("existing@example.com", PASSWORD, dsn=clean_database_dsn).learner_id == created.learner_id
 
 
 def test_refresh_never_revives_expired_or_revoked_tokens(clean_database_dsn):

@@ -318,3 +318,26 @@ def test_heading_classification_does_not_exclude_a_grounded_definition(closed_lo
     assert all(row['kind'] == 'heading' for row in f['document']['evidence'])
     plan = sets.read_plan(f['learner'], f['study'].study_session_id, f['concept']['concept_id'], dsn=f['dsn'])
     assert plan['requested_count'] == 1 and plan['excluded'] == []
+def test_heartbeat_retries_storage_failure_but_stops_on_stale_work(monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    import learning_adaptation.assessment_sets as sets
+    group = SimpleNamespace(lease_expires_at=None)
+    calls = []
+
+    class Stop:
+        def wait(self, _):
+            return len(calls) >= 3
+
+    def leased(*_):
+        calls.append(True)
+        if len(calls) == 1:
+            raise RuntimeError('synthetic storage failure')
+        if len(calls) == 3:
+            raise sets.AssessmentSetError('ASSESSMENT_SET_STALE_WORK')
+        return None, None, None, group
+
+    monkeypatch.setattr(sets, 'database_session', lambda _: nullcontext(None))
+    monkeypatch.setattr(sets, '_leased', leased)
+    sets._heartbeat(None, Stop(), None)
+    assert len(calls) == 3 and group.lease_expires_at is not None

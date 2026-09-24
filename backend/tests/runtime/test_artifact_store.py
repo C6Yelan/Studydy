@@ -66,6 +66,94 @@ def _publish_source(learner_id: UUID, content: bytes, dsn: str):
     )
 
 
+@pytest.mark.parametrize('commit', [True, False])
+def test_reconciliation_skips_active_writer_then_obeys_commit(
+    artifact_database_dsn, artifact_root, commit,
+):
+    from runtime.source_normalization import create_draft
+    from runtime.storage.source_artifacts import write_blob, reconcile_new_artifacts
+    from runtime.storage.tables import database_session
+    dsn = artifact_database_dsn
+    owner = _learner(dsn)
+    material = create_draft(owner, 'Synthetic', 'lock-test', dsn=dsn)
+
+    class Rollback(Exception):
+        pass
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        try:
+            with database_session(dsn) as session:
+                artifact = write_blob(session, owner, material, b'synthetic', 'original', 'text/plain')
+                marker = artifact_root / '.staging' / f'{artifact.artifact_id.hex}.pending'
+                path = artifact_root / 'objects' / artifact.artifact_id.hex
+                pool.submit(reconcile_new_artifacts, dsn=dsn).result(timeout=2)
+                assert marker.exists() and path.read_bytes() == b'synthetic'
+                if not commit:
+                    raise Rollback()
+        except Rollback:
+            pass
+    reconcile_new_artifacts(dsn=dsn)
+    assert not marker.exists()
+    assert path.exists() is commit
+
+
+def test_reconciliation_skips_active_discard_then_restores_rollback(artifact_database_dsn, artifact_root):
+    from runtime.source_normalization import create_draft
+    from runtime.storage.source_artifacts import write_blob
+    from runtime.storage.tables import database_session
+    dsn = artifact_database_dsn
+    owner = _learner(dsn)
+    material = create_draft(owner, 'Synthetic', 'discard-lock-test', dsn=dsn)
+    with database_session(dsn) as session:
+        artifact = write_blob(session, owner, material, b'synthetic', 'original', 'text/plain')
+    path = artifact_root / 'objects' / artifact.artifact_id.hex
+    trash = artifact_root / '.trash' / artifact.artifact_id.hex
+
+    class Rollback(Exception):
+        pass
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with pytest.raises(Rollback):
+            with database_session(dsn) as session:
+                artifact_storage.quarantine_source_pdf(session, artifact.artifact_id)
+                pool.submit(artifact_storage.reconcile_discarded_sources, dsn=dsn).result(timeout=2)
+                assert trash.exists() and not path.exists()
+                raise Rollback()
+    artifact_storage.reconcile_discarded_sources(dsn=dsn)
+    assert path.read_bytes() == b'synthetic'
+    assert not trash.exists()
+
+
+def test_database_lock_timeout_rolls_back_and_next_transaction_can_write(artifact_database_dsn):
+    from sqlalchemy.exc import OperationalError
+    from runtime.source_normalization import create_draft
+    from runtime.storage.tables import database_session, Material
+    dsn = artifact_database_dsn
+    owner = _learner(dsn)
+    material = create_draft(owner, 'Before', 'timeout-test', dsn=dsn)
+    identity = uuid4()
+
+    def blocked():
+        with database_session(dsn) as session:
+            row = session.get(Material, material)
+            row.display_name = 'Must roll back'
+            session.flush()
+            artifact_storage._lock_source_discard(session, identity)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with database_session(dsn) as session:
+            artifact_storage._lock_source_discard(session, identity)
+            with pytest.raises(OperationalError) as caught:
+                pool.submit(blocked).result(timeout=8)
+            assert caught.value.orig.sqlstate == '55P03'
+    with database_session(dsn) as session:
+        row = session.get(Material, material)
+        assert row.display_name == 'Before'
+        row.display_name = 'After'
+    with database_session(dsn) as session:
+        assert session.get(Material, material).display_name == 'After'
+
+
 def test_source_publish_verified_read_and_owner_isolation(
     artifact_database_dsn: str, artifact_root: Path
 ) -> None:

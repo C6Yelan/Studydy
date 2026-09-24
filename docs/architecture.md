@@ -16,6 +16,12 @@ revision 包含正式契約與 binding；舊 revision 不能只換 schema 標籤
 服務 preflight 仍檢查已設定模型的 discovery、server version、context 與 tokenizer，
 模型實際權重 revision 仍須部署證據確認。換模型需另行完成品質驗收，Gemma 的既有驗收不自動適用。
 
+Runtime 設定、安裝檢查與 binding 比對由 `runtime/material_runtime.py` 負責；
+`material_processing.py` 保留工作狀態、續租與執行協調。`source_resolver.py` 核對來源集合
+與結構輸入，`storage/knowledge_structures.py` 負責讀取已驗證結構及其 Evidence 來源定位，
+來源驗證不反向呼叫結構讀取。純同步 API 使用同步路由，空 body 由非同步 dependency
+驗證；串流上傳保留非同步接收，身分查詢、寫入與列表讀取交由 threadpool。
+
 一般地圖／學習讀取在同一 DB snapshot 核對保存結構、runtime 與來源集合 metadata，
 不為顯示已存內容掃描所有原檔。來源發布時完整核對 original／normalized／mapping bytes；
 下載、PDF 預覽、分析輸入及 Evidence mapping 使用時，各自完整驗證實際開啟的檔案。

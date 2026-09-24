@@ -9,7 +9,7 @@ from typing import Any, Callable, Iterator
 from urllib.parse import quote, unquote, urlsplit
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -34,16 +34,16 @@ from ..learner_session import (
 )
 from ..material_discard import MaterialDiscardError, request_material_discard
 from ..material_processing import (
-    MaterialProcessingError, read_material_processing_run, runtime_binding,
+    MaterialProcessingError, read_material_processing_run,
 )
+from ..material_runtime import MaterialRuntimeError, runtime_binding
 from ..source_normalization import (
     SourceError, create_draft, read_sources, remove_staged_source,
     retry_normalization, upload_source,
 )
-from ..source_resolver import resolve_evidence_source
 from ..source_revisions import create_revision
 from ..storage.artifacts import open_verified_source_pdf
-from ..storage.knowledge_structures import read_knowledge_structure
+from ..storage.knowledge_structures import read_knowledge_structure, resolve_evidence_source
 from ..storage.materials import MaterialLibraryError, read_material_library, rename_material
 from ..storage.source_artifacts import open_verified_artifact
 from ..storage.tables import Artifact, Material, MaterialSource, database_session
@@ -178,7 +178,7 @@ class ApiSettings:
             # API availability does not depend on installed/online AI services.
             # Processing and assessment retain their operation-time checks.
             runtime_binding(copied)
-        except MaterialProcessingError as error:
+        except MaterialRuntimeError as error:
             raise ApiSettingsError(error.component, error.reason) from None
         except Exception:
             raise ApiSettingsError() from None
@@ -547,10 +547,10 @@ def create_app(settings: ApiSettings) -> FastAPI:
     @app.post(
         "/v1/session/refresh", response_model=LearnerIdentityView,
         operation_id="refreshSession", tags=["session"],
+        dependencies=[Depends(_require_empty_body)],
     )
-    async def refresh_session_route(request: Request, response: Response) -> LearnerIdentityView:
+    def refresh_session_route(request: Request, response: Response) -> LearnerIdentityView:
         _require_query(request, set())
-        await _require_empty_body(request)
         raw_token = request.cookies.get(_COOKIE_NAME)
         learner = refresh_session(raw_token, dsn=settings.dsn)
         if learner is None:
@@ -558,10 +558,9 @@ def create_app(settings: ApiSettings) -> FastAPI:
         _set_session_cookie(response, raw_token or "", settings)
         return LearnerIdentityView(learner_id=learner.learner_id)
 
-    @app.delete("/v1/session", status_code=204, operation_id="deleteSession", tags=["session"])
-    async def delete_session_route(request: Request, response: Response) -> None:
+    @app.delete("/v1/session", status_code=204, operation_id="deleteSession", tags=["session"], dependencies=[Depends(_require_empty_body)])
+    def delete_session_route(request: Request, response: Response) -> None:
         _require_query(request, set())
-        await _require_empty_body(request)
         revoke_session(request.cookies.get(_COOKIE_NAME), dsn=settings.dsn)
         response.delete_cookie(
             _COOKIE_NAME, path="/", secure=settings.secure_cookie,
@@ -639,7 +638,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
     )
     async def upload_material_source(request: Request, material_id: UUID):
         _require_query(request, set())
-        owner = _trusted_learner(request, settings).learner_id
+        owner = (await run_in_threadpool(_trusted_learner, request, settings)).learner_id
         key = _idempotency_key(request)
         names = request.headers.getlist("x-material-name")
         if len(names) != 1 or len(names[0]) > 2400:
@@ -657,7 +656,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
             upload_source, owner, material_id, bytes(data), name,
             request.headers.get("content-type"), key, dsn=settings.dsn,
         )
-        return source_listing(owner, material_id)
+        return await run_in_threadpool(source_listing, owner, material_id)
 
     @app.get("/v1/materials/{material_id}/sources", response_model=SourceListView)
     def get_material_sources(request: Request, material_id: UUID):
@@ -668,12 +667,12 @@ def create_app(settings: ApiSettings) -> FastAPI:
     @app.post(
         "/v1/materials/{material_id}/sources/{normalization_id}/retry",
         response_model=SourceListView,
+        dependencies=[Depends(_require_empty_body)],
     )
-    async def retry_material_source(
+    def retry_material_source(
         request: Request, material_id: UUID, normalization_id: UUID
     ):
         _require_query(request, set())
-        await _require_empty_body(request)
         owner = _trusted_learner(request, settings).learner_id
         retry_normalization(owner, material_id, normalization_id, dsn=settings.dsn)
         return source_listing(owner, material_id)
@@ -724,27 +723,27 @@ def create_app(settings: ApiSettings) -> FastAPI:
     @app.post(
         "/v1/material-processing-runs/{run_id}/retry", status_code=202,
         response_model=MaterialProcessingRunView,
+        dependencies=[Depends(_require_empty_body)],
     )
-    async def retry_material_revision(request: Request, run_id: UUID):
+    def retry_material_revision(request: Request, run_id: UUID):
         from ..source_revisions import retry_revision
 
         _require_query(request, set())
-        await _require_empty_body(request)
         owner = _trusted_learner(request, settings).learner_id
-        return project_material_run(await run_in_threadpool(
-            retry_revision, owner, run_id, _idempotency_key(request),
+        return project_material_run(retry_revision(
+            owner, run_id, _idempotency_key(request),
             deepcopy(settings.local_config), dsn=settings.dsn,
         ))
 
     @app.delete(
         "/v1/materials/{material_id}/sources/{source_id}",
         response_model=SourceListView,
+        dependencies=[Depends(_require_empty_body)],
     )
-    async def remove_material_source(
+    def remove_material_source(
         request: Request, material_id: UUID, source_id: UUID
     ):
         _require_query(request, set())
-        await _require_empty_body(request)
         owner = _trusted_learner(request, settings).learner_id
         remove_staged_source(owner, material_id, source_id, dsn=settings.dsn)
         return source_listing(owner, material_id)
@@ -800,13 +799,13 @@ def create_app(settings: ApiSettings) -> FastAPI:
         "/v1/materials/{material_id}", status_code=202,
         response_model=MaterialDiscardView, response_model_by_alias=True,
         operation_id="discardMaterial", tags=["materials"],
+        dependencies=[Depends(_require_empty_body)],
     )
-    async def discard_material_route(request: Request, material_id: UUID) -> MaterialDiscardView:
+    def discard_material_route(request: Request, material_id: UUID) -> MaterialDiscardView:
         _require_query(request, set())
-        await _require_empty_body(request)
         learner = _trusted_learner(request, settings)
-        state = await run_in_threadpool(
-            request_material_discard, learner.learner_id, material_id, dsn=settings.dsn,
+        state = request_material_discard(
+            learner.learner_id, material_id, dsn=settings.dsn,
         )
         return MaterialDiscardView(material_id=material_id, state=state)
 
@@ -817,7 +816,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         operation_id="getMaterialProcessingRun",
         tags=["material-processing"],
     )
-    async def read_material_run_route(request: Request, run_id: UUID) -> MaterialProcessingRunView:
+    def read_material_run_route(request: Request, run_id: UUID) -> MaterialProcessingRunView:
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
         return project_material_run(read_material_processing_run(
@@ -895,7 +894,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         operation_id="createStudySession",
         tags=["learning"],
     )
-    async def create_study_session_route(
+    def create_study_session_route(
         request: Request, body: StudySessionCreate
     ) -> StudySessionView:
         _require_query(request, set())
@@ -915,7 +914,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         response_model=StudySessionView, response_model_by_alias=True,
         operation_id="focusStudySession", tags=["learning"],
     )
-    async def focus_study_session_route(
+    def focus_study_session_route(
         request: Request, study_session_id: UUID, body: StudySessionFocus
     ) -> StudySessionView:
         _require_query(request, set())
@@ -1073,7 +1072,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         "/v1/artifacts/{artifact_id}", operation_id="getSourceArtifact",
         tags=["artifacts"], response_class=StreamingResponse,
     )
-    async def read_artifact_route(request: Request, artifact_id: UUID) -> StreamingResponse:
+    def read_artifact_route(request: Request, artifact_id: UUID) -> StreamingResponse:
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
         context = open_verified_source_pdf(learner.learner_id, artifact_id, dsn=settings.dsn)

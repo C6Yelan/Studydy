@@ -7,7 +7,16 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from .database import DatabaseConfigurationError
-from .tables import Artifact, KnowledgeStructure, Material, MaterialProcessingRun, StudySession, MaterialSource, SourceNormalization, database_session
+from .tables import (
+    Artifact,
+    KnowledgeStructure,
+    Material,
+    MaterialProcessingRun,
+    MaterialSource,
+    SourceNormalization,
+    StudySession,
+    database_session,
+)
 
 
 class MaterialLibraryError(RuntimeError):
@@ -17,18 +26,18 @@ class MaterialLibraryError(RuntimeError):
 def read_material_library(
     learner_id: UUID, *, material_id: UUID | None = None, dsn: str | None = None,
 ) -> list[dict]:
-    """Project materials and one canonical persistent learning state per structure; never write learner data."""
+    """唯讀整理教材、發布結構與學習紀錄。"""
     try:
         with database_session(dsn) as session:
             statement = select(
                 Material.material_id, Material.source_artifact_id, Material.display_name,
-                Material.created_at, Artifact.size_bytes, Material.head_revision,
-            ).outerjoin(Artifact, (Artifact.artifact_id == Material.source_artifact_id)
-                   & (Artifact.material_id == Material.material_id)
-                   & (Artifact.learner_id == Material.learner_id)).where(Material.learner_id == learner_id)
+                Material.created_at, Material.head_revision,
+            ).where(Material.learner_id == learner_id)
             if material_id is not None:
                 statement = statement.where(Material.material_id == material_id)
-            materials = session.execute(statement.order_by(Material.created_at.desc(), Material.material_id.desc())).mappings().all()
+            materials = session.execute(
+                statement.order_by(Material.created_at.desc(), Material.material_id.desc())
+            ).mappings().all()
             if not materials:
                 return []
             ids = [row["material_id"] for row in materials]
@@ -70,8 +79,13 @@ def read_material_library(
                 & (KnowledgeStructure.structure_revision == StudySession.knowledge_structure_revision),
             ).where(StudySession.learner_id == learner_id, StudySession.material_id.in_(ids))
               .order_by(StudySession.started_at.desc(), StudySession.study_session_id.desc())).mappings().all()
-            source_rows=session.execute(select(MaterialSource,SourceNormalization,Artifact.size_bytes).join(SourceNormalization,SourceNormalization.source_id==MaterialSource.source_id).join(Artifact,Artifact.artifact_id==MaterialSource.original_artifact_id)
-                .where(MaterialSource.learner_id==learner_id,MaterialSource.material_id.in_(ids)).order_by(MaterialSource.source_id)).all()
+            source_rows = session.execute(
+                select(MaterialSource, SourceNormalization, Artifact.size_bytes)
+                .join(SourceNormalization, SourceNormalization.source_id == MaterialSource.source_id)
+                .join(Artifact, Artifact.artifact_id == MaterialSource.original_artifact_id)
+                .where(MaterialSource.learner_id == learner_id, MaterialSource.material_id.in_(ids))
+                .order_by(MaterialSource.source_id)
+            ).all()
     except (DatabaseConfigurationError, SQLAlchemyError):
         raise MaterialLibraryError("MATERIAL_LIBRARY_STORAGE_FAILED") from None
 
@@ -82,20 +96,29 @@ def read_material_library(
     sessions: dict[UUID, list[dict]] = {identity: [] for identity in ids}
     for row in studies:
         sessions[row["material_id"]].append({key: value for key, value in row.items() if key != "material_id"})
-    sources={source.material_id:{"source_id":source.source_id,"normalization_id":job.normalization_id,"original_artifact_id":source.original_artifact_id,
-        "original_name":source.original_name,"media_type":source.media_type,"status":job.status,"error_code":job.error_code,
-        "normalized_artifact_id":job.normalized_artifact_id,"page_count":job.page_count} for source,job,_ in source_rows}
-    original_sizes={identity:0 for identity in ids}
-    counts={identity:0 for identity in ids}
-    for source,job,size in source_rows:
-        original_sizes[source.material_id]+=size
-        counts[source.material_id]+=1
+    sources = {}
+    original_sizes = {identity: 0 for identity in ids}
+    counts = {identity: 0 for identity in ids}
+    for source, normalization, size in source_rows:
+        sources[source.material_id] = {
+            "source_id": source.source_id,
+            "normalization_id": normalization.normalization_id,
+            "original_artifact_id": source.original_artifact_id,
+            "original_name": source.original_name,
+            "media_type": source.media_type,
+            "status": normalization.status,
+            "error_code": normalization.error_code,
+            "normalized_artifact_id": normalization.normalized_artifact_id,
+            "page_count": normalization.page_count,
+        }
+        original_sizes[source.material_id] += size
+        counts[source.material_id] += 1
     return [{
         **row,
         "schema": "material-library-item/v1",
-        "size_bytes":original_sizes.get(row["material_id"],row["size_bytes"] or 0),
-        "source_count":counts[row["material_id"]],
-        "source":sources.get(row["material_id"]),
+        "size_bytes": original_sizes[row["material_id"]],
+        "source_count": counts[row["material_id"]],
+        "source": sources.get(row["material_id"]),
         "display_name": row["display_name"],
         "latest_attempt": latest.get(row["material_id"]),
         "available_structures": published[row["material_id"]],

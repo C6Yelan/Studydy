@@ -24,7 +24,8 @@ from learning_adaptation.learner_progress import LearnerProgressError, derive_le
 from learning_adaptation.study_sessions import create_study_session, read_study_session
 from runtime.learner_session import TrustedLearner, register_account
 import runtime.material_processing as processing
-from runtime.material_processing import MaterialProcessingError, _record_progress, claim_next_material_processing_run, read_material_processing_run, runtime_binding
+from runtime.material_runtime import runtime_binding
+from runtime.material_processing import MaterialProcessingError, _record_progress, claim_next_material_processing_run, read_material_processing_run
 from runtime.storage.knowledge_structures import read_knowledge_structure
 from runtime.storage.migrations import run_migrations, load_migrations
 from pdf_evidence.ocr_page_evidence import canonical_sha256

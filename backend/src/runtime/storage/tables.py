@@ -16,15 +16,7 @@ from .database import resolve_database_dsn
 
 
 class Base(DeclarativeBase):
-    """Final pre-release schema；DDL 唯一來源仍是 migration。"""
-
-
-class SchemaMigration(Base):
-    __tablename__ = "schema_migrations"
-
-    version: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
-    sql_sha256: Mapped[str] = mapped_column(Text, nullable=False)
-    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    """ORM 映射；資料表 DDL 以 migration 為準。"""
 
 
 class Learner(Base):
@@ -282,22 +274,18 @@ def database_session(dsn: str | None = None) -> Generator[Session, None, None]:
     resolved = resolve_database_dsn(dsn)
     engine = create_engine(
         "postgresql+psycopg://",
-        creator=lambda: psycopg.connect(resolved),
+        creator=lambda: psycopg.connect(resolved, connect_timeout=5),
         poolclass=NullPool,
         hide_parameters=True,
     )
     try:
         with Session(engine, expire_on_commit=False) as session, session.begin():
+            # 只限制產品交易的 SQL／等鎖時間；不終止正在寫檔的 idle transaction。
+            session.execute(text("SET LOCAL lock_timeout = '5s'"))
+            session.execute(text("SET LOCAL statement_timeout = '60s'"))
             yield session
     finally:
         engine.dispose()
-
-
-@contextmanager
-def deferred_artifact_session(dsn: str | None = None) -> Generator[Session, None, None]:
-    with database_session(dsn) as session:
-        session.execute(text("SET CONSTRAINTS materials_source_artifact_fk DEFERRED"))
-        yield session
 
 
 class MaterialSource(Base):

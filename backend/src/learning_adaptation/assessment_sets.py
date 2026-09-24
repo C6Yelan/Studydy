@@ -730,8 +730,11 @@ def _heartbeat(work, stop, dsn):
             with database_session(dsn) as session:
                 _, _, _, group = _leased(session, work)
                 group.lease_expires_at = _now() + timedelta(seconds=LEASE_SECONDS)
-        except Exception:
+        except AssessmentSetError:
             return
+        except Exception:
+            # DB 短暫忙碌時續試；_leased 仍會拒絕取消、過期或已換 token 的工作。
+            continue
 
 
 def _bounded_prior(prior, claim):

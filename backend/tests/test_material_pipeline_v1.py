@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pymupdf
 import httpx
+import pytest
 
 import pdf_evidence.material_pipeline as pipeline
 
@@ -94,6 +95,75 @@ def test_eight_native_pages_use_one_unified_semantic_call_without_ocr(tmp_path, 
     assert len(calls) == 1
     assert len({item[1] for section in calls[0]["sections"] for item in section["evidence"]}) == 8
     assert structure["initial_learning_path"][0]["concept_id"] == structure["concepts"][0]["concept_id"]
+
+
+def test_native_analysis_can_finish_while_another_process_owns_ocr_lock(tmp_path):
+    source = tmp_path / 'native.pdf'
+    _pdf(source, 1)
+    settings = _settings(tmp_path)
+    with pipeline.material_analysis_lock(Path(settings['private_runtime_root'])):
+        structure = _analyze(source, settings, client=Client(), semantic_call=_semantic([]))
+    assert structure['metrics']['ocr_calls'] == 0
+    assert structure['status']['processing'] == 'succeeded'
+
+
+def test_ocr_lock_covers_child_lifetime_and_releases_before_semantics(tmp_path, monkeypatch):
+    source = tmp_path / 'mixed.pdf'
+    _pdf(source, 2, blank_first=True)
+    settings = _settings(tmp_path)
+    root = Path(settings['private_runtime_root'])
+    events = []
+
+    def assert_locked():
+        with pytest.raises(pipeline.MaterialAnalysisError, match='RUNTIME_BUSY'):
+            with pipeline.material_analysis_lock(root, wait_seconds=0):
+                pass
+
+    class Ocr(FailedOcr):
+        def request(self, request, timeout):
+            assert_locked()
+            events.append('request')
+            return super().request(request, timeout)
+
+        def close(self):
+            assert_locked()
+            events.append('close')
+
+    def start(_):
+        assert_locked()
+        events.append('start')
+        return Ocr()
+
+    def semantic(client, **kwargs):
+        with pipeline.material_analysis_lock(root, wait_seconds=0):
+            events.append('semantic')
+        return _semantic([])(client, **kwargs)
+
+    monkeypatch.setattr(pipeline, 'start_ocr_process', start)
+    result = _analyze(source, settings, client=Client(), semantic_call=semantic)
+    assert result['status']['processing'] == 'partial'
+    assert events == ['start', 'request', 'close', 'semantic']
+
+
+def test_failed_ocr_start_does_not_keep_lock_for_next_page(tmp_path, monkeypatch):
+    source = tmp_path / 'scans.pdf'
+    with pymupdf.open() as document:
+        document.new_page()
+        document.new_page()
+        document.save(source)
+    starts = []
+
+    def fail(_):
+        starts.append(1)
+        raise pipeline.LocalAIError('CHILD_EXITED')
+
+    monkeypatch.setattr(pipeline, 'start_ocr_process', fail)
+    settings = _settings(tmp_path)
+    with pytest.raises(pipeline.MaterialAnalysisError, match='NO_USABLE_EVIDENCE'):
+        _analyze(source, settings, client=Client(), semantic_call=_semantic([]))
+    assert len(starts) == 2
+    with pipeline.material_analysis_lock(Path(settings['private_runtime_root']), wait_seconds=0):
+        pass
 
 
 class FailedOcr:
