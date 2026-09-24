@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select, func
 
-from learning_adaptation.study_sessions import create_study_session, complete_study_session, set_current_study_concept, StudySessionError
+from learning_adaptation.study_sessions import create_study_session, set_current_study_concept, StudySessionError
 from runtime.storage.tables import StudySession, database_session
 from runtime.storage.materials import read_material_library
 from test_closed_loop_v1 import closed_loop
@@ -39,7 +39,11 @@ def test_ensure_initial_idempotency_completed_and_focus_api(closed_loop, tmp_pat
         assert response.status_code == 200
         assert response.json()["study_session_id"] == str(first.study_session_id)
     assert client.post(path, headers=HEADERS, json={**body, "current_concept_id": "unknown"}).status_code >= 400
-    complete_study_session(learner, first.study_session_id, dsn=dsn)
+    with database_session(dsn) as db:
+        # guidance 完成流程另有測試；這裡只建立 completed 狀態來驗證 ensure。
+        stored = db.get(StudySession, first.study_session_id)
+        stored.status = "completed"
+        stored.completed_at = datetime.now(UTC)
     assert ensure("after-complete").status == "completed"
     assert ensure("after-complete").study_session_id == first.study_session_id
     assert client.post(path, headers=HEADERS, json=body).status_code >= 400

@@ -228,24 +228,3 @@ def set_current_study_concept(
         raise
     except Exception:
         raise StudySessionError("STUDY_SESSION_STORAGE_FAILED") from None
-
-
-def complete_study_session(
-    learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None
-) -> StoredStudySession:
-    learner_id = _learner(learner)
-    try:
-        with database_session(dsn) as session:
-            stored = _row(session, learner_id, study_session_id, lock=True)
-            _validate(session, stored)
-            from .assessment_sets import has_active_set
-            if has_active_set(session, study_session_id):
-                raise StudySessionError('ASSESSMENT_SET_ACTIVE')
-            if stored.status != "completed":
-                stored.status = "completed"
-                stored.completed_at = datetime.now(UTC)
-            return _stored(stored)
-    except StudySessionError:
-        raise
-    except Exception:
-        raise StudySessionError("STUDY_SESSION_STORAGE_FAILED") from None

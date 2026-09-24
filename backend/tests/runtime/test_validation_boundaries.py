@@ -10,8 +10,7 @@ from learning_adaptation import assessment_sets as sets, assessments
 from learning_adaptation.learner_progress import derive_learner_progress
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from runtime import material_processing
-from runtime.material_runtime import lock_matches_binding
-from runtime.source_resolver import resolve_evidence_source, verify_source_files
+from runtime.source_resolver import resolve_evidence_source
 from runtime.storage import artifacts, source_artifacts
 from runtime.storage.knowledge_structures import read_knowledge_structure, KnowledgeStructureStoreError
 from runtime.storage.tables import Assessment, AssessmentSet, MaterialProcessingRun, database_session
@@ -48,36 +47,30 @@ def test_each_product_uses_its_own_execution_snapshot(closed_loop, monkeypatch):
                                  revision=f['document']['revision'], dsn=dsn)
 
 
-def test_binding_cannot_claim_a_model_absent_from_its_lock(closed_loop):
-    settings = closed_loop[2]
-    binding = material_processing.runtime_binding(settings)
-    assert lock_matches_binding(settings['runtime_lock'], binding)
-    binding['model_id'] = 'example/forged-model'
-    binding['runtime_binding_sha256'] = canonical_sha256({k: v for k, v in binding.items() if k != 'runtime_binding_sha256'})
-    assert not lock_matches_binding(settings['runtime_lock'], binding)
-
-
-def test_rehashed_question_provenance_must_match_its_set_snapshot(closed_loop):
+def test_rehashed_question_provenance_requires_current_contract_and_set_snapshot(closed_loop):
     f = concept_fixture(closed_loop, 1)
     root = create(f); finish(f)
     view = read(f, root)
     with database_session(f['dsn']) as session:
         row = session.get(Assessment, view['assessment_revisions'][0])
         expected = assessments._provenance(session.get(AssessmentSet, root))
-        changed = SimpleNamespace(**{c.name: deepcopy(getattr(row, c.name)) for c in Assessment.__table__.columns})
-    changed.generation_provenance['model_id'] = 'example/forged-question-model'
-    public, private, provenance = (getattr(changed, name) for name in
-                                   ('public_document', 'private_answer_document', 'generation_provenance'))
-    core = lambda document: {k: v for k, v in document.items() if k != 'assessment_revision'}
-    revision = 'assessment:sha256:' + canonical_sha256({
-        'public': core(public), 'private_sha256': canonical_sha256(core(private)),
-        'provenance_sha256': canonical_sha256(core(provenance)),
-    })
-    changed.assessment_revision = revision
-    for document in (public, private, provenance):
-        document['assessment_revision'] = revision
-    with pytest.raises(assessments.AssessmentError, match='ASSESSMENT_UNAVAILABLE'):
-        assessments._stored(changed, expected)
+        saved = SimpleNamespace(**{c.name: deepcopy(getattr(row, c.name)) for c in Assessment.__table__.columns})
+    for field, value in [('model_id', 'example/forged-question-model'),
+                         ('schema', 'assessment-generation-provenance/unsupported')]:
+        changed = deepcopy(saved)
+        changed.generation_provenance[field] = value
+        public, private, provenance = (getattr(changed, name) for name in
+                                       ('public_document', 'private_answer_document', 'generation_provenance'))
+        core = lambda document: {k: v for k, v in document.items() if k != 'assessment_revision'}
+        revision = 'assessment:sha256:' + canonical_sha256({
+            'public': core(public), 'private_sha256': canonical_sha256(core(private)),
+            'provenance_sha256': canonical_sha256(core(provenance)),
+        })
+        changed.assessment_revision = revision
+        for document in (public, private, provenance):
+            document['assessment_revision'] = revision
+        with pytest.raises(assessments.AssessmentError, match='ASSESSMENT_UNAVAILABLE'):
+            assessments._stored(changed, expected)
 
 
 def test_map_progress_and_set_reads_do_not_hash_source_files(closed_loop, monkeypatch):
@@ -122,8 +115,6 @@ def test_file_tampering_fails_when_used_and_at_publication(closed_loop, role):
     with pytest.raises(artifacts.ArtifactError):
         with source_artifacts.open_verified_artifact(learner.learner_id, identity, dsn=dsn):
             pytest.fail('corrupt bytes were exposed')
-    with pytest.raises(artifacts.ArtifactError):
-        verify_source_files(learner.learner_id, binding, dsn=dsn)
     # 真正的發布入口也必須拒絕，而不是只測底層 hash helper。
     from product_fixtures import seed_run, publish_fixture_structure
     from test_closed_loop_v1 import _structure
@@ -135,6 +126,11 @@ def test_file_tampering_fails_when_used_and_at_publication(closed_loop, role):
     candidate = _structure(str(run.run_id), source.sha256, settings['runtime_lock'])
     with pytest.raises(KnowledgeStructureStoreError):
         publish_fixture_structure(learner.learner_id, source.material_id, run.run_id, candidate, dsn=dsn)
+    # 同一候選恢復原檔後能發布，排除測試因其他前置錯誤而假通過。
+    path.write_bytes(contents)
+    path.chmod(0o400)
+    published = publish_fixture_structure(learner.learner_id, source.material_id, run.run_id, candidate, dsn=dsn)
+    assert published.document == candidate
 
 
 def test_prior_questions_are_validated_once_and_set_snapshot_is_shared(closed_loop, monkeypatch):

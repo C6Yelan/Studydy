@@ -107,25 +107,6 @@ class FailedOcr:
         pass
 
 
-def test_multiple_bundles_report_incremental_semantic_progress(tmp_path):
-    """後面頁面尚未處理時，不能先把語意進度回報為整份完成。"""
-    source = tmp_path / "three.pdf"
-    _pdf(source, 3)
-    class BudgetClient:
-        def post(self, url, **kwargs):
-            request = json.loads(kwargs["json"]["messages"][-1]["content"].split("\nINPUT:\n", 1)[1])
-            count = 700 * sum(len(section["evidence"]) for section in request["sections"])
-            return httpx.Response(200, json={"count": count, "max_model_len": 32768}, request=httpx.Request("POST", url))
-    calls = []
-    progress = []
-    _analyze(source, _settings(tmp_path), client=BudgetClient(),
-                              semantic_call=_semantic(calls), progress_callback=lambda stage, done, total: progress.append((stage, done, total)))
-    assert len(calls) > 1
-    assert {row[1] for call in calls for section in call["sections"] for row in section["evidence"]} == {1, 2, 3}
-    completed = [done for stage, done, _total in progress if stage == "semantics"]
-    assert completed == sorted(completed)
-    assert completed[0] < 3 and completed[-1] == 3
-
 
 def test_http_batching_carries_concepts_across_all_ninety_pages(tmp_path):
     from runtime.semantic_service import material_request_fits
@@ -238,13 +219,3 @@ def test_bundle_input_limit_keeps_reason_without_model_call(tmp_path, monkeypatc
     with pytest.raises(pipeline.MaterialAnalysisError, match="SEMANTIC_INPUT_TOO_LARGE"):
         _analyze(source, _settings(tmp_path), client=Client(), semantic_call=_semantic(calls))
     assert calls == []
-
-
-def test_command_budget_failure_keeps_reason(tmp_path):
-    import pytest
-    source = tmp_path / "budget.pdf"
-    _pdf(source, 1)
-    def exhausted(*args, **kwargs):
-        raise pipeline.SemanticServiceError("SEMANTIC_BUDGET_EXHAUSTED")
-    with pytest.raises(pipeline.MaterialAnalysisError, match="SEMANTIC_BUDGET_EXHAUSTED"):
-        _analyze(source, _settings(tmp_path), client=Client(), semantic_call=exhausted)

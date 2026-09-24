@@ -1011,8 +1011,10 @@ test("B04 switching revision discards the previous selection and viewport", asyn
   await expectVisibleGraphFits(page);
 });
 
-for (const width of [1920, 1536, 1366, 390]) {
-  for (const count of [1, 20, 100, 200]) test(`compact map ${count} concepts at ${width}px renders two hops with controls inside canvas`, async ({ page }, info) => {
+// 保留四種 viewport／資料量，並在桌機與手機各驗證鍵盤詳情操作。
+// 大集合的這個 fixture 都顯示相同十個鄰近節點；密集圖、拖曳與捲動另有案例。
+for (const [width, count] of [[1920, 200], [1536, 20], [1366, 100], [390, 1], [390, 20]]) {
+  test(`compact map ${count} concepts at ${width}px renders two hops with controls inside canvas`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 1080 });
     const view = workspaceView(count, true);
     if (count > 1) view.relations = view.relations.filter(edge => edge.target_concept_id !== view.concepts.at(-1)!.concept_id);

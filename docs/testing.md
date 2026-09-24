@@ -30,6 +30,9 @@ ledger checksum/sequence rejection, concurrent installation, and transactional r
 next migration. Old development-step upgrade tests have been removed. Auth tests retain normalized
 Email uniqueness, syntax validation, hashing, session safety and owner isolation; no DNS or model call is used.
 
+Migration 測試驗證安裝、資料保留與失敗回滾；不再重抄資料表／欄位／trigger 名稱清單。
+來源不可變、題組 scope 與補強 origin 約束由對應功能測試實際嘗試修改來驗證。
+
 The source-collection baseline also verifies that a draft can have no representative PDF, draft
 creation remains idempotent, the library omits the retired ingestion marker, and the database rejects
 the retired `source_pdf` artifact kind. `seed_pdf()` continues to exercise the current source workflow.
@@ -43,6 +46,11 @@ normalized PDF 預覽的不同 MIME／標頭、owner 隔離、錯誤 artifact �
 Evidence locator 只驗證所用 mapping。三種來源檔損毀均在使用與發布邊界拒絕；prior 題目
 只完整驗證一次，同一題組設定於交易內共用。語意服務測試以 MockTransport 驗證設定中的模型
 被實際送入請求，discovery 回傳不同模型仍拒絕。這些是程式契約測試，不是新模型品質驗收。
+
+Binding 與設定快照不一致的檢查集中在 `test_runtime_boundaries_v1.py`，不額外建立 DB／PDF
+重測同一個純函式。題目 schema 與偽造 provenance 共用一組真實題組 fixture；資料庫 KS 約束
+保留「不支援的版本」及「缺少 schema」兩種不同失敗條件。HTTP 四種 task 共用請求契約案例，
+仍分別驗證各 task 的 budget、schema、tokenizer 與生成設定。
 
 The 2026-09-23 baseline adoption compares the old final schema with a fresh baseline in isolated
 PostgreSQL, rehearses backup restore and ledger adoption/rollback, and checks all product-table
@@ -127,6 +135,11 @@ B5-R 契約見 [assessment-remediation.md](assessment-remediation.md)。核心�
 同時改用整組交卷。獨立 build 為 `.studydy-runtime/b05-batch-frontend`，不覆寫日常 bundle。
 
 ## 學習導覽捲動回歸
+
+`product-cutover.spec.ts` 的基本地圖矩陣使用 5 組 viewport／資料量配對，保留
+1920／1536／1366／390 寬度及 1／20／100／200 個概念；桌機與手機各保留鍵盤詳情操作。
+大集合的該 fixture 都呈現相同的兩跳鄰近節點，因此不重跑 16 組全排列。
+密集圖顯示上限、大圖拖曳、縮放／reflow 與長清單捲動仍由各自的瀏覽器案例驗證。
 
 `product-cutover.spec.ts` 的 `learning navigator scrolls` 使用 100 個合成概念，
 在桌機／手機寬度實際送出滾輪事件，驗證清單可捲至最末項、畫布縮放不受影響、

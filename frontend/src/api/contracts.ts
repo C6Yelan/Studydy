@@ -18,9 +18,7 @@ export type KnownApiReasonCode =
   | "SOURCE_BUSY"
   | "ASSESSMENT_SET_CONFLICT"
   | "ASSESSMENT_SET_ACTIVE"
-  | "NO_SAFE_ASSESSMENT"
   | "MATERIAL_TOO_LARGE"
-  | "MATERIAL_PDF_INVALID"
   | "UNSUPPORTED_MEDIA_TYPE"
   | "STORAGE_UNAVAILABLE"
   | "INTERNAL_ERROR";
@@ -40,14 +38,7 @@ export type ApiErrorView = {
 export type MaterialOutputBinding = {
   schema: "material-run-output-binding/v1";
   knowledge_structure_revision: string;
-  runtime_lock_sha256: string;
   page_count: number;
-  processing: "succeeded" | "partial";
-  quality: "accepted" | "needs_review";
-  decision: "retain" | "review";
-  reason_codes: string[];
-  ocr_calls: number;
-  semantic_calls: number;
 };
 
 export type MaterialDiscardView = {
@@ -165,8 +156,6 @@ export type KnowledgeStructureView = {
     label: string;
     aliases: string[];
     claims: { claim_id: string; text: string; evidence: EvidenceView[] }[];
-    section_ids: string[];
-    source_pages: number[];
   }[];
   relations: {
     relation_id: string;
@@ -175,9 +164,6 @@ export type KnowledgeStructureView = {
     type: RelationType;
     learner_reason: string;
     evidence_refs: string[];
-    context_refs: string[];
-    inference_basis: "dependency" | "composition" | "usage" | "instantiation" | "comparison";
-    confidence: number;
   }[];
   initial_learning_path: {
     position: number;
@@ -364,7 +350,7 @@ export type SourceView = {
 };
 export type SourceListView = { schema: "material-sources/v1"; material_id: string; discard_requested?: boolean; sources: SourceView[] };
 export type FormatCapability = { extension: string; media_type: string; max_bytes: number };
-export type SourceCapabilities = { schema: "source-capabilities/v1"; formats: FormatCapability[]; quality_notice: string };
+export type SourceCapabilities = { schema: "source-capabilities/v1"; formats: FormatCapability[] };
 export type EvidenceSourceView = { schema: "evidence-source/v1"; format: "pdf" | "docx" | "pptx" | "doc" | "ppt" | "txt" | "md";
   original_name: string; original_url: string; preview_url: string; normalized_page: number;
   accuracy: "exact" | "ambiguous" | "unavailable"; origin_locators: Record<string,unknown>[]; label: string };

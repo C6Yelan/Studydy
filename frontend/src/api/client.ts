@@ -26,10 +26,10 @@ type Json = Record<string, unknown>;
 const knownReasons = new Set<KnownApiReasonCode>([
   "INVALID_EMAIL",
   "INVALID_CREDENTIALS", "ACCOUNT_UNAVAILABLE", "REQUEST_INVALID", "SESSION_REQUIRED", "ORIGIN_NOT_ALLOWED", "RESOURCE_NOT_FOUND",
-  "LEARNER_GUIDANCE_STALE", "IDEMPOTENCY_CONFLICT", "ASSESSMENT_SET_CONFLICT", "ASSESSMENT_SET_ACTIVE", "NO_SAFE_ASSESSMENT", "MATERIAL_TOO_LARGE",
+  "LEARNER_GUIDANCE_STALE", "IDEMPOTENCY_CONFLICT", "ASSESSMENT_SET_CONFLICT", "ASSESSMENT_SET_ACTIVE", "MATERIAL_TOO_LARGE",
   "MATERIAL_NOT_DISCARDABLE",
   "SOURCE_NOT_READY", "NORMALIZER_UNAVAILABLE", "DUPLICATE_SOURCE", "REVISION_CONFLICT", "REVISION_IN_PROGRESS", "SOURCE_IN_USE", "SOURCE_BUSY",
-  "MATERIAL_PDF_INVALID", "UNSUPPORTED_MEDIA_TYPE", "STORAGE_UNAVAILABLE", "INTERNAL_ERROR",
+  "UNSUPPORTED_MEDIA_TYPE", "STORAGE_UNAVAILABLE", "INTERNAL_ERROR",
 ]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const sha = /^[0-9a-f]{64}$/;
@@ -95,12 +95,8 @@ function materialRun(value: unknown): value is MaterialProcessingRunView {
     const binding = object(item.output_binding);
     return !!binding && binding.schema === "material-run-output-binding/v1"
       && revision(binding.knowledge_structure_revision, "knowledge-structure")
-      && typeof binding.runtime_lock_sha256 === "string" && sha.test(binding.runtime_lock_sha256)
       && Number.isInteger(binding.page_count) && binding.page_count === item.total_pages
-      && binding.processing === item.status && ["accepted", "needs_review"].includes(String(binding.quality))
-      && ["retain", "review"].includes(String(binding.decision)) && strings(binding.reason_codes)
-      && Number.isInteger(binding.ocr_calls) && Number(binding.ocr_calls) >= 0 && Number(binding.ocr_calls) <= Number(binding.page_count)
-      && Number.isInteger(binding.semantic_calls) && Number(binding.semantic_calls) >= 1 && item.completed_at !== null;
+      && item.completed_at !== null;
   }
   return item.output_binding === null && (["pending", "running"].includes(String(item.status)) ? item.completed_at === null : item.completed_at !== null);
 }
@@ -120,7 +116,7 @@ function sourceList(value: unknown): value is SourceListView {
     && (item.discard_requested===undefined || typeof item.discard_requested==="boolean") && Array.isArray(item.sources) && item.sources.every(sourceView);
 }
 function capabilities(value: unknown): value is SourceCapabilities {
-  const item=object(value); return !!item && item.schema==="source-capabilities/v1" && typeof item.quality_notice==="string"
+  const item=object(value); return !!item && item.schema==="source-capabilities/v1"
     && Array.isArray(item.formats) && item.formats.every(v=>{ const f=object(v); return !!f && typeof f.extension==="string"
       && [".pdf",".docx",".pptx",".doc",".ppt",".txt",".md"].includes(f.extension) && typeof f.media_type==="string" && Number.isInteger(f.max_bytes) && Number(f.max_bytes)>0; });
 }
@@ -414,9 +410,7 @@ function safeMessage(reason: ApiReasonCode): string {
   if (reason === "ASSESSMENT_SET_ACTIVE") return "已有尚未完成的題組，可從題組紀錄接續。";
   if (reason === "ASSESSMENT_SET_CONFLICT") return "題組狀態已更新，請重新讀取後繼續。";
   if (reason === "LEARNER_GUIDANCE_STALE") return "學習進度已更新，請重新確認下一步。";
-  if (reason === "NO_SAFE_ASSESSMENT") return "目前沒有可安全提供的新題目。";
   if (reason === "MATERIAL_TOO_LARGE") return "每個檔案不可超過 100 MiB。";
-  if (reason === "MATERIAL_PDF_INVALID") return "這份 PDF 已損毀、加密或無法開啟。";
   if (reason === "UNSUPPORTED_MEDIA_TYPE") return "此檔案格式目前不支援，請優先使用 PDF。";
   if (reason === "STORAGE_UNAVAILABLE") return "資料服務暫時無法使用，請稍後再試。";
   if (reason === "MATERIAL_NOT_DISCARDABLE") return "這份教材正在刪除，無法進行這項操作。";

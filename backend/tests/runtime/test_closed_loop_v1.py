@@ -31,9 +31,6 @@ from pdf_evidence.ocr_page_evidence import canonical_sha256
 import runtime.api.app as api_app
 
 
-
-
-
 class Client:
     pass
 
@@ -159,30 +156,7 @@ def closed_loop(clean_database_dsn, migrations_dir, tmp_path, monkeypatch):
     return learner, source, settings, structure, clean_database_dsn, created.raw_token
 
 
-def test_final_schema_contains_only_current_product_tables(clean_database_dsn, migrations_dir):
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == tuple(m.version for m in load_migrations(migrations_dir))
-    with psycopg.connect(clean_database_dsn) as connection:
-        tables = {
-            row[0]
-            for row in connection.execute(
-                "SELECT tablename FROM pg_tables WHERE schemaname='public'"
-            )
-        }
-        columns = {
-            row[0]
-            for row in connection.execute(
-                "SELECT column_name FROM information_schema.columns WHERE table_schema='public'"
-            )
-        }
-    assert tables == {
-        "schema_migrations", "learners", "learner_sessions", "materials", "artifacts",
-        "material_processing_runs", "knowledge_structures", "study_sessions", "assessments",
-        "answer_events", "assessment_sets", "assessment_set_items", "material_sources", "source_normalizations", "material_source_sets", "material_source_set_items",
-    }
-    assert not any("formal_concept" in column or "verifier" in column for column in columns)
-
-
-@pytest.mark.parametrize('version', ['knowledge-structure/v2', 'knowledge-structure/v3', 'knowledge-structure/v4', None])
+@pytest.mark.parametrize('version', ['knowledge-structure/v2', None])
 def test_database_accepts_only_explicit_v1_structure(closed_loop, version):
     _, _, _, _, dsn, _ = closed_loop
     with psycopg.connect(dsn) as connection:
@@ -209,28 +183,6 @@ def test_terminal_material_run_tamper_cannot_report_false_success(closed_loop):
         )
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def test_real_api_lifespan_login_and_saved_reads_work_without_ai(closed_loop, monkeypatch):
     """真 worker 啟停與登入、已保存 Map 讀取皆不需要模型在線。"""
     import httpx
@@ -250,5 +202,9 @@ def test_real_api_lifespan_login_and_saved_reads_work_without_ai(closed_loop, mo
         assert login.status_code == 200
         assert client.get("/v1/session").json()["learner_id"] == str(learner.learner_id)
         assert client.get("/v1/materials").status_code == 200
-        assert client.get(f"/v1/materials/{source.material_id}/knowledge-structures/{structure['revision']}").status_code == 200
+        map_response = client.get(
+            f"/v1/materials/{source.material_id}/knowledge-structures/{structure['revision']}"
+        )
+        assert map_response.status_code == 200
+        assert map_response.json()["concepts"][0]["claims"][0]["evidence"][0]["quote"]
     assert calls == []

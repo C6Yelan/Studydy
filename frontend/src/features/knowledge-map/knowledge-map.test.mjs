@@ -24,9 +24,9 @@ const navigation = {
     { section_id: "b", title: "Section B", order: 1 },
   ] },
   concepts: [
-    { concept_id: "a1", section_ids: ["a"] },
-    { concept_id: "b1", section_ids: ["b"] },
-    { concept_id: "a2", section_ids: ["a"] },
+    { concept_id: "a1" },
+    { concept_id: "b1" },
+    { concept_id: "a2" },
   ],
   initial_learning_path: [
     { position: 3, concept_id: "a2", reason: "document_order" },
@@ -54,7 +54,7 @@ test("a path can order C before A and B independently of document order", () => 
 });
 
 test("defensive concepts outside the path get no invented position; broken references fail", () => {
-  const map = { ...navigation, concepts: [...navigation.concepts, { concept_id: "extra", section_ids: [] }] };
+  const map = { ...navigation, concepts: [...navigation.concepts, { concept_id: "extra" }] };
   const other = learningNavigationItems(map).at(-1);
   assert.equal(other.concept.concept_id, "extra");
   assert.equal(other.step, null);

@@ -41,40 +41,6 @@ def test_domain_baseline_and_repeat_preserve_account_and_session(clean_database_
         ledger = connection.execute(
             "SELECT * FROM schema_migrations ORDER BY version"
         ).fetchall()
-        columns = set(
-            connection.execute(
-                """SELECT table_name, column_name FROM information_schema.columns
-                   WHERE table_schema = 'public'
-                     AND table_name IN (
-                         'learners', 'assessment_sets', 'material_processing_runs', 'materials'
-                     )"""
-            ).fetchall()
-        )
-        assert {
-            ('learners', 'email'),
-            ('assessment_sets', 'diagnostic_set_id'),
-            ('material_processing_runs', 'runtime_lock_document'),
-        } <= columns
-        assert not {
-            ('learners', 'username'),
-            ('assessment_sets', 'review_actions'),
-            ('assessment_sets', 'cycle_closed_at'),
-            ('materials', 'ingestion_kind'),
-        } & columns
-        enabled_triggers = {
-            row[0] for row in connection.execute(
-                "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgenabled = 'O'"
-            )
-        }
-        assert {
-            'source_identity_immutable',
-            'source_set_immutable',
-            'source_set_item_immutable',
-            'normalization_ready_immutable',
-            'assessment_set_item_immutable',
-            'assessment_set_scope_immutable',
-            'assessment_set_origin_immutable',
-        } <= enabled_triggers
     assert run_migrations(clean_database_dsn) == ()
     with psycopg.connect(clean_database_dsn) as connection:
         assert connection.execute(
@@ -100,7 +66,6 @@ def test_draft_uses_source_collection_and_rejects_retired_artifact_kind(clean_da
     assert create_draft(learner_id, 'Synthetic.pdf', 'source-draft', dsn=clean_database_dsn) == material_id
     item, = read_material_library(learner_id, dsn=clean_database_dsn)
     assert item['source_artifact_id'] is None and item['source_count'] == 0
-    assert 'ingestion_kind' not in item
     with psycopg.connect(clean_database_dsn) as connection:
         with pytest.raises(psycopg.errors.CheckViolation, match='artifact_role_media'):
             with connection.transaction():
@@ -110,7 +75,6 @@ def test_draft_uses_source_collection_and_rejects_retired_artifact_kind(clean_da
                        ) VALUES (%s,%s,%s,'source_pdf','application/pdf',%s,1,now())""",
                     (uuid4(), learner_id, material_id, bytes(32)),
                 )
-        assert connection.execute("SELECT to_regclass('public.artifacts_one_source_pdf')").fetchone() == (None,)
 
 
 @pytest.mark.parametrize(

@@ -29,21 +29,10 @@ class LearnerIdentityView(_Closed):
     learner_id: UUID
 
 
-
-
-
-
 class MaterialOutputBindingView(_Closed):
     schema_: Literal["material-run-output-binding/v1"] = Field(alias="schema")
     knowledge_structure_revision: str
-    runtime_lock_sha256: str
     page_count: int
-    processing: Literal["succeeded", "partial"]
-    quality: Literal["accepted", "needs_review"]
-    decision: Literal["retain", "review"]
-    reason_codes: list[str]
-    ocr_calls: int
-    semantic_calls: int
 
 
 class MaterialDiscardView(_Closed):
@@ -171,8 +160,6 @@ class ConceptView(_Closed):
     label: str
     aliases: list[str]
     claims: list[ClaimView]
-    section_ids: list[str]
-    source_pages: list[int]
 
 
 class RelationView(_Closed):
@@ -182,9 +169,6 @@ class RelationView(_Closed):
     type: Literal["prerequisite", "part_of", "application", "example", "contrast"]
     learner_reason: str
     evidence_refs: list[str]
-    context_refs: list[str]
-    inference_basis: Literal["dependency", "composition", "usage", "instantiation", "comparison"]
-    confidence: float
 
 
 class SectionView(_Closed):
@@ -260,8 +244,6 @@ class StudySessionView(_Closed):
     event_watermark: int
 
 
-
-
 class AssessmentOptionView(_Closed):
     option_id: str
     text: str
@@ -281,8 +263,6 @@ class AssessmentView(_Closed):
     options: list[AssessmentOptionView]
 
 
-
-
 class AnswerFeedbackView(_Closed):
     schema_: Literal["answer-feedback/v1"] = Field(alias="schema")
     answer_event_id: UUID
@@ -295,8 +275,6 @@ class AnswerFeedbackView(_Closed):
     source_evidence_ids: list[str]
     event_number: int
     created_at: datetime
-
-
 
 
 class StudyResumeView(_Closed):
@@ -432,8 +410,6 @@ class AssessmentSetView(AssessmentSetSummary):
     cycle: AssessmentCycleView
 
 
-
-
 class GuidanceApply(_Closed):
     schema_: Literal["guidance-apply/v1"] = Field(alias="schema")
     guidance_revision: str = Field(pattern=r"^learner-guidance:sha256:[0-9a-f]{64}$")
@@ -455,17 +431,56 @@ class LearnerProgressView(_Closed):
 
 def project_material_run(run: Any) -> MaterialProcessingRunView:
     from ..storage.analysis_archive import has_analysis_checkpoint
+
     return MaterialProcessingRunView.model_validate({
-        "analysis_saved": run.status == "failed" and has_analysis_checkpoint(run.learner_id, run.material_id, run.run_id),
+        "analysis_saved": (
+            run.status == "failed"
+            and has_analysis_checkpoint(run.learner_id, run.material_id, run.run_id)
+        ),
         "schema": "material-processing-run/v1",
-        "input_source_set_id":getattr(run,"input_source_set_id",None),
-        "base_revision":getattr(run,"base_revision",None),
-        "source_names":list(run.source_names) if getattr(run,"source_names",()) else None,
+        "input_source_set_id": getattr(run, "input_source_set_id", None),
+        "base_revision": getattr(run, "base_revision", None),
+        "source_names": list(run.source_names) if getattr(run, "source_names", ()) else None,
+        "output_binding": (
+            {
+                "schema": run.output_binding["schema"],
+                "knowledge_structure_revision": run.output_binding["knowledge_structure_revision"],
+                "page_count": run.output_binding["page_count"],
+            }
+            if run.output_binding is not None else None
+        ),
         **{name: getattr(run, name) for name in (
             "run_id", "material_id", "source_artifact_id", "status", "progress_stage",
-            "completed_pages", "total_pages", "output_binding", "error_code", "cancel_requested_at",
+            "completed_pages", "total_pages", "error_code", "cancel_requested_at",
             "created_at", "updated_at", "completed_at",
         )},
+    })
+
+
+def project_knowledge_structure(view: dict[str, Any]) -> KnowledgeStructureView:
+    """公開學習地圖與 Evidence；內部歸屬和推論資料留在正式 KS。"""
+    return KnowledgeStructureView.model_validate({
+        **view,
+        "concepts": [
+            {
+                "concept_id": concept["concept_id"],
+                "label": concept["label"],
+                "aliases": concept["aliases"],
+                "claims": concept["claims"],
+            }
+            for concept in view["concepts"]
+        ],
+        "relations": [
+            {
+                "relation_id": relation["relation_id"],
+                "source_concept_id": relation["source_concept_id"],
+                "target_concept_id": relation["target_concept_id"],
+                "type": relation["type"],
+                "learner_reason": relation["learner_reason"],
+                "evidence_refs": relation["evidence_refs"],
+            }
+            for relation in view["relations"]
+        ],
     })
 
 
@@ -485,10 +500,6 @@ def project_study_session(session: Any) -> StudySessionView:
     })
 
 
-def project_assessment(assessment: Any) -> AssessmentView:
-    return AssessmentView.model_validate(assessment.public_document)
-
-
 def project_answer_feedback(feedback: Any) -> AnswerFeedbackView:
     return AnswerFeedbackView.model_validate(feedback.model_dump(by_alias=True))
 
@@ -498,29 +509,35 @@ def project_learner_progress(progress: Any) -> LearnerProgressView:
     document["schema"] = document.pop("schema_")
     return LearnerProgressView.model_validate(document)
 
+
 class MaterialDraftCreate(_Closed):
     schema_: Literal['material-draft-create/v1'] = Field(alias='schema')
     display_name: str
 
 class MaterialDraftView(_Closed):
-    schema_: Literal['material-draft/v1'] = Field(default='material-draft/v1',alias='schema')
+    schema_: Literal['material-draft/v1'] = Field(default='material-draft/v1', alias='schema')
     material_id: UUID
 
 class SourceListView(_Closed):
     discard_requested: bool = False
-    schema_: Literal['material-sources/v1'] = Field(default='material-sources/v1',alias='schema')
+    schema_: Literal['material-sources/v1'] = Field(
+        default='material-sources/v1', alias='schema',
+    )
     material_id: UUID
     sources: list[SourceView]
 
 class RevisionCreate(_Closed):
     schema_: Literal['material-revision-create/v1'] = Field(alias='schema')
-    base_revision: str | None = Field(default=None,pattern=r'^knowledge-structure:sha256:[0-9a-f]{64}$')
+    base_revision: str | None = Field(
+        default=None, pattern=r'^knowledge-structure:sha256:[0-9a-f]{64}$',
+    )
     normalization_ids: list[UUID] = Field(min_length=1)
 
 
 class RevisionCancel(_Closed):
     schema_: Literal['material-revision-cancel/v1'] = Field(alias='schema')
     base_revision: str = Field(pattern=r'^knowledge-structure:sha256:[0-9a-f]{64}$')
+
 
 class MaterialReviewCreate(_Closed):
     schema_: Literal['material-review-create/v1'] = Field(alias='schema')
@@ -532,9 +549,10 @@ class FormatCapability(_Closed):
     max_bytes: int
 
 class SourceCapabilities(_Closed):
-    schema_: Literal['source-capabilities/v1'] = Field(default='source-capabilities/v1',alias='schema')
+    schema_: Literal['source-capabilities/v1'] = Field(
+        default='source-capabilities/v1', alias='schema',
+    )
     formats: list[FormatCapability]
-    quality_notice: str
 
 class PdfOrigin(_Closed):
     original_page: int = Field(ge=1)
@@ -554,11 +572,11 @@ class TextOrigin(_Closed):
 
 class EvidenceSourceView(_Closed):
     schema_: Literal['evidence-source/v1'] = Field(alias='schema')
-    format: Literal['pdf','docx','pptx','doc','ppt','txt','md']
+    format: Literal['pdf', 'docx', 'pptx', 'doc', 'ppt', 'txt', 'md']
     original_name: str
     original_url: str
     preview_url: str
     normalized_page: int
-    accuracy: Literal['exact','ambiguous','unavailable']
+    accuracy: Literal['exact', 'ambiguous', 'unavailable']
     origin_locators: list[PdfOrigin | SlideOrigin | DocumentOrigin | TextOrigin]
     label: str

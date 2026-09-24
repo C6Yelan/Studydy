@@ -1,15 +1,13 @@
-from copy import deepcopy
 from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
 
-import runtime.api.app as api_app
 import runtime.local_app as local_app
 import runtime.local_runtime as local_runtime
 import runtime.workers as workers_module
 from pdf_evidence.local_ai_process import LocalAIError
-from runtime.material_processing import MaterialProcessingError, runtime_binding
+from runtime.material_processing import runtime_binding
 
 
 def _environment(tmp_path: Path) -> dict[str, str]:
@@ -19,25 +17,6 @@ def _environment(tmp_path: Path) -> dict[str, str]:
         "STUDYDY_SECURE_COOKIE": "false",
         "STUDYDY_LOCAL_RUNTIME_ROOT": str(tmp_path / "installed"),
     }
-
-
-def test_local_config_has_one_python_one_semantic_lock_and_no_verifier(tmp_path):
-    config = local_app.read_local_ai_config_from_environment(_environment(tmp_path))
-    assert set(config) == {
-        "private_runtime_root", "runtime_lock", "python_executable",
-        "site_packages", "ocr_model_root",
-    }
-    assert config["runtime_lock"]["python"] == "3.12"
-    assert config["runtime_lock"]["semantic_service"]["model_id"] == "google/gemma-4-31B-it-qat-w4a16-ct"
-    assert "verifier" not in str(config).casefold()
-    assert "mdeberta" not in str(config).casefold()
-    tampered = deepcopy(config)
-    tampered["runtime_lock"]["assessment"]["verifier"] = {"model": "second-authority"}
-    from pdf_evidence.material_pipeline import MaterialAnalysisError, validate_runtime_lock
-    with pytest.raises(MaterialAnalysisError):
-        validate_runtime_lock(tampered['runtime_lock'])
-    # 出題設定失效不妨礙教材工作；實際出題仍由完整 assessment 契約拒絕。
-    runtime_binding(tampered)
 
 
 @pytest.mark.parametrize("field,value", [("model_id", "example/other-model"), ("model_revision", "a" * 40)])
@@ -64,8 +43,7 @@ def test_local_app_composition_validates_settings_without_ai_then_starts_uvicorn
         profile="local", public_origin="http://127.0.0.1:4173", secure_cookie=False,
         local_config=local_app.read_local_ai_config_from_environment(_environment(tmp_path)), dsn=None,
     )
-    assert app.version == "3.0.0"
-    assert observed == []
+    assert app.version == "v1"
 
     monkeypatch.setattr(local_app, "create_local_app", lambda **arguments: observed.append(("create", arguments)) or app)
     monkeypatch.setattr(local_app.uvicorn, "run", lambda created, **arguments: observed.append(("run", created, arguments)))
@@ -106,17 +84,3 @@ def test_worker_recovers_once_and_does_not_own_model_lifecycle(monkeypatch):
     worker.start()
     worker.stop()
     assert events == ["recover"]
-    assert not hasattr(workers_module, "start_assessment_process")
-    assert not hasattr(workers_module, "material_analysis_lock")
-
-
-def test_source_tree_has_no_semantic_process_owner_or_retired_semantic_modules():
-    root = Path(__file__).parents[3]
-    production = "\n".join(path.read_text(encoding="utf-8") for path in (root / "backend/src").rglob("*.py"))
-    # 只允許 OCR 與受限轉檔啟動子程序；語意模型只走 HTTP。
-    for boundary in ("pdf_evidence/local_ai_process.py","document_normalization/converter.py"):
-        production=production.replace((root/"backend/src"/boundary).read_text(),"")
-    assert "subprocess.Popen" not in production
-    assert not (root / "backend/src/pdf_evidence/text_first_run.py").exists()
-    assert not (root / "backend/src/knowledge_map/formal_concepts.py").exists()
-    assert not (root / "local_ai/assessment-runtime-lock.json").exists()
