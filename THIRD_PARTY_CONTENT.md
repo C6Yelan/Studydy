@@ -17,6 +17,8 @@ Repo 尚未附上這些素材完整的作者、來源及逐項授權資料，因
 
 ## 程式與依賴
 
+容器使用的 [seccomp 規則](ops/docker/bubblewrap-seccomp.json) 改自 [Moby profiles](https://github.com/moby/profiles/blob/65adc7e022c97f55e45c054ff012988027733b87/seccomp/default.json)，保留預設規則並增加 bubblewrap 所需的 namespace 操作；原作採 [Apache License 2.0](ops/docker/MOBY-LICENSE)。
+
 Python、npm 套件及外部模型的授權各自由其發行者提供；版本以 repo 的 lock 檔為準，不由本文件重新授權。
 
 本 repo 尚未附上專案 LICENSE。素材權屬與專案授權需由維護者確認，不能由程式測試通過推導。

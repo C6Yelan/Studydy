@@ -1,0 +1,26 @@
+services:
+  backend:
+    image: ${COMPOSE_PROJECT_NAME:-studydy}-backend-ocr
+    build:
+      target: ocr
+    gpus: all
+
+  download-ocr:
+    profiles: [tools]
+    image: ${COMPOSE_PROJECT_NAME:-studydy}-backend-ocr
+    build:
+      context: .
+      dockerfile: ops/docker/backend.Dockerfile
+      target: ocr
+    user: "${STUDYDY_UID:-1000}:${STUDYDY_GID:-1000}"
+    command: ["--lock", "/app/local_ai/runtime-lock.json", "--output", "/models"]
+    entrypoint: ["/opt/studydy/ocr/runtime/bin/python", "-m", "studydy_local_ai.download"]
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - ${STUDYDY_DATA_DIR:-./data}/models/unlimited-ocr:/models
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

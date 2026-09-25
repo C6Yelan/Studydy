@@ -1,0 +1,99 @@
+services:
+  init:
+    image: ${COMPOSE_PROJECT_NAME:-studydy}-backend
+    build:
+      context: .
+      dockerfile: ops/docker/backend.Dockerfile
+      target: backend
+    user: "0:0"
+    command: ["init"]
+    environment:
+      STUDYDY_UID: ${STUDYDY_UID:-1000}
+      STUDYDY_GID: ${STUDYDY_GID:-1000}
+    volumes:
+      - ${STUDYDY_DATA_DIR:-./data}:/data
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+
+  postgres:
+    image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-studydy}
+      POSTGRES_USER: ${POSTGRES_USER:-studydy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - ${STUDYDY_DATA_DIR:-./data}/postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    networks: [database]
+
+  backend:
+    image: ${COMPOSE_PROJECT_NAME:-studydy}-backend
+    build:
+      context: .
+      dockerfile: ops/docker/backend.Dockerfile
+      target: backend
+    user: "${STUDYDY_UID:-1000}:${STUDYDY_GID:-1000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-studydy}
+      POSTGRES_USER: ${POSTGRES_USER:-studydy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      STUDYDY_PUBLIC_ORIGIN: ${STUDYDY_PUBLIC_ORIGIN:-http://127.0.0.1:4173}
+      STUDYDY_SECURE_COOKIE: ${STUDYDY_SECURE_COOKIE:-false}
+      STUDYDY_SEMANTIC_BASE_URL: ${STUDYDY_SEMANTIC_BASE_URL:-http://host.docker.internal:18000}
+      VLLM_API_KEY: ${VLLM_API_KEY:-}
+    volumes:
+      - ${STUDYDY_DATA_DIR:-./data}/artifacts:/data/artifacts
+      - ${STUDYDY_DATA_DIR:-./data}/models/unlimited-ocr:/opt/studydy/models/unlimited-ocr:ro
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=1g,mode=1777
+      - /opt/studydy/runtime:rw,nosuid,nodev,size=16m,mode=0700,uid=${STUDYDY_UID:-1000},gid=${STUDYDY_GID:-1000}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./ops/docker/bubblewrap-seccomp.json
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "/app/backend/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/v1/openapi.json', timeout=3).close()"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks: [database, application]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ops/docker/frontend.Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports: ["127.0.0.1:${STUDYDY_PORT:-4173}:8080"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    networks: [application]
+
+networks:
+  database:
+    internal: true
+  application:
