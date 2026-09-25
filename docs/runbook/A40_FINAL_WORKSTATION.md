@@ -1,5 +1,8 @@
 # A40 final workstation
 
+> 歷史 A40 驗收紀錄，不是現行環境的啟動或模型驗收指令。現行操作見
+> [本機環境](../local-environment.md)與[測試及品質驗收](../testing.md)；當時的專用 scorer 已退役。
+
 1. Check out the candidate feature branch without merging it. Confirm a clean tree and record `HEAD`.
 2. Start the externally owned `google/gemma-4-31B-it-qat-w4a16-ct` vLLM service with the command below; backend target is `http://127.0.0.1:18000`, with the
    runtime-lock versions, 32K context, one sequence, and bearer value supplied only through

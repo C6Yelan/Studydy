@@ -16,15 +16,7 @@ from .database import resolve_database_dsn
 
 
 class Base(DeclarativeBase):
-    """Final pre-release schema；DDL 唯一來源仍是 migration。"""
-
-
-class SchemaMigration(Base):
-    __tablename__ = "schema_migrations"
-
-    version: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
-    sql_sha256: Mapped[str] = mapped_column(Text, nullable=False)
-    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    """ORM 映射；資料表 DDL 以 migration 為準。"""
 
 
 class Learner(Base):
@@ -67,11 +59,10 @@ class Material(Base):
     material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
     learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), ForeignKey("learners.learner_id"), nullable=False)
     source_artifact_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True), unique=True)
-    ingestion_kind: Mapped[str] = mapped_column(Text, nullable=False, server_default="pdf-v1")
     head_revision: Mapped[str | None] = mapped_column(Text)
     upload_idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     upload_request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    display_name: Mapped[str | None] = mapped_column(Text)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
     discard_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -110,14 +101,14 @@ class MaterialProcessingRun(Base):
     source_artifact_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    input_source_set_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    bundle_manifest: Mapped[dict | None] = mapped_column(JSONB)
-    bundle_manifest_sha256: Mapped[str | None] = mapped_column(Text)
+    input_source_set_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    bundle_manifest: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    bundle_manifest_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     base_revision: Mapped[str | None] = mapped_column(Text)
     worker_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     runtime_binding: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    runtime_lock_document: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    runtime_lock_document: Mapped[dict[str, Any]] = mapped_column(JSONB(none_as_null=True), nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     progress_stage: Mapped[str] = mapped_column(Text, nullable=False)
     completed_pages: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -219,7 +210,6 @@ class AssessmentSet(Base):
     target_plan: Mapped[dict] = mapped_column(JSONB, nullable=False)
     requested_count: Mapped[int] = mapped_column(Integer, nullable=False)
     runtime_lock_document: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    execution_identity: Mapped[dict] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     set_version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
@@ -284,22 +274,18 @@ def database_session(dsn: str | None = None) -> Generator[Session, None, None]:
     resolved = resolve_database_dsn(dsn)
     engine = create_engine(
         "postgresql+psycopg://",
-        creator=lambda: psycopg.connect(resolved),
+        creator=lambda: psycopg.connect(resolved, connect_timeout=5),
         poolclass=NullPool,
         hide_parameters=True,
     )
     try:
         with Session(engine, expire_on_commit=False) as session, session.begin():
+            # 只限制產品交易的 SQL／等鎖時間；不終止正在寫檔的 idle transaction。
+            session.execute(text("SET LOCAL lock_timeout = '5s'"))
+            session.execute(text("SET LOCAL statement_timeout = '60s'"))
             yield session
     finally:
         engine.dispose()
-
-
-@contextmanager
-def deferred_artifact_session(dsn: str | None = None) -> Generator[Session, None, None]:
-    with database_session(dsn) as session:
-        session.execute(text("SET CONSTRAINTS materials_source_artifact_fk DEFERRED"))
-        yield session
 
 
 class MaterialSource(Base):

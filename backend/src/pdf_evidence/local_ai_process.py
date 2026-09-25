@@ -16,6 +16,7 @@ _OCR_BOOTSTRAP = (
     "import sys;sys.path.insert(0,sys.argv.pop(1));"
     "from studydy_local_ai.ocr_process import main;raise SystemExit(main())"
 )
+_OCR_CLOSE_TIMEOUT_SECONDS = 30
 
 
 class LocalAIError(RuntimeError):
@@ -143,7 +144,12 @@ class LocalAIProcess:
         try:
             if self._process.stdin is not None and not self._process.stdin.closed:
                 self._process.stdin.close()
-            return_code = self._process.wait()
+            try:
+                return_code = self._process.wait(timeout=_OCR_CLOSE_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                self._process.wait()
+                raise LocalAIError("CHILD_TIMEOUT") from None
             if return_code != 0:
                 raise LocalAIError("CHILD_EXITED")
             assert self._process.stdout is not None

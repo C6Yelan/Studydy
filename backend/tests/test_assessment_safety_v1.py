@@ -1,11 +1,12 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
-from learning_adaptation.assessments import _candidate, _documents, _checked_candidate, AssessmentError
 import pytest
-from types import SimpleNamespace
+
+from learning_adaptation.assessments import AssessmentError, _candidate, _checked_candidate, _documents
 from learning_adaptation.map_context import ClaimContext, ConceptContext, EvidenceContext
 from runtime.storage.tables import StudySession
 
@@ -57,11 +58,6 @@ def test_unsupported_correct_duplicate_options_and_model_reject_are_blocked():
     rejected["safety"] = "reject"
     assert _candidate(rejected, _claim(), set()) is None
 
-    semantic_equivalent = _proposal()
-    semantic_equivalent["distractors"][0] = "the zero byte"
-    semantic_equivalent["safety"] = "reject"
-    assert _candidate(semantic_equivalent, _claim(), set()) is None
-
 
 def test_distractor_can_appear_elsewhere_in_evidence_without_answering_this_question():
     """教材裡有 8 bytes 不代表它能回答 null character 的寫法。"""
@@ -84,13 +80,21 @@ def test_exact_duplicate_is_blocked_but_checked_item_does_not_require_novelty():
     projected = _candidate(uncertain, _claim(), set())
     assert projected is not None
     options = sorted(projected["options"], key=str.casefold)
+
     def solve(_client, **kwargs):
         assert "correct_answer" not in kwargs["request"]["questions"][0]
         assert "novelty" not in kwargs["request"]["questions"][0]
-        return {"schema": "assessment-check-response/v2", "verdicts": [{
-            "question_index": 0, "answer_status": "unique",
-            "selected_option_index": options.index("8 bytes"), "duplicate_prior_index": None, "quality_issues": [],
-        }]}
+        return {
+            "schema": "assessment-check-response/v1",
+            "verdicts": [{
+                "question_index": 0,
+                "answer_status": "unique",
+                "selected_option_index": options.index("8 bytes"),
+                "duplicate_prior_index": None,
+                "quality_issues": [],
+            }],
+        }
+
     projected = _checked_candidate(None, {}, _claim(), [projected], [], solve)
     assert projected is not None
     study = StudySession(
@@ -112,7 +116,7 @@ def test_exact_duplicate_is_blocked_but_checked_item_does_not_require_novelty():
     public, private, provenance, qualified = _documents(
         study, concept, _claim(), projected, runtime_lock=lock
     )
-    assert public["schema"] == "single-choice-assessment/v2"
+    assert public["schema"] == "single-choice-assessment/v1"
     assert "correct_option_id" not in public
     assert private["correct_answer"] == "8 bytes"
     assert provenance["model_id"] == "google/gemma-4-31B-it-qat-w4a16-ct"
@@ -129,10 +133,11 @@ def test_visually_equivalent_unicode_question_is_an_exact_duplicate():
     assert _candidate(ascii_form, _claim(), {first["semantic_identity"]}) is None
 
 
+# none 由下方「數值不能回答型別問題」案例覆蓋；此處保留其他獨立拒絕原因。
 @pytest.mark.parametrize("status,selected,duplicate", [
-    ("none", None, None), ("multiple", None, None), ("unique", 0, None), ("unique", 1, 0),
+    ("multiple", None, None), ("unique", 0, None), ("unique", 1, 0),
 ])
-def test_blind_check_blocks_no_answer_ambiguity_wrong_key_and_paraphrase(status, selected, duplicate):
+def test_blind_check_blocks_ambiguity_wrong_key_and_paraphrase(status, selected, duplicate):
     claim = ClaimContext("claim", "char ch has size 1", (
         EvidenceContext("evidence", 1, "char ch has size 1", {}),
     ))
@@ -143,7 +148,7 @@ def test_blind_check_blocks_no_answer_ambiguity_wrong_key_and_paraphrase(status,
     ]})]
     def solve(_client, **kwargs):
         assert kwargs["request"]["questions"][0]["options"] == ["1", "char", "float", "int"]
-        return {"schema": "assessment-check-response/v2", "verdicts": [{
+        return {"schema": "assessment-check-response/v1", "verdicts": [{
             "question_index": 0, "answer_status": status,
             "selected_option_index": selected, "duplicate_prior_index": duplicate, "quality_issues": [],
         }]}
@@ -156,7 +161,7 @@ def test_false_safe_numeric_answer_to_type_question_is_not_published():
     ))
     candidate = {"prompt": "What is the type of ch?", "correct_answer": "1",
                  "options": ["1", "char[]", "float", "int"]}
-    response = {"schema": "assessment-check-response/v2", "verdicts": [{
+    response = {"schema": "assessment-check-response/v1", "verdicts": [{
         "question_index": 0, "answer_status": "none", "selected_option_index": None,
         "duplicate_prior_index": None, "quality_issues": [],
     }]}
@@ -167,7 +172,7 @@ def test_malformed_blind_check_cannot_be_treated_as_valid():
     candidate = _candidate(_proposal(), _claim(), set())
     with pytest.raises(AssessmentError, match="ASSESSMENT_CHECK_INVALID"):
         _checked_candidate(None, {}, _claim(), [candidate], [], lambda *_a, **_k: {
-            "schema": "assessment-check-response/v2", "verdicts": [{
+            "schema": "assessment-check-response/v1", "verdicts": [{
                 "question_index": 0, "answer_status": "unique", "selected_option_index": True,
                 "duplicate_prior_index": None, "quality_issues": [],
             }],
@@ -176,7 +181,10 @@ def test_malformed_blind_check_cannot_be_treated_as_valid():
 
 def _ranked_candidates(issues, *, rejected=()):
     candidates = [
-        _candidate({**_proposal(), "prompt": f"候選 {index}：null character 的寫法是什麼？"}, _claim(), set())
+        _candidate(
+            {**_proposal(), "prompt": f"候選 {index}：null character 的寫法是什麼？"},
+            _claim(), set(),
+        )
         for index in range(len(issues))
     ]
     calls = []
@@ -185,13 +193,19 @@ def _ranked_candidates(issues, *, rejected=()):
         calls.append(kwargs)
         request = kwargs["request"]
         assert all(set(question) == {"question_index", "prompt", "options"} for question in request["questions"])
-        return {"schema": "assessment-check-response/v2", "verdicts": [
-            {"question_index": index,
-             "answer_status": "multiple" if index in rejected else "unique",
-             "selected_option_index": None if index in rejected else question["options"].index("'\\0'"),
-             "duplicate_prior_index": None, "quality_issues": issues[index]}
+        verdicts = [
+            {
+                "question_index": index,
+                "answer_status": "multiple" if index in rejected else "unique",
+                "selected_option_index": (
+                    None if index in rejected else question["options"].index("'\\0'")
+                ),
+                "duplicate_prior_index": None,
+                "quality_issues": issues[index],
+            }
             for index, question in enumerate(request["questions"])
-        ]}
+        ]
+        return {"schema": "assessment-check-response/v1", "verdicts": verdicts}
 
     selected = _checked_candidate(None, {}, _claim(), candidates, [], solve)
     assert len(calls) == 1
@@ -238,7 +252,7 @@ def test_same_answer_to_a_different_attribute_is_not_automatically_duplicate():
             {"text": text} for text in candidate["options"]]},
     )]
     def solve(_client, **kwargs):
-        return {"schema": "assessment-check-response/v2", "verdicts": [{
+        return {"schema": "assessment-check-response/v1", "verdicts": [{
             "question_index": 0, "answer_status": "unique",
             "selected_option_index": kwargs["request"]["questions"][0]["options"].index("'\\0'"),
             "duplicate_prior_index": None, "quality_issues": [],

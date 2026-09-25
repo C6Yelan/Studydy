@@ -36,7 +36,7 @@ for (const width of [1536, 390]) test(`real initial mixed sources build one map 
   const after: MaterialLibraryItem = await (await page.request.get(`/v1/materials/${materialId}`)).json();
   expect(after.source_count).toBe(3); expect(after.available_structures).toHaveLength(1);
   expect(after.head_revision).toBe(after.available_structures[0].knowledge_structure_revision);
-  const listing: SourceListView = await (await page.request.get(`/v2/materials/${materialId}/sources`)).json();
+  const listing: SourceListView = await (await page.request.get(`/v1/materials/${materialId}/sources`)).json();
   expect(listing.sources.every(source => source.included && source.status === "ready")).toBe(true);
   await page.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
   const map: KnowledgeStructureView = await (await page.request.get(`/v1/materials/${materialId}/knowledge-structures/${encodeURIComponent(after.head_revision!)}`)).json();

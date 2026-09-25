@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+import logging
 from threading import Event, Thread
 from time import monotonic
 
@@ -18,6 +19,7 @@ from learning_adaptation.assessment_sets import run_next_set
 
 _IDLE_WAIT_SECONDS = 0.1
 _STARTUP_WAIT_SECONDS = 5
+_SHUTDOWN_WAIT_SECONDS = 10
 
 
 @dataclass
@@ -32,7 +34,8 @@ class RuntimeWorkers:
     def start(self) -> None:
         if self._thread is not None:
             raise RuntimeError("RUNTIME_WORKERS_ALREADY_STARTED")
-        self._thread = Thread(target=self._loop, name="studydy-material-worker", daemon=False)
+        # 中斷時由既有 lease／checkpoint 恢復；不能讓卡住的 I/O 阻止程序退出。
+        self._thread = Thread(target=self._loop, name="studydy-material-worker", daemon=True)
         try:
             self._thread.start()
         except Exception:
@@ -40,8 +43,7 @@ class RuntimeWorkers:
             raise RuntimeError("RUNTIME_WORKERS_START_FAILED") from None
         if not self._started.wait(_STARTUP_WAIT_SECONDS):
             self._stop.set()
-            self._thread.join()
-            self._thread = None
+            # 保留執行緒 reference，禁止在舊 worker 尚未退出時重複 start。
             raise RuntimeError("RUNTIME_WORKERS_START_FAILED")
         if self._startup_error is not None:
             startup_error = self._startup_error
@@ -52,7 +54,9 @@ class RuntimeWorkers:
     def stop(self) -> None:
         self._stop.set()
         if self._thread is not None:
-            self._thread.join()
+            self._thread.join(timeout=_SHUTDOWN_WAIT_SECONDS)
+            if self._thread.is_alive():
+                raise RuntimeError("RUNTIME_WORKERS_STOP_FAILED")
 
     def _loop(self) -> None:
         is_starting = True
@@ -60,24 +64,36 @@ class RuntimeWorkers:
         while not self._stop.is_set():
             try:
                 if is_starting:
-                    reconcile_new_artifacts(dsn=self.dsn)
-                    reconcile_removed_material_analysis(dsn=self.dsn)
-                    reconcile_published_checkpoints(dsn=self.dsn)
-                    recover_interrupted_material_runs(dsn=self.dsn)
+                    for recover in (
+                        reconcile_new_artifacts, reconcile_removed_material_analysis,
+                        reconcile_published_checkpoints, recover_interrupted_material_runs,
+                        finish_material_discards,
+                    ):
+                        if self._stop.is_set():
+                            return
+                        recover(dsn=self.dsn)
+                    if self._stop.is_set():
+                        return
                     next_recovery = monotonic() + 10
-                    finish_material_discards(dsn=self.dsn)
                     self._started.set()
                     is_starting = False
                 if monotonic() >= next_recovery:
+                    reconcile_new_artifacts(dsn=self.dsn)
                     recover_interrupted_material_runs(dsn=self.dsn)
                     reconcile_published_checkpoints(dsn=self.dsn)
                     next_recovery = monotonic() + 10
+                if self._stop.is_set():
+                    return
                 normalize_next(dsn=self.dsn)
+                if self._stop.is_set():
+                    return
                 claim = claim_next_material_processing_run(dsn=self.dsn)
                 if claim is not None:
                     execute_claimed_material_processing_run(
                         claim, deepcopy(self.local_config), dsn=self.dsn
                     )
+                if self._stop.is_set():
+                    return
                 run_next_set(dsn=self.dsn)
                 finish_material_discards(dsn=self.dsn)
             except Exception as error:
@@ -85,6 +101,7 @@ class RuntimeWorkers:
                     self._startup_error = error
                     self._started.set()
                     return
+                logging.getLogger(__name__).warning("RUNTIME_WORKER_ITERATION_FAILED")
             self._stop.wait(_IDLE_WAIT_SECONDS)
 
 

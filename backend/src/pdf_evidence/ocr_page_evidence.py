@@ -10,9 +10,9 @@ import unicodedata
 import pymupdf
 
 
-PAGE_SCHEMA = "page-evidence/v4"
-NATIVE_SCHEMA = "page-native/v3"
-PROCESSING_POLICY = "native-first-page-evidence/v7"
+PAGE_SCHEMA = "page-evidence/v1"
+NATIVE_SCHEMA = "page-native/v1"
+PROCESSING_POLICY = "native-first-page-evidence/v1"
 NORMALIZER_POLICY = "ocr-text-nfc-line-preserving/v1"
 RENDER_DPI = 200
 PDF_POINTS_PER_INCH = 72
@@ -246,7 +246,8 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
 
     native = page.get("native_evidence", {}).get("raw_text", {})
     blocks: list[dict[str, Any]] = []
-    for source_index, source_block in enumerate(native.get("blocks", []) if isinstance(native, dict) else []):
+    source_blocks = native.get("blocks", []) if isinstance(native, dict) else []
+    for source_index, source_block in enumerate(source_blocks):
         if not isinstance(source_block, dict) or source_block.get("type") != 0:
             continue
         for line in source_block.get("lines", []):
@@ -362,12 +363,24 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
             )
             if continuous:
                 previous["text"] += "\n" + block["text"]
-                previous["bbox"] = [min(previous["bbox"][0], box[0]), min(previous["bbox"][1], box[1]), max(previous["bbox"][2], box[2]), max(previous["bbox"][3], box[3])]
+                previous["bbox"] = [
+                    min(previous["bbox"][0], box[0]),
+                    min(previous["bbox"][1], box[1]),
+                    max(previous["bbox"][2], box[2]),
+                    max(previous["bbox"][3], box[3]),
+                ]
                 previous["last_bbox"] = box
                 previous["source_index"] = block["source_index"]
                 continue
-        grouped.append({**block, "last_bbox": box, "definition_indent": box[0] if definition_start else None})
-    return [{key: block[key] for key in ("type", "text", "bbox")} for block in grouped]
+        grouped.append({
+            **block,
+            "last_bbox": box,
+            "definition_indent": box[0] if definition_start else None,
+        })
+    return [
+        {key: block[key] for key in ("type", "text", "bbox")}
+        for block in grouped
+    ]
 
 
 def _native_text_readable(page: dict[str, Any]) -> bool:
@@ -388,6 +401,7 @@ def _native_text_readable(page: dict[str, Any]) -> bool:
         return False
     return True
 
+
 def _uncovered_image_regions(page: dict[str, Any]) -> list[list[float]]:
     """找出占實質版面、卻幾乎沒有原生文字覆蓋的圖片；小裝飾不觸發 OCR。"""
     boundary = pymupdf.Rect(page["geometry"]["unrotated_points"])
@@ -395,7 +409,14 @@ def _uncovered_image_regions(page: dict[str, Any]) -> list[list[float]]:
     regions = []
     for image in page["images"]:
         bbox = image.get("bbox") if isinstance(image, dict) else None
-        if not isinstance(bbox, list) or len(bbox) != 4 or any(type(v) not in {int, float} or not math.isfinite(v) for v in bbox):
+        if (
+            not isinstance(bbox, list)
+            or len(bbox) != 4
+            or any(
+                type(value) not in {int, float} or not math.isfinite(value)
+                for value in bbox
+            )
+        ):
             continue
         region = pymupdf.Rect(bbox) & boundary
         area = region.get_area()
@@ -409,8 +430,11 @@ def _uncovered_image_regions(page: dict[str, Any]) -> list[list[float]]:
 
 def route_page(page: dict[str, Any]) -> str:
     """可讀文字與缺漏圖片分開判斷，標題不能替程式碼截圖通過分流。"""
-    return "native_sufficient" if _native_text_readable(page) and not _uncovered_image_regions(page) else "OCR_needed"
-
+    return (
+        "native_sufficient"
+        if _native_text_readable(page) and not _uncovered_image_regions(page)
+        else "OCR_needed"
+    )
 
 
 def _native_region(
@@ -460,13 +484,20 @@ def build_page_evidence(
         selected = []
         native_texts = {" ".join(block["text"].split()) for block in native_blocks}
         for block in ocr_blocks:
-            if not isinstance(block, dict) or set(block) != {"type", "text", "bbox"} or not isinstance(block["text"], str):
+            if (
+                not isinstance(block, dict)
+                or set(block) != {"type", "text", "bbox"}
+                or not isinstance(block["text"], str)
+            ):
                 raise ValueError("OCR_OUTPUT_INVALID")
             if not isinstance(block["type"], str) or _OCR_TYPE.fullmatch(block["type"]) is None:
                 raise ValueError("OCR_OUTPUT_INVALID")
             _, bbox = _locator(block["bbox"], page)
             box = pymupdf.Rect(bbox)
-            if any((box & pymupdf.Rect(region)).get_area() >= box.get_area() * 0.5 for region in regions):
+            if any(
+                (box & pymupdf.Rect(region)).get_area() >= box.get_area() * 0.5
+                for region in regions
+            ):
                 if " ".join(block["text"].split()) not in native_texts:
                     selected.append(block)
         ocr_blocks = selected
@@ -624,7 +655,11 @@ def _build_page_evidence(
         )
         image_artifacts.append(
             {
-                "image_id": _ref("image", {"page_ref": page["page_ref"], "ordinal": ordinal, "region": region}),
+                "image_id": _ref("image", {
+                    "page_ref": page["page_ref"],
+                    "ordinal": ordinal,
+                    "region": region,
+                }),
                 "image_hash": image.get("digest"),
                 "region": region,
                 "caption_evidence_ids": sorted(set(captions)),
@@ -632,7 +667,9 @@ def _build_page_evidence(
             }
         )
     reasons = ["PAGE_CONTENT_REVIEW_REQUIRED"]
-    if native_blocks is not None and not any(block["source"] == "unlimited_ocr" for block in evidence_blocks):
+    if native_blocks is not None and not any(
+        block["source"] == "unlimited_ocr" for block in evidence_blocks
+    ):
         reasons.append("IMAGE_TEXT_NOT_RECOVERED")
     if has_rejected_block or has_rejected_image:
         reasons.append("OCR_OUTPUT_INVALID")
@@ -653,7 +690,11 @@ def _build_page_evidence(
         "processing_policy": PROCESSING_POLICY,
         "normalizer_policy": NORMALIZER_POLICY,
         "produced_at": produced_at,
-        "processing": "partial" if has_rejected_block or has_rejected_image or "IMAGE_TEXT_NOT_RECOVERED" in reasons else "succeeded",
+        "processing": (
+            "partial"
+            if has_rejected_block or has_rejected_image or "IMAGE_TEXT_NOT_RECOVERED" in reasons
+            else "succeeded"
+        ),
         "quality": "needs_review",
         "decision": "review",
         "reason_codes": reasons,

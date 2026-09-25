@@ -40,7 +40,7 @@ def image_docx(path,count,edge=1024):
         z.writestr('_rels/.rels',f'<Relationships xmlns="{PKG}"><Relationship Id="rId1" Type="{R}/officeDocument" Target="word/document.xml"/></Relationships>')
 
 def image_pptx(path,count,edge=1024):
-    with zipfile.ZipFile(ROOT/'backend/tests/fixtures/normalization/sample.pptx') as original,zipfile.ZipFile(path,'w',zipfile.ZIP_STORED) as z:
+    with zipfile.ZipFile(ROOT/'backend/tests/fixtures/sample.pptx') as original,zipfile.ZipFile(path,'w',zipfile.ZIP_STORED) as z:
         presentation=E.fromstring(original.read('ppt/presentation.xml'));slides=presentation.find(f'{{{P}}}sldIdLst');slides.clear()
         rels=E.fromstring(original.read('ppt/_rels/presentation.xml.rels'))
         for rel in list(rels):
@@ -68,7 +68,7 @@ def image_pptx(path,count,edge=1024):
         z.writestr('ppt/presentation.xml',E.tostring(presentation));z.writestr('ppt/_rels/presentation.xml.rels',E.tostring(rels));z.writestr('[Content_Types].xml',E.tostring(content_types))
 
 def dense_docx(path,paragraphs):
-    with zipfile.ZipFile(ROOT/'backend/tests/fixtures/normalization/sample.docx') as original,zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED) as z:
+    with zipfile.ZipFile(ROOT/'backend/tests/fixtures/sample.docx') as original,zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED) as z:
         for name in original.namelist():
             data=original.read(name)
             if name=='word/document.xml':
@@ -103,7 +103,7 @@ def limits():
     for kind,value in [(resource.RLIMIT_CPU,45),(resource.RLIMIT_AS,2*1024**3),(resource.RLIMIT_FSIZE,100*MIB),(resource.RLIMIT_NOFILE,128),(resource.RLIMIT_NPROC,1024)]:resource.setrlimit(kind,(value,value))
 
 def run_case(source,renderer,out,policy,expected_pages=None,lines=None):
-    out.mkdir();python=ROOT/'.studydy-runtime/normalizer-venv/bin/python';base=python.resolve().parent.parent;site=python.parent.parent/'lib/python3.12/site-packages'
+    out.mkdir();python=ROOT/'backend/.venv/bin/python';base=python.resolve().parent.parent;site=python.parent.parent/'lib/python3.12/site-packages'
     command=['bwrap','--unshare-all','--die-with-parent','--new-session','--cap-drop','ALL','--ro-bind','/usr','/usr','--symlink','usr/bin','/bin','--symlink','usr/lib','/lib','--symlink','usr/lib64','/lib64',
         '--ro-bind','/etc/fonts','/etc/fonts','--ro-bind','/etc/libreoffice','/etc/libreoffice','--ro-bind','/etc/ld.so.cache','/etc/ld.so.cache','--proc','/proc','--dev','/dev','--tmpfs','/tmp',
         '--ro-bind',str(base),'/runtime','--ro-bind',str(site),'/runtime/lib/python3.12/site-packages','--ro-bind',str(renderer),'/renderer.py','--ro-bind',str(source.parent),'/input','--bind',str(out),'/output','--clearenv',

@@ -26,10 +26,10 @@ type Json = Record<string, unknown>;
 const knownReasons = new Set<KnownApiReasonCode>([
   "INVALID_EMAIL",
   "INVALID_CREDENTIALS", "ACCOUNT_UNAVAILABLE", "REQUEST_INVALID", "SESSION_REQUIRED", "ORIGIN_NOT_ALLOWED", "RESOURCE_NOT_FOUND",
-  "LEARNER_GUIDANCE_STALE", "IDEMPOTENCY_CONFLICT", "ASSESSMENT_SET_CONFLICT", "ASSESSMENT_SET_ACTIVE", "NO_SAFE_ASSESSMENT", "MATERIAL_TOO_LARGE",
+  "LEARNER_GUIDANCE_STALE", "IDEMPOTENCY_CONFLICT", "ASSESSMENT_SET_CONFLICT", "ASSESSMENT_SET_ACTIVE", "MATERIAL_TOO_LARGE",
   "MATERIAL_NOT_DISCARDABLE",
   "SOURCE_NOT_READY", "NORMALIZER_UNAVAILABLE", "DUPLICATE_SOURCE", "REVISION_CONFLICT", "REVISION_IN_PROGRESS", "SOURCE_IN_USE", "SOURCE_BUSY",
-  "MATERIAL_PDF_INVALID", "UNSUPPORTED_MEDIA_TYPE", "STORAGE_UNAVAILABLE", "INTERNAL_ERROR",
+  "UNSUPPORTED_MEDIA_TYPE", "STORAGE_UNAVAILABLE", "INTERNAL_ERROR",
 ]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const sha = /^[0-9a-f]{64}$/;
@@ -85,7 +85,7 @@ function materialDiscard(value: unknown): value is MaterialDiscardView {
 
 function materialRun(value: unknown): value is MaterialProcessingRunView {
   const item = object(value);
-  if (!item || item.schema !== "material-processing-run/v6" || !materialAttempt(item)) return false;
+  if (!item || item.schema !== "material-processing-run/v1" || !materialAttempt(item)) return false;
   if (item.base_revision !== undefined && !revision(item.base_revision, "knowledge-structure")) return false;
   if (item.analysis_saved !== undefined && typeof item.analysis_saved !== "boolean") return false;
   if (item.source_names !== undefined && !strings(item.source_names)) return false;
@@ -93,14 +93,10 @@ function materialRun(value: unknown): value is MaterialProcessingRunView {
   if (!timestamp(item.updated_at) || !(item.completed_at === null || timestamp(item.completed_at))) return false;
   if (item.status === "succeeded" || item.status === "partial") {
     const binding = object(item.output_binding);
-    return !!binding && binding.schema === "material-run-output-binding/v4"
+    return !!binding && binding.schema === "material-run-output-binding/v1"
       && revision(binding.knowledge_structure_revision, "knowledge-structure")
-      && typeof binding.runtime_lock_sha256 === "string" && sha.test(binding.runtime_lock_sha256)
       && Number.isInteger(binding.page_count) && binding.page_count === item.total_pages
-      && binding.processing === item.status && ["accepted", "needs_review"].includes(String(binding.quality))
-      && ["retain", "review"].includes(String(binding.decision)) && strings(binding.reason_codes)
-      && Number.isInteger(binding.ocr_calls) && Number(binding.ocr_calls) >= 0 && Number(binding.ocr_calls) <= Number(binding.page_count)
-      && Number.isInteger(binding.semantic_calls) && Number(binding.semantic_calls) >= 1 && item.completed_at !== null;
+      && item.completed_at !== null;
   }
   return item.output_binding === null && (["pending", "running"].includes(String(item.status)) ? item.completed_at === null : item.completed_at !== null);
 }
@@ -120,7 +116,7 @@ function sourceList(value: unknown): value is SourceListView {
     && (item.discard_requested===undefined || typeof item.discard_requested==="boolean") && Array.isArray(item.sources) && item.sources.every(sourceView);
 }
 function capabilities(value: unknown): value is SourceCapabilities {
-  const item=object(value); return !!item && item.schema==="source-capabilities/v1" && typeof item.quality_notice==="string"
+  const item=object(value); return !!item && item.schema==="source-capabilities/v1"
     && Array.isArray(item.formats) && item.formats.every(v=>{ const f=object(v); return !!f && typeof f.extension==="string"
       && [".pdf",".docx",".pptx",".doc",".ppt",".txt",".md"].includes(f.extension) && typeof f.media_type==="string" && Number.isInteger(f.max_bytes) && Number(f.max_bytes)>0; });
 }
@@ -128,18 +124,19 @@ function evidenceSource(value:unknown): value is EvidenceSourceView {
   const item=object(value);return !!item && item.schema==="evidence-source/v1" && ["pdf","docx","pptx","doc","ppt","txt","md"].includes(String(item.format))
     && typeof item.original_name==="string" && typeof item.label==="string" && ["exact","ambiguous","unavailable"].includes(String(item.accuracy))
     && Number.isInteger(item.normalized_page) && Number(item.normalized_page)>0 && Array.isArray(item.origin_locators)
-    && [item.original_url,item.preview_url].every(v=>typeof v==="string" && /^\/v[12]\/artifacts\/[0-9a-f-]+(?:#page=\d+)?$/.test(v));
+    && typeof item.original_url === "string" && /^\/v1\/artifacts\/[0-9a-f-]+\/download$/.test(item.original_url)
+    && typeof item.preview_url === "string" && /^\/v1\/artifacts\/[0-9a-f-]+#page=[1-9]\d*$/.test(item.preview_url);
 }
 
 function libraryItem(value: unknown): value is MaterialLibraryItem {
   const item = object(value);
   if (item && ((item.head_revision !== undefined && item.head_revision !== null && !revision(item.head_revision,"knowledge-structure")) || (item.source_count !== undefined && (!Number.isInteger(item.source_count) || Number(item.source_count)<0)))) return false;
-  if (!item || item.schema !== "material-library-item/v3"
+  if (!item || item.schema !== "material-library-item/v1"
     || typeof item.material_id !== "string" || !uuid.test(item.material_id)
-    || !(typeof item.source_artifact_id === "string" && uuid.test(item.source_artifact_id) || item.schema === "material-library-item/v3" && item.source_artifact_id === null)
+    || !(typeof item.source_artifact_id === "string" && uuid.test(item.source_artifact_id) || item.source_artifact_id === null)
     || (item.source !== undefined && !sourceView(item.source))
     || typeof item.display_name !== "string" || !item.display_name.trim()
-    || !Number.isInteger(item.size_bytes) || Number(item.size_bytes) < (item.schema === "material-library-item/v3" ? 0 : 1)
+    || !Number.isInteger(item.size_bytes) || Number(item.size_bytes) < 0
     || typeof item.created_at !== "string" || !Number.isFinite(Date.parse(item.created_at))
     || !Array.isArray(item.available_structures) || !Array.isArray(item.study_sessions)) return false;
   if (!item.study_sessions.every((value) => {
@@ -164,7 +161,7 @@ function libraryItem(value: unknown): value is MaterialLibraryItem {
 
 function library(value: unknown): value is MaterialLibraryView {
   const item = object(value);
-  return !!item && item.schema === "material-library/v2" && Array.isArray(item.materials) && item.materials.every(libraryItem);
+  return !!item && item.schema === "material-library/v1" && Array.isArray(item.materials) && item.materials.every(libraryItem);
 }
 
 function locator(value: unknown): boolean {
@@ -175,8 +172,8 @@ function locator(value: unknown): boolean {
 
 function knowledgeStructure(value: unknown): value is KnowledgeStructureView {
   const item = object(value);
-  if (!item || item.schema !== "knowledge-structure-view/v3" || !revision(item.knowledge_structure_revision, "knowledge-structure")) return false;
-  if (item.schema === "knowledge-structure-view/v3" && (typeof item.source_resolver !== "string" || !item.source_resolver.startsWith("/v2/materials/"))) return false;
+  if (!item || item.schema !== "knowledge-structure-view/v1" || !revision(item.knowledge_structure_revision, "knowledge-structure")) return false;
+  if (typeof item.source_resolver !== "string" || !item.source_resolver.startsWith("/v1/materials/")) return false;
   if (!Array.isArray(item.concepts) || !Array.isArray(item.relations) || !Array.isArray(item.initial_learning_path)) return false;
   const concepts = item.concepts as unknown[];
   const conceptIds: string[] = [];
@@ -215,7 +212,7 @@ function knowledgeStructure(value: unknown): value is KnowledgeStructureView {
 
 function studySession(value: unknown): value is StudySessionView {
   const item = object(value);
-  return !!item && item.schema === "study-session/v2" && typeof item.study_session_id === "string" && uuid.test(item.study_session_id)
+  return !!item && item.schema === "study-session/v1" && typeof item.study_session_id === "string" && uuid.test(item.study_session_id)
     && typeof item.material_id === "string" && uuid.test(item.material_id)
     && revision(item.knowledge_structure_revision, "knowledge-structure")
     && (item.current_concept_id === null || revision(item.current_concept_id, "concept"))
@@ -225,7 +222,7 @@ function studySession(value: unknown): value is StudySessionView {
 
 function assessment(value: unknown): value is AssessmentView {
   const item = object(value);
-  if (!item || item.schema !== "single-choice-assessment/v2" || !revision(item.assessment_revision, "assessment")
+  if (!item || item.schema !== "single-choice-assessment/v1" || !revision(item.assessment_revision, "assessment")
     || typeof item.study_session_id !== "string" || !uuid.test(item.study_session_id)
     || !revision(item.knowledge_structure_revision, "knowledge-structure") || !revision(item.question_id, "question")
     || !revision(item.target_concept_id, "concept") || !revision(item.target_claim_id, "claim")
@@ -240,7 +237,7 @@ function assessment(value: unknown): value is AssessmentView {
 
 function feedback(value: unknown): value is AnswerFeedbackView {
   const item = object(value);
-  return !!item && item.schema === "answer-feedback/v2" && typeof item.answer_event_id === "string" && uuid.test(item.answer_event_id)
+  return !!item && item.schema === "answer-feedback/v1" && typeof item.answer_event_id === "string" && uuid.test(item.answer_event_id)
     && typeof item.study_session_id === "string" && uuid.test(item.study_session_id)
     && revision(item.assessment_revision, "assessment") && revision(item.question_id, "question")
     && revision(item.selected_option_id, "option") && typeof item.is_correct === "boolean"
@@ -249,7 +246,7 @@ function feedback(value: unknown): value is AnswerFeedbackView {
 
 function progress(value: unknown): value is LearnerProgressView {
   const item = object(value);
-  if (!item || item.schema !== "learner-progress/v4" || typeof item.study_session_id !== "string" || !uuid.test(item.study_session_id)
+  if (!item || item.schema !== "learner-progress/v1" || typeof item.study_session_id !== "string" || !uuid.test(item.study_session_id)
     || !revision(item.knowledge_structure_revision, "knowledge-structure") || !Number.isInteger(item.event_watermark)
     || !(item.current_concept_id === null || revision(item.current_concept_id, "concept"))
     || !Array.isArray(item.assessment_cycles) || !item.assessment_cycles.every(cycleSummary)
@@ -301,7 +298,7 @@ function assessmentSetSummary(value: unknown): value is AssessmentSetSummary {
 
 function assessmentSetList(value: unknown): value is AssessmentSetListView {
   const item = object(value);
-  if (!item || item.schema !== "assessment-set-list/v3" || typeof item.study_session_id !== "string" || !uuid.test(item.study_session_id)
+  if (!item || item.schema !== "assessment-set-list/v1" || typeof item.study_session_id !== "string" || !uuid.test(item.study_session_id)
     || !revision(item.knowledge_structure_revision, "knowledge-structure") || !Array.isArray(item.sets) || !item.sets.every(assessmentSetSummary)) return false;
   const active = item.sets.filter(group => ["preparing", "partial_ready", "ready", "in_progress"].includes(group.status));
   return new Set(item.sets.map(group => group.set_id)).size === item.sets.length
@@ -315,7 +312,7 @@ function assessmentSet(value: unknown): value is AssessmentSetView {
   if (!assessmentSetSummary(value)) return false;
   const summary = value;
   const item = object(value);
-  if (!item || item.schema !== "assessment-set/v3"
+  if (!item || item.schema !== "assessment-set/v1"
     || typeof item.study_session_id !== "string" || !uuid.test(item.study_session_id)
     || typeof item.material_id !== "string" || !uuid.test(item.material_id)
     || !revision(item.knowledge_structure_revision, "knowledge-structure")
@@ -325,7 +322,7 @@ function assessmentSet(value: unknown): value is AssessmentSetView {
     || !Array.isArray(item.items) || item.items.length !== item.requested_count
     || Number(item.verified_count) > Number(item.requested_count)
     || Number(item.point_count) < Number(item.requested_count) + Number(item.excluded_count)
-    || ["runtime_lock_document", "execution_identity", "target_plan", "action_receipts"].some(key => Object.hasOwn(item, key))) return false;
+    || ["runtime_lock_document", "target_plan", "action_receipts"].some(key => Object.hasOwn(item, key))) return false;
   const cycle = object(item.cycle);
   if (!cycleSummary(item.cycle) || !cycle || cycle.concept_id !== item.target_concept_id
     || cycle.diagnostic_set_id !== (item.kind === "diagnostic" ? item.set_id : item.diagnostic_set_id)
@@ -376,7 +373,7 @@ function assessmentSet(value: unknown): value is AssessmentSetView {
 
 function studyResume(value: unknown): value is StudyResumeView {
   const item = object(value);
-  if (!item || item.schema !== "study-resume/v5" || !studySession(item.session)
+  if (!item || item.schema !== "study-resume/v1" || !studySession(item.session)
     || !knowledgeStructure(item.knowledge_structure) || !progress(item.progress)
     || typeof item.run_id !== "string" || !uuid.test(item.run_id)
     || typeof item.source_artifact_id !== "string" || !uuid.test(item.source_artifact_id)
@@ -413,9 +410,7 @@ function safeMessage(reason: ApiReasonCode): string {
   if (reason === "ASSESSMENT_SET_ACTIVE") return "已有尚未完成的題組，可從題組紀錄接續。";
   if (reason === "ASSESSMENT_SET_CONFLICT") return "題組狀態已更新，請重新讀取後繼續。";
   if (reason === "LEARNER_GUIDANCE_STALE") return "學習進度已更新，請重新確認下一步。";
-  if (reason === "NO_SAFE_ASSESSMENT") return "目前沒有可安全提供的新題目。";
   if (reason === "MATERIAL_TOO_LARGE") return "每個檔案不可超過 100 MiB。";
-  if (reason === "MATERIAL_PDF_INVALID") return "這份 PDF 已損毀、加密或無法開啟。";
   if (reason === "UNSUPPORTED_MEDIA_TYPE") return "此檔案格式目前不支援，請優先使用 PDF。";
   if (reason === "STORAGE_UNAVAILABLE") return "資料服務暫時無法使用，請稍後再試。";
   if (reason === "MATERIAL_NOT_DISCARDABLE") return "這份教材正在刪除，無法進行這項操作。";
@@ -570,29 +565,29 @@ export class StudydyApiClient {
   }
 
 
-  sourceCapabilities(): Promise<SourceCapabilities> { return this.json("/v2/source-capabilities",{method:"GET"},capabilities); }
+  sourceCapabilities(): Promise<SourceCapabilities> { return this.json("/v1/source-capabilities",{method:"GET"},capabilities); }
   createDraft(name:string,key:string): Promise<{schema:"material-draft/v1";material_id:string}> {
-    return this.post("/v2/materials",{schema:"material-draft-create/v1",display_name:name},key,
+    return this.post("/v1/materials",{schema:"material-draft-create/v1",display_name:name},key,
       (value): value is {schema:"material-draft/v1";material_id:string} => {const item=object(value);return !!item && item.schema==="material-draft/v1" && typeof item.material_id==="string" && uuid.test(item.material_id);});
   }
   uploadSource(materialId:string,file:File,mediaType:string,key:string): Promise<SourceListView> {
-    return this.json(`/v2/materials/${encodeURIComponent(materialId)}/sources`,{method:"POST",body:file,
+    return this.json(`/v1/materials/${encodeURIComponent(materialId)}/sources`,{method:"POST",body:file,
       headers:{"Content-Type":mediaType,Origin:origin(),"Idempotency-Key":key,"X-Material-Name":encodeURIComponent(file.name)}},sourceList);
   }
-  getSources(materialId:string): Promise<SourceListView> {return this.json(`/v2/materials/${encodeURIComponent(materialId)}/sources`,{method:"GET"},sourceList);}
-  removeStagedSource(materialId:string,sourceId:string): Promise<SourceListView> {return this.json(`/v2/materials/${encodeURIComponent(materialId)}/sources/${encodeURIComponent(sourceId)}`,{method:"DELETE",headers:{Origin:origin()}},sourceList);}
-  retryNormalization(materialId:string,id:string): Promise<SourceListView> {return this.json(`/v2/materials/${encodeURIComponent(materialId)}/sources/${encodeURIComponent(id)}/retry`,{method:"POST",headers:{Origin:origin()}},sourceList);}
+  getSources(materialId:string): Promise<SourceListView> {return this.json(`/v1/materials/${encodeURIComponent(materialId)}/sources`,{method:"GET"},sourceList);}
+  removeStagedSource(materialId:string,sourceId:string): Promise<SourceListView> {return this.json(`/v1/materials/${encodeURIComponent(materialId)}/sources/${encodeURIComponent(sourceId)}`,{method:"DELETE",headers:{Origin:origin()}},sourceList);}
+  retryNormalization(materialId:string,id:string): Promise<SourceListView> {return this.json(`/v1/materials/${encodeURIComponent(materialId)}/sources/${encodeURIComponent(id)}/retry`,{method:"POST",headers:{Origin:origin()}},sourceList);}
   createRevision(materialId:string,normalizationIds:string[],key:string,baseRevision:string|null=null): Promise<MaterialProcessingRunView> {
-    return this.post(`/v2/materials/${encodeURIComponent(materialId)}/revisions`,{schema:"material-revision-create/v1",base_revision:baseRevision,normalization_ids:normalizationIds},key,materialRun);
+    return this.post(`/v1/materials/${encodeURIComponent(materialId)}/revisions`,{schema:"material-revision-create/v1",base_revision:baseRevision,normalization_ids:normalizationIds},key,materialRun);
   }
   cancelRevision(runId:string,baseRevision:string): Promise<MaterialProcessingRunView> {
-    return this.post(`/v2/material-processing-runs/${encodeURIComponent(runId)}/cancel`,{schema:"material-revision-cancel/v1",base_revision:baseRevision},crypto.randomUUID(),materialRun);
+    return this.post(`/v1/material-processing-runs/${encodeURIComponent(runId)}/cancel`,{schema:"material-revision-cancel/v1",base_revision:baseRevision},crypto.randomUUID(),materialRun);
   }
   retryRevision(runId:string,key:string): Promise<MaterialProcessingRunView> {
-    return this.json(`/v2/material-processing-runs/${encodeURIComponent(runId)}/retry`,{method:"POST",headers:{Origin:origin(),"Idempotency-Key":key}},materialRun);
+    return this.json(`/v1/material-processing-runs/${encodeURIComponent(runId)}/retry`,{method:"POST",headers:{Origin:origin(),"Idempotency-Key":key}},materialRun);
   }
   resolveEvidence(base:string,evidenceId:string): Promise<EvidenceSourceView> {
-    if (!base.startsWith("/v2/materials/")) throw new Error("SOURCE_ROUTE_INVALID");
+    if (!base.startsWith("/v1/materials/")) throw new Error("SOURCE_ROUTE_INVALID");
     return this.json(`${base}/${encodeURIComponent(evidenceId)}/source`,{method:"GET"},evidenceSource);
   }
 

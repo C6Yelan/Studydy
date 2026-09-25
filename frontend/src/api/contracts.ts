@@ -18,9 +18,7 @@ export type KnownApiReasonCode =
   | "SOURCE_BUSY"
   | "ASSESSMENT_SET_CONFLICT"
   | "ASSESSMENT_SET_ACTIVE"
-  | "NO_SAFE_ASSESSMENT"
   | "MATERIAL_TOO_LARGE"
-  | "MATERIAL_PDF_INVALID"
   | "UNSUPPORTED_MEDIA_TYPE"
   | "STORAGE_UNAVAILABLE"
   | "INTERNAL_ERROR";
@@ -38,16 +36,9 @@ export type ApiErrorView = {
 
 
 export type MaterialOutputBinding = {
-  schema: "material-run-output-binding/v4";
+  schema: "material-run-output-binding/v1";
   knowledge_structure_revision: string;
-  runtime_lock_sha256: string;
   page_count: number;
-  processing: "succeeded" | "partial";
-  quality: "accepted" | "needs_review";
-  decision: "retain" | "review";
-  reason_codes: string[];
-  ocr_calls: number;
-  semantic_calls: number;
 };
 
 export type MaterialDiscardView = {
@@ -60,7 +51,7 @@ export type MaterialProcessingRunView = {
   analysis_saved?: boolean;
   base_revision?: string;
   source_names?: string[];
-  schema: "material-processing-run/v6";
+  schema: "material-processing-run/v1";
   input_source_set_id?: string;
   cancel_requested_at: string | null;
   run_id: string;
@@ -100,8 +91,7 @@ export type StudySessionLink = {
 export type MaterialLibraryItem = {
   head_revision?: string | null;
   source_count?: number;
-  schema: "material-library-item/v3";
-  ingestion_kind?: "sources-v2";
+  schema: "material-library-item/v1";
   source?: SourceView;
   material_id: string;
   source_artifact_id: string | null;
@@ -114,7 +104,7 @@ export type MaterialLibraryItem = {
 };
 
 export type MaterialLibraryView = {
-  schema: "material-library/v2";
+  schema: "material-library/v1";
   materials: MaterialLibraryItem[];
 };
 
@@ -141,7 +131,7 @@ export type EvidenceView = {
 export type RelationType = "prerequisite" | "part_of" | "application" | "example" | "contrast";
 
 export type KnowledgeStructureView = {
-  schema: "knowledge-structure-view/v3";
+  schema: "knowledge-structure-view/v1";
   source_resolver: string;
   material_id: string;
   knowledge_structure_revision: string;
@@ -166,8 +156,6 @@ export type KnowledgeStructureView = {
     label: string;
     aliases: string[];
     claims: { claim_id: string; text: string; evidence: EvidenceView[] }[];
-    section_ids: string[];
-    source_pages: number[];
   }[];
   relations: {
     relation_id: string;
@@ -176,9 +164,6 @@ export type KnowledgeStructureView = {
     type: RelationType;
     learner_reason: string;
     evidence_refs: string[];
-    context_refs: string[];
-    inference_basis: "dependency" | "composition" | "usage" | "instantiation" | "comparison";
-    confidence: number;
   }[];
   initial_learning_path: {
     position: number;
@@ -199,14 +184,14 @@ export type StudySessionFocus = {
 };
 
 export type StudySessionCreate = {
-  schema: "study-session-create/v2";
+  schema: "study-session-create/v1";
   material_id: string;
   knowledge_structure_revision: string;
   current_concept_id?: string | null;
 };
 
 export type StudySessionView = {
-  schema: "study-session/v2";
+  schema: "study-session/v1";
   study_session_id: string;
   material_id: string;
   knowledge_structure_revision: string;
@@ -221,7 +206,7 @@ export type StudySessionView = {
 
 export type AssessmentOptionView = { option_id: string; text: string };
 export type AssessmentView = {
-  schema: "single-choice-assessment/v2";
+  schema: "single-choice-assessment/v1";
   assessment_revision: string;
   study_session_id: string;
   knowledge_structure_revision: string;
@@ -236,7 +221,7 @@ export type AssessmentView = {
 
 
 export type AnswerFeedbackView = {
-  schema: "answer-feedback/v2";
+  schema: "answer-feedback/v1";
   answer_event_id: string;
   study_session_id: string;
   assessment_revision: string;
@@ -270,10 +255,10 @@ export type NextActionView = {
   reason: string;
 };
 
-export type GuidanceApply = { schema: "guidance-apply/v2"; guidance_revision: string };
+export type GuidanceApply = { schema: "guidance-apply/v1"; guidance_revision: string };
 
 export type LearnerProgressView = {
-  schema: "learner-progress/v4";
+  schema: "learner-progress/v1";
   assessment_cycles: AssessmentCycleSummary[];
   study_session_id: string;
   knowledge_structure_revision: string;
@@ -295,7 +280,7 @@ export type AssessmentRecordView = {
 };
 
 export type StudyResumeView = {
-  schema: "study-resume/v5";
+  schema: "study-resume/v1";
   session: StudySessionView;
   run_id: string;
   source_artifact_id: string;
@@ -333,7 +318,7 @@ export type AssessmentSetSummary = {
 };
 
 export type AssessmentSetListView = {
-  schema: "assessment-set-list/v3"; study_session_id: string; knowledge_structure_revision: string;
+  schema: "assessment-set-list/v1"; study_session_id: string; knowledge_structure_revision: string;
   active_set_ids: string[]; sets: AssessmentSetSummary[];
 };
 
@@ -344,7 +329,7 @@ export type AssessmentSetItem = {
 };
 
 export type AssessmentSetView = AssessmentSetSummary & {
-  schema: "assessment-set/v3"; study_session_id: string; material_id: string; knowledge_structure_revision: string;
+  schema: "assessment-set/v1"; study_session_id: string; material_id: string; knowledge_structure_revision: string;
   cycle: AssessmentCycleView; selection_policy: "single-concept-grounded-points/v1" | "needs-review-points/v1";
   point_count: number; excluded_count: number; verified_count: number;
   can_retry: boolean; can_publish_partial: boolean; can_complete: boolean;
@@ -365,7 +350,7 @@ export type SourceView = {
 };
 export type SourceListView = { schema: "material-sources/v1"; material_id: string; discard_requested?: boolean; sources: SourceView[] };
 export type FormatCapability = { extension: string; media_type: string; max_bytes: number };
-export type SourceCapabilities = { schema: "source-capabilities/v1"; formats: FormatCapability[]; quality_notice: string };
+export type SourceCapabilities = { schema: "source-capabilities/v1"; formats: FormatCapability[] };
 export type EvidenceSourceView = { schema: "evidence-source/v1"; format: "pdf" | "docx" | "pptx" | "doc" | "ppt" | "txt" | "md";
   original_name: string; original_url: string; preview_url: string; normalized_page: number;
   accuracy: "exact" | "ambiguous" | "unavailable"; origin_locators: Record<string,unknown>[]; label: string };

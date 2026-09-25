@@ -14,20 +14,20 @@ async function setup(page: Page) {
     uploadLost: false, runLost: false, draftLost: false, conversionFailed: false, deleted: 0, run: null as MaterialProcessingRunView | null };
   await page.route("**/v1/session", r => r.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }));
   await page.route("**/v1/session/refresh", r => r.fulfill({ json: { schema: "learner-identity/v1", learner_id: "33333333-3333-4333-8333-333333333333" } }));
-  await page.route("**/v2/source-capabilities", r => r.fulfill({ json: { schema: "source-capabilities/v1", quality_notice: "PDF 優先", formats: [
+  await page.route("**/v1/source-capabilities", r => r.fulfill({ json: { schema: "source-capabilities/v1", quality_notice: "PDF 優先", formats: [
     { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 }, { extension: ".txt", media_type: "text/plain", max_bytes: 104857600 },
   ] } }));
-  await page.route("**/v2/materials", r => {
+  await page.route("**/v1/materials", r => {
     state.drafts.push(r.request().headers()["idempotency-key"]);
     if (state.draftLost) { state.draftLost = false; return r.abort("connectionreset"); }
     return r.fulfill({ status: 201, json: { schema: "material-draft/v1", material_id: material } });
   });
-  const item = () => ({ schema: "material-library-item/v3", ingestion_kind: "sources-v2", material_id: material,
+  const item = () => ({ schema: "material-library-item/v1", material_id: material,
     source_artifact_id: null, display_name: "A.pdf", size_bytes: 128, created_at: stamp, latest_attempt: state.run, available_structures: [], study_sessions: [], source: state.sources[0] });
   await page.route(`**/v1/materials/${material}`, r => r.fulfill({ json: item() }));
-  await page.route("**/v1/materials", r => r.fulfill({ json: { schema: "material-library/v2", materials: [item()] } }));
+  await page.route("**/v1/materials", r => r.fulfill({ json: { schema: "material-library/v1", materials: [item()] } }));
   const listing = () => ({ schema: "material-sources/v1", material_id: material, sources: state.sources });
-  await page.route(`**/v2/materials/${material}/sources`, r => {
+  await page.route(`**/v1/materials/${material}/sources`, r => {
     if (r.request().method() === "POST") {
       const name = decodeURIComponent(r.request().headers()["x-material-name"]), key = r.request().headers()["idempotency-key"];
       if (!state.uploads.some(upload => upload.key === key)) {
@@ -41,15 +41,15 @@ async function setup(page: Page) {
     }
     return r.fulfill({ json: listing() });
   });
-  await page.route(`**/v2/materials/${material}/sources/*`, r => {
+  await page.route(`**/v1/materials/${material}/sources/*`, r => {
     expect(r.request().method()).toBe("DELETE"); state.deleted++;
     state.sources = state.sources.filter(source => !r.request().url().endsWith(source.source_id));
     return r.fulfill({ json: listing() });
   });
-  await page.route(`**/v2/materials/${material}/revisions`, r => {
+  await page.route(`**/v1/materials/${material}/revisions`, r => {
     state.starts.push({ key: r.request().headers()["idempotency-key"], body: r.request().postDataJSON() });
     if (state.runLost) { state.runLost = false; return r.fulfill({ status: 503, json: failure }); }
-    state.run = { schema: "material-processing-run/v6", run_id: runId, material_id: material, source_artifact_id: uuid(13),
+    state.run = { schema: "material-processing-run/v1", run_id: runId, material_id: material, source_artifact_id: uuid(13),
       source_names: state.sources.map(source => source.original_name), status: "pending", progress_stage: "queued", completed_pages: 0, total_pages: null,
       output_binding: null, error_code: null, cancel_requested_at: null, created_at: stamp, updated_at: stamp, completed_at: null };
     return r.fulfill({ status: 202, json: state.run });
@@ -203,7 +203,7 @@ for (const width of [1536, 390]) {
 
 test("capability read failure keeps PDF selection and its actionable notice", async ({ page }) => {
   await setup(page);
-  await page.route("**/v2/source-capabilities", route => route.fulfill({ status: 503, json: failure }));
+  await page.route("**/v1/source-capabilities", route => route.fulfill({ status: 503, json: failure }));
   await page.goto("/upload");
   await expect(page.getByRole("status")).toHaveText("其他格式目前無法載入，仍可上傳 PDF。");
   await expect(page.locator(".file-drop > span:last-child")).toHaveText("PDF · 可選多份 · 每份最大 100 MiB");
@@ -215,7 +215,7 @@ test("selection waits for capabilities instead of rejecting a supported non-PDF 
   await setup(page);
   let release!: () => void;
   const pending = new Promise<void>(resolve => { release = resolve; });
-  await page.route("**/v2/source-capabilities", async route => { await pending; await route.fallback(); });
+  await page.route("**/v1/source-capabilities", async route => { await pending; await route.fallback(); });
   await page.goto("/upload");
   const input = page.getByLabel("選擇教材檔案", { exact: true });
   await expect(input).toBeDisabled();

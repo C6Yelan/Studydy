@@ -7,7 +7,7 @@ const created = "2026-09-12T12:00:00Z";
 const longName = "資料結構補充講義_" + "VeryLongUnbrokenMaterialFilename".repeat(4) + ".pdf";
 function item(index: number, state: "no-run" | "failed" | "cancelled" | "running" | "pending" | "succeeded" | "partial", map = false, study = false): MaterialLibraryItem {
   const success = state === "succeeded" || state === "partial";
-  return { schema: "material-library-item/v3", material_id: id(index), source_artifact_id: id(index+100), display_name: index === 4 ? longName : `資料結構 第 ${index} 章.pdf`, size_bytes: 1024, created_at: created,
+  return { schema: "material-library-item/v1", material_id: id(index), source_artifact_id: id(index+100), display_name: index === 4 ? longName : `資料結構 第 ${index} 章.pdf`, size_bytes: 1024, created_at: created,
     latest_attempt: state === "no-run" ? null : { run_id: id(index+200), status: state,
       progress_stage: success ? "completed" : state === "pending" ? "queued" : "semantics", completed_pages: success ? 4 : 0, total_pages: state === "pending" ? null : 4,
       error_code: state === "failed" ? "NO_USABLE_EVIDENCE" : null, cancel_requested_at: state === "cancelled" ? created : null, created_at: created },
@@ -25,7 +25,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
   test(`all material states have keyboard management without changing primary actions at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport); await setup(page);
     const items = [item(1, "no-run"), item(2, "pending"), item(3, "running"), item(4, "failed"), item(5, "partial", true), item(6, "succeeded", true), item(7, "succeeded", true, true), item(8, "cancelled")];
-    await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: items } }));
+    await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v1", materials: items } }));
     await page.goto("/materials");
     const cards = page.getByRole("article");
     await expect(cards).toHaveCount(items.length);
@@ -57,7 +57,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
     await page.setViewportSize(viewport); await setup(page);
     let items = [item(1, "succeeded", true, true), item(2, "no-run")]; items[0].display_name = "中文舊教材.pdf";
     let reads = 0, writes = 0, fail = true;
-    await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v2", materials: items } }); });
+    await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v1", materials: items } }); });
     await page.route(`**/v1/materials/${items[0].material_id}/rename`, route => {
       writes++; expect(route.request().headers()["idempotency-key"]).toBeUndefined();
       if (fail) return route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: id(999), reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Request could not be completed." } });
@@ -88,7 +88,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
     await page.setViewportSize(viewport); await setup(page);
     let items = [item(1, "succeeded", true, true), item(2, "no-run")], deletes = 0;
     let release!: () => void; const pending = new Promise<void>(resolve => { release = resolve; });
-    await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: items } }));
+    await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v1", materials: items } }));
     await page.route(`**/v1/materials/${items[0].material_id}`, async route => {
       expect(route.request().method()).toBe("DELETE"); deletes++; await pending;
       const removed = items[0]; items = items.slice(1);
@@ -115,7 +115,7 @@ test("removing publishing material disables all actions and polls until absent",
   let items = [item(1, "running", true, true), item(2, "no-run")], reads = 0;
   items[0].latest_attempt!.progress_stage = "publishing";
   const target = items[0];
-  await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v2", materials: items } }); });
+  await page.route("**/v1/materials", route => { reads++; return route.fulfill({ json: { schema: "material-library/v1", materials: items } }); });
   await page.route(`**/v1/materials/${target.material_id}`, route => route.fulfill({ status: 202, json: { schema: "material-discard/v1", material_id: target.material_id, state: "removing" } }));
   await page.goto("/materials"); await page.getByRole("searchbox").fill(target.display_name);
   const card = page.getByRole("article");
@@ -140,7 +140,7 @@ test("a pre-rename poll cannot restore the old title into search results", async
   await page.route("**/v1/materials", async route => {
     reads++; const snapshot = structuredClone(target);
     if (reads === 2) await pending;
-    return route.fulfill({ json: { schema: "material-library/v2", materials: [snapshot] } });
+    return route.fulfill({ json: { schema: "material-library/v1", materials: [snapshot] } });
   });
   await page.route(`**/v1/materials/${target.material_id}/rename`, route => {
     target = { ...target, display_name: "new title" }; return route.fulfill({ json: target });
@@ -163,7 +163,7 @@ for (const touch of [false, true]) test.describe(`management dismissal with ${to
     let firstItem = item(1, "succeeded", true, true);
     const secondItem = item(2, "no-run");
     let renames = 0, deletes = 0;
-    await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v2", materials: [firstItem, secondItem] } }));
+    await page.route("**/v1/materials", route => route.fulfill({ json: { schema: "material-library/v1", materials: [firstItem, secondItem] } }));
     await page.route(`**/v1/materials/${firstItem.material_id}/rename`, route => {
       renames++;
       expect(route.request().postDataJSON()).toEqual({ schema: "material-rename/v1", display_name: "資料結構導論" });
@@ -174,7 +174,7 @@ for (const touch of [false, true]) test.describe(`management dismissal with ${to
       if (route.request().method() === "DELETE") deletes++;
       return route.fulfill({ json: firstItem });
     });
-    await page.route(`**/v2/materials/${firstItem.material_id}/sources`, route => route.fulfill({ json: { schema: "material-sources/v1", material_id: firstItem.material_id, sources: [] } }));
+    await page.route(`**/v1/materials/${firstItem.material_id}/sources`, route => route.fulfill({ json: { schema: "material-sources/v1", material_id: firstItem.material_id, sources: [] } }));
     await page.goto("/materials");
     const cards = page.getByRole("article"), first = cards.nth(0), second = cards.nth(1);
     const menu = first.locator("details"), otherMenu = second.locator("details");

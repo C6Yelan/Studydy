@@ -4,22 +4,16 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
-import re
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from runtime.learner_session import TrustedLearner
-from runtime.storage.tables import AnswerEvent, Assessment, Material, StudySession, database_session
+from runtime.storage.tables import AnswerEvent, Assessment, database_session
 
-from .assessments import AssessmentError, StoredAssessment, _stored as validate_stored_assessment
-from .study_sessions import StudySessionError, _learner, _row, _stored, _validate
-
-
-_ASSESSMENT = re.compile(r"assessment:sha256:[0-9a-f]{64}")
-_QUESTION = re.compile(r"question:sha256:[0-9a-f]{64}")
-_OPTION = re.compile(r"option:sha256:[0-9a-f]{64}")
+from .assessments import AssessmentError, _stored as validate_stored_assessment, _provenance_for_row
+from .study_sessions import StudySessionError, _learner, _row, _validate
 
 
 class AnswerSubmissionError(RuntimeError):
@@ -29,7 +23,7 @@ class AnswerSubmissionError(RuntimeError):
 class AnswerFeedback(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_: str = Field(alias="schema", pattern=r"^answer-feedback/v2$")
+    schema_: str = Field(alias="schema", pattern=r"^answer-feedback/v1$")
     answer_event_id: UUID
     study_session_id: UUID
     assessment_revision: str
@@ -78,22 +72,31 @@ def _key(value: str) -> bytes:
 
 def _fingerprint(session_id: UUID, assessment: str, question: str, option: str) -> bytes:
     return sha256(json.dumps(
-        {"study_session_id": str(session_id), "assessment_revision": assessment, "question_id": question, "selected_option_id": option},
+        {
+            "study_session_id": str(session_id),
+            "assessment_revision": assessment,
+            "question_id": question,
+            "selected_option_id": option,
+        },
         sort_keys=True,
         separators=(",", ":"),
     ).encode()).digest()
 
 
-def _assessment(session, study, revision: str) -> Assessment:
+def _assessment(session, study, revision: str, provenance_by_set) -> Assessment:
     row = session.scalar(select(Assessment).where(
         Assessment.study_session_id == study.study_session_id,
         Assessment.knowledge_structure_revision == study.knowledge_structure_revision,
         Assessment.assessment_revision == revision,
     ))
-    if row is None or not isinstance(row.public_document, dict) or not isinstance(row.private_answer_document, dict):
+    if (
+        row is None
+        or not isinstance(row.public_document, dict)
+        or not isinstance(row.private_answer_document, dict)
+    ):
         raise AnswerSubmissionError("ANSWER_ASSESSMENT_UNAVAILABLE")
     try:
-        validate_stored_assessment(row)
+        validate_stored_assessment(row, _provenance_for_row(session, row, provenance_by_set))
     except AssessmentError:
         raise AnswerSubmissionError("ANSWER_ASSESSMENT_UNAVAILABLE")
     return row
@@ -149,7 +152,7 @@ def _event(row: AnswerEvent, assessment: Assessment, study, *, assisted=False) -
 
 def _feedback(event: StoredAnswerEvent, assessment: Assessment) -> AnswerFeedback:
     return AnswerFeedback.model_validate({
-        "schema": "answer-feedback/v2",
+        "schema": "answer-feedback/v1",
         "answer_event_id": event.answer_event_id,
         "study_session_id": event.study_session_id,
         "assessment_revision": event.assessment_revision,
@@ -189,13 +192,16 @@ def record_answer(session, study, assessment, selected_option_id, idempotency_ke
     )
     session.add(created)
     session.flush()
-    event = _event(created, assessment, study, assisted=assessment_revision in _assisted_revisions(session, study_session_id))
+    event = _event(
+        created, assessment, study,
+        assisted=assessment_revision in _assisted_revisions(session, study_session_id),
+    )
     return AnswerSubmission(event, _feedback(event, assessment))
 
 
-
-
-def read_answer_events(learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None) -> tuple[StoredAnswerEvent, ...]:
+def read_answer_events(
+    learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None
+) -> tuple[StoredAnswerEvent, ...]:
     learner_id = _learner(learner)
     try:
         with database_session(dsn) as session:
@@ -210,16 +216,24 @@ def read_answer_events(learner: TrustedLearner, study_session_id: UUID, *, dsn: 
 
 def _read_events(session, study):
     """Study 與教材 scope 已在同一 snapshot 驗證；保留逐筆作答與私有答案檢核。"""
-    rows = list(session.scalars(select(AnswerEvent).where(AnswerEvent.study_session_id == study.study_session_id).order_by(AnswerEvent.event_number)))
+    rows = list(session.scalars(
+        select(AnswerEvent).where(
+            AnswerEvent.study_session_id == study.study_session_id
+        ).order_by(AnswerEvent.event_number)
+    ))
     assisted = _assisted_revisions(session, study.study_session_id)
+    provenance_by_set = {}
     events = tuple(
         _event(
             row,
-            _assessment(session, study, row.assessment_revision),
+            _assessment(session, study, row.assessment_revision, provenance_by_set),
             study, assisted=row.assessment_revision in assisted,
         )
         for row in rows
     )
-    if [event.event_number for event in events] != list(range(1, len(events) + 1)) or len(events) > study.last_event_number:
+    if (
+        [event.event_number for event in events] != list(range(1, len(events) + 1))
+        or len(events) > study.last_event_number
+    ):
         raise AnswerSubmissionError("ANSWER_EVENT_UNAVAILABLE")
     return events

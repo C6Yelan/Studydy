@@ -9,76 +9,57 @@ from typing import Any, Callable, Iterator
 from urllib.parse import quote, unquote, urlsplit
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHttpException
 from starlette.routing import Match
 
-from .models import (
-    MaterialDraftCreate, MaterialDraftView, SourceListView, RevisionCreate, RevisionCancel, SourceCapabilities, EvidenceSourceView,
-    AccountCredentials,
-    LearnerIdentityView,
-    ApiErrorView,
-    KnowledgeStructureView,
-    MaterialProcessingRunView,
-    MaterialDiscardView,
-    MaterialLibraryItem,
-    MaterialRename,
-    MaterialLibraryView,
-    LearnerProgressView, GuidanceApply,
-    StudySessionCreate,
-    StudySessionFocus,
-    StudySessionView,
-    StudyResumeView,
-    project_learner_progress,
-    project_material_run,
-    project_study_session,
-)
-from learning_adaptation.learner_progress import (
-    derive_learner_progress, apply_guidance, progress_snapshot,
+from document_normalization.converter import (
+    MAX_FILE_BYTES, MIME, NormalizationError, normalizer_available,
 )
 from learning_adaptation import assessment_sets
-from .models import (AssessmentSetCreate, AssessmentSetAction, AssessmentPlanView,
-                     AssessmentSetListView, AssessmentSetView, AssessmentSetSubmission)
+from learning_adaptation.learner_progress import (
+    apply_guidance, derive_learner_progress, progress_snapshot,
+)
 from learning_adaptation.study_sessions import (
-    complete_study_session,
-    create_study_session,
-    read_study_session,
-    set_current_study_concept,
+    create_study_session, set_current_study_concept,
 )
 from ..learner_session import (
-    IDLE_LIFETIME,
-    SessionError,
-    TrustedLearner,
-    register_account,
-    login_account,
-    refresh_session,
-    resolve_session,
-    revoke_session,
-)
-from ..material_processing import (
-    MaterialProcessingError,
-    runtime_binding,
-    read_material_processing_run,
+    IDLE_LIFETIME, SessionError, TrustedLearner, login_account,
+    refresh_session, register_account, resolve_session, revoke_session,
 )
 from ..material_discard import MaterialDiscardError, request_material_discard
-from ..storage.artifacts import (
-    open_verified_source_pdf,
+from ..material_processing import (
+    MaterialProcessingError, read_material_processing_run,
 )
-from ..storage.knowledge_structures import read_knowledge_structure
-from ..storage.materials import MaterialLibraryError, read_material_library, rename_material
-from ..workers import start_runtime_workers
-from ..source_normalization import SourceError,create_draft,upload_source,read_sources,retry_normalization,remove_staged_source
+from ..material_runtime import MaterialRuntimeError, runtime_binding
+from ..source_normalization import (
+    SourceError, create_draft, read_sources, remove_staged_source,
+    retry_normalization, upload_source,
+)
 from ..source_revisions import create_revision
-from .models import MaterialReviewCreate
-from ..source_resolver import resolve_evidence_source
+from ..storage.artifacts import open_verified_source_pdf
+from ..storage.knowledge_structures import read_knowledge_structure, resolve_evidence_source
+from ..storage.materials import MaterialLibraryError, read_material_library, rename_material
 from ..storage.source_artifacts import open_verified_artifact
-from ..storage.tables import Artifact,Material,MaterialSource,database_session
-from sqlalchemy import select
-from document_normalization.converter import MAX_FILE_BYTES,MIME,configured_python,NormalizationError
+from ..storage.tables import Artifact, Material, MaterialSource, database_session
+from ..workers import start_runtime_workers
+from .models import (
+    AccountCredentials, ApiErrorView, AssessmentPlanView, AssessmentSetAction,
+    AssessmentSetCreate, AssessmentSetListView, AssessmentSetSubmission,
+    AssessmentSetView, EvidenceSourceView, GuidanceApply, KnowledgeStructureView,
+    LearnerIdentityView, LearnerProgressView, MaterialDiscardView,
+    MaterialDraftCreate, MaterialDraftView, MaterialLibraryItem,
+    MaterialLibraryView, MaterialProcessingRunView, MaterialRename,
+    MaterialReviewCreate, RevisionCancel, RevisionCreate, SourceCapabilities,
+    SourceListView, StudyResumeView, StudySessionCreate, StudySessionFocus,
+    StudySessionView, project_learner_progress, project_material_run,
+    project_knowledge_structure, project_study_session,
+)
 
 
 _COOKIE_NAME = "studydy_session"
@@ -103,12 +84,47 @@ _ERROR_STATUS = {
     "RESOURCE_NOT_FOUND": (404, False),
     "IDEMPOTENCY_CONFLICT": (409, False),
     "MATERIAL_NOT_DISCARDABLE": (409, False),
-    "NO_SAFE_ASSESSMENT": (422, False),
     "MATERIAL_TOO_LARGE": (413, False),
-    "MATERIAL_PDF_INVALID": (400, False),
     "UNSUPPORTED_MEDIA_TYPE": (415, False),
     "STORAGE_UNAVAILABLE": (503, True),
     "INTERNAL_ERROR": (500, False),
+}
+
+_ASSESSMENT_SET_ERRORS = {
+    "ASSESSMENT_SET_NOT_FOUND": "RESOURCE_NOT_FOUND",
+    "ASSESSMENT_SET_REQUEST_INVALID": "REQUEST_INVALID",
+    "ASSESSMENT_SET_TARGET_INVALID": "REQUEST_INVALID",
+    "ASSESSMENT_SET_CONFLICT": "ASSESSMENT_SET_CONFLICT",
+    "ASSESSMENT_SET_ACTIVE": "ASSESSMENT_SET_ACTIVE",
+}
+
+_INTERNAL_ERRORS = {
+    "ASSESSMENT_SET_ACTIVE": "ASSESSMENT_SET_ACTIVE",
+    "LEARNER_GUIDANCE_STALE": "LEARNER_GUIDANCE_STALE",
+    "STUDY_SESSION_IDEMPOTENCY_CONFLICT": "IDEMPOTENCY_CONFLICT",
+    "LEARNER_PROGRESS_STALE": "IDEMPOTENCY_CONFLICT",
+    "MATERIAL_RUN_NOT_FOUND": "RESOURCE_NOT_FOUND",
+    "MATERIAL_RUN_UNAVAILABLE": "RESOURCE_NOT_FOUND",
+    "KNOWLEDGE_STRUCTURE_UNAVAILABLE": "RESOURCE_NOT_FOUND",
+    "ARTIFACT_NOT_AVAILABLE": "RESOURCE_NOT_FOUND",
+    "STUDY_SESSION_UNAVAILABLE": "RESOURCE_NOT_FOUND",
+    "STUDY_SESSION_MAP_UNAVAILABLE": "RESOURCE_NOT_FOUND",
+    "ANSWER_ASSESSMENT_UNAVAILABLE": "RESOURCE_NOT_FOUND",
+    "ANSWER_EVENT_UNAVAILABLE": "RESOURCE_NOT_FOUND",
+    "ASSESSMENT_UNAVAILABLE": "RESOURCE_NOT_FOUND",
+    "LEARNER_PROGRESS_UNAVAILABLE": "RESOURCE_NOT_FOUND",
+    "ARTIFACT_REQUEST_INVALID": "REQUEST_INVALID",
+    "MATERIAL_RUN_INVALID": "REQUEST_INVALID",
+    "STUDY_SESSION_REQUEST_INVALID": "REQUEST_INVALID",
+    "STUDY_SESSION_TARGET_INVALID": "REQUEST_INVALID",
+    "ASSESSMENT_REQUEST_INVALID": "REQUEST_INVALID",
+    "SESSION_CREATE_FAILED": "STORAGE_UNAVAILABLE",
+    "SESSION_STORAGE_FAILED": "STORAGE_UNAVAILABLE",
+    "ARTIFACT_STORAGE_FAILED": "STORAGE_UNAVAILABLE",
+    "MATERIAL_DISCARD_STORAGE_FAILED": "STORAGE_UNAVAILABLE",
+    "MATERIAL_LIBRARY_STORAGE_FAILED": "STORAGE_UNAVAILABLE",
+    "MATERIAL_RUN_STORAGE_FAILED": "STORAGE_UNAVAILABLE",
+    "STUDY_SESSION_STORAGE_FAILED": "STORAGE_UNAVAILABLE",
 }
 
 
@@ -162,7 +178,7 @@ class ApiSettings:
             # API availability does not depend on installed/online AI services.
             # Processing and assessment retain their operation-time checks.
             runtime_binding(copied)
-        except MaterialProcessingError as error:
+        except MaterialRuntimeError as error:
             raise ApiSettingsError(error.component, error.reason) from None
         except Exception:
             raise ApiSettingsError() from None
@@ -221,66 +237,22 @@ def _error_response(reason_code: str, *, status_code: int | None = None) -> JSON
 
 
 def _fixed_exception(error: Exception) -> str:
+    """只把已知內部原因碼轉成固定的公開 API 原因碼。"""
     reason = str(error)
     if isinstance(error, assessment_sets.AssessmentSetError):
-        if reason == 'ASSESSMENT_SET_NOT_FOUND':return 'RESOURCE_NOT_FOUND'
-        if reason in ('ASSESSMENT_SET_REQUEST_INVALID','ASSESSMENT_SET_TARGET_INVALID'):return 'REQUEST_INVALID'
-        return reason if reason in ('ASSESSMENT_SET_CONFLICT', 'ASSESSMENT_SET_ACTIVE') else 'INTERNAL_ERROR'
-    if reason in ('ASSESSMENT_SET_CONFLICT', 'ASSESSMENT_SET_ACTIVE', 'LEARNER_GUIDANCE_STALE'):return reason
-    if isinstance(error,(SourceError,NormalizationError,MaterialProcessingError)) and reason in _ERROR_STATUS:return reason
-    if reason == "MATERIAL_NOT_DISCARDABLE" or (isinstance(error, MaterialDiscardError) and reason == "RESOURCE_NOT_FOUND"):
+        return _ASSESSMENT_SET_ERRORS.get(reason, "INTERNAL_ERROR")
+    if (
+        isinstance(error, (SourceError, NormalizationError, MaterialProcessingError, SessionError))
+        and reason in _ERROR_STATUS
+    ):
         return reason
-    if isinstance(error, MaterialLibraryError) and reason in {"REQUEST_INVALID", "RESOURCE_NOT_FOUND", "MATERIAL_NOT_DISCARDABLE"}:
+    if isinstance(error, MaterialLibraryError) and reason in {
+        "REQUEST_INVALID", "RESOURCE_NOT_FOUND", "MATERIAL_NOT_DISCARDABLE",
+    }:
         return reason
-    if isinstance(error, SessionError) and reason in _ERROR_STATUS:
+    if isinstance(error, MaterialDiscardError) and reason == "RESOURCE_NOT_FOUND":
         return reason
-    if "IDEMPOTENCY_CONFLICT" in reason or reason in {
-        "MATERIAL_RUN_IDEMPOTENCY_CONFLICT",
-        "ANSWER_ALREADY_SUBMITTED",
-        "LEARNER_PROGRESS_STALE",
-        "ANSWER_SUBMISSION_STALE",
-    }:
-        return "IDEMPOTENCY_CONFLICT"
-    if reason in {
-        "MATERIAL_RUN_NOT_FOUND",
-        "MATERIAL_RUN_UNAVAILABLE",
-        "KNOWLEDGE_STRUCTURE_UNAVAILABLE",
-        "ARTIFACT_NOT_AVAILABLE",
-        "STUDY_SESSION_UNAVAILABLE",
-        "STUDY_SESSION_MAP_UNAVAILABLE",
-        "ANSWER_STUDY_SESSION_UNAVAILABLE",
-        "ANSWER_ASSESSMENT_UNAVAILABLE",
-        "ANSWER_EVENT_UNAVAILABLE",
-        "ASSESSMENT_UNAVAILABLE",
-        "ASSESSMENT_SESSION_UNAVAILABLE",
-        "LEARNER_PROGRESS_UNAVAILABLE",
-    }:
-        return "RESOURCE_NOT_FOUND"
-    if reason in {
-        "NO_SAFE_ASSESSMENT",
-    }:
-        return "NO_SAFE_ASSESSMENT"
-    if reason in {
-        "ARTIFACT_REQUEST_INVALID",
-        "MATERIAL_RUN_INVALID",
-        "STUDY_SESSION_REQUEST_INVALID",
-        "STUDY_SESSION_TARGET_INVALID",
-        "ANSWER_SUBMISSION_INVALID",
-        "ANSWER_OPTION_INVALID",
-        "ASSESSMENT_REQUEST_INVALID",
-        "ASSESSMENT_TARGET_INVALID",
-    }:
-        return "REQUEST_INVALID"
-    if reason == "ARTIFACT_PDF_INVALID":
-        return "MATERIAL_PDF_INVALID"
-    if "STORAGE" in reason or reason in {
-        "SESSION_CREATE_FAILED",
-        "ARTIFACT_PUBLISH_FAILED",
-        "SEMANTIC_SERVICE_UNAVAILABLE",
-        "SEMANTIC_SERVICE_TIMEOUT",
-    }:
-        return "STORAGE_UNAVAILABLE"
-    return "INTERNAL_ERROR"
+    return _INTERNAL_ERRORS.get(reason, "INTERNAL_ERROR")
 
 
 def _require_query(request: Request, allowed: set[str]) -> None:
@@ -341,12 +313,12 @@ def _verified_source_iterator(context: Any, source: Any) -> Iterator[bytes]:
 
 
 def _install_openapi(app: FastAPI) -> None:
-    """補上 raw PDF、cookie/header 與固定錯誤契約。"""
+    """補上來源上傳、原檔下載、PDF 預覽與 cookie/header 的固定契約。"""
 
     idempotent_paths = {
-        "/v2/materials", "/v2/materials/{material_id}/sources", "/v2/materials/{material_id}/revisions",
-        "/v2/material-processing-runs/{run_id}/retry",
-        "/v2/materials/{material_id}/review",
+        "/v1/materials", "/v1/materials/{material_id}/sources", "/v1/materials/{material_id}/revisions",
+        "/v1/material-processing-runs/{run_id}/retry",
+        "/v1/materials/{material_id}/review",
         "/v1/study-sessions",
         "/v1/study-sessions/{study_session_id}/assessment-sets",
         "/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/retry",
@@ -394,23 +366,43 @@ def _install_openapi(app: FastAPI) -> None:
                             "schema": {"type": "string", "minLength": 1, "maxLength": 256},
                         }
                     )
-                if path in {"/v1/materials", "/v2/materials/{material_id}/sources"} and method == "post":
+                if path == "/v1/materials/{material_id}/sources" and method == "post":
                     operation.setdefault("parameters", []).append({
-                        "name": "X-Material-Name", "in": "header", "required": path.startswith("/v2/"),
-                        "description": "URI-encoded UTF-8 filename, 1–200 decoded characters; first upload owns the name.",
+                        "name": "X-Material-Name", "in": "header", "required": True,
+                        "description": (
+                            "URI-encoded UTF-8 filename, 1–200 decoded characters; "
+                            "first upload owns the name."
+                        ),
                         "schema": {"type": "string", "maxLength": 2400},
                     })
                     operation["requestBody"] = {
                         "required": True,
-                        "content": {media:{"schema":{"type":"string","format":"binary"}} for media in (MIME.values() if path.startswith("/v2/") else ["application/pdf"])},
+                        "content": {
+                            media: {"schema": {"type": "string", "format": "binary"}}
+                            for media in MIME.values()
+                        },
                     }
                 if path == "/v1/artifacts/{artifact_id}" and method == "get":
                     operation["responses"]["200"] = {
-                        "description": "Verified source PDF",
+                        "description": "Verified normalized PDF preview",
                         "content": {
                             "application/pdf": {
                                 "schema": {"type": "string", "format": "binary"}
                             }
+                        },
+                    }
+                if path == "/v1/artifacts/{artifact_id}/download" and method == "get":
+                    operation["responses"]["200"] = {
+                        "description": "Owner-authorized original file download",
+                        "content": {
+                            media: {"schema": {"type": "string", "format": "binary"}}
+                            for media in MIME.values()
+                        },
+                        "headers": {
+                            "Content-Disposition": {
+                                "schema": {"type": "string"},
+                                "description": "Attachment with original filename",
+                            },
                         },
                     }
                 if path not in public_paths:
@@ -432,13 +424,8 @@ def _install_openapi(app: FastAPI) -> None:
                     response_codes.add(404)
                 if path in idempotent_paths and method == "post":
                     response_codes.add(409)
-                if path in {"/v1/materials","/v2/materials/{material_id}/sources"} and method == "post":
+                if path == "/v1/materials/{material_id}/sources" and method == "post":
                     response_codes.update({413, 415})
-                if (
-                    path
-                    and method == "post"
-                ):
-                    response_codes.add(422)
                 response_codes.add(503)
                 for code in sorted(response_codes):
                     operation.setdefault("responses", {})[str(code)] = deepcopy(error_response)
@@ -466,8 +453,8 @@ def create_app(settings: ApiSettings) -> FastAPI:
             workers.stop()
 
     app = FastAPI(
-        title="Studydy Material Review API",
-        version="3.0.0",
+        title="Studydy API",
+        version="v1",
         openapi_version="3.1.0",
         openapi_url=None,
         docs_url=None,
@@ -487,7 +474,10 @@ def create_app(settings: ApiSettings) -> FastAPI:
                 break
             partial_match = partial_match or match is Match.PARTIAL
         else:
-            return _error_response("REQUEST_INVALID", status_code=405) if partial_match else _error_response("RESOURCE_NOT_FOUND")
+            return (
+                _error_response("REQUEST_INVALID", status_code=405)
+                if partial_match else _error_response("RESOURCE_NOT_FOUND")
+            )
         if request.headers.getlist("x-learner-id"):
             return _error_response("REQUEST_INVALID")
         if request.method in {"POST", "DELETE"}:
@@ -524,17 +514,25 @@ def create_app(settings: ApiSettings) -> FastAPI:
             return _error_response("REQUEST_INVALID", status_code=405)
         return _error_response("INTERNAL_ERROR")
 
-    @app.post("/v1/accounts", status_code=201, response_model=LearnerIdentityView,
-              operation_id="registerAccount", tags=["session"])
-    def register_account_route(request: Request, response: Response, body: AccountCredentials) -> LearnerIdentityView:
+    @app.post(
+        "/v1/accounts", status_code=201, response_model=LearnerIdentityView,
+        operation_id="registerAccount", tags=["session"],
+    )
+    def register_account_route(
+        request: Request, response: Response, body: AccountCredentials
+    ) -> LearnerIdentityView:
         _require_query(request, set())
         created = register_account(body.email, body.password, dsn=settings.dsn)
         _set_session_cookie(response, created.raw_token, settings)
         return LearnerIdentityView(learner_id=created.learner_id)
 
-    @app.post("/v1/session/login", response_model=LearnerIdentityView,
-              operation_id="loginAccount", tags=["session"])
-    def login_account_route(request: Request, response: Response, body: AccountCredentials) -> LearnerIdentityView:
+    @app.post(
+        "/v1/session/login", response_model=LearnerIdentityView,
+        operation_id="loginAccount", tags=["session"],
+    )
+    def login_account_route(
+        request: Request, response: Response, body: AccountCredentials
+    ) -> LearnerIdentityView:
         _require_query(request, set())
         created = login_account(body.email, body.password, dsn=settings.dsn)
         _set_session_cookie(response, created.raw_token, settings)
@@ -546,10 +544,13 @@ def create_app(settings: ApiSettings) -> FastAPI:
         _require_query(request, set())
         return LearnerIdentityView(learner_id=_trusted_learner(request, settings).learner_id)
 
-    @app.post("/v1/session/refresh", response_model=LearnerIdentityView, operation_id="refreshSession", tags=["session"])
-    async def refresh_session_route(request: Request, response: Response) -> LearnerIdentityView:
+    @app.post(
+        "/v1/session/refresh", response_model=LearnerIdentityView,
+        operation_id="refreshSession", tags=["session"],
+        dependencies=[Depends(_require_empty_body)],
+    )
+    def refresh_session_route(request: Request, response: Response) -> LearnerIdentityView:
         _require_query(request, set())
-        await _require_empty_body(request)
         raw_token = request.cookies.get(_COOKIE_NAME)
         learner = refresh_session(raw_token, dsn=settings.dsn)
         if learner is None:
@@ -557,12 +558,14 @@ def create_app(settings: ApiSettings) -> FastAPI:
         _set_session_cookie(response, raw_token or "", settings)
         return LearnerIdentityView(learner_id=learner.learner_id)
 
-    @app.delete("/v1/session", status_code=204, operation_id="deleteSession", tags=["session"])
-    async def delete_session_route(request: Request, response: Response) -> None:
+    @app.delete("/v1/session", status_code=204, operation_id="deleteSession", tags=["session"], dependencies=[Depends(_require_empty_body)])
+    def delete_session_route(request: Request, response: Response) -> None:
         _require_query(request, set())
-        await _require_empty_body(request)
         revoke_session(request.cookies.get(_COOKIE_NAME), dsn=settings.dsn)
-        response.delete_cookie(_COOKIE_NAME, path="/", secure=settings.secure_cookie, httponly=True, samesite="strict")
+        response.delete_cookie(
+            _COOKIE_NAME, path="/", secure=settings.secure_cookie,
+            httponly=True, samesite="strict",
+        )
 
     @app.get("/v1/materials", response_model=MaterialLibraryView,
              operation_id="listMaterials", tags=["materials"])
@@ -581,9 +584,13 @@ def create_app(settings: ApiSettings) -> FastAPI:
             raise _ApiFailure("RESOURCE_NOT_FOUND")
         return MaterialLibraryItem.model_validate(materials[0])
 
-    @app.post("/v1/materials/{material_id}/rename", response_model=MaterialLibraryItem,
-              operation_id="renameMaterial", tags=["materials"])
-    def rename_material_route(request: Request, material_id: UUID, body: MaterialRename) -> MaterialLibraryItem:
+    @app.post(
+        "/v1/materials/{material_id}/rename", response_model=MaterialLibraryItem,
+        operation_id="renameMaterial", tags=["materials"],
+    )
+    def rename_material_route(
+        request: Request, material_id: UUID, body: MaterialRename
+    ) -> MaterialLibraryItem:
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
         return MaterialLibraryItem.model_validate(rename_material(
@@ -591,115 +598,215 @@ def create_app(settings: ApiSettings) -> FastAPI:
         ))
 
 
-    def source_listing(owner,material_id):
-        sources=read_sources(owner,material_id,dsn=settings.dsn)
+    def source_listing(owner, material_id):
+        sources = read_sources(owner, material_id, dsn=settings.dsn)
         with database_session(settings.dsn) as session:
-            material=session.scalar(select(Material).where(Material.learner_id==owner,Material.material_id==material_id))
-            if material is None:raise SourceError("RESOURCE_NOT_FOUND")
-            discarding=material.discard_requested_at is not None
-        return SourceListView(material_id=material_id,sources=sources,discard_requested=discarding)
+            material = session.scalar(select(Material).where(
+                Material.learner_id == owner,
+                Material.material_id == material_id,
+            ))
+            if material is None:
+                raise SourceError("RESOURCE_NOT_FOUND")
+            discarding = material.discard_requested_at is not None
+        return SourceListView(
+            material_id=material_id, sources=sources, discard_requested=discarding,
+        )
 
-    @app.get("/v2/source-capabilities",response_model=SourceCapabilities)
-    def source_capabilities(request:Request):
-        _require_query(request,set());_trusted_learner(request,settings)
-        enabled=configured_python() is not None
-        return SourceCapabilities(formats=[{"extension":ext,"media_type":media,"max_bytes":MAX_FILE_BYTES} for ext,media in MIME.items() if ext==".pdf" or enabled],
-            quality_notice="建議優先上傳 PDF。其他支援格式會自動轉為 PDF，轉換品質不保證，請檢查轉換後內容。")
+    @app.get("/v1/source-capabilities", response_model=SourceCapabilities)
+    def source_capabilities(request: Request):
+        _require_query(request, set())
+        _trusted_learner(request, settings)
+        enabled = normalizer_available()
+        return SourceCapabilities(
+            formats=[
+                {"extension": ext, "media_type": media, "max_bytes": MAX_FILE_BYTES}
+                for ext, media in MIME.items() if ext == ".pdf" or enabled
+            ],
+        )
 
-    @app.post("/v2/materials",status_code=201,response_model=MaterialDraftView)
-    def create_material_draft(request:Request,body:MaterialDraftCreate):
-        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
-        return MaterialDraftView(material_id=create_draft(owner,body.display_name,_idempotency_key(request),dsn=settings.dsn))
+    @app.post("/v1/materials", status_code=201, response_model=MaterialDraftView)
+    def create_material_draft(request: Request, body: MaterialDraftCreate):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        return MaterialDraftView(material_id=create_draft(
+            owner, body.display_name, _idempotency_key(request), dsn=settings.dsn,
+        ))
 
-    @app.post("/v2/materials/{material_id}/sources",status_code=202,response_model=SourceListView)
-    async def upload_material_source(request:Request,material_id:UUID):
-        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id;key=_idempotency_key(request)
-        names=request.headers.getlist("x-material-name")
-        if len(names)!=1 or len(names[0])>2400:raise _ApiFailure("REQUEST_INVALID")
-        try:name=unquote(names[0],encoding="utf-8",errors="strict")
-        except UnicodeError:raise _ApiFailure("REQUEST_INVALID") from None
-        data=bytearray()
+    @app.post(
+        "/v1/materials/{material_id}/sources", status_code=202,
+        response_model=SourceListView,
+    )
+    async def upload_material_source(request: Request, material_id: UUID):
+        _require_query(request, set())
+        owner = (await run_in_threadpool(_trusted_learner, request, settings)).learner_id
+        key = _idempotency_key(request)
+        names = request.headers.getlist("x-material-name")
+        if len(names) != 1 or len(names[0]) > 2400:
+            raise _ApiFailure("REQUEST_INVALID")
+        try:
+            name = unquote(names[0], encoding="utf-8", errors="strict")
+        except UnicodeError:
+            raise _ApiFailure("REQUEST_INVALID") from None
+        data = bytearray()
         async for chunk in request.stream():
-            if len(data)+len(chunk)>MAX_FILE_BYTES:raise _ApiFailure("MATERIAL_TOO_LARGE")
+            if len(data) + len(chunk) > MAX_FILE_BYTES:
+                raise _ApiFailure("MATERIAL_TOO_LARGE")
             data.extend(chunk)
-        await run_in_threadpool(upload_source,owner,material_id,bytes(data),name,request.headers.get("content-type"),key,dsn=settings.dsn)
-        return source_listing(owner,material_id)
+        await run_in_threadpool(
+            upload_source, owner, material_id, bytes(data), name,
+            request.headers.get("content-type"), key, dsn=settings.dsn,
+        )
+        return await run_in_threadpool(source_listing, owner, material_id)
 
-    @app.get("/v2/materials/{material_id}/sources",response_model=SourceListView)
-    def get_material_sources(request:Request,material_id:UUID):
-        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
-        return source_listing(owner,material_id)
+    @app.get("/v1/materials/{material_id}/sources", response_model=SourceListView)
+    def get_material_sources(request: Request, material_id: UUID):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        return source_listing(owner, material_id)
 
-    @app.post("/v2/materials/{material_id}/sources/{normalization_id}/retry",response_model=SourceListView)
-    async def retry_material_source(request:Request,material_id:UUID,normalization_id:UUID):
-        _require_query(request,set());await _require_empty_body(request);owner=_trusted_learner(request,settings).learner_id
-        retry_normalization(owner,material_id,normalization_id,dsn=settings.dsn)
-        return source_listing(owner,material_id)
+    @app.post(
+        "/v1/materials/{material_id}/sources/{normalization_id}/retry",
+        response_model=SourceListView,
+        dependencies=[Depends(_require_empty_body)],
+    )
+    def retry_material_source(
+        request: Request, material_id: UUID, normalization_id: UUID
+    ):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        retry_normalization(owner, material_id, normalization_id, dsn=settings.dsn)
+        return source_listing(owner, material_id)
 
-    @app.post("/v2/materials/{material_id}/revisions",status_code=202,response_model=MaterialProcessingRunView)
-    def create_material_revision(request:Request,material_id:UUID,body:RevisionCreate):
-        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
-        return project_material_run(create_revision(owner,material_id,body.normalization_ids,_idempotency_key(request),deepcopy(settings.local_config),base_revision=body.base_revision,dsn=settings.dsn))
+    @app.post(
+        "/v1/materials/{material_id}/revisions", status_code=202,
+        response_model=MaterialProcessingRunView,
+    )
+    def create_material_revision(
+        request: Request, material_id: UUID, body: RevisionCreate
+    ):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        return project_material_run(create_revision(
+            owner, material_id, body.normalization_ids, _idempotency_key(request),
+            deepcopy(settings.local_config), base_revision=body.base_revision,
+            dsn=settings.dsn,
+        ))
 
-    @app.post("/v2/material-processing-runs/{run_id}/cancel",response_model=MaterialProcessingRunView)
-    def cancel_material_revision(request:Request,run_id:UUID,body:RevisionCancel):
-        from ..material_processing import request_material_processing_cancellation,read_material_processing_run
-        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
-        run=read_material_processing_run(owner,run_id,dsn=settings.dsn)
-        if run.base_revision!=body.base_revision:raise _ApiFailure('REQUEST_INVALID')
-        return project_material_run(request_material_processing_cancellation(owner,run_id,update_only=True,dsn=settings.dsn))
+    @app.post(
+        "/v1/material-processing-runs/{run_id}/cancel",
+        response_model=MaterialProcessingRunView,
+    )
+    def cancel_material_revision(
+        request: Request, run_id: UUID, body: RevisionCancel
+    ):
+        from ..material_processing import request_material_processing_cancellation
 
-    @app.post("/v2/materials/{material_id}/review", status_code=202, response_model=MaterialProcessingRunView)
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        run = read_material_processing_run(owner, run_id, dsn=settings.dsn)
+        if run.base_revision != body.base_revision:
+            raise _ApiFailure("REQUEST_INVALID")
+        return project_material_run(request_material_processing_cancellation(
+            owner, run_id, update_only=True, dsn=settings.dsn,
+        ))
+
+    @app.post("/v1/materials/{material_id}/review", status_code=202, response_model=MaterialProcessingRunView)
     def review_material_revision(request: Request, material_id: UUID, body: MaterialReviewCreate):
         _require_query(request, set())
         owner = _trusted_learner(request, settings).learner_id
-        return project_material_run(create_revision(owner, material_id, [], _idempotency_key(request),
-            deepcopy(settings.local_config), base_revision=body.base_revision, dsn=settings.dsn))
+        return project_material_run(create_revision(
+            owner, material_id, [], _idempotency_key(request),
+            deepcopy(settings.local_config), base_revision=body.base_revision,
+            dsn=settings.dsn,
+        ))
 
-    @app.post("/v2/material-processing-runs/{run_id}/retry",status_code=202,response_model=MaterialProcessingRunView)
-    async def retry_material_revision(request:Request,run_id:UUID):
+    @app.post(
+        "/v1/material-processing-runs/{run_id}/retry", status_code=202,
+        response_model=MaterialProcessingRunView,
+        dependencies=[Depends(_require_empty_body)],
+    )
+    def retry_material_revision(request: Request, run_id: UUID):
         from ..source_revisions import retry_revision
-        _require_query(request,set());await _require_empty_body(request)
-        owner=_trusted_learner(request,settings).learner_id
-        return project_material_run(await run_in_threadpool(retry_revision,owner,run_id,_idempotency_key(request),deepcopy(settings.local_config),dsn=settings.dsn))
 
-    @app.delete("/v2/materials/{material_id}/sources/{source_id}",response_model=SourceListView)
-    async def remove_material_source(request:Request,material_id:UUID,source_id:UUID):
-        _require_query(request,set());await _require_empty_body(request);owner=_trusted_learner(request,settings).learner_id
-        remove_staged_source(owner,material_id,source_id,dsn=settings.dsn)
-        return source_listing(owner,material_id)
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        return project_material_run(retry_revision(
+            owner, run_id, _idempotency_key(request),
+            deepcopy(settings.local_config), dsn=settings.dsn,
+        ))
 
-    @app.get("/v2/materials/{material_id}/knowledge-structures/{revision}/evidence/{evidence_id}/source",response_model=EvidenceSourceView)
-    def evidence_source(request:Request,material_id:UUID,revision:str,evidence_id:str):
-        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
-        return resolve_evidence_source(owner,material_id,revision,evidence_id,dsn=settings.dsn)
+    @app.delete(
+        "/v1/materials/{material_id}/sources/{source_id}",
+        response_model=SourceListView,
+        dependencies=[Depends(_require_empty_body)],
+    )
+    def remove_material_source(
+        request: Request, material_id: UUID, source_id: UUID
+    ):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        remove_staged_source(owner, material_id, source_id, dsn=settings.dsn)
+        return source_listing(owner, material_id)
 
-    @app.get("/v2/artifacts/{artifact_id}",response_class=StreamingResponse)
-    def original_artifact(request:Request,artifact_id:UUID):
-        _require_query(request,set());owner=_trusted_learner(request,settings).learner_id
+    @app.get(
+        "/v1/materials/{material_id}/knowledge-structures/{revision}/evidence/{evidence_id}/source",
+        response_model=EvidenceSourceView,
+    )
+    def evidence_source(
+        request: Request, material_id: UUID, revision: str, evidence_id: str
+    ):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        return resolve_evidence_source(
+            owner, material_id, revision, evidence_id, dsn=settings.dsn,
+        )
+
+    @app.get("/v1/artifacts/{artifact_id}/download", response_class=StreamingResponse)
+    def original_artifact(request: Request, artifact_id: UUID):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
         with database_session(settings.dsn) as session:
-            artifact=session.get(Artifact,artifact_id)
-            if artifact is None or artifact.learner_id!=owner or artifact.kind != "original":raise _ApiFailure("RESOURCE_NOT_FOUND")
-            media=artifact.media_type
-            original_name=session.scalar(select(MaterialSource.original_name).where(MaterialSource.learner_id==owner,MaterialSource.original_artifact_id==artifact_id))
-        context=open_verified_artifact(owner,artifact_id,dsn=settings.dsn)
-        try:source=context.__enter__()
-        except Exception:raise _ApiFailure("RESOURCE_NOT_FOUND") from None
-        extension=next((ext for ext,mime in MIME.items() if mime==media),".bin")
-        return StreamingResponse(_verified_source_iterator(context,source),media_type=media,
-            headers={"Content-Disposition":f'attachment; filename="material{extension}"; filename*=UTF-8\'\'{quote(original_name or ("material"+extension),safe="")}',"X-Content-Type-Options":"nosniff","Content-Length":str(source.size_bytes)})
+            artifact = session.get(Artifact, artifact_id)
+            if artifact is None or artifact.learner_id != owner or artifact.kind != "original":
+                raise _ApiFailure("RESOURCE_NOT_FOUND")
+            media = artifact.media_type
+            original_name = session.scalar(select(MaterialSource.original_name).where(
+                MaterialSource.learner_id == owner,
+                MaterialSource.original_artifact_id == artifact_id,
+            ))
+        context = open_verified_artifact(owner, artifact_id, dsn=settings.dsn)
+        try:
+            source = context.__enter__()
+        except Exception:
+            raise _ApiFailure("RESOURCE_NOT_FOUND") from None
+        extension = next((ext for ext, mime in MIME.items() if mime == media), ".bin")
+        download_name = original_name or ("material" + extension)
+        disposition = (
+            f'attachment; filename="material{extension}"; '
+            f"filename*=UTF-8''{quote(download_name, safe='')}"
+        )
+        return StreamingResponse(
+            _verified_source_iterator(context, source), media_type=media,
+            headers={
+                "Content-Disposition": disposition,
+                "X-Content-Type-Options": "nosniff",
+                "Content-Length": str(source.size_bytes),
+            },
+        )
 
 
     @app.delete(
         "/v1/materials/{material_id}", status_code=202,
         response_model=MaterialDiscardView, response_model_by_alias=True,
         operation_id="discardMaterial", tags=["materials"],
+        dependencies=[Depends(_require_empty_body)],
     )
-    async def discard_material_route(request: Request, material_id: UUID) -> MaterialDiscardView:
+    def discard_material_route(request: Request, material_id: UUID) -> MaterialDiscardView:
         _require_query(request, set())
-        await _require_empty_body(request)
         learner = _trusted_learner(request, settings)
-        state = await run_in_threadpool(request_material_discard, learner.learner_id, material_id, dsn=settings.dsn)
+        state = request_material_discard(
+            learner.learner_id, material_id, dsn=settings.dsn,
+        )
         return MaterialDiscardView(material_id=material_id, state=state)
 
     @app.get(
@@ -709,10 +816,12 @@ def create_app(settings: ApiSettings) -> FastAPI:
         operation_id="getMaterialProcessingRun",
         tags=["material-processing"],
     )
-    async def read_material_run_route(request: Request, run_id: UUID) -> MaterialProcessingRunView:
+    def read_material_run_route(request: Request, run_id: UUID) -> MaterialProcessingRunView:
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
-        return project_material_run(read_material_processing_run(learner.learner_id, run_id, dsn=settings.dsn))
+        return project_material_run(read_material_processing_run(
+            learner.learner_id, run_id, dsn=settings.dsn,
+        ))
 
     @app.get(
         "/v1/materials/{material_id}/knowledge-structures/{structure_revision}",
@@ -721,16 +830,19 @@ def create_app(settings: ApiSettings) -> FastAPI:
         operation_id="getKnowledgeStructure",
         tags=["review"],
     )
-    def read_map_route(request: Request, material_id: UUID, structure_revision: str) -> KnowledgeStructureView:
+    def read_map_route(
+        request: Request, material_id: UUID, structure_revision: str
+    ) -> KnowledgeStructureView:
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
         stored = read_knowledge_structure(
             learner.learner_id, material_id, revision=structure_revision, dsn=settings.dsn
         )
-        return KnowledgeStructureView.model_validate(deepcopy(stored.view))
+        return project_knowledge_structure(stored.view)
 
     @app.get(
-        "/v1/materials/{material_id}/knowledge-structures/{structure_revision}/study-sessions/{study_session_id}/resume",
+        "/v1/materials/{material_id}/knowledge-structures/{structure_revision}"
+        "/study-sessions/{study_session_id}/resume",
         response_model=StudyResumeView, operation_id="resumeStudySession", tags=["learning"],
     )
     def resume_study_route(
@@ -740,20 +852,38 @@ def create_app(settings: ApiSettings) -> FastAPI:
     ) -> StudyResumeView:
         _require_query(request, {"run_id", "set_id"})
         learner = _trusted_learner(request, settings)
-        with progress_snapshot(learner, study_session_id, dsn=settings.dsn) as (db, study, document, progress):
-            if study.material_id != material_id or study.knowledge_structure_revision != structure_revision or document['run_id'] != str(run_id):
+        with progress_snapshot(
+            learner, study_session_id, dsn=settings.dsn
+        ) as (db, study, document, progress):
+            if (
+                study.material_id != material_id
+                or study.knowledge_structure_revision != structure_revision
+                or document['run_id'] != str(run_id)
+            ):
                 raise _ApiFailure('RESOURCE_NOT_FOUND')
             from ..storage.knowledge_structures import _view
             run = read_material_processing_run(learner.learner_id, run_id, dsn=settings.dsn)
             rounds = assessment_sets._list_sets(db, study)
-            selected_set = str(set_id) if set_id is not None else next((group['set_id'] for group in rounds['sets']
-                if group['target_concept_id'] == study.current_concept_id), None)
+            selected_set = (
+                str(set_id) if set_id is not None
+                else next(
+                    (
+                        group['set_id'] for group in rounds['sets']
+                        if group['target_concept_id'] == study.current_concept_id
+                    ),
+                    None,
+                )
+            )
             if selected_set is not None and selected_set not in {group['set_id'] for group in rounds['sets']}:
                 raise _ApiFailure('RESOURCE_NOT_FOUND')
             return StudyResumeView(
-                session=project_study_session(study), run_id=run_id, source_artifact_id=run.source_artifact_id,
-                knowledge_structure=KnowledgeStructureView.model_validate(_view(document,material_id)),
-                progress=project_learner_progress(progress), assessment_sets=rounds['sets'], selected_set_id=selected_set,
+                session=project_study_session(study),
+                run_id=run_id,
+                source_artifact_id=run.source_artifact_id,
+                knowledge_structure=project_knowledge_structure(_view(document, material_id)),
+                progress=project_learner_progress(progress),
+                assessment_sets=rounds['sets'],
+                selected_set_id=selected_set,
             )
 
     @app.post(
@@ -764,7 +894,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         operation_id="createStudySession",
         tags=["learning"],
     )
-    async def create_study_session_route(
+    def create_study_session_route(
         request: Request, body: StudySessionCreate
     ) -> StudySessionView:
         _require_query(request, set())
@@ -784,123 +914,140 @@ def create_app(settings: ApiSettings) -> FastAPI:
         response_model=StudySessionView, response_model_by_alias=True,
         operation_id="focusStudySession", tags=["learning"],
     )
-    async def focus_study_session_route(request: Request, study_session_id: UUID, body: StudySessionFocus) -> StudySessionView:
+    def focus_study_session_route(
+        request: Request, study_session_id: UUID, body: StudySessionFocus
+    ) -> StudySessionView:
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
         return project_study_session(set_current_study_concept(
             learner, study_session_id, body.current_concept_id, dsn=settings.dsn,
         ))
 
+    def read_set_view(learner: TrustedLearner, study_session_id: UUID, set_id: UUID):
+        return AssessmentSetView.model_validate(assessment_sets.read_set(
+            learner, study_session_id, set_id, dsn=settings.dsn,
+        ))
+
     @app.get(
-        "/v1/study-sessions/{study_session_id}",
-        response_model=StudySessionView,
-        response_model_by_alias=True,
-        operation_id="getStudySession",
-        tags=["learning"],
+        '/v1/study-sessions/{study_session_id}/assessment-plan',
+        response_model=AssessmentPlanView,
+        operation_id='getAssessmentPlan', tags=['learning'],
     )
-    async def read_study_session_route(
-        request: Request, study_session_id: UUID
-    ) -> StudySessionView:
-        _require_query(request, set())
-        learner = _trusted_learner(request, settings)
-        return project_study_session(
-            read_study_session(learner, study_session_id, dsn=settings.dsn)
-        )
-
-    @app.post(
-        "/v1/study-sessions/{study_session_id}/complete",
-        response_model=StudySessionView,
-        response_model_by_alias=True,
-        operation_id="completeStudySession",
-        tags=["learning"],
-    )
-    async def complete_study_session_route(
-        request: Request, study_session_id: UUID
-    ) -> StudySessionView:
-        _require_query(request, set())
-        await _require_empty_body(request)
-        learner = _trusted_learner(request, settings)
-        return project_study_session(
-            complete_study_session(
-                learner, study_session_id, dsn=settings.dsn
-            )
-        )
-
-    @app.get('/v1/study-sessions/{study_session_id}/assessment-plan', response_model=AssessmentPlanView,
-             operation_id='getAssessmentPlan', tags=['learning'])
     def get_assessment_plan(request: Request, study_session_id: UUID, concept_id: str):
         _require_query(request, {'concept_id'})
         return AssessmentPlanView.model_validate(assessment_sets.read_plan(
-            _trusted_learner(request, settings), study_session_id, concept_id, dsn=settings.dsn))
+            _trusted_learner(request, settings), study_session_id, concept_id,
+            dsn=settings.dsn,
+        ))
 
-    @app.get('/v1/study-sessions/{study_session_id}/assessment-sets', response_model=AssessmentSetListView,
-             operation_id='listAssessmentSets', tags=['learning'])
+    @app.get(
+        '/v1/study-sessions/{study_session_id}/assessment-sets',
+        response_model=AssessmentSetListView,
+        operation_id='listAssessmentSets', tags=['learning'],
+    )
     def list_assessment_sets(request: Request, study_session_id: UUID):
         _require_query(request, set())
         return AssessmentSetListView.model_validate(assessment_sets.list_sets(
-            _trusted_learner(request, settings), study_session_id, dsn=settings.dsn))
+            _trusted_learner(request, settings), study_session_id, dsn=settings.dsn,
+        ))
 
-    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets', response_model=AssessmentSetView,
-              status_code=202, operation_id='createAssessmentSet', tags=['learning'])
+    @app.post(
+        '/v1/study-sessions/{study_session_id}/assessment-sets',
+        response_model=AssessmentSetView, status_code=202,
+        operation_id='createAssessmentSet', tags=['learning'],
+    )
     def create_assessment_set(request: Request, study_session_id: UUID, body: AssessmentSetCreate):
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
-        set_id = assessment_sets.create_set(learner, study_session_id, body.target_concept_id,
-            _idempotency_key(request), deepcopy(settings.local_config), dsn=settings.dsn)
-        return AssessmentSetView.model_validate(assessment_sets.read_set(learner, study_session_id, set_id, dsn=settings.dsn))
+        set_id = assessment_sets.create_set(
+            learner, study_session_id, body.target_concept_id,
+            _idempotency_key(request), deepcopy(settings.local_config), dsn=settings.dsn,
+        )
+        return read_set_view(learner, study_session_id, set_id)
 
-    @app.get('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}', response_model=AssessmentSetView,
-             operation_id='getAssessmentSet', tags=['learning'])
+    @app.get(
+        '/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}',
+        response_model=AssessmentSetView,
+        operation_id='getAssessmentSet', tags=['learning'],
+    )
     def get_assessment_set(request: Request, study_session_id: UUID, set_id: UUID):
         _require_query(request, set())
-        return AssessmentSetView.model_validate(assessment_sets.read_set(
-            _trusted_learner(request, settings), study_session_id, set_id, dsn=settings.dsn))
+        return read_set_view(_trusted_learner(request, settings), study_session_id, set_id)
 
-    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/submissions', response_model=AssessmentSetView,
-              operation_id='submitAssessmentSet', tags=['learning'])
-    def submit_assessment_set(request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentSetSubmission):
+    @app.post(
+        '/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/submissions',
+        response_model=AssessmentSetView,
+        operation_id='submitAssessmentSet', tags=['learning'],
+    )
+    def submit_assessment_set(
+        request: Request, study_session_id: UUID, set_id: UUID,
+        body: AssessmentSetSubmission,
+    ):
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
-        assessment_sets.submit_set_answers(learner, study_session_id, set_id, [answer.model_dump() for answer in body.answers],
-            body.expected_set_version, _idempotency_key(request), dsn=settings.dsn)
-        return AssessmentSetView.model_validate(assessment_sets.read_set(learner, study_session_id, set_id, dsn=settings.dsn))
+        assessment_sets.submit_set_answers(
+            learner, study_session_id, set_id,
+            [answer.model_dump() for answer in body.answers],
+            body.expected_set_version, _idempotency_key(request), dsn=settings.dsn,
+        )
+        return read_set_view(learner, study_session_id, set_id)
 
-    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/remediation', response_model=AssessmentSetView,
-              status_code=202, operation_id='createRemediationSet', tags=['learning'])
-    def create_remediation_set(request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentSetAction):
+    @app.post(
+        '/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/remediation',
+        response_model=AssessmentSetView, status_code=202,
+        operation_id='createRemediationSet', tags=['learning'],
+    )
+    def create_remediation_set(
+        request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentSetAction
+    ):
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
-        created = assessment_sets.create_remediation(learner, study_session_id, set_id, body.expected_set_version,
-            _idempotency_key(request), deepcopy(settings.local_config), dsn=settings.dsn)
-        return AssessmentSetView.model_validate(assessment_sets.read_set(learner, study_session_id, created, dsn=settings.dsn))
+        created = assessment_sets.create_remediation(
+            learner, study_session_id, set_id, body.expected_set_version,
+            _idempotency_key(request), deepcopy(settings.local_config), dsn=settings.dsn,
+        )
+        return read_set_view(learner, study_session_id, created)
 
     def apply_set_action(request, study_session_id, set_id, body, action):
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
-        assessment_sets.change_set(learner, study_session_id, set_id, action, body.expected_set_version,
-                                  _idempotency_key(request), dsn=settings.dsn)
-        return AssessmentSetView.model_validate(assessment_sets.read_set(learner, study_session_id, set_id, dsn=settings.dsn))
+        assessment_sets.change_set(
+            learner, study_session_id, set_id, action, body.expected_set_version,
+            _idempotency_key(request), dsn=settings.dsn,
+        )
+        return read_set_view(learner, study_session_id, set_id)
 
-    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/retry', response_model=AssessmentSetView,
-              operation_id='retryAssessmentSet', tags=['learning'])
-    def retry_assessment_set(request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentSetAction):
+    @app.post(
+        '/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/retry',
+        response_model=AssessmentSetView,
+        operation_id='retryAssessmentSet', tags=['learning'],
+    )
+    def retry_assessment_set(
+        request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentSetAction
+    ):
         return apply_set_action(request, study_session_id, set_id, body, 'retry')
 
-    @app.post('/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/publish-partial', response_model=AssessmentSetView,
-              operation_id='publishPartialAssessmentSet', tags=['learning'])
-    def publish_partial_assessment_set(request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentSetAction):
+    @app.post(
+        '/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/publish-partial',
+        response_model=AssessmentSetView,
+        operation_id='publishPartialAssessmentSet', tags=['learning'],
+    )
+    def publish_partial_assessment_set(
+        request: Request, study_session_id: UUID, set_id: UUID, body: AssessmentSetAction
+    ):
         return apply_set_action(request, study_session_id, set_id, body, 'publish-partial')
 
-
-
-
-
-    @app.post('/v1/study-sessions/{study_session_id}/guidance/apply', response_model=LearnerProgressView,
-              operation_id='applyGuidance', tags=['learning'])
+    @app.post(
+        '/v1/study-sessions/{study_session_id}/guidance/apply',
+        response_model=LearnerProgressView,
+        operation_id='applyGuidance', tags=['learning'],
+    )
     def apply_guidance_route(request: Request, study_session_id: UUID, body: GuidanceApply):
         _require_query(request, set())
-        return project_learner_progress(apply_guidance(_trusted_learner(request, settings), study_session_id,
-            body.guidance_revision, dsn=settings.dsn))
+        return project_learner_progress(apply_guidance(
+            _trusted_learner(request, settings), study_session_id,
+            body.guidance_revision, dsn=settings.dsn,
+        ))
 
     @app.get(
         "/v1/study-sessions/{study_session_id}/progress",
@@ -921,8 +1068,11 @@ def create_app(settings: ApiSettings) -> FastAPI:
         )
 
 
-    @app.get("/v1/artifacts/{artifact_id}", operation_id="getSourceArtifact", tags=["artifacts"], response_class=StreamingResponse)
-    async def read_artifact_route(request: Request, artifact_id: UUID) -> StreamingResponse:
+    @app.get(
+        "/v1/artifacts/{artifact_id}", operation_id="getSourceArtifact",
+        tags=["artifacts"], response_class=StreamingResponse,
+    )
+    def read_artifact_route(request: Request, artifact_id: UUID) -> StreamingResponse:
         _require_query(request, set())
         learner = _trusted_learner(request, settings)
         context = open_verified_source_pdf(learner.learner_id, artifact_id, dsn=settings.dsn)

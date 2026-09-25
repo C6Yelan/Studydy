@@ -9,8 +9,8 @@ Upload → Processing 是新教材的第一次分析。「取消並刪除教材�
 - CookieSession、Origin required；拒絕 query、非空 body 與 client learner override，不需要 Idempotency-Key。
 - 跨 owner／已不存在為 `RESOURCE_NOT_FOUND` / 404。不保存刪除 tombstone；重複 DELETE 在 removing 期間穩定，完成後為 404。
 - 已要求刪除的教材不可 rename 或 create run（`MATERIAL_NOT_DISCARDABLE` / 409）；DB／filesystem 暫時錯誤為 `STORAGE_UNAVAILABLE` / 503。
-- 單 PDF run 為 `material-processing-run/v5`；來源集合 run 為 v6，output binding 維持 v4。
-- B3-A 追加使用 `POST /v2/material-processing-runs/{run_id}/cancel`，保留目前地圖與學習紀錄，詳見 [追加契約](source-revisions.md)。首次分析的「取消並刪除教材」仍使用 DELETE。
+- 來源集合 run 使用 `material-processing-run/v1`，output binding 使用 `material-run-output-binding/v1`。
+- B3-A 追加使用 `POST /v1/material-processing-runs/{run_id}/cancel`，保留目前地圖與學習紀錄，詳見 [追加契約](source-revisions.md)。首次分析的「取消並刪除教材」仍使用 DELETE。
 
 ## Eligibility 與持久化意圖
 
@@ -61,7 +61,7 @@ Failed/cancelled/no-run card 只有在沒有 map/session 時呈現「刪除教�
 
 ## Migration 與版本切換
 
-新增 `0006_material_discard.sql`，只新增 nullable Material 欄位；0001–0005 完全不變。升級前確認舊版沒有 active cancel-only request，並協調停止舊 backend，再 migration/build/start；不要讓舊 public cancel route 與新 invariant 混用。歷史 terminal cancellation 不需搬移或刪除。
+`0001_identity_and_materials.sql` 包含 nullable Material 刪除意圖，`0002_sources_and_processing.sql` 包含最終取消規則。歷史 terminal cancellation 不需搬移或刪除；既有 DB 的 baseline 接軌見 [帳號與 migration](accounts.md#migration)。
 
 ## Verification
 

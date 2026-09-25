@@ -1,5 +1,42 @@
 # Studydy final architecture
 
+Studydy 自有的現行 schema、政策與 API 契約統一為 v1，採用每種契約最新資料形狀。
+Backend、frontend、runtime lock 與資料庫只接受此契約；第三方 API 路徑、套件／模型 revision
+及 optimistic concurrency 的 `set_version` 不屬於這次版本重整。
+
+`build_structure_draft()` 產生未綁來源的內部草稿，沒有正式 schema 或 revision。
+`finalize_knowledge_structure()` 在來源集合綁定後產生唯一的 `knowledge-structure/v1`，
+revision 包含正式契約與 binding；舊 revision 不能只換 schema 標籤沿用。持久層拒絕未標 schema
+或其他版本的結構。語意推論只走 HTTP；runtime-binding v1 保存該次 HTTP 模型與服務身分。
+
+語意模型 ID／revision 由執行設定指定。教材以該 run 保存的 runtime lock／binding 核對 provenance，
+題目以生成它的題組保存的 runtime lock 核對模型、policy 與 prompt hashes；
+教材模型與出題模型可以不同。結構 validator 保護資料形狀、內容 revision 與來源關係，
+不把某個模型名稱當成內容有效性的條件；不提供舊版本 reader 或缺少快照時的放行分支。
+服務 preflight 仍檢查已設定模型的 discovery、server version、context 與 tokenizer，
+模型實際權重 revision 仍須部署證據確認。換模型需另行完成品質驗收，Gemma 的既有驗收不自動適用。
+
+Runtime 設定、安裝檢查與 binding 比對由 `runtime/material_runtime.py` 負責；
+`material_processing.py` 保留工作狀態、續租與執行協調。`source_resolver.py` 核對來源集合
+與結構輸入，`storage/knowledge_structures.py` 負責讀取已驗證結構及其 Evidence 來源定位，
+來源驗證不反向呼叫結構讀取。純同步 API 使用同步路由，空 body 由非同步 dependency
+驗證；串流上傳保留非同步接收，身分查詢、寫入與列表讀取交由 threadpool。
+
+一般地圖／學習讀取在同一 DB snapshot 核對保存結構、runtime 與來源集合 metadata，
+不為顯示已存內容掃描所有原檔。來源發布時完整核對 original／normalized／mapping bytes；
+下載、PDF 預覽、分析輸入及 Evidence mapping 使用時，各自完整驗證實際開啟的檔案。
+因此原檔損毀不會讓保存地圖消失，但使用損毀檔案或發布新結果必須失敗。
+題組設定在同一次交易中共用已驗證的 provenance，prior question 直接傳遞已驗證結果；
+沒有跨請求 hash 快取，內容 revision、私密答案、冪等與 checkpoint 檢查保留。
+
+| Artifact 操作 | 路由 | 邊界與回應 |
+|---|---|---|
+| normalized PDF 預覽 | `GET /v1/artifacts/{id}` | owner 與 normalized 類型核對、PDF、內容長度與 ETag |
+| 原檔下載 | `GET /v1/artifacts/{id}/download` | owner 與 original 類型核對、原 MIME、attachment 檔名、nosniff |
+
+兩者均為 private/no-store，不允許拿另一種 artifact ID 代替；舊 `/v2` 路徑不提供 alias。
+版本切換的資料保留、衍生資料清理與備份見 [本地環境](local-environment.md)。
+
 Production has one semantic path:
 
 ```text
@@ -10,10 +47,10 @@ PDF → native Evidence / optional OCR → document sections + Evidence bundle
 ```
 
 Supplementary resource recommendation (Agent 2) is removed. Concepts retain only the uploaded
-material's Evidence and PDF locators. Knowledge Structure and its public view use schema v2, with
+material's Evidence and PDF locators. Knowledge Structure and its public view use schema v1, with
 no resource-library fields or separate resource PDF kind. Fresh pre-release databases use the
-initial migration followed by additive learner-credentials and material-name migrations; historical evaluation
-artifacts remain separate and are not rewritten.
+four domain baselines: identity/materials, sources/processing, learning/answers, and assessment sets.
+Historical evaluation artifacts remain separate and are not rewritten.
 
 Gemma 4 owns Concept boundaries, Claim meaning, cross-section consolidation, Relation proposals/reasons,
 and Assessment semantics. Code owns source identity, Evidence/span binding, exact technical literals,
@@ -24,14 +61,14 @@ and stale/idempotency/concurrency behavior.
 它共用既有 semantic transport；既有教材可重用已保存 Evidence 建立整理版本。原版地圖與舊作答不覆寫。
 
 Material requests retain document-global integer handles, page, kind, and exact text under section
-titles. Response v4 Claims select whole Evidence handles with `s: [handle, ...]`; character offsets
+titles. Response v1 Claims select whole Evidence handles with `s: [handle, ...]`; character offsets
 are not accepted. Native Evidence joins geometrically consecutive lines within a PDF text block or a wrapped
 continuation across blocks, respecting heading levels, columns and new list items while preserving
 line breaks and bounding boxes. A null meaning reuses the
 selected units. Code expands quotes and canonical references; technical-literal protection still
 applies, but partial quotations cannot replace a complete meaning.
 
-Page processing policy `native-first-page-evidence/v7` combines these native Evidence units with
+Page processing policy `native-first-page-evidence/v1` combines these native Evidence units with
 OCR for substantial image regions that have little native text coverage. Readable native text alone
 does not establish page completeness. Mixed pages retain their native units and add OCR text from
 the uncovered image regions; unrecovered image content retains a review status.
@@ -57,14 +94,14 @@ the runtime lock; packing and inference use the same template options. Relation 
 supported edges while distinguishing necessary dependencies, concrete uses, and the entities being
 compared.
 
-Assessment generates three candidates with the v2 response contract, then makes one bounded batch
+Assessment generates three candidates with the v1 response contract, then makes one bounded batch
 check through the same resident Gemma 4 service. The checker receives source Evidence and reordered
 options without the proposed answer key. Publication requires a unique selected answer matching
 the generator's exact source span, and no duplicate of a prior question. Rewording the same task,
 referent and conditions is a duplicate; different requested attributes, referents or application
 scenarios can assess the same knowledge. Distractors may occur elsewhere in Evidence.
 Code retains exact source binding, option identities, private answers, scoring and idempotency.
-B5-Q 的安全候選品質排序、provenance v8 與 source-span-single-choice/v6 見
+B5-Q 的安全候選品質排序、provenance v1 與 source-span-single-choice/v1 見
 [assessment-quality.md](assessment-quality.md)。品質提示不設最低分；舊題資料不改寫。
 每個 Claim 仍須兩道不同合格正確題且最新作答正確，單次答對不代表掌握。
 
@@ -86,8 +123,8 @@ stops, swaps, or unloads Gemma 4. Assessment uses the same authenticated loopbac
 mDeBERTa is removed.
 
 Pre-release persistence is a clean final schema. `knowledge_structures` stores one immutable artifact
-instead of parallel material/map artifacts. The credentials migration upgrades the accepted schema
-without rewriting stored artifacts.
+instead of parallel material/map artifacts. Baseline installation directly creates the final Email
+and source-aware schema; adopting it for an existing database preserves all product records.
 
 Account credentials live on `learners`; `learner_sessions` remains the authorization authority.
 Registration creates one learner and session atomically. Login verifies the salted scrypt password
@@ -103,23 +140,23 @@ recognizable date/ID label. Latest attempts and published revisions are listed i
 failed new attempt cannot hide a prior result. Reopen uses existing exact-revision GET endpoints
 and creates no learning records. There is no separate material-history store.
 
-Study resume (`study-resume/v5`) projects the bound StudySession, KnowledgeStructure,
+Study resume (`study-resume/v1`) projects the bound StudySession, KnowledgeStructure,
 AssessmentSet summaries and derived learner progress. The selected set is explicit in the
 Study Session URL. Published questions and feedback are read through the selected set, using
 its membership and private-answer validators. Reads never create sessions, questions or answers.
 Single-question generation/submission/history routes are removed.
 Completed-cycle navigation applies the current backend `advance` or `complete` decision through
-`POST /v1/study-sessions/{id}/guidance/apply` (`guidance-apply/v2`). The revision is checked under
+`POST /v1/study-sessions/{id}/guidance/apply` (`guidance-apply/v1`). The revision is checked under
 the shared Material/Study lock; replay cannot advance twice, and active assessments remain protected.
 There is no separate preparation page or mastery calculation.
 
-Material creation uses the source collection and revision APIs (`/v2/materials`, sources,
+Material creation uses the source collection and revision APIs (`/v1/materials`, sources,
 revisions); direct `/v1/materials` POST and `/v1/material-processing-runs` POST are retired.
-Public readers accept the current source-aware view/run/library contracts only. Historical
-migration files and persisted rows are not deleted or rewritten by this cleanup.
+Public readers accept the current source-aware view/run/library contracts only. Persisted product
+rows are retained; pre-release migration history was consolidated into four domain baselines.
 
 B3-A appends immutable source snapshots and analyzes only added sources, retaining verified prior
-Evidence and semantic content. PDFs remain separate, with source-aware reading positions in a v4
+Evidence and semantic content. PDFs remain separate, with source-aware reading positions in a v1
 KnowledgeStructure. Unchanged, unambiguous Claims can inherit existing answer evidence through the
 same learning-state reducer without copying or rewriting AnswerEvents. Valid updates containing new
 grounded Claims promote the head, including partial results with quality notices. Cancellation,

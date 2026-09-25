@@ -10,7 +10,7 @@ from pdf_evidence.local_ai_process import LocalAIError, start_ocr_process
 from pdf_evidence.material_pipeline import material_analysis_lock
 
 from .local_app import read_local_ai_config_from_environment
-from .material_processing import _runtime_error, runtime_preflight
+from .material_runtime import MaterialRuntimeError, runtime_preflight
 
 
 def _verify_model_loads(local_config: dict[str, Any]) -> None:
@@ -18,7 +18,7 @@ def _verify_model_loads(local_config: dict[str, Any]) -> None:
         ocr = start_ocr_process(local_config)
         ocr.close()
     except LocalAIError:
-        raise _runtime_error("ocr_model", "LOCAL_RUNTIME_SMOKE_FAILED") from None
+        raise MaterialRuntimeError("ocr_model", "LOCAL_RUNTIME_SMOKE_FAILED") from None
 
 
 def verify_local_runtime(local_config: dict[str, Any]) -> dict[str, Any]:
@@ -35,7 +35,7 @@ def verify_local_runtime(local_config: dict[str, Any]) -> dict[str, Any]:
 
 def _failure(error: Exception) -> dict[str, Any]:
     component = getattr(error, "component", None)
-    reason = getattr(error, "reason", None)
+    reason = getattr(error, "reason", None) or getattr(error, "reason_code", None)
     return {
         "status": "failed",
         "command": "verify",
@@ -55,7 +55,7 @@ def main(
     arguments = list(sys.argv[1:] if argv is None else argv)
     try:
         if arguments != ["verify"]:
-            raise _runtime_error("layout", "LOCAL_RUNTIME_SETTINGS_MISMATCH")
+            raise MaterialRuntimeError("layout", "LOCAL_RUNTIME_SETTINGS_MISMATCH")
         local_config = read_local_ai_config_from_environment(
             os.environ if environment is None else environment
         )

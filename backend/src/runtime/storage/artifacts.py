@@ -23,8 +23,6 @@ class ArtifactError(RuntimeError):
     """Artifact 操作失敗且不揭露路徑、內容或資料庫細節。"""
 
 
-
-
 @dataclass(frozen=True)
 class VerifiedSourcePdf:
     material_id: UUID
@@ -32,10 +30,6 @@ class VerifiedSourcePdf:
     sha256: str
     size_bytes: int
     file: BinaryIO = field(repr=False, compare=False)
-
-
-def _error(reason: str) -> ArtifactError:
-    return ArtifactError(reason)
 
 
 def _root() -> Path:
@@ -56,25 +50,23 @@ def _root() -> Path:
             or details.st_uid != os.geteuid()
         ):
             raise ValueError
-        objects = path / "objects"
-        staging = path / ".staging"
-        for directory in (objects, staging, path / ".trash"):
+        for directory in (path / "objects", path / ".staging", path / ".trash"):
             directory.mkdir(mode=0o700, exist_ok=True)
             item = directory.stat(follow_symlinks=False)
             if not stat.S_ISDIR(item.st_mode) or stat.S_IMODE(item.st_mode) != 0o700:
                 raise ValueError
         return path
     except (OSError, ValueError, UnicodeError):
-        raise _error("ARTIFACT_ROOT_INVALID") from None
+        raise ArtifactError("ARTIFACT_ROOT_INVALID") from None
 
 
 def _key_digest(value: str) -> bytes:
     try:
         encoded = value.encode("utf-8")
     except (AttributeError, UnicodeError):
-        raise _error("ARTIFACT_REQUEST_INVALID") from None
+        raise ArtifactError("ARTIFACT_REQUEST_INVALID") from None
     if not 1 <= len(encoded) <= 256:
-        raise _error("ARTIFACT_REQUEST_INVALID")
+        raise ArtifactError("ARTIFACT_REQUEST_INVALID")
     return sha256(encoded).digest()
 
 
@@ -90,9 +82,13 @@ def _sync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _lock_source_discard(session: Session, artifact_id: UUID) -> None:
-    # Reconciliation 必須等待 rename 所屬 transaction 結束，不能誤還原未提交的刪除。
-    session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": int.from_bytes(artifact_id.bytes[:8], "big", signed=True)})
+def _lock_source_discard(session: Session, artifact_id: UUID, *, wait: bool = True) -> bool:
+    # 核對必須與 rename 所屬 transaction 互斥，不能誤還原未提交的刪除。
+    function = "pg_advisory_xact_lock" if wait else "pg_try_advisory_xact_lock"
+    acquired = session.scalar(text(f"SELECT {function}(:key)"), {
+        "key": int.from_bytes(artifact_id.bytes[:8], "big", signed=True),
+    })
+    return True if wait else bool(acquired)
 
 
 def _reconcile_source(session: Session, root: Path, artifact_id: UUID) -> None:
@@ -126,7 +122,7 @@ def quarantine_source_pdf(session: Session, artifact_id: UUID) -> None:
         _sync_directory(source.parent)
         _sync_directory(root / ".trash")
     except Exception:
-        raise _error("ARTIFACT_STORAGE_FAILED") from None
+        raise ArtifactError("ARTIFACT_STORAGE_FAILED") from None
 
 
 def reconcile_discarded_sources(*, dsn: str | None = None, artifact_id: UUID | None = None) -> None:
@@ -136,10 +132,12 @@ def reconcile_discarded_sources(*, dsn: str | None = None, artifact_id: UUID | N
         identities = [artifact_id] if artifact_id else [UUID(hex=path.name) for path in (root / ".trash").iterdir()]
         for identity in identities:
             with database_session(dsn) as session:
-                _lock_source_discard(session, identity)
+                # 仍在寫入／刪除的項目留待下次核對，不阻擋其他教材。
+                if not _lock_source_discard(session, identity, wait=False):
+                    continue
                 _reconcile_source(session, root, identity)
     except Exception:
-        raise _error("ARTIFACT_STORAGE_FAILED") from None
+        raise ArtifactError("ARTIFACT_STORAGE_FAILED") from None
 
 
 def _verify_file(path: Path, expected_digest: bytes, expected_size: int) -> BinaryIO:
@@ -170,15 +168,7 @@ def _verify_file(path: Path, expected_digest: bytes, expected_size: int) -> Bina
                 os.close(descriptor)
             except OSError:
                 pass
-        raise _error("ARTIFACT_NOT_AVAILABLE") from None
-
-
-
-
-
-
-
-
+        raise ArtifactError("ARTIFACT_NOT_AVAILABLE") from None
 
 
 @contextmanager
@@ -186,7 +176,7 @@ def open_verified_source_pdf(
     learner_id: UUID, artifact_id: UUID, *, dsn: str | None = None
 ) -> Generator[VerifiedSourcePdf, None, None]:
     if not isinstance(learner_id, UUID) or not isinstance(artifact_id, UUID):
-        raise _error("ARTIFACT_NOT_AVAILABLE")
+        raise ArtifactError("ARTIFACT_NOT_AVAILABLE")
     try:
         with database_session(dsn) as session:
             row = session.execute(
@@ -197,12 +187,12 @@ def open_verified_source_pdf(
                 )
             ).one_or_none()
         if row is None:
-            raise _error("ARTIFACT_NOT_AVAILABLE")
+            raise ArtifactError("ARTIFACT_NOT_AVAILABLE")
         opened = _verify_file(_object_path(_root(), artifact_id), bytes(row[1]), row[2])
     except ArtifactError:
         raise
     except Exception:
-        raise _error("ARTIFACT_NOT_AVAILABLE") from None
+        raise ArtifactError("ARTIFACT_NOT_AVAILABLE") from None
     try:
         yield VerifiedSourcePdf(row[0], artifact_id, bytes(row[1]).hex(), row[2], opened)
     finally:

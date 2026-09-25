@@ -11,8 +11,8 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     source_name:scenario?.longContent ? "網路服務角色與多階段資料傳输來源_".repeat(5)+".pptx" : "01_網路模型與資料傳輸.pptx",block_order:i,kind:"paragraph",source:"native_text",
     source_locator:{page:1,block_id:rev("block",i+1),region:[1,2,30,40]},quote:text,
   }]}));
-  const view = {schema:"knowledge-structure-view/v3",material_id:rev("material",1),knowledge_structure_revision:revision,
-    source_resolver:`/v2/materials/${material}/knowledge-structures/${revision}/evidence`,
+  const view = {schema:"knowledge-structure-view/v1",material_id:rev("material",1),knowledge_structure_revision:revision,
+    source_resolver:`/v1/materials/${material}/knowledge-structures/${revision}/evidence`,
     status:{processing:"succeeded",quality:"accepted",decision:"retain",reason_codes:[]},
     document_tree:{material_id:rev("material",1),sections:[{section_id:sectionId,title:"網路通訊",order:0,heading_evidence_id:null,concept_ids:[conceptId]}]},
     concepts:[{concept_id:conceptId,label:"伺服器",aliases:["Server"],section_ids:[sectionId],source_pages:[1],claims}],
@@ -24,12 +24,12 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     view.initial_learning_path.push({position:2,concept_id:nextConceptId,reason:"document_order"});
   }
   let applied=false, navigationAction=scenario?.nextAction??"advance", guidanceVersion=1, latestProgress=null;
-  const question = (i, offset=0) => ({schema:"single-choice-assessment/v2",assessment_revision:rev("assessment",i+offset+1),
+  const question = (i, offset=0) => ({schema:"single-choice-assessment/v1",assessment_revision:rev("assessment",i+offset+1),
     study_session_id:session,knowledge_structure_revision:revision,question_id:rev("question",i+offset+1),target_concept_id:conceptId,
     target_claim_id:claims[i].claim_id,source_evidence_ids:[claims[i].evidence[0].evidence_id],question_type:"single_choice",
     prompt:`情境 ${i+1}：${texts[i]}下列哪一項符合教材所述的角色？`+(scenario?.longContent && i===0 ? "請比較各階段由誰提出請求、誰提供回應，並依照具體通訊情境判斷角色；同一主機可以在不同階段擔任不同角色。".repeat(3) : ""),
     options:["接收請求並依需求提供服務", "只要發出請求就一定是伺服器", "每台主機只能固定擔任單一角色", "所有通訊都不需要目的位址"].map((text,j)=>({option_id:rev("option",i*4+j+offset+1),text}))});
-  const feedback = (assessment,i) => ({schema:"answer-feedback/v2",answer_event_id:uuid(100+i),study_session_id:session,
+  const feedback = (assessment,i) => ({schema:"answer-feedback/v1",answer_event_id:uuid(100+i),study_session_id:session,
     assessment_revision:assessment.assessment_revision,question_id:assessment.question_id,selected_option_id:assessment.options[i===5?1:0].option_id,
     is_correct:i!==5,rationale:"請依照教材描述的通訊角色判斷。"+(scenario?.longContent && i===0 ? "判斷時要檢查請求的方向及對應服務，不以裝置名稱或硬體外形決定角色。".repeat(6) : ""),source_evidence_ids:assessment.source_evidence_ids,event_number:i+1,created_at:timestamp});
   let stage=initialStage, partial=false, version=1, preparedCount=2;
@@ -41,7 +41,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       return {ordinal:i+1,target_claim_id:claim.claim_id,state:assessment?"published":status==="preparing"?(i<preparedCount?"verified":i===preparedCount?"generating":"pending"):status==="partial_ready"&&i<4?"verified":"failed",
         attempts:1,failure_reason:null,assessment,feedback:assessment&&closed?feedback(assessment,i):null,created_at:assessment?timestamp:null,can_submit:!!assessment&&!closed};});
     const passed=closed?Math.min(5,published):0, pending=closed&&published===6?1:0;
-    const result = {schema:"assessment-set/v3",kind:"diagnostic",diagnostic_set_id:null,set_id:historical?historyId:setId,target_concept_id:conceptId,
+    const result = {schema:"assessment-set/v1",kind:"diagnostic",diagnostic_set_id:null,set_id:historical?historyId:setId,target_concept_id:conceptId,
       study_session_id:session,material_id:material,knowledge_structure_revision:revision,status,set_version:version,
       requested_count:6,point_count:6,excluded_count:0,published_count:published,answered_count:closed?published:0,passed_count:passed,
       verified_count:items.filter(i=>["published","verified"].includes(i.state)).length,assessment_revisions:items.flatMap(i=>i.assessment?[i.assessment.assessment_revision]:[]),
@@ -92,18 +92,18 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     if(request.method()!=="GET")requests.push({path,body:request.postData(),key:request.headers()["idempotency-key"]});
     if(path==="/v1/session/refresh")return route.fulfill({json:{schema:"learner-identity/v1",learner_id:"33333333-3333-4333-8333-333333333333"}});
     if(path==="/v1/session")return send({schema:"learner-identity/v1",learner_id:uuid(9)});
-    if(path==="/v2/source-capabilities")return send({schema:"source-capabilities/v1",quality_notice:"PDF",formats:[]});
-    if(path.endsWith("/source"))return send({schema:"evidence-source/v1",format:"pptx",original_name:"01_網路模型與資料傳輸.pptx",original_url:`/v2/artifacts/${artifact}`,preview_url:`/v1/artifacts/${artifact}#page=1`,normalized_page:1,accuracy:"exact",origin_locators:[],label:"PDF 第 1 頁"});
+    if(path==="/v1/source-capabilities")return send({schema:"source-capabilities/v1",quality_notice:"PDF",formats:[]});
+    if(path.endsWith("/source"))return send({schema:"evidence-source/v1",format:"pptx",original_name:"01_網路模型與資料傳輸.pptx",original_url:`/v1/artifacts/${artifact}/download`,preview_url:`/v1/artifacts/${artifact}#page=1`,normalized_page:1,accuracy:"exact",origin_locators:[],label:"PDF 第 1 頁"});
     if(path.endsWith("/resume")) {
       const active=!["preparation","no-safe"].includes(stage), historical=query.set_id===historyId;
       const selected=historical?group(true):active&&(!applied||navigationAction==="complete")?group():null;
       const current=applied&&navigationAction==="advance"?nextConceptId:conceptId;
       const sessionCompleted=applied&&navigationAction==="complete";
-      const progress={schema:"learner-progress/v4",assessment_cycles:scenario?.navigation?[group().cycle]:selected?[selected.cycle]:[],study_session_id:session,knowledge_structure_revision:revision,event_watermark:1,
+      const progress={schema:"learner-progress/v1",assessment_cycles:scenario?.navigation?[group().cycle]:selected?[selected.cycle]:[],study_session_id:session,knowledge_structure_revision:revision,event_watermark:1,
         current_concept_id:current,deferred_concept_ids:[],concept_states:view.concepts.map(c=>({concept_id:c.concept_id,label:c.label,status:"learning",attempts:1,correct_answers:1,qualified_correct_items:1,covered_claim_ids:[c.claims[0].claim_id],mastered_claim_ids:[],weak_claim_ids:[],latest_is_correct:true})),weaknesses:[],
         next_action:{action:scenario?.navigation&&!applied?navigationAction:"assess",target_concept_id:scenario?.navigation&&!applied?(navigationAction==="advance"?nextConceptId:null):current,target_claim_id:null,prerequisite_concept_ids:[],reason:"current_concept"},guidance_revision:rev("learner-guidance",guidanceVersion)};
       latestProgress=progress;
-      return send({schema:"study-resume/v5",session:{schema:"study-session/v2",study_session_id:session,material_id:material,knowledge_structure_revision:revision,current_concept_id:current,deferred_concept_ids:[],no_safe_claim_ids:[],status:sessionCompleted?"completed":"active",started_at:timestamp,completed_at:sessionCompleted?timestamp:null,event_watermark:1},
+      return send({schema:"study-resume/v1",session:{schema:"study-session/v1",study_session_id:session,material_id:material,knowledge_structure_revision:revision,current_concept_id:current,deferred_concept_ids:[],no_safe_claim_ids:[],status:sessionCompleted?"completed":"active",started_at:timestamp,completed_at:sessionCompleted?timestamp:null,event_watermark:1},
         progress,knowledge_structure:view,source_artifact_id:artifact,run_id:run,assessment_sets:scenario?.noHistory ? [] : scenario?.preparingHistory ? [{...group(),set_id:uuid(7),status:"preparing",published_count:0,answered_count:0,passed_count:0,assessment_revisions:[]},...(active?[group(),group(true)]:[group(true)])] : active?[group(),group(true)]:[group(true)],selected_set_id:selected?.set_id??null});
     }
     if(path.endsWith("/guidance/apply")){applied=true;return send({...latestProgress,current_concept_id:navigationAction==="advance"?nextConceptId:conceptId});}

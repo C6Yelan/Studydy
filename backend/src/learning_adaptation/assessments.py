@@ -12,14 +12,12 @@ from uuid import UUID
 from sqlalchemy import case, or_, select
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
-from runtime.learner_session import TrustedLearner
 from runtime.semantic_service import request_semantics, semantic_client
-from runtime.storage.tables import Assessment, StudySession
+from runtime.storage.tables import Assessment, StudySession, AssessmentSet, AssessmentSetItem
 
 from .map_context import ClaimContext, ConceptContext
 
 
-_ID = re.compile(r"[a-z-]+:sha256:[0-9a-f]{64}")
 _QUALITY_ISSUES = (
     "trivial_focus", "answer_cue", "unclear_wording", "uneven_options", "weak_distractors",
 )
@@ -71,9 +69,14 @@ def assessment_response_schema() -> dict[str, Any]:
         "properties": {
             "learning_angle": {"type": "string", "minLength": 1},
             "correct_answer": {"type": "string", "minLength": 1},
-            "supporting_evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            "supporting_evidence_ids": {
+                "type": "array", "minItems": 1, "items": {"type": "string"},
+            },
             "prompt": {"type": "string", "minLength": 1},
-            "distractors": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "string", "minLength": 1}},
+            "distractors": {
+                "type": "array", "minItems": 3, "maxItems": 3,
+                "items": {"type": "string", "minLength": 1},
+            },
             "novelty": {"type": "string", "enum": ["distinct", "uncertain"]},
             "safety": {"type": "string", "enum": ["safe", "reject"]},
         },
@@ -83,16 +86,10 @@ def assessment_response_schema() -> dict[str, Any]:
         "additionalProperties": False,
         "required": ["schema", "candidates"],
         "properties": {
-            "schema": {"type": "string", "const": "assessment-semantics-response/v2"},
+            "schema": {"type": "string", "const": "assessment-semantics-response/v1"},
             "candidates": {"type": "array", "minItems": 3, "maxItems": 3, "items": candidate},
         },
     }
-
-
-def _learner(learner: TrustedLearner) -> UUID:
-    if not isinstance(learner, TrustedLearner) or not isinstance(learner.learner_id, UUID):
-        raise AssessmentError("ASSESSMENT_REQUEST_INVALID")
-    return learner.learner_id
 
 
 def _clean(value: Any, maximum: int = 4096) -> str:
@@ -128,13 +125,53 @@ def _key(value: str) -> bytes:
 
 def _fingerprint(study_session_id: UUID, revision: str, claim_id: str) -> bytes:
     return sha256(json.dumps(
-        {"study_session_id": str(study_session_id), "knowledge_structure_revision": revision, "target_claim_id": claim_id},
+        {
+            "study_session_id": str(study_session_id),
+            "knowledge_structure_revision": revision,
+            "target_claim_id": claim_id,
+        },
         sort_keys=True,
         separators=(",", ":"),
     ).encode()).digest()
 
 
-def _stored(row: Assessment) -> StoredAssessment:
+def _provenance(group):
+    """一個題組的保存設定只驗證一次，供同次交易的題目共用。"""
+    lock = group.runtime_lock_document
+    if not isinstance(lock, dict) or lock.get('schema') != 'studydy-runtime-lock/v1':
+        raise AssessmentError("ASSESSMENT_UNAVAILABLE")
+    try:
+        service, settings = lock['semantic_service'], lock['assessment']
+        if any(not isinstance(service[k], str) or not service[k].strip() for k in ('model_id', 'revision')):
+            raise AssessmentError("ASSESSMENT_UNAVAILABLE")
+        return {
+            'model_id': service['model_id'], 'model_revision': service['revision'],
+            'runtime_lock_sha256': canonical_sha256(lock),
+            'policy': settings['policy'],
+            'prompt_sha256': sha256(settings['prompt'].encode()).hexdigest(),
+            'check_prompt_sha256': sha256(settings['check_prompt'].encode()).hexdigest(),
+        }
+    except (KeyError, TypeError, AttributeError):
+        raise AssessmentError("ASSESSMENT_UNAVAILABLE") from None
+
+
+def _provenance_for_row(session, row, by_set):
+    # 必須回到生成該題的題組，不能用目前出題設定或教材分析模型代替。
+    group = session.scalar(select(AssessmentSet).join(
+        AssessmentSetItem, AssessmentSetItem.set_id == AssessmentSet.set_id,
+    ).where(
+        AssessmentSetItem.assessment_revision == row.assessment_revision,
+        AssessmentSet.study_session_id == row.study_session_id,
+        AssessmentSet.knowledge_structure_revision == row.knowledge_structure_revision,
+    ))
+    if group is None:
+        raise AssessmentError("ASSESSMENT_UNAVAILABLE")
+    if group.set_id not in by_set:
+        by_set[group.set_id] = _provenance(group)
+    return by_set[group.set_id]
+
+
+def _stored(row: Assessment, expected_provenance: dict) -> StoredAssessment:
     public = row.public_document
     private = row.private_answer_document
     provenance = row.generation_provenance
@@ -154,16 +191,12 @@ def _stored(row: Assessment) -> StoredAssessment:
         "model_revision", "policy", "source_evidence_ids",
         "learning_angle", "novelty", "mastery_qualified",
     }
-    provenance_fields.update({"verification", "quality_selection", "compared_assessment_revisions",
-                              "prompt_sha256", "check_prompt_sha256", "execution_identity"})
-    command_execution = provenance.get("execution_identity") is not None
-    if command_execution:
-        provenance_fields.add("execution_identity")
-        execution=provenance.get("execution_identity")
-        if (not isinstance(execution,dict) or set(execution)!={"transport","model_id","model_revision","config_sha256","runtime_lock_sha256"}
-            or execution.get("transport")!="command" or any(execution.get(k)!=provenance.get(k) for k in ("model_id","model_revision","runtime_lock_sha256"))
-            or not isinstance(execution.get("config_sha256"),str) or re.fullmatch(r"[0-9a-f]{64}",execution["config_sha256"]) is None):
-            raise AssessmentError("ASSESSMENT_UNAVAILABLE")
+    provenance_fields.update({
+        "verification", "quality_selection", "compared_assessment_revisions",
+        "prompt_sha256", "check_prompt_sha256",
+    })
+    if any(provenance.get(key) != value for key, value in expected_provenance.items()):
+        raise AssessmentError("ASSESSMENT_UNAVAILABLE")
     try:
         options = public["options"]
         option_ids = [option["option_id"] for option in options]
@@ -201,9 +234,9 @@ def _stored(row: Assessment) -> StoredAssessment:
         set(public) != public_fields
         or set(private) != private_fields
         or set(provenance) != provenance_fields
-        or public["schema"] != "single-choice-assessment/v2"
-        or private["schema"] != "single-choice-answer/v2"
-        or provenance["schema"] != "assessment-generation-provenance/v8"
+        or public["schema"] != "single-choice-assessment/v1"
+        or private["schema"] != "single-choice-answer/v1"
+        or provenance["schema"] != "assessment-generation-provenance/v1"
         or revision != row.assessment_revision
         or public["assessment_revision"] != revision
         or private["assessment_revision"] != revision
@@ -266,10 +299,11 @@ def _stored(row: Assessment) -> StoredAssessment:
         or provenance["source_evidence_ids"] != public["source_evidence_ids"]
         or re.fullmatch(r"[0-9a-f]{64}", provenance["runtime_lock_sha256"])
         is None
-        or not isinstance(provenance["model_id"],str) or not provenance["model_id"]
-        or not isinstance(provenance["model_revision"],str) or not provenance["model_revision"]
-        or (not command_execution and (provenance["model_id"]!="google/gemma-4-31B-it-qat-w4a16-ct" or provenance["model_revision"]!="52f3f65bc7a02d555763bc923bd1d9094898219d"))
-        or provenance["policy"] != "source-span-single-choice/v6"
+        or not isinstance(provenance["model_id"], str)
+        or not provenance["model_id"]
+        or not isinstance(provenance["model_revision"], str)
+        or not provenance["model_revision"]
+        or provenance["policy"] != "source-span-single-choice/v1"
         or provenance["learning_angle"] != row.learning_angle
         or not isinstance(row.learning_angle, str)
         or not row.learning_angle.strip()
@@ -287,18 +321,21 @@ def _stored(row: Assessment) -> StoredAssessment:
     ):
         raise AssessmentError("ASSESSMENT_UNAVAILABLE")
     verification = provenance["verification"]
-    if (not isinstance(verification, dict)
+    if (
+        not isinstance(verification, dict)
         or set(verification) != {"options", "selected_option_index", "duplicate_prior_index"}
         or verification["options"] != sorted(option_texts, key=_normalized)
         or type(verification["selected_option_index"]) is not int
         or not 0 <= verification["selected_option_index"] < 4
         or verification["options"][verification["selected_option_index"]] != private["correct_answer"]
         or verification["duplicate_prior_index"] is not None
-        or row.mastery_qualified is not True):
+        or row.mastery_qualified is not True
+    ):
         raise AssessmentError("ASSESSMENT_UNAVAILABLE")
     quality = provenance["quality_selection"]
     compared = provenance["compared_assessment_revisions"]
-    if (not isinstance(quality, dict)
+    if (
+        not isinstance(quality, dict)
         or set(quality) != {"candidate_index", "checked_candidate_count", "safe_candidate_count", "issues"}
         or any(type(quality[key]) is not int for key in (
             "candidate_index", "checked_candidate_count", "safe_candidate_count"))
@@ -306,10 +343,18 @@ def _stored(row: Assessment) -> StoredAssessment:
         or not 0 <= quality["candidate_index"] < quality["checked_candidate_count"]
         or not _valid_quality_issues(quality["issues"])
         or not isinstance(compared, list) or len(compared) > _PRIOR_LIMIT
-        or any(not isinstance(item, str) or re.fullmatch(r"assessment:sha256:[0-9a-f]{64}", item) is None for item in compared)
+        or any(
+            not isinstance(item, str)
+            or re.fullmatch(r"assessment:sha256:[0-9a-f]{64}", item) is None
+            for item in compared
+        )
         or len(compared) != len(set(compared))
-        or any(not isinstance(provenance[key], str) or re.fullmatch(r"[0-9a-f]{64}", provenance[key]) is None
-               for key in ("prompt_sha256", "check_prompt_sha256"))):
+        or any(
+            not isinstance(provenance[key], str)
+            or re.fullmatch(r"[0-9a-f]{64}", provenance[key]) is None
+            for key in ("prompt_sha256", "check_prompt_sha256")
+        )
+    ):
         raise AssessmentError("ASSESSMENT_UNAVAILABLE")
     return StoredAssessment(
         row.assessment_revision, row.study_session_id, row.knowledge_structure_revision,
@@ -322,9 +367,12 @@ def _stored(row: Assessment) -> StoredAssessment:
 
 
 
-def _request(study: StudySession, concept: ConceptContext, claim: ClaimContext, prior: list[Assessment]) -> dict[str, Any]:
+def _request(
+    study: StudySession, concept: ConceptContext, claim: ClaimContext,
+    prior: list[StoredAssessment],
+) -> dict[str, Any]:
     return {
-        "schema": "assessment-semantics-request/v2",
+        "schema": "assessment-semantics-request/v1",
         "knowledge_structure_revision": study.knowledge_structure_revision,
         "concept": {"concept_id": concept.concept_id, "label": concept.label},
         "claim": {
@@ -346,10 +394,12 @@ def _request(study: StudySession, concept: ConceptContext, claim: ClaimContext, 
     }
 
 
-def _prior_questions(session, study: StudySession, claim: ClaimContext) -> list[Assessment]:
+def _prior_questions(session, study: StudySession, claim: ClaimContext) -> list[StoredAssessment]:
     """同 session／exact KS 的有限比較集合；跨 Claim 同來源者優先，不宣稱全歷史去重。"""
-    overlap = or_(*(Assessment.public_document["source_evidence_ids"].contains([item.evidence_id])
-                    for item in claim.evidence))
+    overlap = or_(*(
+        Assessment.public_document["source_evidence_ids"].contains([item.evidence_id])
+        for item in claim.evidence
+    ))
     rows = session.scalars(select(Assessment).where(
         Assessment.study_session_id == study.study_session_id,
         Assessment.knowledge_structure_revision == study.knowledge_structure_revision,
@@ -359,17 +409,20 @@ def _prior_questions(session, study: StudySession, claim: ClaimContext) -> list[
         Assessment.created_at.desc(), Assessment.assessment_revision,
     ).limit(32))
     prior, size = [], 0
+    by_set = {}
     for row in rows:
-        _stored(row)
+        stored = _stored(row, _provenance_for_row(session, row, by_set))
         # 兩個 prompt 都放完整題目；只限比較集合，不截斷來源或題幹。
-        entry = {"prompt": row.public_document["prompt"],
-                 "options": row.public_document["options"],
-                 "correct_answer": row.private_answer_document["correct_answer"],
-                 "learning_angle": row.learning_angle}
+        entry = {
+            "prompt": row.public_document["prompt"],
+            "options": row.public_document["options"],
+            "correct_answer": row.private_answer_document["correct_answer"],
+            "learning_angle": row.learning_angle,
+        }
         cost = len(json.dumps(entry, ensure_ascii=False).encode("utf-8"))
         if size + cost > _PRIOR_CONTEXT_MAX_BYTES:
             continue
-        prior.append(row)
+        prior.append(stored)
         size += cost
         if len(prior) == _PRIOR_LIMIT:
             break
@@ -381,7 +434,12 @@ def _candidate(candidate: Any, claim: ClaimContext, used_identities: set[str]) -
         "learning_angle", "novelty", "safety", "prompt", "correct_answer",
         "supporting_evidence_ids", "distractors",
     }
-    if not isinstance(candidate, dict) or set(candidate) != fields or candidate.get("safety") != "safe" or candidate.get("novelty") not in {"distinct", "uncertain"}:
+    if (
+        not isinstance(candidate, dict)
+        or set(candidate) != fields
+        or candidate.get("safety") != "safe"
+        or candidate.get("novelty") not in {"distinct", "uncertain"}
+    ):
         return None
     try:
         angle = _clean(candidate["learning_angle"], 256)
@@ -436,21 +494,37 @@ def _candidate(candidate: Any, claim: ClaimContext, used_identities: set[str]) -
 
 def assessment_check_schema(count: int, prior_count: int) -> dict[str, Any]:
     return {
-        "type": "object", "additionalProperties": False,
+        "type": "object",
+        "additionalProperties": False,
         "required": ["schema", "verdicts"],
         "properties": {
-            "schema": {"type": "string", "const": "assessment-check-response/v2"},
-            "verdicts": {"type": "array", "minItems": count, "maxItems": count,
-                "items": {"type": "object", "additionalProperties": False,
-                    "required": ["question_index", "answer_status", "selected_option_index", "duplicate_prior_index", "quality_issues"],
+            "schema": {"type": "string", "const": "assessment-check-response/v1"},
+            "verdicts": {
+                "type": "array",
+                "minItems": count,
+                "maxItems": count,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "question_index", "answer_status", "selected_option_index",
+                        "duplicate_prior_index", "quality_issues",
+                    ],
                     "properties": {
                         "question_index": {"type": "integer", "minimum": 0, "maximum": count - 1},
                         "answer_status": {"type": "string", "enum": ["unique", "none", "multiple"]},
                         "selected_option_index": {"type": ["integer", "null"], "minimum": 0, "maximum": 3},
-                        "duplicate_prior_index": {"type": ["integer", "null"], "minimum": 0, "maximum": prior_count - 1} if prior_count else {"type": "null"},
-                        "quality_issues": {"type": "array", "maxItems": len(_QUALITY_ISSUES),
-                                           "items": {"type": "string", "enum": list(_QUALITY_ISSUES)}},
-                    }},
+                        "duplicate_prior_index": (
+                            {"type": ["integer", "null"], "minimum": 0, "maximum": prior_count - 1}
+                            if prior_count else {"type": "null"}
+                        ),
+                        "quality_issues": {
+                            "type": "array",
+                            "maxItems": len(_QUALITY_ISSUES),
+                            "items": {"type": "string", "enum": list(_QUALITY_ISSUES)},
+                        },
+                    },
+                },
             },
         },
     }
@@ -459,44 +533,68 @@ def assessment_check_schema(count: int, prior_count: int) -> dict[str, Any]:
 def _checked_candidate(client, runtime_lock, claim, candidates, prior, semantic_call):
     if not candidates:
         return None
-    # Sorting hides the generator's designated first/correct option from the solver.
+    # 排序選項，避免複核模型利用生成器把正解放在首位的習慣。
     questions = [
-        {"question_index": index, "prompt": candidate["prompt"],
-         "options": sorted(candidate["options"], key=_normalized)}
+        {
+            "question_index": index,
+            "prompt": candidate["prompt"],
+            "options": sorted(candidate["options"], key=_normalized),
+        }
         for index, candidate in enumerate(candidates)
     ]
     response = semantic_call(
         client, runtime_lock=runtime_lock, task="assessment_check",
         request={
-            "schema": "assessment-check-request/v2",
+            "schema": "assessment-check-request/v1",
             "claim": claim.text,
-            "evidence": [{"evidence_id": item.evidence_id, "exact_text": item.quote} for item in claim.evidence],
+            "evidence": [
+                {"evidence_id": item.evidence_id, "exact_text": item.quote}
+                for item in claim.evidence
+            ],
             "questions": questions,
             "prior_questions": [
-                {"question_index": index, "prompt": item.public_document["prompt"],
-                 "options": [option["text"] for option in item.public_document["options"]]}
+                {
+                    "question_index": index,
+                    "prompt": item.public_document["prompt"],
+                    "options": [
+                        option["text"] for option in item.public_document["options"]
+                    ],
+                }
                 for index, item in enumerate(prior)
             ],
         },
         response_schema=assessment_check_schema(len(questions), len(prior)),
     )
-    if (not isinstance(response, dict) or set(response) != {"schema", "verdicts"}
-        or response["schema"] != "assessment-check-response/v2"
-        or not isinstance(response["verdicts"], list) or len(response["verdicts"]) != len(questions)):
+    if (
+        not isinstance(response, dict)
+        or set(response) != {"schema", "verdicts"}
+        or response["schema"] != "assessment-check-response/v1"
+        or not isinstance(response["verdicts"], list)
+        or len(response["verdicts"]) != len(questions)
+    ):
         raise AssessmentError("ASSESSMENT_CHECK_INVALID")
     checked = {}
     for verdict in response["verdicts"]:
-        if not isinstance(verdict, dict) or set(verdict) != {
-            "question_index", "answer_status", "selected_option_index", "duplicate_prior_index", "quality_issues"
-        }:
+        if (
+            not isinstance(verdict, dict)
+            or set(verdict) != {
+                "question_index", "answer_status", "selected_option_index",
+                "duplicate_prior_index", "quality_issues",
+            }
+        ):
             raise AssessmentError("ASSESSMENT_CHECK_INVALID")
-        index, selected, duplicate = (verdict[key] for key in ("question_index", "selected_option_index", "duplicate_prior_index"))
-        if (type(index) is not int or not 0 <= index < len(questions) or index in checked
+        index, selected, duplicate = (
+            verdict[key]
+            for key in ("question_index", "selected_option_index", "duplicate_prior_index")
+        )
+        if (
+            type(index) is not int or not 0 <= index < len(questions) or index in checked
             or verdict["answer_status"] not in {"unique", "none", "multiple"}
             or (selected is not None and (type(selected) is not int or not 0 <= selected < 4))
             or (duplicate is not None and (type(duplicate) is not int or not 0 <= duplicate < len(prior)))
             or (verdict["answer_status"] == "unique") != (selected is not None)
-            or not _valid_quality_issues(verdict["quality_issues"])):
+            or not _valid_quality_issues(verdict["quality_issues"])
+        ):
             raise AssessmentError("ASSESSMENT_CHECK_INVALID")
         # 重複列出同一品質提示只算一次，不因此把正確題目判成不可用。
         checked[index] = {**verdict, "quality_issues": list(dict.fromkeys(verdict["quality_issues"]))}
@@ -504,20 +602,30 @@ def _checked_candidate(client, runtime_lock, claim, candidates, prior, semantic_
     for index, candidate in enumerate(candidates):
         verdict = checked[index]
         selected = verdict["selected_option_index"]
-        if (verdict["answer_status"] == "unique" and verdict["duplicate_prior_index"] is None
-            and questions[index]["options"][selected] == candidate["correct_answer"]):
+        if (
+            verdict["answer_status"] == "unique"
+            and verdict["duplicate_prior_index"] is None
+            and questions[index]["options"][selected] == candidate["correct_answer"]
+        ):
             safe.append(index)
     if not safe:
         return None
     index = min(safe, key=lambda item: _quality_rank(checked[item]["quality_issues"]))
-    return {**candidates[index], "verification": {
-                "options": questions[index]["options"],
-                "selected_option_index": checked[index]["selected_option_index"],
-                "duplicate_prior_index": None,
-            }, "quality_selection": {
-                "candidate_index": index, "checked_candidate_count": len(candidates),
-                "safe_candidate_count": len(safe), "issues": checked[index]["quality_issues"],
-            }, "compared_assessment_revisions": [item.assessment_revision for item in prior]}
+    return {
+        **candidates[index],
+        "verification": {
+            "options": questions[index]["options"],
+            "selected_option_index": checked[index]["selected_option_index"],
+            "duplicate_prior_index": None,
+        },
+        "quality_selection": {
+            "candidate_index": index,
+            "checked_candidate_count": len(candidates),
+            "safe_candidate_count": len(safe),
+            "issues": checked[index]["quality_issues"],
+        },
+        "compared_assessment_revisions": [item.assessment_revision for item in prior],
+    }
 
 def _documents(
     study: StudySession,
@@ -537,15 +645,26 @@ def _documents(
     }
     question_id = "question:sha256:" + canonical_sha256(question_identity)
     option_documents = sorted(
-        ({"option_id": "option:sha256:" + canonical_sha256({"question_id": question_id, "text": text}), "text": text} for text in candidate["options"]),
+        (
+            {
+                "option_id": "option:sha256:" + canonical_sha256({
+                    "question_id": question_id, "text": text,
+                }),
+                "text": text,
+            }
+            for text in candidate["options"]
+        ),
         key=lambda option: option["option_id"],
     )
-    correct_option_id = next(option["option_id"] for option in option_documents if option["text"] == candidate["correct_answer"])
-    # A published item has passed an independent source solve and duplicate check.
-    # Novelty and angle remain provenance only; old stored eligibility is not rewritten.
+    correct_option_id = next(
+        option["option_id"] for option in option_documents
+        if option["text"] == candidate["correct_answer"]
+    )
+    # 待發布題目已通過獨立的來源解題與重複檢查。
+    # novelty 與 learning_angle 只留在 provenance，不回寫既有題目的採計資格。
     mastery_qualified = True
     public_core = {
-        "schema": "single-choice-assessment/v2",
+        "schema": "single-choice-assessment/v1",
         "study_session_id": str(study.study_session_id),
         "knowledge_structure_revision": study.knowledge_structure_revision,
         "question_id": question_id,
@@ -557,18 +676,19 @@ def _documents(
         "options": option_documents,
     }
     private_core = {
-        "schema": "single-choice-answer/v2",
+        "schema": "single-choice-answer/v1",
         "question_id": question_id,
         "correct_option_id": correct_option_id,
         "correct_answer": candidate["correct_answer"],
-        "rationale": " ".join(evidence.quote for evidence in claim.evidence if evidence.evidence_id in candidate["supporting_evidence_ids"]),
+        "rationale": " ".join(
+            evidence.quote for evidence in claim.evidence
+            if evidence.evidence_id in candidate["supporting_evidence_ids"]
+        ),
     }
-    from runtime.command_semantics import identity
-    command=identity(runtime_lock)
-    service = runtime_lock["semantic_service"] if command is None else {"model_id":command["model_id"],"revision":command["model_revision"]}
+    service = runtime_lock["semantic_service"]
     provenance_core = {
-        "schema": "assessment-generation-provenance/v8",
-        "runtime_lock_sha256": canonical_sha256(runtime_lock) if command is None else command["runtime_lock_sha256"],
+        "schema": "assessment-generation-provenance/v1",
+        "runtime_lock_sha256": canonical_sha256(runtime_lock),
         "model_id": service["model_id"],
         "model_revision": service["revision"],
         "policy": runtime_lock["assessment"]["policy"],
@@ -581,7 +701,6 @@ def _documents(
         "compared_assessment_revisions": list(candidate["compared_assessment_revisions"]),
         "prompt_sha256": sha256(runtime_lock["assessment"]["prompt"].encode()).hexdigest(),
         "check_prompt_sha256": sha256(runtime_lock["assessment"]["check_prompt"].encode()).hexdigest(),
-        "execution_identity": deepcopy(command),
     }
     revision = "assessment:sha256:" + canonical_sha256(
         {
@@ -597,22 +716,31 @@ def _documents(
 
 
 
-
-def prepare_assessment(study, concept, claim, prior, used_identities, *, runtime_lock,
-                       client=None, semantic_call=request_semantics):
+def prepare_assessment(
+    study, concept, claim, prior, used_identities, *, runtime_lock,
+    client=None, semantic_call=request_semantics,
+):
     """題組中的各題共用安全管線；本函式不開 DB transaction，也不發布題目。"""
     owned = client is None
     http = semantic_client() if owned else client
     try:
-        response = semantic_call(http, runtime_lock=runtime_lock, task='assessment',
-                                 request=_request(study, concept, claim, prior),
-                                 response_schema=assessment_response_schema())
-        if (not isinstance(response, dict) or set(response) != {'schema', 'candidates'}
-            or response['schema'] != 'assessment-semantics-response/v2'
-            or not isinstance(response['candidates'], list) or len(response['candidates']) != 3):
+        response = semantic_call(
+            http, runtime_lock=runtime_lock, task='assessment',
+            request=_request(study, concept, claim, prior),
+            response_schema=assessment_response_schema(),
+        )
+        if (
+            not isinstance(response, dict)
+            or set(response) != {'schema', 'candidates'}
+            or response['schema'] != 'assessment-semantics-response/v1'
+            or not isinstance(response['candidates'], list)
+            or len(response['candidates']) != 3
+        ):
             raise AssessmentError('ASSESSMENT_OUTPUT_INVALID')
-        candidates = [projected for item in response['candidates']
-                      if (projected := _candidate(item, claim, used_identities)) is not None]
+        candidates = [
+            projected for item in response['candidates']
+            if (projected := _candidate(item, claim, used_identities)) is not None
+        ]
         return _checked_candidate(http, runtime_lock, claim, candidates, prior, semantic_call)
     finally:
         if owned:

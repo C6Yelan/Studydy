@@ -7,23 +7,21 @@ from knowledge_map.material_review import (ReviewError, _pack_review, apply_revi
                                           response_schema, validate_proposal)
 from knowledge_map.structure import build_knowledge_structure_view, _revision
 from pdf_evidence.ocr_page_evidence import canonical_sha256
-from .command_semantics import retain_call_outputs
 from .semantic_service import request_semantics, semantic_client
 
 
 def review_inputs(document):
     """按連續頁段安排完整來源脈絡；跨頁概念只交給首次出現的頁段處理。"""
     view = build_knowledge_structure_view(document)
-    binding = document.get('input_binding')
-    sources = {s['source_id']: s for s in binding['manifest']['items']} if binding else {}
+    binding = document['input_binding']
+    sources = {s['source_id']: s for s in binding['manifest']['items']}
     evidence = {}
     for source in document['evidence']:
         e = {k: deepcopy(v) for k, v in source.items() if k != 'exact_text'}
         e['quote'] = source['exact_text']
-        location = binding['bundle']['pages'][e['page'] - 1] if binding else {
-            'source_id': document['material_id'], 'normalized_page': e['page']}
+        location = binding['bundle']['pages'][e['page'] - 1]
         e.update(source_id=location['source_id'], normalized_page=location['normalized_page'],
-                 source_name=sources[location['source_id']]['original_name'] if binding else '原始 PDF')
+                 source_name=sources[location['source_id']]['original_name'])
         evidence[e['evidence_id']] = e
     for c in view['concepts']:
         for q in c['claims']:
@@ -84,11 +82,10 @@ def _checked_review(unit, index, lock, archive, client, check_cancel):
     def request_review(request, attempt):
         nonlocal calls
         check_cancel()
-        output = archive.prepare_review_call(index, key, request, attempt=attempt)
+        archive.prepare_review_call(index, key, request, attempt=attempt)
         calls += 1
-        with retain_call_outputs(output):
-            value = request_semantics(client, runtime_lock=lock, task='material_review',
-                                      request=request, response_schema=schema)
+        value = request_semantics(client, runtime_lock=lock, task='material_review',
+                                  request=request, response_schema=schema)
         name = f'call-{index:06d}' + (f'-repair-{attempt:02d}' if attempt else '')
         archive.save_review(f'{name}/response', value)
         return value

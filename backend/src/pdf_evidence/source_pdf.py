@@ -13,7 +13,7 @@ import pymupdf
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
-def snapshot_whole_document_request(
+def snapshot_pdf_source(
     request: Any, snapshot_path: Path
 ) -> dict[str, Any]:
     """從單一來源 FD 驗證 hash 並複製快照，再確認完整 PDF 頁數。"""

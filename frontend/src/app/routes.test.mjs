@@ -16,23 +16,18 @@ test("final knowledge-structure routes round trip", () => {
     const path = routePath(route);
     assert.deepEqual(readRoute(path), { route, isCanonical: true });
     assert.match(path, /knowledge-structures/);
-    assert.doesNotMatch(path, /knowledge-maps/);
   }
 });
 
-test("retired map revisions do not parse", () => {
-  assert.equal(readRoute(`/materials/${materialId}/runs/${runId}/knowledge-maps/knowledge-map:sha256:${"a".repeat(64)}`).route.name, "home");
-});
-
-test("task routes are canonical; removed collections and detail bookmarks are not routes", () => {
+test("task routes are canonical", () => {
   for (const route of [{ name: "home" }, { name: "materials" }, { name: "upload" }, { name: "material-run", materialId, runId }]) {
     assert.deepEqual(readRoute(routePath(route)), { route, isCanonical: true });
   }
-  assert.equal(readRoute("/materials/not-an-id").isCanonical, false);
-  assert.equal(readRoute(`/materials/${materialId}`).isCanonical, false);
-  assert.equal(readRoute("/knowledge-maps").isCanonical, false);
 });
 
-test("retired single-assessment bookmarks are not routes", () => {
-  assert.equal(readRoute(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/study-sessions/${studySessionId}/assessments/${encodeURIComponent(`assessment:sha256:${"c".repeat(64)}`)}`).isCanonical,false);
+test("unknown paths, malformed IDs and extra segments are not canonical routes", () => {
+  const saved = routePath({ name: "study-session", materialId, runId, structureRevision, studySessionId });
+  for (const path of ["/unknown", "/materials/not-an-id", `/materials/${materialId}`, `${saved}/extra`]) {
+    assert.deepEqual(readRoute(path), { route: { name: "home" }, isCanonical: false });
+  }
 });
