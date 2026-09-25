@@ -25,16 +25,7 @@ ROOT=Path(__file__).resolve().parents[4]
 TEXT=b'Stacks\nA stack follows LIFO order.\nPush adds an item to the top of the stack.\nPop removes the most recently added item.\n'
 
 
-@pytest.fixture
-def normalizer(monkeypatch):
-    executable = ROOT / ".studydy-runtime/normalizer-venv/bin/python"
-    if not executable.exists():
-        pytest.skip("Dedicated normalizer environment required; see docs/document-normalization.md")
-    monkeypatch.setenv("STUDYDY_NORMALIZER_PYTHON", str(executable))
-    return executable
-
-
-def test_source_round_trip_freeze_resume_and_owned_delete(closed_loop,normalizer,tmp_path,monkeypatch):
+def test_source_round_trip_freeze_resume_and_owned_delete(closed_loop,tmp_path,monkeypatch):
     learner,old_source,settings,old_structure,dsn,_=closed_loop
     owner=learner.learner_id
     material=create_draft(owner,'notes.txt','draft',dsn=dsn)
@@ -89,7 +80,7 @@ def test_source_round_trip_freeze_resume_and_owned_delete(closed_loop,normalizer
     assert read_knowledge_structure(owner,old_source.material_id,revision=old_structure['revision'],dsn=dsn).document==old_structure
 
 
-def test_invalid_source_failure_is_durable_and_get_is_read_only(closed_loop,normalizer):
+def test_invalid_source_failure_is_durable_and_get_is_read_only(closed_loop):
     owner=closed_loop[0].learner_id;dsn=closed_loop[4]
     material=create_draft(owner,'bad.txt','draft-invalid',dsn=dsn)
     upload_source(owner,material,b'\xff','bad.txt','text/plain','bad',dsn=dsn)
@@ -102,7 +93,7 @@ def test_invalid_source_failure_is_durable_and_get_is_read_only(closed_loop,norm
 
 
 @pytest.mark.parametrize('extension',['.docx','.pptx','.txt','.md'])
-def test_real_converter_inside_sandbox(extension,normalizer):
+def test_real_converter_inside_sandbox(extension):
     import pymupdf
     if extension in ('.docx','.pptx'):data=(ROOT/'backend/tests/fixtures'/('sample'+extension)).read_bytes()
     else:data=(('# Text\n' if extension=='.md' else '')+'中文字與 code\n'+'long_line_'*40+'\n<script>never_execute</script>\n![remote](https://example.invalid/asset)\n').encode()
@@ -117,7 +108,7 @@ def test_real_converter_inside_sandbox(extension,normalizer):
         if extension=='.md':assert '[圖片未載入]' in text and '<script>never_execute</script>' in text
 
 
-def test_source_api_origin_owner_download_and_no_model(closed_loop,normalizer,monkeypatch):
+def test_source_api_origin_owner_download_and_no_model(closed_loop,monkeypatch):
     from fastapi.testclient import TestClient
     import runtime.api.app as api
     import httpx
@@ -127,6 +118,17 @@ def test_source_api_origin_owner_download_and_no_model(closed_loop,normalizer,mo
     monkeypatch.setattr(httpx.HTTPTransport,'handle_request',reject)
     app=api.create_app(api.ApiSettings(profile='local',public_origin='http://127.0.0.1:4173',secure_cookie=False,local_config=settings,dsn=dsn))
     client=TestClient(app);client.cookies.set('studydy_session',token)
+    capabilities=client.get('/v1/source-capabilities')
+    assert capabilities.status_code==200
+    assert {item['extension'] for item in capabilities.json()['formats']}==set(MIME)
+    with monkeypatch.context() as missing_tools:
+        missing_tools.setattr('document_normalization.converter.shutil.which',lambda _:None)
+        unavailable=client.get('/v1/source-capabilities')
+        assert [item['extension'] for item in unavailable.json()['formats']]==['.pdf']
+        from document_normalization.converter import NormalizationError
+        with pytest.raises(NormalizationError,match='NORMALIZER_UNAVAILABLE'):
+            conversion_policy()
+
     headers={'Origin':'http://127.0.0.1:4173','Idempotency-Key':'api-draft'}
     assert client.post('/v1/materials',json={'schema':'material-draft-create/v1','display_name':'source.md'}).status_code==403
     response=client.post('/v1/materials',json={'schema':'material-draft-create/v1','display_name':'source.md'},headers=headers)
@@ -169,7 +171,7 @@ def test_source_api_origin_owner_download_and_no_model(closed_loop,normalizer,mo
     assert attempts==[]
 
 
-def test_expired_normalization_lease_recovers_and_ready_is_immutable(closed_loop,normalizer):
+def test_expired_normalization_lease_recovers_and_ready_is_immutable(closed_loop):
     from datetime import UTC,datetime,timedelta
     from sqlalchemy.exc import DBAPIError
     owner=closed_loop[0].learner_id;dsn=closed_loop[4]
@@ -188,7 +190,7 @@ def test_expired_normalization_lease_recovers_and_ready_is_immutable(closed_loop
     assert request_material_discard(owner,empty,dsn=dsn)=='removed'
 
 
-def test_bundle_tampering_and_cross_owner_normalization_are_rejected(closed_loop,normalizer):
+def test_bundle_tampering_and_cross_owner_normalization_are_rejected(closed_loop):
     from runtime.storage.tables import MaterialProcessingRun
     from runtime.source_resolver import _input
     owner=closed_loop[0].learner_id;settings=closed_loop[2];dsn=closed_loop[4]
@@ -204,18 +206,20 @@ def test_bundle_tampering_and_cross_owner_normalization_are_rejected(closed_loop
     with pytest.raises(SourceError,match='SOURCE_BINDING_INVALID'):_input(owner,run.run_id,dsn=dsn)
 
 
-def test_replay_does_not_require_converter_or_current_model_config(closed_loop,normalizer,monkeypatch):
+def test_replay_does_not_require_converter_or_current_model_config(closed_loop,monkeypatch):
     owner=closed_loop[0].learner_id;settings=closed_loop[2];dsn=closed_loop[4]
     material=create_draft(owner,'replay.txt','replay-draft',dsn=dsn)
     source=upload_source(owner,material,TEXT,'replay.txt','text/plain','replay-upload',dsn=dsn)
     normalize_next(dsn=dsn);job=read_sources(owner,material,dsn=dsn)[0]
     run=create_revision(owner,material,[job['normalization_id']],'replay-run',settings,dsn=dsn)
-    monkeypatch.delenv('STUDYDY_NORMALIZER_PYTHON')
+    def unavailable():
+        raise AssertionError('replay must not invoke conversion policy')
+    monkeypatch.setattr('runtime.source_normalization.conversion_policy', unavailable)
     assert upload_source(owner,material,TEXT,'replay.txt','text/plain','replay-upload',dsn=dsn)==source
     assert create_revision(owner,material,[job['normalization_id']],'replay-run',{},dsn=dsn).run_id==run.run_id
 
 
-def test_failed_conversion_retry_reuses_one_job_without_policy_migration(closed_loop,normalizer):
+def test_failed_conversion_retry_reuses_one_job_without_policy_migration(closed_loop):
     from runtime.source_normalization import retry_normalization
     owner=closed_loop[0].learner_id;dsn=closed_loop[4]
     material=create_draft(owner,'policy.txt','policy-draft',dsn=dsn)
@@ -245,7 +249,7 @@ def test_failed_conversion_retry_reuses_one_job_without_policy_migration(closed_
 
 
 @pytest.mark.parametrize('part',['word/embeddings/oleObject1.bin','word/activeX/activeX1.bin','word/vbaProject.bin'])
-def test_embedded_active_office_parts_are_rejected_in_sandbox(part,normalizer):
+def test_embedded_active_office_parts_are_rejected_in_sandbox(part):
     import zipfile
     from document_normalization.converter import NormalizationError
     original=ROOT/'backend/tests/fixtures/sample.docx'
@@ -257,7 +261,7 @@ def test_embedded_active_office_parts_are_rejected_in_sandbox(part,normalizer):
         convert(buffer.getvalue(),'.docx',MIME['.docx'],conversion_policy())
 
 
-def test_discard_waits_for_source_lease_then_cleans_all_artifacts(closed_loop,normalizer):
+def test_discard_waits_for_source_lease_then_cleans_all_artifacts(closed_loop):
     from datetime import UTC,datetime,timedelta
     from runtime.material_discard import purge_discarded_material
     owner=closed_loop[0].learner_id;dsn=closed_loop[4]
@@ -274,7 +278,7 @@ def test_discard_waits_for_source_lease_then_cleans_all_artifacts(closed_loop,no
 
 
 @pytest.mark.parametrize('extension,expected_pages',[('.doc',3),('.ppt',2)])
-def test_legacy_office_source_is_saved_and_converted(closed_loop,normalizer,extension,expected_pages):
+def test_legacy_office_source_is_saved_and_converted(closed_loop,extension,expected_pages):
     owner=closed_loop[0].learner_id;dsn=closed_loop[4]
     material=create_draft(owner,'sample'+extension,'legacy-draft'+extension,dsn=dsn)
     data=(ROOT/'backend/tests/fixtures'/('sample'+extension)).read_bytes()

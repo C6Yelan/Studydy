@@ -6,7 +6,6 @@ import runtime.api.app as api
 from browser_e2e_runner import PORT, local_api, main as run_browser
 from runtime.workers import RuntimeWorkers
 from product_fixtures import closed_loop
-from test_source_normalization import normalizer
 from test_source_revisions import pdf, revisions
 
 

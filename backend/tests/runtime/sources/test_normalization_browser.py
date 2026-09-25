@@ -8,10 +8,9 @@ import runtime.api.app as api
 from browser_e2e_runner import PORT, local_api, main as run_browser
 from runtime.source_normalization import normalize_next
 from product_fixtures import closed_loop
-from test_source_normalization import normalizer
 
 
-def test_real_normalization_browser(closed_loop, normalizer, monkeypatch):
+def test_real_normalization_browser(closed_loop, monkeypatch):
     settings = closed_loop[2]
     dsn = closed_loop[4]
     attempts = []

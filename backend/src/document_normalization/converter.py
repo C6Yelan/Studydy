@@ -8,8 +8,11 @@ import os
 from pathlib import Path
 import resource
 import signal
+import shutil
 import subprocess
 import tempfile
+import sys
+import sysconfig
 
 
 MIME = {
@@ -47,19 +50,16 @@ class NormalizationError(RuntimeError):
     pass
 
 
-def configured_python():
-    raw = os.environ.get('STUDYDY_NORMALIZER_PYTHON')
-    if not raw:
-        return None
-    executable = Path(raw)
-    if not executable.is_absolute() or not executable.is_file():
-        raise NormalizationError('NORMALIZER_UNAVAILABLE')
-    return executable
+def normalizer_available():
+    """Python 依賴隨後端安裝；系統轉檔工具仍須由主機提供。"""
+    return (
+        all(shutil.which(tool) for tool in ('bwrap', 'fc-list'))
+        and Path('/usr/lib/libreoffice/program/soffice').is_file()
+    )
 
 
 def conversion_policy():
-    executable = configured_python()
-    if executable is None:
+    if not normalizer_available():
         raise NormalizationError('NORMALIZER_UNAVAILABLE')
     fonts = subprocess.check_output(['fc-list', ':lang=zh', 'file', 'family'], text=True)
     font_lines = '\n'.join(sorted(fonts.splitlines()))
@@ -84,9 +84,9 @@ def convert(data: bytes, extension: str, media_type: str, policy: dict) -> tuple
     if extension not in MIME or MIME[extension] != media_type:
         raise NormalizationError('UNSUPPORTED_MEDIA_TYPE')
 
-    executable = configured_python()
-    base = executable.resolve().parent.parent
-    site = executable.parent.parent / 'lib/python3.12/site-packages'
+    # 掛載目前後端的基底直譯器，再覆蓋共用 venv 套件；venv 的 Python 是 symlink。
+    base = Path(sys.base_prefix)
+    site = Path(sysconfig.get_path('purelib'))
     if not site.is_dir():
         raise NormalizationError('NORMALIZER_UNAVAILABLE')
 

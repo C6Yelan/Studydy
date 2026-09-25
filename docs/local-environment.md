@@ -47,7 +47,7 @@ python3 ops/local/manage.py stop
 修改設定後，以 `python3 ops/local/manage.py stop` 再 `start` 重載；工作保存自己的 runtime lock snapshot。
 模型 preflight 與品質驗收分開處理，設定可載入不代表新模型品質已合格。
 
-私人啟動設定只保留 DB／store／normalizer 等本機資訊，不再提供 command 執行器設定。
+私人啟動設定保留 DB／store 等本機資訊；轉檔直接使用後端 Python 環境，不再讀取獨立 normalizer 設定，也不提供 command 執行器設定。
 模型通道若離線，教材分析與出題會如實失敗，不切到其他執行器或自動重跑。
 
 ## 換正常 Pod

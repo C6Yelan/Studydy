@@ -103,7 +103,7 @@ def limits():
     for kind,value in [(resource.RLIMIT_CPU,45),(resource.RLIMIT_AS,2*1024**3),(resource.RLIMIT_FSIZE,100*MIB),(resource.RLIMIT_NOFILE,128),(resource.RLIMIT_NPROC,1024)]:resource.setrlimit(kind,(value,value))
 
 def run_case(source,renderer,out,policy,expected_pages=None,lines=None):
-    out.mkdir();python=ROOT/'.studydy-runtime/normalizer-venv/bin/python';base=python.resolve().parent.parent;site=python.parent.parent/'lib/python3.12/site-packages'
+    out.mkdir();python=ROOT/'backend/.venv/bin/python';base=python.resolve().parent.parent;site=python.parent.parent/'lib/python3.12/site-packages'
     command=['bwrap','--unshare-all','--die-with-parent','--new-session','--cap-drop','ALL','--ro-bind','/usr','/usr','--symlink','usr/bin','/bin','--symlink','usr/lib','/lib','--symlink','usr/lib64','/lib64',
         '--ro-bind','/etc/fonts','/etc/fonts','--ro-bind','/etc/libreoffice','/etc/libreoffice','--ro-bind','/etc/ld.so.cache','/etc/ld.so.cache','--proc','/proc','--dev','/dev','--tmpfs','/tmp',
         '--ro-bind',str(base),'/runtime','--ro-bind',str(site),'/runtime/lib/python3.12/site-packages','--ro-bind',str(renderer),'/renderer.py','--ro-bind',str(source.parent),'/input','--bind',str(out),'/output','--clearenv',

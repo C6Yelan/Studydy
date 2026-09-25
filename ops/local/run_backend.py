@@ -18,10 +18,6 @@ environment.update({
     "STUDYDY_ARTIFACT_ROOT": config["artifact_root"],
     "STUDYDY_LOCAL_RUNTIME_ROOT": str(Path.home() / ".local/share/studydy"),
 })
-if "normalizer_python" in config:
-    if not isinstance(config["normalizer_python"], str) or not Path(config["normalizer_python"]).is_absolute():
-        raise ValueError("LOCAL_NORMALIZER_CONFIG_INVALID")
-    environment["STUDYDY_NORMALIZER_PYTHON"] = config["normalizer_python"]
 # 模型通道在 Pod 端讀取 server key，本機不保存模型憑證。
 environment.pop("STUDYDY_SEMANTIC_API_KEY", None)
 python = str(repo / "backend/.venv/bin/python")

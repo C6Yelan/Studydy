@@ -11,8 +11,6 @@ from runtime.material_runtime import lock_matches_binding, runtime_binding, same
 from runtime.storage.analysis_archive import _material_directory
 from runtime.storage.tables import MaterialProcessingRun, database_session
 from product_fixtures import _settings, closed_loop
-# revisions 的 fixture 依賴也需在本測試模組可見。
-from test_source_normalization import normalizer
 from test_source_revisions import revisions
 
 

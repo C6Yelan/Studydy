@@ -19,7 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHttpException
 from starlette.routing import Match
 
 from document_normalization.converter import (
-    MAX_FILE_BYTES, MIME, NormalizationError, configured_python,
+    MAX_FILE_BYTES, MIME, NormalizationError, normalizer_available,
 )
 from learning_adaptation import assessment_sets
 from learning_adaptation.learner_progress import (
@@ -616,7 +616,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
     def source_capabilities(request: Request):
         _require_query(request, set())
         _trusted_learner(request, settings)
-        enabled = configured_python() is not None
+        enabled = normalizer_available()
         return SourceCapabilities(
             formats=[
                 {"extension": ext, "media_type": media, "max_bytes": MAX_FILE_BYTES}

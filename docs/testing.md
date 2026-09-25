@@ -9,15 +9,25 @@
 From the repository root:
 
 ```bash
-PYTHONPATH=backend/src:backend/tests:local_ai/src backend/.venv/bin/pytest -q backend/tests
+export STUDYDY_E2E_FRONTEND_DIST="$PWD/.studydy-runtime/backend-check-frontend"
+export STUDYDY_E2E_FRONTEND_PORT=4183 STUDYDY_E2E_API_PORT=8002
+npm --prefix frontend run build -- --outDir "$STUDYDY_E2E_FRONTEND_DIST" --emptyOutDir
+env -u STUDYDY_TEST_POSTGRES_DSN -u STUDYDY_DATABASE_DSN \
+  PYTHONPATH=backend/src:backend/tests:local_ai/src backend/.venv/bin/pytest -q backend/tests
 PYTHONPATH=local_ai/src backend/.venv/bin/pytest -q local_ai/tests
-cd frontend
-npm test
-npm run typecheck
-npm run build
-cd ..
+npm --prefix frontend test
 backend/.venv/bin/python backend/tests/runtime/browser_e2e_runner.py
 ```
+
+獨立 build 同時執行 TypeScript 檢查，不覆寫日常 `frontend/dist`；以下 browser 命令
+沿用上方 build 與 ports。來源轉檔使用後端共用環境，不再需要獨立 normalizer fixture。
+
+2026-09-25 整理收尾：清除 6 個已失效的 normalizer fixture 匯入及 2 處參數後，完整後端
+**369 passed、0 skipped（310.36 秒）**，含表層 159、runtime 210（其中 10 個 browser fixture）；
+唯一 warning 為既有 Starlette TestClient 的 httpx 棄用提示。local AI **13 passed**、
+逐檔 Node **51 passed**，TypeScript／獨立 build 通過（既有 bundle 大小提示）。
+使用 disposable PostgreSQL、合成來源與 4183／8002，未使用產品 DB／PDF store 或真實模型；
+執行期間後端 source／tests／lock 未變動。本輪未重跑完整獨立前端 E2E，不擴張為模型品質結論。
 
 Backend tests create a pinned disposable PostgreSQL 18 container unless a private
 `STUDYDY_TEST_POSTGRES_DSN` pointing at a dedicated `studydy_test*` control database is supplied.
@@ -160,14 +170,13 @@ backend 本次僅收集，未重跑 DB runtime，也未執行其餘 browser spec
 
 ## Account regression (local only)
 
-Build the frontend first, then run:
+先完成上方獨立 build 並設定測試 ports，再執行：
 
 ```bash
-npm --prefix frontend run build
 PYTHONPATH=backend/src:backend/tests:local_ai/src backend/.venv/bin/pytest -q backend/tests/runtime
 ```
 
-`test_account_browser.py` reserves local API port 8001 and frontend port 4173, starts the production
+`test_account_browser.py` uses the configured test ports (API 8002 and frontend 4183 above), starts the production
 frontend with Vite preview, and uses real account endpoints and a disposable PostgreSQL database.
 Keep those ports free. The fixture uses synthetic saved material and disables model preflight and
 worker startup only inside the test; it does not load models or start a cloud pod. The browser
@@ -329,10 +338,10 @@ remote semantic service.
 
 ## Auth UX regression
 
+沿用上方獨立 build 與測試 ports：
+
 ```bash
 npm --prefix frontend test
-npm --prefix frontend run typecheck
-npm --prefix frontend run build
 PYTHONPATH=backend/src:backend/tests:local_ai/src backend/.venv/bin/pytest -q backend/tests/runtime/accounts/test_accounts.py backend/tests/runtime/accounts/test_account_browser.py
 ```
 

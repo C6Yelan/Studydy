@@ -15,8 +15,6 @@ from runtime.storage.analysis_archive import (
 )
 from runtime.storage.knowledge_structures import read_knowledge_structure
 from product_fixtures import product_snapshot, closed_loop
-# revisions 的 fixture 依賴也需在本測試模組可見。
-from test_source_normalization import normalizer
 from test_source_revisions import revisions
 
 

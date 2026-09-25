@@ -6,6 +6,8 @@ dependencies = [
     "email-validator==2.3.0",
     "fastapi==0.139.2",
     "httpx==0.28.1",
+    "markdown-it-py==3.0.0",
+    "olefile==0.47",
     "pydantic==2.13.4",
     "psycopg[binary]==3.3.4",
     "PyMuPDF==1.28.0",

@@ -18,7 +18,6 @@ from runtime.source_normalization import SourceError, create_draft, normalize_ne
 from runtime.source_revisions import create_revision
 from runtime.storage.knowledge_structures import read_knowledge_structure, resolve_evidence_source
 from runtime.storage.tables import KnowledgeStructure, Material, MaterialSourceSet, database_session
-from test_source_normalization import normalizer
 
 
 
@@ -29,7 +28,7 @@ def pdf(text):
 
 
 @pytest.fixture
-def revisions(closed_loop, normalizer, monkeypatch):
+def revisions(closed_loop, monkeypatch):
     learner, _, settings, _, dsn, _ = closed_loop
     from pdf_evidence import material_pipeline
     import runtime.material_processing as processing
