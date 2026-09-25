@@ -18,7 +18,15 @@
 
 ## 環境與隔離
 
-依 [安裝與啟動](getting-started.md) 安裝應用程式與轉檔依賴。瀏覽器測試另需 Chromium：
+不安裝主機 Python 套件也能先執行後端表層與 local AI 測試：
+
+~~~bash
+docker compose -p studydy-unit-tests -f compose.test.yaml run --build --rm unit
+~~~
+
+此測試容器無網路、無產品資料掛載，也不需要 GPU。前端映像建置會執行 Node 測試、TypeScript 與 production build。
+
+以下原始碼測試命令供開發環境使用：需自行準備 backend/.venv、frontend/node_modules，以及真轉檔使用的系統工具；它們不是容器部署的主機必要條件。瀏覽器測試另需 Chromium：
 
 ~~~bash
 npm --prefix frontend run e2e:install

@@ -18,7 +18,7 @@ flowchart LR
     Validate --> Store
 ~~~
 
-前端使用同源 /v1 API，Vite preview 代理到本機後端。API 處理身分、讀寫邊界與工作建立；worker 執行來源轉檔、教材分析／檢核與題組準備。PostgreSQL 保存工作狀態、帳號、學習與內容 metadata；檔案保存在 private artifact store。
+前端使用同源 /v1 API，部署時由 Nginx 代理到 backend 容器。API 處理身分、讀寫邊界與工作建立；worker 執行來源轉檔、教材分析／檢核與題組準備。PostgreSQL 保存工作狀態、帳號、學習與內容 metadata；檔案保存在 data/artifacts。
 
 後端只啟停自己管理的 OCR 子程序，不管理外部語意模型服務的生命週期。API 啟動檢查設定，模型可用性由實際 AI 操作檢查；登入與已保存內容讀取可在模型離線時使用。
 
@@ -47,6 +47,8 @@ flowchart LR
 
 模型、revision、套件契約、token budgets 與 prompts 以 [runtime-lock.json](../local_ai/runtime-lock.json) 為單一設定來源。
 
+實際模型 HTTP 位址由 STUDYDY_SEMANTIC_BASE_URL 提供，Bearer token 由 VLLM_API_KEY 提供。部署覆寫只影響連線，不改封存的 lock、binding 或內容 hash；快照中的預設位址不代表部署覆寫後的網路終點。
+
 教材工作與題組各自封存執行快照。讀取已保存內容時，核對產物與生成當時的快照，不能以目前設定冒充其身分。修改模型設定不會改寫既有產物或答案。
 
 一般地圖／題組／進度讀取驗證資料庫 metadata，不反覆掃描所有原檔；發布與實際使用來源檔案時核對對應 bytes。來源檔損毀會阻止該檔案使用或新結果發布，不等於已保存地圖自動消失。
@@ -71,6 +73,6 @@ Migration runner 逐份套用 [領域 SQL](../backend/migrations/)，核對 chec
 
 ## API 參考
 
-產品路由以 /v1 為前綴。執行中的 [OpenAPI JSON](http://127.0.0.1:8001/v1/openapi.json) 提供實際 request／response 定義；repo 內由 [app.py](../backend/src/runtime/api/app.py) 與 [models.py](../backend/src/runtime/api/models.py) 定義。
+產品路由以 /v1 為前綴。預設前端入口下的 [OpenAPI JSON](http://127.0.0.1:4173/v1/openapi.json) 提供實際 request／response 定義；repo 內由 [app.py](../backend/src/runtime/api/app.py) 與 [models.py](../backend/src/runtime/api/models.py) 定義。
 
 功能文件解釋工作流程、交易與副作用，不另外維護一份完整欄位清單。

@@ -15,6 +15,9 @@ from .storage.migrations import run_migrations
 def initialize_data(root: Path, uid: int, gid: int) -> None:
     if uid <= 0 or gid <= 0 or root.is_symlink():
         raise ValueError("CONTAINER_DATA_INVALID")
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root.chmod(0o700)
+    os.chown(root, uid, gid)
     for relative, owner, group in (
         ("artifacts", uid, gid), ("models", uid, gid),
         ("models/unlimited-ocr", uid, gid), ("postgres", 999, 999),

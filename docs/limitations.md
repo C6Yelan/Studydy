@@ -4,11 +4,11 @@
 
 ## 部署與可重現性
 
-目前提供 Linux 本機執行路徑，依賴 PostgreSQL、bubblewrap、LibreOffice、字型及模型環境。Windows／macOS 未提供原生啟動流程。
+部署使用 Linux 容器。應用依賴由映像提供；主機仍須提供 Docker、kernel namespace 能力，以及完整 AI 流程所需的 GPU 驅動與容器整合。Windows／macOS 未提供原生啟動流程。
 
-首次部署需手動建立私密設定、資料庫及模型環境。Repo 沒有一鍵模型安裝器；SSH 模型通道也有指定金鑰、互動式 root shell 與遠端環境變數的假設。文件中的初始化命令不代表已在所有 Linux 發行版完成全新安裝驗證。
+Compose 初始化資料目錄及 DB，OCR 工具可下載指定 snapshot。架設者仍需提供模型服務位址、認證與主機 GPU 設定；這些命令不代表已在所有 Linux／WSL2 環境完成驗證。部署不強制使用 SSH 或 RunPod。
 
-目前本機 profile 使用 loopback 與非 Secure cookie，不應直接當成公開網路部署配置。公開服務的 TLS、反向代理與營運設定不在本機管理器的支援範圍。
+預設只對 loopback 開前端 port，並使用非 Secure cookie。公開服務仍須由架設者提供 TLS，設定相符的 public origin／Secure cookie 並檢查營運條件。
 
 ## 文件與 OCR
 

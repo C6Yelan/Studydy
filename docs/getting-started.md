@@ -2,171 +2,136 @@
 
 [文件入口](../README.md) · [測試](testing.md) · [限制](limitations.md)
 
-本頁說明 Linux 本機部署。所有命令從 repository root 執行，除非另有註明。初始化步驟只適用於新環境；已有資料庫或設定時，沿用原位置，不覆寫設定、不重建 volume。
+部署使用 Docker Compose，路徑以這份 repository 為基準，目錄不必叫 main。應用、Python、Node、LibreOffice、字型與 OCR 套件由映像提供；主機不需要另外安裝這些應用套件。
 
-## 1. 準備依賴
+## 主機需求
 
-| 項目 | 需求與設定來源 |
+- Linux 容器環境、Docker Engine 與支援 gpus 設定的 Docker Compose；目前驗證平台為 x86_64 Linux／WSL2。
+- 完整 AI 流程需要 NVIDIA GPU、主機驅動及可用的容器 GPU 整合。WSL2 也需要正確配置 GPU 接入；僅在 WSL 中可用 nvidia-smi 不代表容器已能使用 GPU。
+- Kernel／主機安全政策必須允許容器內的 unprivileged user namespaces。後端使用 [bubblewrap seccomp 規則](../ops/docker/bubblewrap-seccomp.json)，不使用 privileged、host PID 或 Docker socket。
+- data 所在檔案系統須支援 Linux owner 與 mode；模型及 DB 需要足夠磁碟空間。
+
+GPU 設定依 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) 或 [Docker Desktop WSL2 GPU 文件](https://docs.docker.com/desktop/features/gpu/) 核對；這屬主機配置，不由 Compose 自動安裝或修改。
+
+Compose 會在不支援 sandbox 時拒絕啟動後端，不會靜默關閉轉檔隔離。AppArmor／SELinux 等主機政策亦可能阻擋 namespaces，須由部署者按環境核對。
+
+## 1. 建立設定
+
+~~~bash
+cp .env.example .env
+chmod 600 .env
+~~~
+
+編輯 .env，至少填妥 POSTGRES_PASSWORD 與實際模型服務位址。不要提交 .env 或 data：
+
+| 設定 | 用途 |
 | --- | --- |
-| Python | 3.12；[backend/pyproject.toml](../backend/pyproject.toml) 與 [backend/uv.lock](../backend/uv.lock) |
-| Python 套件管理 | uv |
-| 前端 | 支援目前 Vite 的 Node.js；開發驗證使用 Node 24，套件由 [package-lock.json](../frontend/package-lock.json) 固定 |
-| 資料庫 | PostgreSQL 18；本機管理腳本使用 Docker 持久 volume |
-| 文件轉檔 | LibreOffice Writer／Impress、bubblewrap、fontconfig、Noto CJK；版本與政策見 [converter.py](../backend/src/document_normalization/converter.py) |
-| 模型環境 | Unlimited-OCR 與 HTTP 語意服務，見本頁第 4 節 |
+| COMPOSE_PROJECT_NAME | 同一主機上的部署識別；第二份安裝須用不同名稱 |
+| COMPOSE_FILE | 預設 compose.yaml；加入 :compose.gpu.yaml 或 :compose.ssh.yaml 選擇需要的服務 |
+| STUDYDY_PORT | 對外前端 port，預設 4173 |
+| STUDYDY_PUBLIC_ORIGIN | 瀏覽器的完整 origin，須與 port／網址一致 |
+| STUDYDY_SECURE_COOKIE | 本機 HTTP 用 false；經 HTTPS 公開時用 true |
+| STUDYDY_DATA_DIR | 預設 ./data；測試必須指定自己的資料目錄 |
+| STUDYDY_UID／STUDYDY_GID | 後端及教材檔案 owner；預設 1000，可用 id -u／id -g 核對 |
+| POSTGRES_DB／POSTGRES_USER／POSTGRES_PASSWORD | 本部署的 PostgreSQL 設定 |
+| STUDYDY_SEMANTIC_BASE_URL | 模型服務 origin，只含協定、host 與可選 port，不加 /v1 |
+| VLLM_API_KEY | 選用的模型 Bearer token；空值不送 Authorization |
 
-轉檔器依賴 Linux namespaces，以及 /usr、/etc/fonts、/etc/libreoffice、/etc/ld.so.cache 和 /usr/lib/libreoffice/program/soffice 的主機布局。作業系統套件須依實際發行版安裝，並核對 converter 中的版本要求。
+模型位址可用 HTTP 或 HTTPS，不能把帳密塞進 URL。外部服務宜使用 HTTPS。前端不會收到模型憑證。
 
-新環境安裝應用程式依賴：
-
-~~~bash
-uv sync --project backend --locked --extra test
-npm --prefix frontend ci
-~~~
-
-若既有 backend/.venv 與其他 checkout 共用，採增量安裝，不以同步清除其他 checkout 的套件：
+## 2. 啟動核心服務
 
 ~~~bash
-uv export --project backend --locked --extra test --no-dev --no-emit-project | \
-  uv pip install --python backend/.venv/bin/python -r -
+docker compose up -d --build --wait
+docker compose ps
 ~~~
 
-## 2. 建立持久資料庫與檔案目錄
+預設入口是 http://127.0.0.1:4173。只有前端對主機開 port；Nginx 把 /v1 轉送到後端。API 定義可從 http://127.0.0.1:4173/v1/openapi.json 讀取。
 
-管理腳本固定從 repo 的上一層讀取 .studydy-product。下列範例只用於該目錄尚不存在的新環境：
+Compose 的 init 只建立資料目錄及必要權限，不清空已有內容。PostgreSQL 就緒後，後端用原 migration runner 核對／套用 schema，再啟動 API 與 worker。重跑不重建已有帳號、教材或 schema。
+
+核心映像可使用帳號、資料讀取、教材上傳與轉檔。AI 分析／出題仍需要下一節的 OCR 環境與相符的語意服務；不提供模型 fallback。
+
+## 3. 啟用 OCR 與 GPU
+
+GPU 映像另外封裝 runtime lock 指定的 PyTorch、CUDA 使用者層、Transformers 與 OCR adapter。主機 GPU 驅動不包含在映像中。
 
 ~~~bash
-umask 077
-mkdir -m 700 ../.studydy-product
-mkdir -m 700 ../.studydy-product/artifacts
+docker compose -f compose.yaml -f compose.gpu.yaml build
+docker compose -f compose.yaml -f compose.gpu.yaml run --rm download-ocr
+docker compose -f compose.yaml -f compose.gpu.yaml up -d --wait
 ~~~
 
-自行建立 ../.studydy-product/postgres.env，填入新資料庫密碼，檔案權限設為 0600：
+download-ocr 從 [baidu/Unlimited-OCR](https://huggingface.co/baidu/Unlimited-OCR) 下載 lock 指定的 revision，不載入模型。它只寫 data/models/unlimited-ocr，允許續傳自己標記的相同 revision，不覆寫未知的既有模型目錄。此命令不要求 GPU 裝置，但需要網路與模型磁碟空間。
 
-~~~dotenv
-POSTGRES_DB=studydy
-POSTGRES_USER=studydy_owner
-POSTGRES_PASSWORD=<自行設定的密碼>
-PGDATA=/var/lib/postgresql/18/docker
-~~~
+已有核對過的相同 snapshot 時，可直接把完整權重放在該模型目錄，無須重新下載。後端以唯讀方式掛載權重，依賴均使用容器內 OCR 環境。
 
-建立只對本機開放的持久容器；不要加 --rm 或把資料目錄改為 tmpfs：
+啟用 GPU 後，日常 Compose 命令都帶同一組 -f 檔案：
 
 ~~~bash
-docker run --detach --name studydy-postgres \
-  --publish 127.0.0.1:55432:5432 \
-  --mount type=volume,source=studydy-pg18,target=/var/lib/postgresql \
-  --env-file ../.studydy-product/postgres.env \
-  postgres:18.4-bookworm
-docker exec studydy-postgres pg_isready -U studydy_owner -d studydy
+docker compose -f compose.yaml -f compose.gpu.yaml ps
+docker compose -f compose.yaml -f compose.gpu.yaml logs --tail 100 backend
+docker compose -f compose.yaml -f compose.gpu.yaml down
 ~~~
 
-建立 ../.studydy-product/private-config.json。以下是欄位範例，所有佔位值都必須替換；密碼在 URI 中須 URL encode：
+down 不刪除 bind-mounted data。不要把刪除 data 當成重新啟動方式。
 
-~~~json
-{
-  "container": "studydy-postgres",
-  "volume": "studydy-pg18",
-  "database_dsn": "postgresql://studydy_owner:<URL_ENCODED_PASSWORD>@127.0.0.1:55432/studydy",
-  "artifact_root": "/absolute/path/to/.studydy-product/artifacts"
-}
-~~~
+## 4. 連接語意模型
 
-artifact_root 必須是絕對路徑，目錄權限為 0700。設定檔含憑證，不加入 Git：
+RunPod 是選用供應商。Gemma 可以放在另一個容器、自有伺服器或其他 GPU 平台，只要符合 [runtime-lock.json](../local_ai/runtime-lock.json) 的模型、revision、server、tokenizer 與生成契約。
 
-~~~bash
-chmod 600 ../.studydy-product/postgres.env ../.studydy-product/private-config.json
-~~~
+STUDYDY_SEMANTIC_BASE_URL 是容器實際連線位址。容器內的 127.0.0.1 指向容器自身，不能用它代指主機或另一個服務。host.docker.internal 會指向主機 gateway，但主機服務仍需監聽容器可達的介面；只綁主機 loopback 的服務不能直接靠改名稱存取。
 
-## 3. 初始化 schema
+若需 SSH，可在 .env 把 COMPOSE_FILE 設為 compose.yaml:compose.gpu.yaml:compose.ssh.yaml（不需 OCR 時省略 GPU 檔案）。設定 STUDYDY_SSH_HOST=user@host、STUDYDY_SSH_PORT，以及遠端模型的 STUDYDY_SSH_MODEL_PORT。之後直接使用 docker compose up／down／logs，無須每次重複 -f。
 
-確認資料庫已就緒後，對剛建立的資料庫執行 migration。此命令只印套用的版本，不印 DSN：
+提供 data/ssh/model_key 與已核對 fingerprint 的 data/ssh/known_hosts，權限 0600，owner 與 STUDYDY_UID 相符。通道以唯讀方式掛載兩個檔案，不自動接受未知 host key；不要複製整個主機 .ssh 目錄進容器。
 
-~~~bash
-PYTHONPATH=backend/src backend/.venv/bin/python - <<'PY'
-import json
-from pathlib import Path
-from runtime.storage.migrations import run_migrations
+SSH 通道需要遠端的互動式 POSIX shell 與 Python 3，將固定模型路由送到遠端 loopback 的模型 port，Bearer key 從遠端 VLLM_API_KEY 取得。它不依賴 root 提示字元，啟動／健康檢查不連模型，未知結果的請求不自動重播。SSH overlay 會把後端模型位址設為容器內 model-bridge，不對主機開放通道 port。
 
-config = json.loads(Path("../.studydy-product/private-config.json").read_text())
-print(run_migrations(config["database_dsn"]))
-PY
-~~~
+預設部署不啟動 SSH、不要求 Pod 設定檔，也不接管外部模型生命週期。
 
-Migration runner 核對連續版本與 checksum，逐份交易套用，重跑已套用版本為 no-op。對已有資料的資料庫進行變更前，先備份 DB 與 artifact store；不可修改帳本 checksum 來略過不一致。
+位址與 token 由目前部署設定提供，不回寫封存的 runtime lock／binding；已保存的內容 hash 不因部署位置改變而重算。模型身分與能力仍照原契約驗證。
 
-## 4. 準備 OCR 與語意服務
-
-應用程式依賴安裝不包含模型權重、CUDA 或 vLLM。這些需由部署者另外準備，版本與模型 revision 以 [runtime-lock.json](../local_ai/runtime-lock.json) 為準；repo 目前沒有完整的模型安裝腳本。
-
-本機 OCR 使用以下布局：
+## 資料布局
 
 ~~~text
-~/.local/share/studydy/
-  ocr/runtime/bin/python3.12
-  ocr/runtime/lib/python3.12/site-packages/
-  models/unlimited-ocr/
+repository/
+  .env                         私密部署設定
+  compose.yaml
+  compose.gpu.yaml
+  data/
+    artifacts/                 原檔、PDF、mapping、analysis archive
+    models/unlimited-ocr/      固定 OCR snapshot
+    postgres/                 PostgreSQL 持久資料
 ~~~
 
-OCR runtime 須包含 lock 的 packages（含本 repo 的 studydy-local-ai 套件），模型目錄須是對應 revision 的完整權重與設定。GPU／CUDA 能力須符合模型 runtime。即使教材可走原生文字，正式分析的 preflight 仍會檢查 OCR 安裝布局。
+Logs 使用 docker compose logs，程序生命週期由 Docker 管理，不另造 host PID 系統。容器映像與 build cache 由 Docker 自己管理，不放入 data。
 
-語意服務須符合 lock 的 semantic_service：模型、revision、vLLM 套件契約、context、concurrency，以及 health、version、model discovery、tokenize、chat completions 路由。部署者負責啟動服務與核對實際權重 revision。
-
-目前本機管理器會啟動 [SSH 模型通道](../ops/local/model_bridge.py)，對後端提供 127.0.0.1:18000。此通道有明確部署假設：
-
-- 私密檔 ../.studydy-product/pod-connection.json 提供 ssh_host，可使用 SSH config alias。
-- 使用 ~/.ssh/id_ed25519、BatchMode 與 StrictHostKeyChecking；須先完成金鑰及 known_hosts 設定。
-- 遠端提供 Python 3、互動式 root shell，提示字元符合 root@…#。
-- 遠端模型服務位於 127.0.0.1:18000；通道的遠端程序需能取得 VLLM_API_KEY。
-
-~~~json
-{
-  "ssh_host": "studydy-model"
-}
-~~~
-
-將該檔設為 0600。主機、SSH port 與使用者可在 ~/.ssh/config 的 studydy-model alias 中設定；不要把真實連線資訊寫入 repo。此通道不是通用 Pod 部署工具，也不負責安裝或啟停模型。
-
-設定檔存在但模型離線時，本機登入與已保存內容讀取仍可使用；分析與出題會回報不可用。
-
-## 5. 啟動與停止
+## 驗證與排錯
 
 ~~~bash
-python3 ops/local/manage.py status
-python3 ops/local/manage.py start
+docker compose -p studydy-unit-tests -f compose.test.yaml run --build --rm unit
 ~~~
 
-| 服務 | 本機位置 |
+此命令在無網路、無產品資料掛載的容器內執行後端表層與 local AI 測試，不需要模型。完整回歸及 browser 見 [測試](testing.md)。
+
+| 問題 | 檢查 |
 | --- | --- |
-| 前端 | http://127.0.0.1:4173 |
-| 後端 | http://127.0.0.1:8001 |
-| API 定義 | http://127.0.0.1:8001/v1/openapi.json |
-| 模型通道 | http://127.0.0.1:18000 |
+| Compose 缺少變數 | 檢查 .env 的必要欄位；不要把展開後含密碼的 config 輸出到一般 log |
+| 後端啟動失敗 | 查看 backend／init logs，核對資料 owner、DB 密碼、模型 URL 與 namespace 政策 |
+| GPU device／vendor 無法選取 | 主機 GPU 驅動與 Docker GPU 整合；不要在容器中安裝主機驅動 |
+| OCR_DOWNLOAD_FAILED | 網路、目標是否為未知非空目錄、lock revision；不刪除既有權重來強迫通過 |
+| AI 操作失敗 | GPU override、OCR 權重、模型服務連線及實際模型契約 |
 
-start 會啟動已配置的持久容器、API／worker、模型通道並建置前端。status 不呼叫模型。埠被不明程序占用時會拒絕重複啟動。
-
-~~~bash
-python3 ops/local/manage.py stop
-~~~
-
-stop 停止本機前後端與模型通道，保留 PostgreSQL、volume、教材及遠端模型。它不代表遠端 GPU 已停機。
-
-## 排錯與日常資料
-
-Logs 與 PID 位於 ../.studydy-product/logs、run；原檔與分析產物位於設定的 artifact_root。備份應包含 DB、artifact store 及私密設定，並在停止產品寫入的情況下保持一致。
-
-| 問題 | 檢查方式 |
-| --- | --- |
-| LOCAL_ENVIRONMENT_OPERATION_FAILED | 私密設定欄位、檔案權限與設定的 Docker container 是否存在 |
-| Port occupied／still starting | 先查 status 與對應 log，不反覆送出 start |
-| NORMALIZER_UNAVAILABLE | 系統轉檔工具、路徑與後端 Python 依賴 |
-| NORMALIZER_VERSION_MISMATCH | converter policy 與實際套件／LibreOffice 版本 |
-| AI 操作不可用 | OCR 安裝布局、SSH 認證與遠端模型契約；已保存內容不需要重新分析 |
-
-需要檢驗真實模型環境時，可明確執行：
+真實 runtime verify 會載入 OCR 並連線語意服務，需明確選擇執行，不是一般健康檢查：
 
 ~~~bash
-PYTHONPATH=backend/src backend/.venv/bin/python -m runtime.local_runtime verify
+docker compose -f compose.yaml -f compose.gpu.yaml exec backend \
+  /app/backend/.venv/bin/python -m runtime.local_runtime verify
 ~~~
 
-此命令會連線語意服務並載入、關閉一次 OCR 模型，不屬於一般離線測試。服務驗證成功不代表生成品質通過，品質邊界見 [限制](limitations.md)。
+## 從既有安裝切換
+
+先在獨立 Compose project、不同 port 與測試 data 驗證。正式切換前停止產品寫入，備份原 DB、artifact store 與私密設定；把 DB 備份還原到新 PostgreSQL，搬移 artifact store 並核對資料／檔案，再切換服務。
+
+不要把新建空 DB 當成完成遷移，也不要直接搬動正在使用的 PostgreSQL 資料目錄。確認新環境可讀、可恢復且其他 checkout 沒有引用後，才能清除不用的舊腳本、目錄與套件。資料搬移、主機 GPU 配置及正式切換需分開審核，不能由 build 成功推定已完成。

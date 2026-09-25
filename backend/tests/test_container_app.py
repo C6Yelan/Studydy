@@ -8,6 +8,7 @@ def test_data_initialization_preserves_files_and_rejects_symlink(tmp_path, monke
     monkeypatch.setattr(container_app.os, 'chown', lambda *_: None)
     root = tmp_path / 'data'
     container_app.initialize_data(root, 1000, 1000)
+    assert root.stat().st_mode & 0o777 == 0o700
     saved = root / 'artifacts' / 'saved.pdf'
     saved.write_bytes(b'synthetic source')
     container_app.initialize_data(root, 1000, 1000)
