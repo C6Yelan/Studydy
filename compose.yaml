@@ -39,11 +39,13 @@ services:
     networks: [database]
 
   backend:
-    image: ${COMPOSE_PROJECT_NAME:-studydy}-backend
+    image: ${COMPOSE_PROJECT_NAME:-studydy}-backend-ocr
     build:
       context: .
       dockerfile: ops/docker/backend.Dockerfile
-      target: backend
+      target: ocr
+    devices:
+      - nvidia.com/gpu=all
     user: "${STUDYDY_UID:-1000}:${STUDYDY_GID:-1000}"
     depends_on:
       postgres:
@@ -91,6 +93,63 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     restart: unless-stopped
+    networks: [application]
+
+  model-bridge:
+    profiles: [ssh]
+    build:
+      context: .
+      dockerfile: ops/docker/backend.Dockerfile
+      target: ssh-bridge
+    user: "${STUDYDY_UID:-1000}:${STUDYDY_GID:-1000}"
+    environment:
+      STUDYDY_SSH_HOST: ${STUDYDY_SSH_HOST:-}
+      STUDYDY_SSH_PORT: ${STUDYDY_SSH_PORT:-22}
+      STUDYDY_SSH_MODEL_PORT: ${STUDYDY_SSH_MODEL_PORT:-18000}
+    volumes:
+      - type: bind
+        source: ${STUDYDY_DATA_DIR:-./data}/ssh/model_key
+        target: /run/secrets/model_key
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${STUDYDY_DATA_DIR:-./data}/ssh/known_hosts
+        target: /run/secrets/known_hosts
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "/app/backend/.venv/bin/python", "-c", "import socket; socket.create_connection(('127.0.0.1',18000),timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+    networks: [application]
+
+  download-ocr:
+    profiles: [tools]
+    image: ${COMPOSE_PROJECT_NAME:-studydy}-backend-ocr
+    build:
+      context: .
+      dockerfile: ops/docker/backend.Dockerfile
+      target: ocr
+    user: "${STUDYDY_UID:-1000}:${STUDYDY_GID:-1000}"
+    command: ["--lock", "/app/local_ai/runtime-lock.json", "--output", "/models"]
+    entrypoint: ["/opt/studydy/ocr/runtime/bin/python", "-m", "studydy_local_ai.download"]
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - ${STUDYDY_DATA_DIR:-./data}/models/unlimited-ocr:/models
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     networks: [application]
 
 networks:

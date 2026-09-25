@@ -4,7 +4,7 @@
 
 ## 部署與可重現性
 
-部署使用 Linux 容器。應用依賴由映像提供；主機仍須提供 Docker、kernel namespace 能力，以及完整 AI 流程所需的 GPU 驅動與容器整合。Windows／macOS 未提供原生啟動流程。
+部署使用 Linux 容器。應用依賴由映像提供；主機仍須提供 Docker、kernel namespace 能力，以及 NVIDIA GPU、驅動與容器整合。無 GPU 的環境可執行獨立容器測試。Windows／macOS 未提供原生啟動流程。
 
 Compose 初始化資料目錄及 DB，OCR 工具可下載指定 snapshot。架設者仍需提供模型服務位址、認證與主機 GPU 設定；這些命令不代表已在所有 Linux／WSL2 環境完成驗證。部署不強制使用 SSH 或 RunPod。
 

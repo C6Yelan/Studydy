@@ -15,11 +15,11 @@ Studydy 將自己的教材整理成可回查來源的知識地圖，再透過觀
 
 ## 執行需求
 
-部署使用 Docker Compose。Python 3.12、前端、PostgreSQL 18、LibreOffice、bubblewrap 與中文字型由容器提供；主機需支援 Linux 容器。
+部署使用 Docker Compose。Python 3.12、前端、PostgreSQL 18、LibreOffice、bubblewrap 與中文字型由容器提供；主機需支援 Linux 容器，並提供可供容器使用的 NVIDIA GPU。
 
-完整 AI 流程需要可提供給容器的 NVIDIA GPU、Unlimited-OCR 權重，以及可透過 HTTP／HTTPS 存取的 Gemma 服務。RunPod 是選用供應商，後端不管理語意模型的啟停。模型、套件版本與請求設定以 [runtime lock](local_ai/runtime-lock.json) 為準。
+完整 AI 流程需要 Unlimited-OCR 權重，以及可透過 HTTP／HTTPS 存取的 Gemma 服務。RunPod 是選用供應商，後端不管理語意模型的啟停。模型、套件版本與請求設定以 [runtime lock](local_ai/runtime-lock.json) 為準。
 
-**首次使用請從 [安裝與啟動](docs/getting-started.md) 開始。** 從 .env.example 建立部署設定，資料統一保存在專案內 data/；GPU override 提供 OCR 套件與固定 revision 下載工具。尚未配置模型時，可先執行不呼叫真實模型的 [容器測試](docs/testing.md)。
+**首次使用請從 [安裝與啟動](docs/getting-started.md) 開始。** 從 .env.example 建立設定，compose.yaml 提供完整部署、OCR 下載工具與選用 SSH 通道，資料統一保存在專案內 data/。尚未配置 GPU 或模型時，可先執行獨立的 [容器測試](docs/testing.md)。
 
 教材原檔與持久資料保存在本機；分析與出題會將所需教材內容傳至設定的語意模型服務。生成內容仍需對照來源，詳見 [限制](docs/limitations.md)。
 
