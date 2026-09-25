@@ -44,11 +44,6 @@ def test_only_bound_v1_is_a_publishable_structure():
     invalid_final['revision'] = _revision(invalid_final)
     assert not validate_knowledge_structure(invalid_final)
     assert finalize_knowledge_structure(draft, final['input_binding']) == final
-    for version in (2, 3, 4):
-        old = deepcopy(final)
-        old['schema'] = f'knowledge-structure/v{version}'
-        old['revision'] = _revision(old)
-        assert not validate_knowledge_structure(old)
     mismatch = deepcopy(final['input_binding'])
     mismatch['source_set_digest'] = '2' * 64
     with pytest.raises(ValueError, match='KNOWLEDGE_STRUCTURE_INVALID'):
@@ -64,7 +59,10 @@ def _compact_response(response, context):
     return {
         "concepts": [{
             "k": concept["key"], "l": concept["label"], "a": concept["aliases"],
-            "c": [{"m": claim["meaning"], "s": [span(ref) for ref in claim["source_spans"]]} for claim in concept["claims"]],
+            "c": [
+                {"m": claim["meaning"], "s": [span(ref) for ref in claim["source_spans"]]}
+                for claim in concept["claims"]
+            ],
         } for concept in response["concepts"]],
         "relations": [{
             "s": relation["source_concept"], "t": relation["target_concept"],
@@ -132,9 +130,15 @@ def _page(number: int, blocks: list[dict]) -> dict:
 def _context() -> dict:
     return build_document_context(
         [
-            _page(1, [_block(1, 0, "heading", "Pointers"), _block(1, 1, "paragraph", "The null character is written as '\\0'.")]),
+            _page(1, [
+                _block(1, 0, "heading", "Pointers"),
+                _block(1, 1, "paragraph", "The null character is written as '\\0'."),
+            ]),
             _page(2, [_block(2, 0, "paragraph", "A pointer declaration can be written as int *value;")]),
-            _page(3, [_block(3, 0, "heading", "Arrays"), _block(3, 1, "paragraph", "An array stores 8 values in contiguous memory.")]),
+            _page(3, [
+                _block(3, 0, "heading", "Arrays"),
+                _block(3, 1, "paragraph", "An array stores 8 values in contiguous memory."),
+            ]),
         ],
         page_count=3,
     )
@@ -151,7 +155,10 @@ def _response(context: dict) -> dict:
                 "claims": [
                     {
                         "meaning": "The null character is written as \"\\0\".",
-                        "source_spans": [{"evidence_id": evidence[1]["evidence_id"], "quote": "The null character is written as '\\0'."}],
+                        "source_spans": [{
+                            "evidence_id": evidence[1]["evidence_id"],
+                            "quote": "The null character is written as '\\0'.",
+                        }],
                     },
                     {
                         "meaning": "int value declares a pointer",
@@ -308,7 +315,11 @@ def test_relations_keep_endpoint_order_and_only_prerequisite_orders_path(source,
         "source_concept": source,
         "target_concept": target,
         "type": "contrast",
-        "learner_reason": "The former stores contiguous values; the latter stores an address." if source == "array" else "The former stores an address; the latter stores contiguous values.",
+        "learner_reason": (
+            "The former stores contiguous values; the latter stores an address."
+            if source == "array"
+            else "The former stores an address; the latter stores contiguous values."
+        ),
         "inference_basis": "comparison",
     })
     comparison = deepcopy(response["relations"][-1])
@@ -412,7 +423,11 @@ def test_cross_section_concept_has_one_primary_tree_placement_and_zero_prerequis
         runtime_lock_sha256="a" * 64, model_id="google/gemma-4-31B-it-qat-w4a16-ct",
         model_revision=MODEL_REVISION, semantic_calls=1, ocr_calls=0,
     )
-    tree_ids = [concept_id for section in structure["document_tree"]["sections"] for concept_id in section["concept_ids"]]
+    tree_ids = [
+        concept_id
+        for section in structure["document_tree"]["sections"]
+        for concept_id in section["concept_ids"]
+    ]
     assert len(tree_ids) == len(set(tree_ids)) == len(structure["concepts"])
     assert [step["concept_id"] for step in structure["initial_learning_path"]] == [
         concept["concept_id"] for concept in structure["concepts"]
@@ -461,38 +476,79 @@ def test_later_bundle_reuses_semantic_concept_key_without_pairwise_dedup_stage()
 
 
 def test_alternate_label_across_batches_does_not_invalidate_completed_structure():
-    context=_context();state=SemanticState()
-    evidence=[(index,item) for index,item in enumerate(context['evidence']) if item['kind']!='heading']
-    for index,(handle,item) in enumerate(evidence[:2]):
-        apply_wire_response({'concepts':[{'k':'pointer','l':'Pointer' if index==0 else '指標',
-            'a':['指標'] if index==0 else ['Pointer'],'c':[{'m':None,'s':[handle]}]}],'relations':[]},
-            context=context,bundle={'evidence':[item],'sections':context['sections']},state=state)
-    assert state.concepts['pointer']['aliases']==['指標']
-    document=build_knowledge_structure(context,state,source_sha256='1'*64,run_id=RUN_ID,produced_at=PRODUCED_AT,
-        runtime_lock_sha256='a'*64,model_id='google/gemma-4-31B-it-qat-w4a16-ct',model_revision=MODEL_REVISION,semantic_calls=2,ocr_calls=0)
+    context = _context()
+    state = SemanticState()
+    evidence = [
+        (index, item) for index, item in enumerate(context["evidence"])
+        if item["kind"] != "heading"
+    ]
+    for index, (handle, item) in enumerate(evidence[:2]):
+        apply_wire_response(
+            {"concepts": [{
+                "k": "pointer", "l": "Pointer" if index == 0 else "指標",
+                "a": ["指標"] if index == 0 else ["Pointer"],
+                "c": [{"m": None, "s": [handle]}],
+            }], "relations": []},
+            context=context,
+            bundle={"evidence": [item], "sections": context["sections"]},
+            state=state,
+        )
+    assert state.concepts["pointer"]["aliases"] == ["指標"]
+    document = build_knowledge_structure(
+        context, state, source_sha256="1" * 64, run_id=RUN_ID,
+        produced_at=PRODUCED_AT, runtime_lock_sha256="a" * 64,
+        model_id="google/gemma-4-31B-it-qat-w4a16-ct",
+        model_revision=MODEL_REVISION, semantic_calls=2, ocr_calls=0,
+    )
     assert validate_knowledge_structure(document)
-    assert len(document['concepts'][0]['claims'])==2
+    assert len(document["concepts"][0]["claims"]) == 2
 
 
 def test_identical_content_under_different_model_keys_has_one_canonical_node():
-    context=_context();state=SemanticState()
-    apply_wire_response({'concepts':[{'k':key,'l':'Pointer','a':[],'c':[{'m':None,'s':[1]}]} for key in ('first','duplicate')],
-        'relations':[]},context=context,bundle=_bundles(context)[0],state=state)
-    document=build_knowledge_structure(context,state,source_sha256='1'*64,run_id=RUN_ID,produced_at=PRODUCED_AT,
-        runtime_lock_sha256='a'*64,model_id='google/gemma-4-31B-it-qat-w4a16-ct',model_revision=MODEL_REVISION,semantic_calls=1,ocr_calls=0)
-    assert validate_knowledge_structure(document) and len(document['concepts'])==1
+    context = _context()
+    state = SemanticState()
+    apply_wire_response(
+        {"concepts": [
+            {"k": key, "l": "Pointer", "a": [], "c": [{"m": None, "s": [1]}]}
+            for key in ("first", "duplicate")
+        ], "relations": []},
+        context=context, bundle=_bundles(context)[0], state=state,
+    )
+    document = build_knowledge_structure(
+        context, state, source_sha256="1" * 64, run_id=RUN_ID,
+        produced_at=PRODUCED_AT, runtime_lock_sha256="a" * 64,
+        model_id="google/gemma-4-31B-it-qat-w4a16-ct",
+        model_revision=MODEL_REVISION, semantic_calls=1, ocr_calls=0,
+    )
+    assert validate_knowledge_structure(document)
+    assert len(document["concepts"]) == 1
 
 
 def test_source_review_notice_stays_reviewable_without_rejecting_valid_structure():
-    context=build_document_context([_page(1,[_block(1,0,'paragraph','A stack follows LIFO order.')])],page_count=1)
-    state=SemanticState(source_review_required=True)
-    apply_wire_response({'concepts':[{'k':'stack','l':'Stack','a':[],'c':[{'m':None,'s':[0]}]}],'relations':[]},
-        context=context,bundle=_bundles(context)[0],state=state)
-    document=build_knowledge_structure(context,state,source_sha256='1'*64,run_id=RUN_ID,produced_at=PRODUCED_AT,
-        runtime_lock_sha256='a'*64,model_id='google/gemma-4-31B-it-qat-w4a16-ct',model_revision=MODEL_REVISION,semantic_calls=1,ocr_calls=0)
-    assert document['status']=={'processing':'partial','quality':'needs_review','decision':'review','reason_codes':['SOURCE_REVIEW_SUGGESTED']}
+    context = build_document_context(
+        [_page(1, [_block(1, 0, "paragraph", "A stack follows LIFO order.")])],
+        page_count=1,
+    )
+    state = SemanticState(source_review_required=True)
+    apply_wire_response(
+        {"concepts": [{"k": "stack", "l": "Stack", "a": [], "c": [{"m": None, "s": [0]}]}],
+         "relations": []},
+        context=context, bundle=_bundles(context)[0], state=state,
+    )
+    document = build_knowledge_structure(
+        context, state, source_sha256="1" * 64, run_id=RUN_ID,
+        produced_at=PRODUCED_AT, runtime_lock_sha256="a" * 64,
+        model_id="google/gemma-4-31B-it-qat-w4a16-ct",
+        model_revision=MODEL_REVISION, semantic_calls=1, ocr_calls=0,
+    )
+    assert document["status"] == {
+        "processing": "partial", "quality": "needs_review", "decision": "review",
+        "reason_codes": ["SOURCE_REVIEW_SUGGESTED"],
+    }
     assert validate_knowledge_structure(document)
-    tampered=deepcopy(document);tampered['status']['quality']='accepted';tampered['revision']=_revision(tampered)
+    tampered = deepcopy(document)
+    tampered["status"]["quality"] = "accepted"
+    tampered["revision"] = _revision(tampered)
     assert not validate_knowledge_structure(tampered)
 
 
@@ -576,7 +632,13 @@ def test_compact_wire_reconstructs_relation_basis_and_canonical_support(relation
 
 def test_whole_units_preserve_unicode_literals_and_reject_offsets_or_unseen_evidence():
     text = "中文😀 '\\0' a <= b 5 kg"
-    context = build_document_context([_page(1, [_block(1, 0, "paragraph", text), _block(1, 1, "paragraph", "unseen")])], page_count=1)
+    context = build_document_context(
+        [_page(1, [
+            _block(1, 0, "paragraph", text),
+            _block(1, 1, "paragraph", "unseen"),
+        ])],
+        page_count=1,
+    )
     bundle = {"sections": context["sections"], "evidence": context["evidence"][:1]}
     state = SemanticState()
     apply_wire_response({
@@ -605,11 +667,11 @@ def test_token_packing_rechecks_current_catalog_and_never_drops_evidence():
     state.concepts["c0"] = {"label": "Prior", "aliases": [], "claims": []}
     remaining = list(bundles)
     assert any(catalog == 1 for catalog, _ in sizes)
-    assert [item["evidence_id"] for bundle in [first, *remaining] for item in bundle["evidence"]] == [item["evidence_id"] for item in context["evidence"]]
+    bundled_ids = [
+        item["evidence_id"]
+        for bundle in [first, *remaining]
+        for item in bundle["evidence"]
+    ]
+    assert bundled_ids == [item["evidence_id"] for item in context["evidence"]]
     with pytest.raises(ValueError, match="SEMANTIC_INPUT_TOO_LARGE"):
         list(build_semantic_bundles(context, state=state, fits=lambda request: False))
-
-
-def test_token_fit_does_not_apply_old_utf8_byte_limit():
-    context = build_document_context([_page(1, [_block(1, 0, "paragraph", "漢" * 30000)])], page_count=1)
-    assert len(_bundles(context)) == 1

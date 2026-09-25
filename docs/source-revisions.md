@@ -82,7 +82,7 @@ Worker lease 為 10 分鐘，由 checkpoints 及處理期間每 30 秒的存活�
 
 `0002_sources_and_processing.sql` 直接建立最終來源版本／lease／runtime snapshot 結構。測試涵蓋 fresh、repeat no-op 與來源及學習資料契約。舊 14 版帳本須先完成受控的 baseline 接軌。產品 DB 升級、服務切換仍需獨立授權；切換到 v1 後採 forward repair 或經授權備份恢復，不直接切回舊契約 binary。
 
-`test_source_revisions.py` 覆蓋增量輸入、重播／競爭、late upload、取消發布、fencing、進度承接與 staged cleanup。`test_source_identity.py` 驗證來源穩定與歧義拒絕；`test_migrations.py` 驗證 baseline、帳本保護及重跑不改資料。`test_source_revisions_browser.py` 使用真 API／DB／轉檔／worker 與受控語意 fixture，驗證 desktop／390px、reload、來源與已保存作答；`source-revisions.spec.ts` 驗證佇列和取消不發整份教材 DELETE。
+`test_source_revisions.py` 覆蓋增量輸入、重播／競爭、late upload、取消發布、fencing、進度承接、品質提示與 staged cleanup。`test_source_identity.py` 驗證來源穩定與歧義拒絕；`test_migrations.py` 驗證 baseline、帳本保護及重跑不改資料。`test_source_revisions_browser.py` 使用真 API／DB／轉檔／worker 與受控語意 fixture，驗證 desktop／390px、reload、來源與已保存作答；`source-revisions.spec.ts` 驗證佇列和取消不發整份教材 DELETE。
 
 合成測試只證明功能契約。真實替代模型須另外記錄狀態、來源、coverage、呼叫量與限制；`needs_review` 不算 accepted。尚未宣告大型教材容量、任意來源衝突或正式模型品質通過。
 

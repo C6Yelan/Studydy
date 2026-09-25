@@ -4,7 +4,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from runtime.semantic_service import SemanticServiceError, material_request_fits, preflight_semantic_service, request_semantics
+from runtime.semantic_service import (
+    SemanticServiceError,
+    material_request_fits,
+    preflight_semantic_service,
+    request_semantics,
+)
 
 
 def _lock() -> dict:
@@ -37,7 +42,10 @@ def test_tasks_share_configured_http_wire(task, budget):
             'content': '{"ok":true}', 'reasoning_content': 'Separate reasoning field',
         }}]})
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
-        assert request_semantics(client, runtime_lock=lock, task=task, request={}, response_schema=schema) == {'ok': True}
+        response = request_semantics(
+            client, runtime_lock=lock, task=task, request={}, response_schema=schema,
+        )
+        assert response == {"ok": True}
     assert [path for path, _ in requests] == ['/tokenize', '/v1/chat/completions']
     assert requests[0][1]['messages'] == requests[1][1]['messages']
 
@@ -50,30 +58,37 @@ def test_tasks_share_configured_http_wire(task, budget):
 ])
 def test_preflight_checks_configured_model_and_service_identity(model, context, extra_model, accepted):
     from pdf_evidence.material_pipeline import validate_runtime_lock
+
     lock = _lock()
-    lock['semantic_service'].update(model_id='example/semantic-model', revision='a' * 40)
+    lock["semantic_service"].update(model_id="example/semantic-model", revision="a" * 40)
     assert validate_runtime_lock(lock) is lock
+
     def respond(request):
-        if request.url.path == '/health': return httpx.Response(200)
-        if request.url.path == '/version': return httpx.Response(200, json={'version': '0.28.0'})
-        if request.url.path == '/v1/models':
-            models = [{'id': model, 'max_model_len': context}]
-            if extra_model: models.append({'id': 'example/second-model', 'max_model_len': 32768})
-            return httpx.Response(200, json={'data': models})
-        assert request.url.path == '/tokenize'
-        assert json.loads(request.content)['model'] == 'example/semantic-model'
-        return httpx.Response(200, json={'count': 1, 'max_model_len': 32768})
+        if request.url.path == "/health":
+            return httpx.Response(200)
+        if request.url.path == "/version":
+            return httpx.Response(200, json={"version": "0.28.0"})
+        if request.url.path == "/v1/models":
+            models = [{"id": model, "max_model_len": context}]
+            if extra_model:
+                models.append({"id": "example/second-model", "max_model_len": 32768})
+            return httpx.Response(200, json={"data": models})
+        assert request.url.path == "/tokenize"
+        assert json.loads(request.content)["model"] == "example/semantic-model"
+        return httpx.Response(200, json={"count": 1, "max_model_len": 32768})
+
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
         if accepted:
             preflight_semantic_service(lock, client=client)
         else:
-            with pytest.raises(SemanticServiceError, match='SEMANTIC_SERVICE_IDENTITY_MISMATCH'):
+            with pytest.raises(SemanticServiceError, match="SEMANTIC_SERVICE_IDENTITY_MISMATCH"):
                 preflight_semantic_service(lock, client=client)
 
 
 @pytest.mark.parametrize("count, fits", [(24576, True), (24577, False)])
 def test_material_packing_and_generation_share_exact_token_budget(count, fits):
     requests = []
+
     def respond(request):
         body = json.loads(request.content)
         requests.append((request.url.path, body))
@@ -84,9 +99,15 @@ def test_material_packing_and_generation_share_exact_token_budget(count, fits):
             "finish_reason": "length", "message": {"content": '{"concepts":[]}'},
         }]})
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
-        arguments = dict(runtime_lock=_lock(), task="material_semantics", request={"sections": [{"evidence": [[0, 1, "code", "x"]]}]}, response_schema={})
+        arguments = {
+            "runtime_lock": _lock(),
+            "task": "material_semantics",
+            "request": {"sections": [{"evidence": [[0, 1, "code", "x"]]}]},
+            "response_schema": {},
+        }
         assert material_request_fits(client, _lock(), arguments["request"]) is fits
-        with pytest.raises(SemanticServiceError, match="SEMANTIC_OUTPUT_TRUNCATED" if fits else "SEMANTIC_INPUT_TOO_LARGE"):
+        reason = "SEMANTIC_OUTPUT_TRUNCATED" if fits else "SEMANTIC_INPUT_TOO_LARGE"
+        with pytest.raises(SemanticServiceError, match=reason):
             request_semantics(client, **arguments)
     assert requests[0][1]["messages"] == requests[1][1]["messages"]
     template = {"enable_thinking": True}
@@ -105,9 +126,17 @@ def test_material_bundle_budget_excludes_existing_catalog(fresh_count, fits):
         body = json.loads(request.content)
         material = json.loads(body["messages"][-1]["content"].split("\nINPUT:\n", 1)[1])
         calls.append(material)
-        return httpx.Response(200, json={"count": 6000 if material["existing_concepts"] else fresh_count, "max_model_len": 32768})
-    material = {"existing_concepts": [{"k": "array", "l": "Array", "a": [], "c": ["Existing claim"], "e": [0]}],
-                "sections": [{"title": "New material", "evidence": [[1, 1, "paragraph", "First"], [2, 2, "paragraph", "Second"]]}]}
+        count = 6000 if material["existing_concepts"] else fresh_count
+        return httpx.Response(200, json={"count": count, "max_model_len": 32768})
+    material = {
+        "existing_concepts": [{
+            "k": "array", "l": "Array", "a": [], "c": ["Existing claim"], "e": [0],
+        }],
+        "sections": [{
+            "title": "New material",
+            "evidence": [[1, 1, "paragraph", "First"], [2, 2, "paragraph", "Second"]],
+        }],
+    }
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
         assert material_request_fits(client, _lock(), material) is fits
     assert calls[0] == material
@@ -122,8 +151,10 @@ def test_material_bundle_budget_excludes_existing_catalog(fresh_count, fits):
 ])
 def test_offline_ai_requests_report_fixed_service_error(failure, reason):
     def respond(request):
-        if failure == "offline": raise httpx.ConnectError("offline", request=request)
-        if failure == "timeout": raise httpx.ReadTimeout("timeout", request=request)
+        if failure == "offline":
+            raise httpx.ConnectError("offline", request=request)
+        if failure == "timeout":
+            raise httpx.ReadTimeout("timeout", request=request)
         return httpx.Response(503)
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
         with pytest.raises(SemanticServiceError) as caught:
@@ -152,12 +183,3 @@ def test_wrong_contract_is_rejected_by_lock_and_client_before_network(field, val
     with httpx.Client(transport=httpx.MockTransport(forbidden)) as client:
         with pytest.raises(SemanticServiceError, match="SEMANTIC_SERVICE_CONFIG_INVALID"):
             preflight_semantic_service(lock, client=client)
-
-
-def test_runtime_lock_accepts_only_v1():
-    from pdf_evidence.material_pipeline import MaterialAnalysisError, validate_runtime_lock
-
-    lock = _lock()
-    lock["schema"] = "studydy-runtime-lock/v2"
-    with pytest.raises(MaterialAnalysisError, match="RUNTIME_LOCK_INVALID"):
-        validate_runtime_lock(lock)

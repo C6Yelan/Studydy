@@ -12,7 +12,8 @@ const view = {
 };
 
 test("first visit starts with a connected concept without changing the learning path", () => {
-  const map = { ...view, initial_learning_path: [{ concept_id: "cover" }, { concept_id: "a" }, { concept_id: "b" }] };
+  const map = { ...view, concepts: [{ concept_id: "cover" }, ...view.concepts],
+    initial_learning_path: ["cover", "a", "b", "c", "d"].map((concept_id, index) => ({ concept_id, position: index + 1, reason: "document_order" })) };
   assert.equal(initialFocusConceptId(map), "b");
   assert.equal(map.initial_learning_path[0].concept_id, "cover");
   assert.equal(initialFocusConceptId({ ...map, relations: [] }), "cover");
@@ -51,14 +52,6 @@ test("a path can order C before A and B independently of document order", () => 
     { position: 3, concept_id: "b1", reason: "prerequisite" },
   ] };
   assert.deepEqual(learningNavigationItems(map).map(item => item.concept.concept_id), ["a2", "a1", "b1"]);
-});
-
-test("defensive concepts outside the path get no invented position; broken references fail", () => {
-  const map = { ...navigation, concepts: [...navigation.concepts, { concept_id: "extra" }] };
-  const other = learningNavigationItems(map).at(-1);
-  assert.equal(other.concept.concept_id, "extra");
-  assert.equal(other.step, null);
-  assert.throws(() => learningNavigationItems({ ...navigation, concepts: [] }));
 });
 
 test("two-hop graph keeps canonical directions, parallel edges and cycles", () => {

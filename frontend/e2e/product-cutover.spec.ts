@@ -101,7 +101,6 @@ async function json(route: Route, body: unknown, status = 200) {
 }
 
 async function routes(page: Page, view = structureView(), readProgress = () => progress) {
-  await page.route("**/v1/materials/*/knowledge-structures/*/evidence/*/source", route=>json(route,{schema:"evidence-source/v1",format:"pdf",original_name:"Synthetic.pdf",original_url:`/v1/artifacts/${artifactId}`,preview_url:`/v1/artifacts/${artifactId}#page=1`,normalized_page:1,accuracy:"exact",origin_locators:[],label:"PDF 第 1 頁"}));
   await page.route("**/v1/source-capabilities", route => json(route, { schema: "source-capabilities/v1", quality_notice: "PDF 優先", formats: [
     { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 },
   ] }));
@@ -115,6 +114,8 @@ async function routes(page: Page, view = structureView(), readProgress = () => p
   }));
   await page.route(`**/v1/material-processing-runs/${runId}`, (route) => json(route, run));
   await page.route("**/v1/materials/*/knowledge-structures/**", (route) => json(route, view));
+  // Playwright 後註冊的路由優先；來源回查須覆蓋結構的 wildcard。
+  await page.route("**/v1/materials/*/knowledge-structures/*/evidence/*/source", route=>json(route,{schema:"evidence-source/v1",format:"pdf",original_name:"Synthetic.pdf",original_url:`/v1/artifacts/${artifactId}/download`,preview_url:`/v1/artifacts/${artifactId}#page=1`,normalized_page:1,accuracy:"exact",origin_locators:[],label:"PDF 第 1 頁"}));
   await page.route("**/v1/study-sessions/*/progress", route => json(route, readProgress()));
   await page.route("**/v1/study-sessions", (route) => json(route, session(), 201));
   await page.route("**/v1/study-sessions/*/assessment-plan?*", route => {
@@ -697,7 +698,8 @@ async function learningMapRoutes(page: Page, view: ReturnType<typeof structureVi
   }));
 }
 
-for (const action of ["advance", "review_prerequisite", "resume", "assess", "no_safe", "complete", "defer"]) {
+// 後端以 assess + prerequisite_concept_ids 提示前置觀念，不會產生 review_prerequisite。
+for (const action of ["advance", "resume", "assess", "no_safe", "complete", "defer"]) {
   test(`learning navigation only marks a supplied concept-navigation next action: ${action}`, async ({ page }) => {
     const view = learningMap(8);
     await learningMapRoutes(page, view, true, action);
@@ -706,8 +708,8 @@ for (const action of ["advance", "review_prerequisite", "resume", "assess", "no_
     await expect(page.locator(".navigator-current")).toHaveCount(1);
     await openMapConcept(page, view.concepts[5].label);
     const nav = page.getByRole("navigation", { name: "學習導覽", includeHidden: true });
-    await expect(nav.locator(".is-next-suggested")).toHaveCount(["advance", "review_prerequisite", "resume"].includes(action) ? 1 : 0);
-    if (["advance", "review_prerequisite", "resume"].includes(action)) await expect(navigationConcept(page, "D")).toContainText("下一步");
+    await expect(nav.locator(".is-next-suggested")).toHaveCount(["advance", "resume"].includes(action) ? 1 : 0);
+    if (["advance", "resume"].includes(action)) await expect(navigationConcept(page, "D")).toContainText("下一步");
     await expect(navigationConcept(page, "C")).toContainText("目前學習");
     await expect(navigationConcept(page, view.concepts[5].label)).toHaveAttribute("aria-current", "true");
     await expect(navigationConcept(page, view.concepts[5].label)).not.toContainText("目前學習");
@@ -748,7 +750,7 @@ for (const viewport of [{ width: 1536, height: 1024 }, { width: 1366, height: 76
     const state = structuredClone(progress);
     state.concept_states.forEach((item, i) => Object.assign(item, { status: "needs_review", attempts: 3, correct_answers: 1, latest_is_correct: false, weak_claim_ids: i ? [view.concepts[i].claims[0].claim_id, view.concepts[i].claims[2].claim_id] : [view.concepts[i].claims[0].claim_id] }));
     await routes(page, view, () => state);
-    await page.route('**/evidence/*/source',route=>json(route,{schema:'evidence-source/v1',format:'pdf',original_name:'Synthetic.pdf',original_url:`/v1/artifacts/${artifactId}`,preview_url:`/v1/artifacts/${artifactId}#page=2`,normalized_page:2,accuracy:'exact',origin_locators:[],label:'PDF 第 2 頁'}));
+    await page.route('**/evidence/*/source',route=>json(route,{schema:'evidence-source/v1',format:'pdf',original_name:'Synthetic.pdf',original_url:`/v1/artifacts/${artifactId}/download`,preview_url:`/v1/artifacts/${artifactId}#page=2`,normalized_page:2,accuracy:'exact',origin_locators:[],label:'PDF 第 2 頁'}));
     await page.route(`**/v1/materials/${materialId}`, route => json(route, {
       schema: "material-library-item/v1", material_id: materialId, source_artifact_id: artifactId,
       display_name: "Data structures.pdf", size_bytes: 100, created_at: run.created_at, latest_attempt: run,

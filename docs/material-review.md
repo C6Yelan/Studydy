@@ -80,5 +80,5 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src backend/.venv/bin/pytest -q \
 合成測試覆蓋歸屬與完整性、案例保存、核心保護、數值／程式保護、來源身分、先備循環與共用 transport。
 真實模型的原始結果與助手原文審查另保存在私人實驗目錄，不加入 Git，也不冒稱人工 gold。
 
-`runtime/test_material_review_flow.py` 使用隔離 PostgreSQL 驗證正式 worker 的重整發布、零 OCR／初始分析、
+`runtime/sources/test_material_review_flow.py` 使用隔離 PostgreSQL 驗證正式 worker 的重整發布、零 OCR／初始分析、
 原版可讀、重播／過期版本、追加時自動檢核，以及失敗後只補未完成批次。模型使用受控回應。

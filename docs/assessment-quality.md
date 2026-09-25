@@ -32,7 +32,7 @@ generator 與 checker 使用相同集合，checker 只接收歷史題目及選�
 
 ## 驗證範圍
 
-`test_assessment_safety_v1.py` 驗證安全優先、品質排序、所有候選皆有品質提示仍可發布，以及合法基礎題與相同答案不同問題。`runtime/test_assessment_quality.py` 用真 PostgreSQL 與受控語意 fixture 驗證部分來源仍可出題、跨 Claim 重複不產生錯答、比較集合限界與現行 provenance v1 讀取；閉環測試保留評分、重播與恢復契約。
+`test_assessment_safety_v1.py` 驗證安全優先、品質排序、所有候選皆有品質提示仍可發布，以及合法基礎題與相同答案不同問題。`runtime/assessments/test_assessment_quality.py` 用真 PostgreSQL 與受控語意 fixture 驗證部分來源仍可出題、跨 Claim 重複不產生錯答、比較集合限界與現行 provenance v1 讀取；閉環測試保留評分、重播與恢復契約。
 
 這些測試證明程式行為，不證明真實模型品質。替代模型舊新比較與正式 Gemma 品質需分別記錄；未執行的檢查不算通過。
 

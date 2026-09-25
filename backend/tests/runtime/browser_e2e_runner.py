@@ -1,20 +1,19 @@
-"""啟動 disposable Vite，執行 final API contract 的 browser fixture tests。"""
+"""預覽正式前端建置，執行指定的 Playwright spec。"""
 
 from __future__ import annotations
 
 from contextlib import contextmanager
 import os
-import threading
-
-import uvicorn
 from pathlib import Path
 import signal
 import socket
 import subprocess
-import tempfile
+import threading
 import time
 from urllib.request import urlopen
 from uuid import uuid4
+
+import uvicorn
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -49,7 +48,7 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
 
 @contextmanager
 def local_api(app):
-    """兩種真 DB browser fixture 共用專屬 API socket，不啟動模型 worker。"""
+    """真 DB browser 測試共用專屬 API socket，不啟動模型 worker。"""
     with socket.socket() as listener:
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind(("127.0.0.1", API_PORT))
@@ -68,7 +67,7 @@ def local_api(app):
             assert not thread.is_alive()
 
 
-def main(spec: str = "e2e/product-cutover.spec.ts", *, production: bool = False, timeout_seconds: int = 120) -> int:
+def main(spec: str = "e2e/product-cutover.spec.ts", *, timeout_seconds: int = 120) -> int:
     if not _port_is_free():
         print("BROWSER_E2E_PORT_OCCUPIED")
         return 1
@@ -76,41 +75,41 @@ def main(spec: str = "e2e/product-cutover.spec.ts", *, production: bool = False,
     environment["STUDYDY_E2E_BASE_URL"] = f"http://127.0.0.1:{PORT}"
     environment["STUDYDY_E2E_API_ORIGIN"] = f"http://127.0.0.1:{API_PORT}"
     environment["STUDYDY_E2E_HARNESS_ID"] = f"studydy-e2e-{uuid4().hex}"
-    with tempfile.TemporaryDirectory(prefix="studydy-browser-e2e-") as directory:
-        log_path = Path(directory) / "vite.log"
-        with log_path.open("wb") as log:
-            vite = subprocess.Popen(
-                [str(VITE), *(["preview"] if production else []),
-                 *(["--outDir", os.environ["STUDYDY_E2E_FRONTEND_DIST"]] if production and os.environ.get("STUDYDY_E2E_FRONTEND_DIST") else []), "--host", "127.0.0.1", "--port", str(PORT), "--strictPort"],
-                cwd=FRONTEND,
-                env=environment,
-                stdin=subprocess.DEVNULL,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
+    vite_command = [str(VITE), "preview"]
+    if dist := environment.get("STUDYDY_E2E_FRONTEND_DIST"):
+        vite_command.extend(("--outDir", dist))
+    vite_command.extend(("--host", "127.0.0.1", "--port", str(PORT), "--strictPort"))
+    vite = subprocess.Popen(
+        vite_command,
+        cwd=FRONTEND,
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if vite.poll() is not None:
+                return 1
             try:
-                deadline = time.monotonic() + 30
-                while time.monotonic() < deadline:
-                    if vite.poll() is not None:
-                        return 1
-                    try:
-                        with urlopen(f"http://127.0.0.1:{PORT}", timeout=0.5):
-                            break
-                    except OSError:
-                        time.sleep(0.1)
-                else:
-                    return 1
-                completed = subprocess.run(
-                    [str(PLAYWRIGHT), "test", spec],
-                    cwd=FRONTEND,
-                    env=environment,
-                    check=False,
-                    timeout=timeout_seconds,
-                )
-                return completed.returncode
-            finally:
-                _stop(vite)
+                with urlopen(f"http://127.0.0.1:{PORT}", timeout=0.5):
+                    break
+            except OSError:
+                time.sleep(0.1)
+        else:
+            return 1
+        completed = subprocess.run(
+            [str(PLAYWRIGHT), "test", spec],
+            cwd=FRONTEND,
+            env=environment,
+            check=False,
+            timeout=timeout_seconds,
+        )
+        return completed.returncode
+    finally:
+        _stop(vite)
 
 
 if __name__ == "__main__":

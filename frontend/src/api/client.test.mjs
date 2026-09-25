@@ -63,13 +63,19 @@ test("KnowledgeStructureView preserves canonical labels, aliases and Evidence qu
   assert.deepEqual(view.concepts[0].claims, saved.concepts[0].claims);
 });
 
-test("unknown relation type and leaked private answer fail closed", async () => {
+test("unknown relation type fails closed with otherwise valid endpoints", async () => {
   const invalid = structureView();
-  invalid.relations.push({ relation_id: `relation:sha256:${"9".repeat(64)}`, source_concept_id: conceptId, target_concept_id: conceptId, type: "related", learner_reason: "related" });
+  const second = structuredClone(invalid.concepts[0]);
+  second.concept_id = `concept:sha256:${"f".repeat(64)}`;
+  second.claims[0].claim_id = `claim:sha256:${"f".repeat(64)}`;
+  invalid.concepts.push(second);
+  invalid.document_tree.sections[0].concept_ids.push(second.concept_id);
+  invalid.initial_learning_path.push({ position: 2, concept_id: second.concept_id, reason: "document_order" });
+  invalid.relations.push({ relation_id: `relation:sha256:${"9".repeat(64)}`, source_concept_id: conceptId, target_concept_id: second.concept_id, type: "example", learner_reason: "Supported example" });
   const client = new StudydyApiClient(async () => Response.json(invalid));
+  await client.getKnowledgeStructure({ materialId, structureRevision });
+  invalid.relations[0].type = "related";
   await assert.rejects(client.getKnowledgeStructure({ materialId, structureRevision }), (error) => error instanceof ApiClientError && error.kind === "schema");
-
-
 });
 
 test("session refresh is coalesced and safe API errors stay fixed", async () => {
@@ -199,7 +205,7 @@ function resumeView() {
   };
 }
 
-test("resume is a bound read and preserves the selected original assessment", async () => {
+test("resume binds material and run without the retired single-assessment query", async () => {
   const value = resumeView();
   const requests = [];
   const client = new StudydyApiClient(async (path, init) => {

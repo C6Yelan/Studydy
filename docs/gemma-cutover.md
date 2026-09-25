@@ -13,7 +13,7 @@ not supported runtime alternatives.
 |---|---|
 | A — runtime contract | `local_ai/runtime-lock.json`, `backend/src/runtime/semantic_service.py`, `backend/src/pdf_evidence/material_pipeline.py`; local launchers under `ops/local/` also pin the old endpoint |
 | B — provenance validators | `backend/src/knowledge_map/structure.py`, `backend/src/runtime/storage/knowledge_structures.py`, `backend/src/learning_adaptation/assessments.py` |
-| C — tests/fixtures | `test_semantic_service_v1.py`, `test_assessment_safety_v1.py`, `test_knowledge_structure_v1.py`, `runtime/test_runtime_boundaries_v1.py` |
+| C — tests/fixtures | `test_semantic_service_v1.py`, `test_assessment_safety_v1.py`, `test_knowledge_structure_v1.py`, `runtime/infrastructure/test_runtime_boundaries_v1.py` |
 | D — current documentation | `docs/architecture.md`, `docs/testing.md`, `docs/runbook/A40_FINAL_WORKSTATION.md`, `docs/material-processing-cancellation.md`, `README.md`, `docs/local-environment.md` |
 | E — historical references | This before-change audit; cancellation test history describes tests run before the cutover |
 

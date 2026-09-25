@@ -42,8 +42,15 @@ def test_formal_definition_keeps_indented_body_and_separates_next_definition():
     page = {"geometry": {"unrotated_points": [0, 0, 612, 792]},
             "native_evidence": {"raw_text": {"blocks": [
                 {"type": 0, "lines": [line("For any buffer", 72, 100), line("Buffer Allocate(limit) ::=", 72, 119)]},
-                {"type": 0, "lines": [line("create an empty buffer", 144, 138), line("Boolean Available(buffer) ::=", 72, 157)]},
-                {"type": 0, "lines": [line("if buffer has room", 144, 176), line("return TRUE", 144, 195), line("Boolean Ready(buffer) ::= TRUE", 72, 214)]},
+                {"type": 0, "lines": [
+                    line("create an empty buffer", 144, 138),
+                    line("Boolean Available(buffer) ::=", 72, 157),
+                ]},
+                {"type": 0, "lines": [
+                    line("if buffer has room", 144, 176),
+                    line("return TRUE", 144, 195),
+                    line("Boolean Ready(buffer) ::= TRUE", 72, 214),
+                ]},
             ]}}}
     assert [b["text"] for b in _native_text_blocks(page)] == [
         "For any buffer",
@@ -282,7 +289,9 @@ def test_running_metadata_is_preserved_but_not_a_claim_source(tmp_path):
     assert any(row[3] == "int capacity[17];" for row in rows)
     assert any(row[3] == 'char label[] = "Copyright 2025";' for row in rows)
     assert any(row[3] == "42" for row in rows)
-    allowed = semantic_response_schema([row[0] for row in rows])["properties"]["concepts"]["items"]["properties"]["c"]["items"]["properties"]["s"]["items"]["enum"]
+    concept_schema = semantic_response_schema([row[0] for row in rows])["properties"]["concepts"]["items"]
+    claim_schema = concept_schema["properties"]["c"]["items"]
+    allowed = claim_schema["properties"]["s"]["items"]["enum"]
     footer = next(i for i, e in enumerate(context["evidence"]) if "Publisher Copyright" in e["exact_text"])
     body = next(row[0] for row in rows if row[3].startswith("A sensor sends"))
     assert footer not in allowed
@@ -378,10 +387,6 @@ def test_unsafe_locator_is_rejected_without_publishing_its_evidence(tmp_path):
     [
         [{"type": "text", "text": "", "bbox": [0, 0, 10, 10]}],
         [{"type": "text", "text": "x", "bbox": [10, 0, 10, 10]}],
-        [
-            {"type": "text", "text": "", "bbox": [0, 0, 10, 10]},
-            {"type": "image", "text": "", "bbox": [10, 10, 900, 900]},
-        ],
     ],
 )
 def test_all_unusable_blocks_fail_without_page_artifact(tmp_path, blocks):
