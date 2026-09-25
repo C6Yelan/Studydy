@@ -13,6 +13,7 @@ from pdf_evidence.ocr_page_evidence import canonical_bytes
 
 
 API_KEY_ENV = "VLLM_API_KEY"
+SERVICE_URL_ENV = "STUDYDY_SEMANTIC_BASE_URL"
 CHAT_PATH = "/v1/chat/completions"
 TOKENIZE_PATH = "/tokenize"
 PREFLIGHT_TIMEOUT_SECONDS = 5
@@ -29,23 +30,22 @@ class SemanticServiceError(RuntimeError):
 
 
 def _origin(value: Any) -> str:
-    if not isinstance(value, str) or not value or "\x00" in value:
+    if not isinstance(value, str) or not value or any(ord(char) <= 32 or ord(char) == 127 for char in value):
         raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
-    parsed = urlsplit(value)
     try:
+        parsed = urlsplit(value)
         port = parsed.port
     except ValueError:
         raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID") from None
     if (
-        parsed.scheme != "http"
-        or parsed.hostname != "127.0.0.1"
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
         or parsed.path not in {"", "/"}
         or parsed.query
         or parsed.fragment
-        or port is None
-        or not 1 <= port <= 65_535
+        or (port is not None and not 1 <= port <= 65_535)
     ):
         raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
     return value.rstrip("/")
@@ -53,7 +53,7 @@ def _origin(value: Any) -> str:
 
 def _headers(environment: Mapping[str, str] | None = None) -> dict[str, str]:
     value = (os.environ if environment is None else environment).get(API_KEY_ENV)
-    if value is None:
+    if value is None or value == "":
         return {}
     if not value or len(value) > 4096 or any(character in value for character in "\x00\r\n"):
         raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
@@ -84,7 +84,9 @@ def _service(lock: Any) -> dict[str, Any]:
             or service["server"]["python"] != "3.12"
         ):
             raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
-        return {**service, "base_url": origin}
+        # 位址是部署設定；不改寫已保存的 lock／binding 或其內容 hash。
+        endpoint = _origin(os.environ.get(SERVICE_URL_ENV, origin))
+        return {**service, "base_url": endpoint}
     except (KeyError, TypeError):
         raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID") from None
 

@@ -183,3 +183,51 @@ def test_wrong_contract_is_rejected_by_lock_and_client_before_network(field, val
     with httpx.Client(transport=httpx.MockTransport(forbidden)) as client:
         with pytest.raises(SemanticServiceError, match="SEMANTIC_SERVICE_CONFIG_INVALID"):
             preflight_semantic_service(lock, client=client)
+
+
+@pytest.mark.parametrize('endpoint', ['http://gemma:8000', 'https://model.example.test'])
+def test_deployment_endpoint_routes_all_requests_without_rewriting_snapshot(monkeypatch, endpoint):
+    from copy import deepcopy
+    from runtime.semantic_service import _headers
+
+    lock = _lock()
+    before = deepcopy(lock)
+    monkeypatch.setenv('STUDYDY_SEMANTIC_BASE_URL', endpoint)
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        assert str(request.url).startswith(endpoint + '/')
+        assert request.headers['Authorization'] == 'Bearer synthetic-key'
+        if request.url.path == '/health':
+            return httpx.Response(200)
+        if request.url.path == '/version':
+            return httpx.Response(200, json={'version': lock['semantic_service']['server']['version']})
+        if request.url.path == '/v1/models':
+            return httpx.Response(200, json={'data': [{'id': lock['semantic_service']['model_id'], 'max_model_len': 32768}]})
+        if request.url.path == '/tokenize':
+            return httpx.Response(200, json={'count': 50, 'max_model_len': 32768})
+        assert request.url.path == '/v1/chat/completions'
+        return httpx.Response(200, json={'choices': [{'finish_reason': 'stop', 'message': {'content': '{"ok":true}'}}]})
+
+    with httpx.Client(transport=httpx.MockTransport(respond), headers=_headers({'VLLM_API_KEY': 'synthetic-key'})) as client:
+        preflight_semantic_service(lock, client=client)
+        assert material_request_fits(client, lock, {'sections': []})
+        assert request_semantics(client, runtime_lock=lock, task='assessment', request={}, response_schema={}) == {'ok': True}
+    assert {request.url.path for request in requests} == {'/health', '/version', '/v1/models', '/tokenize', '/v1/chat/completions'}
+    assert lock == before
+    assert _headers({'VLLM_API_KEY': ''}) == {}
+
+
+@pytest.mark.parametrize('endpoint', [
+    '', 'file:///tmp/model', 'http://user:secret@model:8000',
+    'http://model:8000/v1', 'http://model:8000?key=secret',
+    'http://model:8000\n', 'http://model:99999',
+])
+def test_invalid_deployment_endpoint_fails_before_network(monkeypatch, endpoint):
+    monkeypatch.setenv('STUDYDY_SEMANTIC_BASE_URL', endpoint)
+    def forbidden(_request):
+        pytest.fail('invalid deployment endpoint must not contact a service')
+    with httpx.Client(transport=httpx.MockTransport(forbidden)) as client:
+        with pytest.raises(SemanticServiceError, match='^SEMANTIC_SERVICE_CONFIG_INVALID$'):
+            preflight_semantic_service(_lock(), client=client)
