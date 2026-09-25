@@ -1,54 +1,22 @@
-# Third-Party Content
+# 素材與第三方內容
 
-Studydy includes selected text excerpts and derived learning-resource metadata
-from the works listed below in
-`backend/src/learning_resources/data/resource_library_v1.json`.
+本文件描述 repo 目前包含的內容，不替第三方作品指定或擴張授權。
 
-The bundled JSON does not contain the source PDF files. Studydy selected short
-excerpts, normalized Unicode and whitespace, added concept labels, and attached
-page and region locators, stable identifiers, and hashes. These changes do not
-imply endorsement by the original authors or publishers.
+## 介面素材
 
-## Think Data Structures
+角色及插圖位於：
 
-- Work: *Think Data Structures: Algorithms and Information Retrieval in Java*
-- Author: Allen B. Downey
-- Source: https://greenteapress.com/thinkdast/thinkdast.pdf
-- License: Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported
-- License text: https://creativecommons.org/licenses/by-nc-sa/3.0/
+- [frontend/public/assets/Studydy_角色素材/](frontend/public/assets/Studydy_角色素材/)
+- [frontend/public/assets/studydy/](frontend/public/assets/studydy/)
 
-Excerpts from this work remain subject to its attribution, non-commercial, and
-ShareAlike terms. Redistribution or adaptation of those excerpts must comply
-with that license.
+Repo 尚未附上這些素材完整的作者、來源及逐項授權資料，因此本文件不宣稱它們可自由再散布、修改或商用。發布者需要補齊素材權屬與適用條款；目前不以未知授權冒充開放授權。
 
-## Open Data Structures
+## 測試教材
 
-- Work: *Open Data Structures (in C++)*
-- Author: Pat Morin
-- Source: https://opendatastructures.org/ods-cpp.pdf
-- License: Creative Commons Attribution 2.5 Canada
-- License text: https://creativecommons.org/licenses/by/2.5/ca/
+[backend/tests/fixtures/](backend/tests/fixtures/) 使用自行建立的合成文字與文件；來源及生成工具見該目錄 README。測試資料不是可代表真實教材品質的 benchmark。
 
-Excerpts from this work may be shared and adapted, including commercially, when
-the license's attribution and other terms are followed.
+## 程式與依賴
 
-## An Open Guide to Data Structures and Algorithms
+Python、npm 套件及外部模型的授權各自由其發行者提供；版本以 repo 的 lock 檔為準，不由本文件重新授權。
 
-- Work: *An Open Guide to Data Structures and Algorithms*
-- Authors: Paul W. Bible and Lucas Moser
-- Source: https://pressbooks.palni.org/anopenguidetodatastructuresandalgorithms/
-- License: Creative Commons Attribution 4.0 International, except where
-  otherwise noted
-- License text: https://creativecommons.org/licenses/by/4.0/
-
-The book-level license does not override a different license or rights notice
-attached to an individual item. Such separately marked material is not covered
-by this notice.
-
-## License boundary
-
-Studydy does not claim ownership of the third-party excerpts. Any license that
-applies to Studydy's own source code does not replace or broaden the licenses
-listed above. Users are responsible for following the applicable source license,
-including attribution, change indication, non-commercial, and ShareAlike terms
-where required.
+本 repo 尚未附上專案 LICENSE。素材權屬與專案授權需由維護者確認，不能由程式測試通過推導。
