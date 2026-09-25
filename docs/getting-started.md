@@ -6,12 +6,12 @@
 
 ## 主機需求
 
-- Linux 容器環境、Docker Engine 與支援 gpus 設定的 Docker Compose；目前驗證平台為 x86_64 Linux／WSL2。
+- Linux 容器環境、Docker Engine 28.3 以上與支援 CDI devices 的 Docker Compose；目前驗證平台為 x86_64 Linux／WSL2。
 - 完整 AI 流程需要 NVIDIA GPU、主機驅動及可用的容器 GPU 整合。WSL2 也需要正確配置 GPU 接入；僅在 WSL 中可用 nvidia-smi 不代表容器已能使用 GPU。
 - Kernel／主機安全政策必須允許容器內的 unprivileged user namespaces。後端使用 [bubblewrap seccomp 規則](../ops/docker/bubblewrap-seccomp.json)，不使用 privileged、host PID 或 Docker socket。
 - data 所在檔案系統須支援 Linux owner 與 mode；模型及 DB 需要足夠磁碟空間。
 
-GPU 設定依 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) 或 [Docker Desktop WSL2 GPU 文件](https://docs.docker.com/desktop/features/gpu/) 核對；這屬主機配置，不由 Compose 自動安裝或修改。
+GPU override 使用明確的 CDI 裝置 nvidia.com/gpu=all。依 [NVIDIA CDI 文件](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html) 安裝 nvidia-container-toolkit-base 並產生 CDI 設定，確認 nvidia-ctk cdi list 能列出該裝置；Docker Engine 的 [CDI 支援](https://docs.docker.com/reference/cli/dockerd/#configure-cdi-devices) 自 28.3 起預設開啟。這屬主機配置，不由 Compose 自動安裝或修改。WSL2 使用 Windows 提供的 GPU 驅動，不另安裝 Linux GPU 驅動。
 
 Compose 會在不支援 sandbox 時拒絕啟動後端，不會靜默關閉轉檔隔離。AppArmor／SELinux 等主機政策亦可能阻擋 namespaces，須由部署者按環境核對。
 
@@ -120,6 +120,7 @@ docker compose -p studydy-unit-tests -f compose.test.yaml run --build --rm unit
 | Compose 缺少變數 | 檢查 .env 的必要欄位；不要把展開後含密碼的 config 輸出到一般 log |
 | 後端啟動失敗 | 查看 backend／init logs，核對資料 owner、DB 密碼、模型 URL 與 namespace 政策 |
 | GPU device／vendor 無法選取 | 主機 GPU 驅動與 Docker GPU 整合；不要在容器中安裝主機驅動 |
+| CDI 裝置無法解析 | 檢查 nvidia-ctk cdi list、Docker CDI 支援，以及 nvidia-cdi-refresh.service 是否成功產生設定 |
 | OCR_DOWNLOAD_FAILED | 網路、目標是否為未知非空目錄、lock revision；不刪除既有權重來強迫通過 |
 | AI 操作失敗 | GPU override、OCR 權重、模型服務連線及實際模型契約 |
 

@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/root/.cache/uv uv venv --python 3.12.14 /opt/stud
     && uv pip install --python /opt/studydy/ocr/runtime/bin/python \
        --index-url https://download.pytorch.org/whl/cu128 torch==2.10.0+cu128 torchvision==0.25.0+cu128 \
     && uv pip install --python /opt/studydy/ocr/runtime/bin/python \
-       transformers==4.57.1 einops==0.8.2 easydict==1.13 addict==2.4.0 \
+       transformers==4.57.1 einops==0.8.2 easydict==1.13 addict==2.4.0 matplotlib==3.10.8 \
     && chmod -R a+rX /opt/studydy
 
 FROM dependencies AS backend

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 import json
+import os
 import subprocess
 from typing import Any
 
@@ -66,13 +67,17 @@ class LocalAIProcess:
         self._request_limit = request_limit
         self._response_limit = response_limit
         self._is_closed = False
+        environment = dict(_OCR_ENVIRONMENT)
+        # 唯讀容器將 Hugging Face cache 放在 tmpfs；只傳入此路徑，不繼承憑證。
+        if cache_root := os.environ.get("HF_HOME"):
+            environment["HF_HOME"] = cache_root
         try:
             self._process = subprocess.Popen(
                 command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
-                env=_OCR_ENVIRONMENT,
+                env=environment,
             )
         except OSError as error:
             raise LocalAIError("CHILD_EXITED") from error

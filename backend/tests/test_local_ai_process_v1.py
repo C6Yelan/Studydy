@@ -17,6 +17,27 @@ def test_bounded_ndjson_pipe_and_clean_exit():
     child.close()
 
 
+def test_ocr_child_uses_configured_cache_without_inheriting_credentials(tmp_path, monkeypatch):
+    cache = tmp_path / "huggingface"
+    monkeypatch.setenv("HF_HOME", str(cache))
+    monkeypatch.setenv("HF_TOKEN", "synthetic-secret")
+    monkeypatch.setenv("HF_HUB_OFFLINE", "0")
+    code = (
+        "import json, os, pathlib, sys\n"
+        "sys.stdin.buffer.readline()\n"
+        "pathlib.Path(os.environ['HF_HOME']).mkdir()\n"
+        "print(json.dumps({'offline': os.environ['HF_HUB_OFFLINE'], "
+        "'has_token': 'HF_TOKEN' in os.environ}), flush=True)\n"
+    )
+    child = LocalAIProcess([sys.executable, "-c", code], request_limit=100, response_limit=100)
+    try:
+        assert child.request({}, None) == {"offline": "1", "has_token": False}
+        assert cache.is_dir()
+        child.close()
+    finally:
+        child.abort()
+
+
 def test_timeout_aborts_only_owned_ocr_child():
     child = LocalAIProcess(
         [sys.executable, "-c", "import time; time.sleep(10)"],

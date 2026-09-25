@@ -3,7 +3,8 @@ services:
     image: ${COMPOSE_PROJECT_NAME:-studydy}-backend-ocr
     build:
       target: ocr
-    gpus: all
+    devices:
+      - nvidia.com/gpu=all
 
   download-ocr:
     profiles: [tools]
