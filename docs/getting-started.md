@@ -92,7 +92,7 @@ STUDYDY_SSH_MODEL_PORT=18000
 
 切換 SSH 與直接連線模式前，先用原設定執行 docker compose down，再修改 profile 與模型位址並重新啟動，確保先前啟用的通道一併停止。
 
-提供 data/ssh/model_key 與已核對 fingerprint 的 data/ssh/known_hosts，權限 0600，owner 與 STUDYDY_UID 相符。通道以唯讀方式掛載兩個檔案，不自動接受未知 host key；不要複製整個主機 .ssh 目錄進容器。
+提供 data/ssh/model_key 與已核對 fingerprint 的 data/ssh/known_hosts，權限 0600，owner 與 STUDYDY_UID 相符。若已有可用的金鑰與 known_hosts，可在 .env 設定 STUDYDY_SSH_KEY_FILE 與 STUDYDY_SSH_KNOWN_HOSTS_FILE 的絕對路徑，直接沿用原檔而不另存私鑰副本。通道只唯讀掛載這兩個指定檔案，不自動接受未知 host key，也不掛載整個主機 .ssh 目錄。
 
 SSH 通道需要遠端的互動式 POSIX shell 與 Python 3，將固定模型路由送到遠端 loopback 的模型 port，Bearer key 從遠端 VLLM_API_KEY 取得。它不依賴 root 提示字元，啟動／健康檢查不連模型，未知結果的請求不自動重播，也不對主機開放通道 port。後端不依賴外部模型或通道才能啟動；up --wait 會等候已啟用的通道健康檢查通過。
 

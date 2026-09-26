@@ -108,13 +108,13 @@ services:
       STUDYDY_SSH_MODEL_PORT: ${STUDYDY_SSH_MODEL_PORT:-18000}
     volumes:
       - type: bind
-        source: ${STUDYDY_DATA_DIR:-./data}/ssh/model_key
+        source: ${STUDYDY_SSH_KEY_FILE:-${STUDYDY_DATA_DIR:-./data}/ssh/model_key}
         target: /run/secrets/model_key
         read_only: true
         bind:
           create_host_path: false
       - type: bind
-        source: ${STUDYDY_DATA_DIR:-./data}/ssh/known_hosts
+        source: ${STUDYDY_SSH_KNOWN_HOSTS_FILE:-${STUDYDY_DATA_DIR:-./data}/ssh/known_hosts}
         target: /run/secrets/known_hosts
         read_only: true
         bind:
