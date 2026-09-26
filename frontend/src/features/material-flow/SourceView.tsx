@@ -5,7 +5,7 @@ import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { MaterialRemoveControl } from "./MaterialRemoveControl";
-import { formatFileSize, validateSourceFile } from "./material-flow";
+import { automaticPollIntervalMs, formatFileSize, validateSourceFile } from "./material-flow";
 
 type QueuedFile = {
   file: File;
@@ -22,7 +22,7 @@ export function SourceView({
   apiClient: StudydyApiClient;
   materialId: string;
 }) {
-  const [data, setData] = useState<SourceListView | null>(null);
+  const [sourceList, setSourceList] = useState<SourceListView | null>(null);
   const [material, setMaterial] = useState<MaterialLibraryItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -33,7 +33,7 @@ export function SourceView({
   const [selectionError, setSelectionError] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
   const [queue, setQueue] = useState<QueuedFile[]>([]);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const seenSources = useRef(new Set<string>());
   const uploadedKeys = useRef(new Set<string>());
   const intent = useRef({ signature: "", key: crypto.randomUUID() });
@@ -66,7 +66,7 @@ export function SourceView({
     let cancelled = false;
     let timer: number | undefined;
     const read = async () => {
-      // 只收斂這次 GET 開始前已確認上傳成功的項目，避免較舊的 polling 回應提前清掉 local row。
+      // 只清除這次 GET 開始前已上傳成功的項目，避免舊輪詢回應提前移除本機佇列項目。
       const refreshedKeys = new Set(uploadedKeys.current);
       try {
         const [sources, item] = await Promise.all([
@@ -75,19 +75,19 @@ export function SourceView({
         ]);
         if (cancelled) return;
         if ([...uploadedKeys.current].some((key) => !refreshedKeys.has(key))) {
-          timer = window.setTimeout(read, 1500);
+          timer = window.setTimeout(read, automaticPollIntervalMs);
           return;
         }
         const staged = sources.sources.filter((source) => !source.included);
         const added = staged
           .filter((source) => !seenSources.current.has(source.normalization_id))
           .map((source) => source.normalization_id);
-        setSelected((previous) => [
+        setSelectedIds((previous) => [
           ...previous.filter((id) => staged.some((source) => source.normalization_id === id)),
           ...added,
         ]);
         seenSources.current = new Set(sources.sources.map((source) => source.normalization_id));
-        setData(sources);
+        setSourceList(sources);
         setMaterial(item);
         setQueue((previous) => previous.filter((item) => !refreshedKeys.has(item.key)));
         for (const key of refreshedKeys) uploadedKeys.current.delete(key);
@@ -103,7 +103,7 @@ export function SourceView({
           item.latest_attempt?.status === "running" ||
           item.latest_attempt?.status === "pending"
         )
-          timer = window.setTimeout(read, 1500);
+          timer = window.setTimeout(read, automaticPollIntervalMs);
       } catch (failure) {
         if (cancelled) return;
         if (
@@ -123,33 +123,34 @@ export function SourceView({
       window.clearTimeout(timer);
     };
   }, [apiClient, materialId, reload]);
-  const current =
+  const currentStructure =
     material?.available_structures.find(
       (item) => item.knowledge_structure_revision === material.head_revision,
     ) ?? material?.available_structures[0];
-  const baseRevision = current?.knowledge_structure_revision ?? null;
+  const baseRevision = currentStructure?.knowledge_structure_revision ?? null;
   const run = material?.latest_attempt;
-  const active = run?.status === "pending" || run?.status === "running";
-  const staged = data?.sources.filter((source) => !source.included) ?? [];
-  const additions = selected.flatMap((id) =>
+  const hasActiveRun = run?.status === "pending" || run?.status === "running";
+  const staged = sourceList?.sources.filter((source) => !source.included) ?? [];
+  const selectedSources = selectedIds.flatMap((id) =>
     staged.filter((source) => source.normalization_id === id),
   );
-  const displayedSources = current ? (data?.sources ?? []) : additions;
-  const ready = additions.length > 0 && additions.every((source) => source.status === "ready");
-  const hasUploads = current ? staged.length > 0 : (data?.sources.length ?? 0) > 0;
+  const displayedSources = currentStructure ? (sourceList?.sources ?? []) : selectedSources;
+  const sourcesReady =
+    selectedSources.length > 0 && selectedSources.every((source) => source.status === "ready");
+  const hasUploads = currentStructure ? staged.length > 0 : (sourceList?.sources.length ?? 0) > 0;
   const flowStarted =
     !!run &&
     run.status !== "failed" &&
     run.status !== "cancelled" &&
-    (!current || !!run.base_revision);
+    (!currentStructure || !!run.base_revision);
   const flowComplete = flowStarted && (run?.status === "succeeded" || run?.status === "partial");
   const openMap = () => {
-    if (current)
+    if (currentStructure)
       writeRoute({
         name: "knowledge-map",
         materialId,
-        runId: current.run_id,
-        structureRevision: current.knowledge_structure_revision,
+        runId: currentStructure.run_id,
+        structureRevision: currentStructure.knowledge_structure_revision,
       });
   };
   const perform = async (action: () => Promise<void>) => {
@@ -168,8 +169,8 @@ export function SourceView({
   };
   const start = () =>
     perform(async () => {
-      if (!ready || active || queue.length > 0) return;
-      const ids = additions.map((source) => source.normalization_id);
+      if (!sourcesReady || hasActiveRun || queue.length > 0) return;
+      const ids = selectedSources.map((source) => source.normalization_id);
       const signature = JSON.stringify([baseRevision, ids]);
       if (intent.current.signature !== signature)
         intent.current = { signature, key: crypto.randomUUID() };
@@ -187,13 +188,13 @@ export function SourceView({
       setSelectionError("請待支援格式載入後重新選擇教材。");
       return;
     }
-    const additions: QueuedFile[] = [];
+    const newFiles: QueuedFile[] = [];
     const rejected: string[] = [];
     for (const file of Array.from(files)) {
       const problem = validateSourceFile(file, formats);
       if (problem) rejected.push(`「${file.name}」：${problem}`);
       else
-        additions.push({
+        newFiles.push({
           file,
           key: crypto.randomUUID(),
           mediaType: formats.find((format) => file.name.toLowerCase().endsWith(format.extension))!
@@ -203,37 +204,37 @@ export function SourceView({
         });
     }
     setSelectionError(rejected.join(" "));
-    if (additions.length) setQueue((previous) => [...previous, ...additions]);
+    if (newFiles.length) setQueue((previous) => [...previous, ...newFiles]);
   };
+  const updateQueuedFile = (
+    key: string,
+    status: QueuedFile["status"],
+    error: string | null = null,
+  ) =>
+    setQueue((previous) =>
+      previous.map((item) => (item.key === key ? { ...item, status, error } : item)),
+    );
   const upload = () =>
     perform(async () => {
       for (const item of queue.filter((item) => item.status !== "uploaded")) {
-        setQueue((previous) =>
-          previous.map((value) =>
-            value.key === item.key ? { ...value, status: "uploading", error: null } : value,
-          ),
-        );
+        updateQueuedFile(item.key, "uploading");
         try {
           await apiClient.uploadSource(materialId, item.file, item.mediaType, item.key);
           uploadedKeys.current.add(item.key);
-          setQueue((previous) =>
-            previous.map((value) =>
-              value.key === item.key ? { ...value, status: "uploaded", error: null } : value,
-            ),
-          );
+          updateQueuedFile(item.key, "uploaded");
         } catch (failure) {
-          setQueue((previous) =>
-            previous.map((value) =>
-              value.key === item.key
-                ? { ...value, status: "failed", error: errorMessage(failure) }
-                : value,
-            ),
-          );
+          updateQueuedFile(item.key, "failed", errorMessage(failure));
         }
       }
       setReload((value) => value + 1);
     });
-  if (!data && !error)
+  const moveSource = (index: number, offset: -1 | 1) =>
+    setSelectedIds((previous) => {
+      const next = [...previous];
+      [next[index], next[index + offset]] = [next[index + offset], next[index]];
+      return next;
+    });
+  if (!sourceList && !error)
     return (
       <StateView
         title="正在讀取教材轉換狀態"
@@ -242,20 +243,20 @@ export function SourceView({
         live
       />
     );
-  const waiting = additions.filter(
+  const waiting = selectedSources.filter(
     (source) => source.status === "pending" || source.status === "running",
   ).length;
-  const failed = additions.filter((source) => source.status === "failed").length;
-  const prepared = additions.filter((source) => source.status === "ready").length;
+  const failed = selectedSources.filter((source) => source.status === "failed").length;
+  const prepared = selectedSources.filter((source) => source.status === "ready").length;
   const pendingUploads = queue.filter((item) => item.status === "pending").length;
   const failedUploads = queue.filter((item) => item.status === "failed").length;
   const uploading = queue.filter((item) => item.status === "uploading").length;
   const uploaded = queue.filter((item) => item.status === "uploaded").length;
   const uploadNeeded = pendingUploads + failedUploads + uploading > 0;
   const summary =
-    queue.length === 0 && ready
-      ? `${additions.length} 份教材 · 共 ${additions.reduce((sum, source) => sum + (source.page_count ?? 0), 0)} 頁`
-      : additions.length === 0 && queue.length === 0
+    queue.length === 0 && sourcesReady
+      ? `${selectedSources.length} 份教材 · 共 ${selectedSources.reduce((sum, source) => sum + (source.page_count ?? 0), 0)} 頁`
+      : selectedSources.length === 0 && queue.length === 0
         ? "0 份教材"
         : [
             `${prepared} 份${failed ? "可用" : "已準備"}`,
@@ -273,9 +274,9 @@ export function SourceView({
       <header className="upload-hero">
         <img src="/assets/studydy/upload-guide.png" alt="" />
         <div>
-          <h1>{current ? "新增教材" : "確認教材"}</h1>
+          <h1>{currentStructure ? "新增教材" : "確認教材"}</h1>
           <p>
-            {current
+            {currentStructure
               ? "追加來源，更新目前地圖並保留未變內容的學習進度。"
               : "預覽教材內容、調整順序，確認後開始建立知識地圖。"}
           </p>
@@ -311,7 +312,7 @@ export function SourceView({
                     ` · ${displayedSources.reduce((sum, source) => sum + (source.page_count ?? 0), 0)} 頁`}
                 </p>
               </div>
-              {current && (
+              {currentStructure && (
                 <button className="secondary-button" onClick={openMap}>
                   開啟目前地圖
                 </button>
@@ -328,7 +329,7 @@ export function SourceView({
                     <strong className="source-name">{source.original_name}</strong>
                     <div className="source-metadata">
                       {source.page_count !== null && <span>{source.page_count} 頁</span>}
-                      {current && source.included && <span>目前地圖使用中</span>}
+                      {currentStructure && source.included && <span>目前地圖使用中</span>}
                     </div>
                     {source.status !== "ready" && (
                       <p
@@ -378,7 +379,7 @@ export function SourceView({
                           <button
                             className="text-button source-remove"
                             type="button"
-                            disabled={busy || active || source.status === "running"}
+                            disabled={busy || hasActiveRun || source.status === "running"}
                             onClick={() =>
                               void perform(async () => {
                                 await apiClient.removeStagedSource(materialId, source.source_id);
@@ -389,14 +390,14 @@ export function SourceView({
                           >
                             移除
                           </button>
-                          {current && (
+                          {currentStructure && (
                             <label>
                               <input
                                 type="checkbox"
-                                checked={selected.includes(source.normalization_id)}
-                                disabled={busy || active}
+                                checked={selectedIds.includes(source.normalization_id)}
+                                disabled={busy || hasActiveRun}
                                 onChange={(event) =>
-                                  setSelected((previous) =>
+                                  setSelectedIds((previous) =>
                                     event.target.checked
                                       ? [...previous, source.normalization_id]
                                       : previous.filter((id) => id !== source.normalization_id),
@@ -433,38 +434,29 @@ export function SourceView({
                       </details>
                     )}
                   </div>
-                  {!current && !source.included && !removing && additions.length > 1 && (
-                    <div className="source-reorder">
-                      <button
-                        type="button"
-                        disabled={busy || active || index === 0}
-                        aria-label={`上移 ${source.original_name}`}
-                        onClick={() =>
-                          setSelected((previous) => {
-                            const next = [...previous];
-                            [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                            return next;
-                          })
-                        }
-                      >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy || active || index === additions.length - 1}
-                        aria-label={`下移 ${source.original_name}`}
-                        onClick={() =>
-                          setSelected((previous) => {
-                            const next = [...previous];
-                            [next[index], next[index + 1]] = [next[index + 1], next[index]];
-                            return next;
-                          })
-                        }
-                      >
-                        ↓
-                      </button>
-                    </div>
-                  )}
+                  {!currentStructure &&
+                    !source.included &&
+                    !removing &&
+                    selectedSources.length > 1 && (
+                      <div className="source-reorder">
+                        <button
+                          type="button"
+                          disabled={busy || hasActiveRun || index === 0}
+                          aria-label={`上移 ${source.original_name}`}
+                          onClick={() => moveSource(index, -1)}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy || hasActiveRun || index === selectedSources.length - 1}
+                          aria-label={`下移 ${source.original_name}`}
+                          onClick={() => moveSource(index, 1)}
+                        >
+                          ↓
+                        </button>
+                      </div>
+                    )}
                 </li>
               ))}
               {queue.map((item, index) => (
@@ -515,7 +507,7 @@ export function SourceView({
                 </li>
               ))}
             </ol>
-            {!removing && !active && (
+            {!removing && !hasActiveRun && (
               <div className="source-add-area">
                 <label className="source-add-control">
                   ＋ 新增教材
@@ -548,23 +540,23 @@ export function SourceView({
               <footer className="source-list-footer">
                 <div>
                   <p className="source-summary">
-                    {current ? "本次新增 " : ""}
+                    {currentStructure ? "本次新增 " : ""}
                     {summary}
                   </p>
-                  {!active && !uploadNeeded && uploaded > 0 && (
+                  {!hasActiveRun && !uploadNeeded && uploaded > 0 && (
                     <p role="status">正在更新教材來源…</p>
                   )}
-                  {!active && queue.length === 0 && waiting > 0 && (
+                  {!hasActiveRun && queue.length === 0 && waiting > 0 && (
                     <p role="status">等待教材轉換完成</p>
                   )}
                   {failed > 0 && (
                     <p className="form-error" role="status">
-                      請重試轉換、移除{current ? "或取消勾選" : ""}失敗的教材。
+                      請重試轉換、移除{currentStructure ? "或取消勾選" : ""}失敗的教材。
                     </p>
                   )}
                 </div>
                 <div className="source-primary-actions">
-                  {active && run ? (
+                  {hasActiveRun && run ? (
                     <button
                       className="primary-button"
                       onClick={() =>
@@ -583,17 +575,21 @@ export function SourceView({
                     </button>
                   ) : (
                     queue.length === 0 &&
-                    ready && (
+                    sourcesReady && (
                       <button
                         className="primary-button"
                         disabled={busy}
                         onClick={() => void start()}
                       >
-                        {busy ? "正在建立分析…" : current ? "確認新增並更新地圖" : "開始分析教材"}
+                        {busy
+                          ? "正在建立分析…"
+                          : currentStructure
+                            ? "確認新增並更新地圖"
+                            : "開始分析教材"}
                       </button>
                     )
                   )}
-                  {run && !active && (
+                  {run && !hasActiveRun && (
                     <button
                       className="text-button"
                       onClick={() =>
@@ -615,7 +611,7 @@ export function SourceView({
             <MaterialRemoveControl
               inActionRow
               material={material}
-              sources={data?.sources}
+              sources={sourceList?.sources}
               apiClient={apiClient}
               materialId={materialId}
               onAccepted={(state) => {
@@ -630,7 +626,7 @@ export function SourceView({
           </div>
         </div>
         <aside className="surface guide-card source-guide">
-          <h2>{current ? "更新教材" : "從教材到知識地圖"}</h2>
+          <h2>{currentStructure ? "更新教材" : "從教材到知識地圖"}</h2>
           <ol>
             <li
               className={hasUploads || flowStarted ? "is-complete" : "is-active"}
@@ -658,7 +654,7 @@ export function SourceView({
             >
               <span>3</span>
               <div>
-                <strong>{current ? "增量更新地圖" : "開始分析教材"}</strong>
+                <strong>{currentStructure ? "增量更新地圖" : "開始分析教材"}</strong>
                 <p>由你確認開始，失敗時保留目前資料。</p>
               </div>
             </li>

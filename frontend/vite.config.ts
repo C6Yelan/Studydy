@@ -7,10 +7,6 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       proxy: {
-        "/v2": {
-          target: environment.STUDYDY_E2E_API_ORIGIN ?? "http://127.0.0.1:8001",
-          changeOrigin: false,
-        },
         "/v1": {
           target: environment.STUDYDY_E2E_API_ORIGIN ?? "http://127.0.0.1:8001",
           changeOrigin: false,

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type SubmitEvent } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type {
   AssessmentPlanView,
@@ -142,10 +142,10 @@ export function AssessmentSetPanel({
           const restored = await apiClient.readAssessmentSet(studySessionId, selectedSetId);
           if (!cancelled) accept(restored);
         } else if (!completed) {
-          const selected = await apiClient.readAssessmentPlan(studySessionId, concept.concept_id);
-          if (selected.knowledge_structure_revision !== view.knowledge_structure_revision)
+          const nextPlan = await apiClient.readAssessmentPlan(studySessionId, concept.concept_id);
+          if (nextPlan.knowledge_structure_revision !== view.knowledge_structure_revision)
             throw new Error("題組與教材版本不一致。");
-          if (!cancelled) setPlan(selected);
+          if (!cancelled) setPlan(nextPlan);
         }
       } catch (error) {
         if (!cancelled) setMessage(errorMessage(error));
@@ -317,17 +317,22 @@ export function AssessmentSetPanel({
     }
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!group?.can_complete || busy || submissionNeedsRefresh) return;
-    const questions = group.items.filter((item) => item.assessment);
     if (!submissionIntent.current) {
-      const answers = questions.map((item) => ({
-        assessment_revision: item.assessment!.assessment_revision,
-        question_id: item.assessment!.question_id,
-        selected_option_id:
-          item.feedback?.selected_option_id ?? selections[item.assessment!.assessment_revision],
-      }));
+      const answers = group.items.flatMap(({ assessment, feedback }) =>
+        assessment
+          ? [
+              {
+                assessment_revision: assessment.assessment_revision,
+                question_id: assessment.question_id,
+                selected_option_id:
+                  feedback?.selected_option_id ?? selections[assessment.assessment_revision],
+              },
+            ]
+          : [],
+      );
       if (answers.some((answer) => !answer.selected_option_id)) {
         setSubmissionError("請先完成所有題目，再一起交卷。");
         return;
@@ -377,9 +382,16 @@ export function AssessmentSetPanel({
   };
   const closed = group?.status === "completed";
   const prepared = !!group && group.published_count > 0;
-  const questions = group?.items.filter((item) => item.assessment && item.created_at) ?? [];
+  const isRemediation = group?.kind === "remediation";
+  const cycleFinished = !!group && ["passed", "incomplete"].includes(group.cycle.outcome);
+  const questions: AssessmentRecordView[] =
+    group?.items.flatMap((item) =>
+      item.assessment && item.created_at
+        ? [{ assessment: item.assessment, feedback: item.feedback, can_submit: item.can_submit }]
+        : [],
+    ) ?? [];
   const selectedCount = questions.filter(
-    (item) => item.feedback || selections[item.assessment!.assessment_revision],
+    (record) => record.feedback || selections[record.assessment.assessment_revision],
   ).length;
   const unavailable = group
     ? group.requested_count - group.published_count + group.excluded_count
@@ -398,26 +410,21 @@ export function AssessmentSetPanel({
   const ready = progressGroup?.verified_count ?? 0;
   const intervention = phase === "intervention";
   const progressText = total > 0 ? `已準備 ${ready} / ${total} 題` : "正在讀取準備進度…";
-  const pendingPoints =
-    group?.cycle.points.filter(
-      (point) =>
-        point.result === "needs_review" &&
-        concept.claims.some((claim) => claim.claim_id === point.claim_id),
-    ) ?? [];
-  const paper = prepared && (
+  const reviewClaims =
+    group?.cycle.points.flatMap((point) => {
+      if (point.result !== "needs_review") return [];
+      const claim = concept.claims.find((claim) => claim.claim_id === point.claim_id);
+      return claim ? [claim] : [];
+    }) ?? [];
+  const paper = group && prepared && (
     <form
       className="assessment-paper"
       aria-label="本組測驗"
       onSubmit={(event) => void submit(event)}
     >
       <div className="assessment-set-items">
-        {questions.map((item, index) => {
-          const assessment = item.assessment!;
-          const record: AssessmentRecordView = {
-            assessment,
-            feedback: item.feedback,
-            can_submit: item.can_submit,
-          };
+        {questions.map((record, index) => {
+          const assessment = record.assessment;
           return (
             <article
               className="assessment-set-item"
@@ -426,7 +433,7 @@ export function AssessmentSetPanel({
             >
               <p className="assessment-set-number">
                 第 {index + 1} 題
-                {item.feedback
+                {record.feedback
                   ? " · 已保存"
                   : selections[assessment.assessment_revision]
                     ? " · 已選擇"
@@ -438,7 +445,7 @@ export function AssessmentSetPanel({
                 completed={closed || completed}
                 answerSelection={{
                   value:
-                    item.feedback?.selected_option_id ??
+                    record.feedback?.selected_option_id ??
                     selections[assessment.assessment_revision] ??
                     null,
                   disabled: busy || !!submissionIntent.current,
@@ -458,7 +465,7 @@ export function AssessmentSetPanel({
           );
         })}
       </div>
-      {group!.can_complete && !completed && (
+      {group.can_complete && !completed && (
         <footer className="assessment-set-submit surface">
           {submissionError && (
             <div className="assessment-error" role="alert">
@@ -496,9 +503,7 @@ export function AssessmentSetPanel({
           {waiting ? (
             <>
               <div className="preparation-heading">
-                <p className="eyebrow">
-                  {group?.kind === "remediation" ? "錯題重點補強" : "觀念重點檢測"}
-                </p>
+                <p className="eyebrow">{isRemediation ? "錯題重點補強" : "觀念重點檢測"}</p>
                 <h2 ref={preparationTitle} tabIndex={-1}>
                   {starting
                     ? "正在開始本輪練習…"
@@ -571,11 +576,9 @@ export function AssessmentSetPanel({
           ) : (
             <>
               <div>
-                <p className="eyebrow">
-                  {group?.kind === "remediation" ? "錯題重點補強" : "觀念重點檢測"}
-                </p>
+                <p className="eyebrow">{isRemediation ? "錯題重點補強" : "觀念重點檢測"}</p>
                 <h2>
-                  {group?.kind === "remediation"
+                  {isRemediation
                     ? `針對「${concept.label}」的錯誤重點再確認`
                     : `一起檢測「${concept.label}」的重點`}
                 </h2>
@@ -607,11 +610,11 @@ export function AssessmentSetPanel({
                   </button>
                 </>
               )}
-              {prepared && (
+              {group && prepared && (
                 <p className="assessment-set-count">
-                  本組 {group!.published_count} 題
+                  本組 {group.published_count} 題
                   {unavailable > 0 &&
-                    ` · 原訂 ${group!.requested_count} 題，${unavailable} 個重點未檢測`}
+                    ` · 原訂 ${group.requested_count} 題，${unavailable} 個重點未檢測`}
                 </p>
               )}
               {group && (
@@ -627,10 +630,8 @@ export function AssessmentSetPanel({
       )}
       {!waiting && group && closed && (
         <section className="surface assessment-cycle" aria-label="本輪檢測與補強">
-          <p className="eyebrow">
-            {group.kind === "remediation" ? "錯題重點補強" : "觀念重點檢測"}
-          </p>
-          <h2>{group.kind === "remediation" ? "本次補強結果" : "本輪檢測結果"}</h2>
+          <p className="eyebrow">{isRemediation ? "錯題重點補強" : "觀念重點檢測"}</p>
+          <h2>{isRemediation ? "本次補強結果" : "本輪檢測結果"}</h2>
           {readError}
           {group.cycle.outcome === "passed" ? (
             <p className="assessment-cycle-result">本輪檢測通過，僅代表這次檢測範圍的結果。</p>
@@ -641,19 +642,19 @@ export function AssessmentSetPanel({
           )}
           <div className="assessment-set-summary" aria-label="本輪檢測摘要">
             <span>
-              {group.kind === "remediation" ? "本次補強通過" : "答對"}
+              {isRemediation ? "本次補強通過" : "答對"}
               <strong>
                 {group.passed_count} / {group.published_count} 題
               </strong>
             </span>
             {group.cycle.pending_count > 0 && (
               <span>
-                {group.kind === "remediation" ? "仍待補強" : "待補強"}
+                {isRemediation ? "仍待補強" : "待補強"}
                 <strong>{group.cycle.pending_count} 個重點</strong>
               </span>
             )}
             <span>
-              {group.kind === "remediation" ? "已完成補強" : "已完成"}
+              {isRemediation ? "已完成補強" : "已完成"}
               <strong>
                 {group.answered_count} / {group.published_count} 題
               </strong>
@@ -682,18 +683,16 @@ export function AssessmentSetPanel({
               接續補強
             </button>
           )}
-          {pendingPoints.length > 0 && (
+          {reviewClaims.length > 0 && (
             <section className="assessment-review-section" aria-label="需要補強的重點">
               <h3>需要補強的重點</h3>
               <div className="assessment-review-points">
-                {pendingPoints.map((point) => {
-                  const claim = concept.claims.find((claim) => claim.claim_id === point.claim_id);
-                  if (!claim) return null;
+                {reviewClaims.map((claim) => {
                   const references = sourceLinks(claim.evidence);
                   return (
                     <article
                       className="assessment-review-point"
-                      key={point.claim_id}
+                      key={claim.claim_id}
                       aria-label="待補強重點"
                     >
                       <p>{claim.text}</p>
@@ -723,20 +722,18 @@ export function AssessmentSetPanel({
                 開始補強 {group.cycle.pending_count} 題
               </button>
             )}
-            {["passed", "incomplete"].includes(group.cycle.outcome) &&
-              !group.cycle.active_set_id &&
-              continuation && (
-                <button
-                  className="primary-button assessment-continue"
-                  disabled={busy || continuation.busy}
-                  aria-busy={continuation.busy}
-                  onClick={() => void continuation.onContinue()}
-                >
-                  {continuation.label}
-                </button>
-              )}
+            {cycleFinished && !group.cycle.active_set_id && continuation && (
+              <button
+                className="primary-button assessment-continue"
+                disabled={busy || continuation.busy}
+                aria-busy={continuation.busy}
+                onClick={() => void continuation.onContinue()}
+              >
+                {continuation.label}
+              </button>
+            )}
           </div>
-          {!["passed", "incomplete"].includes(group.cycle.outcome) && (
+          {!cycleFinished && (
             <div className="assessment-set-actions assessment-result-navigation">
               <button className="text-button" onClick={onBackToMap}>
                 回到知識地圖
@@ -746,10 +743,11 @@ export function AssessmentSetPanel({
         </section>
       )}
       {!waiting &&
+        group &&
         prepared &&
         (closed ? (
-          <details key={group!.set_id} className="surface assessment-answer-review">
-            <summary>查看本輪 {group!.published_count} 題作答回顧</summary>
+          <details key={group.set_id} className="surface assessment-answer-review">
+            <summary>查看本輪 {group.published_count} 題作答回顧</summary>
             {paper}
           </details>
         ) : (

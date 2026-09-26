@@ -2,15 +2,25 @@
   width: 100%;
 }
 
-.upload-hero {
+/* 上傳與處理頁的共用標題區。 */
+.upload-hero,
+.processing-hero {
   display: flex;
   min-height: 128px;
   align-items: flex-start;
+}
+
+.upload-hero {
   gap: var(--space-5);
   padding: 0 0 var(--space-6);
 }
 
-.upload-hero > img {
+.processing-hero {
+  gap: var(--space-6);
+}
+
+.upload-hero > img,
+.processing-hero > img {
   width: 104px;
   height: 104px;
   flex-shrink: 0;
@@ -18,11 +28,7 @@
   object-fit: contain;
 }
 
-.upload-hero h1 {
-  margin: 0 0 var(--space-2);
-  font-size: 32px;
-}
-
+.upload-hero h1,
 .processing-hero h1 {
   margin: 0 0 var(--space-2);
   font-size: 32px;
@@ -50,7 +56,7 @@
   align-items: center;
 }
 
-/* 卡片可隨 application frame 展寬，但檔案選擇與表單內容不跟著無限延伸。 */
+/* 卡片可隨應用程式框架展寬，檔案選擇與表單內容維持閱讀寬度。 */
 .upload-layout > :first-child {
   min-width: 0;
 }
@@ -251,7 +257,8 @@
   font-size: 14px;
 }
 
-.upload-hero > div {
+.upload-hero > div,
+.processing-hero > div {
   min-width: 0;
   flex: 1;
 }
@@ -260,21 +267,7 @@
   display: none;
 }
 
-.processing-hero {
-  display: flex;
-  min-height: 128px;
-  align-items: flex-start;
-  gap: var(--space-6);
-}
-
-.processing-hero > img {
-  width: 104px;
-  height: 104px;
-  order: 2;
-  flex-shrink: 0;
-  object-fit: contain;
-}
-
+/* 處理進度、摘要與流程時間軸。 */
 .processing-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
@@ -491,10 +484,6 @@
   font-size: 0.86rem;
 }
 
-.processing-hero > div {
-  min-width: 0;
-  flex: 1;
-}
 .progress-heading {
   display: flex;
   align-items: baseline;
@@ -561,62 +550,8 @@
   border-radius: 50%;
   animation: spin 1.5s linear infinite;
 }
-@media (prefers-reduced-motion: reduce) {
-  .processing-status-indicator {
-    animation: none;
-  }
-}
 
-@media (max-width: 1200px) {
-  .upload-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 920px) {
-  .processing-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 620px) {
-  .processing-hero,
-  .upload-hero {
-    gap: var(--space-3);
-    min-height: 0;
-  }
-  .processing-hero h1 {
-    font-size: 28px;
-  }
-  .upload-hero > img,
-  .processing-hero > img {
-    width: 56px;
-    height: 64px;
-  }
-  .upload-hero h1 {
-    font-size: 28px;
-  }
-
-  .upload-card,
-  .guide-card,
-  .processing-card {
-    padding: var(--space-5);
-  }
-
-  .processing-times {
-    grid-template-columns: 1fr;
-  }
-
-  .completion-bar {
-    grid-template-columns: 44px 1fr;
-  }
-
-  .completion-bar .primary-button {
-    grid-column: 1 / -1;
-    justify-self: stretch;
-  }
-}
-
+/* 教材庫卡片與空狀態。 */
 .material-library {
   width: 100%;
   container-type: inline-size;
@@ -660,6 +595,7 @@
   }
 }
 .library-item {
+  position: relative;
   min-height: 280px;
   padding: 22px;
   overflow-wrap: anywhere;
@@ -694,8 +630,7 @@
   gap: 8px;
   margin-top: 18px;
 }
-.library-item .state-actions > button,
-.library-item .state-actions > a {
+.library-item .state-actions > button {
   font-size: 13px;
   min-height: 40px;
   padding-left: 12px;
@@ -714,8 +649,6 @@
   background: var(--error-soft);
 }
 .library-empty {
-  min-height: 530px;
-  padding: 38px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -724,10 +657,7 @@
   box-shadow: none;
 }
 .library-empty-illustration {
-  width: 235px;
-  height: 230px;
   position: relative;
-  margin-bottom: 10px;
 }
 .library-empty-illustration::before {
   content: "";
@@ -742,26 +672,9 @@
   height: 100%;
   object-fit: contain;
 }
-.library-empty h2 {
-  font-size: 25px;
-  margin: 12px 0 10px;
-}
 .library-empty p {
   color: var(--text-secondary);
-  max-width: 450px;
   margin: 0 0 24px;
-}
-@media (max-width: 600px) {
-  .library-header h1 {
-    font-size: 28px;
-  }
-  .library-empty {
-    padding: 24px 16px;
-  }
-  .library-empty-illustration {
-    width: 200px;
-    height: 190px;
-  }
 }
 
 .is-collection .library-empty {
@@ -793,25 +706,13 @@
   align-self: flex-start;
   max-width: 100%;
 }
-.is-collection .library-item > .state-actions:empty {
-  display: none;
-}
 .is-collection .library-item > .state-actions {
   justify-content: flex-start;
   margin-top: auto;
   padding-top: 18px;
 }
-@media (max-width: 600px) {
-  .is-collection .library-empty {
-    min-height: 0;
-    padding: 24px 16px;
-  }
-  .is-collection .library-empty-illustration {
-    width: 165px;
-    height: 160px;
-  }
-}
 
+/* 取消處理、刪除與失敗接續。 */
 .processing-cancel {
   margin-top: var(--space-5);
 }
@@ -834,7 +735,8 @@
   justify-content: flex-start;
 }
 .cancel-confirmation .cancel-confirm-button,
-.cancel-confirmation .cancel-confirm-button:hover:not(:disabled) {
+.cancel-confirmation .cancel-confirm-button:hover:not(:disabled),
+.material-management-form .cancel-confirm-button {
   color: var(--error);
   border-color: var(--error);
   background: var(--error-soft);
@@ -855,6 +757,7 @@
   white-space: nowrap;
 }
 
+/* 教材搜尋、重新命名與管理選單。 */
 .library-search {
   width: min(100%, 580px);
   margin: -4px 0 22px;
@@ -888,9 +791,6 @@
   font-size: 14px;
 }
 
-.library-item {
-  position: relative;
-}
 .material-management-menu {
   position: absolute;
   top: 16px;
@@ -992,24 +892,23 @@
   color: var(--text-secondary);
 }
 
-.material-management-form .cancel-confirm-button {
-  color: var(--error);
-  border-color: var(--error);
-  background: var(--error-soft);
-}
-
-/* 來源確認：同一卡片內的緊湊列，只有異常或新增 queue 才增加高度。 */
+/* 來源確認：同一卡片內的緊湊列，只有異常或新增上傳項目才增加高度。 */
 .source-list-card {
   padding: 20px;
   box-shadow: none;
   min-width: 0;
 }
-.source-list-header {
+.source-list-header,
+.source-primary-actions,
+.source-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
+}
+.source-list-header,
+.source-footer {
+  justify-content: space-between;
 }
 .source-list-header h2 {
   margin: 0;
@@ -1189,18 +1088,7 @@
   font-weight: 600;
   color: var(--text-primary);
 }
-.source-primary-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
 .source-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   margin-top: 16px;
 }
 .source-footer > button {
@@ -1229,7 +1117,7 @@
 .source-request-error p {
   margin-top: 0;
 }
-/* Guide 的間距沿用 Upload，只以真實狀態覆寫序號裝飾色。 */
+/* 來源導覽沿用上傳頁的間距，依目前狀態調整序號顏色。 */
 .guide-card.source-guide li > span {
   border: 1px solid var(--border);
   color: var(--text-secondary);
@@ -1252,29 +1140,6 @@
 .source-guide li.is-active strong {
   color: var(--text-primary);
   font-weight: 700;
-}
-@media (max-width: 620px) {
-  .source-list-card {
-    padding: 16px;
-  }
-  .source-row {
-    gap: 8px;
-  }
-  .source-order,
-  .source-reorder {
-    flex-direction: column;
-  }
-  .source-list-footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .source-primary-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .source-primary-actions > .primary-button {
-    width: 100%;
-  }
 }
 .conversion-note {
   color: var(--text-secondary);
@@ -1383,16 +1248,100 @@
   border-color: var(--error);
   background: var(--error-soft);
 }
+/* 響應式版面與減少動畫偏好；相同斷點依原覆寫順序集中。 */
+@media (prefers-reduced-motion: reduce) {
+  .processing-status-indicator {
+    animation: none;
+  }
+}
+
+@media (max-width: 1200px) {
+  .upload-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 920px) {
+  .processing-grid {
+    grid-template-columns: 1fr;
+  }
   .is-processing .processing-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
 @media (max-width: 620px) {
+  .processing-hero,
+  .upload-hero {
+    gap: var(--space-3);
+    min-height: 0;
+  }
+  .processing-hero h1,
+  .upload-hero h1 {
+    font-size: 28px;
+  }
+  .upload-hero > img,
+  .processing-hero > img {
+    width: 56px;
+    height: 64px;
+  }
+
+  .upload-card,
+  .guide-card,
+  .processing-card {
+    padding: var(--space-5);
+  }
+
+  .processing-times {
+    grid-template-columns: 1fr;
+  }
+
+  .completion-bar {
+    grid-template-columns: 44px 1fr;
+  }
+
+  .completion-bar .primary-button {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+  .source-list-card {
+    padding: 16px;
+  }
+  .source-row {
+    gap: 8px;
+  }
+  .source-order,
+  .source-reorder {
+    flex-direction: column;
+  }
+  .source-list-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .source-primary-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .source-primary-actions > .primary-button {
+    width: 100%;
+  }
   .is-processing .processing-times {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .is-processing .overall-heading > strong {
     font-size: 30px;
+  }
+}
+@media (max-width: 600px) {
+  .library-header h1 {
+    font-size: 28px;
+  }
+  .is-collection .library-empty {
+    min-height: 0;
+    padding: 24px 16px;
+  }
+  .is-collection .library-empty-illustration {
+    width: 165px;
+    height: 160px;
   }
 }

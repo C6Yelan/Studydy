@@ -57,7 +57,7 @@ export function RunView({
 
   const applyRun = useCallback((next: MaterialProcessingRunView) => {
     const previous = currentRun.current;
-    // 已保存的取消意圖與 terminal 狀態不可被較舊的 GET/POST 回應撤回。
+    // 已保存的取消意圖與結束狀態不可被較舊的 GET/POST 回應撤回。
     if (previous?.cancel_requested_at && next.cancel_requested_at === null) return previous;
     if (previous && !activeRun(previous) && activeRun(next)) return previous;
     currentRun.current = next;
@@ -155,7 +155,7 @@ export function RunView({
   };
 
   useEffect(() => {
-    if (!run || (run.status !== "pending" && run.status !== "running")) return;
+    if (!activeRun(run)) return;
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
@@ -218,7 +218,7 @@ export function RunView({
       />
     );
 
-  if (run.status === "pending" || run.status === "running") {
+  if (activeRun(run)) {
     const cancellationRequested = removing || run.cancel_requested_at !== null;
     return (
       <section className="processing-page task-page is-processing">
@@ -312,7 +312,7 @@ export function RunView({
     );
   }
 
-  // Accepted deletion stays authoritative when publishing reaches a terminal result.
+  // 已受理刪除後，即使發布流程結束，仍須維持刪除狀態。
   if (run.status === "cancelled" || (removing && !activeRun(run)))
     return (
       <section className="processing-page task-page is-cancelled">
@@ -667,14 +667,14 @@ function RevisionRun({
       cancelled = true;
     };
   }, [apiClient, run.material_id, run.status]);
-  const current =
+  const currentStructure =
     material?.available_structures.find(
       (item) => item.knowledge_structure_revision === material.head_revision,
     ) ?? material?.available_structures[0];
-  const study =
-    current &&
+  const savedSession =
+    currentStructure &&
     material?.study_sessions.find(
-      (item) => item.knowledge_structure_revision === current.knowledge_structure_revision,
+      (item) => item.knowledge_structure_revision === currentStructure.knowledge_structure_revision,
     );
   const cancelling = run.cancel_requested_at !== null && activeRun(run);
   const completed = run.status === "succeeded" || run.status === "partial";
@@ -700,6 +700,55 @@ function RevisionRun({
       setBusy(false);
     }
   };
+  const publishedActions = (
+    <>
+      {currentStructure && (
+        <button
+          className="primary-button"
+          onClick={() =>
+            writeRoute({
+              name: "knowledge-map",
+              materialId: run.material_id,
+              runId: currentStructure.run_id,
+              structureRevision: currentStructure.knowledge_structure_revision,
+            })
+          }
+        >
+          開啟目前地圖
+        </button>
+      )}
+      {savedSession && (
+        <button
+          className="secondary-button"
+          onClick={() =>
+            writeRoute({
+              name: "study-session",
+              materialId: run.material_id,
+              runId: savedSession.run_id,
+              structureRevision: savedSession.knowledge_structure_revision,
+              studySessionId: savedSession.study_session_id,
+            })
+          }
+        >
+          繼續學習
+        </button>
+      )}
+    </>
+  );
+  const libraryActions = (
+    <>
+      <button
+        className="text-button"
+        onClick={() => writeRoute({ name: "material-sources", materialId: run.material_id })}
+      >
+        查看來源與新增教材
+      </button>
+      <button className="text-button" onClick={() => writeRoute({ name: "materials" })}>
+        返回教材庫
+      </button>
+    </>
+  );
+
   if (activeRun(run))
     return (
       <section className="processing-page task-page is-processing">
@@ -713,39 +762,7 @@ function RevisionRun({
         <div className="processing-grid">
           <section className="surface processing-card">
             <ProcessingProgress run={run} now={now} />
-            <div className="state-actions">
-              {current && (
-                <button
-                  className="primary-button"
-                  onClick={() =>
-                    writeRoute({
-                      name: "knowledge-map",
-                      materialId: run.material_id,
-                      runId: current.run_id,
-                      structureRevision: current.knowledge_structure_revision,
-                    })
-                  }
-                >
-                  開啟目前地圖
-                </button>
-              )}
-              {study && (
-                <button
-                  className="secondary-button"
-                  onClick={() =>
-                    writeRoute({
-                      name: "study-session",
-                      materialId: run.material_id,
-                      runId: study.run_id,
-                      structureRevision: study.knowledge_structure_revision,
-                      studySessionId: study.study_session_id,
-                    })
-                  }
-                >
-                  繼續學習
-                </button>
-              )}
-            </div>
+            <div className="state-actions">{publishedActions}</div>
             <div className="processing-cancel">
               {cancelling ? (
                 <p role="status">
@@ -765,17 +782,7 @@ function RevisionRun({
           </section>
           <ProcessingTimeline run={run} />
         </div>
-        <div className="state-actions">
-          <button
-            className="text-button"
-            onClick={() => writeRoute({ name: "material-sources", materialId: run.material_id })}
-          >
-            查看來源與新增教材
-          </button>
-          <button className="text-button" onClick={() => writeRoute({ name: "materials" })}>
-            返回教材庫
-          </button>
-        </div>
+        <div className="state-actions">{libraryActions}</div>
       </section>
     );
   return (
@@ -834,46 +841,8 @@ function RevisionRun({
               retryRun={{ runId: run.run_id, saved: !!run.analysis_saved }}
             />
           )}
-          {current && (
-            <button
-              className="primary-button"
-              onClick={() =>
-                writeRoute({
-                  name: "knowledge-map",
-                  materialId: run.material_id,
-                  runId: current.run_id,
-                  structureRevision: current.knowledge_structure_revision,
-                })
-              }
-            >
-              開啟目前地圖
-            </button>
-          )}
-          {study && (
-            <button
-              className="secondary-button"
-              onClick={() =>
-                writeRoute({
-                  name: "study-session",
-                  materialId: run.material_id,
-                  runId: study.run_id,
-                  structureRevision: study.knowledge_structure_revision,
-                  studySessionId: study.study_session_id,
-                })
-              }
-            >
-              繼續學習
-            </button>
-          )}
-          <button
-            className="text-button"
-            onClick={() => writeRoute({ name: "material-sources", materialId: run.material_id })}
-          >
-            查看來源與新增教材
-          </button>
-          <button className="text-button" onClick={() => writeRoute({ name: "materials" })}>
-            返回教材庫
-          </button>
+          {publishedActions}
+          {libraryActions}
         </div>
       </section>
     </section>

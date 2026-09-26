@@ -39,13 +39,15 @@ const modes: { id: Mode; label: string }[] = [
   { id: "review", label: "複習重點" },
 ];
 
-const relationLabels: Record<RelationType, string> = {
-  prerequisite: "先備",
-  part_of: "組成",
-  application: "應用",
-  example: "例子",
-  contrast: "對照",
+const relationStyles: Record<RelationType, { label: string; color: string; dashed: boolean }> = {
+  prerequisite: { label: "先備", color: "#5B8DEF", dashed: false },
+  part_of: { label: "組成", color: "#22C55E", dashed: false },
+  application: { label: "應用", color: "#06B6D4", dashed: true },
+  example: { label: "例子", color: "#F59E0B", dashed: false },
+  contrast: { label: "對照", color: "#EF4444", dashed: true },
 };
+
+const fitViewOptions = { padding: 0.18, minZoom: 0.001, maxZoom: 1.1 };
 
 const learningLabels = {
   not_started: "尚未練習",
@@ -194,7 +196,12 @@ function ConceptDetail({
   );
 }
 
-type ConceptHandle = { id: string; type: "source" | "target"; position: Position; offset: number };
+type ConceptHandle = {
+  id: string;
+  type: "source" | "target";
+  position: Position.Left | Position.Right;
+  offset: number;
+};
 type ConceptNode = Node<{ label: ReactNode; handles: ConceptHandle[] }, "concept">;
 
 function ConceptMapNode({ data }: NodeProps<ConceptNode>) {
@@ -207,11 +214,7 @@ function ConceptMapNode({ data }: NodeProps<ConceptNode>) {
           id={handle.id}
           type={handle.type}
           position={handle.position}
-          style={
-            handle.position === Position.Left || handle.position === Position.Right
-              ? { top: `${handle.offset}%` }
-              : { left: `${handle.offset}%` }
-          }
+          style={{ top: `${handle.offset}%` }}
         />
       ))}
       {data.label}
@@ -219,14 +222,6 @@ function ConceptMapNode({ data }: NodeProps<ConceptNode>) {
   );
 }
 const nodeTypes = { concept: ConceptMapNode };
-
-const relationColors: Record<RelationType, string> = {
-  prerequisite: "#5B8DEF",
-  part_of: "#22C55E",
-  application: "#06B6D4",
-  example: "#F59E0B",
-  contrast: "#EF4444",
-};
 
 function LearningNavigator({
   view,
@@ -380,8 +375,7 @@ function MapGraph({
     (relation) => relation.relation_id === selectedRelationId,
   );
   const graphElement = useRef<HTMLDivElement>(null);
-  // React Flow can recreate an edge while measuring nodes. Resolve its stable id
-  // inside this canvas when restoring focus, rather than retaining a detached SVG.
+  // 量測可能重建連線；恢復焦點時依穩定 ID 查找，避免保留已移除的 SVG。
   const restoreGraphFocus = (id: string) => {
     const element = graphElement.current?.querySelector<HTMLElement | SVGElement>(
       `[data-id="${CSS.escape(id)}"]`,
@@ -430,7 +424,7 @@ function MapGraph({
   }, [layout, initialized, updateNodeInternals]);
   const { nodes, edges } = useMemo(() => {
     const layoutById = new Map(layout.map((node) => [node.id, node]));
-    // Share lanes across both directions so parallel relations keep distinct labels and arrowheads.
+    // 雙向關係共用連接點排序，讓平行連線的標籤與箭頭保持分離。
     const pairRelations = new Map<string, KnowledgeStructureView["relations"]>();
     for (const relation of projection.relations) {
       const key = [relation.source_concept_id, relation.target_concept_id].sort().join("|");
@@ -446,12 +440,7 @@ function MapGraph({
         const source = layoutById.get(relation.source_concept_id)!;
         const target = layoutById.get(relation.target_concept_id)!;
         const sourcePosition = source.x < target.x ? Position.Right : Position.Left;
-        const targetPosition = {
-          [Position.Bottom]: Position.Top,
-          [Position.Top]: Position.Bottom,
-          [Position.Left]: Position.Right,
-          [Position.Right]: Position.Left,
-        }[sourcePosition];
+        const targetPosition = sourcePosition === Position.Right ? Position.Left : Position.Right;
         for (const [nodeId, type, position] of [
           [source.id, "source", sourcePosition],
           [target.id, "target", targetPosition],
@@ -517,6 +506,7 @@ function MapGraph({
     const edges: Edge[] = projection.relations.map((relation) => {
       const source = layoutById.get(relation.source_concept_id)!;
       const target = layoutById.get(relation.target_concept_id)!;
+      const { label, color, dashed } = relationStyles[relation.type];
       return {
         id: relation.relation_id,
         source: source.id,
@@ -524,24 +514,23 @@ function MapGraph({
         type: "default",
         sourceHandle: `${relation.relation_id}:source`,
         targetHandle: `${relation.relation_id}:target`,
-        label: relationLabels[relation.type],
+        label,
         selected: relation.relation_id === selectedRelationId,
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: relationColors[relation.type],
+          color,
           width: 18,
           height: 18,
         },
         style: {
-          stroke: relationColors[relation.type],
+          stroke: color,
           strokeWidth: 1.5,
-          strokeDasharray:
-            relation.type === "application" || relation.type === "contrast" ? "6 4" : undefined,
+          strokeDasharray: dashed ? "6 4" : undefined,
         },
-        labelStyle: { fill: relationColors[relation.type], fontSize: 11 },
+        labelStyle: { fill: color, fontSize: 11 },
         labelBgPadding: [4, 2],
         className: `concept-flow-edge is-relation is-${relation.type}`,
-        ariaLabel: `${relationLabels[relation.type]}：${relation.learner_reason}`,
+        ariaLabel: `${label}：${relation.learner_reason}`,
         focusable: true,
         domAttributes: {
           onKeyDown: (event: KeyboardEvent<SVGGElement>) => {
@@ -598,7 +587,7 @@ function MapGraph({
     if (!initialized || !canvasReady || fittedConcept.current === selected.concept_id) return;
     const frame = requestAnimationFrame(() => {
       fittedConcept.current = selected.concept_id;
-      void graph.fitView({ padding: 0.18, minZoom: 0.001, maxZoom: 1.1 });
+      void graph.fitView(fitViewOptions);
     });
     return () => cancelAnimationFrame(frame);
   }, [initialized, canvasReady, graph, selected.concept_id]);
@@ -639,7 +628,7 @@ function MapGraph({
           <Controls
             aria-label="地圖縮放控制"
             showInteractive={false}
-            fitViewOptions={{ padding: 0.18, minZoom: 0.001, maxZoom: 1.1 }}
+            fitViewOptions={fitViewOptions}
           />
         </ReactFlow>
         <div
@@ -684,12 +673,9 @@ function MapGraph({
           </p>
         )}
         <div className="relation-legend" aria-label="概念關係圖例">
-          {Object.entries(relationLabels).map(([type, label]) => (
-            <span key={type} style={{ color: relationColors[type as RelationType] }}>
-              <i
-                className={`relation-swatch${type === "application" || type === "contrast" ? " is-dashed" : ""}`}
-                aria-hidden="true"
-              />
+          {Object.entries(relationStyles).map(([type, { label, color, dashed }]) => (
+            <span key={type} style={{ color }}>
+              <i className={`relation-swatch${dashed ? " is-dashed" : ""}`} aria-hidden="true" />
               {label}
             </span>
           ))}
@@ -725,7 +711,7 @@ function RelationDetail({
       <header>
         <div>
           <span className="detail-kicker">概念之間的關係</span>
-          <h2>{relationLabels[relation.type]}</h2>
+          <h2>{relationStyles[relation.type].label}</h2>
         </div>
         <button className="panel-close" type="button" aria-label="關閉關係詳情" onClick={close}>
           ×
@@ -785,12 +771,17 @@ function ReviewView({
   apiClient: StudydyApiClient;
   loading: boolean;
 }) {
-  const weak = progress?.concept_states.filter((state) => state.status === "needs_review") ?? [];
-  const selected = weak.find((state) => state.concept_id === selectedId) ?? weak[0];
-  const concept =
-    selected && view.concepts.find((item) => item.concept_id === selected.concept_id)!;
+  const conceptById = useMemo(
+    () => new Map(view.concepts.map((concept) => [concept.concept_id, concept])),
+    [view.concepts],
+  );
+  const weakStates =
+    progress?.concept_states.filter((state) => state.status === "needs_review") ?? [];
+  const selectedState =
+    weakStates.find((state) => state.concept_id === selectedId) ?? weakStates[0];
+  const concept = selectedState && conceptById.get(selectedState.concept_id);
   const points =
-    concept?.claims.filter((claim) => selected.weak_claim_ids.includes(claim.claim_id)) ?? [];
+    concept?.claims.filter((claim) => selectedState.weak_claim_ids.includes(claim.claim_id)) ?? [];
   return (
     <section aria-labelledby="review-title">
       <div className="view-heading">
@@ -819,11 +810,11 @@ function ReviewView({
         <div className="review-workspace">
           <nav className="review-list" aria-label="需要複習的概念">
             <h3>
-              需要複習 <small>{weak.length} 個概念</small>
+              需要複習 <small>{weakStates.length} 個概念</small>
             </h3>
             <ul>
-              {weak.map((state) => {
-                const item = view.concepts.find((item) => item.concept_id === state.concept_id)!;
+              {weakStates.map((state) => {
+                const item = conceptById.get(state.concept_id)!;
                 return (
                   <li key={state.concept_id}>
                     <button
@@ -920,7 +911,9 @@ export function KnowledgeMapWorkspace({
     const saved = window.history.state?.knowledgeMap;
     if (saved?.revision !== view.knowledge_structure_revision) return null;
     const conceptId = (id: unknown) =>
-      typeof id === "string" && view.concepts.some((c) => c.concept_id === id) ? id : null;
+      typeof id === "string" && view.concepts.some((concept) => concept.concept_id === id)
+        ? id
+        : null;
     return {
       mode: saved.mode === "review" ? ("review" as const) : ("focus" as const),
       search: typeof saved.search === "string" ? saved.search : "",
@@ -1049,7 +1042,7 @@ export function KnowledgeMapWorkspace({
     const closingFocus = document.activeElement;
     setDetailConceptId(null);
     setRelationId(null);
-    // React Flow measures changed nodes on the next frame before they can take focus.
+    // 等 React Flow 完成下一幀量測後，再恢復節點或連線焦點。
     cancelAnimationFrame(restoreFrame.current);
     restoreFrame.current = requestAnimationFrame(() => {
       restoreFrame.current = requestAnimationFrame(() => {

@@ -6,20 +6,20 @@ import "./styles.css";
 type Mode = "login" | "register";
 
 function AccountFrame({ mode, children }: { mode: Mode; children: React.ReactNode }) {
-  const register = mode === "register";
+  const isRegister = mode === "register";
   return (
     <main className="auth-page">
       <section
         className={`auth-card is-${mode}`}
-        aria-label={register ? "註冊 Studydy" : "登入 Studydy"}
+        aria-label={isRegister ? "註冊 Studydy" : "登入 Studydy"}
       >
         <aside className="auth-illustration" aria-label="Studydy 學習夥伴">
           <div className="auth-brand">
             <img src="/assets/studydy/brand-idle.png" alt="" />
             <span>Studydy</span>
           </div>
-          <h2>{register ? "開始你的學習之旅" : "歡迎回來！"}</h2>
-          <p>{register ? "建立帳戶以使用 Studydy 的所有功能" : "登入以繼續您的學習旅程"}</p>
+          <h2>{isRegister ? "開始你的學習之旅" : "歡迎回來！"}</h2>
+          <p>{isRegister ? "建立帳戶以使用 Studydy 的所有功能" : "登入以繼續您的學習旅程"}</p>
           <div className="auth-study-tile tile-chart" aria-hidden="true">
             <Icon name="chart" size={22} />
           </div>
@@ -31,9 +31,9 @@ function AccountFrame({ mode, children }: { mode: Mode; children: React.ReactNod
           </div>
           <img
             className="auth-mascot"
-            alt={register ? "Studydy 歡迎你開始學習" : "Studydy 正在閱讀書本"}
+            alt={isRegister ? "Studydy 歡迎你開始學習" : "Studydy 正在閱讀書本"}
             src={
-              register
+              isRegister
                 ? "/assets/Studydy_角色素材/歡迎/welcome_present.png"
                 : "/assets/Studydy_角色素材/鼓勵/小於60_/LT60.png"
             }
@@ -70,18 +70,18 @@ type FieldName = "email" | "password" | "confirm-password";
 type FieldErrors = Partial<Record<FieldName, string>>;
 const fieldOrder: FieldName[] = ["email", "password", "confirm-password"];
 
-function field(form: HTMLFormElement, name: FieldName): HTMLInputElement {
+function getField(form: HTMLFormElement, name: FieldName): HTMLInputElement {
   return form.elements.namedItem(name) as HTMLInputElement;
 }
 
 function validateFields(
   form: HTMLFormElement,
-  register: boolean,
+  isRegister: boolean,
   rejectedEmail: string | null,
 ): FieldErrors {
   const errors: FieldErrors = {};
-  const email = field(form, "email");
-  const password = field(form, "password");
+  const email = getField(form, "email");
+  const password = getField(form, "password");
   if (!email.value.trim()) errors.email = "請輸入 Email。";
   else if (
     email.validity.typeMismatch ||
@@ -90,17 +90,11 @@ function validateFields(
   )
     errors.email = "請輸入有效的 Email 格式。";
   if (!password.value) errors.password = "請輸入密碼。";
-  else if (
-    password.value.length < password.minLength ||
-    password.value.length > password.maxLength
-  ) {
-    errors.password =
-      password.value.length < password.minLength
-        ? "密碼至少 15 個字元。"
-        : "密碼不可超過 128 個字元。";
-  }
-  if (register) {
-    const confirm = field(form, "confirm-password");
+  else if (password.value.length < password.minLength) errors.password = "密碼至少 15 個字元。";
+  else if (password.value.length > password.maxLength)
+    errors.password = "密碼不可超過 128 個字元。";
+  if (isRegister) {
+    const confirm = getField(form, "confirm-password");
     if (!confirm.value) errors["confirm-password"] = "請再次輸入密碼。";
     else if (confirm.value !== password.value)
       errors["confirm-password"] = "兩次輸入的密碼不一致，請再確認。";
@@ -112,22 +106,21 @@ function PasswordField({
   name,
   label,
   placeholder,
-  confirm = false,
-  register,
+  isRegister,
   disabled,
   error,
 }: {
   name: "password" | "confirm-password";
   label: string;
   placeholder: string;
-  confirm?: boolean;
-  register: boolean;
+  isRegister: boolean;
   disabled: boolean;
   error?: string;
 }) {
   const [visible, setVisible] = useState(false);
+  const isConfirmation = name === "confirm-password";
   const describedBy =
-    [register && !confirm ? "password-hint" : null, error ? `${name}-error` : null]
+    [isRegister && !isConfirmation ? "password-hint" : null, error ? `${name}-error` : null]
       .filter(Boolean)
       .join(" ") || undefined;
   return (
@@ -143,7 +136,7 @@ function PasswordField({
           required
           minLength={15}
           maxLength={128}
-          autoComplete={register ? "new-password" : "current-password"}
+          autoComplete={isRegister ? "new-password" : "current-password"}
           disabled={disabled}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}
@@ -151,7 +144,7 @@ function PasswordField({
         <button
           type="button"
           className="auth-eye"
-          aria-label={`${visible ? "隱藏" : "顯示"}${confirm ? "確認密碼" : "密碼"}`}
+          aria-label={`${visible ? "隱藏" : "顯示"}${isConfirmation ? "確認密碼" : "密碼"}`}
           aria-pressed={visible}
           disabled={disabled}
           onClick={() => setVisible((value) => !value)}
@@ -159,7 +152,7 @@ function PasswordField({
           <Icon name={visible ? "eye-off" : "eye"} size={18} />
         </button>
       </div>
-      {register && !confirm && <small id="password-hint">密碼至少 15 個字元</small>}
+      {isRegister && !isConfirmation && <small id="password-hint">密碼至少 15 個字元</small>}
       {error && (
         <p className="auth-field-error" id={`${name}-error`}>
           {error}
@@ -181,52 +174,55 @@ export function AccountPage({
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const rejectedEmail = useRef<string | null>(null);
-  const [message, setMessage] = useState("");
+  const [submitError, setSubmitError] = useState("");
   const [attempted, setAttempted] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
-  const register = mode === "register";
+  const isRegister = mode === "register";
+
+  async function handleSubmit(event: React.SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (submitting.current) return;
+    const form = event.currentTarget;
+    const nextErrors = validateFields(form, isRegister, rejectedEmail.current);
+    setAttempted(true);
+    setErrors(nextErrors);
+    setSubmitError("");
+    const firstInvalid = fieldOrder.find((name) => nextErrors[name]);
+    if (firstInvalid) {
+      getField(form, firstInvalid).focus();
+      return;
+    }
+    const email = getField(form, "email").value.trim();
+    const password = getField(form, "password").value;
+    submitting.current = true;
+    setBusy(true);
+    try {
+      await authenticate(mode, email, password);
+    } catch (error) {
+      if (error instanceof ApiClientError && error.reasonCode === "INVALID_EMAIL") {
+        rejectedEmail.current = email;
+        setErrors({ email: "請輸入有效的 Email 格式。" });
+        requestAnimationFrame(() => getField(form, "email").focus());
+      } else setSubmitError(errorMessage(error));
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  }
+
   return (
     <AccountFrame mode={mode}>
-      <h1>{register ? "建立新帳戶" : "登入您的帳戶"}</h1>
+      <h1>{isRegister ? "建立新帳戶" : "登入您的帳戶"}</h1>
       {sessionNotice}
       <form
         className="auth-form"
         noValidate
         onInput={(event) => {
           if (attempted)
-            setErrors(validateFields(event.currentTarget, register, rejectedEmail.current));
-          setMessage("");
+            setErrors(validateFields(event.currentTarget, isRegister, rejectedEmail.current));
+          setSubmitError("");
         }}
-        onSubmit={async (event) => {
-          event.preventDefault();
-          if (submitting.current) return;
-          const form = event.currentTarget;
-          const nextErrors = validateFields(form, register, rejectedEmail.current);
-          setAttempted(true);
-          setErrors(nextErrors);
-          setMessage("");
-          const firstInvalid = fieldOrder.find((name) => nextErrors[name]);
-          if (firstInvalid) {
-            field(form, firstInvalid).focus();
-            return;
-          }
-          const email = field(form, "email").value.trim();
-          const password = field(form, "password").value;
-          submitting.current = true;
-          setBusy(true);
-          try {
-            await authenticate(mode, email, password);
-          } catch (error) {
-            if (error instanceof ApiClientError && error.reasonCode === "INVALID_EMAIL") {
-              rejectedEmail.current = email;
-              setErrors({ email: "請輸入有效的 Email 格式。" });
-              requestAnimationFrame(() => field(form, "email").focus());
-            } else setMessage(errorMessage(error));
-          } finally {
-            submitting.current = false;
-            setBusy(false);
-          }
-        }}
+        onSubmit={handleSubmit}
       >
         <div className="auth-field">
           <label htmlFor="email">Email</label>
@@ -254,34 +250,33 @@ export function AccountPage({
         <PasswordField
           name="password"
           label="密碼"
-          placeholder={register ? "請設定密碼" : "請輸入密碼"}
-          register={register}
+          placeholder={isRegister ? "請設定密碼" : "請輸入密碼"}
+          isRegister={isRegister}
           disabled={busy}
           error={errors.password}
         />
-        {register && (
+        {isRegister && (
           <PasswordField
             name="confirm-password"
             label="確認密碼"
             placeholder="請再次輸入密碼"
-            confirm
-            register
+            isRegister
             disabled={busy}
             error={errors["confirm-password"]}
           />
         )}
-        {message && (
+        {submitError && (
           <p className="auth-error" role="alert">
-            {message}
+            {submitError}
           </p>
         )}
         <button className="primary-button auth-submit" disabled={busy} type="submit">
-          {busy ? "處理中…" : register ? "註冊" : "登入"}
+          {busy ? "處理中…" : isRegister ? "註冊" : "登入"}
         </button>
       </form>
       <p className="auth-switch">
-        {register ? "已經有帳戶？" : "還沒有帳戶？"}{" "}
-        <a href={register ? "/login" : "/register"}>{register ? "立即登入" : "立即註冊"}</a>
+        {isRegister ? "已經有帳戶？" : "還沒有帳戶？"}{" "}
+        <a href={isRegister ? "/login" : "/register"}>{isRegister ? "立即登入" : "立即註冊"}</a>
       </p>
     </AccountFrame>
   );

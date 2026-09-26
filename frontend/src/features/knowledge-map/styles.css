@@ -1,3 +1,4 @@
+/* 地圖頁首與檢視切換。 */
 .map-workspace {
   width: 100%;
   min-height: 100%;
@@ -16,9 +17,6 @@
   margin: 0;
   font-size: 24px;
   white-space: nowrap;
-}
-.map-header .eyebrow {
-  display: none;
 }
 .map-header p:last-child {
   margin: 4px 0 0;
@@ -114,12 +112,11 @@
   color: var(--text-secondary);
   font-size: 14px;
 }
+/* 畫布節點、連線與詳情面板。 */
 .focus-graph {
   position: relative;
-  flex: 1;
   min-height: 0;
   overflow: hidden;
-  border-top: 1px solid var(--border);
   background: var(--page-cool);
 }
 .concept-flow-node.react-flow__node {
@@ -135,19 +132,19 @@
   border: 1.5px solid var(--studydy-blue);
   background: var(--studydy-blue-soft);
 }
-.concept-flow-node strong {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  font-size: 18px;
-  line-height: 1.4;
-}
+.concept-flow-node strong,
 .concept-flow-node p {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.concept-flow-node strong {
+  font-size: 18px;
+  line-height: 1.4;
+}
+.concept-flow-node p {
   margin: 6px 0 0;
   color: var(--text-secondary);
   font-size: 12px;
@@ -262,63 +259,6 @@
   color: var(--studydy-blue);
 }
 
-@media (max-width: 1100px) {
-  .map-facts {
-    display: none;
-  }
-}
-@media (max-width: 900px) {
-  .map-workspace {
-    padding: 12px;
-  }
-  .detail-panel {
-    position: fixed;
-    z-index: 21;
-    left: auto;
-    top: 12px;
-    bottom: 12px;
-    right: 12px;
-    width: min(380px, calc(100% - 24px));
-    max-height: calc(100dvh - 24px);
-  }
-}
-@media (max-width: 620px) {
-  .map-header {
-    align-items: start;
-    gap: 12px;
-  }
-  .map-header h1 {
-    font-size: 24px;
-  }
-  .map-header p:last-child {
-    display: none;
-  }
-  .map-header .primary-button {
-    min-height: 40px;
-    padding: 8px;
-    font-size: 13px;
-  }
-  .map-tabs {
-    gap: 0;
-    justify-content: space-between;
-  }
-  .map-tabs button {
-    padding: 0 8px;
-    font-size: 13px;
-    white-space: nowrap;
-  }
-
-  .map-view {
-    padding: 12px;
-  }
-  .view-heading {
-    flex-direction: column;
-  }
-  .view-heading h2 {
-    font-size: 20px;
-  }
-}
-
 .detail-panel::backdrop {
   background: rgba(15, 23, 42, 0.28);
 }
@@ -361,14 +301,8 @@
 .review-empty p {
   color: var(--text-secondary);
 }
-@media (max-width: 620px) {
-  .review-empty {
-    padding: 16px;
-    gap: 12px;
-    align-items: start;
-  }
-}
 
+/* 概念搜尋與結果清單。 */
 .map-search {
   position: relative;
   flex: 1;
@@ -429,19 +363,6 @@
   text-overflow: ellipsis;
   color: var(--text-secondary);
 }
-@media (max-width: 900px) {
-  .map-header {
-    flex-wrap: wrap;
-  }
-  .map-search {
-    order: 3;
-    flex-basis: 100%;
-    max-width: none;
-  }
-  .map-header-actions {
-    margin-left: auto;
-  }
-}
 
 .relation-legend > span {
   display: inline-flex;
@@ -475,17 +396,6 @@
 .map-header,
 .map-tabs {
   flex-shrink: 0;
-}
-@media (max-width: 620px) {
-  .map-title-row {
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-}
-
-.concept-flow-node strong,
-.concept-flow-node p {
-  overflow-wrap: anywhere;
 }
 
 /* 畫布填滿頁首下方空間；只有開啟詳情時才配置右欄。 */
@@ -620,6 +530,9 @@
   list-style: none;
 }
 .navigator-list button {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
   width: 100%;
   min-height: 40px;
   padding: var(--space-2);
@@ -646,11 +559,6 @@
   padding: var(--space-2) var(--space-4);
   color: var(--text-secondary);
   font-size: 12px;
-}
-.navigator-list button {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
 }
 .navigator-position {
   flex: 0 0 22px;
@@ -688,26 +596,7 @@
 .is-needs-review .navigator-state {
   color: #92400e;
 }
-@media (min-width: 901px) {
-  .focus-context .detail-panel {
-    position: static;
-    height: 100%;
-    max-height: none;
-    border: 0;
-    border-radius: 0;
-  }
-}
-@media (max-width: 900px) {
-  .map-workspace.is-focus-mode {
-    min-height: 680px;
-  }
-  .focus-workspace.has-inspector {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .focus-context {
-    display: contents;
-  }
-}
+
 .map-workspace > .form-error[role="status"] {
   padding: var(--space-3) var(--space-4);
   margin: 0 0 var(--space-3);
@@ -716,6 +605,7 @@
   background: var(--warning-soft);
 }
 
+/* 複習概念、教材重點與學習入口。 */
 .review-workspace {
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr) 260px;
@@ -843,23 +733,6 @@
   outline: 2px solid var(--studydy-blue);
   outline-offset: 2px;
 }
-@media (max-width: 1199px) and (min-width: 901px) {
-  .review-workspace {
-    grid-template-columns: 230px minmax(0, 1fr);
-    grid-template-areas: "list context" "list points" "list actions";
-  }
-}
-@media (max-width: 900px) {
-  .review-workspace {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "list" "context" "points" "actions";
-    grid-template-rows: auto;
-    gap: var(--space-4);
-  }
-  .review-context {
-    padding-top: 0;
-  }
-}
 
 .map-limit-note {
   position: absolute;
@@ -875,4 +748,107 @@
   font-size: 12px;
   line-height: 1.5;
   pointer-events: none;
+}
+
+/* 集中管理響應式配置；同一斷點內保留原有規則順序。 */
+@media (max-width: 1100px) {
+  .map-facts {
+    display: none;
+  }
+}
+@media (min-width: 901px) {
+  .focus-context .detail-panel {
+    position: static;
+    height: 100%;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+}
+@media (max-width: 1199px) and (min-width: 901px) {
+  .review-workspace {
+    grid-template-columns: 230px minmax(0, 1fr);
+    grid-template-areas: "list context" "list points" "list actions";
+  }
+}
+@media (max-width: 900px) {
+  .map-workspace {
+    padding: 12px;
+  }
+  .detail-panel {
+    position: fixed;
+    z-index: 21;
+    left: auto;
+    top: 12px;
+    bottom: 12px;
+    right: 12px;
+    width: min(380px, calc(100% - 24px));
+    max-height: calc(100dvh - 24px);
+  }
+  .map-header {
+    flex-wrap: wrap;
+  }
+  .map-search {
+    order: 3;
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .map-header-actions {
+    margin-left: auto;
+  }
+  .map-workspace.is-focus-mode {
+    min-height: 680px;
+  }
+  .focus-workspace.has-inspector {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .focus-context {
+    display: contents;
+  }
+  .review-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "list" "context" "points" "actions";
+    grid-template-rows: auto;
+    gap: var(--space-4);
+  }
+  .review-context {
+    padding-top: 0;
+  }
+}
+@media (max-width: 620px) {
+  .map-header {
+    align-items: start;
+    gap: 12px;
+  }
+  .map-header p:last-child {
+    display: none;
+  }
+  .map-tabs {
+    gap: 0;
+    justify-content: space-between;
+  }
+  .map-tabs button {
+    padding: 0 8px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .map-view {
+    padding: 12px;
+  }
+  .view-heading {
+    flex-direction: column;
+  }
+  .view-heading h2 {
+    font-size: 20px;
+  }
+  .review-empty {
+    padding: 16px;
+    gap: 12px;
+    align-items: start;
+  }
+  .map-title-row {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
 }
