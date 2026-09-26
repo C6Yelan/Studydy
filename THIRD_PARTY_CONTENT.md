@@ -1,24 +1,32 @@
 # 素材與第三方內容
 
-本文件描述 repo 目前包含的內容，不替第三方作品指定或擴張授權。
+本文件整理 Studydy 收錄的介面素材、測試文件與第三方設定，說明其來源及授權狀態。
 
 ## AI 生成介面素材
 
-本專案角色與介面插圖為 AI 生成素材，生成工具**暫列為 OpenAI，待專案成員確認**。素材位於：
+Studydy 的角色與介面插圖為 AI 生成素材，檔案位於：
 
 - [frontend/public/assets/Studydy_角色素材/](frontend/public/assets/Studydy_角色素材/)
 - [frontend/public/assets/studydy/](frontend/public/assets/studydy/)
 
-上述工具歸屬為暫定資訊，並非所有圖片均已通過來源或隱藏浮水印驗證。素材的對外使用授權尚未指定，待來源與適用條款確認後另行說明。
+生成工具及適用使用條款尚待維護者確認。目前尚未指定這些素材的對外使用授權。
 
 ## 測試教材
 
-[backend/tests/fixtures/](backend/tests/fixtures/) 使用自行建立的合成文字與文件；來源及生成工具見該目錄 README。測試資料不是可代表真實教材品質的 benchmark。
+[backend/tests/fixtures/](backend/tests/fixtures/) 收錄自行建立的合成文字與文件，用於文件轉換、內容保留及來源定位測試。檔案來源與覆蓋內容見 [fixture 說明](backend/tests/fixtures/README.md)。
 
-## 程式與依賴
+## 第三方設定
 
-容器使用的 [seccomp 規則](ops/docker/bubblewrap-seccomp.json) 改自 [Moby profiles](https://github.com/moby/profiles/blob/65adc7e022c97f55e45c054ff012988027733b87/seccomp/default.json)，保留預設規則並增加 bubblewrap 所需的 namespace 操作；原作採 [Apache License 2.0](ops/docker/MOBY-LICENSE)。
+容器的 seccomp 設定改自 Moby profiles 的預設規則，增加 Bubblewrap 建立沙箱所需的 namespace 操作。
 
-Python、npm 套件及外部模型的授權各自由其發行者提供；版本以 repo 的 lock 檔為準，不由本文件重新授權。
+- **專案檔案**：[bubblewrap-seccomp.json](ops/docker/bubblewrap-seccomp.json)
+- **上游來源**：[Moby profiles／seccomp/default.json](https://github.com/moby/profiles/blob/65adc7e022c97f55e45c054ff012988027733b87/seccomp/default.json)
+- **原作授權**：Apache License 2.0，授權文字保留於 [MOBY-LICENSE](ops/docker/MOBY-LICENSE)。
 
-本 repo 尚未附上專案 LICENSE。素材權屬與專案授權需由維護者確認，不能由程式測試通過推導。
+## 套件與模型
+
+Python 與 npm 依賴版本分別記錄於 [backend/uv.lock](backend/uv.lock) 與 [frontend/package-lock.json](frontend/package-lock.json)。模型版本與執行設定見 [runtime-lock.json](local_ai/runtime-lock.json)。各套件與模型適用其發行者提供的授權條款。
+
+## 專案授權
+
+目前尚未提供 Studydy 的專案 LICENSE。專案程式與介面素材的授權方式仍待維護者確認；上述第三方來源與授權資訊不代表整個專案採用相同授權。

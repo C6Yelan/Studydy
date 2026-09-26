@@ -8,6 +8,6 @@
 | sample.pptx | 三張投影片，其中一張 hidden，各頁含合成 speaker-notes marker |
 | sample.doc／sample.ppt | 對應文件的二進位 Office 格式，用於格式辨識與轉換後頁碼回查 |
 
-DOCX／PPTX 生成函式位於 [probe.py](../../../prototypes/document_normalization/probe.py) 的 docx_fixture、fodp_fixture；PPTX 與二進位 Office 檔透過 LibreOffice 匯出。
+PPTX 與二進位 Office 檔透過 LibreOffice 匯出。
 
 Fixture 用於內容保留、hidden／notes 排除與來源 mapping 的程式回歸，不代表所有 Office 文件或真實模型品質。執行方式見 [測試文件](../../../docs/testing.md)。

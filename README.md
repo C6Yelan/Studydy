@@ -1,27 +1,41 @@
 # Studydy
 
-Studydy 將自己的教材整理成可回查來源的知識地圖，再透過觀念題組與錯題補強協助學習。
+Studydy 是以個人教材為基礎的 AI 學習應用。將文件整理成可回查來源的知識地圖，搭配觀念題組、錯題補強與學習紀錄，協助理解與練習教材內容。
 
 上傳教材 → 確認來源 → 分析與檢核 → 瀏覽知識地圖 → 整組作答 → 補強錯誤重點。
 
 ## 主要功能
 
-- **多來源教材**：支援 PDF、DOC／DOCX、PPT／PPTX、UTF-8 TXT 與 Markdown；逐檔保存原文與 PDF 預覽。
-- **來源可回查**：觀念、重點與關係保留 Evidence，能回到對應教材、頁碼及區塊。
+- **多來源教材**：支援 PDF、DOC／DOCX、PPT／PPTX、UTF-8 TXT 與 Markdown，可將多份文件整理為同一份教材。
+- **來源可回查**：保留原檔與 PDF 預覽，從觀念、重點與關係回到對應的教材來源。
 - **知識地圖**：以選定觀念為中心瀏覽關係，搭配搜尋、學習導覽與複習重點。
 - **觀念題組**：依教材重點決定題數，整組交卷後查看答案、說明及來源。
-- **錯題補強**：針對尚待改善的重點準備新題，保存題組與作答，重新登入後可接續。
+- **錯題補強**：針對尚待改善的重點準備新題，閱讀來源後進行下一輪練習。
+- **學習紀錄**：保存題組、作答結果與學習進度，重新整理或登入後可接續。
 - **教材更新**：追加來源後建立新版本；更新失敗保留已發布內容與學習紀錄。
 
-## 執行需求
+## 開始使用
 
-部署使用 Docker Compose。Python 3.12、前端、PostgreSQL 18、LibreOffice、bubblewrap 與中文字型由容器提供；主機需支援 Linux 容器，並提供可供容器使用的 NVIDIA GPU。
+Studydy 可自行部署，使用 Docker Compose 建置及啟動。完整部署需要支援 Linux 容器的 Docker 環境，以及可供容器使用的 NVIDIA GPU。
 
-完整 AI 流程需要 Unlimited-OCR 權重，以及可透過 HTTP／HTTPS 存取的 Gemma 服務。RunPod 是選用供應商，後端不管理語意模型的啟停。模型、套件版本與請求設定以 [runtime lock](local_ai/runtime-lock.json) 為準。
+教材內容由原生文字擷取與本機 Unlimited-OCR 處理，分析與出題透過 HTTP／HTTPS 呼叫已部署的 Gemma 模型服務。模型服務可放在自有主機、容器或 GPU 服務平台；模型版本與請求設定見 [runtime-lock.json](local_ai/runtime-lock.json)。
 
-**首次使用請從 [安裝與啟動](docs/getting-started.md) 開始。** 從 .env.example 建立設定，compose.yaml 提供完整部署、OCR 下載工具與選用 SSH 通道，資料統一保存在專案內 data/。尚未配置 GPU 或模型時，可先執行獨立的 [容器測試](docs/testing.md)。
+首次部署請閱讀 [安裝與啟動](docs/getting-started.md)，完成環境設定、OCR 權重準備及模型服務連線。使用操作見 [使用指南](docs/usage.md)。尚未配置 GPU 或模型時，可執行不需要模型的 [容器測試](docs/testing.md)。
 
-教材原檔與持久資料保存在本機；分析與出題會將所需教材內容傳至設定的語意模型服務。生成內容仍需對照來源，詳見 [限制](docs/limitations.md)。
+## 技術與專案結構
+
+| 目錄 | 技術與用途 |
+| --- | --- |
+| [frontend/](frontend/) | React、TypeScript、Vite 與 React Flow；提供教材、地圖與學習介面 |
+| [backend/](backend/) | Python、FastAPI 與 PostgreSQL；負責教材處理、帳號、題組及學習紀錄 |
+| [local_ai/](local_ai/) | Unlimited-OCR 子程序、模型下載工具與模型執行契約 |
+| [ops/docker/](ops/docker/) | Docker 映像、Nginx 前端服務與文件轉換沙箱設定 |
+
+## 資料與目前限制
+
+教材原檔與學習資料保存在部署主機。AI 分析與出題會將必要的教材內容傳至設定的模型服務，使用前請確認該服務的資料處理方式。
+
+AI 生成的觀念、關係與題目仍需對照教材確認；OCR 與文件轉換也可能影響文字、圖表及版面。自動化測試提供程式回歸驗證，不代表所有教材或模型內容已通過品質驗收。完整說明見 [限制](docs/limitations.md)。
 
 ## 文件導覽
 
@@ -35,14 +49,6 @@ Studydy 將自己的教材整理成可回查來源的知識地圖，再透過觀
 | 測試選擇、隔離環境與驗證範圍 | [測試](docs/testing.md) |
 | 格式、模型品質與部署限制 | [限制](docs/limitations.md) |
 
-## 專案目錄
+## 授權與素材
 
-| 目錄 | 用途 |
-| --- | --- |
-| [backend/](backend/) | FastAPI、教材處理、知識結構、學習狀態與 PostgreSQL 儲存 |
-| [frontend/](frontend/) | React／TypeScript 介面與 Playwright 測試 |
-| [local_ai/](local_ai/) | OCR 子程序與模型執行契約 |
-| [ops/docker/](ops/docker/) | 容器映像、前端代理與轉檔 sandbox 規則 |
-| [prototypes/document_normalization/](prototypes/document_normalization/) | 合成文件工具與獨立轉檔探查 |
-
-Repo 尚未提供專案授權文件；AI 生成素材的暫定來源與授權狀態見 [素材說明](THIRD_PARTY_CONTENT.md)。
+目前尚未提供專案 LICENSE。第三方內容、AI 生成介面素材的來源與授權狀態見 [素材說明](THIRD_PARTY_CONTENT.md)。
