@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ApiClientError, errorMessage, StudydyApiClient, type LearnerIdentity } from "./api/client";
+import { ApiClientError, errorMessage, StudydyApiClient } from "./api/client";
+import type { LearnerIdentity } from "./api/contracts";
 import { readSessionHint, saveSessionHint } from "./api/session-hint";
 import { AppShell } from "./app/AppShell";
 import { readRoute, writeRoute, type AppRoute } from "./app/routes";

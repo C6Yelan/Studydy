@@ -33,6 +33,8 @@ export type ApiErrorView = {
   message: "Request could not be completed.";
 };
 
+export type LearnerIdentity = { schema: "learner-identity/v1"; learner_id: string };
+
 export type MaterialOutputBinding = {
   schema: "material-run-output-binding/v1";
   knowledge_structure_revision: string;
