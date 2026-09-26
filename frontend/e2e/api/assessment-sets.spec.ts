@@ -28,7 +28,7 @@ test("whole paper submits once and restores persisted results after response los
 }) => {
   await page.setViewportSize(viewport);
   const errors: string[] = [];
-  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("pageerror", (error) => errors.push(error.message));
   await login(page);
   await page.goto(studyPath);
   await page.getByRole("button", { name: "開始本輪 3 題", exact: true }).click();

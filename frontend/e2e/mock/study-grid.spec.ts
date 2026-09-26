@@ -5,7 +5,7 @@ async function cardGrid(page: Page, count: number, width: number) {
   const cards = page.locator(".assessment-set-item");
   await expect(cards).toHaveCount(count);
   expect(
-    await cards.evaluateAll((nodes) => nodes.map((n) => n.getAttribute("aria-label"))),
+    await cards.evaluateAll((nodes) => nodes.map((element) => element.getAttribute("aria-label"))),
   ).toEqual(Array.from({ length: count }, (_, i) => `第 ${i + 1} 題`));
   const rects = await cards.evaluateAll((nodes) =>
     nodes.map((node) => node.getBoundingClientRect().toJSON()),
@@ -76,13 +76,17 @@ for (const width of [1280, 760, 390]) {
     expect(
       await page
         .locator(".feedback-card")
-        .evaluateAll((nodes) => nodes.every((n) => n.scrollWidth <= n.clientWidth)),
+        .evaluateAll((nodes) =>
+          nodes.every((element) => element.scrollWidth <= element.clientWidth),
+        ),
     ).toBe(true);
     await expect(page.locator(".feedback-rationale").first()).toContainText(
       "判斷時要檢查請求的方向",
     );
     const source = page.locator(".feedback-evidence button").first();
     await expect(source).toContainText("網路服務角色");
-    expect(await source.evaluate((n) => n.scrollWidth <= n.clientWidth)).toBe(true);
+    expect(await source.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+      true,
+    );
   });
 }

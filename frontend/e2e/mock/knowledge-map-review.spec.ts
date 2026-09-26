@@ -252,10 +252,12 @@ for (const count of [0, 30])
       await expect(list.getByRole("button")).toHaveText(
         view.concepts.slice(0, count).map((concept) => concept.label),
       );
-      await expect.poll(() => list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+      await expect
+        .poll(() => list.evaluate((element) => element.scrollHeight > element.clientHeight))
+        .toBe(true);
       await list.hover();
       await page.mouse.wheel(0, 100_000);
-      await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+      await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
       const last = list.getByRole("button", { name: view.concepts[count - 1].label, exact: true });
       await expect(last).toBeInViewport();
       await last.click();
@@ -317,7 +319,7 @@ for (const viewport of [
         );
         const adjacent = await page
           .locator(".map-tabs")
-          .evaluate((el) => el.nextElementSibling?.classList.contains("map-content"));
+          .evaluate((element) => element.nextElementSibling?.classList.contains("map-content"));
         expect(adjacent).toBe(true);
         if (tabName === "複習重點") {
           if (progressState === "available")

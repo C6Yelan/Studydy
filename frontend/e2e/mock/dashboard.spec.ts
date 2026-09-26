@@ -147,7 +147,7 @@ for (const [width, height, statColumns, featureColumns] of [
       expect(
         await page
           .locator(selector)
-          .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length),
+          .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length),
       ).toBe(columns);
     const illustration = page.locator(".hero-illustration");
     if (width > 600) {
@@ -325,10 +325,10 @@ test("dashboard stats count each material once using its head and remain outside
   for (const stat of await stats.locator(".dashboard-stat").all()) {
     await expect(stat).toHaveJSProperty("tabIndex", -1);
     await expect(stat.locator("button, a, [role=button], [tabindex]")).toHaveCount(0);
-    const border = await stat.evaluate((el) => getComputedStyle(el).borderColor);
+    const border = await stat.evaluate((element) => getComputedStyle(element).borderColor);
     await stat.hover();
-    expect(await stat.evaluate((el) => getComputedStyle(el).borderColor)).toBe(border);
-    expect(await stat.evaluate((el) => getComputedStyle(el).cursor)).not.toBe("pointer");
+    expect(await stat.evaluate((element) => getComputedStyle(element).borderColor)).toBe(border);
+    expect(await stat.evaluate((element) => getComputedStyle(element).cursor)).not.toBe("pointer");
     await stat.click();
     expect(new URL(page.url()).pathname).toBe("/");
   }

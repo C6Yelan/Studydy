@@ -59,15 +59,19 @@
   border: 3px solid #dce7fb;
   border-top-color: var(--studydy-blue);
   border-radius: 50%;
-  animation: spin .9s linear infinite;
+  animation: spin 0.9s linear infinite;
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 560px) {
-  .state-view { padding-inline: var(--space-4); }
+  .state-view {
+    padding-inline: var(--space-4);
+  }
 
   .state-view__actions {
     width: 100%;
@@ -82,16 +86,60 @@
   line-height: 1.75;
   tab-size: 4;
 }
-.map-workspace .claim-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.map-workspace .claim-sources .text-button { min-height: 32px; font-size: .8rem; }
-.map-workspace .claim-text.is-code { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: #F8FAFC; font-family: ui-monospace, SFMono-Regular, Consolas, "Noto Sans TC", monospace; font-size: 14px; font-variant-ligatures: none; }
+.map-workspace .claim-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.map-workspace .claim-sources .text-button {
+  min-height: 32px;
+  font-size: 0.8rem;
+}
+.map-workspace .claim-text.is-code {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Noto Sans TC", monospace;
+  font-size: 14px;
+  font-variant-ligatures: none;
+}
 
-.map-workspace .concept-claim + .concept-claim { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
-.map-workspace .concept-claim > .claim-text { margin: 0; }
-.map-workspace .claim-number { display: block; margin-bottom: 8px; color: var(--studydy-blue); font-size: 13px; }
-.map-workspace .concept-sources { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.map-workspace .concept-claim + .concept-claim {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.map-workspace .concept-claim > .claim-text {
+  margin: 0;
+}
+.map-workspace .claim-number {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--studydy-blue);
+  font-size: 13px;
+}
+.map-workspace .concept-sources {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
 
-.state-view__actions { flex-wrap: wrap; justify-content: center; }
+.state-view__actions {
+  flex-wrap: wrap;
+  justify-content: center;
+}
 
-.source-dialog { width:min(640px,calc(100vw - 32px)); max-height:85dvh; overflow:auto; padding:24px; border:1px solid var(--border); border-radius:var(--radius-card); overflow-wrap:anywhere; }
-.source-dialog::backdrop { background:rgba(0,0,0,.35); }
+.source-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: 85dvh;
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow-wrap: anywhere;
+}
+.source-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.35);
+}

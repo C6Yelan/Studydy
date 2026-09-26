@@ -43,18 +43,20 @@ async function setup(page: Page) {
     run: null as MaterialProcessingRunView | null,
   };
   await page.route(/\/v[12]\//, (route) => {
-    throw new Error(`Unexpected upload request: ${route.request().method()} ${route.request().url()}`);
+    throw new Error(
+      `Unexpected upload request: ${route.request().method()} ${route.request().url()}`,
+    );
   });
-  await page.route("**/v1/session", (r) =>
-    r.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }),
+  await page.route("**/v1/session", (route) =>
+    route.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }),
   );
-  await page.route("**/v1/session/refresh", (r) =>
-    r.fulfill({
+  await page.route("**/v1/session/refresh", (route) =>
+    route.fulfill({
       json: { schema: "learner-identity/v1", learner_id: uuid(99) },
     }),
   );
-  await page.route("**/v1/source-capabilities", (r) =>
-    r.fulfill({
+  await page.route("**/v1/source-capabilities", (route) =>
+    route.fulfill({
       json: {
         schema: "source-capabilities/v1",
         formats: [
@@ -77,28 +79,31 @@ async function setup(page: Page) {
     source: state.sources[0],
   });
   // 同一路徑同時提供列表與建立教材；分開註冊 wildcard 會讓後者遮蔽前者。
-  await page.route("**/v1/materials", (r) => {
-    if (r.request().method() === "GET")
-      return r.fulfill({ json: { schema: "material-library/v1", materials: [item()] } });
-    expect(r.request().method()).toBe("POST");
-    expect(r.request().headers()["idempotency-key"]).toMatch(/\S/);
-    state.drafts.push(r.request().headers()["idempotency-key"]);
+  await page.route("**/v1/materials", (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({ json: { schema: "material-library/v1", materials: [item()] } });
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().headers()["idempotency-key"]).toMatch(/\S/);
+    state.drafts.push(route.request().headers()["idempotency-key"]);
     if (state.draftLost) {
       state.draftLost = false;
-      return r.abort("connectionreset");
+      return route.abort("connectionreset");
     }
-    return r.fulfill({ status: 201, json: { schema: "material-draft/v1", material_id: material } });
+    return route.fulfill({
+      status: 201,
+      json: { schema: "material-draft/v1", material_id: material },
+    });
   });
-  await page.route(`**/v1/materials/${material}`, (r) => r.fulfill({ json: item() }));
+  await page.route(`**/v1/materials/${material}`, (route) => route.fulfill({ json: item() }));
   const listing = () => ({
     schema: "material-sources/v1",
     material_id: material,
     sources: state.sources,
   });
-  await page.route(`**/v1/materials/${material}/sources`, (r) => {
-    if (r.request().method() === "POST") {
-      const name = decodeURIComponent(r.request().headers()["x-material-name"]);
-      const key = r.request().headers()["idempotency-key"];
+  await page.route(`**/v1/materials/${material}/sources`, (route) => {
+    if (route.request().method() === "POST") {
+      const name = decodeURIComponent(route.request().headers()["x-material-name"]);
+      const key = route.request().headers()["idempotency-key"];
       expect(key).toMatch(/\S/);
       if (!state.uploads.some((upload) => upload.key === key)) {
         const n = 10 + state.sources.length * 10;
@@ -108,7 +113,7 @@ async function setup(page: Page) {
           normalization_id: uuid(n + 1),
           original_artifact_id: uuid(n + 2),
           original_name: name,
-          media_type: r.request().headers()["content-type"],
+          media_type: route.request().headers()["content-type"],
           status: failed ? "failed" : "ready",
           normalized_artifact_id: failed ? null : uuid(n + 3),
           page_count: failed ? null : 1,
@@ -119,27 +124,29 @@ async function setup(page: Page) {
       state.uploads.push({ name, key });
       if (state.uploadLost && name === "B.txt") {
         state.uploadLost = false;
-        return r.abort("connectionreset");
+        return route.abort("connectionreset");
       }
-    } else expect(r.request().method()).toBe("GET");
-    return r.fulfill({ json: listing() });
+    } else expect(route.request().method()).toBe("GET");
+    return route.fulfill({ json: listing() });
   });
-  await page.route(`**/v1/materials/${material}/sources/*`, (r) => {
-    expect(r.request().method()).toBe("DELETE");
+  await page.route(`**/v1/materials/${material}/sources/*`, (route) => {
+    expect(route.request().method()).toBe("DELETE");
     state.deleted++;
-    state.sources = state.sources.filter((source) => !r.request().url().endsWith(source.source_id));
-    return r.fulfill({ json: listing() });
+    state.sources = state.sources.filter(
+      (source) => !route.request().url().endsWith(source.source_id),
+    );
+    return route.fulfill({ json: listing() });
   });
-  await page.route(`**/v1/materials/${material}/revisions`, (r) => {
-    expect(r.request().method()).toBe("POST");
-    expect(r.request().headers()["idempotency-key"]).toMatch(/\S/);
+  await page.route(`**/v1/materials/${material}/revisions`, (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().headers()["idempotency-key"]).toMatch(/\S/);
     state.starts.push({
-      key: r.request().headers()["idempotency-key"],
-      body: r.request().postDataJSON(),
+      key: route.request().headers()["idempotency-key"],
+      body: route.request().postDataJSON(),
     });
     if (state.analysisFailsOnce) {
       state.analysisFailsOnce = false;
-      return r.fulfill({ status: 503, json: failure });
+      return route.fulfill({ status: 503, json: failure });
     }
     state.run = {
       schema: "material-processing-run/v1",
@@ -158,10 +165,10 @@ async function setup(page: Page) {
       updated_at: stamp,
       completed_at: null,
     };
-    return r.fulfill({ status: 202, json: state.run });
+    return route.fulfill({ status: 202, json: state.run });
   });
-  await page.route(`**/v1/material-processing-runs/${runId}`, (r) =>
-    r.fulfill({ json: state.run }),
+  await page.route(`**/v1/material-processing-runs/${runId}`, (route) =>
+    route.fulfill({ json: state.run }),
   );
   return state;
 }

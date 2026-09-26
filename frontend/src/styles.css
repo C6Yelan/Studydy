@@ -1,7 +1,8 @@
 :root {
   color: #0c1228;
   background: #f8f9fe;
-  font-family: Inter, "Noto Sans TC", "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  font-family:
+    Inter, "Noto Sans TC", "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 
@@ -81,7 +82,7 @@ button:focus-visible,
 input:focus-visible,
 a:focus-visible,
 .file-drop:focus-within {
-  outline: 3px solid rgba(7, 87, 255, .25);
+  outline: 3px solid rgba(7, 87, 255, 0.25);
   outline-offset: 2px;
 }
 
@@ -98,7 +99,12 @@ p {
 
 code {
   color: #38445c;
-  font: .78rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font:
+    0.78rem/1.45 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
   overflow-wrap: anywhere;
 }
 
@@ -108,15 +114,15 @@ code {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  box-shadow: 0 2px 10px rgba(20, 32, 60, .05);
+  box-shadow: 0 2px 10px rgba(20, 32, 60, 0.05);
 }
 
 .eyebrow {
   margin: 0 0 var(--space-2);
   color: var(--studydy-blue);
-  font-size: .78rem;
+  font-size: 0.78rem;
   font-weight: 700;
-  letter-spacing: .08em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -181,7 +187,7 @@ code {
 .form-error {
   margin: var(--space-3) 0 0;
   color: #b42338;
-  font-size: .88rem;
+  font-size: 0.88rem;
   font-weight: 600;
 }
 
@@ -190,8 +196,8 @@ code {
   *::before,
   *::after {
     scroll-behavior: auto !important;
-    animation-duration: .01ms !important;
+    animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: .01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }

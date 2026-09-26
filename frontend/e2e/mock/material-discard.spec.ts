@@ -295,9 +295,9 @@ for (const viewport of [
     await expect(confirm.getByRole("button", { name: "確認刪除", exact: true })).toBeEnabled();
     await expect(page.getByRole("article")).toHaveCount(2);
     expect(deletes).toBe(1);
-    await confirm.getByRole("button", { name: "確認刪除", exact: true }).evaluate((el) => {
-      (el as HTMLButtonElement).click();
-      (el as HTMLButtonElement).click();
+    await confirm.getByRole("button", { name: "確認刪除", exact: true }).evaluate((element) => {
+      (element as HTMLButtonElement).click();
+      (element as HTMLButtonElement).click();
     });
     await expect.poll(() => deletes).toBe(2);
     await expect(confirm.getByRole("button", { name: "正在刪除…", exact: true })).toBeDisabled();

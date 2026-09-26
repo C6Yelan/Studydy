@@ -390,7 +390,7 @@ for (const viewport of [
     expect((await page.locator(".file-drop").boundingBox())!.width).toBeLessThanOrEqual(880);
     const uploadColumns = await page
       .locator(".upload-layout")
-      .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
+      .evaluate((element) => getComputedStyle(element).gridTemplateColumns);
     const uploadMascot = await page.locator(".upload-hero > img").boundingBox();
     await page.goto(`/materials/${materialId}/sources`);
     await expect(page.getByRole("link", { name: "預覽 PDF", exact: true })).toBeVisible();
@@ -403,7 +403,7 @@ for (const viewport of [
     expect(
       await page
         .locator(".upload-layout")
-        .evaluate((el) => getComputedStyle(el).gridTemplateColumns),
+        .evaluate((element) => getComputedStyle(element).gridTemplateColumns),
     ).toBe(uploadColumns);
     const mascot = (await page.locator(".upload-hero > img").boundingBox())!;
     expect(mascot.width).toBe(uploadMascot!.width);
@@ -438,11 +438,11 @@ for (const viewport of [
         await steps
           .nth(index)
           .locator(":scope > span")
-          .evaluate((el, token) => {
+          .evaluate((element, token) => {
             const expected = document.createElement("span");
             expected.style.color = `var(${token})`;
-            el.append(expected);
-            const matches = getComputedStyle(el).color === getComputedStyle(expected).color;
+            element.append(expected);
+            const matches = getComputedStyle(element).color === getComputedStyle(expected).color;
             expected.remove();
             return matches;
           }, token),

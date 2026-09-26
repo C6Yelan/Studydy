@@ -20,14 +20,30 @@ test("final knowledge-structure routes round trip", () => {
 });
 
 test("task routes are canonical", () => {
-  for (const route of [{ name: "home" }, { name: "materials" }, { name: "upload" }, { name: "material-run", materialId, runId }]) {
+  for (const route of [
+    { name: "home" },
+    { name: "materials" },
+    { name: "upload" },
+    { name: "material-run", materialId, runId },
+  ]) {
     assert.deepEqual(readRoute(routePath(route)), { route, isCanonical: true });
   }
 });
 
 test("unknown paths, malformed IDs and extra segments are not canonical routes", () => {
-  const saved = routePath({ name: "study-session", materialId, runId, structureRevision, studySessionId });
-  for (const path of ["/unknown", "/materials/not-an-id", `/materials/${materialId}`, `${saved}/extra`]) {
+  const saved = routePath({
+    name: "study-session",
+    materialId,
+    runId,
+    structureRevision,
+    studySessionId,
+  });
+  for (const path of [
+    "/unknown",
+    "/materials/not-an-id",
+    `/materials/${materialId}`,
+    `${saved}/extra`,
+  ]) {
     assert.deepEqual(readRoute(path), { route: { name: "home" }, isCanonical: false });
   }
 });

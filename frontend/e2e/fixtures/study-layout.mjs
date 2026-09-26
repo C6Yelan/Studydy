@@ -311,8 +311,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     const method = isSource ? "GET" : methods.get(path);
     if (!method) return reject("RESOURCE_NOT_FOUND", 404);
     if (request.method() !== method) return reject("METHOD_NOT_ALLOWED", 405);
-    if (request.method() !== "GET")
-      requests.push({ path, body: request.postData() });
+    if (request.method() !== "GET") requests.push({ path, body: request.postData() });
     if (path === "/v1/session/refresh")
       return route.fulfill({
         json: { schema: "learner-identity/v1", learner_id: uuid(9) },
@@ -495,10 +494,9 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     }
     if (path.endsWith("/submissions")) {
       submittedAnswers = new Map(
-        request.postDataJSON().answers.map((answer) => [
-          answer.assessment_revision,
-          answer.selected_option_id,
-        ]),
+        request
+          .postDataJSON()
+          .answers.map((answer) => [answer.assessment_revision, answer.selected_option_id]),
       );
       assessmentStage = "completed";
       setVersion++;

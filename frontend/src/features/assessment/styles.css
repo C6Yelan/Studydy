@@ -56,7 +56,6 @@
 .assessment-options label.is-selected {
   border-color: var(--studydy-blue);
   background: var(--studydy-blue-soft-2);
-
 }
 
 .assessment-options label > span {
@@ -120,7 +119,7 @@
 
 .feedback-evidence h3 {
   margin: 0;
-  font-size: .9rem;
+  font-size: 0.9rem;
 }
 
 .feedback-evidence .text-button {
@@ -153,16 +152,53 @@
     flex-direction: column;
   }
 }
-.assessment-options strong { font-weight: 500; overflow-wrap: anywhere; }
+.assessment-options strong {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
 
-.assessment-options { min-width: 0; }
-.assessment-options strong { line-height: 1.55; }
-.assessment-options:disabled label { cursor: default; }
-.feedback-result { display: flex; align-items: center; gap: var(--space-3); }
-.feedback-result .feedback-icon { width: 40px; height: 40px; margin: 0; flex-shrink: 0; }
-.feedback-result h2, .feedback-result .eyebrow { margin: 0; }
-.feedback-result .eyebrow { margin-bottom: var(--space-1); }
-.feedback-section { margin-top: var(--space-5); }
-.feedback-section h3 { margin: 0 0 var(--space-2); color: var(--text-secondary); font-size: 13px; font-weight: 600; }
-.feedback-section p { margin: 0; max-width: 65ch; line-height: 1.7; }
-.assessment-readonly { color: var(--text-secondary); font-size: 14px; }
+.assessment-options {
+  min-width: 0;
+}
+.assessment-options strong {
+  line-height: 1.55;
+}
+.assessment-options:disabled label {
+  cursor: default;
+}
+.feedback-result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.feedback-result .feedback-icon {
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  flex-shrink: 0;
+}
+.feedback-result h2,
+.feedback-result .eyebrow {
+  margin: 0;
+}
+.feedback-result .eyebrow {
+  margin-bottom: var(--space-1);
+}
+.feedback-section {
+  margin-top: var(--space-5);
+}
+.feedback-section h3 {
+  margin: 0 0 var(--space-2);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.feedback-section p {
+  margin: 0;
+  max-width: 65ch;
+  line-height: 1.7;
+}
+.assessment-readonly {
+  color: var(--text-secondary);
+  font-size: 14px;
+}

@@ -80,10 +80,14 @@ for (const viewport of [
     const originalHeader = await page.locator(".study-header").elementHandle();
     await start.click();
     expect(
-      await originalPanel!.evaluate((el) => el === document.querySelector(".assessment-set-panel")),
+      await originalPanel!.evaluate(
+        (element) => element === document.querySelector(".assessment-set-panel"),
+      ),
     ).toBe(true);
     expect(
-      await originalHeader!.evaluate((el) => el === document.querySelector(".study-header")),
+      await originalHeader!.evaluate(
+        (element) => element === document.querySelector(".study-header"),
+      ),
     ).toBe(true);
     await expect(page.getByRole("heading", { name: "正在開始本輪練習…" })).toBeVisible();
     await inlinePreparing(page);
@@ -149,12 +153,7 @@ for (const viewport of [
     const choices = [0, 0, 0, 0, 0, 3];
     const submission = page.waitForRequest((request) => request.url().endsWith("/submissions"));
     for (let i = 0; i < 6; i++)
-      await page
-        .locator(".assessment-set-item")
-        .nth(i)
-        .getByRole("radio")
-        .nth(choices[i])
-        .check();
+      await page.locator(".assessment-set-item").nth(i).getByRole("radio").nth(choices[i]).check();
     await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();
     const submitted = await submission;
     expect(submitted.method()).toBe("POST");
@@ -176,8 +175,12 @@ for (const viewport of [
     await page.locator(".assessment-set-history button").last().click();
     await expect(page).toHaveURL(new RegExp(fixture.historyPath.split("/").at(-1)! + "$"));
     await expect(page.locator(".study-learning-grid")).toHaveClass(/is-result-mode/);
-    expect(fixture.requests.filter((r) => r.path.endsWith("/assessment-sets"))).toHaveLength(1);
-    expect(fixture.requests.filter((r) => r.path.endsWith("/submissions"))).toHaveLength(1);
+    expect(
+      fixture.requests.filter((request) => request.path.endsWith("/assessment-sets")),
+    ).toHaveLength(1);
+    expect(
+      fixture.requests.filter((request) => request.path.endsWith("/submissions")),
+    ).toHaveLength(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
@@ -200,8 +203,10 @@ for (const viewport of [
     await publish.click();
     await expect(page.locator(".study-learning-grid")).toHaveClass(/is-question-mode/);
     await expect(page.locator(".assessment-set-item")).toHaveCount(4);
-    expect(fixture.requests.filter((r) => r.path.endsWith("/retry"))).toHaveLength(1);
-    expect(fixture.requests.filter((r) => r.path.endsWith("/publish-partial"))).toHaveLength(1);
+    expect(fixture.requests.filter((request) => request.path.endsWith("/retry"))).toHaveLength(1);
+    expect(
+      fixture.requests.filter((request) => request.path.endsWith("/publish-partial")),
+    ).toHaveLength(1);
     for (const item of await page.locator(".assessment-set-item").all())
       await item.getByRole("radio").first().check();
     await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();

@@ -387,7 +387,7 @@ for (const viewport of [
     const width = box.width;
     expect(width).toBeLessThanOrEqual(580);
     if (viewport.width === 390) expect(width).toBeGreaterThan(300);
-    expect(await input.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
+    expect(await input.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("solid");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
@@ -520,7 +520,7 @@ for (const viewport of [
       await cards
         .first()
         .getByRole("heading")
-        .evaluate((el) => el.scrollHeight > el.clientHeight),
+        .evaluate((element) => element.scrollHeight > element.clientHeight),
     ).toBe(true);
 
     const card = cards.first();

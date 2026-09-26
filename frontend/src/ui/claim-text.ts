@@ -8,5 +8,8 @@ export function claimText(claim: Claim): string {
   const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
   const quotes = [...new Set(claim.evidence.map((item) => item.quote))];
   const candidates = [...quotes, quotes.join("\n")];
-  return candidates.find((text) => text.includes("\n") && normalize(text) === normalize(claim.text)) ?? claim.text;
+  return (
+    candidates.find((text) => text.includes("\n") && normalize(text) === normalize(claim.text)) ??
+    claim.text
+  );
 }

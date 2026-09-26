@@ -165,9 +165,9 @@ for (const viewport of [
       await expect(button).toHaveClass("primary-button");
       await expect(page.getByRole("button", { name: "返回我的教材", exact: true })).toHaveCount(0);
       await button.focus();
-      await button.evaluate((el) => {
-        (el as HTMLButtonElement).click();
-        (el as HTMLButtonElement).click();
+      await button.evaluate((element) => {
+        (element as HTMLButtonElement).click();
+        (element as HTMLButtonElement).click();
       });
       await expect.poll(() => keys.length).toBe(1);
       await expect(page.getByRole("button", { name: "正在重新處理…", exact: true })).toBeDisabled();

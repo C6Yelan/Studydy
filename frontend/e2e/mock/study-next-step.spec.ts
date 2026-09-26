@@ -56,7 +56,7 @@ for (const width of [1366, 390]) {
     await expect(page.getByRole("heading", { name: label, level: 1, exact: true })).toBeVisible();
     await expect(page.locator(".current-concept-card")).toContainText(label);
     await expect(page.getByRole("button", { name: "開始本輪 6 題", exact: true })).toBeVisible();
-    const requests = fixture.requests.filter((r) => r.path.endsWith("/guidance/apply"));
+    const requests = fixture.requests.filter((request) => request.path.endsWith("/guidance/apply"));
     expect(requests).toHaveLength(1);
     expect(JSON.parse(requests[0].body!)).toEqual({
       schema: "guidance-apply/v1",

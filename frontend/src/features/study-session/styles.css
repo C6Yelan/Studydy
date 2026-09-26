@@ -1,51 +1,151 @@
-.study-session-page { width: min(1440px, 100%); margin: 0 auto; padding: var(--space-7) var(--space-6) var(--space-10); }
-.study-header { margin-bottom: var(--space-5); }
-.study-header h1, .study-header p { margin: 0; }
-.study-header h1 { font-size: clamp(24px, 3vw, 32px); overflow-wrap: anywhere; }
-.study-header p:last-child { margin-top: var(--space-2); color: var(--text-secondary); font-size: 14px; }
-.study-learning-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(340px, .9fr); align-items: start; gap: var(--space-5); }
-.study-learning-grid > * { min-width: 0; }
-.current-concept-card { padding: var(--space-6); }
-.current-concept-card h2 { margin: 0; font-size: 22px; overflow-wrap: anywhere; }
-.study-claims { margin: var(--space-5) 0; padding-left: var(--space-5); }
-.study-claims li { padding-left: var(--space-1); margin-bottom: var(--space-4); color: var(--text-primary); line-height: 1.7; overflow-wrap: anywhere; }
-.study-sources { border-top: 1px solid var(--border); padding-top: var(--space-4); }
-.study-sources h3 { margin: 0 0 var(--space-2); font-size: 14px; color: var(--text-secondary); }
-.study-sources > div { display: flex; flex-wrap: wrap; gap: var(--space-3); }
-.study-sources .text-button { min-height: 36px; }
-.study-workspace { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: var(--space-5); }
-.study-main, .study-rail { min-width: 0; }
-.study-rail { display: grid; align-self: start; gap: var(--space-4); }
-@media (max-width: 900px) { .study-learning-grid { grid-template-columns: minmax(0, 1fr); } }
+.study-session-page {
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-6) var(--space-10);
+}
+.study-header {
+  margin-bottom: var(--space-5);
+}
+.study-header h1,
+.study-header p {
+  margin: 0;
+}
+.study-header h1 {
+  font-size: clamp(24px, 3vw, 32px);
+  overflow-wrap: anywhere;
+}
+.study-header p:last-child {
+  margin-top: var(--space-2);
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.study-learning-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
+  align-items: start;
+  gap: var(--space-5);
+}
+.study-learning-grid > * {
+  min-width: 0;
+}
+.current-concept-card {
+  padding: var(--space-6);
+}
+.current-concept-card h2 {
+  margin: 0;
+  font-size: 22px;
+  overflow-wrap: anywhere;
+}
+.study-claims {
+  margin: var(--space-5) 0;
+  padding-left: var(--space-5);
+}
+.study-claims li {
+  padding-left: var(--space-1);
+  margin-bottom: var(--space-4);
+  color: var(--text-primary);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.study-sources {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-4);
+}
+.study-sources h3 {
+  margin: 0 0 var(--space-2);
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.study-sources > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.study-sources .text-button {
+  min-height: 36px;
+}
+.study-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-5);
+}
+.study-main,
+.study-rail {
+  min-width: 0;
+}
+.study-rail {
+  display: grid;
+  align-self: start;
+  gap: var(--space-4);
+}
+@media (max-width: 900px) {
+  .study-learning-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 @media (max-width: 620px) {
-  .study-session-page { padding: var(--space-5) var(--space-3) var(--space-8); }
-  .current-concept-card { padding: var(--space-5); }
+  .study-session-page {
+    padding: var(--space-5) var(--space-3) var(--space-8);
+  }
+  .current-concept-card {
+    padding: var(--space-5);
+  }
 }
 
-
-
-
-
 @media (min-width: 1280px) {
-  .study-workspace { grid-template-columns: minmax(0, 1fr) clamp(300px, 22vw, 320px); gap: var(--space-6); }
-  .study-main .study-learning-grid.is-preparation-mode { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); }
+  .study-workspace {
+    grid-template-columns: minmax(0, 1fr) clamp(300px, 22vw, 320px);
+    gap: var(--space-6);
+  }
+  .study-main .study-learning-grid.is-preparation-mode {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  }
 }
 
 /* 準備階段並排教材與檢測入口；真正作答及結果才使用寬版主區。 */
 .study-main .study-learning-grid.is-result-mode,
-.study-main .study-learning-grid.is-set-mode.is-question-mode { grid-template-columns: minmax(0, 1fr); justify-items: stretch; }
+.study-main .study-learning-grid.is-set-mode.is-question-mode {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: stretch;
+}
 .study-main .study-learning-grid.is-result-mode .study-current-action,
-.study-main .study-learning-grid.is-set-mode.is-question-mode .study-current-action { width: 100%; }
-.study-learning-grid.is-preparation-mode .assessment-set-header h2 { font-size: 22px; line-height: 1.45; }
-.study-material-summary { padding: 1rem 1.25rem; }
-.study-material-summary > summary { cursor: pointer; font-weight: 600; line-height: 1.5; }
-.study-material-summary .current-concept-card { padding: 1.25rem 0 0; border: 0; box-shadow: none; }
+.study-main .study-learning-grid.is-set-mode.is-question-mode .study-current-action {
+  width: 100%;
+}
+.study-learning-grid.is-preparation-mode .assessment-set-header h2 {
+  font-size: 22px;
+  line-height: 1.45;
+}
+.study-material-summary {
+  padding: 1rem 1.25rem;
+}
+.study-material-summary > summary {
+  cursor: pointer;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.study-material-summary .current-concept-card {
+  padding: 1.25rem 0 0;
+  border: 0;
+  box-shadow: none;
+}
 
 @media (min-width: 1280px) {
-  .study-workspace:not(.is-preparation-mode) .study-rail { position: sticky; top: 80px; }
+  .study-workspace:not(.is-preparation-mode) .study-rail {
+    position: sticky;
+    top: 80px;
+  }
 }
 
 /* 沒有可回顧的紀錄時，主內容直接使用完整 workspace。 */
-.study-workspace.without-rail { grid-template-columns: minmax(0, 1fr); }
-.study-main .study-learning-grid.is-set-mode:not(.is-preparation-mode) { grid-template-columns: minmax(0, 1fr); justify-items: stretch; }
-.study-main .study-learning-grid.is-set-mode:not(.is-preparation-mode) .study-current-action { width: 100%; }
+.study-workspace.without-rail {
+  grid-template-columns: minmax(0, 1fr);
+}
+.study-main .study-learning-grid.is-set-mode:not(.is-preparation-mode) {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: stretch;
+}
+.study-main .study-learning-grid.is-set-mode:not(.is-preparation-mode) .study-current-action {
+  width: 100%;
+}
