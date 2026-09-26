@@ -16,9 +16,9 @@ from product_fixtures import closed_loop
 from assessment_fixtures import concept_fixture, model_for
 
 
-# 1536 覆蓋桌機雙欄與 409 版本衝突；390 覆蓋手機單欄及直接交卷回應遺失。
-@pytest.mark.parametrize("width", [1536, 390])
-def test_whole_set_browser_submits_once_and_restores_all_answers(closed_loop, monkeypatch, width):
+# 分別驗證 409 同步後的交卷回應遺失、直接交卷回應遺失；版面由 study-* mock 驗證。
+@pytest.mark.parametrize("scenario", ["version-conflict", "response-lost"])
+def test_whole_set_browser_submits_once_and_restores_all_answers(closed_loop, monkeypatch, scenario):
     fixture = concept_fixture(closed_loop, 3)
     monkeypatch.setattr(api, "runtime_binding", lambda _: {})
     app = api.create_app(api.ApiSettings(
@@ -77,14 +77,14 @@ def test_whole_set_browser_submits_once_and_restores_all_answers(closed_loop, mo
         "revision": fixture["document"]["revision"],
         "session": str(fixture["study"].study_session_id),
         "concept": fixture["concept"]["concept_id"],
-        "width": width,
+        "scenario": scenario,
     }))
 
     thread = Thread(target=worker)
     thread.start()
     try:
         with local_api(app):
-            assert run_browser("e2e/assessment-sets.spec.ts") == 0
+            assert run_browser("e2e/api/assessment-sets.spec.ts") == 0
     finally:
         stop.set()
         release.set()

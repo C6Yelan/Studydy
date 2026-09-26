@@ -75,6 +75,29 @@ PYTHONPATH=local_ai/src backend/.venv/bin/pytest -q local_ai/tests
 
 ## 前端
 
+E2E 只依執行方式分資料夾，功能由檔名辨識；共用合成資料與 browser helpers 放在 `frontend/e2e/fixtures/`。
+
+地圖共用 fixture 的 `mockKnowledgeMapApi`／`mockLearningMapApi` 限定教材、revision、題組 ID 與 HTTP 方法；未設定的請求回傳 404／405，來源回查依 Evidence 的頁碼回應。特定失敗情境可在案例中明確覆蓋路由。
+
+學習版面共用 `studyLayoutFixture` 同樣限定路由 ID／HTTP 方法，過期 guidance 回傳 409；題組統計由實際題目與 feedback 推導，未發布或未作答的重點沒有答案事件，歷史題組不隨目前題組的版本改變。
+
+- `frontend/e2e/mock/`：攔截 API 回應，驗證 UI、互動與公開契約，不需真實 API／DB。
+- `frontend/e2e/api/`：需要對應 Python fixture 啟動隔離 API／DB；失敗注入可能攔截個別請求，但不代表整組是 mock 測試。
+
+帳號測試的 cookie、owner 隔離與伺服器驗證保留在 `api/accounts.spec.ts`；表單互動、版面、逾時重試與登入競態由 `mock/accounts.spec.ts` 驗證。共用錯誤碼／訊息映射由 `frontend/src/api/client.test.mjs` 驗證。
+
+錯題補強的完整 API／DB 流程由 `api/assessment-remediation.spec.ts` 在代表性桌機尺寸執行；桌機／手機的結果呈現、紀錄與下一步互動由既有 `mock/study-results.spec.ts`、`mock/study-rail.spec.ts`、`mock/study-next-step.spec.ts` 驗證。
+
+整組交卷的 `api/assessment-sets.spec.ts` 保留「版本衝突同步後回應遺失」與「直接交卷回應遺失」兩種 API／DB 情境，不以畫面尺寸切換情境；卡片版面、準備狀態與結果呈現由既有 `mock/study-grid.spec.ts`、`mock/study-layout.spec.ts`、`mock/study-results.spec.ts` 驗證。
+
+觀念切換的 `api/concept-navigation.spec.ts` 在代表性桌機尺寸驗證題組互不阻擋、衝突接續與原題目恢復；桌機／手機導覽、觀念入口與下一步互動由既有 `mock/knowledge-map-navigation.spec.ts`、`mock/knowledge-map-learning-entry.spec.ts`、`mock/study-next-step.spec.ts` 驗證。
+
+初始混合來源的 `api/initial-sources.spec.ts` 在代表性桌機尺寸驗證上傳與分析分開、來源排序、三份來源納入同一結構及逐筆 Evidence 回查；桌機／手機的上傳與來源確認介面由既有 `mock/upload.spec.ts`、`mock/source-confirmation.spec.ts` 驗證。
+
+教材列表的 `api/material-library.spec.ts` 驗證新瀏覽器從伺服器找回教材、工作區開啟目前 head、歷史版本 API 的 revision／run 綁定、唯讀且不呼叫模型，以及帳號／PDF 快取隔離；卡片樣式與各處理狀態的介面由既有 `mock/material-collection.spec.ts`、`mock/library-state.spec.ts` 驗證。
+
+單檔轉換的 `api/normalization.spec.ts` 驗證原檔完整內容、PDF 預覽、重新整理後的持久化，以及轉換完成時沒有分析工作、明確點分析後才建立待處理工作；此 fixture 只跑轉換 worker 並禁止模型 HTTP，轉換狀態與版面由既有 `mock/normalization.spec.ts` 驗證。
+
 ~~~bash
 npm --prefix frontend test
 npm --prefix frontend run typecheck
@@ -92,11 +115,11 @@ node frontend/src/api/client.test.mjs
 PYTHONPATH=backend/tests/runtime backend/.venv/bin/python - <<'PY'
 from browser_e2e_runner import main
 
-raise SystemExit(main("e2e/product-cutover.spec.ts", timeout_seconds=300))
+raise SystemExit(main("e2e/mock/", timeout_seconds=600))
 PY
 ~~~
 
-替換 spec 名稱即可執行其他 mock browser 測試。多檔可使用 Playwright 檔名 regex；runner 的 timeout_seconds 是整組執行上限，不改單項 timeout 或 retries。
+這個命令執行全部 mock browser 測試。可改成 `e2e/mock/knowledge-map-` 選擇地圖測試，或 `e2e/mock/knowledge-map-details.spec.ts` 選擇單檔；不帶 spec 時 runner 預設執行這個單檔。多檔也可使用 Playwright 檔名 regex；runner 的 timeout_seconds 是整組執行上限，不改單項 timeout 或 retries。
 
 需要真 API／DB 的 spec 由對應 Python fixture 啟動，例如 runtime/assessments/test_assessment_sets_browser.py；不要手動設定啟用旗標來冒充 fixture。單獨執行 Playwright 而出現 fixture skip，不算該流程已驗證。
 

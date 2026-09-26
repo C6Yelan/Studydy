@@ -4,7 +4,6 @@ import json
 from threading import Event, Thread
 
 import httpx
-import pytest
 from sqlalchemy import select
 
 import runtime.api.app as api
@@ -15,8 +14,8 @@ from assessment_fixtures import other_concept, other_model, concept_fixture, mod
 from product_fixtures import closed_loop
 
 
-@pytest.mark.parametrize("width", [1536, 390])
-def test_navigation_keeps_unfinished_concepts_and_resumes_duplicate_intent(closed_loop, monkeypatch, width):
+# 題組隔離與衝突接續只跑一次；桌機／手機導覽互動由既有 knowledge-map-*／study-next-step mock 驗證。
+def test_navigation_keeps_unfinished_concepts_and_resumes_duplicate_intent(closed_loop, monkeypatch):
     fixture = concept_fixture(closed_loop, 1)
     other = other_concept(fixture)
     monkeypatch.setattr(api, "runtime_binding", lambda _: {})
@@ -69,15 +68,13 @@ def test_navigation_keeps_unfinished_concepts_and_resumes_duplicate_intent(close
         "run": str(fixture["run"].run_id),
         "revision": fixture["document"]["revision"],
         "session": str(fixture["study"].study_session_id),
-        "first": fixture["concept"]["concept_id"],
         "second": other["concept_id"],
-        "width": width,
     }))
     thread = Thread(target=worker)
     thread.start()
     try:
         with local_api(app):
-            assert run_browser("e2e/concept-navigation.spec.ts") == 0
+            assert run_browser("e2e/api/concept-navigation.spec.ts") == 0
     finally:
         stop.set()
         release.set()

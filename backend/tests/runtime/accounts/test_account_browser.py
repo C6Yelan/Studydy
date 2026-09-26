@@ -18,4 +18,4 @@ def test_account_browser_with_real_api_and_database(closed_loop, monkeypatch):
     monkeypatch.setenv("STUDYDY_E2E_ACCOUNT_REVISION", structure["revision"])
     monkeypatch.setenv("STUDYDY_E2E_ACCOUNT_ARTIFACT", str(source.artifact_id))
     with local_api(app):
-        assert run_browser("e2e/accounts.spec.ts") == 0
+        assert run_browser("e2e/api/accounts.spec.ts") == 0

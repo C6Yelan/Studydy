@@ -44,7 +44,7 @@ def test_real_normalization_browser(closed_loop, monkeypatch):
     thread.start()
     try:
         with local_api(app):
-            assert run_browser("e2e/normalization-real.spec.ts") == 0
+            assert run_browser("e2e/api/normalization.spec.ts") == 0
     finally:
         stop.set()
         thread.join(timeout=65)

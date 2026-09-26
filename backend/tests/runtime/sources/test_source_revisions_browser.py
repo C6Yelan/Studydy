@@ -34,7 +34,7 @@ def test_real_initial_multiple_sources_browser(revisions, monkeypatch, tmp_path)
     worker.start()
     try:
         with local_api(app):
-            assert run_browser("e2e/initial-sources-real.spec.ts") == 0
+            assert run_browser("e2e/api/initial-sources.spec.ts") == 0
     finally:
         worker.stop()
     assert attempts == []

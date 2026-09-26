@@ -5,7 +5,6 @@ import json
 from threading import Event, Thread
 
 import httpx
-import pytest
 from sqlalchemy import select
 
 import runtime.api.app as api
@@ -16,8 +15,8 @@ from product_fixtures import closed_loop
 from assessment_fixtures import concept_fixture, model_for
 
 
-@pytest.mark.parametrize("width", [1536, 390])
-def test_direct_remediation_resumes_after_lost_create_response_without_duplicates(closed_loop, monkeypatch, width):
+# 完整 API／DB 流程只跑一次；桌機／手機互動與版面由既有 study-* mock browser 測試驗證。
+def test_direct_remediation_resumes_after_lost_create_response_without_duplicates(closed_loop, monkeypatch):
     fixture = concept_fixture(closed_loop, 3)
     monkeypatch.setattr(api, "runtime_binding", lambda _: {})
     app = api.create_app(api.ApiSettings(
@@ -75,14 +74,13 @@ def test_direct_remediation_resumes_after_lost_create_response_without_duplicate
         "revision": fixture["document"]["revision"],
         "session": str(fixture["study"].study_session_id),
         "concept": fixture["concept"]["concept_id"],
-        "width": width,
     }))
 
     thread = Thread(target=worker)
     thread.start()
     try:
         with local_api(app):
-            result = run_browser("e2e/assessment-remediation.spec.ts")
+            result = run_browser("e2e/api/assessment-remediation.spec.ts")
             if result:
                 with database_session(fixture["dsn"]) as session:
                     groups = list(session.scalars(select(AssessmentSet).where(
