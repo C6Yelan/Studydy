@@ -99,7 +99,7 @@ export default function App() {
       if (["/login", "/register"].includes(window.location.pathname)) { setRoute({ name: "home" }); return; }
       const next = readRoute(window.location.pathname);
       if (!next.isCanonical) writeRoute({ name: "home" }, true);
-      setRoute(next.route);
+      setRoute(next.isCanonical ? next.route : { name: "home" });
     };
     readLocation();
     window.addEventListener("popstate", readLocation);

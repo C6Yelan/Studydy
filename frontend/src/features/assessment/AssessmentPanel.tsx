@@ -15,7 +15,7 @@ export function AssessmentPanel({ apiClient, record, completed, view, answerSele
   const feedback = record.feedback;
   const selection = answerSelection.value;
   const canAnswer = !completed && record.can_submit;
-  if (feedback && assessment) {
+  if (feedback) {
     const evidence = view.concepts
       .flatMap((item) => item.claims)
       .flatMap((claim) => claim.evidence)

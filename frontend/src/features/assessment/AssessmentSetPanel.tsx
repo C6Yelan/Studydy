@@ -228,7 +228,7 @@ export function AssessmentSetPanel({ apiClient, studySessionId, selectedSetId, c
   const paper = prepared && <form className="assessment-paper" aria-label="本組測驗" onSubmit={event => void submit(event)}>
       <div className="assessment-set-items">{questions.map((item, index) => {
         const assessment = item.assessment!;
-        const record: AssessmentRecordView = { assessment, feedback: item.feedback, created_at: item.created_at!, can_submit: item.can_submit };
+        const record: AssessmentRecordView = { assessment, feedback: item.feedback, can_submit: item.can_submit };
         return <article className="assessment-set-item" key={assessment.assessment_revision} aria-label={`第 ${index + 1} 題`}>
           <p className="assessment-set-number">第 {index + 1} 題{item.feedback ? " · 已保存" : selections[assessment.assessment_revision] ? " · 已選擇" : " · 未選擇"}</p>
           <AssessmentPanel apiClient={apiClient} record={record} completed={closed || completed}

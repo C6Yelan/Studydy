@@ -205,7 +205,7 @@ function resumeView() {
   };
 }
 
-test("resume binds material and run without the retired single-assessment query", async () => {
+test("resume binds material, run and saved study session", async () => {
   const value = resumeView();
   const requests = [];
   const client = new StudydyApiClient(async (path, init) => {
@@ -216,7 +216,7 @@ test("resume binds material and run without the retired single-assessment query"
   assert.deepEqual(await client.resumeStudy(request), value);
   assert.equal(requests.length, 1);
   assert.equal(requests[0][1], "GET");
-  assert.equal(new URL(requests[0][0], "http://localhost").searchParams.has("assessment_revision"), false);
+  assert.equal(new URL(requests[0][0], "http://localhost").searchParams.get("run_id"), runId);
   await assert.rejects(client.resumeStudy({ ...request, materialId: sessionId }), error => error.kind === "schema");
   await assert.rejects(client.resumeStudy({ ...request, runId: sessionId }), error => error.kind === "schema");
 });
@@ -253,7 +253,7 @@ test("authentication sends only Email/password and retains safe error boundaries
   }
 });
 
-for (const operation of ["refresh", "identity", "login", "register", "logout"]) {
+for (const operation of ["refresh", "login", "register", "logout"]) {
   test(`${operation} has a bounded deadline and can retry without late abort`, async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const signals = [];
@@ -264,7 +264,7 @@ for (const operation of ["refresh", "identity", "login", "register", "logout"]) 
       return init.method === "DELETE" ? new Response(null, { status: 204 })
         : Response.json({ schema: "learner-identity/v1", learner_id: sessionId });
     });
-    const invoke = () => operation === "refresh" ? client.ensureSession() : operation === "identity" ? client.currentIdentity()
+    const invoke = () => operation === "refresh" ? client.ensureSession()
       : operation === "logout" ? client.logout() : client.authenticate(operation, "learner@example.com", "Synthetic password 42");
     const rejected = assert.rejects(invoke(), e => e.reasonCode === "REQUEST_TIMEOUT" && e.retryable);
     t.mock.timers.tick(10_000);
@@ -291,21 +291,21 @@ test("deadline covers body parsing and late 401 cannot retire a recovered client
   });
   let expired = 0;
   client.onSessionExpired = () => expired++;
-  const rejected = assert.rejects(client.currentIdentity(), e => e.reasonCode === "REQUEST_TIMEOUT");
+  const rejected = assert.rejects(client.ensureSession(), e => e.reasonCode === "REQUEST_TIMEOUT");
   await started;
   t.mock.timers.tick(10_000);
   await rejected;
-  await client.currentIdentity();
+  await client.ensureSession();
   finish({ schema: "api-error/v1", request_id: sessionId, reason_code: "SESSION_REQUIRED", retryable: false, message: "Request could not be completed." });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(expired, 0);
-  await client.currentIdentity();
+  await client.ensureSession();
 });
 
 test("intentional cancellation settles hanging auth without a timeout error", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const client = new StudydyApiClient(async () => new Promise(() => {}));
-  const rejected = assert.rejects(client.currentIdentity(), e => e.reasonCode === "SESSION_REQUIRED" && !e.retryable);
+  const rejected = assert.rejects(client.ensureSession(), e => e.reasonCode === "SESSION_REQUIRED" && !e.retryable);
   client.invalidate();
   await rejected;
   t.mock.timers.tick(100_000);
@@ -335,10 +335,7 @@ test("malformed gateway errors remain distinct from successful schema errors and
 function cancellationView(status) {
   const view = runView();
   view.status = status;
-  if (status === "succeeded" || status === "partial") {
-    view.output_binding.processing = status;
-    return view;
-  }
+  if (status === "succeeded" || status === "partial") return view;
   view.progress_stage = status === "pending" ? "queued" : "evidence";
   view.completed_pages = status === "pending" ? 0 : 1;
   view.total_pages = status === "pending" ? null : 2;
@@ -390,7 +387,6 @@ test("discardMaterial sends the canonical empty DELETE and validates its respons
       return Response.json({ schema: "material-discard/v1", material_id: materialId, state }, { status: 202 });
     });
     assert.equal((await client.discardMaterial(materialId)).state, state);
-    assert.equal(client.cancelMaterialRun, undefined);
   }
   for (const value of [
     { schema: "material-discard/v2", material_id: materialId, state: "removed" },

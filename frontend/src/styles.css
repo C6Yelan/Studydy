@@ -28,8 +28,6 @@
   --radius-input: 7px;
   --radius-button: 7px;
   --radius-card: 11px;
-  --radius-large-card: 13px;
-  --radius-modal: 12px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -185,24 +183,6 @@ code {
   color: #b42338;
   font-size: .88rem;
   font-weight: 600;
-}
-
-.outcome-badge {
-  display: inline-flex;
-  min-height: 28px;
-  align-items: center;
-  padding: 0 var(--space-3);
-  border-radius: 999px;
-  color: #08764c;
-  background: var(--success-soft);
-  font-size: .76rem;
-  font-weight: 700;
-}
-
-.outcome-badge.is-review,
-.outcome-badge.is-partial {
-  color: #795400;
-  background: var(--warning-soft);
 }
 
 @media (prefers-reduced-motion: reduce) {

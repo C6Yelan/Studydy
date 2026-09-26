@@ -5,7 +5,7 @@ import "./styles.css";
 
 type Mode = "login" | "register";
 
-export function AccountFrame({ mode, children }: { mode: Mode; children: React.ReactNode }) {
+function AccountFrame({ mode, children }: { mode: Mode; children: React.ReactNode }) {
   const register = mode === "register";
   return <main className="auth-page">
     <section className={`auth-card is-${mode}`} aria-label={register ? "註冊 Studydy" : "登入 Studydy"}>

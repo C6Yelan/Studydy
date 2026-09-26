@@ -509,15 +509,12 @@
 .library-item .state-actions > a { font-size: 13px; min-height: 40px; padding-left: 12px; padding-right: 12px; }
 .library-item .library-state { display: inline-flex; border-radius: 6px; padding: 5px 8px; color: var(--text-secondary); background: var(--page-cool); font-size: 12px; }
 .library-state.is-failed { color: #b42338; background: var(--error-soft); }
-.library-state.is-running, .library-state.is-pending { color: var(--studydy-blue); background: var(--studydy-blue-soft); }
-.library-item li { margin: .75rem 0; }
 .library-empty { min-height: 530px; padding: 38px 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; box-shadow: none; }
 .library-empty-illustration { width: 235px; height: 230px; position: relative; margin-bottom: 10px; }
 .library-empty-illustration::before { content: ""; position: absolute; inset: 28px 10px 15px; border-radius: 50%; background: #f5f4fc; }
 .library-empty-illustration img { position: relative; width: 100%; height: 100%; object-fit: contain; }
 .library-empty h2 { font-size: 25px; margin: 12px 0 10px; }
 .library-empty p { color: var(--text-secondary); max-width: 450px; margin: 0 0 24px; }
-.library-empty .text-button { margin-top: 10px; }
 @media (max-width: 600px) { .library-header h1 { font-size: 28px; }.library-empty { padding: 24px 16px; }.library-empty-illustration { width: 200px; height: 190px; } }
 
 .is-collection .library-empty { min-height: 390px; padding: var(--space-6); }
@@ -536,9 +533,6 @@
 
 .processing-cancel { margin-top: var(--space-5); }
 .material-remove-control { margin-top: var(--space-4); }
-.is-collection .library-item > .state-actions > .cancel-confirmation,
-.is-collection .library-item > .state-actions > .material-remove-message { flex-basis: 100%; width: 100%; }
-.is-collection .library-item > .state-actions > .cancel-confirmation { margin-top: 8px; }
 .cancel-confirmation { padding-top: var(--space-4); border-top: 1px solid var(--border); }
 .cancel-confirmation h3 { margin: 0; font-size: 16px; }
 .cancel-confirmation p { color: var(--text-secondary); font-size: 14px; }
@@ -546,7 +540,6 @@
 .cancel-confirmation .cancel-confirm-button,
 .cancel-confirmation .cancel-confirm-button:hover:not(:disabled) { color: var(--error); border-color: var(--error); background: var(--error-soft); }
 
-.material-source-link { text-decoration: none; align-self: flex-start; display: inline-flex; gap: 4px; font-size: 13px; min-height: 36px; align-items: center; }
 .material-recovery-error { flex-basis: 100%; width: 100%; margin: 8px 0 0; }
 .material-recovery-status { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 

@@ -108,7 +108,7 @@ export type MaterialLibraryView = {
   materials: MaterialLibraryItem[];
 };
 
-export type SourceLocatorView = {
+type SourceLocatorView = {
   page: number;
   block_id: string;
   region: [number, number, number, number];
@@ -204,7 +204,7 @@ export type StudySessionView = {
   event_watermark: number;
 };
 
-export type AssessmentOptionView = { option_id: string; text: string };
+type AssessmentOptionView = { option_id: string; text: string };
 export type AssessmentView = {
   schema: "single-choice-assessment/v1";
   assessment_revision: string;
@@ -234,7 +234,7 @@ export type AnswerFeedbackView = {
   created_at: string;
 };
 
-export type ConceptLearningStateView = {
+type ConceptLearningStateView = {
   concept_id: string;
   label: string;
   status: "not_started" | "learning" | "needs_review" | "mastered";
@@ -247,7 +247,7 @@ export type ConceptLearningStateView = {
   latest_is_correct: boolean | null;
 };
 
-export type NextActionView = {
+type NextActionView = {
   action: "continue_set" | "remediate" | "assess" | "review_prerequisite" | "advance" | "defer" | "resume" | "no_safe" | "complete";
   target_concept_id: string | null;
   target_claim_id: string | null;
@@ -275,7 +275,6 @@ export type LearnerProgressView = {
 export type AssessmentRecordView = {
   assessment: AssessmentView;
   feedback: AnswerFeedbackView | null;
-  created_at: string;
   can_submit: boolean;
 };
 
@@ -303,7 +302,7 @@ export type AssessmentCycleSummary = {
   active_set_id: string | null;
   passed_count: number; remediation_passed_count: number; pending_count: number; unanswered_count: number; unavailable_count: number;
 };
-export type AssessmentCycleView = AssessmentCycleSummary & {
+type AssessmentCycleView = AssessmentCycleSummary & {
   can_create_remediation: boolean;
   points: { claim_id: string; result: "unavailable" | "unanswered" | "diagnostic_pass" | "needs_review" | "remediation_pass";
     latest_answer_event_id: string | null; latest_set_id: string | null }[];
@@ -322,7 +321,7 @@ export type AssessmentSetListView = {
   active_set_ids: string[]; sets: AssessmentSetSummary[];
 };
 
-export type AssessmentSetItem = {
+type AssessmentSetItem = {
   ordinal: number; target_claim_id: string; state: "pending" | "generating" | "verified" | "published" | "failed" | "omitted";
   attempts: number; failure_reason: string | null; assessment: AssessmentView | null;
   feedback: AnswerFeedbackView | null; created_at: string | null; can_submit: boolean;

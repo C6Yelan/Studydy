@@ -7,14 +7,10 @@ export type AppRoute =
   | { name: "knowledge-map"; materialId: string; runId: string; structureRevision: string }
   | { name: "study-session"; materialId: string; runId: string; structureRevision: string; studySessionId: string; assessmentSetId?: string };
 
-export type RouteRead = { route: AppRoute; isCanonical: boolean };
+type RouteRead = { route: AppRoute; isCanonical: boolean };
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const structurePattern = /^knowledge-structure:sha256:[0-9a-f]{64}$/;
-
-function validSegment(value: string): boolean {
-  return value === encodeURIComponent(value) && !value.includes("%") && !value.includes("/");
-}
 
 export function readRoute(pathname: string): RouteRead {
   if (pathname === "/") return { route: { name: "home" }, isCanonical: true };
@@ -87,13 +83,13 @@ export function routePath(route: AppRoute): string {
   if (route.name === "materials") return "/materials";
   if (route.name === "upload") return "/upload";
   if (route.name === "material-sources") { if (!uuidPattern.test(route.materialId)) throw new Error("ROUTE_INVALID"); return `/materials/${route.materialId}/sources`; }
-  if (!validSegment(route.materialId) || !validSegment(route.runId)) throw new Error("ROUTE_INVALID");
+  if (!uuidPattern.test(route.materialId) || !uuidPattern.test(route.runId)) throw new Error("ROUTE_INVALID");
   const base = `/materials/${route.materialId}/runs/${route.runId}`;
   if (route.name === "material-run") return base;
   if (!structurePattern.test(route.structureRevision)) throw new Error("ROUTE_INVALID");
   const mapPath = `${base}/knowledge-structures/${encodeURIComponent(route.structureRevision)}`;
   if (route.name === "knowledge-map") return mapPath;
-  if (!validSegment(route.studySessionId) || !uuidPattern.test(route.studySessionId)) throw new Error("ROUTE_INVALID");
+  if (!uuidPattern.test(route.studySessionId)) throw new Error("ROUTE_INVALID");
   if (route.assessmentSetId !== undefined) {
     if (!uuidPattern.test(route.assessmentSetId)) throw new Error("ROUTE_INVALID");
     return `${mapPath}/study-sessions/${route.studySessionId}/assessment-sets/${route.assessmentSetId}`;

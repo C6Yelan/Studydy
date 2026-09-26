@@ -2,17 +2,11 @@ import type { KnowledgeStructureView } from "../../api/contracts";
 
 type MapNode = { id: string; x: number; y: number; width: number; depth: 0 | 1 | 2 };
 
-// Keep canonical steps intact; unnumbered extras are only defensive browsing.
+// API 已驗證路徑完整包含教材概念；導覽只依正式順序排列。
 export function learningNavigationItems(view: KnowledgeStructureView) {
-  type Item = { concept: KnowledgeStructureView["concepts"][number]; step: KnowledgeStructureView["initial_learning_path"][number] | null };
   const byId = new Map(view.concepts.map(concept => [concept.concept_id, concept]));
-  const items: Item[] = [...view.initial_learning_path].sort((a, b) => a.position - b.position).map(step => {
-    const concept = byId.get(step.concept_id);
-    if (!concept) throw new Error("UNKNOWN_PATH_CONCEPT");
-    return { concept, step };
-  });
-  const inPath = new Set(view.initial_learning_path.map(step => step.concept_id));
-  return [...items, ...view.concepts.filter(concept => !inPath.has(concept.concept_id)).map(concept => ({ concept, step: null }))];
+  return [...view.initial_learning_path].sort((a, b) => a.position - b.position)
+    .map(step => ({ concept: byId.get(step.concept_id)!, step }));
 }
 
 export function initialFocusConceptId(view: KnowledgeStructureView): string {

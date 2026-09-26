@@ -1,25 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { materialProgressStageLabel, materialCurrentStagePercent, materialOverallProgressPercent, materialRunHasUsableMap, maximumPdfBytes, validateSourceFile } from "./material-flow.ts";
+import { materialProgressStageLabel, materialCurrentStagePercent, materialOverallProgressPercent, validateSourceFile } from "./material-flow.ts";
 
-test("final material stages and usable binding are direct", () => {
+test("material stages describe the current processing work", () => {
   assert.equal(materialProgressStageLabel("evidence"), "整理頁面與教材來源");
   assert.equal(materialProgressStageLabel("semantics"), "建立概念、關係與學習順序");
-  assert.equal(materialRunHasUsableMap({ output_binding: { decision: "retain" } }), true);
-  assert.equal(materialRunHasUsableMap({ output_binding: null }), false);
 });
 
 test("each source follows its advertised format and individual size limit", () => {
-  const formats = [{ extension: ".pdf", media_type: "application/pdf", max_bytes: maximumPdfBytes },
-    { extension: ".txt", media_type: "text/plain", max_bytes: maximumPdfBytes }];
-  const valid = { name: "教材.PDF", type: "application/pdf", size: maximumPdfBytes };
+  const formats = [{ extension: ".pdf", media_type: "application/pdf", max_bytes: 100 * 1024 * 1024 },
+    { extension: ".txt", media_type: "text/plain", max_bytes: 100 * 1024 * 1024 }];
+  const valid = { name: "教材.PDF", type: "application/pdf", size: formats[0].max_bytes };
   assert.equal(validateSourceFile(valid, formats), null);
   assert.equal(validateSourceFile({ name: "notes.txt", type: "", size: 12 }, formats), null);
   assert.match(validateSourceFile({ ...valid, type: "text/plain" }, formats), /類型不一致/);
   assert.match(validateSourceFile({ ...valid, name: "file.exe" }, formats), /不支援/);
   assert.match(validateSourceFile({ ...valid, size: 0 }, formats), /空白/);
-  assert.match(validateSourceFile({ ...valid, size: maximumPdfBytes + 1 }, formats), /100 MiB/);
+  assert.match(validateSourceFile({ ...valid, size: formats[0].max_bytes + 1 }, formats), /100 MiB/);
 });
 
 

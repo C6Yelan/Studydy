@@ -11,8 +11,7 @@
 .map-facts span { display: flex; align-items: baseline; gap: 4px; font-size: 12px; color: var(--text-secondary); }
 .map-facts strong { font-size: 20px; color: var(--studydy-blue); }
 .map-start-error { padding: 12px; color: #a32626; background: var(--error-soft); }
-.partial-banner, .partial-notice { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); margin-top: var(--space-3); border-radius: var(--radius-card); color: var(--text-primary); background: var(--warning-soft); font-size: 13px; }
-.partial-notice p { margin: 4px 0 0; }
+.partial-banner { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); margin-top: var(--space-3); border-radius: var(--radius-card); color: var(--text-primary); background: var(--warning-soft); font-size: 13px; }
 .map-tabs { position: sticky; top: 56px; z-index: 5; background: var(--page-cool); display: flex; gap: var(--space-6); margin: var(--space-3) 0; border-bottom: 1px solid var(--border); }
 .map-tabs button { min-height: 42px; padding: 0 20px; border: 0; border-bottom: 2px solid transparent; color: var(--text-secondary); background: transparent; font-weight: 600; }
 .map-tabs button.is-active { border-bottom-color: var(--studydy-blue); color: var(--studydy-blue); }
@@ -24,7 +23,6 @@
 .focus-graph { position: relative; flex: 1; min-height: 0; overflow: hidden; border-top: 1px solid var(--border); background: var(--page-cool); }
 .concept-flow-node.react-flow__node { min-height: 110px; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-card); color: var(--text-primary); background: var(--surface); text-align: left; }
 .concept-flow-node.react-flow__node.is-focus { border: 1.5px solid var(--studydy-blue); background: var(--studydy-blue-soft); }
-.concept-flow-node small { display: block; margin-bottom: 6px; color: var(--studydy-blue); font-size: 11px; }
 .concept-flow-node strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 18px; line-height: 1.4; }
 .concept-flow-node p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin: 6px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 
@@ -75,12 +73,10 @@
 .map-learning-badge.is-mastered { color: #15803D; background: #ECFDF3; }
 .map-learning-badge.is-needs_review { color: #92400E; background: #FFF7E6; }
 .review-empty { display: flex; align-items: center; gap: 24px; padding: var(--space-6); background: var(--studydy-blue-soft); border-radius: var(--radius-card); }
-.review-empty img { width: 120px; height: 140px; object-fit: contain; }
 .review-empty h3 { font-size: 20px; }
 .review-empty p { color: var(--text-secondary); }
 @media (max-width: 620px) {
   .review-empty { padding: 16px; gap: 12px; align-items: start; }
-  .review-empty img { width: 64px; height: 80px; }
 }
 
 
@@ -103,9 +99,8 @@
 .relation-swatch::after { position: absolute; right: -1px; top: -4px; content: ""; border-top: 3px solid transparent; border-bottom: 3px solid transparent; border-left: 5px solid currentColor; }
 .relation-swatch.is-dashed { border-top-style: dashed; }
 .map-title-row { display: flex; align-items: center; gap: 12px; }
-.quality-note { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border: 0; border-radius: 6px; color: #795400; background: #FFF7E6; font-size: 12px; }
 .map-header, .map-tabs { flex-shrink: 0; }
-@media (max-width: 620px) { .map-title-row { gap: 8px; flex-wrap: wrap; } .quality-note { font-size: 11px; } }
+@media (max-width: 620px) { .map-title-row { gap: 8px; flex-wrap: wrap; } }
 
 .concept-flow-node strong, .concept-flow-node p { overflow-wrap: anywhere; }
 
@@ -132,7 +127,6 @@
 .focus-navigator > header > span { font-size: 12px; color: var(--text-muted); }
 .focus-graph > .relation-legend { position: absolute; right: 12px; bottom: 12px; max-width: calc(100% - 84px); justify-content: flex-end; gap: 8px; padding: 6px 8px; border-radius: 6px; background: var(--surface); pointer-events: none; font-size: 11px; }
 .navigator-list { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-2); scrollbar-gutter: stable; }
-.navigator-other { margin: var(--space-3) var(--space-2) var(--space-1); color: var(--text-muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .navigator-list ul { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
 .navigator-list button { width: 100%; min-height: 40px; padding: var(--space-2); border: 1px solid transparent; border-radius: var(--radius-input); color: var(--text-primary); background: transparent; font-size: 14px; line-height: 1.5; text-align: left; overflow-wrap: anywhere; }
 .navigator-list button:hover { background: var(--page-cool-2); }
@@ -190,6 +184,5 @@
   .review-context { padding-top: 0; }
 }
 
-.concept-flow-node strong { overflow-wrap: anywhere; }
 
 .map-limit-note { position: absolute; z-index: 4; top: 12px; right: 12px; max-width: min(330px, calc(100% - 150px)); margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--surface); color: var(--text-secondary); font-size: 12px; line-height: 1.5; pointer-events: none; }

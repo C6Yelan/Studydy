@@ -1,6 +1,5 @@
 import type { FormatCapability, MaterialProcessingRunView } from "../../api/contracts";
 
-export const maximumPdfBytes = 100 * 1024 * 1024;
 export const automaticPollIntervalMs = 1_500;
 export const materialProgressStages = [
   "queued",
@@ -68,20 +67,6 @@ export function formatFileSize(sizeBytes: number): string {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
-export function materialRunLabel(status: MaterialProcessingRunView["status"], cancelRequestedAt: string | null, isUpdate = false): string {
-  if (isUpdate) {
-    if (status === "running" && cancelRequestedAt !== null) return "正在取消這次更新";
-    return { pending: "等待更新教材", running: "正在更新教材", succeeded: "更新完成", partial: "更新完成（部分內容待複核）", failed: "更新失敗", cancelled: "已取消這次更新" }[status];
-  }
-  if (status === "cancelled") return "已取消處理";
-  if (status === "running" && cancelRequestedAt !== null) return "正在取消並刪除教材";
-  if (status === "pending") return "等待開始處理";
-  if (status === "running") return "正在分析完整教材";
-  if (status === "succeeded") return "處理完成，等待複核";
-  if (status === "partial") return "部分內容需要複核";
-  return "處理失敗";
-}
-
 export function materialFailureMessage(errorCode: string): string {
   if (errorCode === "KNOWLEDGE_STRUCTURE_INVALID") return "分析結果在組裝地圖時未通過結構檢查，尚未發布地圖。";
   if (errorCode === "ANALYSIS_ARTIFACT_WRITE_FAILED") return "分析產物無法寫入本機儲存空間，處理已停止。";
@@ -98,8 +83,4 @@ export function materialFailureMessage(errorCode: string): string {
     return "教材沒有產生可安全回查的概念與依據。";
   }
   return "教材分析未能安全完成，沒有發布知識地圖。";
-}
-
-export function materialRunHasUsableMap(run: MaterialProcessingRunView): boolean {
-  return run.output_binding !== null;
 }

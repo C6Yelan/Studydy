@@ -13,7 +13,6 @@ import {
   materialFailureMessage,
   materialProgressStageLabel,
   materialProgressStages,
-  materialRunHasUsableMap,
   materialCurrentStagePercent,
   materialOverallProgressPercent,
 } from "./material-flow";
@@ -105,7 +104,6 @@ export function RunView({ apiClient, route }: {
     try {
       const next = await apiClient.discardMaterial(route.materialId);
       if (!mounted.current) return;
-      if (next.material_id !== route.materialId) throw new Error("RUN_MATERIAL_MISMATCH");
       cancelVersion.current++;
       discardAccepted.current = true;
       setRemoving(true);
@@ -217,16 +215,6 @@ export function RunView({ apiClient, route }: {
       {run.input_source_set_id && !run.analysis_saved && <p role="status">這次沒有已保存的分析進度；重試將重新分析原來源。</p>}
       {run.input_source_set_id && <button className="text-button" onClick={()=>writeRoute({name:"material-sources",materialId:run.material_id})}>修改來源與重新分析</button>}
       {run.error_code && <details className="processing-technical"><summary>技術資訊</summary><code>{run.error_code}</code></details>}
-    </section>
-  );
-
-  if (!materialRunHasUsableMap(run)) return (
-    <section className="processing-page task-page">
-      <StateView
-        action={<button className="primary-button" type="button" onClick={() => writeRoute({ name: "materials" })}>返回我的教材</button>}
-        description="這份教材目前沒有可開啟的知識地圖，可以從我的教材查看已保存的處理紀錄。"
-        image="/assets/studydy/empty-disappointed.png" title="目前沒有可開啟的知識地圖" tone="empty"
-      />
     </section>
   );
 

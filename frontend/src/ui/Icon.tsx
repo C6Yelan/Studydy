@@ -1,5 +1,4 @@
 export type IconName =
-  | "settings"
   | "user"
   | "eye"
   | "eye-off"
@@ -20,7 +19,6 @@ export type IconName =
   | "warning";
 
 const paths: Record<IconName, React.ReactNode> = {
-  settings: <><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" /><path d="m9 3 1-1h4l1 1 .5 2 2 1 2-.5 2 3-.5 2-1.5 1v2l1.5 1 .5 2-2 3-2-.5-2 1-.5 2-1 1h-4l-1-1-.5-2-2-1-2 .5-2-3 .5-2 1.5-1v-2l-1.5-1-.5-2 2-3 2 .5 2-1Z" /></>,
   user: <><circle cx="12" cy="8" r="4" /><path d="M4 21v-2a8 8 0 0 1 16 0v2" /></>,
   eye: <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></>,
   "eye-off": <><path d="m3 3 18 18M10.5 5.1 12 5c6 0 10 7 10 7a22 22 0 0 1-3 4M6 6a25 25 0 0 0-4 6s4 7 10 7a12 12 0 0 0 5-1" /><path d="M10 10a3 3 0 0 0 4 4" /></>,
@@ -41,15 +39,13 @@ const paths: Record<IconName, React.ReactNode> = {
   warning: <><path d="M10.3 3.5 2.4 18a2 2 0 0 0 1.8 3h15.6a2 2 0 0 0 1.8-3L13.7 3.5a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></>,
 };
 
-export function Icon({ name, size = 20, className }: {
+export function Icon({ name, size = 20 }: {
   name: IconName;
   size?: number;
-  className?: string;
 }) {
   return (
     <svg
       aria-hidden="true"
-      className={className}
       fill="none"
       height={size}
       viewBox="0 0 24 24"

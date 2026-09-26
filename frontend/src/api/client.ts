@@ -476,10 +476,6 @@ export class StudydyApiClient {
     return this.sessionReady;
   }
 
-  currentIdentity(): Promise<LearnerIdentity> {
-    return this.json("/v1/session", { method: "GET" }, identity, authTimeoutMs);
-  }
-
   authenticate(mode: "login" | "register", email: string, password: string): Promise<LearnerIdentity> {
     return this.json(mode === "register" ? "/v1/accounts" : "/v1/session/login", {
       method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
@@ -729,13 +725,6 @@ export class StudydyApiClient {
       { schema: "assessment-set-action/v1", expected_set_version: version }, key, assessmentSet);
     if (value.study_session_id !== id || value.diagnostic_set_id !== rootId || value.kind !== "remediation") throw new ApiClientError("schema", "題組範圍不一致。", { reasonCode: "RESPONSE_SCHEMA_MISMATCH" });
     return value;
-  }
-
-
-
-
-  sourceArtifactUrl(id: string, page?: number): string {
-    return `/v1/artifacts/${encodeURIComponent(id)}${page ? `#page=${page}` : ""}`;
   }
 }
 

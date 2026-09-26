@@ -18,15 +18,9 @@ type StudyData = {
   selectedSetId: string | null;
 };
 
-function validBinding(route: Extract<AppRoute, { name: "study-session" }>, data: StudyData): boolean {
+function validBinding(data: StudyData): boolean {
   const concepts = new Set(data.view.concepts.map((concept) => concept.concept_id));
-  return data.view.knowledge_structure_revision === route.structureRevision
-    && data.session.knowledge_structure_revision === route.structureRevision
-    && data.progress.knowledge_structure_revision === route.structureRevision
-    && data.session.study_session_id === route.studySessionId
-    && data.progress.study_session_id === route.studySessionId
-    && data.session.material_id === route.materialId
-    && data.assessmentSets.every(group => concepts.has(group.target_concept_id))
+  return data.assessmentSets.every(group => concepts.has(group.target_concept_id))
     && data.progress.assessment_cycles.every(cycle => concepts.has(cycle.concept_id))
     && data.progress.concept_states.length === concepts.size
     && data.progress.concept_states.every((state) => concepts.has(state.concept_id))
@@ -53,7 +47,7 @@ export function StudySessionPage({ apiClient, route }: {
     const next = { view: restored.knowledge_structure,
       session: restored.session, progress: restored.progress,
       assessmentSets: restored.assessment_sets, selectedSetId: restored.selected_set_id };
-    if (!validBinding(route, next)) throw new Error("STUDY_BINDING_MISMATCH");
+    if (!validBinding(next)) throw new Error("STUDY_BINDING_MISMATCH");
     return next;
   };
 
@@ -174,14 +168,14 @@ export function StudySessionPage({ apiClient, route }: {
           </div>
         </div>
         {showRail && <aside className="study-rail" aria-label="學習紀錄">
-          {historySets.length > 0 && <details className="surface assessment-set-history" open>
+          <details className="surface assessment-set-history" open>
             <summary>觀念題組紀錄（{historySets.length}）</summary><ol>{historySets.map((group, index) => {
               const label = data.view.concepts.find(concept => concept.concept_id === group.target_concept_id)?.label ?? "觀念";
               return <li key={group.set_id}><button className="text-button" aria-current={group.set_id === data.selectedSetId ? "true" : undefined}
                 onClick={() => { setContinueError(null); writeRoute({ ...route, assessmentSetId: group.set_id }); }}>
                 第 {historySets.length - index} 組 · {group.kind === "remediation" ? "補強" : "初篩"} · {label} · {group.published_count === 0 ? "此題組已結束" : group.answered_count === 0 ? "尚未作答" : `已答 ${group.answered_count}/${group.published_count}`}</button></li>;
             })}</ol>
-          </details>}
+          </details>
         </aside>}
       </div>
     </section>
