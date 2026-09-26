@@ -45,4 +45,4 @@ Studydy 將自己的教材整理成可回查來源的知識地圖，再透過觀
 | [ops/docker/](ops/docker/) | 容器映像、前端代理與轉檔 sandbox 規則 |
 | [prototypes/document_normalization/](prototypes/document_normalization/) | 合成文件工具與獨立轉檔探查 |
 
-Repo 尚未提供專案授權文件；素材來源與授權待確認範圍見 [素材說明](THIRD_PARTY_CONTENT.md)。
+Repo 尚未提供專案授權文件；AI 生成素材的暫定來源與授權狀態見 [素材說明](THIRD_PARTY_CONTENT.md)。
