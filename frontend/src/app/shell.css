@@ -1,3 +1,4 @@
+/* 共用外框、頁首與導覽。 */
 .app-shell {
   --shell-header-height: 74px;
   display: grid;
@@ -101,7 +102,13 @@
   min-width: 0;
   padding: var(--space-8) clamp(24px, 3vw, 48px) var(--space-12);
 }
-/* 應用頁共用寬 frame；表單與狀態說明在內層保持可讀寬度，不套用到 workspace/auth。 */
+.app-loading {
+  margin: 0;
+  padding: var(--space-6);
+  color: var(--text-secondary);
+}
+
+/* 一般頁面共用寬內容區；表單與狀態頁維持可讀寬度。 */
 .app-shell.is-standard {
   --application-frame-max: 1600px;
   --readable-content-max: 880px;
@@ -115,67 +122,14 @@
 .app-shell.is-standard .app-main > .state-view {
   max-width: var(--readable-content-max);
 }
-@media (max-width: 1100px) {
-  .app-main {
-    padding: 28px;
-  }
-  .app-shell {
-    grid-template-columns: 240px minmax(0, 1fr);
-  }
-}
-@media (max-width: 900px) {
-  .app-shell {
-    --shell-header-height: 72px;
-    grid-template-columns: 1fr;
-    grid-template-rows: var(--shell-header-height) auto minmax(0, 1fr);
-  }
-  .app-header {
-    padding: 0 16px;
-  }
-  .brand {
-    font-size: 24px;
-  }
-  .brand small {
-    font-size: 10px;
-  }
-  .app-sidebar {
-    position: static;
-    grid-column: 1;
-    grid-row: 2;
-    height: auto;
-    min-height: 0;
-    padding: 8px 12px;
-    overflow-x: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--border-light);
-  }
-  .app-sidebar nav {
-    display: flex;
-    width: max-content;
-  }
-  .app-sidebar nav > button {
-    min-height: 44px;
-    width: auto;
-    white-space: nowrap;
-    padding: 0 14px;
-  }
-  .app-main {
-    grid-column: 1;
-    grid-row: 3;
-    padding: 24px 18px 40px;
-  }
-}
-
-/* Learning pages share one compact shell; each page owns its content padding. */
+/* 學習頁使用精簡外框；內容間距由各頁負責。 */
 .app-shell.is-workspace {
   --shell-header-height: 56px;
   grid-template-columns: 1fr;
-  grid-template-rows: 56px minmax(0, 1fr);
 }
 .is-workspace .app-header {
   position: sticky;
   top: 0;
-  height: 56px;
   padding: 0 20px;
   gap: 24px;
 }
@@ -211,15 +165,60 @@
 .workspace-nav button:hover {
   background: var(--page-cool);
 }
-.workspace-nav button[aria-current="page"] {
-  color: var(--studydy-blue);
-  background: var(--studydy-blue-soft);
-}
 .app-shell.is-workspace .app-main {
   grid-column: 1;
-  grid-row: 2;
   padding: 0;
 }
+/* 一般頁面的響應式導覽與間距。 */
+@media (max-width: 1100px) {
+  .app-shell.is-standard .app-main {
+    padding: 28px;
+  }
+  .app-shell.is-standard {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+}
+@media (max-width: 900px) {
+  .app-shell.is-standard {
+    --shell-header-height: 72px;
+    grid-template-columns: 1fr;
+    grid-template-rows: var(--shell-header-height) auto minmax(0, 1fr);
+  }
+  .app-shell.is-standard .app-header {
+    padding: 0 16px;
+  }
+  .app-shell.is-standard .brand {
+    font-size: 24px;
+  }
+  .app-shell.is-standard .brand small {
+    font-size: 10px;
+  }
+  .app-shell.is-standard .app-sidebar {
+    position: static;
+    height: auto;
+    min-height: 0;
+    padding: 8px 12px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-light);
+  }
+  .app-shell.is-standard .app-sidebar nav {
+    display: flex;
+    width: max-content;
+  }
+  .app-shell.is-standard .app-sidebar nav > button {
+    min-height: 44px;
+    width: auto;
+    white-space: nowrap;
+    padding: 0 14px;
+  }
+  .app-shell.is-standard .app-main {
+    grid-column: 1;
+    grid-row: 3;
+    padding: 24px 18px 40px;
+  }
+}
+
 @media (max-width: 620px) {
   .is-workspace .app-header {
     padding: 0 12px;
@@ -247,10 +246,4 @@
     min-width: 52px;
     padding: 4px 8px;
   }
-}
-
-.app-loading {
-  margin: 0;
-  padding: var(--space-6);
-  color: var(--text-secondary);
 }

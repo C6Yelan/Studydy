@@ -33,69 +33,55 @@ export function readRoute(pathname: string): RouteRead {
         return "";
       }
     });
-  if (
-    segments.length === 3 &&
-    segments[0] === "materials" &&
-    uuidPattern.test(segments[1]) &&
-    segments[2] === "sources"
+  const [
+    materialSegment,
+    materialId,
+    resourceSegment,
+    runId,
+    structureSegment,
+    structureRevision,
+    sessionSegment,
+    studySessionId,
+    setSegment,
+    assessmentSetId,
+  ] = segments;
+  const fallback: RouteRead = { route: { name: "home" }, isCanonical: false };
+  if (materialSegment !== "materials" || !uuidPattern.test(materialId)) return fallback;
+
+  let route: AppRoute;
+  if (segments.length === 3 && resourceSegment === "sources") {
+    route = { name: "material-sources", materialId };
+  } else if (resourceSegment !== "runs" || !uuidPattern.test(runId)) {
+    return fallback;
+  } else if (segments.length === 4) {
+    route = { name: "material-run", materialId, runId };
+  } else if (
+    structureSegment !== "knowledge-structures" ||
+    !structurePattern.test(structureRevision)
   ) {
-    const route: AppRoute = { name: "material-sources", materialId: segments[1] };
-    return { route, isCanonical: routePath(route) === pathname };
-  }
-  if (
-    segments.length === 4 &&
-    segments[0] === "materials" &&
-    uuidPattern.test(segments[1]) &&
-    segments[2] === "runs" &&
-    uuidPattern.test(segments[3])
-  ) {
-    const route: AppRoute = { name: "material-run", materialId: segments[1], runId: segments[3] };
-    return { route, isCanonical: routePath(route) === pathname };
-  }
-  if (
+    return fallback;
+  } else if (segments.length === 6) {
+    route = { name: "knowledge-map", materialId, runId, structureRevision };
+  } else if (
+    sessionSegment === "study-sessions" &&
+    uuidPattern.test(studySessionId) &&
     (segments.length === 8 ||
       (segments.length === 10 &&
-        segments[8] === "assessment-sets" &&
-        uuidPattern.test(segments[9]))) &&
-    segments[0] === "materials" &&
-    uuidPattern.test(segments[1]) &&
-    segments[2] === "runs" &&
-    uuidPattern.test(segments[3]) &&
-    segments[4] === "knowledge-structures" &&
-    structurePattern.test(segments[5]) &&
-    segments[6] === "study-sessions" &&
-    uuidPattern.test(segments[7])
+        setSegment === "assessment-sets" &&
+        uuidPattern.test(assessmentSetId)))
   ) {
-    const route: AppRoute = {
+    route = {
       name: "study-session",
-      materialId: segments[1],
-      runId: segments[3],
-      structureRevision: segments[5],
-      studySessionId: segments[7],
-      ...(segments.length === 10 && segments[8] === "assessment-sets"
-        ? { assessmentSetId: segments[9] }
-        : {}),
+      materialId,
+      runId,
+      structureRevision,
+      studySessionId,
+      ...(segments.length === 10 ? { assessmentSetId } : {}),
     };
-    return { route, isCanonical: routePath(route) === pathname };
+  } else {
+    return fallback;
   }
-  if (
-    segments.length === 6 &&
-    segments[0] === "materials" &&
-    uuidPattern.test(segments[1]) &&
-    segments[2] === "runs" &&
-    uuidPattern.test(segments[3]) &&
-    segments[4] === "knowledge-structures" &&
-    structurePattern.test(segments[5])
-  ) {
-    const route: AppRoute = {
-      name: "knowledge-map",
-      materialId: segments[1],
-      runId: segments[3],
-      structureRevision: segments[5],
-    };
-    return { route, isCanonical: routePath(route) === pathname };
-  }
-  return { route: { name: "home" }, isCanonical: false };
+  return { route, isCanonical: routePath(route) === pathname };
 }
 
 export function routePath(route: AppRoute): string {
@@ -108,17 +94,18 @@ export function routePath(route: AppRoute): string {
   }
   if (!uuidPattern.test(route.materialId) || !uuidPattern.test(route.runId))
     throw new Error("ROUTE_INVALID");
-  const base = `/materials/${route.materialId}/runs/${route.runId}`;
-  if (route.name === "material-run") return base;
+  const materialRunPath = `/materials/${route.materialId}/runs/${route.runId}`;
+  if (route.name === "material-run") return materialRunPath;
   if (!structurePattern.test(route.structureRevision)) throw new Error("ROUTE_INVALID");
-  const mapPath = `${base}/knowledge-structures/${encodeURIComponent(route.structureRevision)}`;
+  const mapPath = `${materialRunPath}/knowledge-structures/${encodeURIComponent(route.structureRevision)}`;
   if (route.name === "knowledge-map") return mapPath;
   if (!uuidPattern.test(route.studySessionId)) throw new Error("ROUTE_INVALID");
+  const studyPath = `${mapPath}/study-sessions/${route.studySessionId}`;
   if (route.assessmentSetId !== undefined) {
     if (!uuidPattern.test(route.assessmentSetId)) throw new Error("ROUTE_INVALID");
-    return `${mapPath}/study-sessions/${route.studySessionId}/assessment-sets/${route.assessmentSetId}`;
+    return `${studyPath}/assessment-sets/${route.assessmentSetId}`;
   }
-  return `${mapPath}/study-sessions/${route.studySessionId}`;
+  return studyPath;
 }
 
 export function writeRoute(route: AppRoute, replace = false): void {

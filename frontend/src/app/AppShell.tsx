@@ -1,5 +1,4 @@
-import type { AppRoute } from "./routes";
-import { writeRoute } from "./routes";
+import { writeRoute, type AppRoute } from "./routes";
 import { Icon } from "../ui/Icon";
 import "./shell.css";
 
@@ -12,12 +11,12 @@ export function AppShell({
   route: AppRoute;
   accountAction?: React.ReactNode;
 }) {
-  const learningWorkspace = route.name === "knowledge-map" || route.name === "study-session";
-  const materials = ["materials", "material-run", "material-sources", "upload"].includes(
+  const isLearningWorkspace = route.name === "knowledge-map" || route.name === "study-session";
+  const isMaterialRoute = ["materials", "material-run", "material-sources", "upload"].includes(
     route.name,
   );
   return (
-    <div className={`app-shell${learningWorkspace ? " is-workspace" : " is-standard"}`}>
+    <div className={`app-shell ${isLearningWorkspace ? "is-workspace" : "is-standard"}`}>
       <header className="app-header">
         <button
           aria-label="返回 Studydy 首頁"
@@ -26,9 +25,9 @@ export function AppShell({
           onClick={() => writeRoute({ name: "home" })}
         >
           <img src="/assets/studydy/brand-idle.png" alt="" />
-          <span>Studydy{!learningWorkspace && <small>AI 智慧學習平台</small>}</span>
+          <span>Studydy{!isLearningWorkspace && <small>AI 智慧學習平台</small>}</span>
         </button>
-        {learningWorkspace && (
+        {isLearningWorkspace && (
           <nav className="workspace-nav" aria-label="學習工作區導覽">
             {route.name === "study-session" && (
               <button
@@ -54,7 +53,7 @@ export function AppShell({
         )}
         <div className="account-controls">{accountAction}</div>
       </header>
-      {!learningWorkspace && (
+      {!isLearningWorkspace && (
         <aside className="app-sidebar" aria-label="學習導覽區">
           <nav aria-label="主要導覽">
             <button
@@ -66,7 +65,7 @@ export function AppShell({
               首頁
             </button>
             <button
-              aria-current={materials ? "page" : undefined}
+              aria-current={isMaterialRoute ? "page" : undefined}
               aria-label="教材庫"
               type="button"
               onClick={() => writeRoute({ name: "materials" })}
