@@ -1,4 +1,4 @@
-"""以 exact KS/run 綁定來源；原生定位可不確定，normalized PDF 不可指錯。"""
+"""核對固定知識結構與工作版本，解析來源及 PDF 定位。"""
 
 from copy import deepcopy
 from uuid import UUID

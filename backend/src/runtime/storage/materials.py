@@ -83,7 +83,8 @@ def read_material_library(
                 select(MaterialSource, SourceNormalization, Artifact.size_bytes)
                 .join(SourceNormalization, SourceNormalization.source_id == MaterialSource.source_id)
                 .join(Artifact, Artifact.artifact_id == MaterialSource.original_artifact_id)
-                .where(MaterialSource.learner_id == learner_id, MaterialSource.material_id.in_(ids))
+                .where(MaterialSource.learner_id == learner_id, MaterialSource.material_id.in_(ids),
+                       MaterialSource.removed_at.is_(None))
                 .order_by(MaterialSource.source_id)
             ).all()
     except (DatabaseConfigurationError, SQLAlchemyError):
@@ -127,7 +128,7 @@ def read_material_library(
 
 
 def rename_material(learner_id: UUID, material_id: UUID, display_name: str, *, dsn: str | None = None) -> dict:
-    """Rename only the learner-facing title; identities and source content stay immutable."""
+    """只修改教材顯示名稱，保留來源身分與內容。"""
     if not isinstance(display_name, str) or any(category(char) in {"Cc", "Cs"} for char in display_name):
         raise MaterialLibraryError("REQUEST_INVALID")
     name = display_name.strip()

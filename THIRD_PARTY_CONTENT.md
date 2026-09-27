@@ -1,54 +1,19 @@
-# Third-Party Content
+# 素材與第三方內容
 
-Studydy includes selected text excerpts and derived learning-resource metadata
-from the works listed below in
-`backend/src/learning_resources/data/resource_library_v1.json`.
+## 介面素材
 
-The bundled JSON does not contain the source PDF files. Studydy selected short
-excerpts, normalized Unicode and whitespace, added concept labels, and attached
-page and region locators, stable identifiers, and hashes. These changes do not
-imply endorsement by the original authors or publishers.
+角色與插圖為 AI 生成素材，位於 [角色素材](frontend/public/assets/Studydy_角色素材/) 與 [介面素材](frontend/public/assets/studydy/)。生成工具、適用條款及對外使用授權仍待維護者確認。
 
-## Think Data Structures
+## 測試文件
 
-- Work: *Think Data Structures: Algorithms and Information Retrieval in Java*
-- Author: Allen B. Downey
-- Source: https://greenteapress.com/thinkdast/thinkdast.pdf
-- License: Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported
-- License text: https://creativecommons.org/licenses/by-nc-sa/3.0/
+[合成文件](backend/tests/fixtures/README.md) 由專案自行建立，用於轉檔、內容保留與來源定位測試。
 
-Excerpts from this work remain subject to its attribution, non-commercial, and
-ShareAlike terms. Redistribution or adaptation of those excerpts must comply
-with that license.
+## 沙箱設定
 
-## Open Data Structures
+[Bubblewrap seccomp 設定](ops/docker/bubblewrap-seccomp.json) 改自 [Moby profiles](https://github.com/moby/profiles/blob/65adc7e022c97f55e45c054ff012988027733b87/seccomp/default.json)，增加沙箱所需的 namespace 操作。原作採 Apache License 2.0，授權文字保留於 [MOBY-LICENSE](ops/docker/MOBY-LICENSE)。
 
-- Work: *Open Data Structures (in C++)*
-- Author: Pat Morin
-- Source: https://opendatastructures.org/ods-cpp.pdf
-- License: Creative Commons Attribution 2.5 Canada
-- License text: https://creativecommons.org/licenses/by/2.5/ca/
+## 套件、模型與專案授權
 
-Excerpts from this work may be shared and adapted, including commercially, when
-the license's attribution and other terms are followed.
+依賴版本見 [Python lock](backend/uv.lock)、[npm lock](frontend/package-lock.json)；模型設定見 [runtime lock](local_ai/runtime-lock.json)。各套件與模型適用其發行者條款。
 
-## An Open Guide to Data Structures and Algorithms
-
-- Work: *An Open Guide to Data Structures and Algorithms*
-- Authors: Paul W. Bible and Lucas Moser
-- Source: https://pressbooks.palni.org/anopenguidetodatastructuresandalgorithms/
-- License: Creative Commons Attribution 4.0 International, except where
-  otherwise noted
-- License text: https://creativecommons.org/licenses/by/4.0/
-
-The book-level license does not override a different license or rights notice
-attached to an individual item. Such separately marked material is not covered
-by this notice.
-
-## License boundary
-
-Studydy does not claim ownership of the third-party excerpts. Any license that
-applies to Studydy's own source code does not replace or broaden the licenses
-listed above. Users are responsible for following the applicable source license,
-including attribution, change indication, non-commercial, and ShareAlike terms
-where required.
+Studydy 尚未提供專案 LICENSE；第三方元件的授權不代表整個專案或介面素材採用相同授權。

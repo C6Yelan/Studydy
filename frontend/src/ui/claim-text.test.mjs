@@ -9,6 +9,15 @@ test("preserves existing code lines and restores matching source whitespace only
 });
 
 test("does not add evidence wording to a summary or guess program syntax", () => {
-  assert.equal(claimText({ text: "Arrays store values.", evidence: [{ quote: "int values[3];\nArrays store values." }] }), "Arrays store values.");
-  assert.equal(claimText({ text: "int a; // comment int b;", evidence: [] }), "int a; // comment int b;");
+  assert.equal(
+    claimText({
+      text: "Arrays store values.",
+      evidence: [{ quote: "int values[3];\nArrays store values." }],
+    }),
+    "Arrays store values.",
+  );
+  assert.equal(
+    claimText({ text: "int a; // comment int b;", evidence: [] }),
+    "int a; // comment int b;",
+  );
 });

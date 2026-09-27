@@ -33,7 +33,7 @@ export type ApiErrorView = {
   message: "Request could not be completed.";
 };
 
-
+export type LearnerIdentity = { schema: "learner-identity/v1"; learner_id: string };
 
 export type MaterialOutputBinding = {
   schema: "material-run-output-binding/v1";
@@ -68,8 +68,18 @@ export type MaterialProcessingRunView = {
   completed_at: string | null;
 };
 
-export type MaterialAttemptView = Pick<MaterialProcessingRunView,
-  "run_id" | "status" | "progress_stage" | "completed_pages" | "total_pages" | "error_code" | "created_at" | "cancel_requested_at" | "base_revision">;
+export type MaterialAttemptView = Pick<
+  MaterialProcessingRunView,
+  | "run_id"
+  | "status"
+  | "progress_stage"
+  | "completed_pages"
+  | "total_pages"
+  | "error_code"
+  | "created_at"
+  | "cancel_requested_at"
+  | "base_revision"
+>;
 
 export type MaterialStructureLink = {
   base_revision?: string;
@@ -108,7 +118,7 @@ export type MaterialLibraryView = {
   materials: MaterialLibraryItem[];
 };
 
-export type SourceLocatorView = {
+type SourceLocatorView = {
   page: number;
   block_id: string;
   region: [number, number, number, number];
@@ -204,7 +214,7 @@ export type StudySessionView = {
   event_watermark: number;
 };
 
-export type AssessmentOptionView = { option_id: string; text: string };
+type AssessmentOptionView = { option_id: string; text: string };
 export type AssessmentView = {
   schema: "single-choice-assessment/v1";
   assessment_revision: string;
@@ -218,7 +228,6 @@ export type AssessmentView = {
   prompt: string;
   options: AssessmentOptionView[];
 };
-
 
 export type AnswerFeedbackView = {
   schema: "answer-feedback/v1";
@@ -234,7 +243,7 @@ export type AnswerFeedbackView = {
   created_at: string;
 };
 
-export type ConceptLearningStateView = {
+type ConceptLearningStateView = {
   concept_id: string;
   label: string;
   status: "not_started" | "learning" | "needs_review" | "mastered";
@@ -247,8 +256,17 @@ export type ConceptLearningStateView = {
   latest_is_correct: boolean | null;
 };
 
-export type NextActionView = {
-  action: "continue_set" | "remediate" | "assess" | "review_prerequisite" | "advance" | "defer" | "resume" | "no_safe" | "complete";
+type NextActionView = {
+  action:
+    | "continue_set"
+    | "remediate"
+    | "assess"
+    | "review_prerequisite"
+    | "advance"
+    | "defer"
+    | "resume"
+    | "no_safe"
+    | "complete";
   target_concept_id: string | null;
   target_claim_id: string | null;
   prerequisite_concept_ids: string[];
@@ -271,11 +289,9 @@ export type LearnerProgressView = {
   guidance_revision: string;
 };
 
-
 export type AssessmentRecordView = {
   assessment: AssessmentView;
   feedback: AnswerFeedbackView | null;
-  created_at: string;
   can_submit: boolean;
 };
 
@@ -291,52 +307,108 @@ export type StudyResumeView = {
 };
 
 export type AssessmentPlanView = {
-  schema: "assessment-plan/v1"; study_session_id: string; knowledge_structure_revision: string;
-  policy: "single-concept-grounded-points/v1"; concept_id: string; point_count: number; requested_count: number;
+  schema: "assessment-plan/v1";
+  study_session_id: string;
+  knowledge_structure_revision: string;
+  policy: "single-concept-grounded-points/v1";
+  concept_id: string;
+  point_count: number;
+  requested_count: number;
   targets: { claim_id: string; covered_claim_ids: string[]; reason: "distinct_grounded_point" }[];
   excluded: { claim_id: string; reason: "no_content_evidence" }[];
 };
 
 export type AssessmentCycleSummary = {
-  diagnostic_set_id: string; concept_id: string; set_version: number;
+  inherited_from?: {
+    study_session_id: string;
+    knowledge_structure_revision: string;
+    run_id: string;
+  } | null;
+  diagnostic_set_id: string;
+  concept_id: string;
+  set_version: number;
   outcome: "in_progress" | "needs_review" | "passed" | "incomplete";
   active_set_id: string | null;
-  passed_count: number; remediation_passed_count: number; pending_count: number; unanswered_count: number; unavailable_count: number;
+  passed_count: number;
+  remediation_passed_count: number;
+  pending_count: number;
+  unanswered_count: number;
+  unavailable_count: number;
 };
-export type AssessmentCycleView = AssessmentCycleSummary & {
+type AssessmentCycleView = AssessmentCycleSummary & {
   can_create_remediation: boolean;
-  points: { claim_id: string; result: "unavailable" | "unanswered" | "diagnostic_pass" | "needs_review" | "remediation_pass";
-    latest_answer_event_id: string | null; latest_set_id: string | null }[];
+  points: {
+    claim_id: string;
+    result: "unavailable" | "unanswered" | "diagnostic_pass" | "needs_review" | "remediation_pass";
+    latest_answer_event_id: string | null;
+    latest_set_id: string | null;
+  }[];
 };
 
 export type AssessmentSetSummary = {
-  kind: "diagnostic" | "remediation"; diagnostic_set_id: string | null;
-  set_id: string; target_concept_id: string;
-  status: "preparing" | "partial_ready" | "failed" | "ready" | "in_progress" | "completed" | "cancelled";
-  set_version: number; requested_count: number; published_count: number; answered_count: number; passed_count: number;
-  assessment_revisions: string[]; created_at: string; completed_at: string | null;
+  kind: "diagnostic" | "remediation";
+  diagnostic_set_id: string | null;
+  set_id: string;
+  target_concept_id: string;
+  status:
+    | "preparing"
+    | "partial_ready"
+    | "failed"
+    | "ready"
+    | "in_progress"
+    | "completed"
+    | "cancelled";
+  set_version: number;
+  requested_count: number;
+  published_count: number;
+  answered_count: number;
+  passed_count: number;
+  assessment_revisions: string[];
+  created_at: string;
+  completed_at: string | null;
 };
 
 export type AssessmentSetListView = {
-  schema: "assessment-set-list/v1"; study_session_id: string; knowledge_structure_revision: string;
-  active_set_ids: string[]; sets: AssessmentSetSummary[];
+  schema: "assessment-set-list/v1";
+  study_session_id: string;
+  knowledge_structure_revision: string;
+  active_set_ids: string[];
+  sets: AssessmentSetSummary[];
 };
 
-export type AssessmentSetItem = {
-  ordinal: number; target_claim_id: string; state: "pending" | "generating" | "verified" | "published" | "failed" | "omitted";
-  attempts: number; failure_reason: string | null; assessment: AssessmentView | null;
-  feedback: AnswerFeedbackView | null; created_at: string | null; can_submit: boolean;
+type AssessmentSetItem = {
+  ordinal: number;
+  target_claim_id: string;
+  state: "pending" | "generating" | "verified" | "published" | "failed" | "omitted";
+  attempts: number;
+  failure_reason: string | null;
+  assessment: AssessmentView | null;
+  feedback: AnswerFeedbackView | null;
+  created_at: string | null;
+  can_submit: boolean;
 };
 
 export type AssessmentSetView = AssessmentSetSummary & {
-  schema: "assessment-set/v1"; study_session_id: string; material_id: string; knowledge_structure_revision: string;
-  cycle: AssessmentCycleView; selection_policy: "single-concept-grounded-points/v1" | "needs-review-points/v1";
-  point_count: number; excluded_count: number; verified_count: number;
-  can_retry: boolean; can_publish_partial: boolean; can_complete: boolean;
+  schema: "assessment-set/v1";
+  study_session_id: string;
+  material_id: string;
+  knowledge_structure_revision: string;
+  cycle: AssessmentCycleView;
+  selection_policy: "single-concept-grounded-points/v1" | "needs-review-points/v1";
+  point_count: number;
+  excluded_count: number;
+  verified_count: number;
+  can_retry: boolean;
+  can_publish_partial: boolean;
+  can_complete: boolean;
   items: AssessmentSetItem[];
 };
 
-export type AssessmentSetAnswer = { assessment_revision: string; question_id: string; selected_option_id: string };
+export type AssessmentSetAnswer = {
+  assessment_revision: string;
+  question_id: string;
+  selected_option_id: string;
+};
 
 export type AssessmentSetAction = "retry" | "publish-partial";
 
@@ -344,13 +416,32 @@ export type MaterialRename = { schema: "material-rename/v1"; display_name: strin
 
 export type SourceView = {
   included?: boolean;
-  source_id: string; normalization_id: string; original_artifact_id: string;
-  original_name: string; media_type: string; status: "pending" | "running" | "ready" | "failed";
-  normalized_artifact_id: string | null; page_count: number | null; error_code: string | null;
+  source_id: string;
+  normalization_id: string;
+  original_artifact_id: string;
+  original_name: string;
+  media_type: string;
+  status: "pending" | "running" | "ready" | "failed";
+  normalized_artifact_id: string | null;
+  page_count: number | null;
+  error_code: string | null;
 };
-export type SourceListView = { schema: "material-sources/v1"; material_id: string; discard_requested?: boolean; sources: SourceView[] };
+export type SourceListView = {
+  schema: "material-sources/v1";
+  material_id: string;
+  discard_requested?: boolean;
+  sources: SourceView[];
+};
 export type FormatCapability = { extension: string; media_type: string; max_bytes: number };
 export type SourceCapabilities = { schema: "source-capabilities/v1"; formats: FormatCapability[] };
-export type EvidenceSourceView = { schema: "evidence-source/v1"; format: "pdf" | "docx" | "pptx" | "doc" | "ppt" | "txt" | "md";
-  original_name: string; original_url: string; preview_url: string; normalized_page: number;
-  accuracy: "exact" | "ambiguous" | "unavailable"; origin_locators: Record<string,unknown>[]; label: string };
+export type EvidenceSourceView = {
+  schema: "evidence-source/v1";
+  format: "pdf" | "docx" | "pptx" | "doc" | "ppt" | "txt" | "md";
+  original_name: string;
+  original_url: string;
+  preview_url: string;
+  normalized_page: number;
+  accuracy: "exact" | "ambiguous" | "unavailable";
+  origin_locators: Record<string, unknown>[];
+  label: string;
+};

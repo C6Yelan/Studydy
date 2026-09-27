@@ -1,4 +1,4 @@
-"""建構正式知識地圖，並提供現行流程使用的結構入口。"""
+"""建構與驗證綁定來源的正式知識地圖。"""
 from __future__ import annotations
 
 from copy import deepcopy

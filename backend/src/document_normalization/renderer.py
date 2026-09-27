@@ -368,7 +368,7 @@ def main():
         elif extension == '.pptx':
             records = pptx_mapping(source, document)
         elif extension in ('.doc', '.ppt'):
-            # 舊二進位格式不假造原始段落／投影片位置，保留 normalized PDF 頁與原檔下載。
+            # DOC／PPT 僅提供轉換後 PDF 頁碼與原檔下載。
             records = []
         mapping = {
             'schema': 'source-mapping/v1',

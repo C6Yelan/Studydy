@@ -333,7 +333,14 @@ class AssessmentPlanView(_Closed):
     excluded: list[AssessmentPlanExcluded]
 
 
+class InheritedCheckSource(_Closed):
+    study_session_id: UUID
+    knowledge_structure_revision: str
+    run_id: UUID
+
+
 class AssessmentCycleSummary(_Closed):
+    inherited_from: InheritedCheckSource | None = None
     diagnostic_set_id: UUID
     concept_id: str
     set_version: int

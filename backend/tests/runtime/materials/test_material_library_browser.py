@@ -36,7 +36,7 @@ def test_library_browser_reads_existing_records_without_generation(library_mater
     monkeypatch.setenv("STUDYDY_E2E_LIBRARY", "true")
     before = product_snapshot(fixture["dsn"])
     with local_api(app):
-        assert run_browser("e2e/material-library.spec.ts") == 0
+        assert run_browser("e2e/api/material-library.spec.ts") == 0
     assert product_snapshot(fixture["dsn"]) == before
     assert writes == [] and model_calls == []
     material_id = fixture["first"].material_id

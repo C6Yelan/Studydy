@@ -1,4 +1,4 @@
-"""教材接續共用一套設定比對；完整 lock 留作原工作稽核，assessment 不參與相容性。"""
+"""比對教材接續所需的分析設定，評量設定不影響教材接續。"""
 from copy import deepcopy
 import importlib.metadata
 import os
@@ -126,7 +126,7 @@ def runtime_preflight(local_config: Any) -> dict[str, Any]:
 
 
 def runtime_binding_is_valid(value: Any) -> bool:
-    """驗證目前 HTTP runtime binding 的形狀與內容雜湊。"""
+    """驗證模型 runtime binding 的格式與內容雜湊。"""
     def digest(value):
         return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
 
@@ -176,9 +176,18 @@ def lock_matches_binding(lock, binding):
 def same_material_runtime(first_lock, first_binding, second_lock, second_binding):
     if not lock_matches_binding(first_lock, first_binding) or not lock_matches_binding(second_lock, second_binding):
         return False
-    fields = ('python', 'packages', 'ocr', 'semantic_service', 'material_semantics')
+    fields = ('python', 'packages', 'ocr', 'semantic_service')
     if any(key not in first_lock or key not in second_lock or first_lock[key] != second_lock[key] for key in fields):
         return False
-    if first_lock.get('material_review') != second_lock.get('material_review'):
-        return False
+    # 額度調整不作廢已驗證的批次；各工作仍保留原始 lock 與 hash。
+    for task in ('material_semantics', 'material_review'):
+        first, second = first_lock.get(task), second_lock.get(task)
+        if first is None and second is None:
+            continue
+        if not isinstance(first, dict) or not isinstance(second, dict):
+            return False
+        if {k: v for k, v in first.items() if k != 'max_tokens'} != {
+            k: v for k, v in second.items() if k != 'max_tokens'
+        }:
+            return False
     return True

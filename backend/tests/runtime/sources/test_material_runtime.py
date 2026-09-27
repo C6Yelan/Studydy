@@ -57,9 +57,12 @@ def test_pending_run_uses_its_frozen_settings_after_assessment_update(revisions)
         assert session.get(MaterialProcessingRun, run.run_id).runtime_lock_document == original_lock
 
 
-def test_failed_checkpoint_resumes_after_assessment_update_without_repeating_models(revisions, monkeypatch):
+@pytest.mark.parametrize('update', ['assessment', 'budgets'])
+def test_failed_checkpoint_resumes_after_settings_update_without_repeating_models(revisions, monkeypatch, update):
     learner, material, settings, dsn, add, start, execute, _, old, calls = revisions
     second = add('B.pdf', 'A queue removes the first inserted element first.')
+    if update == 'budgets':
+        settings['runtime_lock']['material_semantics']['max_tokens'] = 8192
     run = start([second], 'before-update-failed', old['revision'])
     def fail_publication(*_args, **_kwargs):
         raise ValueError("Synthetic publication failure")
@@ -70,9 +73,13 @@ def test_failed_checkpoint_resumes_after_assessment_update_without_repeating_mod
     path = _material_directory(learner.learner_id, material) / run.run_id.hex / 'checkpoint.json'
     before_checkpoint = path.read_bytes()
     original_runtime = deepcopy(run.runtime_binding)
+    original_lock = deepcopy(run.runtime_lock_document)
     settings['runtime_lock'] = deepcopy(settings['runtime_lock'])
     settings['runtime_lock']['schema'] = 'studydy-runtime-lock/v1'
-    settings['runtime_lock']['assessment']['prompt'] += ' New quality guidance.'
+    if update == 'budgets':
+        settings['runtime_lock']['material_semantics']['max_tokens'] = 32768
+    else:
+        settings['runtime_lock']['assessment']['prompt'] += ' New quality guidance.'
     retry = start([second], 'after-update-retry', old['revision'])
     assert path.read_bytes() == before_checkpoint
     before = len(calls)
@@ -83,6 +90,7 @@ def test_failed_checkpoint_resumes_after_assessment_update_without_repeating_mod
     assert result.output_binding['runtime_lock_sha256'] == result.runtime_binding['runtime_lock_sha256']
     with database_session(dsn) as session:
         assert session.get(MaterialProcessingRun, run.run_id).runtime_binding == original_runtime
+        assert session.get(MaterialProcessingRun, run.run_id).runtime_lock_document == original_lock
     completed = _material_directory(learner.learner_id, material) / retry.run_id.hex
     assert json.loads((completed / 'completion.json').read_text())['reused_from_run'] == str(run.run_id)
     assert not path.exists() and not (completed / 'checkpoint.json').exists()

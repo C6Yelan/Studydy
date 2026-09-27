@@ -1,4 +1,4 @@
-"""領域 baseline 與 runner 的持久資料保護；只使用隔離 PostgreSQL。"""
+"""以隔離 PostgreSQL 驗證 migration 安裝、升級與資料保護。"""
 
 from concurrent.futures import ThreadPoolExecutor
 import shutil
@@ -15,8 +15,13 @@ from runtime.storage.migrations import (
 )
 
 
-def test_domain_baseline_and_repeat_preserve_account_and_session(clean_database_dsn):
-    assert run_migrations(clean_database_dsn) == (1, 2, 3, 4)
+def test_domain_baseline_and_repeat_preserve_account_and_session(clean_database_dsn, migrations_dir, tmp_path):
+    baseline = tmp_path / 'baseline'
+    baseline.mkdir()
+    for migration in migrations_dir.glob('*.sql'):
+        if int(migration.name[:4]) <= 4:
+            shutil.copy2(migration, baseline / migration.name)
+    assert run_migrations(clean_database_dsn, migrations_dir=baseline) == (1, 2, 3, 4)
     learner_id, session_id = uuid4(), uuid4()
     with psycopg.connect(clean_database_dsn) as connection:
         connection.execute(
@@ -41,6 +46,7 @@ def test_domain_baseline_and_repeat_preserve_account_and_session(clean_database_
         ledger = connection.execute(
             "SELECT * FROM schema_migrations ORDER BY version"
         ).fetchall()
+    assert run_migrations(clean_database_dsn) == (5,)
     assert run_migrations(clean_database_dsn) == ()
     with psycopg.connect(clean_database_dsn) as connection:
         assert connection.execute(
@@ -48,7 +54,7 @@ def test_domain_baseline_and_repeat_preserve_account_and_session(clean_database_
             "FROM learners l JOIN learner_sessions s USING (learner_id)"
         ).fetchall() == before
         assert connection.execute(
-            "SELECT * FROM schema_migrations ORDER BY version"
+            "SELECT * FROM schema_migrations WHERE version <= 4 ORDER BY version"
         ).fetchall() == ledger
 
 
@@ -113,7 +119,7 @@ def test_next_migration_rolls_back_and_can_retry(clean_database_dsn, migrations_
     run_migrations(clean_database_dsn)
     candidate = tmp_path / 'migrations'
     shutil.copytree(migrations_dir, candidate)
-    next_version = candidate / '0005_probe.sql'
+    next_version = candidate / '0006_probe.sql'
     next_version.write_text(
         'CREATE TABLE migration_probe (id integer); '
         'SELECT missing_migration_function();'
@@ -126,16 +132,16 @@ def test_next_migration_rolls_back_and_can_retry(clean_database_dsn, migrations_
         ).fetchone() == (None,)
         assert connection.execute(
             'SELECT count(*) FROM schema_migrations'
-        ).fetchone() == (4,)
+        ).fetchone() == (5,)
     next_version.write_text('CREATE TABLE migration_probe (id integer);')
-    assert run_migrations(clean_database_dsn, migrations_dir=candidate) == (5,)
+    assert run_migrations(clean_database_dsn, migrations_dir=candidate) == (6,)
     assert run_migrations(clean_database_dsn, migrations_dir=candidate) == ()
 
 
 def test_concurrent_install_applies_each_version_once(clean_database_dsn):
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda _: run_migrations(clean_database_dsn), range(2)))
-    assert sorted(results) == [(), (1, 2, 3, 4)]
+    assert sorted(results) == [(), (1, 2, 3, 4, 5)]
     with psycopg.connect(clean_database_dsn) as connection:
         assert dict(connection.execute(
             'SELECT version, sql_sha256 FROM schema_migrations'

@@ -374,7 +374,7 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn):
                 structure.update(run_id=str(run.run_id), produced_at=datetime.now(UTC).isoformat(), input_binding=binding)
                 structure['provenance'].update(runtime_lock_sha256=run.runtime_binding['runtime_lock_sha256'],
                     model_id=run.runtime_binding['model_id'], model_revision=run.runtime_binding['model_revision'])
-                # 原分析的費用留在舊 run；新 run 只計本次檢核。
+                # 只檢核工作僅計入檢核呼叫，分析用量仍歸原工作。
                 structure['metrics'].update(ocr_calls=0, evidence_duration_ms=0, semantic_duration_ms=0)
                 structure['revision'] = _revision(structure)
                 progress('evidence', structure['page_count'], structure['page_count'])

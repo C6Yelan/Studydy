@@ -13,11 +13,16 @@ from pdf_evidence.ocr_page_evidence import canonical_bytes
 
 
 API_KEY_ENV = "VLLM_API_KEY"
+SERVICE_URL_ENV = "STUDYDY_SEMANTIC_BASE_URL"
 CHAT_PATH = "/v1/chat/completions"
 TOKENIZE_PATH = "/tokenize"
 PREFLIGHT_TIMEOUT_SECONDS = 5
 MAX_RESPONSE_BYTES = 1024 * 1024
 INFERENCE_TIMEOUT = httpx.Timeout(None, connect=PREFLIGHT_TIMEOUT_SECONDS)
+MIN_OUTPUT_TOKENS = {
+    "material_semantics": 8192, "material_review": 8192,
+    "assessment": 16384, "assessment_check": 16384,
+}
 
 
 class SemanticServiceError(RuntimeError):
@@ -26,26 +31,34 @@ class SemanticServiceError(RuntimeError):
     def __init__(self, reason_code: str) -> None:
         super().__init__(reason_code)
         self.reason_code = reason_code
+        self.request_metadata: dict[str, Any] | None = None
+
+
+def _output_budget(task: str, ceiling: int, input_tokens: int, context: int) -> int:
+    # 輸出可使用剩餘上下文；輸入打包仍須保留各任務的最低輸出空間。
+    budget = min(ceiling, context - input_tokens)
+    if budget < min(ceiling, MIN_OUTPUT_TOKENS[task]):
+        raise SemanticServiceError("SEMANTIC_INPUT_TOO_LARGE")
+    return budget
 
 
 def _origin(value: Any) -> str:
-    if not isinstance(value, str) or not value or "\x00" in value:
+    if not isinstance(value, str) or not value or any(ord(char) <= 32 or ord(char) == 127 for char in value):
         raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
-    parsed = urlsplit(value)
     try:
+        parsed = urlsplit(value)
         port = parsed.port
     except ValueError:
         raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID") from None
     if (
-        parsed.scheme != "http"
-        or parsed.hostname != "127.0.0.1"
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
         or parsed.path not in {"", "/"}
         or parsed.query
         or parsed.fragment
-        or port is None
-        or not 1 <= port <= 65_535
+        or (port is not None and not 1 <= port <= 65_535)
     ):
         raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
     return value.rstrip("/")
@@ -53,7 +66,7 @@ def _origin(value: Any) -> str:
 
 def _headers(environment: Mapping[str, str] | None = None) -> dict[str, str]:
     value = (os.environ if environment is None else environment).get(API_KEY_ENV)
-    if value is None:
+    if value is None or value == "":
         return {}
     if not value or len(value) > 4096 or any(character in value for character in "\x00\r\n"):
         raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
@@ -84,7 +97,9 @@ def _service(lock: Any) -> dict[str, Any]:
             or service["server"]["python"] != "3.12"
         ):
             raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
-        return {**service, "base_url": origin}
+        # 位址是部署設定；不改寫已保存的 lock／binding 或其內容 hash。
+        endpoint = _origin(os.environ.get(SERVICE_URL_ENV, origin))
+        return {**service, "base_url": endpoint}
     except (KeyError, TypeError):
         raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID") from None
 
@@ -92,7 +107,7 @@ def _service(lock: Any) -> dict[str, Any]:
 def preflight_semantic_service(
     runtime_lock: dict[str, Any], *, client: httpx.Client | None = None
 ) -> None:
-    """確認既有 resident vLLM 的版本、模型與 32K tokenizer contract。"""
+    """核對 vLLM 版本、模型及 32K tokenizer 契約。"""
 
     service = _service(runtime_lock)
     owned = client is None
@@ -213,7 +228,7 @@ def request_semantics(
     request: dict[str, Any],
     response_schema: dict[str, Any],
 ) -> dict[str, Any]:
-    """所有產品語意共用同一 resident service 與同一 transport boundary。"""
+    """透過共用 HTTP 邊界請求語意結果。"""
 
     service = _service(runtime_lock)
     try:
@@ -226,15 +241,15 @@ def request_semantics(
             or not isinstance(prompt, str)
             or not prompt
             or type(max_tokens) is not int
-            or not 1 <= max_tokens < service["max_model_len"]
+            or not 1 <= max_tokens <= service["max_model_len"]
             or not isinstance(request, dict)
             or not isinstance(response_schema, dict)
         ):
             raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
         messages = _messages(prompt, request)
         generation = deepcopy(task_lock[prefix + "generation"])
-        if _token_count(client, service, messages, generation.get("chat_template_kwargs")) + max_tokens > service["max_model_len"]:
-            raise SemanticServiceError("SEMANTIC_INPUT_TOO_LARGE")
+        input_tokens = _token_count(client, service, messages, generation.get("chat_template_kwargs"))
+        max_tokens = _output_budget(task, max_tokens, input_tokens, service["max_model_len"])
         response = client.post(
             f"{service['base_url']}{CHAT_PATH}",
             json={
@@ -269,7 +284,23 @@ def request_semantics(
         )
         choice = api_body["choices"][0]
         if choice.get("finish_reason") != "stop":
-            raise SemanticServiceError("SEMANTIC_OUTPUT_TRUNCATED")
+            error = SemanticServiceError("SEMANTIC_OUTPUT_TRUNCATED")
+            finish_reason = choice.get("finish_reason")
+            error.request_metadata = {
+                "task": task,
+                "input_tokens": input_tokens,
+                "max_tokens": max_tokens,
+                "finish_reason": finish_reason if finish_reason in (
+                    "length", "content_filter", "tool_calls", "function_call",
+                ) else "other",
+            }
+            usage = api_body.get("usage")
+            if isinstance(usage, dict):
+                error.request_metadata.update({
+                    key: usage[key] for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+                    if type(usage.get(key)) is int and usage[key] >= 0
+                })
+            raise error
         content = choice["message"]["content"]
         result = json.loads(
             content,
@@ -294,7 +325,9 @@ def material_request_fits(
     task = runtime_lock["material_semantics"]
     try:
         count = _token_count(client, service, _messages(task["prompt"], request), task["generation"]["chat_template_kwargs"])
-        if count + task["max_tokens"] > service["max_model_len"]:
+        try:
+            _output_budget("material_semantics", task["max_tokens"], count, service["max_model_len"])
+        except SemanticServiceError:
             return False
         # 原始 block 不截斷；多個 block 分批，避免新教材擠爆固定輸出預算。
         if sum(len(section["evidence"]) for section in request["sections"]) == 1:

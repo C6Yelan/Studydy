@@ -1,0 +1,14 @@
+services:
+  unit:
+    build:
+      context: .
+      dockerfile: ops/docker/backend.Dockerfile
+      target: test
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./ops/docker/bubblewrap-seccomp.json
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m,mode=1777

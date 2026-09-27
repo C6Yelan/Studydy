@@ -140,7 +140,7 @@ def review_structure(document, lock, archive, check_cancel, progress):
             progress('semantics', document['page_count'], document['page_count'])
     unit, proposal = combine_reviews(view, reviews)
     result, projection = apply_review(document, view, unit, proposal)
-    # 與既有分析 checkpoint 相同：計入使用的語意回應；新呼叫另由 receipt 計數。
+    # 語意回應用量含重用；新增呼叫由 receipt 分別計數。
     result['metrics']['semantic_calls'] += len(units)
     result['metrics']['semantic_duration_ms'] += round((time.monotonic() - started) * 1000)
     result['revision'] = _revision(result)

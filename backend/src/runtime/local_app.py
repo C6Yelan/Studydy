@@ -40,7 +40,7 @@ def _runtime_lock() -> dict[str, Any]:
 
 
 def _app_arguments_from_environment(environment: Mapping[str, str]) -> dict[str, Any]:
-    """只讀取明列的非 secret 本機設定；DB 仍由既有 storage 邊界解析。"""
+    """讀取列明的部署設定；資料庫連線由 storage 解析。"""
 
     values = {
         name: _required_environment_value(environment, environment_name)

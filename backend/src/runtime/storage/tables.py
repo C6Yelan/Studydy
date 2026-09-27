@@ -299,6 +299,7 @@ class MaterialSource(Base):
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary)
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SourceNormalization(Base):

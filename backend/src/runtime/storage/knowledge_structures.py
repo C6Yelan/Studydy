@@ -123,7 +123,7 @@ def publish_knowledge_structure(
                     for item in document["evidence"]
                     if item["page"] > base["page_count"]
                 }
-                # 舊內容會被重用；只剩舊 Claims 時不能把追加顯示為已完成。
+                # 追加必須有可用新 Claim；僅重用已發布內容不能算完成。
                 review_only = (
                     document.get("source_set_sha256") is not None
                     and document.get("source_set_sha256") == base.get("source_set_sha256")
@@ -199,7 +199,7 @@ def publish_knowledge_structure(
 
 
 def _prune_unreferenced_structures(session, owner, material_id, head):
-    """保留目前圖與學習紀錄必需的圖；run receipt／SourceSet 留作重播依據。"""
+    """保留被引用的地圖及工作的重播依據。"""
     from .tables import StudySession
 
     rows = session.scalars(

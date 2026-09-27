@@ -63,7 +63,7 @@ def _token_digest(raw_token: str | None) -> bytes | None:
 
 
 def _add_session(session: Session, learner_id: UUID) -> CreatedSession:
-    """沿用既有 session authority，僅為已確定的 learner 發行新 token。"""
+    """為指定使用者建立登入 session。"""
     token_bytes = secrets.token_bytes(32)
     now = _utc_now()
     session.add(LearnerSession(
@@ -89,7 +89,7 @@ def _credentials(email: str, password: str) -> str:
 
 
 def _password_digest(password: str, salt: bytes, profile: tuple[int, int, int] = _CURRENT_SCRYPT) -> bytes:
-    # 新雜湊約使用 16 MiB；既存雜湊依記錄的參數驗證，密碼不截斷。
+    # 預設雜湊約使用 16 MiB；驗證依雜湊記錄的參數，密碼不截斷。
     n, r, p = profile
     return scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p,
                   maxmem=_SCRYPT_MAXMEM[profile], dklen=32)
@@ -102,7 +102,7 @@ def _password_hash(password: str) -> str:
 
 
 def register_account(email: str, password: str, *, dsn: str | None = None) -> CreatedSession:
-    """原子建立 credentials、Learner 與 session，不接管既有匿名資料。"""
+    """以同一交易建立帳號與登入 session。"""
     email = _credentials(email, password)
     password_hash = _password_hash(password)
     learner_id = uuid4()
@@ -127,7 +127,7 @@ def login_account(email: str, password: str, *, dsn: str | None = None) -> Creat
     try:
         with database_session(dsn) as session:
             learner = session.scalar(select(Learner).where(Learner.email == email))
-            # 不存在的帳號也執行雜湊，避免立即返回；舊雜湊首次登入仍用原參數。
+            # 不存在的帳號也執行雜湊，避免以回應時間洩露帳號是否存在。
             stored = learner.password_hash if learner is not None else None
             parts = stored.split("$") if stored else None
             try:

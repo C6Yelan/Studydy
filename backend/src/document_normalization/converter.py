@@ -51,7 +51,7 @@ class NormalizationError(RuntimeError):
 
 
 def normalizer_available():
-    """Python 依賴隨後端安裝；系統轉檔工具仍須由主機提供。"""
+    """核對轉檔工具與字型版本，建立來源 mapping 使用的政策身分。"""
     return (
         all(shutil.which(tool) for tool in ('bwrap', 'fc-list'))
         and Path('/usr/lib/libreoffice/program/soffice').is_file()
@@ -84,7 +84,7 @@ def convert(data: bytes, extension: str, media_type: str, policy: dict) -> tuple
     if extension not in MIME or MIME[extension] != media_type:
         raise NormalizationError('UNSUPPORTED_MEDIA_TYPE')
 
-    # 掛載目前後端的基底直譯器，再覆蓋共用 venv 套件；venv 的 Python 是 symlink。
+    # venv 的 Python 為 symlink，須掛載基底直譯器及套件目錄。
     base = Path(sys.base_prefix)
     site = Path(sysconfig.get_path('purelib'))
     if not site.is_dir():

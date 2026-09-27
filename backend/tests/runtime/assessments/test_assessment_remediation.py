@@ -1,5 +1,7 @@
 """錯題 → 直接補強 → 由作答投影本輪結果；只用受控回應與隔離 DB。"""
 
+from copy import deepcopy
+
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
@@ -22,6 +24,31 @@ from assessment_fixtures import (
     supplement,
 )
 from product_fixtures import HEADERS, ORIGIN, _app, closed_loop
+
+
+def test_new_remediation_uses_current_budget_without_rewriting_diagnostic_history(closed_loop):
+    fixture = concept_fixture(closed_loop, 1)
+    current_lock = deepcopy(fixture['settings']['runtime_lock'])
+    fixture['settings']['runtime_lock']['assessment'].update(max_tokens=4096, check_max_tokens=1536)
+    root = create(fixture)
+    finish(fixture)
+    answer(fixture, root, wrong={1})
+    old_items = read(fixture, root)['items']
+
+    fixture['settings']['runtime_lock'] = current_lock
+    child = supplement(fixture, root)
+    with database_session(fixture['dsn']) as session:
+        old_lock = session.get(AssessmentSet, root).runtime_lock_document
+        new_lock = session.get(AssessmentSet, child).runtime_lock_document
+        assert old_lock['assessment']['max_tokens'] == 4096
+        assert old_lock['assessment']['check_max_tokens'] == 1536
+        assert new_lock == current_lock
+        assert new_lock['assessment']['max_tokens'] == new_lock['assessment']['check_max_tokens'] == 32768
+    finish(fixture, 'new-budget-remediation')
+    assert read(fixture, child)['status'] == 'ready'
+    assert read(fixture, root)['items'] == old_items
+    answer(fixture, child)
+    assert read(fixture, root)['cycle']['outcome'] == 'passed'
 
 
 def test_remediation_origin_is_immutable_in_database(closed_loop):

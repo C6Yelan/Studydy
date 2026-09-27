@@ -67,7 +67,7 @@ def local_api(app):
             assert not thread.is_alive()
 
 
-def main(spec: str = "e2e/product-cutover.spec.ts", *, timeout_seconds: int = 120) -> int:
+def main(spec: str = "e2e/mock/knowledge-map-details.spec.ts", *, timeout_seconds: int = 120) -> int:
     if not _port_is_free():
         print("BROWSER_E2E_PORT_OCCUPIED")
         return 1

@@ -1,24 +1,28 @@
 # Studydy
 
-開發與執行都使用這份 checkout。**本機跑 backend、frontend、持久化 PostgreSQL 與 PDF store；Pod 只提供 Gemma 4 AI。**
-現行本機服務以 Linux 為執行環境；Windows／macOS 尚無原生啟動流程。換一台 Linux 主機時，須重新配置本機依賴及私密設定。
+將個人教材整理成可回查來源的知識地圖，搭配觀念題組、錯題補強與持久學習紀錄。
 
-新對話或恢復環境時，先讀 [本地環境說明](docs/local-environment.md)，再從本目錄執行：
+**上傳教材 → 確認來源 → 分析與檢核 → 知識地圖 → 題組練習 → 錯題補強**
 
-```bash
-git status --short --branch
-python3 ops/local/manage.py status
-```
+支援 PDF、DOC／DOCX、PPT／PPTX、UTF-8 TXT 與 Markdown，可追加來源建立新版本，並承接符合條件的作答證據。
 
-`status` 只讀本機程序、socket 與 Docker 狀態，不呼叫模型 API。
+## 部署與使用
 
-```bash
-python3 ops/local/manage.py start
-```
+以 Docker Compose 提供 React 前端、FastAPI、PostgreSQL 與隔離轉檔。教材擷取使用原生文字與 Unlimited-OCR；分析與出題呼叫已部署的 Gemma HTTP／HTTPS 服務。文字不足或重要圖片區域由本機 Unlimited-OCR 處理。
 
-瀏覽器入口：<http://127.0.0.1:4173>。`start` 使用正式 backend 與 worker，Pod 離線仍可使用本機功能；AI 操作不可用時回報錯誤。資料留在既有 product DB，不建立 disposable DB。
+- [安裝與啟動](docs/getting-started.md)：主機需求、設定、服務管理與備份。預設入口 http://127.0.0.1:4173。
+- [使用指南](docs/usage.md)：教材、地圖、練習與進度恢復。
+- [測試](docs/testing.md)：不需模型的容器測試及隔離 API／瀏覽器回歸。
 
-- [語意模型設定（HTTP）](docs/local-environment.md#語意模型設定)
-- [資料、私密設定、啟停與換 Pod](docs/local-environment.md)
-- [帳號與登入](docs/accounts.md)
-- [測試與模型 qualification](docs/testing.md)
+## 開發文件
+
+| 主題 | 文件 |
+| --- | --- |
+| 模組、資料流與信任邊界 | [系統架構](docs/architecture.md) |
+| 轉檔、Evidence、來源與版本 | [教材處理](docs/materials.md) |
+| 題組、評分、補強與學習狀態 | [學習與評量](docs/learning.md) |
+| 格式、模型品質與覆蓋範圍 | [限制](docs/limitations.md) |
+
+原檔與持久資料保存在部署主機；AI 操作會傳送必要內容至設定的模型服務。模型結果須對照教材確認，程式測試不代表內容品質已全面驗收。
+
+專案尚未提供 LICENSE；素材來源與授權狀態見 [第三方內容](THIRD_PARTY_CONTENT.md)。

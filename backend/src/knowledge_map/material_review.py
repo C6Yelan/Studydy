@@ -364,8 +364,8 @@ def _corrected_claim(edit: ClaimEdit, sources: list[dict]) -> str | None:
         return None
     if projected['projection'] != 'source_literal_repair':
         return projected['text']
-    # 原保護把 (PDCA) 等英文括注也視為公式。本階段只允許字面值不變的散文整理，
-    # 不放寬任何 code/formula Evidence、符號、數值或識別詞的保護。
+    # 英文括注可作散文整理，但須保留技術字面值，
+    # code／formula Evidence、符號、數值與識別詞仍受保護。
     if any(item['kind'] in {'code', 'formula'} for item in sources):
         return None
     if (
@@ -478,7 +478,7 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
             by_unit[original['concept_id']]['aliases'] = [
                 alias for alias in original['aliases'] if alias not in edit.remove
             ]
-    # 文字修正仍要通過既有技術字面值保護；不能把 fallback 當成修正成功。
+    # 改寫須通過字面值檢查；保留原文不算修正成功。
     claim_changes = []
     for edit in proposal.claim_edits:
         sources = [unit.evidence[h] for h in edit.evidence]
@@ -624,7 +624,7 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
 
 
 def apply_review(document: dict, view: dict, unit: ReviewUnit, response: dict) -> tuple[dict, dict]:
-    """建立有新內容 hash 的正式候選；舊節點及修正對照由呼叫端封存。"""
+    """建立內容 hash 已重算的候選；呼叫端保存修正前後對照。"""
     if (
         not validate_knowledge_structure(document)
         or view['knowledge_structure_revision'] != document['revision']

@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+/data/
 *.key
 *.pem
 *.p12
@@ -21,7 +22,7 @@ dist/
 /frontend/playwright-report/
 /frontend/test-results/
 
-# Local Codex workflow
+# Local agent settings
 AGENTS.md
 .codex/
 docs_local
@@ -34,7 +35,7 @@ docs_local
 /frontend/public/fixtures/*.json
 /frontend/public/local-fixtures/*.json
 
-# Local generated knowledge map data
+# Generated artifacts
 /backend/artifacts/
 
 # Local OS/editor files

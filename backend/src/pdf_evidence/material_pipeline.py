@@ -54,7 +54,7 @@ class MaterialAnalysisError(RuntimeError):
 
 
 def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, Any]:
-    """依實際用途驗證目前 v1 的元件契約。"""
+    """依分析或評量用途驗證 runtime lock。"""
 
     try:
         if not isinstance(lock, dict) or set(lock) - {'material_review'} != {
@@ -67,7 +67,7 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
             if (set(review) != {'policy', 'prompt', 'max_tokens', 'generation'}
                 or review['policy'] != 'material-review/v1' or not isinstance(review['prompt'], str)
                 or not review['prompt'].strip() or type(review['max_tokens']) is not int
-                or not 1 <= review['max_tokens'] < lock['semantic_service']['max_model_len']
+                or not 1 <= review['max_tokens'] <= lock['semantic_service']['max_model_len']
                 or review['generation'] != lock['material_semantics']['generation']):
                 raise ValueError
         semantic = lock["semantic_service"]
@@ -119,7 +119,8 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
             or material["response_schema"] != "material-semantics-response/v1"
             or material["bundle_policy"] != "contiguous-evidence-new-input/v1"
             or material["max_new_input_tokens"] != 1536
-            or material["max_tokens"] != 8192
+            or type(material["max_tokens"]) is not int
+            or not 1 <= material["max_tokens"] <= semantic["max_model_len"]
             or material["generation"] != {
                 "temperature": 1.0, "top_p": 0.95, "top_k": 64,
                 "chat_template_kwargs": {"enable_thinking": True},
@@ -139,14 +140,16 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
             or assessment_settings["policy"] != "source-span-single-choice/v1"
             or assessment_settings["candidate_count"] != 3
             or assessment_settings["option_count"] != 4
-            or assessment_settings["max_tokens"] != 4096
+            or type(assessment_settings["max_tokens"]) is not int
+            or not 1 <= assessment_settings["max_tokens"] <= semantic["max_model_len"]
             or assessment_settings["generation"] != {
                 "temperature": 1.0, "top_p": 0.95, "top_k": 64,
                 "chat_template_kwargs": {"enable_thinking": True},
             }
             or not isinstance(assessment_settings["prompt"], str)
             or not assessment_settings["prompt"]
-            or assessment_settings["check_max_tokens"] != 1536
+            or type(assessment_settings["check_max_tokens"]) is not int
+            or not 1 <= assessment_settings["check_max_tokens"] <= semantic["max_model_len"]
             or assessment_settings["check_generation"] != {
                 "temperature": 1.0, "top_p": 0.95, "top_k": 64,
                 "chat_template_kwargs": {"enable_thinking": True},

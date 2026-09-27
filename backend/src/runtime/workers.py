@@ -34,7 +34,7 @@ class RuntimeWorkers:
     def start(self) -> None:
         if self._thread is not None:
             raise RuntimeError("RUNTIME_WORKERS_ALREADY_STARTED")
-        # 中斷時由既有 lease／checkpoint 恢復；不能讓卡住的 I/O 阻止程序退出。
+        # lease／checkpoint 負責中斷恢復，阻塞的 I/O 不應卡住程序退出。
         self._thread = Thread(target=self._loop, name="studydy-material-worker", daemon=True)
         try:
             self._thread.start()
@@ -43,7 +43,7 @@ class RuntimeWorkers:
             raise RuntimeError("RUNTIME_WORKERS_START_FAILED") from None
         if not self._started.wait(_STARTUP_WAIT_SECONDS):
             self._stop.set()
-            # 保留執行緒 reference，禁止在舊 worker 尚未退出時重複 start。
+            # 保留執行緒 reference，避免尚未退出時重複啟動 worker。
             raise RuntimeError("RUNTIME_WORKERS_START_FAILED")
         if self._startup_error is not None:
             startup_error = self._startup_error

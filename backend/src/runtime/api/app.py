@@ -438,7 +438,7 @@ def _install_openapi(app: FastAPI) -> None:
 
 
 def create_app(settings: ApiSettings) -> FastAPI:
-    """建立 material review 與 StudySession closed-loop 的固定 `/v1` surface。"""
+    """建立帳號、教材與學習評量的 /v1 API。"""
 
     if not isinstance(settings, ApiSettings):
         raise ValueError("API_SETTINGS_INVALID")
