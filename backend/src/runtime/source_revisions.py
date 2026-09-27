@@ -24,6 +24,8 @@ from .storage.tables import (
 
 def _descriptor(session, job):
     source = session.get(MaterialSource, job.source_id)
+    if source.removed_at is not None:
+        raise SourceError("SOURCE_NOT_READY")
     original = session.get(Artifact, source.original_artifact_id)
     normalized = session.get(Artifact, job.normalized_artifact_id)
     mapping = session.get(Artifact, job.mapping_artifact_id) if job.mapping_artifact_id else None

@@ -16,9 +16,44 @@ def _lock() -> dict:
     return json.loads((Path(__file__).parents[2] / "local_ai/runtime-lock.json").read_text())
 
 
+@pytest.mark.parametrize('field', ['max_tokens', 'check_max_tokens'])
+@pytest.mark.parametrize('value', [0, -1, True, '16384', 32768])
+def test_assessment_budget_must_be_an_integer_within_context(field, value):
+    from pdf_evidence.material_pipeline import MaterialAnalysisError, validate_runtime_lock
+
+    lock = _lock()
+    lock['assessment'][field] = value
+    with pytest.raises(MaterialAnalysisError, match='RUNTIME_LOCK_INVALID'):
+        validate_runtime_lock(lock)
+
+
+@pytest.mark.parametrize('task', ['assessment', 'assessment_check'])
+@pytest.mark.parametrize('count,fits', [(16384, True), (16385, False)])
+def test_assessment_budget_checks_input_plus_output_before_generation(task, count, fits):
+    calls = []
+
+    def respond(request):
+        calls.append(request.url.path)
+        if request.url.path == '/tokenize':
+            return httpx.Response(200, json={'count': count, 'max_model_len': 32768})
+        assert json.loads(request.content)['max_tokens'] == 16384
+        return httpx.Response(200, json={'choices': [{
+            'finish_reason': 'stop', 'message': {'content': '{"ok":true}'},
+        }]})
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        arguments = dict(runtime_lock=_lock(), task=task, request={}, response_schema={})
+        if fits:
+            assert request_semantics(client, **arguments) == {'ok': True}
+        else:
+            with pytest.raises(SemanticServiceError, match='SEMANTIC_INPUT_TOO_LARGE'):
+                request_semantics(client, **arguments)
+    assert calls.count('/v1/chat/completions') == int(fits)
+
+
 @pytest.mark.parametrize('task,budget', [
     ('material_semantics', 8192), ('material_review', 8192),
-    ('assessment', 4096), ('assessment_check', 1536),
+    ('assessment', 16384), ('assessment_check', 16384),
 ])
 def test_tasks_share_configured_http_wire(task, budget):
     lock = _lock()

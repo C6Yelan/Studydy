@@ -579,6 +579,64 @@ def test_worker_renews_lease_while_semantic_call_is_waiting(revisions,monkeypatc
     assert transient_failures == [True]
 
 
+def test_failed_initial_source_can_be_removed_and_reuploaded_without_rewriting_history(revisions, monkeypatch):
+    import psycopg
+    from pdf_evidence.material_pipeline import MaterialAnalysisError
+    import runtime.material_processing as processing
+    from runtime.source_normalization import remove_staged_source, retry_normalization
+    from runtime.storage.database import connect_database
+    from runtime.storage.materials import read_material_library
+    from runtime.storage.source_artifacts import open_verified_artifact
+    from runtime.storage.tables import MaterialSource
+
+    learner, _, settings, dsn, _, _, execute, _, _, _ = revisions
+    owner = learner.learner_id
+    material = create_draft(owner, 'Failed initial recovery', 'failed-initial', dsn=dsn)
+    data = pdf('A stack removes the last inserted element first.')
+    source = upload_source(owner, material, data, 'initial.pdf', 'application/pdf', 'first-file', dsn=dsn)
+    assert normalize_next(dsn=dsn)
+    original, = read_sources(owner, material, dsn=dsn)
+    run = create_revision(owner, material, [original['normalization_id']], 'initial-run', settings, dsn=dsn)
+    with pytest.raises(SourceError, match='SOURCE_IN_USE'):
+        remove_staged_source(owner, material, source, dsn=dsn)
+    with monkeypatch.context() as patch:
+        def fail(*args, **kwargs):
+            raise MaterialAnalysisError('SEMANTIC_OUTPUT_TRUNCATED')
+        patch.setattr(processing, 'analyze_material', fail)
+        assert execute().status == 'failed'
+    with database_session(dsn) as session:
+        snapshot = deepcopy(session.get(MaterialSourceSet, run.input_source_set_id).manifest)
+    remove_staged_source(owner, material, source, dsn=dsn)
+    remove_staged_source(owner, material, source, dsn=dsn)
+    assert read_sources(owner, material, dsn=dsn) == []
+    assert next(item for item in read_material_library(owner, dsn=dsn)
+                if item['material_id'] == material)['source_count'] == 0
+    with open_verified_artifact(owner, original['original_artifact_id'], dsn=dsn) as stored:
+        assert stored.file.read() == data
+    with database_session(dsn) as session:
+        assert session.get(MaterialSource, source).removed_at is not None
+        assert session.get(MaterialSourceSet, run.input_source_set_id).manifest == snapshot
+    with connect_database(dsn) as connection:
+        with pytest.raises(psycopg.errors.RaiseException, match='IMMUTABLE_SOURCE_BINDING'):
+            with connection.transaction():
+                connection.execute('UPDATE material_sources SET original_name=%s WHERE source_id=%s',
+                                   ('tampered.pdf', source))
+    with pytest.raises(SourceError, match='SOURCE_NOT_READY'):
+        create_revision(owner, material, [original['normalization_id']], 'removed-input', settings, dsn=dsn)
+    with pytest.raises(SourceError, match='RESOURCE_NOT_FOUND'):
+        retry_normalization(owner, material, original['normalization_id'], dsn=dsn)
+    with pytest.raises(SourceError, match='RESOURCE_NOT_FOUND'):
+        upload_source(owner, material, data, 'initial.pdf', 'application/pdf', 'first-file', dsn=dsn)
+    replacement = upload_source(owner, material, data, 'initial.pdf', 'application/pdf', 'new-file', dsn=dsn)
+    assert replacement != source
+    assert normalize_next(dsn=dsn)
+    current, = read_sources(owner, material, dsn=dsn)
+    create_revision(owner, material, [current['normalization_id']], 'replacement-run', settings, dsn=dsn)
+    assert execute().status == 'succeeded'
+    with pytest.raises(SourceError, match='SOURCE_IN_USE'):
+        remove_staged_source(owner, material, replacement, dsn=dsn)
+
+
 def test_staged_source_removal_is_owned_and_keeps_published_sources(revisions):
     from runtime.source_normalization import remove_staged_source
     from runtime.storage.source_artifacts import open_verified_artifact

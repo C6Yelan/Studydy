@@ -83,7 +83,8 @@ def read_material_library(
                 select(MaterialSource, SourceNormalization, Artifact.size_bytes)
                 .join(SourceNormalization, SourceNormalization.source_id == MaterialSource.source_id)
                 .join(Artifact, Artifact.artifact_id == MaterialSource.original_artifact_id)
-                .where(MaterialSource.learner_id == learner_id, MaterialSource.material_id.in_(ids))
+                .where(MaterialSource.learner_id == learner_id, MaterialSource.material_id.in_(ids),
+                       MaterialSource.removed_at.is_(None))
                 .order_by(MaterialSource.source_id)
             ).all()
     except (DatabaseConfigurationError, SQLAlchemyError):

@@ -96,12 +96,15 @@ def upload_source(owner, material_id, data, name, media, key, *, dsn=None):
                 MaterialSource.idempotency_key_sha256 == digest,
             ))
             if existing:
+                if existing.removed_at is not None:
+                    raise SourceError("RESOURCE_NOT_FOUND")
                 if bytes(existing.request_fingerprint) != fingerprint:
                     raise SourceError("IDEMPOTENCY_CONFLICT")
                 return existing.source_id
             duplicate = session.scalar(select(MaterialSource.source_id)
                 .join(Artifact, Artifact.artifact_id == MaterialSource.original_artifact_id)
-                .where(MaterialSource.material_id == material_id, Artifact.sha256 == sha256(data).digest()))
+                .where(MaterialSource.material_id == material_id, MaterialSource.removed_at.is_(None),
+                       Artifact.sha256 == sha256(data).digest()))
             if duplicate is not None:
                 raise SourceError("DUPLICATE_SOURCE")
             policy = conversion_policy()
@@ -145,7 +148,8 @@ def read_sources(owner, material_id, *, dsn=None):
         rows = session.execute(
             select(MaterialSource, SourceNormalization)
             .join(SourceNormalization, SourceNormalization.source_id == MaterialSource.source_id)
-            .where(MaterialSource.learner_id == owner, MaterialSource.material_id == material_id)
+            .where(MaterialSource.learner_id == owner, MaterialSource.material_id == material_id,
+                   MaterialSource.removed_at.is_(None))
             .order_by(MaterialSource.created_at, MaterialSource.source_id)
         ).all()
         return [{
@@ -246,6 +250,9 @@ def retry_normalization(owner, material_id, identity, *, dsn=None):
         ).with_for_update())
         if job is None:
             raise SourceError("RESOURCE_NOT_FOUND")
+        source = session.get(MaterialSource, job.source_id)
+        if source.removed_at is not None:
+            raise SourceError("RESOURCE_NOT_FOUND")
         if job.status == "failed":
             job.status = "pending"
             job.error_code = None
@@ -265,12 +272,8 @@ def remove_staged_source(owner, material_id, source_id, *, dsn=None):
                 MaterialSource.material_id == material_id,
                 MaterialSource.source_id == source_id,
             ).with_for_update())
-            if source is None:
+            if source is None or source.removed_at is not None:
                 return
-            if session.scalar(select(MaterialSourceSetItem.source_set_id).where(
-                MaterialSourceSetItem.source_id == source_id,
-            ).limit(1)):
-                raise SourceError("SOURCE_IN_USE")
             jobs = session.scalars(select(SourceNormalization).where(
                 SourceNormalization.source_id == source_id,
             ).with_for_update()).all()
@@ -284,10 +287,22 @@ def remove_staged_source(owner, material_id, source_id, *, dsn=None):
                     if identity
                 ],
             })
-            if session.scalar(select(MaterialProcessingRun.run_id).where(
-                MaterialProcessingRun.source_artifact_id.in_(artifacts),
-            ).limit(1)):
-                raise SourceError("SOURCE_IN_USE")
+            source_sets = select(MaterialSourceSetItem.source_set_id).where(
+                MaterialSourceSetItem.source_id == source_id,
+            )
+            referenced = session.scalars(select(MaterialProcessingRun).where(
+                MaterialProcessingRun.material_id == material_id,
+                or_(MaterialProcessingRun.input_source_set_id.in_(source_sets),
+                    MaterialProcessingRun.source_artifact_id.in_(artifacts)),
+            )).all()
+            if referenced:
+                if any(run.status not in ("failed", "cancelled") for run in referenced):
+                    raise SourceError("SOURCE_IN_USE")
+                # 失敗工作仍可回查原檔；移除只影響後續來源選擇，不改封存身分。
+                source.removed_at = datetime.now(UTC)
+                if material.source_artifact_id in artifacts:
+                    material.source_artifact_id = None
+                return
             for identity in artifacts:
                 quarantine_source_pdf(session, identity)
             if material.source_artifact_id in artifacts:
