@@ -176,9 +176,18 @@ def lock_matches_binding(lock, binding):
 def same_material_runtime(first_lock, first_binding, second_lock, second_binding):
     if not lock_matches_binding(first_lock, first_binding) or not lock_matches_binding(second_lock, second_binding):
         return False
-    fields = ('python', 'packages', 'ocr', 'semantic_service', 'material_semantics')
+    fields = ('python', 'packages', 'ocr', 'semantic_service')
     if any(key not in first_lock or key not in second_lock or first_lock[key] != second_lock[key] for key in fields):
         return False
-    if first_lock.get('material_review') != second_lock.get('material_review'):
-        return False
+    # 額度調整不作廢已驗證的批次；各工作仍保留原始 lock 與 hash。
+    for task in ('material_semantics', 'material_review'):
+        first, second = first_lock.get(task), second_lock.get(task)
+        if first is None and second is None:
+            continue
+        if not isinstance(first, dict) or not isinstance(second, dict):
+            return False
+        if {k: v for k, v in first.items() if k != 'max_tokens'} != {
+            k: v for k, v in second.items() if k != 'max_tokens'
+        }:
+            return False
     return True

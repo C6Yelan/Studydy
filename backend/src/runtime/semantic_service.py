@@ -19,6 +19,10 @@ TOKENIZE_PATH = "/tokenize"
 PREFLIGHT_TIMEOUT_SECONDS = 5
 MAX_RESPONSE_BYTES = 1024 * 1024
 INFERENCE_TIMEOUT = httpx.Timeout(None, connect=PREFLIGHT_TIMEOUT_SECONDS)
+MIN_OUTPUT_TOKENS = {
+    "material_semantics": 8192, "material_review": 8192,
+    "assessment": 16384, "assessment_check": 16384,
+}
 
 
 class SemanticServiceError(RuntimeError):
@@ -27,6 +31,15 @@ class SemanticServiceError(RuntimeError):
     def __init__(self, reason_code: str) -> None:
         super().__init__(reason_code)
         self.reason_code = reason_code
+        self.request_metadata: dict[str, Any] | None = None
+
+
+def _output_budget(task: str, ceiling: int, input_tokens: int, context: int) -> int:
+    # 輸出可使用剩餘上下文；輸入打包仍須保留各任務的最低輸出空間。
+    budget = min(ceiling, context - input_tokens)
+    if budget < min(ceiling, MIN_OUTPUT_TOKENS[task]):
+        raise SemanticServiceError("SEMANTIC_INPUT_TOO_LARGE")
+    return budget
 
 
 def _origin(value: Any) -> str:
@@ -228,15 +241,15 @@ def request_semantics(
             or not isinstance(prompt, str)
             or not prompt
             or type(max_tokens) is not int
-            or not 1 <= max_tokens < service["max_model_len"]
+            or not 1 <= max_tokens <= service["max_model_len"]
             or not isinstance(request, dict)
             or not isinstance(response_schema, dict)
         ):
             raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
         messages = _messages(prompt, request)
         generation = deepcopy(task_lock[prefix + "generation"])
-        if _token_count(client, service, messages, generation.get("chat_template_kwargs")) + max_tokens > service["max_model_len"]:
-            raise SemanticServiceError("SEMANTIC_INPUT_TOO_LARGE")
+        input_tokens = _token_count(client, service, messages, generation.get("chat_template_kwargs"))
+        max_tokens = _output_budget(task, max_tokens, input_tokens, service["max_model_len"])
         response = client.post(
             f"{service['base_url']}{CHAT_PATH}",
             json={
@@ -271,7 +284,23 @@ def request_semantics(
         )
         choice = api_body["choices"][0]
         if choice.get("finish_reason") != "stop":
-            raise SemanticServiceError("SEMANTIC_OUTPUT_TRUNCATED")
+            error = SemanticServiceError("SEMANTIC_OUTPUT_TRUNCATED")
+            finish_reason = choice.get("finish_reason")
+            error.request_metadata = {
+                "task": task,
+                "input_tokens": input_tokens,
+                "max_tokens": max_tokens,
+                "finish_reason": finish_reason if finish_reason in (
+                    "length", "content_filter", "tool_calls", "function_call",
+                ) else "other",
+            }
+            usage = api_body.get("usage")
+            if isinstance(usage, dict):
+                error.request_metadata.update({
+                    key: usage[key] for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+                    if type(usage.get(key)) is int and usage[key] >= 0
+                })
+            raise error
         content = choice["message"]["content"]
         result = json.loads(
             content,
@@ -296,7 +325,9 @@ def material_request_fits(
     task = runtime_lock["material_semantics"]
     try:
         count = _token_count(client, service, _messages(task["prompt"], request), task["generation"]["chat_template_kwargs"])
-        if count + task["max_tokens"] > service["max_model_len"]:
+        try:
+            _output_budget("material_semantics", task["max_tokens"], count, service["max_model_len"])
+        except SemanticServiceError:
             return False
         # 原始 block 不截斷；多個 block 分批，避免新教材擠爆固定輸出預算。
         if sum(len(section["evidence"]) for section in request["sections"]) == 1:

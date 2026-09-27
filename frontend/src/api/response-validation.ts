@@ -525,8 +525,13 @@ export function assessmentPlan(value: unknown): value is AssessmentPlanView {
 
 function cycleSummary(value: unknown): value is AssessmentCycleSummary & Json {
   const item = object(value);
+  const source = object(item?.inherited_from);
   return (
     !!item &&
+    (item.inherited_from == null ||
+      (!!source && isUuid(source.study_session_id) && isUuid(source.run_id) &&
+        revision(source.knowledge_structure_revision, "knowledge-structure") &&
+        item.outcome === "passed" && item.active_set_id === null)) &&
     isUuid(item.diagnostic_set_id) &&
     revision(item.concept_id, "concept") &&
     Number.isSafeInteger(item.set_version) &&

@@ -62,9 +62,12 @@ def test_review_publishes_new_revision_without_ocr_or_analysis_and_preserves_old
         create_revision(owner.learner_id, material, [], 'stale', settings, base_revision=original['revision'], dsn=dsn)
 
 
-def test_new_analysis_runs_review_and_failed_review_keeps_head(revisions, monkeypatch):
+@pytest.mark.parametrize('raise_budget', [False, True])
+def test_new_analysis_runs_review_and_failed_review_keeps_head(revisions, monkeypatch, raise_budget):
     owner, material, settings, dsn, add, start, execute, first, original, requests = revisions
     enable_review(settings)
+    settings["runtime_lock"]["material_semantics"]["max_tokens"] = 8192
+    settings["runtime_lock"]["material_review"]["max_tokens"] = 8192
     calls = []
     def model(client, **kw):
         calls.append(kw['request'])
@@ -83,10 +86,13 @@ def test_new_analysis_runs_review_and_failed_review_keeps_head(revisions, monkey
         return keep_response(request)
 
     monkeypatch.setattr('runtime.material_review.request_semantics', corrected)
+    if raise_budget:
+        settings['runtime_lock']['material_semantics']['max_tokens'] = 32768
+        settings['runtime_lock']['material_review']['max_tokens'] = 32768
     retry_revision(owner.learner_id, failed.run_id, 'retry-review', settings, dsn=dsn)
     completed = execute()
     assert completed.status == 'succeeded', completed.error_code
-    assert len(calls) == 3 and len(requests) == before
+    assert len(calls) == (4 if raise_budget else 3) and len(requests) == before
     doc = read_knowledge_structure(owner.learner_id, material, run_id=completed.run_id, dsn=dsn).document
     assert doc['page_count'] == 2 and validate_knowledge_structure(doc)
 

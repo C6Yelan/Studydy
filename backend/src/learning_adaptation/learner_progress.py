@@ -220,7 +220,7 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
     """同次讀取共用已驗證教材與一致 DB snapshot，不以重讀全部資料來偵測競態。"""
     from runtime.storage.knowledge_structures import _read_verified_document
     from .assessment_sets import _read_cycles
-    from .inherited_progress import inherited_answers
+    from .inherited_progress import inherited_progress
     with database_session(dsn) as db:
         try:
             db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
@@ -243,7 +243,7 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
             if len(events) != study.last_event_number:
                 raise LearnerProgressError('LEARNER_PROGRESS_STALE')
             cycles = _read_cycles(db, row)
-            inherited = inherited_answers(db, learner, study, document)
+            inherited, inherited_cycles = inherited_progress(db, learner, study, document)
             evidence = (
                 tuple(sorted(
                     (*inherited, *events),
@@ -251,7 +251,12 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
                 ))
                 if inherited else events
             )
-            snapshot = _snapshot(study, context, derive_learning_states(context, evidence), cycles)
+            states = derive_learning_states(context, evidence)
+            current_cycles = {cycle['concept_id'] for cycle in cycles}
+            weak = {state.concept_id for state in states if state.weak_claim_ids}
+            cycles += [cycle for cycle in inherited_cycles
+                       if cycle['concept_id'] not in current_cycles | weak]
+            snapshot = _snapshot(study, context, states, cycles)
         except LearnerProgressError:
             raise
         except Exception:

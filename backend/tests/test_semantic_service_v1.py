@@ -17,7 +17,7 @@ def _lock() -> dict:
 
 
 @pytest.mark.parametrize('field', ['max_tokens', 'check_max_tokens'])
-@pytest.mark.parametrize('value', [0, -1, True, '16384', 32768])
+@pytest.mark.parametrize('value', [0, -1, True, '16384', 32769])
 def test_assessment_budget_must_be_an_integer_within_context(field, value):
     from pdf_evidence.material_pipeline import MaterialAnalysisError, validate_runtime_lock
 
@@ -52,8 +52,8 @@ def test_assessment_budget_checks_input_plus_output_before_generation(task, coun
 
 
 @pytest.mark.parametrize('task,budget', [
-    ('material_semantics', 8192), ('material_review', 8192),
-    ('assessment', 16384), ('assessment_check', 16384),
+    ('material_semantics', 32718), ('material_review', 32718),
+    ('assessment', 32718), ('assessment_check', 32718),
 ])
 def test_tasks_share_configured_http_wire(task, budget):
     lock = _lock()
@@ -266,3 +266,91 @@ def test_invalid_deployment_endpoint_fails_before_network(monkeypatch, endpoint)
     with httpx.Client(transport=httpx.MockTransport(forbidden)) as client:
         with pytest.raises(SemanticServiceError, match='^SEMANTIC_SERVICE_CONFIG_INVALID$'):
             preflight_semantic_service(_lock(), client=client)
+
+
+@pytest.mark.parametrize('task', ['material_semantics', 'material_review', 'assessment', 'assessment_check'])
+@pytest.mark.parametrize('count', [1536, 6000, 15000])
+def test_generation_uses_remaining_context_without_changing_saved_lock(task, count):
+    from copy import deepcopy
+
+    lock = _lock()
+    original = deepcopy(lock)
+    def respond(request):
+        if request.url.path == '/tokenize':
+            return httpx.Response(200, json={'count': count, 'max_model_len': 32768})
+        body = json.loads(request.content)
+        assert body['max_tokens'] == 32768 - count
+        return httpx.Response(200, json={'choices': [{
+            'finish_reason': 'stop', 'message': {'content': '{"ok":true}'},
+        }]})
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        assert request_semantics(client, runtime_lock=lock, task=task,
+                                 request={}, response_schema={}) == {'ok': True}
+    assert lock == original
+
+
+def test_saved_fixed_budget_remains_the_request_ceiling():
+    lock = _lock()
+    lock['material_semantics']['max_tokens'] = 8192
+    def respond(request):
+        if request.url.path == '/tokenize':
+            return httpx.Response(200, json={'count': 1000, 'max_model_len': 32768})
+        assert json.loads(request.content)['max_tokens'] == 8192
+        return httpx.Response(200, json={'choices': [{
+            'finish_reason': 'stop', 'message': {'content': '{"ok":true}'},
+        }]})
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        request_semantics(client, runtime_lock=lock, task='material_semantics',
+                          request={}, response_schema={})
+
+
+@pytest.mark.parametrize('task', ['material_semantics', 'material_review'])
+@pytest.mark.parametrize('count,fits', [(24576, True), (24577, False)])
+def test_analysis_reserves_output_without_dropping_input(task, count, fits):
+    generated = []
+    def respond(request):
+        if request.url.path == '/tokenize':
+            return httpx.Response(200, json={'count': count, 'max_model_len': 32768})
+        body = json.loads(request.content)
+        assert body['max_tokens'] == 8192
+        assert 'whole source' in body['messages'][0]['content']
+        generated.append(body)
+        return httpx.Response(200, json={'choices': [{
+            'finish_reason': 'stop', 'message': {'content': '{"ok":true}'},
+        }]})
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        kwargs = dict(runtime_lock=_lock(), task=task, request={'source': 'whole source'}, response_schema={})
+        if fits:
+            request_semantics(client, **kwargs)
+        else:
+            with pytest.raises(SemanticServiceError, match='SEMANTIC_INPUT_TOO_LARGE'):
+                request_semantics(client, **kwargs)
+    assert len(generated) == int(fits)
+
+
+def test_truncation_archives_only_safe_phase_and_token_metadata(monkeypatch):
+    from runtime.storage.analysis_archive import AnalysisArchive
+
+    secret = 'private source and reasoning must never be in failure metadata'
+    def respond(request):
+        if request.url.path == '/tokenize':
+            return httpx.Response(200, json={'count': 12000, 'max_model_len': 32768})
+        return httpx.Response(200, json={
+            'choices': [{'finish_reason': 'length', 'message': {'content': secret, 'reasoning_content': secret}}],
+            'usage': {'prompt_tokens': 12000, 'completion_tokens': 20768,
+                      'total_tokens': 32768, 'private': secret},
+        })
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(SemanticServiceError) as caught:
+            request_semantics(client, runtime_lock=_lock(), task='material_review',
+                              request={'source': secret}, response_schema={})
+    assert str(caught.value) == 'SEMANTIC_OUTPUT_TRUNCATED'
+    saved = {}
+    monkeypatch.setattr(AnalysisArchive, '_write', lambda self, name, value: saved.update({name: value}))
+    AnalysisArchive.__new__(AnalysisArchive).save_failure(caught.value)
+    assert saved['failure.json']['semantic_request'] == {
+        'task': 'material_review', 'input_tokens': 12000, 'max_tokens': 20768,
+        'finish_reason': 'length', 'prompt_tokens': 12000,
+        'completion_tokens': 20768, 'total_tokens': 32768,
+    }
+    assert secret not in json.dumps(saved)

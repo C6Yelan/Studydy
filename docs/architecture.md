@@ -55,3 +55,5 @@ Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；wor
 - DB 與檔案透過 staging、quarantine 及 reconciliation 保持一致。
 
 Migration runner 核對 [SQL序列](../backend/migrations/) 與 checksum，每版 schema 及帳本同交易提交。API 完整定義以 [OpenAPI](http://127.0.0.1:4173/v1/openapi.json) 及 [models.py](../backend/src/runtime/api/models.py) 為準。
+
+語意生成先取得實際輸入 token 數，再使用 32K 上下文剩餘空間，以上限設定為界。分析／教材檢核至少預留 8K 輸出，出題／題目檢核至少預留 16K（若明確設定較小上限則依該值）。只變更額度時可接續已驗證的分析 checkpoint，原工作快照維持不變。截斷失敗僅保存階段、結束原因與 token 數供排查。

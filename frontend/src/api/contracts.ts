@@ -319,6 +319,11 @@ export type AssessmentPlanView = {
 };
 
 export type AssessmentCycleSummary = {
+  inherited_from?: {
+    study_session_id: string;
+    knowledge_structure_revision: string;
+    run_id: string;
+  } | null;
   diagnostic_set_id: string;
   concept_id: string;
   set_version: number;

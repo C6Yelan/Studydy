@@ -187,6 +187,7 @@ export function StudySessionPage({
   const currentCycle = data.progress.assessment_cycles.find(
     (item) => item.concept_id === data.progress.current_concept_id,
   );
+  const inheritedCheck = !selectedSet && currentCycle?.inherited_from ? currentCycle : null;
   const nextAction = data.progress.next_action;
   const completesSession = nextAction.action === "complete";
   const nextConcept =
@@ -196,8 +197,7 @@ export function StudySessionPage({
   const currentResult =
     !completed &&
     !refreshMessage &&
-    layoutMode === "result" &&
-    selectedSet?.status === "completed" &&
+    ((layoutMode === "result" && selectedSet?.status === "completed") || inheritedCheck) &&
     currentCycle &&
     !currentCycle.active_set_id &&
     ["passed", "incomplete"].includes(currentCycle.outcome);
@@ -323,7 +323,26 @@ export function StudySessionPage({
                 </details>
               ))}
             <div className="study-current-action" id="assessment-panel">
-              <AssessmentSetPanel
+              {inheritedCheck ? (
+                <section className="surface assessment-cycle inherited-check" aria-label="承接的檢測結果">
+                  <h2>檢測通過</h2>
+                  <p>重點與來源皆未變更，已承接先前版本的檢測通過結果。</p>
+                  <div className="assessment-set-actions assessment-result-navigation">
+                    <button className="secondary-button" onClick={() => writeRoute({
+                      name: "study-session",
+                      materialId: route.materialId,
+                      runId: inheritedCheck.inherited_from!.run_id,
+                      structureRevision: inheritedCheck.inherited_from!.knowledge_structure_revision,
+                      studySessionId: inheritedCheck.inherited_from!.study_session_id,
+                      assessmentSetId: inheritedCheck.diagnostic_set_id,
+                    })}>查看原始結果</button>
+                    {continuation && (
+                      <button className="primary-button" disabled={continuation.busy}
+                        onClick={() => void continuation.onContinue()}>{continuation.label}</button>
+                    )}
+                  </div>
+                </section>
+              ) : <AssessmentSetPanel
                 apiClient={apiClient}
                 studySessionId={route.studySessionId}
                 selectedSetId={data.selectedSetId}
@@ -336,7 +355,7 @@ export function StudySessionPage({
                 initialPhase={initialSetPhase}
                 onPhaseChange={setPanelPhase}
                 continuation={continuation}
-              />
+              />}
             </div>
           </div>
         </div>

@@ -345,7 +345,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
         return reject("RESOURCE_NOT_FOUND", 404);
       const active = !["preparation", "no-safe"].includes(assessmentStage);
       const historical = selectedId === historySetId;
-      const selected = historical
+      const selected = scenario?.inheritedCheck ? null : historical
         ? buildAssessmentSet(true)
         : active && (!guidanceApplied || nextAction === "complete")
           ? buildAssessmentSet()
@@ -355,13 +355,23 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       let assessmentCycles = [];
       if (scenario?.navigation) assessmentCycles = [buildAssessmentSet().cycle];
       else if (selected) assessmentCycles = [selected.cycle];
+      if (scenario?.inheritedCheck) {
+        assessmentCycles = [{
+          ...buildAssessmentSet().cycle,
+          inherited_from: {
+            study_session_id: uuid(21),
+            knowledge_structure_revision: makeRevision("knowledge-structure", 21),
+            run_id: uuid(22),
+          },
+        }];
+      }
 
       const hasPendingNavigation = scenario?.navigation && !guidanceApplied;
       let targetConceptId = current;
       if (hasPendingNavigation) targetConceptId = nextAction === "advance" ? nextConceptId : null;
 
       let assessmentSets = [];
-      if (!scenario?.noHistory) {
+      if (!scenario?.noHistory && !scenario?.inheritedCheck) {
         if (scenario?.preparingHistory) {
           assessmentSets.push({
             ...buildAssessmentSet(),
@@ -525,7 +535,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     async open() {
       await page.goto(basePath);
       await page
-        .locator(".assessment-set-header, .assessment-cycle, .assessment-card")
+        .locator(".assessment-set-header, .assessment-cycle, .assessment-card, .inherited-check")
         .first()
         .waitFor();
     },

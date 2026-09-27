@@ -16,6 +16,7 @@ from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
 from .artifacts import _root, _sync_directory
 from .tables import Material, MaterialProcessingRun, database_session
 from ..material_runtime import same_material_runtime
+from ..semantic_service import SemanticServiceError
 
 
 class AnalysisArchiveError(RuntimeError):
@@ -259,6 +260,8 @@ class AnalysisArchive:
         # 不保存 exception message／locals，避免把 DSN 或私人答案寫入一般診斷。
         self._write('failure.json', {
             'exception_type': type(error).__name__,
+            **({'semantic_request': error.request_metadata}
+               if isinstance(error, SemanticServiceError) and error.request_metadata else {}),
             'frames': [
                 {'file': Path(frame.filename).name, 'function': frame.name, 'line': frame.lineno}
                 for frame in traceback.extract_tb(error.__traceback__)

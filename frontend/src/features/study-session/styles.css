@@ -149,3 +149,11 @@
 .study-main .study-learning-grid.is-set-mode:not(.is-preparation-mode) .study-current-action {
   width: 100%;
 }
+
+.inherited-check .assessment-set-actions > button {
+  min-width: 0;
+  max-width: 100%;
+  padding-block: 0.65rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

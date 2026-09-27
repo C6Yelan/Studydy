@@ -43,7 +43,7 @@ def test_new_remediation_uses_current_budget_without_rewriting_diagnostic_histor
         assert old_lock['assessment']['max_tokens'] == 4096
         assert old_lock['assessment']['check_max_tokens'] == 1536
         assert new_lock == current_lock
-        assert new_lock['assessment']['max_tokens'] == new_lock['assessment']['check_max_tokens'] == 16384
+        assert new_lock['assessment']['max_tokens'] == new_lock['assessment']['check_max_tokens'] == 32768
     finish(fixture, 'new-budget-remediation')
     assert read(fixture, child)['status'] == 'ready'
     assert read(fixture, root)['items'] == old_items
