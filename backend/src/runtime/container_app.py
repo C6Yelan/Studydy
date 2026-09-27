@@ -62,7 +62,7 @@ def main() -> None:
             _origin(os.environ[SERVICE_URL_ENV])
             check_sandbox()
         configure_database(os.environ)
-        # 新環境直接套用 schema；既有 schema 仍經原有 checksum／交易檢查。
+        # 啟動時核對已套用的 checksum，再以交易執行待套用的 migration。
         run_migrations()
         if command == "migrate":
             return

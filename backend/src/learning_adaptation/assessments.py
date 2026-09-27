@@ -156,7 +156,7 @@ def _provenance(group):
 
 
 def _provenance_for_row(session, row, by_set):
-    # 必須回到生成該題的題組，不能用目前出題設定或教材分析模型代替。
+    # 依生成該題的題組快照驗證身分。
     group = session.scalar(select(AssessmentSet).join(
         AssessmentSetItem, AssessmentSetItem.set_id == AssessmentSet.set_id,
     ).where(
@@ -661,7 +661,7 @@ def _documents(
         if option["text"] == candidate["correct_answer"]
     )
     # 待發布題目已通過獨立的來源解題與重複檢查。
-    # novelty 與 learning_angle 只留在 provenance，不回寫既有題目的採計資格。
+    # novelty 與 learning_angle 僅記錄於 provenance，不改題目的採計資格。
     mastery_qualified = True
     public_core = {
         "schema": "single-choice-assessment/v1",

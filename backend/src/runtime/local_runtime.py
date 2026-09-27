@@ -22,7 +22,7 @@ def _verify_model_loads(local_config: dict[str, Any]) -> None:
 
 
 def verify_local_runtime(local_config: dict[str, Any]) -> dict[str, Any]:
-    """以現有production loaders驗證本機runtime具備必要能力。"""
+    """以產品載入器驗證執行環境與模型能力。"""
 
     runtime_preflight(local_config)
     with material_analysis_lock(Path(local_config["private_runtime_root"])):

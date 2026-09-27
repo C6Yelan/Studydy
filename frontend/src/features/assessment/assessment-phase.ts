@@ -2,7 +2,7 @@ import type { AssessmentSetSummary } from "../../api/contracts";
 
 export type AssessmentPhase = "preparation" | "preparing" | "intervention" | "question" | "result";
 
-// 僅投影既有題組狀態為版面；resume 摘要與完整題組共用，避免讀取期間閃回教材。
+// resume 摘要與完整題組共用狀態投影，避免讀取時畫面跳動。
 export function assessmentPhase(
   group?: Pick<AssessmentSetSummary, "status" | "published_count" | "answered_count"> | null,
 ): AssessmentPhase {

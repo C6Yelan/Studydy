@@ -66,7 +66,7 @@ def unchanged_claims(before, after):
 
 
 def seed_incremental_state(before, context, binding):
-    """用現行來源綁定重建可接續的語意狀態，不沿用舊閱讀頁碼。"""
+    """依來源綁定重建語意狀態與集合頁碼。"""
     current = {"input_binding": binding}
     by_identity = {
         evidence_identity(current, item): item for item in context["evidence"]

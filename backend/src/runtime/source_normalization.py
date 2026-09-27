@@ -1,4 +1,4 @@
-"""原檔 receipt 與 durable normalization；來源集合由明確確認的 revision 操作封存。"""
+"""保存原始來源與轉檔工作，由 revision 操作封存來源集合。"""
 
 from __future__ import annotations
 

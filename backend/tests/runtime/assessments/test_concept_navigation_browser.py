@@ -14,7 +14,7 @@ from assessment_fixtures import other_concept, other_model, concept_fixture, mod
 from product_fixtures import closed_loop
 
 
-# 題組隔離與衝突接續只跑一次；桌機／手機導覽互動由既有 knowledge-map-*／study-next-step mock 驗證。
+# 題組隔離與衝突接續使用真 API；各版面導覽由 mock 驗證。
 def test_navigation_keeps_unfinished_concepts_and_resumes_duplicate_intent(closed_loop, monkeypatch):
     fixture = concept_fixture(closed_loop, 1)
     other = other_concept(fixture)

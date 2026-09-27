@@ -52,7 +52,7 @@ function trackStudyWrites(page: Page) {
   return writes;
 }
 
-// 此檔需要舊／新 session ID 與不同 run 的讀取；回應必須綁定目前的紀錄。
+// 各 session／run 的回應須綁定所請求的紀錄。
 async function mockStudyReads(
   page: Page,
   view: ReturnType<typeof structureView>,

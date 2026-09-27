@@ -1,4 +1,4 @@
-"""正式 worker 的檢核發布、重試與舊版本保存；模型僅用受控回應。"""
+"""以受控模型驗證 worker 檢核、發布、重試及版本保留。"""
 
 from copy import deepcopy
 import json

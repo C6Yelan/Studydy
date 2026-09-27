@@ -2,7 +2,7 @@ import type { KnowledgeStructureView } from "../api/contracts";
 
 type Claim = KnowledgeStructureView["concepts"][number]["claims"][number];
 
-// Restore only source whitespace, never infer code or add source content to a claim.
+// 只還原來源空白，不推測程式碼或補入 Claim 內容。
 export function claimText(claim: Claim): string {
   if (claim.text.includes("\n")) return claim.text;
   const normalize = (text: string) => text.replace(/\s+/g, " ").trim();

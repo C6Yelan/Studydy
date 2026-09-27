@@ -128,7 +128,7 @@ def read_material_library(
 
 
 def rename_material(learner_id: UUID, material_id: UUID, display_name: str, *, dsn: str | None = None) -> dict:
-    """Rename only the learner-facing title; identities and source content stay immutable."""
+    """只修改教材顯示名稱，保留來源身分與內容。"""
     if not isinstance(display_name, str) or any(category(char) in {"Cc", "Cs"} for char in display_name):
         raise MaterialLibraryError("REQUEST_INVALID")
     name = display_name.strip()

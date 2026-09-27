@@ -54,7 +54,7 @@ class MaterialAnalysisError(RuntimeError):
 
 
 def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, Any]:
-    """依實際用途驗證目前 v1 的元件契約。"""
+    """依分析或評量用途驗證 runtime lock。"""
 
     try:
         if not isinstance(lock, dict) or set(lock) - {'material_review'} != {

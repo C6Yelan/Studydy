@@ -15,7 +15,7 @@ from product_fixtures import closed_loop
 from assessment_fixtures import concept_fixture, model_for
 
 
-# 完整 API／DB 流程只跑一次；桌機／手機互動與版面由既有 study-* mock browser 測試驗證。
+# API／DB 流程與 study-* mock 的版面測試分開執行。
 def test_direct_remediation_resumes_after_lost_create_response_without_duplicates(closed_loop, monkeypatch):
     fixture = concept_fixture(closed_loop, 3)
     monkeypatch.setattr(api, "runtime_binding", lambda _: {})

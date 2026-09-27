@@ -35,7 +35,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
   await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   await original.close();
 
-  // 全新 cookie jar/storage，只用帳密和教材名稱導航，不注入 UUID 或已知網址。
+  // 使用獨立瀏覽器，僅憑登入與教材名稱找回資料。
   const fresh = await browser.newContext();
   const freshPage = await fresh.newPage();
   await login(freshPage, "learner_test@example.com");

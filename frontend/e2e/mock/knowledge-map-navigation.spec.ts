@@ -21,7 +21,7 @@ import {
 
 const mapPath = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
 
-// 後端以 assess + prerequisite_concept_ids 提示前置觀念，不會產生 review_prerequisite。
+// 前置觀念由 assess 與 prerequisite_concept_ids 表示。
 for (const [action, marksNext] of [
   ["advance", true],
   ["resume", true],

@@ -164,7 +164,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     const isCompleted = status === "completed";
     const kind = historical ? "diagnostic" : (scenario?.kind ?? "diagnostic");
     const groupId = historical ? historySetId : setId;
-    // 基本流程使用六題；結果與 rail 的自訂情境預設四題，也可指定 count。
+    // 基本流程預設六題，自訂結果／導覽情境預設四題。
     const count = scenario?.count ?? (scenario ? 4 : 6);
     const availableCount = count - (scenario?.unavailable ?? 0);
     const publicationLimit = isPartialPublication && !historical ? 4 : availableCount;

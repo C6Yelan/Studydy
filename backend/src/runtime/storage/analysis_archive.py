@@ -125,7 +125,7 @@ class AnalysisArchive:
         return None
 
     def reuse_review_response(self, request):
-        """同一輸入重試時沿用僅因複核旗標拒絕的回應，避免重複推論。"""
+        """重用同一輸入中僅因複核旗標被拒絕的回應。"""
         if self._checkpoint is None or self._checkpoint.get('restart_semantics'):
             return None
         for run_id, signature in self._review_response_runs:
@@ -230,7 +230,7 @@ class AnalysisArchive:
                     response = _read_envelope(path, run_id, signature)['data']
                     reuse_kind = 'saved_response'
                 else:
-                    # 驗證器修正後，可以重新核對原始回應；不用為同一輸入再付一次推論費用。
+                    # 同一輸入可重新驗證保存的回應，避免重複推論。
                     if validate_response is None:
                         continue
                     for request_path in sorted(directory.glob('call-*/request.json'), reverse=True):
@@ -294,14 +294,14 @@ def cleanup_published_checkpoints(owner, material_id, run_id, *, dsn):
                 raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_CLEANUP_FAILED')
             if not checkpoint.exists():
                 return False
-            # 完整狀態刪除後仍能追查沿用哪次失敗分析，避免把舊呼叫量冒稱本次新推論。
+            # 保留重用來源與新增呼叫計數，供 checkpoint 清理後查核。
             receipt = {'run_id': str(run_id),
                        'knowledge_structure_revision': run.output_binding['knowledge_structure_revision']}
             try:
                 saved = _read_envelope(checkpoint, run_id, _checkpoint_input_digest(run))
                 receipt['reused_from_run'] = saved['reused_from_run']
             except (ValueError, KeyError, TypeError):
-                # 發布已由 DB 確認；損毀的恢復狀態不再有用途，也不能反過來卡住清理。
+                # DB 已確認發布，可清理損毀的恢復狀態。
                 _logger.warning('ANALYSIS_CHECKPOINT_METADATA_UNAVAILABLE', extra={'run_id': str(run_id)})
             with tempfile.NamedTemporaryFile(dir=directory, prefix='.writing-', delete=False) as stream:
                 temporary = Path(stream.name)

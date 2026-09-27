@@ -1,5 +1,5 @@
 
-"""B2-I 使用 disposable DB／合成來源，不使用產品模型或資料。"""
+"""使用隔離 DB、合成來源與受控模型。"""
 
 from copy import deepcopy
 import io

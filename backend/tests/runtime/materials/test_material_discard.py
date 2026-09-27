@@ -136,7 +136,7 @@ def test_unused_terminal_and_pending_materials_are_physically_removed(unused, st
         if state == 'failed':
             claim(unused); processing._record_failure(run.run_id, 'EXPECTED_FAILURE', dsn=unused.dsn)
         if state == 'cancelled':
-            # Historical terminal cancellation is valid, and must never be auto-discarded.
+            # 已取消工作仍是有效紀錄，不因啟動恢復流程而刪除教材。
             with psycopg.connect(unused.dsn) as c:
                 c.execute("UPDATE material_processing_runs SET status='cancelled',cancel_requested_at=now(),completed_at=now() WHERE run_id=%s", (run.run_id,))
     discard.finish_material_discards(dsn=unused.dsn)
@@ -478,7 +478,7 @@ def test_final_schema_enforces_cancelled_run_constraints(clean_database_dsn):
         with psycopg.connect(clean_database_dsn) as connection:
             with pytest.raises(psycopg.errors.CheckViolation):
                 connection.execute(f"UPDATE material_processing_runs SET {invalid}")
-    # 最終規則允許 publishing 尚未提交時保存取消意圖。
+    # 發布交易提交前可保存取消意圖。
     with psycopg.connect(clean_database_dsn) as connection:
         connection.execute(
             """UPDATE material_processing_runs

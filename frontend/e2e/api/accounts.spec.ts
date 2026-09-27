@@ -9,7 +9,7 @@ const revision = process.env.STUDYDY_E2E_ACCOUNT_REVISION!;
 const artifactId = process.env.STUDYDY_E2E_ACCOUNT_ARTIFACT!;
 const mapPath = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(revision)}`;
 
-// 只保留需要真 cookie、owner／DB 或伺服器驗證的流程；純介面案例在 mock/accounts.spec.ts。
+// 驗證真 cookie、owner／DB 與伺服器；純介面案例見 mock/accounts.spec.ts。
 test.skip(!learnerId, "Requires the local account API/DB fixture");
 
 async function login(page: Page, email: string, suppliedPassword = password) {

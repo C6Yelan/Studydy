@@ -1,4 +1,4 @@
-"""驗證來源綁定、Evidence、概念、關係與正式 v1 地圖。"""
+"""驗證知識地圖的來源、Evidence、概念與關係。"""
 from __future__ import annotations
 
 from datetime import datetime

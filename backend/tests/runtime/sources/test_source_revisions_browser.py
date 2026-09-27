@@ -1,4 +1,4 @@
-"""真 API／DB／轉檔與 worker 的 B3-A browser；只有語意回應為受控 fixture。"""
+"""以真 API、DB、轉檔及 worker 驗證來源流程，語意回應使用受控 fixture。"""
 
 import httpx
 from uuid import uuid4

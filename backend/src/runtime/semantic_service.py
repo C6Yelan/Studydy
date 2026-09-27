@@ -94,7 +94,7 @@ def _service(lock: Any) -> dict[str, Any]:
 def preflight_semantic_service(
     runtime_lock: dict[str, Any], *, client: httpx.Client | None = None
 ) -> None:
-    """確認既有 resident vLLM 的版本、模型與 32K tokenizer contract。"""
+    """核對 vLLM 版本、模型及 32K tokenizer 契約。"""
 
     service = _service(runtime_lock)
     owned = client is None
@@ -215,7 +215,7 @@ def request_semantics(
     request: dict[str, Any],
     response_schema: dict[str, Any],
 ) -> dict[str, Any]:
-    """所有產品語意共用同一 resident service 與同一 transport boundary。"""
+    """透過共用 HTTP 邊界請求語意結果。"""
 
     service = _service(runtime_lock)
     try:

@@ -1,4 +1,4 @@
-"""領域 baseline 與 runner 的持久資料保護；只使用隔離 PostgreSQL。"""
+"""以隔離 PostgreSQL 驗證 migration 安裝、升級與資料保護。"""
 
 from concurrent.futures import ThreadPoolExecutor
 import shutil

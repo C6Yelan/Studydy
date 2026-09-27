@@ -74,7 +74,7 @@ export function AssessmentSetPanel({
   const scopeKey = `${studySessionId}/${concept.concept_id}/${selectedSetId ?? ""}`;
   const currentScope = useRef(scopeKey);
   currentScope.current = scopeKey;
-  // 舊頁面的晚到回應不可把使用者拉回前一個觀念，或清掉另一題組的選取。
+  // 過期回應不得改變目前觀念或清除其他題組的選取。
   const isCurrent = () => alive.current && currentScope.current === scopeKey;
 
   const accept = (next: AssessmentSetView) => {

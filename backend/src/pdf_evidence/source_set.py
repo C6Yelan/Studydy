@@ -58,7 +58,7 @@ def collect_source_set(
         ):
             raise ValueError("SOURCE_BINDING_INVALID")
         if base is not None and offset + page_count <= base["page_count"]:
-            # 舊頁使用已驗證的 Evidence，改成目前來源集合的身分；不重跑 OCR。
+            # 重用頁面 Evidence，依本次來源集合重新綁定身分，不重跑 OCR。
             for number in range(offset + 1, offset + page_count + 1):
                 prior_blocks = [
                     evidence for evidence in base["evidence"]

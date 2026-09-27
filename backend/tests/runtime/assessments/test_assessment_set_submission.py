@@ -167,7 +167,7 @@ def test_previously_saved_individual_answer_is_preserved_when_finishing_set(clos
     finish_set(fixture)
     answers = answers_for(fixture, set_id)
 
-    # 建立切換前已保存一題的 fixture，公開單題 API 現在禁止新增題組答案。
+    # 模擬已有部分答案的題組，驗證單題 API 不得新增題組答案。
     with database_session(fixture["dsn"]) as session:
         study, _, _ = sets._scope(
             session, fixture["learner"], fixture["study"].study_session_id, lock=True,
