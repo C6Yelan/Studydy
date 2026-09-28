@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from functools import partial
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from dataclasses import asdict
@@ -230,6 +231,7 @@ def _page_evidence(
     produced_at: str,
     report: Progress,
     cancellation_check: Callable[[], None],
+    *, wait_cancellation_check: Callable[[], None] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     pages: list[dict[str, Any]] = []
     excluded: list[dict[str, Any]] = []
@@ -278,6 +280,7 @@ def _page_evidence(
                             },
                         },
                         None,
+                        cancellation_check=wait_cancellation_check or cancellation_check,
                     )
                     if (
                         set(response) != {"schema", "request_id", "blocks"}
@@ -322,6 +325,7 @@ def analyze_material(
     produced_at: str | None = None,
     progress_callback: Progress | None = None,
     cancellation_check: Callable[[], None] | None = None,
+    wait_cancellation_check: Callable[[], None] | None = None,
     client: httpx.Client | None = None,
     semantic_call: Callable[..., dict[str, Any]] = request_semantics,
     base_structure: dict[str, Any] | None = None,
@@ -334,6 +338,7 @@ def analyze_material(
     resolved_time = produced_at or datetime.now(UTC).isoformat()
     report = progress_callback or (lambda _stage, _completed, _total: None)
     check_cancel = cancellation_check or (lambda: None)
+    check_wait = wait_cancellation_check or check_cancel
     source_digest = input_binding["source_set_digest"]
     restored = analysis_archive.load_checkpoint() if analysis_archive is not None else None
     check_cancel()
@@ -357,7 +362,8 @@ def analyze_material(
             page_numbers = list(range(1, len(input_binding["bundle"]["pages"]) + 1))
             pages, excluded, ocr_calls = collect_source_set(
                 source_inputs, input_binding, base_structure, Path(directory),
-                settings, resolved_time, report, check_cancel, _page_evidence,
+                settings, resolved_time, report, check_cancel,
+                partial(_page_evidence, wait_cancellation_check=check_wait),
             )
         evidence_duration_ms = round((time.monotonic() - evidence_started) * 1000)
         check_cancel()
@@ -413,7 +419,7 @@ def analyze_material(
     try:
         bundles = iter(build_semantic_bundles(
             context, state=state,
-            fits=lambda request: material_request_fits(http, lock, request),
+            fits=lambda request: material_request_fits(http, lock, request, cancellation_check=check_wait),
             minimum_page=base_structure["page_count"] + 1 if base_structure else 1,
             minimum_evidence_index=cursor,
         ))
@@ -445,6 +451,7 @@ def analyze_material(
                             http,
                             runtime_lock=lock,
                             task="material_semantics",
+                            cancellation_check=check_wait,
                             request=request_document,
                             response_schema=semantic_response_schema([
                                 row[0]

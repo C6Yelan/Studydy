@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 import json
 import os
+import socket
+from threading import Event, Lock, Thread
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -19,6 +21,7 @@ TOKENIZE_PATH = "/tokenize"
 PREFLIGHT_TIMEOUT_SECONDS = 5
 MAX_RESPONSE_BYTES = 1024 * 1024
 INFERENCE_TIMEOUT = httpx.Timeout(None, connect=PREFLIGHT_TIMEOUT_SECONDS)
+_CANCELLATION_POLL_SECONDS = 0.1
 MIN_OUTPUT_TOKENS = {
     "material_semantics": 8192, "material_review": 8192,
     "assessment": 16384, "assessment_check": 16384,
@@ -80,6 +83,57 @@ def semantic_client(*, environment: Mapping[str, str] | None = None) -> httpx.Cl
         follow_redirects=False,
         timeout=INFERENCE_TIMEOUT,
     )
+
+
+def _post(client, url, *, json, cancellation_check=None):
+    """取消時解除本地 socket wait；不宣稱遠端 generation 已停止。"""
+    if cancellation_check is None:
+        return client.post(url, json=json)
+    cancellation_check()
+    done = Event()
+    lock = Lock()
+    connections = []
+    cancelled = []
+
+    def interrupt():
+        for connection in connections:
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    def trace(event, info):
+        if event in {"connection.connect_tcp.complete", "connection.start_tls.complete"}:
+            connection = info["return_value"].get_extra_info("socket")
+            with lock:
+                if connection is not None:
+                    connections.append(connection)
+                if cancelled:
+                    interrupt()
+                    raise cancelled[0]
+
+    def watch():
+        while not done.wait(_CANCELLATION_POLL_SECONDS):
+            try:
+                cancellation_check()
+            except Exception as error:
+                with lock:
+                    cancelled.append(error)
+                    interrupt()
+                return
+
+    watcher = Thread(target=watch, name="studydy-semantic-cancellation", daemon=True)
+    watcher.start()
+    try:
+        # 每個 inference HTTP request 都結束其連線，下一次不會重用未經 trace 的 socket。
+        response = client.post(url, json=json, headers={"Connection": "close"}, extensions={"trace": trace})
+        cancellation_check()
+        return response
+    finally:
+        done.set()
+        watcher.join()
+        if cancelled:
+            raise cancelled[0]
 
 
 def _service(lock: Any) -> dict[str, Any]:
@@ -196,8 +250,9 @@ def _token_count(
     service: dict[str, Any],
     messages: list[dict[str, str]],
     chat_template_kwargs: dict[str, Any] | None = None,
+    cancellation_check: Callable[[], None] | None = None,
 ) -> int:
-    response = client.post(
+    response = _post(client,
         f"{service['base_url']}{TOKENIZE_PATH}",
         json={
             "model": service["model_id"],
@@ -207,6 +262,7 @@ def _token_count(
             "chat_template_kwargs": {"enable_thinking": True},
             **({"chat_template_kwargs": chat_template_kwargs} if chat_template_kwargs is not None else {}),
         },
+        cancellation_check=cancellation_check,
     )
     response.raise_for_status()
     body = response.json()
@@ -227,6 +283,7 @@ def request_semantics(
     task: str,
     request: dict[str, Any],
     response_schema: dict[str, Any],
+    cancellation_check: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """透過共用 HTTP 邊界請求語意結果。"""
 
@@ -248,9 +305,9 @@ def request_semantics(
             raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
         messages = _messages(prompt, request)
         generation = deepcopy(task_lock[prefix + "generation"])
-        input_tokens = _token_count(client, service, messages, generation.get("chat_template_kwargs"))
+        input_tokens = _token_count(client, service, messages, generation.get("chat_template_kwargs"), cancellation_check)
         max_tokens = _output_budget(task, max_tokens, input_tokens, service["max_model_len"])
-        response = client.post(
+        response = _post(client,
             f"{service['base_url']}{CHAT_PATH}",
             json={
                 **generation,
@@ -266,6 +323,7 @@ def request_semantics(
                     },
                 },
             },
+            cancellation_check=cancellation_check,
         )
         response.raise_for_status()
     except SemanticServiceError:
@@ -317,14 +375,15 @@ def request_semantics(
 
 
 def material_request_fits(
-    client: httpx.Client, runtime_lock: dict[str, Any], request: dict[str, Any]
+    client: httpx.Client, runtime_lock: dict[str, Any], request: dict[str, Any],
+    *, cancellation_check: Callable[[], None] | None = None,
 ) -> bool:
     """以模型服務 tokenizer 計算分批容量；不截斷單一來源區塊。"""
 
     service = _service(runtime_lock)
     task = runtime_lock["material_semantics"]
     try:
-        count = _token_count(client, service, _messages(task["prompt"], request), task["generation"]["chat_template_kwargs"])
+        count = _token_count(client, service, _messages(task["prompt"], request), task["generation"]["chat_template_kwargs"], cancellation_check)
         try:
             _output_budget("material_semantics", task["max_tokens"], count, service["max_model_len"])
         except SemanticServiceError:
@@ -335,7 +394,7 @@ def material_request_fits(
         new_count = count
         if request.get("existing_concepts"):
             fresh_request = {**request, "existing_concepts": []}
-            new_count = _token_count(client, service, _messages(task["prompt"], fresh_request), task["generation"]["chat_template_kwargs"])
+            new_count = _token_count(client, service, _messages(task["prompt"], fresh_request), task["generation"]["chat_template_kwargs"], cancellation_check)
     except httpx.TimeoutException as error:
         raise SemanticServiceError("SEMANTIC_SERVICE_TIMEOUT") from error
     except (httpx.HTTPError, UnicodeError, ValueError) as error:

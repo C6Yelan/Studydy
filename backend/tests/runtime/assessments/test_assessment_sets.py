@@ -352,3 +352,82 @@ def test_heartbeat_retries_storage_failure_but_stops_on_stale_work(monkeypatch):
     sets._heartbeat(None, Stop(), None)
     assert len(calls) == 3
     assert group.lease_expires_at is not None
+
+
+@pytest.mark.parametrize('intent', ['discard', 'shutdown', 'lost-token'])
+def test_blocking_semantic_wait_exits_without_publishing(closed_loop, monkeypatch, intent):
+    from threading import Event, Thread
+    from runtime.semantic_service import request_semantics
+    from test_inference_controlled_exit import blocked_http
+
+    fixture = concept_fixture(closed_loop, 1)
+    set_id = create(fixture)
+    work = sets.claim_set_work(dsn=fixture['dsn'])
+    shutdown = Event()
+    monkeypatch.setattr(sets, '_LEASE_HEARTBEAT_SECONDS', .05)
+    finished = Event()
+    def execute():
+        try:
+            sets.execute_set_work(work, dsn=fixture['dsn'], semantic_call=request_semantics, shutdown=shutdown)
+        finally:
+            finished.set()
+    with blocked_http(monkeypatch) as server:
+        thread = Thread(target=execute, daemon=True)
+        thread.start()
+        try:
+            assert server.entered.wait(5)
+            if intent == 'discard':
+                request_material_discard(fixture['learner'].learner_id, fixture['source'].material_id,
+                                         dsn=fixture['dsn'])
+            elif intent == 'shutdown':
+                shutdown.set()
+            else:
+                with database_session(fixture['dsn']) as session:
+                    session.get(AssessmentSet, set_id).lease_token = uuid4()
+            assert finished.wait(3)
+            thread.join(1)
+            assert not thread.is_alive()
+            with database_session(fixture['dsn']) as session:
+                assert session.scalar(select(Assessment).where(Assessment.study_session_id == work.study_session_id)) is None
+                group = session.get(AssessmentSet, set_id)
+                if intent == 'discard':
+                    assert group is None
+                else:
+                    assert group.status == 'preparing'
+                    assert session.get(AssessmentSetItem, (set_id, work.ordinal)).prepared_document is None
+            server.release.set()
+        finally:
+            server.release.set()
+            thread.join(3)
+
+
+def test_worker_shutdown_interrupts_assessment_and_does_not_claim_again(closed_loop, monkeypatch):
+    import runtime.workers as workers
+    from test_inference_controlled_exit import blocked_http
+
+    fixture = concept_fixture(closed_loop, 1)
+    set_id = create(fixture)
+    claimed = []
+    claim = sets.claim_set_work
+    def observe(**kwargs):
+        work = claim(**kwargs)
+        claimed.append(work)
+        return work
+    monkeypatch.setattr(sets, 'claim_set_work', observe)
+    monkeypatch.setattr(workers, '_SHUTDOWN_WAIT_SECONDS', 2)
+    with blocked_http(monkeypatch) as server:
+        worker = workers.RuntimeWorkers(fixture['dsn'], closed_loop[2])
+        worker.start()
+        try:
+            assert server.entered.wait(5)
+            worker.stop()
+            worker.stop()
+            assert not worker._thread.is_alive()
+            assert len(claimed) == 1
+            with database_session(fixture['dsn']) as session:
+                group = session.get(AssessmentSet, set_id)
+                assert group.status == 'preparing'
+                assert session.get(AssessmentSetItem, (set_id, claimed[0].ordinal)).prepared_document is None
+        finally:
+            server.release.set()
+            worker.stop()
