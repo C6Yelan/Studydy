@@ -51,7 +51,7 @@ def test_source_round_trip_freeze_resume_and_owned_delete(closed_loop,tmp_path,m
     claim=claim_next_material_processing_run(dsn=dsn);assert claim.run.run_id==run.run_id
     for stage in ('evidence','semantics','publishing'):_record_progress(run.run_id,stage,1,1,dsn=dsn)
     from pdf_evidence import material_pipeline
-    monkeypatch.setattr(material_pipeline,'material_request_fits',lambda *_:True)
+    monkeypatch.setattr(material_pipeline,'material_request_fits',lambda *_,**kwargs:True)
     with open_verified_artifact(owner,run.source_artifact_id,dsn=dsn) as pdf:
         source_path=tmp_path/'normalized-fixture.pdf';source_path.write_bytes(pdf.file.read());source_sha=pdf.sha256
     def semantics(_client,**request):

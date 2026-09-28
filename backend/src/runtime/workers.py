@@ -90,11 +90,13 @@ class RuntimeWorkers:
                 claim = claim_next_material_processing_run(dsn=self.dsn)
                 if claim is not None:
                     execute_claimed_material_processing_run(
-                        claim, deepcopy(self.local_config), dsn=self.dsn
+                        claim, deepcopy(self.local_config), dsn=self.dsn, shutdown=self._stop
                     )
                 if self._stop.is_set():
                     return
-                run_next_set(dsn=self.dsn)
+                run_next_set(dsn=self.dsn, shutdown=self._stop)
+                if self._stop.is_set():
+                    return
                 finish_material_discards(dsn=self.dsn)
             except Exception as error:
                 if is_starting:
