@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from collections.abc import Callable
 import json
 import os
 import subprocess
+from time import monotonic
 from typing import Any
 
 
@@ -100,7 +102,8 @@ class LocalAIProcess:
                 pass
 
     def request(
-        self, request: dict[str, Any], timeout_seconds: float | None
+        self, request: dict[str, Any], timeout_seconds: float | None,
+        *, cancellation_check: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         try:
             encoded = json.dumps(
@@ -118,11 +121,26 @@ class LocalAIProcess:
             raise LocalAIError("CHILD_EXITED")
         executor = ThreadPoolExecutor(max_workers=1)
         future = executor.submit(self._exchange, encoded)
+        deadline = None if timeout_seconds is None else monotonic() + timeout_seconds
         try:
-            return future.result(timeout=timeout_seconds)
+            while True:
+                if cancellation_check is not None:
+                    cancellation_check()
+                remaining = None if deadline is None else max(0, deadline - monotonic())
+                try:
+                    response = future.result(timeout=min(0.1, remaining) if remaining is not None else 0.1)
+                    if cancellation_check is not None:
+                        cancellation_check()
+                    return response
+                except FutureTimeout:
+                    if deadline is not None and monotonic() >= deadline:
+                        raise
         except FutureTimeout as error:
             self.abort()
             raise LocalAIError("CHILD_TIMEOUT") from error
+        except BaseException:
+            self.abort()
+            raise
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 

@@ -130,7 +130,7 @@ def test_ocr_lock_covers_child_lifetime_and_releases_before_semantics(tmp_path, 
                 pass
 
     class Ocr(FailedOcr):
-        def request(self, request, timeout):
+        def request(self, request, timeout, **kwargs):
             assert_locked()
             events.append('request')
             return super().request(request, timeout)
@@ -177,7 +177,7 @@ def test_failed_ocr_start_does_not_keep_lock_for_next_page(tmp_path, monkeypatch
 
 
 class FailedOcr:
-    def request(self, _request, _timeout):
+    def request(self, _request, _timeout, **kwargs):
         raise pipeline.LocalAIError("CHILD_EXITED")
 
     def close(self):
@@ -337,7 +337,7 @@ def test_cancellation_at_evidence_checkpoint_does_not_start_the_next_page(tmp_pa
 def test_bundle_input_limit_keeps_reason_without_model_call(tmp_path, monkeypatch):
     source = tmp_path / "limit.pdf"
     _pdf(source, 1)
-    monkeypatch.setattr(pipeline, "material_request_fits", lambda *args: False)
+    monkeypatch.setattr(pipeline, "material_request_fits", lambda *args, **kwargs: False)
     calls = []
     with pytest.raises(pipeline.MaterialAnalysisError, match="SEMANTIC_INPUT_TOO_LARGE"):
         _analyze(source, _settings(tmp_path), client=Client(), semantic_call=_semantic(calls))

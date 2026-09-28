@@ -16,4 +16,4 @@
 
 依賴版本見 [Python lock](backend/uv.lock)、[npm lock](frontend/package-lock.json)；模型設定見 [runtime lock](local_ai/runtime-lock.json)。各套件與模型適用其發行者條款。
 
-Studydy 尚未提供專案 LICENSE；第三方元件的授權不代表整個專案或介面素材採用相同授權。
+Studydy 原創程式碼除另有標示外採 [MIT License](LICENSE) 授權。第三方元件、模型與介面素材仍依各自適用條款，不因專案採 MIT License 而改變其原授權狀態。

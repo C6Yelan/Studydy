@@ -33,7 +33,7 @@ def revisions(closed_loop, monkeypatch):
     from pdf_evidence import material_pipeline
     import runtime.material_processing as processing
     monkeypatch.setattr(processing, "runtime_preflight", lambda config: runtime_binding(config))
-    monkeypatch.setattr(material_pipeline, "material_request_fits", lambda *_: True)
+    monkeypatch.setattr(material_pipeline, "material_request_fits", lambda *_, **kwargs: True)
     actual = material_pipeline.analyze_material
     requests = []
 
@@ -289,7 +289,7 @@ def test_retry_without_usable_added_claims_reuses_evidence_but_retries_semantics
         identity=upload_source(learner.learner_id,material,document.tobytes(),'B.pdf','application/pdf','two-pages',dsn=dsn)
     assert normalize_next(dsn=dsn)
     second=next(item['normalization_id'] for item in read_sources(learner.learner_id,material,dsn=dsn) if item['source_id']==identity)
-    monkeypatch.setattr(material_pipeline,'material_request_fits',lambda _client,_lock,request:sum(len(section['evidence']) for section in request['sections'])<=1)
+    monkeypatch.setattr(material_pipeline,'material_request_fits',lambda _client,_lock,request,**kwargs:sum(len(section['evidence']) for section in request['sections'])<=1)
     start([second],'no-added-claims',old['revision'])
     with monkeypatch.context() as patch:
         patch.setattr(processing,'analyze_material',lambda *args,**kwargs:material_pipeline.analyze_material(*args,**kwargs,
@@ -357,7 +357,7 @@ def test_retry_continues_at_failed_block_then_cleans_checkpoints_and_keeps_call_
         identity=upload_source(learner.learner_id,material,doc.tobytes(),'Two blocks.pdf','application/pdf','two-blocks',dsn=dsn)
     assert normalize_next(dsn=dsn)
     source=next(item for item in read_sources(learner.learner_id,material,dsn=dsn) if item['source_id']==identity)
-    monkeypatch.setattr(material_pipeline,'material_request_fits',lambda _client,_lock,request:sum(len(section['evidence']) for section in request['sections'])<=1)
+    monkeypatch.setattr(material_pipeline,'material_request_fits',lambda _client,_lock,request,**kwargs:sum(len(section['evidence']) for section in request['sections'])<=1)
     calls=[];fail_later=True
     def semantic(_client,**kwargs):
         rows=[row for section in kwargs['request']['sections'] for row in section['evidence']]
@@ -448,7 +448,7 @@ def test_retry_reuses_previously_blocked_review_response_before_requesting_remai
         source_id=upload_source(learner.learner_id,material,document.tobytes(),'B.pdf','application/pdf','review-replay-source',dsn=dsn)
     assert normalize_next(dsn=dsn)
     source=next(item for item in read_sources(learner.learner_id,material,dsn=dsn) if item['source_id']==source_id)
-    monkeypatch.setattr(material_pipeline,'material_request_fits',lambda _client,_lock,request:sum(len(section['evidence']) for section in request['sections'])<=1)
+    monkeypatch.setattr(material_pipeline,'material_request_fits',lambda _client,_lock,request,**kwargs:sum(len(section['evidence']) for section in request['sections'])<=1)
     calls=[]
     def semantic(_client,**kwargs):
         handle=kwargs['request']['sections'][0]['evidence'][0][0];calls.append(handle)

@@ -25,6 +25,7 @@ from runtime.storage.knowledge_structures import _read_verified_document
 
 ACTIVE = ('preparing', 'partial_ready', 'ready', 'in_progress')
 LEASE_SECONDS = 600
+_LEASE_HEARTBEAT_SECONDS = 30
 MAX_ATTEMPTS = 2
 
 
@@ -724,13 +725,15 @@ def _leased(session, work):
     return study, context, document, group
 
 
-def _heartbeat(work, stop, dsn):
-    while not stop.wait(30):
+def _heartbeat(work, stop, dsn, stale=None):
+    while not stop.wait(_LEASE_HEARTBEAT_SECONDS):
         try:
             with database_session(dsn) as session:
                 _, _, _, group = _leased(session, work)
                 group.lease_expires_at = _now() + timedelta(seconds=LEASE_SECONDS)
         except AssessmentSetError:
+            if stale is not None:
+                stale.set()
             return
         except Exception:
             # DB 短暫忙碌時續試；_leased 仍會拒絕取消、過期或已換 token 的工作。
@@ -758,13 +761,18 @@ def _bounded_prior(prior, claim):
     return selected
 
 
-def execute_set_work(work, *, dsn=None, semantic_call=request_semantics):
+def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdown=None):
     stop = Event()
-    heartbeat = Thread(target=_heartbeat, args=(work, stop, dsn), daemon=True)
+    stale = Event()
+    def check_wait():
+        if stale.is_set() or (shutdown is not None and shutdown.is_set()):
+            raise AssessmentSetError('ASSESSMENT_SET_STALE_WORK')
+    heartbeat = Thread(target=_heartbeat, args=(work, stop, dsn, stale), daemon=True)
     heartbeat.start()
     prepared = None
     reason = None
     try:
+        check_wait()
         with database_session(dsn) as session:
             study, context, _, group = _leased(session, work)
             item = session.get(AssessmentSetItem, (work.set_id, work.ordinal))
@@ -789,9 +797,14 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics):
             prior = _bounded_prior([*staged, *prior], claim)
 
         def model(client, **kwargs):
+            check_wait()
             with database_session(dsn) as session:
                 _leased(session, work)
-            return semantic_call(client, **kwargs)
+            result = semantic_call(client, **kwargs, cancellation_check=check_wait)
+            check_wait()
+            with database_session(dsn) as session:
+                _leased(session, work)
+            return result
 
         chosen = assessments.prepare_assessment(
             study_data, concept, claim, prior, used,
@@ -824,6 +837,7 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics):
     # commit 回應遺失時先重讀 lease／狀態；同一份已驗證結果最多補存一次，不再呼叫模型。
     for _ in range(2):
         try:
+            check_wait()
             _commit_prepared(work, prepared, reason, dsn=dsn)
             return
         except AssessmentSetError:
@@ -857,9 +871,11 @@ def _commit_prepared(work, prepared, reason, *, dsn):
         _settle(session, study, group, _items(session, group))
 
 
-def run_next_set(*, dsn=None):
+def run_next_set(*, dsn=None, shutdown=None):
+    if shutdown is not None and shutdown.is_set():
+        return False
     work = claim_set_work(dsn=dsn)
     if work is None:
         return False
-    execute_set_work(work, dsn=dsn)
+    execute_set_work(work, dsn=dsn, shutdown=shutdown)
     return True
