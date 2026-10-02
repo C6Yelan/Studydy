@@ -6,6 +6,7 @@ import type {
   AssessmentSetAnswer,
   AssessmentSetListView,
   AssessmentSetView,
+  ConceptCardsView,
   EvidenceSourceView,
   GuidanceApply,
   KnowledgeStructureRequest,
@@ -465,6 +466,28 @@ export class StudydyApiClient {
     if (view.knowledge_structure_revision !== request.structureRevision)
       throw schemaMismatch("教材結構版本不一致。");
     return view;
+  }
+
+  async getConceptCards(
+    request: KnowledgeStructureRequest,
+    conceptIds: string[],
+  ): Promise<ConceptCardsView> {
+    const query = new URLSearchParams(conceptIds.map((id) => ["concept_id", id]));
+    const value = await this.json(
+      `/v1/materials/${encodeURIComponent(request.materialId)}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/concept-cards?${query}`,
+      { method: "GET" },
+      validate.conceptCards,
+    );
+    const selected = new Set(conceptIds);
+    if (
+      value.selection.material_id !== request.materialId ||
+      value.selection.knowledge_structure_revision !== request.structureRevision ||
+      value.selection.concept_ids.length !== selected.size ||
+      value.selection.concept_ids.some((id) => !selected.has(id)) ||
+      decodeURIComponent(value.source_resolver) !==
+        `/v1/materials/${request.materialId}/knowledge-structures/${request.structureRevision}/evidence`
+    ) throw schemaMismatch("圖卡與所選教材、版本或概念不一致。");
+    return value;
   }
 
   async readProgress(id: string, structureRevision: string): Promise<LearnerProgressView> {

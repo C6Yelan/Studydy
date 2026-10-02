@@ -188,6 +188,30 @@ export type KnowledgeStructureRequest = {
   structureRevision: string;
 };
 
+export type ContentSelection = {
+  material_id: string;
+  content_material_id: string;
+  knowledge_structure_revision: string;
+  concept_ids: string[];
+  claim_ids: string[];
+  relation_ids: string[];
+  policy: "manual-published-order/v1";
+};
+
+export type ConceptCardsView = {
+  schema: "concept-cards/v1";
+  selection: ContentSelection;
+  source_resolver: string;
+  status: KnowledgeStructureView["status"];
+  excluded_pages: KnowledgeStructureView["excluded_pages"];
+  cards: KnowledgeStructureView["concepts"];
+  relations: (KnowledgeStructureView["relations"][number] & {
+    source_label: string;
+    target_label: string;
+    evidence: EvidenceView[];
+  })[];
+};
+
 export type StudySessionFocus = {
   schema: "study-session-focus/v1";
   current_concept_id: string;

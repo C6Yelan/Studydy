@@ -25,7 +25,8 @@
 }
 .map-header-actions {
   display: flex;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-5);
 }

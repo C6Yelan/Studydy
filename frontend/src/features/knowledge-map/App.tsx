@@ -246,6 +246,7 @@ export default function KnowledgeMap({
     <KnowledgeMapWorkspace
       key={view.knowledge_structure_revision}
       apiClient={apiClient}
+      materialId={route.materialId}
       progress={progress}
       learningStateStatus={savedSession?.status ?? null}
       progressMessage={progressMessage}

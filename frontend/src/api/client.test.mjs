@@ -964,3 +964,59 @@ test("edge errors use fixed safe messages and never expose HTML", async () => {
   Object.defineProperty(response, "redirected", { value: true });
   await assert.rejects(new StudydyApiClient(async () => response).authenticate("login", "test@example.com", "Synthetic password 42"), error => error.reasonCode === "EDGE_ACCESS_REQUIRED");
 });
+
+function cardsView() {
+  const map = structureView();
+  return {
+    schema: "concept-cards/v1",
+    selection: {
+      material_id: materialId, content_material_id: map.material_id,
+      knowledge_structure_revision: structureRevision, concept_ids: [conceptId],
+      claim_ids: [claimId], relation_ids: [], policy: "manual-published-order/v1",
+    },
+    source_resolver: map.source_resolver, status: map.status,
+    excluded_pages: [], cards: map.concepts, relations: [],
+  };
+}
+
+test("cards read preserves exact identity, literal content and quality without a write", async () => {
+  const expected = cardsView();
+  expected.status.quality = "needs_review";
+  expected.cards[0].claims[0].text = "if (n != 0) {\n return 1 / n;\n} E=m*c^2; '\\0'";
+  const client = new StudydyApiClient(async (input, init) => {
+    assert.equal(init.method, "GET");
+    const url = new URL(String(input), "https://studydy.test");
+    assert.deepEqual(url.searchParams.getAll("concept_id"), [conceptId]);
+    assert.ok(decodeURIComponent(url.pathname).endsWith(`/${structureRevision}/concept-cards`));
+    return Response.json(expected);
+  });
+  assert.deepEqual(await client.getConceptCards({materialId, structureRevision}, [conceptId]), expected);
+});
+
+test("cards reject mismatched material/revision/selection/resolver and dangling refs", async () => {
+  const mutations = [
+    (v) => v.selection.material_id = runId,
+    (v) => v.selection.knowledge_structure_revision = `knowledge-structure:sha256:${"f".repeat(64)}`,
+    (v) => v.selection.concept_ids = [],
+    (v) => v.selection.claim_ids = [],
+    (v) => v.source_resolver = v.source_resolver.replace(materialId, runId),
+    (v) => v.status = {},
+    (v) => v.relations.push({relation_id: `relation:sha256:${"f".repeat(64)}`, evidence_refs: ["missing"]}),
+    (v) => v.cards[0].claims[0].evidence[0].source_locator = {},
+  ];
+  for (const mutate of mutations) {
+    const value = cardsView(); mutate(value);
+    const client = new StudydyApiClient(async () => Response.json(value));
+    await assert.rejects(client.getConceptCards({materialId, structureRevision}, [conceptId]), e => e.kind === "schema");
+  }
+});
+
+test("pending cards cannot survive account client invalidation", async () => {
+  let release;
+  const pending = new Promise(resolve => release = resolve);
+  const client = new StudydyApiClient(async () => { await pending; return Response.json(cardsView()); });
+  const request = client.getConceptCards({materialId, structureRevision}, [conceptId]);
+  client.invalidate();
+  release();
+  await assert.rejects(request, e => e.reasonCode === "SESSION_REQUIRED");
+});
