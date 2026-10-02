@@ -236,7 +236,7 @@ for (const width of [1536, 390]) {
     );
     await expect(page.locator(".file-drop strong")).toHaveText("將教材拖放到此處，或點擊選取");
     await expect(page.locator(".file-drop > span:last-child")).toHaveText(
-      "PDF、TXT · 可選多份 · 每份最大 100 MiB",
+      "PDF、TXT · 可選多份 · 每份最大 100.0 MiB",
     );
     const conversion = page.getByText("非 PDF 教材會先轉換為 PDF，請在下一步確認轉換內容。", {
       exact: true,
@@ -333,18 +333,13 @@ test("failed initial source requires explicit removal before analysis", async ({
   expect(state.starts[0].body.normalization_ids).toEqual([uuid(11)]);
 });
 
-test("capability read failure keeps PDF selection and its actionable notice", async ({ page }) => {
+test("capability failure blocks upload until the configured limit is known", async ({ page }) => {
   await setup(page);
-  await page.route("**/v1/source-capabilities", (route) =>
-    route.fulfill({ status: 503, json: failure }),
-  );
+  await page.route("**/v1/source-capabilities", (route) => route.fulfill({ status: 503, json: failure }));
   await page.goto("/upload");
-  await expect(page.getByRole("status")).toHaveText("其他格式目前無法載入，仍可上傳 PDF。");
-  await expect(page.locator(".file-drop > span:last-child")).toHaveText(
-    "PDF · 可選多份 · 每份最大 100 MiB",
-  );
-  await page.getByLabel("選擇教材檔案", { exact: true }).setInputFiles(pdf);
-  await expect(page.getByRole("button", { name: "上傳並確認來源", exact: true })).toBeEnabled();
+  await expect(page.getByRole("status")).toHaveText("無法載入上傳限制，請重新整理後再試。");
+  await expect(page.getByLabel("選擇教材檔案", { exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "上傳並確認來源", exact: true })).toBeDisabled();
 });
 
 test("selection waits for capabilities instead of rejecting a supported non-PDF format", async ({

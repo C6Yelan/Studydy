@@ -140,7 +140,7 @@ for (const width of [1536, 390]) {
     await expect(rows.nth(2).getByRole("link", { name: "預覽 PDF", exact: true })).toHaveCount(0);
     await expect(page.getByLabel("選擇新增教材", { exact: true })).toBeEnabled();
     await expect(
-      page.getByText("其他格式目前無法載入，仍可上傳 PDF。", { exact: true }),
+      page.getByText("無法載入上傳限制，請重新整理後再試。", { exact: true }),
     ).toHaveCount(0);
     // 先驗證尚未完成時會繼續讀取，再讓下一次輪詢取得 ready 狀態。
     await page.clock.runFor(5_000);

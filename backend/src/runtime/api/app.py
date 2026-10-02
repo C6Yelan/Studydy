@@ -154,9 +154,12 @@ class ApiSettings:
     secure_cookie: bool
     local_config: dict = field(repr=False)
     dsn: str | None = field(default=None, repr=False)
+    upload_max_bytes: int = MAX_FILE_BYTES
 
     def __post_init__(self) -> None:
         if self.profile not in {"local", "test"} or type(self.secure_cookie) is not bool:
+            raise ValueError("API_SETTINGS_INVALID")
+        if type(self.upload_max_bytes) is not int or not 1 <= self.upload_max_bytes <= MAX_FILE_BYTES:
             raise ValueError("API_SETTINGS_INVALID")
         origin = _normalized_origin(self.public_origin)
         if origin is None or origin != self.public_origin:
@@ -619,7 +622,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         enabled = normalizer_available()
         return SourceCapabilities(
             formats=[
-                {"extension": ext, "media_type": media, "max_bytes": MAX_FILE_BYTES}
+                {"extension": ext, "media_type": media, "max_bytes": settings.upload_max_bytes}
                 for ext, media in MIME.items() if ext == ".pdf" or enabled
             ],
         )
@@ -649,7 +652,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
             raise _ApiFailure("REQUEST_INVALID") from None
         data = bytearray()
         async for chunk in request.stream():
-            if len(data) + len(chunk) > MAX_FILE_BYTES:
+            if len(data) + len(chunk) > settings.upload_max_bytes:
                 raise _ApiFailure("MATERIAL_TOO_LARGE")
             data.extend(chunk)
         await run_in_threadpool(

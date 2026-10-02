@@ -41,7 +41,7 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   IDEMPOTENCY_CONFLICT: genericApiMessage,
   ASSESSMENT_SET_CONFLICT: "題組狀態已更新，請重新讀取後繼續。",
   ASSESSMENT_SET_ACTIVE: "已有尚未完成的題組，可從題組紀錄接續。",
-  MATERIAL_TOO_LARGE: "每個檔案不可超過 100 MiB。",
+  MATERIAL_TOO_LARGE: "檔案超過目前上傳上限，請依選檔區顯示的限制縮小檔案。",
   MATERIAL_NOT_DISCARDABLE: "這份教材正在刪除，無法進行這項操作。",
   SOURCE_NOT_READY: "教材尚未完成轉換，請稍後再開始分析。",
   NORMALIZER_UNAVAILABLE: "轉換工具目前不可用，仍可使用 PDF 上傳。",
@@ -231,7 +231,18 @@ export class StudydyApiClient {
         }
       }
       checkActive();
-      if (response.ok) return { status: response.status, value };
+      if (response.ok && !response.redirected) return { status: response.status, value };
+      // Edge 不保證產品 JSON；只顯示固定訊息，不渲染回應內容。
+      if (response.redirected || (!validate.apiError(value) && [401, 403].includes(response.status)))
+        throw new ApiClientError("api", "入口授權已失效或遭拒絕，請重新開啟網站並確認存取權限。", {
+          status: response.status, reasonCode: "EDGE_ACCESS_REQUIRED",
+        });
+      if ([413, 429].includes(response.status) && !validate.apiError(value))
+        throw new ApiClientError("api", response.status === 413 ? apiErrorMessages.MATERIAL_TOO_LARGE : "請求過於頻繁，請稍後再試。", {
+          status: response.status,
+          reasonCode: response.status === 413 ? "MATERIAL_TOO_LARGE" : "RATE_LIMITED",
+          retryable: response.status === 429,
+        });
       if (!validate.apiError(value)) {
         if (response.status >= 500)
           throw new ApiClientError("network", "Studydy 服務暫時無法使用，請稍後再試。", {

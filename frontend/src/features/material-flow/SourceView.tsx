@@ -37,9 +37,7 @@ export function SourceView({
   const seenSources = useRef(new Set<string>());
   const uploadedKeys = useRef(new Set<string>());
   const intent = useRef({ signature: "", key: crypto.randomUUID() });
-  const [formats, setFormats] = useState<FormatCapability[]>([
-    { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 },
-  ]);
+  const [formats, setFormats] = useState<FormatCapability[]>([]);
   const [formatsReady, setFormatsReady] = useState(false);
   const [capabilityError, setCapabilityError] = useState("");
   useEffect(() => {
@@ -53,8 +51,7 @@ export function SourceView({
       },
       () => {
         if (!cancelled) {
-          setCapabilityError("其他格式目前無法載入，仍可上傳 PDF。");
-          setFormatsReady(true);
+          setCapabilityError("無法載入上傳限制，請重新整理後再試。");
         }
       },
     );

@@ -87,7 +87,7 @@ export function validateSourceFile(
   if (file.type && file.type !== "application/octet-stream" && file.type !== format.media_type)
     return "副檔名與檔案類型不一致。";
   if (file.size === 0) return "教材不可為空白檔案。";
-  if (file.size > format.max_bytes) return "每份檔案最多 100 MiB。";
+  if (file.size > format.max_bytes) return `每份檔案最多 ${format.max_bytes / (1024 * 1024)} MiB。`;
   return null;
 }
 

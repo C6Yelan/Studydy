@@ -55,6 +55,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-studydy}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       STUDYDY_PUBLIC_ORIGIN: ${STUDYDY_PUBLIC_ORIGIN:-http://127.0.0.1:4173}
+      STUDYDY_UPLOAD_MAX_BYTES: ${STUDYDY_UPLOAD_MAX_BYTES:-104857600}
       STUDYDY_SECURE_COOKIE: ${STUDYDY_SECURE_COOKIE:-false}
       STUDYDY_SEMANTIC_BASE_URL: ${STUDYDY_SEMANTIC_BASE_URL:-http://host.docker.internal:18000}
       VLLM_API_KEY: ${VLLM_API_KEY:-}
@@ -81,6 +82,8 @@ services:
     networks: [database, application]
 
   frontend:
+    environment:
+      STUDYDY_UPLOAD_MAX_BYTES: ${STUDYDY_UPLOAD_MAX_BYTES:-104857600}
     build:
       context: .
       dockerfile: ops/docker/frontend.Dockerfile

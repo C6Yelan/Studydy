@@ -13,9 +13,7 @@ type QueuedFile = {
 };
 
 export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
-  const [formats, setFormats] = useState<FormatCapability[]>([
-    { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 },
-  ]);
+  const [formats, setFormats] = useState<FormatCapability[]>([]);
   const [formatsReady, setFormatsReady] = useState(false);
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueuedFile[]>([]);
@@ -42,8 +40,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
       },
       () => {
         if (!cancelled) {
-          setCapabilityError("其他格式目前無法載入，仍可上傳 PDF。");
-          setFormatsReady(true);
+          setCapabilityError("無法載入上傳限制，請重新整理後再試。");
         }
       },
     );
@@ -206,7 +203,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             </strong>
             <span>
               {formats.map((format) => format.extension.slice(1).toUpperCase()).join("、")} ·
-              可選多份 · 每份最大 100 MiB
+              可選多份 · {formatsReady ? `每份最大 ${formatFileSize(Math.min(...formats.map((format) => format.max_bytes)))}` : "正在載入上傳限制"}
             </span>
           </label>
           {selectionError && (

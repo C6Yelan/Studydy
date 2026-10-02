@@ -129,3 +129,12 @@ test("delete warning describes existing learner content, independently of active
   assert.match(materialDeleteCopy(initial, [{ status: "running" }]).notice, /先停止/);
   assert.doesNotMatch(materialDeleteCopy().scope, /知識地圖|學習紀錄|題目|作答/);
 });
+
+
+test("configured upload limit controls selection and message", () => {
+  const max = 90 * 1024 * 1024;
+  const formats = [{ extension: ".pdf", media_type: "application/pdf", max_bytes: max }];
+  const file = { name: "fixture.pdf", type: "application/pdf", size: max };
+  assert.equal(validateSourceFile(file, formats), null);
+  assert.match(validateSourceFile({ ...file, size: max + 1 }, formats), /90 MiB/);
+});

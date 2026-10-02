@@ -579,7 +579,7 @@ test("malformed gateway errors remain distinct from successful schema errors and
           ? error.reasonCode === "SERVICE_UNAVAILABLE" &&
             error.retryable &&
             error.message.includes("暫時無法使用")
-          : error.reasonCode === "RESPONSE_SCHEMA_MISMATCH",
+          : error.reasonCode === (status === 401 ? "EDGE_ACCESS_REQUIRED" : "RESPONSE_SCHEMA_MISMATCH"),
     );
   }
 });
@@ -951,4 +951,16 @@ test("resume authorizes saved group membership independently of navigation focus
   assert.equal((await read(value)).selected_set_id, setId);
   const missingSet = { ...value, assessment_sets: [], selected_set_id: null };
   await assert.rejects(read(missingSet), (error) => error.kind === "schema");
+});
+
+
+test("edge errors use fixed safe messages and never expose HTML", async () => {
+  for (const [status, reason] of [[413, "MATERIAL_TOO_LARGE"], [429, "RATE_LIMITED"], [403, "EDGE_ACCESS_REQUIRED"]]) {
+    const client = new StudydyApiClient(async () => new Response("<script>private-edge-body</script>", { status }));
+    await assert.rejects(client.authenticate("login", "test@example.com", "Synthetic password 42"), error =>
+      error.reasonCode === reason && !error.message.includes("private-edge-body") && error.retryable === (status === 429));
+  }
+  const response = new Response("<html>Access login</html>");
+  Object.defineProperty(response, "redirected", { value: true });
+  await assert.rejects(new StudydyApiClient(async () => response).authenticate("login", "test@example.com", "Synthetic password 42"), error => error.reasonCode === "EDGE_ACCESS_REQUIRED");
 });

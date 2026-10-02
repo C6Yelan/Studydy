@@ -11,6 +11,7 @@ from fastapi import FastAPI
 import uvicorn
 
 from .api.app import ApiSettings, create_app
+from document_normalization.converter import MAX_FILE_BYTES
 
 
 _APP_ENVIRONMENT_KEYS = {
@@ -58,6 +59,7 @@ def _app_arguments_from_environment(environment: Mapping[str, str]) -> dict[str,
         "secure_cookie": values["secure_cookie"] == "true",
         "local_config": local_config,
         "dsn": None,
+        "upload_max_bytes": int(environment.get("STUDYDY_UPLOAD_MAX_BYTES", str(MAX_FILE_BYTES))),
     }
 
 
@@ -98,6 +100,7 @@ def create_local_app(
     secure_cookie: bool,
     local_config: dict[str, Any],
     dsn: str | None,
+    upload_max_bytes: int = MAX_FILE_BYTES,
 ) -> FastAPI:
     """驗證設定後建立產品 API；AI 可用性由實際操作檢查。"""
 
@@ -107,6 +110,7 @@ def create_local_app(
         secure_cookie=secure_cookie,
         local_config=deepcopy(local_config),
         dsn=dsn,
+        upload_max_bytes=upload_max_bytes,
     )
     return create_app(settings)
 
