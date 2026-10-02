@@ -124,3 +124,16 @@
   .cards-study .flashcard-back { padding: 20px; }
   .cards-study .flashcard-point p { font-size: 15px; }
 }
+.cards-recommendation-toggle { margin: -8px 0 20px; min-height: 40px; font-size: 14px; }
+.cards-recommendations { padding: 16px; margin-bottom: 24px; border: 1px solid var(--border-light); border-radius: 10px; background: var(--page-cool); }
+.cards-recommendation-controls { display: grid; grid-template-columns: minmax(0, 1fr) 90px; gap: 12px; }
+.cards-recommendation-controls label { display: grid; gap: 7px; font-size: 13px; }
+.cards-recommendation-controls select, .cards-recommendation-controls input { width: 100%; min-width: 0; min-height: 42px; padding: 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-primary); font: inherit; }
+.cards-recommendations p { font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
+.cards-recommendation-list { max-height: 230px; overflow-y: auto; margin: 12px 0 16px; padding-left: 24px; }
+.cards-recommendation-list li { padding: 6px 0; font-size: 13px; overflow-wrap: anywhere; }
+.cards-recommendation-list strong { font-weight: 500; }
+.cards-recommendation-list span { display: block; margin-top: 3px; color: var(--text-secondary); font-size: 12px; }
+.cards-recommendation-hint { margin-bottom: 0; }
+.cards-concept-row .cards-selection-reason { color: var(--studydy-blue); }
+@media (max-width: 420px) { .cards-recommendations { padding: 12px; } .cards-recommendation-controls { grid-template-columns: minmax(0, 1fr) 78px; gap: 8px; } }

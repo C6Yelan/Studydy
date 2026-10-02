@@ -5,6 +5,7 @@ import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { Flashcard } from "./Flashcard";
+import { CardRecommendations } from "./CardRecommendations";
 
 export function CreateCardSet({ apiClient, route }: {
   apiClient: StudydyApiClient;
@@ -18,6 +19,9 @@ export function CreateCardSet({ apiClient, route }: {
   const [materialName, setMaterialName] = useState("");
   const [name, setName] = useState("");
   const [selected, setSelected] = useState(new Set<string>());
+  const [studySessionId, setStudySessionId] = useState<string | null>(null);
+  const [showRecommendations, setShowRecommendations] = useState(false);
+  const [recommendationReasons, setRecommendationReasons] = useState<Record<string, string>>({});
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [flipped, setFlipped] = useState(false);
   const [query, setQuery] = useState("");
@@ -39,6 +43,8 @@ export function CreateCardSet({ apiClient, route }: {
     setSaveError(null);
     setConflict(false);
     setView(null);
+    setShowRecommendations(false);
+    setRecommendationReasons({});
     const read = async () => {
       try {
         const deck = route.name === "card-set-edit" ? await apiClient.getCardSet(route.cardSetId) : null;
@@ -58,6 +64,7 @@ export function CreateCardSet({ apiClient, route }: {
         setView(structure);
         setMaterialId(id);
         setMaterialName(material.display_name);
+        setStudySessionId(material.study_sessions.find((session) => session.knowledge_structure_revision === revision)?.study_session_id ?? null);
         setName(deck?.name ?? `${material.display_name.replace(/\.[^.]+$/, "").slice(0, 190)}複習`);
         setSelected(new Set((deck?.cards ?? structure.concepts).map((item) => item.concept_id)));
         setPreviewId(deck?.cards[0]?.concept_id ?? structure.concepts[0]?.concept_id ?? null);
@@ -75,7 +82,7 @@ export function CreateCardSet({ apiClient, route }: {
   const validName = name.trim().length > 0 && Array.from(name.trim()).length <= 200 && !/[\p{Cc}\p{Cs}]/u.test(name);
   const save = async () => {
     if (!view || !validName || !selected.size || saving.current || conflict) return;
-    const conceptIds = view.concepts.filter((item) => selected.has(item.concept_id)).map((item) => item.concept_id);
+    const conceptIds = [...selected];
     const body = {
       schema: "card-set-create/v1" as const,
       knowledge_structure_revision: view.knowledge_structure_revision,
@@ -127,12 +134,21 @@ export function CreateCardSet({ apiClient, route }: {
     <div className="cards-create-grid">
       <section className="cards-selection" aria-label="選擇概念">
         <label className="cards-field">卡組名稱<input value={name} maxLength={200} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>
+        <button className="secondary-button cards-recommendation-toggle" type="button" disabled={busy}
+          aria-expanded={showRecommendations} aria-controls="card-recommendations"
+          onClick={() => setShowRecommendations(!showRecommendations)}>幫我選卡</button>
+        {showRecommendations && <div id="card-recommendations"><CardRecommendations apiClient={apiClient} view={view}
+          studySessionId={studySessionId} disabled={busy} onApply={(items) => {
+            setSelected(new Set(items.map((item) => item.conceptId)));
+            setRecommendationReasons(Object.fromEntries(items.map((item) => [item.conceptId, item.reason])));
+            setPreviewId(items[0].conceptId); setFlipped(false); setQuery("");
+          }} /></div>}
         <div className="cards-selection-heading"><h2>選擇概念</h2><span aria-live="polite">已選 {selected.size} / {view.concepts.length}</span></div>
         <input className="cards-concept-search" type="search" aria-label="搜尋概念" placeholder="搜尋概念…" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <div className="cards-selection-actions"><button className="text-button" type="button" disabled={busy} onClick={() => setSelected(new Set(view.concepts.map((item) => item.concept_id)))}>全選</button><span>／</span><button className="text-button" type="button" disabled={busy} onClick={() => setSelected(new Set())}>取消全選</button></div>
+        <div className="cards-selection-actions"><button className="text-button" type="button" disabled={busy} onClick={() => { setSelected(new Set(view.concepts.map((item) => item.concept_id))); setRecommendationReasons({}); }}>全選</button><span>／</span><button className="text-button" type="button" disabled={busy} onClick={() => { setSelected(new Set()); setRecommendationReasons({}); }}>取消全選</button></div>
         <div className="cards-concept-list">
           {visible.map((concept) => <div className={`cards-concept-row ${selected.has(concept.concept_id) ? "is-selected" : ""}`} key={concept.concept_id}>
-            <label><input type="checkbox" checked={selected.has(concept.concept_id)} disabled={busy} onChange={() => toggle(concept.concept_id)} /><span><strong>{concept.label}</strong><small>{concept.claims.length} 個重點</small></span></label>
+            <label><input type="checkbox" checked={selected.has(concept.concept_id)} disabled={busy} onChange={() => toggle(concept.concept_id)} /><span><strong>{concept.label}</strong><small>{concept.claims.length} 個重點</small>{selected.has(concept.concept_id) && recommendationReasons[concept.concept_id] && <small className="cards-selection-reason">{recommendationReasons[concept.concept_id]}</small>}</span></label>
             <button className="text-button" type="button" aria-label={`預覽「${concept.label}」`} aria-pressed={previewId === concept.concept_id} onClick={() => { setPreviewId(concept.concept_id); setFlipped(false); }}>預覽</button>
           </div>)}
           {visible.length === 0 && <p className="cards-no-results">找不到符合的概念。</p>}

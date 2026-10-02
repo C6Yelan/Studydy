@@ -196,3 +196,9 @@ def test_add_remove_concepts_and_concurrent_edit_conflict(closed_loop):
     final = card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)
     assert final["card_count"] == 1 and final["version"] == 3
     assert final["cards"][0]["concept_id"] == ids[1]
+    # 推薦順序可與教材原始排列不同；建立、編輯及重開都必須保持確認後的順序。
+    reversed_ids = list(reversed(ids))
+    ordered = card_sets.create_card_set(owner.learner_id, source.material_id, candidate["revision"], "推薦順序", reversed_ids, "ordered", dsn=dsn)
+    assert [c["concept_id"] for c in card_sets.read_card_set(owner.learner_id, ordered["card_set_id"], dsn=dsn)["cards"]] == reversed_ids
+    card_sets.update_card_set(owner.learner_id, identity, "推薦順序", 3, reversed_ids, dsn=dsn)
+    assert [c["concept_id"] for c in card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)["cards"]] == reversed_ids

@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { artifactId, materialId, runId, sessionId, structureRevision, structureView, mockKnowledgeMapApi, json } from "../fixtures/knowledge-map";
+import { artifactId, materialId, runId, sessionId, structureRevision, structureView, mockKnowledgeMapApi, json, progress as baseProgress } from "../fixtures/knowledge-map";
 
 const cardSetId = "55555555-5555-4555-8555-555555555555";
 const mapPath = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
 
-async function mockCards(page: Page, { saved = false, long = false } = {}) {
+async function mockCards(page: Page, { saved = false, long = false, withProgress = false, reversedPath = false } = {}) {
   const view = structureView();
   view.concepts[0].label = "堆疊（Stack）";
   view.concepts[0].claims[0].text = "堆疊遵循後進先出（LIFO）的原則：最後放入的元素會最先被取出。";
@@ -15,11 +15,12 @@ async function mockCards(page: Page, { saved = false, long = false } = {}) {
     view.status.decision = "review";
     view.concepts[0].claims[0].text = "保留所有必要條件與符號。".repeat(100) + "\n最後一個條件不可遺漏：x != 0。";
   }
+  if (reversedPath) view.initial_learning_path = [...view.initial_learning_path].reverse().map((step, index) => ({ ...step, position: index + 1 }));
   await mockKnowledgeMapApi(page, view);
   const material = {
     schema: "material-library-item/v1", material_id: materialId, source_artifact_id: artifactId,
     display_name: "資料結構講義.pdf", size_bytes: 100, created_at: "2026-10-02T00:00:00Z",
-    head_revision: structureRevision, latest_attempt: null, study_sessions: [],
+    head_revision: structureRevision, latest_attempt: null, study_sessions: withProgress ? [{ study_session_id: sessionId, run_id: runId, knowledge_structure_revision: structureRevision, current_concept_id: view.concepts[0].concept_id, status: "active", started_at: "2026-10-02T00:00:00Z" }] : [],
     available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: "2026-10-02T00:00:00Z", status: "succeeded" }],
   };
   await page.route(`**/v1/materials/${materialId}`, (route) => json(route, material));
@@ -61,7 +62,7 @@ async function mockCards(page: Page, { saved = false, long = false } = {}) {
       return json(route, { schema: "card-set-deleted/v1", card_set_id: cardSetId });
     }
     if (!exists) return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "RESOURCE_NOT_FOUND", retryable: false, message: "Request could not be completed." }, 404);
-    return json(route, { ...summary(), schema: "card-set/v1", source_resolver: decodeURIComponent(view.source_resolver), status: view.status, excluded_pages: [], cards: view.concepts.filter((item) => selection.includes(item.concept_id)).map(({ concept_id, label, claims }) => ({ concept_id, label, claims })) });
+    return json(route, { ...summary(), schema: "card-set/v1", source_resolver: decodeURIComponent(view.source_resolver), status: view.status, excluded_pages: [], cards: selection.map((id) => view.concepts.find((item) => item.concept_id === id)!).map(({ concept_id, label, claims }) => ({ concept_id, label, claims })) });
   });
   return { requests, forbiddenMutations };
 }
@@ -210,4 +211,87 @@ test("library layout matches materials and review uses the available content wid
   const card = await page.locator(".flashcard").boundingBox();
   expect(card!.width / content!.width).toBeGreaterThan(.95);
   await page.screenshot({ path: "../.studydy-runtime/card-preview/study-wide.png", fullPage: true });
+});
+
+test("no-session recommendations explain the fallback, preserve manual control and save path order", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const fixture = await mockCards(page, { reversedPath: true });
+  let progressReads = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/progress")) progressReads++; });
+  await page.goto(mapPath + "/create-cards");
+  await page.getByRole("button", { name: "幫我選卡", exact: true }).click();
+  const panel = page.getByRole("region", { name: "幫我選卡", exact: true });
+  await expect(panel).toContainText("尚無學習紀錄");
+  await page.getByLabel("最多張數", { exact: true }).fill("1");
+  await expect(panel.locator("li")).toHaveCount(1);
+  await expect(page.getByRole("checkbox").first()).toBeChecked();
+  await page.getByRole("button", { name: "套用推薦", exact: true }).click();
+  await expect(page.getByRole("checkbox").first()).not.toBeChecked();
+  await expect(page.getByRole("checkbox").nth(1)).toBeChecked();
+  await expect(page.locator(".cards-selection-reason")).toHaveText("依教材學習路徑推薦");
+  await page.getByRole("checkbox").first().check();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: "../.studydy-runtime/card-preview/recommendation-mobile.png", fullPage: true });
+  await page.getByRole("button", { name: "保存並開始複習" }).click();
+  await expect(page).toHaveURL(new RegExp(`/concept-cards/${cardSetId}$`));
+  await expect(page.locator(".flashcard-title")).toHaveText("陣列（Array）");
+  await page.reload();
+  await expect(page.locator(".flashcard-title")).toHaveText("陣列（Array）");
+  expect(progressReads).toBe(0);
+  expect(fixture.forbiddenMutations).toEqual([]);
+});
+
+test("weakness recommendations use matching progress and a late read never changes manual selection", async ({ page }) => {
+  const fixture = await mockCards(page, { withProgress: true });
+  const progress = structuredClone(baseProgress);
+  const weak = progress.concept_states[1];
+  weak.status = "needs_review";
+  weak.weak_claim_ids = [structureView().concepts[1].claims[0].claim_id];
+  progress.weaknesses = [{ concept_id: weak.concept_id, claim_ids: weak.weak_claim_ids, reason: "latest_answer_incorrect" }];
+  let finishRead!: () => void;
+  const ready = new Promise<void>((resolve) => { finishRead = resolve; });
+  await page.route(`**/v1/study-sessions/${sessionId}/progress`, async (route) => { await ready; return json(route, progress); });
+  await page.goto(mapPath + "/create-cards");
+  await page.getByRole("button", { name: "幫我選卡", exact: true }).click();
+  await expect(page.getByText("正在讀取學習進度，尚未改變你的勾選。")).toBeVisible();
+  await page.getByRole("button", { name: "取消全選", exact: true }).click();
+  await page.getByRole("checkbox").first().check();
+  finishRead();
+  const panel = page.getByRole("region", { name: "幫我選卡" });
+  await expect(panel.locator("li")).toContainText("陣列（Array）");
+  await expect(panel.locator("li")).toContainText("有待複習重點");
+  await expect(page.getByRole("checkbox").first()).toBeChecked();
+  await expect(page.getByRole("checkbox").nth(1)).not.toBeChecked();
+  await page.getByRole("button", { name: "套用推薦", exact: true }).click();
+  await expect(page.getByRole("checkbox").first()).not.toBeChecked();
+  await expect(page.getByRole("checkbox").nth(1)).toBeChecked();
+  await page.getByRole("combobox", { name: "推薦方式", exact: true }).selectOption("path");
+  await expect(panel.locator("li").first()).toContainText("目前正在學習");
+  expect(fixture.forbiddenMutations).toEqual([]);
+});
+
+test("no weaknesses, all mastered and incompatible progress never invent recommendations", async ({ page }) => {
+  await mockCards(page, { withProgress: true });
+  const progress = structuredClone(baseProgress);
+  await page.route(`**/v1/study-sessions/${sessionId}/progress`, (route) => json(route, progress));
+  await page.goto(mapPath + "/create-cards");
+  await page.getByRole("button", { name: "幫我選卡", exact: true }).click();
+  await expect(page.getByText(/目前沒有待複習的弱點/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "套用推薦", exact: true })).toBeDisabled();
+  await expect(page.getByRole("checkbox").first()).toBeChecked();
+  await page.getByRole("button", { name: "幫我選卡", exact: true }).click();
+  progress.concept_states.forEach((state) => { state.status = "mastered"; });
+  await page.getByRole("button", { name: "幫我選卡", exact: true }).click();
+  await page.getByRole("combobox", { name: "推薦方式", exact: true }).selectOption("path");
+  await expect(page.getByText(/概念都已掌握/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "套用推薦", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "幫我選卡", exact: true }).click();
+  progress.knowledge_structure_revision = `knowledge-structure:sha256:${"f".repeat(64)}`;
+  await page.getByRole("button", { name: "幫我選卡", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("無法讀取推薦所需的學習進度");
+  await expect(page.getByRole("button", { name: "套用推薦", exact: true })).toBeDisabled();
+  await expect(page.getByRole("checkbox").first()).toBeChecked();
+  progress.knowledge_structure_revision = structureRevision;
+  await page.getByRole("button", { name: "重新讀取進度", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });
