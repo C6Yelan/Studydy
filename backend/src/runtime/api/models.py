@@ -243,6 +243,51 @@ class ConceptCardsView(_Closed):
     relations: list[CardRelationView]
 
 
+class CardSetCreate(_Closed):
+    schema_: Literal["card-set-create/v1"] = Field(alias="schema")
+    knowledge_structure_revision: str
+    name: str = Field(min_length=1, max_length=200)
+    concept_ids: list[str] = Field(min_length=1)
+    ordering_policy: Literal["published_order"]
+
+
+class CardSetEdit(CardSetCreate):
+    schema_: Literal["card-set-edit/v1"] = Field(alias="schema")
+    expected_version: int = Field(ge=1, strict=True)
+
+
+class CardSetPosition(_Closed):
+    schema_: Literal["card-set-position/v1"] = Field(alias="schema")
+    current_position: int = Field(ge=0, strict=True)
+    expected_version: int = Field(ge=1, strict=True)
+
+
+class CardSetView(_Closed):
+    schema_: Literal["card-set/v1"] = Field(alias="schema")
+    card_set_id: UUID
+    material_id: UUID
+    knowledge_structure_revision: str
+    name: str
+    ordering_policy: Literal["published_order"]
+    concept_ids: list[str]
+    current_position: int
+    version: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class CardSetListView(_Closed):
+    schema_: Literal["card-set-list/v1"] = Field(alias="schema")
+    material_id: UUID
+    card_sets: list[CardSetView]
+
+
+class CardSetCardsView(_Closed):
+    schema_: Literal["card-set-cards/v1"] = Field(alias="schema")
+    card_set: CardSetView
+    cards: ConceptCardsView
+
+
 class StudySessionCreate(_Closed):
     """Ensure a persistent state; current_concept_id applies only to its initial creation."""
     schema_: Literal["study-session-create/v1"] = Field(alias="schema")
