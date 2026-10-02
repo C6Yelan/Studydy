@@ -1,96 +1,101 @@
-# 觀念圖卡（F4）
+# 觀念圖卡與我的圖卡組（F4）
 
-## Phase A
+本輪從 `be/feature-concept-cards` 的 `4c0e87f39992a51f93425690a379b54c134098c0` 延續實作。
+V1 的 source-bound projection 與 exact source resolver 保留；使用介面改為持久卡組與單張翻卡。
+本輪未部署 production、未在 production DB 套 migration，亦未修改競賽 checkout。
 
-基線 dev：`3e3bfcfcf2616d86fca3d687a228b532262990f5`。
-相較規劃基準 `76dfa532`，新增的是部署／HTTPS 設定，KS authority 不變。
+## 使用流程
 
-`F4_BASIC_PHASE_A_PASS`
+教材庫每份已發布教材的「觀念圖卡」，或知識地圖的快捷入口，進入該教材的「我的圖卡組」。
 
-- `backend/tests/test_concept_cards.py`：6 passed。合成資料沿用正式 KS builder／validator，涵蓋多 claims、prerequisite、contrast、無關概念、程式碼／公式、needs_review 與排除頁。
-- 每個 claim 與 relation 引用仍指向 canonical Evidence；方向、literal 與品質逐項斷言，不使用畫面 snapshot 代替。
-- 本機 Chromium 最小樣張於 1440px／390px 驗證文字 reflow、程式碼局部水平捲動、完整文字不變。這是版面可行性證據，完整產品互動另驗。
-- 現有發布驗證要求 relation evidence 屬於端點概念；可直接使用既有 Evidence source resolver。
-- API 教材 UUID 與 KS 內容 material hash 是不同 identity，selection 必須同時保留。
+1. 建立圖卡組：輸入名稱、搜尋並勾選 concepts、查看已選數量，依教材發布順序儲存。
+2. 複習：一次一張。正面以概念名稱為焦點，點擊／Enter 翻面後才顯示 canonical claims。
+3. 可上一張、下一張、重新開始、完成複習或返回卡組清單；再次開啟／重新整理會回到保存的位置，從正面開始。
+4. 可重新命名、修改選取概念及刪除卡組。改名保留位置；選取內容改變時回到第一張。
 
-基本模板限定單卡／多卡並列及既有關係文字，不生成定義、比較軸或摘要。
-自動選材的排序／數量尚無核定規則，manual slice 不依賴此決策。
+卡片不呈現 relation graph、先備清單、related concepts 或比較表。
+「查看教材來源」另開來源 dialog，提供每項重點的 exact Evidence 節錄／識別及既有 PDF／原檔 resolver。
+needs_review 以「此教材有內容待確認」提示，原始 reason codes、decision 與排除頁留在可展開的品質詳情。
+文字以原文渲染；程式碼區可水平捲動，長內容在卡片背面的內容區捲動，不刪減 claim 或改寫 literal。
 
-## 使用方式與契約
+## Persistence 與知識邊界
 
-知識地圖 →「選取觀念圖卡」→ 勾選一個或多個概念 →「開啟圖卡」。
-卡片重點、Evidence 節錄與來源位置可展開，來源沿用既有 resolver／PDF 與原檔入口。
-關閉 modal 保留原地圖路由及瀏覽狀態，焦點返回入口；選取只存在當次 modal，不保存或收藏。
+新增 additive migration：`backend/migrations/0006_card_sets.sql`。不改寫既有資料表、KS 或資料列。
 
-`concept-cards/v1` 的 `selection` 包含：
-
-| 欄位 | 意義 |
+| Table | 保存內容 |
 | --- | --- |
-| `material_id` | API 教材 UUID，由 server 驗證擁有權 |
-| `content_material_id` | canonical KS 的教材內容雜湊身分 |
-| `knowledge_structure_revision` | exact published KS revision |
-| `concept_ids` | 所選概念，依 canonical concepts 順序，輸入重複 ID 合併 |
-| `claim_ids` | 所選概念的全部 claims，依首次出現順序去重 |
-| `relation_ids` | 與所選概念相接的既有 relations，維持 canonical 順序 |
-| `policy` | `manual-published-order/v1`：手動選材、發布順序 |
+| `card_sets` | owner、material UUID、exact KS revision、名稱、`published_order`、current_position、version、建立／更新時間、create idempotency key digest／request fingerprint |
+| `card_set_items` | card_set_id、0-based position、concept_id；同卡組 concept 與 position 唯一 |
 
-representation 與 renderer 排版分離；回傳 cards、relations、status、excluded_pages 與固定版本 source_resolver。
-relation 保留原方向、type 與 learner_reason；未選取的端點標明為外部概念。
-Claim 文字與引用節錄原樣保留；relation 的 Evidence 使用 canonical 完整區塊原文，不任取某條 claim 的節錄。
-無所選概念間關係時只並列已有重點，沒有生成定義、比較軸、優缺點或新知識。
+沒有複製 claim／relation／Evidence 文字、HTML 或 KS document。
+每次讀卡使用 saved references → authorized exact KS → 既有 deterministic projection。
+既有 `concept-cards/v1` stateless API 及 relation projection 保留，新的 CardSet identity 不保存 relation IDs；flashcard renderer 不顯示 relations。
 
-## 唯讀 API
+`current_position` 只是續讀位置，不是學習評量。翻面只改瀏覽器狀態；前後張／重新開始只修改卡組位置。
+完成複習回到清單，保留最後位置，不記錄通過、熟悉度或 mastery。沒有新的 StudySession、answer event、評量事件、AI 或排程引擎。
 
-`GET /v1/materials/{material_id}/knowledge-structures/{revision}/concept-cards?concept_id=...&concept_id=...`
+## Retention 與生命週期
 
-既有 KS API 只提供整張圖，且 public `material_id` 是內容身分。開卡需重新確認 revision 可用、由 server 驗證 selected IDs，並取得 relation 完整 Evidence；因此增加此最小聚合入口，避免重新傳整張 KS 或在前端重做投影／驗證。
-入口重用 `read_knowledge_structure` 的 owner、material、run、revision、source binding 驗證，不新增資料表、儲存、migration、job 或模型服務。
+- CardSet 的 `(learner_id, material_id, knowledge_structure_revision)` FK 指向正式 KS；沒有 fake StudySession。
+- `_prune_unreferenced_structures` 同時檢查 StudySession、active run 與 CardSet。
+- 卡組建立／編輯／刪除與 publisher／prune／教材刪除共用 material row lock；建立與 prune 競態只會成功保留完整引用，或因版本已不可用而拒絕建立。
+- 刪除卡組會 cascade 刪除 items；若無其他引用，舊 KS 在下一次正常 prune 重新具備清理資格。head 與其他既有引用仍受原規則保護。
+- 教材刪除意圖成立後，卡組讀寫立即拒絕；purge 在清理 KS 前刪除 CardSets，教材刪除具有最高優先權。
+- 已保存卡組維持原 revision，不自動換成 head；編輯也不能更換 revision。
 
-- 未登入：401；錯 owner／material／不可用或損壞 revision：404。
-- 空選取、未知 concept ID、未知 query：400；合法重複 concept ID 去重。
-- 有保留的舊版可讀，不會默默切到 head。沒有持久 retention；已清除的 revision 明確失敗，需重新選取。
-- source 展開仍走 exact revision 的既有 resolver；缺失／模糊來源保留錯誤或原有定位警示。
-- App 的帳號 client invalidation 與路由 key 隔離私有資料；modal 關閉／卸載使晚到請求失效。
-- 不建立 StudySession、不寫 mastery／answer event，也不回寫 KS。
+## API 與並行操作
 
-## Phase B 驗證
+共同 scope：`/v1/materials/{material_id}/card-sets`。
 
-最終驗證使用合成 fixture、隔離 PostgreSQL、正式 production frontend build；沒有連接產品 DB 或呼叫 AI／Pod。
-
-| 驗證 | 實際結果 |
+| Method / suffix | 行為 |
 | --- | --- |
-| `backend/tests/test_concept_cards.py` | **8 passed**：identity、穩定順序、literal、完整 relation Evidence、方向、無補比較、共享 claim 去重、品質、dangling refs；含 API response model 序列化一致性 |
-| `backend/tests/runtime/materials/test_concept_cards_api.py` | **3 passed**：owner、錯教材、exact／不可用 revision、無效 ID、來源 resolver、損壞 canonical Evidence 拒絕、無 session／有 progress 皆唯讀 |
-| `backend/tests/runtime/materials/test_concept_cards_browser.py` | **1 passed**，內含 **1 real-API Playwright case**：登入、single／multi、canonical 對照、exact source 與真 PDF bytes |
-| `npm --prefix frontend test` | **6 test files passed**，包含新增 client identity／provenance／invalidation 案例 |
-| `npm --prefix frontend run typecheck`、production build | **passed** |
-| `concept-cards.spec.ts`＋既有 `knowledge-map-details`／`knowledge-map-viewport` mock browser | **32 passed**（F4 10、既有地圖 22）；1440／390px、鍵盤、選取、展開、關係、來源失敗、缺理由、品質、長內容、換頁／帳號／晚到回應 |
-| `git diff --check` | **passed** |
+| GET collection | 列出自己的教材卡組，按 updated_at／ID 排序 |
+| POST collection | 建立；需要 Idempotency-Key |
+| GET `/{card_set_id}` | 讀取 metadata 與有序 concept IDs |
+| GET `/{card_set_id}/cards` | 讀取 metadata 及 exact canonical cards |
+| POST `/{card_set_id}/edit` | 名稱／concepts／policy，附 expected_version 與原 revision |
+| POST `/{card_set_id}/position` | 保存合法範圍的位置，附 expected_version |
+| DELETE `/{card_set_id}?version=...` | 以版本檢查刪除；空 body |
 
-端到端測試封鎖 backend 模型 HTTP，觀察所有非 session API 寫入為零。
-看卡前後 `product_snapshot` 對照 materials、artifacts、processing runs、KS、StudySession、assessments、answer_events 的完整 row 摘要一致；existing LearnerProgress 也逐值相同。
-瀏覽器 assertions 驗證文字原文與 source URL identity；截圖僅用於人工檢查版面，沒有用 snapshot 代替 provenance。
+Owner 一律由 session 決定，不接受 body learner_id。沿用 exact Origin、private no-store 與固定錯誤回應。
+錯 owner／material／不存在卡組回 404；無效 concepts 或輸入回 400；revision、create intent 或版本衝突回 409。
+Create 輸入先按 canonical 順序去重，重送相同 intent 不建立第二組。
+Edit 重送已成立的相同內容可接回；不同目標不能覆蓋較新版本。位置更新先核對版本，以免舊頁覆蓋編輯後的新序列。
+前端遇到衝突會要求重新讀取；換頁、帳號 invalidation 與晚到 create/read 回應不得導向或覆蓋新頁。
 
-重跑入口（沿用 `docs/testing.md` 的隔離環境）：
+## 驗證結果
 
-```bash
-env -u STUDYDY_TEST_POSTGRES_DSN -u STUDYDY_DATABASE_DSN \
-  PYTHONPATH=backend/src:backend/tests:local_ai/src \
-  backend/.venv/bin/pytest -q backend/tests/test_concept_cards.py \
-    backend/tests/runtime/materials/test_concept_cards_api.py
+以 `docs/testing.md` 的 disposable PostgreSQL、合成 fixtures 與專用 4183／8002 ports 執行；沒有使用 production 資料或模型。
 
-env -u STUDYDY_TEST_POSTGRES_DSN -u STUDYDY_DATABASE_DSN \
-STUDYDY_E2E_FRONTEND_DIST="$PWD/.studydy-runtime/test-frontend" \
-STUDYDY_E2E_FRONTEND_PORT=4183 STUDYDY_E2E_API_PORT=8002 \
-PYTHONPATH=backend/src:backend/tests:local_ai/src \
-  backend/.venv/bin/pytest -q backend/tests/runtime/materials/test_concept_cards_browser.py
-```
+| 範圍 | 結果 |
+| --- | --- |
+| Domain／既有 deterministic projection | 8 passed |
+| Migration framework（含重跑／交易回滾／並行安裝） | 7 passed |
+| CardSet storage、v5→v6、CRUD／resume／retention／競態 | 6 passed |
+| CardSet HTTP lifecycle／owner／revision／conflict | 1 passed |
+| 既有 F4 HTTP regression | 3 passed |
+| 真 publisher CardSet retention，加上既有 retention cases | 3 passed |
+| 既有 material full-delete／artifact regression | 12 passed |
+| 真 API／DB／browser 卡組端到端 | 1 passed（內含 1 Playwright case） |
+| Node tests | 6 個 test files passed；client 單獨執行 33 cases passed |
+| TypeScript／production frontend build | passed |
+| F4、地圖、教材庫、shell mock browser | 61 cases 分組通過（37＋24）；F4 本身 8 cases |
+| Git diff whitespace check | passed |
 
-建置有非阻擋性的 Vite bundle-size 提示；TestClient 有既有 httpx 棄用警告。未進行真實手機／Safari 驗收，不把 Chromium 390px emulation 宣稱為實機測試。
+後端非 browser 共 40 個不同 cases 通過，不重複計算各次重跑。
+Browser 覆蓋建立／搜尋／單選與多選／編輯／刪除、翻面、前後張、進度、restart、reload/reopen、來源、品質詳情、長 literal／一般文字、失敗恢復、帳號與晚到回應。
+1440px／390px 翻卡截圖已檢視；原有教材庫的幾何與溢位 assertions 保留並通過。Chromium emulation 不代表手機實機或 Safari 驗收。
 
-## 延後項目與最小產品決策
+真 API browser 測試前後，`product_snapshot` 的 KS、StudySession、assessments、answer_events 等完整 row 摘要相同，existing LearnerProgress 也逐值相同。
+只允許 CardSet endpoints 產生非登入寫入，並封鎖 backend model HTTP；無 session 與有 progress 兩種教材都驗證。
+不是以 screenshot snapshot 取代 provenance：cards 與 exact KS concepts 逐值比較，source URL revision／Evidence ID 及實際 PDF 回應皆有 assertions。
 
-自動快速複習尚需核定：選材依「弱點／目前概念／完整 learning path」何者優先，以及每次數量或是否全選。既有 progress 與 path 提供資料，但沒有 F4 的排序／數量政策；本輪不自行發明。
+建置有非阻擋性的 Vite bundle-size 提示；TestClient 有既有 httpx 棄用警告。
 
-收藏／歷史保存、跨教材、複雜比較模板、匯出、AI 摘要及 F1／F5 實作均延後。
-Basic deterministic F4 的 AI Phase C 不適用。沒有部署 production，也沒有修改競賽 checkout 或 checkout 外的規劃文件。
+## 部署與延後項目
+
+本輪僅實作、isolated migration 驗證、commit／push，等待另行授權部署。
+下一次部署需要支援 migration 0006 的 backend；目前框架會拒絕比自身檔案更新的 migration ledger，因此套用 0006 後不能直接以 V1 舊 image 啟動作為 rollback。不要刪除 ledger 或對 production 執行降版；應保留新 schema 並使用相容 image。
+
+已完成 deterministic published order 與位置續讀。Shuffle、每次張數、swipe、跨教材卡組、分享／匯出、自動選材與 spaced repetition 未實作。
+AI／Pod／Gemma 不是 dependency；未新增 mastery 或第二套 knowledge authority。
