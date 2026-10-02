@@ -1,4 +1,9 @@
+export type CardSetRoute =
+  | { name: "card-sets"; materialId: string; view: "list" | "new" }
+  | { name: "card-sets"; materialId: string; view: "study" | "edit"; cardSetId: string };
+
 export type AppRoute =
+  | CardSetRoute
   | { name: "home" }
   | { name: "materials" }
   | { name: "upload" }
@@ -49,7 +54,13 @@ export function readRoute(pathname: string): RouteRead {
   if (materialSegment !== "materials" || !uuidPattern.test(materialId)) return fallback;
 
   let route: AppRoute;
-  if (segments.length === 3 && resourceSegment === "sources") {
+  if (resourceSegment === "card-sets") {
+    if (segments.length === 3) route = { name: "card-sets", materialId, view: "list" };
+    else if (segments.length === 4 && runId === "new") route = { name: "card-sets", materialId, view: "new" };
+    else if (uuidPattern.test(runId) && (segments.length === 4 || (segments.length === 5 && structureSegment === "edit")))
+      route = { name: "card-sets", materialId, view: segments.length === 5 ? "edit" : "study", cardSetId: runId };
+    else return fallback;
+  } else if (segments.length === 3 && resourceSegment === "sources") {
     route = { name: "material-sources", materialId };
   } else if (resourceSegment !== "runs" || !uuidPattern.test(runId)) {
     return fallback;
@@ -88,6 +99,14 @@ export function routePath(route: AppRoute): string {
   if (route.name === "home") return "/";
   if (route.name === "materials") return "/materials";
   if (route.name === "upload") return "/upload";
+  if (route.name === "card-sets") {
+    if (!uuidPattern.test(route.materialId)) throw new Error("ROUTE_INVALID");
+    const base = `/materials/${route.materialId}/card-sets`;
+    if (route.view === "list") return base;
+    if (route.view === "new") return base + "/new";
+    if (!("cardSetId" in route) || !uuidPattern.test(route.cardSetId)) throw new Error("ROUTE_INVALID");
+    return base + `/${route.cardSetId}` + (route.view === "edit" ? "/edit" : "");
+  }
   if (route.name === "material-sources") {
     if (!uuidPattern.test(route.materialId)) throw new Error("ROUTE_INVALID");
     return `/materials/${route.materialId}/sources`;

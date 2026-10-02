@@ -315,6 +315,8 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
               <fieldset className="state-actions" disabled={deleting}>
                 {studyAction}
                 {mapAction}
+                {structure && <button className="secondary-button" type="button" onClick={() =>
+                  writeRoute({ name: "card-sets", materialId: item.material_id, view: "list" })}>觀念圖卡</button>}
                 {latest && (isProcessingRun || latest.status === "failed") ? (
                   <button
                     className={structure ? "text-button" : "primary-button"}

@@ -1020,3 +1020,50 @@ test("pending cards cannot survive account client invalidation", async () => {
   release();
   await assert.rejects(request, e => e.reasonCode === "SESSION_REQUIRED");
 });
+
+function cardSetView() {
+  return {schema:"card-set/v1", card_set_id:setId, material_id:materialId,
+    knowledge_structure_revision:structureRevision, name:"複習", ordering_policy:"published_order",
+    concept_ids:[conceptId], current_position:0, version:1,
+    created_at:"2026-10-02T00:00:00Z", updated_at:"2026-10-02T00:00:00Z"};
+}
+
+test("persistent card APIs carry scope, create intent, version and exact projection", async () => {
+  const set=cardSetView();
+  const calls=[];
+  const client=new StudydyApiClient(async (url,init)=>{
+    calls.push({url:String(url),...init});
+    if(init.method==="DELETE") return new Response(null,{status:204});
+    if(String(url).endsWith("/cards")) return Response.json({schema:"card-set-cards/v1",card_set:set,cards:cardsView()});
+    if(init.method==="GET" && String(url).endsWith("/card-sets")) return Response.json({schema:"card-set-list/v1",material_id:materialId,card_sets:[set]});
+    return Response.json(set);
+  });
+  const input={name:set.name,concept_ids:set.concept_ids,ordering_policy:set.ordering_policy,knowledge_structure_revision:structureRevision};
+  assert.deepEqual((await client.listCardSets(materialId)).card_sets,[set]);
+  assert.deepEqual(await client.readCardSet(materialId,setId),set);
+  assert.deepEqual((await client.readCardSetCards(materialId,setId)).cards,cardsView());
+  await client.createCardSet(materialId,input,"same-intent");
+  await client.editCardSet(set,input);
+  await client.setCardPosition(set,0);
+  await client.deleteCardSet(set);
+  assert.equal(calls[3].headers["Idempotency-Key"],"same-intent");
+  assert.equal(JSON.parse(calls[4].body).expected_version,1);
+  assert.equal(JSON.parse(calls[5].body).current_position,0);
+  assert.ok(calls[6].url.endsWith("?version=1"));
+  assert.ok(calls.slice(3).every(c=>c.headers.Origin));
+});
+
+test("persistent cards reject invalid resume bounds and cross-revision or reordered projection", async () => {
+  for(const mutate of [
+    v=>v.card_set.current_position=1,
+    v=>v.card_set.material_id=runId,
+    v=>v.card_set.card_set_id=runId,
+    v=>v.card_set.knowledge_structure_revision=`knowledge-structure:sha256:${"f".repeat(64)}`,
+    v=>v.cards.selection.concept_ids=[],
+    v=>v.cards.source_resolver=v.cards.source_resolver.replace(materialId,runId),
+  ]) {
+    const value={schema:"card-set-cards/v1",card_set:cardSetView(),cards:cardsView()};mutate(value);
+    const client=new StudydyApiClient(async()=>Response.json(value));
+    await assert.rejects(client.readCardSetCards(materialId,setId),e=>e.kind==="schema");
+  }
+});

@@ -7,6 +7,7 @@ import type {
   AssessmentSetListView,
   AssessmentSetView,
   ConceptCardsView,
+  CardSetView, CardSetInput, CardSetListView, CardSetCardsView,
   EvidenceSourceView,
   GuidanceApply,
   KnowledgeStructureRequest,
@@ -31,6 +32,7 @@ type FetchRequest = (input: RequestInfo | URL, init?: RequestInit) => Promise<Re
 
 const genericApiMessage = "請求無法完成，請稍後再試。";
 const apiErrorMessages: Record<KnownApiReasonCode, string> = {
+  CARD_SET_CONFLICT: "這個圖卡組已在其他頁面更新，請重新讀取後再操作。",
   INVALID_EMAIL: "請輸入有效的 Email 格式。",
   INVALID_CREDENTIALS: "Email 或密碼不正確。",
   ACCOUNT_UNAVAILABLE: "這個 Email 已被使用，請使用其他 Email。",
@@ -466,6 +468,59 @@ export class StudydyApiClient {
     if (view.knowledge_structure_revision !== request.structureRevision)
       throw schemaMismatch("教材結構版本不一致。");
     return view;
+  }
+
+  async listCardSets(materialId: string): Promise<CardSetListView> {
+    const value = await this.json(`/v1/materials/${materialId}/card-sets`, { method: "GET" }, validate.cardSetList);
+    if (value.material_id !== materialId) throw schemaMismatch("圖卡組的教材身分不一致。");
+    return value;
+  }
+
+  async readCardSet(materialId: string, id: string): Promise<CardSetView> {
+    const value = await this.json(`/v1/materials/${materialId}/card-sets/${id}`, { method: "GET" }, validate.cardSet);
+    if (value.material_id !== materialId || value.card_set_id !== id) throw schemaMismatch("圖卡組身分不一致。");
+    return value;
+  }
+
+  async readCardSetCards(materialId: string, id: string): Promise<CardSetCardsView> {
+    const value = await this.json(`/v1/materials/${materialId}/card-sets/${id}/cards`, { method: "GET" }, validate.cardSetCards);
+    if (value.card_set.material_id !== materialId || value.card_set.card_set_id !== id) throw schemaMismatch("圖卡組身分不一致。");
+    return value;
+  }
+
+  async createCardSet(materialId: string, input: CardSetInput, key: string): Promise<CardSetView> {
+    const value = await this.post(`/v1/materials/${materialId}/card-sets`, { schema: "card-set-create/v1", ...input }, key, validate.cardSet);
+    if (value.material_id !== materialId || value.knowledge_structure_revision !== input.knowledge_structure_revision)
+      throw schemaMismatch("圖卡組的教材版本不一致。");
+    return value;
+  }
+
+  async editCardSet(saved: CardSetView, input: CardSetInput): Promise<CardSetView> {
+    const value = await this.json(`/v1/materials/${saved.material_id}/card-sets/${saved.card_set_id}/edit`, {
+      method: "POST", headers: { Origin: origin(), "Content-Type": "application/json" },
+      body: JSON.stringify({ schema: "card-set-edit/v1", ...input, expected_version: saved.version }),
+    }, validate.cardSet);
+    if (value.material_id !== saved.material_id || value.card_set_id !== saved.card_set_id ||
+        value.knowledge_structure_revision !== saved.knowledge_structure_revision) throw schemaMismatch("圖卡組身分不一致。");
+    return value;
+  }
+
+  async setCardPosition(saved: CardSetView, position: number): Promise<CardSetView> {
+    const value = await this.json(`/v1/materials/${saved.material_id}/card-sets/${saved.card_set_id}/position`, {
+      method: "POST", headers: { Origin: origin(), "Content-Type": "application/json" },
+      body: JSON.stringify({ schema: "card-set-position/v1", current_position: position, expected_version: saved.version }),
+    }, validate.cardSet);
+    if (value.material_id !== saved.material_id || value.card_set_id !== saved.card_set_id ||
+        value.knowledge_structure_revision !== saved.knowledge_structure_revision || value.current_position !== position ||
+        JSON.stringify(value.concept_ids) !== JSON.stringify(saved.concept_ids)) throw schemaMismatch("圖卡組的複習位置不一致。");
+    return value;
+  }
+
+  async deleteCardSet(saved: CardSetView): Promise<void> {
+    const result = await this.request(`/v1/materials/${saved.material_id}/card-sets/${saved.card_set_id}?version=${saved.version}`, {
+      method: "DELETE", headers: { Origin: origin() },
+    });
+    if (result.status !== 204) throw schemaMismatch("無法確認圖卡組已刪除。");
   }
 
   async getConceptCards(

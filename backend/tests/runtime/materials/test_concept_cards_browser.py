@@ -1,4 +1,4 @@
-"""正式前端＋真 API／隔離 DB；看卡與回查來源不改變學習權威。"""
+"""正式前端＋真 API／隔離 DB；卡組 CRUD／翻卡／續讀不改變學習權威。"""
 import json
 
 import httpx
@@ -43,6 +43,6 @@ def test_concept_cards_browser_is_read_only(closed_loop, monkeypatch):
         assert run_browser("e2e/api/concept-cards.spec.ts") == 0
     assert product_snapshot(dsn) == before
     assert derive_learner_progress(learner, f["study"].study_session_id, dsn=dsn) == progress
-    assert writes == []
-    assert sum(path.endswith("/concept-cards") for path in reads) == 2
+    assert writes and all("/card-sets" in path for path in writes)
+    assert sum(path.endswith("/cards") for path in reads) >= 4
     assert any("/evidence/" in path and path.endswith("/source") for path in reads)

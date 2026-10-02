@@ -1,4 +1,5 @@
 export type KnownApiReasonCode =
+  | "CARD_SET_CONFLICT"
   | "INVALID_EMAIL"
   | "INVALID_CREDENTIALS"
   | "ACCOUNT_UNAVAILABLE"
@@ -211,6 +212,23 @@ export type ConceptCardsView = {
     evidence: EvidenceView[];
   })[];
 };
+
+export type CardSetView = {
+  schema: "card-set/v1";
+  card_set_id: string;
+  material_id: string;
+  knowledge_structure_revision: string;
+  name: string;
+  ordering_policy: "published_order";
+  concept_ids: string[];
+  current_position: number;
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
+export type CardSetInput = Pick<CardSetView, "knowledge_structure_revision" | "name" | "ordering_policy" | "concept_ids">;
+export type CardSetListView = { schema: "card-set-list/v1"; material_id: string; card_sets: CardSetView[] };
+export type CardSetCardsView = { schema: "card-set-cards/v1"; card_set: CardSetView; cards: ConceptCardsView };
 
 export type StudySessionFocus = {
   schema: "study-session-focus/v1";

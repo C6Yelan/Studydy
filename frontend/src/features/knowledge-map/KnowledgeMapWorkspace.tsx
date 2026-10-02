@@ -1,5 +1,5 @@
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
-import { ConceptCards } from "../concept-cards/ConceptCards";
+import { writeRoute } from "../../app/routes";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
 import {
   Background,
@@ -1179,7 +1179,8 @@ export function KnowledgeMapWorkspace({
           )}
         </form>
         <div className="map-header-actions">
-          <ConceptCards apiClient={apiClient} materialId={materialId} map={view} />
+          <button className="secondary-button" type="button" onClick={() =>
+            writeRoute({ name: "card-sets", materialId, view: "list" })}>觀念圖卡</button>
           <button className="secondary-button" type="button" onClick={onAddSources}>
             新增教材
           </button>

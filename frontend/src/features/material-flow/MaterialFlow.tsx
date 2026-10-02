@@ -1,6 +1,7 @@
 import type { StudydyApiClient } from "../../api/client";
 import type { AppRoute } from "../../app/routes";
 import KnowledgeMap from "../knowledge-map/App";
+import { CardSetPage } from "../concept-cards/CardSetPage";
 import { StudySessionPage } from "../study-session/StudySessionPage";
 import { Dashboard } from "../dashboard/Dashboard";
 import { MaterialLibrary } from "./MaterialLibrary";
@@ -19,6 +20,9 @@ export function MaterialFlow({
   if (route.name === "home") return <Dashboard apiClient={apiClient} />;
   if (route.name === "materials") return <MaterialLibrary key="library" apiClient={apiClient} />;
   if (route.name === "upload") return <UploadView apiClient={apiClient} />;
+  if (route.name === "card-sets") return <CardSetPage
+    key={`${route.materialId}/${route.view}/${"cardSetId" in route ? route.cardSetId : ""}`}
+    apiClient={apiClient} route={route} />;
   if (route.name === "material-sources")
     return (
       <SourceView key={route.materialId} apiClient={apiClient} materialId={route.materialId} />

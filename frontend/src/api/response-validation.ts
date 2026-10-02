@@ -8,6 +8,7 @@ import type {
   AssessmentSetView,
   AssessmentView,
   ConceptCardsView,
+  CardSetView, CardSetListView, CardSetCardsView,
   EvidenceSourceView,
   KnowledgeStructureView,
   LearnerIdentity,
@@ -306,6 +307,33 @@ function locator(value: unknown): boolean {
     item.region.length === 4 &&
     item.region.every((number) => typeof number === "number" && Number.isFinite(number))
   );
+}
+
+export function cardSet(value: unknown): value is CardSetView {
+  const row = object(value);
+  return !!row && row.schema === "card-set/v1" && isUuid(row.card_set_id) && isUuid(row.material_id) &&
+    revision(row.knowledge_structure_revision, "knowledge-structure") &&
+    typeof row.name === "string" && row.name.trim().length > 0 && row.name.length <= 200 &&
+    row.ordering_policy === "published_order" && strings(row.concept_ids) && row.concept_ids.length > 0 &&
+    row.concept_ids.every(id => revision(id, "concept")) && new Set(row.concept_ids).size === row.concept_ids.length &&
+    Number.isInteger(row.current_position) && Number(row.current_position) >= 0 && Number(row.current_position) < row.concept_ids.length &&
+    Number.isInteger(row.version) && Number(row.version) >= 1 && timestamp(row.created_at) && timestamp(row.updated_at);
+}
+
+export function cardSetList(value: unknown): value is CardSetListView {
+  const row = object(value);
+  return !!row && row.schema === "card-set-list/v1" && isUuid(row.material_id) && Array.isArray(row.card_sets) &&
+    row.card_sets.every(item => cardSet(item) && item.material_id === row.material_id);
+}
+
+export function cardSetCards(value: unknown): value is CardSetCardsView {
+  const row = object(value);
+  if (!row || row.schema !== "card-set-cards/v1" || !cardSet(row.card_set) || !conceptCards(row.cards)) return false;
+  const selection = row.cards.selection;
+  return row.card_set.material_id === selection.material_id &&
+    row.card_set.knowledge_structure_revision === selection.knowledge_structure_revision &&
+    JSON.stringify(row.card_set.concept_ids) === JSON.stringify(selection.concept_ids) &&
+    decodeURIComponent(row.cards.source_resolver) === `/v1/materials/${selection.material_id}/knowledge-structures/${selection.knowledge_structure_revision}/evidence`;
 }
 
 export function conceptCards(value: unknown): value is ConceptCardsView {

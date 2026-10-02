@@ -11,8 +11,8 @@ export function AppShell({
   route: AppRoute;
   accountAction?: React.ReactNode;
 }) {
-  const isLearningWorkspace = route.name === "knowledge-map" || route.name === "study-session";
-  const isMaterialRoute = ["materials", "material-run", "material-sources", "upload"].includes(
+  const isLearningWorkspace = route.name === "knowledge-map" || route.name === "study-session" || (route.name === "card-sets" && route.view === "study");
+  const isMaterialRoute = ["materials", "material-run", "material-sources", "upload", "card-sets"].includes(
     route.name,
   );
   return (
@@ -29,6 +29,7 @@ export function AppShell({
         </button>
         {isLearningWorkspace && (
           <nav className="workspace-nav" aria-label="學習工作區導覽">
+            {route.name === "card-sets" && <button type="button" onClick={() => writeRoute({ name: "card-sets", materialId: route.materialId, view: "list" })}>我的圖卡組</button>}
             {route.name === "study-session" && (
               <button
                 type="button"
