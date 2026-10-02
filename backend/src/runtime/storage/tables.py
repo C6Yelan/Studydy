@@ -139,6 +139,29 @@ class KnowledgeStructure(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class CardSet(Base):
+    __tablename__ = "card_sets"
+    card_set_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    knowledge_structure_revision: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text)
+    ordering_policy: Mapped[str] = mapped_column(Text)
+    current_position: Mapped[int] = mapped_column(Integer)
+    version: Mapped[int] = mapped_column(BigInteger)
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary)
+    request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CardSetItem(Base):
+    __tablename__ = "card_set_items"
+    card_set_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    position: Mapped[int] = mapped_column(Integer, primary_key=True)
+    concept_id: Mapped[str] = mapped_column(Text)
+
+
 class StudySession(Base):
     __tablename__ = "study_sessions"
     __table_args__ = (
