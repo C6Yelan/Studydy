@@ -20,6 +20,7 @@ Deployment preparation only; Cloudflare activation not performed.
 capabilities 失敗時暫停選檔；413／429／入口拒絕只顯示固定訊息，不渲染任意 HTML。
 
 Nginx 拒絕未知或缺少 Host，接受 studydy.net／127.0.0.1／localhost。
+目錄 redirect 使用相對 URL，避免洩漏私有 HTTP scheme／8080。
 未使用的 forwarded、client-IP、Access 身分 headers 在 API proxy 被移除；Cookie、
 Origin 與產品 headers 保留。API 不新增 real-IP 或 trust-all proxy 設定。
 

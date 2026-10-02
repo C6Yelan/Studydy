@@ -44,6 +44,12 @@ HTTPServer(('0.0.0.0',8001),Handler).serve_forever()
         for host in ['evil.example', 'studydy.net.evil.example', '']:
             for path in ['/', '/v1/session']:
                 assert request('GET', path, host)[0] == 400
+        connection = http.client.HTTPConnection('127.0.0.1', 4183, timeout=5)
+        connection.request('GET', '/assets', headers={'Host': 'studydy.net'})
+        redirect = connection.getresponse()
+        assert redirect.status == 301 and redirect.getheader('Location') == '/assets/'
+        redirect.read()
+        connection.close()
         headers = {h: 'synthetic-forged' for h in ['Forwarded','X-Forwarded-For','X-Forwarded-Host',
             'X-Forwarded-Port','X-Forwarded-Proto','X-Real-IP','True-Client-IP','CF-Connecting-IP',
             'CF-Connecting-IPv6','CF-Pseudo-IPv4','CF-Visitor','CF-Access-Jwt-Assertion',
