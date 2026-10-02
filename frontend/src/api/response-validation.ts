@@ -1,5 +1,10 @@
 import type {
   AnswerFeedbackView,
+  CardSetSummary,
+  CardSetView,
+  CardSetListView,
+  CardSetDeletedView,
+  ConceptCard,
   ApiErrorView,
   AssessmentCycleSummary,
   AssessmentPlanView,
@@ -307,6 +312,67 @@ function locator(value: unknown): boolean {
   );
 }
 
+function conceptCard(value: unknown): value is ConceptCard {
+  const item = object(value);
+  return !!item && revision(item.concept_id, "concept") && typeof item.label === "string"
+    && Array.isArray(item.claims) && item.claims.every((value) => {
+      const claim = object(value);
+      return !!claim && revision(claim.claim_id, "claim") && typeof claim.text === "string"
+        && Array.isArray(claim.evidence) && claim.evidence.every((value) => {
+          const evidence = object(value);
+          return !!evidence && revision(evidence.evidence_id, "evidence")
+            && Number.isInteger(evidence.page) && Number(evidence.page) > 0
+            && (evidence.source_id === undefined || isUuid(evidence.source_id))
+            && (evidence.source_name === undefined || typeof evidence.source_name === "string")
+            && (evidence.normalized_page === undefined ||
+              (Number.isInteger(evidence.normalized_page) && Number(evidence.normalized_page) > 0))
+            && ["native_text", "unlimited_ocr"].includes(String(evidence.source))
+            && typeof evidence.quote === "string" && locator(evidence.source_locator);
+        });
+    });
+}
+
+export function cardSetSummary(value: unknown): value is CardSetSummary {
+  const item = object(value);
+  return !!item && isUuid(item.card_set_id) && isUuid(item.material_id)
+    && Number.isInteger(item.version) && Number(item.version) > 0
+    && revision(item.knowledge_structure_revision, "knowledge-structure")
+    && typeof item.name === "string" && item.name.trim().length > 0
+    && typeof item.material_name === "string" && timestamp(item.created_at)
+    && Number.isInteger(item.card_count) && Number(item.card_count) > 0
+    && typeof item.is_current_revision === "boolean";
+}
+
+export function cardSetList(value: unknown): value is CardSetListView {
+  const item = object(value);
+  return !!item && item.schema === "card-set-list/v1"
+    && Array.isArray(item.card_sets) && item.card_sets.every(cardSetSummary);
+}
+
+export function cardSet(value: unknown): value is CardSetView {
+  const item = object(value);
+  if (!item || !cardSetSummary(value) || item.schema !== "card-set/v1") return false;
+  const status = object(item.status);
+  return item.source_resolver === `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
+    && !!status && ["accepted", "needs_review"].includes(String(status.quality))
+    && ["succeeded", "partial"].includes(String(status.processing))
+    && ["retain", "review"].includes(String(status.decision)) && strings(status.reason_codes)
+    && Array.isArray(item.excluded_pages) && item.excluded_pages.every((value) => {
+      const page = object(value);
+      return !!page && Number.isInteger(page.page) && Number(page.page) > 0
+        && typeof page.reason_code === "string";
+    })
+    && Array.isArray(item.cards) && item.cards.length === item.card_count
+    && item.cards.every(conceptCard)
+    && item.cards.every((card) => card.claims.length > 0 && card.claims.every((claim) => claim.evidence.length > 0))
+    && new Set(item.cards.map((card) => card.concept_id)).size === item.cards.length;
+}
+
+export function cardSetDeleted(value: unknown): value is CardSetDeletedView {
+  const item = object(value);
+  return !!item && item.schema === "card-set-deleted/v1" && isUuid(item.card_set_id);
+}
+
 export function knowledgeStructure(value: unknown): value is KnowledgeStructureView {
   const item = object(value);
   if (
@@ -329,44 +395,8 @@ export function knowledgeStructure(value: unknown): value is KnowledgeStructureV
   const concepts = item.concepts as unknown[];
   const conceptIds: string[] = [];
   for (const value of concepts) {
-    const concept = object(value);
-    if (
-      !concept ||
-      !revision(concept.concept_id, "concept") ||
-      typeof concept.label !== "string" ||
-      !Array.isArray(concept.claims)
-    )
-      return false;
-    conceptIds.push(concept.concept_id);
-    for (const claimValue of concept.claims) {
-      const claim = object(claimValue);
-      if (
-        !claim ||
-        !revision(claim.claim_id, "claim") ||
-        typeof claim.text !== "string" ||
-        !Array.isArray(claim.evidence)
-      )
-        return false;
-      if (
-        !claim.evidence.every((value) => {
-          const evidence = object(value);
-          return (
-            !!evidence &&
-            revision(evidence.evidence_id, "evidence") &&
-            Number.isInteger(evidence.page) &&
-            (evidence.source_id === undefined || isUuid(evidence.source_id)) &&
-            (evidence.source_name === undefined || typeof evidence.source_name === "string") &&
-            (evidence.normalized_page === undefined ||
-              (Number.isInteger(evidence.normalized_page) &&
-                Number(evidence.normalized_page) > 0)) &&
-            (evidence.source === "native_text" || evidence.source === "unlimited_ocr") &&
-            typeof evidence.quote === "string" &&
-            locator(evidence.source_locator)
-          );
-        })
-      )
-        return false;
-    }
+    if (!conceptCard(value)) return false;
+    conceptIds.push(value.concept_id);
   }
   if (conceptIds.length !== new Set(conceptIds).size) return false;
   const known = new Set(conceptIds);

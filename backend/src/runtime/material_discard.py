@@ -13,6 +13,7 @@ from .storage.tables import (
     Assessment,
     AssessmentSet,
     AssessmentSetItem,
+    CardSet,
     KnowledgeStructure,
     Material,
     MaterialProcessingRun,
@@ -121,6 +122,10 @@ def purge_discarded_material(learner_id: UUID, material_id: UUID, *, dsn: str | 
             session.execute(delete(StudySession).where(
                 StudySession.learner_id == learner_id,
                 StudySession.material_id == material_id,
+            ))
+            session.execute(delete(CardSet).where(
+                CardSet.learner_id == learner_id,
+                CardSet.material_id == material_id,
             ))
             session.execute(delete(KnowledgeStructure).where(
                 KnowledgeStructure.learner_id == learner_id,

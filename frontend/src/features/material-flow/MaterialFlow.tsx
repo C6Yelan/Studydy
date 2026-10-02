@@ -7,6 +7,10 @@ import { MaterialLibrary } from "./MaterialLibrary";
 import { RunView } from "./RunView";
 import { SourceView } from "./SourceView";
 import { UploadView } from "./UploadView";
+import { CardSetLibrary } from "../concept-cards/CardSetLibrary";
+import { CreateCardSet } from "../concept-cards/CreateCardSet";
+import { CardSetPage } from "../concept-cards/CardSetPage";
+import "../concept-cards/styles.css";
 import "./styles.css";
 
 export function MaterialFlow({
@@ -17,6 +21,10 @@ export function MaterialFlow({
   route: AppRoute;
 }) {
   if (route.name === "home") return <Dashboard apiClient={apiClient} />;
+  if (route.name === "concept-cards") return <CardSetLibrary apiClient={apiClient} />;
+  if (route.name === "card-set-create") return <CreateCardSet key={`${route.materialId}/${route.structureRevision}`} apiClient={apiClient} route={route} />;
+  if (route.name === "card-set-edit") return <CreateCardSet key={`edit/${route.cardSetId}`} apiClient={apiClient} route={route} />;
+  if (route.name === "card-set") return <CardSetPage key={route.cardSetId} apiClient={apiClient} cardSetId={route.cardSetId} />;
   if (route.name === "materials") return <MaterialLibrary key="library" apiClient={apiClient} />;
   if (route.name === "upload") return <UploadView apiClient={apiClient} />;
   if (route.name === "material-sources")

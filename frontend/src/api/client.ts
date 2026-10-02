@@ -1,6 +1,12 @@
 import * as validate from "./response-validation.ts";
 import type {
   ApiReasonCode,
+  CardSetCreate,
+  CardSetUpdate,
+  CardSetSummary,
+  CardSetView,
+  CardSetListView,
+  CardSetDeletedView,
   AssessmentPlanView,
   AssessmentSetAction,
   AssessmentSetAnswer,
@@ -30,6 +36,7 @@ type FetchRequest = (input: RequestInfo | URL, init?: RequestInit) => Promise<Re
 
 const genericApiMessage = "請求無法完成，請稍後再試。";
 const apiErrorMessages: Record<KnownApiReasonCode, string> = {
+  CARD_SET_CONFLICT: "卡組已在其他頁面更新，請重新讀取後再編輯。",
   INVALID_EMAIL: "請輸入有效的 Email 格式。",
   INVALID_CREDENTIALS: "Email 或密碼不正確。",
   ACCOUNT_UNAVAILABLE: "這個 Email 已被使用，請使用其他 Email。",
@@ -304,6 +311,35 @@ export class StudydyApiClient {
       },
       guard,
     );
+  }
+
+  listCardSets(): Promise<CardSetListView> {
+    return this.json("/v1/card-sets", { method: "GET" }, validate.cardSetList);
+  }
+
+  getCardSet(id: string): Promise<CardSetView> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}`, { method: "GET" },
+      (value): value is CardSetView => validate.cardSet(value) && value.card_set_id === id);
+  }
+
+  createCardSet(materialId: string, body: CardSetCreate, key: string): Promise<CardSetSummary> {
+    return this.post(`/v1/materials/${encodeURIComponent(materialId)}/card-sets`, body, key,
+      (value): value is CardSetSummary => validate.cardSetSummary(value)
+        && value.material_id === materialId
+        && value.knowledge_structure_revision === body.knowledge_structure_revision);
+  }
+
+  updateCardSet(id: string, body: CardSetUpdate): Promise<CardSetSummary> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/update`, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
+      body: JSON.stringify(body),
+    }, (value): value is CardSetSummary => validate.cardSetSummary(value) && value.card_set_id === id);
+  }
+
+  deleteCardSet(id: string): Promise<CardSetDeletedView> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}`, {
+      method: "DELETE", headers: { Origin: origin() },
+    }, (value): value is CardSetDeletedView => validate.cardSetDeleted(value) && value.card_set_id === id);
   }
 
   sourceCapabilities(): Promise<SourceCapabilities> {

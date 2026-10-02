@@ -49,6 +49,10 @@ export function AppShell({
               <Icon name="book" size={18} />
               我的教材
             </button>
+            <button type="button" onClick={() => writeRoute({ name: "concept-cards" })}>
+              <Icon name="cards" size={18} />
+              概念卡
+            </button>
           </nav>
         )}
         <div className="account-controls">{accountAction}</div>
@@ -72,6 +76,14 @@ export function AppShell({
             >
               <Icon name="book" />
               我的教材
+            </button>
+            <button
+              aria-current={["concept-cards", "card-set", "card-set-create", "card-set-edit"].includes(route.name) ? "page" : undefined}
+              type="button"
+              onClick={() => writeRoute({ name: "concept-cards" })}
+            >
+              <Icon name="cards" />
+              概念卡
             </button>
           </nav>
         </aside>

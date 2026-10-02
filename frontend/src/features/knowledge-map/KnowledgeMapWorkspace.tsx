@@ -888,6 +888,7 @@ export function KnowledgeMapWorkspace({
   isStartingStudy,
   onReturnToRun,
   onAddSources,
+  onCreateCards,
   onStartStudy,
   startMessage,
   view,
@@ -901,6 +902,7 @@ export function KnowledgeMapWorkspace({
   isStartingStudy: boolean;
   onReturnToRun: () => void;
   onAddSources: () => void;
+  onCreateCards: () => void;
   onStartStudy: (conceptId: string) => void;
   startMessage: string | null;
   view: KnowledgeStructureView;
@@ -1176,6 +1178,9 @@ export function KnowledgeMapWorkspace({
           )}
         </form>
         <div className="map-header-actions">
+          <button className="secondary-button" type="button" onClick={onCreateCards}>
+            <Icon name="cards" size={18} /> 建立概念卡
+          </button>
           <button className="secondary-button" type="button" onClick={onAddSources}>
             新增教材
           </button>

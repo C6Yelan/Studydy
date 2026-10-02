@@ -217,6 +217,56 @@ class KnowledgeStructureView(_Closed):
     excluded_pages: list[ExcludedPageView]
 
 
+class CardSetCreate(_Closed):
+    schema_: Literal["card-set-create/v1"] = Field(alias="schema")
+    knowledge_structure_revision: str
+    name: str = Field(min_length=1, max_length=200)
+    concept_ids: list[str] = Field(min_length=1)
+
+
+class CardSetSummary(_Closed):
+    card_set_id: UUID
+    material_id: UUID
+    material_name: str
+    knowledge_structure_revision: str
+    name: str
+    card_count: int
+    version: int
+    created_at: datetime
+    is_current_revision: bool
+
+
+class CardSetUpdate(_Closed):
+    schema_: Literal["card-set-update/v1"] = Field(alias="schema")
+    name: str = Field(min_length=1, max_length=200)
+    expected_version: int = Field(ge=1, strict=True)
+    concept_ids: list[str] | None = Field(default=None, min_length=1)
+
+
+class ConceptCardView(_Closed):
+    concept_id: str
+    label: str
+    claims: list[ClaimView]
+
+
+class CardSetView(CardSetSummary):
+    schema_: Literal["card-set/v1"] = Field(alias="schema")
+    source_resolver: str
+    status: StatusView
+    excluded_pages: list[ExcludedPageView]
+    cards: list[ConceptCardView]
+
+
+class CardSetListView(_Closed):
+    schema_: Literal["card-set-list/v1"] = Field(alias="schema")
+    card_sets: list[CardSetSummary]
+
+
+class CardSetDeletedView(_Closed):
+    schema_: Literal["card-set-deleted/v1"] = Field(alias="schema")
+    card_set_id: UUID
+
+
 class StudySessionCreate(_Closed):
     """Ensure a persistent state; current_concept_id applies only to its initial creation."""
     schema_: Literal["study-session-create/v1"] = Field(alias="schema")
