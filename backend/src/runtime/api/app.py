@@ -860,6 +860,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         try:
             cards = project_concept_cards(
                 stored.view, str(material_id), request.query_params.getlist("concept_id"),
+                stored.document["evidence"],
             )
         except ValueError as error:
             if str(error) == "REQUEST_INVALID":

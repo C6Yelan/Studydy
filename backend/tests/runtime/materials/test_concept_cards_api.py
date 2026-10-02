@@ -1,11 +1,14 @@
 """真 API／隔離 DB：圖卡的來源身分、所有權與 learning authority。"""
 from uuid import uuid4
+from copy import deepcopy
 
 from fastapi.testclient import TestClient
 
 from assessment_fixtures import concept_fixture
 from learning_adaptation.learner_progress import derive_learner_progress
 from product_fixtures import ORIGIN, _app, closed_loop, library_materials, product_snapshot
+from runtime.storage.tables import KnowledgeStructure, database_session
+from sqlalchemy import select
 
 
 def test_cards_exact_revision_owner_source_and_no_session(library_materials, tmp_path, monkeypatch):
@@ -76,3 +79,16 @@ def test_cards_with_existing_progress_preserve_all_learning_rows(closed_loop, tm
                 assert client.get(cards["source_resolver"] + "/" + evidence["evidence_id"] + "/source").status_code == 200
     assert derive_learner_progress(f["learner"], f["study"].study_session_id, dsn=f["dsn"]) == progress
     assert product_snapshot(f["dsn"]) == before
+
+
+def test_cards_reject_dangling_canonical_evidence(closed_loop, tmp_path, monkeypatch):
+    _, source, _, document, dsn, token = closed_loop
+    client = TestClient(_app(dsn, tmp_path, monkeypatch), base_url=ORIGIN)
+    client.cookies.set("studydy_session", token)
+    with database_session(dsn) as session:
+        row = session.scalar(select(KnowledgeStructure).where(KnowledgeStructure.structure_revision == document["revision"]))
+        damaged = deepcopy(row.document)
+        damaged["concepts"][0]["claims"][0]["evidence_refs"] = ["missing"]
+        row.document = damaged
+    path = f"/v1/materials/{source.material_id}/knowledge-structures/{document['revision']}/concept-cards"
+    assert client.get(path, params={"concept_id": document["concepts"][0]["concept_id"]}).status_code == 404
