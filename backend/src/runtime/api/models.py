@@ -217,6 +217,32 @@ class KnowledgeStructureView(_Closed):
     excluded_pages: list[ExcludedPageView]
 
 
+class ContentSelectionView(_Closed):
+    material_id: UUID
+    content_material_id: str
+    knowledge_structure_revision: str
+    concept_ids: list[str]
+    claim_ids: list[str]
+    relation_ids: list[str]
+    policy: Literal["manual-published-order/v1"]
+
+
+class CardRelationView(RelationView):
+    source_label: str
+    target_label: str
+    evidence: list[EvidenceView]
+
+
+class ConceptCardsView(_Closed):
+    schema_: Literal["concept-cards/v1"] = Field(alias="schema")
+    selection: ContentSelectionView
+    source_resolver: str
+    status: StatusView
+    excluded_pages: list[ExcludedPageView]
+    cards: list[ConceptView]
+    relations: list[CardRelationView]
+
+
 class StudySessionCreate(_Closed):
     """Ensure a persistent state; current_concept_id applies only to its initial creation."""
     schema_: Literal["study-session-create/v1"] = Field(alias="schema")

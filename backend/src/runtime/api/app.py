@@ -22,6 +22,7 @@ from document_normalization.converter import (
     MAX_FILE_BYTES, MIME, NormalizationError, normalizer_available,
 )
 from learning_adaptation import assessment_sets
+from knowledge_map.concept_cards import project_concept_cards
 from learning_adaptation.learner_progress import (
     apply_guidance, derive_learner_progress, progress_snapshot,
 )
@@ -51,7 +52,7 @@ from ..workers import start_runtime_workers
 from .models import (
     AccountCredentials, ApiErrorView, AssessmentPlanView, AssessmentSetAction,
     AssessmentSetCreate, AssessmentSetListView, AssessmentSetSubmission,
-    AssessmentSetView, EvidenceSourceView, GuidanceApply, KnowledgeStructureView,
+    AssessmentSetView, ConceptCardsView, EvidenceSourceView, GuidanceApply, KnowledgeStructureView,
     LearnerIdentityView, LearnerProgressView, MaterialDiscardView,
     MaterialDraftCreate, MaterialDraftView, MaterialLibraryItem,
     MaterialLibraryView, MaterialProcessingRunView, MaterialRename,
@@ -842,6 +843,29 @@ def create_app(settings: ApiSettings) -> FastAPI:
             learner.learner_id, material_id, revision=structure_revision, dsn=settings.dsn
         )
         return project_knowledge_structure(stored.view)
+
+    @app.get(
+        "/v1/materials/{material_id}/knowledge-structures/{structure_revision}/concept-cards",
+        response_model=ConceptCardsView, operation_id="getConceptCards", tags=["review"],
+    )
+    def read_concept_cards_route(
+        request: Request, material_id: UUID, structure_revision: str,
+    ) -> ConceptCardsView:
+        if set(request.query_params) - {"concept_id"}:
+            raise _ApiFailure("REQUEST_INVALID")
+        learner = _trusted_learner(request, settings)
+        stored = read_knowledge_structure(
+            learner.learner_id, material_id, revision=structure_revision, dsn=settings.dsn,
+        )
+        try:
+            cards = project_concept_cards(
+                stored.view, str(material_id), request.query_params.getlist("concept_id"),
+            )
+        except ValueError as error:
+            if str(error) == "REQUEST_INVALID":
+                raise _ApiFailure("REQUEST_INVALID") from None
+            raise
+        return ConceptCardsView.model_validate(cards)
 
     @app.get(
         "/v1/materials/{material_id}/knowledge-structures/{structure_revision}"
