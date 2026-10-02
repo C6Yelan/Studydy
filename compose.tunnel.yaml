@@ -1,0 +1,36 @@
+# 僅在 D 獲准後啟用 tunnel profile。此檔不建立 Cloudflare route。
+services:
+  backend:
+    environment:
+      STUDYDY_PUBLIC_ORIGIN: https://studydy.net
+      STUDYDY_SECURE_COOKIE: "true"
+      STUDYDY_UPLOAD_MAX_BYTES: ${STUDYDY_UPLOAD_MAX_BYTES:?Set reviewed effective upload bytes; confirm Cloudflare zone before D}
+  frontend:
+    environment:
+      STUDYDY_UPLOAD_MAX_BYTES: ${STUDYDY_UPLOAD_MAX_BYTES:?Set reviewed effective upload bytes; confirm Cloudflare zone before D}
+    networks: [edge]
+  cloudflared:
+    profiles: [tunnel]
+    image: cloudflare/cloudflared:2026.9.3@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
+    # Host file 的 UID/mode 決定可讀性；Compose bind 不會替檔案重設權限。
+    user: "${STUDYDY_UID:-1000}:${STUDYDY_GID:-1000}"
+    command: [tunnel, --no-autoupdate, --metrics, "127.0.0.1:2000", run, --token-file, /run/secrets/tunnel_token]
+    volumes:
+      - type: bind
+        source: ${STUDYDY_TUNNEL_TOKEN_FILE:?Set an absolute token-file path outside the repository}
+        target: /run/secrets/tunnel_token
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    networks: [edge]
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
+networks:
+  edge:
