@@ -1061,6 +1061,7 @@ test("persistent cards reject invalid resume bounds and cross-revision or reorde
     v=>v.card_set.knowledge_structure_revision=`knowledge-structure:sha256:${"f".repeat(64)}`,
     v=>v.cards.selection.concept_ids=[],
     v=>v.cards.source_resolver=v.cards.source_resolver.replace(materialId,runId),
+    v=>v.cards.source_resolver="%malformed",
   ]) {
     const value={schema:"card-set-cards/v1",card_set:cardSetView(),cards:cardsView()};mutate(value);
     const client=new StudydyApiClient(async()=>Response.json(value));

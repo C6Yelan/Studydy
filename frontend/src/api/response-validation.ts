@@ -329,11 +329,14 @@ export function cardSetList(value: unknown): value is CardSetListView {
 export function cardSetCards(value: unknown): value is CardSetCardsView {
   const row = object(value);
   if (!row || row.schema !== "card-set-cards/v1" || !cardSet(row.card_set) || !conceptCards(row.cards)) return false;
-  const selection = row.cards.selection;
+  const cards = row.cards;
+  const selection = cards.selection;
+  const base = `/v1/materials/${selection.material_id}/knowledge-structures/`;
   return row.card_set.material_id === selection.material_id &&
     row.card_set.knowledge_structure_revision === selection.knowledge_structure_revision &&
     JSON.stringify(row.card_set.concept_ids) === JSON.stringify(selection.concept_ids) &&
-    decodeURIComponent(row.cards.source_resolver) === `/v1/materials/${selection.material_id}/knowledge-structures/${selection.knowledge_structure_revision}/evidence`;
+    [selection.knowledge_structure_revision, encodeURIComponent(selection.knowledge_structure_revision)]
+      .some(revision => cards.source_resolver === `${base}${revision}/evidence`);
 }
 
 export function conceptCards(value: unknown): value is ConceptCardsView {

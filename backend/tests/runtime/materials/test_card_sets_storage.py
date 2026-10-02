@@ -2,6 +2,7 @@ from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 import shutil
 from uuid import uuid4
+from threading import Barrier
 
 import psycopg
 import pytest
@@ -123,8 +124,32 @@ def test_scope_and_conflicts(library_materials):
     with pytest.raises(cards.CardSetError,match='IDEMPOTENCY_CONFLICT'): create(f,name='Different')
     for values in ([], ['concept:sha256:'+'f'*64]):
         with pytest.raises(cards.CardSetError,match='REQUEST_INVALID'): create(f,key='bad',concept_ids=values)
+    for name in ['', '   ', '\u007f', '\ud800', 'x' * 201]:
+        with pytest.raises(cards.CardSetError, match='REQUEST_INVALID'): create(f, key='bad-name', name=name)
     with pytest.raises(KnowledgeStructureStoreError): create(f,key='wrong',revision='knowledge-structure:sha256:'+'f'*64)
     with pytest.raises(cards.CardSetError,match='REVISION_CONFLICT'):
         cards.edit_card_set(owner,material,id,f['second_structure']['revision'],'x',ids,'published_order',1,dsn=f['dsn'])
     with pytest.raises(cards.CardSetError,match='CARD_SET_CONFLICT'):
         cards.edit_card_set(owner,material,id,revision,'x',ids,'published_order',99,dsn=f['dsn'])
+
+
+def test_create_racing_prune_never_leaves_a_dangling_deck(library_materials):
+    f=library_materials; gate=Barrier(2)
+    def creating():
+        gate.wait(timeout=5)
+        try:
+            return create(f)
+        except KnowledgeStructureStoreError:
+            return None
+    def pruning():
+        gate.wait(timeout=5)
+        with database_session(f['dsn']) as session:
+            session.get(Material, f['first'].material_id, with_for_update=True)
+            _prune_unreferenced_structures(session, f['learner'].learner_id, f['first'].material_id, f['second_structure']['revision'])
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        saved=pool.submit(creating); cleanup=pool.submit(pruning)
+        row=saved.result(timeout=15); cleanup.result(timeout=15)
+    if row:
+        assert cards.read_card_set(f['learner'].learner_id, f['first'].material_id, row['card_set_id'], cards=True, dsn=f['dsn'])['card_set']==row
+    else:
+        assert cards.list_card_sets(f['learner'].learner_id, f['first'].material_id, dsn=f['dsn'])['card_sets']==[]

@@ -65,6 +65,11 @@ test("quality, literal-safe back and source details remain readable on mobile", 
   view.status={processing:"partial",quality:"needs_review",decision:"review",reason_codes:["LITERALS_RESTORED_FROM_SOURCE","RELATIONS_REJECTED","SOURCE_REVIEW_SUGGESTED"]};
   const literal="if (count != 0) {\n    value = 1.0 / count;\n}\nE=m*c^2; threshold <= 0.001; '\\0'\n"+"x".repeat(700);
   view.concepts[0].claims[0].text=literal;view.concepts[0].claims[0].evidence[0].kind="code";
+  view.concepts[0].claims[0].evidence[0].quote=literal;
+  const prose="必要條件不可省略；保留數值 0.001 與否定。".repeat(100);
+  const paragraph=structuredClone(view.concepts[0].claims[0]);paragraph.claim_id=`claim:sha256:${"f".repeat(64)}`;
+  paragraph.text=prose;paragraph.evidence[0].kind="paragraph";paragraph.evidence[0].quote=prose;
+  view.concepts[0].claims.push(paragraph);
   await mockCardSets(page,view,savedSet(view));await page.goto(studyPath);
   await expect(page.getByText("教材有內容待確認",{exact:true})).toBeVisible();
   await page.getByRole("button",{name:"翻卡：Stack，查看重點"}).click();
@@ -72,6 +77,8 @@ test("quality, literal-safe back and source details remain readable on mobile", 
   await expect(page.getByText(/LITERALS_RESTORED_FROM_SOURCE/)).not.toBeVisible();
   const code=page.locator(".card-literal");expect(await code.textContent()).toBe(literal);
   expect(await code.evaluate(e=>e.scrollWidth>e.clientWidth)).toBe(true);
+  expect(await page.locator(".flashcard-claims .card-text").textContent()).toBe(prose);
+  expect(await page.locator(".flashcard-answer").evaluate(e=>e.scrollHeight>e.clientHeight)).toBe(true);
   await code.focus();await page.keyboard.press("ArrowRight");await expect.poll(()=>code.evaluate(e=>e.scrollLeft)).toBeGreaterThan(0);
   await page.getByText("檢視品質詳情",{exact:true}).click();
   await expect(page.getByText(/LITERALS_RESTORED_FROM_SOURCE/)).toBeVisible();
@@ -118,3 +125,19 @@ for(const action of ["navigation","account"] as const) {
     release();await expect(page.locator(".flashcard-face")).toHaveCount(0);
   });
 }
+
+test("a late create response cannot navigate away from another page",async({page})=>{
+  await mockCardSets(page);
+  let release!:()=>void;const gate=new Promise<void>(resolve=>release=resolve);let started=false;
+  await page.route(`**${apiPath}`,async route=>{
+    if(route.request().method()!=="POST") return route.fallback();
+    started=true;await gate;await route.fulfill({status:201,json:savedSet()});
+  });
+  await page.goto(listPath+"/new");await page.getByLabel("圖卡組名稱",{exact:true}).fill("Late");
+  await page.getByRole("checkbox",{name:"Stack",exact:true}).check();
+  await page.getByRole("button",{name:"建立圖卡組",exact:true}).click();
+  await expect.poll(()=>started).toBe(true);
+  await page.getByRole("button",{name:"取消",exact:true}).click();
+  release();await expect(page).toHaveURL(new RegExp(`${listPath}$`));
+  await expect(page.getByRole("heading",{name:"我的圖卡組",exact:true})).toBeVisible();
+});

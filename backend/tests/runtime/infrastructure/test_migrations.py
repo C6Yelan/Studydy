@@ -132,7 +132,7 @@ def test_next_migration_rolls_back_and_can_retry(clean_database_dsn, migrations_
         ).fetchone() == (None,)
         assert connection.execute(
             'SELECT count(*) FROM schema_migrations'
-         ).fetchone() == (6,)
+        ).fetchone() == (6,)
     next_version.write_text('CREATE TABLE migration_probe (id integer);')
     assert run_migrations(clean_database_dsn, migrations_dir=candidate) == (7,)
     assert run_migrations(clean_database_dsn, migrations_dir=candidate) == ()

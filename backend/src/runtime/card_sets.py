@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 import json
 from uuid import uuid4
+from unicodedata import category
 
 from sqlalchemy import delete, select
 
@@ -54,7 +55,7 @@ def _public(session, row):
 
 def _selection(document, name, concept_ids, policy):
     if (not isinstance(name, str) or not 1 <= len(name.strip()) <= 200
-            or any(ord(c) < 32 for c in name) or policy != "published_order"
+            or any(category(c) in {"Cc", "Cs"} for c in name) or policy != "published_order"
             or not isinstance(concept_ids, list) or not concept_ids
             or not all(isinstance(id, str) for id in concept_ids)):
         raise CardSetError("REQUEST_INVALID")

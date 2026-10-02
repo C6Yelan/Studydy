@@ -199,7 +199,7 @@ def publish_knowledge_structure(
 
 
 def _prune_unreferenced_structures(session, owner, material_id, head):
-    """保留被引用的地圖及工作的重播依據。"""
+    """保留學習紀錄、圖卡組及進行中工作引用的地圖。"""
     from .tables import CardSet, StudySession
 
     rows = session.scalars(
