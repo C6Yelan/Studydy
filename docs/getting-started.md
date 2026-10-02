@@ -39,6 +39,9 @@ chmod 600 .env
 
 ## 建置與服務管理
 
+已上線的 studydy.net 請依 [canonical 部署流程](deployment.md)從本 checkout rebuild／redeploy，
+保留 `compose.yaml`＋`compose.tunnel.yaml`。以下 base-only 命令供初次本機安裝使用。
+
 ~~~bash
 docker compose build
 docker compose run --rm download-ocr
