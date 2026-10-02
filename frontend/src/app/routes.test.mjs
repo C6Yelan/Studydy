@@ -35,13 +35,3 @@ test("unknown paths, malformed IDs and extra segments are not canonical routes",
     assert.deepEqual(readRoute(path), { route: { name: "home" }, isCanonical: false });
   }
 });
-
-test("persistent card set routes round trip with material scope", () => {
-  const materialId="11111111-1111-4111-8111-111111111111";
-  const cardSetId="22222222-2222-4222-8222-222222222222";
-  for(const view of ["list","new","edit","study"]) {
-    const route={name:"card-sets",materialId,view,...(["edit","study"].includes(view)?{cardSetId}:{})};
-    assert.deepEqual(readRoute(routePath(route)),{route,isCanonical:true});
-  }
-  assert.equal(readRoute(`/materials/${materialId}/card-sets/not-an-id`).isCanonical,false);
-});

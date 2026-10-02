@@ -199,8 +199,8 @@ def publish_knowledge_structure(
 
 
 def _prune_unreferenced_structures(session, owner, material_id, head):
-    """保留學習紀錄、圖卡組及進行中工作引用的地圖。"""
-    from .tables import CardSet, StudySession
+    """保留被引用的地圖及工作的重播依據。"""
+    from .tables import StudySession
 
     rows = session.scalars(
         select(KnowledgeStructure).where(
@@ -220,12 +220,7 @@ def _prune_unreferenced_structures(session, owner, material_id, head):
             MaterialProcessingRun.base_revision == row.structure_revision,
             MaterialProcessingRun.status.in_(("pending", "running")),
         ).limit(1))
-        cards = session.scalar(select(CardSet.card_set_id).where(
-            CardSet.learner_id == owner,
-            CardSet.material_id == material_id,
-            CardSet.knowledge_structure_revision == row.structure_revision,
-        ).limit(1))
-        if referenced is None and active is None and cards is None:
+        if referenced is None and active is None:
             session.delete(row)
 
 

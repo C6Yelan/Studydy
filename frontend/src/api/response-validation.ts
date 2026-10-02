@@ -7,8 +7,6 @@ import type {
   AssessmentSetSummary,
   AssessmentSetView,
   AssessmentView,
-  ConceptCardsView,
-  CardSetView, CardSetListView, CardSetCardsView,
   EvidenceSourceView,
   KnowledgeStructureView,
   LearnerIdentity,
@@ -307,101 +305,6 @@ function locator(value: unknown): boolean {
     item.region.length === 4 &&
     item.region.every((number) => typeof number === "number" && Number.isFinite(number))
   );
-}
-
-export function cardSet(value: unknown): value is CardSetView {
-  const row = object(value);
-  return !!row && row.schema === "card-set/v1" && isUuid(row.card_set_id) && isUuid(row.material_id) &&
-    revision(row.knowledge_structure_revision, "knowledge-structure") &&
-    typeof row.name === "string" && row.name.trim().length > 0 && row.name.length <= 200 &&
-    row.ordering_policy === "published_order" && strings(row.concept_ids) && row.concept_ids.length > 0 &&
-    row.concept_ids.every(id => revision(id, "concept")) && new Set(row.concept_ids).size === row.concept_ids.length &&
-    Number.isInteger(row.current_position) && Number(row.current_position) >= 0 && Number(row.current_position) < row.concept_ids.length &&
-    Number.isInteger(row.version) && Number(row.version) >= 1 && timestamp(row.created_at) && timestamp(row.updated_at);
-}
-
-export function cardSetList(value: unknown): value is CardSetListView {
-  const row = object(value);
-  return !!row && row.schema === "card-set-list/v1" && isUuid(row.material_id) && Array.isArray(row.card_sets) &&
-    row.card_sets.every(item => cardSet(item) && item.material_id === row.material_id);
-}
-
-export function cardSetCards(value: unknown): value is CardSetCardsView {
-  const row = object(value);
-  if (!row || row.schema !== "card-set-cards/v1" || !cardSet(row.card_set) || !conceptCards(row.cards)) return false;
-  const cards = row.cards;
-  const selection = cards.selection;
-  const base = `/v1/materials/${selection.material_id}/knowledge-structures/`;
-  return row.card_set.material_id === selection.material_id &&
-    row.card_set.knowledge_structure_revision === selection.knowledge_structure_revision &&
-    JSON.stringify(row.card_set.concept_ids) === JSON.stringify(selection.concept_ids) &&
-    [selection.knowledge_structure_revision, encodeURIComponent(selection.knowledge_structure_revision)]
-      .some(revision => cards.source_resolver === `${base}${revision}/evidence`);
-}
-
-export function conceptCards(value: unknown): value is ConceptCardsView {
-  const item = object(value);
-  const selection = object(item?.selection);
-  const status = object(item?.status);
-  if (!item || item.schema !== "concept-cards/v1" || !selection || !status ||
-      !isUuid(selection.material_id) || !revision(selection.content_material_id, "material") ||
-      !revision(selection.knowledge_structure_revision, "knowledge-structure") ||
-      selection.policy !== "manual-published-order/v1" ||
-      typeof item.source_resolver !== "string" ||
-      !["succeeded", "partial"].includes(String(status.processing)) ||
-      !["accepted", "needs_review"].includes(String(status.quality)) ||
-      !["retain", "review", "reject"].includes(String(status.decision)) ||
-      !strings(status.reason_codes) || !Array.isArray(item.cards) || !item.cards.length ||
-      !Array.isArray(item.relations) || !Array.isArray(item.excluded_pages)) return false;
-  const sameIds = (actual: unknown, expected: string[]) =>
-    strings(actual) && actual.length === expected.length &&
-    actual.every((id, index) => id === expected[index]) && new Set(actual).size === actual.length;
-  const evidenceValid = (value: unknown) => {
-    const row = object(value);
-    return !!row && revision(row.evidence_id, "evidence") &&
-      revision(row.page_ref, "page") && Number.isInteger(row.page) && Number(row.page) > 0 &&
-      Number.isInteger(row.block_order) && typeof row.kind === "string" &&
-      ["native_text", "unlimited_ocr"].includes(String(row.source)) &&
-      typeof row.quote === "string" && locator(row.source_locator) &&
-      (row.source_id === undefined || isUuid(row.source_id)) &&
-      (row.source_name === undefined || typeof row.source_name === "string") &&
-      (row.normalized_page === undefined ||
-        (Number.isInteger(row.normalized_page) && Number(row.normalized_page) > 0));
-  };
-  const conceptIds: string[] = [];
-  const claimIds: string[] = [];
-  for (const value of item.cards) {
-    const card = object(value);
-    if (!card || !revision(card.concept_id, "concept") || typeof card.label !== "string" ||
-        !strings(card.aliases) || !Array.isArray(card.claims)) return false;
-    conceptIds.push(String(card.concept_id));
-    for (const value of card.claims) {
-      const claim = object(value);
-      if (!claim || !revision(claim.claim_id, "claim") || typeof claim.text !== "string" ||
-          !Array.isArray(claim.evidence) || !claim.evidence.every(evidenceValid)) return false;
-      claimIds.push(String(claim.claim_id));
-    }
-  }
-  const relationIds: string[] = [];
-  for (const value of item.relations) {
-    const relation = object(value);
-    if (!relation || !revision(relation.relation_id, "relation") ||
-        !revision(relation.source_concept_id, "concept") || !revision(relation.target_concept_id, "concept") ||
-        relation.source_concept_id === relation.target_concept_id ||
-        !conceptIds.some((id) => id === relation.source_concept_id || id === relation.target_concept_id) ||
-        !["prerequisite", "part_of", "application", "example", "contrast"].includes(String(relation.type)) ||
-        typeof relation.learner_reason !== "string" || typeof relation.source_label !== "string" ||
-        typeof relation.target_label !== "string" || !Array.isArray(relation.evidence) ||
-        !relation.evidence.every(evidenceValid) ||
-        !sameIds(relation.evidence_refs, relation.evidence.map((e) => String(object(e)?.evidence_id)))) return false;
-    relationIds.push(String(relation.relation_id));
-  }
-  return sameIds(selection.concept_ids, conceptIds) && sameIds(selection.claim_ids, [...new Set(claimIds)]) &&
-    sameIds(selection.relation_ids, relationIds) && item.excluded_pages.every((value) => {
-      const row = object(value);
-      return !!row && revision(row.page_ref, "page") && Number.isInteger(row.page) &&
-        Number(row.page) > 0 && row.stage === "evidence" && typeof row.reason_code === "string";
-    });
 }
 
 export function knowledgeStructure(value: unknown): value is KnowledgeStructureView {

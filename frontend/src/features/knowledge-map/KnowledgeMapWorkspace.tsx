@@ -1,5 +1,4 @@
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
-import { writeRoute } from "../../app/routes";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
 import {
   Background,
@@ -881,7 +880,6 @@ function ReviewView({
 
 export function KnowledgeMapWorkspace({
   apiClient,
-  materialId,
   progress,
   isLoadingProgress,
   learningStateStatus,
@@ -895,7 +893,6 @@ export function KnowledgeMapWorkspace({
   view,
 }: {
   apiClient: StudydyApiClient;
-  materialId: string;
   progress: LearnerProgressView | null;
   learningStateStatus: StudySessionView["status"] | null;
   isLoadingProgress: boolean;
@@ -1179,8 +1176,6 @@ export function KnowledgeMapWorkspace({
           )}
         </form>
         <div className="map-header-actions">
-          <button className="secondary-button" type="button" onClick={() =>
-            writeRoute({ name: "card-sets", materialId, view: "list" })}>觀念圖卡</button>
           <button className="secondary-button" type="button" onClick={onAddSources}>
             新增教材
           </button>

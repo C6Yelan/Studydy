@@ -9,7 +9,7 @@ from typing import Any, Callable, Iterator
 from urllib.parse import quote, unquote, urlsplit
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, Query, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -22,7 +22,6 @@ from document_normalization.converter import (
     MAX_FILE_BYTES, MIME, NormalizationError, normalizer_available,
 )
 from learning_adaptation import assessment_sets
-from knowledge_map.concept_cards import project_concept_cards
 from learning_adaptation.learner_progress import (
     apply_guidance, derive_learner_progress, progress_snapshot,
 )
@@ -33,7 +32,6 @@ from ..learner_session import (
     IDLE_LIFETIME, SessionError, TrustedLearner, login_account,
     refresh_session, register_account, resolve_session, revoke_session,
 )
-from .. import card_sets
 from ..material_discard import MaterialDiscardError, request_material_discard
 from ..material_processing import (
     MaterialProcessingError, read_material_processing_run,
@@ -52,9 +50,8 @@ from ..storage.tables import Artifact, Material, MaterialSource, database_sessio
 from ..workers import start_runtime_workers
 from .models import (
     AccountCredentials, ApiErrorView, AssessmentPlanView, AssessmentSetAction,
-    CardSetCreate, CardSetEdit, CardSetPosition, CardSetView, CardSetListView, CardSetCardsView,
     AssessmentSetCreate, AssessmentSetListView, AssessmentSetSubmission,
-    AssessmentSetView, ConceptCardsView, EvidenceSourceView, GuidanceApply, KnowledgeStructureView,
+    AssessmentSetView, EvidenceSourceView, GuidanceApply, KnowledgeStructureView,
     LearnerIdentityView, LearnerProgressView, MaterialDiscardView,
     MaterialDraftCreate, MaterialDraftView, MaterialLibraryItem,
     MaterialLibraryView, MaterialProcessingRunView, MaterialRename,
@@ -68,7 +65,6 @@ from .models import (
 _COOKIE_NAME = "studydy_session"
 _ERROR_MESSAGE = "Request could not be completed."
 _ERROR_STATUS = {
-    "CARD_SET_CONFLICT": (409, True),
     'LEARNER_GUIDANCE_STALE': (409, True),
     'ASSESSMENT_SET_CONFLICT': (409, False),
     'ASSESSMENT_SET_ACTIVE': (409, False),
@@ -246,8 +242,6 @@ def _error_response(reason_code: str, *, status_code: int | None = None) -> JSON
 def _fixed_exception(error: Exception) -> str:
     """只把已知內部原因碼轉成固定的公開 API 原因碼。"""
     reason = str(error)
-    if isinstance(error, card_sets.CardSetError):
-        return reason if reason in _ERROR_STATUS else "INTERNAL_ERROR"
     if isinstance(error, assessment_sets.AssessmentSetError):
         return _ASSESSMENT_SET_ERRORS.get(reason, "INTERNAL_ERROR")
     if (
@@ -848,77 +842,6 @@ def create_app(settings: ApiSettings) -> FastAPI:
             learner.learner_id, material_id, revision=structure_revision, dsn=settings.dsn
         )
         return project_knowledge_structure(stored.view)
-
-    @app.get("/v1/materials/{material_id}/card-sets", response_model=CardSetListView, tags=["review"])
-    def list_card_sets_route(request: Request, material_id: UUID):
-        _require_query(request, set())
-        owner = _trusted_learner(request, settings).learner_id
-        return card_sets.list_card_sets(owner, material_id, dsn=settings.dsn)
-
-    @app.post("/v1/materials/{material_id}/card-sets", response_model=CardSetView, status_code=201, tags=["review"])
-    def create_card_set_route(request: Request, material_id: UUID, body: CardSetCreate):
-        _require_query(request, set())
-        owner = _trusted_learner(request, settings).learner_id
-        return card_sets.create_card_set(owner, material_id, body.knowledge_structure_revision,
-            body.name, body.concept_ids, body.ordering_policy, _idempotency_key(request), dsn=settings.dsn)
-
-    @app.get("/v1/materials/{material_id}/card-sets/{card_set_id}", response_model=CardSetView, tags=["review"])
-    def read_card_set_route(request: Request, material_id: UUID, card_set_id: UUID):
-        _require_query(request, set())
-        owner = _trusted_learner(request, settings).learner_id
-        return card_sets.read_card_set(owner, material_id, card_set_id, dsn=settings.dsn)
-
-    @app.get("/v1/materials/{material_id}/card-sets/{card_set_id}/cards", response_model=CardSetCardsView, tags=["review"])
-    def read_card_set_cards_route(request: Request, material_id: UUID, card_set_id: UUID):
-        _require_query(request, set())
-        owner = _trusted_learner(request, settings).learner_id
-        return card_sets.read_card_set(owner, material_id, card_set_id, cards=True, dsn=settings.dsn)
-
-    @app.post("/v1/materials/{material_id}/card-sets/{card_set_id}/edit", response_model=CardSetView, tags=["review"])
-    def edit_card_set_route(request: Request, material_id: UUID, card_set_id: UUID, body: CardSetEdit):
-        _require_query(request, set())
-        owner = _trusted_learner(request, settings).learner_id
-        return card_sets.edit_card_set(owner, material_id, card_set_id, body.knowledge_structure_revision,
-            body.name, body.concept_ids, body.ordering_policy, body.expected_version, dsn=settings.dsn)
-
-    @app.post("/v1/materials/{material_id}/card-sets/{card_set_id}/position", response_model=CardSetView, tags=["review"])
-    def card_position_route(request: Request, material_id: UUID, card_set_id: UUID, body: CardSetPosition):
-        _require_query(request, set())
-        owner = _trusted_learner(request, settings).learner_id
-        return card_sets.set_card_position(owner, material_id, card_set_id,
-            body.current_position, body.expected_version, dsn=settings.dsn)
-
-    @app.delete("/v1/materials/{material_id}/card-sets/{card_set_id}", status_code=204,
-                tags=["review"], dependencies=[Depends(_require_empty_body)])
-    def delete_card_set_route(request: Request, material_id: UUID, card_set_id: UUID, version: int = Query(ge=1)):
-        _require_query(request, {"version"})
-        owner = _trusted_learner(request, settings).learner_id
-        card_sets.delete_card_set(owner, material_id, card_set_id, version, dsn=settings.dsn)
-        return Response(status_code=204)
-
-    @app.get(
-        "/v1/materials/{material_id}/knowledge-structures/{structure_revision}/concept-cards",
-        response_model=ConceptCardsView, operation_id="getConceptCards", tags=["review"],
-    )
-    def read_concept_cards_route(
-        request: Request, material_id: UUID, structure_revision: str,
-    ) -> ConceptCardsView:
-        if set(request.query_params) - {"concept_id"}:
-            raise _ApiFailure("REQUEST_INVALID")
-        learner = _trusted_learner(request, settings)
-        stored = read_knowledge_structure(
-            learner.learner_id, material_id, revision=structure_revision, dsn=settings.dsn,
-        )
-        try:
-            cards = project_concept_cards(
-                stored.view, str(material_id), request.query_params.getlist("concept_id"),
-                stored.document["evidence"],
-            )
-        except ValueError as error:
-            if str(error) == "REQUEST_INVALID":
-                raise _ApiFailure("REQUEST_INVALID") from None
-            raise
-        return ConceptCardsView.model_validate(cards)
 
     @app.get(
         "/v1/materials/{material_id}/knowledge-structures/{structure_revision}"

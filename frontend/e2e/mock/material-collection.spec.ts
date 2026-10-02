@@ -153,19 +153,19 @@ const expectedActions: Record<State, string[][]> = {
   pending: [["查看進度"]],
   running: [["查看進度"]],
   failed: [["查看問題"]],
-  "failed-map": [["開啟知識地圖", "觀念圖卡", "查看問題"]],
-  map: [["開啟知識地圖", "觀念圖卡"]],
-  partial: [["開啟知識地圖", "觀念圖卡"]],
-  active: [["繼續學習", "開啟知識地圖", "觀念圖卡"]],
-  completed: [["查看學習成果", "開啟知識地圖", "觀念圖卡"]],
-  "long-name": [["繼續學習", "開啟知識地圖", "觀念圖卡"]],
+  "failed-map": [["開啟知識地圖", "查看問題"]],
+  map: [["開啟知識地圖"]],
+  partial: [["開啟知識地圖"]],
+  active: [["繼續學習", "開啟知識地圖"]],
+  completed: [["查看學習成果", "開啟知識地圖"]],
+  "long-name": [["繼續學習", "開啟知識地圖"]],
   multiple: [
     ["建立知識地圖"],
     ["查看進度"],
     ["查看問題"],
-    ["開啟知識地圖", "觀念圖卡", "查看問題"],
-    ["繼續學習", "開啟知識地圖", "觀念圖卡"],
-    ["查看學習成果", "開啟知識地圖", "觀念圖卡"],
+    ["開啟知識地圖", "查看問題"],
+    ["繼續學習", "開啟知識地圖"],
+    ["查看學習成果", "開啟知識地圖"],
   ],
 };
 
@@ -467,7 +467,7 @@ for (const viewport of [
     await expect(cards.nth(0).locator(".primary-button")).toHaveText("建立知識地圖");
     for (const index of [1, 3]) {
       await expect(cards.nth(index).locator(".primary-button")).toHaveText("繼續學習");
-      await expect(cards.nth(index).locator(".secondary-button")).toHaveText(["開啟知識地圖", "觀念圖卡"]);
+      await expect(cards.nth(index).locator(".secondary-button")).toHaveText("開啟知識地圖");
     }
     for (const index of [2, 4])
       await expect(cards.nth(index).locator(".primary-button")).toHaveText("開啟知識地圖");

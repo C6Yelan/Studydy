@@ -275,7 +275,6 @@ export async function mockKnowledgeMapApi(
     size_bytes: 100,
     created_at: run.created_at,
     latest_attempt: boundRun,
-    head_revision: revision,
     available_structures: [
       {
         run_id: runId,
