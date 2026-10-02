@@ -74,12 +74,10 @@ def create_card_set(owner, material_id, revision, name, concept_ids, key, *, dsn
         known = {concept["concept_id"] for concept in document["concepts"]}
         if not set(concept_ids) <= known:
             raise CardSetError("REQUEST_INVALID")
-        selected = set(concept_ids)
         row = CardSet(
             card_set_id=uuid4(), learner_id=owner, material_id=material_id,
             knowledge_structure_revision=revision, name=name,
-            concept_ids=[concept["concept_id"] for concept in document["concepts"]
-                         if concept["concept_id"] in selected],
+            concept_ids=list(concept_ids),
             idempotency_key_sha256=digest, request_fingerprint=fingerprint,
             created_at=datetime.now(UTC), deleted_at=None,
             version=1,
@@ -146,9 +144,8 @@ def update_card_set(owner, card_set_id, name, expected_version, concept_ids=None
         known = {concept["concept_id"] for concept in document["concepts"]}
         if not set(selection) <= known:
             raise CardSetError("REQUEST_INVALID")
-        selected = set(selection)
-        ordered = [concept["concept_id"] for concept in document["concepts"]
-                   if concept["concept_id"] in selected]
+        # 保存已確認的選取順序，讓學習路徑推薦不被教材原始排列覆蓋。
+        ordered = list(selection)
         unchanged = row.name == name and row.concept_ids == ordered
         # 回應遺失後可重送相同結果；其他舊版本編輯必須重新讀取。
         if row.version != expected_version:
