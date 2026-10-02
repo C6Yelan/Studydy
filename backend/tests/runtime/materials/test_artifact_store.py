@@ -18,7 +18,7 @@ from product_fixtures import seed_pdf
 
 @pytest.fixture
 def artifact_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7)
     return clean_database_dsn
 
 

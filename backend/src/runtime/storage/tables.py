@@ -139,6 +139,30 @@ class KnowledgeStructure(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class CardSet(Base):
+    __tablename__ = "card_sets"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "material_id", "idempotency_key_sha256"),
+        ForeignKeyConstraint(["learner_id", "material_id"], ["materials.learner_id", "materials.material_id"]),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "knowledge_structure_revision"],
+            ["knowledge_structures.learner_id", "knowledge_structures.material_id", "knowledge_structures.structure_revision"],
+        ),
+    )
+
+    card_set_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    knowledge_structure_revision: Mapped[str | None] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    concept_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    version: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("1"))
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class StudySession(Base):
     __tablename__ = "study_sessions"
     __table_args__ = (

@@ -256,6 +256,7 @@ export default function KnowledgeMap({
         writeRoute({ name: "material-run", materialId: route.materialId, runId: route.runId })
       }
       onAddSources={() => writeRoute({ name: "material-sources", materialId: route.materialId })}
+      onCreateCards={() => writeRoute({ ...route, name: "card-set-create" })}
       onStartStudy={startStudy}
       startMessage={startMessage}
       view={view}

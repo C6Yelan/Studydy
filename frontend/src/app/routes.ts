@@ -1,6 +1,10 @@
 export type AppRoute =
   | { name: "home" }
   | { name: "materials" }
+  | { name: "concept-cards" }
+  | { name: "card-set"; cardSetId: string }
+  | { name: "card-set-edit"; cardSetId: string }
+  | { name: "card-set-create"; materialId: string; runId: string; structureRevision: string }
   | { name: "upload" }
   | { name: "material-sources"; materialId: string }
   | { name: "material-run"; materialId: string; runId: string }
@@ -22,6 +26,7 @@ const structurePattern = /^knowledge-structure:sha256:[0-9a-f]{64}$/;
 export function readRoute(pathname: string): RouteRead {
   if (pathname === "/") return { route: { name: "home" }, isCanonical: true };
   if (pathname === "/materials") return { route: { name: "materials" }, isCanonical: true };
+  if (pathname === "/concept-cards") return { route: { name: "concept-cards" }, isCanonical: true };
   if (pathname === "/upload") return { route: { name: "upload" }, isCanonical: true };
   const segments = pathname
     .split("/")
@@ -46,6 +51,11 @@ export function readRoute(pathname: string): RouteRead {
     assessmentSetId,
   ] = segments;
   const fallback: RouteRead = { route: { name: "home" }, isCanonical: false };
+  if (materialSegment === "concept-cards" && uuidPattern.test(materialId)
+    && (segments.length === 2 || (segments.length === 3 && resourceSegment === "edit"))) {
+    const route: AppRoute = { name: segments.length === 3 ? "card-set-edit" : "card-set", cardSetId: materialId };
+    return { route, isCanonical: routePath(route) === pathname };
+  }
   if (materialSegment !== "materials" || !uuidPattern.test(materialId)) return fallback;
 
   let route: AppRoute;
@@ -62,6 +72,8 @@ export function readRoute(pathname: string): RouteRead {
     return fallback;
   } else if (segments.length === 6) {
     route = { name: "knowledge-map", materialId, runId, structureRevision };
+  } else if (segments.length === 7 && sessionSegment === "create-cards") {
+    route = { name: "card-set-create", materialId, runId, structureRevision };
   } else if (
     sessionSegment === "study-sessions" &&
     uuidPattern.test(studySessionId) &&
@@ -87,6 +99,11 @@ export function readRoute(pathname: string): RouteRead {
 export function routePath(route: AppRoute): string {
   if (route.name === "home") return "/";
   if (route.name === "materials") return "/materials";
+  if (route.name === "concept-cards") return "/concept-cards";
+  if (route.name === "card-set" || route.name === "card-set-edit") {
+    if (!uuidPattern.test(route.cardSetId)) throw new Error("ROUTE_INVALID");
+    return `/concept-cards/${route.cardSetId}${route.name === "card-set-edit" ? "/edit" : ""}`;
+  }
   if (route.name === "upload") return "/upload";
   if (route.name === "material-sources") {
     if (!uuidPattern.test(route.materialId)) throw new Error("ROUTE_INVALID");
@@ -99,6 +116,7 @@ export function routePath(route: AppRoute): string {
   if (!structurePattern.test(route.structureRevision)) throw new Error("ROUTE_INVALID");
   const mapPath = `${materialRunPath}/knowledge-structures/${encodeURIComponent(route.structureRevision)}`;
   if (route.name === "knowledge-map") return mapPath;
+  if (route.name === "card-set-create") return `${mapPath}/create-cards`;
   if (!uuidPattern.test(route.studySessionId)) throw new Error("ROUTE_INVALID");
   const studyPath = `${mapPath}/study-sessions/${route.studySessionId}`;
   if (route.assessmentSetId !== undefined) {

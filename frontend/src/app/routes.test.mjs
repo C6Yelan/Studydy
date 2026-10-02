@@ -15,6 +15,10 @@ test("routes use expected paths and round trip", () => {
   for (const [route, path] of [
     [{ name: "home" }, "/"],
     [{ name: "materials" }, "/materials"],
+    [{ name: "concept-cards" }, "/concept-cards"],
+    [{ name: "card-set", cardSetId: materialId }, `/concept-cards/${materialId}`],
+    [{ name: "card-set-edit", cardSetId: materialId }, `/concept-cards/${materialId}/edit`],
+    [{ name: "card-set-create", materialId, runId, structureRevision }, `${mapPath}/create-cards`],
     [{ name: "upload" }, "/upload"],
     [{ name: "material-run", materialId, runId }, materialRunPath],
     [{ name: "knowledge-map", materialId, runId, structureRevision }, mapPath],
@@ -28,6 +32,8 @@ test("routes use expected paths and round trip", () => {
 test("unknown paths, malformed IDs and extra segments are not canonical routes", () => {
   for (const path of [
     "/unknown",
+    "/concept-cards/not-an-id",
+    `/concept-cards/${materialId}/extra`,
     `/materials/not-an-id/runs/${runId}`,
     `/materials/${materialId}`,
     `${studyPath}/extra`,

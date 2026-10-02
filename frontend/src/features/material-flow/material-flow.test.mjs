@@ -113,9 +113,9 @@ test("delete warning describes existing learner content, independently of active
   sources.push({ status: "ready", media_type: "text/plain", normalized_artifact_id: "converted" });
   assert.match(materialDeleteCopy(initial, sources).scope, /3 份教材，以及已產生的轉換內容/);
   const map = { ...initial, available_structures: [{}] };
-  assert.equal(materialDeleteCopy(map).scope, "將刪除這份教材及已建立的知識地圖。此操作無法復原。");
+  assert.equal(materialDeleteCopy(map).scope, "將刪除這份教材、已建立的知識地圖與保存的概念卡組。此操作無法復原。");
   const history = { ...map, study_sessions: [{ status: "completed" }] };
-  assert.match(materialDeleteCopy(history).scope, /知識地圖，以及相關的學習紀錄、題目與作答/);
+  assert.match(materialDeleteCopy(history).scope, /知識地圖與保存的概念卡組，以及相關的學習紀錄、題目與作答/);
   for (const status of ["pending", "running"]) {
     assert.equal(
       materialDeleteCopy({ ...initial, latest_attempt: { status } }).notice,

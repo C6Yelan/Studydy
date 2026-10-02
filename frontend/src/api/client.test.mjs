@@ -13,6 +13,49 @@ const claimId = `claim:sha256:${"c".repeat(64)}`;
 const evidenceId = `evidence:sha256:${"d".repeat(64)}`;
 const blockId = `block:sha256:${"e".repeat(64)}`;
 
+function cardSetView() {
+  const view = structureView();
+  return {
+    schema: "card-set/v1", version: 1, card_set_id: setId, material_id: materialId,
+    material_name: "Synthetic.pdf", name: "複習", card_count: view.concepts.length,
+    knowledge_structure_revision: structureRevision, created_at: "2026-10-02T00:00:00Z",
+    is_current_revision: true, source_resolver: decodeURIComponent(view.source_resolver),
+    cards: view.concepts.map(({ concept_id, label, claims }) => ({ concept_id, label, claims })),
+    status: view.status, excluded_pages: [],
+  };
+}
+
+test("saved cards reject foreign identities, version-mismatched sources and invalid contents", async () => {
+  assert.equal((await new StudydyApiClient(async () => Response.json(cardSetView())).getCardSet(setId)).cards[0].label, "Stack");
+  for (const change of [
+    (view) => { view.card_set_id = materialId; },
+    (view) => { view.source_resolver = view.source_resolver.replace(structureRevision, `knowledge-structure:sha256:${"f".repeat(64)}`); },
+    (view) => { view.card_count = 2; },
+    (view) => { view.cards[0].claims[0].evidence = []; },
+    (view) => { view.cards[0].claims[0].evidence[0].page = -1; },
+    (view) => { delete view.status; },
+  ]) {
+    const view = cardSetView(); change(view);
+    await assert.rejects(new StudydyApiClient(async () => Response.json(view)).getCardSet(setId), (error) => error.kind === "schema");
+  }
+});
+
+test("card creation uses the same supplied intent key and deletion verifies its receipt", async () => {
+  const requests = [];
+  const saved = cardSetView();
+  const client = new StudydyApiClient(async (url, init) => {
+    requests.push({ url, init });
+    return Response.json(saved);
+  });
+  const body = { schema: "card-set-create/v1", name: "複習", knowledge_structure_revision: structureRevision, concept_ids: [conceptId] };
+  await client.createCardSet(materialId, body, "stable-intent");
+  await client.createCardSet(materialId, body, "stable-intent");
+  assert.deepEqual(requests[0], requests[1]);
+  assert.equal(requests[0].init.headers["Idempotency-Key"], "stable-intent");
+  assert.deepEqual(JSON.parse(requests[0].init.body), body);
+  await assert.rejects(new StudydyApiClient(async () => Response.json({ schema: "card-set-deleted/v1", card_set_id: materialId })).deleteCardSet(setId), (error) => error.kind === "schema");
+});
+
 function apiErrorResponse(reasonCode, status, retryable = false) {
   return Response.json(
     {

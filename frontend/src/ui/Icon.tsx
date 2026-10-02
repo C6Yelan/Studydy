@@ -6,6 +6,7 @@ export type IconName =
   | "clock"
   | "arrow-left"
   | "book"
+  | "cards"
   | "check"
   | "chevron-right"
   | "file"
@@ -19,6 +20,12 @@ export type IconName =
   | "warning";
 
 const paths: Record<IconName, React.ReactNode> = {
+  cards: (
+    <>
+      <rect x="6" y="7" width="15" height="14" rx="2" />
+      <path d="M17 4H5a2 2 0 0 0-2 2v11M10 12h7M10 16h4" />
+    </>
+  ),
   user: (
     <>
       <circle cx="12" cy="8" r="4" />

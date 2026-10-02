@@ -22,6 +22,7 @@ from document_normalization.converter import (
     MAX_FILE_BYTES, MIME, NormalizationError, normalizer_available,
 )
 from learning_adaptation import assessment_sets
+from .. import card_sets
 from learning_adaptation.learner_progress import (
     apply_guidance, derive_learner_progress, progress_snapshot,
 )
@@ -52,6 +53,7 @@ from .models import (
     AccountCredentials, ApiErrorView, AssessmentPlanView, AssessmentSetAction,
     AssessmentSetCreate, AssessmentSetListView, AssessmentSetSubmission,
     AssessmentSetView, EvidenceSourceView, GuidanceApply, KnowledgeStructureView,
+    CardSetCreate, CardSetUpdate, CardSetSummary, CardSetView, CardSetListView, CardSetDeletedView,
     LearnerIdentityView, LearnerProgressView, MaterialDiscardView,
     MaterialDraftCreate, MaterialDraftView, MaterialLibraryItem,
     MaterialLibraryView, MaterialProcessingRunView, MaterialRename,
@@ -65,6 +67,7 @@ from .models import (
 _COOKIE_NAME = "studydy_session"
 _ERROR_MESSAGE = "Request could not be completed."
 _ERROR_STATUS = {
+    "CARD_SET_CONFLICT": (409, False),
     'LEARNER_GUIDANCE_STALE': (409, True),
     'ASSESSMENT_SET_CONFLICT': (409, False),
     'ASSESSMENT_SET_ACTIVE': (409, False),
@@ -245,7 +248,7 @@ def _fixed_exception(error: Exception) -> str:
     if isinstance(error, assessment_sets.AssessmentSetError):
         return _ASSESSMENT_SET_ERRORS.get(reason, "INTERNAL_ERROR")
     if (
-        isinstance(error, (SourceError, NormalizationError, MaterialProcessingError, SessionError))
+        isinstance(error, (SourceError, NormalizationError, MaterialProcessingError, SessionError, card_sets.CardSetError))
         and reason in _ERROR_STATUS
     ):
         return reason
@@ -319,6 +322,7 @@ def _install_openapi(app: FastAPI) -> None:
     """補上來源上傳、原檔下載、PDF 預覽與 cookie/header 的固定契約。"""
 
     idempotent_paths = {
+        "/v1/materials/{material_id}/card-sets",
         "/v1/materials", "/v1/materials/{material_id}/sources", "/v1/materials/{material_id}/revisions",
         "/v1/material-processing-runs/{run_id}/retry",
         "/v1/materials/{material_id}/review",
@@ -415,7 +419,7 @@ def _install_openapi(app: FastAPI) -> None:
                     response_codes.add(409)
                 if path == "/v1/session/login":
                     response_codes.add(401)
-                if path.endswith("/resume"):
+                if path.endswith("/resume") or path == "/v1/card-sets/{card_set_id}/update":
                     response_codes.add(409)
                 if path == "/v1/materials/{material_id}" and method == "delete":
                     response_codes.add(409)
@@ -825,6 +829,46 @@ def create_app(settings: ApiSettings) -> FastAPI:
         return project_material_run(read_material_processing_run(
             learner.learner_id, run_id, dsn=settings.dsn,
         ))
+
+    @app.post(
+        "/v1/materials/{material_id}/card-sets", status_code=201,
+        response_model=CardSetSummary, operation_id="createCardSet", tags=["cards"],
+    )
+    def create_card_set_route(request: Request, material_id: UUID, body: CardSetCreate):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        return card_sets.create_card_set(
+            owner, material_id, body.knowledge_structure_revision, body.name,
+            body.concept_ids, _idempotency_key(request), dsn=settings.dsn,
+        )
+
+    @app.get("/v1/card-sets", response_model=CardSetListView, operation_id="listCardSets", tags=["cards"])
+    def list_card_sets_route(request: Request):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        return card_sets.list_card_sets(owner, dsn=settings.dsn)
+
+    @app.get("/v1/card-sets/{card_set_id}", response_model=CardSetView, operation_id="getCardSet", tags=["cards"])
+    def read_card_set_route(request: Request, card_set_id: UUID):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        return card_sets.read_card_set(owner, card_set_id, dsn=settings.dsn)
+
+    @app.post("/v1/card-sets/{card_set_id}/update", response_model=CardSetSummary, operation_id="updateCardSet", tags=["cards"])
+    def update_card_set_route(request: Request, card_set_id: UUID, body: CardSetUpdate):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        return card_sets.update_card_set(
+            owner, card_set_id, body.name, body.expected_version, body.concept_ids, dsn=settings.dsn,
+        )
+
+    @app.delete("/v1/card-sets/{card_set_id}", response_model=CardSetDeletedView, operation_id="deleteCardSet", tags=["cards"])
+    async def delete_card_set_route(request: Request, card_set_id: UUID):
+        _require_query(request, set())
+        if await request.body():
+            raise _ApiFailure("REQUEST_INVALID")
+        owner = (await run_in_threadpool(_trusted_learner, request, settings)).learner_id
+        return await run_in_threadpool(card_sets.delete_card_set, owner, card_set_id, dsn=settings.dsn)
 
     @app.get(
         "/v1/materials/{material_id}/knowledge-structures/{structure_revision}",

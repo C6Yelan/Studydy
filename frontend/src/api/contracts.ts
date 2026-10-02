@@ -1,4 +1,5 @@
 export type KnownApiReasonCode =
+  | "CARD_SET_CONFLICT"
   | "INVALID_EMAIL"
   | "INVALID_CREDENTIALS"
   | "ACCOUNT_UNAVAILABLE"
@@ -182,6 +183,44 @@ export type KnowledgeStructureView = {
   }[];
   excluded_pages: { page_ref: string; page: number; stage: "evidence"; reason_code: string }[];
 };
+
+export type ConceptCard = Pick<KnowledgeStructureView["concepts"][number], "concept_id" | "label" | "claims">;
+
+export type CardSetSummary = {
+  version: number;
+  card_set_id: string;
+  material_id: string;
+  material_name: string;
+  knowledge_structure_revision: string;
+  name: string;
+  card_count: number;
+  created_at: string;
+  is_current_revision: boolean;
+};
+
+export type CardSetView = CardSetSummary & {
+  schema: "card-set/v1";
+  source_resolver: string;
+  status: KnowledgeStructureView["status"];
+  excluded_pages: KnowledgeStructureView["excluded_pages"];
+  cards: ConceptCard[];
+};
+
+export type CardSetCreate = {
+  schema: "card-set-create/v1";
+  knowledge_structure_revision: string;
+  name: string;
+  concept_ids: string[];
+};
+
+export type CardSetListView = { schema: "card-set-list/v1"; card_sets: CardSetSummary[] };
+export type CardSetUpdate = {
+  schema: "card-set-update/v1";
+  name: string;
+  expected_version: number;
+  concept_ids?: string[];
+};
+export type CardSetDeletedView = { schema: "card-set-deleted/v1"; card_set_id: string };
 
 export type KnowledgeStructureRequest = {
   materialId: string;

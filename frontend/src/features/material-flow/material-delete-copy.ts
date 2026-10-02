@@ -12,9 +12,9 @@ export function materialDeleteCopy(material?: MaterialLibraryItem | null, source
     : undefined;
   let scope = "將刪除這份教材及其相關內容。此操作無法復原。";
   if (hasHistory) {
-    scope = `將刪除這份教材${hasMap ? "、知識地圖" : ""}，以及相關的學習紀錄、題目與作答。此操作無法復原。`;
+    scope = `將刪除這份教材${hasMap ? "、知識地圖與保存的概念卡組" : ""}，以及相關的學習紀錄、題目與作答。此操作無法復原。`;
   } else if (hasMap) {
-    scope = "將刪除這份教材及已建立的知識地圖。此操作無法復原。";
+    scope = "將刪除這份教材、已建立的知識地圖與保存的概念卡組。此操作無法復原。";
   } else if (material) {
     const files = sources?.length ? ` ${sources.length} 份教材` : "教材檔案";
     const converted = knownSources.some(
