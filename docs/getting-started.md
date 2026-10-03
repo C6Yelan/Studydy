@@ -97,3 +97,26 @@ docker compose exec backend /app/backend/.venv/bin/python -m runtime.local_runti
 ~~~
 
 啟動失敗先看 backend／init logs、資料權限、資料庫與沙箱；模型操作失敗則核對服務位址、runtime lock 及已啟用的 SSH 設定。不要輸出展開後含秘密的 Compose config，或把健康檢查成功當成模型品質通過。
+
+## 本機 Podcast provider
+
+Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集 WAV，音訊沿用私人 artifact store。建立後自動生成；快速與完整模式均保留全部所選重點，內容較多自動拆集。失敗／取消可接續已保存進度。
+
+目前文字 provider 是本次測試授權的 `codex exec -m gpt-5.6-luna`，先產生逐段講解或雙人輪次，再獨立核對每段對應的來源；有具體核對錯誤時最多修正一次。CLI 使用主機既有登入、ephemeral 與唯讀空目錄，停用 shell、網頁搜尋、apps、plugins 與多 agent。不掛載 CLI 憑證進產品容器，不改寫教材原本的 Gemma binding。每集的單次生成／重試最多四次 CLI 請求，每次至多 120 秒；腳本核對仍未通過會顯示失敗。模型只回傳有界來源索引，由程式綁回原始 claim ID。對照表格時會帶入同一固定 KS、所引用頁面的原始區塊與位置，補足欄列標題及省略主語；不改寫原 claim／Evidence 關係。新腳本可加入明示為假設的故事或比喻，但示例的技術行為必須符合來源；不把虛構情境當成真實案例。單人與雙人皆使用統一的 turns 格式。0009 migration 一次轉換既有單人講稿，不保留舊格式讀取分支；文字、引用與音訊身分維持不變。
+
+語音在本機執行 CosyVoice 3（`FunAudioLLM/Fun-CosyVoice3-0.5B-2512`）的官方 RL 權重，輸出 24 kHz PCM WAV。正式採用已選定的 B 參考聲線與固定角色 seed，使用通用中英文正規化；英文縮寫／複合詞依詞典與類型分段處理。數值保留原值，MB／Mb 分別讀 megabytes／megabits，速率讀 per second，不展開成中文大數量。未知識別符與部分縮寫仍可能不自然，需以真實教材聽感持續修正。
+
+雙人講稿以整集包含學習者與講解者為限制，每個來源允許 1–8 輪，無須逐來源問答；同角色連續發言只在合成時合併，原講稿來源關係保留。來源檢核失敗不發布。文字 provider 仍為 Luna，未切換 Pod Gemma。
+
+provider 使用 `data/podcast/runtime/`；語音使用 `data/podcast/cosyvoice-b-runtime/`，其 `.pth` 沿用唯讀的原 `cosyvoice-runtime` 依賴並加入 [requirements.txt](../ops/podcast/requirements.txt) 的 B 正規化套件，不修改兩版共用 `backend/.venv`。每次子程序結束釋放 GPU；540 秒逾時或失敗不發布部分音訊。權重、官方 source、B 參考聲線與正規化快取位於 `data/models/podcast/` 的 `cosyvoice3/`、`cosyvoice-source/`、`cosyvoice-b-voices/`、`normalizer/`。模型與 source 來源：[CosyVoice 官方 repository](https://github.com/QwenAudio/CosyVoice)。
+
+私有 `data/podcast/provider.env` 設定 `STUDYDY_PODCAST_TTS_PYTHON`（保留 venv Python 入口）、`STUDYDY_COSYVOICE_SOURCE_DIR`、`STUDYDY_COSYVOICE_MODEL_DIR`、`STUDYDY_COSYVOICE_VOICES_DIR`、`STUDYDY_COSYVOICE_NORMALIZER_CACHE` 及主機 CUDA 12.8 的 `LD_LIBRARY_PATH`。既有 Podcast 保留原音訊；需新建 Podcast 才能完整使用新講稿與聲線。公開比較頁已移除。
+
+主機服務設定見 [studydy-podcast.service](../ops/podcast/studydy-podcast.service)，載入私有 `data/podcast/provider.env`。正式版 `.env` 的 `STUDYDY_PODCAST_PROVIDER_URL` 指向 `http://host.docker.internal:18010`，`STUDYDY_PODCAST_PROVIDER_TOKEN` 與主機服務的 token 相同；至少 32 字元。provider 只監聽 Docker gateway `172.17.0.1`，不公開 port，也不经过 Cloudflare。不同主機須核對 gateway 與 service 中的絕對路徑。
+
+```bash
+systemctl --user status studydy-podcast.service
+systemctl --user restart studydy-podcast.service
+```
+
+未設定 provider 或服務不可達時，新生成會如實失敗，既有保存內容仍可讀取。啟動與健康檢查不代表文字或語音品質驗收；來源的 `needs_review` 狀態及缺頁提示仍保留。播放位置只存當前帳號在這台瀏覽器的 localStorage，沒有跨裝置同步。登出／換帳號會停止音訊並移除播放器來源；刪除 Podcast 會刪除其音訊與逐字稿，不刪原教材。刪除教材則同時移除其 Podcast。

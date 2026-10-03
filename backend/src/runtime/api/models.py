@@ -637,3 +637,89 @@ class EvidenceSourceView(_Closed):
     accuracy: Literal['exact', 'ambiguous', 'unavailable']
     origin_locators: list[PdfOrigin | SlideOrigin | DocumentOrigin | TextOrigin]
     label: str
+
+
+class PodcastCreate(_Closed):
+    schema_: Literal["podcast-create/v1"] = Field(alias="schema")
+    knowledge_structure_revision: str
+    name: str = Field(min_length=1, max_length=200)
+    concept_ids: list[str] = Field(min_length=1)
+    mode: Literal["quick", "full"]
+    delivery: Literal["solo", "dialogue"]
+
+
+class PodcastAction(_Closed):
+    schema_: Literal["podcast-action/v1"] = Field(alias="schema")
+    action: Literal["rename", "retry", "cancel"]
+    expected_version: int = Field(ge=1, strict=True)
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class PodcastSummary(_Closed):
+    podcast_id: UUID
+    material_id: UUID
+    material_name: str
+    knowledge_structure_revision: str
+    name: str
+    mode: Literal["quick", "full"]
+    delivery: Literal["solo", "dialogue"]
+    concept_ids: list[str]
+    status: Literal["pending", "running", "ready", "failed", "cancelled"]
+    error_code: str | None
+    version: int
+    created_at: datetime
+    episode_count: int
+    completed_episodes: int
+    is_current_revision: bool
+
+
+class PodcastClaim(ClaimView):
+    concept_id: str
+    label: str
+
+
+class PodcastTurn(_Closed):
+    speaker: Literal["host", "guest"]
+    text: str
+
+
+class PodcastSegment(_Closed):
+    claim_id: str
+    turns: list[PodcastTurn]
+
+
+class PodcastScript(_Closed):
+    segments: list[PodcastSegment]
+    provider: str
+
+
+class PodcastAudio(_Closed):
+    artifact_id: UUID
+    sha256: str
+    duration_seconds: float
+    provider: str
+
+
+class PodcastEpisode(_Closed):
+    delivery: Literal["solo", "dialogue"]
+    claims: list[PodcastClaim]
+    script: PodcastScript | None
+    audio: PodcastAudio | None
+
+
+class PodcastView(PodcastSummary):
+    schema_: Literal["podcast/v1"] = Field(alias="schema")
+    source_resolver: str
+    source_status: StatusView
+    excluded_pages: list[ExcludedPageView]
+    episodes: list[PodcastEpisode]
+
+
+class PodcastListView(_Closed):
+    schema_: Literal["podcast-list/v1"] = Field(alias="schema")
+    podcasts: list[PodcastSummary]
+
+
+class PodcastDeletedView(_Closed):
+    schema_: Literal["podcast-deleted/v1"] = Field(alias="schema")
+    podcast_id: UUID

@@ -888,7 +888,7 @@ export function KnowledgeMapWorkspace({
   isStartingStudy,
   onReturnToRun,
   onAddSources,
-  onCreateCards,
+  contentNavigation,
   onStartStudy,
   startMessage,
   view,
@@ -902,7 +902,7 @@ export function KnowledgeMapWorkspace({
   isStartingStudy: boolean;
   onReturnToRun: () => void;
   onAddSources: () => void;
-  onCreateCards: () => void;
+  contentNavigation: ReactNode;
   onStartStudy: (conceptId: string) => void;
   startMessage: string | null;
   view: KnowledgeStructureView;
@@ -1119,11 +1119,7 @@ export function KnowledgeMapWorkspace({
       className={`map-workspace${mode === "focus" ? " is-focus-mode" : ""}${selectedConcept || selectedRelation ? " has-detail" : ""}`}
     >
       <header className="map-header">
-        <div>
-          <div className="map-title-row">
-            <h1>知識地圖</h1>
-          </div>
-        </div>
+        {contentNavigation}
         <form
           className="map-search"
           onKeyDown={(event) => {
@@ -1178,9 +1174,6 @@ export function KnowledgeMapWorkspace({
           )}
         </form>
         <div className="map-header-actions">
-          <button className="secondary-button" type="button" onClick={onCreateCards}>
-            <Icon name="cards" size={18} /> 建立概念卡
-          </button>
           <button className="secondary-button" type="button" onClick={onAddSources}>
             新增教材
           </button>

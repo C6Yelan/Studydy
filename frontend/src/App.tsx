@@ -194,6 +194,7 @@ export default function App() {
     >
       <MaterialFlow
         key={`${session.identity.learner_id}/${clientVersion.current}`}
+        learnerId={session.identity.learner_id}
         apiClient={session.api}
         route={route}
       />

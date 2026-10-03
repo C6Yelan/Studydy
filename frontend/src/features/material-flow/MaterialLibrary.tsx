@@ -342,6 +342,8 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
                     </button>
                   )
                 )}
+                {structure && <><button className="secondary-button" type="button" onClick={() => writeRoute({ name: "material-content", materialId: item.material_id, kind: "concept-cards" })}><Icon name="cards" size={16} />概念卡</button>
+                  <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "material-content", materialId: item.material_id, kind: "podcasts" })}><Icon name="headphones" size={16} />Podcast</button></>}
               </fieldset>
             </article>
           );

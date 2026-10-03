@@ -1,3 +1,4 @@
+import { MaterialContentNav } from "../material-flow/MaterialContentNav";
 import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
@@ -256,7 +257,7 @@ export default function KnowledgeMap({
         writeRoute({ name: "material-run", materialId: route.materialId, runId: route.runId })
       }
       onAddSources={() => writeRoute({ name: "material-sources", materialId: route.materialId })}
-      onCreateCards={() => writeRoute({ ...route, name: "card-set-create" })}
+      contentNavigation={<MaterialContentNav materialId={route.materialId} mapRoute={route} current="knowledge-map" />}
       onStartStudy={startStudy}
       startMessage={startMessage}
       view={view}

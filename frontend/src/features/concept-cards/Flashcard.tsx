@@ -31,7 +31,10 @@ export function Flashcard({ card, flipped, onFlip, apiClient, sourceResolver, so
             {card.claims.map((claim, index) => (
               <section className="flashcard-point" key={claim.claim_id}>
                 <span className="flashcard-point-number" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
-                <p className={claim.evidence.some((item) => item.kind === "code") ? "is-code" : undefined}>{claimText(claim)}</p>
+                <p
+                  className={claim.evidence.some((item) => item.kind === "code") ? "is-code" : undefined}
+                  tabIndex={claim.evidence.some((item) => item.kind === "code") ? 0 : undefined}
+                >{claimText(claim)}</p>
               </section>
             ))}
             <details className="flashcard-sources">

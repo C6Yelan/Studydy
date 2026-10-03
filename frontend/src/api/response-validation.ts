@@ -1,4 +1,5 @@
 import type {
+  PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView,
   AnswerFeedbackView,
   CardSetSummary,
   CardSetView,
@@ -832,4 +833,87 @@ export function materialDraft(
 ): value is { schema: "material-draft/v1"; material_id: string } {
   const item = object(value);
   return !!item && item.schema === "material-draft/v1" && isUuid(item.material_id);
+}
+
+export function podcastSummary(value: unknown): value is PodcastSummary {
+  const item = object(value);
+  return !!item && isUuid(item.podcast_id) && isUuid(item.material_id)
+    && revision(item.knowledge_structure_revision, "knowledge-structure")
+    && typeof item.name === "string" && !!item.name.trim() && typeof item.material_name === "string"
+    && ["quick", "full"].includes(String(item.mode))
+    && ["solo", "dialogue"].includes(String(item.delivery))
+    && strings(item.concept_ids) && item.concept_ids.length > 0
+    && item.concept_ids.every((id) => revision(id, "concept"))
+    && new Set(item.concept_ids).size === item.concept_ids.length
+    && ["pending", "running", "ready", "failed", "cancelled"].includes(String(item.status))
+    && (item.error_code === null || typeof item.error_code === "string")
+    && Number.isInteger(item.version) && Number(item.version) > 0 && timestamp(item.created_at)
+    && Number.isInteger(item.episode_count) && Number(item.episode_count) > 0
+    && Number.isInteger(item.completed_episodes) && Number(item.completed_episodes) >= 0
+    && Number(item.completed_episodes) <= Number(item.episode_count)
+    && typeof item.is_current_revision === "boolean";
+}
+
+export function podcastList(value: unknown): value is PodcastListView {
+  const item = object(value);
+  return !!item && item.schema === "podcast-list/v1" && Array.isArray(item.podcasts)
+    && item.podcasts.every(podcastSummary);
+}
+
+export function podcast(value: unknown): value is PodcastView {
+  const item = object(value);
+  if (!item || !podcastSummary(value) || item.schema !== "podcast/v1") return false;
+  const status = object(item.source_status);
+  if (item.source_resolver !== `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
+    || !status || !["accepted", "needs_review"].includes(String(status.quality))
+    || !["succeeded", "partial"].includes(String(status.processing))
+    || !["retain", "review"].includes(String(status.decision)) || !strings(status.reason_codes)
+    || !Array.isArray(item.excluded_pages) || !item.excluded_pages.every((v) => {
+      const p = object(v); return !!p && Number.isInteger(p.page) && Number(p.page) > 0 && typeof p.reason_code === "string";
+    }) || !Array.isArray(item.episodes) || item.episodes.length !== item.episode_count) return false;
+  const covered = new Set<string>();
+  const valid = item.episodes.every((v) => {
+    const episode = object(v);
+    if (!episode || !Array.isArray(episode.claims) || !episode.claims.length
+      || !["solo", "dialogue"].includes(String(episode.delivery))
+      || episode.delivery !== item.delivery) return false;
+    if (!episode.claims.every((v) => {
+      const c = object(v);
+      if (!c || !conceptCard({ concept_id: c.concept_id, label: c.label, claims: [c] })
+        || !Array.isArray(c.evidence) || !c.evidence.length || !(item.concept_ids as string[]).includes(String(c.concept_id))) return false;
+      covered.add(String(c.concept_id)); return true;
+    })) return false;
+    if (episode.script !== null) {
+      const script = object(episode.script);
+      if (!script || typeof script.provider !== "string" || !Array.isArray(script.segments)
+        || script.segments.length !== episode.claims.length
+        || !script.segments.every((v, i) => {
+          const s = object(v); const c = object((episode.claims as unknown[])[i]);
+          if (!s || s.claim_id !== c?.claim_id) return false;
+          const dialogue = episode.delivery === "dialogue";
+          return Array.isArray(s.turns) && s.turns.length >= 1 && s.turns.length <= (dialogue ? 8 : 3) && s.text === undefined
+            && s.turns.every(v => { const t = object(v); return !!t && (dialogue ? ["host", "guest"] : ["host"]).includes(String(t.speaker)) && typeof t.text === "string" && !!t.text.trim(); });
+        })) return false;
+      const speakers = new Set(script.segments.flatMap(v => {
+        const turns = object(v)?.turns;
+        return Array.isArray(turns) ? turns.map(t => object(t)?.speaker) : [];
+      }));
+      if (episode.delivery === "dialogue" && speakers.size !== 2) return false;
+    }
+    if (episode.audio !== null) {
+      const a = object(episode.audio);
+      if (episode.script === null || !a || !isUuid(a.artifact_id) || typeof a.sha256 !== "string"
+        || !/^[0-9a-f]{64}$/.test(a.sha256) || typeof a.duration_seconds !== "number"
+        || !Number.isFinite(a.duration_seconds) || a.duration_seconds <= 0 || typeof a.provider !== "string") return false;
+    }
+    return true;
+  });
+  return valid && covered.size === (item.concept_ids as string[]).length
+    && item.episodes.filter((v) => object(v)?.audio !== null).length === item.completed_episodes
+    && (item.status !== "ready" || item.completed_episodes === item.episode_count);
+}
+
+export function podcastDeleted(value: unknown): value is PodcastDeletedView {
+  const item = object(value);
+  return !!item && item.schema === "podcast-deleted/v1" && isUuid(item.podcast_id);
 }

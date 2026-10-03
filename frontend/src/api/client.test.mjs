@@ -1007,3 +1007,66 @@ test("edge errors use fixed safe messages and never expose HTML", async () => {
   Object.defineProperty(response, "redirected", { value: true });
   await assert.rejects(new StudydyApiClient(async () => response).authenticate("login", "test@example.com", "Synthetic password 42"), error => error.reasonCode === "EDGE_ACCESS_REQUIRED");
 });
+
+function podcastView() {
+  const view = cardSetView();
+  return {
+    schema: "podcast/v1", podcast_id: setId, material_id: materialId,
+    material_name: view.material_name, knowledge_structure_revision: structureRevision,
+    name: "聽重點", mode: "full", delivery: "solo", concept_ids: [conceptId], status: "ready", error_code: null,
+    version: 3, created_at: view.created_at, episode_count: 1, completed_episodes: 1,
+    is_current_revision: true, source_resolver: view.source_resolver, source_status: view.status,
+    excluded_pages: [], episodes: [{ delivery: "solo", claims: [{ ...view.cards[0].claims[0], concept_id: conceptId, label: "Stack" }],
+      script: { provider: "synthetic-test", segments: [{ claim_id: claimId, turns: [{ speaker: "host", text: "堆疊遵循後進先出。" }] }] },
+      audio: { artifact_id: runId, sha256: "f".repeat(64), duration_seconds: 12, provider: "synthetic-audio" } }],
+  };
+}
+
+test("podcast playback rejects mismatched scripts, foreign sources and incomplete ready manifests", async () => {
+  assert.equal((await new StudydyApiClient(async () => Response.json(podcastView())).getPodcast(setId)).episodes.length, 1);
+  for (const change of [
+    (v) => { v.podcast_id = materialId; },
+    (v) => { v.source_resolver = v.source_resolver.replace(structureRevision, `knowledge-structure:sha256:${"f".repeat(64)}`); },
+    (v) => { v.episodes[0].script.segments[0].claim_id = `claim:sha256:${"f".repeat(64)}`; },
+    (v) => { v.episodes[0].claims[0].evidence = []; },
+    (v) => { v.episodes[0].audio = null; v.completed_episodes = 0; },
+    (v) => { v.episodes[0].script = null; },
+  ]) {
+    const value = podcastView(); change(value);
+    await assert.rejects(new StudydyApiClient(async () => Response.json(value)).getPodcast(setId), e => e.kind === "schema");
+  }
+});
+
+test("dialogue podcast reads two speakers while rejecting incomplete or mismatched turns", async () => {
+  const value = podcastView();
+  value.delivery = value.episodes[0].delivery = "dialogue";
+  value.episodes[0].script.segments = [{ claim_id: claimId, turns: [{ speaker: "host", text: "可以舉個例子嗎？" }, { speaker: "guest", text: "想像疊盤子，最後放的先取。" }] }];
+  assert.equal((await new StudydyApiClient(async () => Response.json(value)).getPodcast(setId)).episodes[0].script.segments[0].turns.length, 2);
+  value.episodes[0].script.segments[0].turns[1].speaker = "host";
+  await assert.rejects(new StudydyApiClient(async () => Response.json(value)).getPodcast(setId), e => e.kind === "schema");
+});
+
+
+test("extended dialogue keeps all follow-up turns", async () => {
+  const value = podcastView();
+  value.delivery = value.episodes[0].delivery = "dialogue";
+  const turns = Array.from({ length: 8 }, (_, i) => ({ speaker: i % 2 ? "guest" : "host", text: i % 2 ? "先確認條件，再決定操作。" : "那這個條件不成立時呢？" }));
+  value.episodes[0].script.segments = [{ claim_id: claimId, turns }];
+  assert.equal((await new StudydyApiClient(async () => Response.json(value)).getPodcast(setId)).episodes[0].script.segments[0].turns.length, 8);
+  turns.push({ speaker: "host", text: "這是超過契約上限的輪次。" });
+  await assert.rejects(new StudydyApiClient(async () => Response.json(value)).getPodcast(setId), e => e.kind === "schema");
+});
+
+test("dialogue permits a speaker to continue across source segments", async () => {
+  const value = podcastView();
+  value.delivery = value.episodes[0].delivery = "dialogue";
+  const second = `claim:sha256:${"b".repeat(64)}`;
+  value.episodes[0].claims.push({ ...value.episodes[0].claims[0], claim_id: second });
+  value.episodes[0].script.segments = [
+    { claim_id: claimId, turns: [{ speaker: "guest", text: "說明者可以先完整說清楚這個重點。" }] },
+    { claim_id: second, turns: [{ speaker: "host", text: "原來這就是我剛才弄混的地方。" }] },
+  ];
+  assert.equal((await new StudydyApiClient(async () => Response.json(value)).getPodcast(setId)).episodes[0].script.segments.length, 2);
+  value.episodes[0].script.segments[1].turns[0].speaker = "guest";
+  await assert.rejects(new StudydyApiClient(async () => Response.json(value)).getPodcast(setId), e => e.kind === "schema");
+});

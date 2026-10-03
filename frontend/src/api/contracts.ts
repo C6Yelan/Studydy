@@ -1,4 +1,6 @@
 export type KnownApiReasonCode =
+  | "PODCAST_CONFLICT"
+  | "PODCAST_SOURCE_INSUFFICIENT"
   | "CARD_SET_CONFLICT"
   | "INVALID_EMAIL"
   | "INVALID_CREDENTIALS"
@@ -484,3 +486,32 @@ export type EvidenceSourceView = {
   origin_locators: Record<string, unknown>[];
   label: string;
 };
+
+export type PodcastSummary = {
+  podcast_id: string; material_id: string; material_name: string;
+  knowledge_structure_revision: string; name: string; mode: "quick" | "full";
+  delivery: "solo" | "dialogue";
+  concept_ids: string[]; status: "pending" | "running" | "ready" | "failed" | "cancelled";
+  error_code: string | null; version: number; created_at: string;
+  episode_count: number; completed_episodes: number; is_current_revision: boolean;
+};
+export type PodcastClaim = ConceptCard["claims"][number] & { concept_id: string; label: string };
+export type PodcastEpisode = {
+  delivery: "solo" | "dialogue";
+  claims: PodcastClaim[];
+  script: { segments: { claim_id: string; turns: { speaker: "host" | "guest"; text: string }[] }[]; provider: string } | null;
+  audio: { artifact_id: string; sha256: string; duration_seconds: number; provider: string } | null;
+};
+export type PodcastView = PodcastSummary & {
+  schema: "podcast/v1"; episodes: PodcastEpisode[]; source_resolver: string;
+  source_status: KnowledgeStructureView["status"]; excluded_pages: KnowledgeStructureView["excluded_pages"];
+};
+export type PodcastCreate = {
+  schema: "podcast-create/v1"; knowledge_structure_revision: string;
+  name: string; concept_ids: string[]; mode: "quick" | "full"; delivery: "solo" | "dialogue";
+};
+export type PodcastAction = {
+  schema: "podcast-action/v1"; action: "rename" | "retry" | "cancel"; expected_version: number; name?: string;
+};
+export type PodcastListView = { schema: "podcast-list/v1"; podcasts: PodcastSummary[] };
+export type PodcastDeletedView = { schema: "podcast-deleted/v1"; podcast_id: string };

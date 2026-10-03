@@ -7,7 +7,8 @@ import { StateView } from "../../ui/StateView";
 import { Flashcard } from "./Flashcard";
 import { CardRecommendations } from "./CardRecommendations";
 
-export function CreateCardSet({ apiClient, route }: {
+export function CreateCardSet({ apiClient, route, embedded = false }: {
+  embedded?: boolean;
   apiClient: StudydyApiClient;
   route: Extract<AppRoute, { name: "card-set-create" | "card-set-edit" }>;
 }) {
@@ -48,6 +49,8 @@ export function CreateCardSet({ apiClient, route }: {
     const read = async () => {
       try {
         const deck = route.name === "card-set-edit" ? await apiClient.getCardSet(route.cardSetId) : null;
+        if (deck && route.name === "card-set-edit" && !route.materialId) { if (!cancelled) writeRoute({ name: "card-set-edit", cardSetId: route.cardSetId, materialId: deck.material_id }, true); return; }
+        if (deck && route.materialId && deck.material_id !== route.materialId) throw new Error("這個卡組不屬於此教材。");
         const id = deck?.material_id ?? (route.name === "card-set-create" ? route.materialId : "");
         const revision = deck?.knowledge_structure_revision ?? (route.name === "card-set-create" ? route.structureRevision : "");
         const [material, structure] = await Promise.all([
@@ -77,7 +80,7 @@ export function CreateCardSet({ apiClient, route }: {
     return () => { cancelled = true; };
   }, [apiClient, routeKey, reload]);
   const back = () => writeRoute(route.name === "card-set-edit"
-    ? { name: "card-set", cardSetId: route.cardSetId }
+    ? { name: "card-set", cardSetId: route.cardSetId, ...(route.materialId ? { materialId: route.materialId } : {}) }
     : { ...route, name: "knowledge-map" });
   const validName = name.trim().length > 0 && Array.from(name.trim()).length <= 200 && !/[\p{Cc}\p{Cs}]/u.test(name);
   const save = async () => {
@@ -101,7 +104,7 @@ export function CreateCardSet({ apiClient, route }: {
             concept_ids: conceptIds, expected_version: saved.version,
           })
         : await apiClient.createCardSet(materialId, body, intent.current.key);
-      if (current()) writeRoute({ name: "card-set", cardSetId: result.card_set_id });
+      if (current()) writeRoute({ name: "card-set", cardSetId: result.card_set_id, ...(route.name === "card-set-create" || route.materialId ? { materialId: route.materialId } : {}) });
     } catch (failure) {
       if (current()) {
         setSaveError(errorMessage(failure));
@@ -115,7 +118,7 @@ export function CreateCardSet({ apiClient, route }: {
   const backLabel = editing ? "返回卡組" : "返回知識地圖";
   if (error || !view) return (
     <section className="cards-page">
-      <button className="text-button" type="button" onClick={back}>← {backLabel}</button>
+      {!embedded && <button className="text-button" type="button" onClick={back}>← {backLabel}</button>}
       <StateView title={error ? "無法讀取概念" : "正在準備概念卡"}
         description={error ?? "正在載入教材的概念與重點。"} tone={error ? "failure" : "loading"} live={!error}
         action={error ? <button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button> : undefined} />
@@ -129,8 +132,8 @@ export function CreateCardSet({ apiClient, route }: {
     setFlipped(false);
   };
   return <section className="cards-page cards-create">
-    <button className="cards-back text-button" type="button" onClick={back}><Icon name="arrow-left" size={17} /> {backLabel}</button>
-    <header className="cards-page-header"><div><h1>{editing ? "管理卡組" : "建立概念卡組"}</h1><p className="cards-material-name"><Icon name="book" size={16} /> {materialName}</p></div></header>
+    {!embedded && <button className="cards-back text-button" type="button" onClick={back}><Icon name="arrow-left" size={17} /> {backLabel}</button>}
+    {!embedded && <header className="cards-page-header"><div><h1>{editing ? "管理卡組" : "建立概念卡組"}</h1><p className="cards-material-name"><Icon name="book" size={16} /> {materialName}</p></div></header>}
     <div className="cards-create-grid">
       <section className="cards-selection" aria-label="選擇概念">
         <label className="cards-field">卡組名稱<input value={name} maxLength={200} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>

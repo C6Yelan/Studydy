@@ -227,7 +227,7 @@ for (const status of ["succeeded", "partial"] as const)
     await expect(page).toHaveURL(
       new RegExp(`${runPath}/knowledge-structures/${encodeURIComponent(revision)}$`),
     );
-    await expect(page.getByRole("heading", { name: "知識地圖", exact: true })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "教材學習內容" }).getByRole("button", { name: "知識地圖", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.getByRole("region", { name: "概念地圖工作區", exact: true })).toBeVisible();
     await expect(page.locator(".concept-flow-node")).toHaveCount(view.concepts.length);
   });
