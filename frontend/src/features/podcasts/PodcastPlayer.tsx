@@ -31,11 +31,14 @@ function ControlIcon({ name }: { name: "play" | "pause" | "previous" | "next" | 
   </svg>;
 }
 
-export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPosition, autoPlay, onEnded, onPrevious, onNext }: {
+export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPosition, autoPlay, onEnded, onPrevious, onNext, mediaRef }: {
   view: PodcastView; index: number; storageKey: string; settingsKey: string; rememberPosition: { current: boolean };
+  mediaRef?: {current: HTMLAudioElement | null};
   autoPlay: boolean; onEnded: () => void; onPrevious: () => void; onNext: () => void;
 }) {
-  const media = useRef<HTMLAudioElement>(null), menu = useRef<HTMLDivElement>(null), gear = useRef<HTMLButtonElement>(null);
+  const internalMedia = useRef<HTMLAudioElement>(null);
+  const media = mediaRef ?? internalMedia;
+  const menu = useRef<HTMLDivElement>(null), gear = useRef<HTMLButtonElement>(null);
   const [settings, setSettings] = useState(() => readSettings(settingsKey));
   const [menuOpen, setMenuOpen] = useState(false), [playing, setPlaying] = useState(false), [ready, setReady] = useState(false);
   const [time, setTime] = useState(0), [length, setLength] = useState(view.episodes[index].audio!.duration_seconds);

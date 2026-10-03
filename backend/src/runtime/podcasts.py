@@ -6,14 +6,14 @@ import io
 import wave
 from uuid import UUID, uuid4
 
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from .card_sets import _material, _validate_selection
 from .storage.artifacts import _key_digest, quarantine_source_pdf, reconcile_discarded_sources
 from .storage.knowledge_structures import _prune_unreferenced_structures, _read_verified_document, _view
 from .storage.source_artifacts import write_blob
-from .storage.tables import Artifact, Material, Podcast, database_session
+from .storage.tables import Artifact, Material, Podcast, PodcastScenes, database_session
 
 
 class PodcastError(RuntimeError):
@@ -142,6 +142,7 @@ def delete_podcast(owner, identity, *, dsn=None):
         with database_session(dsn) as db:
             row, material = _locked(db, owner, identity, allow_deleted=True)
             if row.status != "deleted":
+                db.execute(delete(PodcastScenes).where(PodcastScenes.podcast_id == identity))
                 for episode in row.episodes:
                     if episode.get("audio"):
                         artifact_id = UUID(episode["audio"]["artifact_id"])

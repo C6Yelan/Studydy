@@ -130,3 +130,7 @@ systemctl --user restart studydy-podcast.service
 0010／0011 migration 新增語音對話與研究資料；舊 KS 清理需保留對話引用。升級後不可直接退回不認識新 migration 的舊後端，應使用相容 schema 的前向修復，保留備份與舊映像。持久資料及模型不納入 Git。
 
 0012 為 Evidence 的無損 JSONB 儲存增加讀取能力界線。真實論文的字型擷取可能包含 U+0000；PostgreSQL JSONB 不能直接保存，因此僅在遇到零字元時使用可逆字串編碼，讀回後完整還原，再驗證 canonical document 與 hash。既有文件不改寫，頁碼、區塊、Evidence／Claim 身分及原始 PDF 保持不變。相同處理涵蓋會保存來源文字的 Podcast、問答與題組欄位。這解決儲存限制，不代表特殊公式的呈現或教學解讀已驗收。
+
+F5 共用本機 Whisper，對齊原講稿與實際 WAV 的詞時間點；拼音只用於處理 ASR 同音字，不改寫顯示文字或引用。`ops/podcast/stt-requirements.txt` 記錄辨識／對齊環境依賴。每集只保存時間範圍、可回查錨點及白名單場景，不保存影格影片。比較／流程使用既有內容及 Luna 的來源核對；來源不足改用原重點，provider 或時間對齊失敗則如實保留失敗狀態。場景與音訊各自處理，失敗不改掉已完成的 Podcast。
+
+0013 新增主題草稿／批准紀錄，讓 F2 可從尚無教材的已批准主題搜尋；來源選定後才建立教材。0014 新增每集同步資料，依附 Podcast 並綁定講稿及音訊 hash；刪除 Podcast 同時清除場景，晚到結果不復活。兩者均需識別新 migration 的後端，回退採相容 schema 的修復方式。

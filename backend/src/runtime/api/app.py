@@ -28,6 +28,8 @@ from ..voice_worker import VoiceWorker
 from ..research_worker import ResearchWorker
 from .research_routes import install as install_research
 from .topic_routes import install as install_topics
+from .scene_routes import install as install_scenes
+from ..scene_worker import SceneWorker
 from .voice_routes import install as install_voice
 from learning_adaptation.learner_progress import (
     apply_guidance, derive_learner_progress, progress_snapshot,
@@ -235,6 +237,8 @@ def _normalized_origin(value: Any) -> str | None:
 
 
 _ERROR_STATUS.update({
+    "SCENE_CONFLICT": (409, True), "SCENE_ALIGNMENT_INVALID": (422, True),
+    "SCENE_ALIGNMENT_FAILED": (422, True), "SCENE_SOURCE_CHANGED": (409, False),
     "TOPIC_CONFLICT": (409, True), "TOPIC_PROVIDER_FAILED": (502, True),
     "RESEARCH_URL_REJECTED": (422, False), "RESEARCH_LICENSE_UNCONFIRMED": (422, False),
     "RESEARCH_SEARCH_FAILED": (502, True), "RESEARCH_DOWNLOAD_FAILED": (502, True),
@@ -486,6 +490,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         )
         podcast_worker = None
         voice_worker = VoiceWorker(settings.dsn).start()
+        scene_worker = SceneWorker(settings.dsn).start()
         research_worker = ResearchWorker(settings.dsn, deepcopy(settings.local_config)).start()
         try:
             podcast_worker = PodcastWorker(settings.dsn).start()
@@ -493,6 +498,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         finally:
             if podcast_worker is not None:
                 podcast_worker.stop()
+            scene_worker.stop()
             research_worker.stop()
             voice_worker.stop()
             workers.stop()
@@ -1253,6 +1259,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
             headers={"Content-Length": str(source.size_bytes), "ETag": f'"sha256:{source.sha256}"'},
         )
 
+    install_scenes(app, settings, _trusted_learner, _require_query)
     install_topics(app, settings, _trusted_learner, _idempotency_key, _require_query)
     install_research(app, settings, _trusted_learner, _idempotency_key, _require_query)
     install_voice(app, settings, _trusted_learner, _idempotency_key, _require_query)

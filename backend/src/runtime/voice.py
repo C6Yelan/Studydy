@@ -28,12 +28,12 @@ def provider(path, body):
     request = Request(base + path, data=json.dumps(body, ensure_ascii=False).encode(),
         headers={'Content-Type':'application/json','Authorization': 'Bearer ' + token})
     try:
-        with urlopen(request, timeout=1200) as response:
+        with urlopen(request, timeout=1800 if path=='/align' else 1200) as response:
             data = response.read(20 * 1024 * 1024 + 1)
     except HTTPError as error:
         try: code=json.loads(error.read(4096)).get('error_code')
         except Exception: code=None
-        if code in {'VOICE_TRANSCRIPT_INVALID','PODCAST_AUDIO_INVALID','LUNA_GENERATION_FAILED','LUNA_GENERATION_TIMEOUT'}:
+        if code in {'VOICE_TRANSCRIPT_INVALID','PODCAST_AUDIO_INVALID','LUNA_GENERATION_FAILED','LUNA_GENERATION_TIMEOUT','SCENE_ALIGNMENT_FAILED'}:
             raise SourceError(code) from None
         raise SourceError('VOICE_PROVIDER_UNAVAILABLE' if error.code==503 else 'VOICE_PROVIDER_FAILED') from None
     if len(data) > 20 * 1024 * 1024:

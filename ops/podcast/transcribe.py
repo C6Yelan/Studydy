@@ -8,7 +8,7 @@ import numpy as np
 from faster_whisper import WhisperModel
 
 
-def transcribe(data):
+def decode_audio(data,max_seconds=121):
     chunks=[];total=0
     with av.open(io.BytesIO(data)) as container:
         if not container.streams.audio:raise ValueError('VOICE_TRANSCRIPT_INVALID')
@@ -17,10 +17,14 @@ def transcribe(data):
             for sample in resampler.resample(frame):
                 value=sample.to_ndarray().reshape(-1)
                 total+=len(value)
-                if total>16000*121:raise ValueError('VOICE_RECORDING_TOO_LONG')
+                if total>16000*max_seconds:raise ValueError('VOICE_RECORDING_TOO_LONG')
                 chunks.append(value)
     if total<1600:raise ValueError('VOICE_TRANSCRIPT_INVALID')
-    wave=np.concatenate(chunks).astype(np.float32)/32768
+    return np.concatenate(chunks).astype(np.float32)/32768
+
+
+def transcribe(data):
+    wave=decode_audio(data)
     model=WhisperModel(os.environ['STUDYDY_STT_MODEL_DIR'],device='cpu',compute_type='int8',cpu_threads=6,local_files_only=True)
     segments,_=model.transcribe(wave,language='zh',beam_size=3,vad_filter=True,
         initial_prompt='繁體中文教材問答。保留英文專有名詞、數字與否定詞。',condition_on_previous_text=False)

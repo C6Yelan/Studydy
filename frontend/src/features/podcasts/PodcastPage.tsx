@@ -1,3 +1,4 @@
+import { PodcastScenes } from "./PodcastScenes";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { PodcastView } from "../../api/contracts";
@@ -19,7 +20,8 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const [actionError, setActionError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [contentTab, setContentTab] = useState<"transcript" | "highlights">("transcript");
+  const [contentTab, setContentTab] = useState<"transcript" | "highlights" | "scenes">("transcript");
+  const media = useRef<HTMLAudioElement | null>(null);
   const contentTabs = useRef<HTMLDivElement>(null);
   const active = useRef(false), changing = useRef(false);
   const rememberPosition = useRef(true);
@@ -83,16 +85,17 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     <div className="podcast-listening-layout"><aside ref={episodeList} className="surface podcast-episodes" aria-label="分集清單"><h2>分集清單</h2>{view.episodes.map((e, i) => <button type="button" key={i} aria-current={index === i ? "true" : undefined} onClick={() => { autoPlayNext.current = false; setIndex(i); }}>
       <span className="podcast-episode-number">{String(i + 1).padStart(2, "0")}</span><span className="podcast-episode-summary"><strong title={[...new Set(e.claims.map(c => c.label))].join(" · ")}>{[...new Set(e.claims.map(c => c.label))].join(" · ")}</strong><small>{e.audio ? duration(e.audio.duration_seconds) : ["failed", "cancelled"].includes(view.status) ? "尚未完成" : view.episodes.findIndex(episode => !episode.audio) === i && view.status === "running" ? (e.script ? "製作音訊中" : "整理內容中") : "等待處理"}</small></span></button>)}</aside>
       <div className="podcast-episode-detail">
-        {view.status === "ready" && <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} storageKey={storageKey} settingsKey={`studydy.podcast.settings:${learnerId}`} onPrevious={() => { autoPlayNext.current = true; setIndex(index - 1); }} onNext={() => { autoPlayNext.current = true; setIndex(index + 1); }} rememberPosition={rememberPosition} autoPlay={autoPlayNext.current} onEnded={() => {
+        {view.status === "ready" && <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} mediaRef={media} storageKey={storageKey} settingsKey={`studydy.podcast.settings:${learnerId}`} onPrevious={() => { autoPlayNext.current = true; setIndex(index - 1); }} onNext={() => { autoPlayNext.current = true; setIndex(index + 1); }} rememberPosition={rememberPosition} autoPlay={autoPlayNext.current} onEnded={() => {
           if (index + 1 < view.episodes.length) { autoPlayNext.current = true; setIndex(index + 1); }
         }} />}
         <section className="surface podcast-reading-area" aria-label={`第 ${index + 1} 集內容`}>
           <div ref={contentTabs} className="podcast-content-tabs" role="tablist" aria-label="本集內容">{([
-            ["transcript", "逐字稿"], ["highlights", "本集重點"],
+            ["transcript", "逐字稿"], ["highlights", "本集重點"], ["scenes", "同步畫面"],
           ] as const).map(([id, label]) => <button type="button" role="tab" key={id} id={`podcast-tab-${id}`} aria-controls={`podcast-panel-${id}`} aria-selected={contentTab === id} tabIndex={contentTab === id ? 0 : -1} onClick={() => setContentTab(id)} onKeyDown={e => {
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
             e.preventDefault();
-            const next = e.key === "Home" ? "transcript" : e.key === "End" ? "highlights" : id === "transcript" ? "highlights" : "transcript";
+            const tabs = ["transcript", "highlights", "scenes"] as const;
+            const next = e.key === "Home" ? tabs[0] : e.key === "End" ? tabs[2] : tabs[(tabs.indexOf(id) + (e.key === "ArrowLeft" ? 2 : 1)) % 3];
             setContentTab(next); contentTabs.current?.querySelector<HTMLButtonElement>(`#podcast-tab-${next}`)?.focus();
           }}>{label}</button>)}</div>
         <div className="podcast-transcript" role="tabpanel" id="podcast-panel-transcript" aria-labelledby="podcast-tab-transcript" hidden={contentTab !== "transcript"}>
@@ -103,6 +106,9 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
         </div>
         <div className="podcast-highlights" role="tabpanel" id="podcast-panel-highlights" aria-labelledby="podcast-tab-highlights" hidden={contentTab !== "highlights"}><header><span>{episode.claims.length} 個重點</span></header>
           {groups.map(group => <div key={group.claims[0].concept_id}>{groups.length > 1 && <h3>{group.label}</h3>}<ul>{group.claims.map(claim => <li key={claim.claim_id}><p>{claimText(claim)}</p></li>)}</ul></div>)}
+        </div>
+        <div role="tabpanel" id="podcast-panel-scenes" aria-labelledby="podcast-tab-scenes" hidden={contentTab !== "scenes"}>
+          {view.status === "ready" ? <PodcastScenes api={apiClient} view={view} index={index} media={media} active={contentTab === "scenes"}/> : <p>音訊完成後即可準備同步畫面。</p>}
         </div>
         </section>
       </div>

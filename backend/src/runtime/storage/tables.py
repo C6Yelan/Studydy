@@ -466,3 +466,20 @@ class TopicScope(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PodcastScenes(Base):
+    __tablename__='podcast_scenes'
+    scene_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True),primary_key=True)
+    podcast_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    episode_index: Mapped[int] = mapped_column(Integer)
+    input_sha256: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    alignment: Mapped[dict | None] = mapped_column(EvidenceJSONB)
+    checks: Mapped[dict | None] = mapped_column(EvidenceJSONB)
+    manifest: Mapped[dict | None] = mapped_column(EvidenceJSONB)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(BigInteger)
+    lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

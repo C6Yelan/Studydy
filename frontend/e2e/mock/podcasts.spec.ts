@@ -298,3 +298,21 @@ test("saved dialogue transcripts keep roles and switch with the selected episode
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
+
+test('synchronized scenes follow real media pause, seek and playback rate',async({page})=>{
+ const fixture=await mockPodcasts(page);fixture.view.status='ready';fixture.view.completed_episodes=3;
+ for(const episode of fixture.view.episodes){episode.script=fixture.script;episode.audio={...fixture.view.episodes[0].audio!,duration_seconds:12};}
+ const wav=Buffer.alloc(44+24000*12*2);wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(24000,24);wav.writeUInt32LE(48000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(wav.length-44,40);
+ await page.route(`**/v1/podcasts/${podcastId}/episodes/*/audio`,r=>{const range=r.request().headers()['range'];const m=range?.match(/bytes=(\d+)-(\d*)/);const start=m?Number(m[1]):0,end=m&&m[2]?Math.min(Number(m[2]),wav.length-1):wav.length-1;return r.fulfill({status:m?206:200,contentType:'audio/wav',headers:{'Accept-Ranges':'bytes',...(m?{'Content-Range':`bytes ${start}-${end}/${wav.length}`}:{})},body:wav.subarray(start,end+1)});});
+ const manifest={audio_sha256:'a'.repeat(64),duration:12,source_resolver:fixture.structure.source_resolver,scenes:fixture.view.episodes[0].claims.map((c,i)=>({index:i,start:i*6,end:(i+1)*6,claim_id:c.claim_id,title:c.label,text:c.text,evidence:c.evidence,kind:i?'flow':'concept',steps:i?['來源步驟一','來源步驟二']:[],columns:[]}))};
+ await page.route(`**/v1/podcasts/${podcastId}/scenes`,r=>json(r,{podcast_id:podcastId,episodes:[0,1,2].map(index=>({index,status:'ready',version:1,error_code:null,manifest}))}));
+ await page.goto(`/podcasts/${podcastId}`);await page.getByRole('tab',{name:'同步畫面',exact:true}).click();await expect(page.locator('.synced-scene')).toHaveAttribute('data-scene-index','0');
+ await page.getByRole('button',{name:'播放',exact:true}).click();await expect.poll(()=>page.locator('audio').evaluate((a:HTMLAudioElement)=>a.currentTime)).toBeGreaterThan(.15);
+ await page.getByRole('button',{name:'暫停',exact:true}).click();const paused=await page.locator('audio').evaluate((a:HTMLAudioElement)=>a.currentTime);await page.waitForTimeout(350);expect(Math.abs(Number(await page.locator('.synced-scene').getAttribute('data-media-time'))-paused)).toBeLessThan(.1);
+ await page.locator('audio').evaluate((a:HTMLAudioElement)=>{a.currentTime=7;});await expect(page.locator('.synced-scene')).toHaveAttribute('data-scene-index','1');await expect(page.locator('.scene-flow')).toBeVisible();
+ await page.getByRole('button',{name:'播放速度',exact:true}).click();await page.getByRole('button',{name:'2×',exact:true}).click();await page.getByRole('button',{name:'播放',exact:true}).click();await page.waitForTimeout(450);
+ const actual=await page.locator('audio').evaluate((a:HTMLAudioElement)=>({time:a.currentTime,rate:a.playbackRate}));expect(actual.rate).toBe(2);expect(Math.abs(Number(await page.locator('.synced-scene').getAttribute('data-media-time'))-actual.time)).toBeLessThan(.25);
+ await page.locator('.scene-sources summary').click();await expect.poll(()=>page.locator('audio').evaluate((a:HTMLAudioElement)=>a.paused)).toBe(true);
+ await page.getByRole('button',{name:'播放速度',exact:true}).click();await page.getByRole('navigation',{name:'本集同步段落'}).getByRole('button').first().click();await expect(page.locator('.synced-scene')).toHaveAttribute('data-scene-index','0');
+ await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
