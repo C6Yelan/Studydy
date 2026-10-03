@@ -99,18 +99,18 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
             }
             or not isinstance(semantic["model_id"], str) or not semantic["model_id"].strip()
             or not isinstance(semantic["revision"], str) or not semantic["revision"].strip()
-            or semantic["api_protocol"] != "openai-chat-completions/v1"
+            or semantic["api_protocol"] not in {"openai-chat-completions/v1", "codex-exec-luna/v1"}
             or semantic["base_url"] != "http://127.0.0.1:18000"
-            or semantic["max_model_len"] != 32768
+            or semantic["max_model_len"] not in ((32768, 272000) if semantic["api_protocol"] == "codex-exec-luna/v1" else (32768,))
             or semantic["max_num_seqs"] != 1
-            or semantic["server"] != {
+            or semantic["server"] != ({"package":"codex-exec", "version":"luna-test/v1", "python":"3.12"} if semantic["api_protocol"] == "codex-exec-luna/v1" else {
                 "package": "vllm",
                 "version": "0.28.0",
                 "python": "3.12",
                 "torch": "2.13.0+cu130",
                 "cuda": "13.0",
                 "transformers": "5.15.1",
-            }
+            })
             or semantic["authentication"] != "environment-bearer:VLLM_API_KEY"
             or set(material) != {
                 "request_schema", "response_schema", "bundle_policy",

@@ -24,6 +24,10 @@ from document_normalization.converter import (
 from learning_adaptation import assessment_sets
 from .. import card_sets, podcasts
 from ..podcast_worker import PodcastWorker
+from ..voice_worker import VoiceWorker
+from ..research_worker import ResearchWorker
+from .research_routes import install as install_research
+from .voice_routes import install as install_voice
 from learning_adaptation.learner_progress import (
     apply_guidance, derive_learner_progress, progress_snapshot,
 )
@@ -228,6 +232,14 @@ def _normalized_origin(value: Any) -> str | None:
     normalized = f"{parsed.scheme.lower()}://{host}"
     return normalized + (f":{port}" if port is not None else "")
 
+
+_ERROR_STATUS.update({
+    "RESEARCH_URL_REJECTED": (422, False), "RESEARCH_LICENSE_UNCONFIRMED": (422, False),
+    "RESEARCH_SEARCH_FAILED": (502, True), "RESEARCH_DOWNLOAD_FAILED": (502, True),
+    "VOICE_TURN_IN_PROGRESS": (409, True), "VOICE_PROVIDER_UNAVAILABLE": (503, True),
+    "VOICE_PROVIDER_FAILED": (502, True), "VOICE_TRANSCRIPT_INVALID": (422, False),
+    "VOICE_ANSWER_INVALID": (422, True),
+})
 
 def _error_response(reason_code: str, *, status_code: int | None = None) -> JSONResponse:
     default_status, retryable = _ERROR_STATUS[reason_code]
@@ -471,12 +483,16 @@ def create_app(settings: ApiSettings) -> FastAPI:
             dsn=settings.dsn, local_config=settings.local_config
         )
         podcast_worker = None
+        voice_worker = VoiceWorker(settings.dsn).start()
+        research_worker = ResearchWorker(settings.dsn).start()
         try:
             podcast_worker = PodcastWorker(settings.dsn).start()
             yield
         finally:
             if podcast_worker is not None:
                 podcast_worker.stop()
+            research_worker.stop()
+            voice_worker.stop()
             workers.stop()
 
     app = FastAPI(
@@ -1235,6 +1251,8 @@ def create_app(settings: ApiSettings) -> FastAPI:
             headers={"Content-Length": str(source.size_bytes), "ETag": f'"sha256:{source.sha256}"'},
         )
 
+    install_research(app, settings, _trusted_learner, _idempotency_key, _require_query)
+    install_voice(app, settings, _trusted_learner, _idempotency_key, _require_query)
     _install_openapi(app)
     return app
 

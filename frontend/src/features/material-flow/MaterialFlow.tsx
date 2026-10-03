@@ -1,3 +1,4 @@
+import { MaterialTools } from "../material-tools/MaterialTools";
 import type { StudydyApiClient } from "../../api/client";
 import type { AppRoute } from "../../app/routes";
 import KnowledgeMap from "../knowledge-map/App";
@@ -18,7 +19,7 @@ import "../podcasts/styles.css";
 import "../concept-cards/styles.css";
 import "./styles.css";
 
-export function MaterialFlow({
+function MaterialFlowBody({
   apiClient,
   route,
   learnerId,
@@ -67,4 +68,9 @@ export function MaterialFlow({
       route={route}
     />
   );
+}
+
+export function MaterialFlow(props: {apiClient:StudydyApiClient;route:AppRoute;learnerId:string}) {
+ const materialId = "materialId" in props.route ? props.route.materialId : undefined;
+ return <>{materialId && <MaterialTools key={materialId} api={props.apiClient} materialId={materialId}/>}<MaterialFlowBody {...props}/></>;
 }

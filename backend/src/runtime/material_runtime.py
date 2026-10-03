@@ -148,9 +148,12 @@ def runtime_binding_is_valid(value: Any) -> bool:
             return False
         return (all(isinstance(value[k], str) and value[k].strip() for k in ("model_id", "model_revision"))
                 and service == {
-                    "base_url": "http://127.0.0.1:18000", "max_model_len": 32768,
-                    "server": {"package": "vllm", "version": "0.28.0", "python": "3.12",
-                               "torch": "2.13.0+cu130", "cuda": "13.0", "transformers": "5.15.1"},
+                    "base_url": "http://127.0.0.1:18000", "max_model_len": (
+                        service['max_model_len'] if value['model_id']=='gpt-5.6-luna'
+                        and value['model_revision']=='codex-exec:luna-test/v1'
+                        and service.get('max_model_len') in (32768,272000) else 32768),
+                    "server": ({"package":"codex-exec", "version":"luna-test/v1", "python":"3.12"} if value["model_revision"] == "codex-exec:luna-test/v1" and value["model_id"] == "gpt-5.6-luna" else {"package": "vllm", "version": "0.28.0", "python": "3.12",
+                               "torch": "2.13.0+cu130", "cuda": "13.0", "transformers": "5.15.1"}),
                 })
     except (KeyError, TypeError, ValueError):
         return False
@@ -176,9 +179,17 @@ def lock_matches_binding(lock, binding):
 def same_material_runtime(first_lock, first_binding, second_lock, second_binding):
     if not lock_matches_binding(first_lock, first_binding) or not lock_matches_binding(second_lock, second_binding):
         return False
-    fields = ('python', 'packages', 'ocr', 'semantic_service')
+    fields = ('python', 'packages', 'ocr')
     if any(key not in first_lock or key not in second_lock or first_lock[key] != second_lock[key] for key in fields):
         return False
+    first_service, second_service = first_lock['semantic_service'], second_lock['semantic_service']
+    if first_service != second_service:
+        # 本輪已保存的 Luna 工作曾沿用 32K 設定；擴大相同 provider 的容量可接續，舊 hash 保持原值。
+        if not (first_service.get('api_protocol') == second_service.get('api_protocol') == 'codex-exec-luna/v1'
+                and first_service['max_model_len'] <= second_service['max_model_len']
+                and {k:v for k,v in first_service.items() if k!='max_model_len'} ==
+                    {k:v for k,v in second_service.items() if k!='max_model_len'}):
+            return False
     # 額度調整不作廢已驗證的批次；各工作仍保留原始 lock 與 hash。
     for task in ('material_semantics', 'material_review'):
         first, second = first_lock.get(task), second_lock.get(task)

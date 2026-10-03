@@ -10,6 +10,8 @@ RUN uv python install 3.12.14 && chmod -R a+rX /opt/python
 WORKDIR /app
 COPY backend/pyproject.toml backend/uv.lock /app/backend/
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --project backend --locked --no-dev --python 3.12.14 \
+    && TIKTOKEN_CACHE_DIR=/opt/studydy/tokenizer-cache /app/backend/.venv/bin/python -c "import tiktoken; tiktoken.get_encoding('o200k_base')" \
+    && chmod -R a+rX /opt/studydy/tokenizer-cache \
     && chmod -R a+rX /app/backend/.venv
 ENV PYTHONPATH=/app/backend/src \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -28,6 +30,7 @@ RUN --mount=type=cache,target=/root/.cache/uv uv venv --python 3.12.14 /opt/stud
     && chmod -R a+rX /opt/studydy
 
 FROM dependencies AS backend
+ENV TIKTOKEN_CACHE_DIR=/opt/studydy/tokenizer-cache
 COPY backend/src /app/backend/src
 COPY backend/migrations /app/backend/migrations
 COPY local_ai/runtime-lock.json /app/local_ai/runtime-lock.json

@@ -81,6 +81,9 @@ def read_local_ai_config_from_environment(
     else:
         root = Path(root_value)
     runtime_lock = _runtime_lock()
+    if environment.get('STUDYDY_TEXT_TEST_PROVIDER') == 'codex-exec-luna':
+        from .luna_test import test_lock
+        runtime_lock = test_lock(runtime_lock)
     values: dict[str, Any] = {
         "private_runtime_root": str(root / "runtime"),
         "runtime_lock": runtime_lock,

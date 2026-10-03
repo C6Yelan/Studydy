@@ -149,3 +149,20 @@ def test_cancellation_before_repair_prevents_extra_request(tmp_path, monkeypatch
     with pytest.raises(RuntimeError, match="cancelled"):
         run(archive, monkeypatch, [invalid], cancel)
     assert len(archive.requests) == 1
+
+
+def test_relation_type_error_repairs_with_endpoint_bindings(tmp_path, monkeypatch):
+    invalid = proposal()
+    unit = prepare()
+    relation = unit.payload['relations'][0]
+    evidence = unit.payload['concepts'][relation['source']]['evidence']
+    other_type = 'part_of' if relation['type'] != 'part_of' else 'prerequisite'
+    invalid['relation_edits'] = [{'relation': 0, 'action': 'reverse',
+        'relation_type': other_type, 'evidence': evidence, 'reason': '合成錯誤：反轉時不可偷改型別'}]
+    archive = Archive(tmp_path, rejected=invalid)
+    (_, count), calls = run(archive, monkeypatch, [proposal()])
+    assert count == 1
+    correction = calls[0]['request']['review_correction']
+    assert correction['error'] == 'REVIEW_RELATION_EDIT_INVALID'
+    assert correction['relation_source_bindings'][0]['type'] == relation['type']
+    assert set(evidence) <= set(correction['relation_source_bindings'][0]['evidence'])

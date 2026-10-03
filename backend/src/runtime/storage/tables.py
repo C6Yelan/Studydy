@@ -13,6 +13,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from sqlalchemy.pool import NullPool
 
 from .database import resolve_database_dsn
+from .evidence_json import EvidenceJSONB
 
 
 class Base(DeclarativeBase):
@@ -135,7 +136,7 @@ class KnowledgeStructure(Base):
     material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
     structure_revision: Mapped[str] = mapped_column(Text, primary_key=True)
     run_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
-    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(EvidenceJSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -185,7 +186,7 @@ class Podcast(Base):
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     mode: Mapped[str] = mapped_column(Text, nullable=False)
-    episodes: Mapped[list[dict]] = mapped_column(JSONB, nullable=False)
+    episodes: Mapped[list[dict]] = mapped_column(EvidenceJSONB, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     error_code: Mapped[str | None] = mapped_column(Text)
     lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
@@ -240,9 +241,9 @@ class Assessment(Base):
     learning_angle: Mapped[str] = mapped_column(Text, nullable=False)
     target_concept_id: Mapped[str] = mapped_column(Text, nullable=False)
     target_claim_id: Mapped[str] = mapped_column(Text, nullable=False)
-    public_document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    private_answer_document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    generation_provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    public_document: Mapped[dict[str, Any]] = mapped_column(EvidenceJSONB, nullable=False)
+    private_answer_document: Mapped[dict[str, Any]] = mapped_column(EvidenceJSONB, nullable=False)
+    generation_provenance: Mapped[dict[str, Any]] = mapped_column(EvidenceJSONB, nullable=False)
     mastery_qualified: Mapped[bool] = mapped_column(Boolean, nullable=False)
     request_idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
@@ -288,7 +289,7 @@ class AssessmentSetItem(Base):
     state: Mapped[str] = mapped_column(Text, nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failure_reason: Mapped[str | None] = mapped_column(Text)
-    prepared_document: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    prepared_document: Mapped[dict | None] = mapped_column(EvidenceJSONB(none_as_null=True))
     assessment_revision: Mapped[str | None] = mapped_column(Text)
 
 
@@ -392,3 +393,55 @@ class MaterialSourceSetItem(Base):
     material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
     source_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
     normalization_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+
+
+class VoiceConversation(Base):
+    __tablename__ = "voice_conversations"
+    conversation_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    knowledge_structure_revision: Mapped[str | None] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary)
+
+
+class VoiceTurn(Base):
+    __tablename__ = "voice_turns"
+    turn_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    conversation_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    request_key: Mapped[str] = mapped_column(Text)
+    fingerprint: Mapped[str] = mapped_column(Text)
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[dict | None] = mapped_column(EvidenceJSONB)
+    status: Mapped[str] = mapped_column(Text)
+    recording: Mapped[bytes | None] = mapped_column(LargeBinary)
+    audio: Mapped[bytes | None] = mapped_column(LargeBinary)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class MaterialResearch(Base):
+    __tablename__ = 'material_research'
+    research_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True),primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    base_revision: Mapped[str] = mapped_column(Text)
+    query: Mapped[str] = mapped_column(Text)
+    mode: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    candidates: Mapped[list] = mapped_column(JSONB)
+    selection: Mapped[list] = mapped_column(JSONB)
+    search_query: Mapped[str | None] = mapped_column(Text)
+    cursor: Mapped[str | None] = mapped_column(Text)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    run_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    staged_content: Mapped[bytes | None] = mapped_column(LargeBinary)
+    staged_metadata: Mapped[dict | None] = mapped_column(JSONB)

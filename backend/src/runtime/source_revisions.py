@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from .source_normalization import SourceError, _material
@@ -17,6 +17,7 @@ from .storage.tables import (
     MaterialSource,
     MaterialSourceSet,
     MaterialSourceSetItem,
+    MaterialResearch,
     SourceNormalization,
     database_session,
 )
@@ -86,11 +87,20 @@ def retry_revision(owner, run_id, key, config, *, dsn=None):
             prefix = len(base_set.manifest["items"])
         additions = [UUID(item["normalization_id"]) for item in source_set.manifest["items"][prefix:]]
         material_id, base_revision = run.material_id, run.base_revision
-    return create_revision(owner, material_id, additions, key, config, base_revision=base_revision, dsn=dsn)
+    return create_revision(owner, material_id, additions, key, config, base_revision=base_revision, dsn=dsn, research_retry_of=run_id)
 
 
-def create_revision(owner, material_id, normalization_ids, key, config, *, base_revision=None, dsn=None):
+def create_revision(owner, material_id, normalization_ids, key, config, *, base_revision=None, dsn=None, research_id=None, research_retry_of=None):
     from .material_processing import _row
+
+    def link_retry(session, result):
+        if research_retry_of is not None:
+            # 與新 run 同一交易更新研究入口，避免重試成功後仍指向舊失敗頁。
+            session.execute(update(MaterialResearch).where(
+                MaterialResearch.learner_id == owner, MaterialResearch.material_id == material_id,
+                MaterialResearch.run_id == research_retry_of, MaterialResearch.status == 'submitted',
+            ).values(run_id=result.run_id))
+        return _row(result)
 
     # 空追加 + 明確現行版本代表只檢核已保存分析；來源集合維持完全相同。
     if (not normalization_ids and base_revision is None) or len(set(normalization_ids)) != len(normalization_ids):
@@ -110,7 +120,7 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
                 material_id, normalization_ids, existing.runtime_binding, base_revision,
             ):
                 raise SourceError("IDEMPOTENCY_CONFLICT")
-            return _row(existing)
+            return link_retry(session, existing)
         if material.head_revision != base_revision:
             raise SourceError("REVISION_CONFLICT")
         if session.scalar(select(MaterialProcessingRun.run_id).where(
@@ -139,7 +149,7 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
                 material_id, normalization_ids, existing.runtime_binding, base_revision,
             ):
                 raise SourceError("IDEMPOTENCY_CONFLICT")
-            return _row(existing)
+            return link_retry(session, existing)
         if material.head_revision != base_revision:
             raise SourceError("REVISION_CONFLICT")
         if session.scalar(select(MaterialProcessingRun.run_id).where(
@@ -147,6 +157,18 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
             MaterialProcessingRun.status.in_(("pending", "running")),
         )):
             raise SourceError("REVISION_IN_PROGRESS")
+        research = None
+        if research_id is not None:
+            research = session.scalar(select(MaterialResearch).where(
+                MaterialResearch.research_id == research_id,
+                MaterialResearch.learner_id == owner,
+                MaterialResearch.material_id == material_id,
+            ).with_for_update())
+            if research is None or research.status != 'ready' or research.base_revision != base_revision:
+                raise SourceError('SOURCE_NOT_READY')
+            selected = {c['id']: c for c in research.candidates}
+            if normalization_ids != [UUID(selected[i]['normalization_id']) for i in research.selection]:
+                raise SourceError('REQUEST_INVALID')
         items = old_items
         for identity in normalization_ids:
             job = session.scalar(select(SourceNormalization).where(
@@ -217,4 +239,7 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
         )
         session.add(row)
         session.flush()
-        return _row(row)
+        if research is not None:
+            research.run_id = row.run_id
+            research.status = 'submitted'
+        return link_retry(session, row)

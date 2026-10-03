@@ -44,6 +44,14 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   INVALID_CREDENTIALS: "Email 或密碼不正確。",
   ACCOUNT_UNAVAILABLE: "這個 Email 已被使用，請使用其他 Email。",
   REQUEST_INVALID: genericApiMessage,
+  VOICE_TURN_IN_PROGRESS: "請等目前提問完成，或先取消它。",
+  VOICE_PROVIDER_UNAVAILABLE: "語音服務暫時無法連線，已保存的對話仍可查看。",
+  VOICE_PROVIDER_FAILED: "這次問答處理失敗，請重試。",
+  VOICE_TRANSCRIPT_INVALID: "沒有辨識到清楚的語音，請再錄一次或改用文字。",
+  RESEARCH_SEARCH_FAILED: "搜尋暫時無法完成，請重試。",
+  RESEARCH_DOWNLOAD_FAILED: "來源目前無法下載，其他結果已保留。",
+  RESEARCH_LICENSE_UNCONFIRMED: "無法確認這份來源的使用授權。",
+  RESEARCH_URL_REJECTED: "這個來源網址無法安全取得。",
   SESSION_REQUIRED: "工作階段已失效，請重新登入。",
   ORIGIN_NOT_ALLOWED: genericApiMessage,
   RESOURCE_NOT_FOUND: "找不到這筆資料，或你沒有權限讀取。",
@@ -285,6 +293,19 @@ export class StudydyApiClient {
       controller.signal.removeEventListener("abort", onAbort);
       this.pending.delete(controller);
     }
+  }
+
+  async studyTools<T>(path: string, body?: unknown, key?: string, method?: string): Promise<T> {
+    const result = await this.request(path, {method: method ?? (body === undefined ? "GET" : "POST"),
+      headers: {"Content-Type":"application/json", ...(key ? {"Idempotency-Key":key} : {})},
+      ...(body === undefined ? {} : {body:JSON.stringify(body)})}, 30000);
+    if (!result.value || typeof result.value !== "object") throw schemaMismatch("無法讀取教材工具回應。");
+    return result.value as T;
+  }
+
+  async voiceRecording(id: string, data: Blob, key: string): Promise<void> {
+    await this.request(`/v1/voice-conversations/${id}/recordings`, {method:"POST",
+      headers:{"Content-Type":data.type,"Idempotency-Key":key},body:data},30000);
   }
 
   private async json<T>(

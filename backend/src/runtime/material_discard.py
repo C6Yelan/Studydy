@@ -14,6 +14,8 @@ from .storage.tables import (
     AssessmentSet,
     AssessmentSetItem,
     CardSet,
+    VoiceConversation,
+    MaterialResearch,
     Podcast,
     KnowledgeStructure,
     Material,
@@ -124,6 +126,8 @@ def purge_discarded_material(learner_id: UUID, material_id: UUID, *, dsn: str | 
                 StudySession.learner_id == learner_id,
                 StudySession.material_id == material_id,
             ))
+            session.execute(delete(MaterialResearch).where(MaterialResearch.material_id == material_id))
+            session.execute(delete(VoiceConversation).where(VoiceConversation.material_id == material_id))
             session.execute(delete(Podcast).where(
                 Podcast.learner_id == learner_id, Podcast.material_id == material_id,
             ))
