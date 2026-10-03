@@ -1,5 +1,6 @@
 import * as validate from "./response-validation.ts";
 import type {
+  PodcastSummary, PodcastView, PodcastCreate, PodcastAction, PodcastListView, PodcastDeletedView,
   ApiReasonCode,
   CardSetCreate,
   CardSetUpdate,
@@ -36,6 +37,8 @@ type FetchRequest = (input: RequestInfo | URL, init?: RequestInit) => Promise<Re
 
 const genericApiMessage = "請求無法完成，請稍後再試。";
 const apiErrorMessages: Record<KnownApiReasonCode, string> = {
+  PODCAST_CONFLICT: "Podcast 狀態已更新，請重新讀取後操作。",
+  PODCAST_SOURCE_INSUFFICIENT: "所選概念缺少可回查的重點來源，請重新選擇。",
   CARD_SET_CONFLICT: "卡組已在其他頁面更新，請重新讀取後再編輯。",
   INVALID_EMAIL: "請輸入有效的 Email 格式。",
   INVALID_CREDENTIALS: "Email 或密碼不正確。",
@@ -311,6 +314,32 @@ export class StudydyApiClient {
       },
       guard,
     );
+  }
+
+  listPodcasts(): Promise<PodcastListView> {
+    return this.json("/v1/podcasts", { method: "GET" }, validate.podcastList);
+  }
+
+  getPodcast(id: string): Promise<PodcastView> {
+    return this.json(`/v1/podcasts/${encodeURIComponent(id)}`, { method: "GET" },
+      (value): value is PodcastView => validate.podcast(value) && value.podcast_id === id);
+  }
+
+  createPodcast(materialId: string, body: PodcastCreate, key: string): Promise<PodcastSummary> {
+    return this.post(`/v1/materials/${encodeURIComponent(materialId)}/podcasts`, body, key,
+      (value): value is PodcastSummary => validate.podcastSummary(value) && value.material_id === materialId
+        && value.knowledge_structure_revision === body.knowledge_structure_revision);
+  }
+
+  podcastAction(id: string, body: PodcastAction): Promise<PodcastSummary> {
+    return this.json(`/v1/podcasts/${encodeURIComponent(id)}/actions`, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() }, body: JSON.stringify(body),
+    }, (value): value is PodcastSummary => validate.podcastSummary(value) && value.podcast_id === id);
+  }
+
+  deletePodcast(id: string): Promise<PodcastDeletedView> {
+    return this.json(`/v1/podcasts/${encodeURIComponent(id)}`, { method: "DELETE", headers: { Origin: origin() } },
+      (value): value is PodcastDeletedView => validate.podcastDeleted(value) && value.podcast_id === id);
   }
 
   listCardSets(): Promise<CardSetListView> {

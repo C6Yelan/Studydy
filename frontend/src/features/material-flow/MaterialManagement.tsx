@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import { materialDeleteCopy } from "./material-delete-copy";
+import { InlineNameEditor } from "./InlineNameEditor";
 import { useDismissibleMenu } from "./useDismissibleMenu";
 import { writeRoute } from "../../app/routes";
 import type { MaterialLibraryItem, MaterialDiscardView } from "../../api/contracts";
@@ -126,10 +127,10 @@ export function MaterialManagement({
           正在刪除…
         </p>
       ) : (
-        mode && (
+        mode === "rename" ? <InlineNameEditor label="教材名稱" name={name} busy={busy} error={error} inputRef={input} onChange={setName} onSave={() => void submit()} onCancel={close} /> : mode === "delete" && (
           <form
             className="material-management-form"
-            aria-label={mode === "rename" ? "重新命名教材" : "刪除教材確認"}
+            aria-label="刪除教材確認"
             onSubmit={(event) => {
               event.preventDefault();
               void submit();
@@ -141,27 +142,9 @@ export function MaterialManagement({
               }
             }}
           >
-            {mode === "rename" ? (
-              <>
-                <label>
-                  教材名稱
-                  <input
-                    ref={input}
-                    type="text"
-                    value={name}
-                    disabled={busy}
-                    onChange={(event) => setName(event.target.value)}
-                  />
-                </label>
-                {!valid && <p>名稱需為 1–200 個字，且不可包含控制字元。</p>}
-              </>
-            ) : (
-              <>
-                <h3>確定要刪除這份教材嗎？</h3>
-                {copy.notice && <p>{copy.notice}</p>}
-                <p>{copy.scope}</p>
-              </>
-            )}
+            <h3>確定要刪除這份教材嗎？</h3>
+            {copy.notice && <p>{copy.notice}</p>}
+            <p>{copy.scope}</p>
             <div className="material-management-actions">
               <button
                 ref={cancel}
@@ -175,18 +158,12 @@ export function MaterialManagement({
               <button
                 className={`secondary-button${mode === "delete" ? " cancel-confirm-button" : ""}`}
                 type="submit"
-                disabled={busy || (mode === "rename" && !valid)}
+                disabled={busy}
               >
-                {busy
-                  ? mode === "rename"
-                    ? "正在儲存…"
-                    : "正在刪除…"
-                  : mode === "rename"
-                    ? "儲存"
-                    : "確認刪除"}
+                {busy ? "正在刪除…" : "確認刪除"}
               </button>
             </div>
-            {busy && <p role="status">{mode === "rename" ? "正在儲存…" : "正在送出刪除要求…"}</p>}
+            {busy && <p role="status">正在送出刪除要求…</p>}
             {error && (
               <p className="form-error" role="alert">
                 {error}

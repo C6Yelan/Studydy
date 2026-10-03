@@ -1,0 +1,20 @@
+[Unit]
+Description=Studydy local Podcast provider
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jerry/project/Studydy/main
+EnvironmentFile=/home/jerry/project/Studydy/main/data/podcast/provider.env
+ExecStart=/home/jerry/project/Studydy/main/data/podcast/runtime/bin/python /home/jerry/project/Studydy/main/ops/podcast/provider.py
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=10
+UMask=0077
+# 原生語音套件的診斷可能包含輸入 token；失敗由 HTTP 固定原因碼回報。
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=default.target

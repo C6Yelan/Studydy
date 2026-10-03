@@ -656,3 +656,39 @@ def test_staged_source_removal_is_owned_and_keeps_published_sources(revisions):
         with open_verified_artifact(learner.learner_id,staged['original_artifact_id'],dsn=dsn):pass
     assert len(read_sources(learner.learner_id,material,dsn=dsn))==1
     assert read_knowledge_structure(learner.learner_id,material,revision=old['revision'],dsn=dsn).document==old
+
+
+def test_card_set_multisource_references_remain_exact_after_new_head(revisions):
+    """圖卡經正式發布的合成雙來源，分別回查檔案、原始頁與 Evidence 區塊。"""
+    from runtime.card_sets import create_card_set, read_card_set
+    from product_fixtures import product_snapshot
+
+    learner, material, _, dsn, add, start, execute, _, original, _ = revisions
+    second = add("B.pdf", "A queue removes the first inserted element first.")
+    start([second], "cards-two-sources", original["revision"])
+    result = execute()
+    assert result.status == "succeeded", result.error_code
+    structure = read_knowledge_structure(learner.learner_id, material, run_id=result.run_id, dsn=dsn)
+    saved = create_card_set(learner.learner_id, material, structure.document["revision"],
+                            "雙來源卡組", [c["concept_id"] for c in structure.view["concepts"]],
+                            "cards-multisource", dsn=dsn)
+    third = add("C.pdf", "A tree contains parent nodes and child nodes.")
+    start([third], "cards-new-head", structure.document["revision"])
+    assert execute().status == "succeeded"
+    before = product_snapshot(dsn)
+    deck = read_card_set(learner.learner_id, saved["card_set_id"], dsn=dsn)
+    assert not deck["is_current_revision"]
+    assert deck["cards"] == [{k: concept[k] for k in ("concept_id", "label", "claims")} for concept in structure.view["concepts"]]
+    locations = {}
+    for card in deck["cards"]:
+        for claim in card["claims"]:
+            for evidence in claim["evidence"]:
+                location = resolve_evidence_source(learner.learner_id, material,
+                                                  deck["knowledge_structure_revision"], evidence["evidence_id"], dsn=dsn)
+                assert location["normalized_page"] == evidence["normalized_page"] == 1
+                assert location["original_name"] == evidence["source_name"]
+                assert evidence["source_locator"]["block_id"]
+                locations[location["original_name"]] = location["preview_url"]
+    assert set(locations) == {"A.pdf", "B.pdf"}
+    assert locations["A.pdf"] != locations["B.pdf"]
+    assert product_snapshot(dsn) == before

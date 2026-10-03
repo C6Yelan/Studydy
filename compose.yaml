@@ -59,6 +59,8 @@ services:
       STUDYDY_SECURE_COOKIE: ${STUDYDY_SECURE_COOKIE:-false}
       STUDYDY_SEMANTIC_BASE_URL: ${STUDYDY_SEMANTIC_BASE_URL:-http://host.docker.internal:18000}
       VLLM_API_KEY: ${VLLM_API_KEY:-}
+      STUDYDY_PODCAST_PROVIDER_URL: ${STUDYDY_PODCAST_PROVIDER_URL:-}
+      STUDYDY_PODCAST_PROVIDER_TOKEN: ${STUDYDY_PODCAST_PROVIDER_TOKEN:-}
     volumes:
       - ${STUDYDY_DATA_DIR:-./data}/artifacts:/data/artifacts
       - ${STUDYDY_DATA_DIR:-./data}/models/unlimited-ocr:/opt/studydy/models/unlimited-ocr:ro

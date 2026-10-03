@@ -25,6 +25,10 @@
 - 已核准公開 Internet 部署；Access 為 optional。沿用目前 Cloudflare 設定，不需為 rebuild
   重新建立 Tunnel、DNS 或憑證。私有 API 保留 `private, no-store`，不強制公共快取。
 
+## Podcast 試聽結束後的正式套用
+
+已移除公開比較頁與試聽 WAV、Compose 靜態掛載。`/podcast-voice-comparison` 及其子路徑回 404，避免舊網址回到 SPA。正式 provider 採用 B 聲線及 v11 對談；舊 Podcast 音訊保留，新建內容套用新版。回復資訊保存在 `data/deployments/podcast-b-v11-*/`，私有 provider 設定備份不輸出或提交。
+
 ## 核准 source 與直接建置
 
 一般 Git 整合仍為 `feature/* → dev → main`。學生專題需要外網、手機或語音實測時，
@@ -118,3 +122,11 @@ docker inspect --format '{{.Name}} {{.Image}}' studydy-frontend-1 studydy-backen
 `ops/tests/nginx_boundary.py` 使用指定測試 images、隔離 echo upstream 與 loopback 4183。
 Backend runtime tests 使用 disposable DB；不以產品資料跑測試，不因部署檢查呼叫 Pod／Gemma。
 純文件整理只檢查命令／路徑與 Compose metadata，不需重建線上 images。
+
+## Podcast migration 0008 的回復界線
+
+本次正式切換已保存資料庫 dump、artifact 備份與原映像身分；紀錄位於 `data/deployments/podcast-*/source-manifest.json`，皆留本機私人目錄。來源為已批准的未提交工作目錄，映像以 `working-tree:<snapshot hash>` 明示，不冒充乾淨 Git SHA。
+
+0008 已套用後，只有 0001–0007 的舊 backend 會拒絕 migration 帳本，因此不能只換回舊 backend tag。需保持可識別 0008 的後端並作前向修復，或準備經隔離驗證的相容回復版本。還原到部署前 DB 會失去部署後新增資料，不能自動覆蓋現有 DB；必須先另行核定資料保留與切換方案。舊 frontend 可與目前後端的既有 API 配合回復介面。
+
+0009 將已保存的 Podcast 講稿統一為發言輪次，不保留舊格式相容路徑。套用後必須使用識別 0009 的後端；不能直接退回只包含 0008 的映像。升級前備份，升級後核對原文字／來源與音訊 hash，失敗時保留匹配 schema 的映像作前向修復，不自動覆蓋產品 DB。

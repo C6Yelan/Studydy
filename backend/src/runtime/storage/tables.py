@@ -163,6 +163,35 @@ class CardSet(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class Podcast(Base):
+    __tablename__ = "podcasts"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "material_id", "idempotency_key_sha256"),
+        ForeignKeyConstraint(["learner_id", "material_id"], ["materials.learner_id", "materials.material_id"]),
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "knowledge_structure_revision"],
+            ["knowledge_structures.learner_id", "knowledge_structures.material_id", "knowledge_structures.structure_revision"],
+        ),
+    )
+
+    podcast_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    knowledge_structure_revision: Mapped[str | None] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    concept_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    version: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("1"))
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    mode: Mapped[str] = mapped_column(Text, nullable=False)
+    episodes: Mapped[list[dict]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class StudySession(Base):
     __tablename__ = "study_sessions"
     __table_args__ = (

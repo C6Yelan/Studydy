@@ -11,10 +11,11 @@ export function AppShell({
   route: AppRoute;
   accountAction?: React.ReactNode;
 }) {
-  const isLearningWorkspace = route.name === "knowledge-map" || route.name === "study-session";
-  const isMaterialRoute = ["materials", "material-run", "material-sources", "upload"].includes(
-    route.name,
-  );
+  const isLearningWorkspace = ["knowledge-map", "study-session", "material-content", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(route.name);
+  const isMaterialRoute = ["materials", "material-run", "material-sources", "material-content", "upload"].includes(route.name)
+    || ("materialId" in route && !!route.materialId);
+  const isCardsRoute = !isMaterialRoute && ["concept-cards", "card-set", "card-set-edit", "card-set-new"].includes(route.name);
+  const isPodcastRoute = !isMaterialRoute && ["podcasts", "podcast", "podcast-new"].includes(route.name);
   return (
     <div className={`app-shell ${isLearningWorkspace ? "is-workspace" : "is-standard"}`}>
       <header className="app-header">
@@ -49,10 +50,6 @@ export function AppShell({
               <Icon name="book" size={18} />
               我的教材
             </button>
-            <button type="button" onClick={() => writeRoute({ name: "concept-cards" })}>
-              <Icon name="cards" size={18} />
-              概念卡
-            </button>
           </nav>
         )}
         <div className="account-controls">{accountAction}</div>
@@ -77,13 +74,11 @@ export function AppShell({
               <Icon name="book" />
               我的教材
             </button>
-            <button
-              aria-current={["concept-cards", "card-set", "card-set-create", "card-set-edit"].includes(route.name) ? "page" : undefined}
-              type="button"
-              onClick={() => writeRoute({ name: "concept-cards" })}
-            >
-              <Icon name="cards" />
-              概念卡
+            <button type="button" aria-current={isCardsRoute ? "page" : undefined} onClick={() => writeRoute({ name: "concept-cards" })}>
+              <Icon name="cards" />概念卡
+            </button>
+            <button type="button" aria-current={isPodcastRoute ? "page" : undefined} onClick={() => writeRoute({ name: "podcasts" })}>
+              <Icon name="headphones" />Podcast
             </button>
           </nav>
         </aside>

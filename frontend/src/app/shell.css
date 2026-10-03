@@ -8,6 +8,8 @@
   background: var(--page-cool);
 }
 .app-header {
+  position: sticky;
+  top: 0;
   grid-column: 1 / -1;
   grid-row: 1;
   height: var(--shell-header-height);
@@ -61,7 +63,7 @@
   grid-column: 1;
   grid-row: 2;
   position: sticky;
-  top: 0;
+  top: var(--shell-header-height);
   height: calc(100vh - var(--shell-header-height));
   padding: 24px 16px;
   display: flex;

@@ -575,38 +575,22 @@
 }
 .library-grid {
   display: grid;
-  grid-auto-rows: 1fr;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 20px;
-}
-@container (min-width: 640px) {
-  .library-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@container (min-width: 960px) {
-  .library-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-@container (min-width: 1320px) {
-  .library-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 14px;
 }
 .library-item {
   position: relative;
-  min-height: 280px;
-  padding: 22px;
+  min-height: 200px;
+  padding: 16px;
   overflow-wrap: anywhere;
   box-shadow: none;
 }
 /* 標題保留兩行；僅截斷標題，完整名稱可由 tooltip 與重新命名取得。 */
 .library-item h2 {
-  margin: 16px 0 10px;
-  font-size: 17px;
-  line-height: 1.5;
-  min-height: 3em;
+  margin: 10px 0 6px;
+  font-size: 15px;
+  line-height: 1.4;
+  min-height: 2.8em;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -619,8 +603,8 @@
 .library-file-icon {
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
+  width: 32px;
+  height: 32px;
   border-radius: 10px;
   color: var(--studydy-blue);
   background: var(--studydy-blue-soft);
@@ -628,7 +612,7 @@
 .library-item .state-actions {
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 18px;
+  margin-top: 12px;
 }
 .library-item .state-actions > button {
   font-size: 13px;
@@ -699,9 +683,13 @@
   flex-direction: column;
   min-width: 0;
 }
-.is-collection .library-item > p {
-  margin-top: 0;
-}
+.is-collection .library-item > p { margin: 0 0 6px; font-size: 12px; line-height: 1.45; }
+.library-file-icon svg { width: 20px; height: 20px; }
+.library-item .cards-library-material, .library-item .podcast-material-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.is-collection .library-search { margin-bottom: 16px; max-width: 420px; }
+.library-header-compact { margin-bottom: 16px; gap: 12px; }
+.library-header-compact p { font-size: 13px; }
+.library-header-compact > button { min-height: 40px; font-size: 14px; }
 .is-collection .library-state {
   align-self: flex-start;
   max-width: 100%;
@@ -709,7 +697,7 @@
 .is-collection .library-item > .state-actions {
   justify-content: flex-start;
   margin-top: auto;
-  padding-top: 18px;
+  padding-top: 12px;
 }
 
 /* 取消處理、刪除與失敗接續。 */
@@ -1344,4 +1332,27 @@
     width: 165px;
     height: 160px;
   }
+}
+
+.material-content-nav { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px; margin: 0 0 20px; }
+.material-content-nav button { min-height: 40px; padding: 8px 12px; font-size: 14px; }
+.material-content { width: 100%; min-height: calc(100dvh - 56px); padding: var(--space-4) var(--space-6); }
+.material-content-body { width: 100%; min-width: 0; }
+.material-content-body > .cards-page { max-width: none; }
+.material-content-body > .material-library { width: 100%; min-width: 0; }
+.material-content-body .cards-page h1 { font-size: 24px; }
+@media (max-width: 780px) { .material-content { padding: 12px; } }
+
+/* 內容總覽與地圖共用「頁籤 → 搜尋 → 資訊／建立」工具列順序。 */
+.collection-toolbar { flex-wrap: nowrap; gap: 16px; margin-bottom: 18px; }
+.collection-toolbar .material-content-nav { flex: 0 0 auto; flex-wrap: nowrap; margin: 0; }
+.is-collection .collection-toolbar .library-search { flex: 1; width: auto; min-width: 160px; max-width: 520px; margin: 0 auto 0 0; }
+.collection-toolbar .library-search input { height: 40px; min-height: 40px; padding: 8px 12px; }
+.collection-summary { flex: 0 0 auto; color: var(--text-secondary); font-size: 12px; }
+.collection-summary p { margin: 0; white-space: nowrap; }
+.collection-toolbar > button { flex: 0 0 auto; }
+@media (max-width: 900px) {
+  .collection-toolbar { flex-wrap: wrap; gap: 12px; }
+  .is-collection .collection-toolbar .library-search { order: 3; flex-basis: 100%; max-width: none; }
+  .collection-toolbar > button { margin-left: auto; }
 }

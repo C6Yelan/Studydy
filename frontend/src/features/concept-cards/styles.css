@@ -137,3 +137,8 @@
 .cards-recommendation-hint { margin-bottom: 0; }
 .cards-concept-row .cards-selection-reason { color: var(--studydy-blue); }
 @media (max-width: 420px) { .cards-recommendations { padding: 12px; } .cards-recommendation-controls { grid-template-columns: minmax(0, 1fr) 78px; gap: 8px; } }
+.creation-page > .cards-page { padding: 0; max-width: none; margin: 0; }
+.creation-page > .cards-page-header p { color: var(--text-secondary); }
+.creation-material { display: grid; gap: 8px; margin: 22px 0 28px; font-weight: 600; }
+.creation-material select { width: 100%; padding: 13px 16px; border: 1px solid var(--border); border-radius: 10px; background: white; color: var(--text-primary); font: inherit; font-weight: 400; }
+.creation-placeholder { display: grid; justify-items: center; gap: 15px; padding: 64px 24px; border: 1px dashed var(--border); border-radius: 16px; color: var(--text-muted); }

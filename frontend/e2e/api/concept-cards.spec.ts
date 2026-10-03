@@ -16,7 +16,8 @@ test("real API persists selected cards across fresh login and resolves original 
   await login(page);
   await page.getByRole("button", { name: "概念卡", exact: true }).click();
   await page.getByRole("button", { name: "建立卡組", exact: true }).click();
-  await page.getByRole("button", { name: "Synthetic.pdf", exact: true }).click();
+  await expect(page).toHaveURL(/\/concept-cards\/new$/);
+  await page.getByLabel("選擇教材", { exact: true }).selectOption({ label: "Synthetic.pdf" });
   await page.getByLabel("卡組名稱", { exact: true }).fill("隔離測試卡組");
   await page.getByRole("button", { name: "保存並開始複習" }).click();
   await expect(page).toHaveURL(/\/concept-cards\/[0-9a-f-]+$/);
@@ -43,7 +44,9 @@ test("real API persists selected cards across fresh login and resolves original 
   await reopened.getByRole("button", { name: "開始複習", exact: true }).click();
   await expect(reopened).toHaveURL(new RegExp(`${savedPath}$`));
   await expect(reopened.locator(".flashcard-title")).toHaveText("Stack");
-  await reopened.getByRole("button", { name: "管理卡組", exact: true }).click();
+  await reopened.getByRole("button", { name: "返回卡組", exact: true }).click();
+  await reopened.getByRole("button", { name: "管理卡組「隔離測試卡組」" }).click();
+  await reopened.locator(".material-management-menu[open]").getByRole("button", { name: "管理卡組", exact: true }).click();
   await reopened.getByLabel("卡組名稱", { exact: true }).fill("隔離測試卡組已編輯");
   await reopened.getByRole("button", { name: "保存變更", exact: true }).click();
   await expect(reopened).toHaveURL(new RegExp(`${savedPath}$`));

@@ -131,6 +131,8 @@ def test_api_auth_provenance_validation_and_owner_isolation(closed_loop, monkeyp
     client.cookies.set("studydy_session", stranger.raw_token)
     assert client.get("/v1/card-sets").json()["card_sets"] == []
     assert client.get(detail).status_code == 404
+    assert client.get(view.json()["source_resolver"] + f"/{evidence['evidence_id']}/source").status_code == 404
+    assert client.get(resolved.json()["preview_url"].split("#")[0]).status_code == 404
     assert client.post(detail + "/update", headers={"Origin": origin}, json=edit).status_code == 404
     assert client.delete(detail, headers={"Origin": origin}).status_code == 404
     assert client.post(url, headers=headers, json=body).status_code == 404

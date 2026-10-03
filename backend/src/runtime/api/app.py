@@ -22,7 +22,8 @@ from document_normalization.converter import (
     MAX_FILE_BYTES, MIME, NormalizationError, normalizer_available,
 )
 from learning_adaptation import assessment_sets
-from .. import card_sets
+from .. import card_sets, podcasts
+from ..podcast_worker import PodcastWorker
 from learning_adaptation.learner_progress import (
     apply_guidance, derive_learner_progress, progress_snapshot,
 )
@@ -50,6 +51,7 @@ from ..storage.source_artifacts import open_verified_artifact
 from ..storage.tables import Artifact, Material, MaterialSource, database_session
 from ..workers import start_runtime_workers
 from .models import (
+    PodcastCreate, PodcastAction, PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView,
     AccountCredentials, ApiErrorView, AssessmentPlanView, AssessmentSetAction,
     AssessmentSetCreate, AssessmentSetListView, AssessmentSetSubmission,
     AssessmentSetView, EvidenceSourceView, GuidanceApply, KnowledgeStructureView,
@@ -67,6 +69,8 @@ from .models import (
 _COOKIE_NAME = "studydy_session"
 _ERROR_MESSAGE = "Request could not be completed."
 _ERROR_STATUS = {
+    "PODCAST_CONFLICT": (409, False),
+    "PODCAST_SOURCE_INSUFFICIENT": (422, False),
     "CARD_SET_CONFLICT": (409, False),
     'LEARNER_GUIDANCE_STALE': (409, True),
     'ASSESSMENT_SET_CONFLICT': (409, False),
@@ -248,7 +252,7 @@ def _fixed_exception(error: Exception) -> str:
     if isinstance(error, assessment_sets.AssessmentSetError):
         return _ASSESSMENT_SET_ERRORS.get(reason, "INTERNAL_ERROR")
     if (
-        isinstance(error, (SourceError, NormalizationError, MaterialProcessingError, SessionError, card_sets.CardSetError))
+        isinstance(error, (SourceError, NormalizationError, MaterialProcessingError, SessionError, card_sets.CardSetError, podcasts.PodcastError))
         and reason in _ERROR_STATUS
     ):
         return reason
@@ -322,6 +326,7 @@ def _install_openapi(app: FastAPI) -> None:
     """補上來源上傳、原檔下載、PDF 預覽與 cookie/header 的固定契約。"""
 
     idempotent_paths = {
+        "/v1/materials/{material_id}/podcasts",
         "/v1/materials/{material_id}/card-sets",
         "/v1/materials", "/v1/materials/{material_id}/sources", "/v1/materials/{material_id}/revisions",
         "/v1/material-processing-runs/{run_id}/retry",
@@ -389,6 +394,17 @@ def _install_openapi(app: FastAPI) -> None:
                             for media in MIME.values()
                         },
                     }
+                if path == "/v1/podcasts/{podcast_id}/episodes/{episode_index}/audio" and method == "get":
+                    operation.setdefault("parameters", []).append({
+                        "name": "Range", "in": "header", "required": False,
+                        "schema": {"type": "string"}, "description": "Single byte range, including suffix ranges",
+                    })
+                    for code in ("200", "206"):
+                        operation["responses"][code] = {
+                            "description": "Owner-authorized verified Podcast audio",
+                            "content": {"audio/wav": {"schema": {"type": "string", "format": "binary"}}},
+                        }
+                    operation["responses"]["416"] = {"description": "Invalid or unsatisfiable byte range"}
                 if path == "/v1/artifacts/{artifact_id}" and method == "get":
                     operation["responses"]["200"] = {
                         "description": "Verified normalized PDF preview",
@@ -419,7 +435,7 @@ def _install_openapi(app: FastAPI) -> None:
                     response_codes.add(409)
                 if path == "/v1/session/login":
                     response_codes.add(401)
-                if path.endswith("/resume") or path == "/v1/card-sets/{card_set_id}/update":
+                if path.endswith("/resume") or path in {"/v1/card-sets/{card_set_id}/update", "/v1/podcasts/{podcast_id}/actions"}:
                     response_codes.add(409)
                 if path == "/v1/materials/{material_id}" and method == "delete":
                     response_codes.add(409)
@@ -454,9 +470,13 @@ def create_app(settings: ApiSettings) -> FastAPI:
         workers = start_runtime_workers(
             dsn=settings.dsn, local_config=settings.local_config
         )
+        podcast_worker = None
         try:
+            podcast_worker = PodcastWorker(settings.dsn).start()
             yield
         finally:
+            if podcast_worker is not None:
+                podcast_worker.stop()
             workers.stop()
 
     app = FastAPI(
@@ -829,6 +849,88 @@ def create_app(settings: ApiSettings) -> FastAPI:
         return project_material_run(read_material_processing_run(
             learner.learner_id, run_id, dsn=settings.dsn,
         ))
+
+    @app.post("/v1/materials/{material_id}/podcasts", status_code=201, response_model=PodcastSummary, tags=["podcasts"])
+    def create_podcast_route(request: Request, material_id: UUID, body: PodcastCreate):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        return podcasts.create_podcast(owner, material_id, body.knowledge_structure_revision,
+            body.name, body.concept_ids, body.mode, _idempotency_key(request), delivery=body.delivery, dsn=settings.dsn)
+
+    @app.get("/v1/podcasts", response_model=PodcastListView, tags=["podcasts"])
+    def list_podcasts_route(request: Request):
+        _require_query(request, set())
+        return podcasts.list_podcasts(_trusted_learner(request, settings).learner_id, dsn=settings.dsn)
+
+    @app.get("/v1/podcasts/{podcast_id}", response_model=PodcastView, tags=["podcasts"])
+    def read_podcast_route(request: Request, podcast_id: UUID):
+        _require_query(request, set())
+        return podcasts.read_podcast(_trusted_learner(request, settings).learner_id, podcast_id, dsn=settings.dsn)
+
+    @app.post("/v1/podcasts/{podcast_id}/actions", response_model=PodcastSummary, tags=["podcasts"])
+    def podcast_action_route(request: Request, podcast_id: UUID, body: PodcastAction):
+        _require_query(request, set())
+        return podcasts.change_podcast(_trusted_learner(request, settings).learner_id,
+            podcast_id, body.action, body.expected_version, body.name, dsn=settings.dsn)
+
+    @app.delete("/v1/podcasts/{podcast_id}", response_model=PodcastDeletedView, tags=["podcasts"])
+    async def delete_podcast_route(request: Request, podcast_id: UUID):
+        _require_query(request, set())
+        if await request.body():
+            raise _ApiFailure("REQUEST_INVALID")
+        owner = (await run_in_threadpool(_trusted_learner, request, settings)).learner_id
+        return await run_in_threadpool(podcasts.delete_podcast, owner, podcast_id, dsn=settings.dsn)
+
+    @app.get("/v1/podcasts/{podcast_id}/episodes/{episode_index}/audio", tags=["podcasts"])
+    def podcast_audio_route(request: Request, podcast_id: UUID, episode_index: int):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        view = podcasts.read_podcast(owner, podcast_id, dsn=settings.dsn)
+        if view["status"] != "ready" or not 0 <= episode_index < len(view["episodes"]):
+            raise _ApiFailure("RESOURCE_NOT_FOUND")
+        artifact_id = UUID(view["episodes"][episode_index]["audio"]["artifact_id"])
+        context = open_verified_artifact(owner, artifact_id, dsn=settings.dsn)
+        source = context.__enter__()
+        size = source.size_bytes
+        headers = {"Accept-Ranges": "bytes", "Cache-Control": "no-store"}
+        start, end, status = 0, size - 1, 200
+        requested = request.headers.get("range")
+        if requested:
+            import re
+            match = re.fullmatch(r"bytes=(\d*)-(\d*)", requested)
+            try:
+                if not match or not any(match.groups()):
+                    raise ValueError()
+                left, right = match.groups()
+                if not left:
+                    length = int(right)
+                    if length <= 0:
+                        raise ValueError()
+                    start = max(0, size - length)
+                else:
+                    start = int(left)
+                    end = min(size - 1, int(right)) if right else size - 1
+                if start >= size or start > end:
+                    raise ValueError()
+                status = 206
+                headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+            except ValueError:
+                context.__exit__(None, None, None)
+                return Response(status_code=416, headers={**headers, "Content-Range": f"bytes */{size}"})
+        headers["Content-Length"] = str(end - start + 1)
+        def chunks():
+            try:
+                source.file.seek(start)
+                remaining = end - start + 1
+                while remaining:
+                    chunk = source.file.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+            finally:
+                context.__exit__(None, None, None)
+        return StreamingResponse(chunks(), status_code=status, media_type="audio/wav", headers=headers)
 
     @app.post(
         "/v1/materials/{material_id}/card-sets", status_code=201,

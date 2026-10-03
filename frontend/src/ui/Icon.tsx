@@ -1,4 +1,5 @@
 export type IconName =
+  | "headphones"
   | "user"
   | "eye"
   | "eye-off"
@@ -20,6 +21,7 @@ export type IconName =
   | "warning";
 
 const paths: Record<IconName, React.ReactNode> = {
+  headphones: <><path d="M4 14v-3a8 8 0 0 1 16 0v3" /><rect x="3" y="12" width="4" height="9" rx="2" /><rect x="17" y="12" width="4" height="9" rx="2" /></>,
   cards: (
     <>
       <rect x="6" y="7" width="15" height="14" rx="2" />

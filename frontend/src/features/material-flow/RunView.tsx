@@ -4,6 +4,7 @@ import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/c
 import type { MaterialProcessingRunView, MaterialLibraryItem } from "../../api/contracts";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
+import { ProcessingTimeline } from "./ProcessingTimeline";
 import { StateView } from "../../ui/StateView";
 import { MaterialRunStartControl } from "./MaterialRunStartControl";
 import { MaterialRemoveControl } from "./MaterialRemoveControl";
@@ -306,7 +307,7 @@ export function RunView({
             )}
             {cancelNotice && <p role="status">{cancelNotice}</p>}
           </section>
-          <ProcessingTimeline run={run} />
+          <ProcessingTimeline stages={materialProgressStages.slice(0, -1).map(stage => ({ label: materialProgressStageLabel(stage), icon: stage === "semantics" ? "map" : "process" }))} currentIndex={materialProgressStages.indexOf(run.progress_stage)} />
         </div>
       </section>
     );
@@ -594,51 +595,6 @@ function ProcessingProgress({ run, now }: { run: MaterialProcessingRunView; now:
   );
 }
 
-function ProcessingTimeline({ run }: { run: MaterialProcessingRunView }) {
-  const currentStageIndex = materialProgressStages.indexOf(run.progress_stage);
-  return (
-    <section className="surface processing-card processing-timeline">
-      <header className="processing-timeline-heading">
-        <h2>處理流程</h2>
-        <img src="/assets/studydy/processing-laptop.png" alt="" />
-      </header>
-      <ol className="status-timeline">
-        {materialProgressStages.slice(0, -1).map((stage, index) => (
-          <li
-            aria-current={index === currentStageIndex ? "step" : undefined}
-            className={
-              index < currentStageIndex
-                ? "is-complete"
-                : index === currentStageIndex
-                  ? "is-active"
-                  : undefined
-            }
-            key={stage}
-          >
-            <span>
-              <Icon
-                name={
-                  index < currentStageIndex ? "check" : stage === "semantics" ? "map" : "process"
-                }
-              />
-            </span>
-            <div>
-              <strong>{materialProgressStageLabel(stage)}</strong>
-              <p>
-                {index < currentStageIndex
-                  ? "已完成"
-                  : index === currentStageIndex
-                    ? "進行中"
-                    : "尚未開始"}
-              </p>
-            </div>
-          </li>
-        ))}
-      </ol>
-    </section>
-  );
-}
-
 function RevisionRun({
   apiClient,
   run,
@@ -780,7 +736,7 @@ function RevisionRun({
               )}
             </div>
           </section>
-          <ProcessingTimeline run={run} />
+          <ProcessingTimeline stages={materialProgressStages.slice(0, -1).map(stage => ({ label: materialProgressStageLabel(stage), icon: stage === "semantics" ? "map" : "process" }))} currentIndex={materialProgressStages.indexOf(run.progress_stage)} />
         </div>
         <div className="state-actions">{libraryActions}</div>
       </section>

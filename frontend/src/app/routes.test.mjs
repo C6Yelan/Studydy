@@ -41,3 +41,23 @@ test("unknown paths, malformed IDs and extra segments are not canonical routes",
     assert.deepEqual(readRoute(path), { route: { name: "home" }, isCanonical: false });
   }
 });
+
+
+test("creation starts on its own page before a material is selected", () => {
+  for (const [name, path] of [["podcast-new", "/podcasts/new"], ["card-set-new", "/concept-cards/new"]]) {
+    assert.equal(routePath({ name }), path);
+    assert.deepEqual(readRoute(path), { route: { name }, isCanonical: true });
+  }
+});
+
+test("material collections and saved content preserve their scoped URLs", () => {
+  for (const route of [
+    { name: "material-content", materialId, kind: "podcasts" },
+    { name: "material-content", materialId, kind: "concept-cards" },
+    { name: "podcast", materialId, podcastId: studySessionId },
+    { name: "card-set", materialId, cardSetId: studySessionId },
+    { name: "card-set-edit", materialId, cardSetId: studySessionId },
+  ]) {
+    assert.deepEqual(readRoute(routePath(route)), { route, isCanonical: true });
+  }
+});

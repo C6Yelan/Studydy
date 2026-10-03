@@ -64,13 +64,21 @@ async function mockCards(page: Page, { saved = false, long = false, withProgress
     if (!exists) return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "RESOURCE_NOT_FOUND", retryable: false, message: "Request could not be completed." }, 404);
     return json(route, { ...summary(), schema: "card-set/v1", source_resolver: decodeURIComponent(view.source_resolver), status: view.status, excluded_pages: [], cards: selection.map((id) => view.concepts.find((item) => item.concept_id === id)!).map(({ concept_id, label, claims }) => ({ concept_id, label, claims })) });
   });
-  return { requests, forbiddenMutations };
+  return { requests, forbiddenMutations, view };
+}
+
+async function openSavedCardManagement(page: Page) {
+  await expect(page.getByRole("button", { name: "管理卡組", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "返回卡組", exact: true }).click();
+  await page.locator(".library-item .material-management-menu summary").click();
+  await page.locator(".material-management-menu[open]").getByRole("button", { name: "管理卡組", exact: true }).click();
 }
 
 test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete work", async ({ page }) => {
   const fixture = await mockCards(page);
   await page.goto(mapPath);
-  await page.getByRole("button", { name: "建立概念卡", exact: true }).click();
+  await page.getByRole("navigation", { name: "教材學習內容" }).getByRole("button", { name: "概念卡", exact: true }).click();
+  await page.locator(".library-header").getByRole("button", { name: "建立卡組", exact: true }).click();
   await expect(page.getByRole("heading", { name: "建立概念卡組" })).toBeVisible();
   await page.getByLabel("卡組名稱", { exact: true }).fill("我的資料結構卡組");
   await page.getByRole("button", { name: "取消全選", exact: true }).click();
@@ -139,11 +147,12 @@ test("mobile supports long content, quality and old-version notices without page
   await page.screenshot({ path: "../.studydy-runtime/card-preview/study-mobile.png", fullPage: true });
 });
 
-test("sidebar entry can select a material; failed save retries the same intent", async ({ page }) => {
+test("account collection can select a material; failed save retries the same intent", async ({ page }) => {
   const fixture = await mockCards(page);
   await page.goto("/concept-cards");
   await page.getByRole("button", { name: "建立卡組", exact: true }).click();
-  await page.getByRole("button", { name: "資料結構講義.pdf", exact: true }).click();
+  await expect(page).toHaveURL(/\/concept-cards\/new$/);
+  await page.getByLabel("選擇教材", { exact: true }).selectOption({ label: "資料結構講義.pdf" });
   await expect(page.getByRole("heading", { name: "建立概念卡組" })).toBeVisible();
   const keys: string[] = [];
   let fail = true;
@@ -168,25 +177,25 @@ test("saved decks can be renamed and edited without replacing their identity", a
   await mockCards(page, { saved: true });
   await page.goto("/concept-cards");
   await page.getByRole("button", { name: "管理卡組「資料結構 · 核心概念」" }).click();
-  await expect(page.getByRole("button", { name: "重新命名", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "重新命名", exact: true })).toHaveCount(1);
   await page.locator(".material-management-menu[open]").getByRole("button", { name: "管理卡組", exact: true }).click();
   await page.getByLabel("卡組名稱", { exact: true }).fill("重新命名的卡組");
   await page.getByRole("button", { name: "保存變更", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/concept-cards/${cardSetId}$`));
   await expect(page.getByRole("heading", { name: "重新命名的卡組", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "管理卡組", exact: true }).click();
+  await openSavedCardManagement(page);
   await page.getByRole("checkbox").nth(1).uncheck();
   await page.getByRole("button", { name: "保存變更", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/concept-cards/${cardSetId}$`));
   await expect(page.locator(".deck-count")).toHaveText("1 張卡片");
-  await page.getByRole("button", { name: "管理卡組", exact: true }).click();
+  await openSavedCardManagement(page);
   await expect(page.getByRole("checkbox").nth(1)).not.toBeChecked();
   await page.getByRole("button", { name: "全選", exact: true }).click();
   await page.getByRole("button", { name: "保存變更", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/concept-cards/${cardSetId}$`));
   await page.reload();
   await expect(page.locator(".deck-count")).toHaveText("2 張卡片");
-  await page.getByRole("button", { name: "管理卡組", exact: true }).click();
+  await openSavedCardManagement(page);
   await page.getByLabel("卡組名稱", { exact: true }).fill("不應保存");
   await page.getByRole("button", { name: "取消變更", exact: true }).click();
   await expect(page.getByRole("heading", { name: "重新命名的卡組", exact: true })).toBeVisible();
@@ -197,13 +206,17 @@ test("library layout matches materials and review uses the available content wid
   await mockCards(page, { saved: true });
   await page.goto("/materials");
   const materialSearch = await page.getByRole("searchbox").boundingBox();
-  const materialHeading = await page.getByRole("heading", { name: "我的教材", exact: true }).boundingBox();
-  await page.getByRole("button", { name: "概念卡", exact: true }).click();
+  const materialCard = (await page.locator('.library-item').first().boundingBox())!;
+  await page.getByRole('navigation', { name: '主要導覽' }).getByRole('button', { name: '概念卡', exact: true }).click();
   const cardSearch = await page.getByRole("searchbox").boundingBox();
-  const cardHeading = await page.getByRole("heading", { name: "我的概念卡", exact: true }).boundingBox();
+  const cardTile = (await page.locator('.library-item').first().boundingBox())!;
   expect(cardSearch!.x).toBe(materialSearch!.x);
-  expect(cardSearch!.width).toBe(materialSearch!.width);
-  expect(cardSearch!.y - cardHeading!.y).toBeCloseTo(materialSearch!.y - materialHeading!.y, 0);
+  expect(cardSearch!.width).toBeGreaterThanOrEqual(materialSearch!.width);
+  expect(cardTile.width).toBeCloseTo(materialCard.width, 0);
+  expect(cardTile.width).toBeLessThan(320);
+  expect(cardTile.height).toBeLessThan(270);
+  await expect(page.getByRole('heading', { name: '我的概念卡', exact: true })).toHaveCount(0);
+  await expect(page.locator('.library-item').getByRole('button', { name: '管理卡組', exact: true })).toHaveCount(0);
   await page.screenshot({ path: "../.studydy-runtime/card-preview/library-aligned.png", fullPage: true });
   await page.getByRole("button", { name: "開始複習", exact: true }).click();
   await expect(page.locator(".flashcard")).toBeVisible();
@@ -294,4 +307,185 @@ test("no weaknesses, all mastered and incompatible progress never invent recomme
   progress.knowledge_structure_revision = structureRevision;
   await page.getByRole("button", { name: "重新讀取進度", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("desktop code scroll preserves keyboard control and formula literals", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const { view } = await mockCards(page, { saved: true });
+  const claim = view.concepts[0].claims[0];
+  claim.text = "def compare(values):\n    return " + "values[index] != 0 and ".repeat(30) + "values[-1] <= 100\n# 最後一行不可遺漏";
+  claim.evidence[0].kind = "code";
+  claim.evidence[0].quote = claim.text;
+  const formula = "f(x) = (x² − 1)/(x − 1), x ≠ 1\nΣᵢ₌₁ⁿ i = n(n + 1)/2；n ∈ ℕ，n ≥ 1\nP(A | B) = P(A ∩ B)/P(B)，P(B) > 0";
+  view.concepts[1].claims[0].text = formula;
+  await page.goto(`/concept-cards/${cardSetId}`);
+  await page.getByRole("button", { name: "翻面", exact: true }).click();
+  const code = page.locator(".flashcard-point .is-code");
+  expect(await code.textContent()).toBe(claim.text);
+  expect(await code.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);
+  await code.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => code.evaluate((e) => e.scrollLeft)).toBeGreaterThan(0);
+  await expect(page.locator(".cards-study-counter")).toContainText("1 / 2");
+  await code.evaluate((e) => { e.scrollLeft = e.scrollWidth; });
+  expect(await code.evaluate((e) => Math.abs(e.scrollWidth - e.clientWidth - e.scrollLeft) < 2)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole("button", { name: "下一張", exact: true }).click();
+  await page.getByRole("button", { name: "翻面", exact: true }).click();
+  expect(await page.locator(".flashcard-point p").textContent()).toBe(formula);
+});
+
+test("card sources keep distinct files on the same page and recover after source failure", async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true });
+  const claim = view.concepts[0].claims[0];
+  const first = claim.evidence[0];
+  Object.assign(first, { source_id: materialId, source_name: "A.pdf", normalized_page: 1 });
+  const second = { ...first, evidence_id: `evidence:sha256:${"9".repeat(64)}`, source_id: runId, source_name: "B.pdf", page: 2, normalized_page: 1 };
+  claim.evidence.push(second);
+  const secondArtifact = "66666666-6666-4666-8666-666666666666";
+  const reads: string[] = [];
+  let failed = true;
+  await page.route("**/evidence/*/source", (route) => {
+    reads.push(decodeURIComponent(new URL(route.request().url()).pathname));
+    const evidence = reads.at(-1)!.includes(second.evidence_id) ? second : first;
+    if (evidence === second && failed) return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "RESOURCE_NOT_FOUND", retryable: false, message: "Synthetic missing source" }, 404);
+    const artifact = evidence === first ? artifactId : secondArtifact;
+    return json(route, { schema: "evidence-source/v1", format: "pdf", original_name: evidence === first ? "A.pdf" : "B.pdf", original_url: `/v1/artifacts/${artifact}/download`, preview_url: `/v1/artifacts/${artifact}#page=1`, normalized_page: 1, accuracy: "exact", origin_locators: [], label: "PDF 第 1 頁" });
+  });
+  await page.goto(`/concept-cards/${cardSetId}`);
+  await page.getByRole("button", { name: "翻面", exact: true }).click();
+  await page.getByText("查看來源", { exact: true }).click();
+  await page.getByRole("button", { name: "A.pdf · PDF 第 1 頁", exact: true }).click();
+  await expect(page.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute("href", `/v1/artifacts/${artifactId}#page=1`);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "B.pdf · PDF 第 1 頁", exact: true }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  failed = false;
+  await page.getByRole("button", { name: "B.pdf · PDF 第 1 頁", exact: true }).click();
+  await expect(page.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute("href", `/v1/artifacts/${secondArtifact}#page=1`);
+  expect(reads).toEqual([first, second, second].map((e) => `${decodeURIComponent(view.source_resolver)}/${e.evidence_id}/source`));
+});
+
+test("late card save and source read do not reopen a page after navigation", async ({ page }) => {
+  await mockCards(page);
+  let releaseSave!: () => void;
+  const saveGate = new Promise<void>((resolve) => { releaseSave = resolve; });
+  await page.route(`**/v1/materials/${materialId}/card-sets`, async (route) => { await saveGate; await route.fallback(); });
+  await page.goto(mapPath + "/create-cards");
+  const saving = page.waitForRequest((r) => r.url().endsWith("/card-sets") && r.method() === "POST");
+  await page.getByRole("button", { name: "保存並開始複習" }).click();
+  await saving;
+  await page.getByRole("button", { name: "教材庫", exact: true }).click();
+  const saved = page.waitForResponse((r) => r.url().endsWith("/card-sets") && r.request().method() === "POST");
+  releaseSave();
+  await saved;
+  await expect(page).toHaveURL(/\/materials$/);
+  await page.getByRole("button", { name: "概念卡", exact: true }).click();
+  await page.getByRole("button", { name: "開始複習", exact: true }).click();
+  await page.getByRole("button", { name: "翻面", exact: true }).click();
+  await page.getByText("查看來源", { exact: true }).click();
+  let releaseSource!: () => void;
+  const sourceGate = new Promise<void>((resolve) => { releaseSource = resolve; });
+  await page.route("**/evidence/*/source", async (route) => { await sourceGate; await route.fallback(); });
+  const reading = page.waitForRequest("**/evidence/*/source");
+  await page.getByRole("button", { name: "查看第 1 頁來源" }).click();
+  await reading;
+  await page.getByRole("button", { name: "返回卡組", exact: true }).click();
+  const sourceRead = page.waitForResponse("**/evidence/*/source");
+  releaseSource();
+  await sourceRead;
+  await expect(page.getByRole("heading", { name: "我的概念卡", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("switching account while a card read is pending hides old content and rejects its URL", async ({ page }) => {
+  await mockCards(page, { saved: true });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(`**/v1/card-sets/${cardSetId}`, async (route) => { await gate; await route.fallback(); });
+  const pending = page.waitForRequest(`**/v1/card-sets/${cardSetId}`);
+  await page.goto(`/concept-cards/${cardSetId}`);
+  await pending;
+  await page.getByRole("button", { name: "登出", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  release();
+  // 第二帳號只得到空卡組列表，舊卡組仍由 API 拒絕。
+  await page.route(`**/v1/card-sets/${cardSetId}`, (route) => json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "RESOURCE_NOT_FOUND", retryable: false, message: "Synthetic foreign card set" }, 404));
+  const stranger = { schema: "learner-identity/v1", learner_id: "77777777-7777-4777-8777-777777777777" };
+  await page.route("**/v1/session/login", (route) => json(route, stranger));
+  await page.route("**/v1/session/refresh", (route) => json(route, stranger));
+  await page.route("**/v1/card-sets", (route) => json(route, { schema: "card-set-list/v1", card_sets: [] }));
+  await page.getByLabel("Email", { exact: true }).fill("second@example.test");
+  await page.getByLabel("密碼", { exact: true }).fill("Synthetic password 42");
+  await page.getByRole("button", { name: "登入", exact: true }).click();
+  await page.getByRole("button", { name: "概念卡", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "收藏一組值得反覆看的重點" })).toBeVisible();
+  await page.goto(`/concept-cards/${cardSetId}`);
+  await expect(page.getByRole("heading", { name: "無法開啟卡組" })).toBeVisible();
+  await expect(page.locator(".flashcard")).toHaveCount(0);
+});
+
+test("account change from another tab removes an open card source dialog", async ({ page }) => {
+  await mockCards(page, { saved: true });
+  await page.goto(`/concept-cards/${cardSetId}`);
+  await page.getByRole("button", { name: "翻面", exact: true }).click();
+  await page.getByText("查看來源", { exact: true }).click();
+  await page.getByRole("button", { name: "查看第 1 頁來源" }).click();
+  await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
+  // 另一個 channel instance 模擬其他分頁送出的正式帳號變更事件。
+  await page.evaluate(() => {
+    const channel = new BroadcastChannel("studydy-account");
+    channel.postMessage("identity-changed");
+    channel.close();
+  });
+  await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator(".flashcard")).toHaveCount(0);
+});
+
+
+test("card library renames inline like materials without changing selected cards", async ({ page }) => {
+  await mockCards(page, { saved: true });
+  await page.goto('/concept-cards');
+  await page.getByRole('button', { name: '管理卡組「資料結構 · 核心概念」' }).click();
+  await page.getByRole('button', { name: '重新命名', exact: true }).click();
+  const form = page.getByRole('form', { name: '重新命名卡組' });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(form.getByLabel('卡組名稱')).toBeFocused();
+  await form.getByLabel('卡組名稱').fill('暫不保存');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: '資料結構 · 核心概念' })).toBeVisible();
+  await page.getByRole('button', { name: '管理卡組「資料結構 · 核心概念」' }).click();
+  await page.getByRole('button', { name: '重新命名', exact: true }).click();
+  await form.getByLabel('卡組名稱').fill('我的新卡組名稱');
+  const update = page.waitForRequest(r => r.url().endsWith(`/card-sets/${cardSetId}/update`));
+  await form.getByRole('button', { name: '儲存', exact: true }).click();
+  expect((await update).postDataJSON()).not.toHaveProperty('concept_ids');
+  await expect(page.getByRole('heading', { name: '我的新卡組名稱' })).toBeVisible();
+  await expect(page.getByText(/2 張卡片/)).toBeVisible();
+});
+
+
+test("saved card views and editing stay inside the material workspace from either entry", async ({ page }) => {
+  await mockCards(page, { saved: true });
+  await page.goto('/concept-cards');
+  await expect(page.locator('.app-sidebar')).toBeVisible();
+  await page.getByRole('button', { name: '開始複習', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}$`));
+  await expect(page.locator('.app-sidebar')).toHaveCount(0);
+  const tabs = page.getByRole('navigation', { name: '教材學習內容' });
+  await expect(tabs).toBeVisible();
+  await expect(tabs.getByRole('button', { name: '概念卡', exact: true })).toHaveAttribute('aria-current', 'page');
+  await openSavedCardManagement(page);
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}/edit$`));
+  await expect(tabs).toBeVisible();
+  await expect(page.locator('.app-sidebar')).toHaveCount(0);
+  await page.getByRole('button', { name: '取消變更', exact: true }).click();
+  await expect(tabs).toBeVisible();
+  await page.getByRole('button', { name: '返回卡組', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards$`));
+  await expect(tabs).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
