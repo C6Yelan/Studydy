@@ -44,6 +44,8 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   INVALID_CREDENTIALS: "Email 或密碼不正確。",
   ACCOUNT_UNAVAILABLE: "這個 Email 已被使用，請使用其他 Email。",
   REQUEST_INVALID: genericApiMessage,
+  TOPIC_CONFLICT: "這個規劃的狀態已改變，請重新讀取後再操作。",
+  TOPIC_PROVIDER_FAILED: "目前無法產生學習範圍，請重試。",
   VOICE_TURN_IN_PROGRESS: "請等目前提問完成，或先取消它。",
   VOICE_PROVIDER_UNAVAILABLE: "語音服務暫時無法連線，已保存的對話仍可查看。",
   VOICE_PROVIDER_FAILED: "這次問答處理失敗，請重試。",

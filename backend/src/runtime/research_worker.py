@@ -4,11 +4,14 @@ from threading import Event,Thread
 from . import research
 
 class ResearchWorker:
-    def __init__(self,dsn):
-        self.dsn=dsn;self.stop_event=Event();self.thread=Thread(target=self.loop,name='studydy-research',daemon=True)
+    def __init__(self,dsn,config=None):
+        self.config=config;self.dsn=dsn;self.stop_event=Event();self.thread=Thread(target=self.loop,name='studydy-research',daemon=True)
     def start(self):self.thread.start();return self
     def stop(self):self.stop_event.set();self.thread.join(timeout=2)
     def loop(self):
         while not self.stop_event.wait(2):
-            try:research.step(dsn=self.dsn)
+            try:
+                from . import topics
+                topics.step(dsn=self.dsn)
+                research.step(dsn=self.dsn,config=self.config)
             except Exception:logging.getLogger(__name__).warning('RESEARCH_WORKER_FAILED')

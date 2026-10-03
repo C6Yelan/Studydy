@@ -98,6 +98,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
                 <Icon name="upload" size={18} />
                 上傳教材
               </button>
+              <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "topics" })}>從主題建立教材</button>
             </div>
             <div className="hero-illustration">
               <div className="hero-document" aria-hidden="true">

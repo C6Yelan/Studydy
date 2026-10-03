@@ -90,7 +90,7 @@ def retry_revision(owner, run_id, key, config, *, dsn=None):
     return create_revision(owner, material_id, additions, key, config, base_revision=base_revision, dsn=dsn, research_retry_of=run_id)
 
 
-def create_revision(owner, material_id, normalization_ids, key, config, *, base_revision=None, dsn=None, research_id=None, research_retry_of=None):
+def create_revision(owner, material_id, normalization_ids, key, config, *, base_revision=None, dsn=None, research_id=None, research_retry_of=None, research_token=None):
     from .material_processing import _row
 
     def link_retry(session, result):
@@ -166,8 +166,10 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
             ).with_for_update())
             if research is None or research.status != 'ready' or research.base_revision != base_revision:
                 raise SourceError('SOURCE_NOT_READY')
+            if research_token is not None and research.lease_token != research_token:
+                raise SourceError('SOURCE_NOT_READY')
             selected = {c['id']: c for c in research.candidates}
-            if normalization_ids != [UUID(selected[i]['normalization_id']) for i in research.selection]:
+            if normalization_ids != list(dict.fromkeys(UUID(selected[i]['normalization_id']) for i in research.selection)):
                 raise SourceError('REQUEST_INVALID')
         items = old_items
         for identity in normalization_ids:
@@ -242,4 +244,5 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
         if research is not None:
             research.run_id = row.run_id
             research.status = 'submitted'
+            research.lease_token = research.lease_expires_at = None
         return link_retry(session, row)

@@ -1,0 +1,10 @@
+export type Candidate={id:string;kind:string;title:string;authors:string;year:number|null;url:string;doi:string|null;license:string;license_url:string|null;version:string;eligible:boolean;reason:string;state:string;error_code?:string;acquisition?:{license_text?:string;acquired_at:string}};
+export const sourceReasons:Record<string,string>={RESEARCH_SEARCH_FAILED:'搜尋暫時失敗，請稍後重試。',RESEARCH_DOWNLOAD_FAILED:'來源目前無法下載。',RESEARCH_LICENSE_UNCONFIRMED:'無法核對全文授權。',RESEARCH_IDENTITY_UNCONFIRMED:'下載文件與搜尋紀錄的身分尚無法核對。',RESEARCH_FORMAT_UNSUPPORTED:'目前無法處理此文件格式。',DUPLICATE_SOURCE:'這份文件已存在於教材。',RESEARCH_ITEMS_FAILED:'部分來源未完成。可重試，或只勾選已準備好的來源繼續。',RESEARCH_OFFICIAL_UNAVAILABLE:'部分官方文件搜尋暫時失敗；其他結果已保留。'};
+const states:Record<string,string>={candidate:'候選來源',normalizing:'轉換中',ready:'文件已準備好',failed:'取得失敗'};
+export function SourceCandidates({candidates,selected,disabled,onChange}:{candidates:Candidate[];selected:string[];disabled:boolean;onChange:(ids:string[])=>void}){
+ return <><div className="state-actions"><button className="text-button" disabled={disabled} onClick={()=>onChange(candidates.filter(c=>c.eligible).map(c=>c.id))}>全選可用來源</button><button className="text-button" disabled={disabled} onClick={()=>onChange([])}>取消全選</button><span>已選 {selected.length} 份</span></div>
+ <div className="research-candidates">{candidates.map(c=><article key={c.id}><label><input type="checkbox" aria-label={`選取 ${c.title}`} disabled={!c.eligible||disabled} checked={selected.includes(c.id)} onChange={e=>onChange(e.target.checked?[...selected,c.id]:selected.filter(x=>x!==c.id))}/><strong>{c.title}</strong></label>
+ <p>{c.kind==='official'?'官方教學':'學術論文'} · {c.authors}{c.year?` · ${c.year}`:''}</p><p>{c.version} · {c.license} · {states[c.state]}</p><p>{c.error_code?sourceReasons[c.error_code]??'取得失敗，可重試。':c.reason}</p>
+ <div className="state-actions"><a href={c.url.startsWith('https://')?c.url:undefined} target="_blank" rel="noreferrer">查看原始來源</a>{c.license_url&&<a href={c.license_url} target="_blank" rel="noreferrer">授權說明</a>}</div>
+ {c.acquisition?.license_text&&<details><summary>已保存的授權聲明</summary><pre>{c.acquisition.license_text}</pre></details>}</article>)}</div></>;
+}

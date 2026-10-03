@@ -428,8 +428,8 @@ class MaterialResearch(Base):
     __tablename__ = 'material_research'
     research_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True),primary_key=True)
     learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    base_revision: Mapped[str] = mapped_column(Text)
+    material_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    base_revision: Mapped[str | None] = mapped_column(Text)
     query: Mapped[str] = mapped_column(Text)
     mode: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
@@ -445,3 +445,24 @@ class MaterialResearch(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     staged_content: Mapped[bytes | None] = mapped_column(LargeBinary)
     staged_metadata: Mapped[dict | None] = mapped_column(JSONB)
+    topic_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+
+
+class TopicScope(Base):
+    __tablename__='topic_scopes'
+    topic_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True),primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    request: Mapped[str] = mapped_column(Text)
+    proposal: Mapped[dict | None] = mapped_column(EvidenceJSONB)
+    generation_provider: Mapped[str | None] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(Text)
+    research_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    approved_sha256: Mapped[str | None] = mapped_column(Text)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approval_key_sha256: Mapped[bytes | None] = mapped_column(LargeBinary)
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary)
+    lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

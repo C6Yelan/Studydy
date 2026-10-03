@@ -114,11 +114,11 @@ def upload_source(owner, material_id, data, name, media, key, *, dsn=None, resea
                 .where(MaterialSource.material_id == material_id, MaterialSource.removed_at.is_(None),
                        Artifact.sha256 == sha256(data).digest()))
             if duplicate is not None:
-                if research_attempt is not None and material.head_revision:
+                if research_attempt is not None:
                     from .storage.tables import KnowledgeStructure
-                    head = session.get(KnowledgeStructure, (owner, material_id, material.head_revision))
-                    if head is None:raise SourceError('SOURCE_NOT_READY')
-                    included = {item['source_id'] for item in head.document['input_binding']['manifest']['items']}
+                    head = session.get(KnowledgeStructure, (owner, material_id, material.head_revision)) if material.head_revision else None
+                    if material.head_revision and head is None:raise SourceError('SOURCE_NOT_READY')
+                    included = {item['source_id'] for item in head.document['input_binding']['manifest']['items']} if head else set()
                     # 衝突後重新搜尋可重用相同 bytes 的 staged 來源；不重複保存，也不把已發布來源再追加一次。
                     if str(duplicate) not in included:
                         return duplicate

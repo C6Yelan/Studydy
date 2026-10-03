@@ -1,3 +1,4 @@
+import { TopicPage } from "../topics/TopicPage";
 import { MaterialTools } from "../material-tools/MaterialTools";
 import type { StudydyApiClient } from "../../api/client";
 import type { AppRoute } from "../../app/routes";
@@ -28,6 +29,7 @@ function MaterialFlowBody({
   route: AppRoute;
   learnerId: string;
 }) {
+  if (route.name === "topics" || route.name === "topic") return <TopicPage key={route.name === "topic" ? route.topicId : "new"} api={apiClient} topicId={route.name === "topic" ? route.topicId : undefined}/>;
   if ("materialId" in route && route.materialId && ["podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(route.name)) {
     const kind = route.name.startsWith("podcast") ? "podcasts" : "concept-cards";
     const content = route.name === "podcast" ? <PodcastPage key={route.podcastId} apiClient={apiClient} podcastId={route.podcastId} materialId={route.materialId} learnerId={learnerId} />

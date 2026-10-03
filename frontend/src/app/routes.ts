@@ -1,5 +1,7 @@
 export type AppRoute =
   | { name: "home" }
+  | { name: "topics" }
+  | { name: "topic"; topicId: string }
   | { name: "materials" }
   | { name: "material-content"; materialId: string; kind: "concept-cards" | "podcasts" }
   | { name: "podcast-new" }
@@ -30,6 +32,7 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}
 const structurePattern = /^knowledge-structure:sha256:[0-9a-f]{64}$/;
 
 export function readRoute(pathname: string): RouteRead {
+  if (pathname === "/topics") return { route: { name: "topics" }, isCanonical: true };
   if (pathname === "/") return { route: { name: "home" }, isCanonical: true };
   if (pathname === "/materials") return { route: { name: "materials" }, isCanonical: true };
   if (pathname === "/podcasts/new") return { route: { name: "podcast-new" }, isCanonical: true };
@@ -60,6 +63,10 @@ export function readRoute(pathname: string): RouteRead {
     assessmentSetId,
   ] = segments;
   const fallback: RouteRead = { route: { name: "home" }, isCanonical: false };
+  if (materialSegment === "topics" && uuidPattern.test(materialId) && segments.length === 2) {
+    const route: AppRoute = { name: "topic", topicId: materialId };
+    return { route, isCanonical: routePath(route) === pathname };
+  }
   if (materialSegment === "podcasts" && uuidPattern.test(materialId) && segments.length === 2) {
     const route: AppRoute = { name: "podcast", podcastId: materialId };
     return { route, isCanonical: routePath(route) === pathname };
@@ -119,6 +126,8 @@ export function readRoute(pathname: string): RouteRead {
 
 export function routePath(route: AppRoute): string {
   if (route.name === "home") return "/";
+  if (route.name === "topics") return "/topics";
+  if (route.name === "topic") { if (!uuidPattern.test(route.topicId)) throw new Error("ROUTE_INVALID"); return `/topics/${route.topicId}`; }
   if (route.name === "materials") return "/materials";
   if (route.name === "podcast-new") return "/podcasts/new";
   if (route.name === "card-set-new") return "/concept-cards/new";

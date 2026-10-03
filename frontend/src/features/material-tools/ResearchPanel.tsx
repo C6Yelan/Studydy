@@ -2,12 +2,12 @@ import { useEffect,useRef,useState } from 'react';
 import { errorMessage,type StudydyApiClient } from '../../api/client';
 import { writeRoute } from '../../app/routes';
 
-type Candidate={id:string;kind:string;title:string;authors:string;year:number|null;url:string;doi:string|null;license:string;license_url:string|null;version:string;eligible:boolean;reason:string;state:string;error_code?:string;acquisition?:{license_text?:string;acquired_at:string}};
-type Research={research_id:string;query:string;mode:string;status:string;candidates:Candidate[];selection:string[];cursor:string|null;error_code:string|null;run_id:string|null;is_current_revision?:boolean;run?:{status:string;error_code:string|null}};
+import { SourceCandidates, sourceReasons as reasons, type Candidate } from './SourceCandidates';
+
+export type Research={research_id:string;query:string;mode:string;status:string;candidates:Candidate[];selection:string[];cursor:string|null;error_code:string|null;run_id:string|null;is_current_revision?:boolean;run?:{status:string;error_code:string|null}};
 const active=new Set(['searching','acquiring','normalizing']);
 const labels:Record<string,string>={searching:'搜尋中',selecting:'請選擇補充來源',acquiring:'正在取得選取來源',normalizing:'正在轉換文件',ready:'可加入教材',submitted:'已送入教材分析',failed:'部分處理未完成',cancelled:'已停止'};
-const states:Record<string,string>={candidate:'候選來源',normalizing:'轉換中',ready:'文件已準備好',failed:'取得失敗'};
-const reasons:Record<string,string>={RESEARCH_SEARCH_FAILED:'搜尋暫時失敗，請稍後重試。',RESEARCH_DOWNLOAD_FAILED:'來源目前無法下載。',RESEARCH_LICENSE_UNCONFIRMED:'無法核對全文授權。',RESEARCH_IDENTITY_UNCONFIRMED:'下載文件與搜尋紀錄的身分尚無法核對。',RESEARCH_FORMAT_UNSUPPORTED:'目前無法處理此文件格式。',DUPLICATE_SOURCE:'這份文件已存在於教材。',RESEARCH_ITEMS_FAILED:'部分來源未完成。可重試，或只勾選已準備好的來源繼續。',RESEARCH_OFFICIAL_UNAVAILABLE:'官方文件搜尋暫時失敗；學術搜尋結果已保留。'};
+
 
 export function ResearchPanel({api,materialId,onNavigate}:{api:StudydyApiClient;materialId:string;onNavigate:()=>void}){
  const [query,setQuery]=useState(''),[mode,setMode]=useState('review'),[list,setList]=useState<Research[]>([]),[id,setId]=useState<string|null>(null),[view,setView]=useState<Research|null>(null),[selected,setSelected]=useState<string[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(''),[confirmed,setConfirmed]=useState(false);
@@ -32,12 +32,7 @@ export function ResearchPanel({api,materialId,onNavigate}:{api:StudydyApiClient;
  {view.error_code&&<p>{reasons[view.error_code]??'處理未完成，已保存取得的結果。'}</p>}
  {view.is_current_revision===false&&view.status!=='submitted'&&<p>教材已更新，這次搜尋不能直接加入舊版本。請以目前教材重新搜尋。</p>}
  <p className="research-scope">學術搜尋由 OpenAlex 提供；官方教學目前支援 Python 官方文件與 MDN Web Docs。未確認全文授權的來源可開啟查看，但不能自動匯入。</p>
- <div className="state-actions"><button className="text-button" disabled={working||view.status==='submitted'} onClick={()=>setSelected(view.candidates.filter(c=>c.eligible).map(c=>c.id))}>全選可用來源</button><button className="text-button" disabled={working} onClick={()=>setSelected([])}>取消全選</button><span>已選 {selected.length} 份</span></div>
- <div className="research-candidates">{view.candidates.map(c=><article key={c.id}><label><input type="checkbox" aria-label={`選取 ${c.title}`} disabled={!c.eligible||working||view.status==='submitted'} checked={selected.includes(c.id)} onChange={e=>{setSelected(v=>e.target.checked?[...v,c.id]:v.filter(x=>x!==c.id));setConfirmed(false);}}/><strong>{c.title}</strong></label>
- <p>{c.kind==='official'?'官方教學':'學術論文'} · {c.authors}{c.year?` · ${c.year}`:''}</p><p>{c.version} · {c.license} · {states[c.state]}</p><p>{c.error_code?reasons[c.error_code]??'取得失敗，可重試。':c.reason}</p>
- <div className="state-actions"><a href={c.url.startsWith('https://')?c.url:undefined} target="_blank" rel="noreferrer">查看原始來源</a>{c.license_url&&<a href={c.license_url} target="_blank" rel="noreferrer">授權說明</a>}</div>
- {c.acquisition?.license_text&&<details><summary>已保存的授權聲明</summary><pre>{c.acquisition.license_text}</pre></details>}
- </article>)}</div>
+ <SourceCandidates candidates={view.candidates} selected={selected} disabled={working||view.status==='submitted'} onChange={ids=>{setSelected(ids);setConfirmed(false);}}/>
  {!view.candidates.length&&!active.has(view.status)&&<p>沒有找到來源。可以換個主題或英文關鍵字再搜尋。</p>}
  <div className="state-actions">{view.status==='selecting'&&view.cursor&&<button className="secondary-button" disabled={busy} onClick={()=>void action('more')}>載入更多論文</button>}
  {['selecting','ready','failed'].includes(view.status)&&<button className="secondary-button" disabled={working||!selected.length} onClick={()=>void action('acquire',selected)}>取得選取的 {selected.length} 份來源</button>}
