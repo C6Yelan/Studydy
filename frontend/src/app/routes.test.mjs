@@ -54,6 +54,7 @@ test("material collections and saved content preserve their scoped URLs", () => 
   for (const route of [
     { name: "material-content", materialId, kind: "podcasts" },
     { name: "material-content", materialId, kind: "concept-cards" },
+    { name: "material-content", materialId, kind: "research" },
     { name: "podcast", materialId, podcastId: studySessionId },
     { name: "card-set", materialId, cardSetId: studySessionId },
     { name: "card-set-edit", materialId, cardSetId: studySessionId },

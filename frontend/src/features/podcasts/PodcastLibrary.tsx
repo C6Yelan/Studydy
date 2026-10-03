@@ -26,13 +26,15 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
   const create = () => { if (material && structure) writeRoute({ name: "podcast-create", materialId: material.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision }); else if (!material) writeRoute({ name: "podcast-new" }); };
   const filtered = items?.filter((item) => `${item.name} ${item.material_name}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <section className="material-library is-collection podcast-library" aria-label={material ? "教材 Podcast" : "我的 Podcast"}>
-    <header className="library-header library-header-compact collection-toolbar">
-      {contentNavigation}
+    <header className={`library-header library-header-compact collection-toolbar${material ? " material-search-row" : ""}`}>
       <form className="library-search" role="search" onSubmit={e => e.preventDefault()}><input type="search" aria-label={material ? "搜尋 Podcast" : "搜尋 Podcast 或教材"} placeholder={material ? "搜尋 Podcast…" : "搜尋 Podcast 或教材…"} value={query} onChange={e => setQuery(e.target.value)} /></form>
-      <div className="collection-summary" ref={heading} tabIndex={-1}><p>{items === null ? "正在讀取…" : `已保存 ${items.length} 份 Podcast`}</p></div>
+      <div className="collection-summary" ref={heading} tabIndex={-1}><p>{items === null ? "—" : `已保存 ${items.length} 份 Podcast`}</p></div>
       <button className="primary-button" type="button" disabled={!!material && !structure} onClick={create}><Icon name="headphones" size={18} /> 建立 Podcast</button>
     </header>
-    {error ? <StateView title="無法讀取 Podcast" description={error} tone="failure" action={<button type="button" className="secondary-button" onClick={() => setReload((v) => v + 1)}>重新讀取</button>} />
+      {contentNavigation}
+      <div role={material ? "tabpanel" : undefined} id={material ? "material-panel-podcasts" : undefined} aria-labelledby={material ? "material-tab-podcasts" : undefined}>
+    {error && items !== null && <p className="form-error" role="alert">無法更新 Podcast 列表。{error}<button className="text-button" onClick={()=>setReload(value=>value+1)}>重新讀取</button></p>}
+    {error && items === null ? <StateView title="無法讀取 Podcast" description={error} tone="failure" action={<button type="button" className="secondary-button" onClick={() => setReload((v) => v + 1)}>重新讀取</button>} />
       : items === null ? <StateView title="正在讀取 Podcast" description="正在找回你保存的內容。" tone="loading" live />
       : items.length === 0 ? <StateView tone="empty" icon="headphones" title="讓教材說給你聽" description="挑選概念，選擇快速或完整模式。生成後保存在你的帳號，隨時可以再聽。" />
       : <>
@@ -49,5 +51,6 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
           {!item.is_current_revision && <small>保留建立時的教材版本</small>}
           <button type="button" className="primary-button" onClick={() => writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id })}>{item.status === "ready" ? "開啟播放" : "查看進度"}</button>
         </article>)}</div>{filtered?.length === 0 && <p role="status">找不到符合的 Podcast。</p>}</>}
+    </div>
   </section>;
 }

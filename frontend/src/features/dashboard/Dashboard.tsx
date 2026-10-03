@@ -89,7 +89,8 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
           <section className="dashboard-hero" aria-label="建立你的知識地圖">
             <div className="hero-copy">
               <h2>建立你的知識地圖</h2>
-              <p>上傳你的學習教材，讓 AI 為你建立專屬的知識地圖。</p>
+              <p>上傳教材或提出想學的主題，建立專屬的知識地圖。</p>
+              <div className="hero-actions">
               <button
                 className="primary-button"
                 type="button"
@@ -98,7 +99,8 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
                 <Icon name="upload" size={18} />
                 上傳教材
               </button>
-              <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "topics" })}>從主題建立教材</button>
+              <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "topics" })}><Icon name="learning" size={18}/>從主題建立教材</button>
+              </div>
             </div>
             <div className="hero-illustration">
               <div className="hero-document" aria-hidden="true">

@@ -72,7 +72,7 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
     const element = media.current;
     if (!element || !ready) return;
     if (!element.paused) element.pause();
-    else void element.play().then(() => setError(null), () => setError("暫時無法播放，請按播放重試。"));
+    else void element.play().then(() => setError(null), (e) => { if (e?.name !== "AbortError") setError("暫時無法播放，請按播放重試。"); });
   };
   const seek = (value: number) => { if (media.current && ready) { media.current.currentTime = Math.max(0, Math.min(length, value)); setTime(media.current.currentTime); } };
   const mute = () => setSettings(s => ({ ...s, muted: !(s.muted || s.volume === 0), volume: s.volume || lastVolume.current }));
@@ -84,7 +84,7 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
         setLength(element.duration); setReady(true);
         if (!autoPlay && position.episode === index && position.time < element.duration - 1) element.currentTime = position.time;
         setTime(element.currentTime); save(element);
-        if (autoPlay) void element.play().catch(() => setError("按播放即可接續下一集。"));
+        if (autoPlay) void element.play().catch(e => { if (e?.name !== "AbortError") setError("按播放即可接續下一集。"); });
       }} onPlay={() => { setPlaying(true); setError(null); }} onPause={e => { setPlaying(false); save(e.currentTarget); }}
       onTimeUpdate={e => { setTime(e.currentTarget.currentTime); if (Date.now() - lastSaved.current > 2000) { save(e.currentTarget); lastSaved.current = Date.now(); } }}
       onSeeked={e => save(e.currentTarget)} onEnded={e => { setPlaying(false); save(e.currentTarget); if (settings.autoAdvance) onEnded(); }}

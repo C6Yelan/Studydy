@@ -1,3 +1,5 @@
+import { MaterialContentNav } from "../material-flow/MaterialContentNav";
+import type { AppRoute } from "../../app/routes";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
 import {
@@ -33,11 +35,6 @@ import { learningNavigationItems, focusGraph, initialFocusConceptId } from "./kn
 type Concept = KnowledgeStructureView["concepts"][number];
 type Mode = "focus" | "review";
 type RestoreFocus = () => void;
-
-const modes: { id: Mode; label: string }[] = [
-  { id: "focus", label: "概念地圖" },
-  { id: "review", label: "複習重點" },
-];
 
 const relationStyles: Record<RelationType, { label: string; color: string; dashed: boolean }> = {
   prerequisite: { label: "先備", color: "#5B8DEF", dashed: false },
@@ -887,8 +884,7 @@ export function KnowledgeMapWorkspace({
   onReloadProgress,
   isStartingStudy,
   onReturnToRun,
-  onAddSources,
-  contentNavigation,
+  mapRoute,
   onStartStudy,
   startMessage,
   view,
@@ -901,8 +897,7 @@ export function KnowledgeMapWorkspace({
   onReloadProgress: () => void;
   isStartingStudy: boolean;
   onReturnToRun: () => void;
-  onAddSources: () => void;
-  contentNavigation: ReactNode;
+  mapRoute: Extract<AppRoute, { name: "knowledge-map" }>;
   onStartStudy: (conceptId: string) => void;
   startMessage: string | null;
   view: KnowledgeStructureView;
@@ -1118,8 +1113,7 @@ export function KnowledgeMapWorkspace({
     <section
       className={`map-workspace${mode === "focus" ? " is-focus-mode" : ""}${selectedConcept || selectedRelation ? " has-detail" : ""}`}
     >
-      <header className="map-header">
-        {contentNavigation}
+      <header className="map-header material-search-row">
         <form
           className="map-search"
           onKeyDown={(event) => {
@@ -1174,9 +1168,6 @@ export function KnowledgeMapWorkspace({
           )}
         </form>
         <div className="map-header-actions">
-          <button className="secondary-button" type="button" onClick={onAddSources}>
-            新增教材
-          </button>
           <div className="map-facts" aria-label="地圖摘要">
             <span>
               <strong>{view.concepts.length}</strong>概念
@@ -1203,39 +1194,7 @@ export function KnowledgeMapWorkspace({
           {startMessage}
         </p>
       )}
-      <div className="map-tabs" role="tablist" aria-label="知識地圖檢視">
-        {modes.map((item) => (
-          <button
-            ref={(element) => {
-              if (element) tabs.current.set(item.id, element);
-              else tabs.current.delete(item.id);
-            }}
-            aria-selected={mode === item.id}
-            aria-controls={`map-panel-${item.id}`}
-            className={mode === item.id ? "is-active" : undefined}
-            id={`map-tab-${item.id}`}
-            key={item.id}
-            role="tab"
-            tabIndex={mode === item.id ? 0 : -1}
-            type="button"
-            onClick={() => selectMode(item.id)}
-            onKeyDown={(event) => {
-              const currentIndex = modes.findIndex((entry) => entry.id === item.id);
-              let nextIndex = currentIndex;
-              if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % modes.length;
-              else if (event.key === "ArrowLeft")
-                nextIndex = (currentIndex - 1 + modes.length) % modes.length;
-              else if (event.key === "Home") nextIndex = 0;
-              else if (event.key === "End") nextIndex = modes.length - 1;
-              else return;
-              event.preventDefault();
-              selectMode(modes[nextIndex].id);
-            }}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      <MaterialContentNav apiClient={apiClient} materialId={mapRoute.materialId} mapRoute={mapRoute} current={mode === "review" ? "review" : "knowledge-map"} onMapModeChange={selectMode} onMapTabRef={(id, element) => { if (element) tabs.current.set(id, element); else tabs.current.delete(id); }}/>
       {view.excluded_pages.length > 0 && (
         <p className="form-error" role="status">
           第 {view.excluded_pages.map((item) => item.page).join("、")}{" "}

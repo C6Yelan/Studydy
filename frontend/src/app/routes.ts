@@ -3,7 +3,7 @@ export type AppRoute =
   | { name: "topics" }
   | { name: "topic"; topicId: string }
   | { name: "materials" }
-  | { name: "material-content"; materialId: string; kind: "concept-cards" | "podcasts" }
+  | { name: "material-content"; materialId: string; kind: "concept-cards" | "podcasts" | "research" }
   | { name: "podcast-new" }
   | { name: "card-set-new" }
   | { name: "podcasts" }
@@ -83,7 +83,7 @@ export function readRoute(pathname: string): RouteRead {
     && (segments.length === 4 || (resourceSegment === "concept-cards" && segments.length === 5 && structureSegment === "edit"))) {
     route = resourceSegment === "podcasts" ? { name: "podcast", podcastId: runId, materialId }
       : { name: segments.length === 5 ? "card-set-edit" : "card-set", cardSetId: runId, materialId };
-  } else if (segments.length === 3 && (resourceSegment === "concept-cards" || resourceSegment === "podcasts")) {
+  } else if (segments.length === 3 && (resourceSegment === "concept-cards" || resourceSegment === "podcasts" || resourceSegment === "research")) {
     route = { name: "material-content", materialId, kind: resourceSegment };
   } else if (segments.length === 3 && resourceSegment === "sources") {
     route = { name: "material-sources", materialId };
@@ -170,9 +170,9 @@ export function routePath(route: AppRoute): string {
   return studyPath;
 }
 
-export function writeRoute(route: AppRoute, replace = false): void {
+export function writeRoute(route: AppRoute, replace = false, state: object | null = null): void {
   const path = routePath(route);
-  if (replace) window.history.replaceState(null, "", path);
-  else window.history.pushState(null, "", path);
+  if (replace) window.history.replaceState(state, "", path);
+  else window.history.pushState(state, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }

@@ -139,32 +139,31 @@ test("material collections filter both products while outer navigation opens the
   await expect(page.locator('.podcast-tile')).toHaveCount(2);
   await page.goto(`/materials/${materialId}/podcasts`);
   await expect(page.locator('.podcast-tile')).toHaveCount(1);
-  await expect(page.getByRole('navigation', { name: '教材學習內容' }).getByRole('button')).toHaveText(['知識地圖', '概念卡', 'Podcast']);
+  await expect(page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab')).toHaveText(['概念地圖', '複習重點', '概念卡', 'Podcast', '補充學習', '教材來源']);
   await expect(page.locator('.app-sidebar')).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveClass(/is-workspace/);
-  const navBox = (await page.getByRole('navigation', { name: '教材學習內容' }).boundingBox())!;
+  const navBox = (await page.getByRole('tablist', { name: '教材學習內容' }).boundingBox())!;
   const searchBox = (await page.getByRole('searchbox', { name: '搜尋 Podcast', exact: true }).boundingBox())!;
-  expect(searchBox.x).toBeGreaterThanOrEqual(navBox.x + navBox.width);
-  expect(Math.abs(searchBox.y - navBox.y)).toBeLessThan(3);
+  expect(navBox.y).toBeGreaterThanOrEqual(searchBox.y + searchBox.height);
   await expect(page.getByRole('heading', { name: '別的教材 Podcast' })).toHaveCount(0);
   await page.getByRole('button', { name: '查看進度', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts/${podcastId}$`));
   await expect(page.locator('.app-sidebar')).toHaveCount(0);
-  await expect(page.getByRole('navigation', { name: '教材學習內容' })).toBeVisible();
+  await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
   await page.getByRole('button', { name: '此教材的 Podcast', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts$`));
-  await page.getByRole('navigation', { name: '教材學習內容' }).getByRole('button', { name: '概念卡', exact: true }).click();
+  await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
   await expect(page.locator('.library-item')).toHaveCount(1);
   await expect(page.getByRole('heading', { name: '此教材卡組' })).toBeVisible();
-  const cardsNav = (await page.getByRole('navigation', { name: '教材學習內容' }).boundingBox())!;
+  const cardsNav = (await page.getByRole('tablist', { name: '教材學習內容' }).boundingBox())!;
   const cardsSearch = (await page.getByRole('searchbox', { name: '搜尋卡組', exact: true }).boundingBox())!;
-  expect(cardsSearch.x).toBeGreaterThanOrEqual(cardsNav.x + cardsNav.width);
+  expect(cardsNav.y).toBeGreaterThanOrEqual(cardsSearch.y + cardsSearch.height);
   await page.getByRole('searchbox', { name: '搜尋卡組', exact: true }).fill('不存在的卡組');
   await expect(page.locator('.library-item')).toHaveCount(0);
   await page.getByRole('searchbox', { name: '搜尋卡組', exact: true }).fill('');
   await page.getByRole('button', { name: '建立卡組', exact: true }).click();
   await expect(page.getByLabel('選擇教材')).toHaveValue(materialId);
-  await expect(page.getByRole('navigation', { name: '教材學習內容' })).toBeVisible();
+  await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
   await expect(page.locator('.app-sidebar')).toHaveCount(0);
   await page.goto('/');
   await expect(page.locator('.dashboard-collections')).toHaveCount(0);
@@ -182,7 +181,7 @@ test("player plays, seeks and switches episodes with usable desktop and mobile c
   pcm.write('RIFF'); pcm.writeUInt32LE(pcm.length - 8, 4); pcm.write('WAVEfmt ', 8); pcm.writeUInt32LE(16, 16);
   pcm.writeUInt16LE(1, 20); pcm.writeUInt16LE(1, 22); pcm.writeUInt32LE(16000, 24); pcm.writeUInt32LE(32000, 28);
   pcm.writeUInt16LE(2, 32); pcm.writeUInt16LE(16, 34); pcm.write('data', 36); pcm.writeUInt32LE(pcm.length - 44, 40);
-  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/audio`, route => route.fulfill({ contentType: 'audio/wav', body: pcm }));
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/audio`, route => { const range=route.request().headers()['range']?.match(/bytes=(\d+)-(\d*)/);const start=range?Number(range[1]):0,end=range?.[2]?Math.min(Number(range[2]),pcm.length-1):pcm.length-1;return route.fulfill({status:range?206:200,contentType:'audio/wav',headers:{'Accept-Ranges':'bytes',...(range?{'Content-Range':`bytes ${start}-${end}/${pcm.length}`}:{})},body:pcm.subarray(start,end+1)}); });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`/podcasts/${podcastId}`);
   await expect(page.getByText('教材內容待核對', { exact: true })).toHaveCount(0);
@@ -260,7 +259,7 @@ test("podcast creation separates recommendations, selection and settings without
   await page.getByRole('button', { name: '開始生成 Podcast' }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts/${podcastId}$`));
   expect(body.concept_ids).toEqual([first.concept_id]); expect(body.delivery).toBe('solo'); expect(body.mode).toBe('full');
-  await expect(page.getByRole('navigation', { name: '教材學習內容' })).toBeVisible();
+  await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
 });
 
 test("saved dialogue transcripts keep roles and switch with the selected episode", async ({ page }) => {
@@ -313,6 +312,20 @@ test('synchronized scenes follow real media pause, seek and playback rate',async
  await page.getByRole('button',{name:'播放速度',exact:true}).click();await page.getByRole('button',{name:'2×',exact:true}).click();await page.getByRole('button',{name:'播放',exact:true}).click();await page.waitForTimeout(450);
  const actual=await page.locator('audio').evaluate((a:HTMLAudioElement)=>({time:a.currentTime,rate:a.playbackRate}));expect(actual.rate).toBe(2);expect(Math.abs(Number(await page.locator('.synced-scene').getAttribute('data-media-time'))-actual.time)).toBeLessThan(.25);
  await page.locator('.scene-sources summary').click();await expect.poll(()=>page.locator('audio').evaluate((a:HTMLAudioElement)=>a.paused)).toBe(true);
- await page.getByRole('button',{name:'播放速度',exact:true}).click();await page.getByRole('navigation',{name:'本集同步段落'}).getByRole('button').first().click();await expect(page.locator('.synced-scene')).toHaveAttribute('data-scene-index','0');
+ await page.getByRole('button',{name:'播放速度',exact:true}).click();await page.getByLabel('跳至同步段落').selectOption('0');await expect(page.locator('.synced-scene')).toHaveAttribute('data-scene-index','0');
  await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
+
+test('an intentional media pause does not display a playback failure',async({page})=>{
+ const fixture=await mockPodcasts(page);fixture.view.status='ready';fixture.view.completed_episodes=3;
+ for(const episode of fixture.view.episodes){episode.script=fixture.script;episode.audio=fixture.view.episodes[0].audio;}
+ const wav=Buffer.alloc(44+48000);wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(24000,24);wav.writeUInt32LE(48000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(wav.length-44,40);
+ await page.route(`**/v1/podcasts/${podcastId}/episodes/*/audio`,r=>r.fulfill({status:200,contentType:'audio/wav',body:wav}));
+ await page.goto(`/podcasts/${podcastId}`);await page.getByRole('button',{name:'播放',exact:true}).waitFor();
+ await page.locator('audio').evaluate((a:HTMLAudioElement)=>{a.play=()=>Promise.reject(new DOMException('intentional pause','AbortError'));});
+ await page.getByRole('button',{name:'播放',exact:true}).click();await page.waitForTimeout(150);
+ await expect(page.getByText('暫時無法播放，請按播放重試。')).toHaveCount(0);
+ await page.locator('audio').evaluate((a:HTMLAudioElement)=>{a.play=()=>Promise.reject(new DOMException('blocked playback','NotAllowedError'));});
+ await page.getByRole('button',{name:'播放',exact:true}).click();await expect(page.getByText('暫時無法播放，請按播放重試。')).toBeVisible();
 });

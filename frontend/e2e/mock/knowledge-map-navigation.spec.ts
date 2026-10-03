@@ -55,16 +55,15 @@ test("map tabs cycle and missing path references still fail the strict API contr
   const view = learningMap(8, true);
   await mockLearningMapApi(page, view, false);
   await page.goto(mapPath);
-  const tabs = page.getByRole("tablist", { name: "知識地圖檢視" }).getByRole("tab");
-  await expect(tabs).toHaveText(["概念地圖", "複習重點"]);
+  const tabs = page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab");
+  await expect(tabs).toHaveText(["概念地圖", "複習重點", "概念卡", "Podcast", "補充學習", "教材來源"]);
   await expect(page.getByRole("tab", { name: "學習順序", exact: true })).toHaveCount(0);
   await tabs.first().focus();
   for (const [key, name] of [
     ["ArrowRight", "複習重點"],
-    ["ArrowRight", "概念地圖"],
-    ["End", "複習重點"],
     ["Home", "概念地圖"],
-    ["ArrowLeft", "複習重點"],
+    ["ArrowRight", "複習重點"],
+    ["ArrowLeft", "概念地圖"],
   ]) {
     await page.keyboard.press(key);
     const selected = tabs.filter({ hasText: name });
@@ -89,7 +88,7 @@ test("sectionless concepts remain selectable through navigation", async ({ page 
   await page.goto(mapPath);
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
   await expect(page.getByRole("tab", { name: "總覽", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+  await expect(page.getByRole("tabpanel", { name: "概念地圖", exact: true })).toBeVisible();
   const toggle = page.getByRole("button", { name: "學習導覽", exact: true });
   await toggle.click();
   await expect(page.locator(".navigator-label")).toHaveText(["Stack", "Array"]);

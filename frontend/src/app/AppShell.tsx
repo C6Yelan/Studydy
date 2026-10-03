@@ -11,7 +11,7 @@ export function AppShell({
   route: AppRoute;
   accountAction?: React.ReactNode;
 }) {
-  const isLearningWorkspace = ["knowledge-map", "study-session", "material-content", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(route.name);
+  const isLearningWorkspace = ["knowledge-map", "study-session", "material-sources", "material-content", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(route.name);
   const isMaterialRoute = ["topics", "topic", "materials", "material-run", "material-sources", "material-content", "upload"].includes(route.name)
     || ("materialId" in route && !!route.materialId);
   const isCardsRoute = !isMaterialRoute && ["concept-cards", "card-set", "card-set-edit", "card-set-new"].includes(route.name);

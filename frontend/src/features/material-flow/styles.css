@@ -1334,8 +1334,6 @@
   }
 }
 
-.material-content-nav { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px; margin: 0 0 20px; }
-.material-content-nav button { min-height: 40px; padding: 8px 12px; font-size: 14px; }
 .material-content { width: 100%; min-height: calc(100dvh - 56px); padding: var(--space-4) var(--space-6); }
 .material-content-body { width: 100%; min-width: 0; }
 .material-content-body > .cards-page { max-width: none; }
@@ -1345,7 +1343,6 @@
 
 /* 內容總覽與地圖共用「頁籤 → 搜尋 → 資訊／建立」工具列順序。 */
 .collection-toolbar { flex-wrap: nowrap; gap: 16px; margin-bottom: 18px; }
-.collection-toolbar .material-content-nav { flex: 0 0 auto; flex-wrap: nowrap; margin: 0; }
 .is-collection .collection-toolbar .library-search { flex: 1; width: auto; min-width: 160px; max-width: 520px; margin: 0 auto 0 0; }
 .collection-toolbar .library-search input { height: 40px; min-height: 40px; padding: 8px 12px; }
 .collection-summary { flex: 0 0 auto; color: var(--text-secondary); font-size: 12px; }
@@ -1355,4 +1352,26 @@
   .collection-toolbar { flex-wrap: wrap; gap: 12px; }
   .is-collection .collection-toolbar .library-search { order: 3; flex-basis: 100%; max-width: none; }
   .collection-toolbar > button { margin-left: auto; }
+}
+
+.material-content.source-page > div > .cards-page-header { align-items:flex-start; margin-bottom:24px; }
+.material-content.source-page > div > .cards-page-header h1 { margin:0 0 10px; font-size:24px; }
+.material-content.source-page > div > .cards-page-header p { color:var(--text-secondary); font-size:14px; }
+.material-content.source-page > div > .cards-page-header .cards-material-name { margin-bottom:8px; font-size:13px; }
+
+/* 頁籤層級的搜尋固定在內容區上緣；各功能仍保有自己的搜尋狀態。 */
+.material-content .material-search-row,
+.map-workspace .material-search-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; gap:16px; min-height:40px; padding:0; margin:0; }
+.material-content .material-search-row :is(.library-search,.material-search),
+.map-workspace .material-search-row .map-search { position:relative; flex:1; min-width:0; width:auto; max-width:520px; margin:0 auto 0 0; }
+.material-content .material-search-row input[type=search],
+.map-workspace .material-search-row input[type=search] { display:block; width:100%; height:40px; min-height:40px; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-input); color:var(--text-primary); background:var(--surface); font:inherit; font-size:14px; }
+.material-content .material-search-row > button { min-height:40px; font-size:14px; }
+.source-picker-filters.is-external-search { display:flex; justify-content:flex-end; }
+.source-picker-filters.is-external-search select { width:150px; max-width:100%; }
+@media(max-width:900px) {
+ .material-content .material-search-row, .map-workspace .material-search-row { flex-wrap:wrap; gap:12px; }
+ .material-content .material-search-row :is(.library-search,.material-search), .map-workspace .material-search-row .map-search { order:0; flex:1 0 100%; max-width:none; }
+ .material-content .material-search-row .collection-summary { order:1; }
+ .material-content .material-search-row > button { order:2; margin-left:auto; }
 }

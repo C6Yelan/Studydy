@@ -4,6 +4,8 @@ import type { SourceListView, MaterialLibraryItem, FormatCapability } from "../.
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
+import { rememberMaterial } from "./material-memory";
+import { MaterialContentNav } from "./MaterialContentNav";
 import { MaterialRemoveControl } from "./MaterialRemoveControl";
 import { automaticPollIntervalMs, formatFileSize, validateSourceFile } from "./material-flow";
 
@@ -85,6 +87,7 @@ export function SourceView({
         ]);
         seenSources.current = new Set(sources.sources.map((source) => source.normalization_id));
         setSourceList(sources);
+        rememberMaterial(apiClient, item);
         setMaterial(item);
         setQueue((previous) => previous.filter((item) => !refreshedKeys.has(item.key)));
         for (const key of refreshedKeys) uploadedKeys.current.delete(key);
@@ -267,14 +270,17 @@ export function SourceView({
             .filter(Boolean)
             .join(" · ");
   return (
-    <section className="task-page source-page">
-      <header className="upload-hero">
-        <img src="/assets/studydy/upload-guide.png" alt="" />
+    <section className={currentStructure ? "material-content source-page" : "task-page source-page"}>
+      {currentStructure && <MaterialContentNav apiClient={apiClient} materialId={materialId} current="sources" mapRoute={{name:"knowledge-map",materialId,runId:currentStructure.run_id,structureRevision:currentStructure.knowledge_structure_revision}}/>}
+      <div role={currentStructure ? "tabpanel" : undefined} id={currentStructure ? "material-panel-sources" : undefined} aria-labelledby={currentStructure ? "material-tab-sources" : undefined}>
+      <header className={currentStructure ? "cards-page-header" : "upload-hero"}>
+        {!currentStructure && <img src="/assets/studydy/upload-guide.png" alt="" />}
         <div>
-          <h1>{currentStructure ? "新增教材" : "確認教材"}</h1>
+          <h1>{currentStructure ? "教材來源" : "確認教材"}</h1>
+          {currentStructure && <p className="cards-material-name"><Icon name="book" size={16}/>{material?.display_name}</p>}
           <p>
             {currentStructure
-              ? "追加來源，更新目前地圖並保留未變內容的學習進度。"
+              ? "查看這份教材的來源，或上傳檔案追加內容。"
               : "預覽教材內容、調整順序，確認後開始建立知識地圖。"}
           </p>
         </div>
@@ -299,7 +305,7 @@ export function SourceView({
             <header className="source-list-header">
               <div>
                 <h2 ref={heading} tabIndex={-1}>
-                  教材來源
+                  {currentStructure ? "來源檔案" : "教材來源"}
                 </h2>
                 <p>
                   {displayedSources.length + queue.length} 份
@@ -586,7 +592,7 @@ export function SourceView({
                       </button>
                     )
                   )}
-                  {run && !hasActiveRun && (
+                  {run && !hasActiveRun && !currentStructure && (
                     <button
                       className="text-button"
                       onClick={() =>
@@ -657,6 +663,7 @@ export function SourceView({
             </li>
           </ol>
         </aside>
+      </div>
       </div>
     </section>
   );

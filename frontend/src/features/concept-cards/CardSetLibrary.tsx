@@ -56,13 +56,15 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
   const filtered = sets?.filter((item) => `${item.name} ${item.material_name}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return (
     <section className="material-library is-collection cards-library" aria-label={material ? "教材概念卡" : "我的概念卡"}>
-      <header className="library-header library-header-compact collection-toolbar">
-        {contentNavigation}
-        <form className="library-search" role="search" onSubmit={e => e.preventDefault()}><input type="search" aria-label={material ? "搜尋卡組" : "搜尋卡組或教材"} placeholder={material ? "搜尋卡組…" : "搜尋卡組或教材…"} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Escape") e.preventDefault(); }} /></form>
-        <div className="collection-summary" ref={heading} tabIndex={-1}><p>{sets === null ? "正在讀取…" : `已保存 ${sets.length} 個卡組`}</p></div>
+      <header className={`library-header library-header-compact collection-toolbar${material ? " material-search-row" : ""}`}>
+          <form className="library-search" role="search" onSubmit={e => e.preventDefault()}><input type="search" aria-label={material ? "搜尋卡組" : "搜尋卡組或教材"} placeholder={material ? "搜尋卡組…" : "搜尋卡組或教材…"} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Escape") e.preventDefault(); }} /></form>
+        <div className="collection-summary" ref={heading} tabIndex={-1}><p>{sets === null ? "—" : `已保存 ${sets.length} 個卡組`}</p></div>
         <button className="primary-button" type="button" disabled={!!material && !structure} onClick={create}><Icon name="cards" /> 建立卡組</button>
       </header>
-      {error ? <StateView title="無法讀取卡組" description={error} tone="failure" action={<button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button>} />
+      {contentNavigation}
+      <div role={material ? "tabpanel" : undefined} id={material ? "material-panel-concept-cards" : undefined} aria-labelledby={material ? "material-tab-concept-cards" : undefined}>
+      {error && sets !== null && <p className="form-error" role="alert">無法更新卡組列表。{error}<button className="text-button" onClick={()=>setReload(value=>value+1)}>重新讀取</button></p>}
+      {error && sets === null ? <StateView title="無法讀取卡組" description={error} tone="failure" action={<button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button>} />
         : sets === null ? <StateView title="正在讀取卡組" description="正在載入你保存的概念卡。" tone="loading" live />
         : sets.length === 0 ? (
           <section className="library-empty surface" aria-label="空卡組引導"><div className="library-empty-illustration"><img src="/assets/studydy/empty-disappointed.png" alt="Studydy 坐在打開的空箱子旁" /></div><h2>收藏一組值得反覆看的重點</h2><p>選擇教材中的概念，建立你的第一組概念卡。</p><button className="primary-button" type="button" disabled={!!material && !structure} onClick={create}>{material ? "建立卡組" : "選擇教材"}</button></section>
@@ -88,6 +90,7 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
         {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
         <div className="state-actions"><button className="secondary-button" type="button" autoFocus disabled={busy} onClick={() => dialog.current?.close()}>取消</button><button className="primary-button cards-danger" type="button" disabled={busy} onClick={() => void remove()}>{busy ? "正在刪除…" : "確認刪除卡組"}</button></div>
       </dialog>}
+      </div>
     </section>
   );
 }
