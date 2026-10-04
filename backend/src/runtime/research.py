@@ -15,12 +15,12 @@ from .voice import provider
 ACTIVE=('searching','acquiring','normalizing')
 
 
-def _owned(db,owner,identity):
+def _owned(db,owner,identity,*,read=False):
     row=db.get(Research,identity)
     if not row or row.learner_id!=owner:raise SourceError('RESOURCE_NOT_FOUND')
-    material=_material(db,owner,row.material_id) if row.material_id else None
+    material=_material(db,owner,row.material_id,read=read) if row.material_id else None
     if not material:
-        scope=db.scalar(select(TopicScope).where(TopicScope.topic_id==row.topic_id,TopicScope.learner_id==owner).with_for_update())
+        scope=db.scalar(select(TopicScope).where(TopicScope.topic_id==row.topic_id,TopicScope.learner_id==owner).with_for_update(read=read))
         if not scope:raise SourceError('RESOURCE_NOT_FOUND')
     db.refresh(row)
     return row,material
@@ -51,13 +51,18 @@ def create(owner,material_id,query,mode,key,*,dsn=None):
 
 def listing(owner,material_id,*,dsn=None):
     with database_session(dsn) as db:
-        _material(db,owner,material_id)
-        return {'researches':[_view(r) for r in db.scalars(select(Research).where(Research.material_id==material_id).order_by(Research.created_at.desc()))]}
+        _material(db,owner,material_id,read=True)
+        # 搜尋紀錄選單只需摘要；候選、下載與授權全文由單筆讀取取得。
+        columns=(Research.research_id,Research.query,Research.mode,Research.status,
+            Research.selection,Research.error_code,Research.run_id,Research.created_at)
+        rows=db.execute(select(*columns).where(Research.learner_id==owner,
+            Research.material_id==material_id).order_by(Research.created_at.desc())).mappings().all()
+        return {'researches':[dict(row) for row in rows]}
 
 
 def read(owner,identity,*,dsn=None):
     with database_session(dsn) as db:
-        row,material=_owned(db,owner,identity)
+        row,material=_owned(db,owner,identity,read=True)
         value=_view(row);value['is_current_revision']=row.base_revision==material.head_revision if material else None
         if row.run_id:
             run=db.get(MaterialProcessingRun,row.run_id)

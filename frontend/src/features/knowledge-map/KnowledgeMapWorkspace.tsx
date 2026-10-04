@@ -885,6 +885,7 @@ export function KnowledgeMapWorkspace({
   isStartingStudy,
   onReturnToRun,
   mapRoute,
+  materialName,
   onStartStudy,
   startMessage,
   view,
@@ -898,6 +899,7 @@ export function KnowledgeMapWorkspace({
   isStartingStudy: boolean;
   onReturnToRun: () => void;
   mapRoute: Extract<AppRoute, { name: "knowledge-map" }>;
+  materialName: string;
   onStartStudy: (conceptId: string) => void;
   startMessage: string | null;
   view: KnowledgeStructureView;
@@ -1194,7 +1196,7 @@ export function KnowledgeMapWorkspace({
           {startMessage}
         </p>
       )}
-      <MaterialContentNav apiClient={apiClient} materialId={mapRoute.materialId} mapRoute={mapRoute} current={mode === "review" ? "review" : "knowledge-map"} onMapModeChange={selectMode} onMapTabRef={(id, element) => { if (element) tabs.current.set(id, element); else tabs.current.delete(id); }}/>
+      <MaterialContentNav apiClient={apiClient} materialId={mapRoute.materialId} mapRoute={mapRoute} materialName={materialName} current={mode === "review" ? "review" : "knowledge-map"} onMapModeChange={selectMode} onMapTabRef={(id, element) => { if (element) tabs.current.set(id, element); else tabs.current.delete(id); }}/>
       {view.excluded_pages.length > 0 && (
         <p className="form-error" role="status">
           第 {view.excluded_pages.map((item) => item.page).join("、")}{" "}

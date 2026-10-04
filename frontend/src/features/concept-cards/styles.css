@@ -100,6 +100,7 @@
   .cards-create-footer { position: sticky; bottom: 0; z-index: 2; margin-inline: -18px; border-radius: 0; padding: 14px 18px; box-shadow: 0 -4px 18px #233b5c08; }
   .cards-create-footer span { display: none; }
   .cards-create-footer .primary-button { font-size: 13px; }
+  .material-content .cards-create-footer { margin-inline:-12px; padding-inline:12px; }
   .cards-study-heading h1 { font-size: 23px; }
   .cards-study-heading { align-items: flex-start; }
   .cards-study-stage { margin-top: 24px; }

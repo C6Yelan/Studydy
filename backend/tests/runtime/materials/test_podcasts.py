@@ -90,6 +90,16 @@ def test_persistent_script_audio_retry_and_idempotency(closed_loop):
         assert db.execute("SELECT count(*) FROM artifacts WHERE kind='podcast_audio'").fetchone() == (1,)
 
 
+def test_podcast_read_shares_material_lock(closed_loop):
+    owner,source,_,_,dsn,_=closed_loop
+    identity=create(closed_loop)['podcast_id']
+    with database_session(dsn) as db:
+        db.scalar(select(Material).where(Material.material_id==source.material_id).with_for_update(read=True))
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            view=pool.submit(podcasts.read_podcast,owner.learner_id,identity,dsn=dsn).result(timeout=2)
+    assert view['podcast_id']==identity
+
+
 def test_cancel_expired_lease_and_delete_fence_late_results(closed_loop):
     owner, _, _, _, dsn, _ = closed_loop
     identity = create(closed_loop)["podcast_id"]

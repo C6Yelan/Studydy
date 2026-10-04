@@ -84,12 +84,12 @@ def create_podcast(owner, material_id, revision, name, concept_ids, mode, key, *
         return _summary(row, material)
 
 
-def _locked(db, owner, identity, *, allow_deleted=False):
+def _locked(db, owner, identity, *, allow_deleted=False, read=False):
     material_id = db.scalar(select(Podcast.material_id).where(
         Podcast.podcast_id == identity, Podcast.learner_id == owner))
     if material_id is None:
         raise PodcastError("RESOURCE_NOT_FOUND")
-    material = _material(db, owner, material_id)
+    material = _material(db, owner, material_id, read=read)
     row = db.get(Podcast, identity, populate_existing=True)
     if row is None or (row.status == "deleted" and not allow_deleted):
         raise PodcastError("RESOURCE_NOT_FOUND")
@@ -107,7 +107,7 @@ def list_podcasts(owner, *, dsn=None):
 
 def read_podcast(owner, identity, *, dsn=None):
     with database_session(dsn) as db:
-        row, material = _locked(db, owner, identity)
+        row, material = _locked(db, owner, identity, read=True)
         document = _read_verified_document(db, owner, row.material_id,
             revision=row.knowledge_structure_revision)
         view = _view(document, row.material_id)

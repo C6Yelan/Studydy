@@ -66,7 +66,7 @@ function CardStudy({ view, apiClient, materialId }: { view: CardSetView; apiClie
   };
   return <section className="cards-page cards-study" onKeyDown={keys}>
     <button className="cards-back text-button" type="button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" })}><Icon name="arrow-left" size={17} /> 返回卡組</button>
-    <header className="cards-study-heading"><div><span className="cards-eyebrow">概念卡複習</span><h1>{view.name}</h1><p><Icon name="book" size={15} /> {view.material_name}</p></div><div className="state-actions"><span className="deck-count">{view.card_count} 張卡片</span></div></header>
+    <header className="cards-study-heading"><div><span className="cards-eyebrow">概念卡複習</span><h1>{view.name}</h1>{!materialId && <p><Icon name="book" size={15} /> {view.material_name}</p>}</div><div className="state-actions"><span className="deck-count">{view.card_count} 張卡片</span></div></header>
     {!view.is_current_revision && <p className="cards-notice">教材已有新版。此卡組保留建立時的教材內容與來源。</p>}
     <section ref={stage} tabIndex={-1} className="cards-study-stage" aria-label={finished ? "本輪瀏覽完成" : `第 ${position + 1} 張概念卡`}>
       {finished ? <div className="cards-complete"><span className="cards-empty-icon"><Icon name="check" size={36} /></span><h2>已瀏覽全部卡片</h2><p>這一輪看過了 {view.card_count} 張概念卡。想再回顧一次嗎？</p><div className="state-actions"><button className="primary-button" type="button" onClick={() => restart(false)}>再看一次</button><button className="secondary-button" type="button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" })}>返回卡組</button></div></div>

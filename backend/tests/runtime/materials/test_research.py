@@ -6,6 +6,7 @@ from sqlalchemy import select
 from product_fixtures import closed_loop
 from sources.test_source_revisions import revisions,pdf
 from runtime import research,voice
+from runtime.card_sets import CardSetError
 from runtime.source_normalization import SourceError,normalize_next
 from runtime.storage.tables import MaterialResearch,MaterialSource,Material,database_session
 from runtime.storage.knowledge_structures import read_knowledge_structure
@@ -89,6 +90,24 @@ def test_more_results_preserve_selection_and_reject_unlicensed(closed_loop,monke
     research.step(dsn=dsn)
     assert len(research.read(owner,identity,dsn=dsn)['candidates'])==2
     with pytest.raises(SourceError,match='REQUEST_INVALID'):research.action(owner,identity,'acquire',['unlicensed'],dsn=dsn)
+
+
+def test_research_history_is_a_summary_and_reads_share_material_lock(closed_loop,monkeypatch):
+    learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
+    mock_search(monkeypatch)
+    identity=research.create(owner,source.material_id,'queue','review','r',dsn=dsn)['research_id']
+    research.step(dsn=dsn)
+    with database_session(dsn) as db:
+        db.scalar(select(Material).where(Material.material_id==source.material_id).with_for_update(read=True))
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            history=pool.submit(research.listing,owner,source.material_id,dsn=dsn).result(timeout=2)
+            detail=pool.submit(research.read,owner,identity,dsn=dsn).result(timeout=2)
+    assert history['researches'][0]['research_id']==identity
+    assert history['researches'][0]['query']=='queue'
+    assert 'candidates' not in history['researches'][0]
+    assert detail['candidates'][0]['license']=='cc-by'
+    with pytest.raises(CardSetError,match='RESOURCE_NOT_FOUND'):
+        research.listing(uuid4(),source.material_id,dsn=dsn)
 
 
 def test_waiting_normalization_does_not_starve_new_search(closed_loop,monkeypatch):

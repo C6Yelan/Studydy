@@ -77,7 +77,7 @@ async function openSavedCardManagement(page: Page) {
 test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete work", async ({ page }) => {
   const fixture = await mockCards(page);
   await page.goto(mapPath);
-  await page.getByRole("navigation", { name: "教材學習內容" }).getByRole("button", { name: "概念卡", exact: true }).click();
+  await page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab", { name: "概念卡", exact: true }).click();
   await page.locator(".library-header").getByRole("button", { name: "建立卡組", exact: true }).click();
   await expect(page.getByRole("heading", { name: "建立概念卡組" })).toBeVisible();
   await page.getByLabel("卡組名稱", { exact: true }).fill("我的資料結構卡組");
@@ -376,12 +376,12 @@ test("late card save and source read do not reopen a page after navigation", asy
   const saving = page.waitForRequest((r) => r.url().endsWith("/card-sets") && r.method() === "POST");
   await page.getByRole("button", { name: "保存並開始複習" }).click();
   await saving;
-  await page.getByRole("button", { name: "教材庫", exact: true }).click();
+  await page.getByRole("button", { name: "我的教材", exact: true }).click();
   const saved = page.waitForResponse((r) => r.url().endsWith("/card-sets") && r.request().method() === "POST");
   releaseSave();
   await saved;
   await expect(page).toHaveURL(/\/materials$/);
-  await page.getByRole("button", { name: "概念卡", exact: true }).click();
+  await page.getByLabel("資料結構講義.pdf", { exact: true }).getByRole("button", { name: "概念卡", exact: true }).click();
   await page.getByRole("button", { name: "開始複習", exact: true }).click();
   await page.getByRole("button", { name: "翻面", exact: true }).click();
   await page.getByText("查看來源", { exact: true }).click();
@@ -395,7 +395,8 @@ test("late card save and source read do not reopen a page after navigation", asy
   const sourceRead = page.waitForResponse("**/evidence/*/source");
   releaseSource();
   await sourceRead;
-  await expect(page.getByRole("heading", { name: "我的概念卡", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards$`));
+  await expect(page.locator('.library-grid')).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
@@ -474,9 +475,9 @@ test("saved card views and editing stay inside the material workspace from eithe
   await page.getByRole('button', { name: '開始複習', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}$`));
   await expect(page.locator('.app-sidebar')).toHaveCount(0);
-  const tabs = page.getByRole('navigation', { name: '教材學習內容' });
+  const tabs = page.getByRole('tablist', { name: '教材學習內容' });
   await expect(tabs).toBeVisible();
-  await expect(tabs.getByRole('button', { name: '概念卡', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(tabs.getByRole('tab', { name: '概念卡', exact: true })).toHaveAttribute('aria-selected', 'true');
   await openSavedCardManagement(page);
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}/edit$`));
   await expect(tabs).toBeVisible();

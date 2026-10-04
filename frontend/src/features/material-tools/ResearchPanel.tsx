@@ -7,6 +7,8 @@ import { SourceCandidates, sourceReasons as reasons, type Candidate } from './So
 
 export type ResearchDraft = { query: string; researchId: string | null; selected: string[]; editing: boolean; sourceQuery: string };
 
+type ResearchSummary = { research_id: string; query: string; selection: string[]; status: string; run_id: string | null };
+
 export type Research = {
   research_id: string; query: string; mode: string; status: string; candidates: Candidate[];
   selection: string[]; cursor: string | null; error_code: string | null; run_id: string | null;
@@ -19,13 +21,13 @@ const labels: Record<string, string> = {
   failed: '部分來源尚未完成', cancelled: '已停止處理',
 };
 
-export function ResearchPanel({ api, materialId, draft, onDraftChange, onMaterialUpdated, contentNavigation, materialName }: {
-  api: StudydyApiClient; materialId: string; draft?: ResearchDraft; onDraftChange?: (draft: ResearchDraft) => void; onMaterialUpdated: () => void; contentNavigation?: ReactNode; materialName?: string;
+export function ResearchPanel({ api, materialId, draft, onDraftChange, onMaterialUpdated, contentNavigation }: {
+  api: StudydyApiClient; materialId: string; draft?: ResearchDraft; onDraftChange?: (draft: ResearchDraft) => void; onMaterialUpdated: () => void; contentNavigation?: ReactNode;
 }) {
   const [query, setQuery] = useState(draft?.query ?? '');
   const [sourceQuery, setSourceQuery] = useState(draft?.sourceQuery ?? '');
   const mode = 'review';
-  const [list, setList] = useState<Research[]>([]), [id, setId] = useState<string | null>(draft?.researchId ?? null);
+  const [list, setList] = useState<ResearchSummary[]>([]), [id, setId] = useState<string | null>(draft?.researchId ?? null);
   const [view, setView] = useState<Research | null>(null), [selected, setSelected] = useState<string[]>(draft?.selected ?? []);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [confirmed, setConfirmed] = useState(false), [editing, setEditing] = useState(draft?.editing ?? false);
@@ -34,7 +36,7 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
   const alive = useRef(true), current = useRef<string | null>(null);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const refresh = async () => {
-    const r = await api.studyTools<{ researches: Research[] }>(`/v1/materials/${materialId}/research`);
+    const r = await api.studyTools<{ researches: ResearchSummary[] }>(`/v1/materials/${materialId}/research`);
     if (alive.current) setList(r.researches);
   };
   useEffect(() => { void refresh().catch(e => { if (alive.current) setError(errorMessage(e)); }); }, [api, materialId]);
@@ -65,7 +67,7 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
   });
   const choose = (nextId: string) => {
     const r = list.find(x => x.research_id === nextId);
-    setId(nextId || null); setSelected(r?.selection ?? []); setConfirmed(false); setEditing(false); setError(''); setSourceQuery('');
+    setId(nextId || null); setSelected(r?.selection ?? []); setConfirmed(false); setEditing(false); setError(''); setSourceQuery(''); setQuery(r?.query??'');
   };
   const working = busy || !!view && active.has(view.status);
   const submitted = view?.status === 'submitted';
@@ -89,21 +91,21 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
   });
   return <section className="cards-page supplementary-page">
     <header className="material-search-row">
-      <form className="material-search" role="search" onSubmit={event => { event.preventDefault(); if (!id && query.trim() && !busy) void searchMaterials(); }}>
-        <input type="search" aria-label={id ? "搜尋來源" : "想多了解什麼？"} placeholder={id ? "搜尋來源名稱或作者…" : "輸入想補充的內容…"} maxLength={id ? undefined : 1000} value={id ? sourceQuery : query} onChange={event => id ? setSourceQuery(event.target.value) : setQuery(event.target.value)}/>
+      <form className="material-search" role="search" onSubmit={event => { event.preventDefault(); if (query.trim() && !busy) void searchMaterials(); }}>
+        <input type="search" aria-label="想多了解什麼？" placeholder="輸入想補充的內容…" maxLength={1000} value={query} onChange={event => setQuery(event.target.value)}/>
       </form>
-      {!id && <button className="primary-button" disabled={busy || !query.trim()} onClick={()=>void searchMaterials()}>{busy ? '正在建立搜尋…' : '搜尋補充資料'}<Icon name="chevron-right" size={16}/></button>}
+      <button className="primary-button" disabled={busy || !query.trim()} onClick={()=>void searchMaterials()}>{busy ? '正在建立搜尋…' : '搜尋補充資料'}<Icon name="chevron-right" size={16}/></button>
     </header>
     {contentNavigation}
     <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
-    <header className="cards-page-header"><div><h1>補充學習</h1>{materialName && <p className="cards-material-name"><Icon name="book" size={16}/>{materialName}</p>}</div></header>
-    <div className="tool-history-bar">
+    <header className="cards-page-header"><div><h1>補充學習</h1></div></header>
+    {list.length > 0 && <details className="research-history"><summary>查看先前的搜尋 · {list.length} 筆</summary><div className="tool-history-bar">
       <label className="tool-field">已保存的搜尋<select aria-label="已保存的搜尋" value={id ?? ''} disabled={busy} onChange={e => choose(e.target.value)}>
         <option value="">新的補充搜尋</option>{list.map(r => <option key={r.research_id} value={r.research_id}>{r.query}</option>)}
       </select></label>
       {id && <button className="secondary-button" disabled={busy} onClick={() => choose('')}>新搜尋</button>}
-    </div>
-    <LearningSteps labels={['搜尋資料', '選取來源', '加入教材']} current={submitted ? 3 : canConfirm ? 2 : id && view?.status !== 'searching' ? 1 : 0} />
+    </div></details>}
+    {id && <LearningSteps labels={['搜尋資料', '選取來源', '加入教材']} current={submitted ? 3 : canConfirm ? 2 : view?.status !== 'searching' ? 1 : 0} />}
     {error && <p role="alert" className="form-error">{error}</p>}
     {!id ? <section className="tool-stage">
       <h3>想補充什麼內容？</h3><p className="tool-description">在上方輸入需求，搜尋學術論文與官方教學，再選擇要加入的來源。</p>
@@ -120,7 +122,7 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
       {view.status === 'searching' && <div className="tool-wait" role="status"><span className="loading-ring" /><p>正在尋找論文與官方教學，搜尋結果會保存在這裡。</p></div>}
       {canConfirm && <div className="tool-selection-heading"><h4>確認加入的來源 · {selected.length} 份</h4><button className="text-button" disabled={busy} onClick={() => { setEditing(true); setConfirmed(false); }}>調整來源</button></div>}
       {submitted && <h4 className="tool-section-label">已加入的來源 · {view.selection.length} 份</h4>}
-      {displayed.length > 0 && <SourceCandidates candidates={displayed} selected={selected} disabled={working || submitted} readOnly={showSelected} search={{value:sourceQuery,onChange:setSourceQuery}} onChange={ids => { setSelected(ids); setConfirmed(false); }} />}
+      {displayed.length > 0 && <SourceCandidates candidates={displayed} selected={selected} disabled={working || submitted} readOnly={showSelected} search={{value:sourceQuery,onChange:setSourceQuery}} inlineSearch onChange={ids => { setSelected(ids); setConfirmed(false); }} />}
       {!view.candidates.length && !active.has(view.status) && <p className="tool-empty">沒有找到來源。可以換個主題或英文關鍵字再搜尋。</p>}
       {!submitted && view.status !== 'searching' && <details className="tool-search-info"><summary>搜尋範圍與授權</summary><p>僅搜尋學術論文與官方教學；目前官方教學來源為 Python 官方文件與 MDN Web Docs。未確認全文授權的來源可以查看，但無法自動加入教材。</p></details>}
       {canConfirm && <div className="research-confirm"><p>加入後會更新教材與知識地圖，<strong>無法撤回新增內容</strong>。</p><label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />我了解加入後不可逆</label></div>}

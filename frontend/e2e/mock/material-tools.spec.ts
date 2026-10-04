@@ -36,14 +36,14 @@ test('research preserves arbitrary source selection and requires irreversible co
  await page.route(`**/v1/research/${cid}`,r=>json(r,value));
  await page.route(`**/v1/research/${cid}/actions`,r=>{const b=r.request().postDataJSON();expect(b.selected).toHaveLength(5);value={...value,status:'ready',selection:b.selected,candidates:candidates.map(c=>({...c,state:'ready'}))};return json(r,value);});
  let submits=0;await page.route(`**/v1/research/${cid}/submit`,r=>{expect(r.request().postDataJSON()).toEqual({confirmed:true});submits++;value={...value,status:'submitted',run_id:runId};return json(r,value,202);});
- await page.goto(mapPath);await page.getByRole('tab',{name:'補充學習',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/research$`));await expect(page.getByRole('dialog',{name:'補充學習'})).toHaveCount(0);await page.getByLabel('已保存的搜尋').selectOption(cid);
+ await page.goto(mapPath);await page.getByRole('tab',{name:'補充學習',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/research$`));await expect(page.getByRole('dialog',{name:'補充學習'})).toHaveCount(0);await page.getByText(/查看先前的搜尋 ·/).click();await page.getByLabel('已保存的搜尋').selectOption(cid);
  await page.getByRole('button',{name:'全選可用來源'}).click();
  await page.getByRole('tablist',{name:'教材學習內容'}).getByRole('tab',{name:'概念地圖',exact:true}).click();await expect(page.locator('.research-panel')).toHaveCount(0);
  await page.getByRole('tab',{name:'補充學習',exact:true}).click();await expect(page.getByLabel('已保存的搜尋')).toHaveValue(cid);await expect(page.locator('.research-candidates input:checked')).toHaveCount(5);
- await page.getByLabel('搜尋來源',{exact:true}).fill('官方教材 3');await expect(page.locator('.research-candidates article')).toHaveCount(1);await expect(page.getByText('已選 5 份',{exact:true})).toBeVisible();await page.getByLabel('搜尋來源',{exact:true}).clear();
+ await page.getByLabel('篩選來源',{exact:true}).fill('官方教材 3');await expect(page.locator('.research-candidates article')).toHaveCount(1);await expect(page.getByText('已選 5 份',{exact:true})).toBeVisible();await page.getByLabel('篩選來源',{exact:true}).clear();await expect(page.getByLabel('想多了解什麼？',{exact:true})).toHaveValue('網路通訊');
  await page.getByRole('button',{name:'取得選取的 5 份來源'}).click();
  await expect(page.getByRole('button',{name:'確認加入教材'})).toBeDisabled();await expect(page.getByText('無法撤回新增內容')).toBeVisible();expect(submits).toBe(0);
- await page.getByLabel('我了解加入後不可逆').check();await page.getByRole('button',{name:'確認加入教材'}).click();await expect(page.getByRole('button',{name:'查看教材分析'})).toBeVisible();await expect(page.getByRole('button',{name:'搜尋補充資料'})).toHaveCount(0);await expect(page.getByRole('button',{name:'全選可用來源'})).toHaveCount(0);expect(submits).toBe(1);await page.getByRole('button',{name:'查看教材分析'}).click();await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
+ await page.getByLabel('我了解加入後不可逆').check();await page.getByRole('button',{name:'確認加入教材'}).click();await expect(page.getByRole('button',{name:'查看教材分析'})).toBeVisible();await expect(page.getByRole('button',{name:'搜尋補充資料'})).toBeVisible();await expect(page.getByRole('button',{name:'全選可用來源'})).toHaveCount(0);expect(submits).toBe(1);await page.getByRole('button',{name:'查看教材分析'}).click();await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
 });
 
 test('closing a conversation releases every private audio element',async({page})=>{
@@ -90,7 +90,7 @@ test('completed supplementation refreshes the map tab to the current material he
  await page.route(`**/v1/materials/${materialId}`,r=>{reads++;return json(r,{schema:'material-library-item/v1',material_id:materialId,source_artifact_id:artifactId,display_name:'測試教材',size_bytes:100,created_at:'2026-10-04T00:00:00Z',head_revision:reads>1?nextRevision:structureRevision,latest_attempt:null,study_sessions:[],available_structures:[{run_id:runId,knowledge_structure_revision:structureRevision,created_at:'2026-10-04T00:00:00Z',status:'succeeded'},{run_id:nextRun,knowledge_structure_revision:nextRevision,created_at:'2026-10-04T00:00:00Z',status:'partial'}]});});
  const work={research_id:cid,query:'已完成補充',mode:'review',status:'submitted',candidates:[],selection:[],cursor:null,error_code:null,run_id:nextRun,run:{status:'partial',error_code:null}};
  await page.route('**/v1/materials/*/research',r=>json(r,{researches:[work]}));await page.route(`**/v1/research/${cid}`,r=>json(r,work));
- await page.goto(`/materials/${materialId}/research`);await page.getByLabel('已保存的搜尋').selectOption(cid);await expect.poll(()=>reads).toBeGreaterThanOrEqual(2);
+ await page.goto(`/materials/${materialId}/research`);await page.getByText(/查看先前的搜尋 ·/).click();await page.getByLabel('已保存的搜尋').selectOption(cid);await expect.poll(()=>reads).toBeGreaterThanOrEqual(2);
  await page.getByRole('tablist',{name:'教材學習內容'}).getByRole('tab',{name:'概念地圖',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/runs/${nextRun}/knowledge-structures/${encodeURIComponent(nextRevision)}$`));
 });
 
@@ -114,14 +114,25 @@ test('material search fields stay at one anchor across tabs on desktop and mobil
  await page.route('**/v1/card-sets',r=>json(r,{schema:'card-set-list/v1',card_sets:[]}));
  await page.route('**/v1/podcasts',r=>json(r,{schema:'podcast-list/v1',podcasts:[]}));
  await page.route('**/v1/materials/*/research',r=>json(r,{researches:[]}));
+ await page.route(`**/v1/materials/${materialId}/sources`,r=>json(r,{schema:'material-sources/v1',material_id:materialId,sources:[],discard_requested:false}));
  for(const width of [1440,390]){
-  await page.setViewportSize({width,height:844});await page.goto(mapPath);const anchor=await page.getByLabel('搜尋概念或關鍵字',{exact:true}).boundingBox();expect(anchor).not.toBeNull();
-  for(const [tab,label] of [['複習重點','搜尋概念或關鍵字'],['概念卡','搜尋卡組'],['Podcast','搜尋 Podcast'],['補充學習','想多了解什麼？']]){
+  await page.setViewportSize({width,height:844});await page.goto(mapPath);const anchor=await page.getByLabel('搜尋概念或關鍵字',{exact:true}).boundingBox();expect(anchor).not.toBeNull();const nav=await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox();expect(nav).not.toBeNull();
+  for(const [tab,label] of [['複習重點','搜尋概念或關鍵字'],['概念卡','搜尋卡組'],['Podcast','搜尋 Podcast'],['補充學習','想多了解什麼？'],['教材來源','搜尋教材來源']]){
    await page.getByRole('tab',{name:tab,exact:true}).click();await page.getByLabel(label,{exact:true}).waitFor();const box=await page.getByLabel(label,{exact:true}).boundingBox();expect(box).not.toBeNull();
    for(const field of ['x','y','width','height'] as const)expect(Math.abs(box![field]-anchor![field])).toBeLessThanOrEqual(1);
+   const currentNav=await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox();expect(Math.abs(currentNav!.y-nav!.y)).toBeLessThanOrEqual(1);
   }
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  }
+});
+
+test('published sources filter files without idle update steps and keep upload errors visible',async({page})=>{
+ await mockKnowledgeMapApi(page,structureView());
+ const names=['甲教材.pdf','乙教材.pdf'];
+ await page.route(`**/v1/materials/${materialId}/sources`,r=>json(r,{schema:'material-sources/v1',material_id:materialId,discard_requested:false,sources:names.map((name,i)=>({source_id:`${i+1}1111111-1111-4111-8111-111111111111`,normalization_id:`${i+1}2222222-2222-4222-8222-222222222222`,original_artifact_id:artifactId,original_name:name,media_type:'application/pdf',status:'ready',attempt:1,page_count:2,included:true,error_code:null,normalized_artifact_id:artifactId}))}));
+ await page.goto(`/materials/${materialId}/sources`);await expect(page.locator('.material-context')).toBeVisible();await expect(page.locator('.source-guide')).toHaveCount(0);await expect(page.locator('.source-list-footer')).toHaveCount(0);
+ await page.getByLabel('搜尋教材來源',{exact:true}).fill('乙');await expect(page.locator('.source-row')).toHaveCount(1);await expect(page.locator('.source-row .source-number')).toHaveText('2');
+ await page.getByLabel('選擇新增教材',{exact:true}).setInputFiles({name:'unsupported.exe',mimeType:'application/octet-stream',buffer:Buffer.from('fixture')});await expect(page.locator('#source-selection-error')).toBeVisible();await expect(page.locator('.source-row')).toHaveCount(1);
 });
 
 

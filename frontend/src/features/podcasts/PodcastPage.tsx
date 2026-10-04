@@ -77,7 +77,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   return <section className="cards-page podcast-page">{back}
     <header className="cards-page-header"><div>
       <h1>{view.name}</h1>
-      <p className="cards-material-name"><Icon name="book" size={16} />{view.material_name}</p>
+      {!materialId && <p className="cards-material-name"><Icon name="book" size={16} />{view.material_name}</p>}
     </div></header>
     {actionError && <p className="form-error" role="alert">{actionError}</p>}
     {!view.is_current_revision && <p className="podcast-meta-note">依建立時的教材版本保存</p>}

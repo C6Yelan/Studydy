@@ -22,12 +22,12 @@ export function MaterialContent({ apiClient, learnerId, materialId, kind, childr
     return () => { cancelled = true; };
   }, [apiClient, materialId, reload]);
   const structure = material?.available_structures.find(s => s.knowledge_structure_revision === material.head_revision) ?? material?.available_structures[0];
-  const navigation = <MaterialContentNav apiClient={apiClient} materialId={materialId} current={kind} mapRoute={structure ? { name: "knowledge-map", materialId, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision } : null} />;
+  const navigation = <MaterialContentNav apiClient={apiClient} materialId={materialId} current={kind} materialName={material?.display_name} mapRoute={structure ? { name: "knowledge-map", materialId, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision } : null} />;
   return <section className="material-content">
     {error || !material ? <StateView title={error ? "無法讀取教材" : "正在讀取教材"} description={error ?? "正在載入此教材的學習內容。"} tone={error ? "failure" : "loading"} live={!error}
       action={error ? <button type="button" className="secondary-button" onClick={() => setReload(v => v + 1)}>重新讀取</button> : undefined} /> : <>
       {children != null && navigation}
-      <div className="material-content-body">{children != null ? <div role="tabpanel" id={`material-panel-${kind}`} aria-labelledby={`material-tab-${kind}`}>{children}</div> : kind === "research" ? <ResearchPanel api={apiClient} materialId={materialId} materialName={material.display_name} contentNavigation={navigation} draft={researchDraft} onDraftChange={onResearchDraftChange} onMaterialUpdated={()=>setReload(value=>value+1)}/> : kind === "podcasts" ? <PodcastLibrary apiClient={apiClient} learnerId={learnerId} material={material} contentNavigation={navigation}/> : <CardSetLibrary apiClient={apiClient} material={material} contentNavigation={navigation}/>}</div>
+      <div className="material-content-body">{children != null ? <div role="tabpanel" id={`material-panel-${kind}`} aria-labelledby={`material-tab-${kind}`}>{children}</div> : kind === "research" ? <ResearchPanel api={apiClient} materialId={materialId} contentNavigation={navigation} draft={researchDraft} onDraftChange={onResearchDraftChange} onMaterialUpdated={()=>setReload(value=>value+1)}/> : kind === "podcasts" ? <PodcastLibrary apiClient={apiClient} learnerId={learnerId} material={material} contentNavigation={navigation}/> : <CardSetLibrary apiClient={apiClient} material={material} contentNavigation={navigation}/>}</div>
     </>}
   </section>;
 }

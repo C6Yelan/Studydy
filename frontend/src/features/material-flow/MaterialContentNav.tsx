@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import type { StudydyApiClient } from "../../api/client";
+import { Icon } from "../../ui/Icon";
 import { MaterialTools } from "../material-tools/MaterialTools";
 
 type Mode = "focus" | "review";
@@ -13,11 +14,11 @@ const items: { id: Content; label: string }[] = [
 const tabId = (id: Content) => id === "knowledge-map" ? "map-tab-focus" : id === "review" ? "map-tab-review" : `material-tab-${id}`;
 const panelId = (id: Content) => id === "knowledge-map" ? "map-panel-focus" : id === "review" ? "map-panel-review" : `material-panel-${id}`;
 
-export function MaterialContentNav({ apiClient, materialId, mapRoute, current, onMapModeChange, onMapTabRef }: {
+export function MaterialContentNav({ apiClient, materialId, mapRoute, current, onMapModeChange, onMapTabRef, materialName }: {
   apiClient: StudydyApiClient; materialId: string;
   mapRoute: Extract<AppRoute, { name: "knowledge-map" }> | null; current: Content;
   onMapModeChange?: (mode: Mode) => void;
-  onMapTabRef?: (mode: Mode, element: HTMLButtonElement | null) => void;
+  onMapTabRef?: (mode: Mode, element: HTMLButtonElement | null) => void; materialName?: string;
 }) {
   const navigation = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -50,7 +51,7 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
       writeRoute(route, false, { focusMaterialTab: keyboard });
     }
   };
-  return <div className="material-learning-toolbar">
+  return <><div className="material-learning-toolbar">
     <div ref={navigation} className="material-content-nav map-tabs" role="tablist" aria-label="教材學習內容">
       {items.map((item, index) => <button key={item.id} type="button" id={tabId(item.id)} role="tab" aria-selected={current === item.id} aria-controls={panelId(item.id)}
         className={current === item.id ? "is-active" : undefined} tabIndex={current === item.id ? 0 : -1} disabled={!mapRoute && item.id !== "sources"}
@@ -66,5 +67,5 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
         }}>{item.label}</button>)}
     </div>
     <MaterialTools api={apiClient} materialId={materialId} />
-  </div>;
+  </div>{materialName && <div className="material-context" aria-label="目前教材"><Icon name="book" size={15}/><span>{materialName}</span></div>}</>;
 }

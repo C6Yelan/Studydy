@@ -18,9 +18,9 @@ export const sourceReasons: Record<string, string> = {
 };
 const states: Record<string, string> = { normalizing: '轉換中', ready: '已取得', failed: '取得失敗' };
 
-export function SourceCandidates({ candidates, selected, disabled, onChange, readOnly = false, search }: {
+export function SourceCandidates({ candidates, selected, disabled, onChange, readOnly = false, search, inlineSearch = false }: {
   candidates: Candidate[]; selected: string[]; disabled: boolean;
-  onChange: (ids: string[]) => void; readOnly?: boolean; search?: { value: string; onChange: (value: string) => void };
+  onChange: (ids: string[]) => void; readOnly?: boolean; inlineSearch?: boolean; search?: { value: string; onChange: (value: string) => void };
 }) {
   const [localQuery, setLocalQuery] = useState('');
   const query = search?.value ?? localQuery;
@@ -31,18 +31,18 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
     (kind === 'all' || c.kind === kind) && (!onlySelected || selected.includes(c.id)) &&
     `${c.title} ${c.authors}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <div className={`source-picker${readOnly ? ' is-readonly' : ''}`}>
-    {!readOnly && <>
-      <div className={`source-picker-filters${search ? " is-external-search" : ""}`}>
-        {!search && <input type="search" aria-label="搜尋來源" placeholder="搜尋來源名稱或作者…" value={query} onChange={e => setQuery(e.target.value)} />}
+    {(!readOnly || inlineSearch) && <>
+      <div className={`source-picker-filters${search && !inlineSearch ? " is-external-search" : ""}`}>
+        {(!search || inlineSearch) && <input type="search" aria-label={inlineSearch ? "篩選來源" : "搜尋來源"} placeholder={inlineSearch ? "篩選目前結果的來源名稱或作者…" : "搜尋來源名稱或作者…"} value={query} onChange={e => setQuery(e.target.value)} />}
         <select aria-label="來源類型" value={kind} onChange={e => setKind(e.target.value)}>
           <option value="all">全部來源</option><option value="official">官方教學</option><option value="paper">學術論文</option>
         </select>
       </div>
-      <div className="research-selection">
+      {!readOnly && <div className="research-selection">
         <div><button className="text-button" disabled={disabled} onClick={() => onChange(candidates.filter(c => c.eligible).map(c => c.id))}>全選可用來源</button><span>／</span><button className="text-button" disabled={disabled} onClick={() => onChange([])}>取消全選</button></div>
         <label><input type="checkbox" checked={onlySelected} onChange={e => setOnlySelected(e.target.checked)} />只看已選</label>
         <span>已選 {selected.length} 份</span>
-      </div>
+      </div>}
     </>}
     <div className="research-candidates" tabIndex={0} aria-label={readOnly ? '已選來源' : '來源搜尋結果'}>
       {visible.map(c => <article key={c.id} className={selected.includes(c.id) ? 'is-selected' : undefined}>

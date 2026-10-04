@@ -4,13 +4,14 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
+from threading import Lock
 from uuid import UUID
 
 import psycopg
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, ForeignKeyConstraint, Integer, LargeBinary, Text, UniqueConstraint, create_engine, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PostgreSQLUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
-from sqlalchemy.pool import NullPool
+from sqlalchemy.engine import Engine
 
 from .database import resolve_database_dsn
 from .evidence_json import EvidenceJSONB
@@ -323,23 +324,42 @@ class AnswerEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+_database_engines: dict[str, Engine] = {}
+_database_engine_lock = Lock()
+
+
+def _database_engine(resolved: str) -> Engine:
+    # 每個程序／DSN 共用連線池；Session 與交易仍按每次操作建立。
+    with _database_engine_lock:
+        engine = _database_engines.get(resolved)
+        if engine is None:
+            engine = create_engine(
+                "postgresql+psycopg://",
+                creator=lambda: psycopg.connect(resolved, connect_timeout=5),
+                pool_size=5, max_overflow=10, pool_timeout=5, pool_pre_ping=True,
+                hide_parameters=True,
+            )
+            _database_engines[resolved] = engine
+        return engine
+
+
+def dispose_database_engine(dsn: str) -> None:
+    """釋放指定環境的池；隔離測試刪除自己的 DB 前呼叫。"""
+    resolved = resolve_database_dsn(dsn)
+    with _database_engine_lock:
+        engine = _database_engines.pop(resolved, None)
+    if engine is not None:
+        engine.dispose()
+
+
 @contextmanager
 def database_session(dsn: str | None = None) -> Generator[Session, None, None]:
-    resolved = resolve_database_dsn(dsn)
-    engine = create_engine(
-        "postgresql+psycopg://",
-        creator=lambda: psycopg.connect(resolved, connect_timeout=5),
-        poolclass=NullPool,
-        hide_parameters=True,
-    )
-    try:
-        with Session(engine, expire_on_commit=False) as session, session.begin():
-            # 只限制產品交易的 SQL／等鎖時間；不終止正在寫檔的 idle transaction。
-            session.execute(text("SET LOCAL lock_timeout = '5s'"))
-            session.execute(text("SET LOCAL statement_timeout = '60s'"))
-            yield session
-    finally:
-        engine.dispose()
+    engine = _database_engine(resolve_database_dsn(dsn))
+    with Session(engine, expire_on_commit=False) as session, session.begin():
+        # SET LOCAL 隨交易結束恢復，不讓池中的下一筆交易承接逾時設定。
+        session.execute(text("SET LOCAL lock_timeout = '5s'"))
+        session.execute(text("SET LOCAL statement_timeout = '60s'"))
+        yield session
 
 
 class MaterialSource(Base):

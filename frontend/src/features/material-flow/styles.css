@@ -1341,7 +1341,7 @@
 .material-content-body .cards-page h1 { font-size: 24px; }
 @media (max-width: 780px) { .material-content { padding: 12px; } }
 
-/* 內容總覽與地圖共用「頁籤 → 搜尋 → 資訊／建立」工具列順序。 */
+/* 內容總覽與地圖共用搜尋及建立操作的工具列。 */
 .collection-toolbar { flex-wrap: nowrap; gap: 16px; margin-bottom: 18px; }
 .is-collection .collection-toolbar .library-search { flex: 1; width: auto; min-width: 160px; max-width: 520px; margin: 0 auto 0 0; }
 .collection-toolbar .library-search input { height: 40px; min-height: 40px; padding: 8px 12px; }
@@ -1374,4 +1374,10 @@
  .material-content .material-search-row :is(.library-search,.material-search), .map-workspace .material-search-row .map-search { order:0; flex:1 0 100%; max-width:none; }
  .material-content .material-search-row .collection-summary { order:1; }
  .material-content .material-search-row > button { order:2; margin-left:auto; }
+ .map-workspace .material-search-row .map-header-actions { order:1; min-height:40px; margin-left:auto; }
+ .map-workspace .material-search-row .map-facts { display:flex; }
 }
+
+.upload-layout.is-browsing-sources { grid-template-columns:minmax(0,1fr); }
+.material-content.source-page .material-search-row .source-add-control { min-height:40px; font-size:14px; }
+@media(max-width:900px) { .material-content.source-page .material-search-row .source-add-control { margin-left:auto; } }
