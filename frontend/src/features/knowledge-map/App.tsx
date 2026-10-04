@@ -1,4 +1,4 @@
-import { MaterialContentNav } from "../material-flow/MaterialContentNav";
+import { rememberMaterial, rememberedMaterial } from "../material-flow/material-memory";
 import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
@@ -26,6 +26,7 @@ export default function KnowledgeMap({
   apiClient: StudydyApiClient;
   route: Extract<AppRoute, { name: "knowledge-map" }>;
 }) {
+  const [materialName,setMaterialName] = useState(()=>rememberedMaterial(apiClient,route.materialId)?.display_name??"" );
   const [progress, setProgress] = useState<LearnerProgressView | null>(null);
   const [savedSession, setSavedSession] = useState<Pick<
     StudySessionView,
@@ -83,7 +84,7 @@ export default function KnowledgeMap({
     const load = async () => {
       // 教材索引與固定版本地圖並行讀取；複習只讀進度，不重取完整學習紀錄。
       const materialTask = apiClient.getMaterial(route.materialId).then(
-        (material) => ({ material, error: null }),
+        (material) => { if (!cancelled) { rememberMaterial(apiClient, material); setMaterialName(material.display_name); } return { material, error: null }; },
         (error: unknown) => ({ material: null, error }),
       );
       const progressTask = materialTask
@@ -256,8 +257,8 @@ export default function KnowledgeMap({
       onReturnToRun={() =>
         writeRoute({ name: "material-run", materialId: route.materialId, runId: route.runId })
       }
-      onAddSources={() => writeRoute({ name: "material-sources", materialId: route.materialId })}
-      contentNavigation={<MaterialContentNav materialId={route.materialId} mapRoute={route} current="knowledge-map" />}
+      mapRoute={route}
+      materialName={materialName}
       onStartStudy={startStudy}
       startMessage={startMessage}
       view={view}

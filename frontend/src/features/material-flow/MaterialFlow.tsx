@@ -1,3 +1,7 @@
+import { useRef } from "react";
+import type { ResearchDraft } from "../material-tools/ResearchPanel";
+import { TopicPage } from "../topics/TopicPage";
+import { MaterialTools } from "../material-tools/MaterialTools";
 import type { StudydyApiClient } from "../../api/client";
 import type { AppRoute } from "../../app/routes";
 import KnowledgeMap from "../knowledge-map/App";
@@ -18,15 +22,20 @@ import "../podcasts/styles.css";
 import "../concept-cards/styles.css";
 import "./styles.css";
 
-export function MaterialFlow({
+function MaterialFlowBody({
   apiClient,
   route,
   learnerId,
+  researchDraft,
+  onResearchDraftChange,
 }: {
   apiClient: StudydyApiClient;
   route: AppRoute;
   learnerId: string;
+  researchDraft?: ResearchDraft;
+  onResearchDraftChange: (draft: ResearchDraft) => void;
 }) {
+  if (route.name === "topics" || route.name === "topic") return <TopicPage key={route.name === "topic" ? route.topicId : "new"} api={apiClient} topicId={route.name === "topic" ? route.topicId : undefined}/>;
   if ("materialId" in route && route.materialId && ["podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(route.name)) {
     const kind = route.name.startsWith("podcast") ? "podcasts" : "concept-cards";
     const content = route.name === "podcast" ? <PodcastPage key={route.podcastId} apiClient={apiClient} podcastId={route.podcastId} materialId={route.materialId} learnerId={learnerId} />
@@ -35,7 +44,7 @@ export function MaterialFlow({
       : route.name === "podcast-create" || route.name === "card-set-create" ? <CreateStudyContent apiClient={apiClient} route={route} /> : null;
     return <MaterialContent key={route.materialId} apiClient={apiClient} learnerId={learnerId} materialId={route.materialId} kind={kind}>{content}</MaterialContent>;
   }
-  if (route.name === "material-content") return <MaterialContent key={route.materialId} apiClient={apiClient} learnerId={learnerId} materialId={route.materialId} kind={route.kind} />;
+  if (route.name === "material-content") return <MaterialContent key={route.materialId} apiClient={apiClient} learnerId={learnerId} materialId={route.materialId} kind={route.kind} researchDraft={researchDraft} onResearchDraftChange={onResearchDraftChange} />;
   if (route.name === "podcasts") return <PodcastLibrary apiClient={apiClient} learnerId={learnerId} />;
   if (route.name === "podcast-new" || route.name === "podcast-create" || route.name === "card-set-new" || route.name === "card-set-create") return <CreateStudyContent apiClient={apiClient} route={route} />;
   if (route.name === "podcast") return <PodcastPage key={route.podcastId} apiClient={apiClient} podcastId={route.podcastId} materialId={route.materialId} learnerId={learnerId} />;
@@ -67,4 +76,13 @@ export function MaterialFlow({
       route={route}
     />
   );
+}
+
+export function MaterialFlow(props: {apiClient:StudydyApiClient;route:AppRoute;learnerId:string}) {
+ const materialId = "materialId" in props.route ? props.route.materialId : undefined;
+ const hasContentToolbar = ["knowledge-map", "material-sources", "material-content", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(props.route.name);
+ const researchDrafts = useRef(new Map<string, ResearchDraft>());
+ const researchDraft = materialId ? researchDrafts.current.get(materialId) : undefined;
+ const onResearchDraftChange = (draft: ResearchDraft) => { if (materialId) researchDrafts.current.set(materialId, draft); };
+ return <>{materialId && !hasContentToolbar && <MaterialTools key={materialId} api={props.apiClient} materialId={materialId}/>}<MaterialFlowBody {...props} researchDraft={researchDraft} onResearchDraftChange={onResearchDraftChange}/></>;
 }

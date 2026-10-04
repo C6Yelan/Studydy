@@ -163,6 +163,16 @@ def preflight_semantic_service(
 ) -> None:
     """核對 vLLM 版本、模型及 32K tokenizer 契約。"""
 
+    from .luna_test import enabled
+    if enabled(runtime_lock):
+        from .voice import provider
+        try:
+            result = provider('/luna-health', {})
+        except Exception:
+            raise SemanticServiceError('SEMANTIC_SERVICE_UNAVAILABLE') from None
+        if result.get('model') != runtime_lock['semantic_service']['model_id']:
+            raise SemanticServiceError('SEMANTIC_SERVICE_IDENTITY_MISMATCH')
+        return
     service = _service(runtime_lock)
     owned = client is None
     http = semantic_client() if client is None else client
@@ -287,6 +297,20 @@ def request_semantics(
 ) -> dict[str, Any]:
     """透過共用 HTTP 邊界請求語意結果。"""
 
+    from .luna_test import enabled
+    if enabled(runtime_lock):
+        if task not in MIN_OUTPUT_TOKENS: raise SemanticServiceError('SEMANTIC_SERVICE_CONFIG_INVALID')
+        from .voice import provider
+        if cancellation_check: cancellation_check()
+        task_lock = runtime_lock['assessment' if task == 'assessment_check' else task]
+        prompt = task_lock['check_prompt' if task == 'assessment_check' else 'prompt']
+        try:
+            result = provider('/semantics', {'prompt': prompt, 'request': request, 'schema': response_schema})
+        except Exception as error:
+            code = 'SEMANTIC_SERVICE_TIMEOUT' if str(error)=='LUNA_GENERATION_TIMEOUT' else 'SEMANTIC_SERVICE_UNAVAILABLE'
+            raise SemanticServiceError(code) from None
+        if cancellation_check: cancellation_check()
+        return result
     service = _service(runtime_lock)
     try:
         task_lock = runtime_lock["assessment" if task == "assessment_check" else task]
@@ -379,6 +403,19 @@ def material_request_fits(
     *, cancellation_check: Callable[[], None] | None = None,
 ) -> bool:
     """以模型服務 tokenizer 計算分批容量；不截斷單一來源區塊。"""
+
+    from .luna_test import enabled
+    if enabled(runtime_lock):
+        # 用 o200k 的估計值並保留超過一半的 272K context，不宣稱等於 Luna 私有 tokenizer。
+        # 完整舊 catalog 保留，不以截斷引用或限制使用者選取數量來通過。
+        import tiktoken
+        if cancellation_check: cancellation_check()
+        fresh = {**request, 'existing_concepts': []}
+        text = _messages(runtime_lock['material_semantics']['prompt'], request)[0]['content']
+        estimated = len(tiktoken.get_encoding('o200k_base').encode(text, disallowed_special=()))
+        return estimated <= 120000 and (
+            sum(len(s['evidence']) for s in request['sections']) == 1
+            or len(json.dumps(fresh, ensure_ascii=False)) <= 6000)
 
     service = _service(runtime_lock)
     task = runtime_lock["material_semantics"]

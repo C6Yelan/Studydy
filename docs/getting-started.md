@@ -120,3 +120,17 @@ systemctl --user restart studydy-podcast.service
 ```
 
 未設定 provider 或服務不可達時，新生成會如實失敗，既有保存內容仍可讀取。啟動與健康檢查不代表文字或語音品質驗收；來源的 `needs_review` 狀態及缺頁提示仍保留。播放位置只存當前帳號在這台瀏覽器的 localStorage，沒有跨裝置同步。登出／換帳號會停止音訊並移除播放器來源；刪除 Podcast 會刪除其音訊與逐字稿，不刪原教材。刪除教材則同時移除其 Podcast。
+
+## F1／F2／F3／F5 本輪 Luna 替代測試
+
+設定 `STUDYDY_TEXT_TEST_PROVIDER=codex-exec-luna` 時，新教材分析、檢核及題組文字請求使用主機 provider 的 `/semantics`，大型分析／檢核單次允許 300 秒；Podcast 與短問答仍為 120 秒。新工作保存 `gpt-5.6-luna`／`codex-exec:luna-test/v1` 身分與獨立 lock hash，不覆寫既有 Gemma 的來源、快照或 hash；repository 的原 runtime lock 不改。依本機模型目錄保存 Luna 272K context，使用 o200k 的估計 token 數與 120K 輸入門檻，保留逾半容量給差異、指令與輸出；不冒充 Luna 或 Gemma 的精確 tokenizer。同 provider 的容量擴大可接續已保存批次，舊工作 hash 不變。移除此設定可恢復原模型設定；未完成 Luna 工作不可用 Gemma 身分接續。
+
+語音問答共用 Podcast 的 CosyVoice TTS；本機 STT 使用 faster-whisper large-v3-turbo（CPU int8）與獨立 `data/voice/runtime`。provider.env 設定 `STUDYDY_STT_PYTHON`、`STUDYDY_STT_MODEL_DIR`。解碼使用 PyAV，單次最長 120 秒；錄音在 worker 處理後清除。對話、短回答音訊與工作狀態由 PostgreSQL 保存，無公開音訊 URL；問答及研究各有獨立 worker，不阻塞原教材 worker。provider 對文字、TTS、STT／對齊各自串行，避免同類工作互搶資源；忙碌或失敗如實回報並保留可重試狀態。
+
+0010／0011 migration 新增語音對話與研究資料；舊 KS 清理需保留對話引用。升級後不可直接退回不認識新 migration 的舊後端，應使用相容 schema 的前向修復，保留備份與舊映像。持久資料及模型不納入 Git。
+
+0012 為 Evidence 的無損 JSONB 儲存增加讀取能力界線。真實論文的字型擷取可能包含 U+0000；PostgreSQL JSONB 不能直接保存，因此僅在遇到零字元時使用可逆字串編碼，讀回後完整還原，再驗證 canonical document 與 hash。既有文件不改寫，頁碼、區塊、Evidence／Claim 身分及原始 PDF 保持不變。相同處理涵蓋會保存來源文字的 Podcast、問答與題組欄位。這解決儲存限制，不代表特殊公式的呈現或教學解讀已驗收。
+
+F5 共用本機 Whisper，對齊原講稿與實際 WAV 的詞時間點；拼音只用於處理 ASR 同音字，不改寫顯示文字或引用。`source-scenes/v2` 用長連續語句確認段落身分，再用同段最早匹配詞的實測時間作為邊界，避免前段短句辨識差異造成畫面延後；保存兩組可回查錨點，不按字數猜測時間。`ops/podcast/stt-requirements.txt` 記錄辨識／對齊環境依賴。每集只保存時間範圍、可回查錨點及白名單場景，不保存影格影片。比較／流程使用既有內容及 Luna 的來源核對；來源不足改用原重點，provider 或時間對齊失敗則如實保留失敗狀態。場景與音訊各自處理，失敗不改掉已完成的 Podcast。
+
+0013 新增主題草稿／批准紀錄，讓 F2 可從尚無教材的已批准主題搜尋；來源選定後才建立教材。0014 新增每集同步資料，依附 Podcast 並綁定講稿及音訊 hash；刪除 Podcast 同時清除場景，晚到結果不復活。兩者均需識別新 migration 的後端，回退採相容 schema 的修復方式。

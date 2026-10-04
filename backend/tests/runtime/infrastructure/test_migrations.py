@@ -46,7 +46,7 @@ def test_domain_baseline_and_repeat_preserve_account_and_session(clean_database_
         ledger = connection.execute(
             "SELECT * FROM schema_migrations ORDER BY version"
         ).fetchall()
-    assert run_migrations(clean_database_dsn) == (5, 6, 7, 8, 9)
+    assert run_migrations(clean_database_dsn) == tuple(m.version for m in load_migrations() if m.version > 4)
     assert run_migrations(clean_database_dsn) == ()
     with psycopg.connect(clean_database_dsn) as connection:
         assert connection.execute(
@@ -95,7 +95,7 @@ def test_draft_uses_source_collection_and_rejects_retired_artifact_kind(clean_da
             'MIGRATION_LEDGER_SEQUENCE_INVALID',
         ),
         (
-            "INSERT INTO schema_migrations VALUES (14, repeat('0', 64), now())",
+            "INSERT INTO schema_migrations VALUES (9999, repeat('0', 64), now())",
             'MIGRATION_VERSION_UNKNOWN',
         ),
     ],
@@ -119,7 +119,8 @@ def test_next_migration_rolls_back_and_can_retry(clean_database_dsn, migrations_
     run_migrations(clean_database_dsn)
     candidate = tmp_path / 'migrations'
     shutil.copytree(migrations_dir, candidate)
-    next_version = candidate / '0010_probe.sql'
+    next_number = len(load_migrations()) + 1
+    next_version = candidate / f'{next_number:04d}_probe.sql'
     next_version.write_text(
         'CREATE TABLE migration_probe (id integer); '
         'SELECT missing_migration_function();'
@@ -132,16 +133,16 @@ def test_next_migration_rolls_back_and_can_retry(clean_database_dsn, migrations_
         ).fetchone() == (None,)
         assert connection.execute(
             'SELECT count(*) FROM schema_migrations'
-        ).fetchone() == (9,)
+        ).fetchone() == (len(load_migrations()),)
     next_version.write_text('CREATE TABLE migration_probe (id integer);')
-    assert run_migrations(clean_database_dsn, migrations_dir=candidate) == (10,)
+    assert run_migrations(clean_database_dsn, migrations_dir=candidate) == (next_number,)
     assert run_migrations(clean_database_dsn, migrations_dir=candidate) == ()
 
 
 def test_concurrent_install_applies_each_version_once(clean_database_dsn):
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda _: run_migrations(clean_database_dsn), range(2)))
-    assert sorted(results) == [(), (1, 2, 3, 4, 5, 6, 7, 8, 9)]
+    assert sorted(results) == [(), tuple(m.version for m in load_migrations())]
     with psycopg.connect(clean_database_dsn) as connection:
         assert dict(connection.execute(
             'SELECT version, sql_sha256 FROM schema_migrations'

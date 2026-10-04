@@ -4,6 +4,8 @@ import type { SourceListView, MaterialLibraryItem, FormatCapability } from "../.
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
+import { rememberMaterial } from "./material-memory";
+import { MaterialContentNav } from "./MaterialContentNav";
 import { MaterialRemoveControl } from "./MaterialRemoveControl";
 import { automaticPollIntervalMs, formatFileSize, validateSourceFile } from "./material-flow";
 
@@ -24,6 +26,7 @@ export function SourceView({
 }) {
   const [sourceList, setSourceList] = useState<SourceListView | null>(null);
   const [material, setMaterial] = useState<MaterialLibraryItem | null>(null);
+  const [sourceQuery,setSourceQuery]=useState('');
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
   const discardAccepted = useRef(false);
@@ -85,6 +88,7 @@ export function SourceView({
         ]);
         seenSources.current = new Set(sources.sources.map((source) => source.normalization_id));
         setSourceList(sources);
+        rememberMaterial(apiClient, item);
         setMaterial(item);
         setQueue((previous) => previous.filter((item) => !refreshedKeys.has(item.key)));
         for (const key of refreshedKeys) uploadedKeys.current.delete(key);
@@ -132,6 +136,8 @@ export function SourceView({
     staged.filter((source) => source.normalization_id === id),
   );
   const displayedSources = currentStructure ? (sourceList?.sources ?? []) : selectedSources;
+  const visibleSources=displayedSources.filter(source=>!currentStructure||source.original_name.toLocaleLowerCase().includes(sourceQuery.trim().toLocaleLowerCase()));
+  const adjustingSources=!currentStructure||hasActiveRun||staged.length>0||queue.length>0;
   const sourcesReady =
     selectedSources.length > 0 && selectedSources.every((source) => source.status === "ready");
   const hasUploads = currentStructure ? staged.length > 0 : (sourceList?.sources.length ?? 0) > 0;
@@ -266,15 +272,37 @@ export function SourceView({
           ]
             .filter(Boolean)
             .join(" · ");
+  const sourcePicker=(
+                <label className={currentStructure ? "secondary-button source-add-control" : "source-add-control"}>
+                  ＋ 新增來源
+                  <input
+                    type="file"
+                    multiple
+                    accept={formats.map((format) => format.extension).join(",")}
+                    aria-label="選擇新增教材"
+                    aria-describedby={selectionError ? "source-selection-error" : undefined}
+                    disabled={busy || !formatsReady}
+                    onChange={(event) => {
+                      chooseFiles(event.currentTarget.files);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+  );
   return (
-    <section className="task-page source-page">
-      <header className="upload-hero">
-        <img src="/assets/studydy/upload-guide.png" alt="" />
+    <section className={currentStructure ? "material-content source-page" : "task-page source-page"}>
+      {currentStructure && <header className="material-search-row"><form className="material-search" role="search" onSubmit={event=>event.preventDefault()}><input type="search" aria-label="搜尋教材來源" placeholder="搜尋來源檔案名稱…" value={sourceQuery} onChange={event=>setSourceQuery(event.target.value)}/></form>{!removing&&!hasActiveRun&&sourcePicker}</header>}
+      {currentStructure && <MaterialContentNav apiClient={apiClient} materialId={materialId} current="sources" materialName={material?.display_name} mapRoute={{name:"knowledge-map",materialId,runId:currentStructure.run_id,structureRevision:currentStructure.knowledge_structure_revision}}/>}
+      <div role={currentStructure ? "tabpanel" : undefined} id={currentStructure ? "material-panel-sources" : undefined} aria-labelledby={currentStructure ? "material-tab-sources" : undefined}>
+      {currentStructure && capabilityError && <p className="conversion-note" role="status">{capabilityError}</p>}
+      {currentStructure && selectionError && <p id="source-selection-error" className="form-error" role="alert">{selectionError}</p>}
+      <header className={currentStructure ? "cards-page-header" : "upload-hero"}>
+        {!currentStructure && <img src="/assets/studydy/upload-guide.png" alt="" />}
         <div>
-          <h1>{currentStructure ? "新增教材" : "確認教材"}</h1>
+          <h1>{currentStructure ? "教材來源" : "確認教材"}</h1>
           <p>
             {currentStructure
-              ? "追加來源，更新目前地圖並保留未變內容的學習進度。"
+              ? "查看這份教材的來源，或上傳檔案追加內容。"
               : "預覽教材內容、調整順序，確認後開始建立知識地圖。"}
           </p>
         </div>
@@ -293,13 +321,13 @@ export function SourceView({
           </button>
         </div>
       )}
-      <div className="upload-layout">
+      <div className={`upload-layout${adjustingSources ? "" : " is-browsing-sources"}`}>
         <div>
           <section className="surface source-list-card" aria-label="教材來源">
             <header className="source-list-header">
               <div>
                 <h2 ref={heading} tabIndex={-1}>
-                  教材來源
+                  {currentStructure ? "來源檔案" : "教材來源"}
                 </h2>
                 <p>
                   {displayedSources.length + queue.length} 份
@@ -317,10 +345,10 @@ export function SourceView({
             </header>
             {removing && <p role="status">正在刪除教材…</p>}
             <ol className="source-list">
-              {displayedSources.map((source, index) => (
+              {visibleSources.map((source, index) => (
                 <li className="source-row" key={source.source_id} aria-label={source.original_name}>
                   <div className="source-order">
-                    <span className="source-number">{index + 1}</span>
+                    <span className="source-number">{currentStructure ? displayedSources.indexOf(source)+1 : index+1}</span>
                   </div>
                   <div className="source-content">
                     <strong className="source-name">{source.original_name}</strong>
@@ -504,23 +532,10 @@ export function SourceView({
                 </li>
               ))}
             </ol>
-            {!removing && !hasActiveRun && (
+            {currentStructure && sourceQuery.trim() && visibleSources.length===0 && <p className="cards-no-results">沒有符合的來源檔案。</p>}
+            {!currentStructure && !removing && !hasActiveRun && (
               <div className="source-add-area">
-                <label className="source-add-control">
-                  ＋ 新增教材
-                  <input
-                    type="file"
-                    multiple
-                    accept={formats.map((format) => format.extension).join(",")}
-                    aria-label="選擇新增教材"
-                    aria-describedby={selectionError ? "source-selection-error" : undefined}
-                    disabled={busy || !formatsReady}
-                    onChange={(event) => {
-                      chooseFiles(event.currentTarget.files);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </label>
+                {sourcePicker}
                 {capabilityError && (
                   <p className="conversion-note" role="status">
                     {capabilityError}
@@ -533,7 +548,7 @@ export function SourceView({
                 )}
               </div>
             )}
-            {!removing && (
+            {!removing && adjustingSources && (
               <footer className="source-list-footer">
                 <div>
                   <p className="source-summary">
@@ -586,7 +601,7 @@ export function SourceView({
                       </button>
                     )
                   )}
-                  {run && !hasActiveRun && (
+                  {run && !hasActiveRun && !currentStructure && (
                     <button
                       className="text-button"
                       onClick={() =>
@@ -622,7 +637,7 @@ export function SourceView({
             />
           </div>
         </div>
-        <aside className="surface guide-card source-guide">
+        {adjustingSources && <aside className="surface guide-card source-guide">
           <h2>{currentStructure ? "更新教材" : "從教材到知識地圖"}</h2>
           <ol>
             <li
@@ -656,7 +671,8 @@ export function SourceView({
               </div>
             </li>
           </ol>
-        </aside>
+        </aside>}
+      </div>
       </div>
     </section>
   );

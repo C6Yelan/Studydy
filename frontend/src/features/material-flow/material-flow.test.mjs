@@ -138,3 +138,16 @@ test("configured upload limit controls selection and message", () => {
   assert.equal(validateSourceFile(file, formats), null);
   assert.match(validateSourceFile({ ...file, size: max + 1 }, formats), /90 MiB/);
 });
+
+
+test("remembered material indexes stay isolated by API client and material", async () => {
+  const {rememberMaterial, rememberedMaterial} = await import("./material-memory.ts");
+  const firstClient = {}, secondClient = {};
+  rememberMaterial(firstClient, {material_id:"first", display_name:"first version"});
+  rememberMaterial(firstClient, {material_id:"second", display_name:"other material"});
+  assert.equal(rememberedMaterial(secondClient,"first"),null);
+  assert.equal(rememberedMaterial(firstClient,"first").display_name,"first version");
+  rememberMaterial(firstClient, {material_id:"first", display_name:"updated version"});
+  assert.equal(rememberedMaterial(firstClient,"first").display_name,"updated version");
+  assert.equal(rememberedMaterial(firstClient,"second").display_name,"other material");
+});

@@ -113,7 +113,7 @@ for (const width of [1536, 390]) {
     await expect(card.locator("details:not(.material-management-menu)")).toHaveCount(0);
     await expect(card.locator(".library-state")).toHaveCount(0);
     await expect(card.locator(".primary-button")).toHaveText("開啟知識地圖");
-    await expect(card.locator(".state-actions > button")).toHaveCount(1);
+    await expect(card.locator(".state-actions > button")).toHaveText(["開啟知識地圖", "概念卡", "Podcast"]);
     await page.clock.runFor(5_000);
     expect(reads).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(

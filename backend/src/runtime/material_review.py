@@ -57,7 +57,7 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
                             'policy': lock['material_review']})
     rejected = None
     rejection_code = None
-    repairable = {'REVIEW_CONCEPT_COVERAGE_INVALID', 'REVIEW_CONCEPT_SUPPORT_INVALID'}
+    repairable = {'REVIEW_CONCEPT_COVERAGE_INVALID', 'REVIEW_CONCEPT_SUPPORT_INVALID', 'REVIEW_RELATION_EDIT_INVALID'}
 
     def validate_saved(value):
         nonlocal rejected, rejection_code
@@ -111,11 +111,18 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
                 if a['concept'] in expected and not set(a['evidence']) &
                 set(unit.payload['concepts'][a['concept']]['evidence'])}),
             'concept_source_bindings': [{'concept': c['h'], 'evidence': c['evidence']} for c in unit.payload['concepts']],
+            'relation_source_bindings': [
+                {'relation': r['h'], 'type': r['type'], 'evidence': sorted(set(
+                    unit.payload['concepts'][r['source']]['evidence'] + unit.payload['concepts'][r['target']]['evidence']))}
+                for r in unit.payload['relations']
+            ],
             'previous_response': rejected,
             'instruction': '前次提案未通過檢核，不是標準答案。請依提供的教材重新確認衝突或缺漏，回傳完整提案；'
                            'concept 必須沿用輸入 h，絕不可依回應位置重新編號。每個 h 恰好一筆 assignment；'
                            '每筆 evidence 必須至少引用該 h 的 concept_source_bindings 中一個來源。'
                            '不得直接取重複資料的第一筆或最後一筆，也不得只替換 evidence 掩蓋錯誤歸屬。'
+                           'relation_edits 的 evidence 只能引用對應關係兩端的來源；reverse/remove 的 relation_type 須為 null 或原型別。'
+                           '反轉與改型別不可合成同一操作；若無充分依據可不修改這條關係，不猜測。'
                            '無法由來源確認時，使用 needs_review 保留該概念；仍須遵守來源與歸屬限制。',
         }
         response = request_review(request, 1)

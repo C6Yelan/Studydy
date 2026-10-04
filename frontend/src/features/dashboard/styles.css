@@ -249,3 +249,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.hero-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.hero-actions :is(.primary-button,.secondary-button) { min-height: 44px; font-size: 14px; }

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Icon, type IconName } from "./Icon";
 import "./styles.css";
 
@@ -20,6 +21,16 @@ export function StateView({
   title: string;
   tone: StateTone;
 }) {
+  const [loadingVisible, setLoadingVisible] = useState(false);
+  useEffect(() => {
+    setLoadingVisible(false);
+    if (tone !== "loading") return;
+    const timer = setTimeout(() => setLoadingVisible(true), 350);
+    return () => clearTimeout(timer);
+  }, [tone, title]);
+  if (tone === "loading") return <section className="state-view quiet-loading" aria-busy="true" aria-live={loadingVisible && live ? "polite" : undefined}>
+    {loadingVisible && <p role="status">{title}</p>}
+  </section>;
   const isFailure = tone === "failure";
   return (
     <section
@@ -34,7 +45,6 @@ export function StateView({
           <Icon name={icon} size={26} />
         </span>
       )}
-      {tone === "loading" && <span className="loading-ring" aria-hidden="true" />}
       <h1>{title}</h1>
       <p>{description}</p>
       {action && <div className="state-view__actions">{action}</div>}

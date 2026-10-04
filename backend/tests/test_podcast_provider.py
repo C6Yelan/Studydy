@@ -122,3 +122,13 @@ def test_dialogue_allows_one_speaker_per_source_when_episode_has_both(monkeypatc
     replies = iter([{'segments': segments}, {'checks': [{'source_index': i, 'supported': True, 'reason': '來源支持'} for i in range(2)]}])
     monkeypatch.setattr(provider, 'luna', lambda *_: next(replies))
     assert [s['claim_id'] for s in provider.script(request)['segments']] == ['synthetic-claim', 'second-claim']
+
+
+def test_luna_timeout_has_fixed_reason_and_task_specific_deadline(monkeypatch):
+    def expired(args, **kwargs):
+        assert kwargs['timeout'] == 300
+        assert kwargs['input'] == 'synthetic prompt'
+        raise provider.subprocess.TimeoutExpired('codex',300)
+    monkeypatch.setattr(provider.subprocess,'run',expired)
+    with pytest.raises(RuntimeError,match='^LUNA_GENERATION_TIMEOUT$'):
+        provider.luna('synthetic prompt',{'type':'object'},timeout=300)
