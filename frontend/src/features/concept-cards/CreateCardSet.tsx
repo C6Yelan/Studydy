@@ -157,7 +157,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
           {visible.length === 0 && <p className="cards-no-results">找不到符合的概念。</p>}
         </div>
       </section>
-      <section className="cards-preview" aria-label="卡片預覽"><div className="cards-preview-heading"><h2>卡片預覽</h2><span>一張卡，一個概念</span></div>{preview && <Flashcard key={preview.concept_id} card={preview} flipped={flipped} onFlip={() => setFlipped(!flipped)} apiClient={apiClient} sourceResolver={view.source_resolver} sourceQuality={view} />}<p className="cards-preview-hint">點擊翻面，看看這個概念的重點。</p></section>
+      <section className="cards-preview" aria-label="卡片預覽"><div className="cards-preview-heading"><h2>卡片預覽</h2><span>一張卡，一個概念</span></div>{preview && <Flashcard key={preview.concept_id} card={preview} flipped={flipped} onFlip={() => setFlipped(!flipped)} apiClient={apiClient} sourceResolver={view.source_resolver} />}<p className="cards-preview-hint">點擊翻面，看看這個概念的重點。</p></section>
     </div>
     <footer className="cards-create-footer">
       <div><strong>{selected.size} 張概念卡</strong><span>{editing ? "調整名稱或勾選要保留的概念" : "保存後可隨時回來複習"}</span></div>

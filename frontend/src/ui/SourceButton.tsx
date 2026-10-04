@@ -23,10 +23,12 @@ export function SourceButton({
   apiClient,
   resolver,
   evidence,
+  label,
 }: {
   apiClient: StudydyApiClient;
   resolver: string;
   evidence: EvidenceView;
+  label?: string;
 }) {
   const [source, setSource] = useState<EvidenceSourceView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,12 +59,13 @@ export function SourceButton({
         disabled={busy}
         onClick={() => void open()}
         aria-haspopup="dialog"
+        title={label}
       >
         {busy
           ? "正在讀取來源…"
-          : evidence.source_name
+          : label ?? (evidence.source_name
             ? `${evidence.source_name} · PDF 第 ${evidence.normalized_page ?? evidence.page} 頁`
-            : `查看第 ${evidence.normalized_page ?? evidence.page} 頁來源`}
+            : `查看第 ${evidence.normalized_page ?? evidence.page} 頁來源`)}
       </button>
       {error && (
         <p role="alert" className="form-error">

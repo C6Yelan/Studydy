@@ -93,12 +93,12 @@ test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete
   await page.keyboard.press("Space");
   await expect(page.locator(".flashcard-point")).toContainText("後進先出");
   await expect(page.locator(".flashcard")).not.toContainText("先備");
-  await page.getByText("查看來源", { exact: true }).click();
+  await expect(page.getByRole("region", { name: "概念重點來源", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "查看第 1 頁來源" })).toBeVisible();
   await page.getByRole("button", { name: "查看第 1 頁來源" }).click();
   await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
   await expect(page.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute("href", `/v1/artifacts/${artifactId}#page=1`);
   await page.keyboard.press("Escape");
-  await page.getByText("查看來源", { exact: true }).click();
   await page.getByRole("button", { name: "下一張", exact: true }).click();
   await expect(page.locator(".flashcard-title")).toHaveText("陣列（Array）");
   await page.keyboard.press("ArrowLeft");
@@ -124,7 +124,7 @@ test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete
   expect(fixture.forbiddenMutations).toEqual([]);
 });
 
-test("mobile supports long content, quality and old-version notices without page overflow", async ({ page }) => {
+test("mobile keeps long content and sources usable without status text or page overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockCards(page, { saved: true, long: true });
   await page.goto(`/concept-cards/${cardSetId}`);
@@ -132,13 +132,12 @@ test("mobile supports long content, quality and old-version notices without page
   await page.getByRole("button", { name: "翻面", exact: true }).click();
   await expect(page.locator(".flashcard-content")).toContainText("x != 0");
   await expect(page.getByText(/原教材有待確認/)).toHaveCount(0);
-  await expect(page.getByText(/來源狀態/)).not.toBeVisible();
+  await expect(page.getByRole("region", { name: "概念重點來源", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const content = page.locator(".flashcard-content");
   expect(await content.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
   await content.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-  await page.getByText("查看來源", { exact: true }).click();
-  await expect(page.getByText(/來源狀態/)).toBeVisible();
+  await expect(page.getByText(/來源狀態/)).toHaveCount(0);
   await page.getByRole("button", { name: "查看第 1 頁來源" }).click();
   await expect(page.getByRole("dialog", { name: "教材來源" })).toBeInViewport();
   await page.keyboard.press("Escape");
@@ -187,21 +186,21 @@ test("saved decks can be renamed and edited without replacing their identity", a
   await page.getByRole("checkbox").nth(1).uncheck();
   await page.getByRole("button", { name: "保存變更", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/concept-cards/${cardSetId}$`));
-  await expect(page.locator(".deck-count")).toHaveText("1 張卡片");
+  await expect(page.locator(".cards-study-counter")).toContainText("1 / 1");
   await openSavedCardManagement(page);
   await expect(page.getByRole("checkbox").nth(1)).not.toBeChecked();
   await page.getByRole("button", { name: "全選", exact: true }).click();
   await page.getByRole("button", { name: "保存變更", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/concept-cards/${cardSetId}$`));
   await page.reload();
-  await expect(page.locator(".deck-count")).toHaveText("2 張卡片");
+  await expect(page.locator(".cards-study-counter")).toContainText("1 / 2");
   await openSavedCardManagement(page);
   await page.getByLabel("卡組名稱", { exact: true }).fill("不應保存");
   await page.getByRole("button", { name: "取消變更", exact: true }).click();
   await expect(page.getByRole("heading", { name: "重新命名的卡組", exact: true })).toBeVisible();
 });
 
-test("library layout matches materials and review uses the available content width", async ({ page }) => {
+test("library stays aligned and card review keeps compact content and controls", async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 960 });
   await mockCards(page, { saved: true });
   await page.goto("/materials");
@@ -218,11 +217,42 @@ test("library layout matches materials and review uses the available content wid
   await expect(page.getByRole('heading', { name: '我的概念卡', exact: true })).toHaveCount(0);
   await expect(page.locator('.library-item').getByRole('button', { name: '管理卡組', exact: true })).toHaveCount(0);
   await page.screenshot({ path: "../.studydy-runtime/card-preview/library-aligned.png", fullPage: true });
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/v1/card-sets/${cardSetId}`, async route => { await held; await route.fallback(); });
   await page.getByRole("button", { name: "開始複習", exact: true }).click();
+  const back = page.getByRole('button', {name:'返回卡組', exact:true});
+  await expect(back).toBeVisible();
+  const loadingBack = (await back.boundingBox())!;
+  const tabs = (await page.getByRole('tablist', {name:'教材學習內容'}).boundingBox())!;
+  expect(loadingBack.x).toBeCloseTo(tabs.x, 0);
+  release();
   await expect(page.locator(".flashcard")).toBeVisible();
+  expect((await back.boundingBox())!.x).toBeCloseTo(loadingBack.x, 0);
+  expect((await back.boundingBox())!.y).toBeCloseTo(loadingBack.y, 0);
   const content = await page.locator(".cards-study").boundingBox();
   const card = await page.locator(".flashcard").boundingBox();
   expect(card!.width / content!.width).toBeGreaterThan(.95);
+  expect(card!.width).toBeLessThanOrEqual(800);
+  expect(card!.height).toBeLessThan(300);
+  expect(Math.abs(card!.x + card!.width / 2 - 1536 / 2)).toBeLessThanOrEqual(1);
+  const controls = page.locator('.cards-study-toolbar');
+  await expect(controls).toContainText('1 / 2');
+  await expect(controls.getByRole('button', {name:'洗牌重看'})).toBeVisible();
+  for(const button of await controls.getByRole('button').all()) {
+    const box = (await button.boundingBox())!;
+    expect(box.width).toBeLessThan(150);
+    expect(box.height).toBeGreaterThanOrEqual(40);
+    expect(box.y + box.height).toBeLessThan(960);
+  }
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  for(const button of await controls.getByRole('button').all()) {
+    const box = (await button.boundingBox())!;
+    expect(box.height).toBeGreaterThanOrEqual(40);
+    expect(box.y + box.height).toBeLessThan(844);
+  }
+  await page.setViewportSize({width:1536,height:960});
   await page.screenshot({ path: "../.studydy-runtime/card-preview/study-wide.png", fullPage: true });
 });
 
@@ -342,6 +372,7 @@ test("card sources keep distinct files on the same page and recover after source
   Object.assign(first, { source_id: materialId, source_name: "A.pdf", normalized_page: 1 });
   const second = { ...first, evidence_id: `evidence:sha256:${"9".repeat(64)}`, source_id: runId, source_name: "B.pdf", page: 2, normalized_page: 1 };
   claim.evidence.push(second);
+  view.concepts[0].claims.push({ ...claim, claim_id: `claim:sha256:${"8".repeat(64)}`, evidence: [first] });
   const secondArtifact = "66666666-6666-4666-8666-666666666666";
   const reads: string[] = [];
   let failed = true;
@@ -354,15 +385,18 @@ test("card sources keep distinct files on the same page and recover after source
   });
   await page.goto(`/concept-cards/${cardSetId}`);
   await page.getByRole("button", { name: "翻面", exact: true }).click();
-  await page.getByText("查看來源", { exact: true }).click();
-  await page.getByRole("button", { name: "A.pdf · PDF 第 1 頁", exact: true }).click();
+  const links = page.getByRole("region", { name: "概念重點來源", exact: true }).getByRole("button");
+  await expect(links).toHaveCount(2);
+  const positions = await links.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().y));
+  expect(Math.abs(positions[0] - positions[1])).toBeLessThanOrEqual(1);
+  await page.getByRole("button", { name: "A.pdf · 第 1 頁", exact: true }).click();
   await expect(page.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute("href", `/v1/artifacts/${artifactId}#page=1`);
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "B.pdf · PDF 第 1 頁", exact: true }).click();
+  await page.getByRole("button", { name: "B.pdf · 第 1 頁", exact: true }).click();
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   failed = false;
-  await page.getByRole("button", { name: "B.pdf · PDF 第 1 頁", exact: true }).click();
+  await page.getByRole("button", { name: "B.pdf · 第 1 頁", exact: true }).click();
   await expect(page.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute("href", `/v1/artifacts/${secondArtifact}#page=1`);
   expect(reads).toEqual([first, second, second].map((e) => `${decodeURIComponent(view.source_resolver)}/${e.evidence_id}/source`));
 });
@@ -384,7 +418,6 @@ test("late card save and source read do not reopen a page after navigation", asy
   await page.getByLabel("資料結構講義.pdf", { exact: true }).getByRole("button", { name: "概念卡", exact: true }).click();
   await page.getByRole("button", { name: "開始複習", exact: true }).click();
   await page.getByRole("button", { name: "翻面", exact: true }).click();
-  await page.getByText("查看來源", { exact: true }).click();
   let releaseSource!: () => void;
   const sourceGate = new Promise<void>((resolve) => { releaseSource = resolve; });
   await page.route("**/evidence/*/source", async (route) => { await sourceGate; await route.fallback(); });
@@ -431,7 +464,6 @@ test("account change from another tab removes an open card source dialog", async
   await mockCards(page, { saved: true });
   await page.goto(`/concept-cards/${cardSetId}`);
   await page.getByRole("button", { name: "翻面", exact: true }).click();
-  await page.getByText("查看來源", { exact: true }).click();
   await page.getByRole("button", { name: "查看第 1 頁來源" }).click();
   await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
   // 另一個 channel instance 模擬其他分頁送出的正式帳號變更事件。

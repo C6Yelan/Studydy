@@ -1,16 +1,15 @@
 import type { StudydyApiClient } from "../../api/client";
-import type { ConceptCard, KnowledgeStructureView } from "../../api/contracts";
+import type { ConceptCard } from "../../api/contracts";
 import { claimText } from "../../ui/claim-text";
 import { Icon } from "../../ui/Icon";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 
-export function Flashcard({ card, flipped, onFlip, apiClient, sourceResolver, sourceQuality }: {
+export function Flashcard({ card, flipped, onFlip, apiClient, sourceResolver }: {
   card: ConceptCard;
   flipped: boolean;
   onFlip: () => void;
   apiClient: StudydyApiClient;
   sourceResolver: string;
-  sourceQuality?: Pick<KnowledgeStructureView, "status" | "excluded_pages">;
 }) {
   return (
     <div className={`flashcard ${flipped ? "is-back" : "is-front"}`}>
@@ -22,10 +21,7 @@ export function Flashcard({ card, flipped, onFlip, apiClient, sourceResolver, so
         </button>
       ) : (
         <article className="flashcard-back" aria-label={`${card.label}的重點`}>
-          <header className="flashcard-back-header">
-            <span className="flashcard-kicker">概念重點</span>
-            <button className="text-button" type="button" onClick={onFlip}>查看正面</button>
-          </header>
+          <span className="flashcard-kicker">概念重點</span>
           <h2>{card.label}</h2>
           <div className="flashcard-content" tabIndex={0} aria-label="卡片重點內容">
             {card.claims.map((claim, index) => (
@@ -37,20 +33,15 @@ export function Flashcard({ card, flipped, onFlip, apiClient, sourceResolver, so
                 >{claimText(claim)}</p>
               </section>
             ))}
-            <details className="flashcard-sources">
-              <summary>查看來源</summary>
-              {sourceQuality && (sourceQuality.status.quality === "needs_review" || sourceQuality.excluded_pages.length > 0) && (
-                <p className="cards-source-note">來源狀態：{sourceQuality.status.quality === "needs_review" ? "部分內容待確認" : "已完成檢核"}。{sourceQuality.excluded_pages.length > 0 && `未納入頁碼：${sourceQuality.excluded_pages.map((page) => page.page).join("、")}。`}</p>
-              )}
-              {card.claims.map((claim, index) => (
-                <div key={claim.claim_id}>
-                  <strong>重點 {index + 1}</strong>
-                  {sourceLinks(claim.evidence).map((evidence) => (
-                    <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} />
-                  ))}
-                </div>
-              ))}
-            </details>
+            <section className="flashcard-sources" aria-label="概念重點來源">
+              <h3>來源</h3>
+              <div className="flashcard-source-links">
+                {sourceLinks(card.claims.flatMap(claim => claim.evidence)).map(evidence => (
+                  <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence}
+                    label={evidence.source_name ? `${evidence.source_name} · 第 ${evidence.normalized_page ?? evidence.page} 頁` : undefined} />
+                ))}
+              </div>
+            </section>
           </div>
         </article>
       )}
