@@ -176,15 +176,6 @@ def test_reveal_cannot_show_connection_before_target_node():
     assert validate_plan(value,cues)
 
 
-def test_emphasis_generation_schema_separates_trace_and_single_line_quotes():
-    from runtime.podcast_video_plan import emphasis_schema
-    choices=emphasis_schema([{},{}])['items']['anyOf']
-    by_kind={x['properties']['kind']['enum'][0]:x['properties']['quote'] for x in choices}
-    assert by_kind['trace']['enum']==['']
-    assert by_kind['underline']['minLength']==1 and by_kind['outline']['minLength']==0
-    assert by_kind['outline']['pattern']==r'^[^\r\n]*$'
-
-
 def test_multiline_quote_feedback_is_not_misreported_as_duplicate_text():
     _,cues,_=sample();value=plan();page=value['pages'][0];page['elements'][0]['text']='第一行\n第二行'
     page['emphasis']=[{'element_index':0,'start_cue':0,'end_cue':0,'kind':'outline','quote':'第一行\n第二行'}]

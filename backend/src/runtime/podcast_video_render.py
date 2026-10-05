@@ -4,6 +4,7 @@ from hashlib import sha256
 import json
 import math
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -33,12 +34,19 @@ def font(size):
         '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'), size)
 
 
+@lru_cache(maxsize=512)
 def lines(text, size, width):
     result=[]; line=''
-    for char in text:
-        if char=='\n' or font(size).getlength(line+char)>width:
-            result.append(line);line='' if char=='\n' else char
-        else:line+=char
+    # 縮寫、單位與識別符能放入一行時整詞移動，不在 TCP／MB/s 中間換行。
+    for token in re.findall(r'[A-Za-z0-9][A-Za-z0-9_./+-]*|\n|.', text):
+        if token == '\n':
+            result.append(line); line=''; continue
+        if line and font(size).getlength(line+token)>width:
+            result.append(line); line=''
+        for char in token:
+            if line and font(size).getlength(line+char)>width:
+                result.append(line); line=''
+            line+=char
     result.append(line)
     return result
 
@@ -244,7 +252,11 @@ if __name__=='__main__':
     try:
         request=json.loads(request_path.read_text())
         if len(sys.argv)>4 and sys.argv[4]=='--validate':
-            validate_plan(request['plan'],request['cues']);text_layouts=layouts(request['plan']);emphasis_layouts(request['plan'],text_layouts);result={'valid':True}
+            if 'semantic_plan' in request:
+                from .podcast_video_layout import compile_layout
+                request['plan'] = compile_layout(request['semantic_plan'], request['cues'])
+            validate_plan(request['plan'],request['cues']);text_layouts=layouts(request['plan']);emphasis_layouts(request['plan'],text_layouts)
+            result={'valid':True,'plan':request['plan']}
         else:result=render(request,audio_path,result_path.with_suffix('.mp4'))
         result_path.write_text(json.dumps(result))
     except Exception as error:

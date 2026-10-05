@@ -22,6 +22,8 @@ test('real API keeps Podcast source, Voice and Assessment on the saved revision'
   expect(timeline.source_resolver).toContain(encodeURIComponent(data.revision).replaceAll('%3A',':'));
   const vtt=await (await page.request.get(`/v1/podcasts/${data.podcast}/episodes/0/subtitles`)).text();
   expect(vtt).toContain('WEBVTT');expect(vtt).toContain('-->');
+  expect(vtt.match(/ --> /g)?.length).toBeGreaterThan(timeline.segments.length);
+  expect(timeline.segments).toHaveLength(1);
   await page.getByRole('button',{name:'問目前播放這一段',exact:true}).click();
   await page.getByRole('textbox',{name:'問題／辨識文字'}).fill('這裡的必要條件是什麼？');
   await page.getByRole('button',{name:'送出問題',exact:true}).click();

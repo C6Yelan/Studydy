@@ -85,6 +85,30 @@ def test_dialogue_allows_consecutive_same_speaker_and_short_questions(monkeypatc
     assert [t['speaker'] for t in provider.script(request)['segments'][0]['turns']]==['guest','guest','host']
 
 
+@pytest.mark.parametrize('problem', ['budget', 'confirmation'])
+def test_deterministic_quality_rewrite_skips_unnecessary_review(monkeypatch, problem):
+    bad = candidate('字' * 600) if problem == 'budget' else candidate('沒錯。')
+    responses = iter([bad, candidate(), check()]); prompts = []
+    def model(prompt, schema):
+        prompts.append(prompt)
+        return next(responses)
+    monkeypatch.setattr(provider, 'luna', model)
+    result = provider.script(body())
+    assert len(prompts) == 3 and result['review']['correctness']['passed']
+    assert ('content_budget' if problem == 'budget' else 'empty_confirmation') in prompts[1]
+
+
+def test_repeated_deterministic_failure_stops_without_spending_review_calls(monkeypatch):
+    calls = []
+    def model(*args):
+        calls.append(args)
+        return candidate('沒錯。')
+    monkeypatch.setattr(provider, 'luna', model)
+    with pytest.raises(RuntimeError, match='PODCAST_SCRIPT_NEEDS_REVIEW'):
+        provider.script(body())
+    assert len(calls) == 2
+
+
 def test_audio_failure_never_returns_partial_file_or_falls_back(monkeypatch):
     from types import SimpleNamespace
     monkeypatch.setenv('STUDYDY_PODCAST_TTS_PYTHON','/isolated/python')

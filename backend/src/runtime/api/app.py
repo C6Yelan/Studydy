@@ -81,6 +81,7 @@ _ERROR_MESSAGE = "Request could not be completed."
 _ERROR_STATUS = {
     "PODCAST_CONFLICT": (409, False),
     "PODCAST_SOURCE_INSUFFICIENT": (422, False),
+    "PODCAST_SOURCE_TOO_LARGE": (422, False),
     "CARD_SET_CONFLICT": (409, False),
     'LEARNER_GUIDANCE_STALE': (409, True),
     'ASSESSMENT_SET_CONFLICT': (409, False),

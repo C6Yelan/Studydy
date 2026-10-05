@@ -27,6 +27,14 @@ def test_temporary_emphasis_fades_out_and_seeking_never_leaves_a_mark():
     assert render.emphasis_opacity(1,0,4)==1
 
 
+def test_latin_protocol_and_unit_tokens_move_to_the_next_line_intact():
+    pytest.importorskip('PIL')
+    width = render.font(28).getlength('條件 TCP')
+    values = render.lines('條件較長 TCP MB/s', 28, width)
+    assert ''.join(values) == '條件較長 TCP MB/s'
+    assert any('TCP' in line for line in values) and any('MB/s' in line for line in values)
+
+
 def test_arrow_with_visual_gap_renders_without_a_connection_distance_gate():
     pytest.importorskip('PIL')
     from test_podcast_video_plan import plan, sample

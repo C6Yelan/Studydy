@@ -37,7 +37,7 @@ def plan_episodes(view, concept_ids):
     concepts = {c["concept_id"]: c for c in view["concepts"]}
     if not set(concept_ids) <= concepts.keys():
         raise PodcastError("REQUEST_INVALID")
-    episodes, claims, size = [], [], 0
+    claims = []
     for identity in concept_ids:
         concept = concepts[identity]
         if not concept["claims"]:
@@ -45,14 +45,46 @@ def plan_episodes(view, concept_ids):
         for claim in concept["claims"]:
             if not claim["evidence"]:
                 raise PodcastError("PODCAST_SOURCE_INSUFFICIENT")
-            if claims and (len(claims) >= 6 or size + len(claim["text"]) > 2400):
-                episodes.append({"claims": claims, "script": None, "audio": None})
-                claims, size = [], 0
+            if len(claim['text']) > 2400:
+                raise PodcastError('PODCAST_SOURCE_TOO_LARGE')
             claims.append({**deepcopy(claim), "concept_id": identity, "label": concept["label"]})
-            size += len(claim["text"])
-    if claims:
-        episodes.append({"claims": claims, "script": None, "audio": None})
-    return episodes
+    if not claims:
+        return []
+    # 只使用本 revision 已有的概念／關係與 Evidence；選取順序和 claim 原文不變。
+    # 在同一硬容量內，先少切概念、再少切關係，才考慮集數與剩餘容量。
+    positions = {}
+    for i, claim in enumerate(claims):
+        positions.setdefault(claim['concept_id'], []).append(i)
+    relations = [r for r in view.get('relations', [])
+                 if r['source_concept_id'] in positions and r['target_concept_id'] in positions]
+    costs = [(0, 0, 0, 0)] + [None] * len(claims)
+    previous = [None] * (len(claims) + 1)
+    for end in range(1, len(claims) + 1):
+        size = 0
+        for start in range(end - 1, max(-1, end - 7), -1):
+            size += len(claims[start]['text'])
+            if size > 2400:
+                break
+            inside = int(start > 0 and claims[start-1]['concept_id'] == claims[start]['concept_id'])
+            crossed = 0
+            if start:
+                crossed = sum(min(positions[r['source_concept_id']] + positions[r['target_concept_id']]) < start
+                              <= max(positions[r['source_concept_id']] + positions[r['target_concept_id']])
+                              for r in relations)
+                # 同一引用區塊通常是連續定義／步驟；同分時避免從中間切開。
+                crossed += bool({e['evidence_id'] for e in claims[start-1]['evidence'] if 'evidence_id' in e}
+                                & {e['evidence_id'] for e in claims[start]['evidence'] if 'evidence_id' in e})
+            delta = (inside, crossed, 1, (6 - (end-start)) ** 2)
+            cost = tuple(a+b for a, b in zip(costs[start], delta))
+            if costs[end] is None or cost < costs[end]:
+                costs[end], previous[end] = cost, start
+    episodes = []
+    end = len(claims)
+    while end:
+        start = previous[end]
+        episodes.append({'claims': claims[start:end], 'script': None, 'audio': None})
+        end = start
+    return episodes[::-1]
 
 
 def create_podcast(owner, material_id, revision, name, concept_ids, mode, key, *, delivery, dsn=None):
@@ -221,10 +253,16 @@ def claim_step(*, dsn=None):
     return None
 
 
-def validate_script(script, episode):
+def validate_script(script, episode, mode=None):
     from .podcast_script import SCHEMA, validate
     if isinstance(script, dict) and script.get('schema') == SCHEMA:
-        try: return validate(script, episode)
+        try:
+            result = validate(script, episode)
+            if mode is not None:
+                from .podcast_quality import content_budget, budget_issues
+                if budget_issues(result['segments'], content_budget(episode['claims'], mode, episode['delivery'])):
+                    raise ValueError()
+            return result
         except ValueError: raise PodcastError('PODCAST_SCRIPT_INVALID') from None
     claims = episode["claims"]
     if not isinstance(script, dict) or set(script) != {"segments", "provider"}:
@@ -279,7 +317,7 @@ def finish_step(claim, *, script=None, audio=None, audio_provider=None, audio_ma
             row.status, row.error_code = "failed", error
         else:
             if script is not None:
-                episode["script"] = validate_script(script, episode)
+                episode["script"] = validate_script(script, episode, row.mode)
             elif audio is not None and episode["script"]:
                 if not isinstance(audio_provider, str) or not audio_provider.strip() or len(audio_provider) > 300:
                     raise PodcastError("PODCAST_AUDIO_INVALID")

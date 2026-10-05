@@ -42,14 +42,13 @@ def test_source_feedback_is_rechecked_and_never_published_without_approval(tmp_p
     reviews=0;designs=[];rendered=[]
     def model(prompt,schema,**kwargs):
         nonlocal reviews
-        if 'cues' in schema['properties']:return {'cues':cues}
         if 'pages' in schema['properties']:
             designs.append(prompt);return plan()
         reviews+=1
         return {k:{'passed':recover and reviews==2,'reason':'relation is unsupported'} for k in ('correctness','teaching_quality')}
     def process(args,env,timeout,cancelled):
         result=Path(args[5])
-        if args[-1]=='--validate':result.write_text('{"valid":true}')
+        if args[-1]=='--validate':result.write_text(json.dumps({'valid':True,'plan':{**plan(),'schema':'podcast-storyboard/v2'}}))
         else:
             rendered.append(True);result.write_text('{}');result.with_suffix('.mp4').write_bytes(b'synthetic video')
         return 0
@@ -79,10 +78,8 @@ def test_layout_and_source_corrections_have_independent_bounded_budgets(tmp_path
     plans=[];reviews=0;rendered=[]
     def model(prompt,schema,**kwargs):
         nonlocal reviews
-        if 'cues' in schema['properties']:return {'cues':cues}
         if 'pages' in schema['properties']:
-            limit=schema['properties']['pages']['items']['properties']['emphasis']['maxItems']
-            assert limit==(12 if not plans else 0)
+            assert 'anyOf' in schema['properties']['pages']['items']
             plans.append(prompt);return plan()
         reviews+=1
         return {k:{'passed':reviews==2,'reason':'remove unsupported relation'} for k in ('correctness','teaching_quality')}
@@ -91,7 +88,7 @@ def test_layout_and_source_corrections_have_independent_bounded_budgets(tmp_path
         if args[-1]=='--validate':
             if len(plans)<=2 or overflow_only:
                 result.write_text('{"error":"VIDEO_LAYOUT_INVALID:page=0,element=0,height>=188"}');return 1
-            result.write_text('{"valid":true}')
+            result.write_text(json.dumps({'valid':True,'plan':{**plan(),'schema':'podcast-storyboard/v2'}}))
         else:
             rendered.append(True);result.write_text('{}');result.with_suffix('.mp4').write_bytes(b'synthetic video')
         return 0
@@ -116,14 +113,15 @@ def test_measured_grouping_reaches_storyboard_and_render_without_dropping_turns(
     alignment.update(groups=[[0,1]],starts=[0],anchors=[alignment['anchors'][0]])
     monkeypatch.setenv('STUDYDY_VIDEO_PYTHON',sys.executable);monkeypatch.setenv('STUDYDY_VIDEO_WORK_DIR',str(tmp_path));monkeypatch.setattr(service,'ensure_space',lambda _:None)
     def model(prompt,schema,**kwargs):
-        if 'cues' in schema['properties']:return {'cues':cues}
         if 'pages' in schema['properties']:
-            assert schema['properties']['pages']['items']['properties']['start_cue']['enum']==[0]
+            assert schema['properties']['pages']['items']['anyOf'][0]['properties']['start_cue']['enum']==[0]
             value=plan();value['pages'][0]['end_cue']=0;value['pages'][0]['elements'][1]['cue_index']=0;return value
         return {k:{'passed':True,'reason':'synthetic'} for k in ('correctness','teaching_quality')}
     def process(args,env,timeout,cancelled):
         request=json.loads(Path(args[3]).read_text());assert len(request['cues'])==1 and len(request['cues'][0]['parts'])==3
-        result=Path(args[5]);result.write_text('{}')
+        result=Path(args[5])
+        value=plan();value['schema']='podcast-storyboard/v2';value['pages'][0]['end_cue']=0;value['pages'][0]['elements'][1]['cue_index']=0
+        result.write_text(json.dumps({'valid':True,'plan':value}) if args[-1]=='--validate' else '{}')
         if args[-1]!='--validate':result.with_suffix('.mp4').write_bytes(b'synthetic')
         return 0
     monkeypatch.setattr(service,'_process',process)

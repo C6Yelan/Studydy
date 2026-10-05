@@ -28,14 +28,6 @@ def object_schema(properties):
     return {'type': 'object', 'properties': properties, 'required': list(properties), 'additionalProperties': False}
 
 
-def cue_schema(episode):
-    part = object_schema({'turn_index': {'type': 'integer', 'enum': list(range(len(source_turns(episode))))},
-                          'text': {'type': 'string', 'minLength': 1}})
-    cue = object_schema({'title': {'type': 'string', 'minLength': 1, 'maxLength': 40},
-                         'parts': {'type': 'array', 'minItems': 1, 'maxItems': 12, 'items': part}})
-    return object_schema({'cues': {'type': 'array', 'minItems': 1, 'maxItems': 80, 'items': cue}})
-
-
 def validate_cues(episode, cues):
     turns = source_turns(episode)
     used = [''] * len(turns)
@@ -80,41 +72,6 @@ def merge_cue_groups(episode,cues,groups):
     return merged
 
 
-def emphasis_schema(cues):
-    index={'type':'integer','enum':list(range(len(cues)))}
-    common={'element_index':{'type':'integer','minimum':0,'maximum':59},
-            'start_cue':index,'end_cue':index}
-    # 在生成契約就排除跨行 quote／trace 帶文字，避免消耗修正機會。
-    choices=[]
-    for kind in ('underline','outline','trace'):
-        quote=({'type':'string','enum':['']} if kind=='trace' else
-               {'type':'string','minLength':1 if kind=='underline' else 0,'maxLength':80,'pattern':r'^[^\r\n]*$'})
-        choices.append(object_schema({**common,'kind':{'type':'string','enum':[kind]},'quote':quote}))
-    return {'type':'array','maxItems':12,'items':{'anyOf':choices}}
-
-
-def plan_schema(cues):
-    index = {'type': 'integer', 'enum': list(range(len(cues)))}
-    element = object_schema({
-        'kind': {'type': 'string', 'enum': list(KINDS)}, 'cue_index': index,
-        'text': {'type': 'string', 'maxLength': 160},
-        'x': {'type': 'integer', 'minimum': 100, 'maximum': 1820},
-        'y': {'type': 'integer', 'minimum': 220, 'maximum': 810},
-        'w': {'type': 'integer', 'minimum': -1720, 'maximum': 1720},
-        'h': {'type': 'integer', 'minimum': -590, 'maximum': 590},
-        'size': {'type': 'integer', 'enum': [28, 34, 42, 52, 64]},
-        'color': {'type': 'string', 'enum': list(COLORS)},
-        'filled': {'type': 'boolean'},
-    })
-    page = object_schema({'title': {'type': 'string', 'minLength': 1, 'maxLength': 28},
-                          'start_cue': index, 'end_cue': index,
-                          'elements': {'type': 'array', 'minItems': 1, 'maxItems': 60, 'items': element},
-                          'emphasis':emphasis_schema(cues),
-                          'reveal':{'type':'array','maxItems':3,'items':object_schema({
-                              'start_cue':index,'elements':{'type':'array','minItems':1,'maxItems':60,'items':{'type':'integer','minimum':0,'maximum':59}}})}})
-    return object_schema({'pages': {'type': 'array', 'minItems': 1, 'maxItems': 12, 'items': page}})
-
-
 def validate_plan(plan, cues):
     if not isinstance(plan, dict) or (set(plan) not in ({'pages'}, {'schema','pages'}) or ('schema' in plan and plan['schema']!='podcast-storyboard/v2')) or not isinstance(plan['pages'], list) or not 1 <= len(plan['pages']) <= 12:
         raise ValueError('VIDEO_STORYBOARD_INVALID:pages must contain 1..12 pages')
@@ -148,7 +105,7 @@ def validate_plan(plan, cues):
             if e['kind']=='text' and not e['text']:
                 raise ValueError(where+', text element needs nonempty text')
         groups=page.get('reveal',[])
-        if not isinstance(groups,list) or len(groups)>3:raise ValueError(where+', at most three reveal groups')
+        if not isinstance(groups,list) or len(groups)>60:raise ValueError(where+', reveal groups cannot exceed the element capacity')
         used=set()
         for group_index,group in enumerate(groups):
             detail=f'VIDEO_STORYBOARD_INVALID:page={page_index},reveal={group_index}'
@@ -275,8 +232,13 @@ def timeline_for_video(podcast_id, episode_index, episode, cues, alignment, sour
                          'title':cue['title'],'text':text,'turns':spoken,'source_refs':refs,
                          'beat_ids':beat_ids,'source_bindings':source_bindings,
                          'claim_ids':claim_ids,'evidence':list(evidence.values())})
-    return {'schema':'podcast-transcript-timeline/v1','podcast_id':str(podcast_id),'episode_index':episode_index,
+    result = {'schema':'podcast-transcript-timeline/v1','podcast_id':str(podcast_id),'episode_index':episode_index,
             'time_unit':'seconds','granularity':'script_cue','duration':duration,
             'audio_sha256':episode['audio']['sha256'],'script_sha256':script_digest(episode),
             'alignment_method':alignment['method'],'alignment_producer':alignment['producer'],
             'anchors':deepcopy(anchors),'source_resolver':source_resolver,'segments':segments}
+    if 'caption_alignment' in alignment:
+        from .podcast_cues import captions_for_episode
+        try: result['captions'] = captions_for_episode(episode, alignment['caption_alignment'])
+        except ValueError: raise ValueError('VIDEO_ALIGNMENT_INVALID:captions do not match the script or measured boundaries') from None
+    return result

@@ -13,12 +13,18 @@ from materials.test_podcast_interaction import beats, new_head
 
 
 def test_podcast_voice_assessment_browser_uses_original_revision(closed_loop,monkeypatch):
-    learner,source,settings,document,dsn,_=closed_loop;view=beats(closed_loop)
+    learner,source,settings,document,dsn,_=closed_loop
+    view=beats(closed_loop, spoken='堆疊會依後進先出的順序處理。先放入的項目會留在較後面處理，最後放入的項目會先被取出。例如先放入第一個項目，再放入第二個項目，取出時會先得到第二個項目。')
     state=scenes.claim(dsn=dsn)
     quote=normalized(' '.join(t['text'] for t in state['episode']['script']['segments'][0]['turns']))[:12]
+    from runtime.podcast_cues import align_captions, caption_units
+    turns = [t['text'] for s in state['episode']['script']['segments'] for t in s['turns']]
+    units = caption_units(turns)
+    words = [{'word': unit['text'], 'start': i/len(units), 'end': (i+.8)/len(units)} for i, unit in enumerate(units)]
     scenes.finish(state,{'starts':[0],'anchors':[{'script_offset':0,'text':quote,'audio_start':0,
         'boundary_script_offset':0,'boundary_text':quote,'boundary_audio_start':0}],
-        'duration':1,'method':'synthetic','producer':'fixture'},dsn=dsn)
+        'duration':1,'method':'synthetic','producer':'fixture',
+        'caption_alignment':align_captions(turns, words, 1)},dsn=dsn)
     new_head(closed_loop)
     requests=[]
     def provider(path,body):

@@ -163,6 +163,8 @@ def validate_bundle(state,bundle):
                   'timeline':timeline,'storyboard':plan,
                   'pages':[{'title':p['title'],'start':timeline['segments'][p['start_cue']]['start'],
                             'end':timeline['segments'][p['end_cue']]['end']} for p in plan['pages']]}
+        if 'caption_alignment' in bundle['alignment']:
+            manifest['caption_alignment'] = deepcopy(bundle['alignment']['caption_alignment'])
         return raw,manifest
     except (KeyError,TypeError,ValueError) as error:
         code=str(error).split(':',1)[0]

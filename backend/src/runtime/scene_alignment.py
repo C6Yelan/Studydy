@@ -2,7 +2,6 @@
 from difflib import SequenceMatcher
 import math
 import unicodedata
-from pypinyin import lazy_pinyin, Style
 
 class AlignmentError(ValueError):
     def __init__(self,indices=(),short_complete=False,can_group=False):
@@ -17,6 +16,7 @@ def normalized(text):
 
 
 def align_texts(texts,words,duration):
+    from pypinyin import lazy_pinyin, Style
     if not texts:raise AlignmentError()
     reference='';ranges=[]
     for text in texts:

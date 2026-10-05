@@ -66,9 +66,12 @@ def render(body, output):
         plan = speech_spans(turn["text"], zh.normalize, en.normalize)
         if not plan:raise RuntimeError("PODCAST_AUDIO_INVALID")
         for item_index, item in enumerate(plan):
+            last = item_index+1 == len(plan)
             if item["language"] == "en":
+                # 字母間只有空白，逗號只分隔原稿中的列舉；句中的縮寫不另加句號。
+                ending = '.' if item['ending'] in ('。','！','？','.','!','?') or last else ',' if item['ending'] else ''
                 generated = model.inference_cross_lingual(
-                    "You are a helpful assistant.<|endofprompt|>" + item["text"] + ".",
+                    "You are a helpful assistant.<|endofprompt|>" + item["text"] + ending,
                     reference, stream=False, text_frontend=False)
             else:
                 generated = model.inference_zero_shot(item["text"],
@@ -84,8 +87,7 @@ def render(body, output):
             if podcast:
                 data = trim_edges(data)
                 following = groups[group_index+1] if group_index+1 < len(groups) else None
-                last = item_index+1 == len(plan)
-                pause = pause_seconds(item['text'], language_join=not last,
+                pause = pause_seconds(item['ending'], language_join=not last,
                     next_speaker=last and following is not None and following['speaker'] != speaker,
                     next_beat=last and following is not None and following['segment_index'] != turn['segment_index'])
                 # 兩端保護區都納入停頓預算，不剪弱音，也不重複疊加靜音。

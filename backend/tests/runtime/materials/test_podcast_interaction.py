@@ -21,13 +21,13 @@ from learning_adaptation.study_sessions import create_study_session, set_current
 MASTERING={'policy':'podcast-mastering/v1','integrated_lufs':-19,'true_peak_dbtp':-2,'loudness_range_lu':3}
 
 
-def beats(fixture):
+def beats(fixture, *, spoken=None):
     owner,_,_,_,dsn,_=fixture
     saved=create(fixture)
     while (state:=podcasts.claim_step(dsn=dsn)):
         episode=state['episode']
         if not episode['script']:
-            turns=[{'speaker':'host','text':c['text'],'parts':[{'text':c['text'],'source_refs':[{
+            turns=[{'speaker':'host','text':spoken or c['text'],'parts':[{'text':spoken or c['text'],'source_refs':[{
                 'source_index':i,'evidence_ids':[e['evidence_id'] for e in c['evidence']]}]}]} for i,c in enumerate(episode['claims'])]
             script={'schema':SCHEMA,'provider':'synthetic','segments':[{'beat_id':'beat-0','title':'整合教學重點','turns':turns}],
                 'review':{k:{'passed':True,'reason':'synthetic'} for k in ('correctness','teaching_quality')}}
@@ -53,13 +53,19 @@ def new_head(f):
 
 
 def test_beats_queue_alignment_and_timeline_without_video(closed_loop):
-    owner,_,_,_,dsn,_=closed_loop;view=beats(closed_loop)
+    owner,_,_,_,dsn,_=closed_loop
+    view=beats(closed_loop, spoken='堆疊會依後進先出的順序處理。先放入的項目會留在較後面處理，最後放入的項目會先被取出。例如先放入第一個項目，再放入第二個項目，取出時會先得到第二個項目。')
     assert videos.read(owner.learner_id,view['podcast_id'],0,dsn=dsn)['status']=='pending'
     state=scenes.claim(dsn=dsn);assert state
     spoken=' '.join(t['text'] for t in state['episode']['script']['segments'][0]['turns']);quote=normalized(spoken)[:12]
     alignment={'starts':[0],'anchors':[{'script_offset':0,'text':quote,'audio_start':0,
         'boundary_script_offset':0,'boundary_text':quote,'boundary_audio_start':0}],
         'duration':1,'method':'synthetic','producer':'fixture'}
+    from runtime.podcast_cues import align_captions, caption_units
+    turns = [t['text'] for s in state['episode']['script']['segments'] for t in s['turns']]
+    units = caption_units(turns)
+    words = [{'word': unit['text'], 'start': i/len(units), 'end': (i+.8)/len(units)} for i, unit in enumerate(units)]
+    alignment['caption_alignment'] = align_captions(turns, words, 1)
     scenes.finish(state,alignment,dsn=dsn)
     manifest=scenes.read(owner.learner_id,view['podcast_id'],dsn=dsn)['episodes'][0]['manifest']
     timeline=build_timeline(view['podcast_id'],0,view['episodes'][0],manifest)
@@ -67,6 +73,10 @@ def test_beats_queue_alignment_and_timeline_without_video(closed_loop):
     assert len(timeline['segments'][0]['source_bindings'])==len(view['episodes'][0]['claims'])
     assert timeline['source_resolver']==view['source_resolver']
     assert webvtt(timeline).startswith('WEBVTT')
+    assert len(timeline['captions']) > len(timeline['segments'])
+    assert webvtt(timeline).count(' --> ') == len(timeline['captions'])
+    assert timeline['segments'][0]['source_refs'] == [
+        {'segment_index': 0, 'turn_index': i, 'start': 0, 'end': len(text)} for i, text in enumerate(turns)]
 
 
 def test_voice_old_revision_context_and_assessment_authority(closed_loop):
