@@ -47,7 +47,9 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
   const menu = useRef<HTMLDivElement>(null), gear = useRef<HTMLButtonElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
-  const [captions,setCaptions]=useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const idle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const keyboardFocus = useRef(false);
   const [settings, setSettings] = useState(() => readSettings(settingsKey));
   const [menuOpen, setMenuOpen] = useState(false), [playing, setPlaying] = useState(false), [ready, setReady] = useState(false);
   const [time, setTime] = useState(0), [length, setLength] = useState(view.episodes[index].audio?.duration_seconds ?? 0);
@@ -87,10 +89,12 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
     document.addEventListener("fullscreenchange", changed);
     return () => document.removeEventListener("fullscreenchange", changed);
   }, []);
-  useEffect(()=>{
-    const element=media.current;
-    if(element instanceof HTMLVideoElement)for(const track of Array.from(element.textTracks))track.mode=captions?'showing':'disabled';
-  },[captions,mediaSrc,ready]);
+  const showControls = useCallback(() => {
+    setControlsVisible(true);
+    clearTimeout(idle.current);
+    if (playing && !menuOpen && !keyboardFocus.current) idle.current = setTimeout(() => setControlsVisible(false), 2500);
+  }, [playing, menuOpen]);
+  useEffect(() => { showControls(); return () => clearTimeout(idle.current); }, [showControls]);
   const toggleFullscreen = async () => {
     try {
       if (document.fullscreenElement === viewport.current) await document.exitFullscreen();
@@ -129,15 +133,16 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
     onEnded:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget!==media.current)return;setPlaying(false);save(e.currentTarget);onEnded(settings.autoAdvance)},
     onError:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget===media.current){setReady(false);setError("媒體讀取失敗，請重試。")}},
   };
-  const title = [...new Set(view.episodes[index].claims.map(c => c.label))].join(" · ");
-  return <section className="media-player" aria-label={`第 ${index + 1} 集播放器`} tabIndex={0} onKeyDown={e => { if (e.key === "Escape" && menuOpen) { e.stopPropagation(); setMenuOpen(false); gear.current?.focus(); } }}>
-    <div className="media-player-heading"><div><p>第 {index + 1} 集 / 共 {view.episode_count} 集 · {view.delivery === "dialogue" ? "雙人對談" : "單人解說"}</p><h2 title={title}>{title}</h2></div></div>
-    <div className={`media-viewport${video ? " has-video" : ""}`} ref={viewport}>
-      <div className="media-display" role="region" aria-label="教學影片">
-        {video ? <video ref={attachMedia} {...mediaEvents} playsInline className="podcast-video-element" aria-label={`第 ${index+1} 集影片`}>
-          <track kind="captions" src={`/v1/podcasts/${view.podcast_id}/episodes/${index}/subtitles`} srcLang="zh-Hant" label="繁體中文講稿" />
-        </video> : <audio ref={attachMedia} {...mediaEvents} aria-label={`第 ${index+1} 集音訊`} />}
-        {!video && <><span className="media-display-label">2D 教學影片</span>
+  return <section className="media-player" aria-label={`第 ${index + 1} 集播放器`} onKeyDown={e => { if (e.key === "Escape" && menuOpen) { e.stopPropagation(); setMenuOpen(false); gear.current?.focus(); } }}>
+    <div className={`media-viewport${video ? " has-video" : " audio-only"}${controlsVisible ? "" : " controls-idle"}`} ref={viewport}
+      onPointerMove={showControls} onPointerDown={() => { keyboardFocus.current = false; showControls(); }}
+      onFocusCapture={e => { keyboardFocus.current = e.target.matches(':focus-visible'); showControls(); }}
+      onBlurCapture={e => { if (!e.currentTarget.contains(e.relatedTarget)) { keyboardFocus.current = false; showControls(); } }}
+      onKeyDown={e => { keyboardFocus.current = true; showControls(); if (e.target === e.currentTarget && [' ', 'Enter'].includes(e.key)) { e.preventDefault(); toggle(); } }}
+      tabIndex={0} aria-label={video ? '影片播放區；按空白鍵播放或暫停' : '音訊播放區；按空白鍵播放或暫停'}>
+      <div className="media-display" role="region" aria-label={video ? "教學影片" : "Podcast 音訊"} onClick={e => { if (!(e.target as HTMLElement).closest("button, a, input, select")) { toggle(); showControls(); } }}>
+        {video ? <video ref={attachMedia} {...mediaEvents} playsInline className="podcast-video-element" aria-label={`第 ${index+1} 集影片`} /> : <audio ref={attachMedia} {...mediaEvents} aria-label={`第 ${index+1} 集音訊`} />}
+        {!video && <>
         <div className="media-video-empty">
           <svg className="media-video-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="5" y="10" width="38" height="28" rx="4"/><path d="m20 18 12 6-12 6Z"/></svg>
           <h3>{videoState.state?.status === "running" ? "正在製作教學影片" : videoState.state?.status === "pending" ? "影片排隊中" : "本集影片尚未生成"}</h3>
@@ -161,13 +166,11 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
         <input type="range" aria-label="音量" min={0} max={1} step={0.05} value={settings.muted ? 0 : settings.volume} onChange={e => changeVolume(Number(e.target.value))} /></div>
       <div className="media-settings" ref={menu}><label className="media-autoplay"><input type="checkbox" aria-label="自動播放下一集" checked={settings.autoAdvance} onChange={e => setSettings(s => ({ ...s, autoAdvance: e.target.checked }))} />自動接續</label><button ref={gear} type="button" className="media-icon media-settings-toggle" aria-label="播放設定" title="播放設定" aria-expanded={menuOpen} aria-controls="podcast-player-settings" onClick={() => setMenuOpen(v => !v)}><span>{settings.speed}×</span><ControlIcon name="settings" /></button>
         {menuOpen && <div id="podcast-player-settings" className="media-settings-panel" role="group" aria-label="播放設定選單"><strong>播放速度</strong><div className="media-speed-options">{speeds.map(speed => <button type="button" key={speed} aria-pressed={settings.speed === speed} onClick={() => {setSettings(s => ({ ...s, speed }));setMenuOpen(false)}}>{speed === 1 ? "正常" : `${speed}×`}</button>)}</div><label className="media-menu-volume">音量<input type="range" aria-label="設定音量" min={0} max={1} step={0.05} value={settings.muted ? 0 : settings.volume} onChange={e => changeVolume(Number(e.target.value))}/></label></div>}
-        {video&&<button type="button" className="text-button" aria-pressed={captions} onClick={()=>setCaptions(v=>!v)}>字幕</button>}
-        <button type="button" className="media-icon" aria-label={fullscreen ? "退出全螢幕" : "全螢幕"} title={fullscreen ? "退出全螢幕" : "全螢幕"} onClick={() => void toggleFullscreen()}><ControlIcon name="fullscreen" /></button>
+        {video && <button type="button" className="media-icon" aria-label={fullscreen ? "退出全螢幕" : "全螢幕"} title={fullscreen ? "退出全螢幕" : "全螢幕"} onClick={() => void toggleFullscreen()}><ControlIcon name="fullscreen" /></button>}
       </div>
     </div>
       </div>
     </div>
-    {video && <nav className="podcast-video-pages" aria-label="本集投影片">{video.pages.map((page,i)=><button key={i} type="button" disabled={!ready} aria-current={time>=page.start&&time<page.end?'true':undefined} onClick={()=>seek(page.start)}>{i+1}. {page.title}</button>)}</nav>}
     {error && <p className="form-error media-feedback" role="alert">{error}{!ready && <button type="button" className="text-button" onClick={() => { setError(null); media.current?.load(); }}>重新載入媒體</button>}</p>}
     {storageError && <p className="media-feedback">瀏覽器目前無法保存播放位置或設定。</p>}
   </section>;

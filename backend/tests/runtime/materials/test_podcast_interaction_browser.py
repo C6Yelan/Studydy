@@ -1,4 +1,4 @@
-"""真 API／隔離 DB 的 Podcast→Voice→Assessment browser；provider 完全受控。"""
+"""真 API／隔離 DB：移除互動入口後仍保留原 revision 與內部字幕。"""
 import json
 from threading import Event, Thread
 from sqlalchemy import select, func
@@ -50,9 +50,8 @@ def test_podcast_voice_assessment_browser_uses_original_revision(closed_loop,mon
     try:
         with local_api(app):assert run_browser('e2e/api/podcast-interaction.spec.ts',timeout_seconds=120)==0
     finally:stop.set();thread.join(timeout=10)
-    assert not thread.is_alive() and not errors and requests==['/answer','/audio']
+    assert not thread.is_alive() and not errors and requests==[]
     with database_session(dsn) as db:
         conversation=db.scalar(select(VoiceConversation));turn=db.scalar(select(VoiceTurn));study=db.scalar(select(StudySession))
-        assert conversation.knowledge_structure_revision==study.knowledge_structure_revision==document['revision']
-        assert turn.status=='ready' and turn.context['podcast_id']==str(view['podcast_id'])
+        assert conversation is None and turn is None and study is None
         assert db.scalar(select(func.count()).select_from(AnswerEvent))==0

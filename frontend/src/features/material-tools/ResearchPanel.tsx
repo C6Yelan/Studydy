@@ -91,25 +91,20 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
   });
   return <section className="cards-page supplementary-page">
     {contentNavigation}
-    <header className="material-search-row">
-      <form className="material-search" role="search" onSubmit={event => { event.preventDefault(); if (query.trim() && !busy) void searchMaterials(); }}>
-        <input type="search" aria-label="想多了解什麼？" placeholder="輸入想補充的內容…" maxLength={1000} value={query} onChange={event => setQuery(event.target.value)}/>
-      </form>
-      <button className="primary-button" disabled={busy || !query.trim()} onClick={()=>void searchMaterials()}>{busy ? '正在建立搜尋…' : '搜尋補充資料'}<Icon name="chevron-right" size={16}/></button>
-    </header>
     <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
     <header className="cards-page-header"><div><h1>補充學習</h1></div></header>
-    {list.length > 0 && <details className="research-history"><summary>查看先前的搜尋 · {list.length} 筆</summary><div className="tool-history-bar">
-      <label className="tool-field">已保存的搜尋<select aria-label="已保存的搜尋" value={id ?? ''} disabled={busy} onChange={e => choose(e.target.value)}>
-        <option value="">新的補充搜尋</option>{list.map(r => <option key={r.research_id} value={r.research_id}>{r.query}</option>)}
-      </select></label>
-      {id && <button className="secondary-button" disabled={busy} onClick={() => choose('')}>新搜尋</button>}
-    </div></details>}
-    {id && <LearningSteps labels={['搜尋資料', '選取來源', '加入教材']} current={submitted ? 3 : canConfirm ? 2 : view?.status !== 'searching' ? 1 : 0} />}
+    <section className="surface research-compose" aria-labelledby="research-prompt"><h2 id="research-prompt">想補充什麼內容？</h2>
+      <form onSubmit={event => { event.preventDefault(); if (query.trim() && !busy) void searchMaterials(); }}>
+        <input type="search" aria-label="想多了解什麼？" placeholder="輸入想補充的內容…" maxLength={1000} value={query} onChange={event => setQuery(event.target.value)} />
+        <button type="submit" className="primary-button" disabled={busy || !query.trim()}>{busy ? '正在建立搜尋…' : '搜尋補充資料'}<Icon name="chevron-right" size={16}/></button>
+      </form>
+    </section>
     {error && <p role="alert" className="form-error">{error}</p>}
-    {!id ? <section className="tool-stage">
-      <h3>想補充什麼內容？</h3><p className="tool-description">在上方輸入需求，搜尋學術論文與官方教學，再選擇要加入的來源。</p>
-    </section> : !view ? <p role="status" className="tool-description">正在讀取搜尋紀錄…</p> : <section className="tool-stage">
+    <div className="research-records" aria-label="補充搜尋紀錄">
+    {list.map(record => <section className="surface research-record" key={record.research_id} aria-label={record.query}>
+      <button type="button" aria-expanded={id === record.research_id} disabled={busy} onClick={() => choose(id === record.research_id ? '' : record.research_id)}><strong>{record.query}</strong><span>{labels[(id === record.research_id ? view?.status : null) ?? record.status]}</span></button>
+      {id === record.research_id && (!view ? <p role="status">正在讀取搜尋紀錄…</p> : <div className="tool-stage">
+      <LearningSteps labels={['搜尋資料', '選取來源', '加入教材']} current={submitted ? 3 : canConfirm ? 2 : view.status !== 'searching' ? 1 : 0} />
       <header className="tool-stage-heading"><div><h3>{view.query}</h3><p>{labels[view.status]}</p></div></header>
       {view.error_code && <p className="tool-notice">{reasons[view.error_code] ?? '處理未完成，已保存取得的結果。'}</p>}
       {view.is_current_revision === false && !submitted && <p className="tool-notice">教材已更新，這次搜尋不能直接加入舊版本。請以目前教材重新搜尋。</p>}
@@ -119,12 +114,11 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
           <p>{completed ? `已將 ${view.selection.length} 份來源加入教材，可查看更新後的知識地圖。` : '已選來源會保留。可到教材分析頁查看進度或接續處理。'}</p></div>
         {view.run_id && <button className="primary-button" onClick={() => { writeRoute({ name: 'material-run', materialId, runId: view.run_id! }); }}>查看教材分析<Icon name="chevron-right" size={16} /></button>}
       </div>}
-      {view.status === 'searching' && <div className="tool-wait" role="status"><span className="loading-ring" /><p>正在尋找論文與官方教學，搜尋結果會保存在這裡。</p></div>}
+      {view.status === 'searching' && <div className="tool-wait" role="status"><span className="loading-ring" /><p>正在尋找補充資料，搜尋結果會保存在這筆紀錄。</p></div>}
       {canConfirm && <div className="tool-selection-heading"><h4>確認加入的來源 · {selected.length} 份</h4><button className="text-button" disabled={busy} onClick={() => { setEditing(true); setConfirmed(false); }}>調整來源</button></div>}
       {submitted && <h4 className="tool-section-label">已加入的來源 · {view.selection.length} 份</h4>}
       {displayed.length > 0 && <SourceCandidates candidates={displayed} selected={selected} disabled={working || submitted} readOnly={showSelected} search={{value:sourceQuery,onChange:setSourceQuery}} inlineSearch onChange={ids => { setSelected(ids); setConfirmed(false); }} />}
       {!view.candidates.length && !active.has(view.status) && <p className="tool-empty">沒有找到來源。可以換個主題或英文關鍵字再搜尋。</p>}
-      {!submitted && view.status !== 'searching' && <details className="tool-search-info"><summary>搜尋範圍與授權</summary><p>僅搜尋學術論文與官方教學；目前官方教學來源為 Python 官方文件與 MDN Web Docs。未確認全文授權的來源可以查看，但無法自動加入教材。</p></details>}
       {canConfirm && <div className="research-confirm"><p>加入後會更新教材與知識地圖，<strong>無法撤回新增內容</strong>。</p><label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />我了解加入後不可逆</label></div>}
       {!submitted && <footer className="tool-stage-footer">
         <div className="tool-footer-secondary">
@@ -139,7 +133,9 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
           if (alive.current) setView(r);
         })}>確認加入教材<Icon name="chevron-right" size={16} /></button> : ['selecting', 'ready', 'failed'].includes(view.status) && <button className="primary-button" disabled={working || !selected.length} onClick={() => void action('acquire', selected)}>取得選取的 {selected.length} 份來源<Icon name="chevron-right" size={16} /></button>}
       </footer>}
-    </section>}
+    </div>)}
+    </section>)}
+    </div>
     </div>
   </section>;
 }

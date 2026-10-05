@@ -99,6 +99,8 @@
   font-weight: 600;
 }
 .app-main {
+  /* 將頁內 sticky／浮動元件限制在內容層，避免蓋過共用頁首。 */
+  isolation: isolate;
   grid-column: 2;
   grid-row: 2;
   min-width: 0;
@@ -249,3 +251,5 @@
     padding: 4px 8px;
   }
 }
+/* 尚未建立地圖的來源確認仍是任務頁，使用外框的內容留白。 */
+.app-shell.is-workspace .app-main > .task-page { width:100%; max-width:1600px; margin-inline:auto; padding:24px clamp(16px,3vw,48px) 48px; }
