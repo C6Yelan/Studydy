@@ -234,7 +234,7 @@
 .podcast-transcript { max-height:420px; overflow:auto; }
 .media-playback-controls { transition:opacity .18s; }
 .controls-idle.has-video .media-playback-controls { opacity:0; pointer-events:none; }
-.controls-idle.has-video .media-playback-controls:focus-within { opacity:1; pointer-events:auto; }
+.controls-idle.has-video .media-playback-controls:has(:focus-visible) { opacity:1; pointer-events:auto; }
 .media-viewport:focus-visible { outline:3px solid var(--studydy-blue); outline-offset:-3px; }
 .media-viewport.audio-only { aspect-ratio:auto; }
 .audio-only .media-display { position:relative; aspect-ratio:auto; }

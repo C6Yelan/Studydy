@@ -511,3 +511,20 @@ test('video surface toggles once and controls recover from idle with keyboard an
   await page.keyboard.press('Tab');await expect(viewport).not.toHaveClass(/controls-idle/);
   await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
 });
+
+test.describe('touch playback',()=>{
+ test.use({hasTouch:true,isMobile:true,viewport:{width:390,height:844}});
+ test('taps toggle once; pointer-focused controls really disappear and remain recoverable',async({page})=>{
+  await mockEpisodeVideo(page);await page.goto(`/podcasts/${podcastId}`);
+  const video=page.locator('video'),controls=page.locator('.media-playback-controls');
+  await page.getByRole('button',{name:'播放',exact:true}).tap();
+  await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.paused)).toBe(false);
+  await expect(controls).toHaveCSS('opacity','0');
+  const display=(await page.locator('.media-display').boundingBox())!;
+  await page.touchscreen.tap(display.x+80,display.y+20);
+  await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.paused)).toBe(true);
+  await expect(controls).toHaveCSS('opacity','1');
+  await page.getByRole('button',{name:'播放設定',exact:true}).tap();
+  await expect(page.getByRole('group',{name:'播放設定選單'}).getByLabel('自動播放下一集')).toBeVisible();
+ });
+});
