@@ -47,4 +47,12 @@ Podcast 使用 Luna 腳本與本機 CosyVoice 3 RL／B 聲線生成，已依本�
 音訊完成所有分集後才開放播放。取消會阻止晚到結果發布，但不保證立即停止在途推論；程序中斷後以最多 15 分鐘的 lease 到期回收未確認步驟。已保存分集不重做。播放位置只在同一帳號／同一瀏覽器保存，不同步到其他裝置。
 
 
-Teaching beat／精確 part 引用、雙 blocking review、Voice context、Assessment handoff、音訊 mastering 及有限 reveal 的工程回歸使用合成資料與受控 provider，與上述歷史部署驗收分開。後續已授權並完成公開站真實驗收，詳細結果見 testing.md：四份音訊完成、三份影片發布，一份 full solo 影片仍被排版驗證拒絕。不得以這組結果宣稱所有模式穩定或教學品質全面通過。自動 review 不能替代人工核對來源、比喻、對話品質、發音或 trim 是否切掉弱音。30fps 雖有 CPU 收益，半速播放的 trace 更新頻率降低，仍保留 60fps；原教材圖片素材 deferred。
+Teaching beat／精確 part 引用、雙 blocking review、Voice context、Assessment handoff 與音訊 mastering 的工程測試不代表模型品質通過。第一輪 full solo 曾因排版失敗，後續已補齊；第二輪另外建立四份成對模式樣本，全部音訊與影片最終完成，詳細成功、拒絕與重試紀錄見 [測試](testing.md#podcast-第二輪品質修正2026-10-05)。
+
+Quick／Full 有依來源估量的字數、beat、turn 上限，雙人不再放大字數預算，但沒有強迫 Full 湊最低字數。第二輪單人有明顯差異；對談樣本 Quick 42.85 秒、Full 41.43 秒，篇幅幾乎相同。短且重疊度高的來源仍可能缺乏可感的模式差異，不能宣稱每一組都符合固定時長排序。
+
+細字幕只使用實測 Whisper 錨點，舊產物缺少細錨點時保留原 VTT，不自動重製。對齊不確定時可能合併讀句，不能保證所有字幕都落在理想長度，也不提供推估的逐字高亮。teaching scope、來源、Voice 與 Assessment authority 不隨字幕切分改變。
+
+語意版面提供概念、比較、相鄰步驟及雙方訊息交換，沿用 60fps 2D renderer；不涵蓋任意分支圖、多人協定或原教材圖片。文字很密時仍須精簡或重新組織，中文換行與美感仍可改善。自動 review 仍可能誤判，也仍可能需要有界重試；省掉 cue segmentation 的模型請求不等於整批實際費用一定下降。
+
+v12 的縮寫輸入與停頓組裝在同稿量測中減少了安靜區段，但 ASR 對部分縮寫仍有重複／誤辨。尚未完成人耳發音、弱音與自然度驗收，不以有效 WAV、響度達標或 ASR 量測代替聽感判斷。30fps 的半速 trace 更新頻率較低，仍維持 60fps；原教材圖片素材 deferred。

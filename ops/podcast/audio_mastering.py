@@ -33,10 +33,10 @@ def edge_silence(samples):
 
 
 def pause_seconds(text, *, next_speaker=False, next_beat=False, language_join=False):
-    if next_beat:return .45
-    if next_speaker:return .25
-    if language_join:return .08
-    return .22 if text.rstrip().endswith(('。','！','？','.','!','?')) else .12
+    ending = text.rstrip()
+    base = .22 if ending.endswith(('。','！','？','.','!','?')) else .12 if ending.endswith(('，',',','、','；',';',':','：')) else .08 if language_join else .12
+    # 同一邊界只取一個停頓，不把句號、換人與換 beat 相加；語言切換不等於句尾。
+    return max(base, .32 if next_beat else .22 if next_speaker else 0)
 
 
 def ffmpeg():

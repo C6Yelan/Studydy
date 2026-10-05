@@ -100,17 +100,23 @@ docker compose exec backend /app/backend/.venv/bin/python -m runtime.local_runti
 
 ## 本機 Podcast provider
 
-Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集 WAV，音訊沿用私人 artifact store。建立後自動生成；快速與完整模式均保留全部所選重點，內容較多自動拆集。失敗／取消可接續已保存進度。
+Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集 WAV，音訊沿用私人 artifact store。建立後自動生成；快速與完整模式均保留全部所選重點，內容較多自動拆集。失敗／取消可接續已保存進度。分集沿用所選概念順序，在每集最多六個 claim／2,400 來源字元的硬容量內，優先保留完整概念及既有 Relation／Evidence 的連續性，再考慮集數和容量平衡；不重排或刪減來源。單一 claim 超過容量時明確拒絕，不截斷它。
 
 文字 provider 沿用 `codex exec -m gpt-5.6-luna`。新稿為 `podcast-script/v2`：`segments` 是 teaching beats，一個 beat 可整合多個相關 claim，同 claim 也可跨 beat 延續。模型只選 `source_index` 與該來源內的 `evidence_indices`；程式核對範圍並回填原 ID，保存的 turn 文字 parts 引用 episode 的 `source_index` 與所屬 `evidence_ids`，朗讀 `text` 由 parts 串接並核對一致；不能以 claim ID 合併不同來源位置。全部來源須實質涵蓋，KS／claims／Evidence 仍是 canonical authority。頁面 context 只補原引用的表格標題或主語，不能加入 claim 外的知識。
 
-每份候選稿經獨立 review inference 回傳 `correctness` 與 `teaching_quality` 兩個 blocking verdict；任一失敗不得發布，最多重寫一次，重寫後兩者都重新核對。每集單次生成／重試最多四次文字請求，每次至多 120 秒。CLI 使用既有登入、ephemeral、唯讀空目錄並停用工具，不改寫原教材 Gemma binding；真實模型呼叫仍須有當次素材及費用授權。來源不足、provider／儲存失敗不視為成功。舊 turns 腳本保留原 bytes／hash，由唯讀來源投影相容，不批次改寫舊 JSON。
+新稿先依來源內容量設定 Quick／Full 的整集字數、beat 與 turn 上限，雙人不額外放大字數。英文依詞而非逐字母估量，同一長段被多個 claim 引用時不重複增加預算；這只影響容量，全部來源仍須實質涵蓋。Quick 保留核心與必要區辨，Full 允許有用的例子、誤解修正及追問；上限不是最低篇幅，也不保證每一對隨機樣本都有固定時長比例。新稿保存前由 backend 再檢查 mode 預算，已保存的 v2／legacy 講稿不重新套用。
 
-語音在本機執行 CosyVoice 3（`FunAudioLLM/Fun-CosyVoice3-0.5B-2512`）的官方 RL 權重，輸出 24 kHz PCM WAV。正式採用已選定的 B 參考聲線與固定角色 seed，使用通用中英文正規化；英文縮寫／複合詞依詞典與類型分段處理。數值保留原值，MB／Mb 分別讀 megabytes／megabits，速率讀 per second，不展開成中文大數量。未知識別符與部分縮寫仍可能不自然，需以真實教材聽感持續修正。
+超出預算、純附和及逐字改問句會直接進入同一個有界修稿機會，不浪費 reviewer 請求。「所以……？」接肯定回答且重用前句的確認迴圈也直接要求修稿；新情境與明示誤解修正不一律拒絕。相鄰重疊、規律輪替、來源已涵蓋後的反向假設與 recap 覆蓋率作為具體 turn 訊號，交給原有 teaching-quality review；相同術語、正常問答或必要整理不因單一訊號直接拒絕。
+
+不帶來源斷言的純提問 beat 會在容量允許時，與緊接的解答合併為同一教學單位；不改任何發言或 part 引用。審查須區分「重用同一 claim」與「重述同一命題」，不能拒絕該來源尚未說過的新細節。
+
+符合上述檢查的候選稿經獨立 review inference 回傳 `correctness` 與 `teaching_quality` 兩個 blocking verdict；任一失敗不得發布，最多重寫一次，重寫後兩者都重新核對。每集單次生成／重試最多四次文字請求，每次至多 120 秒。CLI 使用既有登入、ephemeral、唯讀空目錄並停用工具，不改寫原教材 Gemma binding；真實模型呼叫仍須有當次素材及費用授權。來源不足、provider／儲存失敗不視為成功。舊 turns 腳本保留原 bytes／hash，由唯讀來源投影相容，不批次改寫舊 JSON。
+
+語音在本機執行 CosyVoice 3（`FunAudioLLM/Fun-CosyVoice3-0.5B-2512`）的官方 RL 權重，輸出 24 kHz PCM WAV。正式採用已選定的 B 參考聲線與固定角色 seed，使用通用中英文正規化；`spoken-input/v12` 的縮寫字母間用空白，逗號只分隔原有列舉。相鄰英文縮寫及 slash／plus 等記號保留在同一語音片段，句中的英文片段不另補句號，原句號與分句標點交給停頓計算。英文縮寫／複合詞仍依詞典與類型處理。數值保留原值，MB／Mb 分別讀 megabytes／megabits，速率讀 per second，不展開成中文大數量。未知識別符與部分縮寫仍可能不自然，需以真實教材聽感持續修正。
 
 雙人只要求整集有兩個角色，允許短問題、單角色 beat、連續發言與自然交接。來源正確及教學品質分別核對，避免固定問答、無意義附和及同義重複。
 
-Podcast 在 `synthesize.py` 組裝階段裁去語句 chunk 的首尾靜音（20ms RMS 視窗、40ms 保護區，保留內部停頓），再依語言接續、標點、角色及 beat 邊界加入停頓。最終 WAV 保存前由 `audio_mastering.py` two-pass FFmpeg loudnorm 處理，目標 −19 LUFS／−2 dBTP；成品量測容許 ±1 LU、true peak ≤ −1.9 dBTP，輸出仍是 24kHz mono PCM16。影片另量測 AAC 解碼結果，要求 ±1 LU／≤ −1 dBTP。量測及 policy 隨 artifact metadata 保存，失敗不發布；所有對齊使用 mastering 後的 WAV。Voice `/audio` 不套用 Podcast 停頓政策。
+Podcast 在 `synthesize.py` 組裝階段裁去語句 chunk 的首尾靜音（20ms RMS 視窗、40ms 保護區，保留內部停頓），再依語言接續、標點、角色及 beat 邊界加入停頓；同一邊界只取最長的一項，不把句尾、換人和換 beat 相加，保護區的靜音亦計入此預算。最終 WAV 保存前由 `audio_mastering.py` two-pass FFmpeg loudnorm 處理，目標 −19 LUFS／−2 dBTP；成品量測容許 ±1 LU、true peak ≤ −1.9 dBTP，輸出仍是 24kHz mono PCM16。影片另量測 AAC 解碼結果，要求 ±1 LU／≤ −1 dBTP。量測及 policy 隨 artifact metadata 保存，失敗不發布；所有對齊使用 mastering 後的 WAV。Voice `/audio` 不套用 Podcast 停頓政策。
 
 FFmpeg 優先使用本機 executable 或 imageio-ffmpeg，否則由既有 `STUDYDY_VIDEO_PYTHON` 找到 renderer 的 FFmpeg；不需更換 TTS 模型或修改共用 venv。
 
@@ -148,18 +154,24 @@ F5 共用本機 Whisper，對齊原講稿與實際 WAV 的詞時間點；拼音�
 `granularity=segment` 表示只核對段落時間，`turns` 內沒有推估的發言或逐字時間。尚未對齊回 409，必須先沿用同步畫面準備流程完成對齊。
 經逐句分鏡及 ASR 核對的集數，scene manifest 另保存 `script_alignment`；API 回傳 `granularity=script_cue`，依講稿的解說單位提供時間，不以教材段落分鏡。
 每個新片段以 `source_refs` 保留原 beat／發言索引與 Unicode 字元範圍（start 含、end 不含），從文字交集推導 claim／Evidence，不把整個 beat 的來源塞給每個 cue；既有單發言片段仍有 `source_segment_index/source_turn_index`。拼回各發言須逐字等於原稿。短提問與回答可共用一個 cue，但仍分別保存 speaker，不額外推算逐角色切換時間。音訊或講稿 hash 改變、時間不符語音錨點均拒絕讀取，不沿用過期切分。
-同一路徑的 `/subtitles` 提供 WebVTT，兩個端點都沿用原 Podcast 權限與私人快取政策。時間軸使用已保存的對齊資料，不改寫原講稿；完成影片時優先讀取影片綁定的時間軸。
+同一路徑的 `/subtitles` 提供 WebVTT，兩個端點都沿用原 Podcast 權限與私人快取政策。新對齊另保存 `caption_alignment`：以原 turn、標點和同一次 Whisper 的詞時間產生較短讀句，逐字拼回仍等於原稿；多個片段共用 ASR 時間時合併，不在詞內插值。timeline 的 `segments` 繼續負責來源、seek 和「問這一段」，字幕使用獨立的 `captions`，不切碎 teaching scope。未保存細字幕錨點的舊產物沿用原 VTT，不自動重跑模型或改寫 manifest。時間軸使用已保存的對齊資料，不改寫原講稿；完成影片時優先讀取影片綁定的時間軸。
 
 每集新音訊完成後自動排入影片佇列；v2 腳本另自動排入既有 beat alignment 工作，先提供基本 timeline，不必等 MP4；既有集數可在播放器補產生，失敗可重試，處理中可取消。影片失敗不影響原音訊。
 正式播放器提供影片／音訊切換、投影片跳轉、同步講稿及 JSON／WebVTT 下載，延續原 Podcast 的帳號權限。
 
 0015 migration 新增影片工作、來源指紋及 artifact 關係。影片只在來源仍一致、版面及來源核對通過且 artifact 寫入成功後標記完成。取消、刪除或過期工作的晚到結果不會發布。升級前備份 PostgreSQL；升級後以識別 0015 的版本前向修復。
 
-`ops/podcast/video_service.py` 使用既有文字 provider 切分講稿、安排固定頁面圖形、在一次 review 分別核對 correctness 與 teaching-quality（兩者都 blocking），分鏡驗證失敗時將具體錯誤交回模型修正，版面錯誤與來源核對各保留兩次修正機會，任一類第三次失敗即停止（每次工作最多九次文字請求）。版面／格式修正候選先省略可選 emphasis，仍保留必要文字、圖形、合法 reveal，且重新通過幾何與兩項內容審查；不以移除標記跳過 review。Whisper 在本機對齊原 WAV。`backend/src/runtime/podcast_video_render.py` 只接受白名單圖形，在 CPU 產生 1920×1080／60fps MP4，使用原音訊與實測時間，不執行模型程式碼。
-新產生的 `flat-report/v4`／`podcast-storyboard/v2` 一頁只聚焦一個 mental model；每頁最多三組 `reveal`，引用既有 elements 索引與 cue 邊界，顯示後保留至頁尾。單位、必要條件與節點／連線須完整呈現，連線不得早於其節點；未加入 reveal 的元素頁首顯示；reveal 可從頁首開始，多組可在同一 cue 出現，群組陣列不要求按時間排序。`cue_index` 仍表示開始解釋的時機。畫面底部只放短焦點提示，完整字幕保留 WebVTT，由播放器的字幕按鈕切換，不將逐字稿重複燒進新影片。舊 MP4、舊 `flat-report/v3` manifest 與靜態顯示方式原樣保留。
-每頁 `emphasis` 只引用既有元素與 cue：底線、描邊框選或沿既有連線移動的講解指示點。只在有助理解時標示，可整頁沒有標記，不設配額。標記逐步畫出，片段結束前淡出，底圖保留；同時標記數量依比較需要決定，可比較同一元素中的不同詞，不能重複覆蓋相同詞或提前強調尚未講解的內容。模型不決定任意秒數、也不增加標記文字；時機由實際語音對齊決定，另經來源核對。箭頭端點與節點的視覺間距不作為硬性拒絕條件，關係仍經來源與教學品質審查；文字超框、重疊及無效目標仍會拒絕。既有 MP4 不會因程式更新而自動重製。
+`ops/podcast/video_service.py` 先以 beat／turn／part 與標點決定 teaching cues，再由本機 Whisper 對齊原 WAV，切 cue 不呼叫文字模型。文字 provider 只描述語意分鏡：concept 主重點與支持說明、comparison 比較群組、flow 有來源的相鄰步驟、exchange 兩個參與者間的往返訊息；輸出短文字、節點／關係索引及 cue／reveal／focus 意圖，不輸出 x/y/w/h。需要長 teaching cue 內的細時機時，可選該 cue 內既有字幕的 `caption_index`；renderer 只使用它的實測起點和結束邊界，不生成新秒數，也不改教學範圍。`podcast_video_layout.py` 以真實字型量測，決定間距、文字容納、節點位置與箭頭，新工作編譯成 `podcast-storyboard/v3`，在既有平面元素外保存語意群組、cue／caption anchor 及原關係的 source／target 索引；模型 schema 不新增座標、秒數或動態程式碼。拉丁縮寫與單位能放進一行時不在詞內斷行，重複量測使用有界快取。
 
-影片的細切若無法獨立取得可靠錨點，僅在同一原發言內合併相鄰片段；完整辨識的短回覆或共用 ASR 詞時間也可保留角色後合併。合併不遺失文字、不跨越不可靠的完整發言，仍要求至少 8 字的連續語音錨點、實測時間與字幕長度上限。F5 原段落對齊不啟用此合併，音訊不重製。
+同一次 review 分別核對 correctness 與 teaching-quality（兩者都 blocking），檢查語意節點、關係方向與時機；不把版型當成新的知識依據。審查提示明示 `reveal=false` 是頁首可見、exchange 的 `label` 即參與者名稱；不能誤當隱藏，也不要求同一實測錨點內出現不存在的細時機。分鏡／版面與內容審查各保留兩次修正機會，任一類第三次失敗即停止：正常工作只需分鏡＋review 兩次文字請求，有界最差為八次。修正仍保留合法的 reveal／focus，不強制移除所有標記；候選必須重新通過來源審查。沒有模型幾何不代表任何內容皆可容納，過長文字或無效語意索引仍會拒絕。
+
+`backend/src/runtime/podcast_video_render.py` 沿用有限圖形與 CPU 1920×1080／60fps MP4，不執行模型程式碼。reveals 由語意目標的 cue 編譯、同 cue 合併，顯示後保留至頁尾；相關節點不晚於連線出現，單位與必要條件仍由內容審查核對。v3 由 `podcast_video_motion.py` 以 manifest、實測 timeline 與目前媒體秒數直接計算狀態：節點及文字淡入、線條／箭頭 draw-on、焦點明暗與淡底平滑轉移，已出現的次要內容仍保留。flow／exchange 指示沿既有箭頭一次性推進並移交節點焦點；不循環、不表示實際封包速度。同一 anchor 的目標同時聚焦，不編造更細的先後。模型的 focus 仍控制額外暫時標記；v3 relation 不再疊加第二個 trace 指示。換頁後使用短 crossfade，舊頁以邊界前的確定畫格計算，底部提示與進度仍取目前時間。固定的視覺時長上限皆受實測窗口限制；seek／倍速沒有前一影格的殘留狀態。舊 underline／outline／trace 圖形契約保留可讀，標記不設必填配額。
+
+升級時先更新可接受 v3 的 backend，再更新／重啟 video provider。新 service 明確傳入 `--motion --validate`；仍在執行的舊 service 只傳 `--validate` 時繼續編譯 v2，避免分階段更新意外改變契約。未標 schema 的 legacy 與 v2 保留原繪法；不掃描、重排或重製 ready 產物。
+
+新影片底部只放短焦點提示，完整字幕保留 WebVTT，由播放器字幕按鈕切換。既有 MP4、`flat-report/v3`／`v4` manifest 與原顯示方式不自動重製；來源、音訊、script hash、ownership 與晚到結果隔離仍沿用原規則。
+
+影片的細切若無法獨立取得可靠錨點，僅在同一原發言內合併相鄰片段；完整辨識的短回覆或共用 ASR 詞時間也可保留角色後合併。合併不遺失文字、不跨越不可靠的完整發言，仍要求至少 8 字的連續語音錨點、實測時間與片段容量上限。字幕優先切成 42 字內讀句，但可靠錨點不足而必須合併時可能較長；不為追求固定字數猜時間。F5 原段落對齊不啟用此合併，音訊不重製。
 
 渲染環境依賴見 `ops/podcast/video-render-requirements.txt`，字型為 Noto Sans CJK。provider.env 設定 `STUDYDY_VIDEO_PYTHON`（獨立渲染環境）、`STUDYDY_VIDEO_WORK_DIR`（暫存目錄）、`STUDYDY_VIDEO_MIN_FREE_BYTES`（最低可用容量）及可選的 `STUDYDY_VIDEO_HOST_FREE_PATH`（宿主磁碟容量檢查）。影片工作串行，暫存檔處理後清除；不用下載影片生成模型。來源不足或驗證失敗會保留失敗狀態，不視為通過。
 

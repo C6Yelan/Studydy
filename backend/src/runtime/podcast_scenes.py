@@ -39,7 +39,7 @@ def flow_steps(claim):
 
 
 def validate_alignment(episode,alignment):
-    if not isinstance(alignment,dict) or set(alignment)!={'starts','anchors','duration','method','producer'}:
+    if not isinstance(alignment,dict) or set(alignment) not in ({'starts','anchors','duration','method','producer'}, {'starts','anchors','duration','method','producer','caption_alignment'}):
         raise SourceError('SCENE_ALIGNMENT_INVALID')
     segments=episode['script']['segments'];duration=episode['audio']['duration_seconds']
     starts=alignment.get('starts');anchors=alignment.get('anchors')
@@ -63,6 +63,11 @@ def validate_alignment(episode,alignment):
             or text[begin:begin+len(begin_text)]!=begin_text or type(begin_time)not in (int,float)
             or not math.isfinite(begin_time) or not 0<=begin_time<=time or (i>0 and abs(begin_time-starts[i])>0.01)):
             raise SourceError('SCENE_ALIGNMENT_INVALID')
+
+    if 'caption_alignment' in alignment:
+        from .podcast_cues import captions_for_episode
+        try: captions_for_episode(episode, alignment['caption_alignment'])
+        except ValueError: raise SourceError('SCENE_ALIGNMENT_INVALID') from None
 
 
 def scene_content(episode,document):
@@ -138,7 +143,8 @@ def build_manifest(podcast,episode,document,alignment,checks=None):
     return {'policy':POLICY,'input_sha256':identity(podcast,episode),'audio_sha256':episode['audio']['sha256'],
         'duration':duration,'scenes':scenes,'alignment_method':alignment['method'],'alignment_producer':alignment['producer'],
         'source_checks':checks or {'provider':'not-needed;verbatim-source','verdicts':{}},
-        'anchors':alignment['anchors'],'source_resolver':f'/v1/materials/{podcast.material_id}/knowledge-structures/{podcast.knowledge_structure_revision}/evidence'}
+        'anchors':alignment['anchors'],'source_resolver':f'/v1/materials/{podcast.material_id}/knowledge-structures/{podcast.knowledge_structure_revision}/evidence',
+        **({'caption_alignment': deepcopy(alignment['caption_alignment'])} if 'caption_alignment' in alignment else {})}
 
 
 def read(owner,podcast_id,*,dsn=None):
@@ -256,7 +262,8 @@ def step(*,dsn=None):
                 audio=artifact.file.read(100*1024*1024+1)
             podcasts.validate_audio(audio)
             texts=[' '.join(t['text'] for t in s['turns']) for s in state['episode']['script']['segments']]
-            alignment=provider('/align',{'audio':base64.b64encode(audio).decode(),'texts':texts})
+            alignment=provider('/align',{'audio':base64.b64encode(audio).decode(),'texts':texts,
+                'caption_turns':[t['text'] for s in state['episode']['script']['segments'] for t in s['turns']]})
         if not save_alignment(state,alignment,dsn=dsn):return True
         checks=state['checks']
         if not checks:

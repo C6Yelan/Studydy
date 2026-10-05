@@ -41,6 +41,9 @@ def build_timeline(podcast_id, episode_index, episode, manifest):
             'alignment_method': manifest['alignment_method'], 'alignment_producer': manifest['alignment_producer'],
             'input_sha256': manifest['input_sha256'], 'source_resolver': manifest['source_resolver'],
             'anchors': deepcopy(manifest['anchors']), 'segments': result}
+    if 'caption_alignment' in manifest:
+        from .podcast_cues import captions_for_episode
+        timeline['captions'] = captions_for_episode(episode, manifest['caption_alignment'])
     refined = manifest.get('script_alignment')
     if refined:
         if any(refined[key] != timeline[key] for key in ('audio_sha256', 'script_sha256')):
@@ -112,7 +115,7 @@ def webvtt(timeline):
 
     return 'WEBVTT\n\n' + '\n\n'.join(
         f"{s['id']}\n{timestamp(s['start'])} --> {timestamp(s['end'])}\n{plain(s['text'])}"
-        for s in timeline['segments']) + '\n'
+        for s in timeline.get('captions', timeline['segments'])) + '\n'
 
 
 def with_source_ranges(timeline, episode):

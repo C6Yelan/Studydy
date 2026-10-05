@@ -41,7 +41,7 @@ def english_words(token, normalize_number):
     if token.isdigit():
         return normalize_number(token)
     if initialism(token):
-        return ', '.join(token.upper())
+        return ' '.join(token.upper())
     if '_' in token or '-' in token or (not token.islower() and not token.isupper()) or any(c.isdigit() for c in token):
         chunks=[]
         for part in re.split(r'([_-])',token):
@@ -58,7 +58,7 @@ def english_words(token, normalize_number):
     pieces = wordninja.split(token.lower())
     if len(pieces)>1 and all(p in lexicon() for p in pieces):
         return ' '.join(pieces)
-    return ', '.join(token.upper())
+    return ' '.join(token.upper())
 
 
 def speech_spans(text, normalize_zh, normalize_en):
@@ -91,11 +91,27 @@ def speech_spans(text, normalize_zh, normalize_en):
         cursor=match.end()
     pending+=text[cursor:];flush()
     # 英文列舉合併為一句，避免合成只有「和」或單一標點的碎片。
-    joiners={',':', ', '、':', ', '，':', ', '和':' and ', '與':' and ', '与':' and ', '及':' and ', '或':' or '}
+    joiners={',':', ', '、':', ', '，':', ', '和':' and ', '與':' and ', '与':' and ', '及':' and ', '或':' or ',
+             '/':' slash ', '／':' slash ', '+':' plus ', '＋':' plus ', '→':' then ', 'and':' and ', 'or':' or '}
     merged=[];i=0
     while i<len(nodes):
         node=dict(nodes[i]);i+=1
-        while node['language']=='en' and i+1<len(nodes) and nodes[i]['language']=='zh' and nodes[i]['text'].strip() in joiners and nodes[i+1]['language']=='en':
-            node['text']+=joiners[nodes[i]['text'].strip()]+nodes[i+1]['text'];i+=2
-        if any(c.isalnum() for c in node['text']):merged.append(node)
+        while node['language']=='en' and i<len(nodes):
+            if nodes[i]['language']=='en':
+                node['text']+=' '+nodes[i]['text'];i+=1
+            elif i+1<len(nodes) and nodes[i]['text'].strip() in joiners and nodes[i+1]['language']=='en':
+                node['text']+=joiners[nodes[i]['text'].strip()]+nodes[i+1]['text'];i+=2
+            else:break
+        if node['language']=='zh' and merged and merged[-1]['language']=='en':
+            leading=re.match(r'^\s*([。！？!?；;，,：:、.])\s*',node['text'])
+            if leading:
+                merged[-1]['ending']=leading[1]
+                node['text']=node['text'][leading.end():]
+        ending=re.search(r'[。！？!?；;，,：:、.]\s*$',node['text'])
+        node['ending']=ending[0].strip() if ending else ''
+        if any(c.isalnum() for c in node['text']):
+            merged.append(node)
+        elif merged and node['ending']:
+            # 縮寫後只有句號時，保留原句界給合成／停頓；不能當成空片段丟掉。
+            merged[-1]['ending']=node['ending']
     return merged

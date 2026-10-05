@@ -28,14 +28,6 @@ def object_schema(properties):
     return {'type': 'object', 'properties': properties, 'required': list(properties), 'additionalProperties': False}
 
 
-def cue_schema(episode):
-    part = object_schema({'turn_index': {'type': 'integer', 'enum': list(range(len(source_turns(episode))))},
-                          'text': {'type': 'string', 'minLength': 1}})
-    cue = object_schema({'title': {'type': 'string', 'minLength': 1, 'maxLength': 40},
-                         'parts': {'type': 'array', 'minItems': 1, 'maxItems': 12, 'items': part}})
-    return object_schema({'cues': {'type': 'array', 'minItems': 1, 'maxItems': 80, 'items': cue}})
-
-
 def validate_cues(episode, cues):
     turns = source_turns(episode)
     used = [''] * len(turns)
@@ -80,48 +72,14 @@ def merge_cue_groups(episode,cues,groups):
     return merged
 
 
-def emphasis_schema(cues):
-    index={'type':'integer','enum':list(range(len(cues)))}
-    common={'element_index':{'type':'integer','minimum':0,'maximum':59},
-            'start_cue':index,'end_cue':index}
-    # 在生成契約就排除跨行 quote／trace 帶文字，避免消耗修正機會。
-    choices=[]
-    for kind in ('underline','outline','trace'):
-        quote=({'type':'string','enum':['']} if kind=='trace' else
-               {'type':'string','minLength':1 if kind=='underline' else 0,'maxLength':80,'pattern':r'^[^\r\n]*$'})
-        choices.append(object_schema({**common,'kind':{'type':'string','enum':[kind]},'quote':quote}))
-    return {'type':'array','maxItems':12,'items':{'anyOf':choices}}
-
-
-def plan_schema(cues):
-    index = {'type': 'integer', 'enum': list(range(len(cues)))}
-    element = object_schema({
-        'kind': {'type': 'string', 'enum': list(KINDS)}, 'cue_index': index,
-        'text': {'type': 'string', 'maxLength': 160},
-        'x': {'type': 'integer', 'minimum': 100, 'maximum': 1820},
-        'y': {'type': 'integer', 'minimum': 220, 'maximum': 810},
-        'w': {'type': 'integer', 'minimum': -1720, 'maximum': 1720},
-        'h': {'type': 'integer', 'minimum': -590, 'maximum': 590},
-        'size': {'type': 'integer', 'enum': [28, 34, 42, 52, 64]},
-        'color': {'type': 'string', 'enum': list(COLORS)},
-        'filled': {'type': 'boolean'},
-    })
-    page = object_schema({'title': {'type': 'string', 'minLength': 1, 'maxLength': 28},
-                          'start_cue': index, 'end_cue': index,
-                          'elements': {'type': 'array', 'minItems': 1, 'maxItems': 60, 'items': element},
-                          'emphasis':emphasis_schema(cues),
-                          'reveal':{'type':'array','maxItems':3,'items':object_schema({
-                              'start_cue':index,'elements':{'type':'array','minItems':1,'maxItems':60,'items':{'type':'integer','minimum':0,'maximum':59}}})}})
-    return object_schema({'pages': {'type': 'array', 'minItems': 1, 'maxItems': 12, 'items': page}})
-
-
 def validate_plan(plan, cues):
-    if not isinstance(plan, dict) or (set(plan) not in ({'pages'}, {'schema','pages'}) or ('schema' in plan and plan['schema']!='podcast-storyboard/v2')) or not isinstance(plan['pages'], list) or not 1 <= len(plan['pages']) <= 12:
+    if not isinstance(plan, dict) or (set(plan) not in ({'pages'}, {'schema','pages'}) or ('schema' in plan and plan['schema'] not in ('podcast-storyboard/v2', 'podcast-storyboard/v3'))) or not isinstance(plan['pages'], list) or not 1 <= len(plan['pages']) <= 12:
         raise ValueError('VIDEO_STORYBOARD_INVALID:pages must contain 1..12 pages')
     next_cue = 0
     for page_index,page in enumerate(plan['pages']):
         where=f'VIDEO_STORYBOARD_INVALID:page={page_index}'
-        if (not isinstance(page,dict) or set(page) not in ({'title', 'start_cue', 'end_cue', 'elements'}, {'title', 'start_cue', 'end_cue', 'elements', 'emphasis'}, {'title', 'start_cue', 'end_cue', 'elements', 'emphasis', 'reveal'})
+        motion = plan.get('schema') == 'podcast-storyboard/v3'
+        if (not isinstance(page,dict) or (set(page) - ({'motion'} if motion else set())) not in ({'title', 'start_cue', 'end_cue', 'elements'}, {'title', 'start_cue', 'end_cue', 'elements', 'emphasis'}, {'title', 'start_cue', 'end_cue', 'elements', 'emphasis', 'reveal'})
                 or not isinstance(page['title'], str) or not 0 < len(page['title']) <= 28
                 or not isinstance(page['elements'], list) or not 1 <= len(page['elements']) <= 60):
             raise ValueError(where+', title must be 1..28 characters and elements must contain 1..60 items')
@@ -148,12 +106,13 @@ def validate_plan(plan, cues):
             if e['kind']=='text' and not e['text']:
                 raise ValueError(where+', text element needs nonempty text')
         groups=page.get('reveal',[])
-        if not isinstance(groups,list) or len(groups)>3:raise ValueError(where+', at most three reveal groups')
+        if not isinstance(groups,list) or len(groups)>60:raise ValueError(where+', reveal groups cannot exceed the element capacity')
         used=set()
         for group_index,group in enumerate(groups):
             detail=f'VIDEO_STORYBOARD_INVALID:page={page_index},reveal={group_index}'
-            if (not isinstance(group,dict) or set(group)!={'start_cue','elements'}
+            if (not isinstance(group,dict) or set(group) not in ({'start_cue','elements'}, {'start_cue','elements','caption_index'})
                 or type(group['start_cue']) is not int
+                or ('caption_index' in group and (type(group['caption_index']) is not int or group['caption_index'] < 0))
                 or not isinstance(group['elements'],list) or not group['elements']):raise ValueError(detail+', expected integer start_cue and nonempty elements')
             # 繪製器按各組 cue 決定可見性；頁首、同時或未排序的群組都能正確呈現。
             if not page['start_cue']<=group['start_cue']<=page['end_cue']:
@@ -166,15 +125,12 @@ def validate_plan(plan, cues):
         visible_at={i:page['start_cue'] for i in range(len(page['elements']))}
         for group in groups:
             for target in group['elements']:visible_at[target]=group['start_cue']
-        for i,element in enumerate(page['elements']):
-            if element['kind'] not in ('line','arrow'):continue
-            for j,node in enumerate(page['elements']):
-                if node['kind'] not in ('box','circle'):continue
-                left,top=node['x'],node['y'];right,bottom=left+node['w'],top+node['h']
-                for x,y in ((element['x'],element['y']),(element['x']+element['w'],element['y']+element['h'])):
-                    distance=math.hypot(max(left-x,0,x-right),max(top-y,0,y-bottom))
-                    if distance<=24 and visible_at[i]<visible_at[j]:raise ValueError(where+', connection must not precede its node')
+        validate_connections(page, visible_at, where)
         validate_emphasis(page,page_index)
+        if motion:
+            from .podcast_video_motion import validate_motion
+            if 'motion' not in page: raise ValueError(where + ', v3 requires motion groups')
+            validate_motion(page, where)
         next_cue = page['end_cue']+1
     if next_cue != len(cues):
         raise ValueError(f'VIDEO_STORYBOARD_INVALID:uncovered cues {next_cue}..{len(cues)-1}')
@@ -189,8 +145,9 @@ def validate_emphasis(page,page_index):
     occupied={}
     for index,m in enumerate(marks):
         detail=where+f'={index}'
-        if (not isinstance(m,dict) or set(m)!={'element_index','start_cue','end_cue','kind','quote'}
+        if (not isinstance(m,dict) or set(m) not in ({'element_index','start_cue','end_cue','kind','quote'}, {'element_index','start_cue','end_cue','kind','quote','caption_index'})
                 or any(type(m[k]) is not int for k in ('element_index','start_cue','end_cue'))
+                or ('caption_index' in m and (type(m['caption_index']) is not int or m['caption_index'] < 0))
                 or m['kind'] not in ('underline','outline','trace')
                 or not isinstance(m['quote'],str) or len(m['quote'])>80):
             raise ValueError(detail+', invalid mark fields')
@@ -215,12 +172,61 @@ def validate_emphasis(page,page_index):
             active=occupied.setdefault(cue,[])
             for other in active:
                 if other['element_index']!=m['element_index']:continue
+                if 'caption_index' in m and 'caption_index' in other and m['caption_index']!=other['caption_index']:continue
                 left,right=m['quote'],other['quote']
                 if not left or not right:raise ValueError(detail+', overlapping emphasis on the same target')
                 left_start=e['text'].index(left);right_start=e['text'].index(right)
                 if max(left_start,right_start)<min(left_start+len(left),right_start+len(right)):
                     raise ValueError(detail+', overlapping emphasis on the same phrase')
             active.append(m)
+
+
+def validate_connections(page, visible_at, where):
+    for i, element in enumerate(page['elements']):
+        if element['kind'] not in ('line', 'arrow'): continue
+        for j, node in enumerate(page['elements']):
+            if node['kind'] not in ('box', 'circle'): continue
+            left, top = node['x'], node['y']; right, bottom = left+node['w'], top+node['h']
+            for x, y in ((element['x'], element['y']), (element['x']+element['w'], element['y']+element['h'])):
+                distance = math.hypot(max(left-x, 0, x-right), max(top-y, 0, y-bottom))
+                if distance <= 24 and visible_at[i] < visible_at[j]:
+                    raise ValueError(where + ', connection must not precede its node')
+
+
+def visual_window(timeline, start_cue, end_cue, caption_index=None):
+    start = timeline['segments'][start_cue]['start']; end = timeline['segments'][end_cue]['end']
+    if caption_index is not None:
+        caption = timeline['captions'][caption_index]
+        start, end = caption['start'], min(end, caption['end'])
+    return start, end
+
+
+def validate_visual_timing(plan, timeline):
+    """細揭示只引用已驗證字幕的實測邊界，不改 teaching cue 或自行補秒數。"""
+    captions = timeline.get('captions', [])
+    for i, page in enumerate(plan['pages']):
+        entries = page.get('reveal', []) + page.get('emphasis', []) + page.get('motion', {}).get('groups', [])
+        where = f'VIDEO_STORYBOARD_INVALID:page={i}'
+        for item in entries:
+            if 'caption_index' not in item: continue
+            index = item['caption_index']
+            if type(index) is not int or not 0 <= index < len(captions):
+                raise ValueError(where + ', caption_index has no measured anchor')
+            cue = timeline['segments'][item['start_cue']]
+            if not cue['start'] <= captions[index]['start'] < cue['end']:
+                raise ValueError(where + ', caption_index must start inside its teaching cue')
+        visible = {j: timeline['segments'][page['start_cue']]['start'] for j in range(len(page['elements']))}
+        for group in page.get('reveal', []):
+            when = visual_window(timeline, group['start_cue'], group['start_cue'], group.get('caption_index'))[0]
+            for target in group['elements']: visible[target] = when
+        validate_connections(page, visible, where)
+        if 'motion' in page:
+            from .podcast_video_motion import validate_motion_timing
+            validate_motion_timing(page, timeline, visible, where)
+        for mark in page.get('emphasis', []):
+            when = visual_window(timeline, mark['start_cue'], mark['end_cue'], mark.get('caption_index'))[0]
+            if when < visible[mark['element_index']]:
+                raise ValueError(where + ', emphasis must not precede its revealed target')
 
 
 
@@ -275,8 +281,13 @@ def timeline_for_video(podcast_id, episode_index, episode, cues, alignment, sour
                          'title':cue['title'],'text':text,'turns':spoken,'source_refs':refs,
                          'beat_ids':beat_ids,'source_bindings':source_bindings,
                          'claim_ids':claim_ids,'evidence':list(evidence.values())})
-    return {'schema':'podcast-transcript-timeline/v1','podcast_id':str(podcast_id),'episode_index':episode_index,
+    result = {'schema':'podcast-transcript-timeline/v1','podcast_id':str(podcast_id),'episode_index':episode_index,
             'time_unit':'seconds','granularity':'script_cue','duration':duration,
             'audio_sha256':episode['audio']['sha256'],'script_sha256':script_digest(episode),
             'alignment_method':alignment['method'],'alignment_producer':alignment['producer'],
             'anchors':deepcopy(anchors),'source_resolver':source_resolver,'segments':segments}
+    if 'caption_alignment' in alignment:
+        from .podcast_cues import captions_for_episode
+        try: result['captions'] = captions_for_episode(episode, alignment['caption_alignment'])
+        except ValueError: raise ValueError('VIDEO_ALIGNMENT_INVALID:captions do not match the script or measured boundaries') from None
+    return result

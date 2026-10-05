@@ -31,8 +31,10 @@ def test_invalid_or_silent_chunk_is_not_published(samples):
 def test_pauses_follow_semantic_boundaries_without_stacking():
     assert audio.pause_seconds('TCP',language_join=True)==.08
     assert audio.pause_seconds('說明。')==.22
-    assert audio.pause_seconds('問題？',next_speaker=True)==.25
-    assert audio.pause_seconds('問題？',next_speaker=True,next_beat=True)==.45
+    assert audio.pause_seconds('問題？',next_speaker=True)==.22
+    assert audio.pause_seconds('問題？',next_speaker=True,next_beat=True)==.32
+    assert audio.pause_seconds('句號。',language_join=True)==.22
+    assert audio.pause_seconds('，',language_join=True)==.12
 
 
 def test_real_ffmpeg_two_pass_mastering_and_decoded_aac(tmp_path):
