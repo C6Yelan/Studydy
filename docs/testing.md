@@ -261,7 +261,7 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src:data/podcast/video-runtime/lib
 - disposable PostgreSQL 的影片 integration **15 項通過**；v2／v3 均檢查 ready 重開不重製、ownership／range、cancel／retry／late-result，以及無效 motion anchor 不得寫入 artifact。
 - 重用 Round 2 四份已核可的語意分鏡、原 WAV 與 Whisper 對齊；**新增模型／TTS／ASR 呼叫均為 0**。產生四份私人獨立樣片，25.06／35.91／42.85／41.43 秒，皆為 1920×1080、60fps，完整 MP4 解碼與既有 AAC 成品量測通過。舊 flat elements、文字、reveal／emphasis、頁數及來源 timeline 未改。
 - 四片在 headless Chromium 各測 0.5／1／2×，跨動態邊界的媒體時間單調，最大畫格／播放時鐘差約 54ms；114 次 seek 取樣涵蓋字幕和換頁前後，重訪同一時間的解碼畫格 hash 一致。這些是播放正確性量測，不是視覺品質分數。
-- 舊 v2 renderer 與本輪 legacy 路徑在四份原分鏡共 20 個抽查時間的像素完全相同；產品中原四份 episode／ready manifest 未變，原 MP4 artifact 完整性與保存副本 hash 核對通過。本輪未部署、未替換 ready 影片。
+- 舊 v2 renderer 與本輪 legacy 路徑在四份原分鏡共 20 個抽查時間的像素完全相同；產品中原四份 episode／ready manifest 未變，原 MP4 artifact 完整性與保存副本 hash 核對通過。後續依授權部署至正式站；原 ready 影片未替換。
 
 ~~~bash
 PYTHONPATH=backend/src:backend/tests:local_ai/src:data/podcast/video-runtime/lib/python3.12/site-packages \
@@ -277,3 +277,7 @@ PYTHONPATH=backend/src:backend/tests/runtime:backend/tests:local_ai/src:data/pod
 既有粗 anchor 仍可能同時呈現多個節點／關係；不為增加動畫而猜測細時序。換頁 crossfade 在短暫窗口會有疊影，長 teaching cue 中沒有新語意 anchor 時也不持續添加動畫，因此尚不能宣稱完全消除簡報感。原 cue 標題與既有文字排版不在本輪重寫範圍。未測所有瀏覽器／行動裝置的主觀流暢度；倍速量測只代表本機 Chromium。
 
 私人樣片、解碼時序圖與測量結果保留在本機忽略目錄 `data/podcast/semantic-motion-20261005/`，沒有加入 Git／CI。升級順序與 v2／v3 的分階段相容方式見 [安裝文件](getting-started.md#純平面影片與講稿時間軸)。
+
+後續已依使用者授權將 `5ade5bdba90a5fefbdb64cb9b65b4db0ed2d25d9` 部署至 studydy.net：更新 backend 與 Podcast provider，frontend、DB schema、原 artifacts 保留。保存部署前 DB dump、映像回復標籤與私有設定；公開 Chromium 的頁面／登入／Podcast API、原影片 Range 讀取與私人快取驗證正常，未登入 API 仍回 401。主機 urllib 的公開請求被 Cloudflare 回 403，與實際瀏覽器成功結果分別記錄，沒有放寬邊界。部署紀錄位於本機 `data/deployments/semantic-motion-20261005/`。
+
+另在原驗收帳號新增「2D 動態示範｜TCP 建立與關閉」（約 41.43 秒），沿用上述已核可講稿、來源、音訊與 v3 樣片，保存獨立音訊／影片 artifacts，不覆寫原 Podcast。匯入前核對平面分鏡內容等同原審查版本，並通過現行 bundle、來源與實測時機驗證；內容審查沿用原結果，不冒稱新增模型 review。公開播放器實播成功，下載 MP4 hash 與本機已驗證樣片完全相同。部署及新增示範均未呼叫模型、TTS 或 ASR。
