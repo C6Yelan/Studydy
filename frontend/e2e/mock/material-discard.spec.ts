@@ -119,19 +119,6 @@ for (const viewport of [
       "繼續學習",
       "建立知識地圖",
     ];
-    const fileScope = "將刪除目前已上傳的教材檔案。此操作無法復原。";
-    const mapScope = "將刪除這份教材、已建立的知識地圖與保存的概念卡組。此操作無法復原。";
-    const studyScope = "將刪除這份教材、知識地圖與保存的概念卡組，以及相關的學習紀錄、題目與作答。此操作無法復原。";
-    const scopes = [
-      fileScope,
-      fileScope,
-      fileScope,
-      fileScope,
-      mapScope,
-      mapScope,
-      studyScope,
-      fileScope,
-    ];
     const mutations: string[] = [];
     page.on("request", (request) => {
       if (new URL(request.url()).pathname.startsWith("/v1/materials") && request.method() !== "GET")
@@ -164,10 +151,8 @@ for (const viewport of [
       await card.getByRole("button", { name: "刪除教材", exact: true }).click();
       const confirmation = card.getByRole("form", { name: "刪除教材確認" });
       const text = await confirmation.innerText();
-      expect(text).toContain(scopes[index]);
-      if (index === 1 || index === 2)
-        expect(text).toContain("目前的教材處理會先停止，再刪除這份教材。");
-      else expect(text).not.toContain("會先停止");
+      expect(text).toContain("確定刪除教材與相關資料？");
+      expect(text).not.toMatch(/將刪除|會先停止|此操作無法復原/);
       expect(text).not.toMatch(/處理紀錄|轉換產物|學習進度/);
       await expect(actions).toHaveText(before);
       await page.keyboard.press("Escape");
@@ -283,7 +268,7 @@ for (const viewport of [
     await opener.click();
     await card.getByRole("button", { name: "刪除教材", exact: true }).click();
     const confirm = card.getByRole("form", { name: "刪除教材確認" });
-    await expect(confirm).toContainText("這份教材、知識地圖與保存的概念卡組，以及相關的學習紀錄、題目與作答");
+    await expect(confirm.getByRole("heading", { name: "確定刪除教材與相關資料？", exact: true })).toBeVisible();
     await expect(confirm.getByRole("button", { name: "取消", exact: true })).toBeFocused();
     await confirm.getByRole("button", { name: "取消", exact: true }).click();
     expect(deletes).toBe(0);
@@ -329,11 +314,11 @@ test("removing publishing material disables all actions and polls until absent",
   const card = page.getByRole("article");
   await card.getByRole("button", { name: /^管理「/ }).click();
   await card.getByRole("button", { name: "刪除教材", exact: true }).click();
-  await expect(card.getByRole("form")).toContainText("目前的教材更新會先停止");
+  await expect(card.getByRole("form").getByRole("heading", { name: "確定刪除教材與相關資料？", exact: true })).toBeVisible();
   await card.getByRole("button", { name: "確認刪除", exact: true }).click();
   await expect(card.getByRole("status")).toHaveText("正在刪除…");
   const actions = card.locator(".state-actions").getByRole("button");
-  await expect(actions).toHaveText(["繼續學習", "開啟知識地圖", "查看進度"]);
+  await expect(actions).toHaveText(["繼續學習", "開啟知識地圖", "查看進度", "概念卡", "Podcast"]);
   for (const action of await actions.all()) await expect(action).toBeDisabled();
   await expect(card.getByRole("link")).toHaveCount(0);
   await expect(card.locator(".material-management-menu")).toHaveCount(0);
@@ -447,7 +432,7 @@ for (const touch of [false, true])
       };
       for (const outside of [
         { locator: page.locator(".app-main"), position: { x: 5, y: 5 } },
-        { locator: first.getByRole("heading") },
+        { locator: first.getByRole("heading"), position: { x: 5, y: 5 } },
         { locator: second.getByRole("heading") },
         { locator: page.getByRole("searchbox") },
         { locator: page.locator(".app-sidebar"), position: { x: 2, y: 2 } },

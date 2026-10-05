@@ -190,6 +190,12 @@ for (const [width, count] of [
     ).toHaveCount(4);
     const canvas = (await graph.boundingBox())!;
     const frame = (await page.locator(".map-view").boundingBox())!;
+    const legend = (await page.getByLabel("概念關係圖例").boundingBox())!;
+    const navigatorButton = (await graph.getByRole("button", { name: "學習導覽", exact: true }).boundingBox())!;
+    expect(legend.y - canvas.y).toBeGreaterThanOrEqual(0);
+    expect(legend.y - canvas.y).toBeLessThanOrEqual(20);
+    expect(canvas.x + canvas.width - legend.x - legend.width).toBeLessThanOrEqual(20);
+    expect(legend.x).toBeGreaterThanOrEqual(navigatorButton.x + navigatorButton.width + 8);
     expect(Math.abs(canvas.y - frame.y)).toBeLessThan(2);
     expect(Math.abs(canvas.height - frame.height)).toBeLessThan(2);
     for (const name of ["放大地圖", "縮小地圖", "適應畫面", "學習導覽"]) {
@@ -356,6 +362,9 @@ for (const width of [1536, 390])
       `30／80 個概念、60／${view.relations.length} 條關係`,
     );
     await expect(page.locator(".map-limit-note")).toContainText("尚有其他相關內容");
+    const legend = (await page.getByLabel("概念關係圖例").boundingBox())!;
+    const limitNote = (await page.locator(".map-limit-note").boundingBox())!;
+    expect(limitNote.y).toBeGreaterThanOrEqual(legend.y + legend.height + 4);
     const secondary = page.locator(".concept-flow-node.is-secondary");
     await expect(secondary).toHaveCount(23);
     await expect(secondary.locator("p")).toHaveCount(23);

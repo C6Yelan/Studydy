@@ -886,7 +886,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         _require_query(request, set())
         owner = _trusted_learner(request, settings).learner_id
         return podcasts.create_podcast(owner, material_id, body.knowledge_structure_revision,
-            body.name, body.concept_ids, body.mode, _idempotency_key(request), delivery=body.delivery, dsn=settings.dsn)
+            body.name, body.concept_ids, _idempotency_key(request), delivery=body.delivery, dsn=settings.dsn)
 
     @app.get("/v1/podcasts", response_model=PodcastListView, tags=["podcasts"])
     def list_podcasts_route(request: Request):

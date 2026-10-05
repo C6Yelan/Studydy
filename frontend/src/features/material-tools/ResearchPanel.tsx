@@ -90,13 +90,13 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
     if (alive.current) { setId(r.research_id); setView(r); setSelected([]); setConfirmed(false); setSourceQuery(''); }
   });
   return <section className="cards-page supplementary-page">
+    {contentNavigation}
     <header className="material-search-row">
       <form className="material-search" role="search" onSubmit={event => { event.preventDefault(); if (query.trim() && !busy) void searchMaterials(); }}>
         <input type="search" aria-label="想多了解什麼？" placeholder="輸入想補充的內容…" maxLength={1000} value={query} onChange={event => setQuery(event.target.value)}/>
       </form>
       <button className="primary-button" disabled={busy || !query.trim()} onClick={()=>void searchMaterials()}>{busy ? '正在建立搜尋…' : '搜尋補充資料'}<Icon name="chevron-right" size={16}/></button>
     </header>
-    {contentNavigation}
     <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
     <header className="cards-page-header"><div><h1>補充學習</h1></div></header>
     {list.length > 0 && <details className="research-history"><summary>查看先前的搜尋 · {list.length} 筆</summary><div className="tool-history-bar">

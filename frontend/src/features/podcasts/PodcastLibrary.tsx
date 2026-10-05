@@ -26,12 +26,12 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
   const create = () => { if (material && structure) writeRoute({ name: "podcast-create", materialId: material.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision }); else if (!material) writeRoute({ name: "podcast-new" }); };
   const filtered = items?.filter((item) => `${item.name} ${item.material_name}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <section className="material-library is-collection podcast-library" aria-label={material ? "教材 Podcast" : "我的 Podcast"}>
+    {contentNavigation}
     <header className={`library-header library-header-compact collection-toolbar${material ? " material-search-row" : ""}`}>
       <form className="library-search" role="search" onSubmit={e => e.preventDefault()}><input type="search" aria-label={material ? "搜尋 Podcast" : "搜尋 Podcast 或教材"} placeholder={material ? "搜尋 Podcast…" : "搜尋 Podcast 或教材…"} value={query} onChange={e => setQuery(e.target.value)} /></form>
       <div className="collection-summary" ref={heading} tabIndex={-1}><p>{items === null ? "—" : `已保存 ${items.length} 份 Podcast`}</p></div>
       <button className="primary-button" type="button" disabled={!!material && !structure} onClick={create}><Icon name="headphones" size={18} /> 建立 Podcast</button>
     </header>
-      {contentNavigation}
       <div role={material ? "tabpanel" : undefined} id={material ? "material-panel-podcasts" : undefined} aria-labelledby={material ? "material-tab-podcasts" : undefined}>
     {error && items !== null && <p className="form-error" role="alert">無法更新 Podcast 列表。{error}<button className="text-button" onClick={()=>setReload(value=>value+1)}>重新讀取</button></p>}
     {error && items === null ? <StateView title="無法讀取 Podcast" description={error} tone="failure" action={<button type="button" className="secondary-button" onClick={() => setReload((v) => v + 1)}>重新讀取</button>} />
@@ -40,7 +40,7 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
       : <>
         <div className="library-grid">{filtered?.map((item) => <article className="surface library-item podcast-tile" key={item.podcast_id}>
           <span className="podcast-cover" aria-hidden="true"><Icon name="headphones" size={32} /></span>
-          <p className="library-metadata">{item.mode === "quick" ? "快速複習" : "完整講解"} · {item.episode_count} 集{item.delivery === "dialogue" ? " · 雙人對談" : ""}</p>
+          <p className="library-metadata">{item.delivery === "dialogue" ? "雙人對談" : "單人解說"} · {item.episode_count} 集</p>
           <PodcastManagement item={item} apiClient={apiClient} onChanged={() => setReload(v => v + 1)} onDeleted={() => {
             try { localStorage.removeItem(`studydy.podcast.position:${learnerId}:${item.podcast_id}`); } catch { /* 不影響伺服器刪除。 */ }
             setItems(previous => previous?.filter(p => p.podcast_id !== item.podcast_id) ?? null);

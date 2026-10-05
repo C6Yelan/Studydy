@@ -6,11 +6,6 @@
 .podcast-tile > .primary-button { margin-top: auto; align-self: flex-start; min-height: 40px; padding: 8px 12px; font-size: 13px; }
 .podcast-tile .podcast-cover { width: 32px; height: 32px; border-radius: 10px; margin-bottom: 6px; }
 .podcast-tile .podcast-cover svg { width: 20px; height: 20px; }
-.podcast-mode-options { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 20px 0 24px; }
-.podcast-mode-options button { text-align: left; border: 1px solid var(--border); border-radius: 16px; background: white; padding: 21px 24px; display: grid; gap: 7px; color: var(--text-primary); }
-.podcast-mode-options button[aria-pressed="true"] { border: 2px solid var(--studydy-blue); padding: 20px 23px; background: var(--studydy-blue-soft); }
-.podcast-mode-options strong { font-size: 19px; }
-.podcast-mode-options span { color: var(--text-secondary); line-height: 1.6; }
 .podcast-source-preview { padding: 26px; align-self: start; max-height: 680px; overflow-y: auto; }
 .podcast-source-preview h2 { font-size: 22px; margin-top: 0; }
 .podcast-source-preview article + article { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border-light); }
@@ -30,7 +25,6 @@
 .podcast-episodes small { flex: 0 0 auto; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
 .podcast-episode-number { flex: 0 0 24px; white-space: nowrap; font-size: 13px; line-height: 1.8; font-variant-numeric: tabular-nums; }
 @media (max-width: 850px) {
-  .podcast-mode-options { grid-template-columns: 1fr; }
 }
 .podcast-highlights { padding: 0; }
 .podcast-highlights header { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
@@ -128,16 +122,12 @@
 .podcast-meta-note { color: var(--text-muted); font-size: 12px; margin: 8px 0; }
 .podcast-highlights h3 { font-size: 14px; margin: 23px 0 6px; color: var(--text-secondary); }
 
-/* 推薦、選材、講解設定各自獨立；長清單只捲動選材區。 */
-.podcast-compose-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr) 250px; gap: 16px; align-items: start; margin-top: 16px; }
+/* 選材與講解設定並排，讓概念清單使用較寬的空間。 */
+.cards-page.podcast-creation-page { width:100%; max-width:none; }
+.podcast-compose-grid { display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px,24vw,360px); gap: 16px; align-items: start; margin-top: 16px; }
 .podcast-config-section { min-width: 0; padding: 16px; }
 .podcast-config-section > h2 { font-size: 17px; margin: 0 0 16px; }
 .podcast-config-nav { display: none; }
-.podcast-recommendations .cards-recommendations { margin: 0; padding: 0; border: 0; background: transparent; }
-.podcast-recommendations .cards-recommendation-controls { grid-template-columns: minmax(0, 1fr) 64px; gap: 8px; }
-.podcast-recommendations .cards-recommendation-controls label { font-size: 12px; }
-.podcast-recommendations .cards-recommendation-list { max-height: 180px; }
-.podcast-recommendations .cards-recommendation-hint { font-size: 12px; }
 .podcast-selection-tools { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin: 10px 0; font-size: 12px; color: var(--text-secondary); }
 .podcast-selection-tools .text-button { min-height: 28px; padding: 4px 0; }
 .podcast-create .podcast-selection input[type="search"] { min-height: 40px; padding: 8px 12px; }
@@ -158,18 +148,32 @@
 .podcast-concept-preview p { margin: 8px 0; }
 .podcast-settings .podcast-delivery { display: grid; gap: 12px; margin-bottom: 18px; }
 .podcast-settings .podcast-delivery legend { font-size: 13px; color: var(--text-secondary); }
-.podcast-settings .podcast-mode-options { grid-template-columns: 1fr; gap: 8px; margin: 0; }
-.podcast-settings .podcast-mode-options button { padding: 10px; gap: 3px; border-radius: 8px; }
-.podcast-settings .podcast-mode-options button[aria-pressed="true"] { padding: 9px; }
-.podcast-settings .podcast-mode-options strong { font-size: 14px; }
-.podcast-settings .podcast-mode-options span { font-size: 12px; }
 .podcast-create-footer { position: sticky; bottom: 12px; z-index: 3; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 16px; margin-top: 16px; }
+.material-content .podcast-create-footer { bottom:max(84px,calc(env(safe-area-inset-bottom) + 64px)); }
 .podcast-create-footer > div { display: grid; gap: 4px; }
 .podcast-create-footer strong { font-size: 14px; }
 .podcast-create-footer span { color: var(--text-muted); font-size: 12px; }
 .podcast-create-footer .form-error { flex-basis: 100%; margin: 0; }
 .podcast-creation-page > .cards-page-header { margin-bottom: 14px; }
-@media (max-width: 1100px) { .podcast-compose-grid { grid-template-columns: 220px minmax(0, 1fr) 220px; gap: 12px; } .podcast-concept-list { grid-template-columns: minmax(0, 1fr); } }
+/* 桌面填滿教材外框，長清單與設定在自身區域捲動。 */
+@media (min-width: 1000px) {
+  .material-content:has(.podcast-creation-page) { display:flex; flex-direction:column; height:calc(100dvh - var(--shell-header-height,56px)); min-height:0; }
+  .material-content:has(.podcast-creation-page) > .material-learning-toolbar,
+  .material-content:has(.podcast-creation-page) > .material-context { flex-shrink:0; }
+  .material-content-body:has(.podcast-creation-page),
+  .material-content-body > [role=tabpanel]:has(.podcast-creation-page) { display:flex; flex:1; min-height:0; min-width:0; }
+  .material-content .podcast-creation-page,
+  .podcast-creation-page > .podcast-create { display:flex; flex-direction:column; flex:1; min-height:0; }
+  .podcast-creation-page > .cards-page-header,
+  .podcast-create > .podcast-identity-fields { flex-shrink:0; }
+  .podcast-creation-page > .cards-page-header h1 { margin-top:0; }
+  .podcast-create > .podcast-compose-grid { flex:1; min-height:0; align-items:stretch; }
+  .podcast-selection { display:flex; flex-direction:column; min-height:0; }
+  .podcast-selection > :not(.podcast-concept-list) { flex-shrink:0; }
+  .podcast-selection > .podcast-concept-list { flex:1; min-height:0; max-height:none; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); }
+  .podcast-settings { min-height:0; overflow-y:auto; }
+  .podcast-create > .podcast-create-footer { position:static; flex-shrink:0; margin-right:144px; }
+}
 @media (max-width: 900px) {
   .podcast-config-nav { display: flex; gap: 6px; margin: 14px 0; }
   .podcast-config-nav button { flex: 1; min-width: 0; padding: 8px 4px; min-height: 40px; font-size: 13px; }
@@ -177,9 +181,10 @@
   .podcast-config-section:not(.is-active) { display: none; }
   .podcast-config-section > h2, .podcast-selection .cards-selection-heading h2 { display: none; }
   .podcast-selection .cards-selection-heading { justify-content: flex-end; margin-bottom: 8px; }
-  .podcast-recommendations .cards-recommendation-controls { grid-template-columns: minmax(0, 1fr) 90px; }
+  .podcast-concept-list { grid-template-columns:minmax(0,1fr); }
   .podcast-concept-list { max-height: 38vh; }
   .podcast-create-footer { bottom: 8px; }
+  .material-content .podcast-create-footer { bottom:max(80px,calc(env(safe-area-inset-bottom) + 64px)); }
   .podcast-create-footer > div { flex: 1; }
   .podcast-create-footer .primary-button { padding: 10px 12px; font-size: 13px; }
 }
@@ -188,13 +193,10 @@
 .podcast-page > .cards-page-header { position: relative; }
 .podcast-page > .cards-page-header > div { min-width: 0; flex: 1; }
 .podcast-episode-summary { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
-/* 教材與名稱共用一列；小螢幕保留足夠的輸入與點選空間。 */
-.podcast-identity-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; margin: 4px 0 12px; }
+/* 目前教材由頁籤下方顯示，建立表單只需設定名稱。 */
+.podcast-identity-fields { display: grid; grid-template-columns: minmax(0, 1fr); margin: 4px 0 12px; }
 .podcast-identity-fields > label { display: grid; min-width: 0; gap: 6px; margin: 0 !important; font-size: 14px; font-weight: 600; }
-.podcast-identity-fields select, .podcast-identity-fields input { width: 100%; min-width: 0; height: 44px; min-height: 44px; padding: 9px 12px; font-weight: 400; }
-@media (max-width: 600px) {
-  .podcast-identity-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-}
+.podcast-identity-fields input { width: 100%; min-width: 0; height: 44px; min-height: 44px; padding: 9px 12px; font-weight: 400; }
 
 .podcast-reading-area { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; padding:16px; }
 .podcast-reading-area > [role=tabpanel] { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding-right:6px; }

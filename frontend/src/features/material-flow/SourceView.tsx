@@ -291,8 +291,8 @@ export function SourceView({
   );
   return (
     <section className={currentStructure ? "material-content source-page" : "task-page source-page"}>
-      {currentStructure && <header className="material-search-row"><form className="material-search" role="search" onSubmit={event=>event.preventDefault()}><input type="search" aria-label="搜尋教材來源" placeholder="搜尋來源檔案名稱…" value={sourceQuery} onChange={event=>setSourceQuery(event.target.value)}/></form>{!removing&&!hasActiveRun&&sourcePicker}</header>}
       {currentStructure && <MaterialContentNav apiClient={apiClient} materialId={materialId} current="sources" materialName={material?.display_name} mapRoute={{name:"knowledge-map",materialId,runId:currentStructure.run_id,structureRevision:currentStructure.knowledge_structure_revision}}/>}
+      {currentStructure && <header className="material-search-row"><form className="material-search" role="search" onSubmit={event=>event.preventDefault()}><input type="search" aria-label="搜尋教材來源" placeholder="搜尋來源檔案名稱…" value={sourceQuery} onChange={event=>setSourceQuery(event.target.value)}/></form>{!removing&&!hasActiveRun&&sourcePicker}</header>}
       <div role={currentStructure ? "tabpanel" : undefined} id={currentStructure ? "material-panel-sources" : undefined} aria-labelledby={currentStructure ? "material-tab-sources" : undefined}>
       {currentStructure && capabilityError && <p className="conversion-note" role="status">{capabilityError}</p>}
       {currentStructure && selectionError && <p id="source-selection-error" className="form-error" role="alert">{selectionError}</p>}

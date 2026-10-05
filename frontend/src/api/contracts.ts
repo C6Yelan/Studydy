@@ -505,7 +505,7 @@ export type EvidenceSourceView = {
 
 export type PodcastSummary = {
   podcast_id: string; material_id: string; material_name: string;
-  knowledge_structure_revision: string; name: string; mode: "quick" | "full";
+  knowledge_structure_revision: string; name: string;
   delivery: "solo" | "dialogue";
   concept_ids: string[]; status: "pending" | "running" | "ready" | "failed" | "cancelled";
   error_code: string | null; version: number; created_at: string;
@@ -537,7 +537,7 @@ export type PodcastView = PodcastSummary & {
 };
 export type PodcastCreate = {
   schema: "podcast-create/v1"; knowledge_structure_revision: string;
-  name: string; concept_ids: string[]; mode: "quick" | "full"; delivery: "solo" | "dialogue";
+  name: string; concept_ids: string[]; delivery: "solo" | "dialogue";
 };
 export type PodcastAction = {
   schema: "podcast-action/v1"; action: "rename" | "retry" | "cancel"; expected_version: number; name?: string;

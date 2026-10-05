@@ -23,7 +23,7 @@ class PodcastError(RuntimeError):
 
 def _summary(row, material):
     return {"podcast_id": row.podcast_id, "material_id": row.material_id,
-            "material_name": material.display_name, "name": row.name, "mode": row.mode,
+            "material_name": material.display_name, "name": row.name,
             "delivery": row.episodes[0]["delivery"],
             "knowledge_structure_revision": row.knowledge_structure_revision,
             "concept_ids": row.concept_ids, "status": row.status, "error_code": row.error_code,
@@ -87,12 +87,12 @@ def plan_episodes(view, concept_ids):
     return episodes[::-1]
 
 
-def create_podcast(owner, material_id, revision, name, concept_ids, mode, key, *, delivery, dsn=None):
+def create_podcast(owner, material_id, revision, name, concept_ids, key, *, delivery, dsn=None):
     name = _validate_selection(name, concept_ids)
-    if mode not in {"quick", "full"} or delivery not in {"solo", "dialogue"}:
+    if delivery not in {"solo", "dialogue"}:
         raise PodcastError("REQUEST_INVALID")
     digest = _key_digest(key)
-    selection = {"revision": revision, "name": name, "concept_ids": concept_ids, "mode": mode, "delivery": delivery}
+    selection = {"revision": revision, "name": name, "concept_ids": concept_ids, "delivery": delivery}
     fingerprint = bytes.fromhex(canonical_sha256(selection))
     with database_session(dsn) as db:
         material = _material(db, owner, material_id)
@@ -108,8 +108,9 @@ def create_podcast(owner, material_id, revision, name, concept_ids, mode, key, *
         episodes = plan_episodes(_view(document, material_id), concept_ids)
         for episode in episodes:
             episode["delivery"] = delivery
+        # 舊模式欄位保留歷史資料；新建固定儲存值，不再參與 API 或生成決策。
         row = Podcast(podcast_id=uuid4(), learner_id=owner, material_id=material_id,
-            knowledge_structure_revision=revision, name=name, mode=mode, concept_ids=concept_ids,
+            knowledge_structure_revision=revision, name=name, mode="quick", concept_ids=concept_ids,
             episodes=episodes, status="pending", version=1, created_at=datetime.now(UTC),
             idempotency_key_sha256=digest, request_fingerprint=fingerprint)
         db.add(row)
@@ -249,19 +250,18 @@ def claim_step(*, dsn=None):
                     revision=row.knowledge_structure_revision)
                 context = source_context(document, episode)
             return {"podcast_id": row.podcast_id, "owner": owner, "token": row.lease_token,
-                "index": index, "mode": row.mode, "episode": episode, "source_context": context}
+                "index": index, "episode": episode, "source_context": context}
     return None
 
 
-def validate_script(script, episode, mode=None):
+def validate_script(script, episode):
     from .podcast_script import SCHEMA, validate
     if isinstance(script, dict) and script.get('schema') == SCHEMA:
         try:
             result = validate(script, episode)
-            if mode is not None:
-                from .podcast_quality import content_budget, budget_issues
-                if budget_issues(result['segments'], content_budget(episode['claims'], mode, episode['delivery'])):
-                    raise ValueError()
+            from .podcast_quality import content_budget, budget_issues
+            if budget_issues(result['segments'], content_budget(episode['claims'], episode['delivery'])):
+                raise ValueError()
             return result
         except ValueError: raise PodcastError('PODCAST_SCRIPT_INVALID') from None
     claims = episode["claims"]
@@ -317,7 +317,7 @@ def finish_step(claim, *, script=None, audio=None, audio_provider=None, audio_ma
             row.status, row.error_code = "failed", error
         else:
             if script is not None:
-                episode["script"] = validate_script(script, episode, row.mode)
+                episode["script"] = validate_script(script, episode)
             elif audio is not None and episode["script"]:
                 if not isinstance(audio_provider, str) or not audio_provider.strip() or len(audio_provider) > 300:
                     raise PodcastError("PODCAST_AUDIO_INVALID")

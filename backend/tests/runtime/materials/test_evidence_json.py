@@ -31,7 +31,7 @@ def test_voice_and_podcast_evidence_arrays_roundtrip(closed_loop):
     with database_session(dsn) as db:db.get(VoiceTurn,turn['turn_id']).answer=payload
     with database_session(dsn) as db:assert db.get(VoiceTurn,turn['turn_id']).answer==payload
     saved=podcasts.create_podcast(owner.learner_id,source.material_id,document['revision'],
-        '合成 NUL 測試',[c['concept_id'] for c in document['concepts']],'quick','nul-podcast',delivery='solo',dsn=dsn)
+        '合成 NUL 測試',[c['concept_id'] for c in document['concepts']],'nul-podcast',delivery='solo',dsn=dsn)
     episodes=[{'claims':[{'text':'a\x00b','evidence':[{'quote':'\ue0000'}]}]}]
     with database_session(dsn) as db:db.get(Podcast,saved['podcast_id']).episodes=episodes
     with database_session(dsn) as db:assert db.get(Podcast,saved['podcast_id']).episodes==episodes

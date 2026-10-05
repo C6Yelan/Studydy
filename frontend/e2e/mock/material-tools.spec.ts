@@ -116,11 +116,18 @@ test('material search fields stay at one anchor across tabs on desktop and mobil
  await page.route('**/v1/materials/*/research',r=>json(r,{researches:[]}));
  await page.route(`**/v1/materials/${materialId}/sources`,r=>json(r,{schema:'material-sources/v1',material_id:materialId,sources:[],discard_requested:false}));
  for(const width of [1440,390]){
-  await page.setViewportSize({width,height:844});await page.goto(mapPath);const anchor=await page.getByLabel('搜尋概念或關鍵字',{exact:true}).boundingBox();expect(anchor).not.toBeNull();const nav=await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox();expect(nav).not.toBeNull();
+  await page.setViewportSize({width,height:844});await page.goto(mapPath);const anchor=await page.getByLabel('搜尋概念或關鍵字',{exact:true}).boundingBox();expect(anchor).not.toBeNull();const nav=await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox();expect(nav).not.toBeNull();expect(anchor!.y).toBeGreaterThanOrEqual(nav!.y+nav!.height);
+  const header=await page.locator('.app-header').boundingBox();expect(nav!.y-header!.y-header!.height).toBeGreaterThanOrEqual(0);expect(nav!.y-header!.y-header!.height).toBeLessThanOrEqual(12);
   for(const [tab,label] of [['複習重點','搜尋概念或關鍵字'],['概念卡','搜尋卡組'],['Podcast','搜尋 Podcast'],['補充學習','想多了解什麼？'],['教材來源','搜尋教材來源']]){
    await page.getByRole('tab',{name:tab,exact:true}).click();await page.getByLabel(label,{exact:true}).waitFor();const box=await page.getByLabel(label,{exact:true}).boundingBox();expect(box).not.toBeNull();
    for(const field of ['x','y','width','height'] as const)expect(Math.abs(box![field]-anchor![field])).toBeLessThanOrEqual(1);
    const currentNav=await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox();expect(Math.abs(currentNav!.y-nav!.y)).toBeLessThanOrEqual(1);
+   expect(box!.y).toBeGreaterThanOrEqual(currentNav!.y+currentNav!.height);
+   const voice=await page.getByRole('button',{name:'語音問答',exact:true}).boundingBox();expect(width-voice!.x-voice!.width).toBeGreaterThanOrEqual(8);expect(width-voice!.x-voice!.width).toBeLessThanOrEqual(32);expect(844-voice!.y-voice!.height).toBeGreaterThanOrEqual(8);expect(844-voice!.y-voice!.height).toBeLessThanOrEqual(32);
+   if(tab==='概念卡'||tab==='Podcast'){
+    const create=await page.locator('.material-search-row').getByRole('button',{name:tab==='概念卡'?'建立卡組':'建立 Podcast',exact:true}).boundingBox();expect(create!.y).toBeGreaterThanOrEqual(currentNav!.y+currentNav!.height);
+   }
+   await page.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight));const scrolledVoice=await page.getByRole('button',{name:'語音問答',exact:true}).boundingBox();expect(Math.abs(scrolledVoice!.y-voice!.y)).toBeLessThanOrEqual(1);await page.evaluate(()=>window.scrollTo(0,0));
   }
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  }

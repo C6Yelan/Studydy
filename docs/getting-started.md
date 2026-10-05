@@ -100,11 +100,11 @@ docker compose exec backend /app/backend/.venv/bin/python -m runtime.local_runti
 
 ## 本機 Podcast provider
 
-Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集 WAV，音訊沿用私人 artifact store。建立後自動生成；快速與完整模式均保留全部所選重點，內容較多自動拆集。失敗／取消可接續已保存進度。分集沿用所選概念順序，在每集最多六個 claim／2,400 來源字元的硬容量內，優先保留完整概念及既有 Relation／Evidence 的連續性，再考慮集數和容量平衡；不重排或刪減來源。單一 claim 超過容量時明確拒絕，不截斷它。
+Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集 WAV，音訊沿用私人 artifact store。建立後自動生成，只選擇單人解說或雙人對談，兩者均保留全部所選重點，內容較多自動拆集。失敗／取消可接續已保存進度。分集沿用所選概念順序，在每集最多六個 claim／2,400 來源字元的硬容量內，優先保留完整概念及既有 Relation／Evidence 的連續性，再考慮集數和容量平衡；不重排或刪減來源。單一 claim 超過容量時明確拒絕，不截斷它。
 
 文字 provider 沿用 `codex exec -m gpt-5.6-luna`。新稿為 `podcast-script/v2`：`segments` 是 teaching beats，一個 beat 可整合多個相關 claim，同 claim 也可跨 beat 延續。模型只選 `source_index` 與該來源內的 `evidence_indices`；程式核對範圍並回填原 ID，保存的 turn 文字 parts 引用 episode 的 `source_index` 與所屬 `evidence_ids`，朗讀 `text` 由 parts 串接並核對一致；不能以 claim ID 合併不同來源位置。全部來源須實質涵蓋，KS／claims／Evidence 仍是 canonical authority。頁面 context 只補原引用的表格標題或主語，不能加入 claim 外的知識。
 
-新稿先依來源內容量設定 Quick／Full 的整集字數、beat 與 turn 上限，雙人不額外放大字數。英文依詞而非逐字母估量，同一長段被多個 claim 引用時不重複增加預算；這只影響容量，全部來源仍須實質涵蓋。Quick 保留核心與必要區辨，Full 允許有用的例子、誤解修正及追問；上限不是最低篇幅，也不保證每一對隨機樣本都有固定時長比例。新稿保存前由 backend 再檢查 mode 預算，已保存的 v2／legacy 講稿不重新套用。
+新稿依來源內容量使用同一套整集字數與 beat 上限；雙人只增加交接所需的 turn 空間，不額外放大字數。英文依詞而非逐字母估量，同一長段被多個 claim 引用時不重複增加預算；這只影響容量，全部來源仍須實質涵蓋。講解須精簡且充分，例子、誤解修正、追問與整理只在有助理解時使用，上限不是最低篇幅。新稿保存前由 backend 再檢查統一預算，已保存的 v2／legacy 講稿不重新套用。新生成標示 `teaching-beats/v4`。建立 API 不再接收 `mode`，列表與詳情也不回傳 Quick／Full；DB 的舊欄位只保留歷史資料，新建固定儲存值，不參與生成或審查決策，沒有資料搬移或重製既有產物。
 
 超出預算、純附和及逐字改問句會直接進入同一個有界修稿機會，不浪費 reviewer 請求。「所以……？」接肯定回答且重用前句的確認迴圈也直接要求修稿；新情境與明示誤解修正不一律拒絕。相鄰重疊、規律輪替、來源已涵蓋後的反向假設與 recap 覆蓋率作為具體 turn 訊號，交給原有 teaching-quality review；相同術語、正常問答或必要整理不因單一訊號直接拒絕。
 

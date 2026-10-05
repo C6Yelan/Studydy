@@ -9,7 +9,7 @@ provider=importlib.util.module_from_spec(spec);spec.loader.exec_module(provider)
 
 
 def body():
-    return {'mode':'full','delivery':'solo','claims':[{'concept_id':'c0','claim_id':'repeated','label':'非空檢查',
+    return {'delivery':'solo','claims':[{'concept_id':'c0','claim_id':'repeated','label':'非空檢查',
         'text':'空堆疊不可 pop。','evidence':[{'evidence_id':'e0','page_ref':'p0','quote':'空堆疊不可 pop。'}]}]}
 
 

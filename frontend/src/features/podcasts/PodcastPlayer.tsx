@@ -131,7 +131,7 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
   };
   const title = [...new Set(view.episodes[index].claims.map(c => c.label))].join(" · ");
   return <section className="media-player" aria-label={`第 ${index + 1} 集播放器`} tabIndex={0} onKeyDown={e => { if (e.key === "Escape" && menuOpen) { e.stopPropagation(); setMenuOpen(false); gear.current?.focus(); } }}>
-    <div className="media-player-heading"><div><p>第 {index + 1} 集 / 共 {view.episode_count} 集 · {view.mode === "quick" ? "快速複習" : "完整講解"}{view.delivery === "dialogue" ? " · 雙人對談" : ""}</p><h2 title={title}>{title}</h2></div></div>
+    <div className="media-player-heading"><div><p>第 {index + 1} 集 / 共 {view.episode_count} 集 · {view.delivery === "dialogue" ? "雙人對談" : "單人解說"}</p><h2 title={title}>{title}</h2></div></div>
     <div className={`media-viewport${video ? " has-video" : ""}`} ref={viewport}>
       <div className="media-display" role="region" aria-label="教學影片">
         {video ? <video ref={attachMedia} {...mediaEvents} playsInline className="podcast-video-element" aria-label={`第 ${index+1} 集影片`}>

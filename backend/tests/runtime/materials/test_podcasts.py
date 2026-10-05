@@ -21,10 +21,10 @@ from runtime.storage.knowledge_structures import _prune_unreferenced_structures,
 from runtime.storage.tables import Material, Podcast, Artifact, database_session
 
 
-def create(fixture, *, mode="quick", key="podcast"):
+def create(fixture, *, delivery="solo", key="podcast"):
     owner, source, _, document, dsn, _ = fixture
     return podcasts.create_podcast(owner.learner_id, source.material_id, document["revision"],
-        "合成教學", [c["concept_id"] for c in document["concepts"]], mode, key, delivery="solo", dsn=dsn)
+        "合成教學", [c["concept_id"] for c in document["concepts"]], key, delivery=delivery, dsn=dsn)
 
 
 def wav():
@@ -68,7 +68,7 @@ def test_persistent_script_audio_retry_and_idempotency(closed_loop):
     assert results[0] == results[1]
     identity = results[0]["podcast_id"]
     with pytest.raises(podcasts.PodcastError, match="IDEMPOTENCY_CONFLICT"):
-        create(closed_loop, mode="full")
+        create(closed_loop, delivery="dialogue")
     claim = podcasts.claim_step(dsn=dsn)
     assert podcasts.claim_step(dsn=dsn) is None
     saved_script = script(claim)
@@ -171,7 +171,7 @@ def test_api_owner_audio_ranges_and_origin_boundary(closed_loop, monkeypatch):
     app = api.create_app(api.ApiSettings(profile="local", public_origin=origin, secure_cookie=False, local_config=settings, dsn=dsn))
     client = TestClient(app, base_url=origin)
     url = f"/v1/materials/{source.material_id}/podcasts"
-    body = {"schema": "podcast-create/v1", "name": "測試 Podcast", "mode": "full", "delivery": "solo",
+    body = {"schema": "podcast-create/v1", "name": "測試 Podcast", "delivery": "solo",
         "knowledge_structure_revision": document["revision"], "concept_ids": [c["concept_id"] for c in document["concepts"]]}
     headers = {"Origin": origin, "Idempotency-Key": "podcast-api"}
     assert client.post(url, headers=headers, json=body).status_code == 401
@@ -180,6 +180,9 @@ def test_api_owner_audio_ranges_and_origin_boundary(closed_loop, monkeypatch):
     assert client.post(url, headers={"Origin": origin}, json=body).status_code == 400
     response = client.post(url, headers=headers, json=body)
     assert response.status_code == 201, response.text
+    assert 'mode' not in response.json()
+    for retired_mode in ['quick', 'full']:
+        assert client.post(url, headers=headers, json={**body, 'mode': retired_mode}).status_code == 400
     identity = response.json()["podcast_id"]
     detail = f"/v1/podcasts/{identity}"
     audio_url = detail + "/episodes/0/audio"
@@ -189,6 +192,16 @@ def test_api_owner_audio_ranges_and_origin_boundary(closed_loop, monkeypatch):
     assert view.status_code == 200, view.text
     assert view.headers["cache-control"] == "private, no-store"
     assert client.get(audio_url).content == wav()
+    # 舊欄位與已保存內容仍可讀取，歷史模式不會觸發重寫或重新生成。
+    with database_session(dsn) as db:
+        legacy = db.get(Podcast, identity)
+        legacy.mode = 'full'
+        stored_episodes = deepcopy(legacy.episodes)
+    assert client.get(detail).json() == view.json()
+    assert client.get(audio_url).content == wav()
+    with database_session(dsn) as db:
+        legacy = db.get(Podcast, identity)
+        assert legacy.mode == 'full' and legacy.episodes == stored_episodes
     # 重建 API instance，確認播放 bytes／已保存版本不依賴程序內記憶體。
     reopened = TestClient(api.create_app(api.ApiSettings(profile="local", public_origin=origin,
         secure_cookie=False, local_config=settings, dsn=dsn)), base_url=origin)
@@ -281,7 +294,7 @@ def test_table_context_includes_headers_but_excludes_unrelated_pages():
 def test_dialogue_persists_turns_and_rejects_wrong_speaker_or_source(closed_loop):
     owner, source, _, document, dsn, _ = closed_loop
     saved = podcasts.create_podcast(owner.learner_id, source.material_id, document["revision"], "雙人解說",
-        [c["concept_id"] for c in document["concepts"]], "full", "dialogue", delivery="dialogue", dsn=dsn)
+        [c["concept_id"] for c in document["concepts"]], "dialogue", delivery="dialogue", dsn=dsn)
     claim = podcasts.claim_step(dsn=dsn)
     assert claim["episode"]["delivery"] == "dialogue"
     dialogue = {"provider": "synthetic-dialogue", "segments": [{"claim_id": c["claim_id"], "turns": [
@@ -323,7 +336,7 @@ def test_turn_migration_preserves_saved_text_references_and_audio(closed_loop, m
 def test_extended_dialogue_and_actual_audio_provider_are_preserved(closed_loop):
     owner, source, _, document, dsn, _ = closed_loop
     result = podcasts.create_podcast(owner.learner_id, source.material_id, document["revision"],
-        "長對談", [document["concepts"][0]["concept_id"]], "full", "extended-dialogue", delivery="dialogue", dsn=dsn)
+        "長對談", [document["concepts"][0]["concept_id"]], "extended-dialogue", delivery="dialogue", dsn=dsn)
     claim = podcasts.claim_step(dsn=dsn)
     value = {"provider": "synthetic-text", "segments": [{"claim_id": c["claim_id"], "turns": [
         {"speaker": "host" if i % 2 == 0 else "guest", "text": "這裡可以再說明一下嗎？" if i % 2 == 0 else c["text"]}

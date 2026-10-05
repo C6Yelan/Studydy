@@ -5,10 +5,11 @@ import { writeRoute } from "../../app/routes";
 import { useDismissibleMenu } from "../material-flow/useDismissibleMenu";
 import { InlineNameEditor } from "../material-flow/InlineNameEditor";
 
-export function CardSetManagement({ item, apiClient, onChanged, onDelete, materialId }: {
+export function CardSetManagement({ item, apiClient, onChanged, onDelete, confirmingDelete, materialId }: {
   materialId?: string;
   item: CardSetSummary; apiClient: StudydyApiClient; onChanged: () => void;
   onDelete: (opener: HTMLElement) => void;
+  confirmingDelete: boolean;
 }) {
   const menu = useRef<HTMLDetailsElement>(null), opener = useRef<HTMLElement>(null);
   const active = useRef(false), saving = useRef(false), interacted = useRef(false);
@@ -27,7 +28,7 @@ export function CardSetManagement({ item, apiClient, onChanged, onDelete, materi
     finally { saving.current = false; if (active.current) setBusy(false); }
   };
   return <>
-    <details ref={menu} className="material-management-menu" name="card-set-management" hidden={renaming}>
+    <details ref={menu} className="material-management-menu" name="card-set-management" hidden={renaming || confirmingDelete}>
       <summary ref={opener} role="button" tabIndex={0} aria-label={`管理卡組「${item.name}」`}>⋯</summary>
       <div>
         <button type="button" onClick={() => writeRoute({ name: "card-set-edit", cardSetId: item.card_set_id, ...(materialId ? { materialId } : {}) })}>管理卡組</button>

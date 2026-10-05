@@ -22,18 +22,13 @@ def _source_size(claims):
     return size
 
 
-def content_budget(claims, mode, delivery):
+def content_budget(claims, delivery):
     # 以全部所選來源的文字量給空間；雙人不能再乘一份「對話膨脹」預算。
     size = _source_size(claims)
     concepts = len({c.get('concept_id', c.get('label')) for c in claims})
-    if mode == 'quick':
-        beats = min(6, max(1, concepts, math.ceil(len(claims) / 2), math.ceil(size / 700)))
-        characters = min(9600, max(240, math.ceil(size * 1.35) + 80))
-        turns = beats * 2 + 1 if delivery == 'dialogue' else beats + 1
-    else:
-        beats = min(12, max(2, len(claims) + 2, math.ceil(size / 500)))
-        characters = min(9600, max(480, math.ceil(size * 2.2) + 160))
-        turns = beats * 3 if delivery == 'dialogue' else beats * 2
+    beats = min(6, max(1, concepts, math.ceil(len(claims) / 2), math.ceil(size / 700)))
+    characters = min(9600, max(240, math.ceil(size * 1.35) + 80))
+    turns = beats * 2 + 1 if delivery == 'dialogue' else beats + 1
     return {'max_characters': characters, 'max_beats': beats, 'max_turns': turns}
 
 

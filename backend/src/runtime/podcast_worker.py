@@ -38,7 +38,7 @@ class PodcastWorker:
                 episode = claim["episode"]
                 audio = bool(episode["script"])
                 body = {"script": episode["script"], "purpose": "podcast"} if audio else {
-                    "mode": claim["mode"], "claims": episode["claims"], "delivery": episode["delivery"],
+                    "claims": episode["claims"], "delivery": episode["delivery"],
                     "source_context": claim["source_context"]}
                 request = Request(base + ("/audio" if audio else "/script"),
                     data=json.dumps(body, ensure_ascii=False).encode(),

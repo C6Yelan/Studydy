@@ -644,7 +644,6 @@ class PodcastCreate(_Closed):
     knowledge_structure_revision: str
     name: str = Field(min_length=1, max_length=200)
     concept_ids: list[str] = Field(min_length=1)
-    mode: Literal["quick", "full"]
     delivery: Literal["solo", "dialogue"]
 
 
@@ -661,7 +660,6 @@ class PodcastSummary(_Closed):
     material_name: str
     knowledge_structure_revision: str
     name: str
-    mode: Literal["quick", "full"]
     delivery: Literal["solo", "dialogue"]
     concept_ids: list[str]
     status: Literal["pending", "running", "ready", "failed", "cancelled"]

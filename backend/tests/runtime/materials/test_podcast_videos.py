@@ -154,11 +154,11 @@ def test_material_removal_cascades_video_and_quarantines_media(closed_loop):
         assert db.scalar(select(Artifact)) is None
 
 
-@pytest.mark.parametrize('mode,delivery',[('full','solo'),('quick','dialogue'),('full','dialogue')])
-def test_modes_automatically_queue_video_and_keep_original_roles(closed_loop,mode,delivery):
+@pytest.mark.parametrize('delivery',['solo','dialogue'])
+def test_delivery_automatically_queues_video_and_keeps_original_roles(closed_loop,delivery):
     owner,source,_,document,dsn,_=closed_loop
     saved=podcasts.create_podcast(owner.learner_id,source.material_id,document['revision'],'合成模式驗證',
-        [c['concept_id'] for c in document['concepts']],mode,'video-modes-'+mode+'-'+delivery,delivery=delivery,dsn=dsn)
+        [c['concept_id'] for c in document['concepts']],'video-delivery-'+delivery,delivery=delivery,dsn=dsn)
     state=podcasts.claim_step(dsn=dsn)
     script={'provider':'synthetic','segments':[{'claim_id':c['claim_id'],'turns':
         [{'speaker':'host','text':'這個觀念要如何解釋？'},{'speaker':'guest','text':c['text']}]
@@ -172,7 +172,7 @@ def test_modes_automatically_queue_video_and_keep_original_roles(closed_loop,mod
     state=videos.claim(dsn=dsn);assert videos.finish(state,bundle=bundle(state),dsn=dsn)
     manifest=videos.ready_manifest(owner.learner_id,saved['podcast_id'],0,dsn=dsn)
     assert [t for cue in manifest['timeline']['segments'] for t in cue['turns']]==[t for s in script['segments'] for t in s['turns']]
-    assert podcasts.read_podcast(owner.learner_id,saved['podcast_id'],dsn=dsn)['mode']==mode
+    assert podcasts.read_podcast(owner.learner_id,saved['podcast_id'],dsn=dsn)['delivery']==delivery
 
 
 def test_v3_motion_anchor_is_checked_before_writing_artifact(closed_loop):

@@ -66,6 +66,5 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
           event.preventDefault(); activate(items[next].id, true);
         }}>{item.label}</button>)}
     </div>
-    <MaterialTools api={apiClient} materialId={materialId} />
-  </div>{materialName && <div className="material-context" aria-label="目前教材"><Icon name="book" size={15}/><span>{materialName}</span></div>}</>;
+  </div>{materialName && <div className="material-context" aria-label="目前教材"><Icon name="book" size={15}/><span>{materialName}</span></div>}<MaterialTools api={apiClient} materialId={materialId} /></>;
 }

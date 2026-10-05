@@ -1013,7 +1013,7 @@ function podcastView() {
   return {
     schema: "podcast/v1", podcast_id: setId, material_id: materialId,
     material_name: view.material_name, knowledge_structure_revision: structureRevision,
-    name: "聽重點", mode: "full", delivery: "solo", concept_ids: [conceptId], status: "ready", error_code: null,
+    name: "聽重點", delivery: "solo", concept_ids: [conceptId], status: "ready", error_code: null,
     version: 3, created_at: view.created_at, episode_count: 1, completed_episodes: 1,
     is_current_revision: true, source_resolver: view.source_resolver, source_status: view.status,
     excluded_pages: [], episodes: [{ delivery: "solo", claims: [{ ...view.cards[0].claims[0], concept_id: conceptId, label: "Stack" }],

@@ -663,19 +663,21 @@ function MapGraph({
             />
           </div>
         </div>
-        {(nodes.length < projection.totalNodes || edges.length < projection.totalRelations) && (
-          <p className="map-limit-note" role="status">
-            兩層範圍：{nodes.length}／{projection.totalNodes} 個概念、{edges.length}／
-            {projection.totalRelations} 條關係。 尚有其他相關內容，可用搜尋或學習導覽選取。
-          </p>
-        )}
-        <div className="relation-legend" aria-label="概念關係圖例">
-          {Object.entries(relationStyles).map(([type, { label, color, dashed }]) => (
-            <span key={type} style={{ color }}>
-              <i className={`relation-swatch${dashed ? " is-dashed" : ""}`} aria-hidden="true" />
-              {label}
-            </span>
-          ))}
+        <div className="map-annotations">
+          <div className="relation-legend" aria-label="概念關係圖例">
+            {Object.entries(relationStyles).map(([type, { label, color, dashed }]) => (
+              <span key={type} style={{ color }}>
+                <i className={`relation-swatch${dashed ? " is-dashed" : ""}`} aria-hidden="true" />
+                {label}
+              </span>
+            ))}
+          </div>
+          {(nodes.length < projection.totalNodes || edges.length < projection.totalRelations) && (
+            <p className="map-limit-note" role="status">
+              兩層範圍：{nodes.length}／{projection.totalNodes} 個概念、{edges.length}／
+              {projection.totalRelations} 條關係。 尚有其他相關內容，可用搜尋或學習導覽選取。
+            </p>
+          )}
         </div>
       </div>
       {detail && (
@@ -1115,6 +1117,7 @@ export function KnowledgeMapWorkspace({
     <section
       className={`map-workspace${mode === "focus" ? " is-focus-mode" : ""}${selectedConcept || selectedRelation ? " has-detail" : ""}`}
     >
+      <MaterialContentNav apiClient={apiClient} materialId={mapRoute.materialId} mapRoute={mapRoute} materialName={materialName} current={mode === "review" ? "review" : "knowledge-map"} onMapModeChange={selectMode} onMapTabRef={(id, element) => { if (element) tabs.current.set(id, element); else tabs.current.delete(id); }}/>
       <header className="map-header material-search-row">
         <form
           className="map-search"
@@ -1196,7 +1199,6 @@ export function KnowledgeMapWorkspace({
           {startMessage}
         </p>
       )}
-      <MaterialContentNav apiClient={apiClient} materialId={mapRoute.materialId} mapRoute={mapRoute} materialName={materialName} current={mode === "review" ? "review" : "knowledge-map"} onMapModeChange={selectMode} onMapTabRef={(id, element) => { if (element) tabs.current.set(id, element); else tabs.current.delete(id); }}/>
       {view.excluded_pages.length > 0 && (
         <p className="form-error" role="status">
           第 {view.excluded_pages.map((item) => item.page).join("、")}{" "}

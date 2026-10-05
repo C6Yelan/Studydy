@@ -1,4 +1,4 @@
-"""模式預算與教學訊號的合成回歸，不代表真實節目品質。"""
+"""統一篇幅預算與教學訊號的合成回歸，不代表真實節目品質。"""
 from copy import deepcopy
 import pytest
 from runtime.podcast_quality import content_budget, budget_issues, teaching_signals, join_question_beats
@@ -15,27 +15,28 @@ def beats(*texts):
                       for i, text in enumerate(texts)]}]
 
 
-def test_quick_budget_is_lower_without_dialogue_expansion_or_claim_removal():
+def test_single_budget_does_not_expand_dialogue_length_or_remove_claims():
     source = claims(); before = deepcopy(source)
-    quick = content_budget(source, 'quick', 'dialogue')
-    full = content_budget(source, 'full', 'dialogue')
-    assert all(quick[k] < full[k] for k in quick)
-    assert quick['max_characters'] == content_budget(source, 'quick', 'solo')['max_characters']
+    dialogue = content_budget(source, 'dialogue')
+    solo = content_budget(source, 'solo')
+    assert dialogue['max_characters'] == solo['max_characters']
+    assert dialogue['max_beats'] == solo['max_beats']
+    assert dialogue['max_turns'] > solo['max_turns']
     assert source == before
-    assert budget_issues(beats('字' * (quick['max_characters'] + 1)), quick)[0]['field'] == 'max_characters'
-    assert not budget_issues(beats('字' * (quick['max_characters'] + 1)), full)
+    for budget in [dialogue, solo]:
+        assert budget_issues(beats('字' * (budget['max_characters'] + 1)), budget)[0]['field'] == 'max_characters'
 
 
 def test_repeated_english_source_does_not_multiply_budget():
     text = 'The two directions of a connection can be closed independently, while the other side continues sending data. '
-    one = content_budget(claims(1, text), 'quick', 'solo')
-    repeated = content_budget(claims(4, text), 'quick', 'solo')
+    one = content_budget(claims(1, text), 'solo')
+    repeated = content_budget(claims(4, text), 'solo')
     assert one['max_characters'] == repeated['max_characters']
-    larger = content_budget(claims(1, text + '另一個不同條件有獨立的限制與結果。' * 20), 'quick', 'solo')
+    larger = content_budget(claims(1, text + '另一個不同條件有獨立的限制與結果。' * 20), 'solo')
     assert larger['max_characters'] > one['max_characters']
 
 
-def test_new_script_acceptance_enforces_mode_but_existing_v2_remains_readable():
+def test_new_script_acceptance_enforces_budget_but_stored_v2_remains_readable():
     from runtime.podcasts import validate_script
     from test_podcast_beats import sample
     episode, _, _ = sample()
@@ -43,10 +44,10 @@ def test_new_script_acceptance_enforces_mode_but_existing_v2_remains_readable():
     for part in turn['parts']:
         part['text'] = '字' * 160
     turn['text'] = ''.join(p['text'] for p in turn['parts'])
-    assert validate_script(episode['script'], episode) == episode['script']
-    assert validate_script(episode['script'], episode, 'full') == episode['script']
+    from runtime.podcast_script import validate
+    assert validate(episode['script'], episode) == episode['script']
     with pytest.raises(PodcastError, match='PODCAST_SCRIPT_INVALID'):
-        validate_script(episode['script'], episode, 'quick')
+        validate_script(episode['script'], episode)
 
 
 def test_exact_recap_is_found_even_at_the_end_of_a_long_turn():

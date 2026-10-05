@@ -55,6 +55,8 @@ test("real API persists selected cards across fresh login and resolves original 
   await reopened.getByRole("button", { name: "返回卡組", exact: true }).click();
   await reopened.getByRole("button", { name: "管理卡組「隔離測試卡組已編輯」" }).click();
   await reopened.getByRole("button", { name: "刪除卡組「隔離測試卡組已編輯」" }).click();
+  await expect(reopened.getByRole("dialog")).toHaveCount(0);
+  await expect(reopened.getByRole("form", { name: "刪除卡組確認" })).toBeVisible();
   await reopened.getByRole("button", { name: "確認刪除卡組" }).click();
   await expect(reopened.getByRole("heading", { name: "收藏一組值得反覆看的重點" })).toBeVisible();
   expect(await reopened.evaluate(() => Object.keys(localStorage))).toEqual(["studydy.session-hint"]);

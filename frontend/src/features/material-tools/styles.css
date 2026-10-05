@@ -1,10 +1,9 @@
-/* 教材內的操作入口與內容頁籤共用一列；表單細節留在工具內。 */
-.material-learning-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:12px 0 20px; min-width:0; width:100%; }
+/* 頁籤靠近頁首；語音入口固定在右下角，不占用內容列。 */
+.material-learning-toolbar { display:flex; align-items:center; margin:0 0 12px; min-width:0; width:100%; }
 .material-learning-toolbar .material-content-nav { position:relative; flex:1; min-width:0; margin:0; flex-wrap:nowrap; overflow-x:auto; padding-block:0; scrollbar-width:thin; gap:24px; }
 .material-learning-toolbar .material-content-nav button { flex-shrink:0; white-space:nowrap; }
-.material-tools { display:flex; align-items:center; gap:6px; flex-shrink:0; }
-.material-tools > button { min-height:40px; padding:8px 12px; font-size:14px; }
-.app-main > .material-tools { justify-content:flex-end; padding:12px 24px; }
+.material-tools { position:fixed; right:max(24px,env(safe-area-inset-right)); bottom:max(24px,env(safe-area-inset-bottom)); z-index:10; }
+.material-tools > button { min-height:44px; padding:10px 16px; border-radius:999px; font-size:14px; box-shadow:0 4px 16px #17233b20; }
 .map-header { flex-wrap:wrap; }
 .material-tool-panel { width:min(900px,calc(100vw - 48px)); max-height:calc(100dvh - 48px); padding:0; border:1px solid var(--border); border-radius:14px; color:var(--text-primary); background:var(--surface); box-shadow:0 20px 80px #17233b30; overflow:hidden; text-align:left; }
 .material-tool-panel[open] { display:flex; flex-direction:column; }
@@ -136,8 +135,8 @@
 .answer-audio > p { flex-basis:100%; margin:0; color:var(--error); font-size:12px; }
 
 @media(max-width:700px) {
- .material-learning-toolbar { gap:10px; margin-bottom:16px; flex-wrap:nowrap; }
- .material-learning-toolbar .material-tools > button { font-size:13px; min-height:40px; padding:8px 10px; }
+ .material-tools { right:max(16px,env(safe-area-inset-right)); bottom:max(16px,env(safe-area-inset-bottom)); }
+ .material-tools > button { font-size:13px; padding:10px 14px; }
  .material-tool-panel, .material-tool-panel.is-voice { width:calc(100vw - 16px); max-height:calc(100dvh - 16px); border-radius:12px; }
  .material-tool-panel.is-voice { height:calc(100dvh - 16px); }
  .material-tool-panel > header { padding:14px 16px; }
@@ -190,7 +189,7 @@
 .material-content-nav.map-tabs > button.is-active { border-bottom-color:var(--studydy-blue); color:var(--studydy-blue); }
 @media(max-width:700px) { .material-content-nav.map-tabs { gap:0; } .material-content-nav.map-tabs > button { padding:0 12px; font-size:13px; } }
 
-.material-context { display:flex; align-items:flex-start; gap:7px; margin:-8px 0 20px; color:var(--text-secondary); font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+.material-context { display:flex; align-items:flex-start; gap:7px; margin:-4px 0 12px; color:var(--text-secondary); font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
 .material-context svg { flex-shrink:0; margin-top:3px; }
 .research-history { margin:0 0 22px; color:var(--text-secondary); font-size:13px; }
 .research-history summary { cursor:pointer; }

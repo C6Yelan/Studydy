@@ -840,7 +840,6 @@ export function podcastSummary(value: unknown): value is PodcastSummary {
   return !!item && isUuid(item.podcast_id) && isUuid(item.material_id)
     && revision(item.knowledge_structure_revision, "knowledge-structure")
     && typeof item.name === "string" && !!item.name.trim() && typeof item.material_name === "string"
-    && ["quick", "full"].includes(String(item.mode))
     && ["solo", "dialogue"].includes(String(item.delivery))
     && strings(item.concept_ids) && item.concept_ids.length > 0
     && item.concept_ids.every((id) => revision(id, "concept"))

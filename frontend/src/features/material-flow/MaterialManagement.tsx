@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import { materialDeleteCopy } from "./material-delete-copy";
 import { InlineNameEditor } from "./InlineNameEditor";
 import { useDismissibleMenu } from "./useDismissibleMenu";
 import { writeRoute } from "../../app/routes";
@@ -85,7 +84,6 @@ export function MaterialManagement({
       if (mounted.current) setBusy(false);
     }
   };
-  const copy = materialDeleteCopy(item);
   return (
     <>
       {!deleting && (
@@ -131,6 +129,7 @@ export function MaterialManagement({
           <form
             className="material-management-form"
             aria-label="刪除教材確認"
+            aria-busy={busy}
             onSubmit={(event) => {
               event.preventDefault();
               void submit();
@@ -142,9 +141,7 @@ export function MaterialManagement({
               }
             }}
           >
-            <h3>確定要刪除這份教材嗎？</h3>
-            {copy.notice && <p>{copy.notice}</p>}
-            <p>{copy.scope}</p>
+            <h3>確定刪除教材與相關資料？</h3>
             <div className="material-management-actions">
               <button
                 ref={cancel}
@@ -156,14 +153,14 @@ export function MaterialManagement({
                 取消
               </button>
               <button
-                className={`secondary-button${mode === "delete" ? " cancel-confirm-button" : ""}`}
+                className="secondary-button cancel-confirm-button"
                 type="submit"
+                aria-label={busy ? "正在刪除…" : "確認刪除"}
                 disabled={busy}
               >
-                {busy ? "正在刪除…" : "確認刪除"}
+                {busy ? "正在刪除…" : "刪除"}
               </button>
             </div>
-            {busy && <p role="status">正在送出刪除要求…</p>}
             {error && (
               <p className="form-error" role="alert">
                 {error}

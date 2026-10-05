@@ -1334,12 +1334,14 @@
   }
 }
 
-.material-content { width: 100%; min-height: calc(100dvh - 56px); padding: var(--space-4) var(--space-6); }
+.material-content { width: 100%; min-height: calc(100dvh - 56px); padding: 8px var(--space-6) var(--space-4); }
 .material-content-body { width: 100%; min-width: 0; }
 .material-content-body > .cards-page { max-width: none; }
 .material-content-body > .material-library { width: 100%; min-width: 0; }
 .material-content-body .cards-page h1 { font-size: 24px; }
-@media (max-width: 780px) { .material-content { padding: 12px; } }
+@media (max-width: 780px) { .material-content { padding: 8px 12px 12px; } }
+/* 底部保留語音入口的空間，讓手機內容末端的操作仍能完整點選。 */
+@media (max-width: 900px) { .material-content { padding-bottom:max(80px,calc(env(safe-area-inset-bottom) + 64px)); } }
 
 /* 內容總覽與地圖共用搜尋及建立操作的工具列。 */
 .collection-toolbar { flex-wrap: nowrap; gap: 16px; margin-bottom: 18px; }
@@ -1359,9 +1361,9 @@
 .material-content.source-page > div > .cards-page-header p { color:var(--text-secondary); font-size:14px; }
 .material-content.source-page > div > .cards-page-header .cards-material-name { margin-bottom:8px; font-size:13px; }
 
-/* 頁籤層級的搜尋固定在內容區上緣；各功能仍保有自己的搜尋狀態。 */
+/* 頁籤下方共用搜尋與建立操作的位置。 */
 .material-content .material-search-row,
-.map-workspace .material-search-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; gap:16px; min-height:40px; padding:0; margin:0; }
+.map-workspace .material-search-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; gap:16px; min-height:40px; padding:0; margin:0 0 18px; }
 .material-content .material-search-row :is(.library-search,.material-search),
 .map-workspace .material-search-row .map-search { position:relative; flex:1; min-width:0; width:auto; max-width:520px; margin:0 auto 0 0; }
 .material-content .material-search-row input[type=search],

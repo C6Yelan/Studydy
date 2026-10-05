@@ -3,7 +3,7 @@
   width: 100%;
   min-height: 100%;
   margin: 0 auto;
-  padding: var(--space-4) var(--space-6);
+  padding: 8px var(--space-6) var(--space-4);
   color: var(--text-primary);
   background: var(--page-cool);
 }
@@ -488,11 +488,20 @@
   font-size: 12px;
   color: var(--text-muted);
 }
-.focus-graph > .relation-legend {
+/* 圖例與範圍提示依序排列，窄畫布換行時仍不互相遮擋。 */
+.map-annotations {
   position: absolute;
+  z-index: 4;
+  top: 12px;
   right: 12px;
-  bottom: 12px;
-  max-width: calc(100% - 84px);
+  max-width: min(430px, calc(100% - 150px));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+.map-annotations > .relation-legend {
   justify-content: flex-end;
   gap: 8px;
   padding: 6px 8px;
@@ -721,11 +730,7 @@
 }
 
 .map-limit-note {
-  position: absolute;
-  z-index: 4;
-  top: 12px;
-  right: 12px;
-  max-width: min(330px, calc(100% - 150px));
+  max-width: min(330px, 100%);
   margin: 0;
   padding: 8px 10px;
   border-radius: 6px;
@@ -759,7 +764,7 @@
 }
 @media (max-width: 900px) {
   .map-workspace {
-    padding: 12px;
+    padding: 8px 12px 12px;
   }
   .detail-panel {
     position: fixed;

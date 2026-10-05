@@ -1,24 +1,21 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { KnowledgeStructureView } from "../../api/contracts";
 import { routePath, writeRoute, type AppRoute } from "../../app/routes";
-import { CardRecommendations } from "../concept-cards/CardRecommendations";
 import { StateView } from "../../ui/StateView";
 import { Icon } from "../../ui/Icon";
 import { claimText } from "../../ui/claim-text";
 
-export function CreatePodcast({ apiClient, route, embedded = false, materialField }: {
-  embedded?: boolean; materialField?: ReactNode;
+export function CreatePodcast({ apiClient, route, embedded = false }: {
+  embedded?: boolean;
   apiClient: StudydyApiClient; route: Extract<AppRoute, { name: "podcast-create" }>;
 }) {
   const [view, setView] = useState<KnowledgeStructureView | null>(null);
   const [materialName, setMaterialName] = useState("");
   const [name, setName] = useState("");
   const [delivery, setDelivery] = useState<"solo" | "dialogue">("dialogue");
-  const [mode, setMode] = useState<"quick" | "full">("quick");
   const [selected, setSelected] = useState(new Set<string>());
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [activePanel, setActivePanel] = useState<"recommend" | "selection" | "settings">("selection");
+  const [activePanel, setActivePanel] = useState<"selection" | "settings">("selection");
   const [onlySelected, setOnlySelected] = useState(false);
   const [query, setQuery] = useState("");
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -44,7 +41,6 @@ export function CreatePodcast({ apiClient, route, embedded = false, materialFiel
       setName(`${material.display_name.replace(/\.[^.]+$/, "").slice(0, 180)}・聽重點`);
       setSelected(new Set(structure.concepts.map((c) => c.concept_id)));
       setPreviewId(null);
-      setSessionId(material.study_sessions.find((s) => s.knowledge_structure_revision === route.structureRevision)?.study_session_id ?? null);
     }, (e) => { if (!cancelled) setError(errorMessage(e)); });
     return () => { cancelled = true; };
   }, [apiClient, route.materialId, route.runId, route.structureRevision, reload]);
@@ -52,7 +48,7 @@ export function CreatePodcast({ apiClient, route, embedded = false, materialFiel
   const save = async () => {
     if (!view || !selected.size || !validName || saving.current) return;
     saving.current = true; setBusy(true); setSaveError(null);
-    const body = { schema: "podcast-create/v1" as const, name: name.trim(), mode, delivery,
+    const body = { schema: "podcast-create/v1" as const, name: name.trim(), delivery,
       knowledge_structure_revision: view.knowledge_structure_revision, concept_ids: [...selected] };
     const fingerprint = JSON.stringify(body);
     if (intent.current?.fingerprint !== fingerprint) intent.current = { fingerprint, key: crypto.randomUUID() };
@@ -77,17 +73,11 @@ export function CreatePodcast({ apiClient, route, embedded = false, materialFiel
   return <section className="cards-page podcast-create">
     {!embedded && <button type="button" className="text-button" onClick={() => writeRoute({ name: "material-content", materialId: route.materialId, kind: "podcasts" })}><Icon name="arrow-left" size={17} /> 此教材的 Podcast</button>}
     {!embedded && <header className="cards-page-header"><div><h1>建立 Podcast</h1><p className="cards-material-name"><Icon name="book" size={16} /> {materialName}</p></div></header>}
-    <div className="podcast-identity-fields">{materialField}<label className="cards-field">Podcast 名稱<input value={name} maxLength={200} disabled={busy} onChange={e => setName(e.target.value)} /></label></div>
+    <div className="podcast-identity-fields"><label className="cards-field">Podcast 名稱<input value={name} maxLength={200} disabled={busy} onChange={e => setName(e.target.value)} /></label></div>
     <nav className="podcast-config-nav" aria-label="Podcast 設定區域">{([
-      ["recommend", "幫我選概念"], ["selection", "選擇概念"], ["settings", "講解設定"],
+      ["selection", "選擇概念"], ["settings", "講解設定"],
     ] as const).map(([id, label]) => <button type="button" className={activePanel === id ? "primary-button" : "secondary-button"} aria-pressed={activePanel === id} aria-controls={`podcast-config-${id}`} key={id} onClick={() => setActivePanel(id)}>{label}</button>)}</nav>
     <div className="podcast-compose-grid">
-      <section id="podcast-config-recommend" className={`surface podcast-config-section podcast-recommendations${activePanel === "recommend" ? " is-active" : ""}`} aria-label="幫我選概念">
-        <h2>幫我選概念</h2>
-        <CardRecommendations podcast apiClient={apiClient} view={view} studySessionId={sessionId} disabled={busy} onApply={items => {
-          setSelected(new Set(items.map(i => i.conceptId))); setQuery(""); setOnlySelected(true); setPreviewId(null); setActivePanel("selection");
-        }} />
-      </section>
       <section id="podcast-config-selection" className={`surface podcast-config-section podcast-selection${activePanel === "selection" ? " is-active" : ""}`} aria-label="選擇 Podcast 概念">
         <div className="cards-selection-heading"><h2>選擇概念</h2><span aria-live="polite">已選 {selected.size} / {view.concepts.length}</span></div>
         <input className="cards-concept-search" type="search" aria-label="搜尋 Podcast 概念" placeholder="搜尋概念…" value={query} onChange={e => setQuery(e.target.value)} />
@@ -103,7 +93,6 @@ export function CreatePodcast({ apiClient, route, embedded = false, materialFiel
       <section id="podcast-config-settings" className={`surface podcast-config-section podcast-settings${activePanel === "settings" ? " is-active" : ""}`} aria-label="講解設定">
         <h2>講解設定</h2>
         <fieldset className="podcast-delivery"><legend>講解形式</legend><label><input type="radio" name="delivery" checked={delivery === "dialogue"} disabled={busy} onChange={() => setDelivery("dialogue")} /><span><strong>雙人對談</strong><small>以對話串起教材重點。</small></span></label><label><input type="radio" name="delivery" checked={delivery === "solo"} disabled={busy} onChange={() => setDelivery("solo")} /><span><strong>單人解說</strong><small>以自然口語說明重點。</small></span></label></fieldset>
-        <div className="podcast-mode-options" role="group" aria-label="講解模式"><button type="button" disabled={busy} aria-pressed={mode === "quick"} onClick={() => setMode("quick")}><strong>快速複習</strong><span>保留全部重點與必要條件，省略延伸。</span></button><button type="button" disabled={busy} aria-pressed={mode === "full"} onClick={() => setMode("full")}><strong>完整講解</strong><span>較完整的說明、例子與理解整理。</span></button></div>
       </section>
     </div>
     <footer className="surface podcast-create-footer"><div><strong>{selected.size} 個概念 · {claimCount} 個重點</strong><span>所選重點全部保留，內容較多時自動拆集。</span></div><button type="button" className="primary-button" disabled={busy || !selected.size || !validName} onClick={() => void save()}>{busy ? "正在建立…" : "開始生成 Podcast"}<Icon name="chevron-right" size={18} /></button>{saveError && <p className="form-error" role="alert">{saveError}</p>}</footer>

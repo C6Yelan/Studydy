@@ -1,9 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from 'node:fs';
 import type { PodcastView } from "../../src/api/contracts";
-import { artifactId, materialId, runId, sessionId, structureRevision, structureView, mockKnowledgeMapApi, json } from "../fixtures/knowledge-map";
+import { artifactId, materialId, runId, sessionId, structureRevision, structureView, workspaceView, mockKnowledgeMapApi, json } from "../fixtures/knowledge-map";
 
 const podcastId = "77777777-7777-4777-8777-777777777777";
+const createPath = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/create-podcast`;
 async function mockPodcasts(page: Page) {
   const structure = structureView();
   await mockKnowledgeMapApi(page, structure);
@@ -14,7 +15,7 @@ async function mockPodcasts(page: Page) {
   const view: PodcastView = {
     schema: "podcast/v1", run_id:runId, podcast_id: podcastId, material_id: materialId,
     material_name: "資料結構講義.pdf", knowledge_structure_revision: structureRevision,
-    name: "我的 Podcast", mode: "quick", delivery: "solo", concept_ids: claims.map(c => c.concept_id),
+    name: "我的 Podcast", delivery: "solo", concept_ids: claims.map(c => c.concept_id),
     status: "running", error_code: null, version: 1, created_at: "2026-10-03T00:00:00Z",
     episode_count: 3, completed_episodes: 1, is_current_revision: true,
     source_resolver: `/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`,
@@ -114,14 +115,15 @@ test("progress follows saved stages and transcripts; episode numbers and header 
   expect(Math.round((await page.locator(".app-header").boundingBox())!.y)).toBe(0);
 });
 
-test("creation keeps material and name together and reflows on mobile", async ({ page }) => {
+test("account creation chooses a material once and keeps name editing usable on mobile", async ({ page }) => {
   await mockPodcasts(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/podcasts/new");
   await page.getByLabel("選擇教材").selectOption(materialId);
-  const material = page.getByLabel("選擇教材"), name = page.getByLabel("Podcast 名稱", { exact: true });
+  const name = page.getByLabel("Podcast 名稱", { exact: true });
   await expect(name).toBeVisible();
-  expect(Math.abs((await material.boundingBox())!.y - (await name.boundingBox())!.y)).toBeLessThan(2);
+  await expect(page).toHaveURL(new RegExp('/create-podcast$'));
+  await expect(page.getByLabel("選擇教材")).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await name.fill("手機建立測試");
@@ -149,7 +151,7 @@ test("material collections filter both products while outer navigation opens the
   await expect(page.locator('.app-shell')).toHaveClass(/is-workspace/);
   const navBox = (await page.getByRole('tablist', { name: '教材學習內容' }).boundingBox())!;
   const searchBox = (await page.getByRole('searchbox', { name: '搜尋 Podcast', exact: true }).boundingBox())!;
-  expect(navBox.y).toBeGreaterThanOrEqual(searchBox.y + searchBox.height);
+  expect(searchBox.y).toBeGreaterThanOrEqual(navBox.y + navBox.height);
   await expect(page.getByRole('heading', { name: '別的教材 Podcast' })).toHaveCount(0);
   await page.getByRole('button', { name: '查看進度', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts/${podcastId}$`));
@@ -162,12 +164,13 @@ test("material collections filter both products while outer navigation opens the
   await expect(page.getByRole('heading', { name: '此教材卡組' })).toBeVisible();
   const cardsNav = (await page.getByRole('tablist', { name: '教材學習內容' }).boundingBox())!;
   const cardsSearch = (await page.getByRole('searchbox', { name: '搜尋卡組', exact: true }).boundingBox())!;
-  expect(cardsNav.y).toBeGreaterThanOrEqual(cardsSearch.y + cardsSearch.height);
+  expect(cardsSearch.y).toBeGreaterThanOrEqual(cardsNav.y + cardsNav.height);
   await page.getByRole('searchbox', { name: '搜尋卡組', exact: true }).fill('不存在的卡組');
   await expect(page.locator('.library-item')).toHaveCount(0);
   await page.getByRole('searchbox', { name: '搜尋卡組', exact: true }).fill('');
   await page.getByRole('button', { name: '建立卡組', exact: true }).click();
-  await expect(page.getByLabel('選擇教材')).toHaveValue(materialId);
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/create-cards$`));
+  await expect(page.getByLabel('選擇教材')).toHaveCount(0);
   await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
   await expect(page.locator('.app-sidebar')).toHaveCount(0);
   await page.goto('/');
@@ -263,26 +266,30 @@ test("player plays, seeks and switches episodes with usable desktop and mobile c
   expect(await page.locator('audio').evaluate((a:HTMLAudioElement)=>a.volume)).toBeCloseTo(.05,2);
 });
 
-test("podcast creation separates recommendations, selection and settings without losing choices", async ({ page }) => {
+test("podcast creation keeps manual selection and settings without recommendations or material switching", async ({ page }) => {
   const fixture = await mockPodcasts(page);
+  const unnecessaryReads: string[] = [];
+  page.on('request', request => { const path = new URL(request.url()).pathname; if (path === '/v1/materials' || path.endsWith('/progress')) unnecessaryReads.push(path); });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto('/podcasts/new');
-  await page.getByLabel('選擇教材').selectOption(materialId);
-  const recommend = page.getByRole('region', { name: '幫我選概念', exact: true });
+  await page.goto(createPath);
   const selection = page.getByRole('region', { name: '選擇 Podcast 概念' });
   const settings = page.getByRole('region', { name: '講解設定', exact: true });
-  await expect(recommend).toBeVisible(); await expect(selection).toBeVisible(); await expect(settings).toBeVisible();
-  expect((await recommend.boundingBox())!.x).toBeLessThan((await selection.boundingBox())!.x);
+  await expect(page.getByRole('region', { name: '幫我選概念', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '套用推薦', exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('選擇教材')).toHaveCount(0);
+  await expect(selection).toBeVisible(); await expect(settings).toBeVisible();
   expect((await selection.boundingBox())!.x).toBeLessThan((await settings.boundingBox())!.x);
-  await recommend.getByLabel('最多概念數').fill('1');
-  await recommend.getByRole('button', { name: '套用推薦', exact: true }).click();
+  await selection.locator('.podcast-concept-option').last().getByRole('checkbox').uncheck();
+  await selection.getByLabel('只看已選').check();
   await expect(selection).toContainText('已選 1 / 2');
   await page.setViewportSize({ width: 390, height: 844 });
   const controls = page.getByRole('navigation', { name: 'Podcast 設定區域' });
+  await expect(controls.getByRole('button')).toHaveText(['選擇概念', '講解設定']);
   await controls.getByRole('button', { name: '講解設定', exact: true }).click();
   await expect(settings).toBeVisible(); await expect(selection).toBeHidden();
   await settings.getByLabel('單人解說', { exact: false }).check();
-  await settings.getByRole('button', { name: '完整講解', exact: false }).click();
+  await expect(settings.getByRole('group', { name: '講解模式' })).toHaveCount(0);
+  await expect(settings.getByRole('radio')).toHaveCount(2);
   await controls.getByRole('button', { name: '選擇概念', exact: true }).click();
   await expect(selection).toContainText('已選 1 / 2');
   await selection.getByLabel('只看已選').uncheck();
@@ -295,19 +302,51 @@ test("podcast creation separates recommendations, selection and settings without
   await selection.getByRole('button', { name: `查看「${first.label}」重點` }).click();
   await expect(page.getByRole('region', { name: `${first.label}重點預覽` })).toBeVisible();
   await page.getByRole('button', { name: '關閉預覽', exact: true }).click();
-  await page.getByLabel('Podcast 名稱', { exact: true }).fill('三區操作測試');
+  await page.getByLabel('Podcast 名稱', { exact: true }).fill('手動選材操作測試');
+  expect(unnecessaryReads).toEqual([]);
   let body: any;
   await page.route(`**/v1/materials/${materialId}/podcasts`, route => {
     body = route.request().postDataJSON();
     const claims = fixture.view.episodes[0].claims.filter(c => body.concept_ids.includes(c.concept_id));
-    Object.assign(fixture.view, { name: body.name, mode: body.mode, delivery: body.delivery, concept_ids: body.concept_ids, status: 'pending', episode_count: 1, completed_episodes: 0,
+    Object.assign(fixture.view, { name: body.name, delivery: body.delivery, concept_ids: body.concept_ids, status: 'pending', episode_count: 1, completed_episodes: 0,
       episodes: [{ delivery: body.delivery, claims, script: null, audio: null }] });
     return json(route, fixture.view, 201);
   });
   await page.getByRole('button', { name: '開始生成 Podcast' }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts/${podcastId}$`));
-  expect(body.concept_ids).toEqual([first.concept_id]); expect(body.delivery).toBe('solo'); expect(body.mode).toBe('full');
+  expect(body.concept_ids).toEqual([first.concept_id]); expect(body.delivery).toBe('solo'); expect(body).not.toHaveProperty('mode');
   await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
+});
+
+test('desktop podcast creation fills the workspace while long lists and previews scroll inside it', async ({ page }) => {
+  const view = workspaceView(80);
+  view.concepts[0].claims[0].text = '完整條件與數值必須保留。'.repeat(100) + ' x != 0';
+  await mockKnowledgeMapApi(page, view);
+  for (const [width, height] of [[1920,1080], [1440,900], [1366,768], [1024,768]]) {
+    await page.setViewportSize({width,height});
+    await page.goto(createPath);
+    const selection = page.getByRole('region', {name:'選擇 Podcast 概念'});
+    const settings = page.getByRole('region', {name:'講解設定',exact:true});
+    await expect(selection.locator('.podcast-concept-option')).toHaveCount(80);
+    const left = (await selection.boundingBox())!, right = (await settings.boundingBox())!;
+    expect(left.x).toBeLessThanOrEqual(32); expect(width-right.x-right.width).toBeLessThanOrEqual(32);
+    expect(Math.abs(left.y-right.y)).toBeLessThanOrEqual(1); expect(Math.abs(left.height-right.height)).toBeLessThanOrEqual(1);
+    const list = selection.locator('.podcast-concept-list');
+    expect(await list.evaluate(element=>element.scrollHeight>element.clientHeight)).toBe(true);
+    await selection.getByRole('button', {name:`查看「${view.concepts[0].label}」重點`,exact:true}).click();
+    const preview = page.getByRole('region', {name:`${view.concepts[0].label}重點預覽`});
+    await expect(preview).toContainText('x != 0');
+    expect(await preview.locator('div').evaluate(element=>element.scrollHeight>element.clientHeight)).toBe(true);
+    await page.getByRole('button', {name:'關閉預覽',exact:true}).click();
+    await list.evaluate(element=>{element.scrollTop=element.scrollHeight;});
+    await expect(selection.getByRole('button', {name:`查看「${view.concepts.at(-1)!.label}」重點`,exact:true})).toBeInViewport();
+    const create = page.getByRole('button', {name:'開始生成 Podcast',exact:true});
+    await expect(create).toBeInViewport(); await create.click({trial:true});
+    const action = (await create.boundingBox())!, voice = (await page.getByRole('button', {name:'語音問答',exact:true}).boundingBox())!;
+    expect(action.x+action.width).toBeLessThanOrEqual(voice.x-8);
+    expect(height-action.y-action.height).toBeLessThanOrEqual(64);
+    expect(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight+1&&document.documentElement.scrollWidth===innerWidth)).toBe(true);
+  }
 });
 
 test("saved dialogue transcripts keep roles and switch with the selected episode", async ({ page }) => {
@@ -455,7 +494,7 @@ test('failed video can retry and cancel while existing audio keeps playing',asyn
 
 test('full dialogue video keeps both speakers inside a shared cue and seeks across turns',async({page})=>{
   const mock=await mockEpisodeVideo(page);
-  mock.fixture.view.mode='full';mock.fixture.view.delivery='dialogue';
+  mock.fixture.view.delivery='dialogue';
   for(const episode of mock.fixture.view.episodes){
     episode.delivery='dialogue';
     if(episode.script)episode.script={...episode.script,segments:episode.script.segments.map(s=>({...s,turns:[{speaker:'host',text:'為什麼需要這個條件？'},{speaker:'guest',text:'條件決定這個觀念的適用範圍。'}]}))};
