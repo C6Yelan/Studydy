@@ -13,6 +13,7 @@ export type KnownApiReasonCode =
   | "RESEARCH_DOWNLOAD_FAILED"
   | "RESEARCH_LICENSE_UNCONFIRMED"
   | "RESEARCH_URL_REJECTED"
+  | "VOICE_PODCAST_CONTEXT_INVALID"
   | "PODCAST_CONFLICT"
   | "PODCAST_SOURCE_INSUFFICIENT"
   | "CARD_SET_CONFLICT"
@@ -510,14 +511,27 @@ export type PodcastSummary = {
   episode_count: number; completed_episodes: number; is_current_revision: boolean;
 };
 export type PodcastClaim = ConceptCard["claims"][number] & { concept_id: string; label: string };
+export type PodcastContext = {
+  podcast_id: string; episode_index: number; script_sha256: string;
+  source_refs: {segment_index:number;turn_index:number;start:number;end:number}[];
+};
+export type PodcastSourceReference = {source_index:number;evidence_ids:string[]};
+export type PodcastScript = {
+  schema?: "podcast-script/v2";
+  segments: { claim_id?: string; beat_id?: string; title?: string;
+    turns: { speaker: "host" | "guest"; text: string; parts?: {text:string;source_refs:PodcastSourceReference[]}[] }[] }[];
+  provider: string;
+  review?: {correctness:{passed:boolean;reason:string};teaching_quality:{passed:boolean;reason:string}};
+};
 export type PodcastEpisode = {
   delivery: "solo" | "dialogue";
   claims: PodcastClaim[];
-  script: { segments: { claim_id: string; turns: { speaker: "host" | "guest"; text: string }[] }[]; provider: string } | null;
+  script: PodcastScript | null;
+  script_sha256?: string | null;
   audio: { artifact_id: string; sha256: string; duration_seconds: number; provider: string } | null;
 };
 export type PodcastView = PodcastSummary & {
-  schema: "podcast/v1"; episodes: PodcastEpisode[]; source_resolver: string;
+  schema: "podcast/v1"; run_id?:string; episodes: PodcastEpisode[]; source_resolver: string;
   source_status: KnowledgeStructureView["status"]; excluded_pages: KnowledgeStructureView["excluded_pages"];
 };
 export type PodcastCreate = {

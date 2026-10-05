@@ -227,3 +227,12 @@
 .podcast-content-tabs button[aria-selected="true"] { color: var(--studydy-blue); border-bottom-color: var(--studydy-blue); }
 
 .media-video-empty .podcast-video-status { justify-content:center; padding:12px 0 0; color:#b8c5d8; }
+
+.podcast-question { display:flex; flex-direction:column; flex:1; min-height:0; overflow:auto; padding:16px; }
+.podcast-question .voice-panel { min-height:0; }
+.podcast-companion.question-open .podcast-episodes,
+.podcast-companion.question-open .podcast-reading-area { display:none; }
+.podcast-assessment { margin-top:20px; padding:16px; }
+.podcast-assessment select { max-width:100%; margin:8px; }
+.podcast-timed-transcript li > .text-button { display:inline-block; padding:6px; width:auto; }
+.podcast-timed-transcript details { padding:4px 8px; }

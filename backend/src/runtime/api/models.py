@@ -693,7 +693,52 @@ class PodcastScript(_Closed):
     provider: str
 
 
+class PodcastSourceReference(_Closed):
+    source_index: int
+    evidence_ids: list[str]
+
+
+class PodcastPart(_Closed):
+    text: str
+    source_refs: list[PodcastSourceReference]
+
+
+class PodcastBeatTurn(PodcastTurn):
+    parts: list[PodcastPart]
+
+
+class PodcastBeat(_Closed):
+    beat_id: str
+    title: str
+    turns: list[PodcastBeatTurn]
+
+
+class PodcastVerdict(_Closed):
+    passed: bool
+    reason: str
+
+
+class PodcastReview(_Closed):
+    correctness: PodcastVerdict
+    teaching_quality: PodcastVerdict
+
+
+class PodcastBeatScript(_Closed):
+    schema_: Literal['podcast-script/v2'] = Field(alias='schema')
+    segments: list[PodcastBeat]
+    provider: str
+    review: PodcastReview
+
+
+class PodcastMastering(_Closed):
+    policy: Literal['podcast-mastering/v1']
+    integrated_lufs: float
+    true_peak_dbtp: float
+    loudness_range_lu: float
+
+
 class PodcastAudio(_Closed):
+    mastering: PodcastMastering | None = None
     artifact_id: UUID
     sha256: str
     duration_seconds: float
@@ -701,13 +746,15 @@ class PodcastAudio(_Closed):
 
 
 class PodcastEpisode(_Closed):
+    script_sha256: str | None = None
     delivery: Literal["solo", "dialogue"]
     claims: list[PodcastClaim]
-    script: PodcastScript | None
+    script: PodcastBeatScript | PodcastScript | None
     audio: PodcastAudio | None
 
 
 class PodcastView(PodcastSummary):
+    run_id: UUID
     schema_: Literal["podcast/v1"] = Field(alias="schema")
     source_resolver: str
     source_status: StatusView

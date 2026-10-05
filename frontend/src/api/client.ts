@@ -1,6 +1,6 @@
 import * as validate from "./response-validation.ts";
 import type {
-  PodcastSummary, PodcastView, PodcastCreate, PodcastAction, PodcastListView, PodcastDeletedView,
+  PodcastContext, PodcastSummary, PodcastView, PodcastCreate, PodcastAction, PodcastListView, PodcastDeletedView,
   ApiReasonCode,
   CardSetCreate,
   CardSetUpdate,
@@ -37,6 +37,7 @@ type FetchRequest = (input: RequestInfo | URL, init?: RequestInit) => Promise<Re
 
 const genericApiMessage = "請求無法完成，請稍後再試。";
 const apiErrorMessages: Record<KnownApiReasonCode, string> = {
+  VOICE_PODCAST_CONTEXT_INVALID: "這段 Podcast 已不可用，請重新選段或改用教材問答。",
   PODCAST_CONFLICT: "Podcast 狀態已更新，請重新讀取後操作。",
   PODCAST_SOURCE_INSUFFICIENT: "所選概念缺少可回查的重點來源，請重新選擇。",
   CARD_SET_CONFLICT: "卡組已在其他頁面更新，請重新讀取後再編輯。",
@@ -309,9 +310,9 @@ export class StudydyApiClient {
     return result.value as T;
   }
 
-  async voiceRecording(id: string, data: Blob, key: string): Promise<void> {
+  async voiceRecording(id: string, data: Blob, key: string, context?: PodcastContext): Promise<void> {
     await this.request(`/v1/voice-conversations/${id}/recordings`, {method:"POST",
-      headers:{"Content-Type":data.type,"Idempotency-Key":key},body:data},30000);
+      headers:{"Content-Type":data.type,"Idempotency-Key":key,...(context?{"X-Studydy-Podcast-Context":JSON.stringify(context)}:{})},body:data},30000);
   }
 
   private async json<T>(

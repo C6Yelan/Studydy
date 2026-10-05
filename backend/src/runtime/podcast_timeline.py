@@ -18,13 +18,17 @@ def build_timeline(podcast_id, episode_index, episode, manifest):
     previous_end = 0
     for index, (segment, scene) in enumerate(zip(segments, scenes)):
         start, end = scene['start'], scene['end']
-        if (scene['claim_id'] != segment['claim_id'] or scene['index'] != index
+        if (scene.get('beat_id', scene.get('claim_id')) != segment.get('beat_id', segment.get('claim_id')) or scene['index'] != index
                 or not all(type(t) in (int, float) and math.isfinite(t) for t in (start, end))
                 or start != previous_end or not 0 <= start < end <= duration):
             raise ValueError('PODCAST_TIMELINE_SOURCE_MISMATCH')
         result.append({'id': f'episode-{episode_index}-segment-{index}', 'index': index,
                        'start': start, 'end': end, 'text': '\n'.join(t['text'] for t in segment['turns']),
-                       'turns': deepcopy(segment['turns']), 'claim_id': segment['claim_id'],
+                       'turns': deepcopy(segment['turns']),
+                       **({'claim_id':scene['claim_id']} if 'claim_id' in scene else {'claim_ids':deepcopy(scene['claim_ids'])}),
+                       'beat_ids': [segment.get('beat_id',f'legacy-{index}')],
+                       'source_refs': [{'segment_index':index,'turn_index':j,'start':0,'end':len(t['text'])} for j,t in enumerate(segment['turns'])],
+                       'source_bindings': deepcopy(scene.get('source_bindings',[])),
                        'evidence': deepcopy(scene['evidence']), 'title': scene['title']})
         previous_end = end
     if previous_end != duration:
@@ -47,6 +51,7 @@ def build_timeline(podcast_id, episode_index, episode, manifest):
 
 def align_script_timeline(base, episode, cues, alignment):
     """解說片段必須逐字覆蓋原發言；時間只接受可回查原文的 ASR 錨點。"""
+    from .podcast_script import references, sources
     turns = [(i, j, turn) for i, segment in enumerate(episode['script']['segments'])
              for j, turn in enumerate(segment['turns'])]
     used = [''] * len(turns)
@@ -65,6 +70,7 @@ def align_script_timeline(base, episode, cues, alignment):
         if type(turn_index) is not int or not previous <= turn_index < len(turns) or turn_index < 0:
             raise ValueError('PODCAST_CUE_SOURCE_MISMATCH')
         previous = turn_index
+        offset_in_turn=len(used[turn_index])
         used[turn_index] += cue['text']
         source_index, source_turn, original = turns[turn_index]
         anchor = anchors[i]
@@ -79,13 +85,15 @@ def align_script_timeline(base, episode, cues, alignment):
                 or not 0 <= anchor['boundary_audio_start'] <= anchor['audio_start'] < duration
                 or (i > 0 and anchor['boundary_audio_start'] != starts[i])):
             raise ValueError('PODCAST_CUE_ALIGNMENT_INVALID')
-        claim_id = episode['script']['segments'][source_index]['claim_id']
-        parent = next(s for s in base['segments'] if s['claim_id'] == claim_id)
+        parent = base['segments'][source_index]
+        bound,evidence=sources(episode,references(episode,source_index,source_turn,offset_in_turn,len(used[turn_index])))
         result.append({'id': f"episode-{base['episode_index']}-cue-{i}", 'index': i,
                        'source_segment_index': source_index, 'source_turn_index': source_turn,
                        'start': starts[i], 'end': starts[i+1] if i+1 < len(starts) else duration,
-                       'title': cue['title'], 'text': cue['text'], 'claim_id': parent['claim_id'],
-                       'evidence': deepcopy(parent['evidence']),
+                       'title': cue['title'], 'text': cue['text'],
+                       **({'claim_id':parent['claim_id']} if 'claim_id' in parent else {'claim_ids':list(dict.fromkeys(c['claim_id'] for c in bound))}),
+                       'source_refs':[{'segment_index':source_index,'turn_index':source_turn,'start':offset_in_turn,'end':len(used[turn_index])}],
+                       'source_bindings':bound,'beat_ids':parent['beat_ids'], 'evidence':evidence,
                        'turns': [{'speaker': original['speaker'], 'text': cue['text']}]})
     if used != [turn['text'] for _, _, turn in turns]:
         raise ValueError('PODCAST_CUE_SOURCE_MISMATCH')
@@ -105,3 +113,34 @@ def webvtt(timeline):
     return 'WEBVTT\n\n' + '\n\n'.join(
         f"{s['id']}\n{timestamp(s['start'])} --> {timestamp(s['end'])}\n{plain(s['text'])}"
         for s in timeline['segments']) + '\n'
+
+
+def with_source_ranges(timeline, episode):
+    """舊影片只保存 turn 索引；唯讀補出逐字範圍，不重寫 manifest／hash。"""
+    from .podcast_script import digest
+    if timeline.get('script_sha256') != digest(episode['script']):
+        raise ValueError('PODCAST_TIMELINE_SOURCE_MISMATCH')
+    result=deepcopy(timeline);used={};previous=(-1,-1)
+    try:
+        for cue in result['segments']:
+            refs=cue.get('source_refs')
+            if refs is None and 'source_segment_index' in cue:
+                refs=[{'segment_index':cue['source_segment_index'],'turn_index':cue['source_turn_index']}]
+            if not isinstance(refs,list) or len(refs)!=len(cue['turns']):raise ValueError()
+            projected=[]
+            for ref,spoken in zip(refs,cue['turns']):
+                i,j=ref['segment_index'],ref['turn_index']
+                if type(i) is not int or type(j) is not int or min(i,j)<0 or (i,j)<previous:raise ValueError()
+                previous=(i,j)
+                original=episode['script']['segments'][i]['turns'][j]
+                start=used.get((i,j),0);end=start+len(spoken['text'])
+                if (original['speaker']!=spoken['speaker'] or original['text'][start:end]!=spoken['text']
+                        or ('start' in ref and ref['start']!=start) or ('end' in ref and ref['end']!=end)):raise ValueError()
+                projected.append({'segment_index':i,'turn_index':j,'start':start,'end':end})
+                used[(i,j)]=end
+            cue['source_refs']=projected
+        expected={(i,j):len(t['text']) for i,s in enumerate(episode['script']['segments']) for j,t in enumerate(s['turns'])}
+        if used!=expected:raise ValueError()
+    except (KeyError,IndexError,TypeError,ValueError):
+        raise ValueError('PODCAST_TIMELINE_SOURCE_MISMATCH') from None
+    return result

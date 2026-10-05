@@ -248,7 +248,7 @@ _ERROR_STATUS.update({
     "RESEARCH_SEARCH_FAILED": (502, True), "RESEARCH_DOWNLOAD_FAILED": (502, True),
     "VOICE_TURN_IN_PROGRESS": (409, True), "VOICE_PROVIDER_UNAVAILABLE": (503, True),
     "VOICE_PROVIDER_FAILED": (502, True), "VOICE_TRANSCRIPT_INVALID": (422, False),
-    "VOICE_ANSWER_INVALID": (422, True),
+    "VOICE_ANSWER_INVALID": (422, True), "VOICE_PODCAST_CONTEXT_INVALID": (409, False),
 })
 
 def _error_response(reason_code: str, *, status_code: int | None = None) -> JSONResponse:

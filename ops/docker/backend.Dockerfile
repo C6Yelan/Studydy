@@ -51,7 +51,7 @@ FROM backend AS test
 USER root
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --project backend --locked --no-dev --extra test --python 3.12.14
 COPY backend/tests /app/backend/tests
-COPY ops/podcast/provider.py /app/ops/podcast/provider.py
+COPY ops/podcast /app/ops/podcast
 COPY local_ai/src /app/local_ai/src
 COPY local_ai/tests /app/local_ai/tests
 RUN chmod -R a+rX /app

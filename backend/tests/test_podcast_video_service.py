@@ -46,7 +46,7 @@ def test_source_feedback_is_rechecked_and_never_published_without_approval(tmp_p
         if 'pages' in schema['properties']:
             designs.append(prompt);return plan()
         reviews+=1
-        return {'supported':recover and reviews==2,'reason':'relation is unsupported'}
+        return {k:{'passed':recover and reviews==2,'reason':'relation is unsupported'} for k in ('correctness','teaching_quality')}
     def process(args,env,timeout,cancelled):
         result=Path(args[5])
         if args[-1]=='--validate':result.write_text('{"valid":true}')
@@ -58,7 +58,7 @@ def test_source_feedback_is_rechecked_and_never_published_without_approval(tmp_p
     kwargs=dict(luna=model,model='synthetic',align=lambda *a,**k:alignment,text_lock=Lock(),asr_lock=Lock(),cancelled=Event())
     if recover:
         result=service._produce(body,**kwargs)
-        assert result['review']['supported'] and len(rendered)==1 and reviews==2
+        assert result['review']['correctness']['passed'] and len(rendered)==1 and reviews==2
     else:
         with pytest.raises(ValueError,match='VIDEO_STORYBOARD_NEEDS_REVIEW'):service._produce(body,**kwargs)
         assert not rendered and reviews==3
@@ -81,9 +81,11 @@ def test_layout_and_source_corrections_have_independent_bounded_budgets(tmp_path
         nonlocal reviews
         if 'cues' in schema['properties']:return {'cues':cues}
         if 'pages' in schema['properties']:
+            limit=schema['properties']['pages']['items']['properties']['emphasis']['maxItems']
+            assert limit==(12 if not plans else 0)
             plans.append(prompt);return plan()
         reviews+=1
-        return {'supported':reviews==2,'reason':'remove unsupported relation'}
+        return {k:{'passed':reviews==2,'reason':'remove unsupported relation'} for k in ('correctness','teaching_quality')}
     def process(args,env,timeout,cancelled):
         result=Path(args[5])
         if args[-1]=='--validate':
@@ -101,7 +103,7 @@ def test_layout_and_source_corrections_have_independent_bounded_budgets(tmp_path
         assert len(plans)==3 and reviews==0 and not rendered
     else:
         result=service._produce(body,**kwargs)
-        assert result['review']['supported'] and reviews==2 and len(plans)==4 and len(rendered)==1
+        assert result['review']['correctness']['passed'] and reviews==2 and len(plans)==4 and len(rendered)==1
         assert 'height>=188' in plans[1] and 'remove unsupported relation' in plans[3]
 
 
@@ -118,7 +120,7 @@ def test_measured_grouping_reaches_storyboard_and_render_without_dropping_turns(
         if 'pages' in schema['properties']:
             assert schema['properties']['pages']['items']['properties']['start_cue']['enum']==[0]
             value=plan();value['pages'][0]['end_cue']=0;value['pages'][0]['elements'][1]['cue_index']=0;return value
-        return {'supported':True,'reason':'synthetic'}
+        return {k:{'passed':True,'reason':'synthetic'} for k in ('correctness','teaching_quality')}
     def process(args,env,timeout,cancelled):
         request=json.loads(Path(args[3]).read_text());assert len(request['cues'])==1 and len(request['cues'][0]['parts'])==3
         result=Path(args[5]);result.write_text('{}')

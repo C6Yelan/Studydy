@@ -108,7 +108,7 @@ def marked_plan():
     return value
 
 
-@pytest.mark.parametrize('failure',['future','outside_page','missing_target','missing_quote','ambiguous_quote','trace_text','duplicate','too_many'])
+@pytest.mark.parametrize('failure',['future','outside_page','missing_target','missing_quote','ambiguous_quote','trace_text','duplicate'])
 def test_temporary_marks_cannot_invent_text_or_outlive_their_source(failure):
     _,cues,_=sample();value=marked_plan();page=value['pages'][0];mark=page['emphasis'][0]
     if failure=='future':mark['element_index']=1;mark['quote']='第二點'
@@ -118,9 +118,6 @@ def test_temporary_marks_cannot_invent_text_or_outlive_their_source(failure):
     if failure=='ambiguous_quote':page['elements'][0]['text']='第一點與第一點'
     if failure=='trace_text':mark['kind']='trace';mark['quote']=''
     if failure=='duplicate':page['emphasis'].append(deepcopy(mark))
-    if failure=='too_many':
-        page['elements'] += [deepcopy(page['elements'][0]),deepcopy(page['elements'][0])]
-        page['emphasis'] += [{**mark,'element_index':i} for i in (2,3)]
     with pytest.raises(ValueError,match='VIDEO_STORYBOARD_INVALID'):validate_plan(value,cues)
 
 
@@ -130,11 +127,11 @@ def test_marks_can_end_before_the_page_and_old_static_plans_still_load():
     assert validate_plan(plan(),cues)==plan()
 
 
-def test_two_distinct_phrases_in_one_element_can_be_compared():
+def test_three_distinct_phrases_can_be_compared_simultaneously():
     _,cues,_=sample();value=marked_plan();page=value['pages'][0]
-    page['elements'][0]['text']='第一點與第二點'
-    page['emphasis'].append({**page['emphasis'][0],'quote':'第二點'})
-    assert len(validate_plan(value,cues)['pages'][0]['emphasis'])==2
+    page['elements'][0]['text']='第一點、第二點、第三點'
+    page['emphasis'] += [{**page['emphasis'][0],'quote':quote} for quote in ('第二點','第三點')]
+    assert len(validate_plan(value,cues)['pages'][0]['emphasis'])==3
 
 
 def test_asr_grouping_preserves_original_roles_and_all_source_parts():
@@ -151,3 +148,44 @@ def test_early_mark_feedback_names_the_explanation_range_despite_full_page_visib
     mark.update(element_index=1,quote='第二點')
     with pytest.raises(ValueError,match=r'requested cues=0\.\.0.*emphasized.*cues=1\.\.1'):
         validate_plan(value,cues)
+
+
+@pytest.mark.parametrize('change',['duplicate','late','before_page','after_page','foreign','too_many'])
+def test_progressive_reveal_contract(change):
+    episode,cues,_=sample();value=plan();page=value['pages'][0]
+    page['emphasis']=[];page['reveal']=[{'start_cue':1,'elements':[1]}]
+    page['elements'][1]['cue_index']=1
+    if change=='duplicate':page['reveal'][0]['elements']=[1,1]
+    elif change=='late':page['elements'][1]['cue_index']=0
+    elif change=='before_page':page['reveal'][0]['start_cue']=-1
+    elif change=='after_page':page['reveal'][0]['start_cue']=2
+    elif change=='foreign':page['reveal'][0]['elements']=[60]
+    else:page['reveal']*=4
+    with pytest.raises(ValueError,match='VIDEO_STORYBOARD_INVALID'):validate_plan(value,cues)
+
+
+def test_reveal_cannot_show_connection_before_target_node():
+    _,cues,_=sample();value=plan();page=value['pages'][0]
+    # 一條可定位的連線，目標節點在後一個 cue 才出現。
+    page['elements']=[{'kind':'box','cue_index':0,'text':'起點','x':100,'y':300,'w':300,'h':200,'size':42,'color':'teal','filled':True},
+        {'kind':'box','cue_index':1,'text':'終點','x':900,'y':300,'w':300,'h':200,'size':42,'color':'blue','filled':True},
+        {'kind':'arrow','cue_index':1,'text':'','x':400,'y':400,'w':500,'h':0,'size':28,'color':'ink','filled':False}]
+    page['emphasis']=[];page['reveal']=[{'start_cue':1,'elements':[1]}]
+    with pytest.raises(ValueError,match='connection must not precede'):validate_plan(value,cues)
+    page['reveal'][0]['elements'].append(2)
+    assert validate_plan(value,cues)
+
+
+def test_emphasis_generation_schema_separates_trace_and_single_line_quotes():
+    from runtime.podcast_video_plan import emphasis_schema
+    choices=emphasis_schema([{},{}])['items']['anyOf']
+    by_kind={x['properties']['kind']['enum'][0]:x['properties']['quote'] for x in choices}
+    assert by_kind['trace']['enum']==['']
+    assert by_kind['underline']['minLength']==1 and by_kind['outline']['minLength']==0
+    assert by_kind['outline']['pattern']==r'^[^\r\n]*$'
+
+
+def test_multiline_quote_feedback_is_not_misreported_as_duplicate_text():
+    _,cues,_=sample();value=plan();page=value['pages'][0];page['elements'][0]['text']='第一行\n第二行'
+    page['emphasis']=[{'element_index':0,'start_cue':0,'end_cue':0,'kind':'outline','quote':'第一行\n第二行'}]
+    with pytest.raises(ValueError,match='quote must be single-line'):validate_plan(value,cues)

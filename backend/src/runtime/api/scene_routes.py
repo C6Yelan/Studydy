@@ -5,7 +5,7 @@ from pydantic import BaseModel,ConfigDict,Field
 from .. import podcast_scenes
 from .. import podcasts
 from .. import podcast_videos
-from ..podcast_timeline import build_timeline, webvtt
+from ..podcast_timeline import build_timeline, webvtt, with_source_ranges
 
 class Prepare(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -21,7 +21,9 @@ def install(app,settings,trusted,query):
         learner = owner(request)
         video = podcast_videos.ready_manifest(learner,identity,index,dsn=settings.dsn)
         if video is not None:
-            return video['timeline']
+            podcast=podcasts.read_podcast(learner,identity,dsn=settings.dsn)
+            try:return with_source_ranges(video['timeline'],podcast['episodes'][index])
+            except (ValueError,IndexError):raise HTTPException(409,detail='PODCAST_TIMELINE_SOURCE_MISMATCH') from None
         podcast = podcasts.read_podcast(learner, identity, dsn=settings.dsn)
         if not 0 <= index < len(podcast['episodes']):
             raise HTTPException(404)
@@ -29,7 +31,8 @@ def install(app,settings,trusted,query):
         if scene['status'] != 'ready':
             raise HTTPException(409, detail='PODCAST_TIMELINE_NOT_READY')
         try:
-            return build_timeline(identity, index, podcast['episodes'][index], scene['manifest'])
+            episode=podcast['episodes'][index]
+            return with_source_ranges(build_timeline(identity,index,episode,scene['manifest']),episode)
         except ValueError:
             raise HTTPException(409, detail='PODCAST_TIMELINE_SOURCE_MISMATCH') from None
     @app.get('/v1/podcasts/{identity}/episodes/{index}/timeline')

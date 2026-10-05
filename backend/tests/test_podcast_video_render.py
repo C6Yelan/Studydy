@@ -27,16 +27,19 @@ def test_temporary_emphasis_fades_out_and_seeking_never_leaves_a_mark():
     assert render.emphasis_opacity(1,0,4)==1
 
 
-def test_connection_arrow_must_reach_a_node_but_direction_hint_is_allowed():
-    a={'kind':'box','x':100,'y':300,'w':400,'h':200}
-    b={'kind':'box','x':900,'y':300,'w':400,'h':200}
-    arrow={'kind':'arrow','x':500,'y':400,'w':400,'h':0}
-    page={'elements':[a,b,arrow]}
-    assert render.connection_errors(page,[])==[]
-    arrow['w']=200
-    assert 'element=2' in render.connection_errors(page,[])[0]
-    page['elements'].append({'kind':'text'})
-    assert render.connection_errors(page,[(3,530,340,760,380)])==[]
+def test_arrow_with_visual_gap_renders_without_a_connection_distance_gate():
+    pytest.importorskip('PIL')
+    from test_podcast_video_plan import plan, sample
+    from runtime.podcast_video_plan import validate_plan, timeline_for_video
+    from PIL import ImageColor
+    episode,cues,alignment=sample();value=plan()
+    # 箭頭與右框留 55px 空白，仍可正常繪製；關係含義由內容審查核對。
+    value['pages'][0]['elements'].append({'kind':'arrow','cue_index':0,'text':'',
+        'x':700,'y':350,'w':245,'h':0,'size':28,'color':'ink','filled':False})
+    validate_plan(value,cues)
+    timeline=timeline_for_video('p',0,episode,cues,alignment,'/source')
+    frame=render.draw_frame(.1,timeline,value,render.layouts(value))
+    assert frame.getpixel((940,350))==ImageColor.getrgb(render.PALETTE['ink'])
 
 
 def test_full_page_is_visible_on_entry_and_only_selected_emphasis_changes():
@@ -63,3 +66,39 @@ def test_full_page_is_visible_on_entry_and_only_selected_emphasis_changes():
     assert board(2.5)!=board(0)
     assert board(6)!=board(5.9)  # 到主題邊界才換整頁。
     assert board(1)==board(0)  # 往回跳不留下標記。
+
+
+def test_progressive_reveal_and_reverse_seek_are_deterministic():
+    pytest.importorskip('PIL')
+    from runtime.podcast_video_render import layouts, draw_frame
+    from runtime.podcast_video_plan import validate_plan, timeline_for_video
+    from test_podcast_video_plan import sample,plan
+    episode,cues,alignment=sample();value=plan();value['schema']='podcast-storyboard/v2'
+    page=value['pages'][0];page['emphasis']=[];page['reveal']=[{'start_cue':1,'elements':[1]}]
+    page['elements'][1]['cue_index']=1
+    validate_plan(value,cues)
+    timeline=timeline_for_video('p',0,episode,cues,alignment,'/source')
+    layout=layouts(value);before=draw_frame(.1,timeline,value,layout)
+    after=draw_frame(timeline['segments'][1]['start']+.1,timeline,value,layout)
+    again=draw_frame(.1,timeline,value,layout)
+    assert before.tobytes()==again.tobytes()
+    e=page['elements'][1];box=(e['x'],e['y'],e['x']+e['w'],e['y']+e['h'])
+    assert before.crop(box).tobytes()!=after.crop(box).tobytes()
+
+
+@pytest.mark.parametrize('starts',[(0,0),(1,0)])
+def test_page_entry_and_unordered_reveal_groups_render_like_implicit_visibility(starts):
+    pytest.importorskip('PIL')
+    from copy import deepcopy
+    from test_podcast_video_plan import plan, sample
+    from runtime.podcast_video_plan import validate_plan, timeline_for_video
+    episode,cues,alignment=sample();value=plan();page=value['pages'][0]
+    page['emphasis']=[]
+    page['reveal']=[{'start_cue':starts[0],'elements':[1]}, {'start_cue':starts[1],'elements':[0]}]
+    validate_plan(value,cues)
+    implicit=deepcopy(value)
+    implicit['pages'][0]['reveal']=[g for g in page['reveal'] if g['start_cue']>0]
+    timeline=timeline_for_video('p',0,episode,cues,alignment,'/source')
+    layout=render.layouts(value)
+    for t in (.1,2.1,.1):
+        assert render.draw_frame(t,timeline,value,layout).tobytes()==render.draw_frame(t,timeline,implicit,layout).tobytes()

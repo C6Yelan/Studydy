@@ -43,32 +43,6 @@ def lines(text, size, width):
     return result
 
 
-def connection_errors(page,text_bounds):
-    """已從節點出發的箭頭須有落點；獨立方向提示可搭配鄰近文字。"""
-    shapes=[e for e in page['elements'] if e['kind'] in ('box','circle')]
-    labels=[b[1:] for b in text_bounds if page['elements'][b[0]]['kind']=='text']
-    def rect_distance(point,box):
-        x,y=point;l,t,r,b=box
-        return math.hypot(max(l-x,0,x-r),max(t-y,0,y-b))
-    def touches(point):
-        x,y=point
-        for e in shapes:
-            l,t=e['x'],e['y'];r,b=l+e['w'],t+e['h']
-            if e['kind']=='circle':
-                distance=abs(math.hypot((x-(l+r)/2)/(e['w']/2),(y-(t+b)/2)/(e['h']/2))-1)*min(e['w'],e['h'])/2
-            elif l<=x<=r and t<=y<=b:distance=min(x-l,r-x,y-t,b-y)
-            else:distance=rect_distance(point,(l,t,r,b))
-            if distance<=24:return True
-        return any(rect_distance(point,b)<=24 for b in labels)
-    errors=[]
-    for index,e in enumerate(page['elements']):
-        if e['kind']!='arrow':continue
-        start=(e['x'],e['y']);end=(e['x']+e['w'],e['y']+e['h']);middle=((start[0]+end[0])/2,(start[1]+end[1])/2)
-        if touches(start) and not touches(end) and not any(rect_distance(middle,b)<=60 for b in labels):
-            errors.append(f'element={index}, arrow ends at {end} in empty space; connect it to its intended node, or label an independent direction explicitly')
-    return errors
-
-
 def layouts(plan):
     """超出文字區或互相覆蓋就拒絕，不以縮小字體掩蓋分鏡問題。"""
     result=[];errors=[]
@@ -98,8 +72,7 @@ def layouts(plan):
         for i,a in enumerate(bounds):
             for b in bounds[i+1:]:
                 if a[0]!=b[0] and max(a[1],b[1])<min(a[3],b[3]) and max(a[2],b[2])<min(a[4],b[4]):
-                    errors.append(f'page={page_index},elements={a[0]},{b[0]},text overlap')
-        errors.extend(f'page={page_index},'+detail for detail in connection_errors(page,bounds))
+                    errors.append(f'page={page_index},elements={a[0]},{b[0]},text overlap; rendered bounds={tuple(round(v,1) for v in a[1:])} and {tuple(round(v,1) for v in b[1:])}; separate or shorten these labels; revealed elements remain visible until the page ends')
         result.append(items)
     if errors:raise ValueError('VIDEO_LAYOUT_INVALID:'+'; '.join(dict.fromkeys(errors)))
     return result
@@ -185,7 +158,9 @@ def draw_frame(t, timeline, plan, text_layouts, mark_layouts=None):
     d.text((1690,106),f'{page_index+1:02} / {len(plan["pages"]):02}',font=font(30),fill=PALETTE['muted'])
     d.line((100,185,1820,185),fill='#d7e0e4',width=2)
     for index,e in enumerate(page['elements']):
-        # 整頁重點從換頁起完整呈現；只有 emphasis 隨當下講解出現、退場。
+        # Reveal 完全由時間推導；往回 seek 不留下未到時機的元素。
+        reveal=next((g['start_cue'] for g in page.get('reveal',[]) if index in g['elements']),page['start_cue'])
+        if cue_index<reveal:continue
         rgb=ImageColor.getrgb(PALETTE[e['color']]);rgba=(*rgb,255)
         area=(e['x'],e['y'],e['x']+e['w'],e['y']+e['h'])
         if e['kind'] in ('box','circle'):
@@ -204,11 +179,26 @@ def draw_frame(t, timeline, plan, text_layouts, mark_layouts=None):
         draw_emphasis(d,t,timeline,page,mark_layouts[page_index])
     d.rectangle((0,852,1920,1080),fill='#edf1f3')
     d.text((100,867),'正在講解',font=font(25),fill=PALETTE['teal'])
-    caption=timeline['segments'][cue_index]['text'].replace('\n',' ')
+    caption=(timeline['segments'][cue_index]['title'] if plan.get('schema')=='podcast-storyboard/v2' else timeline['segments'][cue_index]['text']).replace('\n',' ')
     for i,line in enumerate(lines(caption,32,1720)):
         d.text((100,900+i*42),line,font=font(32),fill=PALETTE['ink'])
     d.rectangle((0,1068,round(1920*min(t/timeline['duration'],1)),1079),fill=PALETTE['teal'])
     return image
+
+
+def measure_encoded_audio(path):
+    """AAC 解碼後再量測，避免 WAV 達標但壓縮成品過峰。"""
+    import imageio_ffmpeg
+    result=subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-hide_banner','-nostdin','-i',str(path),
+        '-vn','-af','loudnorm=I=-19:TP=-2:LRA=11:print_format=json','-f','null','-'],
+        stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,timeout=120)
+    try:
+        if result.returncode:raise ValueError()
+        value=json.JSONDecoder().raw_decode(result.stderr[result.stderr.rindex('{'):])[0]
+        loudness,peak=float(value['input_i']),float(value['input_tp'])
+        if not math.isfinite(loudness) or not math.isfinite(peak) or abs(loudness+19)>1 or peak>-1:raise ValueError()
+        return {'integrated_lufs':loudness,'true_peak_dbtp':peak}
+    except (KeyError,ValueError):raise ValueError('VIDEO_AUDIO_INVALID') from None
 
 
 def render(request, audio_path, destination):
@@ -221,28 +211,31 @@ def render(request, audio_path, destination):
                                request['cues'],request['alignment'],request['source_resolver'])
     text_layouts=layouts(plan)
     mark_layouts=emphasis_layouts(plan,text_layouts)
-    if any(len(lines(s['text'].replace('\n',' '),32,1720))>4 for s in timeline['segments']):
+    if any(len(lines((s['title'] if plan.get('schema')=='podcast-storyboard/v2' else s['text']).replace('\n',' '),32,1720))>4 for s in timeline['segments']):
         raise ValueError('VIDEO_LAYOUT_INVALID:caption')
     ensure_space(destination.parent)
+    fps=request.get('benchmark_fps',60)
+    if type(fps) is not int or fps not in (30,60):raise ValueError('VIDEO_RESULT_INVALID')
     started=time.monotonic()
     command=[imageio_ffmpeg.get_ffmpeg_exe(),'-hide_banner','-loglevel','error','-n','-f','rawvideo',
-             '-pix_fmt','rgb24','-s','1920x1080','-r','60','-i','pipe:0','-i',str(audio_path),
+             '-pix_fmt','rgb24','-s','1920x1080','-r',str(fps),'-i','pipe:0','-i',str(audio_path),
              '-map','0:v:0','-map','1:a:0','-t',str(timeline['duration']),'-c:v','libx264','-preset','fast',
              '-crf','18','-threads','4','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-movflags','+faststart',str(destination)]
     with subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL) as process:
         try:
-            for n in range(math.ceil(timeline['duration']*60)):
+            for n in range(math.ceil(timeline['duration']*fps)):
                 if n%600==0:
                     ensure_space(destination.parent)
                     if destination.exists() and destination.stat().st_size>MAX_VIDEO_BYTES:
                         raise ValueError('VIDEO_TOO_LARGE')
-                process.stdin.write(draw_frame(n/60,timeline,plan,text_layouts,mark_layouts).tobytes())
+                process.stdin.write(draw_frame(n/fps,timeline,plan,text_layouts,mark_layouts).tobytes())
             process.stdin.close()
             if process.wait()!=0:raise ValueError('VIDEO_RENDER_FAILED')
         except BaseException:
             process.kill();process.wait();raise
     if destination.stat().st_size>MAX_VIDEO_BYTES:raise ValueError('VIDEO_TOO_LARGE')
-    return {'width':1920,'height':1080,'fps':60,'duration':timeline['duration'],
+    encoded=measure_encoded_audio(destination) if episode['audio'].get('mastering') else None
+    return {**({'encoded_audio':encoded} if encoded else {}),'width':1920,'height':1080,'fps':fps,'duration':timeline['duration'],
             'sha256':sha256(destination.read_bytes()).hexdigest(),'render_seconds':time.monotonic()-started}
 
 

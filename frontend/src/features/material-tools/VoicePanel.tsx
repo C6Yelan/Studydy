@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { errorMessage, type StudydyApiClient } from '../../api/client';
 import { SourceButton, sourceLinks } from '../../ui/SourceButton';
 import type { Conversation, VoiceView } from './types';
 import { Icon } from '../../ui/Icon';
+import type { PodcastContext } from '../../api/contracts';
 import { AnswerAudio } from './AnswerAudio';
 
 const pending = new Set(['transcribing','pending','answering','speaking']);
 const labels:Record<string,string>={transcribing:'辨識錄音中',pending:'等待回答',answering:'整理回答中',speaking:'製作語音中',failed:'本次處理未完成',cancelled:'已取消',draft:'請確認辨識文字',ready:'已完成'};
 
-export function VoicePanel({api,materialId}:{api:StudydyApiClient;materialId:string}){
+export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia}:{api:StudydyApiClient;materialId:string;revision?:string;podcastContext?:PodcastContext;podcastMedia?:RefObject<HTMLMediaElement|null>}){
  const [list,setList]=useState<Conversation[]>([]),[id,setId]=useState<string|null>(null),[view,setView]=useState<VoiceView|null>(null);
  const [question,setQuestion]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[recording,setRecording]=useState(false),[permission,setPermission]=useState(false);
  const alive=useRef(true),version=useRef(0),recorder=useRef<MediaRecorder|null>(null),stream=useRef<MediaStream|null>(null),timer=useRef<ReturnType<typeof setTimeout>|null>(null),audios=useRef(new Set<HTMLAudioElement>()),chunks=useRef<Blob[]>([]);
@@ -16,22 +17,26 @@ export function VoicePanel({api,materialId}:{api:StudydyApiClient;materialId:str
  const createKey=useRef(crypto.randomUUID()),questionIntent=useRef<{body:string;key:string}|null>(null);
  const release=()=>{if(timer.current)clearTimeout(timer.current);stream.current?.getTracks().forEach(t=>t.stop());stream.current=null;};
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;version.current++;if(recorder.current?.state==='recording')recorder.current.stop();release();for(const a of audios.current){a.pause();a.removeAttribute('src');a.load();}audios.current.clear();};},[]);
- const refreshList=async()=>{const d=await api.studyTools<{conversations:Conversation[]}>(`/v1/materials/${materialId}/voice-conversations`);if(alive.current)setList(d.conversations);};
+ useEffect(()=>{
+   const playing=(event:Event)=>{if(event.target===podcastMedia?.current)for(const a of audios.current)a.pause();};
+   document.addEventListener('play',playing,true);return()=>document.removeEventListener('play',playing,true);
+ },[podcastMedia]);
+ const refreshList=async()=>{const d=await api.studyTools<{conversations:Conversation[]}>(`/v1/materials/${materialId}/voice-conversations`);if(alive.current)setList(d.conversations.filter(c=>!revision||c.knowledge_structure_revision===revision));};
  useEffect(()=>{void refreshList().catch(e=>setError(errorMessage(e)));},[api,materialId]);
  useEffect(()=>{setView(previous=>previous?.conversation_id===id?previous:null);if(!id)return;let stopped=false;let t:ReturnType<typeof setTimeout>;
  const read=async()=>{try{const v=await api.studyTools<VoiceView>(`/v1/voice-conversations/${id}`);if(stopped)return;setView(v);const draft=v.turns.find(x=>x.status==='draft');if(draft&&draftLoaded.current!==draft.turn_id){draftLoaded.current=draft.turn_id;setQuestion(draft.question);}if(v.turns.some(x=>pending.has(x.status)))t=setTimeout(read,1800);}catch(e){if(!stopped)setError(errorMessage(e));}};
  void read();return()=>{stopped=true;clearTimeout(t);for(const a of audios.current)a.pause();};},[api,id,busy]);
- const create=async()=>{const c=await api.studyTools<Conversation>(`/v1/materials/${materialId}/voice-conversations`,{},createKey.current);if(!alive.current)return null;createKey.current=crypto.randomUUID();setId(c.conversation_id);setView(null);setQuestion('');await refreshList();return c.conversation_id;};
+ const create=async()=>{const c=await api.studyTools<Conversation>(`/v1/materials/${materialId}/voice-conversations`,revision?{knowledge_structure_revision:revision}:{},createKey.current);if(!alive.current)return null;createKey.current=crypto.randomUUID();setId(c.conversation_id);setView(null);setQuestion('');await refreshList();return c.conversation_id;};
  const perform=async(fn:()=>Promise<unknown>)=>{if(busy)return;setBusy(true);setError('');try{await fn();}catch(e){if(alive.current)setError(errorMessage(e));}finally{if(alive.current)setBusy(false);}};
  const send=()=>perform(async()=>{const active=id??await create();if(!active)return;const draft=view?.turns.find(t=>t.status==='draft');
  if(draft)await api.studyTools(`/v1/voice-conversations/${active}/turns/${draft.turn_id}/actions`,{action:'send',question});
- else {const body=JSON.stringify({active,question});if(questionIntent.current?.body!==body)questionIntent.current={body,key:crypto.randomUUID()};await api.studyTools(`/v1/voice-conversations/${active}/turns`,{question},questionIntent.current.key);questionIntent.current=null;}setQuestion('');await refreshList();});
- const start=async()=>{const generation=++version.current;setPermission(true);setError('');try{
+ else {const body=JSON.stringify({active,question,context:podcastContext});if(questionIntent.current?.body!==body)questionIntent.current={body,key:crypto.randomUUID()};await api.studyTools(`/v1/voice-conversations/${active}/turns`,{question,...(podcastContext?{context:podcastContext}:{})},questionIntent.current.key);questionIntent.current=null;}setQuestion('');await refreshList();});
+ const start=async()=>{podcastMedia?.current?.pause();const generation=++version.current;setPermission(true);setError('');try{
  if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw new Error('此瀏覽器無法錄音，請使用文字提問。');
  const s=await navigator.mediaDevices.getUserMedia({audio:true});if(!alive.current||generation!==version.current){s.getTracks().forEach(t=>t.stop());return;}stream.current=s;
  const r=new MediaRecorder(s);recorder.current=r;chunks.current=[];
  r.ondataavailable=e=>{if(alive.current&&generation===version.current&&e.data.size)chunks.current.push(e.data);};
- r.onstop=()=>{if(!alive.current||generation!==version.current){s.getTracks().forEach(t=>t.stop());return;}release();setRecording(false);const blob=new Blob(chunks.current,{type:r.mimeType});void perform(async()=>{const active=id??await create();if(active)await api.voiceRecording(active,blob,crypto.randomUUID());});};
+ r.onstop=()=>{if(!alive.current||generation!==version.current){s.getTracks().forEach(t=>t.stop());return;}release();setRecording(false);const blob=new Blob(chunks.current,{type:r.mimeType});void perform(async()=>{const active=id??await create();if(active)await api.voiceRecording(active,blob,crypto.randomUUID(),podcastContext);});};
  r.onerror=()=>{if(!alive.current||generation!==version.current){s.getTracks().forEach(t=>t.stop());return;}version.current++;release();setRecording(false);setError('錄音中斷，請再試一次或改用文字。');};
  r.start();setRecording(true);timer.current=setTimeout(()=>{if(r.state==='recording')r.stop();},120000);
  }catch(e){if(alive.current&&generation===version.current){release();setError(e instanceof Error?e.message:'無法取得麥克風');}}finally{if(alive.current&&generation===version.current)setPermission(false);}};
@@ -47,13 +52,13 @@ export function VoicePanel({api,materialId}:{api:StudydyApiClient;materialId:str
  <div className="voice-turns" ref={transcript} aria-live="polite" tabIndex={0} aria-label="教材問答紀錄">
  {(!id||view?.turns.length===0)&&<div className="voice-empty"><span><Icon name="microphone" size={28}/></span><h3>教材裡哪個地方想再了解？</h3><p>錄下你的問題，或直接輸入文字。回答會附上教材來源。</p><div>{['這份教材的主要觀念是什麼？','請解釋這份教材最重要的概念。'].map(text=><button className="voice-suggestion" key={text} onClick={()=>setQuestion(text)}>{text}</button>)}</div></div>}
  {id&&!view&&<p className="tool-description" role="status">正在讀取對話…</p>}
- {view?.turns.map(t=><article key={t.turn_id} className="voice-turn"><div className="voice-question"><span>你</span><p>{t.question||'語音提問'}</p></div>
+ {view?.turns.map(t=><article key={t.turn_id} className="voice-turn"><div className="voice-question"><span>你</span>{t.context&&<small>Podcast 第 {t.context.episode_index+1} 集 · 所選段落</small>}<p>{t.question||'語音提問'}</p></div>
  <div className="voice-response"><span className="voice-response-label"><Icon name="learning" size={16}/>教材回答</span>
- {t.answer&&<><p className="voice-answer">{t.answer.text}</p>{t.audio_url&&<AnswerAudio src={t.audio_url} register={el=>audios.current.add(el)} onPlay={element=>{for(const other of audios.current)if(other!==element)other.pause();}}/>}
+ {t.answer&&<><p className="voice-answer">{t.answer.text}</p>{t.audio_url&&<AnswerAudio src={t.audio_url} register={el=>audios.current.add(el)} onPlay={element=>{podcastMedia?.current?.pause();for(const other of audios.current)if(other!==element)other.pause();}}/>}
  <details><summary>查看回答來源</summary>{sourceLinks(t.answer.citations.flatMap(c=>c.evidence)).map(e=><SourceButton key={e.evidence_id} apiClient={api} resolver={view.source_resolver} evidence={e}/>)}{!t.answer.citations.length&&<p>教材沒有足夠依據。</p>}</details></>}
  {t.status!=='ready'&&<div className="voice-turn-status"><small>{labels[t.status]??t.status}</small>
  {(pending.has(t.status)||t.status==='draft')&&<button className="text-button" disabled={busy} onClick={()=>void perform(()=>api.studyTools(`/v1/voice-conversations/${id}/turns/${t.turn_id}/actions`,{action:'cancel'}))}>取消這次提問</button>}</div>}
- {t.status==='failed'&&<><p className="tool-description">目前無法完成{t.answer?'語音；文字回答已保留':'處理'}。{t.error_code==='VOICE_TRANSCRIPT_INVALID'?'沒有辨識到清楚語音，請重新錄音。':''}</p>{t.question&&<button className="secondary-button" disabled={busy||working} onClick={()=>void perform(()=>api.studyTools(`/v1/voice-conversations/${id}/turns/${t.turn_id}/actions`,{action:'retry'}))}>重試{t.answer?'語音':'回答'}</button>}</>}
+ {t.status==='failed'&&<><p className="tool-description">目前無法完成{t.answer?'語音；文字回答已保留':'處理'}。{t.error_code==='VOICE_TRANSCRIPT_INVALID'?'沒有辨識到清楚語音，請重新錄音。':t.error_code==='VOICE_PODCAST_CONTEXT_INVALID'||t.error_code==='RESOURCE_NOT_FOUND'?'原 Podcast 已不可用，請改用一般教材問答。':''}</p>{t.question&&<button className="secondary-button" disabled={busy||working} onClick={()=>void perform(()=>api.studyTools(`/v1/voice-conversations/${id}/turns/${t.turn_id}/actions`,{action:'retry'}))}>重試{t.answer?'語音':'回答'}</button>}</>}
  </div></article>)}</div>
  <div className="voice-composer">
  {error&&<p role="alert" className="form-error">{error}</p>}

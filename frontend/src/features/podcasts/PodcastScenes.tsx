@@ -6,7 +6,7 @@ import {formatTime} from './PodcastPlayer';
 import {Icon} from '../../ui/Icon';
 import './scenes.css';
 
-type Scene={index:number;start:number;end:number;claim_id:string;kind:'concept'|'comparison'|'flow';title:string;text:string;evidence:EvidenceView[];steps:string[];columns:{label:string;claims:{claim_id?:string;text:string;evidence:EvidenceView[]}[]}[]};
+type Scene={index:number;start:number;end:number;claim_id?:string;claim_ids?:string[];kind:'concept'|'comparison'|'flow';title:string;text:string;evidence:EvidenceView[];steps:string[];columns:{label:string;claims:{claim_id?:string;text:string;evidence:EvidenceView[]}[]}[]};
 type Manifest={audio_sha256:string;duration:number;source_resolver:string;scenes:Scene[]};
 type Episode={index:number;status:string;version:number;error_code:string|null;manifest:Manifest|null};
 type Scenes={podcast_id:string;episodes:Episode[]};
