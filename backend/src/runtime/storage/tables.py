@@ -503,3 +503,19 @@ class PodcastScenes(Base):
     lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PodcastVideo(Base):
+    __tablename__ = 'podcast_videos'
+    video_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    podcast_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    episode_index: Mapped[int] = mapped_column(Integer)
+    source_sha256: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    artifact_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    manifest: Mapped[dict | None] = mapped_column(EvidenceJSONB)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(BigInteger)
+    lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

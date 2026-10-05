@@ -142,6 +142,8 @@ def delete_podcast(owner, identity, *, dsn=None):
         with database_session(dsn) as db:
             row, material = _locked(db, owner, identity, allow_deleted=True)
             if row.status != "deleted":
+                from .podcast_videos import discard
+                artifacts.extend(discard(db,identity))
                 db.execute(delete(PodcastScenes).where(PodcastScenes.podcast_id == identity))
                 for episode in row.episodes:
                     if episode.get("audio"):
@@ -281,6 +283,9 @@ def finish_step(claim, *, script=None, audio=None, audio_provider=None, error=No
             else:
                 raise PodcastError("PODCAST_SCRIPT_INVALID")
             row.episodes = episodes
+            if audio is not None:
+                from .podcast_videos import enqueue
+                enqueue(db,row,claim['index'])
             row.status = "ready" if all(e.get("audio") for e in episodes) else "pending"
         row.lease_token = row.lease_expires_at = None
         row.version += 1

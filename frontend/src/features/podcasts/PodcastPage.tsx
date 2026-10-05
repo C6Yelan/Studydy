@@ -1,4 +1,6 @@
 import { PodcastScenes } from "./PodcastScenes";
+import { usePodcastVideo } from "./PodcastVideo";
+import { PodcastTranscript } from "./PodcastTranscript";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { PodcastView } from "../../api/contracts";
@@ -21,7 +23,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
   const [contentTab, setContentTab] = useState<"transcript" | "highlights" | "scenes">("transcript");
-  const media = useRef<HTMLAudioElement | null>(null);
+  const media = useRef<HTMLMediaElement | null>(null);
   const contentTabs = useRef<HTMLDivElement>(null);
   const readingArea = useRef<HTMLElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
@@ -29,6 +31,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const rememberPosition = useRef(true);
   const autoPlayNext = useRef(false);
   const episodeList = useRef<HTMLElement>(null);
+  const videoState = usePodcastVideo(apiClient,podcastId,index,view?.episodes[index]?.audio?.sha256);
   useEffect(() => {
     const layout = workspace.current;
     if (!layout) return;
@@ -103,7 +106,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     {!view.is_current_revision && <p className="podcast-meta-note">依建立時的教材版本保存</p>}
     {view.status !== "ready" && <PodcastProgress view={view} busy={busy} onAction={action => void act(action)} />}
     <div ref={workspace} className="podcast-listening-layout">
-        <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} mediaRef={media} storageKey={storageKey} settingsKey={`studydy.podcast.settings:${learnerId}`} onPrevious={() => { autoPlayNext.current = view.status === "ready"; setIndex(index - 1); }} onNext={() => { autoPlayNext.current = view.status === "ready"; setIndex(index + 1); }} rememberPosition={rememberPosition} autoPlay={autoPlayNext.current} onEnded={() => {
+        <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} videoState={videoState} mediaRef={media} storageKey={storageKey} settingsKey={`studydy.podcast.settings:${learnerId}`} onPrevious={() => { autoPlayNext.current = view.status === "ready"; setIndex(index - 1); }} onNext={() => { autoPlayNext.current = view.status === "ready"; setIndex(index + 1); }} rememberPosition={rememberPosition} autoPlay={autoPlayNext.current} onEnded={() => {
           if (index + 1 < view.episodes.length) { autoPlayNext.current = true; setIndex(index + 1); }
         }} />
       <div className="podcast-companion">
@@ -120,16 +123,13 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
             setContentTab(next); contentTabs.current?.querySelector<HTMLButtonElement>(`#podcast-tab-${next}`)?.focus();
           }}>{label}</button>)}</div>
         <div className="podcast-transcript" role="tabpanel" tabIndex={0} id="podcast-panel-transcript" aria-labelledby="podcast-tab-transcript" hidden={contentTab !== "transcript"}>
-          {episode.script ? <ol>{episode.script.segments.flatMap((segment, segmentIndex) => segment.turns.map((turn, turnIndex) => <li key={`${segmentIndex}/${turnIndex}`}>
-            <span className="podcast-transcript-speaker">{episode.delivery === "solo" ? "旁白" : turn.speaker === "host" ? "學習者" : "講解者"}</span>
-            <p>{turn.text}</p>
-          </li>))}</ol> : <p className="podcast-meta-note">本集逐字稿尚未生成。</p>}
+          <PodcastTranscript api={apiClient} view={view} index={index} media={media} active={contentTab==='transcript'} videoVersion={videoState.state?.version??0} />
         </div>
         <div className="podcast-highlights" role="tabpanel" tabIndex={0} id="podcast-panel-highlights" aria-labelledby="podcast-tab-highlights" hidden={contentTab !== "highlights"}><header><span>{episode.claims.length} 個重點</span></header>
           {groups.map(group => <div key={group.claims[0].concept_id}>{groups.length > 1 && <h3>{group.label}</h3>}<ul>{group.claims.map(claim => <li key={claim.claim_id}><p>{claimText(claim)}</p></li>)}</ul></div>)}
         </div>
         <div role="tabpanel" tabIndex={0} id="podcast-panel-scenes" aria-labelledby="podcast-tab-scenes" hidden={contentTab !== "scenes"}>
-          {view.status === "ready" ? <PodcastScenes api={apiClient} view={view} index={index} media={media} active={contentTab === "scenes"}/> : <p>音訊完成後即可準備同步圖卡。</p>}
+          {view.status === "ready" ? <PodcastScenes api={apiClient} view={view} index={index} media={media} active={contentTab === "scenes"} mediaKind={videoState.state?.status==='ready'?'video':'audio'}/> : <p>音訊完成後即可準備同步圖卡。</p>}
         </div>
         </section>
       </div>

@@ -68,3 +68,43 @@ def test_diagram_requires_source_check_and_unsupported_result_keeps_original_tex
     assert manifest['scenes'][0]['kind']=='concept' and manifest['scenes'][0]['text']==claim['text']
     allowed=scenes.checked_verdicts(content,{'provider':'synthetic-test','items':[{'index':0,'supported':True,'reason':'synthetic supported scenario'}]})
     assert scenes.build_manifest(podcast,episode,document,alignment,allowed)['scenes'][0]['steps']==['用戶端送出請求','伺服器回覆結果']
+
+
+def test_fine_cuts_merge_using_word_times_without_weakening_anchor_length():
+    from runtime.scene_alignment import align_cue_groups
+    texts=['先確認。','這是完整且有語音依據的必要條件。']
+    words=[{'word':texts[0],'start':.4,'end':1},{'word':'呃','start':1.1,'end':1.3},{'word':texts[1],'start':1.5,'end':5}]
+    result=align_cue_groups(texts,words,6,[[0],[0]])
+    assert result['groups']==[[0,1]] and result['starts']==[0]
+    assert result['anchors'][0]['audio_start']==1.5
+    assert result['anchors'][0]['boundary_audio_start']==.4
+    assert len(result['anchors'][0]['text'])>=8
+
+
+def test_fully_recognized_short_reply_can_share_the_next_measured_cue():
+    from runtime.scene_alignment import align_cue_groups
+    texts=['對。','這是完整而可回查的語音說明。']
+    words=[{'word':texts[0],'start':.2,'end':.6},{'word':texts[1],'start':1,'end':5}]
+    assert align_cue_groups(texts,words,6,[[0],[1]])['groups']==[[0,1]]
+
+
+def test_shared_asr_word_time_does_not_create_fake_separate_boundaries():
+    from runtime.scene_alignment import align_cue_groups
+    texts=['第一個可回查的完整片段','第二個也有明確原文依據']
+    result=align_cue_groups(texts,[{'word':''.join(texts),'start':.2,'end':8}],9,[[0],[0]])
+    assert result['groups']==[[0,1]] and result['starts']==[0]
+
+
+@pytest.mark.parametrize('failure',['missing_turn','reversed','invalid_times','too_long'])
+def test_grouping_still_refuses_unreliable_speech_and_oversized_captions(failure):
+    from runtime.scene_alignment import align_cue_groups
+    texts=['第一段完整且正確的語音內容。','第二段具有明確來源的教學說明。']
+    words=[{'word':texts[0],'start':.2,'end':4},{'word':texts[1],'start':5,'end':8}]
+    ids=[[0],[0]]
+    if failure=='missing_turn':words.pop();ids=[[0],[1]]
+    if failure=='reversed':words[0]['word'],words[1]['word']=words[1]['word'],words[0]['word']
+    if failure=='invalid_times':words.reverse()
+    if failure=='too_long':
+        texts=['對。','這段合成測試說明需要保留完整內容。'*12]
+        words=[{'word':texts[0],'start':.2,'end':.6},{'word':texts[1],'start':1,'end':8}]
+    with pytest.raises(ValueError,match='SCENE_ALIGNMENT_FAILED'):align_cue_groups(texts,words,9,ids)
