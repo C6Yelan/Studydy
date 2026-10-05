@@ -113,6 +113,7 @@ caption_index 可選同 cue 的一個已量測字幕索引，讓 reveal／focus 
 focus=true 表示只在 cue_index 那一段暫時框選節點或描出既有箭頭。只有實際需要指引注意時才用，不能把每個節點都設 true；必要時可不標記。
 所有文字、數值、單位、方向與順序必須由本頁講稿及引用來源支持；保留否定、必要條件、識別符及單位大小寫。提問、假設、誤解不能當成事實。不同概念只能按來源已支持的關係連接。
 若 previous_attempt 有問題，只修指出的內容或索引；文字太長時精簡重述，不能省去必要技術條件。來源不足或不適合畫箭頭時用 concept/comparison，不推論新關係。
+同一 mental model 的節點與關係優先在同頁逐步建立；只有主題模型改變才換頁，不為每個字幕另開頁。cue_index／caption_index 也決定動態講解焦點，focus 只控制額外暫時標記；動態不表達實際傳輸速度或額外因果。
 只輸出 JSON。\n'''
         source={'delivery':episode['delivery'],'cues':timed,'captions':timed_captions,'claims':episode['claims'],'source_context':body['source_context']}
         env={k:v for k,v in os.environ.items() if k!='STUDYDY_PODCAST_PROVIDER_TOKEN'}
@@ -132,7 +133,7 @@ focus=true 表示只在 cue_index 那一段暫時框選節點或描出既有箭�
             # 暫存原始候選供本機失敗定位；只有驗證通過後才交給繪製器。
             request.write_text(json.dumps({**render_source,'cues':split['cues'],'alignment':alignment,'semantic_plan':semantic_plan},ensure_ascii=False))
             try:
-                checked=_process(args+['--validate'],env,60,cancelled)
+                checked=_process(args+['--motion','--validate'],env,60,cancelled)
                 if checked:
                     detail=json.loads(result.read_text()).get('error','VIDEO_LAYOUT_INVALID') if result.is_file() else 'VIDEO_LAYOUT_INVALID'
                     raise ValueError(detail)

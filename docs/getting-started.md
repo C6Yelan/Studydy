@@ -161,11 +161,13 @@ F5 共用本機 Whisper，對齊原講稿與實際 WAV 的詞時間點；拼音�
 
 0015 migration 新增影片工作、來源指紋及 artifact 關係。影片只在來源仍一致、版面及來源核對通過且 artifact 寫入成功後標記完成。取消、刪除或過期工作的晚到結果不會發布。升級前備份 PostgreSQL；升級後以識別 0015 的版本前向修復。
 
-`ops/podcast/video_service.py` 先以 beat／turn／part 與標點決定 teaching cues，再由本機 Whisper 對齊原 WAV，切 cue 不呼叫文字模型。文字 provider 只描述語意分鏡：concept 主重點與支持說明、comparison 比較群組、flow 有來源的相鄰步驟、exchange 兩個參與者間的往返訊息；輸出短文字、節點／關係索引及 cue／reveal／focus 意圖，不輸出 x/y/w/h。需要長 teaching cue 內的細時機時，可選該 cue 內既有字幕的 `caption_index`；renderer 只使用它的實測起點和結束邊界，不生成新秒數，也不改教學範圍。`podcast_video_layout.py` 以真實字型量測，決定間距、文字容納、節點位置與箭頭，編譯成既有 `podcast-storyboard/v2`。拉丁縮寫與單位能放進一行時不在詞內斷行，重複量測使用有界快取。
+`ops/podcast/video_service.py` 先以 beat／turn／part 與標點決定 teaching cues，再由本機 Whisper 對齊原 WAV，切 cue 不呼叫文字模型。文字 provider 只描述語意分鏡：concept 主重點與支持說明、comparison 比較群組、flow 有來源的相鄰步驟、exchange 兩個參與者間的往返訊息；輸出短文字、節點／關係索引及 cue／reveal／focus 意圖，不輸出 x/y/w/h。需要長 teaching cue 內的細時機時，可選該 cue 內既有字幕的 `caption_index`；renderer 只使用它的實測起點和結束邊界，不生成新秒數，也不改教學範圍。`podcast_video_layout.py` 以真實字型量測，決定間距、文字容納、節點位置與箭頭，新工作編譯成 `podcast-storyboard/v3`，在既有平面元素外保存語意群組、cue／caption anchor 及原關係的 source／target 索引；模型 schema 不新增座標、秒數或動態程式碼。拉丁縮寫與單位能放進一行時不在詞內斷行，重複量測使用有界快取。
 
 同一次 review 分別核對 correctness 與 teaching-quality（兩者都 blocking），檢查語意節點、關係方向與時機；不把版型當成新的知識依據。審查提示明示 `reveal=false` 是頁首可見、exchange 的 `label` 即參與者名稱；不能誤當隱藏，也不要求同一實測錨點內出現不存在的細時機。分鏡／版面與內容審查各保留兩次修正機會，任一類第三次失敗即停止：正常工作只需分鏡＋review 兩次文字請求，有界最差為八次。修正仍保留合法的 reveal／focus，不強制移除所有標記；候選必須重新通過來源審查。沒有模型幾何不代表任何內容皆可容納，過長文字或無效語意索引仍會拒絕。
 
-`backend/src/runtime/podcast_video_render.py` 沿用有限圖形與 CPU 1920×1080／60fps MP4，不執行模型程式碼。reveals 由語意目標的 cue 編譯、同 cue 合併，顯示後保留至頁尾；相關節點不晚於連線出現，單位與必要條件仍由內容審查核對。頁首可預覽完整重點，focus 只在講解該目標的 cue 或指定字幕錨點窗口暫時框選或描出原箭頭，之後淡出；不新增文字或推估任意秒數。舊 underline／outline／trace 圖形契約保留可讀，標記不設必填配額。
+`backend/src/runtime/podcast_video_render.py` 沿用有限圖形與 CPU 1920×1080／60fps MP4，不執行模型程式碼。reveals 由語意目標的 cue 編譯、同 cue 合併，顯示後保留至頁尾；相關節點不晚於連線出現，單位與必要條件仍由內容審查核對。v3 由 `podcast_video_motion.py` 以 manifest、實測 timeline 與目前媒體秒數直接計算狀態：節點及文字淡入、線條／箭頭 draw-on、焦點明暗與淡底平滑轉移，已出現的次要內容仍保留。flow／exchange 指示沿既有箭頭一次性推進並移交節點焦點；不循環、不表示實際封包速度。同一 anchor 的目標同時聚焦，不編造更細的先後。模型的 focus 仍控制額外暫時標記；v3 relation 不再疊加第二個 trace 指示。換頁後使用短 crossfade，舊頁以邊界前的確定畫格計算，底部提示與進度仍取目前時間。固定的視覺時長上限皆受實測窗口限制；seek／倍速沒有前一影格的殘留狀態。舊 underline／outline／trace 圖形契約保留可讀，標記不設必填配額。
+
+升級時先更新可接受 v3 的 backend，再更新／重啟 video provider。新 service 明確傳入 `--motion --validate`；仍在執行的舊 service 只傳 `--validate` 時繼續編譯 v2，避免分階段更新意外改變契約。未標 schema 的 legacy 與 v2 保留原繪法；不掃描、重排或重製 ready 產物。
 
 新影片底部只放短焦點提示，完整字幕保留 WebVTT，由播放器字幕按鈕切換。既有 MP4、`flat-report/v3`／`v4` manifest 與原顯示方式不自動重製；來源、音訊、script hash、ownership 與晚到結果隔離仍沿用原規則。
 

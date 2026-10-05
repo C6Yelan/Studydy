@@ -131,10 +131,15 @@ def trace_path(draw,points,progress,color,width):
     if len(visible)>1:draw.line(visible,fill=color,width=width,joint='curve')
 
 
-def draw_emphasis(draw,t,timeline,page,bounds):
+def draw_emphasis(draw,t,timeline,page,bounds,element_states=None):
     for mark,box in zip(page.get('emphasis',[]),bounds):
         start,end=visual_window(timeline,mark['start_cue'],mark['end_cue'],mark.get('caption_index'))
         opacity=emphasis_opacity(t,start,end)
+        if element_states is not None:
+            state=element_states[mark['element_index']]
+            # v3 的 relation 已由同一時鐘 draw-on／推進，不能再疊第二顆 trace 指示。
+            if mark['kind']=='trace':continue
+            opacity*=state['entrance']*state['focus']
         if not opacity:continue
         elapsed=t-start;progress=min(1,elapsed/min(.45,(end-start)/2))
         color=(218,115,31,round(255*opacity))
@@ -156,10 +161,14 @@ def draw_emphasis(draw,t,timeline,page,bounds):
             if progress<1:draw.ellipse((x-7,y-7,x+7,y+7),fill=color,outline=(255,255,255,round(255*opacity)),width=2)
 
 
-def draw_frame(t, timeline, plan, text_layouts, mark_layouts=None):
+def draw_scene(t, timeline, plan, page_index, text_layouts, mark_layouts):
     from PIL import Image, ImageDraw, ImageColor
-    cue_index=next((i for i,s in enumerate(timeline['segments']) if s['start']<=t<s['end']),len(timeline['segments'])-1)
-    page_index,page=next((i,p) for i,p in enumerate(plan['pages']) if p['start_cue']<=cue_index<=p['end_cue'])
+    page=plan['pages'][page_index]
+    states=None
+    if 'motion' in page:
+        from .podcast_video_motion import scene_state
+        groups=scene_state(t,timeline,page)
+        states={j:state for group,state in zip(page['motion']['groups'],groups) for j in group['elements']}
     image=Image.new('RGB',(1920,1080),BACKGROUND);d=ImageDraw.Draw(image,'RGBA')
     d.text((100,35),'PODCAST  /  圖解講解',font=font(26),fill=PALETTE['teal'])
     d.text((100,88),page['title'],font=font(54),fill=PALETTE['ink'])
@@ -169,25 +178,62 @@ def draw_frame(t, timeline, plan, text_layouts, mark_layouts=None):
         # Reveal 完全由時間推導；往回 seek 不留下未到時機的元素。
         reveal=next((g for g in page.get('reveal',[]) if index in g['elements']),None)
         if reveal and t < visual_window(timeline,reveal['start_cue'],reveal['start_cue'],reveal.get('caption_index'))[0]:continue
-        rgb=ImageColor.getrgb(PALETTE[e['color']]);rgba=(*rgb,255)
+        state=states[index] if states is not None else None
+        opacity=state['opacity'] if state else 1
+        if opacity<=0:continue
+        rgb=ImageColor.getrgb(PALETTE[e['color']]);rgba=(*rgb,round(255*opacity))
         area=(e['x'],e['y'],e['x']+e['w'],e['y']+e['h'])
+        if state and e['kind']=='text':
+            rows=text_layouts[page_index][index]
+            if rows:
+                area_text=(e['x'],rows[0][1],max(x+font(e['size']).getlength(text) for x,y,text in rows),rows[-1][1]+e['size']+10)
+                d.rectangle(area_text,fill=(*rgb,round(18*state['focus']*state['entrance'])))
         if e['kind'] in ('box','circle'):
             draw=d.rectangle if e['kind']=='box' else d.ellipse
-            fill=(*rgb,32) if e['filled'] else None
+            fill=(*rgb,round(opacity*(32 if e['filled'] else 18*state['focus']))) if state else ((*rgb,32) if e['filled'] else None)
             draw(area,outline=rgba,fill=fill,width=2)
         elif e['kind'] in ('line','arrow'):
-            d.line(area,fill=rgba,width=3)
-            if e['kind']=='arrow':
+            draw_progress=state['draw'] if state else 1
+            if draw_progress<=0:continue
+            d.line((e['x'],e['y'],e['x']+e['w']*draw_progress,e['y']+e['h']*draw_progress),fill=rgba,width=3)
+            if e['kind']=='arrow' and draw_progress==1:
                 angle=math.atan2(e['h'],e['w']);x,y=area[2:]
                 d.polygon([(x,y),(x-18*math.cos(angle-.5),y-18*math.sin(angle-.5)),
                            (x-18*math.cos(angle+.5),y-18*math.sin(angle+.5))],fill=rgba)
-        for x,y,text in text_layouts[page_index][index]:d.text((x,y),text,font=font(e['size']),fill=rgba)
+            if state and e['kind']=='arrow' and state['token'] is not None:
+                phase=state['token'];x=e['x']+e['w']*phase;y=e['y']+e['h']*phase
+                token_alpha=round(255*state['entrance']*min(1,phase*8,(1-phase)*8))
+                d.ellipse((x-7,y-7,x+7,y+7),fill=(*ImageColor.getrgb(PALETTE['teal']),token_alpha))
+        rows=text_layouts[page_index][index]
+        if state and rows and opacity<1:
+            # Pillow 的 RGB draw.text 不混合 fill alpha；在文字區明確合成，字體不縮放。
+            base=image.crop(area);paint=base.copy();text_draw=ImageDraw.Draw(paint)
+            for x,y,text in rows:text_draw.text((x-e['x'],y-e['y']),text,font=font(e['size']),fill=rgb)
+            image.paste(Image.blend(base,paint,opacity),(e['x'],e['y']))
+        else:
+            for x,y,text in rows:d.text((x,y),text,font=font(e['size']),fill=rgba)
     if page.get('emphasis'):
         if mark_layouts is None:mark_layouts=emphasis_layouts(plan,text_layouts)
-        draw_emphasis(d,t,timeline,page,mark_layouts[page_index])
+        draw_emphasis(d,t,timeline,page,mark_layouts[page_index],states)
+    return image
+
+
+def draw_frame(t, timeline, plan, text_layouts, mark_layouts=None):
+    from PIL import Image, ImageDraw
+    cue_index=next((i for i,s in enumerate(timeline['segments']) if s['start']<=t<s['end']),len(timeline['segments'])-1)
+    page_index,page=next((i,p) for i,p in enumerate(plan['pages']) if p['start_cue']<=cue_index<=p['end_cue'])
+    image=draw_scene(t,timeline,plan,page_index,text_layouts,mark_layouts)
+    if plan.get('schema')=='podcast-storyboard/v3' and page_index:
+        from .podcast_video_motion import transition
+        blend=transition(t,timeline,page)
+        if blend<1:
+            boundary=timeline['segments'][page['start_cue']]['start']
+            previous=draw_scene(math.nextafter(boundary,-math.inf),timeline,plan,page_index-1,text_layouts,mark_layouts)
+            image=Image.blend(previous,image,blend)
+    d=ImageDraw.Draw(image,'RGBA')
     d.rectangle((0,852,1920,1080),fill='#edf1f3')
     d.text((100,867),'正在講解',font=font(25),fill=PALETTE['teal'])
-    caption=(timeline['segments'][cue_index]['title'] if plan.get('schema')=='podcast-storyboard/v2' else timeline['segments'][cue_index]['text']).replace('\n',' ')
+    caption=(timeline['segments'][cue_index]['title'] if plan.get('schema') in ('podcast-storyboard/v2','podcast-storyboard/v3') else timeline['segments'][cue_index]['text']).replace('\n',' ')
     for i,line in enumerate(lines(caption,32,1720)):
         d.text((100,900+i*42),line,font=font(32),fill=PALETTE['ink'])
     d.rectangle((0,1068,round(1920*min(t/timeline['duration'],1)),1079),fill=PALETTE['teal'])
@@ -220,7 +266,7 @@ def render(request, audio_path, destination):
     validate_visual_timing(plan,timeline)
     text_layouts=layouts(plan)
     mark_layouts=emphasis_layouts(plan,text_layouts)
-    if any(len(lines((s['title'] if plan.get('schema')=='podcast-storyboard/v2' else s['text']).replace('\n',' '),32,1720))>4 for s in timeline['segments']):
+    if any(len(lines((s['title'] if plan.get('schema') in ('podcast-storyboard/v2','podcast-storyboard/v3') else s['text']).replace('\n',' '),32,1720))>4 for s in timeline['segments']):
         raise ValueError('VIDEO_LAYOUT_INVALID:caption')
     ensure_space(destination.parent)
     fps=request.get('benchmark_fps',60)
@@ -252,12 +298,12 @@ if __name__=='__main__':
     request_path,audio_path,result_path=map(Path,sys.argv[1:4])
     try:
         request=json.loads(request_path.read_text())
-        if len(sys.argv)>4 and sys.argv[4]=='--validate':
+        if '--validate' in sys.argv[4:]:
             if 'semantic_plan' in request:
                 from .podcast_video_layout import compile_layout
                 timeline=timeline_for_video(request['podcast_id'],request['episode_index'],request['episode'],
                                            request['cues'],request['alignment'],request['source_resolver'])
-                request['plan'] = compile_layout(request['semantic_plan'], request['cues'], timeline)
+                request['plan'] = compile_layout(request['semantic_plan'], request['cues'], timeline, motion='--motion' in sys.argv[4:])
             validate_plan(request['plan'],request['cues']);text_layouts=layouts(request['plan']);emphasis_layouts(request['plan'],text_layouts)
             result={'valid':True,'plan':request['plan']}
         else:result=render(request,audio_path,result_path.with_suffix('.mp4'))

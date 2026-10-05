@@ -86,6 +86,7 @@ def test_layout_and_source_corrections_have_independent_bounded_budgets(tmp_path
     def process(args,env,timeout,cancelled):
         result=Path(args[5])
         if args[-1]=='--validate':
+            assert '--motion' in args
             if len(plans)<=2 or overflow_only:
                 result.write_text('{"error":"VIDEO_LAYOUT_INVALID:page=0,element=0,height>=188"}');return 1
             result.write_text(json.dumps({'valid':True,'plan':{**plan(),'schema':'podcast-storyboard/v2'}}))

@@ -250,3 +250,30 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src:data/podcast/video-runtime/lib
 取消測試遇到產稿已在途，取消後即使兩次模型請求返回，script／audio 仍未發布。舊 v11 MP4、13 個原 VTT cues 與提問入口繼續可讀。原有 **10 份 Podcast episode 資料、14 份影片 manifest、4 份 KS** 指紋保持不變，原 **5 筆作答事件**不變；播放／Voice 沒有改寫掌握度。臨時計數 wrapper 已移除，正式 provider 啟動方式恢復。
 
 必要私人證據保存在本機 `data/podcast/quality-round2-20261005/`（summary、audit、before／after、request ledger、被拒絕候選、瀏覽器、媒體與節奏量測），部署身分與 rollback image tags 位於 `data/deployments/podcast-quality-round2-20261005/`。教材、產出原文、帳號、錄音、憑證與私有設定不加入 Git／CI；沒有搬入 archive 或複製可重建環境。
+
+## Podcast deterministic 2D motion（2026-10-05）
+
+基線為 `feature/podcast-quality-round2` 的 `21906b7daa991a2ce296a504bac5843fc1e55224`。本輪只擴充呈現層：v3 storyboard 保存可信 layout 編譯的節點／關係群組與既有 cue／caption 索引，模型 schema、講稿、來源、字幕切分與音訊政策不變。新片使用節點／文字 fade、連線 draw-on、平滑明暗與淡底焦點、沿既有箭頭的一次性指示，以及最長 0.2 秒的換頁 crossfade；不縮放文字、不循環播放指示。每個時間點皆由保存資料直接計算，沒有累積影格狀態。
+
+### 工程與實際播放驗證
+
+- 相關 unit／renderer／service 套件 **106 項通過、0 skip**，其中新增 motion 套件 32 項。涵蓋 enter、焦點、relation、flow／exchange、換頁、reveal／emphasis、短字幕／同時 anchor、往返 seek、0.5／1／2× 媒體時鐘、legacy、重複渲染，以及 geometry／來源／時間驗證。實際畫格曾發現 Pillow 在 RGB 畫布忽略文字 fill alpha，已改為文字區明確合成並加入字形像素回歸。
+- disposable PostgreSQL 的影片 integration **15 項通過**；v2／v3 均檢查 ready 重開不重製、ownership／range、cancel／retry／late-result，以及無效 motion anchor 不得寫入 artifact。
+- 重用 Round 2 四份已核可的語意分鏡、原 WAV 與 Whisper 對齊；**新增模型／TTS／ASR 呼叫均為 0**。產生四份私人獨立樣片，25.06／35.91／42.85／41.43 秒，皆為 1920×1080、60fps，完整 MP4 解碼與既有 AAC 成品量測通過。舊 flat elements、文字、reveal／emphasis、頁數及來源 timeline 未改。
+- 四片在 headless Chromium 各測 0.5／1／2×，跨動態邊界的媒體時間單調，最大畫格／播放時鐘差約 54ms；114 次 seek 取樣涵蓋字幕和換頁前後，重訪同一時間的解碼畫格 hash 一致。這些是播放正確性量測，不是視覺品質分數。
+- 舊 v2 renderer 與本輪 legacy 路徑在四份原分鏡共 20 個抽查時間的像素完全相同；產品中原四份 episode／ready manifest 未變，原 MP4 artifact 完整性與保存副本 hash 核對通過。本輪未部署、未替換 ready 影片。
+
+~~~bash
+PYTHONPATH=backend/src:backend/tests:local_ai/src:data/podcast/video-runtime/lib/python3.12/site-packages \
+  backend/.venv/bin/pytest -q backend/tests/test_podcast_video_{motion,plan,layout,render,service}.py
+PYTHONPATH=backend/src:backend/tests/runtime:backend/tests:local_ai/src:data/podcast/video-runtime/lib/python3.12/site-packages \
+  backend/.venv/bin/pytest -q backend/tests/runtime/materials/test_podcast_videos.py
+~~~
+
+### 視覺抽查與限制
+
+逐時序檢視四份樣片的進場、焦點與場景延續，並從實際編碼的 MP4 擷取 flow、反向 exchange 與 crossfade 前後畫格檢查。可見舊資訊保留、新資訊漸進建立，關係指示沿原方向移動後消失；文字不位移或縮放，額外 trace 不再產生第二顆指示。這是主要 motion cases 的視覺抽查，**不是完整真人觀影、教學成效研究或全面視覺品質驗收**。
+
+既有粗 anchor 仍可能同時呈現多個節點／關係；不為增加動畫而猜測細時序。換頁 crossfade 在短暫窗口會有疊影，長 teaching cue 中沒有新語意 anchor 時也不持續添加動畫，因此尚不能宣稱完全消除簡報感。原 cue 標題與既有文字排版不在本輪重寫範圍。未測所有瀏覽器／行動裝置的主觀流暢度；倍速量測只代表本機 Chromium。
+
+私人樣片、解碼時序圖與測量結果保留在本機忽略目錄 `data/podcast/semantic-motion-20261005/`，沒有加入 Git／CI。升級順序與 v2／v3 的分階段相容方式見 [安裝文件](getting-started.md#純平面影片與講稿時間軸)。

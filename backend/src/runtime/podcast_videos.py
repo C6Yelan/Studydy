@@ -151,7 +151,7 @@ def validate_bundle(state,bundle):
                 or not isinstance(bundle['review'],dict)
                 or any(not isinstance(bundle['review'].get(k),dict) or bundle['review'][k].get('passed') is not True or not isinstance(bundle['review'][k].get('reason'),str) for k in ('correctness','teaching_quality'))):
             raise SourceError('VIDEO_RESULT_INVALID')
-        if not isinstance(bundle['plan'],dict) or bundle['plan'].get('schema')!='podcast-storyboard/v2':raise SourceError('VIDEO_RESULT_INVALID')
+        if not isinstance(bundle['plan'],dict) or bundle['plan'].get('schema') not in ('podcast-storyboard/v2','podcast-storyboard/v3'):raise SourceError('VIDEO_RESULT_INVALID')
         if episode['audio'].get('mastering'):
             encoded=metadata.get('encoded_audio',{})
             if (not isinstance(encoded,dict) or any(type(encoded.get(k)) not in (int,float) or not math.isfinite(encoded[k]) for k in ('integrated_lufs','true_peak_dbtp'))

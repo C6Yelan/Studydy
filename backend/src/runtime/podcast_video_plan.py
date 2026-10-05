@@ -73,12 +73,13 @@ def merge_cue_groups(episode,cues,groups):
 
 
 def validate_plan(plan, cues):
-    if not isinstance(plan, dict) or (set(plan) not in ({'pages'}, {'schema','pages'}) or ('schema' in plan and plan['schema']!='podcast-storyboard/v2')) or not isinstance(plan['pages'], list) or not 1 <= len(plan['pages']) <= 12:
+    if not isinstance(plan, dict) or (set(plan) not in ({'pages'}, {'schema','pages'}) or ('schema' in plan and plan['schema'] not in ('podcast-storyboard/v2', 'podcast-storyboard/v3'))) or not isinstance(plan['pages'], list) or not 1 <= len(plan['pages']) <= 12:
         raise ValueError('VIDEO_STORYBOARD_INVALID:pages must contain 1..12 pages')
     next_cue = 0
     for page_index,page in enumerate(plan['pages']):
         where=f'VIDEO_STORYBOARD_INVALID:page={page_index}'
-        if (not isinstance(page,dict) or set(page) not in ({'title', 'start_cue', 'end_cue', 'elements'}, {'title', 'start_cue', 'end_cue', 'elements', 'emphasis'}, {'title', 'start_cue', 'end_cue', 'elements', 'emphasis', 'reveal'})
+        motion = plan.get('schema') == 'podcast-storyboard/v3'
+        if (not isinstance(page,dict) or (set(page) - ({'motion'} if motion else set())) not in ({'title', 'start_cue', 'end_cue', 'elements'}, {'title', 'start_cue', 'end_cue', 'elements', 'emphasis'}, {'title', 'start_cue', 'end_cue', 'elements', 'emphasis', 'reveal'})
                 or not isinstance(page['title'], str) or not 0 < len(page['title']) <= 28
                 or not isinstance(page['elements'], list) or not 1 <= len(page['elements']) <= 60):
             raise ValueError(where+', title must be 1..28 characters and elements must contain 1..60 items')
@@ -126,6 +127,10 @@ def validate_plan(plan, cues):
             for target in group['elements']:visible_at[target]=group['start_cue']
         validate_connections(page, visible_at, where)
         validate_emphasis(page,page_index)
+        if motion:
+            from .podcast_video_motion import validate_motion
+            if 'motion' not in page: raise ValueError(where + ', v3 requires motion groups')
+            validate_motion(page, where)
         next_cue = page['end_cue']+1
     if next_cue != len(cues):
         raise ValueError(f'VIDEO_STORYBOARD_INVALID:uncovered cues {next_cue}..{len(cues)-1}')
@@ -200,8 +205,7 @@ def validate_visual_timing(plan, timeline):
     """細揭示只引用已驗證字幕的實測邊界，不改 teaching cue 或自行補秒數。"""
     captions = timeline.get('captions', [])
     for i, page in enumerate(plan['pages']):
-        entries = page.get('reveal', []) + page.get('emphasis', [])
-        if not any('caption_index' in item for item in entries): continue
+        entries = page.get('reveal', []) + page.get('emphasis', []) + page.get('motion', {}).get('groups', [])
         where = f'VIDEO_STORYBOARD_INVALID:page={i}'
         for item in entries:
             if 'caption_index' not in item: continue
@@ -216,6 +220,9 @@ def validate_visual_timing(plan, timeline):
             when = visual_window(timeline, group['start_cue'], group['start_cue'], group.get('caption_index'))[0]
             for target in group['elements']: visible[target] = when
         validate_connections(page, visible, where)
+        if 'motion' in page:
+            from .podcast_video_motion import validate_motion_timing
+            validate_motion_timing(page, timeline, visible, where)
         for mark in page.get('emphasis', []):
             when = visual_window(timeline, mark['start_cue'], mark['end_cue'], mark.get('caption_index'))[0]
             if when < visible[mark['element_index']]:

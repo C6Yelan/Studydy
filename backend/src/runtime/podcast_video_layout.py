@@ -1,4 +1,4 @@
-"""語意分鏡編譯成既有 v2 圖形；座標、留白與文字容量由可信程式決定。"""
+"""語意分鏡編譯成有限圖形與可選 v3 動態群組；座標、留白與文字容量由可信程式決定。"""
 from .podcast_video_plan import object_schema, validate_plan, validate_visual_timing, visual_window
 
 
@@ -40,7 +40,7 @@ def _line(x, y, w, h, cue, color='muted', kind='line'):
             'size': 28, 'color': color, 'filled': False}
 
 
-def compile_layout(design, cues, timeline=None):
+def compile_layout(design, cues, timeline=None, *, motion=False):
     """只編排模型明示的節點／關係，不自行新增箭頭、推論或文字。"""
     try:
         if set(design) != {'pages'} or not 1 <= len(design['pages']) <= 12:
@@ -96,7 +96,10 @@ def compile_layout(design, cues, timeline=None):
                 raise ValueError(where + ', exchange messages must follow the spoken sequence')
             page = {'title': spec['title'], 'start_cue': start, 'end_cue': end,
                     'elements': [], 'emphasis': [], 'reveal': []}
-            elements = page['elements']; visible = []; node_bounds = []
+            elements = page['elements']; visible = []; node_bounds = []; motion_groups = []
+            def group(item, first, **relation):
+                motion_groups.append({'elements': list(range(first, len(elements))), 'start_cue': item['cue_index'],
+                    **({'caption_index': item['caption_index']} if item.get('caption_index') is not None else {}), **relation})
             def appearance(item):
                 return (item['cue_index'], item.get('caption_index')) if item['reveal'] else (start, None)
 
@@ -118,6 +121,7 @@ def compile_layout(design, cues, timeline=None):
                 return index
 
             for i, node in enumerate(nodes):
+                first = len(elements)
                 color = ('teal', 'blue', 'orange')[i % 3]
                 text = node['label'] + ('\n' + node['text'] if node['text'] else '')
                 if kind == 'exchange':
@@ -151,7 +155,9 @@ def compile_layout(design, cues, timeline=None):
                     add(_line(x, 265, w, 0, node['cue_index'], color), node_starts[i])
                 if kind == 'exchange':
                     add(_line(x+w//2, 340, 0, 440, node['cue_index']), node_starts[i])
+                group(node, first)
             for i, edge in enumerate(relations):
+                first = len(elements)
                 when = appearance(edge)
                 a, b = node_bounds[edge['source']], node_bounds[edge['target']]
                 if kind == 'exchange':
@@ -168,13 +174,15 @@ def compile_layout(design, cues, timeline=None):
                     x = a[0]+a[2]//2; y = a[1]+a[3]+12
                     arrow = _line(x, y, 0, b[1]-12-y, edge['cue_index'], 'ink', 'arrow')
                 add(arrow, when, edge['focus'], 'trace', edge.get('caption_index'))
+                group(edge, first, source=edge['source'], target=edge['target'])
             groups = {}
             for i, when in enumerate(visible):
                 if time_at(when) > time_at((start, None)): groups.setdefault(when, []).append(i)
             page['reveal'] = [{'start_cue': cue, 'elements': targets, **({'caption_index': caption} if caption is not None else {})}
                               for (cue, caption), targets in sorted(groups.items(), key=lambda pair: time_at(pair[0]))]
+            if motion: page['motion'] = {'layout': kind, 'groups': motion_groups}
             pages.append(page); next_cue = end+1
-        result = validate_plan({'schema': 'podcast-storyboard/v2', 'pages': pages}, cues)
+        result = validate_plan({'schema': 'podcast-storyboard/v3' if motion else 'podcast-storyboard/v2', 'pages': pages}, cues)
         if timeline is not None: validate_visual_timing(result, timeline)
         return result
     except (KeyError, TypeError, IndexError) as error:

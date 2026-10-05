@@ -19,7 +19,7 @@ from runtime.source_normalization import SourceError
 from runtime.storage.tables import Artifact,Podcast,PodcastVideo,database_session
 
 
-def bundle(state):
+def bundle(state, motion=False):
     episode=state['episode'];turns=[t for s in episode['script']['segments'] for t in s['turns']]
     cues=[{'title':f'重點{i+1}','parts':[{'turn_index':i,'text':turn['text']}]} for i,turn in enumerate(turns)]
     duration=episode['audio']['duration_seconds'];starts=[i*duration/len(cues) for i in range(len(cues))]
@@ -28,6 +28,9 @@ def bundle(state):
     raw=b'\x00\x00\x00\x18ftyp'+b'synthetic-test-video'*10
     plan={'schema':'podcast-storyboard/v2','pages':[{'title':'合成影片','start_cue':0,'end_cue':len(cues)-1,'elements':[
         {'kind':'box','cue_index':0,'text':'合成測試','x':100,'y':250,'w':600,'h':200,'size':42,'color':'teal','filled':False}]}]}
+    if motion:
+        plan['schema']='podcast-storyboard/v3'
+        plan['pages'][0]['motion']={'layout':'concept','groups':[{'elements':[0],'start_cue':0}]}
     return {'policy':POLICY,'model':'synthetic-test','cues':cues,'plan':plan,
             'alignment':{'starts':starts,'anchors':anchors,'duration':duration,'method':'synthetic','producer':'synthetic'},
             'review':{k:{'passed':True,'reason':'synthetic fixture, not a quality evaluation'} for k in ('correctness','teaching_quality')},
@@ -39,29 +42,35 @@ def ready(fixture):
     identity=create(fixture)['podcast_id'];complete(fixture[4]);return identity
 
 
-def test_audio_automatically_queues_one_video_and_published_video_survives_reopen(closed_loop):
+@pytest.mark.parametrize('motion',[False,True])
+def test_audio_automatically_queues_one_video_and_published_video_survives_reopen(closed_loop,motion):
     owner,_,_,_,dsn,_=closed_loop;identity=ready(closed_loop)
     original=podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)['episodes']
     state=videos.read(owner.learner_id,identity,0,dsn=dsn)
     assert state['status']=='pending'
     assert videos.prepare(owner.learner_id,identity,0,dsn=dsn)['version']==state['version']
     claim=videos.claim(dsn=dsn);assert videos.claim(dsn=dsn) is None
-    assert videos.finish(claim,bundle=bundle(claim),dsn=dsn)
+    assert videos.finish(claim,bundle=bundle(claim,motion),dsn=dsn)
     published=videos.read(owner.learner_id,identity,0,dsn=dsn)
     assert published['status']=='ready' and published['video']['fps']==60
     assert videos.ready_manifest(owner.learner_id,identity,0,dsn=dsn)['timeline']['granularity']=='script_cue'
     assert podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)['episodes']==original
 
+    assert videos.prepare(owner.learner_id,identity,0,dsn=dsn)['version']==published['version']
+    assert videos.claim(dsn=dsn) is None
+    assert videos.ready_manifest(owner.learner_id,identity,0,dsn=dsn)['storyboard']['schema']==('podcast-storyboard/v3' if motion else 'podcast-storyboard/v2')
 
-def test_cancel_and_delete_fence_late_video_without_changing_audio(closed_loop):
+
+@pytest.mark.parametrize('motion',[False,True])
+def test_cancel_and_delete_fence_late_video_without_changing_audio(closed_loop,motion):
     owner,_,_,_,dsn,_=closed_loop;identity=ready(closed_loop);claim=videos.claim(dsn=dsn)
     before=podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)['episodes']
     view=videos.read(owner.learner_id,identity,0,dsn=dsn)
     videos.action(owner.learner_id,identity,0,'cancel',view['version'],dsn=dsn)
-    assert not videos.finish(claim,bundle=bundle(claim),dsn=dsn)
+    assert not videos.finish(claim,bundle=bundle(claim,motion),dsn=dsn)
     view=videos.read(owner.learner_id,identity,0,dsn=dsn)
     videos.action(owner.learner_id,identity,0,'retry',view['version'],dsn=dsn)
-    claim=videos.claim(dsn=dsn);videos.finish(claim,bundle=bundle(claim),dsn=dsn)
+    claim=videos.claim(dsn=dsn);videos.finish(claim,bundle=bundle(claim,motion),dsn=dsn)
     assert podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)['episodes']==before
     manifest=videos.ready_manifest(owner.learner_id,identity,0,dsn=dsn)
     podcasts.delete_podcast(owner.learner_id,identity,dsn=dsn)
@@ -98,11 +107,12 @@ def test_video_worker_reports_provider_failure_but_audio_remains_ready(closed_lo
     assert podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)['status']=='ready'
 
 
-def test_video_api_owner_ranges_and_timeline(closed_loop,monkeypatch):
+@pytest.mark.parametrize('motion',[False,True])
+def test_video_api_owner_ranges_and_timeline(closed_loop,monkeypatch,motion):
     import runtime.api.app as api
     monkeypatch.setattr(api,'runtime_binding',lambda _: {})
     owner,_,settings,_,dsn,token=closed_loop;identity=ready(closed_loop)
-    claim=videos.claim(dsn=dsn);videos.finish(claim,bundle=bundle(claim),dsn=dsn)
+    claim=videos.claim(dsn=dsn);videos.finish(claim,bundle=bundle(claim,motion),dsn=dsn)
     origin='http://127.0.0.1:4173';client=TestClient(create_app(ApiSettings(profile='local',public_origin=origin,secure_cookie=False,local_config=settings,dsn=dsn)),base_url=origin)
     root=f'/v1/podcasts/{identity}/episodes/0'
     assert client.get(root+'/video/media').status_code==401
@@ -163,3 +173,13 @@ def test_modes_automatically_queue_video_and_keep_original_roles(closed_loop,mod
     manifest=videos.ready_manifest(owner.learner_id,saved['podcast_id'],0,dsn=dsn)
     assert [t for cue in manifest['timeline']['segments'] for t in cue['turns']]==[t for s in script['segments'] for t in s['turns']]
     assert podcasts.read_podcast(owner.learner_id,saved['podcast_id'],dsn=dsn)['mode']==mode
+
+
+def test_v3_motion_anchor_is_checked_before_writing_artifact(closed_loop):
+    owner,_,_,_,dsn,_=closed_loop;identity=ready(closed_loop);state=videos.claim(dsn=dsn)
+    value=bundle(state,True)
+    value['plan']['pages'][0]['motion']['groups'][0]['caption_index']=99
+    with pytest.raises(SourceError,match='VIDEO_STORYBOARD_INVALID'):
+        videos.finish(state,bundle=value,dsn=dsn)
+    with database_session(dsn) as db:
+        assert db.scalar(select(Artifact).where(Artifact.kind=='podcast_video')) is None
