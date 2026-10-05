@@ -14,6 +14,7 @@ from .storage.knowledge_structures import _read_verified_document
 from .storage.source_artifacts import open_verified_artifact
 from .voice import provider
 from .scene_alignment import normalized
+from .podcast_script import SCHEMA, references, sources
 
 POLICY='source-scenes/v2'
 
@@ -67,6 +68,15 @@ def validate_alignment(episode,alignment):
 def scene_content(episode,document):
     segments=episode['script']['segments']
     claims=episode['claims'];concepts={c['concept_id'] for c in claims}
+    if episode['script'].get('schema') == SCHEMA:
+        result=[]
+        for i,segment in enumerate(segments):
+            refs=references(episode,i); bound,evidence=sources(episode,refs)
+            result.append({'index':i,'beat_id':segment['beat_id'],'claim_ids':list(dict.fromkeys(c['claim_id'] for c in bound)),
+                'source_bindings':bound,'source_refs':[{'segment_index':i,'turn_index':j,'start':0,'end':len(t['text'])} for j,t in enumerate(segment['turns'])],
+                'title':segment['title'],'text':'\n'.join(claims[r['source_index']]['text'] for r in refs),
+                'evidence':evidence,'kind':'concept','steps':[],'columns':[],'relation_id':None})
+        return result
     if len(segments)!=len(claims) or any(s['claim_id']!=c['claim_id'] for s,c in zip(segments,claims)):
         raise SourceError('SCENE_SOURCE_CHANGED')
     scenes=[]
@@ -142,6 +152,14 @@ def read(owner,podcast_id,*,dsn=None):
             result.append({'index':i,'status':row.status if current else 'unprepared','version':row.version if row else 0,
                 'error_code':row.error_code if current else None,'manifest':deepcopy(row.manifest) if current and row.status=='ready' else None})
         return {'podcast_id':podcast_id,'episodes':result}
+
+
+def enqueue(db,podcast,index):
+    episode=podcast.episodes[index]
+    if episode['script'].get('schema') != SCHEMA:return
+    if db.scalar(select(Scenes.scene_id).where(Scenes.podcast_id==podcast.podcast_id,Scenes.episode_index==index)):return
+    db.add(Scenes(scene_id=uuid4(),podcast_id=podcast.podcast_id,episode_index=index,
+        input_sha256=identity(podcast,episode),status='pending',version=1,created_at=datetime.now(UTC)))
 
 
 def prepare(owner,podcast_id,*,dsn=None):

@@ -1,28 +1,60 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiClientError, errorMessage, type StudydyApiClient } from '../../api/client';
-import type { PodcastView } from '../../api/contracts';
+import { SourceButton, sourceLinks } from '../../ui/SourceButton';
+import type { EvidenceView, PodcastContext, PodcastView } from '../../api/contracts';
 import { formatTime } from './PodcastPlayer';
 
-type Timeline={schema:'podcast-transcript-timeline/v1';podcast_id:string;episode_index:number;audio_sha256:string;
-  segments:{id:string;start:number;end:number;text:string;title:string;turns:{speaker:'host'|'guest';text:string}[]}[]};
+export type Timeline={schema:'podcast-transcript-timeline/v1';podcast_id:string;episode_index:number;audio_sha256:string;script_sha256:string;source_resolver:string;
+  segments:{id:string;start:number;end:number;text:string;title:string;evidence:EvidenceView[];source_refs?:PodcastContext['source_refs'];turns:{speaker:'host'|'guest';text:string}[]}[]};
 
-export function PodcastTranscript({api,view,index,media,active,videoVersion}:{
-  api:StudydyApiClient;view:PodcastView;index:number;media:RefObject<HTMLMediaElement|null>;active:boolean;videoVersion:number;
+function validTimeline(value:Timeline,view:PodcastView,index:number):boolean {
+  const episode=view.episodes[index];
+  if(value.schema!=='podcast-transcript-timeline/v1'||value.podcast_id!==view.podcast_id||value.episode_index!==index
+    ||value.audio_sha256!==episode.audio?.sha256||(episode.script_sha256&&value.script_sha256!==episode.script_sha256)
+    ||value.source_resolver!==view.source_resolver||!Array.isArray(value.segments)||!value.segments.length)return false;
+  const evidence=episode.claims.flatMap(c=>c.evidence);let previous=0;
+  try {
+    for(const cue of value.segments) {
+      if(!cue || typeof cue.id!=='string'||typeof cue.title!=='string'||typeof cue.text!=='string'
+        ||!Number.isFinite(cue.start)||!Number.isFinite(cue.end)||cue.start!==previous||cue.end<=cue.start
+        ||cue.end>(episode.audio?.duration_seconds??0)||!Array.isArray(cue.turns)||!cue.turns.length)return false;
+      if(cue.turns.some(t=>!['host','guest'].includes(t.speaker)||typeof t.text!=='string')
+        ||cue.text!==cue.turns.map(t=>t.text).join('\n'))return false;
+      if(cue.evidence!==undefined && (!Array.isArray(cue.evidence)||cue.evidence.some(e=>!evidence.some(original=>
+        original.evidence_id===e.evidence_id&&original.page_ref===e.page_ref&&original.page===e.page&&original.block_order===e.block_order&&original.quote===e.quote))))return false;
+      if(episode.script?.schema==='podcast-script/v2'&&!cue.source_refs)return false;
+      if(cue.source_refs) {
+        if(cue.source_refs.length!==cue.turns.length)return false;
+        for(const [i,ref] of cue.source_refs.entries()) {
+          if(![ref.segment_index,ref.turn_index,ref.start,ref.end].every(Number.isInteger)||ref.segment_index<0||ref.turn_index<0||ref.start<0||ref.end<=ref.start)return false;
+          const original=episode.script?.segments[ref.segment_index]?.turns[ref.turn_index];
+          if(!original||ref.end>Array.from(original.text).length||original.speaker!==cue.turns[i].speaker
+            ||Array.from(original.text).slice(ref.start,ref.end).join('')!==cue.turns[i].text)return false;
+        }
+      }
+      previous=cue.end;
+    }
+    return previous===episode.audio?.duration_seconds;
+  }catch{return false}
+}
+
+export function PodcastTranscript({api,view,index,media,active,videoVersion,onAsk,onTimeline}:{
+  api:StudydyApiClient;view:PodcastView;index:number;media:RefObject<HTMLMediaElement|null>;active:boolean;videoVersion:number;onAsk?:(context:PodcastContext)=>void;onTimeline?:(timeline:Timeline|null)=>void;
 }){
   const episode=view.episodes[index];
   const [timeline,setTimeline]=useState<Timeline|null>(null),[error,setError]=useState('');
   const [clock,setClock]=useState({index:-1,ready:false,playing:false});
   const list=useRef<HTMLOListElement>(null);
   useEffect(()=>{
-    let cancelled=false;setTimeline(null);setError('');
-    if(!episode.audio||!active)return;
-    void api.studyTools<Timeline>(`/v1/podcasts/${view.podcast_id}/episodes/${index}/timeline`).then(value=>{
+    let cancelled=false;let timer:ReturnType<typeof setTimeout>|undefined;setTimeline(null);onTimeline?.(null);setError('');
+    if(!episode.audio)return;
+    const read=()=>void api.studyTools<Timeline>(`/v1/podcasts/${view.podcast_id}/episodes/${index}/timeline`).then(value=>{
       if(cancelled)return;
-      if(value.schema!=='podcast-transcript-timeline/v1'||value.podcast_id!==view.podcast_id||value.episode_index!==index||value.audio_sha256!==episode.audio?.sha256){setError('時間軸與本集音訊不一致。');return}
-      setTimeline(value);
-    },e=>{if(!cancelled&&!(e instanceof ApiClientError&&e.status===409))setError(errorMessage(e))});
-    return()=>{cancelled=true};
-  },[api,view.podcast_id,index,episode.audio?.sha256,active,videoVersion]);
+      if(!validTimeline(value,view,index)){setError('時間軸與本集原稿、音訊或來源不一致。');return}
+      setTimeline(value);onTimeline?.(value);
+    },e=>{if(cancelled)return;if(e instanceof ApiClientError&&e.status===409)timer=setTimeout(read,2000);else setError(errorMessage(e))});
+    read();return()=>{cancelled=true;clearTimeout(timer)};
+  },[api,view.podcast_id,index,episode.audio?.sha256,episode.script_sha256,view.source_resolver,videoVersion,onTimeline]);
   const current=timeline?.podcast_id===view.podcast_id&&timeline.episode_index===index?timeline:null;
   useEffect(()=>{
     if(!active||!current)return;
@@ -43,6 +75,10 @@ export function PodcastTranscript({api,view,index,media,active,videoVersion}:{
     if(a.top<b.top||a.bottom>b.bottom)panel.scrollTop+=a.top-b.top;
   },[clock.index,clock.playing]);
   if(!episode.script)return <p className="podcast-meta-note">本集逐字稿尚未生成。</p>;
+  const ask=(refs:PodcastContext['source_refs'], hash=episode.script_sha256)=>{
+    if(hash){media.current?.pause();onAsk?.({podcast_id:view.podcast_id,episode_index:index,script_sha256:hash,source_refs:refs});}
+  };
+  const sourceButtons=(evidence:EvidenceView[]) => <details onToggle={e=>{if(e.currentTarget.open)media.current?.pause();}}><summary>查看這段來源</summary>{sourceLinks(evidence).map(e=><SourceButton key={e.evidence_id} apiClient={api} resolver={view.source_resolver} evidence={e}/>)}</details>;
   return <>
     {error&&<p className="form-error" role="alert">{error}</p>}
     {current?<><p className="podcast-meta-note">點擊講稿可跳到對應位置。</p><ol ref={list} className="podcast-timed-transcript">{current.segments.map((s,i)=><li key={s.id}>
@@ -51,7 +87,13 @@ export function PodcastTranscript({api,view,index,media,active,videoVersion}:{
           <small>{episode.delivery==='solo'?'旁白':turn.speaker==='host'?'學習者':'講解者'}</small><span>{turn.text}</span>
         </span>)}</span>
       </button>
+      {sourceButtons(s.evidence??[])}
+      {s.source_refs&&onAsk&&<button className="text-button" onClick={()=>ask(s.source_refs!,current.script_sha256)}>問這一段</button>}
     </li>)}</ol><p className="podcast-timeline-downloads"><a href={`/v1/podcasts/${view.podcast_id}/episodes/${index}/timeline`} download={`podcast-${index+1}-timeline.json`}>下載時間軸</a><a href={`/v1/podcasts/${view.podcast_id}/episodes/${index}/subtitles`} download={`podcast-${index+1}.vtt`}>下載字幕</a></p></>
-      :<ol>{episode.script.segments.flatMap((s,i)=>s.turns.map((turn,j)=><li key={`${i}/${j}`}><span className="podcast-transcript-speaker">{episode.delivery==='solo'?'旁白':turn.speaker==='host'?'學習者':'講解者'}</span><p>{turn.text}</p></li>))}</ol>}
+      :<><p className="podcast-meta-note">時間軸尚未準備完成，可先選擇下列段落提問。</p><ol>{episode.script.segments.map((s,i)=><li key={s.beat_id??i}>
+        {s.title&&<strong>{s.title}</strong>}{s.turns.map((turn,j)=><div key={j}><span className="podcast-transcript-speaker">{episode.delivery==='solo'?'旁白':turn.speaker==='host'?'學習者':'講解者'}</span><p>{turn.text}</p></div>)}
+        {sourceButtons(s.turns.some(t=>t.parts)?s.turns.flatMap(t=>(t.parts??[]).flatMap(p=>p.source_refs.flatMap(r=>episode.claims[r.source_index].evidence.filter(e=>r.evidence_ids.includes(e.evidence_id))))):episode.claims[i].evidence)}
+        {onAsk&&episode.script_sha256&&<button className="text-button" onClick={()=>ask(s.turns.map((t,j)=>({segment_index:i,turn_index:j,start:0,end:Array.from(t.text).length})))}>問這一段</button>}
+      </li>)}</ol></>}
   </>;
 }

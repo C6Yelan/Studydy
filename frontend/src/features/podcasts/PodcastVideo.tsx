@@ -9,7 +9,7 @@ export type VideoView = {
     width: number; height: number; fps: number; duration: number; pages: { title: string; start: number; end: number }[] };
 };
 
-export function usePodcastVideo(api: StudydyApiClient, podcastId: string, index: number, audioSha?: string) {
+export function usePodcastVideo(api: StudydyApiClient, podcastId: string, index: number, audioSha?: string, scriptSha?: string) {
   const [state,setState]=useState<VideoView|null>(null),[error,setError]=useState(''),[reload,setReload]=useState(0);
   const [busy,setBusy]=useState(false),alive=useRef(false);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false}},[]);
@@ -22,14 +22,14 @@ export function usePodcastVideo(api: StudydyApiClient, podcastId: string, index:
       try {
         const value=await api.studyTools<VideoView>(path);
         if(value.schema!=='podcast-video/v1'||value.podcast_id!==podcastId||value.episode_index!==index
-          ||(value.status==='ready'&&(!value.video||value.video.audio_sha256!==audioSha)))throw Error('影片與本集來源不一致。');
+          ||(value.status==='ready'&&(!value.video||value.video.audio_sha256!==audioSha||(scriptSha&&value.video.script_sha256!==scriptSha))))throw Error('影片與本集來源不一致。');
         if(cancelled)return;
         setState(value);setError('');
         if(['pending','running'].includes(value.status))timer=setTimeout(read,2000);
       }catch(e){if(!cancelled)setError(errorMessage(e));}
     };
     void read();return()=>{cancelled=true;clearTimeout(timer)};
-  },[api,path,podcastId,index,audioSha,reload]);
+  },[api,path,podcastId,index,audioSha,scriptSha,reload]);
   const current=state?.podcast_id===podcastId&&state.episode_index===index?state:null;
   const act=async(action:'prepare'|'retry'|'cancel')=>{
     if(busy)return;setBusy(true);setError('');
@@ -43,8 +43,9 @@ export function usePodcastVideo(api: StudydyApiClient, podcastId: string, index:
 }
 
 const reasons:Record<string,string>={
+  VIDEO_AUDIO_INVALID:'影片音訊未通過響度或峰值核對，尚未發布。',
   VIDEO_DISK_SPACE_LOW:'儲存空間不足，已停止影片工作。',VIDEO_LAYOUT_INVALID:'分鏡版面需要調整，尚未發布影片。',
-  VIDEO_STORYBOARD_NEEDS_REVIEW:'分鏡來源核對未通過，尚未發布影片。',VIDEO_TRANSCRIPT_INVALID:'講稿切分未通過核對。',
+  VIDEO_STORYBOARD_NEEDS_REVIEW:'分鏡來源或教學品質核對未通過，尚未發布影片。',VIDEO_TRANSCRIPT_INVALID:'講稿切分未通過核對。',
   SCENE_ALIGNMENT_FAILED:'暫時無法可靠對齊講稿與語音。',VIDEO_ALIGNMENT_INVALID:'語音時間核對未通過。',
   VIDEO_SOURCE_CHANGED:'原稿或音訊版本已變更，無法使用這份影片。',VIDEO_INTERRUPTED:'影片工作中斷，可重試。',
   VIDEO_TOO_LARGE:'影片超過儲存限制。',VIDEO_PROVIDER_UNAVAILABLE:'影片服務目前無法使用。',

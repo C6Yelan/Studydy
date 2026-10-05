@@ -26,11 +26,11 @@ def bundle(state):
     anchors=[{'script_offset':0,'text':normalized(t['text'])[:24],'audio_start':starts[i],
               'boundary_script_offset':0,'boundary_text':normalized(t['text'])[:24],'boundary_audio_start':starts[i]} for i,t in enumerate(turns)]
     raw=b'\x00\x00\x00\x18ftyp'+b'synthetic-test-video'*10
-    plan={'pages':[{'title':'合成影片','start_cue':0,'end_cue':len(cues)-1,'elements':[
+    plan={'schema':'podcast-storyboard/v2','pages':[{'title':'合成影片','start_cue':0,'end_cue':len(cues)-1,'elements':[
         {'kind':'box','cue_index':0,'text':'合成測試','x':100,'y':250,'w':600,'h':200,'size':42,'color':'teal','filled':False}]}]}
     return {'policy':POLICY,'model':'synthetic-test','cues':cues,'plan':plan,
             'alignment':{'starts':starts,'anchors':anchors,'duration':duration,'method':'synthetic','producer':'synthetic'},
-            'review':{'supported':True,'reason':'synthetic fixture, not a quality evaluation'},
+            'review':{k:{'passed':True,'reason':'synthetic fixture, not a quality evaluation'} for k in ('correctness','teaching_quality')},
             'render':{'width':1920,'height':1080,'fps':60,'duration':duration,'sha256':sha256(raw).hexdigest()},
             'video':base64.b64encode(raw).decode()}
 
@@ -80,7 +80,7 @@ def test_expired_request_is_failed_without_replaying_provider(closed_loop):
 
 def test_stale_source_and_source_review_failure_do_not_publish(closed_loop):
     owner,_,_,_,dsn,_=closed_loop;identity=ready(closed_loop);claim=videos.claim(dsn=dsn)
-    value=bundle(claim);value['review']['supported']=False
+    value=bundle(claim);value['review']['correctness']['passed']=False
     with pytest.raises(SourceError,match='VIDEO_RESULT_INVALID'):videos.finish(claim,bundle=value,dsn=dsn)
     with database_session(dsn) as db:
         p=db.get(Podcast,identity);episodes=deepcopy(p.episodes);episodes[0]['audio']['sha256']='f'*64;p.episodes=episodes

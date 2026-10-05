@@ -115,3 +115,50 @@ Podcast 影片另由 `backend/tests/test_podcast_video_plan.py`、`test_podcast_
 必要私有證據保留於 `data/voice/acceptance/summary.json`、`data/scenes/acceptance/browser-sync-v2.json`、`prepared-v2.json` 及對應截圖；部署版本與備份在 `data/deployments/voice-research-20261004/`。不提交教材、帳號或生成內容。
 
 原教材及新地圖的 `partial`／`needs_review` 保留。自然度、聽感與美感待精修；實體麥克風、手機鎖屏／真正背景凍結及其他瀏覽器待實機。headless 開新分頁時 `document.hidden` 仍為 false，不把此當成背景恢復證據。40 段中 1 段自第 3 字才匹配，未杜撰開頭時間；本輪是段落同步，不是逐字高亮。
+
+## Podcast teaching beats 工程驗證（2026-10-05）
+
+基線 `e62d7415c1a2e15b19f5083a227f3a14709dd42d`。這次使用合成教材、隔離 PostgreSQL、受控 provider 與 CPU FFmpeg；未呼叫 Luna、CosyVoice、Whisper 或 GPU，也未部署／對產品 DB 套 migration。舊 Podcast 仍固定原 KS revision，不把工程測試當成真實教學、ASR 精度或音質驗收。
+
+主要新增入口：
+
+- `test_podcast_beats.py`：多來源 beat、重複 claim ID 的來源位置、逐 part 引用、claim 跨 beat、原全集字數預算及雙 blocking verdict。
+- `test_podcast_audio.py`：首尾 trim、內部停頓／保護區、語境停頓、非有限值及無聲拒絕；真 FFmpeg two-pass mastering、AAC 解碼量測、實際 1080p60 編碼與 bundle 驗證。
+- `test_podcast_timeline.py`：原文字元範圍、VTT escaping、舊影片與 refined scene 的唯讀 locator 投影；stored manifest／script hash／VTT 不變。
+- `runtime/materials/test_podcast_interaction.py`：A revision Podcast 在教材更新至 B 後，Voice／來源／Assessment 仍使用 A；偽造 locator、錄音 context、冪等、取消／刪除晚到、0016 additive upgrade，以及播放／提問不產生作答事件。
+- `runtime/materials/test_podcast_interaction_browser.py` + `e2e/api/podcast-interaction.spec.ts`：真 API／DB 的來源開啟、Voice 問答與語音、VTT、末集 CTA、原 revision Assessment handoff。
+- 既有 Podcast／scene／video／Voice／migration／Assessment／study／source revision 回歸，以及 `e2e/mock/podcasts.spec.ts`、`material-tools.spec.ts`。包括 seek／倍速／audio→video handoff、字幕開關、無 alignment 手動選段、固定提問 context、completed session 不重開、過期 cue 拒絕及手機版面。
+
+主機的純測試環境可唯讀使用現有 CPU renderer 的 Pillow／imageio-ffmpeg；不修改共用 backend venv：
+
+~~~bash
+PYTHONPATH=backend/src:backend/tests:local_ai/src:data/podcast/video-runtime/lib/python3.12/site-packages \
+  backend/.venv/bin/pytest -q backend/tests --ignore=backend/tests/runtime
+~~~
+
+integration 使用上文的 disposable PostgreSQL fixture。執行 API browser 前建置專用 frontend dist，設定 `STUDYDY_E2E_FRONTEND_DIST`、`STUDYDY_E2E_FRONTEND_PORT=4183`、`STUDYDY_E2E_API_PORT=8002`，不要與產品 ports 共用，也不要平行執行占用同一組 ports 的 browser runners。
+
+最終主機 backend 單元套件 **343 項通過、0 skip**；無網路容器含 local_ai 測試為 **353 項通過、4 skip**，四項為容器缺少 Pillow／FFmpeg 的實際媒體測試，已由前述主機套件實際執行。最後的真 API handoff／context／scene／video 批次 **27 項通過**。
+
+已執行的相關批次包括 Podcast／Voice／migration 53 項、後續 context／影片 27 項、Voice revision／lease 17 項、Assessment 加真 API handoff 45 項、study／source revision 43 項；批次有重疊，不相加宣稱獨立覆蓋率。前端 Node tests、TypeScript、production build 通過；Podcast mock 18 項、共用 material-tools mock 12 項通過。新增來源投影後另重跑 timeline／beats 24 項及真 API／影片回歸。失敗案例均修正後針對性重跑，不把初次失敗或 skip 當成通過。
+
+### 30fps benchmark
+
+重跑入口只生成合成資料，不連產品服務：
+
+~~~bash
+data/podcast/video-runtime/bin/python ops/podcast/benchmark.py .studydy-runtime/podcast-beats/benchmark
+node ops/podcast/benchmark_browser.mjs .studydy-runtime/podcast-beats/benchmark
+~~~
+
+同機器、1920×1080、相同字型／音訊／cue／plan、H.264 fast／CRF18／4 threads，三次交錯配對。此量測涵蓋 render／encode，不包含 TTS、ASR 或模型延遲。
+
+| 合成案例 | 長度 | 60fps 中位時間 | 30fps 中位時間 | 速度比 |
+| --- | --- | --- | --- | --- |
+| 靜態頁 | 6s | 7.320s | 3.755s | 1.95× |
+| reveal／trace | 9s | 10.798s | 5.450s | 1.98× |
+| 較長片段 | 24s | 28.975s | 14.505s | 2.00× |
+
+三組每次皆完整解碼通過，固定時間點的文字／版面對照無明顯差異；實際 Chromium 前後 seek 的 reveal 狀態一致。0.5／1／2× 播放皆有量測 frame callback 與 media clock，最大差約 0.050 秒，這不是 ASR 精度。0.5× 時，60fps 成品的 presentation 約 30 frames/s，30fps 成品約 15 frames/s，trace 的時間取樣更粗；因此尚未滿足動態呈現無退化的條件，**正式維持 60fps**，不單憑 CPU 收益切換。
+
+量測摘要保存在 ignored 的 `.studydy-runtime/podcast-beats/benchmark/summary.json` 與 `browser-summary.json`；比較圖及合成影片可由上述命令重建，不加入 Git。此結果不代表長課程、實體手機、其他瀏覽器或真實教學內容已驗收。

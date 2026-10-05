@@ -63,3 +63,21 @@ def test_full_page_is_visible_on_entry_and_only_selected_emphasis_changes():
     assert board(2.5)!=board(0)
     assert board(6)!=board(5.9)  # 到主題邊界才換整頁。
     assert board(1)==board(0)  # 往回跳不留下標記。
+
+
+def test_progressive_reveal_and_reverse_seek_are_deterministic():
+    pytest.importorskip('PIL')
+    from runtime.podcast_video_render import layouts, draw_frame
+    from runtime.podcast_video_plan import validate_plan, timeline_for_video
+    from test_podcast_video_plan import sample,plan
+    episode,cues,alignment=sample();value=plan();value['schema']='podcast-storyboard/v2'
+    page=value['pages'][0];page['emphasis']=[];page['reveal']=[{'start_cue':1,'elements':[1]}]
+    page['elements'][1]['cue_index']=1
+    validate_plan(value,cues)
+    timeline=timeline_for_video('p',0,episode,cues,alignment,'/source')
+    layout=layouts(value);before=draw_frame(.1,timeline,value,layout)
+    after=draw_frame(timeline['segments'][1]['start']+.1,timeline,value,layout)
+    again=draw_frame(.1,timeline,value,layout)
+    assert before.tobytes()==again.tobytes()
+    e=page['elements'][1];box=(e['x'],e['y'],e['x']+e['w'],e['y']+e['h'])
+    assert before.crop(box).tobytes()!=after.crop(box).tobytes()

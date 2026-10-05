@@ -148,8 +148,14 @@ def validate_bundle(state,bundle):
                 or (metadata['width'],metadata['height'],metadata['fps'])!=(1920,1080,60)
                 or type(metadata['duration']) not in (int,float) or not math.isfinite(metadata['duration'])
                 or abs(metadata['duration']-episode['audio']['duration_seconds'])>.05
-                or bundle['review'].get('supported') is not True):
+                or not isinstance(bundle['review'],dict)
+                or any(not isinstance(bundle['review'].get(k),dict) or bundle['review'][k].get('passed') is not True or not isinstance(bundle['review'][k].get('reason'),str) for k in ('correctness','teaching_quality'))):
             raise SourceError('VIDEO_RESULT_INVALID')
+        if not isinstance(bundle['plan'],dict) or bundle['plan'].get('schema')!='podcast-storyboard/v2':raise SourceError('VIDEO_RESULT_INVALID')
+        if episode['audio'].get('mastering'):
+            encoded=metadata.get('encoded_audio',{})
+            if (not isinstance(encoded,dict) or any(type(encoded.get(k)) not in (int,float) or not math.isfinite(encoded[k]) for k in ('integrated_lufs','true_peak_dbtp'))
+                    or abs(encoded['integrated_lufs']+19)>1 or encoded['true_peak_dbtp']>-1):raise SourceError('VIDEO_AUDIO_INVALID')
         plan=validate_plan(bundle['plan'],bundle['cues'])
         timeline=timeline_for_video(state['podcast_id'],state['index'],episode,bundle['cues'],bundle['alignment'],state['source_resolver'])
         manifest={**metadata,'audio_sha256':episode['audio']['sha256'],'script_sha256':script_digest(episode),
@@ -195,7 +201,7 @@ def provider(state,audio):
     except HTTPError as error:
         try:code=json.loads(error.read(4096)).get('error_code','')
         except Exception:code=''
-        allowed={'VIDEO_CANCELLED','VIDEO_SOURCE_CHANGED','VIDEO_DISK_SPACE_LOW','VIDEO_TRANSCRIPT_INVALID','VIDEO_STORYBOARD_INVALID',
+        allowed={'VIDEO_AUDIO_INVALID','VIDEO_CANCELLED','VIDEO_SOURCE_CHANGED','VIDEO_DISK_SPACE_LOW','VIDEO_TRANSCRIPT_INVALID','VIDEO_STORYBOARD_INVALID',
                  'VIDEO_LAYOUT_INVALID','VIDEO_STORYBOARD_NEEDS_REVIEW','VIDEO_RENDER_FAILED','VIDEO_TOO_LARGE',
                  'VIDEO_ALIGNMENT_INVALID','VIDEO_PROVIDER_UNAVAILABLE','SCENE_ALIGNMENT_FAILED','LUNA_GENERATION_FAILED','LUNA_GENERATION_TIMEOUT'}
         raise SourceError(code if code in allowed else 'VIDEO_PROVIDER_FAILED') from None

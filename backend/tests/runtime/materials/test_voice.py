@@ -79,3 +79,16 @@ def test_voice_api_origin_owner_and_validation(closed_loop):
     assert client.post(f'/v1/voice-conversations/{c}/turns',headers=h,json={'question':'問題','owner':'fake'}).status_code==400
     r=client.post(f'/v1/voice-conversations/{c}/turns',headers=h,json={'question':'教材問題'})
     assert r.status_code==202,r.text
+
+
+def test_expired_voice_result_cannot_publish(closed_loop):
+    from datetime import UTC, datetime, timedelta
+    owner,_,cid,dsn=setup(closed_loop)
+    turn=voice.add_turn(owner,cid,'expires','合成問題',dsn=dsn);state=voice.claim(dsn=dsn)
+    with database_session(dsn) as db:db.get(VoiceTurn,turn['turn_id']).lease_expires_at=datetime.now(UTC)-timedelta(seconds=1)
+    voice.finish(state,{'text':'過期回答','supported':True,'citations':[0]},dsn=dsn)
+    assert voice.read(owner,cid,dsn=dsn)['turns'][0]['answer'] is None
+    renewed=voice.claim(dsn=dsn);assert renewed['lease_token']!=state['lease_token']
+    voice.finish(state,{'text':'舊工作回答','supported':True,'citations':[0]},dsn=dsn)
+    voice.finish(renewed,{'text':'有效的回答','supported':True,'citations':[0]},dsn=dsn)
+    assert voice.read(owner,cid,dsn=dsn)['turns'][0]['answer']['text']=='有效的回答'

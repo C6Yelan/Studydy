@@ -151,3 +151,28 @@ def test_early_mark_feedback_names_the_explanation_range_despite_full_page_visib
     mark.update(element_index=1,quote='第二點')
     with pytest.raises(ValueError,match=r'requested cues=0\.\.0.*emphasized.*cues=1\.\.1'):
         validate_plan(value,cues)
+
+
+@pytest.mark.parametrize('change',['duplicate','late','early','foreign','too_many'])
+def test_progressive_reveal_contract(change):
+    episode,cues,_=sample();value=plan();page=value['pages'][0]
+    page['emphasis']=[];page['reveal']=[{'start_cue':1,'elements':[1]}]
+    page['elements'][1]['cue_index']=1
+    if change=='duplicate':page['reveal'][0]['elements']=[1,1]
+    elif change=='late':page['elements'][1]['cue_index']=0
+    elif change=='early':page['reveal'][0]['start_cue']=0
+    elif change=='foreign':page['reveal'][0]['elements']=[60]
+    else:page['reveal']*=4
+    with pytest.raises(ValueError,match='VIDEO_STORYBOARD_INVALID'):validate_plan(value,cues)
+
+
+def test_reveal_cannot_show_connection_before_target_node():
+    _,cues,_=sample();value=plan();page=value['pages'][0]
+    # 一條可定位的連線，目標節點在後一個 cue 才出現。
+    page['elements']=[{'kind':'box','cue_index':0,'text':'起點','x':100,'y':300,'w':300,'h':200,'size':42,'color':'teal','filled':True},
+        {'kind':'box','cue_index':1,'text':'終點','x':900,'y':300,'w':300,'h':200,'size':42,'color':'blue','filled':True},
+        {'kind':'arrow','cue_index':1,'text':'','x':400,'y':400,'w':500,'h':0,'size':28,'color':'ink','filled':False}]
+    page['emphasis']=[];page['reveal']=[{'start_cue':1,'elements':[1]}]
+    with pytest.raises(ValueError,match='connection must not precede'):validate_plan(value,cues)
+    page['reveal'][0]['elements'].append(2)
+    assert validate_plan(value,cues)

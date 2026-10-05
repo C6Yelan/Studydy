@@ -37,7 +37,7 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
   view: PodcastView; index: number; storageKey: string; settingsKey: string; rememberPosition: { current: boolean };
   mediaRef?: {current: HTMLMediaElement | null};
   videoState: ReturnType<typeof usePodcastVideo>;
-  autoPlay: boolean; onEnded: () => void; onPrevious: () => void; onNext: () => void;
+  autoPlay: boolean; onEnded: (autoAdvance:boolean) => void; onPrevious: () => void; onNext: () => void;
 }) {
   const internalMedia = useRef<HTMLMediaElement>(null);
   const media = mediaRef ?? internalMedia;
@@ -47,6 +47,7 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
   const menu = useRef<HTMLDivElement>(null), gear = useRef<HTMLButtonElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  const [captions,setCaptions]=useState(false);
   const [settings, setSettings] = useState(() => readSettings(settingsKey));
   const [menuOpen, setMenuOpen] = useState(false), [playing, setPlaying] = useState(false), [ready, setReady] = useState(false);
   const [time, setTime] = useState(0), [length, setLength] = useState(view.episodes[index].audio?.duration_seconds ?? 0);
@@ -86,6 +87,10 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
     document.addEventListener("fullscreenchange", changed);
     return () => document.removeEventListener("fullscreenchange", changed);
   }, []);
+  useEffect(()=>{
+    const element=media.current;
+    if(element instanceof HTMLVideoElement)for(const track of Array.from(element.textTracks))track.mode=captions?'showing':'disabled';
+  },[captions,mediaSrc,ready]);
   const toggleFullscreen = async () => {
     try {
       if (document.fullscreenElement === viewport.current) await document.exitFullscreen();
@@ -121,7 +126,7 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
     onPause:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget===media.current){setPlaying(false);save(e.currentTarget)}},
     onTimeUpdate:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget!==media.current)return;setTime(e.currentTarget.currentTime);if(Date.now()-lastSaved.current>2000){save(e.currentTarget);lastSaved.current=Date.now()}},
     onSeeked:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget===media.current)save(e.currentTarget)},
-    onEnded:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget!==media.current)return;setPlaying(false);save(e.currentTarget);if(settings.autoAdvance)onEnded()},
+    onEnded:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget!==media.current)return;setPlaying(false);save(e.currentTarget);onEnded(settings.autoAdvance)},
     onError:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget===media.current){setReady(false);setError("媒體讀取失敗，請重試。")}},
   };
   const title = [...new Set(view.episodes[index].claims.map(c => c.label))].join(" · ");
@@ -156,6 +161,7 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
         <input type="range" aria-label="音量" min={0} max={1} step={0.05} value={settings.muted ? 0 : settings.volume} onChange={e => changeVolume(Number(e.target.value))} /></div>
       <div className="media-settings" ref={menu}><label className="media-autoplay"><input type="checkbox" aria-label="自動播放下一集" checked={settings.autoAdvance} onChange={e => setSettings(s => ({ ...s, autoAdvance: e.target.checked }))} />自動接續</label><button ref={gear} type="button" className="media-icon media-settings-toggle" aria-label="播放設定" title="播放設定" aria-expanded={menuOpen} aria-controls="podcast-player-settings" onClick={() => setMenuOpen(v => !v)}><span>{settings.speed}×</span><ControlIcon name="settings" /></button>
         {menuOpen && <div id="podcast-player-settings" className="media-settings-panel" role="group" aria-label="播放設定選單"><strong>播放速度</strong><div className="media-speed-options">{speeds.map(speed => <button type="button" key={speed} aria-pressed={settings.speed === speed} onClick={() => {setSettings(s => ({ ...s, speed }));setMenuOpen(false)}}>{speed === 1 ? "正常" : `${speed}×`}</button>)}</div><label className="media-menu-volume">音量<input type="range" aria-label="設定音量" min={0} max={1} step={0.05} value={settings.muted ? 0 : settings.volume} onChange={e => changeVolume(Number(e.target.value))}/></label></div>}
+        {video&&<button type="button" className="text-button" aria-pressed={captions} onClick={()=>setCaptions(v=>!v)}>字幕</button>}
         <button type="button" className="media-icon" aria-label={fullscreen ? "退出全螢幕" : "全螢幕"} title={fullscreen ? "退出全螢幕" : "全螢幕"} onClick={() => void toggleFullscreen()}><ControlIcon name="fullscreen" /></button>
       </div>
     </div>

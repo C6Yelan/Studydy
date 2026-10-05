@@ -433,6 +433,7 @@ class VoiceTurn(Base):
     conversation_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
     request_key: Mapped[str] = mapped_column(Text)
     fingerprint: Mapped[str] = mapped_column(Text)
+    context: Mapped[dict | None] = mapped_column(JSONB)
     question: Mapped[str] = mapped_column(Text)
     answer: Mapped[dict | None] = mapped_column(EvidenceJSONB)
     status: Mapped[str] = mapped_column(Text)

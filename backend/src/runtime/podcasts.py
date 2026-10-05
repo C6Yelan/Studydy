@@ -3,6 +3,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import io
+import math
 import wave
 from uuid import UUID, uuid4
 
@@ -111,9 +112,13 @@ def read_podcast(owner, identity, *, dsn=None):
         document = _read_verified_document(db, owner, row.material_id,
             revision=row.knowledge_structure_revision)
         view = _view(document, row.material_id)
-        return {"schema": "podcast/v1", **_summary(row, material),
+        from .podcast_script import digest
+        episodes=deepcopy(row.episodes)
+        for episode in episodes:
+            episode['script_sha256']=digest(episode['script']) if episode['script'] else None
+        return {"schema": "podcast/v1", "run_id":document['run_id'], **_summary(row, material),
             "source_resolver": view["source_resolver"], "source_status": view["status"],
-            "excluded_pages": view["excluded_pages"], "episodes": deepcopy(row.episodes)}
+            "excluded_pages": view["excluded_pages"], "episodes": episodes}
 
 
 def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=None):
@@ -217,6 +222,10 @@ def claim_step(*, dsn=None):
 
 
 def validate_script(script, episode):
+    from .podcast_script import SCHEMA, validate
+    if isinstance(script, dict) and script.get('schema') == SCHEMA:
+        try: return validate(script, episode)
+        except ValueError: raise PodcastError('PODCAST_SCRIPT_INVALID') from None
     claims = episode["claims"]
     if not isinstance(script, dict) or set(script) != {"segments", "provider"}:
         raise PodcastError("PODCAST_SCRIPT_INVALID")
@@ -256,7 +265,7 @@ def validate_audio(data):
         raise PodcastError("PODCAST_AUDIO_INVALID") from None
 
 
-def finish_step(claim, *, script=None, audio=None, audio_provider=None, error=None, dsn=None):
+def finish_step(claim, *, script=None, audio=None, audio_provider=None, audio_mastering=None, error=None, dsn=None):
     with database_session(dsn) as db:
         try:
             row, _ = _locked(db, claim["owner"], claim["podcast_id"])
@@ -274,11 +283,20 @@ def finish_step(claim, *, script=None, audio=None, audio_provider=None, error=No
             elif audio is not None and episode["script"]:
                 if not isinstance(audio_provider, str) or not audio_provider.strip() or len(audio_provider) > 300:
                     raise PodcastError("PODCAST_AUDIO_INVALID")
+                from .podcast_script import SCHEMA
+                if episode['script'].get('schema')==SCHEMA and audio_mastering is None:raise PodcastError('PODCAST_AUDIO_INVALID')
+                if audio_mastering is not None:
+                    try:
+                        if not (set(audio_mastering)=={'policy','integrated_lufs','true_peak_dbtp','loudness_range_lu'}):raise ValueError()
+                        if not (audio_mastering['policy']=='podcast-mastering/v1'):raise ValueError()
+                        if not (all(type(audio_mastering[k]) in (int,float) and math.isfinite(audio_mastering[k]) for k in ('integrated_lufs','true_peak_dbtp','loudness_range_lu'))):raise ValueError()
+                        if not (abs(audio_mastering['integrated_lufs']+19)<=1 and audio_mastering['true_peak_dbtp']<=-1.9 and audio_mastering['loudness_range_lu']>=0):raise ValueError()
+                    except (ValueError,KeyError,TypeError):raise PodcastError('PODCAST_AUDIO_INVALID') from None
                 duration = validate_audio(audio)
                 artifact = write_blob(db, row.learner_id, row.material_id, audio, "podcast_audio", "audio/wav")
                 episode["audio"] = {"artifact_id": str(artifact.artifact_id),
                     "sha256": sha256(audio).hexdigest(), "duration_seconds": duration,
-                    "provider": audio_provider}
+                    "provider": audio_provider, **({"mastering":audio_mastering} if audio_mastering is not None else {})}
 
             else:
                 raise PodcastError("PODCAST_SCRIPT_INVALID")
@@ -286,6 +304,8 @@ def finish_step(claim, *, script=None, audio=None, audio_provider=None, error=No
             if audio is not None:
                 from .podcast_videos import enqueue
                 enqueue(db,row,claim['index'])
+                from .podcast_scenes import enqueue as enqueue_alignment
+                enqueue_alignment(db,row,claim['index'])
             row.status = "ready" if all(e.get("audio") for e in episodes) else "pending"
         row.lease_token = row.lease_expires_at = None
         row.version += 1

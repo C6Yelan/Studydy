@@ -12,7 +12,7 @@ async function mockPodcasts(page: Page) {
   claims.forEach((claim, i) => { claim.label = labels[i]; claim.text = "合成測試重點，保留必要的條件與數值。".repeat(20); });
   const episode = () => ({ delivery: "solo" as const, claims, script: null, audio: null });
   const view: PodcastView = {
-    schema: "podcast/v1", podcast_id: podcastId, material_id: materialId,
+    schema: "podcast/v1", run_id:runId, podcast_id: podcastId, material_id: materialId,
     material_name: "資料結構講義.pdf", knowledge_structure_revision: structureRevision,
     name: "我的 Podcast", mode: "quick", delivery: "solo", concept_ids: claims.map(c => c.concept_id),
     status: "running", error_code: null, version: 1, created_at: "2026-10-03T00:00:00Z",
@@ -403,7 +403,7 @@ async function mockEpisodeVideo(page:Page, initial:'ready'|'pending'|'failed'='r
   });
   await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`,r=>{
     const index=Number(new URL(r.request().url()).pathname.split('/').at(-2));
-    return json(r,{schema:'podcast-transcript-timeline/v1',podcast_id:podcastId,episode_index:index,audio_sha256:'a'.repeat(64),segments:[{id:'a',start:0,end:6,title:'第一點',text:'這是前半段的講解。',turns:[{speaker:'host',text:'這是前半段的講解。'}]},{id:'b',start:6,end:12,title:'第二點',text:'這是後半段的講解。',turns:[{speaker:'guest',text:'這是後半段的講解。'}]}]});
+    return json(r,{schema:'podcast-transcript-timeline/v1',podcast_id:podcastId,episode_index:index,audio_sha256:'a'.repeat(64),script_sha256:'c'.repeat(64),source_resolver:fixture.view.source_resolver,segments:[{id:'a',start:0,end:6,title:'第一點',text:'這是前半段的講解。',turns:[{speaker:'host',text:'這是前半段的講解。'}]},{id:'b',start:6,end:12,title:'第二點',text:'這是後半段的講解。',turns:[{speaker:'guest',text:'這是後半段的講解。'}]}]});
   });
   await page.route(`**/v1/podcasts/${podcastId}/episodes/*/subtitles`,r=>r.fulfill({contentType:'text/vtt',body:'WEBVTT\n\n00:00:00.000 --> 00:00:06.000\n前半段\n\n00:00:06.000 --> 00:00:12.000\n後半段\n'}));
   return {fixture,actions,ready:()=>{status='ready';version++}};
@@ -461,7 +461,7 @@ test('full dialogue video keeps both speakers inside a shared cue and seeks acro
     if(episode.script)episode.script={...episode.script,segments:episode.script.segments.map(s=>({...s,turns:[{speaker:'host',text:'為什麼需要這個條件？'},{speaker:'guest',text:'條件決定這個觀念的適用範圍。'}]}))};
   }
   await page.route(`**/v1/podcasts/${podcastId}/episodes/0/timeline`,r=>json(r,{
-    schema:'podcast-transcript-timeline/v1',podcast_id:podcastId,episode_index:0,audio_sha256:'a'.repeat(64),
+    schema:'podcast-transcript-timeline/v1',podcast_id:podcastId,episode_index:0,audio_sha256:'a'.repeat(64),script_sha256:'c'.repeat(64),source_resolver:mock.fixture.view.source_resolver,
     segments:[{id:'a',start:0,end:6,title:'提問與說明',text:'為什麼需要這個條件？\n條件決定這個觀念的適用範圍。',turns:[{speaker:'host',text:'為什麼需要這個條件？'},{speaker:'guest',text:'條件決定這個觀念的適用範圍。'}]},
       {id:'b',start:6,end:12,title:'下一個重點',text:'接著確認來源中的另一個限制。',turns:[{speaker:'guest',text:'接著確認來源中的另一個限制。'}]}]}));
   await page.goto(`/podcasts/${podcastId}`);
@@ -474,4 +474,117 @@ test('full dialogue video keeps both speakers inside a shared cue and seeks acro
   await first.click();await expect(first).toHaveAttribute('aria-current','true');
   await page.getByRole('button',{name:'播放',exact:true}).click();
   await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.currentTime)).toBeGreaterThan(.2);
+});
+
+async function mockTeachingBeats(page:Page) {
+  const mock=await mockEpisodeVideo(page);const view=mock.fixture.view;
+  view.episodes=view.episodes.slice(0,1);view.episode_count=view.completed_episodes=1;view.is_current_revision=false;
+  const e=view.episodes[0],texts=['第一個來源說明必要的條件。','第二個來源比較不同的結果。'];
+  e.script_sha256='c'.repeat(64);
+  e.script={schema:'podcast-script/v2',provider:'synthetic',review:{correctness:{passed:true,reason:'fixture'},teaching_quality:{passed:true,reason:'fixture'}},
+    segments:[{beat_id:'beat-0',title:'比較必要條件',turns:[{speaker:'host',text:texts.join(''),parts:texts.map((text,i)=>({text,source_refs:[{source_index:i,evidence_ids:e.claims[i].evidence.map(e=>e.evidence_id)}]}))}]}]};
+  const timeline={schema:'podcast-transcript-timeline/v1',podcast_id:podcastId,episode_index:0,audio_sha256:'a'.repeat(64),script_sha256:e.script_sha256,source_resolver:view.source_resolver,
+    segments:texts.map((text,i)=>({id:`cue-${i}`,title:`比較 ${i+1}`,start:i*6,end:(i+1)*6,text,turns:[{speaker:'host',text}],evidence:e.claims[i].evidence,
+      source_refs:[{segment_index:0,turn_index:0,start:i?texts[0].length:0,end:i?texts.join('').length:texts[0].length}]}))};
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/0/timeline`,r=>json(r,timeline));
+  return {view,timeline};
+}
+
+test('teaching beat sources and current-cue Voice keep the original revision and captured locator',async({page})=>{
+  const {view,timeline}=await mockTeachingBeats(page);
+  const cid='88888888-8888-4888-8888-888888888888';const sent:any[]=[];
+  const conversation={conversation_id:cid,material_id:materialId,knowledge_structure_revision:structureRevision,title:'這一段',created_at:view.created_at};
+  const voice={...conversation,is_current_revision:false,source_resolver:view.source_resolver,turns:[] as any[]};
+  await page.route(`**/v1/materials/${materialId}/voice-conversations`,r=>{
+    if(r.request().method()==='POST'){expect(r.request().postDataJSON()).toEqual({knowledge_structure_revision:structureRevision});return json(r,conversation,201)}
+    return json(r,{conversations:voice.turns.length?[conversation]:[]});
+  });
+  await page.route(`**/v1/voice-conversations/${cid}`,r=>json(r,voice));
+  await page.route(`**/v1/voice-conversations/${cid}/turns`,r=>{
+    const body=r.request().postDataJSON();sent.push(body);
+    voice.turns.push({turn_id:sessionId,question:body.question,context:body.context,status:'ready',error_code:null,audio_url:null,
+      answer:{text:'回答仍依原版本的必要條件。',supported:true,citations:[view.episodes[0].claims[1]]}});
+    return json(r,{turn_id:sessionId},202);
+  });
+  const writes:string[]=[];page.on('request',r=>{if(r.method()==='POST')writes.push(r.url())});
+  await page.goto(`/podcasts/${podcastId}`);
+  await page.getByRole('button',{name:'播放',exact:true}).click();
+  const transcript=page.getByRole('tabpanel',{name:'逐字稿'});
+  await transcript.locator('li').nth(1).getByRole('button',{name:/第二個來源/}).click();
+  await transcript.locator('li').nth(1).getByText('查看這段來源',{exact:true}).click();
+  await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.paused)).toBe(true);
+  const sourceButton=transcript.locator('li').nth(1).getByRole('button',{name:/查看第|PDF 第/});
+  await sourceButton.click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();
+  await page.getByRole('button',{name:'關閉',exact:true}).click();
+  await page.getByRole('button',{name:'問目前播放這一段',exact:true}).click();
+  await expect(page.getByRole('region',{name:'問這一段'})).toBeVisible();
+  // 改變播放位置不改寫已選取的提問 context。
+  await page.locator('video').evaluate((v:HTMLVideoElement)=>{v.currentTime=1});
+  await page.getByRole('textbox',{name:'問題／辨識文字'}).fill('這裡為什麼不同？');
+  await page.getByRole('button',{name:'送出問題',exact:true}).click();
+  await expect(page.getByText('回答仍依原版本的必要條件。')).toBeVisible();
+  expect(sent).toHaveLength(1);expect(sent[0].context.source_refs).toEqual(timeline.segments[1].source_refs);
+  expect(sent[0].context.script_sha256).toBe(view.episodes[0].script_sha256);
+  expect(writes.some(url=>/submissions|answer-events|guidance/.test(url))).toBe(false);
+  await page.getByRole('button',{name:'關閉問答',exact:true}).click();
+  await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.paused)).toBe(true);
+});
+
+test('final ended offers existing Assessment even with auto-advance off and captions remain independent',async({page})=>{
+  const {view}=await mockTeachingBeats(page);const requests:any[]=[];
+  await page.route('**/v1/study-sessions',async route=>{
+    requests.push(route.request().postDataJSON());
+    // 保留共用 fixture 的 canonical study session 回應。
+    await route.fallback();
+  });
+  await page.goto(`/podcasts/${podcastId}`);
+  await page.getByLabel('自動播放下一集').uncheck();
+  await page.getByRole('button',{name:'字幕',exact:true}).click();
+  await expect(page.getByRole('button',{name:'字幕',exact:true})).toHaveAttribute('aria-pressed','true');
+  await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.textTracks[0]?.mode)).toBe('showing');
+  await page.locator('video').evaluate((v:HTMLVideoElement)=>{v.currentTime=11.8;return v.play()});
+  await expect(page.getByText('已播放至末集結尾，接著檢測理解')).toBeVisible();
+  expect(requests).toHaveLength(0);
+  await page.getByRole('button',{name:'進入既有測驗',exact:true}).click();
+  await expect.poll(()=>requests.length).toBe(1);
+  expect(requests[0].knowledge_structure_revision).toBe(structureRevision);
+  expect(requests[0].current_concept_id).toBe(view.concept_ids[0]);
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}/knowledge-structures/`));
+});
+
+test('unaligned teaching beats support explicit selection without guessed playback times',async({page})=>{
+  const {view}=await mockTeachingBeats(page);
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/0/timeline`,r=>json(r,{schema:'api-error/v1',request_id:sessionId,reason_code:'SOURCE_NOT_READY',retryable:true,message:'pending'},409));
+  await page.route(`**/v1/materials/${materialId}/voice-conversations`,r=>json(r,{conversations:[]}));
+  await page.goto(`/podcasts/${podcastId}`);
+  await expect(page.getByRole('button',{name:'問目前播放這一段',exact:true})).toBeDisabled();
+  await expect(page.getByText('時間軸尚未準備完成，可先選擇下列段落提問。')).toBeVisible();
+  await page.getByRole('button',{name:'問這一段',exact:true}).click();
+  await expect(page.getByRole('region',{name:'問這一段'})).toBeVisible();
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
+});
+
+test('completed Assessment session is not reopened or refocused by Podcast handoff',async({page})=>{
+  const {view}=await mockTeachingBeats(page);let focused=false;
+  await page.route('**/v1/study-sessions',r=>json(r,{schema:'study-session/v1',study_session_id:sessionId,material_id:materialId,
+    knowledge_structure_revision:structureRevision,current_concept_id:view.concept_ids[1],deferred_concept_ids:[],no_safe_claim_ids:[],
+    status:'completed',started_at:view.created_at,completed_at:view.created_at,event_watermark:0}));
+  await page.route(`**/v1/study-sessions/${sessionId}/assessment-sets`,r=>json(r,{schema:'assessment-set-list/v1',study_session_id:sessionId,
+    knowledge_structure_revision:structureRevision,active_set_ids:[],sets:[]}));
+  await page.route(`**/v1/study-sessions/${sessionId}/focus`,r=>{focused=true;return r.abort()});
+  await page.goto(`/podcasts/${podcastId}`);
+  await page.getByRole('button',{name:'進入既有測驗',exact:true}).click();
+  await expect(page.getByText('此版本已完成，所選概念沒有可開啟的既有題組，請從原版本知識地圖查看結果。')).toBeVisible();
+  expect(focused).toBe(false);
+  await expect(page.getByRole('button',{name:'查看原版本知識地圖',exact:true})).toBeVisible();
+});
+
+test('stale cue text or evidence cannot become Podcast question context',async({page})=>{
+  const {timeline}=await mockTeachingBeats(page);
+  timeline.segments[0].turns[0].text='不是這段原文';
+  timeline.segments[0].text='不是這段原文';
+  await page.goto(`/podcasts/${podcastId}`);
+  await expect(page.getByText('時間軸與本集原稿、音訊或來源不一致。')).toBeVisible();
+  await expect(page.getByRole('button',{name:'問目前播放這一段',exact:true})).toBeDisabled();
 });

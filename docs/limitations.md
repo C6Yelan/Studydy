@@ -45,3 +45,6 @@ partial／needs_review 結果需複核，地圖與學習頁的品質提示尚未
 Podcast 使用 Luna 腳本與本機 CosyVoice 3 RL／B 聲線生成，已依本次批准部署至正式站。桌機與手機尺寸的 Chromium 介面已用 Playwright MCP 驗證，實體手機及其他瀏覽器仍待確認。來源固定於建立時的 KS，原本的 `needs_review`／缺頁資料仍保留；自動來源核對與有效 WAV 不保證語意、術語發音或台灣口音全部正確，尚未完成人工音質驗收。
 
 音訊完成所有分集後才開放播放。取消會阻止晚到結果發布，但不保證立即停止在途推論；程序中斷後以最多 15 分鐘的 lease 到期回收未確認步驟。已保存分集不重做。播放位置只在同一帳號／同一瀏覽器保存，不同步到其他裝置。
+
+
+Teaching beat／精確 part 引用、雙 blocking review、Voice context、Assessment handoff、音訊 mastering 及有限 reveal 的工程回歸使用合成資料與受控 provider，與上述歷史部署驗收分開。此變更未執行真實 Luna／CosyVoice／Whisper／GPU 教學品質驗收，也未部署到產品。自動 review 不能替代人工核對來源、比喻、對話品質、發音或 trim 是否切掉弱音。30fps 雖有 CPU 收益，半速播放的 trace 更新頻率降低，仍保留 60fps；原教材圖片素材 deferred。

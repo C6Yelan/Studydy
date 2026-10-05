@@ -1,12 +1,13 @@
 """影片分鏡只接受有限圖形與逐字可回查的講稿片段，不執行模型程式碼。"""
 from copy import deepcopy
+from .podcast_script import references, sources
 from hashlib import sha256
 import json
 import math
 import unicodedata
 
 
-POLICY = 'flat-report/v3'
+POLICY = 'flat-report/v4'
 KINDS = ('text', 'box', 'circle', 'line', 'arrow')
 COLORS = ('ink', 'teal', 'blue', 'orange', 'muted')
 
@@ -105,17 +106,19 @@ def plan_schema(cues):
     page = object_schema({'title': {'type': 'string', 'minLength': 1, 'maxLength': 28},
                           'start_cue': index, 'end_cue': index,
                           'elements': {'type': 'array', 'minItems': 1, 'maxItems': 60, 'items': element},
-                          'emphasis':emphasis_schema(cues)})
+                          'emphasis':emphasis_schema(cues),
+                          'reveal':{'type':'array','maxItems':3,'items':object_schema({
+                              'start_cue':index,'elements':{'type':'array','minItems':1,'maxItems':60,'items':{'type':'integer','minimum':0,'maximum':59}}})}})
     return object_schema({'pages': {'type': 'array', 'minItems': 1, 'maxItems': 12, 'items': page}})
 
 
 def validate_plan(plan, cues):
-    if not isinstance(plan, dict) or set(plan) != {'pages'} or not isinstance(plan['pages'], list) or not 1 <= len(plan['pages']) <= 12:
+    if not isinstance(plan, dict) or (set(plan) not in ({'pages'}, {'schema','pages'}) or ('schema' in plan and plan['schema']!='podcast-storyboard/v2')) or not isinstance(plan['pages'], list) or not 1 <= len(plan['pages']) <= 12:
         raise ValueError('VIDEO_STORYBOARD_INVALID:pages must contain 1..12 pages')
     next_cue = 0
     for page_index,page in enumerate(plan['pages']):
         where=f'VIDEO_STORYBOARD_INVALID:page={page_index}'
-        if (not isinstance(page,dict) or set(page) not in ({'title', 'start_cue', 'end_cue', 'elements'}, {'title', 'start_cue', 'end_cue', 'elements', 'emphasis'})
+        if (not isinstance(page,dict) or set(page) not in ({'title', 'start_cue', 'end_cue', 'elements'}, {'title', 'start_cue', 'end_cue', 'elements', 'emphasis'}, {'title', 'start_cue', 'end_cue', 'elements', 'emphasis', 'reveal'})
                 or not isinstance(page['title'], str) or not 0 < len(page['title']) <= 28
                 or not isinstance(page['elements'], list) or not 1 <= len(page['elements']) <= 60):
             raise ValueError(where+', title must be 1..28 characters and elements must contain 1..60 items')
@@ -141,6 +144,30 @@ def validate_plan(plan, cues):
                 raise ValueError(where+', line/arrow needs empty text and a nonzero length')
             if e['kind']=='text' and not e['text']:
                 raise ValueError(where+', text element needs nonempty text')
+        groups=page.get('reveal',[])
+        if not isinstance(groups,list) or len(groups)>3:raise ValueError(where+', at most three reveal groups')
+        used=set();previous=page['start_cue']
+        for group in groups:
+            if (not isinstance(group,dict) or set(group)!={'start_cue','elements'}
+                or type(group['start_cue']) is not int or not previous<group['start_cue']<=page['end_cue']
+                or not isinstance(group['elements'],list) or not group['elements']):raise ValueError(where+', invalid reveal group')
+            previous=group['start_cue']
+            for target in group['elements']:
+                if type(target) is not int or not 0<=target<len(page['elements']) or target in used:raise ValueError(where+', duplicate or invalid reveal target')
+                if group['start_cue']>page['elements'][target]['cue_index']:raise ValueError(where+', reveal must precede explanation')
+                used.add(target)
+        # 已知幾何連線的端點不得先於其節點出現；不靠模型承諾避免懸空箭頭。
+        visible_at={i:page['start_cue'] for i in range(len(page['elements']))}
+        for group in groups:
+            for target in group['elements']:visible_at[target]=group['start_cue']
+        for i,element in enumerate(page['elements']):
+            if element['kind'] not in ('line','arrow'):continue
+            for j,node in enumerate(page['elements']):
+                if node['kind'] not in ('box','circle'):continue
+                left,top=node['x'],node['y'];right,bottom=left+node['w'],top+node['h']
+                for x,y in ((element['x'],element['y']),(element['x']+element['w'],element['y']+element['h'])):
+                    distance=math.hypot(max(left-x,0,x-right),max(top-y,0,y-bottom))
+                    if distance<=24 and visible_at[i]<visible_at[j]:raise ValueError(where+', connection must not precede its node')
         validate_emphasis(page,page_index)
         next_cue = page['end_cue']+1
     if next_cue != len(cues):
@@ -201,6 +228,7 @@ def timeline_for_video(podcast_id, episode_index, episode, cues, alignment, sour
     normalized = lambda value: ''.join(c for c in unicodedata.normalize('NFKC',value).casefold() if c.isalnum())
     turns = source_turns(episode)
     segments=[]
+    consumed = [0] * len(turns)
     for i,(cue,text,anchor) in enumerate(zip(cues,texts,anchors)):
         reference=normalized(text)
         try:
@@ -217,18 +245,26 @@ def timeline_for_video(podcast_id, episode_index, episode, cues, alignment, sour
                 raise ValueError()
         except (KeyError,TypeError,ValueError):
             raise ValueError('VIDEO_ALIGNMENT_INVALID') from None
-        refs=[]; spoken=[]; claim_ids=[]; evidence={}
+        refs=[]; spoken=[]; claim_ids=[]; evidence={}; source_bindings=[]; beat_ids=[]
         for part in cue['parts']:
             turn=turns[part['turn_index']]; source_index=turn['segment_index']
-            claim=episode['claims'][source_index]
-            if claim['claim_id']!=episode['script']['segments'][source_index]['claim_id']:
-                raise ValueError('VIDEO_SOURCE_CHANGED')
-            refs.append({'segment_index':source_index,'turn_index':turn['turn_index']})
+            offset=consumed[part['turn_index']]; stop=offset+len(part['text'])
+            consumed[part['turn_index']]=stop
+            bindings=references(episode,source_index,turn['turn_index'],offset,stop)
+            bound_claims,bound_evidence=sources(episode,bindings)
+            beat=episode['script']['segments'][source_index]
+            beat_id=beat.get('beat_id',f'legacy-{source_index}')
+            if beat_id not in beat_ids:beat_ids.append(beat_id)
+            refs.append({'segment_index':source_index,'turn_index':turn['turn_index'],
+                         'start':offset,'end':stop})
             spoken.append({'speaker':turn['speaker'],'text':part['text']})
-            if claim['claim_id'] not in claim_ids:claim_ids.append(claim['claim_id'])
-            for e in claim['evidence']:evidence[e['evidence_id']]=deepcopy(e)
+            for claim in bound_claims:
+                if claim not in source_bindings:source_bindings.append(claim)
+                if claim['claim_id'] not in claim_ids:claim_ids.append(claim['claim_id'])
+            for e in bound_evidence:evidence[e['evidence_id']]=e
         segments.append({'id':f'episode-{episode_index}-cue-{i}','index':i,'start':starts[i],'end':end,
                          'title':cue['title'],'text':text,'turns':spoken,'source_refs':refs,
+                         'beat_ids':beat_ids,'source_bindings':source_bindings,
                          'claim_ids':claim_ids,'evidence':list(evidence.values())})
     return {'schema':'podcast-transcript-timeline/v1','podcast_id':str(podcast_id),'episode_index':episode_index,
             'time_unit':'seconds','granularity':'script_cue','duration':duration,

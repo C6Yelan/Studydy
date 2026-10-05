@@ -24,7 +24,7 @@ export function PodcastProgress({ view, busy, onAction }: {
             <div className="progress-heading"><strong className="stage-label stage-status-label">{!paused && <span className="processing-status-indicator" aria-hidden="true" />}{stages[stage].label}</strong><strong>{activity}</strong></div>
             <p role="status">{current >= 0 ? `第 ${current + 1} / ${view.episode_count} 集 · ${paused ? "停在" : view.status === "pending" ? "接下來：" : ""}${stages[stage].label}` : "所有集數已完成"}</p>
             {view.error_code === "PODCAST_STORAGE_FAILED" && <p role="alert">這一集未能保存，請重試。已完成的部分會保留。</p>}
-            {view.error_code === "PODCAST_SCRIPT_NEEDS_REVIEW" && <p role="alert">本集內容的來源核對未通過，請重試。尚未發布音訊。</p>}
+            {view.error_code === "PODCAST_SCRIPT_NEEDS_REVIEW" && <p role="alert">本集內容的來源或教學品質核對未通過，請重試。尚未發布音訊。</p>}
           </section>
         </div>
         <p className="processing-leave-note">{paused ? "已完成的進度會保留，接續生成會從未完成的部分開始。" : "進度會自動保存，可稍後從「我的 Podcast」返回查看。全部完成後即可播放。"}</p>

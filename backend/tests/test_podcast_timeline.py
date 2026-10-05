@@ -10,7 +10,8 @@ def example():
     manifest = {'audio_sha256': 'audio', 'duration': 2.5, 'input_sha256': 'input',
                 'alignment_method': 'real-asr', 'alignment_producer': 'whisper', 'source_resolver': '/source',
                 'anchors': [], 'scenes': [{'index': 0, 'claim_id': 'claim', 'start': 0, 'end': 2.5,
-                                          'evidence': [{'page_ref': 1}], 'title': '標題'}]}
+                                          'evidence': [{'evidence_id':'evidence','page_ref': 1}], 'title': '標題'}]}
+    episode['claims']=[{'claim_id':'claim','concept_id':'concept','evidence':deepcopy(manifest['scenes'][0]['evidence'])}]
     return episode, manifest
 
 
@@ -110,3 +111,33 @@ def test_refined_timeline_rejects_stale_or_estimated_alignment(change):
     if change == 'text': refinement['cues'][0]['text'] += '新增'
     if change == 'time': refinement['alignment']['starts'][1] = 1.3
     with pytest.raises(ValueError): build_timeline('podcast', 0, episode, manifest)
+
+
+def test_saved_video_turn_indices_gain_ranges_without_rewriting_manifest():
+    from copy import deepcopy
+    from test_podcast_video_plan import sample
+    from runtime.podcast_video_plan import timeline_for_video
+    from runtime.podcast_timeline import with_source_ranges
+    episode,cues,alignment=sample()
+    timeline=timeline_for_video('p',0,episode,cues,alignment,'/exact/evidence')
+    for cue in timeline['segments']:
+        for ref in cue['source_refs']:
+            ref.pop('start');ref.pop('end')
+    original=deepcopy(timeline)
+    projected=with_source_ranges(timeline,episode)
+    assert timeline==original and webvtt(projected)==webvtt(original)
+    assert projected['script_sha256']==original['script_sha256']
+    assert all('start' in ref and 'end' in ref for cue in projected['segments'] for ref in cue['source_refs'])
+    broken=deepcopy(timeline);broken['segments'][0]['turns'][0]['text']='不是保存的原文'
+    with pytest.raises(ValueError,match='PODCAST_TIMELINE_SOURCE_MISMATCH'):with_source_ranges(broken,episode)
+
+
+def test_legacy_refined_scene_can_be_used_as_question_locator():
+    from runtime.podcast_timeline import with_source_ranges
+    episode,manifest=refined_example()
+    timeline=build_timeline('p',0,episode,manifest)
+    projected=with_source_ranges(timeline,episode)
+    assert webvtt(projected)==webvtt(timeline)
+    first,second=projected['segments']
+    assert first['source_refs'][0]['end']==second['source_refs'][0]['start']
+    assert second['source_refs'][0]['end']==len(episode['script']['segments'][0]['turns'][0]['text'])

@@ -37,7 +37,7 @@ class PodcastWorker:
                     raise podcasts.PodcastError("PODCAST_PROVIDER_UNAVAILABLE")
                 episode = claim["episode"]
                 audio = bool(episode["script"])
-                body = {"script": episode["script"]} if audio else {
+                body = {"script": episode["script"], "purpose": "podcast"} if audio else {
                     "mode": claim["mode"], "claims": episode["claims"], "delivery": episode["delivery"],
                     "source_context": claim["source_context"]}
                 request = Request(base + ("/audio" if audio else "/script"),
@@ -47,6 +47,11 @@ class PodcastWorker:
                     with urlopen(request, timeout=600) as response:
                         data = response.read(100 * 1024 * 1024 + 1)
                         audio_provider = response.headers.get("X-Studydy-Audio-Provider") if audio else None
+                        audio_mastering = None
+                        if audio:
+                            raw_metadata=response.headers.get('X-Studydy-Audio-Mastering','')
+                            if not raw_metadata or len(raw_metadata)>2048:raise podcasts.PodcastError('PODCAST_AUDIO_INVALID')
+                            audio_mastering=json.loads(raw_metadata)
                 except HTTPError as failure:
                     try:
                         code = json.loads(failure.read(4096)).get("error_code")
@@ -60,7 +65,7 @@ class PodcastWorker:
                 result = data if audio else json.loads(data)
                 saving = True
                 if audio:
-                    podcasts.finish_step(claim, audio=result, audio_provider=audio_provider, dsn=self.dsn)
+                    podcasts.finish_step(claim, audio=result, audio_provider=audio_provider, audio_mastering=audio_mastering, dsn=self.dsn)
                 else:
                     podcasts.finish_step(claim, script=result, dsn=self.dsn)
             except Exception as error:
