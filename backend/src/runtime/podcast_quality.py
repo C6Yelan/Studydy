@@ -1,5 +1,6 @@
 """新講稿的篇幅預算與可定位的教學品質訊號；不改寫既有講稿。"""
 from difflib import SequenceMatcher
+from copy import deepcopy
 import math
 import re
 import unicodedata
@@ -43,6 +44,24 @@ def budget_issues(segments, budget):
     return [{'code': 'content_budget', 'field': key, 'actual': count, 'limit': budget[key],
              'blocking': True, 'detail': '保留所有來源與必要條件，刪除重述、附和及非必要例子；不可截斷原文。'}
             for key, count in actual.items() if count > budget[key]]
+
+
+def join_question_beats(segments):
+    """純提問沒有獨立來源範圍時，與緊接的解答共用教學單位；不刪改任何發言。"""
+    result = deepcopy(segments)
+    i = 0
+    while i+1 < len(result):
+        current, following = result[i], result[i+1]
+        turns = current['turns'] + following['turns']
+        question_only = bool(current['turns']) and all(
+            ''.join(p['text'] for p in t['parts']).strip().rstrip('」”"').endswith(('？', '?'))
+            and all(not p['source_refs'] for p in t['parts']) for t in current['turns'])
+        if question_only and len(turns) <= 12 and sum(len(p['text']) for t in turns for p in t['parts']) <= 3200:
+            following['turns'] = turns
+            result.pop(i)
+        else:
+            i += 1
+    return result
 
 
 def _plain(text):

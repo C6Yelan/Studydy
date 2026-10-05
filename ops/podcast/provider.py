@@ -106,7 +106,7 @@ def script(body):
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend/src'))
     from runtime.podcast_script import SCHEMA, validate
-    from runtime.podcast_quality import content_budget, budget_issues, teaching_signals
+    from runtime.podcast_quality import content_budget, budget_issues, teaching_signals, join_question_beats
     budget = content_budget(claims, mode, delivery)
     script_schema, review_schema = response_schemas(claims, dialogue, budget)
     instruction = """你是繁體中文教學 Podcast 編輯。寫讓人想聽下去的口語講解，只輸出 JSON，不使用工具。
@@ -124,6 +124,7 @@ def script(body):
 觀念是主體，例子只用來釐清抽象處、區別或條件。例子說清楚就回到教材，不添加人物背景、枝節情節或連續換比喻，也不因為選了故事開場就整集硬接故事。
 示例中的技術行為必須符合該重點；不能把比喻當成推出技術規則的證明，也不能偷加技術性質、因果或保證。比喻若有明顯界限，簡短說清楚。若操作限制是情境裡的約定，要說「我們約定」，不能把它說成現實中必然無法做到的事。各文字 part 的技術主張仍需對應自身來源。
 後續每輪增加新資訊，結尾簡短收束學到的判斷，不為了首尾呼應再重講故事。不要每段重新開場、故弄玄虛、硬講笑話或重複同一種問答節奏。
+純提問與緊接的回答放在同一個 teaching beat，不把短提問獨立成一個沒有解說的 beat。
 對話用長短句交錯，一輪盡量只推進一個想法；問題可短，回答也能先留一點懸念再接著說清楚。只在確有情境需要時使用「欸、等等、原來」等口語，不要每輪加語助詞或假笑。情緒由具體內容與標點自然帶出，不輸出括號表演指示，不捏造親身經驗。
 直接進入本集主題，最後停在當集的結論；不要加「謝謝收聽、下次再聊」等固定片頭片尾。段落間自然轉接，不要每段宣告「接著看」「這就是本段重點」或反覆報概念名稱。
 來源資訊少，就短而清楚；資料不足時簡短保留限制，不猜測補造。
@@ -145,6 +146,7 @@ def script(body):
     for attempt in range(2):
         candidate = luna(prompt, script_schema)
         try:
+            candidate['segments'] = join_question_beats(candidate['segments'])
             segments = compile_beats(candidate, claims)
             provisional = {'schema': SCHEMA, 'segments': segments, 'provider': f'codex-cli/{MODEL};teaching-beats/v3',
                            'review': {k: {'passed': True, 'reason': 'pending'} for k in ('correctness', 'teaching_quality')}}
@@ -161,6 +163,7 @@ def script(body):
 correctness：核對 beat 標題及逐 part 的指定 claim／Evidence 的實質支持、所有來源是否實質涵蓋，保留條件、否定、數值、單位、順序與程式語意。page_context 只補主語或表格標題，不能添加 claim 外知識。
 純提問或明示假設可無引用，但其中技術行為、推論必須受來源支持。回答「對／沒錯」須連同前句猜想核對，不可肯定錯誤前提。比喻不當成事實或證明；來源沒有的實作、保證或因果一律不通過。
 teaching_quality：每個 beat 有清楚理解焦點，每輪實質推進，不反覆改述、不套「問答確認下一題」、不為均分台詞固定輪替、不硬插附和。例子有助理解且不喧賓奪主，允許短而充分的講解。依 mode 核對：quick 只留核心與必要區辨，full 可展開有用例子和追問。signals 是程式定位的重疊、recap 與輪替訊號，逐項檢查；相同術語或正常輪替本身不是錯，只有沒有資訊增量、把上一句改成問題或重複整理才拒絕。針對後半段逐輪回看：問題是否早已被明確回答？回答是否只重述先前命題？不能因為叫作「必要澄清」「誤解修正」或「有效回顧」就放行，須有前文尚未處理的情境、條件或判斷。任何一項明確問題令該 verdict passed=false，reason 提供 beat／turn 位置與修法。
+同一 source_index 可以包含多項事實，重用引用不等於重述。判定重述時，reason 應指出前文首次陳述與本次重述的 turn；若找不到相同命題的前文，不能只因「最後」等轉場或該來源用過而拒絕新的細節。
 只輸出 JSON。\n""" + json.dumps({'mode': mode, 'budget': budget, 'signals': signals, 'sources': sources, 'page_context': context, 'script': candidate}, ensure_ascii=False), review_schema)
         try:
             if set(review) != {'correctness', 'teaching_quality'}: raise ValueError()

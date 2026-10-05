@@ -109,6 +109,22 @@ def test_repeated_deterministic_failure_stops_without_spending_review_calls(monk
     assert len(calls) == 2
 
 
+def test_source_free_question_joins_its_answer_before_review_without_an_extra_call(monkeypatch):
+    value=candidate()
+    value['segments'].insert(0, {'title':'待解問題','turns':[{'speaker':'host','parts':[{'text':'空堆疊為什麼不能直接取出？','source_refs':[]}]}]})
+    value['segments'][1]['turns'][0]['speaker']='guest'
+    raw=deepcopy(value);calls=[]
+    def model(prompt,schema):
+        calls.append(prompt)
+        return deepcopy(value) if 'segments' in schema['properties'] else check()
+    monkeypatch.setattr(provider,'luna',model)
+    result=provider.script({**body(),'delivery':'dialogue'})
+    assert len(calls)==2 and len(result['segments'])==1
+    assert [t['text'] for t in result['segments'][0]['turns']]==['空堆疊為什麼不能直接取出？','空堆疊不可 pop。']
+    assert result['segments'][0]['turns'][0]['parts'][0]['source_refs']==[]
+    assert value==raw
+
+
 def test_audio_failure_never_returns_partial_file_or_falls_back(monkeypatch):
     from types import SimpleNamespace
     monkeypatch.setenv('STUDYDY_PODCAST_TTS_PYTHON','/isolated/python')

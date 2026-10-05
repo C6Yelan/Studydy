@@ -1,7 +1,7 @@
 """模式預算與教學訊號的合成回歸，不代表真實節目品質。"""
 from copy import deepcopy
 import pytest
-from runtime.podcast_quality import content_budget, budget_issues, teaching_signals
+from runtime.podcast_quality import content_budget, budget_issues, teaching_signals, join_question_beats
 from runtime.podcasts import plan_episodes, PodcastError
 
 
@@ -53,6 +53,15 @@ def test_exact_recap_is_found_even_at_the_end_of_a_long_turn():
     statement = '第一項必要條件是保留原本的資料順序，第二項必要條件是保留所有來源的引用關係。'
     issues = teaching_signals(beats(statement, '另一個不同的限制需要另外核對。所以，' + statement))
     assert any(s['code'] == 'repeated_recap' and s['blocking'] and s['text_offset'] > 0 for s in issues)
+
+
+@pytest.mark.parametrize('reason', ['bound_source', 'turn_capacity'])
+def test_question_join_keeps_source_bearing_units_and_hard_turn_capacity(reason):
+    question = {'speaker':'host','parts':[{'text':'這個條件如何影響結果？','source_refs':[]}]}
+    answer = {'speaker':'guest','parts':[{'text':'來源支持的解釋。','source_refs':[{'source_index':0}]}]}
+    if reason == 'bound_source': question['parts'][0]['source_refs']=[{'source_index':0}]
+    value=[{'title':'問題','turns':[question]}, {'title':'解釋','turns':[answer]*(12 if reason=='turn_capacity' else 1)}]
+    assert join_question_beats(value)==value
 
 
 def test_empty_confirmation_and_question_restating_the_last_answer_require_rewrite():
