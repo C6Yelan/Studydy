@@ -42,7 +42,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     window.addEventListener('resize', resize);
     resize();
     return () => { observer.disconnect(); window.removeEventListener('resize', resize); };
-  }, [view?.podcast_id]);
+  }, [view?.podcast_id, view?.status]);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => {
     let cancelled = false;
