@@ -50,6 +50,8 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
         const r = await api.studyTools<Research>(`/v1/research/${id}`);
         if (stop) return;
         setView(r);
+        setList(previous => previous.map(record => record.research_id === r.research_id
+          ? { ...record, status: r.status, selection: r.selection, run_id: r.run_id } : record));
         if (active.has(r.status) || (r.status === 'submitted' && r.run && ['pending', 'running'].includes(r.run.status))) timer = setTimeout(read, 2000);
       } catch (e) { if (!stop) setError(errorMessage(e)); }
     };

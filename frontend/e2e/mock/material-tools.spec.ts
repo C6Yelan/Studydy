@@ -177,3 +177,13 @@ test('Voice bubble keeps the page reachable and restores focus when dismissed',a
   await bubble.getByRole('textbox',{name:'問題／辨識文字'}).fill('尚未送出的測試');await page.keyboard.press('Escape');await expect(bubble).toHaveCount(0);await expect(opener).toBeFocused();
  }
 });
+
+test('collapsing a research record preserves the newer status fetched from its detail',async({page})=>{
+ await mockKnowledgeMapApi(page,structureView());
+ const record={research_id:cid,query:'獨立搜尋紀錄',status:'searching',selection:[],run_id:null};
+ await page.route('**/v1/materials/*/research',r=>json(r,{researches:[record]}));
+ await page.route(`**/v1/research/${cid}`,r=>json(r,{...record,status:'selecting',mode:'review',candidates:[],cursor:null,error_code:null}));
+ await page.goto(`/materials/${materialId}/research`);
+ const toggle=page.locator('.research-record > button');await toggle.click();await expect(toggle).toContainText('選擇補充來源');
+ await toggle.click();await expect(toggle).toHaveAttribute('aria-expanded','false');await expect(toggle).toContainText('選擇補充來源');
+});
