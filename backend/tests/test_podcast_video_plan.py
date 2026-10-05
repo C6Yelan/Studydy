@@ -176,3 +176,26 @@ def test_reveal_cannot_show_connection_before_target_node():
     with pytest.raises(ValueError,match='connection must not precede'):validate_plan(value,cues)
     page['reveal'][0]['elements'].append(2)
     assert validate_plan(value,cues)
+
+
+def test_reveal_feedback_explains_page_entry_and_shared_cues():
+    _,cues,_=sample();value=plan();page=value['pages'][0]
+    page['emphasis']=[];page['reveal']=[{'start_cue':page['start_cue'],'elements':[0]}]
+    with pytest.raises(ValueError) as error:validate_plan(value,cues)
+    assert 'page=0,reveal=0' in str(error.value)
+    assert 'omit an initial reveal group' in str(error.value) and 'merge groups sharing a cue' in str(error.value)
+
+
+def test_emphasis_generation_schema_separates_trace_and_single_line_quotes():
+    from runtime.podcast_video_plan import emphasis_schema
+    choices=emphasis_schema([{},{}])['items']['anyOf']
+    by_kind={x['properties']['kind']['enum'][0]:x['properties']['quote'] for x in choices}
+    assert by_kind['trace']['enum']==['']
+    assert by_kind['underline']['minLength']==1 and by_kind['outline']['minLength']==0
+    assert by_kind['outline']['pattern']==r'^[^\r\n]*$'
+
+
+def test_multiline_quote_feedback_is_not_misreported_as_duplicate_text():
+    _,cues,_=sample();value=plan();page=value['pages'][0];page['elements'][0]['text']='第一行\n第二行'
+    page['emphasis']=[{'element_index':0,'start_cue':0,'end_cue':0,'kind':'outline','quote':'第一行\n第二行'}]
+    with pytest.raises(ValueError,match='quote must be single-line'):validate_plan(value,cues)

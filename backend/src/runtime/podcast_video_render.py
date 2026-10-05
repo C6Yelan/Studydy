@@ -65,7 +65,9 @@ def connection_errors(page,text_bounds):
         if e['kind']!='arrow':continue
         start=(e['x'],e['y']);end=(e['x']+e['w'],e['y']+e['h']);middle=((start[0]+end[0])/2,(start[1]+end[1])/2)
         if touches(start) and not touches(end) and not any(rect_distance(middle,b)<=60 for b in labels):
-            errors.append(f'element={index}, arrow ends at {end} in empty space; connect it to its intended node, or label an independent direction explicitly')
+            nearby=sorted([(rect_distance(end,(n['x'],n['y'],n['x']+n['w'],n['y']+n['h'])),
+                            (n['x'],n['y'],n['x']+n['w'],n['y']+n['h'])) for n in shapes])[:2]
+            errors.append(f'element={index}, arrow ends at {end} in empty space; nearest node bounds/distances={nearby}; connect it to its intended node, or label an independent direction explicitly; a participant in multiple arrow rows must extend to those rows or have a labelled node in each row')
     return errors
 
 
@@ -98,7 +100,7 @@ def layouts(plan):
         for i,a in enumerate(bounds):
             for b in bounds[i+1:]:
                 if a[0]!=b[0] and max(a[1],b[1])<min(a[3],b[3]) and max(a[2],b[2])<min(a[4],b[4]):
-                    errors.append(f'page={page_index},elements={a[0]},{b[0]},text overlap')
+                    errors.append(f'page={page_index},elements={a[0]},{b[0]},text overlap; rendered bounds={tuple(round(v,1) for v in a[1:])} and {tuple(round(v,1) for v in b[1:])}; separate or shorten these labels; revealed elements remain visible until the page ends')
         errors.extend(f'page={page_index},'+detail for detail in connection_errors(page,bounds))
         result.append(items)
     if errors:raise ValueError('VIDEO_LAYOUT_INVALID:'+'; '.join(dict.fromkeys(errors)))

@@ -102,7 +102,7 @@ docker compose exec backend /app/backend/.venv/bin/python -m runtime.local_runti
 
 Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集 WAV，音訊沿用私人 artifact store。建立後自動生成；快速與完整模式均保留全部所選重點，內容較多自動拆集。失敗／取消可接續已保存進度。
 
-文字 provider 沿用 `codex exec -m gpt-5.6-luna`。新稿為 `podcast-script/v2`：`segments` 是 teaching beats，一個 beat 可整合多個相關 claim，同 claim 也可跨 beat 延續。turn 的文字 parts 引用 episode 的 `source_index` 與所屬 `evidence_ids`，朗讀 `text` 由 parts 串接並核對一致；不能以 claim ID 合併不同來源位置。全部來源須實質涵蓋，KS／claims／Evidence 仍是 canonical authority。頁面 context 只補原引用的表格標題或主語，不能加入 claim 外的知識。
+文字 provider 沿用 `codex exec -m gpt-5.6-luna`。新稿為 `podcast-script/v2`：`segments` 是 teaching beats，一個 beat 可整合多個相關 claim，同 claim 也可跨 beat 延續。模型只選 `source_index` 與該來源內的 `evidence_indices`；程式核對範圍並回填原 ID，保存的 turn 文字 parts 引用 episode 的 `source_index` 與所屬 `evidence_ids`，朗讀 `text` 由 parts 串接並核對一致；不能以 claim ID 合併不同來源位置。全部來源須實質涵蓋，KS／claims／Evidence 仍是 canonical authority。頁面 context 只補原引用的表格標題或主語，不能加入 claim 外的知識。
 
 每份候選稿經獨立 review inference 回傳 `correctness` 與 `teaching_quality` 兩個 blocking verdict；任一失敗不得發布，最多重寫一次，重寫後兩者都重新核對。每集單次生成／重試最多四次文字請求，每次至多 120 秒。CLI 使用既有登入、ephemeral、唯讀空目錄並停用工具，不改寫原教材 Gemma binding；真實模型呼叫仍須有當次素材及費用授權。來源不足、provider／儲存失敗不視為成功。舊 turns 腳本保留原 bytes／hash，由唯讀來源投影相容，不批次改寫舊 JSON。
 
@@ -155,7 +155,7 @@ F5 共用本機 Whisper，對齊原講稿與實際 WAV 的詞時間點；拼音�
 
 0015 migration 新增影片工作、來源指紋及 artifact 關係。影片只在來源仍一致、版面及來源核對通過且 artifact 寫入成功後標記完成。取消、刪除或過期工作的晚到結果不會發布。升級前備份 PostgreSQL；升級後以識別 0015 的版本前向修復。
 
-`ops/podcast/video_service.py` 使用既有文字 provider 切分講稿、安排固定頁面圖形、在一次 review 分別核對 correctness 與 teaching-quality（兩者都 blocking），分鏡驗證失敗時將具體錯誤交回模型修正，版面錯誤與來源核對各保留兩次修正機會，任一類第三次失敗即停止（每次工作最多九次文字請求）；Whisper 在本機對齊原 WAV。`backend/src/runtime/podcast_video_render.py` 只接受白名單圖形，在 CPU 產生 1920×1080／60fps MP4，使用原音訊與實測時間，不執行模型程式碼。
+`ops/podcast/video_service.py` 使用既有文字 provider 切分講稿、安排固定頁面圖形、在一次 review 分別核對 correctness 與 teaching-quality（兩者都 blocking），分鏡驗證失敗時將具體錯誤交回模型修正，版面錯誤與來源核對各保留兩次修正機會，任一類第三次失敗即停止（每次工作最多九次文字請求）。版面／格式修正候選先省略可選 emphasis，仍保留必要文字、圖形、合法 reveal，且重新通過幾何與兩項內容審查；不以移除標記跳過 review。Whisper 在本機對齊原 WAV。`backend/src/runtime/podcast_video_render.py` 只接受白名單圖形，在 CPU 產生 1920×1080／60fps MP4，使用原音訊與實測時間，不執行模型程式碼。
 新產生的 `flat-report/v4`／`podcast-storyboard/v2` 一頁只聚焦一個 mental model；每頁最多三組 `reveal`，引用既有 elements 索引與 cue 邊界，顯示後保留至頁尾。單位、必要條件與節點／連線須完整呈現，連線不得早於其節點；未加入 reveal 的元素頁首顯示。`cue_index` 仍表示開始解釋的時機。畫面底部只放短焦點提示，完整字幕保留 WebVTT，由播放器的字幕按鈕切換，不將逐字稿重複燒進新影片。舊 MP4、舊 `flat-report/v3` manifest 與靜態顯示方式原樣保留。
 每頁 `emphasis` 只引用既有元素與 cue：底線、描邊框選或沿既有連線移動的講解指示點。只在有助理解時標示，可整頁沒有標記，不設配額。標記逐步畫出，片段結束前淡出，底圖保留；同時最多兩處，可比較同一元素中的不同詞，不能重複覆蓋相同詞或提前強調尚未講解的內容。模型不決定任意秒數、也不增加標記文字；時機由實際語音對齊決定，另經來源核對。既有 MP4 不會因程式更新而自動重製。
 
@@ -170,7 +170,7 @@ F5 共用本機 Whisper，對齊原講稿與實際 WAV 的詞時間點；拼音�
 
 逐字稿與同步圖卡皆使用 Podcast 建立時的 revision resolver 回查原教材。問目前播放段落會暫停播放器、固定該次 locator 並開啟既有 Voice；尚無可靠 alignment 時只允許手動選段，不猜目前 beat。Voice 新對話可指定 exact revision；文字問答的 `context`／錄音的 `X-Studydy-Podcast-Context` 只傳 Podcast ID、episode index、script hash 與文字範圍。後端確認 ownership、revision、範圍及引用，回答只依同 revision canonical claims，context 不成為知識來源。錄音確認、重試與取消沿用原工作生命週期。
 
-0016 migration 僅新增 nullable `voice_turns.context`。欄位保存 locator 與必要來源引用，不複製 script；Podcast 刪除後拒絕使用該 locator 新追問，既有回答仍依 Voice 原本的保存規則保留。無 Podcast／audio／MP4／manifest 資料搬移或自動重生成；升級須一起更新 provider、backend 與 frontend，並使用識別 0016 的後端前向修復。本次開發不代表已對產品執行 migration 或部署。
+0016 migration 僅新增 nullable `voice_turns.context`。欄位保存 locator 與必要來源引用，不複製 script；Podcast 刪除後拒絕使用該 locator 新追問，既有回答仍依 Voice 原本的保存規則保留。無 Podcast／audio／MP4／manifest 資料搬移或自動重生成；升級須一起更新 provider、backend 與 frontend，並使用識別 0016 的後端前向修復。後續授權的部署與真實驗收結果見 [測試](testing.md)；部署身分與備份留於本機部署紀錄。
 
 末集播放結束（即使關閉自動接續）及手動入口都能進入原 revision 的既有 Assessment。使用 canonical study session 與 focus API，不新增 Podcast 題組或 mastery。已完成 session 僅開啟該概念已有的題組；沒有題組時引導回原版本地圖，不重新開啟完成狀態。播放、seek、聽完及 Voice 問答皆不產生 mastery 作答事件。
 

@@ -107,12 +107,13 @@ def _produce(body, *, luna, model, align, text_lock, asr_lock, cancelled):
     畫布1920x1080。頁面標題由程式放在頂端，短焦點提示由程式放在底部，完整字幕另以 VTT 提供。
     所有elements只放在x=100..1820、y=220..810。x/y為起點，w/h為寬高；line/arrow可用負w或h表示相反方向。
     每頁start_cue/end_cue含頭含尾，所有頁須依序連續涵蓋全部cue。建議每頁一個完整主題、2至5個區域；短集通常2至4頁，不強制固定頁數。
-    elements的cue_index是本頁開始實際解釋該重點的片段，供標記時機核對，reveal 可指定一組 elements 索引在 start_cue 出現後保留至頁尾；時機依序且不得晚於元素 cue_index，同元素只能出現於一組。節點、連線、單位與必要條件必須一起顯示，不可孤立箭頭或先顯示缺少條件的結論。完整重點可在講解前先顯示，數值、單位與必要條件須一起寫清楚。不要納入其他頁才會講的主題。
+    elements的cue_index是本頁開始實際解釋該重點的片段，供標記時機核對，reveal 可指定一組 elements 索引在 start_cue 出現後保留至頁尾；start_cue 必須嚴格大於本頁 start_cue、各組嚴格遞增且不得晚於元素 cue_index，同元素只能出現於一組。頁首顯示的元素不要放進 reveal；同一 cue 的元素合併成一組。不同 reveal 階段的元素不能佔用相同位置，舊元素不會消失。節點、連線、單位與必要條件必須一起顯示，不可孤立箭頭或先顯示缺少條件的結論。完整重點可在講解前先顯示，數值、單位與必要條件須一起寫清楚。不要納入其他頁才會講的主題。
     kind可用text、box、circle、line、arrow；不可輸出HTML、SVG或程式碼。box/circle可內建置中文字，line/arrow的text須為空。
     color只用ink、teal、blue、orange、muted；filled表示淡底色。全部為平面，不用透視、陰影或裝飾景物。
     字體size只用28、34、42、52、64。框內文字有16px內邊距，每行高度size+10。硬性要求：框高至少32+行數*(size+10)，例如42px三行至少188px、28px兩行至少108px。中文每字寬約size，依寬度換行後也須計入行數。底部空間不足時減少文字或改放上方，不得硬塞。所有框彼此留至少24px間隔，避免文字重疊或超框。
     text元素為靠左，box/circle內的文字置中。不需要在框內另放重複的text元素。每個重要圖形要有短標籤解釋其意義。
     箭頭只能表示來源明確支持的方向、流程或因果；並列比較請用並排框與標籤，不要以箭頭裝飾連接。
+    若多行箭頭連到同一參與者，節點必須涵蓋每個終點的高度，或每行使用具名節點；不能只在首行畫參與者，後面的箭頭卻停在空白處。
     不要用一排無意義移動方塊填空。用關係箭頭、比較框、流程節點或算式，幫觀眾理解正在講的事情。
     精簡重複敘述，不把逐字稿整段抄上圖；逐字稿另由字幕呈現。所有技術內容、數值與條件必須得到原稿及來源支持，保留識別符、公式、數字、單位大小寫及必要條件。
     每頁emphasis是臨時重點標記，只挑實際值得強調的比較差異、關鍵條件、易混淆詞或流程關係，沒有必要可為空；不設定每頁標記配額，不要每句或每元素都標。底圖留在原位，標記講完就消失，允許整段講解沒有標記。
@@ -120,7 +121,7 @@ def _produce(body, *, luna, model, align, text_lock, asr_lock, cancelled):
     kind=underline用於短的數字、單位、關鍵條件，quote須逐字選自該元素文字且只出現一次、不跨行；kind=outline框選關鍵詞，quote空字串時框選整個既有元素。標記不加新文字，不遮住字幕。
     kind=trace只可指向既有line/arrow，quote為空；會依既有方向畫出暫時強調並移動講解指示點。只有有意義的流程／關係才使用，不新增來源不支持的箭頭或暗示實際速度比例。
     雙人對談的提問、假設、誤解不當成已成立結論標記；回答說到的數值或限制不能提前強調。start/end根據cue語意挑選，不自行猜秒數。
-    若輸入 previous_attempt 有驗證錯誤，逐項修正全部錯誤，並檢查調整後的文字框、其他元素及畫布邊界，不要只修第一個錯誤。
+    若輸入 previous_attempt 有版面或格式錯誤，只針對指出的欄位修正，保留其餘元素順序、文字與關係，避免重排整頁導致原本正確的 element_index 失效；若確需新增或刪除元素，同步修正所有 reveal／emphasis 索引。逐項修正全部錯誤並檢查其他元素及畫布邊界，不要只修第一個錯誤。若標記不是理解重點所必需，可省略該標記；不要為了 trace 憑空增加箭頭。
     只輸出JSON。\n'''
         source={'delivery':episode['delivery'],'cues':timed,'claims':episode['claims'],'source_context':body['source_context']}
         env={k:v for k,v in os.environ.items() if k!='STUDYDY_PODCAST_PROVIDER_TOKEN'}
@@ -133,9 +134,14 @@ def _produce(body, *, luna, model, align, text_lock, asr_lock, cancelled):
         while True:
             design_input={'source':source}
             if feedback:design_input['previous_attempt']=feedback
+            schema=plan_schema(split['cues'])
+            if layout_failures:
+                # 格式修正先移除可選標記的生成負擔；內容、幾何與兩項審查仍須通過。
+                schema['properties']['pages']['items']['properties']['emphasis']['maxItems']=0
+                design_input['repair_constraints']='本次每頁 emphasis 必須為空陣列。保留必要文字、圖形、來源關係及合法 reveal，專注修正已指出的版面／格式錯誤。完整候選仍會重新核對來源與教學品質。'
             with text_lock:
                 _check(cancelled)
-                plan=luna(prompt+json.dumps(design_input,ensure_ascii=False),plan_schema(split['cues']),timeout=300)
+                plan=luna(prompt+json.dumps(design_input,ensure_ascii=False),schema,timeout=300)
             plan={'schema':'podcast-storyboard/v2',**plan}
             # 暫存原始候選供本機失敗定位；只有驗證通過後才交給繪製器。
             request.write_text(json.dumps({**render_source,'cues':split['cues'],'alignment':alignment,'plan':plan},ensure_ascii=False))

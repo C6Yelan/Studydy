@@ -14,7 +14,7 @@ def body():
 
 
 def part(text='空堆疊不可 pop。', index=0):
-    return {'text':text,'source_refs':[{'source_index':index,'evidence_ids':['e0']}]}
+    return {'text':text,'source_refs':[{'source_index':index,'evidence_indices':[0]}]}
 
 
 def candidate(text='空堆疊不可 pop。'):
@@ -50,7 +50,7 @@ def test_invalid_contract_never_reaches_review(monkeypatch,change):
     request=body();value=candidate()
     ref=value['segments'][0]['turns'][0]['parts'][0]['source_refs'][0]
     if change=='foreign_claim':ref['source_index']=9
-    elif change=='foreign_evidence':ref['evidence_ids']=['foreign']
+    elif change=='foreign_evidence':ref['evidence_indices']=[99]
     elif change=='missing_source':value['segments'][0]['turns'][0]['parts'][0]['source_refs']=[]
     else:request['delivery']='dialogue'
     calls=[]
@@ -103,3 +103,21 @@ def test_luna_timeout_has_fixed_reason_and_task_specific_deadline(monkeypatch):
     monkeypatch.setattr(provider.subprocess,'run',expired)
     with pytest.raises(RuntimeError,match='^LUNA_GENERATION_TIMEOUT$'):
         provider.luna('synthetic prompt',{'type':'object'},timeout=300)
+
+
+def test_model_reference_schema_only_allows_local_source_positions():
+    claims=body()['claims'];claims.append({**deepcopy(claims[0]),'evidence':[{'evidence_id':'other-evidence','quote':'另一個來源'}]})
+    schema,_=provider.response_schemas(claims)
+    alternatives=schema['properties']['segments']['items']['properties']['turns']['items']['properties']['parts']['items']['properties']['source_refs']['items']['anyOf']
+    assert [r['properties']['source_index']['enum'] for r in alternatives]==[[0],[1]]
+    assert all(r['properties']['evidence_indices']['items']['enum']==[0] for r in alternatives)
+    value=candidate();value['segments'][0]['turns'][0]['parts'][0]['source_refs']=[{'source_index':1,'evidence_indices':[0]}]
+    compiled=provider.compile_beats(value,claims)
+    assert compiled[0]['turns'][0]['parts'][0]['source_refs']==[{'source_index':1,'evidence_ids':['other-evidence']}]
+    assert 'evidence_indices' in value['segments'][0]['turns'][0]['parts'][0]['source_refs'][0]
+
+
+@pytest.mark.parametrize('source,evidence',[(False,0),(0,False),(-1,0),(0,-1),(0,2)])
+def test_reference_compilation_rejects_boolean_negative_and_out_of_range(source,evidence):
+    value=candidate();value['segments'][0]['turns'][0]['parts'][0]['source_refs']=[{'source_index':source,'evidence_indices':[evidence]}]
+    with pytest.raises(ValueError,match='PODCAST_SCRIPT_INVALID'):provider.compile_beats(value,body()['claims'])

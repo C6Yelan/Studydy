@@ -118,7 +118,7 @@ Podcast 影片另由 `backend/tests/test_podcast_video_plan.py`、`test_podcast_
 
 ## Podcast teaching beats 工程驗證（2026-10-05）
 
-基線 `e62d7415c1a2e15b19f5083a227f3a14709dd42d`。這次使用合成教材、隔離 PostgreSQL、受控 provider 與 CPU FFmpeg；未呼叫 Luna、CosyVoice、Whisper 或 GPU，也未部署／對產品 DB 套 migration。舊 Podcast 仍固定原 KS revision，不把工程測試當成真實教學、ASR 精度或音質驗收。
+基線 `e62d7415c1a2e15b19f5083a227f3a14709dd42d`。以下工程回歸使用合成教材、隔離 PostgreSQL、受控 provider 與 CPU FFmpeg，不呼叫 Luna、CosyVoice、Whisper 或 GPU；後續實際部署與模型驗收另列於文末。舊 Podcast 仍固定原 KS revision，不把工程測試當成真實教學、ASR 精度或音質驗收。
 
 主要新增入口：
 
@@ -162,3 +162,27 @@ node ops/podcast/benchmark_browser.mjs .studydy-runtime/podcast-beats/benchmark
 三組每次皆完整解碼通過，固定時間點的文字／版面對照無明顯差異；實際 Chromium 前後 seek 的 reveal 狀態一致。0.5／1／2× 播放皆有量測 frame callback 與 media clock，最大差約 0.050 秒，這不是 ASR 精度。0.5× 時，60fps 成品的 presentation 約 30 frames/s，30fps 成品約 15 frames/s，trace 的時間取樣更粗；因此尚未滿足動態呈現無退化的條件，**正式維持 60fps**，不單憑 CPU 收益切換。
 
 量測摘要保存在 ignored 的 `.studydy-runtime/podcast-beats/benchmark/summary.json` 與 `browser-summary.json`；比較圖及合成影片可由上述命令重建，不加入 Git。此結果不代表長課程、實體手機、其他瀏覽器或真實教學內容已驗收。
+
+
+## Teaching beats 公開站真實驗收（2026-10-05）
+
+使用指定測試帳號、兩份既有教材、四種 quick/full × solo/dialogue 模式，實際呼叫原有 Luna、CosyVoice／GPU、Whisper 與 CPU renderer。這次亦已在 studydy.net 套用 0016；DB／artifacts 備份及映像身分留於本機 `data/deployments/podcast-beats-20261005/`，設定原檔未複製或更改。私有驗收資料留於 `data/podcast/beat-qualification-20261005/`，不加入 Git／CI。
+
+本輪修正後的 Podcast provider／timeline／renderer／video service 與隔離影片 integration 回歸共 99 項通過。
+
+真實生成發現並修正：模型直接抄寫 Evidence hash 時會引用同頁 context 的其他區塊，因此改用 claim 內的整數索引與受限 schema，由程式回填原 ID。保存的 v2 script contract 與 canonical KS 不變。分鏡錯誤另補入 reveal、跨行 quote、trace 目標、文字重疊及箭頭落點的可操作回饋；版面修正候選的 emphasis 限為空陣列，後續仍須全部驗證及雙 blocking review。
+
+| 模式 | Beats／turns | 音訊長度 | WAV LUFS／dBTP | MP4 結果 |
+| --- | --- | --- | --- | --- |
+| quick solo | 2／3 | 91.25s | −19.01／−1.98 | ready，7 cues |
+| full dialogue | 3／6 | 82.61s | −19.05／−1.97 | ready，7 cues |
+| full solo | 3／3 | 92.15s | −19.01／−1.98 | **未通過：VIDEO_LAYOUT_INVALID**，未發布影片 |
+| quick dialogue | 2／8 | 140.95s | −19.09／−1.99 | ready，7 cues |
+
+四份音訊的來源、part 引用、實際 WAV 格式與 hash 已核對。三份已發布影片的逐字還原、cue evidence 交集、script/audio hash、VTT、60fps 與 AAC 成品量測通過；完整 MP4 解碼成功。公開站實測 0.5／1／2×、前後 seek、字幕開關、來源頁暫停、390px 版面，以及關閉自動接續後的末集 Assessment 入口。full solo 的分鏡在有界重試後仍有排版錯誤，保留失敗與可播放原音訊，**不能宣稱四模式影片或整體模型品質已全面驗收**。
+
+Voice 完成文字提問、實際語音回答、來源引用及互斥播放；另以既有真實 CosyVoice 音訊作虛擬麥克風輸入，經 MediaRecorder → 真 Whisper → draft → 修改後送出，確認原 Podcast locator／revision 保留。辨識曾有誤字，draft 確認沒有被跳過；這不是實體麥克風或人耳音質驗收。
+
+播放與 Voice 後，原有四筆作答事件不變。之後在測試帳號實際回答原 revision 的一題 Assessment，正確交卷後恰新增一筆作答事件。另有一份排隊 Podcast 在生成前取消，未產生 script／audio。原有五份 Podcast、十份影片 manifest 與四份 KS 的指紋保持不變；素材原有 partial／needs_review 狀態未升級。
+
+本輪有記錄的文字請求加上首輪失敗工作的保守預留，上界為 79 次（驗收上限由 60 調至 80），不等同精確帳單或 token 計量。自動 review 並未消除所有教學風格問題：full dialogue 樣本仍有規律問答與結尾重述；真實語音的發音、弱音裁切與自然度仍需人耳複核。原教材圖片素材仍 deferred，renderer 保持 60fps。

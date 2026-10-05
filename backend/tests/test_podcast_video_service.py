@@ -81,6 +81,8 @@ def test_layout_and_source_corrections_have_independent_bounded_budgets(tmp_path
         nonlocal reviews
         if 'cues' in schema['properties']:return {'cues':cues}
         if 'pages' in schema['properties']:
+            limit=schema['properties']['pages']['items']['properties']['emphasis']['maxItems']
+            assert limit==(12 if not plans else 0)
             plans.append(prompt);return plan()
         reviews+=1
         return {k:{'passed':reviews==2,'reason':'remove unsupported relation'} for k in ('correctness','teaching_quality')}

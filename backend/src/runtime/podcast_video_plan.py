@@ -82,12 +82,15 @@ def merge_cue_groups(episode,cues,groups):
 
 def emphasis_schema(cues):
     index={'type':'integer','enum':list(range(len(cues)))}
-    return {'type':'array','maxItems':12,'items':object_schema({
-        'element_index':{'type':'integer','minimum':0,'maximum':59},
-        'start_cue':index,'end_cue':index,
-        'kind':{'type':'string','enum':['underline','outline','trace']},
-        'quote':{'type':'string','maxLength':80},
-    })}
+    common={'element_index':{'type':'integer','minimum':0,'maximum':59},
+            'start_cue':index,'end_cue':index}
+    # 在生成契約就排除跨行 quote／trace 帶文字，避免消耗修正機會。
+    choices=[]
+    for kind in ('underline','outline','trace'):
+        quote=({'type':'string','enum':['']} if kind=='trace' else
+               {'type':'string','minLength':1 if kind=='underline' else 0,'maxLength':80,'pattern':r'^[^\r\n]*$'})
+        choices.append(object_schema({**common,'kind':{'type':'string','enum':[kind]},'quote':quote}))
+    return {'type':'array','maxItems':12,'items':{'anyOf':choices}}
 
 
 def plan_schema(cues):
@@ -147,14 +150,17 @@ def validate_plan(plan, cues):
         groups=page.get('reveal',[])
         if not isinstance(groups,list) or len(groups)>3:raise ValueError(where+', at most three reveal groups')
         used=set();previous=page['start_cue']
-        for group in groups:
+        for group_index,group in enumerate(groups):
+            detail=f'VIDEO_STORYBOARD_INVALID:page={page_index},reveal={group_index}'
             if (not isinstance(group,dict) or set(group)!={'start_cue','elements'}
-                or type(group['start_cue']) is not int or not previous<group['start_cue']<=page['end_cue']
-                or not isinstance(group['elements'],list) or not group['elements']):raise ValueError(where+', invalid reveal group')
+                or type(group['start_cue']) is not int
+                or not isinstance(group['elements'],list) or not group['elements']):raise ValueError(detail+', expected integer start_cue and nonempty elements')
+            if not previous<group['start_cue']<=page['end_cue']:
+                raise ValueError(detail+f", start_cue={group['start_cue']} must be >{previous} and <={page['end_cue']}; ungrouped elements are visible on page entry, so omit an initial reveal group; merge groups sharing a cue")
             previous=group['start_cue']
             for target in group['elements']:
-                if type(target) is not int or not 0<=target<len(page['elements']) or target in used:raise ValueError(where+', duplicate or invalid reveal target')
-                if group['start_cue']>page['elements'][target]['cue_index']:raise ValueError(where+', reveal must precede explanation')
+                if type(target) is not int or not 0<=target<len(page['elements']) or target in used:raise ValueError(detail+', duplicate or invalid reveal target')
+                if group['start_cue']>page['elements'][target]['cue_index']:raise ValueError(detail+', reveal must precede explanation')
                 used.add(target)
         # 已知幾何連線的端點不得先於其節點出現；不靠模型承諾避免懸空箭頭。
         visible_at={i:page['start_cue'] for i in range(len(page['elements']))}
@@ -188,17 +194,21 @@ def validate_emphasis(page,page_index):
                 or m['kind'] not in ('underline','outline','trace')
                 or not isinstance(m['quote'],str) or len(m['quote'])>80):
             raise ValueError(detail+', invalid mark fields')
-        if not 0<=m['element_index']<len(page['elements']):raise ValueError(detail+', target element does not exist')
+        if not 0<=m['element_index']<len(page['elements']):raise ValueError(detail+f", target element does not exist: index={m['element_index']}; valid 0-based indices are 0..{len(page['elements'])-1}")
         e=page['elements'][m['element_index']]
         first=max(page['start_cue'],e['cue_index'])
         if not first<=m['start_cue']<=m['end_cue']<=page['end_cue']:
             raise ValueError(detail+f", requested cues={m['start_cue']}..{m['end_cue']}; target element={m['element_index']} may be emphasized only in cues={first}..{page['end_cue']}; the full page is visible earlier, but emphasis must wait for its explanation")
         if m['kind']=='trace':
-            if e['kind'] not in ('line','arrow') or m['quote']:raise ValueError(detail+', trace requires a line/arrow and empty quote')
+            if e['kind'] not in ('line','arrow') or m['quote']:
+                targets=[i for i,target in enumerate(page['elements']) if target['kind'] in ('line','arrow')]
+                raise ValueError(detail+f", trace requires a line/arrow and empty quote; current target kind={e['kind']}, eligible indices={targets}; use outline for labelled shapes or omit the mark")
         elif e['kind'] not in ('text','box','circle') or not e['text']:
             raise ValueError(detail+', text emphasis requires a labelled text/box/circle')
         elif m['quote']:
-            if not m['quote'].strip() or '\n' in m['quote'] or e['text'].count(m['quote'])!=1:
+            if '\n' in m['quote'] or '\r' in m['quote']:
+                raise ValueError(detail+', quote must be single-line; choose a short exact phrase, or use outline with empty quote for the whole labelled shape')
+            if not m['quote'].strip() or e['text'].count(m['quote'])!=1:
                 raise ValueError(detail+f", quote occurs {e['text'].count(m['quote'])} times in target text; use a unique exact phrase including spaces and letter case, or use outline with empty quote for the whole element")
         elif m['kind']=='underline':raise ValueError(detail+', underline needs a short exact quote')
         for cue in range(m['start_cue'],m['end_cue']+1):
