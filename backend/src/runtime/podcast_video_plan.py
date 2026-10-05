@@ -149,15 +149,15 @@ def validate_plan(plan, cues):
                 raise ValueError(where+', text element needs nonempty text')
         groups=page.get('reveal',[])
         if not isinstance(groups,list) or len(groups)>3:raise ValueError(where+', at most three reveal groups')
-        used=set();previous=page['start_cue']
+        used=set()
         for group_index,group in enumerate(groups):
             detail=f'VIDEO_STORYBOARD_INVALID:page={page_index},reveal={group_index}'
             if (not isinstance(group,dict) or set(group)!={'start_cue','elements'}
                 or type(group['start_cue']) is not int
                 or not isinstance(group['elements'],list) or not group['elements']):raise ValueError(detail+', expected integer start_cue and nonempty elements')
-            if not previous<group['start_cue']<=page['end_cue']:
-                raise ValueError(detail+f", start_cue={group['start_cue']} must be >{previous} and <={page['end_cue']}; ungrouped elements are visible on page entry, so omit an initial reveal group; merge groups sharing a cue")
-            previous=group['start_cue']
+            # 繪製器按各組 cue 決定可見性；頁首、同時或未排序的群組都能正確呈現。
+            if not page['start_cue']<=group['start_cue']<=page['end_cue']:
+                raise ValueError(detail+f", start_cue={group['start_cue']} must be within page cues={page['start_cue']}..{page['end_cue']}")
             for target in group['elements']:
                 if type(target) is not int or not 0<=target<len(page['elements']) or target in used:raise ValueError(detail+', duplicate or invalid reveal target')
                 if group['start_cue']>page['elements'][target]['cue_index']:raise ValueError(detail+', reveal must precede explanation')
@@ -221,7 +221,6 @@ def validate_emphasis(page,page_index):
                 if max(left_start,right_start)<min(left_start+len(left),right_start+len(right)):
                     raise ValueError(detail+', overlapping emphasis on the same phrase')
             active.append(m)
-            if len(active)>2:raise ValueError(detail+f', cue {cue} has more than two simultaneous marks')
 
 
 

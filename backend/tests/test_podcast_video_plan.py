@@ -108,7 +108,7 @@ def marked_plan():
     return value
 
 
-@pytest.mark.parametrize('failure',['future','outside_page','missing_target','missing_quote','ambiguous_quote','trace_text','duplicate','too_many'])
+@pytest.mark.parametrize('failure',['future','outside_page','missing_target','missing_quote','ambiguous_quote','trace_text','duplicate'])
 def test_temporary_marks_cannot_invent_text_or_outlive_their_source(failure):
     _,cues,_=sample();value=marked_plan();page=value['pages'][0];mark=page['emphasis'][0]
     if failure=='future':mark['element_index']=1;mark['quote']='第二點'
@@ -118,9 +118,6 @@ def test_temporary_marks_cannot_invent_text_or_outlive_their_source(failure):
     if failure=='ambiguous_quote':page['elements'][0]['text']='第一點與第一點'
     if failure=='trace_text':mark['kind']='trace';mark['quote']=''
     if failure=='duplicate':page['emphasis'].append(deepcopy(mark))
-    if failure=='too_many':
-        page['elements'] += [deepcopy(page['elements'][0]),deepcopy(page['elements'][0])]
-        page['emphasis'] += [{**mark,'element_index':i} for i in (2,3)]
     with pytest.raises(ValueError,match='VIDEO_STORYBOARD_INVALID'):validate_plan(value,cues)
 
 
@@ -130,11 +127,11 @@ def test_marks_can_end_before_the_page_and_old_static_plans_still_load():
     assert validate_plan(plan(),cues)==plan()
 
 
-def test_two_distinct_phrases_in_one_element_can_be_compared():
+def test_three_distinct_phrases_can_be_compared_simultaneously():
     _,cues,_=sample();value=marked_plan();page=value['pages'][0]
-    page['elements'][0]['text']='第一點與第二點'
-    page['emphasis'].append({**page['emphasis'][0],'quote':'第二點'})
-    assert len(validate_plan(value,cues)['pages'][0]['emphasis'])==2
+    page['elements'][0]['text']='第一點、第二點、第三點'
+    page['emphasis'] += [{**page['emphasis'][0],'quote':quote} for quote in ('第二點','第三點')]
+    assert len(validate_plan(value,cues)['pages'][0]['emphasis'])==3
 
 
 def test_asr_grouping_preserves_original_roles_and_all_source_parts():
@@ -153,14 +150,15 @@ def test_early_mark_feedback_names_the_explanation_range_despite_full_page_visib
         validate_plan(value,cues)
 
 
-@pytest.mark.parametrize('change',['duplicate','late','early','foreign','too_many'])
+@pytest.mark.parametrize('change',['duplicate','late','before_page','after_page','foreign','too_many'])
 def test_progressive_reveal_contract(change):
     episode,cues,_=sample();value=plan();page=value['pages'][0]
     page['emphasis']=[];page['reveal']=[{'start_cue':1,'elements':[1]}]
     page['elements'][1]['cue_index']=1
     if change=='duplicate':page['reveal'][0]['elements']=[1,1]
     elif change=='late':page['elements'][1]['cue_index']=0
-    elif change=='early':page['reveal'][0]['start_cue']=0
+    elif change=='before_page':page['reveal'][0]['start_cue']=-1
+    elif change=='after_page':page['reveal'][0]['start_cue']=2
     elif change=='foreign':page['reveal'][0]['elements']=[60]
     else:page['reveal']*=4
     with pytest.raises(ValueError,match='VIDEO_STORYBOARD_INVALID'):validate_plan(value,cues)
@@ -176,14 +174,6 @@ def test_reveal_cannot_show_connection_before_target_node():
     with pytest.raises(ValueError,match='connection must not precede'):validate_plan(value,cues)
     page['reveal'][0]['elements'].append(2)
     assert validate_plan(value,cues)
-
-
-def test_reveal_feedback_explains_page_entry_and_shared_cues():
-    _,cues,_=sample();value=plan();page=value['pages'][0]
-    page['emphasis']=[];page['reveal']=[{'start_cue':page['start_cue'],'elements':[0]}]
-    with pytest.raises(ValueError) as error:validate_plan(value,cues)
-    assert 'page=0,reveal=0' in str(error.value)
-    assert 'omit an initial reveal group' in str(error.value) and 'merge groups sharing a cue' in str(error.value)
 
 
 def test_emphasis_generation_schema_separates_trace_and_single_line_quotes():

@@ -43,34 +43,6 @@ def lines(text, size, width):
     return result
 
 
-def connection_errors(page,text_bounds):
-    """已從節點出發的箭頭須有落點；獨立方向提示可搭配鄰近文字。"""
-    shapes=[e for e in page['elements'] if e['kind'] in ('box','circle')]
-    labels=[b[1:] for b in text_bounds if page['elements'][b[0]]['kind']=='text']
-    def rect_distance(point,box):
-        x,y=point;l,t,r,b=box
-        return math.hypot(max(l-x,0,x-r),max(t-y,0,y-b))
-    def touches(point):
-        x,y=point
-        for e in shapes:
-            l,t=e['x'],e['y'];r,b=l+e['w'],t+e['h']
-            if e['kind']=='circle':
-                distance=abs(math.hypot((x-(l+r)/2)/(e['w']/2),(y-(t+b)/2)/(e['h']/2))-1)*min(e['w'],e['h'])/2
-            elif l<=x<=r and t<=y<=b:distance=min(x-l,r-x,y-t,b-y)
-            else:distance=rect_distance(point,(l,t,r,b))
-            if distance<=24:return True
-        return any(rect_distance(point,b)<=24 for b in labels)
-    errors=[]
-    for index,e in enumerate(page['elements']):
-        if e['kind']!='arrow':continue
-        start=(e['x'],e['y']);end=(e['x']+e['w'],e['y']+e['h']);middle=((start[0]+end[0])/2,(start[1]+end[1])/2)
-        if touches(start) and not touches(end) and not any(rect_distance(middle,b)<=60 for b in labels):
-            nearby=sorted([(rect_distance(end,(n['x'],n['y'],n['x']+n['w'],n['y']+n['h'])),
-                            (n['x'],n['y'],n['x']+n['w'],n['y']+n['h'])) for n in shapes])[:2]
-            errors.append(f'element={index}, arrow ends at {end} in empty space; nearest node bounds/distances={nearby}; connect it to its intended node, or label an independent direction explicitly; a participant in multiple arrow rows must extend to those rows or have a labelled node in each row')
-    return errors
-
-
 def layouts(plan):
     """超出文字區或互相覆蓋就拒絕，不以縮小字體掩蓋分鏡問題。"""
     result=[];errors=[]
@@ -101,7 +73,6 @@ def layouts(plan):
             for b in bounds[i+1:]:
                 if a[0]!=b[0] and max(a[1],b[1])<min(a[3],b[3]) and max(a[2],b[2])<min(a[4],b[4]):
                     errors.append(f'page={page_index},elements={a[0]},{b[0]},text overlap; rendered bounds={tuple(round(v,1) for v in a[1:])} and {tuple(round(v,1) for v in b[1:])}; separate or shorten these labels; revealed elements remain visible until the page ends')
-        errors.extend(f'page={page_index},'+detail for detail in connection_errors(page,bounds))
         result.append(items)
     if errors:raise ValueError('VIDEO_LAYOUT_INVALID:'+'; '.join(dict.fromkeys(errors)))
     return result
