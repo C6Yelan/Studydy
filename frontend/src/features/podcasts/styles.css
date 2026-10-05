@@ -34,9 +34,6 @@
 .podcast-highlights p { color: var(--text-primary); line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; }
 .media-player { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:0; min-width:0; overflow:hidden; container-type:inline-size; container-name:podcast-player; }
 .media-player:focus-visible { outline: 2px solid var(--studydy-blue); outline-offset: 3px; }
-.media-player-heading { padding:16px 20px; }
-.media-player-heading h2 { font-size:16px; line-height:1.5; margin:4px 0 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.media-player-heading p { color: var(--text-secondary); font-size: 12px; margin: 0; }
 .media-player audio { display: none; }
 .podcast-video-element { display:block; width:100%; height:100%; object-fit:contain; background:#101c2e; }
 .media-viewport.has-video { aspect-ratio:auto; }
@@ -44,9 +41,6 @@
 .media-viewport.has-video .media-playback-controls { position:absolute; }
 .podcast-video-status { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; padding:0 20px 12px; font-size:12px; color:var(--text-secondary); }
 .podcast-video-status p { flex-basis:100%; margin:0; }
-.podcast-video-pages { display:flex; flex-wrap:wrap; gap:6px; padding:12px; }
-.podcast-video-pages button { flex:1 1 140px; text-align:left; border:1px solid var(--border); background:var(--surface); color:var(--text-secondary); border-radius:6px; font:inherit; font-size:12px; padding:8px; }
-.podcast-video-pages button[aria-current=true] { color:var(--studydy-blue); border-color:var(--studydy-blue); background:var(--studydy-blue-soft); }
 .media-viewport { position:relative; aspect-ratio:16/9; background:#101c2e; color:#f4f7fc; }
 .media-display { position:absolute; inset:0; background:#101c2e; }
 .media-display-label { position:absolute; top:16px; left:20px; font-size:12px; color:#b8c5d8; }
@@ -90,7 +84,6 @@
 .media-autoplay input { accent-color: var(--studydy-blue); width: 16px; height: 16px; margin: 0; }
 .media-feedback { font-size: 12px; margin: 8px 0 0; }
 @container podcast-player (max-width:600px) {
-  .media-player-heading { padding:14px 16px; }
   .media-viewport { aspect-ratio:auto; }
   .media-display { position:relative; aspect-ratio:16/9; }
   .media-display-label { top:12px; left:16px; }
