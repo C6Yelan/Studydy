@@ -18,6 +18,8 @@ MODEL = "gpt-5.6-luna"
 LOCK = Lock()
 TEXT_LOCK = Lock()
 ASR_LOCK = Lock()
+VIDEO_LOCK = Lock()
+VIDEO_CONTROL_LOCK = Lock()
 
 
 def object_schema(properties):
@@ -196,17 +198,17 @@ def transcribe(body):
         return json.loads(output.read_text())
 
 
-def align_audio(body):
+def align_audio(body, *, max_texts=6):
     import base64
     data=base64.b64decode(body['audio'],validate=True)
     texts=body.get('texts')
-    if not 0<len(data)<=100*1024*1024 or not isinstance(texts,list) or not 1<=len(texts)<=6:
+    if not 0<len(data)<=100*1024*1024 or not isinstance(texts,list) or not 1<=len(texts)<=max_texts:
         raise ValueError('REQUEST_INVALID')
     with tempfile.TemporaryDirectory(prefix='studydy-align-') as temporary:
         wav=Path(temporary)/'audio.wav';output=Path(temporary)/'alignment.json'
         wav.write_bytes(data)
         result=subprocess.run([os.environ['STUDYDY_STT_PYTHON'],str(Path(__file__).with_name('align.py')),str(wav),str(output)],
-            input=json.dumps({'texts':texts},ensure_ascii=False),text=True,
+            input=json.dumps({'texts':texts,**({'turn_indices':body['turn_indices']} if 'turn_indices' in body else {})},ensure_ascii=False),text=True,
             stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=900,check=False,
             env={k:v for k,v in os.environ.items() if k!='STUDYDY_PODCAST_PROVIDER_TOKEN'})
         if result.returncode!=0 or not output.is_file():raise RuntimeError('SCENE_ALIGNMENT_FAILED')
@@ -222,19 +224,26 @@ class Handler(BaseHTTPRequestHandler):
         if not compare_digest(self.headers.get("Authorization", ""), expected):
             self.send_error(401)
             return
-        if self.path not in {"/script", "/audio", "/answer", "/transcribe", "/semantics", "/luna-health", "/search-query", "/scope", "/align", "/scene-check"}:
+        if self.path not in {"/script", "/audio", "/answer", "/transcribe", "/semantics", "/luna-health", "/search-query", "/scope", "/align", "/scene-check", "/video", "/video/cancel"}:
             self.send_error(404)
             return
-        active_lock = LOCK if self.path == "/audio" else ASR_LOCK if self.path in {"/transcribe", "/align"} else TEXT_LOCK
+        active_lock = VIDEO_CONTROL_LOCK if self.path=='/video/cancel' else VIDEO_LOCK if self.path=='/video' else LOCK if self.path == "/audio" else ASR_LOCK if self.path in {"/transcribe", "/align"} else TEXT_LOCK
         if not active_lock.acquire(timeout=600):
             self.send_error(503)
             return
         try:
             size = int(self.headers.get("Content-Length", "0"))
-            if not 0 < size <= (140 if self.path == "/align" else 18) * 1024 * 1024:
+            if not 0 < size <= (140 if self.path in {"/align","/video"} else 18) * 1024 * 1024:
                 raise ValueError("REQUEST_INVALID")
             body = json.loads(self.rfile.read(size))
-            if self.path == "/luna-health":
+            if self.path == '/video/cancel':
+                from video_service import cancel
+                data,media=json.dumps(cancel(body)).encode(),'application/json'
+            elif self.path == '/video':
+                from video_service import produce
+                result=produce(body,luna=luna,model=MODEL,align=align_audio,text_lock=TEXT_LOCK,asr_lock=ASR_LOCK)
+                data,media=json.dumps(result,ensure_ascii=False).encode(),'application/json'
+            elif self.path == "/luna-health":
                 data, media = json.dumps({"model": MODEL}).encode(), "application/json"
             elif self.path == "/semantics":
                 result = luna(body["prompt"] + "\nINPUT:\n" + json.dumps(body["request"], ensure_ascii=False), body["schema"], timeout=300)
@@ -271,7 +280,9 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
         except Exception as error:
-            allowed = {"SCENE_ALIGNMENT_FAILED", "LUNA_GENERATION_TIMEOUT", "VOICE_TRANSCRIPT_INVALID", "PODCAST_SCRIPT_INVALID", "PODCAST_SCRIPT_NEEDS_REVIEW", "PODCAST_AUDIO_INVALID", "LUNA_GENERATION_FAILED"}
+            allowed = {"SCENE_ALIGNMENT_FAILED", "LUNA_GENERATION_TIMEOUT", "VOICE_TRANSCRIPT_INVALID", "PODCAST_SCRIPT_INVALID", "PODCAST_SCRIPT_NEEDS_REVIEW", "PODCAST_AUDIO_INVALID", "LUNA_GENERATION_FAILED",
+                       'VIDEO_CANCELLED','VIDEO_SOURCE_CHANGED','VIDEO_PROVIDER_UNAVAILABLE','VIDEO_DISK_SPACE_LOW','VIDEO_TRANSCRIPT_INVALID',
+                       'VIDEO_STORYBOARD_INVALID','VIDEO_LAYOUT_INVALID','VIDEO_STORYBOARD_NEEDS_REVIEW','VIDEO_RENDER_FAILED','VIDEO_TOO_LARGE','VIDEO_ALIGNMENT_INVALID'}
             code = str(error) if str(error) in allowed else "PODCAST_PROVIDER_FAILED"
             data = json.dumps({"error_code": code}).encode()
             self.send_response(502)

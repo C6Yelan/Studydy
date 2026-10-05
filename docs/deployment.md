@@ -68,6 +68,14 @@ docker build --label "org.opencontainers.image.revision=$STUDYDY_RELEASE_SHA" \
   -f ops/docker/frontend.Dockerfile -t studydy-frontend:latest .
 ```
 
+## 依賴未變更的輕量更新
+
+磁碟容量有限時，先將目前已驗證的 backend／frontend image ID 分別加上 `studydy-backend-runtime:local` 與 `studydy-frontend-runtime:local` 標籤，再使用 `compose.app-update.yaml` 覆寫建置設定。這些標籤不複製映像。後端只替換 source 與 migrations，不重新安裝或複製 OCR 環境；套件或 local_ai 變更不適用此方式。
+
+前端先在 checkout 使用既有 node_modules 執行 `npm test` 與 build，將輸出放入 `.studydy-runtime/frontend-static/site/`，同目錄放入 `ops/docker/nginx.conf` 及 `ops/docker/frontend-static.Dockerfile`（命名為 Dockerfile）。建置時保留 `compose.yaml`、`compose.tunnel.yaml`，最後加上 `compose.app-update.yaml`。部署使用已建好的映像及 `--no-build`，不要意外觸發完整 OCR 建置。
+
+建置前後檢查 Linux 與宿主磁碟可用容量，保留至少 20 GiB；異常成長時停止並檢查，不反覆重建。保存來源 diff、映像 ID 與 migration 前的本機 DB 備份。工作樹有經授權的未提交變更時以實際 source snapshot／diff 記錄，不能宣稱部署內容等於 HEAD。
+
 ## 記錄 identity、切換與回復
 
 不論採哪個 build 命令，都要保存「核准 SHA＋branch＋實際 image ID／可用 digest」配對。

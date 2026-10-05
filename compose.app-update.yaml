@@ -1,0 +1,10 @@
+# 已有 runtime 的程式碼更新；首次安裝或依賴變更仍用原 Dockerfile。
+services:
+  backend:
+    build:
+      dockerfile: ops/docker/backend-app.Dockerfile
+      target: !reset null
+  frontend:
+    build:
+      context: .studydy-runtime/frontend-static
+      dockerfile: Dockerfile

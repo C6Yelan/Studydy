@@ -29,6 +29,9 @@ from ..research_worker import ResearchWorker
 from .research_routes import install as install_research
 from .topic_routes import install as install_topics
 from .scene_routes import install as install_scenes
+from .video_routes import install as install_videos
+from .media import artifact_response
+from ..podcast_videos import VideoWorker
 from ..scene_worker import SceneWorker
 from .voice_routes import install as install_voice
 from learning_adaptation.learner_progress import (
@@ -237,6 +240,7 @@ def _normalized_origin(value: Any) -> str | None:
 
 
 _ERROR_STATUS.update({
+    'VIDEO_CONFLICT': (409,True), 'VIDEO_SOURCE_CHANGED': (409,False),
     "SCENE_CONFLICT": (409, True), "SCENE_ALIGNMENT_INVALID": (422, True),
     "SCENE_ALIGNMENT_FAILED": (422, True), "SCENE_SOURCE_CHANGED": (409, False),
     "TOPIC_CONFLICT": (409, True), "TOPIC_PROVIDER_FAILED": (502, True),
@@ -491,6 +495,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         podcast_worker = None
         voice_worker = VoiceWorker(settings.dsn).start()
         scene_worker = SceneWorker(settings.dsn).start()
+        video_worker = VideoWorker(settings.dsn).start()
         research_worker = ResearchWorker(settings.dsn, deepcopy(settings.local_config)).start()
         try:
             podcast_worker = PodcastWorker(settings.dsn).start()
@@ -499,6 +504,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
             if podcast_worker is not None:
                 podcast_worker.stop()
             scene_worker.stop()
+            video_worker.stop()
             research_worker.stop()
             voice_worker.stop()
             workers.stop()
@@ -913,48 +919,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         if view["status"] != "ready" or not 0 <= episode_index < len(view["episodes"]):
             raise _ApiFailure("RESOURCE_NOT_FOUND")
         artifact_id = UUID(view["episodes"][episode_index]["audio"]["artifact_id"])
-        context = open_verified_artifact(owner, artifact_id, dsn=settings.dsn)
-        source = context.__enter__()
-        size = source.size_bytes
-        headers = {"Accept-Ranges": "bytes", "Cache-Control": "no-store"}
-        start, end, status = 0, size - 1, 200
-        requested = request.headers.get("range")
-        if requested:
-            import re
-            match = re.fullmatch(r"bytes=(\d*)-(\d*)", requested)
-            try:
-                if not match or not any(match.groups()):
-                    raise ValueError()
-                left, right = match.groups()
-                if not left:
-                    length = int(right)
-                    if length <= 0:
-                        raise ValueError()
-                    start = max(0, size - length)
-                else:
-                    start = int(left)
-                    end = min(size - 1, int(right)) if right else size - 1
-                if start >= size or start > end:
-                    raise ValueError()
-                status = 206
-                headers["Content-Range"] = f"bytes {start}-{end}/{size}"
-            except ValueError:
-                context.__exit__(None, None, None)
-                return Response(status_code=416, headers={**headers, "Content-Range": f"bytes */{size}"})
-        headers["Content-Length"] = str(end - start + 1)
-        def chunks():
-            try:
-                source.file.seek(start)
-                remaining = end - start + 1
-                while remaining:
-                    chunk = source.file.read(min(65536, remaining))
-                    if not chunk:
-                        break
-                    remaining -= len(chunk)
-                    yield chunk
-            finally:
-                context.__exit__(None, None, None)
-        return StreamingResponse(chunks(), status_code=status, media_type="audio/wav", headers=headers)
+        return artifact_response(request, open_verified_artifact(owner, artifact_id, dsn=settings.dsn), "audio/wav")
 
     @app.post(
         "/v1/materials/{material_id}/card-sets", status_code=201,
@@ -1260,6 +1225,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         )
 
     install_scenes(app, settings, _trusted_learner, _require_query)
+    install_videos(app, settings, _trusted_learner, _require_query)
     install_topics(app, settings, _trusted_learner, _idempotency_key, _require_query)
     install_research(app, settings, _trusted_learner, _idempotency_key, _require_query)
     install_voice(app, settings, _trusted_learner, _idempotency_key, _require_query)

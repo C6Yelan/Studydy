@@ -12,7 +12,7 @@ type Episode={index:number;status:string;version:number;error_code:string|null;m
 type Scenes={podcast_id:string;episodes:Episode[]};
 const reasons:Record<string,string>={SCENE_ALIGNMENT_FAILED:'這集尚無法可靠對齊語音與講稿，可重試。',SCENE_ALIGNMENT_INVALID:'對齊資料不完整，尚未顯示同步圖卡。',SCENE_SOURCE_CHANGED:'音訊或講稿已變更，請重新準備同步圖卡。',SCENE_SOURCE_CHECK_INVALID:'來源核對尚未完成，可重試。',SCENE_PREPARATION_FAILED:'同步圖卡暫時無法完成，可重試。'};
 
-export function PodcastScenes({api,view,index,media,active}:{api:StudydyApiClient;view:PodcastView;index:number;media:RefObject<HTMLAudioElement|null>;active:boolean}){
+export function PodcastScenes({api,view,index,media,active,mediaKind}:{api:StudydyApiClient;view:PodcastView;index:number;media:RefObject<HTMLMediaElement|null>;active:boolean;mediaKind:string}){
  const [data,setData]=useState<Scenes|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[reload,setReload]=useState(0),[clock,setClock]=useState({index,time:0}),[playing,setPlaying]=useState(false);
  const time=clock.index===index?clock.time:0;
  useEffect(()=>{if(!active)return;let cancelled=false;let timer:ReturnType<typeof setTimeout>;setData(previous=>previous?.podcast_id===view.podcast_id?previous:null);setError('');
@@ -21,7 +21,7 @@ export function PodcastScenes({api,view,index,media,active}:{api:StudydyApiClien
  useEffect(()=>{if(!active)return;const element=media.current;if(!element)return;let frame=0;
  const update=()=>{setClock({index,time:element.currentTime});setPlaying(!element.paused&&!element.ended&&!element.error);if(!element.paused&&!element.ended&&!element.error&&!document.hidden){if(!frame)frame=requestAnimationFrame(()=>{frame=0;update();});}else{cancelAnimationFrame(frame);frame=0;}};
  const events=['loadedmetadata','timeupdate','seeking','seeked','play','pause','ratechange','ended','waiting','error'];events.forEach(name=>element.addEventListener(name,update));document.addEventListener('visibilitychange',update);update();
- return()=>{cancelAnimationFrame(frame);events.forEach(name=>element.removeEventListener(name,update));document.removeEventListener('visibilitychange',update);};},[active,index,media]);
+ return()=>{cancelAnimationFrame(frame);events.forEach(name=>element.removeEventListener(name,update));document.removeEventListener('visibilitychange',update);};},[active,index,media,mediaKind]);
  const perform=async(fn:()=>Promise<unknown>)=>{setBusy(true);setError('');try{await fn();setReload(n=>n+1);}catch(e){setError(errorMessage(e));}finally{setBusy(false);}};
  const episode=data?.episodes.find(e=>e.index===index),manifest=episode?.manifest;
  const matches=manifest&&manifest.audio_sha256===view.episodes[index].audio?.sha256;

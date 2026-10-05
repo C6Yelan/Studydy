@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from 'node:fs';
 import type { PodcastView } from "../../src/api/contracts";
 import { artifactId, materialId, runId, sessionId, structureRevision, structureView, mockKnowledgeMapApi, json } from "../fixtures/knowledge-map";
 
@@ -27,6 +28,8 @@ async function mockPodcasts(page: Page) {
   const actions: unknown[] = [];
   let deletes = 0;
   const summary = () => { const { schema, episodes, source_resolver, source_status, excluded_pages, ...rest } = view; return rest; };
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/video`, route=>json(route,{schema:'podcast-video/v1',podcast_id:podcastId,episode_index:Number(new URL(route.request().url()).pathname.split('/').at(-2)),status:'unprepared',version:0,error_code:null,video:null}));
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`,route=>json(route,{schema:'api-error/v1',request_id:sessionId,reason_code:'SOURCE_NOT_READY',retryable:true,message:'Synthetic timeline pending'},409));
   await page.route("**/v1/podcasts", route => json(route, { schema: "podcast-list/v1", podcasts: exists ? [summary()] : [] }));
   await page.route(`**/v1/podcasts/${podcastId}`, route => {
     if (route.request().method() === "DELETE") { deletes++; exists = false; return json(route, { schema: "podcast-deleted/v1", podcast_id: podcastId }); }
@@ -378,4 +381,97 @@ test('an intentional media pause does not display a playback failure',async({pag
  await expect(page.getByText('暫時無法播放，請按播放重試。')).toHaveCount(0);
  await page.locator('audio').evaluate((a:HTMLAudioElement)=>{a.play=()=>Promise.reject(new DOMException('blocked playback','NotAllowedError'));});
  await page.getByRole('button',{name:'播放',exact:true}).click();await expect(page.getByText('暫時無法播放，請按播放重試。')).toBeVisible();
+});
+
+
+// 合成純色MP4僅驗證播放與來源切換，不代表模型內容品質。
+async function mockEpisodeVideo(page:Page, initial:'ready'|'pending'|'failed'='ready') {
+  const fixture=await mockPodcasts(page);fixture.view.status='ready';fixture.view.completed_episodes=3;
+  for(const e of fixture.view.episodes){e.script=fixture.script;e.audio={...fixture.view.episodes[0].audio!,duration_seconds:12};}
+  const wav=Buffer.alloc(44+24000*12*2);wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(24000,24);wav.writeUInt32LE(48000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(wav.length-44,40);
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/audio`,r=>r.fulfill({status:200,contentType:'audio/wav',body:wav}));
+  let status:string=initial,version=1;
+  const actions:string[]=[];
+  const value=(index=0)=>({schema:'podcast-video/v1',podcast_id:podcastId,episode_index:index,status,version,error_code:status==='failed'?'VIDEO_LAYOUT_INVALID':null,
+    video:status==='ready'?{audio_sha256:'a'.repeat(64),script_sha256:'c'.repeat(64),artifact_id:artifactId,sha256:'d'.repeat(64),width:1920,height:1080,fps:60,duration:12,pages:[{title:'前半說明',start:0,end:6},{title:'後半說明',start:6,end:12}]}:null});
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/video`,r=>json(r,value(Number(new URL(r.request().url()).pathname.split('/').at(-2)))));
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/video/actions`,r=>{actions.push(r.request().postDataJSON().action);status=actions.at(-1)==='cancel'?'cancelled':'pending';version++;return json(r,value())});
+  const mp4=readFileSync(new URL('../fixtures/podcast-video.mp4',import.meta.url));
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/video/media`,r=>{
+    const m=r.request().headers()['range']?.match(/bytes=(\d+)-(\d*)/),start=m?Number(m[1]):0,end=m?.[2]?Math.min(Number(m[2]),mp4.length-1):mp4.length-1;
+    return r.fulfill({status:m?206:200,contentType:'video/mp4',headers:{'Accept-Ranges':'bytes',...(m?{'Content-Range':`bytes ${start}-${end}/${mp4.length}`}:{})},body:mp4.subarray(start,end+1)});
+  });
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`,r=>{
+    const index=Number(new URL(r.request().url()).pathname.split('/').at(-2));
+    return json(r,{schema:'podcast-transcript-timeline/v1',podcast_id:podcastId,episode_index:index,audio_sha256:'a'.repeat(64),segments:[{id:'a',start:0,end:6,title:'第一點',text:'這是前半段的講解。',turns:[{speaker:'host',text:'這是前半段的講解。'}]},{id:'b',start:6,end:12,title:'第二點',text:'這是後半段的講解。',turns:[{speaker:'guest',text:'這是後半段的講解。'}]}]});
+  });
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/subtitles`,r=>r.fulfill({contentType:'text/vtt',body:'WEBVTT\n\n00:00:00.000 --> 00:00:06.000\n前半段\n\n00:00:06.000 --> 00:00:12.000\n後半段\n'}));
+  return {fixture,actions,ready:()=>{status='ready';version++}};
+}
+
+test('formal video player shares controls, transcript seek, pages and logout boundary',async({page})=>{
+  await mockEpisodeVideo(page);
+  await page.goto(`/podcasts/${podcastId}`);
+  const video=page.locator('video');await expect(video).toHaveCount(1);await expect(page.locator('audio')).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'播放',exact:true})).toBeEnabled();
+  const display=(await page.locator('.media-display').boundingBox())!,controls=(await page.locator('.media-playback-controls').boundingBox())!;
+  expect(controls.y).toBeGreaterThanOrEqual(display.y+display.height-1);
+  await page.getByRole('navigation',{name:'本集投影片'}).getByRole('button',{name:'2. 後半說明'}).click();
+  await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.currentTime)).toBeCloseTo(6,1);
+  const transcript=page.getByRole('tabpanel',{name:'逐字稿'});
+  await expect(transcript.getByRole('button',{name:/後半段/})).toHaveAttribute('aria-current','true');
+  await transcript.getByRole('button',{name:/前半段/}).click();await page.getByRole('button',{name:'播放',exact:true}).click();
+  await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.currentTime)).toBeGreaterThan(.2);
+  await page.getByRole('button',{name:'播放設定',exact:true}).click();await page.getByRole('button',{name:'1.5×',exact:true}).click();
+  expect(await video.evaluate((v:HTMLVideoElement)=>v.playbackRate)).toBe(1.5);
+  await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
+  await page.getByRole('button',{name:'播放設定',exact:true}).click();await page.getByRole('button',{name:'全螢幕',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>document.fullscreenElement?.classList.contains('media-viewport'))).toBe(true);
+  await page.getByRole('button',{name:'退出全螢幕',exact:true}).click();
+  await page.getByRole('button',{name:'登出',exact:true}).click();await expect(page.locator('video')).toHaveCount(0);
+});
+
+test('video becoming ready preserves audio position, play state and settings',async({page})=>{
+  const mock=await mockEpisodeVideo(page,'pending');await page.goto(`/podcasts/${podcastId}`);
+  await expect(page.getByRole('button',{name:'播放',exact:true})).toBeEnabled();
+  await page.getByLabel('自動播放下一集').uncheck();
+  await page.getByRole('button',{name:'靜音',exact:true}).click();await page.getByRole('button',{name:'播放',exact:true}).click();
+  await page.locator('audio').evaluate((a:HTMLAudioElement)=>{a.currentTime=2;});mock.ready();
+  await expect(page.locator('video')).toHaveCount(1);await expect(page.locator('audio')).toHaveCount(0);
+  await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.currentTime)).toBeGreaterThanOrEqual(2);
+  await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.paused)).toBe(false);
+  expect(await page.locator('video').evaluate((v:HTMLVideoElement)=>v.muted)).toBe(true);
+});
+
+test('failed video can retry and cancel while existing audio keeps playing',async({page})=>{
+  const mock=await mockEpisodeVideo(page,'failed');await page.goto(`/podcasts/${podcastId}`);
+  await expect(page.getByText('分鏡版面需要調整，尚未發布影片。')).toBeVisible();
+  await page.getByRole('button',{name:'播放',exact:true}).click();await page.getByRole('button',{name:'重試影片',exact:true}).click();
+  await expect(page.getByRole('button',{name:'取消影片',exact:true})).toBeVisible();
+  await expect.poll(()=>page.locator('audio').evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
+  await page.getByRole('button',{name:'取消影片',exact:true}).click();await expect(page.getByText('影片生成已取消')).toBeVisible();
+  expect(mock.actions).toEqual(['retry','cancel']);
+});
+
+test('full dialogue video keeps both speakers inside a shared cue and seeks across turns',async({page})=>{
+  const mock=await mockEpisodeVideo(page);
+  mock.fixture.view.mode='full';mock.fixture.view.delivery='dialogue';
+  for(const episode of mock.fixture.view.episodes){
+    episode.delivery='dialogue';
+    if(episode.script)episode.script={...episode.script,segments:episode.script.segments.map(s=>({...s,turns:[{speaker:'host',text:'為什麼需要這個條件？'},{speaker:'guest',text:'條件決定這個觀念的適用範圍。'}]}))};
+  }
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/0/timeline`,r=>json(r,{
+    schema:'podcast-transcript-timeline/v1',podcast_id:podcastId,episode_index:0,audio_sha256:'a'.repeat(64),
+    segments:[{id:'a',start:0,end:6,title:'提問與說明',text:'為什麼需要這個條件？\n條件決定這個觀念的適用範圍。',turns:[{speaker:'host',text:'為什麼需要這個條件？'},{speaker:'guest',text:'條件決定這個觀念的適用範圍。'}]},
+      {id:'b',start:6,end:12,title:'下一個重點',text:'接著確認來源中的另一個限制。',turns:[{speaker:'guest',text:'接著確認來源中的另一個限制。'}]}]}));
+  await page.goto(`/podcasts/${podcastId}`);
+  const transcript=page.getByRole('tabpanel',{name:'逐字稿'}),first=transcript.getByRole('button',{name:/為什麼需要/}),second=transcript.getByRole('button',{name:/接著確認/});
+  await expect(first.locator('small')).toHaveText(['學習者','講解者']);
+  await expect(second.locator('small')).toHaveText(['講解者']);
+  await expect(first).toBeEnabled();await second.click();
+  await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.currentTime)).toBeCloseTo(6,1);
+  await expect(second).toHaveAttribute('aria-current','true');
+  await first.click();await expect(first).toHaveAttribute('aria-current','true');
+  await page.getByRole('button',{name:'播放',exact:true}).click();
+  await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.currentTime)).toBeGreaterThan(.2);
 });

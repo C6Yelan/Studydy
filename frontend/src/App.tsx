@@ -17,6 +17,7 @@ type SessionState =
 
 export default function App() {
   const [route, setRoute] = useState<AppRoute>(() => readRoute(window.location.pathname).route);
+  const loginDestination = useRef<AppRoute>(readRoute(window.location.pathname).route);
   const [session, setSession] = useState<SessionState>({ status: "starting" });
   const currentClient = useRef<StudydyApiClient | null>(null);
   const clientVersion = useRef(0);
@@ -73,6 +74,7 @@ export default function App() {
   }, [newClient, clearPrivateView]);
 
   const logout = async () => {
+    loginDestination.current = { name: "home" };
     clearPrivateView();
     setSession({ status: "starting" });
     channel.current?.postMessage("identity-changed");
@@ -151,7 +153,7 @@ export default function App() {
               throw error;
             }
             if (currentClient.current !== api) return;
-            writeRoute({ name: "home" }, true);
+            writeRoute(loginDestination.current, true);
             channel.current?.postMessage("identity-changed");
             saveSessionHint(identity);
             setSession({ status: "ready", identity, api });
