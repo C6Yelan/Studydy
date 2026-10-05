@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 
-from .podcast_video_plan import validate_plan, timeline_for_video
+from .podcast_video_plan import validate_plan, timeline_for_video, validate_visual_timing, visual_window
 
 PALETTE = {'ink':'#26354a','teal':'#168c86','blue':'#2973be','orange':'#bf651f','muted':'#74818c'}
 BACKGROUND = '#fafbf9'
@@ -133,7 +133,7 @@ def trace_path(draw,points,progress,color,width):
 
 def draw_emphasis(draw,t,timeline,page,bounds):
     for mark,box in zip(page.get('emphasis',[]),bounds):
-        start=timeline['segments'][mark['start_cue']]['start'];end=timeline['segments'][mark['end_cue']]['end']
+        start,end=visual_window(timeline,mark['start_cue'],mark['end_cue'],mark.get('caption_index'))
         opacity=emphasis_opacity(t,start,end)
         if not opacity:continue
         elapsed=t-start;progress=min(1,elapsed/min(.45,(end-start)/2))
@@ -167,8 +167,8 @@ def draw_frame(t, timeline, plan, text_layouts, mark_layouts=None):
     d.line((100,185,1820,185),fill='#d7e0e4',width=2)
     for index,e in enumerate(page['elements']):
         # Reveal 完全由時間推導；往回 seek 不留下未到時機的元素。
-        reveal=next((g['start_cue'] for g in page.get('reveal',[]) if index in g['elements']),page['start_cue'])
-        if cue_index<reveal:continue
+        reveal=next((g for g in page.get('reveal',[]) if index in g['elements']),None)
+        if reveal and t < visual_window(timeline,reveal['start_cue'],reveal['start_cue'],reveal.get('caption_index'))[0]:continue
         rgb=ImageColor.getrgb(PALETTE[e['color']]);rgba=(*rgb,255)
         area=(e['x'],e['y'],e['x']+e['w'],e['y']+e['h'])
         if e['kind'] in ('box','circle'):
@@ -217,6 +217,7 @@ def render(request, audio_path, destination):
     plan=validate_plan(request['plan'],request['cues'])
     timeline=timeline_for_video(request['podcast_id'],request['episode_index'],episode,
                                request['cues'],request['alignment'],request['source_resolver'])
+    validate_visual_timing(plan,timeline)
     text_layouts=layouts(plan)
     mark_layouts=emphasis_layouts(plan,text_layouts)
     if any(len(lines((s['title'] if plan.get('schema')=='podcast-storyboard/v2' else s['text']).replace('\n',' '),32,1720))>4 for s in timeline['segments']):
@@ -254,7 +255,9 @@ if __name__=='__main__':
         if len(sys.argv)>4 and sys.argv[4]=='--validate':
             if 'semantic_plan' in request:
                 from .podcast_video_layout import compile_layout
-                request['plan'] = compile_layout(request['semantic_plan'], request['cues'])
+                timeline=timeline_for_video(request['podcast_id'],request['episode_index'],request['episode'],
+                                           request['cues'],request['alignment'],request['source_resolver'])
+                request['plan'] = compile_layout(request['semantic_plan'], request['cues'], timeline)
             validate_plan(request['plan'],request['cues']);text_layouts=layouts(request['plan']);emphasis_layouts(request['plan'],text_layouts)
             result={'valid':True,'plan':request['plan']}
         else:result=render(request,audio_path,result_path.with_suffix('.mp4'))

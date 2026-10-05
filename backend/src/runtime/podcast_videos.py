@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 from sqlalchemy import delete, select, text
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from . import podcasts
-from .podcast_video_plan import POLICY, script_digest, timeline_for_video, validate_plan
+from .podcast_video_plan import POLICY, script_digest, timeline_for_video, validate_plan, validate_visual_timing
 from .source_normalization import SourceError
 from .storage.artifacts import quarantine_source_pdf
 from .storage.knowledge_structures import _read_verified_document
@@ -158,6 +158,7 @@ def validate_bundle(state,bundle):
                     or abs(encoded['integrated_lufs']+19)>1 or encoded['true_peak_dbtp']>-1):raise SourceError('VIDEO_AUDIO_INVALID')
         plan=validate_plan(bundle['plan'],bundle['cues'])
         timeline=timeline_for_video(state['podcast_id'],state['index'],episode,bundle['cues'],bundle['alignment'],state['source_resolver'])
+        validate_visual_timing(plan,timeline)
         manifest={**metadata,'audio_sha256':episode['audio']['sha256'],'script_sha256':script_digest(episode),
                   'policy':bundle['policy'],'model':bundle['model'],'source_check':bundle['review'],
                   'timeline':timeline,'storyboard':plan,

@@ -4,6 +4,7 @@ import json
 import pytest
 from runtime.podcast_video_layout import compile_layout, semantic_schema
 from runtime.podcast_video_render import layouts, emphasis_layouts, draw_frame
+from runtime.podcast_video_plan import validate_plan, validate_visual_timing
 
 
 def design(kind='exchange', count=2, end=3):
@@ -51,6 +52,48 @@ def test_exchange_preserves_packet_direction_and_deterministic_reveal_on_reverse
     def board(t): return draw_frame(t, timeline, result, text).crop((0, 220, 1920, 810)).tobytes()
     first = board(.1); assert first != board(6.5) and first == board(.1)
     assert board(2.5) != board(3.99)  # 暫時 trace 會消退，節點及已揭示的箭頭仍存在。
+
+
+def caption_exchange():
+    value = design(end=0)
+    for i, edge in enumerate(value['pages'][0]['relations']):
+        edge.update(cue_index=0, caption_index=i)
+    timeline = {'duration': 8, 'segments': [{'start': 0, 'end': 8, 'title': '完整四步驟'}],
+                'captions': [{'start': i*2, 'end': i*2+2, 'text': f'第{i+1}個合成讀句'} for i in range(4)]}
+    return value, timeline
+
+
+def test_measured_caption_anchors_drive_visual_steps_without_splitting_teaching_scope():
+    pytest.importorskip('PIL')
+    value, timeline = caption_exchange(); before = deepcopy(timeline)
+    result = compile_layout(value, [{}], timeline)
+    text = layouts(result)
+    def board(t): return draw_frame(t, timeline, result, text).crop((0, 220, 1920, 810)).tobytes()
+    frames = [board(t) for t in (.5, 2.5, 4.5, 6.5)]
+    assert len(set(frames)) == 4 and board(.5) == frames[0]
+    assert len(timeline['segments']) == 1 and timeline == before
+    assert [g['caption_index'] for g in result['pages'][0]['reveal']] == [1, 2, 3]
+
+
+def test_unmeasured_caption_and_caption_outside_its_teaching_scope_are_rejected():
+    pytest.importorskip('PIL')
+    value, timeline = caption_exchange(); value['pages'][0]['relations'][0]['caption_index'] = 99
+    with pytest.raises(ValueError, match='no measured anchor'): compile_layout(value, [{}], timeline)
+    value, timeline = caption_exchange(); value['pages'][0]['end_cue'] = 1
+    timeline['segments'] = [{'start': 0, 'end': 4}, {'start': 4, 'end': 8}]
+    with pytest.raises(ValueError, match='must belong'): compile_layout(value, [{}, {}], timeline)
+
+
+def test_same_teaching_cue_does_not_hide_a_connection_or_mark_that_appears_too_early():
+    pytest.importorskip('PIL')
+    value, timeline = caption_exchange(); result = compile_layout(value, [{}], timeline)
+    bad = deepcopy(result)
+    bad['pages'][0]['reveal'].append({'start_cue': 0, 'caption_index': 3, 'elements': [0]})
+    validate_plan(bad, [{}])
+    with pytest.raises(ValueError, match='connection must not precede'): validate_visual_timing(bad, timeline)
+    bad = deepcopy(result)
+    bad['pages'][0]['reveal'].append({'start_cue': 0, 'caption_index': 3, 'elements': [5]})
+    with pytest.raises(ValueError, match='emphasis must not precede'): validate_visual_timing(bad, timeline)
 
 
 @pytest.mark.parametrize('change', ['foreign', 'self', 'geometry', 'page', 'cue', 'label', 'hidden_node'])

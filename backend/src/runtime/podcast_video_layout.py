@@ -1,10 +1,11 @@
 """語意分鏡編譯成既有 v2 圖形；座標、留白與文字容量由可信程式決定。"""
-from .podcast_video_plan import object_schema, validate_plan
+from .podcast_video_plan import object_schema, validate_plan, validate_visual_timing, visual_window
 
 
-def semantic_schema(cues):
+def semantic_schema(cues, caption_count=0):
     cue = {'type': 'integer', 'enum': list(range(len(cues)))}
-    intent = {'cue_index': cue, 'reveal': {'type': 'boolean'}, 'focus': {'type': 'boolean'}}
+    intent = {'cue_index': cue, 'reveal': {'type': 'boolean'}, 'focus': {'type': 'boolean'},
+              'caption_index': {'type': ['integer', 'null'], 'enum': [None, *range(caption_count)]}}
     variants = []
     for layout in ('concept', 'comparison', 'flow', 'exchange'):
         node = object_schema({'label': {'type': 'string', 'minLength': 1, 'maxLength': 16, 'pattern': r'^[^\r\n]*$'},
@@ -39,7 +40,7 @@ def _line(x, y, w, h, cue, color='muted', kind='line'):
             'size': 28, 'color': color, 'filled': False}
 
 
-def compile_layout(design, cues):
+def compile_layout(design, cues, timeline=None):
     """只編排模型明示的節點／關係，不自行新增箭頭、推論或文字。"""
     try:
         if set(design) != {'pages'} or not 1 <= len(design['pages']) <= 12:
@@ -63,14 +64,14 @@ def compile_layout(design, cues):
             if kind in ('concept', 'comparison') and relations:
                 raise ValueError(where + ', use flow or exchange for supported directed relations')
             for i, node in enumerate(nodes):
-                if (set(node) != {'label', 'text', 'cue_index', 'reveal', 'focus'}
+                if (set(node) not in ({'label', 'text', 'cue_index', 'reveal', 'focus'}, {'label', 'text', 'cue_index', 'reveal', 'focus', 'caption_index'})
                         or not isinstance(node['label'], str) or not 1 <= len(node['label']) <= 16
                         or not isinstance(node['text'], str) or len(node['text']) > 64
                         or '\n' in node['label'] + node['text'] or '\r' in node['label'] + node['text']
                         or (kind == 'exchange' and node['text'])):
                     raise ValueError(where + f', node={i}: provide a short label and explanation; exchange participants use empty text')
             for i, relation in enumerate(relations):
-                if (set(relation) != {'source', 'target', 'label', 'cue_index', 'reveal', 'focus'}
+                if (set(relation) not in ({'source', 'target', 'label', 'cue_index', 'reveal', 'focus'}, {'source', 'target', 'label', 'cue_index', 'reveal', 'focus', 'caption_index'})
                         or any(type(relation[k]) is not int or not 0 <= relation[k] < len(nodes) for k in ('source', 'target'))
                         or relation['source'] == relation['target']
                         or not isinstance(relation['label'], str) or len(relation['label']) > 36
@@ -84,22 +85,36 @@ def compile_layout(design, cues):
                 if (type(item['cue_index']) is not int or not start <= item['cue_index'] <= end
                         or type(item['reveal']) is not bool or type(item['focus']) is not bool):
                     raise ValueError(where + ', cue_index must be within the page; reveal/focus must be boolean')
+                caption = item.get('caption_index')
+                if caption is not None:
+                    if timeline is None or type(caption) is not int or not 0 <= caption < len(timeline.get('captions', [])):
+                        raise ValueError(where + ', caption_index has no measured anchor')
+                    cue = timeline['segments'][item['cue_index']]
+                    if not cue['start'] <= timeline['captions'][caption]['start'] < cue['end']:
+                        raise ValueError(where + ', caption_index must belong to cue_index; use null for whole-cue timing')
             if kind == 'exchange' and any(a['cue_index'] > b['cue_index'] for a, b in zip(relations, relations[1:])):
                 raise ValueError(where + ', exchange messages must follow the spoken sequence')
             page = {'title': spec['title'], 'start_cue': start, 'end_cue': end,
                     'elements': [], 'emphasis': [], 'reveal': []}
             elements = page['elements']; visible = []; node_bounds = []
-            node_starts = [n['cue_index'] if n['reveal'] else start for n in nodes]
-            for edge in relations:
-                when = edge['cue_index'] if edge['reveal'] else start
-                for target in (edge['source'], edge['target']):
-                    node_starts[target] = min(node_starts[target], when)
+            def appearance(item):
+                return (item['cue_index'], item.get('caption_index')) if item['reveal'] else (start, None)
 
-            def add(element, when, focus=False, mark='outline'):
+            def time_at(when):
+                return visual_window(timeline, when[0], when[0], when[1])[0] if timeline else when[0]
+
+            node_starts = [appearance(n) for n in nodes]
+            for edge in relations:
+                when = appearance(edge)
+                for target in (edge['source'], edge['target']):
+                    node_starts[target] = min(node_starts[target], when, key=time_at)
+
+            def add(element, when, focus=False, mark='outline', caption=None):
                 index = len(elements); elements.append(element); visible.append(when)
                 if focus:
                     page['emphasis'].append({'element_index': index, 'start_cue': element['cue_index'],
-                        'end_cue': element['cue_index'], 'kind': mark, 'quote': ''})
+                        'end_cue': element['cue_index'], 'kind': mark, 'quote': '',
+                        **({'caption_index': caption} if caption is not None else {})})
                 return index
 
             for i, node in enumerate(nodes):
@@ -130,14 +145,14 @@ def compile_layout(design, cues):
                     x = 100 + col*(w+100); y = 250 + row*310 if rows > 1 else 370
                     h = 224 if rows > 1 else 300
                     shape, size = 'box' if kind == 'flow' else 'text', 42
-                add(_element(text, x, y, w, h, node['cue_index'], color, shape, size), node_starts[i], node['focus'])
+                add(_element(text, x, y, w, h, node['cue_index'], color, shape, size), node_starts[i], node['focus'], caption=node.get('caption_index'))
                 node_bounds.append((x, y, w, h))
                 if kind == 'comparison':
                     add(_line(x, 265, w, 0, node['cue_index'], color), node_starts[i])
                 if kind == 'exchange':
                     add(_line(x+w//2, 340, 0, 440, node['cue_index']), node_starts[i])
             for i, edge in enumerate(relations):
-                when = edge['cue_index'] if edge['reveal'] else start
+                when = appearance(edge)
                 a, b = node_bounds[edge['source']], node_bounds[edge['target']]
                 if kind == 'exchange':
                     x1, x2 = a[0]+a[2]//2, b[0]+b[2]//2
@@ -152,12 +167,15 @@ def compile_layout(design, cues):
                 else:
                     x = a[0]+a[2]//2; y = a[1]+a[3]+12
                     arrow = _line(x, y, 0, b[1]-12-y, edge['cue_index'], 'ink', 'arrow')
-                add(arrow, when, edge['focus'], 'trace')
+                add(arrow, when, edge['focus'], 'trace', edge.get('caption_index'))
             groups = {}
             for i, when in enumerate(visible):
-                if when > start: groups.setdefault(when, []).append(i)
-            page['reveal'] = [{'start_cue': cue, 'elements': targets} for cue, targets in sorted(groups.items())]
+                if time_at(when) > time_at((start, None)): groups.setdefault(when, []).append(i)
+            page['reveal'] = [{'start_cue': cue, 'elements': targets, **({'caption_index': caption} if caption is not None else {})}
+                              for (cue, caption), targets in sorted(groups.items(), key=lambda pair: time_at(pair[0]))]
             pages.append(page); next_cue = end+1
-        return validate_plan({'schema': 'podcast-storyboard/v2', 'pages': pages}, cues)
+        result = validate_plan({'schema': 'podcast-storyboard/v2', 'pages': pages}, cues)
+        if timeline is not None: validate_visual_timing(result, timeline)
+        return result
     except (KeyError, TypeError, IndexError) as error:
         raise ValueError('VIDEO_STORYBOARD_INVALID:invalid semantic layout fields') from error

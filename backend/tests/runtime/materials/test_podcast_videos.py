@@ -118,6 +118,23 @@ def test_video_api_owner_ranges_and_timeline(closed_loop,monkeypatch):
     assert client.get(root+'/video/media').status_code==404
 
 
+def test_visual_caption_anchor_is_checked_before_writing_the_video_artifact(closed_loop):
+    owner,_,_,_,dsn,_=closed_loop;identity=ready(closed_loop);state=videos.claim(dsn=dsn)
+    value=bundle(state)
+    value['alignment']['caption_alignment']={'cues':[{'parts':c['parts']} for c in value['cues']],
+                                              'alignment':deepcopy(value['alignment'])}
+    mark={'element_index':0,'start_cue':0,'end_cue':0,'kind':'outline','quote':'','caption_index':99}
+    value['plan']['pages'][0]['emphasis']=[mark]
+    with pytest.raises(SourceError,match='VIDEO_STORYBOARD_INVALID'):
+        videos.finish(state,bundle=value,dsn=dsn)
+    with database_session(dsn) as db:
+        assert db.scalar(select(Artifact).where(Artifact.kind=='podcast_video')) is None
+    mark['caption_index']=0
+    assert videos.finish(state,bundle=value,dsn=dsn)
+    manifest=videos.ready_manifest(owner.learner_id,identity,0,dsn=dsn)
+    assert manifest['timeline']['captions'] and manifest['caption_alignment']
+
+
 def test_material_removal_cascades_video_and_quarantines_media(closed_loop):
     owner,source,_,_,dsn,_=closed_loop;identity=ready(closed_loop)
     claim=videos.claim(dsn=dsn);videos.finish(claim,bundle=bundle(claim),dsn=dsn)

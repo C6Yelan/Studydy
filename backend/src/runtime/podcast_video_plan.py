@@ -109,8 +109,9 @@ def validate_plan(plan, cues):
         used=set()
         for group_index,group in enumerate(groups):
             detail=f'VIDEO_STORYBOARD_INVALID:page={page_index},reveal={group_index}'
-            if (not isinstance(group,dict) or set(group)!={'start_cue','elements'}
+            if (not isinstance(group,dict) or set(group) not in ({'start_cue','elements'}, {'start_cue','elements','caption_index'})
                 or type(group['start_cue']) is not int
+                or ('caption_index' in group and (type(group['caption_index']) is not int or group['caption_index'] < 0))
                 or not isinstance(group['elements'],list) or not group['elements']):raise ValueError(detail+', expected integer start_cue and nonempty elements')
             # 繪製器按各組 cue 決定可見性；頁首、同時或未排序的群組都能正確呈現。
             if not page['start_cue']<=group['start_cue']<=page['end_cue']:
@@ -123,14 +124,7 @@ def validate_plan(plan, cues):
         visible_at={i:page['start_cue'] for i in range(len(page['elements']))}
         for group in groups:
             for target in group['elements']:visible_at[target]=group['start_cue']
-        for i,element in enumerate(page['elements']):
-            if element['kind'] not in ('line','arrow'):continue
-            for j,node in enumerate(page['elements']):
-                if node['kind'] not in ('box','circle'):continue
-                left,top=node['x'],node['y'];right,bottom=left+node['w'],top+node['h']
-                for x,y in ((element['x'],element['y']),(element['x']+element['w'],element['y']+element['h'])):
-                    distance=math.hypot(max(left-x,0,x-right),max(top-y,0,y-bottom))
-                    if distance<=24 and visible_at[i]<visible_at[j]:raise ValueError(where+', connection must not precede its node')
+        validate_connections(page, visible_at, where)
         validate_emphasis(page,page_index)
         next_cue = page['end_cue']+1
     if next_cue != len(cues):
@@ -146,8 +140,9 @@ def validate_emphasis(page,page_index):
     occupied={}
     for index,m in enumerate(marks):
         detail=where+f'={index}'
-        if (not isinstance(m,dict) or set(m)!={'element_index','start_cue','end_cue','kind','quote'}
+        if (not isinstance(m,dict) or set(m) not in ({'element_index','start_cue','end_cue','kind','quote'}, {'element_index','start_cue','end_cue','kind','quote','caption_index'})
                 or any(type(m[k]) is not int for k in ('element_index','start_cue','end_cue'))
+                or ('caption_index' in m and (type(m['caption_index']) is not int or m['caption_index'] < 0))
                 or m['kind'] not in ('underline','outline','trace')
                 or not isinstance(m['quote'],str) or len(m['quote'])>80):
             raise ValueError(detail+', invalid mark fields')
@@ -172,12 +167,59 @@ def validate_emphasis(page,page_index):
             active=occupied.setdefault(cue,[])
             for other in active:
                 if other['element_index']!=m['element_index']:continue
+                if 'caption_index' in m and 'caption_index' in other and m['caption_index']!=other['caption_index']:continue
                 left,right=m['quote'],other['quote']
                 if not left or not right:raise ValueError(detail+', overlapping emphasis on the same target')
                 left_start=e['text'].index(left);right_start=e['text'].index(right)
                 if max(left_start,right_start)<min(left_start+len(left),right_start+len(right)):
                     raise ValueError(detail+', overlapping emphasis on the same phrase')
             active.append(m)
+
+
+def validate_connections(page, visible_at, where):
+    for i, element in enumerate(page['elements']):
+        if element['kind'] not in ('line', 'arrow'): continue
+        for j, node in enumerate(page['elements']):
+            if node['kind'] not in ('box', 'circle'): continue
+            left, top = node['x'], node['y']; right, bottom = left+node['w'], top+node['h']
+            for x, y in ((element['x'], element['y']), (element['x']+element['w'], element['y']+element['h'])):
+                distance = math.hypot(max(left-x, 0, x-right), max(top-y, 0, y-bottom))
+                if distance <= 24 and visible_at[i] < visible_at[j]:
+                    raise ValueError(where + ', connection must not precede its node')
+
+
+def visual_window(timeline, start_cue, end_cue, caption_index=None):
+    start = timeline['segments'][start_cue]['start']; end = timeline['segments'][end_cue]['end']
+    if caption_index is not None:
+        caption = timeline['captions'][caption_index]
+        start, end = caption['start'], min(end, caption['end'])
+    return start, end
+
+
+def validate_visual_timing(plan, timeline):
+    """細揭示只引用已驗證字幕的實測邊界，不改 teaching cue 或自行補秒數。"""
+    captions = timeline.get('captions', [])
+    for i, page in enumerate(plan['pages']):
+        entries = page.get('reveal', []) + page.get('emphasis', [])
+        if not any('caption_index' in item for item in entries): continue
+        where = f'VIDEO_STORYBOARD_INVALID:page={i}'
+        for item in entries:
+            if 'caption_index' not in item: continue
+            index = item['caption_index']
+            if type(index) is not int or not 0 <= index < len(captions):
+                raise ValueError(where + ', caption_index has no measured anchor')
+            cue = timeline['segments'][item['start_cue']]
+            if not cue['start'] <= captions[index]['start'] < cue['end']:
+                raise ValueError(where + ', caption_index must start inside its teaching cue')
+        visible = {j: timeline['segments'][page['start_cue']]['start'] for j in range(len(page['elements']))}
+        for group in page.get('reveal', []):
+            when = visual_window(timeline, group['start_cue'], group['start_cue'], group.get('caption_index'))[0]
+            for target in group['elements']: visible[target] = when
+        validate_connections(page, visible, where)
+        for mark in page.get('emphasis', []):
+            when = visual_window(timeline, mark['start_cue'], mark['end_cue'], mark.get('caption_index'))[0]
+            if when < visible[mark['element_index']]:
+                raise ValueError(where + ', emphasis must not precede its revealed target')
 
 
 

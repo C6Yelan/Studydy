@@ -61,6 +61,9 @@ def teaching_signals(segments):
     turns = [t for b in segments for t in b['turns']]
     signals = []
     texts = [_substance(t['text']) for t in turns]
+    source_indices = lambda t: {r['source_index'] for p in t.get('parts', []) for r in p['source_refs']}
+    all_sources = set().union(*(source_indices(t) for t in turns))
+    covered = set()
     earlier = ''
     for i, turn in enumerate(turns):
         text = turn['text']; plain = _plain(text); value = texts[i]
@@ -76,6 +79,23 @@ def teaching_signals(segments):
                 signals.append({'code': 'adjacent_overlap', 'turn': i, 'previous_turn': i-1,
                                 'similarity': round(ratio, 3), 'blocking': False,
                                 'detail': '高度相似；核對是否真有新條件、修正或例子，不可只看共同術語就判錯。'})
+        if (0 < i < len(turns)-1 and value != texts[i-1] and turns[i-1]['speaker'] != turn['speaker']
+                and turns[i+1]['speaker'] == turns[i-1]['speaker']
+                and re.match(r'^(?:所以|也就是說|也就是|換句話說)', text.strip())
+                and re.search(r'[？?][」”"]?\s*$', text)
+                and re.match(r'^(?:對|沒錯|是的|正是)(?:[，,。！!\s]|而且|也)', turns[i+1]['text'].strip())
+                and not re.search(r'如果|假設|例如|換成|改成|為什麼|怎麼|如何|哪些|何時|什麼情況|我(?:原本|一直)?以為|誤以為', text)):
+            question_grams = {value[j:j+2] for j in range(len(value)-1)}
+            overlap = sum(g in texts[i-1] for g in question_grams) / max(1, len(question_grams))
+            if overlap >= .4 and len(value) >= 8 and not source_indices(turn) - source_indices(turns[i-1]):
+                signals.append({'code': 'confirmation_loop', 'turn': i, 'previous_turn': i-1,
+                                'reply_turn': i+1, 'blocking': True,
+                                'detail': '這個「所以……？」承接的是剛說過的內容，下一輪又先肯定；刪除無增量的確認，讓說明直接推進，或改成真正的新情境／疑惑。'})
+        if (i and covered and covered == all_sources and re.match(r'^所以', text.strip())
+                and re.search(r'[？?][」”"]?\s*$', text)
+                and not re.search(r'如果|假設|例如|換成|改成|為什麼|怎麼|如何', text)):
+            signals.append({'code': 'question_after_coverage', 'turn': i, 'blocking': False,
+                            'detail': '所有來源都已講到後才提出這個確認／反向假設。核對前文是否已明確回答；不能為製造誤解而重講已交代的條件。來源重用本身不是錯。'})
         recap = re.search(r'(?:^|[。！？!?]\s*)(所以|總結|整理|回顧|最後|記住|重點是)', text.strip())
         if recap:
             offset = recap.start(1)
@@ -89,6 +109,7 @@ def teaching_signals(segments):
                                     'coverage': round(repeated, 3), 'blocking': ending in already,
                                     'detail': '收尾多處內容已講過；核對是否仍有必要整理或新判斷，否則刪除重述。'})
         earlier += '\n' + value
+        covered.update(source_indices(turn))
     if len(turns) >= 6 and all(a['speaker'] != b['speaker'] for a, b in zip(turns, turns[1:])):
         signals.append({'code': 'regular_alternation', 'turns': list(range(len(turns))), 'blocking': False,
                         'detail': '整集固定輪替；核對問題是否有真實疑惑與新資訊，不要求刻意製造連續同角色。'})
