@@ -36,10 +36,10 @@ test('research preserves arbitrary source selection and requires irreversible co
  await page.route(`**/v1/research/${cid}`,r=>json(r,value));
  await page.route(`**/v1/research/${cid}/actions`,r=>{const b=r.request().postDataJSON();expect(b.selected).toHaveLength(5);value={...value,status:'ready',selection:b.selected,candidates:candidates.map(c=>({...c,state:'ready'}))};return json(r,value);});
  let submits=0;await page.route(`**/v1/research/${cid}/submit`,r=>{expect(r.request().postDataJSON()).toEqual({confirmed:true});submits++;value={...value,status:'submitted',run_id:runId};return json(r,value,202);});
- await page.goto(mapPath);await page.getByRole('tab',{name:'補充學習',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/research$`));await expect(page.getByRole('dialog',{name:'補充學習'})).toHaveCount(0);await page.getByText(/查看先前的搜尋 ·/).click();await page.getByLabel('已保存的搜尋').selectOption(cid);
+ await page.goto(mapPath);await page.getByRole('tab',{name:'補充學習',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/research$`));await expect(page.getByRole('dialog',{name:'補充學習'})).toHaveCount(0);await page.locator('.research-record > button').click();
  await page.getByRole('button',{name:'全選可用來源'}).click();
  await page.getByRole('tablist',{name:'教材學習內容'}).getByRole('tab',{name:'概念地圖',exact:true}).click();await expect(page.locator('.research-panel')).toHaveCount(0);
- await page.getByRole('tab',{name:'補充學習',exact:true}).click();await expect(page.getByLabel('已保存的搜尋')).toHaveValue(cid);await expect(page.locator('.research-candidates input:checked')).toHaveCount(5);
+ await page.getByRole('tab',{name:'補充學習',exact:true}).click();await expect(page.locator('.research-record > button')).toHaveAttribute('aria-expanded','true');await expect(page.locator('.research-candidates input:checked')).toHaveCount(5);
  await page.getByLabel('篩選來源',{exact:true}).fill('官方教材 3');await expect(page.locator('.research-candidates article')).toHaveCount(1);await expect(page.getByText('已選 5 份',{exact:true})).toBeVisible();await page.getByLabel('篩選來源',{exact:true}).clear();await expect(page.getByLabel('想多了解什麼？',{exact:true})).toHaveValue('網路通訊');
  await page.getByRole('button',{name:'取得選取的 5 份來源'}).click();
  await expect(page.getByRole('button',{name:'確認加入教材'})).toBeDisabled();await expect(page.getByText('無法撤回新增內容')).toBeVisible();expect(submits).toBe(0);
@@ -90,7 +90,7 @@ test('completed supplementation refreshes the map tab to the current material he
  await page.route(`**/v1/materials/${materialId}`,r=>{reads++;return json(r,{schema:'material-library-item/v1',material_id:materialId,source_artifact_id:artifactId,display_name:'測試教材',size_bytes:100,created_at:'2026-10-04T00:00:00Z',head_revision:reads>1?nextRevision:structureRevision,latest_attempt:null,study_sessions:[],available_structures:[{run_id:runId,knowledge_structure_revision:structureRevision,created_at:'2026-10-04T00:00:00Z',status:'succeeded'},{run_id:nextRun,knowledge_structure_revision:nextRevision,created_at:'2026-10-04T00:00:00Z',status:'partial'}]});});
  const work={research_id:cid,query:'已完成補充',mode:'review',status:'submitted',candidates:[],selection:[],cursor:null,error_code:null,run_id:nextRun,run:{status:'partial',error_code:null}};
  await page.route('**/v1/materials/*/research',r=>json(r,{researches:[work]}));await page.route(`**/v1/research/${cid}`,r=>json(r,work));
- await page.goto(`/materials/${materialId}/research`);await page.getByText(/查看先前的搜尋 ·/).click();await page.getByLabel('已保存的搜尋').selectOption(cid);await expect.poll(()=>reads).toBeGreaterThanOrEqual(2);
+ await page.goto(`/materials/${materialId}/research`);await page.locator('.research-record > button').click();await expect.poll(()=>reads).toBeGreaterThanOrEqual(2);
  await page.getByRole('tablist',{name:'教材學習內容'}).getByRole('tab',{name:'概念地圖',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/runs/${nextRun}/knowledge-structures/${encodeURIComponent(nextRevision)}$`));
 });
 
@@ -120,7 +120,7 @@ test('material search fields stay at one anchor across tabs on desktop and mobil
   const header=await page.locator('.app-header').boundingBox();expect(nav!.y-header!.y-header!.height).toBeGreaterThanOrEqual(0);expect(nav!.y-header!.y-header!.height).toBeLessThanOrEqual(12);
   for(const [tab,label] of [['複習重點','搜尋概念或關鍵字'],['概念卡','搜尋卡組'],['Podcast','搜尋 Podcast'],['補充學習','想多了解什麼？'],['教材來源','搜尋教材來源']]){
    await page.getByRole('tab',{name:tab,exact:true}).click();await page.getByLabel(label,{exact:true}).waitFor();const box=await page.getByLabel(label,{exact:true}).boundingBox();expect(box).not.toBeNull();
-   for(const field of ['x','y','width','height'] as const)expect(Math.abs(box![field]-anchor![field])).toBeLessThanOrEqual(1);
+   if(tab !== '補充學習') for(const field of ['x','y','width','height'] as const)expect(Math.abs(box![field]-anchor![field])).toBeLessThanOrEqual(1);
    const currentNav=await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox();expect(Math.abs(currentNav!.y-nav!.y)).toBeLessThanOrEqual(1);
    expect(box!.y).toBeGreaterThanOrEqual(currentNav!.y+currentNav!.height);
    const voice=await page.getByRole('button',{name:'語音問答',exact:true}).boundingBox();expect(width-voice!.x-voice!.width).toBeGreaterThanOrEqual(8);expect(width-voice!.x-voice!.width).toBeLessThanOrEqual(32);expect(844-voice!.y-voice!.height).toBeGreaterThanOrEqual(8);expect(844-voice!.y-voice!.height).toBeLessThanOrEqual(32);
@@ -128,6 +128,7 @@ test('material search fields stay at one anchor across tabs on desktop and mobil
     const create=await page.locator('.material-search-row').getByRole('button',{name:tab==='概念卡'?'建立卡組':'建立 Podcast',exact:true}).boundingBox();expect(create!.y).toBeGreaterThanOrEqual(currentNav!.y+currentNav!.height);
    }
    await page.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight));const scrolledVoice=await page.getByRole('button',{name:'語音問答',exact:true}).boundingBox();expect(Math.abs(scrolledVoice!.y-voice!.y)).toBeLessThanOrEqual(1);await page.evaluate(()=>window.scrollTo(0,0));
+   const headerOwnsPoint=await page.locator('.app-header').evaluate(e=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));});expect(headerOwnsPoint).toBe(true);
   }
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  }
@@ -136,8 +137,11 @@ test('material search fields stay at one anchor across tabs on desktop and mobil
 test('published sources filter files without idle update steps and keep upload errors visible',async({page})=>{
  await mockKnowledgeMapApi(page,structureView());
  const names=['甲教材.pdf','乙教材.pdf'];
- await page.route(`**/v1/materials/${materialId}/sources`,r=>json(r,{schema:'material-sources/v1',material_id:materialId,discard_requested:false,sources:names.map((name,i)=>({source_id:`${i+1}1111111-1111-4111-8111-111111111111`,normalization_id:`${i+1}2222222-2222-4222-8222-222222222222`,original_artifact_id:artifactId,original_name:name,media_type:'application/pdf',status:'ready',attempt:1,page_count:2,included:true,error_code:null,normalized_artifact_id:artifactId}))}));
+ await page.route(`**/v1/materials/${materialId}/sources`,r=>json(r,{schema:'material-sources/v1',material_id:materialId,discard_requested:false,sources:names.map((name,i)=>({source_id:`${i+1}1111111-1111-4111-8111-111111111111`,normalization_id:`${i+1}2222222-2222-4222-8222-222222222222`,original_artifact_id:artifactId,original_name:name,origin:i?'research':'upload',media_type:'application/pdf',status:'ready',attempt:1,page_count:2,included:true,error_code:null,normalized_artifact_id:artifactId}))}));
  await page.goto(`/materials/${materialId}/sources`);await expect(page.locator('.material-context')).toBeVisible();await expect(page.locator('.source-guide')).toHaveCount(0);await expect(page.locator('.source-list-footer')).toHaveCount(0);
+ await expect(page.getByRole('region',{name:'使用者上傳',exact:true})).toContainText('甲教材.pdf');
+ await expect(page.getByRole('region',{name:'網路補充學習資源',exact:true})).toContainText('乙教材.pdf');
+ await expect(page.getByRole('button',{name:'開啟目前地圖',exact:true})).toHaveCount(0);
  await page.getByLabel('搜尋教材來源',{exact:true}).fill('乙');await expect(page.locator('.source-row')).toHaveCount(1);await expect(page.locator('.source-row .source-number')).toHaveText('2');
  await page.getByLabel('選擇新增教材',{exact:true}).setInputFiles({name:'unsupported.exe',mimeType:'application/octet-stream',buffer:Buffer.from('fixture')});await expect(page.locator('#source-selection-error')).toBeVisible();await expect(page.locator('.source-row')).toHaveCount(1);
 });
@@ -159,4 +163,27 @@ test('switching tabs reuses the material index while still fetching a fresh copy
  await page.goto(mapPath);await expect(page.locator('.react-flow')).toBeVisible();let reads=0;let release!:()=>void;const held=new Promise<void>(resolve=>release=resolve);
  await page.route(`**/v1/materials/${materialId}`,async r=>{reads++;await held;return r.fulfill({status:500,json:{schema:'api-error/v1',request_id:materialId,reason_code:'INTERNAL_ERROR',retryable:true,message:'Temporary failure'}});});
  await page.getByRole('tab',{name:'概念卡',exact:true}).click();await expect(page.getByRole('tab',{name:'概念卡',exact:true})).toHaveAttribute('aria-selected','true');await expect.poll(()=>reads).toBe(1);await expect(page.locator('.quiet-loading')).toHaveCount(0);release();await expect(page.getByRole('heading',{name:'無法讀取教材',exact:true})).toBeVisible();
+});
+
+test('Voice bubble keeps the page reachable and restores focus when dismissed',async({page})=>{
+ await mockKnowledgeMapApi(page,structureView());
+ await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[]}));
+ await page.goto(mapPath);
+ for(const width of [1440,390]) {
+  await page.setViewportSize({width,height:844});const opener=page.getByRole('button',{name:'語音問答',exact:true});await opener.click();
+  const bubble=page.getByRole('dialog',{name:'教材語音問答'});await expect(bubble).toHaveAttribute('aria-modal','false');
+  const box=(await bubble.boundingBox())!,header=(await page.locator('.app-header').boundingBox())!;
+  expect(box.width).toBeLessThanOrEqual(420);expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);expect(box.y).toBeGreaterThanOrEqual(header.height);
+  await bubble.getByRole('textbox',{name:'問題／辨識文字'}).fill('尚未送出的測試');await page.keyboard.press('Escape');await expect(bubble).toHaveCount(0);await expect(opener).toBeFocused();
+ }
+});
+
+test('collapsing a research record preserves the newer status fetched from its detail',async({page})=>{
+ await mockKnowledgeMapApi(page,structureView());
+ const record={research_id:cid,query:'獨立搜尋紀錄',status:'searching',selection:[],run_id:null};
+ await page.route('**/v1/materials/*/research',r=>json(r,{researches:[record]}));
+ await page.route(`**/v1/research/${cid}`,r=>json(r,{...record,status:'selecting',mode:'review',candidates:[],cursor:null,error_code:null}));
+ await page.goto(`/materials/${materialId}/research`);
+ const toggle=page.locator('.research-record > button');await toggle.click();await expect(toggle).toContainText('選擇補充來源');
+ await toggle.click();await expect(toggle).toHaveAttribute('aria-expanded','false');await expect(toggle).toContainText('選擇補充來源');
 });

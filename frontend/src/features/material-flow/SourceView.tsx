@@ -147,15 +147,6 @@ export function SourceView({
     run.status !== "cancelled" &&
     (!currentStructure || !!run.base_revision);
   const flowComplete = flowStarted && (run?.status === "succeeded" || run?.status === "partial");
-  const openMap = () => {
-    if (currentStructure)
-      writeRoute({
-        name: "knowledge-map",
-        materialId,
-        runId: currentStructure.run_id,
-        structureRevision: currentStructure.knowledge_structure_revision,
-      });
-  };
   const perform = async (action: () => Promise<void>) => {
     if (submitting.current || discardAccepted.current) return;
     submitting.current = true;
@@ -337,15 +328,12 @@ export function SourceView({
                     ` · ${displayedSources.reduce((sum, source) => sum + (source.page_count ?? 0), 0)} 頁`}
                 </p>
               </div>
-              {currentStructure && (
-                <button className="secondary-button" onClick={openMap}>
-                  開啟目前地圖
-                </button>
-              )}
             </header>
             {removing && <p role="status">正在刪除教材…</p>}
+            {(currentStructure ? ['upload', 'research'] as const : ['all'] as const).map(group => <section key={group} aria-label={group === 'research' ? '網路補充學習資源' : '使用者上傳'}>
+            {currentStructure && <h3 className="source-group-title">{group === 'research' ? '網路補充學習資源' : '使用者上傳'}</h3>}
             <ol className="source-list">
-              {visibleSources.map((source, index) => (
+              {visibleSources.filter(source => group === 'all' || (source.origin ?? 'upload') === group).map((source, index) => (
                 <li className="source-row" key={source.source_id} aria-label={source.original_name}>
                   <div className="source-order">
                     <span className="source-number">{currentStructure ? displayedSources.indexOf(source)+1 : index+1}</span>
@@ -484,7 +472,7 @@ export function SourceView({
                     )}
                 </li>
               ))}
-              {queue.map((item, index) => (
+              {group !== "research" && queue.map((item, index) => (
                 <li
                   className="source-row source-upload-row"
                   key={item.key}
@@ -532,6 +520,8 @@ export function SourceView({
                 </li>
               ))}
             </ol>
+            {currentStructure && !visibleSources.some(source => (source.origin ?? "upload") === group) && <p className="source-group-empty">尚無{group === "research" ? "網路補充學習資源" : "上傳教材"}。</p>}
+            </section>)}
             {currentStructure && sourceQuery.trim() && visibleSources.length===0 && <p className="cards-no-results">沒有符合的來源檔案。</p>}
             {!currentStructure && !removing && !hasActiveRun && (
               <div className="source-add-area">

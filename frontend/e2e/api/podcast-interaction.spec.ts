@@ -2,7 +2,7 @@ import {expect,test} from '@playwright/test';
 test.skip(process.env.STUDYDY_E2E_PODCAST_INTERACTION!=='true','Requires isolated Podcast API/DB fixture');
 const data=JSON.parse(process.env.STUDYDY_E2E_PODCAST_DATA??'{}');
 
-test('real API keeps Podcast source, Voice and Assessment on the saved revision',async({page})=>{
+test('real API keeps the original transcript and internal captions without retired UI',async({page})=>{
   const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto('/');
   await page.getByLabel('Email',{exact:true}).fill('learner_test@example.com');
@@ -11,33 +11,15 @@ test('real API keeps Podcast source, Voice and Assessment on the saved revision'
   await expect(page.getByRole('heading',{name:'歡迎回來！',level:1,exact:true})).toBeVisible();
   await page.goto(`/podcasts/${data.podcast}`);
   await expect(page.getByText('依建立時的教材版本保存')).toBeVisible();
-  await expect(page.getByRole('button',{name:'問目前播放這一段',exact:true})).toBeEnabled();
-  const transcript=page.getByRole('tabpanel',{name:'逐字稿'});
-  await transcript.getByText('查看這段來源',{exact:true}).click();
-  await transcript.getByRole('button',{name:/PDF 第|查看第/}).first().click();
-  await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();
-  await expect(page.getByRole('link',{name:'開啟 PDF 來源頁'})).toHaveAttribute('href',/#page=/);
-  await page.getByRole('button',{name:'關閉',exact:true}).click();
+  await expect(page.getByRole('region',{name:'逐字稿',exact:true})).toContainText('堆疊');
+  await expect(page.getByRole('button',{name:'問目前播放這一段',exact:true})).toHaveCount(0);
   const timeline=await (await page.request.get(`/v1/podcasts/${data.podcast}/episodes/0/timeline`)).json();
   expect(timeline.source_resolver).toContain(encodeURIComponent(data.revision).replaceAll('%3A',':'));
   const vtt=await (await page.request.get(`/v1/podcasts/${data.podcast}/episodes/0/subtitles`)).text();
   expect(vtt).toContain('WEBVTT');expect(vtt).toContain('-->');
   expect(vtt.match(/ --> /g)?.length).toBeGreaterThan(timeline.segments.length);
   expect(timeline.segments).toHaveLength(1);
-  await page.getByRole('button',{name:'問目前播放這一段',exact:true}).click();
-  await page.getByRole('textbox',{name:'問題／辨識文字'}).fill('這裡的必要條件是什麼？');
-  await page.getByRole('button',{name:'送出問題',exact:true}).click();
-  await expect(page.getByText('這個回答引用原版本教材的必要條件。')).toBeVisible();
-  await expect(page.getByRole('button',{name:'播放回答語音',exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'播放回答語音',exact:true}).click();
-  await expect.poll(()=>page.locator('.media-player audio').evaluate((a:HTMLAudioElement)=>a.paused)).toBe(true);
-  await page.getByRole('button',{name:'關閉問答',exact:true}).click();
-  await page.getByLabel('自動播放下一集').uncheck();
-  await page.getByRole('button',{name:'播放',exact:true}).click();
-  await expect(page.getByText('已播放至末集結尾，接著檢測理解')).toBeVisible();
-  await page.getByRole('button',{name:'進入既有測驗',exact:true}).click();
-  await expect(page).toHaveURL(new RegExp(`/runs/${data.run}/knowledge-structures/`));
-  expect(decodeURIComponent(page.url())).toContain(data.revision);
-  await expect(page.locator('.assessment-set-panel')).toBeVisible();
+  await expect(page.getByRole('button',{name:'進入既有測驗',exact:true})).toHaveCount(0);
+  await expect(page.getByText('字幕',{exact:true})).toHaveCount(0);
   expect(errors).toEqual([]);
 });

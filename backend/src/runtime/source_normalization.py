@@ -150,7 +150,7 @@ def read_sources(owner, material_id, *, dsn=None):
         ))
         if material is None:
             raise SourceError("RESOURCE_NOT_FOUND")
-        from .storage.tables import KnowledgeStructure
+        from .storage.tables import KnowledgeStructure, MaterialResearch
 
         revision = material.head_revision
         structure = session.scalar(select(KnowledgeStructure).where(
@@ -168,7 +168,16 @@ def read_sources(owner, material_id, *, dsn=None):
                    MaterialSource.removed_at.is_(None))
             .order_by(MaterialSource.created_at, MaterialSource.source_id)
         ).all()
+        # 研究候選保存 canonical source_id；僅投影來源分類，不建立第二份來源。
+        research_sources = {
+            candidate['source_id']
+            for candidates in session.scalars(select(MaterialResearch.candidates).where(
+                MaterialResearch.learner_id == owner, MaterialResearch.material_id == material_id,
+            ))
+            for candidate in candidates if candidate.get('source_id')
+        }
         return [{
+            "origin": "research" if str(source.source_id) in research_sources else "upload",
             "source_id": source.source_id,
             "normalization_id": job.normalization_id,
             "original_artifact_id": source.original_artifact_id,

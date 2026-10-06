@@ -170,6 +170,9 @@ for (const width of [1536, 390])
       });
       await page.goto(sourcesPath);
       await expect(page.getByRole("heading", { name: "確認教材", exact: true })).toBeVisible();
+      const hero = (await page.locator('.upload-hero').boundingBox())!, header = (await page.locator('.app-header').boundingBox())!;
+      expect(hero.x).toBeGreaterThanOrEqual(16); expect(hero.y).toBeGreaterThanOrEqual(header.y+header.height+16);
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
       const rows = await readyRows(page);
       const start = page.getByRole("button", { name: "開始分析教材", exact: true });
       await expect(start).toBeEnabled();
@@ -219,7 +222,7 @@ for (const width of [1536, 390])
     }) => {
       const { state } = await mockSources(page, true);
       await page.goto(sourcesPath);
-      await expect(page.getByRole("heading", { name: "新增教材", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "教材來源", exact: true })).toBeVisible();
       const rows = await readyRows(page);
       await expect(rows.first().getByRole("button", { name: "移除", exact: true })).toHaveCount(0);
       await expect(page.getByRole("button", { name: /^(上移|下移) / })).toHaveCount(0);

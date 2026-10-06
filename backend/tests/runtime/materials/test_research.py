@@ -42,6 +42,14 @@ def test_research_full_append_preserves_voice_and_idempotence(revisions,monkeypa
     owner=learner.learner_id
     conversation=voice.create(owner,material,'voice',dsn=dsn)
     identity=ready(owner,material,dsn,monkeypatch)
+    from runtime.source_normalization import read_sources
+    sources = read_sources(owner, material, dsn=dsn)
+    with database_session(dsn) as db:
+        row = db.get(MaterialResearch, identity)
+        acquired = {c['source_id'] for c in row.candidates if c.get('source_id')}
+    assert acquired
+    assert {str(s['source_id']) for s in sources if s['origin'] == 'research'} == acquired
+    assert any(s['origin'] == 'upload' for s in sources)
     with ThreadPoolExecutor(max_workers=2) as pool:
         results=list(pool.map(lambda _:research.submit(owner,identity,settings,dsn=dsn),range(2)))
     assert results[0]['run_id']==results[1]['run_id']

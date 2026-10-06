@@ -92,6 +92,7 @@ class StudySessionLink(_Closed):
 
 
 class SourceView(_Closed):
+    origin: Literal["upload", "research"] = "upload"
     included: bool = False
     source_id: UUID
     normalization_id: UUID
