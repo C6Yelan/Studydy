@@ -401,7 +401,7 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
         raise ReviewError('REVIEW_SOURCE_CHANGED')
     proposal = validate_proposal(unit, value)
     concepts = {c['concept_id']: c for c in view['concepts']}
-    root = {key: key for key in concepts}
+    teaching_root = {key: key for key in concepts}
     roles = {key: 'keep' for key in concepts}
     blocked = [{'claim_id': claim_id, 'reason': 'CONFLICTING_REVIEW_EDITS_PRESERVED_ORIGINAL'}
                for claim_id in unit.conflicting_claim_ids]
@@ -447,7 +447,7 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
             action = 'needs_review'
         roles[key] = action
         if action in {'group', 'example'}:
-            root[key] = unit.concepts[a.target]['concept_id']
+            teaching_root[key] = unit.concepts[a.target]['concept_id']
         if action == 'needs_review':
             findings.append({'concept_id': key, 'reason': a.reason})
         target = unit.concepts[a.target] if a.target is not None else None
@@ -473,8 +473,8 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
     for key, concept in concepts.items():
         if roles[key] in {'group', 'example', 'metadata'}:
             continue
-        members = [k for k in concepts if root[k] == key and roles[k] != 'example']
-        examples = [k for k in concepts if root[k] == key and roles[k] == 'example']
+        members = [k for k in concepts if teaching_root[k] == key and roles[k] != 'example']
+        examples = [k for k in concepts if teaching_root[k] == key and roles[k] == 'example']
         units.append({
             'concept_id': key,
             'label': concept['label'],
@@ -572,28 +572,17 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
         if roles[s] == 'metadata' or roles[t] == 'metadata':
             excluded.append({'relation_id': row['relation_id'], 'reason': 'metadata_endpoint'})
             continue
-        source, target = root[s], root[t]
-        if source == target:
-            if row['type'] == 'prerequisite':
-                raise ReviewError('REVIEW_COLLAPSES_PREREQUISITE')
-            if row['type'] == 'example' and roles[s] == 'example' and root[s] == t:
-                findings.append({
-                    'relation_id': row['relation_id'],
-                    'reason': 'EXAMPLE_DIRECTION_OR_TYPE_NEEDS_REVIEW',
-                })
-            internalized.append({
+        # Teaching membership 只作 advisory；不得把關係兩端換成教學單元的根。
+        # 原有錯向 example 診斷保留，但不因此內部化或丟棄 canonical relation。
+        if row['type'] == 'example' and roles[s] == 'example' and teaching_root[s] == t:
+            findings.append({
                 'relation_id': row['relation_id'],
-                'unit_id': source,
-                'source_concept_id': s,
-                'target_concept_id': t,
-                'type': row['type'],
-                'reason': row['learner_reason'],
+                'reason': 'EXAMPLE_DIRECTION_OR_TYPE_NEEDS_REVIEW',
             })
-            continue
         relations.append({
             'original_relation_id': row['relation_id'],
-            'source_concept_id': source,
-            'target_concept_id': target,
+            'source_concept_id': s,
+            'target_concept_id': t,
             'type': row['type'],
             'reason': row['learner_reason'],
         })
@@ -653,50 +642,52 @@ def apply_review(document: dict, view: dict, unit: ReviewUnit, response: dict) -
         raise ReviewError('REVIEW_SOURCE_CHANGED')
     projection = project_review(view, unit, response)
     result = deepcopy(document)
-    old = {c['concept_id']: c for c in document['concepts']}
     evidence = {e['evidence_id']: e for e in document['evidence']}
     edits = {e['original_claim_id']: e for e in projection['claim_changes']}
     remap, claim_remap, concepts = {}, {}, []
     rejected_claim_edits = set()
-    for group in projection['learning_units']:
+    alias_removals = {edit['concept_id']: set(edit['remove']) for edit in projection['alias_changes']}
+    metadata = set(projection['metadata_concept_ids'])
+    # Canonical 內容逐個原概念套用 edits；group/example 不授權 many-to-one identity contraction。
+    for concept in document['concepts']:
+        if concept['concept_id'] in metadata:
+            continue
         claims = {}
-        for key in group['member_concept_ids'] + group['example_concept_ids']:
-            for original in old[key]['claims']:
-                claim = deepcopy(original)
-                if edit := edits.get(claim['claim_id']):
-                    # 原引用仍保留；補正的引用只能來自原文 Evidence。
-                    refs = list(dict.fromkeys(claim['evidence_refs'] + edit['evidence_ids']))
-                    spans = [
-                        {'evidence_id': ref, 'quote': evidence[ref]['exact_text']}
-                        for ref in refs
-                    ]
-                    projected = _project_claim({
-                        'meaning': edit['proposed_text'],
-                        'source_spans': spans,
-                    }, evidence)
-                    if projected is None or projected['projection'] != 'semantic_meaning':
-                        rejected_claim_edits.add(original['claim_id'])
-                    else:
-                        claim.update(projected, evidence_refs=refs)
-                        claim['claim_id'] = _id('claim', {
-                            key: value for key, value in claim.items() if key != 'claim_id'
-                        })
-                claim_remap[original['claim_id']] = claim['claim_id']
-                claims[claim['claim_id']] = claim
+        for original in concept['claims']:
+            claim = deepcopy(original)
+            if edit := edits.get(claim['claim_id']):
+                # 原引用仍保留；補正的引用只能來自原文 Evidence。
+                refs = list(dict.fromkeys(claim['evidence_refs'] + edit['evidence_ids']))
+                spans = [
+                    {'evidence_id': ref, 'quote': evidence[ref]['exact_text']}
+                    for ref in refs
+                ]
+                projected = _project_claim({
+                    'meaning': edit['proposed_text'],
+                    'source_spans': spans,
+                }, evidence)
+                if projected is None or projected['projection'] != 'semantic_meaning':
+                    rejected_claim_edits.add(original['claim_id'])
+                else:
+                    claim.update(projected, evidence_refs=refs)
+                    claim['claim_id'] = _id('claim', {
+                        key: value for key, value in claim.items() if key != 'claim_id'
+                    })
+            claim_remap[original['claim_id']] = claim['claim_id']
+            claims[claim['claim_id']] = claim
         refs = list(dict.fromkeys(e for q in claims.values() for e in q['evidence_refs']))
-        aliases = sorted(set(group['aliases']) - {group['label']})
+        aliases = sorted(set(concept['aliases']) - alias_removals.get(concept['concept_id'], set()))
         identity = {
-            'label': group['label'],
+            'label': concept['label'],
             'aliases': aliases,
             'claim_ids': list(claims),
             'evidence_refs': refs,
         }
         key = _id('concept', identity)
-        for member in group['member_concept_ids'] + group['example_concept_ids']:
-            remap[member] = key
+        remap[concept['concept_id']] = key
         concepts.append({
             'concept_id': key,
-            'label': group['label'],
+            'label': concept['label'],
             'aliases': aliases,
             'claims': list(claims.values()),
             'evidence_refs': refs,
