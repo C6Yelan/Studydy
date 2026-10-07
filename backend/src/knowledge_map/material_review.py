@@ -264,11 +264,12 @@ def validate_proposal(unit: ReviewUnit, value: dict) -> Proposal:
 
     def support(edit):
         if (
-            len(set(edit.evidence)) != len(edit.evidence)
-            or not set(edit.evidence) <= evidence_handles
+            not set(edit.evidence) <= evidence_handles
             or not edit.reason.strip()
         ):
             raise ReviewError('REVIEW_EVIDENCE_INVALID')
+        # 重複引用不增加來源語意；只在已解析提案中保序去重，保留原始模型回應供稽核。
+        edit.evidence = list(dict.fromkeys(edit.evidence))
         return {unit.evidence[handle]['evidence_id'] for handle in edit.evidence}
 
     for a in proposal.assignments:
