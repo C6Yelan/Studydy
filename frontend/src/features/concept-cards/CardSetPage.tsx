@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { CardSetView } from "../../api/contracts";
+import type { CardSetView, KnowledgeStructureView } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
@@ -8,26 +8,38 @@ import { Flashcard } from "./Flashcard";
 
 export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: StudydyApiClient; cardSetId: string; materialId?: string }) {
   const [view, setView] = useState<CardSetView | null>(null);
+  const [structure, setStructure] = useState<KnowledgeStructureView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    void apiClient.getCardSet(cardSetId).then(
-      (result) => { if (!cancelled) { if (!materialId) { writeRoute({ name: "card-set", cardSetId, materialId: result.material_id }, true); return; } if (result.material_id !== materialId) setError("這個卡組不屬於此教材。"); else setView(result); } },
-      (failure) => { if (!cancelled) setError(errorMessage(failure)); },
-    );
+    setView(null);
+    setStructure(null);
+    void (async () => {
+      try {
+        const result = await apiClient.getCardSet(cardSetId);
+        if (cancelled) return;
+        if (!materialId) { writeRoute({ name: "card-set", cardSetId, materialId: result.material_id }, true); return; }
+        if (result.material_id !== materialId) throw new Error("這個卡組不屬於此教材。");
+        // 圖像只讀卡組保存的版本，不追隨教材目前的 head。
+        const retained = await apiClient.getKnowledgeStructure({ materialId, structureRevision: result.knowledge_structure_revision });
+        if (cancelled) return;
+        setView(result);
+        setStructure(retained);
+      } catch (failure) { if (!cancelled) setError(errorMessage(failure)); }
+    })();
     return () => { cancelled = true; };
   }, [apiClient, cardSetId, materialId, reload]);
   const back = () => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" });
   return <section className="cards-page cards-study-page">
     <button className="cards-back text-button" type="button" onClick={back}><Icon name="arrow-left" size={17} /> 返回卡組</button>
-    {error || !view ? <StateView title={error ? "無法開啟卡組" : "正在讀取概念卡"} description={error ?? "正在載入已保存的重點。"} tone={error ? "failure" : "loading"} live={!error} action={error ? <button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button> : undefined} />
-      : <CardStudy view={view} apiClient={apiClient} materialId={materialId} />}
+    {error || !view || !structure ? <StateView title={error ? "無法開啟卡組" : "正在讀取概念卡"} description={error ?? "正在載入已保存的重點。"} tone={error ? "failure" : "loading"} live={!error} action={error ? <button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button> : undefined} />
+      : <CardStudy key={`${cardSetId}:${view.version}`} structure={structure} view={view} apiClient={apiClient} materialId={materialId} />}
   </section>;
 }
 
-function CardStudy({ view, apiClient, materialId }: { view: CardSetView; apiClient: StudydyApiClient; materialId?: string }) {
+function CardStudy({ view, structure, apiClient, materialId }: { view: CardSetView; structure: KnowledgeStructureView; apiClient: StudydyApiClient; materialId?: string }) {
   const [order, setOrder] = useState(() => view.cards.map((_, index) => index));
   const [position, setPosition] = useState(0);
   const [flipped, setFlipped] = useState(false);
@@ -72,7 +84,7 @@ function CardStudy({ view, apiClient, materialId }: { view: CardSetView; apiClie
     {!view.is_current_revision && <p className="cards-notice">教材已有新版。此卡組保留建立時的教材內容與來源。</p>}
     <section ref={stage} tabIndex={-1} className="cards-study-stage" aria-label={finished ? "本輪瀏覽完成" : `第 ${position + 1} 張概念卡`}>
       {finished ? <div className="cards-complete"><span className="cards-empty-icon"><Icon name="check" size={36} /></span><h2>已瀏覽全部卡片</h2><p>這一輪看過了 {view.card_count} 張概念卡。想再回顧一次嗎？</p><div className="state-actions"><button className="primary-button" type="button" onClick={() => restart(false)}>再看一次</button><button className="secondary-button" type="button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" })}>返回卡組</button></div></div>
-        : <><Flashcard key={`${order[position]}:${flipped}`} card={view.cards[order[position]]} flipped={flipped} onFlip={() => setFlipped(!flipped)} apiClient={apiClient} sourceResolver={view.source_resolver} />
+        : <><Flashcard key={`${order[position]}:${flipped}`} card={view.cards[order[position]]} structure={structure} flipped={flipped} onFlip={() => setFlipped(!flipped)} apiClient={apiClient} sourceResolver={view.source_resolver} />
           <div className="cards-study-toolbar" role="group" aria-label="概念卡操作">
             <div className="cards-study-counter"><span aria-live="polite">第 <strong>{position + 1}</strong> / {order.length} 張</span><span>{flipped ? "重點面" : "概念面"}</span></div>
             <div className="cards-study-controls">

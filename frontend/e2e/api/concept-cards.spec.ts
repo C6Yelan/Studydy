@@ -22,11 +22,11 @@ test("real API persists selected cards across fresh login and resolves original 
   await page.getByRole("button", { name: "保存並開始複習" }).click();
   await expect(page).toHaveURL(/\/concept-cards\/[0-9a-f-]+$/);
   await expect(page.locator(".flashcard-title")).toHaveText("Stack");
+  await expect(page.locator(".concept-visual")).toHaveAttribute("data-visual-kind", "decorative");
   const savedPath = new URL(page.url()).pathname;
   await page.getByRole("button", { name: "翻面", exact: true }).click();
   await expect(page.locator(".flashcard-point")).toContainText("LIFO");
-  await page.getByText("查看來源", { exact: true }).click();
-  await page.getByRole("button", { name: /Synthetic.pdf · PDF 第 1 頁/ }).click();
+  await page.getByRole("button", { name: "Synthetic.pdf · 第 1 頁", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "教材來源" });
   await expect(dialog).toBeVisible();
   const href = await dialog.getByRole("link", { name: "開啟 PDF 來源頁" }).getAttribute("href");

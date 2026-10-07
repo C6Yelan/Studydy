@@ -304,14 +304,14 @@ test("a late list read cannot restore a deleted card while another card is renam
   await expect(page.locator(".collection-summary")).toContainText("已保存 1 個卡組");
 });
 
-test("mobile keeps long content and sources usable without status text or page overflow", async ({ page }) => {
+test("mobile keeps review status, long content and sources usable without page overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockCards(page, { saved: true, long: true });
   await page.goto(`/concept-cards/${cardSetId}`);
   await expect(page.getByText("教材已有新版。此卡組保留建立時的教材內容與來源。")).toBeVisible();
   await page.getByRole("button", { name: "翻面", exact: true }).click();
   await expect(page.locator(".flashcard-content")).toContainText("x != 0");
-  await expect(page.getByText(/原教材有待確認/)).toHaveCount(0);
+  await expect(page.getByText("待確認 · 原教材尚未通過檢查", { exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "概念重點來源", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const content = page.locator(".flashcard-content");
@@ -414,7 +414,8 @@ test("library stays aligned and card review keeps compact content and controls",
   const card = await page.locator(".flashcard").boundingBox();
   expect(card!.width / content!.width).toBeGreaterThan(.95);
   expect(card!.width).toBeLessThanOrEqual(800);
-  expect(card!.height).toBeLessThan(300);
+  expect(card!.height).toBeLessThan(560);
+  await expect(page.locator(".concept-visual")).toBeVisible();
   expect(Math.abs(card!.x + card!.width / 2 - 1536 / 2)).toBeLessThanOrEqual(1);
   const controls = page.locator('.cards-study-toolbar');
   await expect(controls).toContainText('1 / 2');
@@ -629,4 +630,135 @@ test('saved material card review keeps the chat entry at the viewport corner',as
   const chat=page.getByRole('button',{name:'教材問答',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
   expect(width-box.x-box.width).toBeCloseTo(width===390?16:24,0);expect(900-box.y-box.height).toBeCloseTo(width===390?16:24,0);
  }
+});
+
+for (const sample of ["general", "prerequisite", "contrast", "part_of", "application", "example", "process-fallback", "code", "formula", "unresolved-evidence"] as const) {
+  test(`visual concept card: ${sample} has grounded, portable desktop/mobile artwork`, async ({ page }) => {
+    const { view } = await mockCards(page, { saved: true });
+    const [source, target] = view.concepts;
+    const relation = view.relations[0];
+    source.label = "堆疊（Stack）";
+    source.claims[0].text = "堆疊遵循後進先出（LIFO）：最後放入的元素最先被取出。";
+    if (sample === "prerequisite") {
+      source.label = "索引"; target.label = "陣列存取";
+      source.claims[0].text = "索引用來指定陣列中的元素位置。";
+      relation.learner_reason = "使用索引存取陣列元素前，需要理解索引所代表的位置。";
+    } else if (sample === "contrast") {
+      relation.type = "contrast"; target.label = "佇列（Queue）";
+      target.claims[0].text = "佇列遵循先進先出（FIFO）。";
+      relation.learner_reason = "堆疊後進先出；佇列先進先出。教材對照的是取出順序。";
+    } else if (sample === "part_of") {
+      relation.type = "part_of"; source.label = "節點"; target.label = "鏈結串列";
+      source.claims[0].text = "鏈結串列由節點組成；各節點保存資料與指向下一節點的連結。";
+      relation.learner_reason = "節點是鏈結串列的組成部分。";
+    } else if (sample === "application" || sample === "example") {
+      relation.type = sample; target.label = sample === "application" ? "復原操作" : "書本堆疊";
+      relation.learner_reason = sample === "application" ? "復原操作以堆疊保存動作，先復原最近的動作。" : "書本堆疊是後進先出的具體實例。";
+    } else if (sample === "code" || sample === "formula") {
+      view.relations = [];
+      source.label = sample === "code" ? "陣列索引" : "等差級數";
+      source.claims[0].evidence[0].kind = sample;
+      source.claims[0].text = sample === "code" ? "const values = [2, 4, 6];\nvalues[0] === 2;\nvalues[2] === 6;" : "Σᵢ₌₁ⁿ i = n(n + 1)/2\nn ∈ ℕ，n ≥ 1";
+    } else if (sample === "unresolved-evidence") {
+      relation.evidence_refs = [`evidence:sha256:${"0".repeat(64)}`];
+    } else {
+      view.relations = [];
+      if (sample === "process-fallback") {
+        source.label = "資料處理流程";
+        source.claims[0].text = "教材提及資料處理流程，但沒有提供各步驟的先後依據。";
+        view.status.quality = "needs_review"; view.status.decision = "review";
+      }
+    }
+    source.claims[0].evidence[0].quote = source.claims[0].text;
+    const expected = ["general", "process-fallback", "unresolved-evidence"].includes(sample) ? "decorative" : sample;
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+      const svg = page.locator(".concept-visual");
+      await expect(svg).toHaveAttribute("data-visual-kind", expected);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+      if (sample === "prerequisite") await expect(svg).toContainText("學習依賴 · 非時間流程");
+      if (sample === "contrast") await expect(svg).toContainText("不推定優劣");
+      if (sample === "process-fallback") await expect(page.locator(".flashcard-review")).toBeVisible();
+      if (!["decorative", "code", "formula"].includes(expected)) {
+        await expect(svg).toHaveAttribute("data-relation-id", relation.relation_id);
+        expect(await svg.locator("text").allTextContents()).toEqual(expect.arrayContaining([source.label, target.label]));
+      }
+      const portability = await svg.evaluate(async element => {
+        const text = new XMLSerializer().serializeToString(element);
+        const url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
+        const image = new Image(); image.src = url;
+        try { await image.decode(); return [image.naturalWidth, image.naturalHeight, element.querySelectorAll("script, foreignObject, image, a").length]; }
+        finally { URL.revokeObjectURL(url); }
+      });
+      expect(portability[0]).toBeGreaterThan(0); expect(portability[1]).toBeGreaterThan(0); expect(portability[2]).toBe(0);
+      await page.screenshot({ path: `../.studydy-runtime/quality-hardening-20261007/C-evidence/${sample}-${width}.png`, fullPage: true });
+      await page.getByRole("button", { name: "翻面", exact: true }).click();
+      await expect(page.locator(".flashcard-point p").first()).toHaveText(source.claims[0].text);
+      if (!["decorative", "code", "formula"].includes(expected)) {
+        await expect(page.getByRole("region", { name: "圖卡關係與來源" })).toContainText(relation.learner_reason);
+        const request = page.waitForRequest("**/evidence/*/source");
+        await page.getByRole("button", { name: "關係來源 · 第 1 頁", exact: true }).click();
+        expect(decodeURIComponent((await request).url())).toContain(relation.evidence_refs[0]);
+        await expect(page.getByRole("dialog")).toBeVisible();
+        await page.keyboard.press("Escape");
+      }
+    }
+  });
+}
+
+test("visual structure read retries the retained revision and ignores completion after navigation", async ({ page }) => {
+  await mockCards(page, { saved: true, long: true });
+  let failed = true;
+  const reads: string[] = [];
+  await page.route("**/knowledge-structures/*", route => {
+    reads.push(decodeURIComponent(new URL(route.request().url()).pathname));
+    if (failed) return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Synthetic unavailable structure" }, 503);
+    return route.fallback();
+  });
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await expect(page.getByRole("heading", { name: "無法開啟卡組" })).toBeVisible();
+  await expect(page.locator(".flashcard")).toHaveCount(0);
+  failed = false;
+  await page.getByRole("button", { name: "重新讀取", exact: true }).click();
+  await expect(page.locator(".concept-visual")).toBeVisible();
+  expect(reads.every(url => url.endsWith(structureRevision))).toBe(true);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/knowledge-structures/*", async route => { await gate; await route.fallback(); });
+  const pending = page.waitForRequest("**/knowledge-structures/*");
+  await page.reload(); await pending;
+  await page.getByRole("button", { name: "返回卡組", exact: true }).click();
+  const response = page.waitForResponse("**/knowledge-structures/*");
+  release(); await response;
+  await expect(page.locator(".flashcard")).toHaveCount(0);
+  await expect(page.locator(".library-item")).toHaveCount(1);
+});
+
+test("pending visual structure cannot restore a previous account's card", async ({ page }) => {
+  await mockCards(page, { saved: true });
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/knowledge-structures/*", async route => { await gate; await route.fallback(); });
+  const pending = page.waitForRequest("**/knowledge-structures/*");
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`); await pending;
+  const aborted = page.waitForEvent("requestfailed", request => request.url().includes("/knowledge-structures/"));
+  await page.getByRole("button", { name: "登出", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  await aborted; release();
+  await expect(page.locator(".flashcard")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+});
+
+test("visual labels remain inert text and long excerpts keep full conditions on the back", async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true, long: true });
+  view.concepts[0].label = '<script>alert("x")</script> & <image href="https://invalid.test" />';
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await expect(page.locator(".flashcard-summary")).toContainText("（節錄）");
+  expect(Array.from((await page.locator(".flashcard-summary").textContent())!).length).toBeLessThanOrEqual(105);
+  await expect(page.locator(".flashcard script, .flashcard image, .flashcard foreignObject")).toHaveCount(0);
+  await expect(page.locator(".flashcard-title")).toHaveText(view.concepts[0].label);
+  await page.getByRole("button", { name: "翻面", exact: true }).click();
+  await expect(page.locator(".flashcard-point p").first()).toContainText("最後一個條件不可遺漏：x != 0。");
 });

@@ -172,3 +172,22 @@
   .cards-creation-page .flashcard-back > .flashcard-kicker { flex-shrink: 0; }
   .cards-creation-page .flashcard-content { flex: 1; min-height: 0; max-height: none; }
 }
+
+/* 圖像為正面主體；全文與可操作來源留在背面。 */
+.flashcard-front .concept-visual { display:block; width:100%; max-width:400px; height:auto; flex-shrink:0; }
+.cards-create .flashcard-title, .cards-study .flashcard-title { margin:0; padding:0; font-size:clamp(23px,2.3vw,30px); }
+.flashcard-front { gap:12px; }
+.flashcard-summary { max-width:480px; font-size:15px; line-height:1.75; text-align:left; overflow-wrap:anywhere; white-space:pre-wrap; }
+.flashcard-review { display:block; width:fit-content; padding:4px 9px; border-radius:6px; background:#fff3d9; color:#78541b; font-size:12px; line-height:1.5; }
+.flashcard-relation { padding:14px; margin-block:12px; border:1px solid #cbdfe7; border-radius:12px; background:#f3f8fb; }
+.flashcard-relation h3 { margin:0; font-size:14px; }
+.flashcard-relation p { font-size:14px; line-height:1.7; overflow-wrap:anywhere; }
+@media (min-width:1000px) {
+  .cards-creation-page .flashcard-front { overflow-y:auto; justify-content:flex-start; }
+  .cards-creation-page .flashcard-front > span { flex-shrink:0; }
+}
+@media (max-width:700px) {
+  .cards-study .flashcard-front { padding:16px; gap:10px; }
+  .flashcard-summary { font-size:14px; }
+  .flashcard-prompt { font-size:12px; }
+}
