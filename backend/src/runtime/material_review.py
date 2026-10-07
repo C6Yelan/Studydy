@@ -208,7 +208,8 @@ def review_structure(document, lock, archive, check_cancel, progress, *, wait_ca
     view, units = review_inputs(document)
     archive.save_review('source', document)
     started = time.monotonic()
-    reviews, calls = [], 0
+    reviews, calls, split_units = [], 0, 0
+    progress("review", 0, len(units))
     with semantic_client() as client:
         for index, unit in enumerate(units, 1):
             check_cancel()
@@ -227,10 +228,13 @@ def review_structure(document, lock, archive, check_cancel, progress, *, wait_ca
                 archive.save_review(f'call-{index:06d}/split', {
                     'reason': error.reason_code, 'concept_counts': [len(part) for part in parts],
                 })
+                split_units += 1
+                progress("review", len(reviews), len(units) - split_units)
                 continue
             calls += new_calls
             reviews.append((unit, response))
-            progress('semantics', document['page_count'], document['page_count'])
+            progress('review', len(reviews), len(units) - split_units)
+    progress("publishing", document["page_count"], document["page_count"])
     unit, proposal = combine_reviews(view, reviews)
     result, projection = apply_review(document, view, unit, proposal)
     # 語意回應用量含重用；新增呼叫由 receipt 分別計數。

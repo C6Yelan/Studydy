@@ -82,7 +82,7 @@ function materialAttempt(value: unknown): boolean {
   if (
     !item ||
     !isUuid(item.run_id) ||
-    !["queued", "evidence", "semantics", "publishing", "completed"].includes(
+    !["queued", "evidence", "semantics", "review", "publishing", "completed"].includes(
       String(item.progress_stage),
     ) ||
     !Number.isInteger(item.completed_pages) ||
@@ -91,6 +91,9 @@ function materialAttempt(value: unknown): boolean {
       item.total_pages === null ||
       (Number.isInteger(item.total_pages) && Number(item.total_pages) > 0)
     ) ||
+    !((item.completed_units == null && item.total_units == null) ||
+      (Number.isSafeInteger(item.completed_units) && Number.isSafeInteger(item.total_units) &&
+       Number(item.completed_units) >= 0 && Number(item.completed_units) <= Number(item.total_units))) ||
     !(item.cancel_requested_at === null || timestamp(item.cancel_requested_at)) ||
     !timestamp(item.created_at)
   )
@@ -106,7 +109,7 @@ function materialAttempt(value: unknown): boolean {
       item.progress_stage !== "completed" &&
       item.error_code === null &&
       (item.cancel_requested_at === null ||
-        ["queued", "evidence", "semantics"].includes(String(item.progress_stage)))
+        ["queued", "evidence", "semantics", "review", "publishing"].includes(String(item.progress_stage)))
     );
   if (item.status === "cancelled")
     return (

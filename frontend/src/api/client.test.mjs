@@ -652,13 +652,18 @@ test("run responses validate cancellation states, lifecycle and timestamps", asy
     await new StudydyApiClient(async () => Response.json(accepted)).getMaterialRun(runId),
     accepted,
   );
+  for (const progress_stage of ["review", "publishing"]) {
+    const value = { ...accepted, progress_stage, completed_units: 18, total_units: 49 };
+    assert.deepEqual(await new StudydyApiClient(async () => Response.json(value)).getMaterialRun(runId), value);
+  }
   for (const [status, overrides] of [
     ["cancelled", { cancel_requested_at: null }],
     ["cancelled", { completed_at: null }],
     ["cancelled", { output_binding: runView().output_binding }],
     ["cancelled", { error_code: "FAILED" }],
     ["succeeded", { cancel_requested_at: "2026-09-05T00:00:01Z" }],
-    ["running", { progress_stage: "publishing", cancel_requested_at: "2026-09-05T00:00:01Z" }],
+    ["running", { progress_stage: "review", completed_units: 51, total_units: 50 }],
+    ["running", { completed_units: 1, total_units: null }],
     ["running", { completed_at: "2026-09-05T00:00:01Z" }],
     ["pending", { cancel_requested_at: "2026-09-05T00:00:01Z" }],
     ["failed", { cancel_requested_at: "2026-09-05T00:00:01Z" }],

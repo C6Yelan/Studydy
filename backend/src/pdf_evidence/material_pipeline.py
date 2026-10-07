@@ -380,8 +380,6 @@ def analyze_material(
         evidence_duration_ms = restored["evidence_duration_ms"]
         previous_semantic_ms = restored["semantic_duration_ms"]
         report("evidence", len(page_numbers), len(page_numbers))
-        if cursor and not restored.get("restart_semantics"):
-            report("semantics", context["evidence"][cursor - 1]["page"], len(page_numbers))
     else:
         evidence_started = time.monotonic()
         with tempfile.TemporaryDirectory(prefix="studydy-source-") as directory:
@@ -421,6 +419,7 @@ def analyze_material(
         else:
             state = SemanticState()
         cursor = 0
+    report("semantics", cursor, len(context["evidence"]))
     semantic_started = time.monotonic()
     recovered_ocr_blocks = set(restored.get('recovered_ocr_blocks', []) if restored else [])
     complete = bool(restored and restored.get("complete"))
@@ -558,11 +557,12 @@ def analyze_material(
                 raise MaterialAnalysisError(_reason(last_error)) from None
             cursor = evidence_indices[bundle["evidence"][-1]["evidence_id"]] + 1
             save_checkpoint()
-            report("semantics", bundle["evidence"][-1]["page"], len(page_numbers))
+            report("semantics", cursor, len(context["evidence"]))
     finally:
         if owned_client:
             http.close()
         save_checkpoint()
+    report("semantics", len(context["evidence"]), len(context["evidence"]))
     semantic_duration_ms = previous_semantic_ms + round((time.monotonic() - semantic_started) * 1000)
     service = lock["semantic_service"]
     try:

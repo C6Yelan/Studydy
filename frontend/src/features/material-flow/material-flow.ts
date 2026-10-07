@@ -5,6 +5,7 @@ export const materialProgressStages = [
   "queued",
   "evidence",
   "semantics",
+  "review",
   "publishing",
   "completed",
 ] as const;
@@ -15,58 +16,39 @@ export function materialProgressStageLabel(
   if (stage === "queued") return "等待處理資源";
   if (stage === "evidence") return "整理頁面與教材來源";
   if (stage === "semantics") return "建立概念、關係與學習順序";
-  if (stage === "publishing") return "發布知識地圖";
+  if (stage === "review") return "檢查與修正知識結構";
+  if (stage === "publishing") return "組裝與發布知識地圖";
   return "處理完成";
 }
 
 type ProcessingProgress = Pick<
   MaterialProcessingRunView,
-  "status" | "progress_stage" | "completed_pages" | "total_pages"
+  "status" | "progress_stage" | "completed_pages" | "total_pages" | "completed_units" | "total_units"
 >;
 
+export function materialStageCount(run: ProcessingProgress): { completed: number; total: number; unit: string } | null {
+  const stage = run.progress_stage;
+  if (!["evidence", "semantics", "review"].includes(stage)) return null;
+  // 舊工作的區塊／檢核分母無法從頁數重建，保持未定量。
+  const completed = run.completed_units ?? (stage === "evidence" ? run.completed_pages : null);
+  const total = run.total_units ?? (stage === "evidence" ? run.total_pages : null);
+  if (completed == null || total == null || !Number.isSafeInteger(completed) ||
+      !Number.isSafeInteger(total) || total <= 0 || completed < 0 || completed > total) return null;
+  return { completed, total, unit: stage === "evidence" ? "頁" : stage === "semantics" ? "個來源區塊" : "個檢核批次" };
+}
+
 export function materialCurrentStagePercent(run: ProcessingProgress): number | null {
-  if (run.status === "cancelled") return null;
-  if (
-    run.progress_stage === "completed" &&
-    (run.status === "succeeded" || run.status === "partial")
-  )
-    return 100;
-  if (run.progress_stage !== "evidence" && run.progress_stage !== "semantics") return null;
-  const total = run.total_pages;
-  if (
-    total === null ||
-    !Number.isSafeInteger(total) ||
-    total <= 0 ||
-    !Number.isFinite(run.completed_pages)
-  )
-    return null;
-  return Math.round((Math.max(0, Math.min(total, run.completed_pages)) / total) * 100);
+  const count = materialStageCount(run);
+  return count ? Math.floor(count.completed / count.total * 100) : null;
 }
 
 export function materialOverallProgressPercent(run: ProcessingProgress): number | null {
-  if (run.status === "cancelled") return null;
-  if (
-    run.progress_stage === "completed" &&
-    (run.status === "succeeded" || run.status === "partial")
-  )
-    return 100;
-  if (run.progress_stage === "queued") return 0;
-  const total = run.total_pages;
-  if (
-    total === null ||
-    !Number.isSafeInteger(total) ||
-    total <= 0 ||
-    !Number.isFinite(run.completed_pages)
-  )
-    return null;
-  const completed = Math.max(0, Math.min(total, run.completed_pages));
-  let done: number;
-  if (run.progress_stage === "evidence") done = completed;
-  else if (run.progress_stage === "semantics") done = total + completed;
-  else if (run.progress_stage === "publishing") done = total * 2;
-  else return null;
-  // 頁面整理與語意整理各計一輪，發布計最後一單位；這不是耗時比例。
-  return Math.min(99, Math.round((done / (total * 2 + 1)) * 100));
+  return run.progress_stage === "completed" && ["succeeded", "partial"].includes(run.status) ? 100 : null;
+}
+
+export function materialStageCountLabel(run: ProcessingProgress): string {
+  const count = materialStageCount(run);
+  return count ? `已完成 ${count.completed} / ${count.total} ${count.unit}` : "";
 }
 
 export function materialElapsedLabel(createdAt: string, now: number): string {

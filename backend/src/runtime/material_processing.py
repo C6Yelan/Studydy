@@ -59,6 +59,8 @@ class MaterialProcessingRun:
     runtime_lock_document: dict[str, Any] = field(repr=False)
     base_revision: str | None = None
     source_names: tuple[str, ...] = ()
+    completed_units: int | None = None
+    total_units: int | None = None
 
 
 @dataclass(frozen=True)
@@ -77,7 +79,7 @@ def _row(row: RunRow) -> MaterialProcessingRun:
             output is None and row.error_code is None and row.completed_at is None
             and row.progress_stage != "completed"
             and (row.status != "pending" or (row.progress_stage == "queued" and row.cancel_requested_at is None))
-            and (row.cancel_requested_at is None or row.progress_stage in {"queued", "evidence", "semantics", "publishing"})
+            and (row.cancel_requested_at is None or row.progress_stage in {"queued", "evidence", "semantics", "review", "publishing"})
         )
     elif row.status == "cancelled":
         valid_lifecycle = (
@@ -134,7 +136,10 @@ def _row(row: RunRow) -> MaterialProcessingRun:
         )
     if (
         not valid_lifecycle
-        or row.progress_stage not in {"queued", "evidence", "semantics", "publishing", "completed"}
+        or not ((row.completed_units is None and row.total_units is None) or
+                (type(row.completed_units) is int and type(row.total_units) is int
+                 and 0 <= row.completed_units <= row.total_units))
+        or row.progress_stage not in {"queued", "evidence", "semantics", "review", "publishing", "completed"}
         or type(row.completed_pages) is not int
         or row.completed_pages < 0
         or (row.total_pages is not None and (type(row.total_pages) is not int or row.total_pages < 1))
@@ -147,6 +152,7 @@ def _row(row: RunRow) -> MaterialProcessingRun:
         deepcopy(row.output_binding), row.created_at, row.updated_at, row.completed_at,
         row.cancel_requested_at, row.input_source_set_id, deepcopy(row.runtime_lock_document),
         row.base_revision, tuple(row.bundle_manifest.get('source_names', [])),
+        row.completed_units, row.total_units,
     )
 
 
@@ -265,11 +271,16 @@ def claim_next_material_processing_run(*, dsn: str | None = None) -> ClaimedMate
         raise MaterialProcessingError("MATERIAL_RUN_STORAGE_FAILED") from None
 
 
-_NEXT_STAGE = {"queued": "evidence", "evidence": "semantics", "semantics": "publishing"}
+_NEXT_STAGES = {
+    "queued": {"evidence"}, "evidence": {"semantics"},
+    "semantics": {"review", "publishing"}, "review": {"publishing"},
+}
 
 
 def _record_progress(run_id: UUID, stage: str, completed: int, total: int, *, dsn: str | None) -> None:
-    if stage not in _NEXT_STAGE.values() or type(completed) is not int or type(total) is not int or not 0 <= completed <= total or total < 1:
+    if (stage not in {"evidence", "semantics", "review", "publishing"}
+        or type(completed) is not int or type(total) is not int
+        or not 0 <= completed <= total or (stage in {"evidence", "publishing"} and total < 1)):
         raise MaterialProcessingError("MATERIAL_RUN_INVALID")
     try:
         with database_session(dsn) as session:
@@ -278,16 +289,25 @@ def _record_progress(run_id: UUID, stage: str, completed: int, total: int, *, ds
                 raise MaterialProcessingError("MATERIAL_RUN_INVALID")
             cancelled = _honor_cancellation(row, session)
             if not cancelled:
-                if row.status != "running" or (row.total_pages is not None and row.total_pages != total):
+                if row.status != "running":
                     raise MaterialProcessingError("MATERIAL_RUN_INVALID")
                 if row.progress_stage == stage:
-                    if completed < row.completed_pages:
+                    if row.completed_units is not None and completed < row.completed_units:
                         raise MaterialProcessingError("MATERIAL_RUN_INVALID")
-                elif _NEXT_STAGE.get(row.progress_stage) != stage:
+                elif stage not in _NEXT_STAGES.get(row.progress_stage, set()):
                     raise MaterialProcessingError("MATERIAL_RUN_INVALID")
-                elif row.progress_stage != "queued" and row.completed_pages != total:
+                elif row.progress_stage != "queued" and (
+                    row.completed_units != row.total_units or row.completed_pages != row.total_pages
+                ):
                     raise MaterialProcessingError("MATERIAL_RUN_INVALID")
-                row.progress_stage, row.completed_pages, row.total_pages = stage, completed, total
+                # 頁數維持來源頁數；區塊與檢核分批可因無損 OCR 修復／容量拆分調整分母。
+                if stage in {"evidence", "publishing"}:
+                    if row.total_pages is not None and row.total_pages != total:
+                        raise MaterialProcessingError("MATERIAL_RUN_INVALID")
+                    row.completed_pages, row.total_pages = completed, total
+                row.progress_stage = stage
+                row.completed_units = completed if stage != "publishing" else None
+                row.total_units = total if stage != "publishing" else None
                 row.updated_at = session.scalar(select(func.clock_timestamp()))
         if cancelled:
             raise MaterialProcessingCancelled()
@@ -390,7 +410,7 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn, check_
                 structure['metrics'].update(ocr_calls=0, evidence_duration_ms=0, semantic_duration_ms=0)
                 structure['revision'] = _revision(structure)
                 progress('evidence', structure['page_count'], structure['page_count'])
-                progress('semantics', structure['page_count'], structure['page_count'])
+                progress('semantics', 0, 0)
             elif binding is not None and binding['schema']=='structure-input-binding/v1':
                 sources=[]
                 for index,item in enumerate(binding['manifest']['items']):

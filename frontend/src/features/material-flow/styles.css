@@ -1385,3 +1385,6 @@
 @media(max-width:900px) { .material-content.source-page .material-search-row .source-add-control { margin-left:auto; } }
 .source-group-title { margin:24px 0 8px; font-size:16px; }
 .source-group-empty { color:var(--text-muted); font-size:14px; }
+
+.processing-sources summary { cursor: pointer; font-weight: 600; }
+.processing-sources[open] ol { max-height: 10rem; overflow-y: auto; overflow-wrap: anywhere; }

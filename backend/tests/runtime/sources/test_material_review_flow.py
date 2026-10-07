@@ -78,6 +78,8 @@ def test_new_analysis_runs_review_and_failed_review_keeps_head(revisions, monkey
     failed = execute()
     assert failed.status == 'failed' and failed.error_code == 'REVIEW_RESPONSE_INVALID'
     assert len(calls) == 2
+    assert failed.progress_stage == 'review'
+    assert failed.completed_units == 1 and failed.total_units == 2
     assert read_knowledge_structure(owner.learner_id, material, revision=original['revision'], dsn=dsn).document == original
     before = len(requests)
     def corrected(_client, **kwargs):
@@ -157,7 +159,14 @@ def test_review_capacity_splits_concepts_without_truncating_sources(revisions, m
         evidence = list({e['evidence_id']: e for unit in units for e in unit.evidence}.values())
         return view, [review._pack_review(view, view['concepts'], evidence, 'Synthetic full context')]
     monkeypatch.setattr(review, 'review_inputs', inputs)
-    all_requests, model_calls = [], []
+    all_requests, model_calls, observed = [], [], []
+    from runtime import material_processing as processing
+    original_progress = processing._record_progress
+    def progress(run_id, stage, done, total, **kwargs):
+        original_progress(run_id, stage, done, total, **kwargs)
+        stored = processing.read_material_processing_run(owner.learner_id, run_id, dsn=dsn)
+        observed.append((stored.progress_stage, stored.completed_units, stored.total_units))
+    monkeypatch.setattr(processing, '_record_progress', progress)
     def model(client, **kwargs):
         request = kwargs['request']
         all_requests.append(deepcopy(request))
@@ -177,6 +186,11 @@ def test_review_capacity_splits_concepts_without_truncating_sources(revisions, m
         assert len(model_calls) == len(all_requests[0]['concepts'])
         receipt = json.loads((_material_directory(owner.learner_id, material) / result.run_id.hex / 'review/result.json').read_text())['data']
         assert receipt['model_calls'] == receipt['units'] == len(model_calls)
+        review_progress = [row[1:] for row in observed if row[0] == 'review']
+        assert review_progress[0] == (0, 1)
+        assert review_progress[-1] == (len(model_calls), len(model_calls))
+        assert any(done == 0 and total > 1 for done, total in review_progress)
+        assert observed[-1] == ('publishing', None, None)
         source = json.loads((_material_directory(owner.learner_id, material) / result.run_id.hex / 'review/source.json').read_text())['data']
         assert doc['concepts'] == source['concepts'] and doc['evidence'] == source['evidence']
     else:

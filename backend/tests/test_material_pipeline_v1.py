@@ -224,7 +224,8 @@ def test_http_batching_carries_concepts_across_all_ninety_pages(tmp_path):
     completed = [done for stage, done, _ in progress if stage == "semantics"]
     assert completed == sorted(completed)
     assert completed[0] < 90
-    assert completed[-1] == 90
+    assert completed[-1] == len(structure["evidence"])
+    assert all(total == len(structure["evidence"]) for stage, _, total in progress if stage == "semantics")
 
 
 def test_ocr_failure_excludes_only_scan_and_semantics_still_runs(tmp_path, monkeypatch):

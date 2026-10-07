@@ -77,9 +77,11 @@ export type MaterialProcessingRunView = {
   material_id: string;
   source_artifact_id: string;
   status: "pending" | "running" | "succeeded" | "partial" | "failed" | "cancelled";
-  progress_stage: "queued" | "evidence" | "semantics" | "publishing" | "completed";
+  progress_stage: "queued" | "evidence" | "semantics" | "review" | "publishing" | "completed";
   completed_pages: number;
   total_pages: number | null;
+  completed_units?: number | null;
+  total_units?: number | null;
   output_binding: MaterialOutputBinding | null;
   error_code: string | null;
   created_at: string;

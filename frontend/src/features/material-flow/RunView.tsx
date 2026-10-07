@@ -13,6 +13,7 @@ import {
   automaticPollIntervalMs,
   materialFailureMessage,
   materialProgressStageLabel,
+  materialStageCountLabel,
   materialProgressStages,
 } from "./material-flow";
 
@@ -25,7 +26,7 @@ function canRequestDiscard(run: MaterialProcessingRunView | null): boolean {
     !!run &&
     activeRun(run) &&
     run.cancel_requested_at === null &&
-    ["queued", "evidence", "semantics"].includes(run.progress_stage)
+    ["queued", "evidence", "semantics", "review"].includes(run.progress_stage)
   );
 }
 
@@ -56,6 +57,7 @@ export function RunView({
 
   const applyRun = useCallback((next: MaterialProcessingRunView) => {
     const previous = currentRun.current;
+    if (previous && Date.parse(next.updated_at) < Date.parse(previous.updated_at)) return previous;
     // 已保存的取消意圖與結束狀態不可被較舊的 GET/POST 回應撤回。
     if (previous?.cancel_requested_at && next.cancel_requested_at === null) return previous;
     if (previous && !activeRun(previous) && activeRun(next)) return previous;
@@ -344,7 +346,7 @@ export function RunView({
         />
         <p className="failure-progress">
           停止於：{materialProgressStageLabel(run.progress_stage)}
-          {run.total_pages !== null && `，已處理 ${run.completed_pages} / ${run.total_pages} 頁`}
+          {materialStageCountLabel(run) && `，${materialStageCountLabel(run)}`}
         </p>
       </section>
     );
@@ -376,7 +378,7 @@ export function RunView({
         />
         <p className="failure-progress" role="status">
           最後記錄進度：{materialProgressStageLabel(run.progress_stage)}
-          {run.total_pages === null ? "" : `，${run.completed_pages} / ${run.total_pages} 頁`}
+          {materialStageCountLabel(run) && `，${materialStageCountLabel(run)}`}
         </p>
         {run.analysis_saved && (
           <p role="status">
@@ -668,16 +670,14 @@ function RevisionRun({
         {run.status === "partial" && (
           <p role="status">部分內容建議對照來源確認，不影響使用更新後的地圖。</p>
         )}
-        {run.source_names && (
-          <>
-            <h2>這次分析的來源</h2>
-            <ul>
-              {run.source_names.map((name, index) => (
-                <li key={index}>{name}</li>
-              ))}
-            </ul>
-          </>
-        )}
+        {!completed && <p className="failure-progress" role="status">
+          停止於：{materialProgressStageLabel(run.progress_stage)}
+          {materialStageCountLabel(run) && `，${materialStageCountLabel(run)}`}
+        </p>}
+        {run.source_names && <details className="processing-sources">
+          <summary>本次分析 {run.source_names.length} 份來源</summary>
+          <ol>{run.source_names.map((name, index) => <li key={index}>{name}</li>)}</ol>
+        </details>}
         {run.error_code && (
           <p className="form-error" role="status">
             {run.error_code === "SOURCE_UPDATE_NEEDS_REVIEW"

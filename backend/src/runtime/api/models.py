@@ -51,9 +51,11 @@ class MaterialProcessingRunView(_Closed):
     material_id: UUID
     source_artifact_id: UUID
     status: Literal["pending", "running", "succeeded", "partial", "failed", "cancelled"]
-    progress_stage: Literal["queued", "evidence", "semantics", "publishing", "completed"]
+    progress_stage: Literal["queued", "evidence", "semantics", "review", "publishing", "completed"]
     completed_pages: int
     total_pages: int | None
+    completed_units: int | None = None
+    total_units: int | None = None
     output_binding: MaterialOutputBindingView | None
     error_code: str | None
     cancel_requested_at: datetime | None
@@ -66,7 +68,7 @@ class MaterialAttemptView(_Closed):
     base_revision: str | None = Field(default=None,exclude_if=lambda value:value is None)
     run_id: UUID
     status: Literal["pending", "running", "succeeded", "partial", "failed", "cancelled"]
-    progress_stage: Literal["queued", "evidence", "semantics", "publishing", "completed"]
+    progress_stage: Literal["queued", "evidence", "semantics", "review", "publishing", "completed"]
     completed_pages: int
     total_pages: int | None
     error_code: str | None
@@ -509,7 +511,7 @@ def project_material_run(run: Any) -> MaterialProcessingRunView:
         ),
         **{name: getattr(run, name) for name in (
             "run_id", "material_id", "source_artifact_id", "status", "progress_stage",
-            "completed_pages", "total_pages", "error_code", "cancel_requested_at",
+            "completed_pages", "total_pages", "completed_units", "total_units", "error_code", "cancel_requested_at",
             "created_at", "updated_at", "completed_at",
         )},
     })
