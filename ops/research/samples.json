@@ -1,0 +1,118 @@
+[
+  {
+    "id": "python",
+    "url": "https://docs.python.org/3/tutorial/datastructures.html",
+    "api_url": "https://docs.python.org/3/tutorial/datastructures.html",
+    "title": "Data Structures",
+    "markers": [
+      "Using Lists as Queues",
+      "List Comprehensions"
+    ],
+    "license": "PSF-2.0",
+    "license_url": "https://docs.python.org/3/license.html",
+    "license_link_marker": "/license.html",
+    "license_terms_marker": "PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2"
+  },
+  {
+    "id": "redirect",
+    "url": "https://docs.python.org/3/tutorial",
+    "api_url": "https://docs.python.org/3/tutorial/index.html",
+    "title": "The Python Tutorial",
+    "markers": [
+      "Whetting Your Appetite",
+      "Data Structures"
+    ],
+    "license": "PSF-2.0",
+    "license_url": "https://docs.python.org/3/license.html",
+    "license_link_marker": "/license.html",
+    "license_terms_marker": "PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2"
+  },
+  {
+    "id": "mdn",
+    "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array",
+    "title": "Array",
+    "markers": [
+      "Array.prototype",
+      "Array.isArray"
+    ],
+    "license": "CC-BY-SA-2.5-or-later",
+    "license_url": "https://developer.mozilla.org/en-US/docs/MDN/Writing_guidelines/Attrib_copyright_license",
+    "license_link_marker": "/docs/MDN/Writing_guidelines/Attrib_copyright_license",
+    "license_terms_marker": "Attribution-ShareAlike"
+  },
+  {
+    "id": "javascript",
+    "url": "https://quotes.toscrape.com/js/",
+    "title": "Quotes to Scrape",
+    "markers": [
+      "Albert Einstein",
+      "J.K. Rowling"
+    ],
+    "selector": ".quote",
+    "license": "unknown"
+  },
+  {
+    "id": "oa-xml",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC12900525/fullTextXML",
+    "api_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC12900525/fullTextXML",
+    "title": "Analysis of Bond Strength of Bioceramic Sealer Following Irrigation with Chlorhexidine",
+    "doi": "10.22037/iej.v21i1.45971",
+    "markers": [
+      "chlorhexidine",
+      "conclusion"
+    ],
+    "license": "detect-xml"
+  },
+  {
+    "id": "cc-by-xml",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC13466022/fullTextXML",
+    "api_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC13466022/fullTextXML",
+    "title": "Who is more likely to make causal claims in observational studies?",
+    "doi": "10.1371/journal.pone.0354292",
+    "markers": [
+      "observational",
+      "causal"
+    ],
+    "license": "detect-xml"
+  },
+  {
+    "id": "metadata",
+    "url": "https://api.crossref.org/works/10.1038/nature12373",
+    "api_url": "https://api.crossref.org/works/10.1038/nature12373",
+    "title": "Nanometre-scale thermometry in a living cell",
+    "doi": "10.1038/nature12373",
+    "markers": [],
+    "license": "metadata-only"
+  },
+  {
+    "id": "license-unknown",
+    "url": "https://quotes.toscrape.com/",
+    "title": "Quotes to Scrape",
+    "markers": [
+      "Albert Einstein",
+      "J.K. Rowling"
+    ],
+    "selector": ".quote",
+    "license": "unknown"
+  },
+  {
+    "id": "denied",
+    "url": "https://httpbin.org/status/403",
+    "title": "",
+    "markers": [],
+    "license": "unknown"
+  },
+  {
+    "id": "identity-mismatch",
+    "url": "https://docs.python.org/3/tutorial/datastructures.html",
+    "api_url": "https://docs.python.org/3/tutorial/datastructures.html",
+    "title": "A deliberately different research paper",
+    "markers": [
+      "Using Lists as Queues"
+    ],
+    "license": "PSF-2.0",
+    "license_url": "https://docs.python.org/3/license.html",
+    "license_link_marker": "/license.html",
+    "license_terms_marker": "PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2"
+  }
+]
