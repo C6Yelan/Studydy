@@ -5,20 +5,10 @@ import { studyLayoutFixture } from "../fixtures/study-layout.mjs";
 
 async function preparationLayout(page: Page, width: number) {
   await expect(page.locator(".study-learning-grid")).toHaveClass(/is-preparation-mode/);
-  await expect(page.locator(".study-material-summary")).toHaveCount(0);
-  const material = (await page.locator(".current-concept-card").boundingBox())!;
-  const action = (await page.locator(".study-current-action").boundingBox())!;
-  const rail = (await page.locator(".study-rail").boundingBox())!;
-  if (width > 900) {
-    expect(Math.abs(material.y - action.y)).toBeLessThan(1);
-    expect(action.x).toBeGreaterThanOrEqual(material.x + material.width);
-    expect(rail.x).toBeGreaterThanOrEqual(action.x + action.width);
-    expect(rail.width).toBeGreaterThanOrEqual(300);
-    expect(rail.width).toBeLessThanOrEqual(320);
-  } else {
-    expect(action.y).toBeGreaterThanOrEqual(material.y + material.height);
-    expect(rail.y).toBeGreaterThanOrEqual(action.y + action.height);
-  }
+  await expect(page.locator(".study-material-summary")).not.toHaveAttribute("open", "");
+  await expect(page.locator(".current-concept-card")).not.toBeVisible();
+  await expect(page.locator(".study-current-action")).toBeVisible();
+  await expect(page.locator(".study-rail")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
 
@@ -57,6 +47,7 @@ for (const viewport of [
     await preparationLayout(page, viewport.width);
     if (viewport.width > 900) await expect(start).toBeInViewport();
     await expect(page.locator(".assessment-set-history")).toHaveAttribute("open", "");
+    await page.locator(".study-material-summary > summary").click();
     const sources = page.getByRole("region", { name: "教材來源", exact: true }).getByRole("button");
     await expect(sources).toHaveCount(1);
     await sources.click();
@@ -67,6 +58,7 @@ for (const viewport of [
     );
     await page.keyboard.press("Escape");
     await expect(sources).toBeFocused();
+    await page.locator(".study-material-summary > summary").click();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -264,7 +256,7 @@ test("create failure restores entry and retry retains its idempotency key", asyn
   await start.click();
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(start).toBeEnabled();
-  await expect(page.locator(".current-concept-card")).toBeVisible();
+  await expect(page.locator(".current-concept-card")).not.toBeVisible();
   await start.click();
   await expect(page.getByText("2 / 6 題", { exact: true })).toBeVisible();
   await inlinePreparing(page);

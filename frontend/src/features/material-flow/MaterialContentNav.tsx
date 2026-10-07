@@ -7,18 +7,19 @@ import { MaterialTools } from "../material-tools/MaterialTools";
 type Mode = "focus" | "review";
 type Content = "knowledge-map" | "review" | "concept-cards" | "podcasts" | "research" | "sources";
 const items: { id: Content; label: string }[] = [
-  { id: "knowledge-map", label: "概念地圖" }, { id: "review", label: "複習重點" },
+  { id: "knowledge-map", label: "概念地圖" }, { id: "review", label: "測驗" },
   { id: "concept-cards", label: "概念卡" }, { id: "podcasts", label: "Podcast" },
   { id: "research", label: "補充學習" }, { id: "sources", label: "教材來源" },
 ];
 const tabId = (id: Content) => id === "knowledge-map" ? "map-tab-focus" : id === "review" ? "map-tab-review" : `material-tab-${id}`;
 const panelId = (id: Content) => id === "knowledge-map" ? "map-panel-focus" : id === "review" ? "map-panel-review" : `material-panel-${id}`;
 
-export function MaterialContentNav({ apiClient, materialId, mapRoute, current, onMapModeChange, onMapTabRef, materialName }: {
+export function MaterialContentNav({ apiClient, materialId, mapRoute, current, onMapModeChange, onMapTabRef, materialName, assessmentDisabled = false }: {
   apiClient: StudydyApiClient; materialId: string;
   mapRoute: Extract<AppRoute, { name: "knowledge-map" }> | null; current: Content;
   onMapModeChange?: (mode: Mode) => void;
   onMapTabRef?: (mode: Mode, element: HTMLButtonElement | null) => void; materialName?: string;
+  assessmentDisabled?: boolean;
 }) {
   const navigation = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -45,7 +46,11 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
       if (!mapRoute) return;
       const mode: Mode = id === "review" ? "review" : "focus";
       if (onMapModeChange) onMapModeChange(mode);
-      else writeRoute(mapRoute, false, { knowledgeMap: { revision: mapRoute.structureRevision, mode }, focusMaterialTab: keyboard });
+      else writeRoute(mapRoute, false, {
+        knowledgeMap: { revision: mapRoute.structureRevision, mode: "focus" },
+        ...(id === "review" ? { assessmentEntry: mapRoute.structureRevision } : {}),
+        focusMaterialTab: keyboard,
+      });
     } else {
       const route: AppRoute = id === "sources" ? { name: "material-sources", materialId } : { name: "material-content", materialId, kind: id };
       writeRoute(route, false, { focusMaterialTab: keyboard });
@@ -54,7 +59,7 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
   return <><div className="material-learning-toolbar">
     <div ref={navigation} className="material-content-nav map-tabs" role="tablist" aria-label="教材學習內容">
       {items.map((item, index) => <button key={item.id} type="button" id={tabId(item.id)} role="tab" aria-selected={current === item.id} aria-controls={panelId(item.id)}
-        className={current === item.id ? "is-active" : undefined} tabIndex={current === item.id ? 0 : -1} disabled={!mapRoute && item.id !== "sources"}
+        className={current === item.id ? "is-active" : undefined} tabIndex={current === item.id ? 0 : -1} disabled={(!mapRoute && item.id !== "sources") || (item.id === "review" && assessmentDisabled)}
         ref={element => { if (item.id === "knowledge-map" || item.id === "review") onMapTabRef?.(item.id === "review" ? "review" : "focus", element); }}
         onClick={() => activate(item.id)} onKeyDown={event => {
           let next = index;

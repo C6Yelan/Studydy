@@ -10,6 +10,7 @@ import type {
 } from "../../api/contracts";
 import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { StateView } from "../../ui/StateView";
+import { initialFocusConceptId } from "./knowledge-map";
 import { KnowledgeMapWorkspace } from "./KnowledgeMapWorkspace";
 import "./styles.css";
 
@@ -156,42 +157,6 @@ export default function KnowledgeMap({
     };
   }, [apiClient, route.materialId, route.runId, route.structureRevision, reload]);
 
-  if (message)
-    return (
-      <StateView
-        action={
-          <div className="state-actions">
-            <button
-              className="primary-button"
-              type="button"
-              onClick={() => setReload((value) => value + 1)}
-            >
-              重新讀取
-            </button>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => writeRoute({ name: "materials" })}
-            >
-              返回教材庫
-            </button>
-          </div>
-        }
-        description={message}
-        image="/assets/studydy/failure-confused.png"
-        title="無法讀取知識地圖"
-        tone="failure"
-      />
-    );
-  if (!view)
-    return (
-      <StateView
-        description="正在載入教材概念與學習順序。"
-        live
-        title="正在讀取知識地圖"
-        tone="loading"
-      />
-    );
   const openStudySession = (studySessionId: string) =>
     writeRoute({
       ...route,
@@ -244,6 +209,51 @@ export default function KnowledgeMap({
       setIsStartingStudy(false);
     }
   };
+  // 從教材其他分頁進入測驗時，等待現有 session/progress，再重用同一個入口。
+  // 消耗一次性 history intent，返回／reload 不會重複建立學習紀錄。
+  useEffect(() => {
+    if (!view || message || isLoadingProgress || window.history.state?.assessmentEntry !== route.structureRevision) return;
+    const { assessmentEntry: _, ...state } = window.history.state;
+    window.history.replaceState(state, "");
+    void startStudy(progress?.current_concept_id ?? initialFocusConceptId(view));
+  }, [view, message, isLoadingProgress, progress, route.structureRevision]);
+
+  if (message)
+    return (
+      <StateView
+        action={
+          <div className="state-actions">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => setReload((value) => value + 1)}
+            >
+              重新讀取
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => writeRoute({ name: "materials" })}
+            >
+              返回教材庫
+            </button>
+          </div>
+        }
+        description={message}
+        image="/assets/studydy/failure-confused.png"
+        title="無法讀取知識地圖"
+        tone="failure"
+      />
+    );
+  if (!view)
+    return (
+      <StateView
+        description="正在載入教材概念與學習順序。"
+        live
+        title="正在讀取知識地圖"
+        tone="loading"
+      />
+    );
   return (
     <KnowledgeMapWorkspace
       key={view.knowledge_structure_revision}

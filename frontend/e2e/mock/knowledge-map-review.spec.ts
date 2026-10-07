@@ -21,6 +21,14 @@ import {
 const mapPath = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
 const progressPath = `/v1/study-sessions/${sessionId}/progress`;
 
+async function openLegacyReview(page: Page) {
+  await expect.poll(() => page.evaluate(() => history.state?.knowledgeMap?.revision)).toBe(structureRevision);
+  await page.evaluate((revision) => {
+    history.replaceState({ ...history.state, knowledgeMap: { ...history.state?.knowledgeMap, revision, mode: "review" } }, "");
+  }, structureRevision);
+  await page.reload();
+}
+
 async function mockOwnedReview(
   page: Page,
   view: ReturnType<typeof structureView>,
@@ -70,7 +78,7 @@ test("複習重點 resumes the selected review concept through the existing stud
       writes.push(request.url());
   });
   await page.goto(mapPath);
-  await page.getByRole("tab", { name: "複習重點", exact: true }).click();
+  await openLegacyReview(page);
   await expect(page.locator(".review-context")).toContainText("Stack");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: "繼續這個概念", exact: true }).click();
@@ -134,7 +142,7 @@ for (const viewport of [
       return json(route, { ...session(), current_concept_id: secondConcept });
     });
     await page.goto(mapPath);
-    await page.getByRole("tab", { name: "複習重點", exact: true }).click();
+    await openLegacyReview(page);
     const list = page.getByRole("navigation", { name: "需要複習的概念" });
     await expect(list.getByRole("button")).toHaveCount(2);
     await expect(list).not.toContainText(longText);
@@ -243,7 +251,7 @@ for (const count of [0, 30])
     });
     await mockOwnedReview(page, view, () => state);
     await page.goto(mapPath);
-    await page.getByRole("tab", { name: "複習重點", exact: true }).click();
+    await openLegacyReview(page);
     if (!count) {
       await expect(page.locator(".review-empty")).toContainText("目前沒有需要複習的概念");
       await expect(page.locator(".review-workspace")).toHaveCount(0);
@@ -301,8 +309,9 @@ for (const viewport of [
       if (progressState === "available")
         await expect(page.locator(".map-learning-badge").first()).toBeVisible();
       for (const tabName of ["概念地圖", "複習重點"]) {
-        const tab = page.getByRole("tab", { name: tabName, exact: true });
-        await tab.click();
+        const tab = page.getByRole("tab", { name: tabName === "複習重點" ? "測驗" : tabName, exact: true });
+        if (tabName === "複習重點") await openLegacyReview(page);
+        else await tab.click();
         await expect(tab).toHaveAttribute("aria-selected", "true");
         const panel = page.getByRole("tabpanel");
         await expect(panel).toHaveAttribute(
@@ -317,10 +326,7 @@ for (const viewport of [
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
           true,
         );
-        const adjacent = await page
-          .locator(".map-tabs")
-          .evaluate((element) => element.nextElementSibling?.classList.contains("map-content"));
-        expect(adjacent).toBe(true);
+        await expect(page.locator(".map-content > .map-view")).toHaveCount(1);
         if (tabName === "複習重點") {
           if (progressState === "available")
             await expect(page.locator(".review-workspace")).toBeVisible();
@@ -339,7 +345,7 @@ for (const viewport of [
           "true",
         );
       }
-      await page.getByRole("tab", { name: "複習重點", exact: true }).focus();
+      await page.getByRole("tab", { name: "測驗", exact: true }).focus();
       await page.keyboard.press("Home");
       await expect(page.getByRole("tab", { name: "概念地圖", exact: true })).toBeFocused();
     });
@@ -380,7 +386,7 @@ test("review starts its small progress read in parallel and never shows a false 
   await page.goto(mapPath);
   await expect.poll(() => progressReads).toBe(1);
   releaseMap();
-  await page.getByRole("tab", { name: "複習重點", exact: true }).click();
+  await openLegacyReview(page);
   await expect(page.getByText("正在讀取複習重點…", { exact: true })).toBeVisible();
   await expect(page.locator(".review-empty")).toHaveCount(0);
   releaseProgress();

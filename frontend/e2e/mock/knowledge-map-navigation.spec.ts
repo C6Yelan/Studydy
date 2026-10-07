@@ -56,21 +56,12 @@ test("map tabs cycle and missing path references still fail the strict API contr
   await mockLearningMapApi(page, view, false);
   await page.goto(mapPath);
   const tabs = page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab");
-  await expect(tabs).toHaveText(["概念地圖", "複習重點", "概念卡", "Podcast", "補充學習", "教材來源"]);
+  await expect(tabs).toHaveText(["概念地圖", "測驗", "概念卡", "Podcast", "補充學習", "教材來源"]);
   await expect(page.getByRole("tab", { name: "學習順序", exact: true })).toHaveCount(0);
-  await tabs.first().focus();
-  for (const [key, name] of [
-    ["ArrowRight", "複習重點"],
-    ["Home", "概念地圖"],
-    ["ArrowRight", "複習重點"],
-    ["ArrowLeft", "概念地圖"],
-  ]) {
-    await page.keyboard.press(key);
-    const selected = tabs.filter({ hasText: name });
-    await expect(selected).toBeFocused();
-    await expect(selected).toHaveAttribute("aria-selected", "true");
-    await expect(selected).toHaveAttribute("tabindex", "0");
-  }
+  await tabs.nth(1).focus();
+  await page.keyboard.press("Home");
+  await expect(tabs.first()).toBeFocused();
+  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
   view.initial_learning_path[0].concept_id = `concept:sha256:${"f".repeat(64)}`;
   await page.goto(mapPath);
   await expect(page.getByRole("heading", { name: "無法讀取知識地圖", exact: true })).toBeVisible();
@@ -238,22 +229,21 @@ test("reload restores map presentation while local interaction does not restart 
       auth.push(request.method() + " " + new URL(request.url()).pathname);
   });
   await page.goto(mapPath);
-  await page.getByRole("tab", { name: "複習重點", exact: true }).click();
-  await page.locator(".review-list").getByRole("button", { name: "Array", exact: true }).click();
-  await expect(page.locator(".review-context h3")).toHaveText("Array");
+  await openMapConcept(page, "Array");
+  await expect(page.getByRole("dialog", { name: "概念詳情" }).getByRole("heading", { name: "Array", exact: true })).toHaveText("Array");
   await page.evaluate(() => {
     for (let i = 0; i < 5; i++) window.dispatchEvent(new Event("focus"));
   });
   await page.reload();
-  await expect(page.getByRole("tab", { name: "複習重點", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("tab", { name: "概念地圖", exact: true })).toHaveAttribute(
     "aria-selected",
     "true",
   );
-  await expect(page.locator(".review-context h3")).toHaveText("Array");
-  const context = await page.locator(".review-context").elementHandle();
+  await expect(page.getByRole("dialog", { name: "概念詳情" }).getByRole("heading", { name: "Array", exact: true })).toHaveText("Array");
+  const context = await page.getByRole("dialog", { name: "概念詳情" }).elementHandle();
   await page.clock.fastForward(60 * 60 * 1000 + 1);
   expect(await context!.evaluate((node) => node.isConnected)).toBe(true);
-  await expect(page.locator(".review-context h3")).toHaveText("Array");
+  await expect(page.getByRole("dialog", { name: "概念詳情" }).getByRole("heading", { name: "Array", exact: true })).toHaveText("Array");
   await page.getByRole("tab", { name: "概念地圖", exact: true }).click();
   await openMapConcept(page, "Array");
   await page.getByRole("searchbox").fill("Stack");

@@ -160,6 +160,8 @@ function ConceptDetail({
   view,
   progress,
   studyAction,
+  isLoadingProgress,
+  progressMessage,
 }: {
   view: KnowledgeStructureView;
   progress: LearnerProgressView | null;
@@ -167,6 +169,8 @@ function ConceptDetail({
   concept: Concept;
   close: () => void;
   studyAction: ReactNode;
+  isLoadingProgress: boolean;
+  progressMessage: string | null;
 }) {
   return (
     <DetailPanel label="概念詳情" focusKey={concept.concept_id} close={close}>
@@ -179,8 +183,9 @@ function ConceptDetail({
           ×
         </button>
       </header>
-      <LearningBadge conceptId={concept.concept_id} progress={progress} />
-      {studyAction}
+      {progress ? <LearningBadge conceptId={concept.concept_id} progress={progress} /> : (
+        <span className="map-learning-badge">{isLoadingProgress ? "讀取學習狀態…" : progressMessage ? "學習狀態暫時無法讀取" : "尚未練習"}</span>
+      )}
       <section>
         <h3>教材重點</h3>
         <ConceptContent
@@ -189,6 +194,7 @@ function ConceptDetail({
           sourceResolver={view.source_resolver}
         />
       </section>
+      {studyAction}
     </DetailPanel>
   );
 }
@@ -1056,6 +1062,10 @@ export function KnowledgeMapWorkspace({
     });
   };
   const selectMode = (nextMode: Mode) => {
+    if (nextMode === "review") {
+      onStartStudy(selectedConceptId);
+      return;
+    }
     cancelAnimationFrame(restoreFrame.current);
     setMode(nextMode);
     setDetailConceptId(null);
@@ -1064,18 +1074,11 @@ export function KnowledgeMapWorkspace({
   };
   const busyStudyLabel = isLoadingProgress ? "讀取學習進度…" : isStartingStudy ? "正在開始…" : null;
   const focusStudyConceptId = selectedConceptId;
-  const canResume = learningStateStatus === "active" || learningStateStatus === "no_safe";
-  const selectedIsCurrentSessionConcept =
-    canResume && progress?.current_concept_id === focusStudyConceptId;
   const focusStudyButtonLabel =
     busyStudyLabel ??
     (learningStateStatus === "completed"
-      ? "查看學習成果"
-      : selectedIsCurrentSessionConcept
-        ? "繼續學習"
-        : canResume
-          ? "從這個概念繼續"
-          : "開始學習");
+      ? "查看測驗結果"
+      : "檢測這個概念");
   const focusStudyAction = (
     <section className="concept-study-action" aria-label="學習入口">
       <button
@@ -1109,6 +1112,8 @@ export function KnowledgeMapWorkspace({
             concept={selectedConcept}
             studyAction={focusStudyAction}
             progress={progress}
+            isLoadingProgress={isLoadingProgress}
+            progressMessage={progressMessage}
           />
         )}
       </>
@@ -1117,7 +1122,7 @@ export function KnowledgeMapWorkspace({
     <section
       className={`map-workspace${mode === "focus" ? " is-focus-mode" : ""}${selectedConcept || selectedRelation ? " has-detail" : ""}`}
     >
-      <MaterialContentNav apiClient={apiClient} materialId={mapRoute.materialId} mapRoute={mapRoute} materialName={materialName} current={mode === "review" ? "review" : "knowledge-map"} onMapModeChange={selectMode} onMapTabRef={(id, element) => { if (element) tabs.current.set(id, element); else tabs.current.delete(id); }}/>
+      <MaterialContentNav apiClient={apiClient} materialId={mapRoute.materialId} mapRoute={mapRoute} materialName={materialName} current={mode === "review" ? "review" : "knowledge-map"} assessmentDisabled={isStartingStudy || isLoadingProgress} onMapModeChange={selectMode} onMapTabRef={(id, element) => { if (element) tabs.current.set(id, element); else tabs.current.delete(id); }}/>
       <header className="map-header material-search-row">
         <form
           className="map-search"

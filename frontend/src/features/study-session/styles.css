@@ -98,12 +98,9 @@
     grid-template-columns: minmax(0, 1fr) clamp(300px, 22vw, 320px);
     gap: var(--space-6);
   }
-  .study-main .study-learning-grid.is-preparation-mode {
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
-  }
 }
 
-/* 準備階段並排教材與檢測入口；真正作答及結果才使用寬版主區。 */
+/* 測驗使用寬版主區；教材重點留在可展開的輔助區。 */
 .study-main .study-learning-grid.is-result-mode,
 .study-main .study-learning-grid.is-set-mode.is-question-mode {
   grid-template-columns: minmax(0, 1fr);
@@ -142,12 +139,13 @@
 .study-workspace.without-rail {
   grid-template-columns: minmax(0, 1fr);
 }
-.study-main .study-learning-grid.is-set-mode:not(.is-preparation-mode) {
+.study-main .study-learning-grid.is-set-mode {
   grid-template-columns: minmax(0, 1fr);
   justify-items: stretch;
 }
-.study-main .study-learning-grid.is-set-mode:not(.is-preparation-mode) .study-current-action {
+.study-main .study-learning-grid.is-set-mode .study-current-action {
   width: 100%;
+  grid-row: 1;
 }
 
 .inherited-check .assessment-set-actions > button {

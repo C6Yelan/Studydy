@@ -73,7 +73,7 @@ test("map opens concept details and source-backed learning on demand", async ({ 
   );
   await page.keyboard.press("Escape");
   await openMapConcept(page, "Stack");
-  await page.getByRole("button", { name: "開始學習", exact: true }).click();
+  await page.getByRole("button", { name: "檢測這個概念", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/study-sessions/${sessionId}$`));
 });
 
@@ -271,7 +271,7 @@ for (const viewport of [
       await expect(detail.getByRole("heading", { name: "主機", exact: true })).toBeVisible();
       await expect(detail.getByRole("heading", { name: "教材來源", exact: true })).toBeVisible();
       await expect(detail.getByRole("region", { name: /^教材重點 / })).toHaveCount(2);
-      await expect(detail.getByRole("button", { name: "開始學習", exact: true })).toBeEnabled();
+      await expect(detail.getByRole("button", { name: "檢測這個概念", exact: true })).toBeEnabled();
       await expect(detail).not.toContainText(
         /對照教材原文|教材中的其他名稱|延伸探索|Extraction text|Host|sha256/,
       );

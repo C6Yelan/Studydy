@@ -432,6 +432,12 @@
   width: 100%;
   margin-top: var(--space-2);
 }
+.detail-panel > .concept-study-action {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  padding-bottom: var(--space-2);
+}
 .map-navigation {
   position: absolute;
   top: 12px;
