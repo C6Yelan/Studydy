@@ -339,7 +339,17 @@ def apply_semantic_response(
         item["evidence_id"]: item
         for item in bundle["evidence"] if item["evidence_id"] not in non_content_ids
     }
-    all_evidence = {item["evidence_id"] for item in context["evidence"]}
+    # 在套用新 Claims／aliases 前，重用 request builder 的 catalog 篩選與容量降級契約。
+    # 關係可引用本批專屬證據或已傳送的 catalog 證據，不必先成為端點的 Claim。
+    request = semantic_request(context, bundle, state) if response["relations"] else None
+    allowed_handles = (
+        {row[0] for section in request["sections"] for row in section["evidence"]}
+        | {ref for concept in request["existing_concepts"] for ref in concept.get("e", [])}
+    ) if request is not None else set()
+    allowed_evidence = {
+        item["evidence_id"] for index, item in enumerate(context["evidence"])
+        if index in allowed_handles and item["evidence_id"] not in non_content_ids
+    }
     all_sections = {section["section_id"] for section in context["sections"]}
     response_keys: set[str] = set()
     for proposal in response["concepts"]:
@@ -375,9 +385,6 @@ def apply_semantic_response(
             if all(canonical_sha256(existing) != identity for existing in current["claims"]):
                 current["claims"].append(claim)
     known_keys = set(state.concepts)
-    context_evidence = {
-        item["evidence_id"]: item for item in context["evidence"]
-    }
     for relation in response["relations"]:
         if not isinstance(relation, dict) or set(relation) != {
             "s", "t", "k", "r", "e", "c",
@@ -407,16 +414,6 @@ def apply_semantic_response(
         evidence_refs = relation["evidence_refs"]
         context_refs = relation["context_refs"]
         confidence = relation["confidence"]
-        endpoint_evidence = {
-            span["evidence_id"]
-            for key in (relation["source_concept"], relation["target_concept"])
-            for claim in state.concepts.get(key, {}).get("claims", [])
-            for span in claim["source_spans"]
-        }
-        endpoint_sections = {
-            context_evidence[reference]["section_id"]
-            for reference in endpoint_evidence
-        }
         if (
             relation["source_concept"] not in known_keys
             or relation["target_concept"] not in known_keys
@@ -435,8 +432,7 @@ def apply_semantic_response(
             not isinstance(evidence_refs, list)
             or not evidence_refs
             or len(evidence_refs) != len(set(evidence_refs))
-            or any(reference not in all_evidence for reference in evidence_refs)
-            or not set(evidence_refs) <= endpoint_evidence
+            or not set(evidence_refs) <= allowed_evidence
         ):
             state.rejected_relations += 1
             continue
@@ -444,7 +440,6 @@ def apply_semantic_response(
             not isinstance(context_refs, list)
             or len(context_refs) != len(set(context_refs))
             or any(reference not in all_sections for reference in context_refs)
-            or not set(context_refs) <= endpoint_sections
         ):
             state.rejected_relations += 1
             continue

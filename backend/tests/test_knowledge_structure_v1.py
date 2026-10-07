@@ -382,10 +382,14 @@ def test_cycle_and_forbidden_or_generic_relations_never_publish():
     assert structure["metrics"]["rejected_relations"] == 2
 
 
-def test_relation_cannot_borrow_unrelated_document_evidence():
+def test_relation_cannot_borrow_request_invisible_document_evidence():
     context = _context()
     state = SemanticState()
     bundle = _bundles(context)[0]
+    hidden = context["evidence"][0]["evidence_id"]
+    bundle["evidence"] = bundle["evidence"][1:]
+    for section in bundle["sections"]:
+        section["evidence_ids"] = [ref for ref in section["evidence_ids"] if ref != hidden]
     response = _response(context)
     response["relations"][0]["evidence_refs"] = [context["evidence"][0]["evidence_id"]]
     apply_semantic_response(response, context=context, bundle=bundle, state=state)
