@@ -141,6 +141,10 @@ systemctl --user restart studydy-podcast.service
 
 語音問答共用 Podcast 的 CosyVoice TTS；本機 STT 使用 faster-whisper large-v3-turbo（CPU int8）與獨立 `data/voice/runtime`。provider.env 設定 `STUDYDY_STT_PYTHON`、`STUDYDY_STT_MODEL_DIR`。解碼使用 PyAV，單次最長 120 秒；錄音在 worker 處理後清除。對話、短回答音訊與工作狀態由 PostgreSQL 保存，無公開音訊 URL；問答及研究各有獨立 worker，不阻塞原教材 worker。provider 對文字、TTS、STT／對齊各自串行，避免同類工作互搶資源；忙碌或失敗如實回報並保留可重試狀態。
 
+問答分為文字與語音模式。新文字問題在教材回答完成後即可閱讀，不產生 TTS；新錄音辨識完成後自動回答、產生語音，無須再次送出，辨識文字保留在對話中。畫面顯示實際工作階段；只有本次錄音或明確重試的語音回答會嘗試自動播放。瀏覽器阻擋播放時保留完成的文字與音訊，提示「語音回答已完成，點擊播放」。切換模式、路由、帳號或取消會停止播放及清除自動播放意圖；重新載入不自動播放歷史回答。
+
+0018 migration 新增 nullable `voice_turns.mode`，新問題由文字／錄音入口決定模式。舊資料保持 NULL，不猜測原輸入方式；舊錄音草稿仍以明確確認入口送出。原回答、音訊、來源及 revision 不搬移或重製。升級前備份 PostgreSQL，升級後使用識別 0018 的後端前向修復；不能直接退回缺少該 migration 的映像或自動覆蓋產品 DB。工程測試涵蓋狀態與播放邊界，不代表真實 STT／TTS、麥克風或各裝置播放品質已驗收。
+
 0010／0011 migration 新增語音對話與研究資料；舊 KS 清理需保留對話引用。升級後不可直接退回不認識新 migration 的舊後端，應使用相容 schema 的前向修復，保留備份與舊映像。持久資料及模型不納入 Git。
 
 0012 為 Evidence 的無損 JSONB 儲存增加讀取能力界線。真實論文的字型擷取可能包含 U+0000；PostgreSQL JSONB 不能直接保存，因此僅在遇到零字元時使用可逆字串編碼，讀回後完整還原，再驗證 canonical document 與 hash。既有文件不改寫，頁碼、區塊、Evidence／Claim 身分及原始 PDF 保持不變。相同處理涵蓋會保存來源文字的 Podcast、問答與題組欄位。這解決儲存限制，不代表特殊公式的呈現或教學解讀已驗收。

@@ -311,9 +311,11 @@ export class StudydyApiClient {
     return result.value as T;
   }
 
-  async voiceRecording(id: string, data: Blob, key: string, context?: PodcastContext): Promise<void> {
-    await this.request(`/v1/voice-conversations/${id}/recordings`, {method:"POST",
+  async voiceRecording(id: string, data: Blob, key: string, context?: PodcastContext): Promise<string> {
+    const result = await this.request(`/v1/voice-conversations/${id}/recordings`, {method:"POST",
       headers:{"Content-Type":data.type,"Idempotency-Key":key,...(context?{"X-Studydy-Podcast-Context":JSON.stringify(context)}:{})},body:data},30000);
+    if (!validate.voiceTurnReceipt(result.value)) throw schemaMismatch("無法確認錄音提問的身分。");
+    return result.value.turn_id;
   }
 
   private async json<T>(

@@ -1,5 +1,6 @@
 """Podcast → exact-revision Voice／Assessment；只用隔離 DB 與合成內容。"""
 from copy import deepcopy
+from pathlib import Path
 from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
@@ -93,7 +94,7 @@ def test_voice_old_revision_context_and_assessment_authority(closed_loop):
     with pytest.raises(SourceError,match='IDEMPOTENCY_CONFLICT'):voice.add_turn(owner,cid,'question','這裡的條件是什麼？',context=changed,dsn=dsn)
     state=voice.claim(dsn=dsn);assert state['revision']==original['revision']
     voice.finish(state,{'text':'原版本教材支持的回答。','supported':True,'citations':[0]},dsn=dsn)
-    voice.finish(voice.claim(dsn=dsn),wav(),dsn=dsn)
+    assert voice.claim(dsn=dsn) is None  # 文字問答不再等待或製作 TTS。
     read=voice.read(owner,cid,dsn=dsn)
     assert not read['is_current_revision'] and read['source_resolver']==view['source_resolver']
     with database_session(dsn) as db:
@@ -132,8 +133,7 @@ def test_recording_context_and_late_answer_after_cancel_or_delete(closed_loop):
     learner,source,_,doc,dsn,_=closed_loop;owner=learner.learner_id;view=beats(closed_loop);locator=context(view)
     cid=voice.create(owner,source.material_id,'recording-context',revision=doc['revision'],dsn=dsn)['conversation_id']
     turn=voice.add_turn(owner,cid,'record',recording=b'synthetic',context=locator,dsn=dsn)
-    voice.finish(voice.claim(dsn=dsn),{'text':'修改前的問題'},dsn=dsn)
-    voice.action(owner,cid,turn['turn_id'],'send','已確認的問題',dsn=dsn)
+    voice.finish(voice.claim(dsn=dsn),{'text':'辨識的問題'},dsn=dsn)
     state=voice.claim(dsn=dsn);assert state['context']['source_refs']==locator['source_refs']
     voice.action(owner,cid,turn['turn_id'],'cancel',dsn=dsn)
     voice.finish(state,{'text':'晚到回答','supported':True,'citations':[0]},dsn=dsn)
@@ -158,8 +158,8 @@ def test_additive_migration_preserves_legacy_artifacts(closed_loop):
     video_before=videos.ready_manifest(owner.learner_id,saved['podcast_id'],0,dsn=dsn)
     with database_session(dsn) as db:
         db.execute(text('ALTER TABLE voice_turns DROP COLUMN context'))
-        db.execute(text('DELETE FROM schema_migrations WHERE version=16'))
-    assert run_migrations(dsn)==(16,)
+        # 隔離重播這項 additive DDL；帳本保持連續，不假造已套用後續 migration 的舊版本。
+        db.execute(text((Path(__file__).parents[3]/'migrations/0016_voice_podcast_context.sql').read_text()))
     assert run_migrations(dsn)==()
     assert podcasts.read_podcast(owner.learner_id,saved['podcast_id'],dsn=dsn)==before
     assert videos.ready_manifest(owner.learner_id,saved['podcast_id'],0,dsn=dsn)==video_before
@@ -193,7 +193,8 @@ def test_voice_context_recording_api_validates_owner_revision_and_ranges(closed_
     stored=client.get(f'/v1/voice-conversations/{cid}').json()
     assert stored['turns'][0]['context']['source_refs']==locator['source_refs']
     assert stored['source_resolver']==view['source_resolver']
+    assert stored['turns'][0]['mode']=='voice' and stored['turns'][0]['status']=='pending'
     assert client.post(f"/v1/voice-conversations/{cid}/turns/{recorded.json()['turn_id']}/actions",
-        headers={'Origin':origin},json={'action':'send','question':'確認後的問題'}).status_code==200
+        headers={'Origin':origin},json={'action':'send','question':'不應再人工送出'}).status_code==400
     state=voice.claim(dsn=dsn)
-    assert state['question']=='確認後的問題' and state['revision']==document['revision']
+    assert state['question']=='錄音辨識的問題' and state['revision']==document['revision']

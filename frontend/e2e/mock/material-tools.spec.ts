@@ -28,7 +28,7 @@ test('material voice text flow saves, cites, reopens and closes',async({page})=>
 test('late microphone permission after cancel stops tracks and sends nothing',async({page})=>{
  await mockKnowledgeMapApi(page,structureView());await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[]}));
  await page.addInitScript(()=>{let resolve:(value:MediaStream)=>void;Object.assign(window,{stopped:false,allowMic:()=>resolve({getTracks:()=>[{stop:()=>{(window as any).stopped=true;}}]} as unknown as MediaStream)});Object.defineProperty(navigator.mediaDevices,'getUserMedia',{value:()=>new Promise(r=>resolve=r)});});
- await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'開始錄音'}).click();await page.getByRole('button',{name:'取消等待麥克風'}).click();await page.evaluate(()=>(window as any).allowMic());await expect.poll(()=>page.evaluate(()=>(window as any).stopped)).toBe(true);
+ await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'語音模式',exact:true}).click();await page.getByRole('button',{name:'開始錄音'}).click();await page.getByRole('button',{name:'取消等待麥克風'}).click();await page.evaluate(()=>(window as any).allowMic());await expect.poll(()=>page.evaluate(()=>(window as any).stopped)).toBe(true);
  await expect(page.getByRole('button',{name:'開始錄音'})).toBeEnabled();
 });
 
@@ -70,7 +70,7 @@ test('late permission failure cannot stop a newer recording',async({page})=>{
    Object.defineProperty(navigator.mediaDevices,'getUserMedia',{value:()=>new Promise((resolve,reject)=>{count++;if(count===1)state.rejectOld=()=>reject(new Error('old request rejected'));else state.allowNew=()=>resolve({getTracks:()=>[{stop:()=>{state.stopped=true;}}]});})});
    (window as any).MediaRecorder=class{state='inactive';onstop?:()=>void;start(){this.state='recording';}stop(){this.state='inactive';queueMicrotask(()=>this.onstop?.());}};
  });
- await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'開始錄音',exact:true}).click();await page.getByRole('button',{name:'取消等待麥克風'}).click();await page.getByRole('button',{name:'開始錄音',exact:true}).click();await page.evaluate(()=>(window as any).micRace.allowNew());await expect(page.getByRole('button',{name:'停止錄音並辨識'})).toBeVisible();
+ await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'語音模式',exact:true}).click();await page.getByRole('button',{name:'開始錄音',exact:true}).click();await page.getByRole('button',{name:'取消等待麥克風'}).click();await page.getByRole('button',{name:'開始錄音',exact:true}).click();await page.evaluate(()=>(window as any).micRace.allowNew());await expect(page.getByRole('button',{name:'停止錄音並送出'})).toBeVisible();
  await page.evaluate(()=>(window as any).micRace.rejectOld());expect(await page.evaluate(()=>(window as any).micRace.stopped)).toBe(false);
  await page.getByRole('button',{name:'關閉',exact:true}).click();expect(await page.evaluate(()=>(window as any).micRace.stopped)).toBe(true);
 });

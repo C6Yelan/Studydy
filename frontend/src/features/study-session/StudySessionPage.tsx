@@ -287,7 +287,7 @@ export function StudySessionPage({
   );
   return (
     <section className="study-session-page">
-      <MaterialTools key={route.materialId} api={apiClient} materialId={route.materialId} />
+      <MaterialTools key={`${route.materialId}:${route.structureRevision}`} api={apiClient} materialId={route.materialId} revision={route.structureRevision} />
       <header className="study-header">
         <div>
           <p className="eyebrow">學習進度</p>

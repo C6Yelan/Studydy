@@ -91,6 +91,16 @@
 .research-confirm label { display:flex; gap:8px; align-items:flex-start; }
 /* 問答保留獨立訊息捲動，輸入與錄音控制固定在視窗底部。 */
 .voice-panel { display:flex; flex-direction:column; flex:1; min-width:0; min-height:0; }
+.voice-modes { display:flex; flex-shrink:0; gap:4px; padding:5px 10px; border-bottom:1px solid var(--border-light); }
+.voice-modes button { flex:1; min-height:28px; border:0; border-radius:6px; background:transparent; color:var(--text-secondary); font:inherit; font-size:12px; cursor:pointer; }
+.voice-modes button[aria-pressed="true"] { background:var(--studydy-blue-soft); color:var(--studydy-blue); font-weight:600; }
+.voice-modes button:disabled { opacity:.6; cursor:default; }
+.voice-record-button { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:40px; border:0; border-radius:var(--radius-button); background:var(--studydy-blue); color:white; font:inherit; font-size:13px; cursor:pointer; }
+.voice-record-button:disabled { opacity:.5; cursor:default; }
+.voice-wait-dot { width:6px; height:6px; flex-shrink:0; border-radius:50%; background:var(--studydy-blue); animation:voice-wait 1.3s ease-in-out infinite; }
+.voice-playback-state { font-size:11px; color:var(--studydy-blue); }
+@keyframes voice-wait { 50% { opacity:.35; } }
+@media (prefers-reduced-motion:reduce) { .voice-wait-dot { animation:none; } }
 .voice-header { position:relative; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; padding:6px 10px; border-bottom:1px solid var(--border-light); background:var(--surface); }
 .voice-identity, .voice-header-actions { display:flex; align-items:center; gap:4px; }
 .voice-identity { gap:8px; color:var(--studydy-blue); }
@@ -148,6 +158,7 @@
 .answer-audio input { width:52px; min-width:0; height:12px; padding:0; margin:0; accent-color:var(--studydy-blue); }
 .answer-audio > small { font-size:10px; color:var(--text-secondary); font-variant-numeric:tabular-nums; }
 .answer-audio > p { flex-basis:100%; margin:0; color:var(--error); font-size:11px; }
+.answer-audio > .audio-gesture-note { color:var(--text-secondary); }
 .voice-panel :is(button,summary,textarea,select):focus-visible { outline:2px solid var(--studydy-blue); outline-offset:2px; }
 
 @media(max-width:700px) {

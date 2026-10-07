@@ -1089,3 +1089,19 @@ test('teaching beats validate part evidence, duplicate claim positions and two b
     await assert.rejects(new StudydyApiClient(async()=>Response.json(changed)).getPodcast(setId),e=>e.kind==='schema');
   }
 });
+
+test('recording upload returns a validated turn identity for scoped voice playback', async () => {
+  const requests = [];
+  const audio = new Blob(['synthetic recording'], {type:'audio/webm'});
+  const client = new StudydyApiClient(async (url, init) => {
+    requests.push({url,init});return Response.json({turn_id:runId},{status:202});
+  });
+  assert.equal(await client.voiceRecording(sessionId,audio,'recording-intent'),runId);
+  assert.equal(requests[0].url,`/v1/voice-conversations/${sessionId}/recordings`);
+  assert.equal(requests[0].init.body,audio);
+  assert.equal(requests[0].init.headers['Idempotency-Key'],'recording-intent');
+  for(const value of [{}, {turn_id:'not-a-turn'}, {turn_id:42}]){
+    const invalid = new StudydyApiClient(async()=>Response.json(value,{status:202}));
+    await assert.rejects(invalid.voiceRecording(sessionId,audio,'recording-intent'),error=>error.kind==='schema');
+  }
+});

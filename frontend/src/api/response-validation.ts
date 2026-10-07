@@ -44,6 +44,11 @@ function isUuid(value: unknown): value is string {
   return typeof value === "string" && uuidPattern.test(value);
 }
 
+export function voiceTurnReceipt(value: unknown): value is { turn_id: string } {
+  const row = object(value);
+  return !!row && isUuid(row.turn_id);
+}
+
 function revision(value: unknown, kind: string): value is string {
   return (
     typeof value === "string" &&

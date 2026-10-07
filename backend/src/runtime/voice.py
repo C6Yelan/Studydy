@@ -89,7 +89,7 @@ def read(owner, identity, *, dsn=None):
         turns = db.scalars(select(Turn).where(Turn.conversation_id == identity).order_by(Turn.created_at,Turn.turn_id)).all()
         return {**_summary(row), 'is_current_revision': row.knowledge_structure_revision == material.head_revision,
             'source_resolver':f'/v1/materials/{row.material_id}/knowledge-structures/{row.knowledge_structure_revision}/evidence',
-            'turns':[{**{k:getattr(t,k) for k in ('turn_id','question','answer','status','error_code','context')},
+            'turns':[{**{k:getattr(t,k) for k in ('turn_id','mode','question','answer','status','error_code','context')},
                 'audio_url':f'/v1/voice-conversations/{identity}/turns/{t.turn_id}/audio' if t.audio else None} for t in turns]}
 
 
@@ -138,16 +138,20 @@ def add_turn(owner, identity, key, question='', recording=None, *, context=None,
     fingerprint = sha256(recording if recording else question.encode()).hexdigest()
     if context is not None:
         fingerprint=sha256(json.dumps({'input':fingerprint,'context':context},sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    mode = 'voice' if recording else 'text'
+    legacy_fingerprint = fingerprint
+    fingerprint = sha256(json.dumps({'input': fingerprint, 'mode': mode}, sort_keys=True).encode()).hexdigest()
     with database_session(dsn) as db:
         row, _ = _conversation(db,owner,identity)
         old = db.scalar(select(Turn).where(Turn.conversation_id==identity,Turn.request_key==key))
         if old:
-            if old.fingerprint != fingerprint: raise SourceError('IDEMPOTENCY_CONFLICT')
+            expected = legacy_fingerprint if old.mode is None else fingerprint
+            if old.fingerprint != expected: raise SourceError('IDEMPOTENCY_CONFLICT')
             return {'turn_id':old.turn_id}
         if db.scalar(select(Turn.turn_id).where(Turn.conversation_id==identity,Turn.status.in_(ACTIVE+('draft',)))):
             raise SourceError('VOICE_TURN_IN_PROGRESS')
         verified_context = podcast_context(db, row, context)[0] if context is not None else None
-        turn = Turn(context=verified_context,turn_id=uuid4(),conversation_id=identity,request_key=key,fingerprint=fingerprint,
+        turn = Turn(context=verified_context,mode=mode,turn_id=uuid4(),conversation_id=identity,request_key=key,fingerprint=fingerprint,
             question=question.strip(),recording=recording,status='transcribing' if recording else 'pending',created_at=datetime.now(UTC))
         db.add(turn)
         if question: row.title=question.strip()[:80]
@@ -172,9 +176,10 @@ def action(owner, identity, turn_id, action, question='', *, dsn=None):
             if db.scalar(select(Turn.turn_id).where(Turn.conversation_id==identity,Turn.status.in_(ACTIVE+('draft',)))):
                 raise SourceError('VOICE_TURN_IN_PROGRESS')
             if not turn.question: raise SourceError('REQUEST_INVALID')
-            turn.status='speaking' if turn.answer else 'pending';turn.error_code=None
+            turn.status=('ready' if turn.mode=='text' else 'speaking') if turn.answer else 'pending';turn.error_code=None
         else: raise SourceError('REQUEST_INVALID')
-    return {'ok':True}
+        status=turn.status
+    return {'ok':True,'status':status}
 
 
 def remove(owner, identity, *, dsn=None):
@@ -207,7 +212,7 @@ def claim(*, dsn=None):
         row=db.get(Conversation,turn.conversation_id)
         turn.lease_token=uuid4();turn.lease_expires_at=now+timedelta(minutes=30)
         if turn.status=='pending':turn.status='answering'
-        state={k:deepcopy(getattr(turn,k)) for k in ('turn_id','conversation_id','question','answer','status','recording','lease_token','context')}
+        state={k:deepcopy(getattr(turn,k)) for k in ('turn_id','conversation_id','mode','question','answer','status','recording','lease_token','context')}
         state.update(owner=row.learner_id,material_id=row.material_id,revision=row.knowledge_structure_revision)
         if turn.status=='answering':
             document=_read_verified_document(db,row.learner_id,row.material_id,revision=row.knowledge_structure_revision)
@@ -232,7 +237,10 @@ def finish(state, result=None, error=None, *, dsn=None):
         if state['status']=='transcribing':
             text=result.get('text')
             if not isinstance(text,str) or not text.strip() or len(text)>4000:raise SourceError('VOICE_TRANSCRIPT_INVALID')
-            turn.question=text.strip();turn.recording=None;turn.status='draft'
+            turn.question=text.strip();turn.recording=None
+            # 新錄音直接接續回答；NULL 僅保留舊版待確認錄音的 fallback。
+            turn.status='pending' if turn.mode=='voice' else 'draft'
+            db.get(Conversation,turn.conversation_id).title=turn.question[:80]
         elif state['status']=='answering':
             if turn.context:podcast_context(db,db.get(Conversation,turn.conversation_id),turn.context)
             text=result.get('text');indices=result.get('citations');supported=result.get('supported')
@@ -242,7 +250,7 @@ def finish(state, result=None, error=None, *, dsn=None):
                 raise SourceError('VOICE_ANSWER_INVALID')
             turn.answer={'text':text,'supported':supported,'citations':[state['claims'][i] for i in dict.fromkeys(indices)],
                 'provider':'codex-exec:gpt-5.6-luna'}
-            turn.status='speaking'
+            turn.status='ready' if turn.mode=='text' else 'speaking'
         else:
             validate_audio(result);turn.audio=result;turn.status='ready'
 
