@@ -6,11 +6,13 @@ import { StateView } from "../../ui/StateView";
 import { CardSetLibrary } from "../concept-cards/CardSetLibrary";
 import { MaterialContentNav } from "./MaterialContentNav";
 import { PodcastLibrary } from "../podcasts/PodcastLibrary";
-import { ResearchPanel, type ResearchDraft } from "../material-tools/ResearchPanel";
+import { ResearchPanel } from "../material-tools/ResearchPanel";
+import { ResearchDetail } from "../material-tools/ResearchDetail";
+import type { ResearchDraft } from "../material-tools/research";
 
-export function MaterialContent({ apiClient, learnerId, materialId, kind, children, researchDraft, onResearchDraftChange }: {
+export function MaterialContent({ apiClient, learnerId, materialId, kind, children, researchId, researchDraft, onResearchDraftChange }: {
   apiClient: StudydyApiClient; learnerId: string; materialId: string; kind: "concept-cards" | "podcasts" | "research";
-  children?: ReactNode; researchDraft?: ResearchDraft; onResearchDraftChange?: (draft: ResearchDraft) => void;
+  children?: ReactNode; researchId?: string; researchDraft?: ResearchDraft; onResearchDraftChange?: (draft: ResearchDraft) => void;
 }) {
   const [material, setMaterial] = useState<MaterialLibraryItem | null>(()=>rememberedMaterial(apiClient,materialId));
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +29,7 @@ export function MaterialContent({ apiClient, learnerId, materialId, kind, childr
     {error || !material ? <StateView title={error ? "無法讀取教材" : "正在讀取教材"} description={error ?? "正在載入此教材的學習內容。"} tone={error ? "failure" : "loading"} live={!error}
       action={error ? <button type="button" className="secondary-button" onClick={() => setReload(v => v + 1)}>重新讀取</button> : undefined} /> : <>
       {children != null && navigation}
-      <div className="material-content-body">{children != null ? <div role="tabpanel" id={`material-panel-${kind}`} aria-labelledby={`material-tab-${kind}`}>{children}</div> : kind === "research" ? <ResearchPanel api={apiClient} materialId={materialId} contentNavigation={navigation} draft={researchDraft} onDraftChange={onResearchDraftChange} onMaterialUpdated={()=>setReload(value=>value+1)}/> : kind === "podcasts" ? <PodcastLibrary apiClient={apiClient} learnerId={learnerId} material={material} contentNavigation={navigation}/> : <CardSetLibrary apiClient={apiClient} material={material} contentNavigation={navigation}/>}</div>
+      <div className="material-content-body">{children != null ? <div role="tabpanel" id={`material-panel-${kind}`} aria-labelledby={`material-tab-${kind}`}>{children}</div> : kind === "research" ? researchId ? <ResearchDetail key={researchId} api={apiClient} materialId={materialId} researchId={researchId} contentNavigation={navigation} draft={researchDraft} onDraftChange={onResearchDraftChange} onMaterialUpdated={()=>setReload(value=>value+1)}/> : <ResearchPanel api={apiClient} materialId={materialId} contentNavigation={navigation} draft={researchDraft} onDraftChange={onResearchDraftChange} onMaterialUpdated={()=>setReload(value=>value+1)}/> : kind === "podcasts" ? <PodcastLibrary apiClient={apiClient} learnerId={learnerId} material={material} contentNavigation={navigation}/> : <CardSetLibrary apiClient={apiClient} material={material} contentNavigation={navigation}/>}</div>
     </>}
   </section>;
 }

@@ -53,6 +53,8 @@ download-ocr 下載 runtime lock 指定的 Unlimited-OCR snapshot，不載入模
 
 網站：http://127.0.0.1:4173。Nginx 代理同源 /v1 API；[OpenAPI](http://127.0.0.1:4173/v1/openapi.json)提供實際契約。模型、套件與請求設定以 [runtime-lock.json](../local_ai/runtime-lock.json) 為準。
 
+Gemma 的專案預設 context 為 65,536 tokens，包含輸入與輸出；服務端須配置相同的 `--max-model-len 65536`，preflight／tokenize 仍核對服務實際回報。教材每批新增輸入上限維持 1,536 tokens，單一原文 block 除外；輸出上限維持 32,768，教材至少保留 8,192、評量至少保留 16,384 tokens 的輸出空間。同模型與相同契約僅從 32K 擴為 64K，可重用舊分析 checkpoint，舊 hash 不改寫；降容量或換模型不能沿用此例外。這是專案容量設定，不代表遠端 GPU 已重啟或 VRAM 滿載驗收通過。
+
 init 建立資料目錄及權限；後端依序核對 migration checksum、套用待執行版本，再啟動 API 與 worker。重跑不重建已有帳號或清空資料。登入、已保存資料讀取、上傳與轉檔不需語意模型。
 
 ~~~bash
@@ -135,7 +137,7 @@ systemctl --user restart studydy-podcast.service
 
 ## F1／F2／F3／F5 本輪 Luna 替代測試
 
-設定 `STUDYDY_TEXT_TEST_PROVIDER=codex-exec-luna` 時，新教材分析、檢核及題組文字請求使用主機 provider 的 `/semantics`，大型分析／檢核單次允許 300 秒；Podcast 與短問答仍為 120 秒。新工作保存 `gpt-5.6-luna`／`codex-exec:luna-test/v1` 身分與獨立 lock hash，不覆寫既有 Gemma 的來源、快照或 hash；repository 的原 runtime lock 不改。依本機模型目錄保存 Luna 272K context，使用 o200k 的估計 token 數與 120K 輸入門檻，保留逾半容量給差異、指令與輸出；不冒充 Luna 或 Gemma 的精確 tokenizer。同 provider 的容量擴大可接續已保存批次，舊工作 hash 不變。移除此設定可恢復原模型設定；未完成 Luna 工作不可用 Gemma 身分接續。
+設定 `STUDYDY_TEXT_TEST_PROVIDER=codex-exec-luna` 時，新教材分析、檢核及題組文字請求使用主機 provider 的 `/semantics`，大型分析／檢核單次允許 300 秒；Podcast 與短問答仍為 120 秒。新工作保存 `gpt-5.6-luna`／`codex-exec:luna-test/v1` 身分與獨立 lock hash，不覆寫既有 Gemma 的來源、快照或 hash；repository 的原 runtime lock 不改。Luna 與 Gemma 的後端總額度統一為 65,536 tokens，包含輸入與輸出；Luna 使用與 provider 相同的 JSON 序列化及 o200k 估算，在每次分析、檢核及評量送出前，套用共用輸出預留規則：教材至少 8,192、評量至少 16,384 tokens。回傳 JSON 若超過剩餘輸出額度，後端回報 `SEMANTIC_OUTPUT_TOO_LARGE`，不將結果保存為成功。不修改 Codex／provider 設定；這是後端對送出內容及回傳 JSON 的估算限制，不是 CLI 內部提示、schema 或隱藏推理 token 的精確總量／費用限制。新 Evidence 每批仍維持原本 6,000 字元限制（單一 block 除外），完整概念身分索引保留，既有 Claims 細節依本批相關性選入。舊 Luna 272K 工作的 hash 與已驗證 checkpoint 保留，後續請求仍受 64K 後端上限約束。移除此設定可恢復原模型設定；未完成 Luna 工作不可用 Gemma 身分接續。
 
 語音問答共用 Podcast 的 CosyVoice TTS；本機 STT 使用 faster-whisper large-v3-turbo（CPU int8）與獨立 `data/voice/runtime`。provider.env 設定 `STUDYDY_STT_PYTHON`、`STUDYDY_STT_MODEL_DIR`。解碼使用 PyAV，單次最長 120 秒；錄音在 worker 處理後清除。對話、短回答音訊與工作狀態由 PostgreSQL 保存，無公開音訊 URL；問答及研究各有獨立 worker，不阻塞原教材 worker。provider 對文字、TTS、STT／對齊各自串行，避免同類工作互搶資源；忙碌或失敗如實回報並保留可重試狀態。
 

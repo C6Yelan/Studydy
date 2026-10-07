@@ -145,7 +145,7 @@ def _service(lock: Any) -> dict[str, Any]:
             or not isinstance(service["model_id"], str) or not service["model_id"].strip()
             or not isinstance(service["revision"], str) or not service["revision"].strip()
             or origin != "http://127.0.0.1:18000"
-            or service["max_model_len"] != 32768
+            or service["max_model_len"] not in (32768, 65536)
             or service["max_num_seqs"] != 1
             or service["authentication"] != "environment-bearer:VLLM_API_KEY"
             or service["server"]["python"] != "3.12"
@@ -255,6 +255,17 @@ def _messages(prompt: str, request: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
+def _luna_token_count(text: str) -> int:
+    # CLI 未提供精確 tokenizer；後端統一使用 o200k 估算，不冒充模型實測值。
+    import tiktoken
+    return len(tiktoken.get_encoding('o200k_base').encode(text, disallowed_special=()))
+
+
+def _luna_input_tokens(prompt: str, request: dict[str, Any]) -> int:
+    # 與現有 provider 的 prompt 序列化一致；不修改 Codex 或 provider。
+    return _luna_token_count(prompt + '\nINPUT:\n' + json.dumps(request, ensure_ascii=False))
+
+
 def _token_count(
     client: httpx.Client,
     service: dict[str, Any],
@@ -303,13 +314,20 @@ def request_semantics(
         from .voice import provider
         if cancellation_check: cancellation_check()
         task_lock = runtime_lock['assessment' if task == 'assessment_check' else task]
-        prompt = task_lock['check_prompt' if task == 'assessment_check' else 'prompt']
+        prefix = 'check_' if task == 'assessment_check' else ''
+        prompt = task_lock[prefix + 'prompt']
+        input_tokens = _luna_input_tokens(prompt, request)
+        # 舊工作保留封存的 272K lock，但不得繞過現行後端的 64K 上限。
+        output_budget = _output_budget(task, task_lock[prefix + 'max_tokens'], input_tokens,
+                                       min(65536, runtime_lock['semantic_service']['max_model_len']))
         try:
             result = provider('/semantics', {'prompt': prompt, 'request': request, 'schema': response_schema})
         except Exception as error:
             code = 'SEMANTIC_SERVICE_TIMEOUT' if str(error)=='LUNA_GENERATION_TIMEOUT' else 'SEMANTIC_SERVICE_UNAVAILABLE'
             raise SemanticServiceError(code) from None
         if cancellation_check: cancellation_check()
+        if _luna_token_count(json.dumps(result, ensure_ascii=False)) > output_budget:
+            raise SemanticServiceError('SEMANTIC_OUTPUT_TOO_LARGE')
         return result
     service = _service(runtime_lock)
     try:
@@ -406,14 +424,16 @@ def material_request_fits(
 
     from .luna_test import enabled
     if enabled(runtime_lock):
-        # 用 o200k 的估計值並保留超過一半的 272K context，不宣稱等於 Luna 私有 tokenizer。
-        # 完整舊 catalog 保留，不以截斷引用或限制使用者選取數量來通過。
-        import tiktoken
         if cancellation_check: cancellation_check()
         fresh = {**request, 'existing_concepts': []}
-        text = _messages(runtime_lock['material_semantics']['prompt'], request)[0]['content']
-        estimated = len(tiktoken.get_encoding('o200k_base').encode(text, disallowed_special=()))
-        return estimated <= 120000 and (
+        task = runtime_lock['material_semantics']
+        try:
+            _output_budget('material_semantics', task['max_tokens'],
+                           _luna_input_tokens(task['prompt'], request),
+                           min(65536, runtime_lock['semantic_service']['max_model_len']))
+        except SemanticServiceError:
+            return False
+        return (
             sum(len(s['evidence']) for s in request['sections']) == 1
             or len(json.dumps(fresh, ensure_ascii=False)) <= 6000)
 

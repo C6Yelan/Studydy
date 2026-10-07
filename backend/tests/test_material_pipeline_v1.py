@@ -12,7 +12,7 @@ import pdf_evidence.material_pipeline as pipeline
 class Client:
     def post(self, url, **kwargs):
         assert url.endswith("/tokenize")
-        return httpx.Response(200, json={"count": 100, "max_model_len": 32768}, request=httpx.Request("POST", url))
+        return httpx.Response(200, json={"count": 100, "max_model_len": 65536}, request=httpx.Request("POST", url))
 
 
 def _settings(tmp_path: Path) -> dict:
@@ -197,7 +197,7 @@ def test_http_batching_carries_concepts_across_all_ninety_pages(tmp_path):
             request = json.loads(kwargs["json"]["messages"][-1]["content"].split("\nINPUT:\n", 1)[1])
             count = 700 * sum(len(section["evidence"]) for section in request["sections"])
             return httpx.Response(
-                200, json={"count": count, "max_model_len": 32768},
+                200, json={"count": count, "max_model_len": 65536},
                 request=httpx.Request("POST", url),
             )
 
@@ -342,3 +342,104 @@ def test_bundle_input_limit_keeps_reason_without_model_call(tmp_path, monkeypatc
     with pytest.raises(pipeline.MaterialAnalysisError, match="SEMANTIC_INPUT_TOO_LARGE"):
         _analyze(source, _settings(tmp_path), client=Client(), semantic_call=_semantic(calls))
     assert calls == []
+
+
+def test_page_checkpoints_resume_without_extracting_completed_pages(tmp_path,monkeypatch):
+    from copy import deepcopy
+    source=tmp_path/'resume.pdf';_pdf(source,4)
+    settings=_settings(tmp_path);cache={};visited=[];actual=pipeline.extract_page
+    def extract(*args):visited.append(args[-1]);return actual(*args)
+    monkeypatch.setattr(pipeline,'extract_page',extract)
+    def save(number,page):cache[number]=deepcopy(page)
+    def stop(stage,completed,total):
+        if completed==2:raise RuntimeError('synthetic interruption')
+    with pytest.raises(RuntimeError,match='synthetic interruption'):
+        pipeline._page_evidence(source,_request(source)['expected_source_sha256'],[1,2,3,4],settings,'2026-10-07T00:00:00Z',stop,lambda:None,save_page=save)
+    assert visited==[1,2] and set(cache)=={1,2}
+    before=deepcopy(cache);visited.clear();progress=[]
+    pages,excluded,ocr=pipeline._page_evidence(source,_request(source)['expected_source_sha256'],[1,2,3,4],settings,'2026-10-07T00:01:00Z',lambda *args:progress.append(args),lambda:None,load_page=cache.get,save_page=save)
+    assert visited==[3,4] and not excluded and ocr==0
+    assert pages[:2]==[before[1],before[2]]
+    assert [p['page_number'] for p in pages]==[1,2,3,4]
+    assert [event[1] for event in progress]==[1,2,3,4]
+    with pytest.raises(pipeline.MaterialAnalysisError,match='ANALYSIS_CHECKPOINT_INVALID'):
+        pipeline._page_evidence(source,_request(source)['expected_source_sha256'],[1],settings,'2026-10-07T00:02:00Z',lambda *args:None,lambda:None,load_page=lambda number:cache[2])
+
+
+def test_page_checkpoint_write_failure_stops_before_next_page(tmp_path,monkeypatch):
+    source=tmp_path/'write-failed.pdf';_pdf(source,3);visited=[];reported=[];actual=pipeline.extract_page
+    def extract(*args):visited.append(args[-1]);return actual(*args)
+    monkeypatch.setattr(pipeline,'extract_page',extract)
+    def save(*args):raise RuntimeError('synthetic disk failure')
+    with pytest.raises(RuntimeError,match='synthetic disk failure'):
+        pipeline._page_evidence(source,_request(source)['expected_source_sha256'],[1,2,3],_settings(tmp_path),'2026-10-07T00:00:00Z',lambda *args:reported.append(args),lambda:None,save_page=save)
+    assert visited==[1] and reported==[]
+
+
+def test_saved_ocr_page_is_not_sent_to_ocr_again_after_interruption(tmp_path,monkeypatch):
+    from copy import deepcopy
+    source=tmp_path/'scanned.pdf'
+    with pymupdf.open() as doc:
+        doc.new_page();doc.new_page();doc.save(source)
+    requests=[];starts=[];cache={}
+    class Ocr:
+        def request(self,request,*args,**kwargs):
+            requests.append(request['request_id'])
+            return {'schema':'local-ocr-response/v1','request_id':request['request_id'],'blocks':[{'type':'text','text':'Synthetic scanned page contains a complete source statement.','bbox':[10,10,400,100]}]}
+        def close(self):pass
+        def abort(self):pass
+    monkeypatch.setattr(pipeline,'start_ocr_process',lambda settings:(starts.append(1),Ocr())[1])
+    settings=_settings(tmp_path);digest=_request(source)['expected_source_sha256']
+    def save(number,page):cache[number]=deepcopy(page)
+    def stop(stage,completed,total):
+        if completed==1:raise RuntimeError('synthetic shutdown')
+    with pytest.raises(RuntimeError,match='synthetic shutdown'):
+        pipeline._page_evidence(source,digest,[1,2],settings,'2026-10-07T00:00:00Z',stop,lambda:None,save_page=save)
+    assert requests==['page-1'] and set(cache)=={1}
+    pages,excluded,calls=pipeline._page_evidence(source,digest,[1,2],settings,'2026-10-07T00:01:00Z',lambda *a:None,lambda:None,load_page=cache.get,save_page=save)
+    assert requests==['page-1','page-2'] and len(starts)==2 and calls==2 and not excluded
+    assert pages[0]==cache[1]
+    monkeypatch.setattr(pipeline,'start_ocr_process',lambda *args:pytest.fail('saved OCR pages must not load the model'))
+    monkeypatch.setattr(pipeline,'extract_page',lambda *args:pytest.fail('saved OCR pages must not be rendered again'))
+    assert pipeline._page_evidence(source,digest,[1,2],settings,'2026-10-07T00:02:00Z',lambda *a:None,lambda:None,load_page=cache.get)[0]==pages
+
+
+def test_19_sources_368_pages_resume_from_disk_without_repeating_first_250(tmp_path,monkeypatch):
+    from pdf_evidence.source_set import collect_source_set
+    from knowledge_map.source_context import build_document_context
+    inputs=[];items=[];source_pages=[]
+    for index,count in enumerate([19]*18+[26]):
+        path=tmp_path/f'input-{index}.pdf'
+        with pymupdf.open() as doc:
+            for number in range(1,count+1):
+                doc.new_page().insert_text((72,72),f'Source {index} page {number}: synthetic evidence remains traceable across retries.')
+            doc.save(path)
+        request=_request(path);inputs.append(request)
+        items.append({'normalized_sha256':request['expected_source_sha256'],'page_count':count})
+        offset=len(source_pages)
+        source_pages.extend({'page':offset+n,'source_id':f'source-{index}','normalized_page':n} for n in range(1,count+1))
+    binding={'source_set_digest':'a'*64,'manifest':{'items':items},'bundle':{'pages':source_pages}}
+    directory=tmp_path/'snapshots';directory.mkdir();cache=tmp_path/'cache';cache.mkdir()
+    class DiskPages:
+        def save_evidence_page(self,number,page):(cache/f'{number}.json').write_text(json.dumps(page))
+        def load_evidence_page(self,number):
+            path=cache/f'{number}.json';return json.loads(path.read_text()) if path.exists() else None
+    visited=[];actual=pipeline.extract_page
+    monkeypatch.setattr(pipeline,'extract_page',lambda *args:(visited.append((args[1],args[2])),actual(*args))[1])
+    monkeypatch.setattr(pipeline,'start_ocr_process',lambda *args:pytest.fail('native-only fixture must not call OCR'))
+    def interrupted(stage,completed,total):
+        assert total==368
+        if completed==250:raise RuntimeError('synthetic restart')
+    settings=_settings(tmp_path)
+    with pytest.raises(RuntimeError,match='synthetic restart'):
+        collect_source_set(inputs,binding,None,directory,settings,'2026-10-07T00:00:00Z',interrupted,lambda:None,pipeline._page_evidence,analysis_archive=DiskPages())
+    assert len(visited)==250 and len(list(cache.glob('*.json')))==250
+    first_pages=set(visited);visited.clear()
+    retry_directory=tmp_path/'retry-snapshots';retry_directory.mkdir()
+    pages,excluded,ocr=collect_source_set(inputs,binding,None,retry_directory,settings,'2026-10-07T00:01:00Z',lambda *args:None,lambda:None,pipeline._page_evidence,analysis_archive=DiskPages())
+    assert len(visited)==118 and not first_pages.intersection(visited)
+    assert not excluded and ocr==0 and [p['page_number'] for p in pages]==list(range(1,369))
+    context=build_document_context(pages,page_count=368,source_pages=source_pages)
+    assert len(context['evidence'])==368 and len(context['sections'])==19
+    assert [p['page'] for p in context['source_pages']]==list(range(1,369))
+    assert all(e['source_locator']['page']==e['page'] for e in context['evidence'])

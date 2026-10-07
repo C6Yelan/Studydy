@@ -11,7 +11,7 @@ test('real API keeps the original transcript and internal captions without retir
   await expect(page.getByRole('heading',{name:'歡迎回來！',level:1,exact:true})).toBeVisible();
   await page.goto(`/podcasts/${data.podcast}`);
   await expect(page.getByText('依建立時的教材版本保存')).toBeVisible();
-  await expect(page.getByRole('region',{name:'逐字稿',exact:true})).toContainText('堆疊');
+  await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true})).toContainText('堆疊');
   await expect(page.getByRole('button',{name:'問目前播放這一段',exact:true})).toHaveCount(0);
   const timeline=await (await page.request.get(`/v1/podcasts/${data.podcast}/episodes/0/timeline`)).json();
   expect(timeline.source_resolver).toContain(encodeURIComponent(data.revision).replaceAll('%3A',':'));

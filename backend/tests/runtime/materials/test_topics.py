@@ -60,6 +60,12 @@ def test_topic_approval_then_real_source_pipeline(revisions,monkeypatch):
     complete=topics.read(owner,view['topic_id'],dsn=dsn)
     assert complete['research']['run']['status']=='succeeded'
     assert complete['research']['material_id']==created['material_id']
+    research.delete(owner,approved['research_id'],dsn=dsn)
+    assert research.listing(owner,created['material_id'],dsn=dsn)['researches']==[]
+    retained=topics.read(owner,view['topic_id'],dsn=dsn)['research']
+    assert retained['deleted'] is True and retained['run']['status']=='succeeded'
+    assert retained['candidates']==complete['research']['candidates']
+    with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):research.read(owner,approved['research_id'],dsn=dsn)
 
 
 def test_no_source_does_not_create_fake_material_or_map(closed_loop,monkeypatch):
@@ -117,3 +123,29 @@ def test_topic_api_requires_identity_origin_and_exact_scope(closed_loop,monkeypa
     r=client.post('/v1/topics/'+identity+'/approve',headers=headers,json={'expected_version':view['version'],'proposal':PLAN})
     assert r.status_code==200 and r.json()['approved_at']
     assert client.get('/v1/topics/'+identity).headers['cache-control']=='private, no-store'
+
+
+@pytest.mark.parametrize('level,expected_hint',[
+    ('入門','基本概念'),('有基礎','實作教學'),('深入','技術規格'),
+    ('熟悉 Python，初次接觸 RAG',None),
+])
+def test_confirmed_level_controls_search_prompt_without_changing_saved_scope(closed_loop,monkeypatch,level,expected_hint):
+    learner,_,_,_,dsn,_=closed_loop;owner=learner.learner_id
+    view,calls=prepare(owner,dsn,monkeypatch)
+    edited={**PLAN,'level':level}
+    approved=topics.approve(owner,view['topic_id'],view['version'],edited,'level-approve',dsn=dsn)
+    payloads=[]
+    def query(path,body):
+        assert path=='/search-query'
+        payloads.append(deepcopy(body))
+        return {'query':'queue tutorial'}
+    monkeypatch.setattr(research,'provider',query)
+    assert research.step(dsn=dsn)
+    scope=payloads[0]['approved_scope']
+    assert {k:v for k,v in scope.items() if k!='level'}=={k:v for k,v in edited.items() if k!='level'}
+    if expected_hint:
+        assert scope['level'].startswith(level+'：') and expected_hint in scope['level']
+    else:assert scope['level']==level
+    assert calls[0][0]=='queue tutorial'
+    assert topics.read(owner,view['topic_id'],dsn=dsn)['proposal']==edited
+    assert topics.approve(owner,view['topic_id'],view['version'],edited,'level-approve',dsn=dsn)['research_id']==approved['research_id']

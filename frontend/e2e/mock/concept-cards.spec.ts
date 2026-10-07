@@ -619,3 +619,14 @@ test("saved card views and editing stay inside the material workspace from eithe
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
+
+
+test('saved material card review keeps the chat entry at the viewport corner',async({page})=>{
+ await mockCards(page,{saved:true});
+ for(const width of [1920,1440,390]){
+  await page.setViewportSize({width,height:900});await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await expect(page.locator('.flashcard-title')).toBeVisible();
+  const chat=page.getByRole('button',{name:'教材問答',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
+  expect(width-box.x-box.width).toBeCloseTo(width===390?16:24,0);expect(900-box.y-box.height).toBeCloseTo(width===390?16:24,0);
+ }
+});

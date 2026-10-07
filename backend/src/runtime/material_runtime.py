@@ -146,12 +146,12 @@ def runtime_binding_is_valid(value: Any) -> bool:
         service = value["semantic_service"]
         if not isinstance(service, dict):
             return False
+        luna = value['model_id']=='gpt-5.6-luna' and value['model_revision']=='codex-exec:luna-test/v1'
+        if service.get('max_model_len') not in ((32768,65536,272000) if luna else (32768,65536)):
+            return False
         return (all(isinstance(value[k], str) and value[k].strip() for k in ("model_id", "model_revision"))
                 and service == {
-                    "base_url": "http://127.0.0.1:18000", "max_model_len": (
-                        service['max_model_len'] if value['model_id']=='gpt-5.6-luna'
-                        and value['model_revision']=='codex-exec:luna-test/v1'
-                        and service.get('max_model_len') in (32768,272000) else 32768),
+                    "base_url": "http://127.0.0.1:18000", "max_model_len": service['max_model_len'],
                     "server": ({"package":"codex-exec", "version":"luna-test/v1", "python":"3.12"} if value["model_revision"] == "codex-exec:luna-test/v1" and value["model_id"] == "gpt-5.6-luna" else {"package": "vllm", "version": "0.28.0", "python": "3.12",
                                "torch": "2.13.0+cu130", "cuda": "13.0", "transformers": "5.15.1"}),
                 })
@@ -184,9 +184,14 @@ def same_material_runtime(first_lock, first_binding, second_lock, second_binding
         return False
     first_service, second_service = first_lock['semantic_service'], second_lock['semantic_service']
     if first_service != second_service:
-        # 本輪已保存的 Luna 工作曾沿用 32K 設定；擴大相同 provider 的容量可接續，舊 hash 保持原值。
-        if not (first_service.get('api_protocol') == second_service.get('api_protocol') == 'codex-exec-luna/v1'
-                and first_service['max_model_len'] <= second_service['max_model_len']
+        # Luna 舊 272K 工作可沿用已驗證批次；後續請求仍由後端強制檢查 64K。
+        # 其餘同模型、同 provider 僅擴大容量時可接續，舊 hash 保持原值。
+        if not (first_service.get('api_protocol') == second_service.get('api_protocol')
+                and first_service.get('api_protocol') in {'codex-exec-luna/v1','openai-chat-completions/v1'}
+                and (first_service['max_model_len'] <= second_service['max_model_len']
+                     or (first_service['api_protocol'] == 'codex-exec-luna/v1'
+                         and first_service['max_model_len'] == 272000
+                         and second_service['max_model_len'] == 65536))
                 and {k:v for k,v in first_service.items() if k!='max_model_len'} ==
                     {k:v for k,v in second_service.items() if k!='max_model_len'}):
             return False

@@ -57,12 +57,18 @@ def test_pending_run_uses_its_frozen_settings_after_assessment_update(revisions)
         assert session.get(MaterialProcessingRun, run.run_id).runtime_lock_document == original_lock
 
 
-@pytest.mark.parametrize('update', ['assessment', 'budgets'])
+@pytest.mark.parametrize('update', ['assessment', 'budgets', 'context_capacity', 'luna_capacity'])
 def test_failed_checkpoint_resumes_after_settings_update_without_repeating_models(revisions, monkeypatch, update):
     learner, material, settings, dsn, add, start, execute, _, old, calls = revisions
     second = add('B.pdf', 'A queue removes the first inserted element first.')
     if update == 'budgets':
         settings['runtime_lock']['material_semantics']['max_tokens'] = 8192
+    elif update == 'context_capacity':
+        settings['runtime_lock']['semantic_service']['max_model_len'] = 32768
+    elif update == 'luna_capacity':
+        from runtime.luna_test import test_lock as luna_lock
+        settings['runtime_lock'] = luna_lock(settings['runtime_lock'])
+        settings['runtime_lock']['semantic_service']['max_model_len'] = 272000
     run = start([second], 'before-update-failed', old['revision'])
     def fail_publication(*_args, **_kwargs):
         raise ValueError("Synthetic publication failure")
@@ -78,6 +84,8 @@ def test_failed_checkpoint_resumes_after_settings_update_without_repeating_model
     settings['runtime_lock']['schema'] = 'studydy-runtime-lock/v1'
     if update == 'budgets':
         settings['runtime_lock']['material_semantics']['max_tokens'] = 32768
+    elif update in ('context_capacity', 'luna_capacity'):
+        settings['runtime_lock']['semantic_service']['max_model_len'] = 65536
     else:
         settings['runtime_lock']['assessment']['prompt'] += ' New quality guidance.'
     retry = start([second], 'after-update-retry', old['revision'])

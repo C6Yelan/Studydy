@@ -1,7 +1,6 @@
 import { useRef } from "react";
-import type { ResearchDraft } from "../material-tools/ResearchPanel";
+import type { ResearchDraft } from "../material-tools/research";
 import { TopicPage } from "../topics/TopicPage";
-import { MaterialTools } from "../material-tools/MaterialTools";
 import type { StudydyApiClient } from "../../api/client";
 import type { AppRoute } from "../../app/routes";
 import KnowledgeMap from "../knowledge-map/App";
@@ -44,6 +43,7 @@ function MaterialFlowBody({
       : route.name === "podcast-create" || route.name === "card-set-create" ? <CreateStudyContent apiClient={apiClient} route={route} /> : null;
     return <MaterialContent key={route.materialId} apiClient={apiClient} learnerId={learnerId} materialId={route.materialId} kind={kind}>{content}</MaterialContent>;
   }
+  if (route.name === "research") return <MaterialContent key={route.materialId} apiClient={apiClient} learnerId={learnerId} materialId={route.materialId} kind="research" researchId={route.researchId} researchDraft={researchDraft} onResearchDraftChange={onResearchDraftChange} />;
   if (route.name === "material-content") return <MaterialContent key={route.materialId} apiClient={apiClient} learnerId={learnerId} materialId={route.materialId} kind={route.kind} researchDraft={researchDraft} onResearchDraftChange={onResearchDraftChange} />;
   if (route.name === "podcasts") return <PodcastLibrary apiClient={apiClient} learnerId={learnerId} />;
   if (route.name === "podcast-new" || route.name === "podcast-create" || route.name === "card-set-new" || route.name === "card-set-create") return <CreateStudyContent apiClient={apiClient} route={route} />;
@@ -80,9 +80,8 @@ function MaterialFlowBody({
 
 export function MaterialFlow(props: {apiClient:StudydyApiClient;route:AppRoute;learnerId:string}) {
  const materialId = "materialId" in props.route ? props.route.materialId : undefined;
- const hasContentToolbar = ["knowledge-map", "material-sources", "material-content", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(props.route.name);
  const researchDrafts = useRef(new Map<string, ResearchDraft>());
  const researchDraft = materialId ? researchDrafts.current.get(materialId) : undefined;
  const onResearchDraftChange = (draft: ResearchDraft) => { if (materialId) researchDrafts.current.set(materialId, draft); };
- return <>{materialId && !hasContentToolbar && <MaterialTools key={materialId} api={props.apiClient} materialId={materialId}/>}<MaterialFlowBody {...props} researchDraft={researchDraft} onResearchDraftChange={onResearchDraftChange}/></>;
+ return <MaterialFlowBody {...props} researchDraft={researchDraft} onResearchDraftChange={onResearchDraftChange}/>;
 }

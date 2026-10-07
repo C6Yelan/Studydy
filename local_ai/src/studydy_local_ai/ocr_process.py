@@ -100,7 +100,17 @@ def run_ocr(model: Any, tokenizer: Any, png_bytes: bytes) -> str:
     model_module = sys.modules[model.__class__.__module__]
     original_loader = model_module.load_pil_images
     original_makedirs = model_module.os.makedirs
+    original_generate = model.generate
+
+    def checked_generate(*args, **kwargs):
+        output = original_generate(*args, **kwargs)
+        # infer() 只回傳解碼文字；達長度上限的半份輸出也可能有合法 det 標記。
+        if int(output[0, -1]) != tokenizer.eos_token_id:
+            raise ProtocolError("OCR_OUTPUT_INVALID")
+        return output
+
     try:
+        model.generate = checked_generate
         model_module.load_pil_images = lambda _: [image.copy()]
         model_module.os.makedirs = lambda *args, **kwargs: None
         return model.infer(
@@ -114,11 +124,12 @@ def run_ocr(model: Any, tokenizer: Any, png_bytes: bytes) -> str:
             eval_mode=True,
             max_length=32768,
             no_repeat_ngram_size=35,
-            ngram_window=128,
+            ngram_window=256,
             temperature=0.0,
             save_results=False,
         )
     finally:
+        model.generate = original_generate
         model_module.load_pil_images = original_loader
         model_module.os.makedirs = original_makedirs
         image.close()

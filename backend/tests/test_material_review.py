@@ -401,3 +401,60 @@ def test_combining_disjoint_units_remaps_handles_and_rejects_overlapping_opinion
     assert result["learning_units"][-1]["aliases"] == ["Efficiency"]
     with pytest.raises(ReviewError, match="SCOPES_OVERLAP"):
         combine_reviews(document, [(first, first_response), (first, first_response)])
+
+
+@pytest.mark.parametrize('conflicting', [False, True])
+def test_cross_unit_shared_claim_edits_are_coordinated_without_overwriting_source(conflicting):
+    from test_knowledge_structure_v1 import _block, _page
+    from knowledge_map.structure import SemanticState, build_document_context, apply_semantic_response, validate_knowledge_structure
+    from knowledge_map.material_review import apply_review
+    from runtime.material_review import review_inputs
+    text = '介面甲與介面乙共用同一份資訊。'
+    context = build_document_context([_page(1, [_block(1, 0, 'paragraph', text)])], page_count=1)
+    state = SemanticState()
+    apply_semantic_response({'concepts': [
+        {'k': key, 'l': label, 'a': [], 'c': [{'m': None, 's': [0]}]}
+        for key, label in [('a', '介面甲'), ('b', '介面乙')]
+    ], 'relations': []}, context=context, bundle={'sections': context['sections'], 'evidence': context['evidence']}, state=state)
+    doc = build_knowledge_structure(context, state, source_sha256='1' * 64,
+        run_id='00000000-0000-4000-8000-000000000001', produced_at='2026-10-07T00:00:00+00:00',
+        runtime_lock_sha256='2' * 64, model_id='google/gemma-4-31B-it-qat-w4a16-ct',
+        model_revision='52f3f65bc7a02d555763bc923bd1d9094898219d', semantic_calls=1, ocr_calls=0)
+    before = deepcopy(doc)
+    source_view, original_units = review_inputs(doc)
+    evidence = original_units[0].evidence
+    reviews = []
+    for index, concept in enumerate(source_view['concepts']):
+        unit = _pack_review(source_view, [concept], evidence, f'Part {index}')
+        response = {'assignments': [{'concept': 0, 'action': 'keep', 'target': None, 'issue': 'none',
+            'evidence': [0], 'reason': '保留原概念。'}], 'alias_edits': [], 'relation_edits': [],
+            'claim_edits': [{'claim': 0, 'meaning': '介面乙另有一份資訊。' if conflicting and index else text,
+                            'evidence': [0], 'reason': f'候選說明 {index}'}]}
+        reviews.append((unit, response))
+    merged, proposal = combine_reviews(source_view, reviews)
+    assert len(proposal['claim_edits']) == (0 if conflicting else 1)
+    assert len(merged.conflicting_claim_ids) == int(conflicting)
+    applied, audit = apply_review(doc, source_view, merged, proposal)
+    assert validate_knowledge_structure(applied)
+    assert applied['evidence'] == doc['evidence'] and doc == before
+    assert {q['text'] for c in applied['concepts'] for q in c['claims']} == {text}
+    if conflicting:
+        assert applied['status']['quality'] == 'needs_review'
+        assert applied['status']['processing'] == 'partial'
+        assert any(x['reason'] == 'CONFLICTING_REVIEW_EDITS_PRESERVED_ORIGINAL' for x in audit['blocked_changes'])
+
+
+def test_proposed_prerequisite_protects_endpoints_from_simultaneous_grouping():
+    original = view()
+    before = deepcopy(original)
+    response = proposal()
+    response['assignments'][1].update(action='group', target=0, issue='fragment', evidence=[0, 1])
+    response['relation_edits'] = [{'relation': 0, 'action': 'retype', 'relation_type': 'prerequisite',
+                                  'evidence': [0, 1], 'reason': '來源要求先理解甲再理解分類。'}]
+    result = project_review(original, prepare(original), response)
+    assert original == before
+    assert any(x.get('concept_id') == 'c1' and x['reason'] == 'PREREQUISITE_ENDPOINT_KEPT'
+               for x in result['blocked_changes'])
+    relation = next(x for x in result['relations'] if x['original_relation_id'] == 'r0')
+    assert relation['type'] == 'prerequisite'
+    assert relation['source_concept_id'] != relation['target_concept_id']

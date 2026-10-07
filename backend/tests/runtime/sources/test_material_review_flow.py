@@ -141,3 +141,45 @@ def test_coverage_failure_retry_repairs_saved_response_without_analysis(revision
     assert len(calls) == 3 and 'review_correction' in calls[2]
     doc = read_knowledge_structure(owner.learner_id, material, run_id=completed.run_id, dsn=dsn).document
     assert validate_knowledge_structure(doc) and doc['evidence'] == original['evidence']
+
+
+@pytest.mark.parametrize('single_fits', [True, False])
+def test_review_capacity_splits_concepts_without_truncating_sources(revisions, monkeypatch, single_fits):
+    from runtime import material_review as review
+    from runtime.semantic_service import SemanticServiceError
+    from runtime.storage.analysis_archive import _material_directory
+    owner, material, settings, dsn, add, start, execute, first, original, requests = revisions
+    enable_review(settings)
+    second = add('B.pdf', 'A queue removes the first inserted element first.')
+    original_inputs = review.review_inputs
+    def inputs(document):
+        view, units = original_inputs(document)
+        evidence = list({e['evidence_id']: e for unit in units for e in unit.evidence}.values())
+        return view, [review._pack_review(view, view['concepts'], evidence, 'Synthetic full context')]
+    monkeypatch.setattr(review, 'review_inputs', inputs)
+    all_requests, model_calls = [], []
+    def model(client, **kwargs):
+        request = kwargs['request']
+        all_requests.append(deepcopy(request))
+        if len(request['concepts']) > 1 or not single_fits:
+            raise SemanticServiceError('SEMANTIC_INPUT_TOO_LARGE')
+        model_calls.append(request)
+        return keep_response(request)
+    monkeypatch.setattr(review, 'request_semantics', model)
+    start([second], 'capacity-review', original['revision'])
+    result = execute()
+    assert len(all_requests[0]['concepts']) > 1
+    assert all(r['evidence'] == all_requests[0]['evidence'] for r in all_requests)
+    if single_fits:
+        assert result.status == 'succeeded', result.error_code
+        doc = read_knowledge_structure(owner.learner_id, material, run_id=result.run_id, dsn=dsn).document
+        assert validate_knowledge_structure(doc)
+        assert len(model_calls) == len(all_requests[0]['concepts'])
+        receipt = json.loads((_material_directory(owner.learner_id, material) / result.run_id.hex / 'review/result.json').read_text())['data']
+        assert receipt['model_calls'] == receipt['units'] == len(model_calls)
+        source = json.loads((_material_directory(owner.learner_id, material) / result.run_id.hex / 'review/source.json').read_text())['data']
+        assert doc['concepts'] == source['concepts'] and doc['evidence'] == source['evidence']
+    else:
+        assert result.status == 'failed' and result.error_code == 'SEMANTIC_INPUT_TOO_LARGE'
+        assert not model_calls
+        assert read_knowledge_structure(owner.learner_id, material, revision=original['revision'], dsn=dsn).document == original

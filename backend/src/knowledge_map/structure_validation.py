@@ -561,7 +561,6 @@ def _validate_structure_content(document, source_digest):
             }
             or any(type(value) is not int or value < 0 for value in metrics.values())
             or metrics["semantic_calls"] < 1
-            or metrics["ocr_calls"] > document["page_count"]
         ):
             return False
         if not _validate_evidence_and_pages(document, source_digest):

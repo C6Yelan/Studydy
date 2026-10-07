@@ -30,8 +30,10 @@ export function CreateStudyContent({ apiClient, route }: { apiClient: StudydyApi
       else writeRoute({ name: podcast ? "podcast-new" : "card-set-new" });
     }}><option value="">{materials === null ? "正在讀取教材…" : "請選擇教材"}</option>{materials?.map(m => <option key={m.material_id} value={m.material_id}>{m.display_name}</option>)}</select></label>;
   return <section className={`cards-page creation-page${podcast ? " podcast-creation-page" : " cards-creation-page"}`}>
-    {!selected && <button type="button" className="text-button" onClick={() => writeRoute(selected ? { name: "material-content", materialId: selected, kind: podcast ? "podcasts" : "concept-cards" } : { name: podcast ? "podcasts" : "concept-cards" })}><Icon name="arrow-left" size={17} />{podcast ? "我的 Podcast" : "我的概念卡"}</button>}
-    <header className="cards-page-header"><div><h1>{podcast ? "建立 Podcast" : "建立概念卡組"}</h1>{route.name !== "podcast-create" && <p>{needsMaterialSelection ? "選擇教材，再挑選想複習的概念。" : "挑選這份教材中想複習的概念。"}</p>}</div></header>
+    <header className="cards-page-header">
+      <button type="button" className="text-button creation-back" aria-label={podcast ? "返回 Podcast 清單" : "返回概念卡組清單"} onClick={() => writeRoute(selected ? { name: "material-content", materialId: selected, kind: podcast ? "podcasts" : "concept-cards" } : { name: podcast ? "podcasts" : "concept-cards" })}><Icon name="arrow-left" size={20} />返回</button>
+      <div><h1>{podcast ? "建立 Podcast" : "建立概念卡組"}</h1>{route.name !== "podcast-create" && <p>{needsMaterialSelection ? "選擇教材，再挑選想複習的概念。" : "挑選這份教材中想複習的概念。"}</p>}</div>
+    </header>
     {needsMaterialSelection && materialField}
     {needsMaterialSelection && error && <p role="alert" className="form-error">{error}<button type="button" className="text-button" onClick={() => setReload(v => v + 1)}>重新讀取</button></p>}
     {needsMaterialSelection && materials?.length === 0 && <p>尚無可用的教材地圖。<button type="button" className="text-button" onClick={() => writeRoute({ name: "materials" })}>前往我的教材</button></p>}

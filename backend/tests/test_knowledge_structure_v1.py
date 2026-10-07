@@ -612,7 +612,7 @@ def test_compact_wire_keeps_all_source_text_without_canonical_metadata():
     assert [row[0] for row in rows] == list(range(len(context["evidence"])))
     assert [row[3] for row in rows] == [item["exact_text"] for item in context["evidence"]]
     assert "sha256" not in str(request)
-    assert set(request) == {"sections", "existing_concepts"}
+    assert set(request) == {"sections", "existing_concepts", "catalog_policy"}
     assert set(semantic_response_schema([0])["properties"]) == {"concepts", "relations"}
 
 
@@ -675,3 +675,107 @@ def test_token_packing_rechecks_current_catalog_and_never_drops_evidence():
     assert bundled_ids == [item["evidence_id"] for item in context["evidence"]]
     with pytest.raises(ValueError, match="SEMANTIC_INPUT_TOO_LARGE"):
         list(build_semantic_bundles(context, state=state, fits=lambda request: False))
+
+
+def test_catalog_keeps_all_identities_but_only_related_details_without_mutating_state():
+    context = build_document_context([
+        _page(1, [_block(1, 0, 'heading', 'Earlier'), _block(1, 1, 'paragraph', 'Earlier facts.')]),
+        _page(2, [_block(2, 0, 'heading', 'Current'), _block(2, 1, 'paragraph', 'TCP uses transport ports.')]),
+    ], page_count=2)
+    prior = context['evidence'][1]
+    current = context['evidence'][-1]
+    def concept(label, aliases, evidence):
+        return {'label': label, 'aliases': aliases, 'claims': [{'text': 'Saved fact', 'source_spans': [
+            {'evidence_id': evidence['evidence_id'], 'quote': evidence['exact_text']},
+        ]}]}
+    state = SemanticState(concepts={
+        'transport': concept('傳輸控制協定', ['TCP'], prior),
+        'local': concept('同章節概念', [], current),
+        'unrelated': concept('Unrelated topic', [], prior),
+        'substring': concept('port', [], prior),
+    })
+    before = deepcopy(state)
+    bundle = {'sections': [context['sections'][-1]], 'evidence': context['evidence'][2:]}
+    request = semantic_request(context, bundle, state)
+    entries = {item['k']: item for item in request['existing_concepts']}
+    assert set(entries) == set(state.concepts)
+    assert {key for key, item in entries.items() if 'c' in item} == {'transport', 'local'}
+    assert entries['unrelated'] == {'k': 'unrelated', 'l': 'Unrelated topic', 'a': []}
+    assert state == before
+
+
+def test_token_packing_bounds_probes_and_preserves_long_document_order():
+    context = build_document_context([
+        _page(1, [_block(1, i, 'paragraph', f'Fact {i}.') for i in range(1000)]),
+    ], page_count=1)
+    sizes = []
+    def fits(request):
+        count = sum(len(section['evidence']) for section in request['sections'])
+        sizes.append(count)
+        return count <= 10
+    bundles = list(build_semantic_bundles(context, state=SemanticState(), fits=fits))
+    assert max(sizes) <= 16
+    assert [e['evidence_id'] for b in bundles for e in b['evidence']] == [
+        e['evidence_id'] for e in context['evidence']
+    ]
+
+
+def test_overflow_falls_back_to_all_identities_without_losing_new_evidence_or_saved_claims():
+    context = _context()
+    first = context['evidence'][1]
+    state = SemanticState(concepts={'pointer': {
+        'label': 'Pointers', 'aliases': ['Pointer'],
+        'claims': [{'text': 'Large saved detail ' * 1000, 'source_spans': [
+            {'evidence_id': first['evidence_id'], 'quote': first['exact_text']},
+        ]}],
+    }})
+    before = deepcopy(state)
+    seen = []
+    def fits(request):
+        seen.append(request)
+        return all('c' not in concept for concept in request['existing_concepts'])
+    bundles = list(build_semantic_bundles(context, state=state, fits=fits))
+    assert len(bundles) == 1
+    assert any('c' in c for c in seen[0]['existing_concepts'])
+    actual = semantic_request(context, bundles[0], state)
+    assert actual == seen[-1]
+    assert actual['existing_concepts'] == [{'k': 'pointer', 'l': 'Pointers', 'a': ['Pointer']}]
+    assert [row[0] for section in actual['sections'] for row in section['evidence']] == list(range(len(context['evidence'])))
+    assert state == before
+
+
+def test_catalog_fallback_does_not_bypass_source_or_identity_capacity_limits():
+    context = _context()
+    state = SemanticState(concepts={'pointer': {'label': 'Pointers', 'aliases': [], 'claims': []}})
+    before = deepcopy(context)
+    with pytest.raises(ValueError, match='SEMANTIC_INPUT_TOO_LARGE'):
+        list(build_semantic_bundles(context, state=state, fits=lambda request: False))
+    assert context == before
+
+
+@pytest.mark.parametrize('heading',[
+    'A short navigation title\n' + ('Long original heading content ' * 50),
+    'LongSingleLineHeading' * 80,
+])
+def test_long_heading_uses_bounded_label_without_changing_evidence(heading):
+    block=_block(1,0,'heading',heading)
+    original=deepcopy(block)
+    context=build_document_context([_page(1,[block,_block(1,1,'paragraph','The full source remains available.')])],page_count=1)
+    section=context['sections'][0];evidence=context['evidence'][0]
+    assert 0<len(section['title'])<=512
+    assert section['heading_evidence_id']==original['evidence_id']
+    assert evidence['exact_text']==heading and evidence['evidence_id']==original['evidence_id']
+    assert evidence['source_locator']==original['locator'] and block==original
+    if '\n' in heading:assert section['title']=='A short navigation title'
+    else:assert section['title'].endswith('…')
+
+
+def test_long_heading_survives_final_structure_validation():
+    heading='Full source heading content ' * 60
+    context=build_document_context([_page(1,[_block(1,0,'heading',heading),_block(1,1,'paragraph','A stack follows LIFO order.')])],page_count=1)
+    state=SemanticState()
+    apply_wire_response({'concepts':[{'k':'stack','l':'Stack','a':[],'c':[{'m':None,'s':[1]}]}],'relations':[]},context=context,bundle=_bundles(context)[0],state=state)
+    document=build_knowledge_structure(context,state,source_sha256='1'*64,run_id=RUN_ID,produced_at=PRODUCED_AT,runtime_lock_sha256='0'*64,model_id='synthetic-test',model_revision=MODEL_REVISION,semantic_calls=1,ocr_calls=0)
+    assert validate_knowledge_structure(document)
+    assert document['evidence'][0]['exact_text']==heading
+    assert document['document_tree']['sections'][0]['heading_evidence_id']==context['evidence'][0]['evidence_id']

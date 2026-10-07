@@ -61,6 +61,8 @@ def test_ocr_infer_uses_exact_unlimited_r1_arguments(monkeypatch):
             return None
 
     class FakeModel:
+        generate = None
+
         def infer(self, tokenizer, **arguments):
             calls.append((tokenizer, arguments))
             return "<|det|>text [1,2,3,4]<|/det|>Public"
@@ -90,9 +92,36 @@ def test_ocr_infer_uses_exact_unlimited_r1_arguments(monkeypatch):
                 "eval_mode": True,
                 "max_length": 32768,
                 "no_repeat_ngram_size": 35,
-                "ngram_window": 128,
+                "ngram_window": 256,
                 "temperature": 0.0,
                 "save_results": False,
             },
         )
     ]
+
+
+@pytest.mark.parametrize('last_token', [1, 2])
+def test_ocr_rejects_generation_without_eos_and_restores_model(monkeypatch, last_token):
+    class Image:
+        def load(self): pass
+        def copy(self): return self
+        def close(self): pass
+    monkeypatch.setitem(sys.modules, 'PIL', SimpleNamespace(Image=SimpleNamespace(open=lambda _: Image())))
+    class Output:
+        def __getitem__(self, key): return last_token
+    class Model:
+        def generate(self): return Output()
+        def infer(self, tokenizer, **kwargs):
+            self.generate()
+            return '<|det|>text [0,0,1000,1000]<|/det|>Complete text.'
+    model = Model()
+    original = model.generate
+    monkeypatch.setitem(sys.modules, Model.__module__, SimpleNamespace(
+        load_pil_images=lambda _: [], os=SimpleNamespace(makedirs=lambda *args: None),
+    ))
+    if last_token == 1:
+        assert 'Complete text.' in run_ocr(model, SimpleNamespace(eos_token_id=1), b'image')
+    else:
+        with pytest.raises(ProtocolError, match='OCR_OUTPUT_INVALID'):
+            run_ocr(model, SimpleNamespace(eos_token_id=1), b'image')
+    assert model.generate == original

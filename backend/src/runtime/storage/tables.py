@@ -464,6 +464,7 @@ class MaterialResearch(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     staged_content: Mapped[bytes | None] = mapped_column(LargeBinary)
     staged_metadata: Mapped[dict | None] = mapped_column(JSONB)
     topic_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))

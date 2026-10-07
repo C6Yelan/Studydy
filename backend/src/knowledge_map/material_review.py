@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 import re
 import unicodedata
@@ -83,6 +83,7 @@ class ReviewUnit:
     claims: list[dict]
     evidence: list[dict]
     relations: list[dict]
+    conflicting_claim_ids: list[str] = field(default_factory=list)
 
 
 def _pack_review(view: dict, concepts: list[dict], evidence: list[dict], title: str) -> ReviewUnit:
@@ -226,6 +227,20 @@ def combine_reviews(view: dict, reviews: list[tuple[ReviewUnit, dict]]) -> tuple
                     for handle in row['evidence']
                 ]
                 proposal[kind].append(row)
+    # 概念範圍互不重疊，仍可能共用同一 canonical Claim。只協調跨段提案；
+    # 單一模型回應內的重複編號仍由上方 validate_proposal 拒絕。
+    claim_edits = {}
+    for row in proposal['claim_edits']:
+        claim_edits.setdefault(row['claim'], []).append(row)
+    proposal['claim_edits'] = []
+    for handle, rows in claim_edits.items():
+        if len({row['meaning'] for row in rows}) != 1:
+            merged.conflicting_claim_ids.append(merged.claims[handle]['claim_id'])
+            continue
+        row = deepcopy(rows[0])
+        row['evidence'] = sorted({ref for edit in rows for ref in edit['evidence']})
+        row['reason'] = '\n'.join(dict.fromkeys(edit['reason'] for edit in rows))
+        proposal['claim_edits'].append(row)
     validate_proposal(merged, proposal)
     return merged, proposal
 
@@ -388,7 +403,8 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
     concepts = {c['concept_id']: c for c in view['concepts']}
     root = {key: key for key in concepts}
     roles = {key: 'keep' for key in concepts}
-    blocked = []
+    blocked = [{'claim_id': claim_id, 'reason': 'CONFLICTING_REVIEW_EDITS_PRESERVED_ORIGINAL'}
+               for claim_id in unit.conflicting_claim_ids]
     findings = []
     assignments = []
     prerequisites = {
@@ -396,6 +412,11 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
         for relation in view['relations'] if relation['type'] == 'prerequisite'
         for endpoint in ['source_concept_id', 'target_concept_id']
     }
+    # 檢核新提出的先備關係也必須保留兩端，不能同時把端點合併成同一個學習點。
+    for edit in proposal.relation_edits:
+        if edit.action == 'retype' and edit.relation_type == 'prerequisite':
+            relation = unit.relations[edit.relation]
+            prerequisites.update((relation['source_concept_id'], relation['target_concept_id']))
     parents = {assignment.target for assignment in proposal.assignments
                if assignment.action in {'group', 'example'}}
     for a in proposal.assignments:

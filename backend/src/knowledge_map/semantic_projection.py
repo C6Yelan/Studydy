@@ -42,16 +42,31 @@ def build_semantic_bundles(
         ]
         return {"sections": sections, "evidence": items}
 
+    def fits_bundle(candidate: dict[str, Any]) -> bool:
+        request = semantic_request(context, candidate, state)
+        if fits(request):
+            return True
+        # 歷史細節擠滿額度時，只省略傳輸視圖中的 Claims；全體概念身分與新來源保留。
+        if not any('c' in entry for entry in request['existing_concepts']):
+            return False
+        candidate['include_claim_details'] = False
+        return fits(semantic_request(context, candidate, state))
+
     start = 0
     while start < len(evidence):
-        candidate = bundle(start, len(evidence))
-        if fits(semantic_request(context, candidate, state)):
-            yield candidate
-            return
-        low, high = start, len(evidence)
+        low = start
+        high = min(start + 8, len(evidence))
+        candidate = bundle(start, high)
+        while fits_bundle(candidate):
+            low = high
+            if high == len(evidence):
+                yield candidate
+                return
+            high = min(start + (high - start) * 2, len(evidence))
+            candidate = bundle(start, high)
         while low + 1 < high:
             middle = (low + high) // 2
-            if fits(semantic_request(context, bundle(start, middle), state)):
+            if fits_bundle(bundle(start, middle)):
                 low = middle
             else:
                 high = middle
@@ -67,7 +82,7 @@ def build_semantic_bundles(
         end = boundaries[-1] if boundaries else low
         candidate = bundle(start, end)
         # tokenizer 不保證任意字串前綴的 token 數嚴格單調；最終 bundle 再核對。
-        if not fits(semantic_request(context, candidate, state)):
+        if not fits_bundle(candidate):
             raise ValueError("SEMANTIC_INPUT_TOO_LARGE")
         yield candidate
         start = end
@@ -142,23 +157,40 @@ class SemanticState:
     literal_repairs: int = 0
     source_review_required: bool = False
 
-    def catalog(self, handles: dict[str, int]) -> list[dict[str, Any]]:
+    def catalog(self, handles: dict[str, int], detailed_keys: set[str] | None = None) -> list[dict[str, Any]]:
         return [
             {
-                "k": key,
-                "l": concept["label"],
-                "a": concept["aliases"],
-                "c": [claim["text"] for claim in concept["claims"]],
-                "e": list(
-                    dict.fromkeys(
-                        handles[span["evidence_id"]]
-                        for claim in concept["claims"]
-                        for span in claim["source_spans"]
-                    )
-                ),
+                "k": key, "l": concept["label"], "a": concept["aliases"],
+                **({
+                    "c": [claim["text"] for claim in concept["claims"]],
+                    "e": list(dict.fromkeys(handles[span["evidence_id"]]
+                        for claim in concept["claims"] for span in claim["source_spans"])),
+                } if detailed_keys is None or key in detailed_keys else {}),
             }
             for key, concept in self.concepts.items()
         ]
+
+
+def _relevant_catalog_keys(
+    context: dict[str, Any], bundle: dict[str, Any], state: SemanticState,
+) -> set[str]:
+    # 名稱／別名供跨來源辨識；同章節既有內容也保留。這只選擇請求視圖，不刪 canonical state。
+    text = "\n".join([section['title'] for section in bundle['sections']] +
+                     [item['exact_text'] for item in bundle['evidence']]).casefold()
+    sections = {section['section_id'] for section in bundle['sections']}
+    evidence_sections = {item['evidence_id']: item['section_id'] for item in context['evidence']}
+    selected: set[str] = set()
+    for key, concept in state.concepts.items():
+        same_section = any(evidence_sections.get(span['evidence_id']) in sections
+                           for claim in concept['claims'] for span in claim['source_spans'])
+        names = [concept['label'], *concept['aliases'], key.replace('_', ' ')]
+        mentioned = any(
+            re.search(r'(?<![a-z0-9])' + re.escape(name.strip().casefold()) + r'(?![a-z0-9])', text)
+            for name in names if len(name.strip()) >= 2
+        )
+        if same_section or mentioned:
+            selected.add(key)
+    return selected
 
 
 def semantic_request(
@@ -166,16 +198,25 @@ def semantic_request(
 ) -> dict[str, Any]:
     handles = {item["evidence_id"]: index for index, item in enumerate(context["evidence"])}
     evidence = {item["evidence_id"]: item for item in bundle["evidence"]}
-    catalog = state.catalog(handles)
+    detailed_keys = (_relevant_catalog_keys(context, bundle, state)
+                     if bundle.get('include_claim_details', True) else set())
+    catalog = state.catalog(handles, detailed_keys)
     source_pages = context.get("source_pages")
     if source_pages:
         all_evidence = {item["evidence_id"]: item for item in context["evidence"]}
         for entry, concept in zip(catalog, state.concepts.values()):
+            if "c" not in entry:
+                continue
             entry["claim_sources"] = [list(dict.fromkeys(
                 source_pages[all_evidence[span["evidence_id"]]["page"] - 1]["source_id"]
                 for span in claim["source_spans"])) for claim in concept["claims"]]
     return {
         "existing_concepts": catalog,
+        "catalog_policy": (
+            "All saved concept keys, labels and aliases are listed. Claim details c/e are included only "
+            "when related to this batch. Omitted details remain saved, not empty or deleted. "
+            "Reuse keys for equivalent concepts; do not infer missing facts from names alone."
+        ),
         **({
             "update_policy": (
                 "Reuse existing keys for equivalent concepts. Add only grounded new Claims. "

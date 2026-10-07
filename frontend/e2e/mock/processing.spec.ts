@@ -227,7 +227,7 @@ for (const status of ["succeeded", "partial"] as const)
     await expect(page).toHaveURL(
       new RegExp(`${runPath}/knowledge-structures/${encodeURIComponent(revision)}$`),
     );
-    await expect(page.getByRole("navigation", { name: "教材學習內容" }).getByRole("button", { name: "知識地圖", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab", { name: "概念地圖", exact: true })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByRole("region", { name: "概念地圖工作區", exact: true })).toBeVisible();
     await expect(page.locator(".concept-flow-node")).toHaveCount(view.concepts.length);
   });
@@ -421,4 +421,15 @@ test("reduced motion preserves publishing status without animation", async ({ pa
   expect(await indicator.evaluate((element) => getComputedStyle(element).animationName)).toBe(
     "spin",
   );
+});
+
+
+test('saved page evidence offers resume after source context failure',async({page})=>{
+ await mockRun(page,route=>route.fulfill({json:{...base,status:'failed',progress_stage:'evidence',total_pages:368,completed_pages:368,completed_at:clockTime.toISOString(),error_code:'DOCUMENT_EVIDENCE_INVALID',analysis_saved:true}}));
+ await page.goto(runPath);
+ await expect(page.getByRole('heading',{name:'教材處理失敗',exact:true})).toBeVisible();
+ await expect(page.getByText('教材來源文字或章節結構未通過檢查，尚未發布知識地圖。請檢查來源後重試。')).toBeVisible();
+ await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();
+ await expect(page.getByText(/已完成的頁面整理或分析進度保存在本機/)).toBeVisible();
+ await expect(page.locator('.failure-progress')).toContainText('368 / 368 頁');
 });

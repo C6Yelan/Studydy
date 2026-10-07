@@ -59,7 +59,8 @@ def listing(owner,*,dsn=None):
 
 def read(owner,identity,*,dsn=None):
     with database_session(dsn) as db:value=_view(_owned(db,owner,identity))
-    if value['research_id']:value['research']=research.read(owner,value['research_id'],dsn=dsn)
+    # 查詢刪除只移除補充歷史；已建立主題仍需回查原來源與教材結果。
+    if value['research_id']:value['research']=research.read(owner,value['research_id'],dsn=dsn,allow_deleted=True)
     return value
 
 

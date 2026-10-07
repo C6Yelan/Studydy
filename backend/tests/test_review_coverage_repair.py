@@ -166,3 +166,60 @@ def test_relation_type_error_repairs_with_endpoint_bindings(tmp_path, monkeypatc
     assert correction['error'] == 'REVIEW_RELATION_EDIT_INVALID'
     assert correction['relation_source_bindings'][0]['type'] == relation['type']
     assert set(evidence) <= set(correction['relation_source_bindings'][0]['evidence'])
+
+
+def test_oversized_correction_reports_only_prior_model_call(tmp_path, monkeypatch):
+    from runtime.semantic_service import SemanticServiceError
+    invalid = proposal()
+    invalid['assignments'].append(deepcopy(invalid['assignments'][0]))
+    archive = Archive(tmp_path)
+    calls = []
+    def model(*args, **kwargs):
+        calls.append(kwargs['request'])
+        if len(calls) == 1:
+            return invalid
+        raise SemanticServiceError('SEMANTIC_INPUT_TOO_LARGE')
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    with pytest.raises(SemanticServiceError) as failure:
+        _checked_review(prepare(), 1, {'material_review': {'prompt': 'fixture'}}, archive, None, lambda: None)
+    assert failure.value.request_metadata['review_model_calls'] == 1
+
+
+def test_duplicate_relation_edit_reuses_saved_rejection_for_one_grounded_correction(tmp_path, monkeypatch):
+    unit = prepare()
+    invalid = proposal()
+    invalid['relation_edits'] = [
+        {'relation': 0, 'action': 'reverse', 'relation_type': None, 'evidence': [0, 1], 'reason': 'Synthetic direction edit.'},
+        {'relation': 0, 'action': 'retype', 'relation_type': 'example', 'evidence': [0, 1], 'reason': 'Synthetic type edit.'},
+    ]
+    archive = Archive(tmp_path, rejected=invalid)
+    (_, count), calls = run(archive, monkeypatch, [proposal()])
+    assert count == 1
+    correction = calls[0]['request']['review_correction']
+    assert correction['error'] == 'REVIEW_EDIT_ID_INVALID'
+    assert correction['edit_id_issues']['relation_edits'] == {'duplicates': [0], 'unexpected': []}
+    schema = calls[0]['response_schema']
+    choices = schema['properties']['relation_edits']['items']['anyOf']
+    assert sorted({schema['$defs'][c['properties']['relation']['$ref'].split('/')[-1]]['enum'][0]
+                   for c in choices}) == list(range(len(unit.relations)))
+    assert 'at most once' in schema['properties']['relation_edits']['description']
+
+
+def test_relation_schema_binds_each_edit_to_its_own_sources_and_action_type(tmp_path, monkeypatch):
+    unit = prepare()
+    (_, _), calls = run(Archive(tmp_path), monkeypatch, [proposal()])
+    schema = calls[0]['response_schema']
+    choices = schema['properties']['relation_edits']['items']['anyOf']
+    def resolve(value): return schema['$defs'][value['$ref'].split('/')[-1]]
+    assert len(choices) == 2 * len(unit.relations)
+    for relation in unit.payload['relations']:
+        variants = [c['properties'] for c in choices if resolve(c['properties']['relation'])['enum'] == [relation['h']]]
+        expected = sorted(set(unit.payload['concepts'][relation['source']]['evidence'] +
+                              unit.payload['concepts'][relation['target']]['evidence']))
+        assert all([resolve(item)['enum'][0] for item in resolve(v['evidence'])['items']['anyOf']] == expected
+                   for v in variants)
+        fixed = next(v for v in variants if 'remove' in resolve(v['action'])['enum'])
+        assert resolve(fixed['action'])['enum'] == ['reverse', 'remove']
+        assert resolve(fixed['relation_type'])['enum'] == [None, relation['type']]
+        retype = next(v for v in variants if resolve(v['action'])['enum'] == ['retype'])
+        assert None not in resolve(retype['relation_type'])['enum']

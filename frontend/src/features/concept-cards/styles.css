@@ -137,6 +137,8 @@
 }
 .cards-creation-page { width: 100%; max-width: none; }
 .creation-page > .cards-page { padding: 0; max-width: none; margin: 0; }
+.creation-page > .cards-page-header { justify-content: flex-start; flex-wrap: nowrap; }
+.creation-back { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 44px; }
 .creation-page > .cards-page-header p { color: var(--text-secondary); }
 .creation-material { display: grid; gap: 8px; margin: 22px 0 28px; font-weight: 600; }
 .creation-material select { width: 100%; padding: 13px 16px; border: 1px solid var(--border); border-radius: 10px; background: white; color: var(--text-primary); font: inherit; font-weight: 400; }

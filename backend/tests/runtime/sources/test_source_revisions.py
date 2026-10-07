@@ -692,3 +692,78 @@ def test_card_set_multisource_references_remain_exact_after_new_head(revisions):
     assert set(locations) == {"A.pdf", "B.pdf"}
     assert locations["A.pdf"] != locations["B.pdf"]
     assert product_snapshot(dsn) == before
+
+
+@pytest.mark.parametrize('failure_stage',['second_source','context'])
+def test_retry_reuses_evidence_before_semantic_checkpoint_and_preserves_bindings(revisions,monkeypatch,failure_stage):
+    import json
+    from pdf_evidence import material_pipeline
+    from runtime.api.models import project_material_run
+    from runtime.storage.analysis_archive import _material_directory
+    learner,material,settings,dsn,add,start,execute,_,old,requests=revisions
+    second=add('B.pdf','A queue removes the first inserted element first.')
+    third=add('C.pdf','A tree contains parent and child nodes.')
+    failed_run=start([second,third],'evidence-failure',old['revision'])
+    before_calls=len(requests);actual=material_pipeline.extract_page;extracted=[]
+    def extract(document,digest,number):
+        extracted.append(digest)
+        if failure_stage=='second_source' and len(extracted)==2:raise RuntimeError('synthetic process interruption')
+        return actual(document,digest,number)
+    with monkeypatch.context() as patch:
+        patch.setattr(material_pipeline,'extract_page',extract)
+        if failure_stage=='context':patch.setattr(material_pipeline,'build_document_context',lambda *a,**k:(_ for _ in ()).throw(ValueError('synthetic invalid context')))
+        failed=execute()
+    assert failed.status=='failed' and len(requests)==before_calls
+    assert failed.error_code==('DOCUMENT_EVIDENCE_INVALID' if failure_stage=='context' else 'MATERIAL_ANALYSIS_FAILED')
+    directory=_material_directory(learner.learner_id,material)/failed_run.run_id.hex
+    assert not (directory/'checkpoint.json').exists()
+    saved={p.name:json.loads(p.read_text())['data'] for p in (directory/'evidence').glob('page-*.json')}
+    assert len(saved)==(2 if failure_stage=='context' else 1)
+    assert project_material_run(failed).analysis_saved
+    retried=[]
+    monkeypatch.setattr(material_pipeline,'extract_page',lambda *args:(retried.append(args[1]),actual(*args))[1])
+    retry=start([second,third],'evidence-retry',old['revision']);complete=execute()
+    assert complete.status=='succeeded',complete.error_code
+    assert len(retried)==(0 if failure_stage=='context' else 1)
+    document=read_knowledge_structure(learner.learner_id,material,run_id=complete.run_id,dsn=dsn).document
+    assert len(document['input_binding']['manifest']['items'])==3
+    assert {e['page'] for e in document['evidence']}=={1,2,3}
+    for page in saved.values():
+        for block in page['evidence_blocks']:
+            assert any(e['exact_text']==block['text'] for e in document['evidence'])
+    finished=_material_directory(learner.learner_id,material)/retry.run_id.hex
+    assert not (directory/'evidence').exists() and not (finished/'evidence').exists()
+    assert json.loads((finished/'completion.json').read_text())['evidence_reused_from_runs']==[str(failed_run.run_id)]
+
+
+def test_corrupt_page_checkpoint_fails_closed_without_extraction(revisions,monkeypatch):
+    import json
+    from pdf_evidence import material_pipeline
+    from runtime.storage.analysis_archive import _material_directory
+    learner,material,settings,dsn,add,start,execute,_,old,requests=revisions
+    second=add('B.pdf','A queue removes the first inserted element first.')
+    failed_run=start([second],'cache-context-failure',old['revision'])
+    with monkeypatch.context() as patch:
+        patch.setattr(material_pipeline,'build_document_context',lambda *a,**k:(_ for _ in ()).throw(ValueError('invalid context')))
+        assert execute().status=='failed'
+    path=next((_material_directory(learner.learner_id,material)/failed_run.run_id.hex/'evidence').glob('*.json'))
+    saved=json.loads(path.read_text());saved['data']['page_number']=99;path.write_text(json.dumps(saved))
+    before=len(requests)
+    monkeypatch.setattr(material_pipeline,'extract_page',lambda *a:pytest.fail('corrupt cache must not trigger extraction'))
+    start([second],'cache-corrupt-retry',old['revision']);result=execute()
+    assert result.error_code=='ANALYSIS_CHECKPOINT_INVALID' and len(requests)==before
+
+
+def test_evidence_only_checkpoint_refuses_changed_runtime(revisions,monkeypatch):
+    from pdf_evidence import material_pipeline
+    learner,material,settings,dsn,add,start,execute,_,old,requests=revisions
+    second=add('B.pdf','A queue removes the first inserted element first.')
+    start([second],'runtime-cache-failure',old['revision'])
+    with monkeypatch.context() as patch:
+        patch.setattr(material_pipeline,'build_document_context',lambda *a,**k:(_ for _ in ()).throw(ValueError('invalid context')))
+        assert execute().status=='failed'
+    before=len(requests)
+    settings['runtime_lock']['ocr']['prompt']+=' Changed OCR policy.'
+    monkeypatch.setattr(material_pipeline,'extract_page',lambda *a:pytest.fail('changed runtime must not silently redo evidence'))
+    start([second],'runtime-cache-retry',old['revision']);result=execute()
+    assert result.error_code=='ANALYSIS_RUNTIME_CHANGED' and len(requests)==before

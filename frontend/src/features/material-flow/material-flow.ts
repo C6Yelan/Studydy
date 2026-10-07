@@ -97,6 +97,8 @@ export function formatFileSize(sizeBytes: number): string {
 }
 
 export function materialFailureMessage(errorCode: string): string {
+  if (errorCode === "DOCUMENT_EVIDENCE_INVALID")
+    return "教材來源文字或章節結構未通過檢查，尚未發布知識地圖。請檢查來源後重試。";
   if (errorCode === "KNOWLEDGE_STRUCTURE_INVALID")
     return "分析結果在組裝地圖時未通過結構檢查，尚未發布地圖。";
   if (errorCode === "ANALYSIS_ARTIFACT_WRITE_FAILED")

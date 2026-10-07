@@ -8,7 +8,7 @@ SERVER={'package':'codex-exec','version':'luna-test/v1','python':'3.12'}
 def test_lock(lock):
     result=deepcopy(lock)
     result['semantic_service'].update(model_id=MODEL,revision='codex-exec:luna-test/v1',
-        api_protocol='codex-exec-luna/v1',max_model_len=272000,server=deepcopy(SERVER))
+        api_protocol='codex-exec-luna/v1',max_model_len=65536,server=deepcopy(SERVER))
     return result
 
 

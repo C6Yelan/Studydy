@@ -3,7 +3,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from uuid import UUID,uuid4
 import re
-from sqlalchemy import and_,or_,select
+from sqlalchemy import and_,or_,select,func
 from . import research_sources
 from .card_sets import _material
 from .source_normalization import SourceError,upload_source
@@ -15,7 +15,24 @@ from .voice import provider
 ACTIVE=('searching','acquiring','normalizing')
 
 
-def _owned(db,owner,identity,*,read=False):
+# 搜尋偏好由後端展開；只改送給 query provider 的副本，不改已確認範圍或來源資格。
+TOPIC_SEARCH_LEVELS={
+    '入門':'第一次接觸此主題；搜尋基本概念、必要先備知識與入門教學，優先概念介紹及循序說明。',
+    '有基礎':'已有基本概念；搜尋運作原理、實作教學與應用案例，著重方法與案例比較。',
+    '深入':'已有原理與實作基礎；搜尋技術規格、進階分析、限制與取捨，以及相關研究論文。',
+}
+
+
+def _search_scope(scope):
+    if scope is None:return None
+    scope=deepcopy(scope)
+    level=scope['level']
+    if level in TOPIC_SEARCH_LEVELS:
+        scope['level']=level+'：'+TOPIC_SEARCH_LEVELS[level]+' 這是搜尋偏好，不以來源類型硬性排除資料，也不擴張 topics 或納入 exclude。'
+    return scope
+
+
+def _owned(db,owner,identity,*,read=False,allow_deleted=False):
     row=db.get(Research,identity)
     if not row or row.learner_id!=owner:raise SourceError('RESOURCE_NOT_FOUND')
     material=_material(db,owner,row.material_id,read=read) if row.material_id else None
@@ -23,6 +40,7 @@ def _owned(db,owner,identity,*,read=False):
         scope=db.scalar(select(TopicScope).where(TopicScope.topic_id==row.topic_id,TopicScope.learner_id==owner).with_for_update(read=read))
         if not scope:raise SourceError('RESOURCE_NOT_FOUND')
     db.refresh(row)
+    if row.deleted_at is not None and not allow_deleted:raise SourceError('RESOURCE_NOT_FOUND')
     return row,material
 
 
@@ -31,6 +49,7 @@ def _view(row):
     # 下載目標與授權快照保留在後端，前端只消費來源說明與取得結果。
     for item in value['candidates']:
         item.pop('download_url',None)
+        item.pop('download_locations',None)
     return value
 
 
@@ -41,6 +60,7 @@ def create(owner,material_id,query,mode,key,*,dsn=None):
         digest=_key_digest(key)
         old=db.scalar(select(Research).where(Research.material_id==material_id,Research.idempotency_key_sha256==digest))
         if old:
+            if old.deleted_at is not None:raise SourceError('RESOURCE_NOT_FOUND')
             if old.query!=query.strip() or old.mode!=mode:raise SourceError('IDEMPOTENCY_CONFLICT')
             return _view(old)
         if not material.head_revision:raise SourceError('SOURCE_NOT_READY')
@@ -52,23 +72,38 @@ def create(owner,material_id,query,mode,key,*,dsn=None):
 def listing(owner,material_id,*,dsn=None):
     with database_session(dsn) as db:
         _material(db,owner,material_id,read=True)
-        # 搜尋紀錄選單只需摘要；候選、下載與授權全文由單筆讀取取得。
+        # 任務卡只讀數量與分析狀態；不為列表載入候選全文或逐筆查詢 run。
         columns=(Research.research_id,Research.query,Research.mode,Research.status,
-            Research.selection,Research.error_code,Research.run_id,Research.created_at)
-        rows=db.execute(select(*columns).where(Research.learner_id==owner,
-            Research.material_id==material_id).order_by(Research.created_at.desc())).mappings().all()
+            Research.selection,Research.error_code,Research.run_id,Research.created_at,
+            func.jsonb_array_length(Research.candidates).label('candidate_count'),
+            MaterialProcessingRun.status.label('run_status'))
+        rows=db.execute(select(*columns).outerjoin(MaterialProcessingRun,MaterialProcessingRun.run_id==Research.run_id).where(Research.learner_id==owner,
+            Research.material_id==material_id,Research.deleted_at.is_(None)).order_by(Research.created_at.desc())).mappings().all()
         return {'researches':[dict(row) for row in rows]}
 
 
-def read(owner,identity,*,dsn=None):
+def read(owner,identity,*,dsn=None,allow_deleted=False):
     with database_session(dsn) as db:
-        row,material=_owned(db,owner,identity,read=True)
+        row,material=_owned(db,owner,identity,read=True,allow_deleted=allow_deleted)
         value=_view(row);value['is_current_revision']=row.base_revision==material.head_revision if material else None
+        if row.deleted_at is not None:value['deleted']=True
         if row.run_id:
             run=db.get(MaterialProcessingRun,row.run_id)
             value['run']={'run_id':str(run.run_id),'status':run.status,'error_code':run.error_code,
                 'output_binding':run.output_binding} if run else None
         return value
+
+
+def delete(owner,identity,*,dsn=None):
+    with database_session(dsn) as db:
+        row,_=_owned(db,owner,identity,allow_deleted=True)
+        if row.material_id is None:raise SourceError('REQUEST_INVALID')
+        if row.deleted_at is None:
+            row.deleted_at=datetime.now(UTC)
+            if row.status!='submitted':row.status='cancelled'
+            # 舊 worker 不得再發布；候選與 canonical source_id 留下供來源回查。
+            row.lease_token=row.lease_expires_at=None
+        return {'research_id':row.research_id,'status':'deleted'}
 
 
 def action(owner,identity,action,selected=None,*,dsn=None):
@@ -175,14 +210,13 @@ def step(*,dsn=None,config=None):
         if state['status']=='searching':
             query=state['search_query']
             if not query:
-                query=provider('/search-query',{'query':state['query'], 'material_title':state['material_title'], 'mode':state['mode'], 'approved_scope':state['approved_scope']})['query']
+                query=provider('/search-query',{'query':state['query'], 'material_title':state['material_title'], 'mode':state['mode'], 'approved_scope':_search_scope(state['approved_scope'])})['query']
                 if not isinstance(query,str) or not 1<=len(query)<=300:raise SourceError('RESEARCH_SEARCH_FAILED')
             if not save(state,lambda row:None,dsn=dsn,release=False):return True
             candidates,cursor,warnings=research_sources.search(query,state['cursor'])
             def found(row):
-                known={c['id'] for c in row.candidates}
-                row.candidates=row.candidates+[c for c in candidates if c['id'] not in known]
-                row.cursor=cursor;row.search_query=query;row.status='selecting';row.error_code='RESEARCH_OFFICIAL_UNAVAILABLE' if warnings else None
+                row.candidates=research_sources.merge_candidates(row.candidates,candidates)
+                row.cursor=cursor;row.search_query=query;row.status='selecting';row.error_code='RESEARCH_PARTIAL_SEARCH' if warnings else None
             save(state,found,dsn=dsn)
         elif state['status']=='ready':
             if config is None:raise SourceError('RESEARCH_CONFIGURATION_INVALID')

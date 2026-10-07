@@ -128,6 +128,17 @@ def _non_content_evidence_ids(pages: list[dict[str, Any]]) -> set[str]:
     return excluded
 
 
+def _section_title(text: str) -> str:
+    # 章節名稱只是導覽標籤；完整 heading 仍留在 exact_text 與原 Evidence 身分中。
+    if not isinstance(text, str):
+        raise ValueError("DOCUMENT_EVIDENCE_INVALID")
+    cleaned = _text(text, maximum=max(512, len(text)))
+    if len(cleaned) <= 512:
+        return cleaned
+    first_line = next(" ".join(line.split()) for line in text.splitlines() if line.strip())
+    return first_line if len(first_line) <= 512 else first_line[:511].rstrip() + "…"
+
+
 def build_document_context(
     pages: list[dict[str, Any]],
     *,
@@ -157,7 +168,7 @@ def build_document_context(
             current = None
         for block in page["evidence_blocks"]:
             if current is None or block["kind"] == "heading":
-                title = _text(block["text"], maximum=512) if block["kind"] == "heading" else "教材開頭"
+                title = _section_title(block["text"]) if block["kind"] == "heading" else "教材開頭"
                 section_id = _id(
                     "section",
                     {

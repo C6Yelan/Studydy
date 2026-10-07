@@ -1,6 +1,6 @@
 import { usePodcastVideo } from "./PodcastVideo";
 import { PodcastTranscript } from "./PodcastTranscript";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { PodcastView } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
@@ -21,6 +21,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const [actionError, setActionError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [readingTab, setReadingTab] = useState<"transcript" | "highlights">("transcript");
   const media = useRef<HTMLMediaElement | null>(null);
   const workspace = useRef<HTMLDivElement>(null);
   const active = useRef(false), changing = useRef(false);
@@ -28,21 +29,22 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const autoPlayNext = useRef(false);
   const episodeList = useRef<HTMLElement>(null);
   const videoState = usePodcastVideo(apiClient,podcastId,index,view?.episodes[index]?.audio?.sha256,view?.episodes[index]?.script_sha256??undefined);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const layout = workspace.current;
     if (!layout) return;
-    // 依頁首實際高度保留底部空間；捲動不會重新改變左右欄尺寸。
+    // 量測實際頁首／導覽佔用的位置；可用高度交由 CSS 的 dvh 計算。
+    // 使用文件座標，避免捲動時播放器跟著放大或縮小。
     const resize = () => {
-      const top = layout.getBoundingClientRect().top + window.scrollY;
-      const height = `${Math.max(360, Math.floor(window.innerHeight - top - 24))}px`;
-      if (layout.style.getPropertyValue('--watch-room-height') !== height) layout.style.setProperty('--watch-room-height', height);
+      const top = `${Math.ceil(layout.getBoundingClientRect().top + window.scrollY)}px`;
+      if (layout.style.getPropertyValue('--watch-room-top') !== top) layout.style.setProperty('--watch-room-top', top);
     };
     const observer = new ResizeObserver(resize);
     observer.observe(layout);
+    document.querySelectorAll('.app-header, .material-learning-toolbar, .material-context, .podcast-page > .cards-page-header').forEach(element => observer.observe(element));
     window.addEventListener('resize', resize);
     resize();
     return () => { observer.disconnect(); window.removeEventListener('resize', resize); };
-  }, [view?.podcast_id, view?.status]);
+  }, [view?.podcast_id, view?.status, actionError]);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => {
     let cancelled = false;
@@ -84,14 +86,14 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     } catch (e) { if (active.current) { setActionError(errorMessage(e)); setReload((v) => v + 1); } }
     finally { changing.current = false; if (active.current) setBusy(false); }
   };
-  const back = <button type="button" className="cards-back text-button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "podcasts" } : { name: "podcasts" })}><Icon name="arrow-left" size={17} /> {materialId ? "此教材的 Podcast" : "我的 Podcast"}</button>;
+  const back = <button type="button" className="cards-back text-button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "podcasts" } : { name: "podcasts" })}><Icon name="arrow-left" size={17} /> 返回 Podcast</button>;
   if (error || !view) return <section className="cards-page podcast-page">{back}<StateView title={error ? "無法讀取 Podcast" : "正在讀取 Podcast"}
     description={error ?? "正在載入已保存的內容。"} tone={error ? "failure" : "loading"} live={!error}
     action={error ? <button type="button" className="secondary-button" onClick={() => setReload((v) => v + 1)}>重新讀取</button> : undefined} /></section>;
   const episode = view.episodes[index];
   const groups = [...new Set(episode.claims.map(c => c.concept_id))].map(id => ({ label: episode.claims.find(c => c.concept_id === id)!.label, claims: episode.claims.filter(c => c.concept_id === id) }));
-  return <section className="cards-page podcast-page">{back}
-    <header className="cards-page-header"><div>
+  return <section className="cards-page podcast-page">
+    <header className="cards-page-header">{back}<div>
       <h1>{view.name}</h1>
       {!materialId && <p className="cards-material-name"><Icon name="book" size={16} />{view.material_name}</p>}
     </div></header>
@@ -103,18 +105,32 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
           if (autoAdvance && index + 1 < view.episodes.length) { autoPlayNext.current = true; setIndex(index + 1); }
         }} />
       <div className="podcast-companion">
-        <section className="surface podcast-chapters" aria-label="章節列表"><h2>章節列表</h2>
-          {videoState.state?.video?.pages.length ? <nav aria-label="本集章節">{videoState.state.video.pages.map((page, i) => <button type="button" key={i} onClick={() => { if (media.current && media.current.readyState > 0) media.current.currentTime = page.start; }}><time>{duration(page.start)}</time>{page.title}</button>)}</nav> : <p className="podcast-meta-note">影片完成後會顯示章節。</p>}
-        </section>
       <aside ref={episodeList} className="surface podcast-episodes" aria-label="分集清單"><h2>分集清單</h2>{view.episodes.map((e, i) => <button type="button" key={i} aria-current={index === i ? "true" : undefined} onClick={() => { autoPlayNext.current = false; setIndex(i); }}>
       <span className="podcast-episode-number">{String(i + 1).padStart(2, "0")}</span><span className="podcast-episode-summary"><strong title={[...new Set(e.claims.map(c => c.label))].join(" · ")}>{[...new Set(e.claims.map(c => c.label))].join(" · ")}</strong><small>{e.audio ? duration(e.audio.duration_seconds) : ["failed", "cancelled"].includes(view.status) ? "尚未完成" : view.episodes.findIndex(episode => !episode.audio) === i && view.status === "running" ? (e.script ? "製作音訊中" : "整理內容中") : "等待處理"}</small></span></button>)}</aside>
-        <section className="surface podcast-reading-area" aria-label="逐字稿">
-          <h2>逐字稿</h2><div className="podcast-transcript">
-            <PodcastTranscript api={apiClient} view={view} index={index} media={media} active videoVersion={videoState.state?.version??0} />
+        <section className="surface podcast-reading-area" aria-label="本集內容">
+          <div className="podcast-content-tabs" role="tablist" aria-label="本集內容">
+            {([['transcript', '逐字稿'], ['highlights', '本集重點']] as const).map(([tab, label]) => <button
+              key={tab} id={`podcast-${tab}-tab`} type="button" role="tab" aria-selected={readingTab === tab}
+              aria-controls={`podcast-${tab}-panel`} tabIndex={readingTab === tab ? 0 : -1}
+              onClick={() => setReadingTab(tab)} onKeyDown={event => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const next = event.key === 'Home' ? 'transcript' : event.key === 'End' ? 'highlights' : tab === 'transcript' ? 'highlights' : 'transcript';
+                setReadingTab(next);
+                document.getElementById(`podcast-${next}-tab`)?.focus();
+              }}>{label}</button>)}
           </div>
-        </section>
-        <section className="surface podcast-highlights" aria-label="本集重點"><h2>本集重點</h2><header><span>{episode.claims.length} 個重點</span></header>
-          {groups.map(group => <div key={group.claims[0].concept_id}>{groups.length > 1 && <h3>{group.label}</h3>}<ul>{group.claims.map(claim => <li key={claim.claim_id}><p>{claimText(claim)}</p></li>)}</ul></div>)}
+          <div id="podcast-transcript-panel" className="podcast-content-panel" role="tabpanel" aria-labelledby="podcast-transcript-tab" hidden={readingTab !== 'transcript'}>
+            {!!videoState.state?.video?.pages.length && <nav className="podcast-chapters" aria-label="本集章節">{videoState.state.video.pages.map((page, i) => <button type="button" key={i} title={page.title} onClick={() => { if (media.current && media.current.readyState > 0) media.current.currentTime = page.start; }}><time>{duration(page.start)}</time><span>{page.title}</span></button>)}</nav>}
+            <div className="podcast-transcript" tabIndex={0}>
+              <PodcastTranscript api={apiClient} view={view} index={index} media={media} active={readingTab === 'transcript'} videoVersion={videoState.state?.version??0} />
+            </div>
+          </div>
+          <div id="podcast-highlights-panel" className="podcast-content-panel" role="tabpanel" aria-labelledby="podcast-highlights-tab" hidden={readingTab !== 'highlights'}>
+            <div className="podcast-highlights" key={index} tabIndex={0}><header><span>{episode.claims.length} 個重點</span></header>
+              {groups.map(group => <div key={group.claims[0].concept_id}>{groups.length > 1 && <h3>{group.label}</h3>}<ul>{group.claims.map(claim => <li key={claim.claim_id}><p>{claimText(claim)}</p></li>)}</ul></div>)}
+            </div>
+          </div>
         </section>
       </div>
     </div>}

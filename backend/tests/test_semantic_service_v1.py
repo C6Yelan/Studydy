@@ -13,7 +13,38 @@ from runtime.semantic_service import (
 
 
 def _lock() -> dict:
-    return json.loads((Path(__file__).parents[2] / "local_ai/runtime-lock.json").read_text())
+    lock=json.loads((Path(__file__).parents[2] / "local_ai/runtime-lock.json").read_text())
+    # 原有邊界案例刻意驗證仍支援的 32K 設定。
+    lock["semantic_service"]["max_model_len"]=32768
+    return lock
+
+
+def test_gemma_64k_capacity_upgrade_preserves_old_binding_and_rejects_downgrade():
+    from copy import deepcopy
+    from runtime.material_runtime import runtime_binding, runtime_binding_is_valid, same_material_runtime
+    from pdf_evidence.material_pipeline import validate_runtime_lock
+    from runtime.local_app import read_local_ai_config_from_environment
+    old = read_local_ai_config_from_environment({})
+    old['runtime_lock'] = _lock()
+    new = deepcopy(old)
+    new['runtime_lock']['semantic_service']['max_model_len'] = 65536
+    validate_runtime_lock(new['runtime_lock'])
+    before = deepcopy(old)
+    old_binding, new_binding = runtime_binding(old), runtime_binding(new)
+    assert runtime_binding_is_valid(old_binding) and runtime_binding_is_valid(new_binding)
+    assert same_material_runtime(old['runtime_lock'], old_binding, new['runtime_lock'], new_binding)
+    assert not same_material_runtime(new['runtime_lock'], new_binding, old['runtime_lock'], old_binding)
+    assert old == before
+
+
+@pytest.mark.parametrize('count,fits', [(57344, True), (57345, False)])
+def test_gemma_64k_still_reserves_material_output_room(count, fits):
+    lock = _lock()
+    lock['semantic_service']['max_model_len'] = 65536
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(
+        200, json={'count': count, 'max_model_len': 65536},
+    ))) as client:
+        assert material_request_fits(client, lock, {'sections': [{'evidence': [[0, 1, 'paragraph', 'Fact']]}]}) is fits
 
 
 @pytest.mark.parametrize('field', ['max_tokens', 'check_max_tokens'])

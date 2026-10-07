@@ -4,6 +4,7 @@ export type AppRoute =
   | { name: "topic"; topicId: string }
   | { name: "materials" }
   | { name: "material-content"; materialId: string; kind: "concept-cards" | "podcasts" | "research" }
+  | { name: "research"; materialId: string; researchId: string }
   | { name: "podcast-new" }
   | { name: "card-set-new" }
   | { name: "podcasts" }
@@ -83,6 +84,8 @@ export function readRoute(pathname: string): RouteRead {
     && (segments.length === 4 || (resourceSegment === "concept-cards" && segments.length === 5 && structureSegment === "edit"))) {
     route = resourceSegment === "podcasts" ? { name: "podcast", podcastId: runId, materialId }
       : { name: segments.length === 5 ? "card-set-edit" : "card-set", cardSetId: runId, materialId };
+  } else if (resourceSegment === "research" && segments.length === 4 && uuidPattern.test(runId)) {
+    route = { name: "research", materialId, researchId: runId };
   } else if (segments.length === 3 && (resourceSegment === "concept-cards" || resourceSegment === "podcasts" || resourceSegment === "research")) {
     route = { name: "material-content", materialId, kind: resourceSegment };
   } else if (segments.length === 3 && resourceSegment === "sources") {
@@ -125,6 +128,10 @@ export function readRoute(pathname: string): RouteRead {
 }
 
 export function routePath(route: AppRoute): string {
+  if (route.name === "research") {
+    if (!uuidPattern.test(route.materialId) || !uuidPattern.test(route.researchId)) throw new Error("ROUTE_INVALID");
+    return `/materials/${route.materialId}/research/${route.researchId}`;
+  }
   if (route.name === "home") return "/";
   if (route.name === "topics") return "/topics";
   if (route.name === "topic") { if (!uuidPattern.test(route.topicId)) throw new Error("ROUTE_INVALID"); return `/topics/${route.topicId}`; }

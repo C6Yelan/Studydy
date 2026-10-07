@@ -58,6 +58,16 @@ def test_research_full_append_preserves_voice_and_idempotence(revisions,monkeypa
     assert saved['knowledge_structure_revision']==old['revision'] and not saved['is_current_revision']
     assert read_knowledge_structure(owner,material,revision=old['revision'],dsn=dsn).document==old
     assert research.submit(owner,identity,settings,dsn=dsn)['run_id']==outcome.run_id
+    summary=research.listing(owner,material,dsn=dsn)['researches'][0]
+    assert summary['run_status']=='succeeded'
+    assert summary['candidate_count']==1
+    assert len(summary['selection'])==1
+    research.delete(owner,identity,dsn=dsn)
+    assert read_knowledge_structure(owner,material,revision=old['revision'],dsn=dsn).document==old
+    assert any(s['origin']=='research' for s in read_sources(owner,material,dsn=dsn))
+    with database_session(dsn) as db:
+        from runtime.storage.tables import MaterialProcessingRun
+        assert db.get(MaterialProcessingRun,outcome.run_id).status=='succeeded'
 
 
 def test_cancel_staged_acquisition_blocks_upload_and_replay(closed_loop,monkeypatch):
@@ -112,6 +122,9 @@ def test_research_history_is_a_summary_and_reads_share_material_lock(closed_loop
             detail=pool.submit(research.read,owner,identity,dsn=dsn).result(timeout=2)
     assert history['researches'][0]['research_id']==identity
     assert history['researches'][0]['query']=='queue'
+    assert history['researches'][0]['candidate_count']==1
+    assert history['researches'][0]['run_status'] is None
+    assert history['researches'][0]['created_at'] is not None
     assert 'candidates' not in history['researches'][0]
     assert detail['candidates'][0]['license']=='cc-by'
     with pytest.raises(CardSetError,match='RESOURCE_NOT_FOUND'):
@@ -158,3 +171,55 @@ def test_new_research_reuses_identical_unpublished_source(closed_loop,monkeypatc
     result=research.read(owner,second,dsn=dsn)
     assert result['status']=='ready' and result['candidates'][0]['source_id']==source_id
     with database_session(dsn) as db:assert len(db.scalars(select(MaterialSource)).all())==2
+
+
+def test_deleted_research_cannot_publish_late_results_or_replay_creation(closed_loop,monkeypatch):
+    learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
+    mock_search(monkeypatch)
+    identity=research.create(owner,source.material_id,'queue','review','delete-search',dsn=dsn)['research_id']
+    state=research.claim(dsn=dsn)
+    with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):
+        research.delete(uuid4(),identity,dsn=dsn)
+    assert research.delete(owner,identity,dsn=dsn)['status']=='deleted'
+    assert research.delete(owner,identity,dsn=dsn)['status']=='deleted'
+    assert not research.save(state,lambda row:setattr(row,'status','selecting'),dsn=dsn)
+    assert research.claim(dsn=dsn) is None
+    assert research.listing(owner,source.material_id,dsn=dsn)['researches']==[]
+    with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):research.read(owner,identity,dsn=dsn)
+    with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):research.action(owner,identity,'retry',dsn=dsn)
+    with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):research.create(owner,source.material_id,'queue','review','delete-search',dsn=dsn)
+
+
+def test_deleted_research_keeps_source_files_and_research_origin(revisions,monkeypatch):
+    learner,material,_,dsn,*_=revisions;owner=learner.learner_id
+    identity=ready(owner,material,dsn,monkeypatch)
+    from runtime.source_normalization import read_sources
+    before=read_sources(owner,material,dsn=dsn)
+    assert any(source['origin']=='research' for source in before)
+    research.delete(owner,identity,dsn=dsn)
+    assert read_sources(owner,material,dsn=dsn)==before
+    with database_session(dsn) as db:
+        row=db.get(MaterialResearch,identity)
+        assert row.deleted_at is not None and row.lease_token is None
+        assert row.candidates and row.status=='cancelled'
+
+
+def test_cross_provider_more_deduplicates_without_replacing_candidate_or_exposing_downloads(closed_loop,monkeypatch):
+    learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
+    first=candidate();first.update(doi='https://doi.org/10.1234/paper',discovered_by=['OpenAlex'],download_locations=[{'download_url':'https://example.org/a.pdf','license':'cc-by','version':'publishedVersion','url':'https://example.org/article','license_url':None}])
+    monkeypatch.setattr(research,'provider',lambda *a:{'query':'queue'})
+    monkeypatch.setattr(research.research_sources,'search',lambda *a:([first],'more',[]))
+    work=research.create(owner,source.material_id,'queue','review','cross-provider',dsn=dsn)
+    research.step(dsn=dsn)
+    other=deepcopy(first);other.update(id='crossref-other-id',doi='10.1234/PAPER',discovered_by=['Crossref'])
+    research.action(owner,work['research_id'],'more',dsn=dsn)
+    monkeypatch.setattr(research.research_sources,'search',lambda *a:([other],None,['source temporarily unavailable']))
+    research.step(dsn=dsn)
+    result=research.read(owner,work['research_id'],dsn=dsn)
+    assert result['error_code']=='RESEARCH_PARTIAL_SEARCH'
+    assert len(result['candidates'])==1
+    saved=result['candidates'][0]
+    assert saved['id']==first['id'] and saved['discovered_by']==['OpenAlex','Crossref']
+    assert 'download_url' not in saved and 'download_locations' not in saved
+    research.action(owner,work['research_id'],'acquire',[first['id']],dsn=dsn)
+    assert research.read(owner,work['research_id'],dsn=dsn)['selection']==[first['id']]

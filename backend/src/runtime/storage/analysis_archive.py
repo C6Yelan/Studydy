@@ -80,6 +80,8 @@ class AnalysisArchive:
         self._review_response_runs = []
         self._replayed_responses = set()
         self.review_reuses = []
+        self._evidence_candidates = None
+        self.evidence_reused_from = set()
 
     def load_checkpoint(self):
         if self._loaded:
@@ -159,6 +161,7 @@ class AnalysisArchive:
                 'run_id': str(self.run.run_id),
                 'signature': self.signature,
                 'reused_from_run': self.reused_from,
+                'evidence_reused_from_runs': sorted(self.evidence_reused_from),
                 'data_sha256': canonical_sha256(data),
                 'data': data,
             })
@@ -198,8 +201,51 @@ class AnalysisArchive:
             raise AnalysisArchiveError('ANALYSIS_ARTIFACT_WRITE_FAILED') from None
         # 寫入失敗的 .writing-* 也保留，開發診斷不能把唯一的新資料再清掉。
 
+    def load_evidence_page(self, number):
+        if self._evidence_candidates is None:
+            self._evidence_candidates = [(self.run.run_id, self.signature)]
+            with database_session(self.dsn) as session:
+                prior = session.scalars(select(MaterialProcessingRun).where(
+                    MaterialProcessingRun.learner_id == self.run.learner_id,
+                    MaterialProcessingRun.material_id == self.run.material_id,
+                    MaterialProcessingRun.status.in_(['failed', 'cancelled']),
+                    MaterialProcessingRun.created_at < self.run.created_at,
+                ).order_by(MaterialProcessingRun.created_at.desc())).all()
+                for row in prior:
+                    if not _same_analysis_inputs(row, self.run):
+                        continue
+                    directory = self.directory.parent / row.run_id.hex / 'evidence'
+                    if any(part.is_symlink() for part in [directory, *list(directory.parents)[:4]]):
+                        raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_INVALID')
+                    if not any(directory.glob('page-*.json')):
+                        continue
+                    if not _can_reuse_analysis(row, self.run):
+                        raise AnalysisArchiveError('ANALYSIS_RUNTIME_CHANGED')
+                    self._evidence_candidates.append((row.run_id, _checkpoint_input_digest(row)))
+        for run_id, signature in self._evidence_candidates:
+            path = self.directory.parent / run_id.hex / 'evidence' / f'page-{number:06d}.json'
+            if any(part.is_symlink() for part in [path, *list(path.parents)[:5]]):
+                raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_INVALID')
+            if not path.exists():
+                continue
+            try:
+                saved = _read_envelope(path, run_id, signature)
+                if run_id != self.run.run_id:
+                    self.evidence_reused_from.add(str(run_id))
+                return saved['data']
+            except (OSError, ValueError, KeyError, TypeError):
+                raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_INVALID') from None
+        return None
+
+    def save_evidence_page(self, number, page):
+        self._write(f'evidence/page-{number:06d}.json', page)
+
     def save_checkpoint(self, data):
         self._write('checkpoint.json', data)
+
+    def save_ocr_recovery(self, data):
+        digest = data['original_evidence_id'].rsplit(':', 1)[-1]
+        self._write(f'ocr-recovery-{digest}.json', data)
 
     def save_response(self, index, request, response):
         self._write(f'call-{index:06d}/decoded.json', {'request': request, 'response': response})
@@ -260,6 +306,10 @@ class AnalysisArchive:
         # 不保存 exception message／locals，避免把 DSN 或私人答案寫入一般診斷。
         self._write('failure.json', {
             'exception_type': type(error).__name__,
+            **({'cause': {'exception_type': type(error.__cause__).__name__,
+                         'frames': [{'file': Path(frame.filename).name, 'function': frame.name, 'line': frame.lineno}
+                                    for frame in traceback.extract_tb(error.__cause__.__traceback__)]}}
+               if error.__cause__ is not None else {}),
             **({'semantic_request': error.request_metadata}
                if isinstance(error, SemanticServiceError) and error.request_metadata else {}),
             'frames': [
@@ -274,6 +324,15 @@ def _checkpoint_directory(owner, material, run_id):
     if any(path.is_symlink() for path in [directory, *list(directory.parents)[:3]]):
         raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_CLEANUP_FAILED')
     return directory
+
+
+def _remove_evidence_checkpoints(directory):
+    evidence = directory / 'evidence'
+    if evidence.is_symlink():
+        raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_CLEANUP_FAILED')
+    if evidence.exists():
+        shutil.rmtree(evidence)
+        _sync_directory(directory)
 
 
 def cleanup_published_checkpoints(owner, material_id, run_id, *, dsn):
@@ -303,6 +362,7 @@ def cleanup_published_checkpoints(owner, material_id, run_id, *, dsn):
             try:
                 saved = _read_envelope(checkpoint, run_id, _checkpoint_input_digest(run))
                 receipt['reused_from_run'] = saved['reused_from_run']
+                receipt['evidence_reused_from_runs'] = saved.get('evidence_reused_from_runs', [])
             except (ValueError, KeyError, TypeError):
                 # DB 已確認發布，可清理損毀的恢復狀態。
                 _logger.warning('ANALYSIS_CHECKPOINT_METADATA_UNAVAILABLE', extra={'run_id': str(run_id)})
@@ -314,16 +374,18 @@ def cleanup_published_checkpoints(owner, material_id, run_id, *, dsn):
 
             prior = session.scalars(select(MaterialProcessingRun).where(
                 MaterialProcessingRun.learner_id == owner, MaterialProcessingRun.material_id == material_id,
-                MaterialProcessingRun.status == 'failed', MaterialProcessingRun.created_at < run.created_at))
+                MaterialProcessingRun.status.in_(['failed', 'cancelled']), MaterialProcessingRun.created_at < run.created_at))
             for failed in prior:
                 if not _can_reuse_analysis(failed, run):
                     continue
                 previous = _checkpoint_directory(owner, material_id, failed.run_id)
+                _remove_evidence_checkpoints(previous)
                 path = previous / 'checkpoint.json'
                 if path.exists() or path.is_symlink():
                     path.unlink()
                     _sync_directory(previous)
             # 最後才移除成功 run 的 checkpoint；中途清理失敗時，reconciliation 還找得到它。
+            _remove_evidence_checkpoints(directory)
             checkpoint.unlink()
             _sync_directory(directory)
             return True
@@ -353,7 +415,8 @@ def remove_material_analysis(owner,material):
 
 
 def has_analysis_checkpoint(owner,material,run):
-    return (_material_directory(owner,material)/run.hex/'checkpoint.json').is_file()
+    directory = _material_directory(owner,material)/run.hex
+    return (directory/'checkpoint.json').is_file() or any((directory/'evidence').glob('page-*.json'))
 
 
 def reconcile_removed_material_analysis(*,dsn):

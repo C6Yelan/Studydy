@@ -41,7 +41,7 @@ def rebase_page(page, digest, number):
 
 
 def collect_source_set(
-    inputs, binding, base, directory, settings, produced_at, report, check_cancel, extract,
+    inputs, binding, base, directory, settings, produced_at, report, check_cancel, extract, *, analysis_archive=None,
 ):
     digest = binding["source_set_digest"]
     total_pages = len(binding["bundle"]["pages"])
@@ -100,6 +100,10 @@ def collect_source_set(
                     stage, offset + completed, total_pages
                 ),
                 check_cancel,
+                **({
+                    'load_page': lambda number: analysis_archive.load_evidence_page(offset + number),
+                    'save_page': lambda number, page: analysis_archive.save_evidence_page(offset + number, page),
+                } if analysis_archive is not None else {}),
             )
             ocr_calls += source_ocr_calls
             pages.extend(

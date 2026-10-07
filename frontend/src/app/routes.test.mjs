@@ -36,6 +36,8 @@ test("unknown paths, malformed IDs and extra segments are not canonical routes",
     `/concept-cards/${materialId}/extra`,
     `/materials/not-an-id/runs/${runId}`,
     `/materials/${materialId}`,
+    `/materials/${materialId}/research/not-an-id`,
+    `/materials/${materialId}/research/${runId}/extra`,
     `${studyPath}/extra`,
   ]) {
     assert.deepEqual(readRoute(path), { route: { name: "home" }, isCanonical: false });
@@ -55,6 +57,7 @@ test("material collections and saved content preserve their scoped URLs", () => 
     { name: "material-content", materialId, kind: "podcasts" },
     { name: "material-content", materialId, kind: "concept-cards" },
     { name: "material-content", materialId, kind: "research" },
+    { name: "research", materialId, researchId: studySessionId },
     { name: "podcast", materialId, podcastId: studySessionId },
     { name: "card-set", materialId, cardSetId: studySessionId },
     { name: "card-set-edit", materialId, cardSetId: studySessionId },

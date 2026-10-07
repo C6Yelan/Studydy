@@ -10,6 +10,7 @@ import type {
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
+import { MaterialTools } from "../material-tools/MaterialTools";
 import { StateView } from "../../ui/StateView";
 import { assessmentPhase, type AssessmentPhase } from "../assessment/assessment-phase";
 import { AssessmentSetPanel } from "../assessment/AssessmentSetPanel";
@@ -286,6 +287,7 @@ export function StudySessionPage({
   );
   return (
     <section className="study-session-page">
+      <MaterialTools key={route.materialId} api={apiClient} materialId={route.materialId} />
       <header className="study-header">
         <div>
           <p className="eyebrow">學習進度</p>

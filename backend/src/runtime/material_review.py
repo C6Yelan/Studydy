@@ -6,8 +6,9 @@ import time
 from knowledge_map.material_review import (ReviewError, _pack_review, apply_review, combine_reviews,
                                           response_schema, validate_proposal)
 from knowledge_map.structure import build_knowledge_structure_view, _revision
+from knowledge_map.structure_rules import RELATION_TYPES
 from pdf_evidence.ocr_page_evidence import canonical_sha256
-from .semantic_service import request_semantics, semantic_client
+from .semantic_service import SemanticServiceError, request_semantics, semantic_client
 
 
 def review_inputs(document):
@@ -57,7 +58,8 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
                             'policy': lock['material_review']})
     rejected = None
     rejection_code = None
-    repairable = {'REVIEW_CONCEPT_COVERAGE_INVALID', 'REVIEW_CONCEPT_SUPPORT_INVALID', 'REVIEW_RELATION_EDIT_INVALID'}
+    repairable = {'REVIEW_CONCEPT_COVERAGE_INVALID', 'REVIEW_CONCEPT_SUPPORT_INVALID',
+                  'REVIEW_RELATION_EDIT_INVALID', 'REVIEW_EDIT_ID_INVALID'}
 
     def validate_saved(value):
         nonlocal rejected, rejection_code
@@ -77,6 +79,54 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
     schema = response_schema()
     schema['properties']['assignments'].update(minItems=len(unit.concepts), maxItems=len(unit.concepts))
     schema['$defs']['Assignment']['properties']['concept']['enum'] = list(range(len(unit.concepts)))
+    for collection, definition, field, count in (
+        ('alias_edits', 'AliasEdit', 'concept', len(unit.concepts)),
+        ('claim_edits', 'ClaimEdit', 'claim', len(unit.claims)),
+        ('relation_edits', 'RelationEdit', 'relation', len(unit.relations)),
+    ):
+        schema['properties'][collection]['description'] = (
+            f'Each {field} handle may appear at most once in this array. '
+            'Do not submit multiple operations for the same handle; retain it unchanged if uncertain.'
+        )
+        if count:
+            schema['$defs'][definition]['properties'][field]['enum'] = list(range(count))
+        else:
+            schema['properties'][collection]['maxItems'] = 0
+    relation_choices = []
+    support_sets = {}
+    definitions = schema['$defs']
+    if unit.payload['relations']:
+        # 共用 handle／來源集合，避免各分支重複 enum 而超過 provider 的 schema 限制。
+        definitions['RelationKind'] = {'type': 'string', 'enum': sorted(RELATION_TYPES)}
+        definitions['FixedAction'] = {'type': 'string', 'enum': ['reverse', 'remove']}
+        definitions['RetypeAction'] = {'type': 'string', 'enum': ['retype']}
+    for relation in unit.payload['relations']:
+        refs = tuple(sorted(set(unit.payload['concepts'][relation['source']]['evidence'] +
+                                unit.payload['concepts'][relation['target']]['evidence'])))
+        support_name = support_sets.setdefault(refs, f'S{len(support_sets)}')
+        for ref in refs:
+            definitions[f'E{ref}'] = {'type': 'integer', 'enum': [ref]}
+        definitions[support_name] = {'type': 'array', 'minItems': 1,
+            'items': {'anyOf': [{'$ref': f'#/$defs/E{ref}'} for ref in refs]}}
+        relation_name = f"R{relation['h']}"
+        definitions[relation_name] = {'type': 'integer', 'enum': [relation['h']]}
+        original_kind = f"Original_{relation['type']}"
+        definitions[original_kind] = {'type': ['string', 'null'], 'enum': [None, relation['type']]}
+        for action, kind in (('FixedAction', original_kind), ('RetypeAction', 'RelationKind')):
+            choice = deepcopy(schema['$defs']['RelationEdit'])
+            properties = choice['properties']
+            properties['relation'] = {'$ref': f'#/$defs/{relation_name}'}
+            properties['action'] = {'$ref': f'#/$defs/{action}'}
+            properties['relation_type'] = {'$ref': f'#/$defs/{kind}'}
+            # 新提案以關係兩端的原引用作支持；後端仍獨立核對，不代改模型的引用。
+            properties['evidence'] = {'$ref': f'#/$defs/{support_name}'}
+            # 先選關係與操作，再填該關係允許的引用。
+            choice['properties'] = {key: properties[key] for key in
+                                    ('relation', 'action', 'relation_type', 'evidence', 'reason')}
+            relation_choices.append(choice)
+    if relation_choices:
+        schema['properties']['relation_edits']['items'] = {'anyOf': relation_choices}
+        del definitions['RelationEdit']
     calls = 0
 
     def request_review(request, attempt):
@@ -84,9 +134,15 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
         check_cancel()
         archive.prepare_review_call(index, key, request, attempt=attempt)
         calls += 1
-        value = request_semantics(client, runtime_lock=lock, task='material_review',
-                                  request=request, response_schema=schema,
-                                  cancellation_check=wait_cancellation_check or check_cancel)
+        try:
+            value = request_semantics(client, runtime_lock=lock, task='material_review',
+                                      request=request, response_schema=schema,
+                                      cancellation_check=wait_cancellation_check or check_cancel)
+        except SemanticServiceError as error:
+            if error.reason_code == 'SEMANTIC_INPUT_TOO_LARGE':
+                # 容量拒絕發生在 inference 前；先前可能已有一份待補正回應，仍須計入。
+                error.request_metadata = {**(error.request_metadata or {}), 'review_model_calls': calls - 1}
+            raise
         name = f'call-{index:06d}' + (f'-repair-{attempt:02d}' if attempt else '')
         archive.save_review(f'{name}/response', value)
         return value
@@ -102,8 +158,20 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
         counts = Counter(row['concept'] for row in rejected['assignments'])
         expected = set(range(len(unit.concepts)))
         request = deepcopy(unit.payload)
+        edit_id_issues = {}
+        for collection, field, limit in (
+            ('alias_edits', 'concept', len(unit.concepts)),
+            ('claim_edits', 'claim', len(unit.claims)),
+            ('relation_edits', 'relation', len(unit.relations)),
+        ):
+            handles = Counter(row[field] for row in rejected[collection])
+            edit_id_issues[collection] = {
+                'duplicates': sorted(h for h, count in handles.items() if count > 1),
+                'unexpected': sorted(h for h in handles if h not in range(limit)),
+            }
         request['review_correction'] = {
             'error': rejection_code,
+            'edit_id_issues': edit_id_issues,
             'missing_concepts': sorted(expected - counts.keys()),
             'duplicate_concepts': sorted(h for h, count in counts.items() if count > 1),
             'unexpected_concepts': sorted(counts.keys() - expected),
@@ -123,6 +191,8 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
                            '不得直接取重複資料的第一筆或最後一筆，也不得只替換 evidence 掩蓋錯誤歸屬。'
                            'relation_edits 的 evidence 只能引用對應關係兩端的來源；reverse/remove 的 relation_type 須為 null 或原型別。'
                            '反轉與改型別不可合成同一操作；若無充分依據可不修改這條關係，不猜測。'
+                           '各 edit 陣列的同一 h 最多出現一次，反轉與改型別也不能拆成兩筆相同 h。'
+                           '請重新核對來源，選擇一個有依據的操作；無法決定時保留原關係，不機械保留第一筆或最後一筆。'
                            '無法由來源確認時，使用 needs_review 保留該概念；仍須遵守來源與歸屬限制。',
         }
         response = request_review(request, 1)
@@ -142,17 +212,32 @@ def review_structure(document, lock, archive, check_cancel, progress, *, wait_ca
     with semantic_client() as client:
         for index, unit in enumerate(units, 1):
             check_cancel()
-            response, new_calls = _checked_review(unit, index, lock, archive, client, check_cancel, wait_cancellation_check)
+            try:
+                response, new_calls = _checked_review(unit, index, lock, archive, client, check_cancel, wait_cancellation_check)
+            except SemanticServiceError as error:
+                if error.reason_code != 'SEMANTIC_INPUT_TOO_LARGE' or len(unit.concepts) < 2:
+                    raise
+                calls += (error.request_metadata or {}).get('review_model_calls', 0)
+                middle = len(unit.concepts) // 2
+                # 只拆待檢核概念，兩組都保留完整原始來源，不截斷同頁表格或引用。
+                parts = [unit.concepts[:middle], unit.concepts[middle:]]
+                units.extend(_pack_review(view, concepts, unit.evidence,
+                    f"{unit.payload['title']}（容量分段 {part}/2）")
+                    for part, concepts in enumerate(parts, 1))
+                archive.save_review(f'call-{index:06d}/split', {
+                    'reason': error.reason_code, 'concept_counts': [len(part) for part in parts],
+                })
+                continue
             calls += new_calls
             reviews.append((unit, response))
             progress('semantics', document['page_count'], document['page_count'])
     unit, proposal = combine_reviews(view, reviews)
     result, projection = apply_review(document, view, unit, proposal)
     # 語意回應用量含重用；新增呼叫由 receipt 分別計數。
-    result['metrics']['semantic_calls'] += len(units)
+    result['metrics']['semantic_calls'] += len(reviews)
     result['metrics']['semantic_duration_ms'] += round((time.monotonic() - started) * 1000)
     result['revision'] = _revision(result)
     archive.save_review('result', {'source_revision': document['revision'], 'applied_revision': result['revision'],
-        'model_calls': calls, 'units': len(units), 'reused_batches': deepcopy(archive.review_reuses),
+        'model_calls': calls, 'units': len(reviews), 'reused_batches': deepcopy(archive.review_reuses),
         'projection': projection, 'proposal': proposal})
     return result

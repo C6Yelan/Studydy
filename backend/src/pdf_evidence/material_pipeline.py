@@ -101,7 +101,7 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
             or not isinstance(semantic["revision"], str) or not semantic["revision"].strip()
             or semantic["api_protocol"] not in {"openai-chat-completions/v1", "codex-exec-luna/v1"}
             or semantic["base_url"] != "http://127.0.0.1:18000"
-            or semantic["max_model_len"] not in ((32768, 272000) if semantic["api_protocol"] == "codex-exec-luna/v1" else (32768,))
+            or semantic["max_model_len"] not in ((32768, 65536, 272000) if semantic["api_protocol"] == "codex-exec-luna/v1" else (32768, 65536))
             or semantic["max_num_seqs"] != 1
             or semantic["server"] != ({"package":"codex-exec", "version":"luna-test/v1", "python":"3.12"} if semantic["api_protocol"] == "codex-exec-luna/v1" else {
                 "package": "vllm",
@@ -207,7 +207,7 @@ def _reason(error: Exception) -> str:
         "OCR_OUTPUT_INVALID", "OCR_LOCATOR_INVALID", "NO_USABLE_EVIDENCE",
         "PROTOCOL_LIMIT_EXCEEDED", "SEMANTIC_SERVICE_TIMEOUT",
         "SEMANTIC_SERVICE_UNAVAILABLE", "SEMANTIC_RESPONSE_INVALID",
-        "SEMANTIC_OUTPUT_INVALID", "SEMANTIC_OUTPUT_TRUNCATED",
+        "SEMANTIC_OUTPUT_INVALID", "SEMANTIC_OUTPUT_TRUNCATED", "SEMANTIC_OUTPUT_TOO_LARGE",
         "SEMANTIC_INPUT_TOO_LARGE", "SEMANTIC_BUDGET_EXHAUSTED",
         "KNOWLEDGE_STRUCTURE_INVALID", "MATERIAL_IDENTITY_INVALID",
     }
@@ -232,6 +232,8 @@ def _page_evidence(
     report: Progress,
     cancellation_check: Callable[[], None],
     *, wait_cancellation_check: Callable[[], None] | None = None,
+    load_page: Callable[[int], dict | None] | None = None,
+    save_page: Callable[[int, dict], None] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     pages: list[dict[str, Any]] = []
     excluded: list[dict[str, Any]] = []
@@ -242,7 +244,28 @@ def _page_evidence(
     try:
         for completed, page_number in enumerate(page_numbers, start=1):
             cancellation_check()
+            cached = load_page(page_number) if load_page is not None else None
+            if cached is not None:
+                # 原來源頁碼、來源內容與完整 page artifact 都須一致，不能把另一頁的快照接上。
+                cached_binding = cached.get('input_binding') if isinstance(cached, dict) else None
+                if (not isinstance(cached_binding, dict)
+                    or cached.get('schema') != 'page-evidence/v1'
+                    or cached.get('material_id') != 'material:sha256:' + source_sha256
+                    or cached.get('route') not in {'native_sufficient', 'OCR_needed'}
+                    or cached.get('page_number') != page_number
+                    or cached_binding.get('source_sha256') != source_sha256
+                    or cached_binding.get('page') != page_number
+                    or cached.get('page_evidence_id') != 'page-evidence:sha256:' + canonical_sha256(
+                        {k:v for k,v in cached.items() if k != 'page_evidence_id'})):
+                    raise MaterialAnalysisError('ANALYSIS_CHECKPOINT_INVALID')
+                if save_page is not None:
+                    save_page(page_number, cached)
+                pages.append(cached)
+                ocr_calls += int(cached['route'] == 'OCR_needed')
+                report('evidence', completed, len(page_numbers))
+                continue
             page = extract_page(document, source_sha256, page_number)
+            artifact = None
             try:
                 route = route_page(page)
                 binding = {
@@ -298,7 +321,10 @@ def _page_evidence(
             finally:
                 page.pop("png_bytes", None)
                 page.pop("native_evidence", None)
-                report("evidence", completed, len(page_numbers))
+            # 儲存錯誤不可被當成單頁 OCR 失敗略過；成功落盤後才更新頁數。
+            if artifact is not None and save_page is not None:
+                save_page(page_number, artifact)
+            report("evidence", completed, len(page_numbers))
     except Exception:
         if ocr is not None:
             ocr.abort()
@@ -364,13 +390,17 @@ def analyze_material(
                 source_inputs, input_binding, base_structure, Path(directory),
                 settings, resolved_time, report, check_cancel,
                 partial(_page_evidence, wait_cancellation_check=check_wait),
+                analysis_archive=analysis_archive,
             )
         evidence_duration_ms = round((time.monotonic() - evidence_started) * 1000)
         check_cancel()
-        context = build_document_context(
-            pages, page_count=len(page_numbers), excluded_pages=excluded,
-            source_pages=input_binding["bundle"]["pages"],
-        )
+        try:
+            context = build_document_context(
+                pages, page_count=len(page_numbers), excluded_pages=excluded,
+                source_pages=input_binding["bundle"]["pages"],
+            )
+        except ValueError as error:
+            raise MaterialAnalysisError("DOCUMENT_EVIDENCE_INVALID") from error
         if base_structure is not None:
             from knowledge_map.source_identity import seed_incremental_state
             state = seed_incremental_state(base_structure, context, input_binding)
@@ -392,6 +422,7 @@ def analyze_material(
             state = SemanticState()
         cursor = 0
     semantic_started = time.monotonic()
+    recovered_ocr_blocks = set(restored.get('recovered_ocr_blocks', []) if restored else [])
     complete = bool(restored and restored.get("complete"))
     evidence_indices = {
         item["evidence_id"]: index
@@ -408,6 +439,7 @@ def analyze_material(
                 "source_sha256": source_digest,
                 "semantic_calls": semantic_calls,
                 "ocr_calls": ocr_calls,
+                "recovered_ocr_blocks": sorted(recovered_ocr_blocks),
                 "evidence_duration_ms": evidence_duration_ms,
                 "semantic_duration_ms": previous_semantic_ms + round(
                     (time.monotonic() - semantic_started) * 1000
@@ -432,6 +464,38 @@ def analyze_material(
                 break
             except ValueError as error:
                 # 分批器也可能在呼叫模型前拒絕輸入，保留可公開的原因碼。
+                remaining = next((index for index in range(cursor, len(context['evidence']))
+                                  if context['evidence'][index]['evidence_id'] not in
+                                  context.get('non_content_evidence_ids', [])), None)
+                evidence = context['evidence'][remaining] if remaining is not None else None
+                if (str(error) == 'SEMANTIC_INPUT_TOO_LARGE' and analysis_archive is not None
+                    and evidence is not None and evidence['source'] == 'unlimited_ocr'
+                    and evidence['kind'] != 'heading'
+                    and evidence['source_locator']['block_id'] not in recovered_ocr_blocks):
+                    from .ocr_recovery import recover_ocr_block, replace_unprocessed_evidence
+                    started = time.monotonic()
+                    try:
+                        with material_analysis_lock(Path(settings['private_runtime_root']), cancellation_check=check_cancel):
+                            replacement, recovery = recover_ocr_block(
+                                evidence, state, source_inputs, input_binding, settings, check_wait,
+                            )
+                    except (LocalAIError, ValueError) as recovery_error:
+                        raise MaterialAnalysisError(_reason(recovery_error)) from None
+                    check_cancel()
+                    # 證據先落盤才更新續跑狀態；每個原始區塊最多自動重辨識一次。
+                    analysis_archive.save_ocr_recovery(recovery)
+                    replace_unprocessed_evidence(context, remaining, replacement)
+                    recovered_ocr_blocks.add(evidence['source_locator']['block_id'])
+                    ocr_calls += 1
+                    evidence_duration_ms += round((time.monotonic() - started) * 1000)
+                    evidence_indices = {item['evidence_id']: i for i, item in enumerate(context['evidence'])}
+                    save_checkpoint()
+                    bundles = iter(build_semantic_bundles(
+                        context, state=state,
+                        fits=lambda request: material_request_fits(http, lock, request, cancellation_check=check_wait),
+                        minimum_evidence_index=cursor,
+                    ))
+                    continue
                 raise MaterialAnalysisError(_reason(error)) from None
             request_document = semantic_request(context, bundle, state)
             last_error: Exception | None = None

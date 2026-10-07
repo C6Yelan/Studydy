@@ -26,7 +26,7 @@
     "revision": "52f3f65bc7a02d555763bc923bd1d9094898219d",
     "api_protocol": "openai-chat-completions/v1",
     "base_url": "http://127.0.0.1:18000",
-    "max_model_len": 32768,
+    "max_model_len": 65536,
     "max_num_seqs": 1,
     "server": {
       "package": "vllm",

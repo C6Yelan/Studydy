@@ -25,6 +25,8 @@ def install(app,settings,trusted,key,query):
     def create(request:Request,material_id:UUID,body:Search):return research.create(owner(request),material_id,body.query,body.mode,key(request),dsn=settings.dsn)
     @app.get('/v1/research/{identity}')
     def read(request:Request,identity:UUID):return research.read(owner(request),identity,dsn=settings.dsn)
+    @app.delete('/v1/research/{identity}')
+    def delete(request:Request,identity:UUID):return research.delete(owner(request),identity,dsn=settings.dsn)
     @app.post('/v1/research/{identity}/actions')
     def action(request:Request,identity:UUID,body:Action):return research.action(owner(request),identity,body.action,body.selected,dsn=settings.dsn)
     @app.post('/v1/research/{identity}/submit',status_code=202)
