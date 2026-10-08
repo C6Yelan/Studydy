@@ -57,7 +57,18 @@ def test_invalid_contract_never_reaches_review(monkeypatch,change):
     def model(*args):calls.append(args);return value
     monkeypatch.setattr(provider,'luna',model)
     with pytest.raises(RuntimeError,match='PODCAST_SCRIPT_INVALID'):provider.script(request)
-    assert len(calls)==1
+    assert len(calls)==2
+
+
+def test_invalid_reference_can_be_repaired_but_only_valid_script_is_reviewed(monkeypatch):
+    invalid=candidate();invalid['segments'][0]['turns'][0]['parts'][0]['source_refs'][0]['source_index']=99
+    responses=iter([invalid,candidate(),check()]);schemas=[]
+    def model(prompt,schema):schemas.append(schema);return next(responses)
+    monkeypatch.setattr(provider,'luna',model)
+    result=provider.script(body())
+    assert len(schemas)==3 and all('segments' in s['properties'] for s in schemas[:2])
+    assert 'correctness' in schemas[-1]['properties']
+    assert result['review']['correctness']['passed']
 
 
 def test_one_beat_integrates_repeated_claim_ids_without_merging_sources(monkeypatch):
@@ -136,6 +147,22 @@ def test_audio_failure_never_returns_partial_file_or_falls_back(monkeypatch):
     with pytest.raises(RuntimeError,match='PODCAST_AUDIO_INVALID'):provider.audio({'script':candidate()})
 
 
+def test_provider_accepts_planner_capacity_and_rejects_overflow(monkeypatch):
+    from runtime.podcast_quality import MAX_EPISODE_CLAIMS
+    request=body();request['claims']=[deepcopy(request['claims'][0]) for _ in range(MAX_EPISODE_CLAIMS)]
+    value=candidate();value['segments'][0]['turns'][0]['parts'][0]['source_refs']=[
+        {'source_index':i,'evidence_indices':[0]} for i in range(MAX_EPISODE_CLAIMS)]
+    responses=iter([value,check()]);calls=[]
+    def model(*args):calls.append(args);return next(responses)
+    monkeypatch.setattr(provider,'luna',model)
+    result=provider.script(request)
+    assert len(result['segments'][0]['turns'][0]['parts'][0]['source_refs'])==MAX_EPISODE_CLAIMS
+    assert len(calls)==2
+    request['claims'].append(deepcopy(request['claims'][0]))
+    with pytest.raises(ValueError,match='REQUEST_INVALID'):provider.script(request)
+    assert len(calls)==2
+
+
 def test_luna_timeout_has_fixed_reason_and_task_specific_deadline(monkeypatch):
     def expired(args,**kwargs):
         assert kwargs['timeout']==300 and kwargs['input']=='synthetic prompt'
@@ -161,3 +188,44 @@ def test_model_reference_schema_only_allows_local_source_positions():
 def test_reference_compilation_rejects_boolean_negative_and_out_of_range(source,evidence):
     value=candidate();value['segments'][0]['turns'][0]['parts'][0]['source_refs']=[{'source_index':source,'evidence_indices':[evidence]}]
     with pytest.raises(ValueError,match='PODCAST_SCRIPT_INVALID'):provider.compile_beats(value,body()['claims'])
+
+
+def test_qa_repairs_missing_citations_and_rechecks_without_changing_supported_text(monkeypatch):
+    request={**body(),'question':'合成來源問題'}
+    request['claims'].append(deepcopy(request['claims'][0]))
+    candidate={'text':'兩項來源支持的合成回答。','supported':True,'citations':[0]}
+    fixed={**candidate,'citations':[0,1,0]}
+    responses=iter([candidate,{'supported':False,'unsupported_claims':['缺少第二項來源']},fixed,{'supported':True,'unsupported_claims':[]}]);calls=[]
+    def model(prompt,schema):calls.append(prompt);return next(responses)
+    monkeypatch.setattr(provider,'luna',model)
+    assert provider.answer(request)=={**candidate,'citations':[0,1]}
+    assert len(calls)==4 and '缺少第二項來源' in calls[2]
+
+
+def test_qa_unsupported_answer_is_not_published_after_bounded_repair(monkeypatch):
+    request={**body(),'question':'合成來源問題'}
+    responses=iter([{'text':'沒有來源的斷言','supported':True,'citations':[0]}, {'supported':False,'unsupported_claims':['沒有來源的斷言']}]*2)
+    calls=[]
+    def model(*args):calls.append(args);return next(responses)
+    monkeypatch.setattr(provider,'luna',model)
+    result=provider.answer(request)
+    assert result['supported'] is False and result['citations']==[]
+    assert '沒有來源的斷言' not in result['text'] and len(calls)==4
+
+
+def test_qa_grounding_rejects_foreign_indices_before_review(monkeypatch):
+    monkeypatch.setattr(provider,'luna',lambda *_:{'text':'合成回答','supported':True,'citations':[999]})
+    with pytest.raises(ValueError,match='VOICE_ANSWER_INVALID'):
+        provider.answer({**body(),'question':'合成問題'})
+
+
+def test_qa_citation_verifier_does_not_treat_claim_paraphrase_as_evidence(monkeypatch):
+    request={**body(),'question':'合成問題'}
+    request['claims'][0]['text']='UNSUPPORTED_CLAIM_PARAPHRASE'
+    calls=[];responses=iter([{'text':'空堆疊不可 pop。','supported':True,'citations':[0]}, {'supported':True,'unsupported_claims':[]}])
+    def model(prompt,schema):calls.append(prompt);return next(responses)
+    monkeypatch.setattr(provider,'luna',model)
+    provider.answer(request)
+    assert 'UNSUPPORTED_CLAIM_PARAPHRASE' in calls[0]
+    assert 'UNSUPPORTED_CLAIM_PARAPHRASE' not in calls[1]
+    assert '空堆疊不可 pop。' in calls[1]

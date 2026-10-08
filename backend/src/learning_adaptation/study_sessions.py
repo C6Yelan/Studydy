@@ -215,12 +215,13 @@ def set_current_study_concept(
             context = _validate(session, stored)
             # 焦點只決定導覽位置；已建立題組由自己的 Concept／KS／成員綁定保護。
             if (
-                stored.status not in {"active", "no_safe"}
+                stored.status not in {"active", "no_safe", "completed"}
                 or concept_id not in {concept.concept_id for concept in context.concepts}
             ):
                 raise StudySessionError("STUDY_SESSION_TARGET_INVALID")
             stored.current_concept_id = concept_id
-            stored.status = "active"
+            if stored.status != "completed":
+                stored.status = "active"
             stored.last_applied_guidance_revision = None
             stored.last_applied_progress_sha256 = None
             return _stored(stored)

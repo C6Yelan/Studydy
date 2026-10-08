@@ -118,25 +118,32 @@ def concept(identity, count):
                        for i, c in enumerate(claims(count))]}
 
 
-def test_episode_boundary_preserves_complete_concepts_instead_of_filling_six_slots():
-    source = {'concepts': [concept('a', 4), concept('b', 4)]}
+def test_episode_boundary_preserves_complete_concepts_instead_of_filling_slots():
+    source = {'concepts': [concept('a', 20), concept('b', 20)]}
     result = plan_episodes(source, ['a', 'b'])
-    assert [len(e['claims']) for e in result] == [4, 4]
+    assert [len(e['claims']) for e in result] == [20, 20]
     assert [{c['concept_id'] for c in e['claims']} for e in result] == [{'a'}, {'b'}]
 
 
 def test_related_concepts_stay_together_when_capacity_allows():
-    view = {'concepts': [concept('a', 4), concept('b', 2), concept('c', 2)],
+    view = {'concepts': [concept('a', 28), concept('b', 4), concept('c', 4)],
             'relations': [{'source_concept_id': 'b', 'target_concept_id': 'c', 'type': 'prerequisite'}]}
     result = plan_episodes(view, ['a', 'b', 'c'])
-    assert [[c['concept_id'] for c in e['claims']] for e in result] == [['a']*4, ['b']*2 + ['c']*2]
+    assert [[c['concept_id'] for c in e['claims']] for e in result] == [['a']*28, ['b']*4 + ['c']*4]
 
 
 def test_large_concept_remains_complete_and_caps_are_hard():
-    view = {'concepts': [concept('a', 13)]}
+    view = {'concepts': [concept('a', 65)]}
     result = plan_episodes(view, ['a'])
-    assert all(len(e['claims']) <= 6 and sum(len(c['text']) for c in e['claims']) <= 2400 for e in result)
+    assert all(len(e['claims']) <= 32 and sum(len(c['text']) for c in e['claims']) <= 2400 for e in result)
     assert [c['claim_id'] for e in result for c in e['claims']] == [c['claim_id'] for c in view['concepts'][0]['claims']]
     view['concepts'][0]['claims'][0]['text'] = '字' * 2401
     with pytest.raises(PodcastError, match='PODCAST_SOURCE_TOO_LARGE'):
         plan_episodes(view, ['a'])
+
+
+def test_longer_episode_keeps_many_short_claims_in_one_concept():
+    source = {'concepts': [concept('a', 29)]}
+    result = plan_episodes(source, ['a'])
+    assert len(result) == 1
+    assert result[0]['claims'] == [{**c, 'concept_id': 'a', 'label': 'a'} for c in source['concepts'][0]['claims']]

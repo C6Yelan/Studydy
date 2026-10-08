@@ -47,8 +47,7 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
       const mode: Mode = id === "review" ? "review" : "focus";
       if (onMapModeChange) onMapModeChange(mode);
       else writeRoute(mapRoute, false, {
-        knowledgeMap: { revision: mapRoute.structureRevision, mode: "focus" },
-        ...(id === "review" ? { assessmentEntry: mapRoute.structureRevision } : {}),
+        knowledgeMap: { revision: mapRoute.structureRevision, mode },
         focusMaterialTab: keyboard,
       });
     } else {

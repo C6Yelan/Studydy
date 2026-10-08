@@ -32,6 +32,7 @@ class Create(BaseModel):
 class Question(BaseModel):
     model_config=ConfigDict(extra='forbid')
     question:str=Field(min_length=1,max_length=4000)
+    mode:Literal["text","voice"]="text"
     context:PodcastContext|None=None
 
 
@@ -64,7 +65,7 @@ def install(app,settings,trusted,key,query):
 
     @app.post('/v1/voice-conversations/{identity}/turns',status_code=202)
     def question(request:Request,identity:UUID,body:Question):
-        return voice.add_turn(owner(request),identity,key(request),body.question,context=body.context.model_dump(mode="json") if body.context else None,dsn=settings.dsn)
+        return voice.add_turn(owner(request),identity,key(request),body.question,mode=body.mode,context=body.context.model_dump(mode="json") if body.context else None,dsn=settings.dsn)
 
     @app.post('/v1/voice-conversations/{identity}/recordings',status_code=202)
     async def recording(request:Request,identity:UUID):

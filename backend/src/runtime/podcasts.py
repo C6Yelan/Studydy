@@ -15,6 +15,7 @@ from .storage.artifacts import _key_digest, quarantine_source_pdf, reconcile_dis
 from .storage.knowledge_structures import _prune_unreferenced_structures, _read_verified_document, _view
 from .storage.source_artifacts import write_blob
 from .storage.tables import Artifact, Material, Podcast, PodcastScenes, database_session
+from .podcast_quality import MAX_EPISODE_CLAIMS
 
 
 class PodcastError(RuntimeError):
@@ -61,7 +62,7 @@ def plan_episodes(view, concept_ids):
     previous = [None] * (len(claims) + 1)
     for end in range(1, len(claims) + 1):
         size = 0
-        for start in range(end - 1, max(-1, end - 7), -1):
+        for start in range(end - 1, max(-1, end - MAX_EPISODE_CLAIMS - 1), -1):
             size += len(claims[start]['text'])
             if size > 2400:
                 break
@@ -74,7 +75,7 @@ def plan_episodes(view, concept_ids):
                 # 同一引用區塊通常是連續定義／步驟；同分時避免從中間切開。
                 crossed += bool({e['evidence_id'] for e in claims[start-1]['evidence'] if 'evidence_id' in e}
                                 & {e['evidence_id'] for e in claims[start]['evidence'] if 'evidence_id' in e})
-            delta = (inside, crossed, 1, (6 - (end-start)) ** 2)
+            delta = (inside, crossed, 1, (MAX_EPISODE_CLAIMS - (end-start)) ** 2)
             cost = tuple(a+b for a, b in zip(costs[start], delta))
             if costs[end] is None or cost < costs[end]:
                 costs[end], previous[end] = cost, start

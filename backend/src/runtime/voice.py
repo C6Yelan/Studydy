@@ -87,9 +87,22 @@ def read(owner, identity, *, dsn=None):
     with database_session(dsn) as db:
         row, material = _conversation(db, owner, identity)
         turns = db.scalars(select(Turn).where(Turn.conversation_id == identity).order_by(Turn.created_at,Turn.turn_id)).all()
+        # 舊回答未保存 index 對照時，依綁定教材版本重建；不改寫原始引用。
+        claim_indices = None
+        answers = {}
+        for turn in turns:
+            answer = deepcopy(turn.answer)
+            if answer and 'citation_indices' not in answer:
+                if claim_indices is None:
+                    document = _read_verified_document(db, owner, row.material_id, revision=row.knowledge_structure_revision)
+                    claims = [claim for concept in _view(document, row.material_id)['concepts'] for claim in concept['claims']]
+                    claim_indices = {claim['claim_id']: index for index, claim in enumerate(claims)}
+                answer['citation_indices'] = [claim_indices.get(citation['claim_id']) for citation in answer['citations']]
+            answers[turn.turn_id] = answer
         return {**_summary(row), 'is_current_revision': row.knowledge_structure_revision == material.head_revision,
             'source_resolver':f'/v1/materials/{row.material_id}/knowledge-structures/{row.knowledge_structure_revision}/evidence',
             'turns':[{**{k:getattr(t,k) for k in ('turn_id','mode','question','answer','status','error_code','context')},
+                'answer':answers[t.turn_id],
                 'audio_url':f'/v1/voice-conversations/{identity}/turns/{t.turn_id}/audio' if t.audio else None} for t in turns]}
 
 
@@ -131,14 +144,15 @@ def podcast_context(db, conversation, locator):
         raise SourceError('VOICE_PODCAST_CONTEXT_INVALID') from None
 
 
-def add_turn(owner, identity, key, question='', recording=None, *, context=None, dsn=None):
+def add_turn(owner, identity, key, question='', recording=None, *, mode="text", context=None, dsn=None):
     if not recording and (not question.strip() or len(question)>4000): raise SourceError('REQUEST_INVALID')
     if recording and len(recording)>12*1024*1024: raise SourceError('MATERIAL_TOO_LARGE')
     _key_digest(key)
     fingerprint = sha256(recording if recording else question.encode()).hexdigest()
     if context is not None:
         fingerprint=sha256(json.dumps({'input':fingerprint,'context':context},sort_keys=True,separators=(',',':')).encode()).hexdigest()
-    mode = 'voice' if recording else 'text'
+    if mode not in ('text', 'voice'): raise SourceError('REQUEST_INVALID')
+    mode = 'voice' if recording else mode
     legacy_fingerprint = fingerprint
     fingerprint = sha256(json.dumps({'input': fingerprint, 'mode': mode}, sort_keys=True).encode()).hexdigest()
     with database_session(dsn) as db:
@@ -249,7 +263,7 @@ def finish(state, result=None, error=None, *, dsn=None):
                 or type(supported)is not bool or (supported and not indices)):
                 raise SourceError('VOICE_ANSWER_INVALID')
             turn.answer={'text':text,'supported':supported,'citations':[state['claims'][i] for i in dict.fromkeys(indices)],
-                'provider':'codex-exec:gpt-5.6-luna'}
+                'citation_indices':list(dict.fromkeys(indices)), 'provider':'codex-exec:gpt-5.6-luna'}
             turn.status='ready' if turn.mode=='text' else 'speaking'
         else:
             validate_audio(result);turn.audio=result;turn.status='ready'

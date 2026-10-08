@@ -5,6 +5,9 @@ import math
 import re
 import unicodedata
 
+# 分集與 provider 共用同一來源容量，避免合法分集在寫稿入口被拒絕。
+MAX_EPISODE_CLAIMS = 32
+
 
 def _source_size(claims):
     # 英文來源不能按每個拉丁字母膨脹中文口述預算；同一來源長段被多個 claim

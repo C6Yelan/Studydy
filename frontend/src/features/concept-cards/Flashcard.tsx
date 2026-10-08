@@ -16,19 +16,31 @@ export function Flashcard({ card, structure, flipped, onFlip, apiClient, sourceR
   const relation = cardRelation(card, structure);
   const textPoint = card.claims.find(claim => !claim.evidence.some(e => e.kind === "code" || e.kind === "formula"));
   const summary = textPoint ? claimText(textPoint) : "";
-  const excerpt = Array.from(summary).slice(0, 100).join("");
+  const excerpt = (text: string, limit: number) => {
+    const first = text.split(/(?<=[。！？])\s*/u)[0] ?? text;
+    const characters = Array.from(first);
+    return characters.length > limit ? characters.slice(0, limit).join('') + '…（節錄）' : first;
+  };
+  const definition = excerpt(summary, 140);
+  const points = card.claims.slice(0, 4);
   const review = structure.status.quality === "needs_review";
   return (
     <div className={`flashcard ${flipped ? "is-back" : "is-front"}`}>
       {!flipped ? (
-        <button className="flashcard-front" type="button" onClick={onFlip} aria-label={`翻卡查看「${card.label}」的重點`}>
-          <span className="flashcard-kicker"><Icon name="learning" size={18} /> 概念圖卡</span>
+        <article className="flashcard-front" aria-label={`${card.label}概念卡`}>
+          <span className="flashcard-kicker"><Icon name="learning" size={18} /> 概念卡</span>
           {review && <span className="flashcard-review">待確認 · 原教材尚未通過檢查</span>}
-          <span className="flashcard-title">{card.label}</span>
-          <ConceptVisual card={card} structure={structure} />
-          {summary && <span className="flashcard-summary">{excerpt}{excerpt !== summary && "…（節錄）"}</span>}
-          <span className="flashcard-prompt"><Icon name="refresh" size={16} /> 翻面查看完整重點與來源</span>
-        </button>
+          <h2 className="flashcard-title">{card.label}</h2>
+          {definition && <p className="flashcard-definition">{definition}</p>}
+          <div className="flashcard-overview">
+            <ul className="flashcard-bullets">{points.map(claim => <li key={claim.claim_id}>{excerpt(claimText(claim), 90)}</li>)}</ul>
+            <ConceptVisual card={card} structure={structure} />
+          </div>
+          <footer className="flashcard-footer">
+            <div className="flashcard-source-links">{sourceLinks(points.flatMap(claim=>claim.evidence)).slice(0,2).map(evidence=><SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} />)}</div>
+            <button className="text-button" type="button" onClick={onFlip} aria-label={`查看「${card.label}」的完整重點與來源`}>完整重點與來源</button>
+          </footer>
+        </article>
       ) : (
         <article className="flashcard-back" aria-label={`${card.label}的重點`}>
           <span className="flashcard-kicker">概念重點</span>

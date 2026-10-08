@@ -157,12 +157,8 @@ export default function KnowledgeMap({
     };
   }, [apiClient, route.materialId, route.runId, route.structureRevision, reload]);
 
-  const openStudySession = (studySessionId: string) =>
-    writeRoute({
-      ...route,
-      name: "study-session",
-      studySessionId,
-    });
+  const openStudySession = (studySessionId: string, assessmentSetId?: string) =>
+    writeRoute({ ...route, name: "study-session", studySessionId, assessmentSetId });
 
   const startStudy = async (conceptId: string) => {
     if (isStartingStudy || isLoadingProgress) return;
@@ -172,13 +168,6 @@ export default function KnowledgeMap({
       activePage.current &&
       pageVersion.current === version &&
       window.location.pathname === routePath(route);
-    if (
-      savedSession &&
-      (savedSession.status === "completed" || progress?.current_concept_id === conceptId)
-    ) {
-      openStudySession(savedSession.study_session_id);
-      return;
-    }
     if (startIntent.current?.conceptId !== conceptId) {
       startIntent.current = { conceptId, key: crypto.randomUUID() };
     }
@@ -186,7 +175,9 @@ export default function KnowledgeMap({
     setStartMessage(null);
     try {
       let session = savedSession
-        ? await apiClient.focusStudySession(savedSession.study_session_id, conceptId)
+        ? progress?.current_concept_id === conceptId
+          ? { ...savedSession, current_concept_id: conceptId }
+          : await apiClient.focusStudySession(savedSession.study_session_id, conceptId)
         : await apiClient.createStudySession(
             {
               schema: "study-session-create/v1",
@@ -198,25 +189,40 @@ export default function KnowledgeMap({
           );
       if (!isCurrentPage()) return;
       // 並行建立可能取得其他觀念的既有紀錄；未結束的紀錄仍需對齊選定觀念。
-      if (session.status !== "completed" && session.current_concept_id !== conceptId) {
+      if (session.current_concept_id !== conceptId) {
         session = await apiClient.focusStudySession(session.study_session_id, conceptId);
         if (!isCurrentPage()) return;
       }
-      openStudySession(session.study_session_id);
+      const latest = await apiClient.readProgress(session.study_session_id, route.structureRevision);
+      if (!isCurrentPage()) return;
+      const cycle = latest.assessment_cycles.find(item => item.concept_id === conceptId);
+      if (cycle?.active_set_id) {
+        openStudySession(session.study_session_id, cycle.active_set_id);
+        return;
+      }
+      const state = latest.concept_states.find(item => item.concept_id === conceptId);
+      if (state?.assessable_claim_ids?.length === 0) {
+        openStudySession(session.study_session_id);
+        return;
+      }
+      if (cycle?.outcome === "needs_review" && state?.status !== "completed") {
+        openStudySession(session.study_session_id, cycle.diagnostic_set_id);
+        return;
+      }
+      if (cycle?.outcome === "incomplete" && state?.status !== "completed") {
+        const previous = await apiClient.readAssessmentSet(session.study_session_id, cycle.diagnostic_set_id);
+        if (!isCurrentPage()) return;
+        if (previous.status === "failed") { openStudySession(session.study_session_id, previous.set_id); return; }
+      }
+      const group = await apiClient.createAssessmentSet(session.study_session_id, conceptId, startIntent.current!.key);
+      if (!isCurrentPage()) return;
+      openStudySession(session.study_session_id, group.set_id);
     } catch (error) {
       if (!isCurrentPage()) return;
       setStartMessage(errorMessage(error));
       setIsStartingStudy(false);
     }
   };
-  // 從教材其他分頁進入測驗時，等待現有 session/progress，再重用同一個入口。
-  // 消耗一次性 history intent，返回／reload 不會重複建立學習紀錄。
-  useEffect(() => {
-    if (!view || message || isLoadingProgress || window.history.state?.assessmentEntry !== route.structureRevision) return;
-    const { assessmentEntry: _, ...state } = window.history.state;
-    window.history.replaceState(state, "");
-    void startStudy(progress?.current_concept_id ?? initialFocusConceptId(view));
-  }, [view, message, isLoadingProgress, progress, route.structureRevision]);
 
   if (message)
     return (

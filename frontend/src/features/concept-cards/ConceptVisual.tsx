@@ -48,9 +48,9 @@ export function ConceptVisual({ card, structure }: { card: ConceptCard; structur
   const literal = card.claims.find(c => c.evidence.some(e => e.kind === "code" || e.kind === "formula"));
   const code = literal && literal.evidence.some(e => e.kind === "code");
   const excerpt = literal ? lines(claimText(literal), 17, 4) : null;
-  const kind = literal ? (code ? "code" : "formula") : relation ? relation.relation.type : "decorative";
+  const kind = literal ? (code ? "code" : "formula") : relation ? relation.relation.type : "structure";
   const title = literal ? (code ? "程式碼重點" : "公式重點") : relation ? relationLabels[relation.relation.type][0] : "概念筆記";
-  const description = literal ? claimText(literal) : relation ? `${relation.source.label}／${relation.target.label}：${relation.relation.learner_reason}` : "裝飾圖示，不表示教材關係。";
+  const description = literal ? claimText(literal) : relation ? `${relation.source.label}／${relation.target.label}：${relation.relation.learner_reason}` : `${card.label}的教材重點組成，不表示時間或因果順序。`;
   return <svg className="concept-visual" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 248" role="img"
     aria-label={`${card.label}：${title}`} data-visual-kind={kind} data-relation-id={!literal ? relation?.relation.relation_id : undefined}
     fontFamily="system-ui, sans-serif">
@@ -74,11 +74,14 @@ export function ConceptVisual({ card, structure }: { card: ConceptCard; structur
       {relation.relation.type !== "contrast" && relation.relation.type !== "prerequisite" && <path d="m216 123 7 5-7 5" fill="none" stroke="#557993" strokeWidth="2" />}
       <text x="200" y="224" textAnchor="middle" fontSize="14" fill="#42698b">{relation.relation.type === "prerequisite" ? "學習依賴 · 非時間流程" : relation.relation.type === "contrast" ? "教材中的對照 · 不推定優劣" : "教材中的關係 · 說明與來源見背面"}</text>
     </> : <>
-      <circle cx="200" cy="124" r="78" fill="#dcebf8" />
-      <path d="M135 76Q168 66 200 82Q232 66 265 76V175Q232 165 200 182Q168 165 135 175Z" fill="#fff" stroke="#537ca1" strokeWidth="3" strokeLinejoin="round" />
-      <path d="M200 83V180M151 99L181 103M151 120L181 124M151 141L172 144M219 103L249 99M219 124L249 120M219 144L240 141" fill="none" stroke="#84a4bf" strokeWidth="3" strokeLinecap="round" />
-      <circle cx="267" cy="74" r="17" fill="#c2e3d8" /><path d="M259 74H275M267 66V82" fill="none" stroke="#406f60" strokeWidth="3" />
-      <text x="200" y="226" textAnchor="middle" fontSize="14" fill="#42698b">裝飾圖示 · 未推定概念關係</text>
+      <rect x="20" y="55" width="130" height="140" rx="12" fill="white" stroke="#a2bdd2" />
+      <Label text={card.label} x={85} y={105} />
+      <path d="M150 125H170M170 80V170M170 80H188M170 125H188M170 170H188" fill="none" stroke="#718ea5" strokeWidth="2" />
+      {card.claims.slice(0,3).map((claim,index)=><g key={claim.claim_id}>
+        <rect x="188" y={60+index*45} width="194" height="38" rx="8" fill="#fff" stroke="#b1cbe2" />
+        <text x="199" y={84+index*45} fontSize="14" fill="#193858">{lines(claimText(claim),12,1).rows[0]}…</text>
+      </g>)}
+      <text x="200" y="226" textAnchor="middle" fontSize="14" fill="#42698b">概念與教材重點</text>
     </>}
     {structure.status.quality === "needs_review" && <text x="378" y="244" textAnchor="end" fontSize="12" fill={literal ? "#f6d59e" : "#805719"}>待確認</text>}
   </svg>;

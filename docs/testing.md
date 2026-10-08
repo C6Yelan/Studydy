@@ -281,3 +281,69 @@ PYTHONPATH=backend/src:backend/tests/runtime:backend/tests:local_ai/src:data/pod
 後續已依使用者授權將 `5ade5bdba90a5fefbdb64cb9b65b4db0ed2d25d9` 部署至 studydy.net：更新 backend 與 Podcast provider，frontend、DB schema、原 artifacts 保留。保存部署前 DB dump、映像回復標籤與私有設定；公開 Chromium 的頁面／登入／Podcast API、原影片 Range 讀取與私人快取驗證正常，未登入 API 仍回 401。主機 urllib 的公開請求被 Cloudflare 回 403，與實際瀏覽器成功結果分別記錄，沒有放寬邊界。部署紀錄位於本機 `data/deployments/semantic-motion-20261005/`。
 
 另在原驗收帳號新增「2D 動態示範｜TCP 建立與關閉」（約 41.43 秒），沿用上述已核可講稿、來源、音訊與 v3 樣片，保存獨立音訊／影片 artifacts，不覆寫原 Podcast。匯入前核對平面分鏡內容等同原審查版本，並通過現行 bundle、來源與實測時機驗證；內容審查沿用原結果，不冒稱新增模型 review。公開播放器實播成功，下載 MP4 hash 與本機已驗證樣片完全相同。部署及新增示範均未呼叫模型、TTS 或 ASR。
+
+## 第二輪完成狀態與互動驗證（2026-10-08）
+
+本輪使用隔離 DB／受控 provider 驗證首答完成、錯後兩道不同題連對、再錯重計、再次練習保留完成、部分／零可檢測，以及未變重點的跨版本承接。前端驗證涵蓋測驗清單與直接接題、固定比例概念卡、Voice Mode 持續聆聽／靜音送出／打斷播放、權限失敗清理、歷史對話與來源編號。模擬音量只驗證互動，不代表真實麥克風、回音環境或真人聽感通過。
+
+真實 Luna 測試使用當次授權教材。三道不同題通過候選檢查與獨立盲核對；「錯、對、對」完成判定以回放測試驗證，未寫入產品作答。教材問答初稿有一處來源未支持的評價詞，提示修正後，同題獨立來源核對通過。這些結果不能推廣成所有教材的品質分數。
+
+可重現 PoC 程式（輸入是已授權的 `knowledge-structure-view/v1` JSON，輸出留在本機私人目錄）：
+
+~~~bash
+PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/python ops/research/round2.py STRUCTURE_VIEW.json PRIVATE_OUTPUT/acquisition
+PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/python ops/podcast/round2.py STRUCTURE_VIEW.json PRIVATE_OUTPUT/podcast
+~~~
+
+BreezyVoice PoC 固定官方 source／模型 revision，並以隔離 `breezy-extra` 補齊 g2pw、pypinyin、opencc-python-reimplemented、cn2an、jieba；借用既有語音依賴但不修改 venv。實際 revision／套件版本保存於私人證據的 `tts/environment.json`。使用模型內建 SFT 聲線，未使用真人 reference 或 G2PW 注音；這不是官方 zero-shot 路徑的完整品質驗收。三個 variant 的 ASR 僅供縮寫／單位診斷，不作為口音評分；未證明替代方案更好，故不替換正式聲線。
+
+Motion Canvas 3.17.2 PoC 的可重現 source 在 `ops/podcast/motion-canvas/`；`prepare.py DIRECTORY` 會複製專案並用既有 TTS 產生旁白及實際 sample 邊界。於隔離 DIRECTORY 執行 `npm ci`、`node node_modules/vite/bin/vite.js`，再從 checkout 執行 `node ops/podcast/motion-canvas/render.mjs PRIVATE_RESULT.json`。1280×720／30fps 示例顯示三個封包移動、箭頭、狀態變化及同步說明，已檢查 MP4 解碼和關鍵畫格；尚未整合正式 renderer。
+
+私人必要證據位於 `data/round2-qualification-20261008/`，不加入 Git／CI。來源取得的 browser fallback、論文摘要與 metadata 分級分別保留；分集及講稿比較保留同輸入與來源覆蓋，沒有以少集數或 reviewer 通過冒充教學成效。
+
+正式站驗證進一步發現 QA 可能漏列引用或把 Claim 改述當成原文依據。問答 provider 因此改成引用原文的獨立核對，最多修稿一次且修稿後重核；仍無法支持則返回無法可靠回答，不發布原斷言。每次最多四個 Luna 請求。對應 provider 的 27 項單元測試包含漏引用修正、無依據敘述、外來索引與 Claim 改述隔離。
+
+後續曾比較 CosyVoice／BreezyVoice、參考音與多種合成方式。使用者最後選擇原參考音搭配 CosyVoice 的 V／W 指令及整句混讀；BreezyVoice 與全英文音素提示未採用。依使用者清理要求，這批試聽 WAV、模型／快取與專用 helper 已刪除，僅保留下面的可重用經驗及部署摘要。
+
+## V／W 對談的接點與語速修正經驗（2026-10-08）
+
+使用者已偏好 V／W 的音色與口音，但在長對談指出「UDP。你」、「那 UDP 呢？」及「懂了。」附近有怪聲，並指出相鄰段落忽快忽慢。這是新的未通過聽評項目，不能沿用短樣本的偏好當作長音訊驗收。
+
+### 已定位的原因
+
+- 「呢？」與「懂了。」的原始句尾仍有非零振幅便接上靜音；成品接點的相鄰 sample 跳變約為 0.0333、0.0365，具備產生喀聲的條件。
+- 「UDP。你」的下一句開頭另有短促、非週期脈衝，與後面的持續語音之間隔著靜音。只在接點做淡入淡出，不足以去掉這種句首生成雜音。
+- 原版沒有套用變速。快慢差異來自分句獨立合成；比較時必須使用正規化後的實際發音量，不能把 `10 Mbps` 當成幾個原稿字元。英文複數尾音也不能誤算成額外的字母 S。
+
+原試聽 WAV 與人工指定秒數的診斷 helper 已按使用者要求刪除。量測與聽評摘要收斂保存在 `data/deployments/podcast-vw-20261008/prior-listening-summary.json`；正式規則位於 `ops/podcast/dialogue_audio_repair.py`，不含指定句子、段落序號或秒數。
+
+### 可重用的候選規則
+
+1. 每個合成片段以 10ms 淡入、20ms 淡出平滑至零；語音不互相重疊，片段內部保持原樣。
+2. 句首脈衝偵測依短能量區、後續靜音與持續語音判斷，再以週期性檢查保護有聲語氣詞；與持續語音起點保持 100ms 距離。正常子音緊接母音、短有聲字詞等情形保留。此啟發式仍有誤判風險；試驗階段曾保留原檔與決策對照，正式流程不把私人音訊／講稿寫入一般 log。
+3. 句尾、問句及換人使用不同停頓目標，扣除兩側原有安靜區；原本停頓已足夠時不再疊加固定靜音。
+4. 語速以中文發音字數與 CMU 英文音節估計，使用同段足夠長句子的中位數作參考。短語氣詞、未知英文發音不自動調速；其餘只向中位數移動一半，限制在 0.90–1.10 倍，微小差異保留。這些是試聽處理參數，不是品質通過門檻，也不代表所有段落應該同速。
+
+候選規則不依賴講稿內容、句子序號或某個固定秒數。原始對談、只修接點／停頓版、再加語速協調版分開保存，讓聽評能辨認是哪項處理帶來改善或退步。語速估計會受到強調與句中停頓影響；不能以數值一致取代自然度判斷。
+
+### 驗證與正式接入界線
+
+~~~bash
+PYTHONPATH=ops/podcast data/podcast/cosyvoice-b-runtime/bin/python backend/tests/test_podcast_audio_repair.py
+~~~
+
+十二項程式測試檢查孤立脈衝、子音接母音、短有聲字詞、淡化邊緣時保留內部樣本、複數與字母音節，以及不依句子身分的調速；另涵蓋整句英文冠詞、中英縮寫、數字／單位、短回覆、換人停頓與變速失敗。合成測試訊號只驗證保護條件，不代表真實語音品質通過；實際候選仍須檢查內容、弱音、換人、英文與單位，並取得真人聽評。既有 byte／bit 辨識疑點不屬於本次接點修正，不宣稱已解決。
+
+正式整合已直接處理模型回傳的原始片段及其講稿／speaker 邊界，再統一做 loudness mastering；為還原舊樣本而搜尋全零間隔的診斷程序沒有進入產品。需先用不同講稿、長短句、弱起音、縮寫、數字與不同說話者驗證誤刪和節奏風險，沿用現行 qualification，不能因這一份樣片改善就宣稱通用品質達標。使用者接受 VW-2 後已授權切換新 Podcast 合成；產品歷史音訊保留。資格測試確認正式合成路徑與 VW-2 成品逐位元相同，這不等於所有教材的自然度與發音均已驗收。
+
+## V／W 正式部署與指定教材驗證（2026-10-08）
+
+使用者授權將已接受的 VW-2 效果套用正式 Podcast。正式合成器已改用整句混讀、V／W 指令及通用音訊組裝；以原對談經正式入口生成的 WAV 與 VW-2 逐位元相同。12 項語音處理測試、15 項隔離 Podcast runtime 測試、47 項講稿 provider／quality 測試及 58 項前端 Node 測試通過，前端正式建置完成。這些程式測試不替代新教材的人耳聽評。
+
+分集與 provider 共用 32 個 claim 上限，仍保留 2400 字來源容量、完整引用與原教學審查。首次請求曾被 provider 遺留的六 claim 檢查拒絕，已統一常數並增加滿載／越界測試。第二集亦曾因語意審查及引用契約失敗停止；補強不擅自增加必要／唯一條件的通用提示，並讓結構錯誤使用原兩稿額度修正，沒有放寬來源或教學門檻。診斷稿未匯入產品，最後結果由正常工作流程重新產生。
+
+使用指定帳號與網路教材的原 revision 建立兩集雙人節目，音訊分別 106.908 秒與 145.163 秒，均保存 v13／dialogue-audio/v1 身分及合格響度量測。兩集腳本皆經獨立 correctness／teaching_quality 審查通過；原教材的 partial／needs_review 標記仍保留，不能將本次腳本結果解讀為整份教材已驗收。公開登入播放器實播、第二集跳到 120 秒、Range 206、private/no-store、未登入 401 及手機版面通過。
+
+臨時試聽網站、這輪及未使用的舊聲音實驗／模型／快取已刪除。清理、實際部署 source hash／映像、必要回復檔與新作品 ID 記於本機 `data/deployments/podcast-vw-20261008/`；不保存帳密，不把私人教材或產物加入 Git。
+
+本次兩集音訊與教學影片最終均已完成；第二集影片首次來源／教學審查未過，沿原標準重試後通過，未改寫音訊。正式播放器以 1× 實播兩集、第二集音訊與影片跳轉至 120 秒均正常；原教材的需複核標記保留。

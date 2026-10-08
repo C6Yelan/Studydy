@@ -47,10 +47,10 @@ const relationStyles: Record<RelationType, { label: string; color: string; dashe
 const fitViewOptions = { padding: 0.18, minZoom: 0.001, maxZoom: 1.1 };
 
 const learningLabels = {
-  not_started: "尚未練習",
-  learning: "學習中",
-  needs_review: "需要複習",
-  mastered: "已掌握",
+  not_started: "尚未開始",
+  in_progress: "進行中",
+  needs_review: "需要加強",
+  completed: "已完成",
 } as const;
 
 function LearningBadge({
@@ -61,15 +61,9 @@ function LearningBadge({
   progress: LearnerProgressView | null;
 }) {
   const state = progress?.concept_states.find((item) => item.concept_id === conceptId);
-  const cycle = progress?.assessment_cycles.find((item) => item.concept_id === conceptId);
-  const label =
-    cycle?.outcome === "passed" && state?.status !== "mastered"
-      ? "本輪檢測通過"
-      : cycle?.pending_count
-        ? "待補強"
-        : state
-          ? learningLabels[state.status]
-          : null;
+  const label = state?.status !== "completed" && state?.assessable_claim_ids?.length === 0
+    ? "此概念目前無法提供可靠檢測"
+    : state ? learningLabels[state.status] : null;
   return state && label ? (
     <span className={`map-learning-badge is-${state.status}`}>{label}</span>
   ) : null;
@@ -184,7 +178,7 @@ function ConceptDetail({
         </button>
       </header>
       {progress ? <LearningBadge conceptId={concept.concept_id} progress={progress} /> : (
-        <span className="map-learning-badge">{isLoadingProgress ? "讀取學習狀態…" : progressMessage ? "學習狀態暫時無法讀取" : "尚未練習"}</span>
+        <span className="map-learning-badge">{isLoadingProgress ? "讀取學習狀態…" : progressMessage ? "學習狀態暫時無法讀取" : "尚未開始"}</span>
       )}
       <section>
         <h3>教材重點</h3>
@@ -246,8 +240,8 @@ function LearningNavigator({
   const currentStep = view.initial_learning_path.find(
     (step) => step.concept_id === progress?.current_concept_id,
   );
-  const mastered =
-    progress?.concept_states.filter((state) => state.status === "mastered").length ?? 0;
+  const completed =
+    progress?.concept_states.filter((state) => state.status === "completed").length ?? 0;
   const nextId =
     progress && ["advance", "review_prerequisite", "resume"].includes(progress.next_action.action)
       ? progress.next_action.target_concept_id
@@ -280,7 +274,7 @@ function LearningNavigator({
             <>
               {currentStep &&
                 `第 ${currentStep.position} / ${view.initial_learning_path.length} 個 · `}
-              已掌握 {mastered} 個
+              已完成 {completed} 個
             </>
           ) : (
             `建議從第 ${firstStep!.position} 個概念開始`
@@ -295,7 +289,7 @@ function LearningNavigator({
             const status = states.get(concept.concept_id)?.status;
             const next = concept.concept_id === nextId && !learningCurrent;
             const stateLabel =
-              status === "mastered" ? "已掌握" : status === "needs_review" ? "需要複習" : "";
+              status === "completed" ? "已完成" : status === "needs_review" ? "需要加強" : "";
             const name = [
               `第 ${step.position} 個，${concept.label}`,
               learningCurrent && "目前學習",
@@ -314,7 +308,7 @@ function LearningNavigator({
                   className={[
                     selected && "is-selected",
                     learningCurrent && "is-learning-current",
-                    status === "mastered" && "is-mastered",
+                    status === "completed" && "is-completed",
                     status === "needs_review" && "is-needs-review",
                     next && "is-next-suggested",
                   ]
@@ -339,7 +333,7 @@ function LearningNavigator({
                   </span>
                   {stateLabel && (
                     <span className="navigator-state" title={stateLabel} aria-hidden="true">
-                      <Icon name={status === "mastered" ? "check" : "warning"} size={15} />
+                      <Icon name={status === "completed" ? "check" : "warning"} size={15} />
                     </span>
                   )}
                 </button>
@@ -753,141 +747,37 @@ function RelationDetail({
   );
 }
 
-function ReviewView({
-  view,
-  progress,
-  startStudy,
-  busyLabel,
-  studyLabel,
-  selectedId,
-  onSelect,
-  showNavigator,
-  apiClient,
-  loading,
-}: {
+function ReviewView({ view, progress, startStudy, busyLabel, loading }: {
   view: KnowledgeStructureView;
   progress: LearnerProgressView | null;
-  selectedId: string;
-  onSelect: (id: string) => void;
   startStudy: (id: string) => void;
   busyLabel: string | null;
-  studyLabel: string;
-  showNavigator: () => void;
-  apiClient: StudydyApiClient;
   loading: boolean;
 }) {
-  const conceptById = useMemo(
-    () => new Map(view.concepts.map((concept) => [concept.concept_id, concept])),
-    [view.concepts],
-  );
-  const weakStates =
-    progress?.concept_states.filter((state) => state.status === "needs_review") ?? [];
-  const selectedState =
-    weakStates.find((state) => state.concept_id === selectedId) ?? weakStates[0];
-  const concept = selectedState && conceptById.get(selectedState.concept_id);
-  const points =
-    concept?.claims.filter((claim) => selectedState.weak_claim_ids.includes(claim.claim_id)) ?? [];
-  return (
-    <section aria-labelledby="review-title">
-      <div className="view-heading">
-        <div>
-          <h2 id="review-title">複習重點</h2>
-          <p>依最近一次學習結果，以下是建議優先複習的概念。</p>
-        </div>
-      </div>
-      {loading && !progress ? (
-        <p role="status">正在讀取複習重點…</p>
-      ) : !concept ? (
-        <div className="review-empty">
-          <div>
-            <h3>{progress ? "目前沒有需要複習的概念" : "練習後，幫你找出複習方向"}</h3>
-            <p>
-              {progress
-                ? "可以回到學習導覽，繼續探索下一個概念。"
-                : "先學習一個概念並作答，這裡就會整理需要補強的重點。"}
-            </p>
-            <button className="secondary-button" type="button" onClick={showNavigator}>
-              查看學習導覽
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="review-workspace">
-          <nav className="review-list" aria-label="需要複習的概念">
-            <h3>
-              需要複習 <small>{weakStates.length} 個概念</small>
-            </h3>
-            <ul>
-              {weakStates.map((state) => {
-                const item = conceptById.get(state.concept_id)!;
-                return (
-                  <li key={state.concept_id}>
-                    <button
-                      type="button"
-                      aria-current={state.concept_id === concept.concept_id ? "true" : undefined}
-                      onClick={() => onSelect(state.concept_id)}
-                    >
-                      <strong>{item.label}</strong>
-                      <Icon name="chevron-right" />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </nav>
-          <header className="review-context">
-            <h3>{concept.label}</h3>
-          </header>
-          <section
-            className="review-points"
-            aria-label="選中概念的複習重點"
-            key={concept.concept_id}
-          >
-            <h3>需要補強的重點</h3>
-            <ol>
-              {points.map((claim) => (
-                <li key={claim.claim_id}>
-                  <p>{claim.text}</p>
-                  <div className="review-claim-sources" role="group" aria-label="教材來源">
-                    {sourceLinks(claim.evidence).map((evidence) => (
-                      <SourceButton
-                        key={evidence.evidence_id}
-                        apiClient={apiClient}
-                        resolver={view.source_resolver}
-                        evidence={evidence}
-                      />
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </section>
-          <aside className="review-actions" aria-label="複習行動">
-            <h3>接下來怎麼做</h3>
-            <button
-              className="primary-button"
-              type="button"
-              disabled={!!busyLabel}
-              onClick={() => startStudy(concept.concept_id)}
-            >
-              {busyLabel ?? studyLabel}
-            </button>
-            <button className="text-button" type="button" onClick={showNavigator}>
-              查看學習導覽
-              <Icon name="chevron-right" />
-            </button>
-          </aside>
-        </div>
-      )}
-    </section>
-  );
+  const states = new Map(progress?.concept_states.map(state => [state.concept_id, state]));
+  const pending = view.concepts.filter(concept => states.get(concept.concept_id)?.status !== "completed");
+  const completed = view.concepts.filter(concept => states.get(concept.concept_id)?.status === "completed");
+  const list = (concepts: Concept[], practice: boolean) => <ul className="assessment-concept-list">
+    {concepts.map(concept => <li key={concept.concept_id}>
+      <div><strong>{concept.label}</strong><LearningBadge conceptId={concept.concept_id} progress={progress}/></div>
+      <button className={practice ? "secondary-button" : "primary-button"} disabled={!!busyLabel}
+        onClick={() => startStudy(concept.concept_id)}>{busyLabel ?? (practice ? "再次練習" : "檢測這個概念")}</button>
+    </li>)}
+  </ul>;
+  return <section aria-labelledby="review-title">
+    <div className="view-heading"><div><h2 id="review-title">待完成的概念</h2>
+      <p>第一次答對即可完成；答錯的重點需連續答對兩道不同題。</p></div></div>
+    {loading ? <p role="status">正在讀取學習進度…</p> : <>
+      {pending.length ? list(pending, false) : <p>所有可檢測的概念都已完成。</p>}
+      {completed.length > 0 && <details><summary>已完成的概念 · 再次練習（{completed.length}）</summary>{list(completed, true)}</details>}
+    </>}
+  </section>;
 }
 
 export function KnowledgeMapWorkspace({
   apiClient,
   progress,
   isLoadingProgress,
-  learningStateStatus,
   progressMessage,
   onReloadProgress,
   isStartingStudy,
@@ -937,7 +827,7 @@ export function KnowledgeMapWorkspace({
   const [mode, setMode] = useState<Mode>(restored?.mode ?? "focus");
   const [searchQuery, setSearchQuery] = useState(restored?.search ?? "");
   const [selectedConceptId, setSelectedConceptId] = useState(restored?.concept ?? initialConceptId);
-  const [reviewConceptId, setReviewConceptId] = useState(restored?.review ?? initialConceptId);
+  const [reviewConceptId] = useState(restored?.review ?? initialConceptId);
   const [detailConceptId, setDetailConceptId] = useState<string | null>(restored?.detail ?? null);
   const [relationId, setRelationId] = useState<string | null>(restored?.relation ?? null);
   useEffect(() => {
@@ -1062,10 +952,6 @@ export function KnowledgeMapWorkspace({
     });
   };
   const selectMode = (nextMode: Mode) => {
-    if (nextMode === "review") {
-      onStartStudy(selectedConceptId);
-      return;
-    }
     cancelAnimationFrame(restoreFrame.current);
     setMode(nextMode);
     setDetailConceptId(null);
@@ -1076,8 +962,8 @@ export function KnowledgeMapWorkspace({
   const focusStudyConceptId = selectedConceptId;
   const focusStudyButtonLabel =
     busyStudyLabel ??
-    (learningStateStatus === "completed"
-      ? "查看測驗結果"
+    (progress?.concept_states.find(state => state.concept_id === focusStudyConceptId)?.status === "completed"
+      ? "再次練習"
       : "檢測這個概念");
   const focusStudyAction = (
     <section className="concept-study-action" aria-label="學習入口">
@@ -1249,11 +1135,6 @@ export function KnowledgeMapWorkspace({
                 progress={progress}
                 startStudy={onStartStudy}
                 busyLabel={busyStudyLabel}
-                studyLabel={learningStateStatus === "completed" ? "查看學習成果" : "繼續這個概念"}
-                selectedId={reviewConceptId}
-                onSelect={setReviewConceptId}
-                showNavigator={() => selectMode("focus")}
-                apiClient={apiClient}
               />
             ))}
         </div>

@@ -525,7 +525,7 @@ export function progress(value: unknown): value is LearnerProgressView {
       !!state &&
       revision(state.concept_id, "concept") &&
       typeof state.label === "string" &&
-      ["not_started", "learning", "needs_review", "mastered"].includes(String(state.status))
+      ["not_started", "in_progress", "needs_review", "completed"].includes(String(state.status))
     );
   });
 }

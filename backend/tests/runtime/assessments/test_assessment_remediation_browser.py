@@ -102,13 +102,13 @@ def test_direct_remediation_resumes_after_lost_create_response_without_duplicate
 
     assert not thread.is_alive()
     assert errors == []
-    assert calls == ["assessment", "assessment_check"] * 6
+    assert calls == ["assessment", "assessment_check"] * 8
 
     with database_session(fixture["dsn"]) as session:
         groups = list(session.scalars(select(AssessmentSet).where(
             AssessmentSet.study_session_id == fixture["study"].study_session_id,
         )))
-        assert len(groups) == 3
+        assert len(groups) == 4
         assert all(group.status == "completed" for group in groups)
         root = next(group for group in groups if group.kind == "diagnostic")
         assert all(
@@ -119,5 +119,5 @@ def test_direct_remediation_resumes_after_lost_create_response_without_duplicate
         answers = list(session.scalars(select(AnswerEvent).where(
             AnswerEvent.study_session_id == fixture["study"].study_session_id,
         )))
-        assert len(answers) == 6
-        assert sum(answer.is_correct for answer in answers) == 3
+        assert len(answers) == 8
+        assert sum(answer.is_correct for answer in answers) == 5

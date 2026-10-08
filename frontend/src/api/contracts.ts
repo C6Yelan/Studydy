@@ -305,12 +305,14 @@ export type AnswerFeedbackView = {
 type ConceptLearningStateView = {
   concept_id: string;
   label: string;
-  status: "not_started" | "learning" | "needs_review" | "mastered";
+  status: "not_started" | "in_progress" | "needs_review" | "completed";
   attempts: number;
   correct_answers: number;
   qualified_correct_items: number;
   covered_claim_ids: string[];
-  mastered_claim_ids: string[];
+  completed_claim_ids: string[];
+  assessable_claim_ids: string[];
+  unavailable_claim_ids: string[];
   weak_claim_ids: string[];
   latest_is_correct: boolean | null;
 };

@@ -122,7 +122,7 @@ test("card creation fits a desktop viewport and preserves selections across page
   await manual.getByRole("searchbox", { name: "搜尋概念" }).fill("");
   await expect(manual).toContainText("已選 3 / 31");
   await manual.getByRole("button", { name: "預覽「堆疊（Stack）」" }).click();
-  await page.getByRole("button", { name: "翻卡查看「堆疊（Stack）」的重點" }).click();
+  await page.getByRole("button", { name: "查看「堆疊（Stack）」的完整重點與來源" }).click();
   await expect(page.locator(".flashcard-point")).toContainText("最後一個條件不可遺漏");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
   await pagination.getByRole("button", { name: "下一頁", exact: true }).click();
@@ -412,11 +412,13 @@ test("library stays aligned and card review keeps compact content and controls",
   expect((await back.boundingBox())!.y).toBeCloseTo(loadingBack.y, 0);
   const content = await page.locator(".cards-study").boundingBox();
   const card = await page.locator(".flashcard").boundingBox();
-  expect(card!.width / content!.width).toBeGreaterThan(.95);
+  expect(card!.width / content!.width).toBeLessThan(.85);
+  await expect(page.getByRole("navigation", {name:"選擇概念卡"})).toBeVisible();
+  expect(card!.width/card!.height).toBeCloseTo(4/3,1);
   expect(card!.width).toBeLessThanOrEqual(800);
   expect(card!.height).toBeLessThan(560);
   await expect(page.locator(".concept-visual")).toBeVisible();
-  expect(Math.abs(card!.x + card!.width / 2 - 1536 / 2)).toBeLessThanOrEqual(1);
+  expect(card!.x).toBeGreaterThan((await page.locator(".cards-browse-list").boundingBox())!.x);
   const controls = page.locator('.cards-study-toolbar');
   await expect(controls).toContainText('1 / 2');
   await expect(controls.getByRole('button', {name:'洗牌重看'})).toBeVisible();
@@ -670,7 +672,7 @@ for (const sample of ["general", "prerequisite", "contrast", "part_of", "applica
       }
     }
     source.claims[0].evidence[0].quote = source.claims[0].text;
-    const expected = ["general", "process-fallback", "unresolved-evidence"].includes(sample) ? "decorative" : sample;
+    const expected = ["general", "process-fallback", "unresolved-evidence"].includes(sample) ? "structure" : sample;
     await page.emulateMedia({ reducedMotion: "reduce" });
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
@@ -681,7 +683,7 @@ for (const sample of ["general", "prerequisite", "contrast", "part_of", "applica
       if (sample === "prerequisite") await expect(svg).toContainText("學習依賴 · 非時間流程");
       if (sample === "contrast") await expect(svg).toContainText("不推定優劣");
       if (sample === "process-fallback") await expect(page.locator(".flashcard-review")).toBeVisible();
-      if (!["decorative", "code", "formula"].includes(expected)) {
+      if (!["structure", "code", "formula"].includes(expected)) {
         await expect(svg).toHaveAttribute("data-relation-id", relation.relation_id);
         expect(await svg.locator("text").allTextContents()).toEqual(expect.arrayContaining([source.label, target.label]));
       }
@@ -693,10 +695,10 @@ for (const sample of ["general", "prerequisite", "contrast", "part_of", "applica
         finally { URL.revokeObjectURL(url); }
       });
       expect(portability[0]).toBeGreaterThan(0); expect(portability[1]).toBeGreaterThan(0); expect(portability[2]).toBe(0);
-      await page.screenshot({ path: `../.studydy-runtime/quality-hardening-20261007/C-evidence/${sample}-${width}.png`, fullPage: true });
+      // 各圖型以 DOM／來源斷言驗證，不持續累積可重建全頁快照。
       await page.getByRole("button", { name: "翻面", exact: true }).click();
       await expect(page.locator(".flashcard-point p").first()).toHaveText(source.claims[0].text);
-      if (!["decorative", "code", "formula"].includes(expected)) {
+      if (!["structure", "code", "formula"].includes(expected)) {
         await expect(page.getByRole("region", { name: "圖卡關係與來源" })).toContainText(relation.learner_reason);
         const request = page.waitForRequest("**/evidence/*/source");
         await page.getByRole("button", { name: "關係來源 · 第 1 頁", exact: true }).click();
@@ -755,8 +757,8 @@ test("visual labels remain inert text and long excerpts keep full conditions on 
   const { view } = await mockCards(page, { saved: true, long: true });
   view.concepts[0].label = '<script>alert("x")</script> & <image href="https://invalid.test" />';
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
-  await expect(page.locator(".flashcard-summary")).toContainText("（節錄）");
-  expect(Array.from((await page.locator(".flashcard-summary").textContent())!).length).toBeLessThanOrEqual(105);
+  await expect(page.locator(".flashcard-definition")).toHaveText("保留所有必要條件與符號。");
+  expect((await page.locator(".flashcard-bullets").textContent())!.length).toBeLessThan(400);
   await expect(page.locator(".flashcard script, .flashcard image, .flashcard foreignObject")).toHaveCount(0);
   await expect(page.locator(".flashcard-title")).toHaveText(view.concepts[0].label);
   await page.getByRole("button", { name: "翻面", exact: true }).click();

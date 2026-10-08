@@ -52,9 +52,9 @@ def complete(dsn):
 def test_split_all_claims_in_selection_order_without_omissions():
     concepts = [{"concept_id": f"concept-{i}", "label": f"概念 {i}", "claims": [
         {"claim_id": f"claim-{i}-{j}", "text": "來源支持的重點。", "evidence": [{"quote": "來源"}]}
-        for j in range(7)]} for i in range(2)]
+        for j in range(20)]} for i in range(2)]
     episodes = podcasts.plan_episodes({"concepts": concepts}, ["concept-1", "concept-0"])
-    assert [len(e["claims"]) for e in episodes] == [5, 5, 4]
+    assert [len(e["claims"]) for e in episodes] == [20, 20]
     assert [c["claim_id"] for e in episodes for c in e["claims"]] == [
         c["claim_id"] for concept in reversed(concepts) for c in concept["claims"]]
     with pytest.raises(podcasts.PodcastError, match="SOURCE_INSUFFICIENT"):

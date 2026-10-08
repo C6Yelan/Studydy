@@ -155,7 +155,9 @@ export const progress = {
       correct_answers: 0,
       qualified_correct_items: 0,
       covered_claim_ids: [],
-      mastered_claim_ids: [],
+      completed_claim_ids: [],
+      assessable_claim_ids: [firstClaim],
+      unavailable_claim_ids: [],
       weak_claim_ids: [],
       latest_is_correct: null,
     },
@@ -167,7 +169,9 @@ export const progress = {
       correct_answers: 0,
       qualified_correct_items: 0,
       covered_claim_ids: [],
-      mastered_claim_ids: [],
+      completed_claim_ids: [],
+      assessable_claim_ids: [secondClaim],
+      unavailable_claim_ids: [],
       weak_claim_ids: [],
       latest_is_correct: null,
     },
@@ -515,13 +519,14 @@ export async function mockLearningMapApi(
       label: concept.label,
       status:
         index < 2
-          ? "mastered"
+          ? "completed"
           : index === 2 || index === 5
-            ? "learning"
+            ? "in_progress"
             : index === 4
               ? "needs_review"
               : "not_started",
-      mastered_claim_ids: index < 2 ? [concept.claims[0].claim_id] : [],
+      assessable_claim_ids: concept.claims.map(claim=>claim.claim_id),
+      completed_claim_ids: index < 2 ? [concept.claims[0].claim_id] : [],
       weak_claim_ids: index === 4 ? [concept.claims[0].claim_id] : [],
     })),
     next_action: {

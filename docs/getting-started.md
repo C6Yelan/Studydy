@@ -114,11 +114,15 @@ Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排�
 
 符合上述檢查的候選稿經獨立 review inference 回傳 `correctness` 與 `teaching_quality` 兩個 blocking verdict；任一失敗不得發布，最多重寫一次，重寫後兩者都重新核對。每集單次生成／重試最多四次文字請求，每次至多 120 秒。CLI 使用既有登入、ephemeral、唯讀空目錄並停用工具，不改寫原教材 Gemma binding；真實模型呼叫仍須有當次素材及費用授權。來源不足、provider／儲存失敗不視為成功。舊 turns 腳本保留原 bytes／hash，由唯讀來源投影相容，不批次改寫舊 JSON。
 
-語音在本機執行 CosyVoice 3（`FunAudioLLM/Fun-CosyVoice3-0.5B-2512`）的官方 RL 權重，輸出 24 kHz PCM WAV。正式採用已選定的 B 參考聲線與固定角色 seed，使用通用中英文正規化；`spoken-input/v12` 的縮寫字母間用空白，逗號只分隔原有列舉。相鄰英文縮寫及 slash／plus 等記號保留在同一語音片段，句中的英文片段不另補句號，原句號與分句標點交給停頓計算。英文縮寫／複合詞仍依詞典與類型處理。數值保留原值，MB／Mb 分別讀 megabytes／megabits，速率讀 per second，不展開成中文大數量。未知識別符與部分縮寫仍可能不自然，需以真實教材聽感持續修正。
+語音在本機執行 CosyVoice 3（`FunAudioLLM/Fun-CosyVoice3-0.5B-2512`）官方 RL 權重，輸出 24 kHz PCM WAV。Podcast 沿用原 host／guest 參考錄音與固定角色 seed，採用已選定的 V／W `inference_instruct2` 台灣華語指令。`spoken-input/v13` 把同一句的中文、英文與縮寫一起合成，不再因語言切換而改用另一種聲音生成模式；英文冠詞 a 保留，縮寫依通用字母名稱處理，千分位與毫秒先正規化。MB／Mb 仍區分 megabytes／megabits，速率讀 per second。原講稿、來源與引用不改；未知識別符、byte／bit 與其他術語仍須真實聽評。語音問答仍沿用原 v12 路徑，本次只切換 Podcast。
+
+新分集共用 `MAX_EPISODE_CLAIMS=32` 的來源上限，仍保留每集 2400 字來源容量及既有來源／教學審查。優先保留完整概念和關係，避免少量短 claim 把節目切碎；這不代表每集固定時長，也不能為了湊長度補造或重複內容。已保存的分集不重新切割。
 
 雙人只要求整集有兩個角色，允許短問題、單角色 beat、連續發言與自然交接。來源正確及教學品質分別核對，避免固定問答、無意義附和及同義重複。
 
-Podcast 在 `synthesize.py` 組裝階段裁去語句 chunk 的首尾靜音（20ms RMS 視窗、40ms 保護區，保留內部停頓），再依語言接續、標點、角色及 beat 邊界加入停頓；同一邊界只取最長的一項，不把句尾、換人和換 beat 相加，保護區的靜音亦計入此預算。最終 WAV 保存前由 `audio_mastering.py` two-pass FFmpeg loudnorm 處理，目標 −19 LUFS／−2 dBTP；成品量測容許 ±1 LU、true peak ≤ −1.9 dBTP，輸出仍是 24kHz mono PCM16。影片另量測 AAC 解碼結果，要求 ±1 LU／≤ −1 dBTP。量測及 policy 隨 artifact metadata 保存，失敗不發布；所有對齊使用 mastering 後的 WAV。Voice `/audio` 不套用 Podcast 停頓政策。
+Podcast 在 `synthesize.py` 接收模型的已知句子邊界，交給 `dialogue_audio_repair.py` 處理。句首孤立非週期脈衝只在符合保護條件時移除，短有聲字詞及緊接母音的子音保留；10／20ms 淡入淡出消除硬接點。語速依中文發音量及 CMU 英文音節與實際音訊估計，小幅拉近偏離本集長句中位數的部分，保留音高；短語氣詞及未知發音不調速。句尾／問句／換人或 beat 使用 .24／.26／.32 秒停頓目標，扣除音訊本身的安靜區，不疊加靜音。規則不依賴特定字句、來源 ID 或時間點。
+
+最終 WAV 仍由 `audio_mastering.py` two-pass FFmpeg loudnorm 處理，目標 −19 LUFS／−2 dBTP，成品容許 ±1 LU、true peak ≤ −1.9 dBTP。mastering schema／policy 不變；音訊 provider 身分包含 `rl-reference-vw;spoken-input/v13;dialogue-audio/v1`。失敗不發布部分檔案，所有字幕與畫面對齊仍以最終 WAV 為準。原音訊不批次改寫；需新建 Podcast 才會採用新版。
 
 FFmpeg 優先使用本機 executable 或 imageio-ffmpeg，否則由既有 `STUDYDY_VIDEO_PYTHON` 找到 renderer 的 FFmpeg；不需更換 TTS 模型或修改共用 venv。
 

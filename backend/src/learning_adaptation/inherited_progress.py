@@ -66,8 +66,8 @@ def preferred_focus(session, owner, material_id, revision):
     return next(iter(matched_concepts)) if len(matched_concepts) == 1 else None
 
 
-def inherited_progress(session, learner, study, document):
-    from .assessment_sets import _read_cycles
+def inherited_progress(session, learner, study, document, *, include_cycles=True):
+    from .assessment_sets import _cycle
     current = session.scalar(select(KnowledgeStructure).where(
         KnowledgeStructure.learner_id == learner.learner_id,
         KnowledgeStructure.material_id == study.material_id,
@@ -114,7 +114,12 @@ def inherited_progress(session, learner, study, document):
             concept["concept_id"]: {claim["claim_id"] for claim in concept["claims"]}
             for concept in previous["concepts"]
         }
-        for cycle in _read_cycles(session, previous_study):
+        for root in (session.scalars(select(AssessmentSet).where(
+            AssessmentSet.study_session_id == session_id,
+            AssessmentSet.kind == "diagnostic",
+        )) if include_cycles else ()):
+            cycle = {key: value for key, value in _cycle(session, previous_study, root).items()
+                     if key not in ("points", "can_create_remediation")}
             origin = cycle["concept_id"]
             targets = [matches.get((origin, claim)) for claim in previous_claims[origin]]
             if not targets or any(target is None for target in targets):
@@ -130,7 +135,7 @@ def inherited_progress(session, learner, study, document):
             order = (root.created_at, str(root.set_id))
             if target_id in latest_cycles and latest_cycles[target_id][0] >= order:
                 continue
-            # 較新的失敗或未完成檢測會取代舊通過狀態，不回退挑選舊成績。
+            # 完成事實不因後續練習失誤而撤銷。
             inherited_cycle = None
             if cycle["outcome"] == "passed" and cycle["active_set_id"] is None:
                 inherited_cycle = {
@@ -141,7 +146,8 @@ def inherited_progress(session, learner, study, document):
                         "run_id": previous["run_id"],
                     },
                 }
-            latest_cycles[target_id] = (order, inherited_cycle)
+            if inherited_cycle is not None:
+                latest_cycles[target_id] = (order, inherited_cycle)
         for event in _read_events(session, previous_study):
             target = matches.get((event.target_concept_id, event.target_claim_id))
             if target is not None:

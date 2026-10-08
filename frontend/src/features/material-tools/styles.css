@@ -93,7 +93,7 @@
 .voice-panel { display:flex; flex-direction:column; flex:1; min-width:0; min-height:0; }
 .voice-modes { display:flex; flex-shrink:0; gap:4px; padding:5px 10px; border-bottom:1px solid var(--border-light); }
 .voice-modes button { flex:1; min-height:28px; border:0; border-radius:6px; background:transparent; color:var(--text-secondary); font:inherit; font-size:12px; cursor:pointer; }
-.voice-modes button[aria-pressed="true"] { background:var(--studydy-blue-soft); color:var(--studydy-blue); font-weight:600; }
+.voice-modes button[aria-checked="true"] { background:var(--studydy-blue-soft); color:var(--studydy-blue); font-weight:600; }
 .voice-modes button:disabled { opacity:.6; cursor:default; }
 .voice-record-button { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:40px; border:0; border-radius:var(--radius-button); background:var(--studydy-blue); color:white; font:inherit; font-size:13px; cursor:pointer; }
 .voice-record-button:disabled { opacity:.5; cursor:default; }
@@ -345,3 +345,8 @@
   .source-picker.is-compact .source-picker-filters { grid-template-columns:minmax(0,1fr) 130px; gap:4px 8px; }
   .source-picker.is-compact .research-candidates { grid-template-columns:minmax(0,1fr); }
 }
+
+.voice-history-list { display:grid; gap:4px; max-height:280px; overflow:auto; min-width:0; }
+.voice-history-list button { display:block; width:100%; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; border:0; border-radius:8px; padding:10px; background:transparent; color:inherit; }
+.voice-history-list button:hover,.voice-history-list button[aria-current=true] { background:var(--surface-soft,#eef5f9); }
+.voice-source-excerpt { font-size:.8rem; line-height:1.6; white-space:pre-wrap; max-height:7em; overflow:auto; }

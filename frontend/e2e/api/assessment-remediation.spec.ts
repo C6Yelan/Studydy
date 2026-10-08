@@ -8,7 +8,7 @@ const data = JSON.parse(process.env.STUDYDY_E2E_REMEDIATION_DATA ?? "{}");
 const study = `/materials/${data.material}/runs/${data.run}/knowledge-structures/${encodeURIComponent(data.revision)}/study-sessions/${data.session}`;
 // 完整 API 流程只跑一個代表尺寸；手機與版面由 study-* mock 測試驗證。
 const viewport = { width: 1536, height: 900 };
-const passedMessage = "本輪檢測通過，僅代表這次檢測範圍的結果。";
+const passedMessage = "可檢測的重點皆已完成。";
 
 async function login(page: Page) {
   await page.goto("/");
@@ -73,17 +73,19 @@ test("wrong points directly form groups and survive lost create responses", asyn
     .getByRole("radio", { name: /wrong2a/ })
     .check();
   await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();
-  await expect(page.getByRole("button", { name: "開始補強 1 題", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "開始補強 2 題", exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("button", { name: "開始補強 1 題", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "開始補強 1 題", exact: true }).click();
+  await page.getByRole("button", { name: "開始補強 2 題", exact: true }).click();
+  await expect(page.locator(".assessment-set-item")).toHaveCount(2);
+  await card(page,1).getByRole("radio",{name:/\bcode1\b/}).check();
+  await card(page,2).getByRole("radio",{name:/\bcode2\b/}).check();
+  await page.getByRole("button",{name:"交卷並查看結果",exact:true}).click();
+  await page.getByRole("button",{name:"開始補強 1 題",exact:true}).click();
   await expect(page.locator(".assessment-set-item")).toHaveCount(1);
-  const childUrl = page.url();
-  await card(page, 1)
-    .getByRole("radio", { name: /\bcode2\b/ })
-    .check();
-  await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();
-  await expect(page.getByText(passedMessage, { exact: true })).toBeVisible();
+  const childUrl=page.url();
+  await card(page,1).getByRole("radio",{name:/\bcode2\b/}).check();
+  await page.getByRole("button",{name:"交卷並查看結果",exact:true}).click();
+  await expect(page.getByText(passedMessage,{exact:true})).toBeVisible();
 
   const context = await browser.newContext({ viewport });
   const fresh = await context.newPage();
@@ -94,11 +96,11 @@ test("wrong points directly form groups and survive lost create responses", asyn
     await fresh.request.get(`/v1/study-sessions/${data.session}/progress`)
   ).json();
   expect(progress.assessment_cycles[0].outcome).toBe("passed");
-  expect(progress.event_watermark).toBe(6);
+  expect(progress.event_watermark).toBe(8);
   expect(
     progress.concept_states.find((c: { concept_id: string }) => c.concept_id === data.concept)
-      .qualified_correct_items,
-  ).toBe(1);
+      .completed_claim_ids.length,
+  ).toBe(3);
   await fresh
     .locator(".assessment-set-history")
     .getByRole("button")

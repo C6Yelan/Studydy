@@ -191,3 +191,23 @@
   .flashcard-summary { font-size:14px; }
   .flashcard-prompt { font-size:12px; }
 }
+
+/* 同一張卡保留概念、重點、小圖與來源；長內容在卡內捲動。 */
+.cards-study { max-width:1180px !important; }
+.cards-browse-layout { display:grid; grid-template-columns:210px minmax(0,1fr); gap:24px; align-items:start; }
+.cards-browse-list { display:grid; gap:6px; max-height:70vh; overflow:auto; padding:8px; border:1px solid var(--border-light); border-radius:12px; background:#fff; }
+.cards-browse-list button { border:0; border-radius:8px; padding:12px; text-align:left; background:transparent; color:var(--text-primary); line-height:1.5; }
+.cards-browse-list button[aria-current=true] { background:#eaf2ff; color:#285998; }
+.flashcard.is-front { aspect-ratio:4/3; min-height:0; }
+.cards-create .flashcard-front,.cards-study .flashcard-front,.flashcard-front { height:100%; min-height:0; overflow:auto; display:flex; align-items:stretch; padding:24px; cursor:default; text-align:left; }
+.cards-create .flashcard-title,.cards-study .flashcard-title,.flashcard-title { padding:0; margin:12px 0 8px; font-size:clamp(20px,2vw,28px); line-height:1.3; }
+.flashcard-definition { margin:0 0 16px; font-size:15px; line-height:1.65; color:var(--text-secondary); }
+.flashcard-overview { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:20px; align-items:center; }
+.flashcard-bullets { padding-left:20px; margin:0; font-size:14px; line-height:1.7; }
+.flashcard-bullets li + li { margin-top:8px; }
+.flashcard-overview .concept-visual { width:100%; height:auto; max-height:185px; margin:0; }
+.flashcard-footer { margin-top:auto; padding-top:18px; display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:end; }
+@media(max-width:700px) { .cards-browse-layout { grid-template-columns:1fr; gap:12px; } .cards-browse-list { display:flex; max-height:100px; overflow:auto; } .cards-browse-list button { min-width:120px; } .flashcard.is-front { aspect-ratio:4/3; } .flashcard-overview { grid-template-columns:1fr; gap:12px; } .flashcard-overview .concept-visual { max-height:130px; } }
+
+.cards-browse-layout { max-width:954px; margin-inline:auto; }
+.cards-browse-layout .cards-study-stage { max-width:720px; }

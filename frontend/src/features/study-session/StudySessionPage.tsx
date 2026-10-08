@@ -190,6 +190,8 @@ export function StudySessionPage({
       />
     );
 
+  const conceptState = data.progress.concept_states.find(state => state.concept_id === visibleConceptId);
+  const noAssessment = conceptState?.assessable_claim_ids?.length === 0;
   const initialSetPhase = assessmentPhase(selectedSet);
   const layoutMode = panelPhase ?? initialSetPhase;
   const preparing = layoutMode === "preparing" || layoutMode === "intervention";
@@ -208,10 +210,9 @@ export function StudySessionPage({
   const currentResult =
     !completed &&
     !refreshMessage &&
-    ((layoutMode === "result" && selectedSet?.status === "completed") || inheritedCheck) &&
-    currentCycle &&
-    !currentCycle.active_set_id &&
-    ["passed", "incomplete"].includes(currentCycle.outcome);
+    (noAssessment || (layoutMode === "result" && selectedSet?.status === "completed") || inheritedCheck) &&
+    !currentCycle?.active_set_id &&
+    (noAssessment || conceptState?.status === "completed" || (currentCycle && ["passed", "incomplete"].includes(currentCycle.outcome)));
   const canContinue =
     currentResult &&
     (nextConcept || completesSession) &&
@@ -283,7 +284,7 @@ export function StudySessionPage({
       <header className="study-header">
         <div>
           <p className="eyebrow">學習進度</p>
-          <h1>{completed ? "學習已完成" : visibleConcept.label}</h1>
+          <h1>{completed ? "本次學習已結束" : visibleConcept.label}</h1>
           <p>
             {position !== undefined &&
               `第 ${position} / ${data.view.initial_learning_path.length} 個概念`}
@@ -315,10 +316,17 @@ export function StudySessionPage({
               </details>
             )}
             <div className="study-current-action" id="assessment-panel">
-              {inheritedCheck ? (
+              {noAssessment && !currentCycle?.active_set_id ? (
+                <section className="surface assessment-cycle">
+                  <h2>此概念目前無法提供可靠檢測</h2>
+                  <p>這是系統目前無法驗證，不代表你答錯。可以繼續學習其他概念。</p>
+                  {continuation && <button className="primary-button" disabled={continuation.busy}
+                    onClick={() => void continuation.onContinue()}>{continuation.label}</button>}
+                </section>
+              ) : inheritedCheck ? (
                 <section className="surface assessment-cycle inherited-check" aria-label="承接的檢測結果">
-                  <h2>檢測通過</h2>
-                  <p>重點與來源皆未變更，已承接先前版本的檢測通過結果。</p>
+                  <h2>已完成</h2>
+                  <p>重點與來源皆未變更，已承接先前版本的完成紀錄。</p>
                   <div className="assessment-set-actions assessment-result-navigation">
                     <button className="secondary-button" onClick={() => writeRoute({
                       name: "study-session",
@@ -341,6 +349,7 @@ export function StudySessionPage({
                 concept={visibleConcept}
                 view={data.view}
                 completed={completed}
+                conceptCompleted={conceptState?.status === "completed"}
                 onSetSelected={(id) => writeRoute({ ...route, assessmentSetId: id })}
                 onProgressChanged={refresh}
                 onBackToMap={back}

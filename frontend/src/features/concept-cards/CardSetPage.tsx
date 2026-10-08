@@ -82,6 +82,7 @@ function CardStudy({ view, structure, apiClient, materialId }: { view: CardSetVi
   return <section className="cards-page cards-study" onKeyDown={keys}>
     <header className="cards-study-heading"><div><h1>{view.name}</h1>{!materialId && <p><Icon name="book" size={15} /> {view.material_name}</p>}</div></header>
     {!view.is_current_revision && <p className="cards-notice">教材已有新版。此卡組保留建立時的教材內容與來源。</p>}
+    <div className="cards-browse-layout"><nav className="cards-browse-list" aria-label="選擇概念卡">{order.map((index, positionIndex)=><button type="button" key={view.cards[index].concept_id} aria-current={position===positionIndex?'true':undefined} onClick={()=>{setFinished(false);move(positionIndex);}}>{view.cards[index].label}</button>)}</nav>
     <section ref={stage} tabIndex={-1} className="cards-study-stage" aria-label={finished ? "本輪瀏覽完成" : `第 ${position + 1} 張概念卡`}>
       {finished ? <div className="cards-complete"><span className="cards-empty-icon"><Icon name="check" size={36} /></span><h2>已瀏覽全部卡片</h2><p>這一輪看過了 {view.card_count} 張概念卡。想再回顧一次嗎？</p><div className="state-actions"><button className="primary-button" type="button" onClick={() => restart(false)}>再看一次</button><button className="secondary-button" type="button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" })}>返回卡組</button></div></div>
         : <><Flashcard key={`${order[position]}:${flipped}`} card={view.cards[order[position]]} structure={structure} flipped={flipped} onFlip={() => setFlipped(!flipped)} apiClient={apiClient} sourceResolver={view.source_resolver} />
@@ -96,6 +97,6 @@ function CardStudy({ view, structure, apiClient, materialId }: { view: CardSetVi
           </div>
           <p className="cards-keyboard-hint">← → 切換卡片 · 空白鍵翻面</p></>}
       {notice && <p className="cards-study-notice" role="status">{notice}</p>}
-    </section>
+    </section></div>
   </section>;
 }
