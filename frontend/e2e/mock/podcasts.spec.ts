@@ -129,7 +129,7 @@ test("material collections filter both products while outer navigation opens the
   await expect(page.locator('.podcast-tile')).toHaveCount(2);
   await page.goto(`/materials/${materialId}/podcasts`);
   await expect(page.locator('.podcast-tile')).toHaveCount(1);
-  await expect(page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab')).toHaveText(['概念地圖', '複習重點', '概念卡', 'Podcast', '補充學習', '教材來源']);
+  await expect(page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab')).toHaveText(['概念地圖', '測驗', '概念卡', 'Podcast', '補充學習', '教材來源']);
   await expect(page.locator('.app-sidebar')).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveClass(/is-workspace/);
   const navBox = (await page.getByRole('tablist', { name: '教材學習內容' }).boundingBox())!;
@@ -493,8 +493,8 @@ test('Podcast keeps teaching transcript and removes retired interaction surfaces
   await mockTeachingBeats(page);
   await page.goto(`/podcasts/${podcastId}`);
   await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true})).toContainText('第二個來源比較');
-  for(const name of ['問目前播放這一段','問這一段','查看這段來源','同步圖卡','字幕','檢測 Podcast 涵蓋的概念']) await expect(page.getByText(name,{exact:true})).toHaveCount(0);
-  await expect(page.locator('video track')).toHaveCount(0);
+  for(const name of ['問目前播放這一段','問這一段','查看這段來源','同步圖卡','檢測 Podcast 涵蓋的概念']) await expect(page.getByText(name,{exact:true})).toHaveCount(0);
+  await expect(page.locator('video track')).toHaveCount(1);
   await expect(page.locator('.podcast-companion > .surface')).toHaveCount(2);
   await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true}).getByRole('navigation',{name:'本集章節'})).toBeVisible();
   await expect(page.getByRole('tab',{name:'逐字稿',exact:true})).toHaveAttribute('aria-selected','true');
@@ -815,4 +815,43 @@ test('material podcast player keeps the chat entry at the viewport corner',async
   const chat=page.getByRole('button',{name:'教材問答',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
   expect(width-box.x-box.width).toBeCloseTo(width===390?16:24,0);expect(900-box.y-box.height).toBeCloseTo(width===390?16:24,0);
  }
+});
+
+
+test('video subtitles follow media time, toggle and switch with the episode', async ({ page }) => {
+  await mockEpisodeVideo(page);
+  await page.goto(`/podcasts/${podcastId}`);
+  const video=page.locator('video');
+  await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.textTracks[0]?.cues?.length)).toBe(2);
+  await expect(page.locator('.media-subtitles')).toContainText('前半段');
+  await video.evaluate((v:HTMLVideoElement)=>{v.currentTime=7;});
+  await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>(v.textTracks[0]?.activeCues?.[0] as VTTCue)?.text)).toBe('後半段');
+  await page.getByRole('button',{name:'播放設定',exact:true}).click();
+  const toggle=page.getByRole('button',{name:'字幕',exact:true});
+  await toggle.click();await expect(toggle).toHaveAttribute('aria-pressed','false');
+  await expect(page.locator('.media-subtitles')).toHaveCount(0);
+  await toggle.click();await expect(toggle).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('.media-subtitles')).toContainText('後半段');
+  await video.evaluate((v:HTMLVideoElement)=>{v.currentTime=1;});
+  await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>(v.textTracks[0]?.activeCues?.[0] as VTTCue)?.text)).toBe('前半段');
+  await page.getByRole('button',{name:'播放設定',exact:true}).click();
+  await page.getByRole('button',{name:'下一集',exact:true}).click();
+  await expect(video.locator('track')).toHaveAttribute('src',`/v1/podcasts/${podcastId}/episodes/1/subtitles`);
+  await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.textTracks[0]?.cues?.length)).toBe(2);
+});
+
+
+test('long subtitles wrap inside mobile video and stay above visible controls', async ({ page }) => {
+  await page.setViewportSize({width:390,height:844});
+  await mockEpisodeVideo(page);
+  const caption='這是較長的合成字幕，用來檢查手機換行與控制列是否遮住內容。'.repeat(3);
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/subtitles`,r=>r.fulfill({contentType:'text/vtt',body:`WEBVTT\n\n00:00:00.000 --> 00:00:12.000\n${caption}\n`}));
+  await page.goto(`/podcasts/${podcastId}`);
+  const text=page.locator('.media-subtitles');await expect(text).toHaveText(caption);
+  const box=(await text.boundingBox())!,viewport=(await page.locator('.media-viewport').boundingBox())!,controls=(await page.locator('.media-playback-controls').boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(viewport.x);
+  expect(box.y).toBeGreaterThanOrEqual(viewport.y);
+  expect(box.x+box.width).toBeLessThanOrEqual(viewport.x+viewport.width);
+  expect(box.y+box.height).toBeLessThan(controls.y);
+  expect(await text.evaluate(e=>e.scrollWidth<=e.clientWidth&&e.scrollHeight<=e.clientHeight)).toBe(true);
 });

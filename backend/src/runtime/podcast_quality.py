@@ -26,13 +26,15 @@ def _source_size(claims):
 
 
 def content_budget(claims, delivery):
-    # 以全部所選來源的文字量給空間；雙人不能再乘一份「對話膨脹」預算。
+    # 簡短 claim 常是條件或欄位摘要，不是可直接朗讀的教學稿。
+    # 留出推演、例子與問答的空間；同一來源重複引用仍不膨脹預算。
     size = _source_size(claims)
     concepts = len({c.get('concept_id', c.get('label')) for c in claims})
-    beats = min(6, max(1, concepts, math.ceil(len(claims) / 2), math.ceil(size / 700)))
-    characters = min(9600, max(240, math.ceil(size * 1.35) + 80))
-    turns = beats * 2 + 1 if delivery == 'dialogue' else beats + 1
+    beats = min(12, max(2, concepts, math.ceil(len(claims) / 4), math.ceil(size / 350)))
+    characters = min(9600, max(480, math.ceil(size * 6) + concepts * 240))
+    turns = beats * (6 if delivery == 'dialogue' else 3)
     return {'max_characters': characters, 'max_beats': beats, 'max_turns': turns}
+
 
 
 def budget_issues(segments, budget):
@@ -74,7 +76,7 @@ def _substance(text):
 
 
 def teaching_signals(segments):
-    """確定無增量的附和／逐字重述直接修稿；相似度與輪替只供既有審查判讀。"""
+    """風格訊號交給語意審查；字面相似與短附和不足以判定教學沒有價值。"""
     turns = [t for b in segments for t in b['turns']]
     signals = []
     texts = [_substance(t['text']) for t in turns]
@@ -85,11 +87,11 @@ def teaching_signals(segments):
     for i, turn in enumerate(turns):
         text = turn['text']; plain = _plain(text); value = texts[i]
         if plain in {'對', '沒錯', '是的', '嗯', '好的', '了解', '原來如此', '對沒錯'}:
-            signals.append({'code': 'empty_confirmation', 'turn': i, 'blocking': True,
-                            'detail': '這一輪只有確認，請移除或改成有實質資訊的介入。'})
+            signals.append({'code': 'empty_confirmation', 'turn': i, 'blocking': False,
+                            'detail': '這一輪只有短確認；核對整段是否自然承接，只有反覆附和、打斷教學才需修正。'})
         if i and len(value) >= 8 and value == texts[i-1]:
-            signals.append({'code': 'restated_turn', 'turn': i, 'previous_turn': i-1, 'blocking': True,
-                            'detail': '去掉確認語與問句語尾後，內容與上一輪相同，沒有推進理解。'})
+            signals.append({'code': 'restated_turn', 'turn': i, 'previous_turn': i-1, 'blocking': False,
+                            'detail': '去掉確認語與問句語尾後內容相同；核對是否是有用的確認或修正，不能僅以字面相同拒絕。'})
         elif i and min(len(value), len(texts[i-1])) >= 12:
             ratio = SequenceMatcher(None, texts[i-1], value, autojunk=False).ratio()
             if ratio >= .72:
@@ -106,7 +108,7 @@ def teaching_signals(segments):
             overlap = sum(g in texts[i-1] for g in question_grams) / max(1, len(question_grams))
             if overlap >= .4 and len(value) >= 8 and not source_indices(turn) - source_indices(turns[i-1]):
                 signals.append({'code': 'confirmation_loop', 'turn': i, 'previous_turn': i-1,
-                                'reply_turn': i+1, 'blocking': True,
+                                'reply_turn': i+1, 'blocking': False,
                                 'detail': '這個「所以……？」承接的是剛說過的內容，下一輪又先肯定；刪除無增量的確認，讓說明直接推進，或改成真正的新情境／疑惑。'})
         if (i and covered and covered == all_sources and re.match(r'^所以', text.strip())
                 and re.search(r'[？?][」”"]?\s*$', text)
@@ -123,7 +125,7 @@ def teaching_signals(segments):
                 repeated = sum(g in already for g in grams) / len(grams)
                 if repeated >= .55:
                     signals.append({'code': 'repeated_recap', 'turn': i, 'text_offset': offset,
-                                    'coverage': round(repeated, 3), 'blocking': ending in already,
+                                    'coverage': round(repeated, 3), 'blocking': False,
                                     'detail': '收尾多處內容已講過；核對是否仍有必要整理或新判斷，否則刪除重述。'})
         earlier += '\n' + value
         covered.update(source_indices(turn))

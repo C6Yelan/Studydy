@@ -42,7 +42,7 @@ def test_new_script_acceptance_enforces_budget_but_stored_v2_remains_readable():
     episode, _, _ = sample()
     turn = episode['script']['segments'][0]['turns'][0]
     for part in turn['parts']:
-        part['text'] = '字' * 160
+        part['text'] = '字' * (content_budget(episode['claims'], episode['delivery'])['max_characters'] // len(turn['parts']) + 1)
     turn['text'] = ''.join(p['text'] for p in turn['parts'])
     from runtime.podcast_script import validate
     assert validate(episode['script'], episode) == episode['script']
@@ -53,7 +53,7 @@ def test_new_script_acceptance_enforces_budget_but_stored_v2_remains_readable():
 def test_exact_recap_is_found_even_at_the_end_of_a_long_turn():
     statement = '第一項必要條件是保留原本的資料順序，第二項必要條件是保留所有來源的引用關係。'
     issues = teaching_signals(beats(statement, '另一個不同的限制需要另外核對。所以，' + statement))
-    assert any(s['code'] == 'repeated_recap' and s['blocking'] and s['text_offset'] > 0 for s in issues)
+    assert any(s['code'] == 'repeated_recap' and not s['blocking'] and s['text_offset'] > 0 for s in issues)
 
 
 @pytest.mark.parametrize('reason', ['bound_source', 'turn_capacity'])
@@ -65,9 +65,9 @@ def test_question_join_keeps_source_bearing_units_and_hard_turn_capacity(reason)
     assert join_question_beats(value)==value
 
 
-def test_empty_confirmation_and_question_restating_the_last_answer_require_rewrite():
+def test_empty_confirmation_and_restatement_are_contextual_review_signals():
     issues = teaching_signals(beats('資料必須按照先進先出的順序處理。', '所以資料必須按照先進先出的順序處理嗎？', '沒錯。'))
-    assert {s['code'] for s in issues if s['blocking']} == {'restated_turn', 'empty_confirmation'}
+    assert {s['code'] for s in issues} == {'restated_turn', 'empty_confirmation'}
     assert next(s for s in issues if s['code'] == 'restated_turn')['turn'] == 1
 
 
@@ -75,7 +75,7 @@ def test_confirmation_loop_is_detected_inside_a_longer_explanation():
     value = beats('這種資料結構是先進先出，另一種結構才是後進先出。兩者的順序不能混為一談。',
                   '所以這種資料結構不是後進先出，而是先進先出？',
                   '對，而且還需要確認資料是否為空。')
-    assert any(s['code'] == 'confirmation_loop' and s['blocking'] for s in teaching_signals(value))
+    assert any(s['code'] == 'confirmation_loop' and not s['blocking'] for s in teaching_signals(value))
 
 
 def test_application_question_and_explicit_misconception_are_not_confirmation_loops():
@@ -147,3 +147,14 @@ def test_longer_episode_keeps_many_short_claims_in_one_concept():
     result = plan_episodes(source, ['a'])
     assert len(result) == 1
     assert result[0]['claims'] == [{**c, 'concept_id': 'a', 'label': 'a'} for c in source['concepts'][0]['claims']]
+
+
+def test_teaching_budget_leaves_room_to_explain_many_concise_concepts():
+    source = [{**c, 'concept_id': f'topic-{i // 4}', 'text': f'步驟 {i} 的獨立條件與結果。'}
+              for i, c in enumerate(claims(32))]
+    budget = content_budget(source, 'dialogue')
+    assert budget['max_characters'] >= 2500
+    assert 8 <= budget['max_beats'] <= 12
+    assert budget['max_turns'] >= 32
+    assert content_budget(claims(1), 'dialogue')['max_characters'] < budget['max_characters']
+    assert content_budget(claims(32, '大量來源內容。' * 300), 'dialogue')['max_characters'] <= 9600

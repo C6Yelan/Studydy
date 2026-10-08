@@ -6,6 +6,7 @@ from threading import Event, Timer
 from uuid import uuid4
 
 import pytest
+from test_podcast_video_layout import design
 
 spec=importlib.util.spec_from_file_location('podcast_video_service',Path(__file__).resolve().parents[2]/'ops/podcast/video_service.py')
 service=importlib.util.module_from_spec(spec)
@@ -43,7 +44,7 @@ def test_source_feedback_is_rechecked_and_never_published_without_approval(tmp_p
     def model(prompt,schema,**kwargs):
         nonlocal reviews
         if 'pages' in schema['properties']:
-            designs.append(prompt);return plan()
+            designs.append(prompt);return design('comparison',2,end=1)
         reviews+=1
         return {k:{'passed':recover and reviews==2,'reason':'relation is unsupported'} for k in ('correctness','teaching_quality')}
     def process(args,env,timeout,cancelled):
@@ -80,7 +81,7 @@ def test_layout_and_source_corrections_have_independent_bounded_budgets(tmp_path
         nonlocal reviews
         if 'pages' in schema['properties']:
             assert 'anyOf' in schema['properties']['pages']['items']
-            plans.append(prompt);return plan()
+            plans.append(prompt);return design('comparison',2,end=1)
         reviews+=1
         return {k:{'passed':reviews==2,'reason':'remove unsupported relation'} for k in ('correctness','teaching_quality')}
     def process(args,env,timeout,cancelled):
@@ -116,7 +117,7 @@ def test_measured_grouping_reaches_storyboard_and_render_without_dropping_turns(
     def model(prompt,schema,**kwargs):
         if 'pages' in schema['properties']:
             assert schema['properties']['pages']['items']['anyOf'][0]['properties']['start_cue']['enum']==[0]
-            value=plan();value['pages'][0]['end_cue']=0;value['pages'][0]['elements'][1]['cue_index']=0;return value
+            return design('comparison',2,end=0)
         return {k:{'passed':True,'reason':'synthetic'} for k in ('correctness','teaching_quality')}
     def process(args,env,timeout,cancelled):
         request=json.loads(Path(args[3]).read_text());assert len(request['cues'])==1 and len(request['cues'][0]['parts'])==3
@@ -128,3 +129,18 @@ def test_measured_grouping_reaches_storyboard_and_render_without_dropping_turns(
     monkeypatch.setattr(service,'_process',process)
     result=service._produce({'episode':episode,'audio':base64.b64encode(raw).decode(),'source_context':{},'podcast_id':'p','episode_index':0,'source_resolver':'/source'},luna=model,model='synthetic',align=lambda *a,**k:alignment,text_lock=Lock(),asr_lock=Lock(),cancelled=Event())
     assert len(result['cues'])==1 and 'groups' not in result['alignment']
+
+
+def test_review_preserves_facts_and_event_timing_without_gating_static_previews():
+    from copy import deepcopy
+    static=design('flow',3,end=3)
+    before=deepcopy(static);projected=service.review_storyboard(static)
+    assert static==before
+    for original,read in zip(static['pages'][0]['nodes'],projected['pages'][0]['nodes']):
+        assert read=={'label':original['label'],'text':original['text']}
+    for original,read in zip(static['pages'][0]['relations'],projected['pages'][0]['relations']):
+        assert read=={key:original[key] for key in ('source','target','label')}
+    interaction=design('exchange',2,end=3);interaction['pages'][0]['layout']='interaction'
+    for node in interaction['pages'][0]['nodes']:node['icon']='computer'
+    for edge in interaction['pages'][0]['relations']:edge['outcome']='delivered'
+    assert service.review_storyboard(interaction)==interaction

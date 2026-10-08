@@ -81,11 +81,15 @@ def test_one_beat_integrates_repeated_claim_ids_without_merging_sources(monkeypa
 
 
 def test_same_page_context_reaches_generation_and_review(monkeypatch):
-    request=body();request['source_context']={'p0':{'blocks':[{'evidence_id':'header','text':'合成表格標題'}]}}
+    request=body();request['source_context']={'p0':{'blocks':[
+        {'evidence_id':'header','text':'合成表格標題','region':[90,10,180,40]},
+        {'evidence_id':'e0','text':'16 bits','region':[100,60,150,80]},
+        {'evidence_id':'unselected','text':'未選的其他機制','region':[300,100,600,120]}]}}
     responses=iter([candidate(),check()]);prompts=[]
     def model(prompt,*args):prompts.append(prompt);return next(responses)
     monkeypatch.setattr(provider,'luna',model);provider.script(request)
     assert all('合成表格標題' in p for p in prompts)
+    assert all('未選的其他機制' not in p for p in prompts)
 
 
 def test_dialogue_allows_consecutive_same_speaker_and_short_questions(monkeypatch):
@@ -96,7 +100,7 @@ def test_dialogue_allows_consecutive_same_speaker_and_short_questions(monkeypatc
     assert [t['speaker'] for t in provider.script(request)['segments'][0]['turns']]==['guest','guest','host']
 
 
-@pytest.mark.parametrize('problem', ['budget', 'confirmation'])
+@pytest.mark.parametrize('problem', ['budget'])
 def test_deterministic_quality_rewrite_skips_unnecessary_review(monkeypatch, problem):
     bad = candidate('字' * 600) if problem == 'budget' else candidate('沒錯。')
     responses = iter([bad, candidate(), check()]); prompts = []
@@ -113,7 +117,7 @@ def test_repeated_deterministic_failure_stops_without_spending_review_calls(monk
     calls = []
     def model(*args):
         calls.append(args)
-        return candidate('沒錯。')
+        return candidate('字' * 600)
     monkeypatch.setattr(provider, 'luna', model)
     with pytest.raises(RuntimeError, match='PODCAST_SCRIPT_NEEDS_REVIEW'):
         provider.script(body())
@@ -229,3 +233,26 @@ def test_qa_citation_verifier_does_not_treat_claim_paraphrase_as_evidence(monkey
     assert 'UNSUPPORTED_CLAIM_PARAPHRASE' in calls[0]
     assert 'UNSUPPORTED_CLAIM_PARAPHRASE' not in calls[1]
     assert '空堆疊不可 pop。' in calls[1]
+
+
+def test_short_acknowledgement_reaches_contextual_review_instead_of_automatic_rejection(monkeypatch):
+    value=candidate();value['segments'][0]['turns'].append({'speaker':'host','parts':[{'text':'原來如此。','source_refs':[]}]})
+    calls=[]
+    def model(prompt,schema):
+        calls.append(schema)
+        return value if 'segments' in schema['properties'] else check()
+    monkeypatch.setattr(provider,'luna',model)
+    result=provider.script(body())
+    assert len(calls)==2 and 'correctness' in calls[1]['properties']
+    assert result['segments'][0]['turns'][-1]['text']=='原來如此。'
+
+
+def test_context_does_not_guess_a_header_from_another_column_or_distant_page_text():
+    request=body()
+    pages={'p0':{'blocks':[{'evidence_id':'e0','text':'16 bits','region':[100,200,150,220]},
+        {'evidence_id':'wrong-column','text':'別欄','region':[250,170,350,195]},
+        {'evidence_id':'distant','text':'遠處段落','region':[90,20,180,40]}]},
+        'foreign':{'blocks':[{'evidence_id':'e0','text':'其他頁'}]}}
+    result=provider.script_context(request['claims'],pages)
+    assert list(result)==['p0']
+    assert [b['evidence_id'] for b in result['p0']['blocks']]==['e0']

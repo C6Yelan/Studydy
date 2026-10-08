@@ -20,14 +20,21 @@ def progress(t, start, end, maximum):
 def validate_motion(page, where):
     motion = page['motion']
     if (not isinstance(motion, dict) or set(motion) != {'layout', 'groups'}
-            or motion['layout'] not in ('concept', 'comparison', 'flow', 'exchange')
+            or motion['layout'] not in ('concept', 'comparison', 'flow', 'exchange', 'interaction')
             or not isinstance(motion['groups'], list) or not 1 <= len(motion['groups']) <= 12
             or any(not isinstance(group, dict) for group in motion['groups'])):
         raise ValueError(where + ', invalid motion groups')
     groups = motion['groups']; used = []
     nodes = [i for i, g in enumerate(groups) if isinstance(g, dict) and 'source' not in g]
+    if motion['layout'] == 'interaction' and (len(nodes) != 2 or len(groups) <= 2):
+        raise ValueError(where + ', interaction requires two actors and at least one message')
     for i, group in enumerate(groups):
         fields = {'elements', 'start_cue'} | ({'source', 'target'} if 'source' in group else set())
+        if motion['layout'] == 'interaction':
+            fields.add('outcome' if 'source' in group else 'icon')
+            if ('source' in group and group.get('outcome') not in ('delivered', 'lost')
+                    or 'source' not in group and group.get('icon') not in ('computer', 'server', 'mailbox', 'process')):
+                raise ValueError(where + ', invalid interaction actor or outcome')
         if (not isinstance(group, dict) or set(group) not in (fields, fields | {'caption_index'})
                 or type(group['start_cue']) is not int or not page['start_cue'] <= group['start_cue'] <= page['end_cue']
                 or ('caption_index' in group and (type(group['caption_index']) is not int or group['caption_index'] < 0))
@@ -45,7 +52,7 @@ def validate_motion(page, where):
                     or any(e['kind'] != 'line' for e in elements[1:])):
                 raise ValueError(where + ', motion node must contain a labelled shape and optional guides')
             continue
-        if (motion['layout'] not in ('flow', 'exchange')
+        if (motion['layout'] not in ('flow', 'exchange', 'interaction')
                 or any(type(group[k]) is not int or group[k] not in nodes for k in ('source', 'target'))
                 or group['source'] == group['target']
                 or (motion['layout'] == 'flow' and group['target'] != group['source'] + 1)
@@ -71,7 +78,14 @@ def validate_motion(page, where):
 
 
 def validate_motion_timing(page, timeline, visible, where):
+    if page['motion']['layout'] == 'interaction':
+        starts = [window(g, timeline)[0] for g in page['motion']['groups'] if 'source' in g]
+        if any(a >= b for a, b in zip(starts, starts[1:])):
+            raise ValueError(where + ', interaction messages require distinct ordered measured anchors; use exchange for simultaneous statements')
     for group in page['motion']['groups']:
+        if page['motion']['layout'] == 'interaction' and 'source' not in group:
+            if window(group, timeline)[0] != timeline['segments'][page['start_cue']]['start'] or any(visible[j] != window(group, timeline)[0] for j in group['elements']):
+                raise ValueError(where + ', interaction actors must be visible from page start')
         times = {visible[j] for j in group['elements']}
         if len(times) != 1 or next(iter(times)) > window(group, timeline)[0]:
             raise ValueError(where + ', motion focus must follow its whole revealed group')

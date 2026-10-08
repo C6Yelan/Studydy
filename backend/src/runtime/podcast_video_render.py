@@ -174,6 +174,9 @@ def draw_scene(t, timeline, plan, page_index, text_layouts, mark_layouts):
     d.text((100,88),page['title'],font=font(54),fill=PALETTE['ink'])
     d.text((1690,106),f'{page_index+1:02} / {len(plan["pages"]):02}',font=font(30),fill=PALETTE['muted'])
     d.line((100,185,1820,185),fill='#d7e0e4',width=2)
+    if page.get('motion', {}).get('layout') == 'interaction':
+        from .podcast_video_interaction import draw_interaction
+        return draw_interaction(image, t, timeline, page)
     for index,e in enumerate(page['elements']):
         # Reveal 完全由時間推導；往回 seek 不留下未到時機的元素。
         reveal=next((g for g in page.get('reveal',[]) if index in g['elements']),None)
