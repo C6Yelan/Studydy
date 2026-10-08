@@ -747,28 +747,35 @@ function RelationDetail({
   );
 }
 
-function ReviewView({ view, progress, startStudy, busyLabel, loading }: {
+function ReviewView({ view, progress, startStudy, busyLabel, loading, returnToMap }: {
   view: KnowledgeStructureView;
   progress: LearnerProgressView | null;
   startStudy: (id: string) => void;
   busyLabel: string | null;
   loading: boolean;
+  returnToMap: () => void;
 }) {
   const states = new Map(progress?.concept_states.map(state => [state.concept_id, state]));
-  const pending = view.concepts.filter(concept => states.get(concept.concept_id)?.status !== "completed");
-  const completed = view.concepts.filter(concept => states.get(concept.concept_id)?.status === "completed");
+  // attempts 由後端正式答案事件計算；閱讀、準備題組與出題失敗都不算作答。
+  const attempted = view.concepts.filter(concept => (states.get(concept.concept_id)?.attempts ?? 0) > 0);
+  const pending = attempted.filter(concept => states.get(concept.concept_id)?.status !== "completed");
+  const completed = attempted.filter(concept => states.get(concept.concept_id)?.status === "completed");
   const list = (concepts: Concept[], practice: boolean) => <ul className="assessment-concept-list">
     {concepts.map(concept => <li key={concept.concept_id}>
       <div><strong>{concept.label}</strong><LearningBadge conceptId={concept.concept_id} progress={progress}/></div>
       <button className={practice ? "secondary-button" : "primary-button"} disabled={!!busyLabel}
-        onClick={() => startStudy(concept.concept_id)}>{busyLabel ?? (practice ? "再次練習" : "檢測這個概念")}</button>
+        onClick={() => startStudy(concept.concept_id)}>{busyLabel ?? (practice ? "再次練習" : "繼續測驗")}</button>
     </li>)}
   </ul>;
   return <section aria-labelledby="review-title">
-    <div className="view-heading"><div><h2 id="review-title">待完成的概念</h2>
-      <p>第一次答對即可完成；答錯的重點需連續答對兩道不同題。</p></div></div>
-    {loading ? <p role="status">正在讀取學習進度…</p> : <>
-      {pending.length ? list(pending, false) : <p>所有可檢測的概念都已完成。</p>}
+    <div className="view-heading"><div><h2 id="review-title">測驗紀錄</h2>
+      <p>查看作答結果、繼續未完成的檢測，或再次練習已完成的概念。</p></div></div>
+    {loading ? <p role="status">正在讀取學習進度…</p> : attempted.length === 0 ? <>
+      <p>目前還沒有測驗紀錄，可以從概念地圖選擇概念開始學習。</p>
+      <button className="secondary-button" type="button" onClick={returnToMap}>返回概念地圖</button>
+    </> : <>
+      {pending.length > 0 && <h3>尚未完成／需要加強</h3>}
+      {pending.length ? list(pending, false) : <p>已有作答紀錄的概念都已完成。</p>}
       {completed.length > 0 && <details><summary>已完成的概念 · 再次練習（{completed.length}）</summary>{list(completed, true)}</details>}
     </>}
   </section>;
@@ -1131,6 +1138,7 @@ export function KnowledgeMapWorkspace({
             ) : (
               <ReviewView
                 loading={isLoadingProgress}
+                returnToMap={() => selectMode("focus")}
                 view={view}
                 progress={progress}
                 startStudy={onStartStudy}

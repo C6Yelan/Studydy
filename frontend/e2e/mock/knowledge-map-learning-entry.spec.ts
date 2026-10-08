@@ -51,9 +51,25 @@ for (const stage of ["preparing", "ready", "failed", "no-safe", "remediation"] a
       route => json(route, snapshot.knowledge_structure));
     await page.route(`**/v1/study-sessions/${sid}/progress`, route => json(route, snapshot.progress));
     const map = fixture.path.split("/study-sessions/")[0];
+    if (stage !== "remediation") {
+      snapshot!.progress.concept_states.forEach(state => {
+        state.attempts = 0;
+        state.status = "not_started";
+      });
+    }
     await page.goto(map);
-    await openMapConcept(page, "伺服器");
-    await page.getByRole("button", { name: "檢測這個概念", exact: true }).click();
+    if (stage !== "remediation") {
+      await page.getByRole("tab", { name: "測驗", exact: true }).click();
+      await expect(page.getByRole("region", { name: "測驗紀錄" })).toContainText("目前還沒有測驗紀錄");
+      await page.getByRole("button", { name: "返回概念地圖", exact: true }).click();
+    }
+    if (stage === "remediation") {
+      await page.getByRole("tab", { name: "測驗", exact: true }).click();
+      await page.getByRole("button", { name: "繼續測驗", exact: true }).click();
+    } else {
+      await openMapConcept(page, "伺服器");
+      await page.getByRole("button", { name: "檢測這個概念", exact: true }).click();
+    }
     await expect(page).toHaveURL(new RegExp(`/study-sessions/${sid}`));
     await page.reload();
     if (stage === "preparing") await expect(page.getByRole("progressbar", { name: "準備進度" })).toBeVisible();
@@ -129,7 +145,8 @@ for (const stage of ["preparation", "completed"] as const) {
   await page.route(url=>decodeURIComponent(url.pathname)===`/v1/materials/${mid}/knowledge-structures/${revision}`,route=>json(route,view));
   await page.route(`**/v1/study-sessions/${sid}/progress`,route=>json(route,snapshot.progress));
   await page.goto(fixture.path.split('/study-sessions/')[0]);
-  await page.getByRole('tab',{name:'測驗',exact:true}).click();
+  if(stage==='completed') await page.getByRole('tab',{name:'測驗',exact:true}).click();
+  else await openMapConcept(page, '伺服器');
   await expect(page).not.toHaveURL(/study-sessions/);
   if(stage==='completed')await page.getByText(/已完成的概念 · 再次練習/).click();
   await page.getByRole('button',{name:stage==='completed'?'再次練習':'檢測這個概念',exact:true}).click();
