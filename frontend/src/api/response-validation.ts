@@ -894,16 +894,15 @@ export function podcast(value: unknown): value is PodcastView {
       const script = object(episode.script);
       if (!script || typeof script.provider !== "string" || !script.provider || !Array.isArray(script.segments)) return false;
       if (script.schema === 'podcast-script/v2') {
-        const review=object(script.review), covered=new Set<number>();let totalText=0;
-        if (!review || !['correctness','teaching_quality'].every(k=>{const v=object(review[k]);return v?.passed===true&&typeof v.reason==='string';})
-          || script.segments.length<1 || script.segments.length>12) return false;
+        let totalText=0;
+        if (script.segments.length<1 || script.segments.length>12) return false;
         if (!script.segments.every((value,i)=>{
           const beat=object(value);
-          if (!beat || beat.beat_id!==`beat-${i}` || typeof beat.title!=='string' || !beat.title || !Array.isArray(beat.turns) || !beat.turns.length || beat.turns.length>12) return false;
+          if (!beat || beat.beat_id!==`beat-${i}` || typeof beat.title!=='string' || !beat.title || !Array.isArray(beat.turns) || !beat.turns.length) return false;
           return beat.turns.every(value=>{
             const turn=object(value);
             if (!turn || !['host',...(episode.delivery==='dialogue'?['guest']:[])].includes(String(turn.speaker))
-              || typeof turn.text!=='string' || !turn.text.trim() || !Array.isArray(turn.parts) || !turn.parts.length || turn.parts.length>24) return false;
+              || typeof turn.text!=='string' || !turn.text.trim() || !Array.isArray(turn.parts) || !turn.parts.length) return false;
             let text='';
             for (const value of turn.parts) {
               const part=object(value);
@@ -916,13 +915,13 @@ export function podcast(value: unknown): value is PodcastView {
                 const claim=object((episode.claims as unknown[])[index]);
                 if (!ref || !strings(ref.evidence_ids) || !ref.evidence_ids.length || new Set(ref.evidence_ids).size!==ref.evidence_ids.length
                   || !ref.evidence_ids.every(id=>(claim?.evidence as unknown[]).some(e=>object(e)?.evidence_id===id))) return false;
-                seen.add(index);covered.add(index);
+                seen.add(index);
               }
             }
             totalText+=Array.from(text).length;
             return text===turn.text&&Array.from(text).length<=1600;
           });
-        }) || covered.size!==episode.claims.length || totalText>9600) return false;
+        }) || totalText>9600) return false;
       } else if (script.schema !== undefined || script.segments.length !== episode.claims.length
         || !script.segments.every((v,i)=>{
           const s=object(v), c=object((episode.claims as unknown[])[i]);
@@ -933,7 +932,7 @@ export function podcast(value: unknown): value is PodcastView {
         const turns = object(v)?.turns;
         return Array.isArray(turns) ? turns.map(t => object(t)?.speaker) : [];
       }));
-      if (episode.delivery === "dialogue" && speakers.size !== 2) return false;
+      if (script.schema !== "podcast-script/v2" && episode.delivery === "dialogue" && speakers.size !== 2) return false;
     }
     if (episode.audio !== null) {
       const a = object(episode.audio);

@@ -33,7 +33,6 @@ def bundle(state, motion=False):
         plan['pages'][0]['motion']={'layout':'concept','groups':[{'elements':[0],'start_cue':0}]}
     return {'policy':POLICY,'model':'synthetic-test','cues':cues,'plan':plan,
             'alignment':{'starts':starts,'anchors':anchors,'duration':duration,'method':'synthetic','producer':'synthetic'},
-            'review':{k:{'passed':True,'reason':'synthetic fixture, not a quality evaluation'} for k in ('correctness','teaching_quality')},
             'render':{'width':1920,'height':1080,'fps':60,'duration':duration,'sha256':sha256(raw).hexdigest()},
             'video':base64.b64encode(raw).decode()}
 
@@ -87,10 +86,8 @@ def test_expired_request_is_failed_without_replaying_provider(closed_loop):
     assert not videos.finish(claim,bundle=bundle(claim),dsn=dsn)
 
 
-def test_stale_source_and_source_review_failure_do_not_publish(closed_loop):
+def test_stale_source_does_not_publish(closed_loop):
     owner,_,_,_,dsn,_=closed_loop;identity=ready(closed_loop);claim=videos.claim(dsn=dsn)
-    value=bundle(claim);value['review']['correctness']['passed']=False
-    with pytest.raises(SourceError,match='VIDEO_RESULT_INVALID'):videos.finish(claim,bundle=value,dsn=dsn)
     with database_session(dsn) as db:
         p=db.get(Podcast,identity);episodes=deepcopy(p.episodes);episodes[0]['audio']['sha256']='f'*64;p.episodes=episodes
     assert videos.finish(claim,bundle=bundle(claim),dsn=dsn)
@@ -183,20 +180,3 @@ def test_v3_motion_anchor_is_checked_before_writing_artifact(closed_loop):
         videos.finish(state,bundle=value,dsn=dsn)
     with database_session(dsn) as db:
         assert db.scalar(select(Artifact).where(Artifact.kind=='podcast_video')) is None
-
-
-def test_interaction_manifest_persists_with_audio_binding_and_actor_outcomes(closed_loop):
-    from runtime.podcast_video_layout import compile_layout
-    owner,_,_,_,dsn,_=closed_loop
-    identity=ready(closed_loop);state=videos.claim(dsn=dsn);value=bundle(state)
-    design={'pages':[{'layout':'interaction','title':'合成來源支持的訊息互動','start_cue':0,'end_cue':len(value['cues'])-1,
-        'nodes':[{'label':name,'text':'','icon':icon,'cue_index':0,'caption_index':None,'reveal':False,'focus':False}
-                 for name,icon in [('端點甲','computer'),('端點乙','server')]],
-        'relations':[{'label':'合成訊息','source':0,'target':1,'outcome':'delivered','cue_index':0,
-                      'caption_index':None,'reveal':True,'focus':False}]}]}
-    value['plan']=compile_layout(design,value['cues'],motion=True)
-    assert videos.finish(state,bundle=value,dsn=dsn)
-    manifest=videos.ready_manifest(owner.learner_id,identity,0,dsn=dsn)
-    assert manifest['audio_sha256']==state['episode']['audio']['sha256']
-    assert manifest['storyboard']['pages'][0]['motion']['layout']=='interaction'
-    assert manifest['storyboard']['pages'][0]['motion']['groups'][-1]['outcome']=='delivered'

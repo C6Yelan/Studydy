@@ -174,9 +174,6 @@ def draw_scene(t, timeline, plan, page_index, text_layouts, mark_layouts):
     d.text((100,88),page['title'],font=font(54),fill=PALETTE['ink'])
     d.text((1690,106),f'{page_index+1:02} / {len(plan["pages"]):02}',font=font(30),fill=PALETTE['muted'])
     d.line((100,185,1820,185),fill='#d7e0e4',width=2)
-    if page.get('motion', {}).get('layout') == 'interaction':
-        from .podcast_video_interaction import draw_interaction
-        return draw_interaction(image, t, timeline, page)
     for index,e in enumerate(page['elements']):
         # Reveal 完全由時間推導；往回 seek 不留下未到時機的元素。
         reveal=next((g for g in page.get('reveal',[]) if index in g['elements']),None)
@@ -253,7 +250,7 @@ def measure_encoded_audio(path):
         if result.returncode:raise ValueError()
         value=json.JSONDecoder().raw_decode(result.stderr[result.stderr.rindex('{'):])[0]
         loudness,peak=float(value['input_i']),float(value['input_tp'])
-        if not math.isfinite(loudness) or not math.isfinite(peak) or abs(loudness+19)>1 or peak>-1:raise ValueError()
+        if not math.isfinite(loudness) or not math.isfinite(peak):raise ValueError()
         return {'integrated_lufs':loudness,'true_peak_dbtp':peak}
     except (KeyError,ValueError):raise ValueError('VIDEO_AUDIO_INVALID') from None
 

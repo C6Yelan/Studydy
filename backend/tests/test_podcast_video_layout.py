@@ -20,8 +20,8 @@ def design(kind='exchange', count=2, end=3):
 
 
 def test_model_schema_has_semantic_relations_but_no_geometry_or_compiled_element_indices():
-    raw = json.dumps(semantic_schema([{}, {}]))
-    for field in ('"x"', '"y"', '"w"', '"h"', '"element_index"', '"size"'):
+    raw = json.dumps(semantic_schema(2))
+    for field in ('"x"', '"y"', '"w"', '"h"', '"element_index"', '"size"', '"cue_index"', '"caption_index"', '"start_cue"', '"end_cue"', '"reveal"', '"focus"'):
         assert field not in raw
     assert all(kind in raw for kind in ('concept', 'comparison', 'flow', 'exchange'))
 
@@ -81,7 +81,7 @@ def test_unmeasured_caption_and_caption_outside_its_teaching_scope_are_rejected(
     with pytest.raises(ValueError, match='no measured anchor'): compile_layout(value, [{}], timeline)
     value, timeline = caption_exchange(); value['pages'][0]['end_cue'] = 1
     timeline['segments'] = [{'start': 0, 'end': 4}, {'start': 4, 'end': 8}]
-    with pytest.raises(ValueError, match='belongs to cue_index'): compile_layout(value, [{}, {}], timeline)
+    with pytest.raises(ValueError, match='must belong'): compile_layout(value, [{}, {}], timeline)
 
 
 def test_same_teaching_cue_does_not_hide_a_connection_or_mark_that_appears_too_early():
@@ -114,15 +114,3 @@ def test_semantic_contract_keeps_invalid_references_out_of_renderer(change):
         return
     with pytest.raises(ValueError, match='VIDEO_STORYBOARD_INVALID'):
         compile_layout(value, [{}]*4)
-
-
-def test_all_page_and_caption_errors_are_reported_in_one_repair_response():
-    value,timeline=caption_exchange()
-    timeline['segments']=[{'start':0,'end':4},{'start':4,'end':8}]
-    second=deepcopy(value['pages'][0]);second['end_cue']=1
-    value['pages'].append(second)
-    with pytest.raises(ValueError) as error:
-        compile_layout(value,[{},{}],timeline,motion=True)
-    assert 'page=1: start_cue must be 1' in str(error.value)
-    assert 'relations=2: caption_index=2 belongs to cue_index=1' in str(error.value)
-    assert 'relations=3: caption_index=3 belongs to cue_index=1' in str(error.value)

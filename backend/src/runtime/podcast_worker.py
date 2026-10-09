@@ -50,8 +50,8 @@ class PodcastWorker:
                         audio_mastering = None
                         if audio:
                             raw_metadata=response.headers.get('X-Studydy-Audio-Mastering','')
-                            if not raw_metadata or len(raw_metadata)>2048:raise podcasts.PodcastError('PODCAST_AUDIO_INVALID')
-                            audio_mastering=json.loads(raw_metadata)
+                            if len(raw_metadata)>2048:raise podcasts.PodcastError('PODCAST_AUDIO_INVALID')
+                            audio_mastering=json.loads(raw_metadata) if raw_metadata else None
                 except HTTPError as failure:
                     try:
                         code = json.loads(failure.read(4096)).get("error_code")

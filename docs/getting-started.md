@@ -126,6 +126,8 @@ Podcast 在 `synthesize.py` 接收模型的已知句子邊界，交給 `dialogue
 
 最終 WAV 仍由 `audio_mastering.py` two-pass FFmpeg loudnorm 處理，目標 −19 LUFS／−2 dBTP，成品容許 ±1 LU、true peak ≤ −1.9 dBTP。mastering schema／policy 不變；音訊 provider 身分包含 `rl-reference-vw;spoken-input/v13;dialogue-audio/v1`。失敗不發布部分檔案，所有字幕與畫面對齊仍以最終 WAV 為準。原音訊不批次改寫；需新建 Podcast 才會採用新版。
 
+Podcast 的額外 AI 講稿／分鏡審查與自動重寫已移除，現行驗證範圍見 [測試文件](testing.md#podcast-現行驗證範圍2026-10-09-精簡)。音量正規化保留，量測偏差不再阻擋成品。
+
 FFmpeg 優先使用本機 executable 或 imageio-ffmpeg，否則由既有 `STUDYDY_VIDEO_PYTHON` 找到 renderer 的 FFmpeg；不需更換 TTS 模型或修改共用 venv。
 
 provider 使用 `data/podcast/runtime/`；語音使用 `data/podcast/cosyvoice-b-runtime/`，其 `.pth` 沿用唯讀的原 `cosyvoice-runtime` 依賴並加入 [requirements.txt](../ops/podcast/requirements.txt) 的 B 正規化套件，不修改兩版共用 `backend/.venv`。每次子程序結束釋放 GPU；540 秒逾時或失敗不發布部分音訊。權重、官方 source、B 參考聲線與正規化快取位於 `data/models/podcast/` 的 `cosyvoice3/`、`cosyvoice-source/`、`cosyvoice-b-voices/`、`normalizer/`。模型與 source 來源：[CosyVoice 官方 repository](https://github.com/QwenAudio/CosyVoice)。
@@ -175,13 +177,9 @@ F5 共用本機 Whisper，對齊原講稿與實際 WAV 的詞時間點；拼音�
 
 `ops/podcast/video_service.py` 先以 beat／turn／part 與標點決定 teaching cues，再由本機 Whisper 對齊原 WAV，切 cue 不呼叫文字模型。文字 provider 只描述語意分鏡：concept 主重點與支持說明、comparison 比較群組、flow 有來源的相鄰步驟、exchange 兩個參與者間的往返訊息；輸出短文字、節點／關係索引及 cue／reveal／focus 意圖，不輸出 x/y/w/h。需要長 teaching cue 內的細時機時，可選該 cue 內既有字幕的 `caption_index`；renderer 只使用它的實測起點和結束邊界，不生成新秒數，也不改教學範圍。`podcast_video_layout.py` 以真實字型量測，決定間距、文字容納、節點位置與箭頭，新工作編譯成 `podcast-storyboard/v3`，在既有平面元素外保存語意群組、cue／caption anchor 及原關係的 source／target 索引；模型 schema 不新增座標、秒數或動態程式碼。拉丁縮寫與單位能放進一行時不在詞內斷行，重複量測使用有界快取。
 
-同一次 review 分別核對 correctness 與 teaching-quality（兩者都 blocking），檢查語意節點與關係；不把版型當成新的知識依據。靜態圖解可以先預覽，因此審查投影保留全部文字、節點與方向，省略其聚焦／揭示索引；真正執行物件互動的 interaction 才保留全部事件錨點供語意時序核對。所有版型的索引範圍仍由程式驗證，頁面重疊與字幕錯位會一次回報全部位置，避免修稿只修到第一個問題。審查提示明示 `reveal=false` 是頁首可見、exchange 的 `label` 即參與者名稱；不能誤當隱藏，也不要求同一實測錨點內出現不存在的細時機。分鏡／版面與內容審查各保留兩次修正機會，任一類第三次失敗即停止：正常工作只需分鏡＋review 兩次文字請求，有界最差為八次。修正仍保留合法的 reveal／focus，不強制移除所有標記；候選必須重新通過來源審查。沒有模型幾何不代表任何內容皆可容納，過長文字或無效語意索引仍會拒絕。
+同一次 review 分別核對 correctness 與 teaching-quality（兩者都 blocking），檢查語意節點、關係方向與時機；不把版型當成新的知識依據。審查提示明示 `reveal=false` 是頁首可見、exchange 的 `label` 即參與者名稱；不能誤當隱藏，也不要求同一實測錨點內出現不存在的細時機。分鏡／版面與內容審查各保留兩次修正機會，任一類第三次失敗即停止：正常工作只需分鏡＋review 兩次文字請求，有界最差為八次。修正仍保留合法的 reveal／focus，不強制移除所有標記；候選必須重新通過來源審查。沒有模型幾何不代表任何內容皆可容納，過長文字或無效語意索引仍會拒絕。
 
 `backend/src/runtime/podcast_video_render.py` 沿用有限圖形與 CPU 1920×1080／60fps MP4，不執行模型程式碼。reveals 由語意目標的 cue 編譯、同 cue 合併，顯示後保留至頁尾；相關節點不晚於連線出現，單位與必要條件仍由內容審查核對。v3 由 `podcast_video_motion.py` 以 manifest、實測 timeline 與目前媒體秒數直接計算狀態：節點及文字淡入、線條／箭頭 draw-on、焦點明暗與淡底平滑轉移，已出現的次要內容仍保留。flow／exchange 指示沿既有箭頭一次性推進並移交節點焦點；不循環、不表示實際封包速度。同一 anchor 的目標同時聚焦，不編造更細的先後。模型的 focus 仍控制額外暫時標記；v3 relation 不再疊加第二個 trace 指示。換頁後使用短 crossfade，舊頁以邊界前的確定畫格計算，底部提示與進度仍取目前時間。固定的視覺時長上限皆受實測窗口限制；seek／倍速沒有前一影格的殘留狀態。舊 underline／outline／trace 圖形契約保留可讀，標記不設必填配額。
-
-新增的 `interaction` 場景沿用 v3 manifest：兩個可重用物件（電腦、伺服器、信箱或一般處理端點）與有方向的訊息，使用不同且遞增的實測 cue／字幕錨點。訊息在自己的音訊區間內呈現準備、移動、接收或未到達，結果保留至後續狀態；重送必須是有來源支持的另一個事件，不自動循環。`outcome=lost` 不能只靠「不保證到達」就捏造失敗。模型不提供座標、秒數或程式碼；無法取得足夠順序錨點時使用既有 exchange。倒轉 seek 和倍速播放仍只依目前媒體時間重建狀態。
-
-部署 interaction 前須先更新 backend 的分鏡驗證及 renderer，再重啟主機 provider；新 provider 標示 `semantic-layout/v2`。既有 v2／v3 影片與音訊保持原樣，不重新生成；此擴充不新增 migration。
 
 升級時先更新可接受 v3 的 backend，再更新／重啟 video provider。新 service 明確傳入 `--motion --validate`；仍在執行的舊 service 只傳 `--validate` 時繼續編譯 v2，避免分階段更新意外改變契約。未標 schema 的 legacy 與 v2 保留原繪法；不掃描、重排或重製 ready 產物。
 

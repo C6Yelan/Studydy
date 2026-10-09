@@ -527,7 +527,7 @@ export type PodcastScript = {
   segments: { claim_id?: string; beat_id?: string; title?: string;
     turns: { speaker: "host" | "guest"; text: string; parts?: {text:string;source_refs:PodcastSourceReference[]}[] }[] }[];
   provider: string;
-  review?: {correctness:{passed:boolean;reason:string};teaching_quality:{passed:boolean;reason:string}};
+  review?: {correctness:{passed:boolean;reason:string};teaching_quality:{passed:boolean;reason:string}} | null;
 };
 export type PodcastEpisode = {
   delivery: "solo" | "dialogue";

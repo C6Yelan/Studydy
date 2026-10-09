@@ -141,7 +141,7 @@ def test_legacy_schema_and_geometry_are_preserved_when_motion_is_not_requested()
     modern['schema']='podcast-storyboard/v2';del modern['pages'][0]['motion']
     assert legacy==modern
     import json
-    schema=json.dumps(semantic_schema([{}],4))
+    schema=json.dumps(semantic_schema(1))
     assert all(field not in schema for field in ('"duration"','"path"','"x"','"y"'))
     assert board(legacy,timeline,.1)==board(modern,timeline,.1)
 

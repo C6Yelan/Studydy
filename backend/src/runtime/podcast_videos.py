@@ -147,20 +147,14 @@ def validate_bundle(state,bundle):
         if (not 32<len(raw)<=100*1024*1024 or raw[4:8]!=b'ftyp' or sha256(raw).hexdigest()!=metadata['sha256']
                 or (metadata['width'],metadata['height'],metadata['fps'])!=(1920,1080,60)
                 or type(metadata['duration']) not in (int,float) or not math.isfinite(metadata['duration'])
-                or abs(metadata['duration']-episode['audio']['duration_seconds'])>.05
-                or not isinstance(bundle['review'],dict)
-                or any(not isinstance(bundle['review'].get(k),dict) or bundle['review'][k].get('passed') is not True or not isinstance(bundle['review'][k].get('reason'),str) for k in ('correctness','teaching_quality'))):
+                or abs(metadata['duration']-episode['audio']['duration_seconds'])>.05):
             raise SourceError('VIDEO_RESULT_INVALID')
         if not isinstance(bundle['plan'],dict) or bundle['plan'].get('schema') not in ('podcast-storyboard/v2','podcast-storyboard/v3'):raise SourceError('VIDEO_RESULT_INVALID')
-        if episode['audio'].get('mastering'):
-            encoded=metadata.get('encoded_audio',{})
-            if (not isinstance(encoded,dict) or any(type(encoded.get(k)) not in (int,float) or not math.isfinite(encoded[k]) for k in ('integrated_lufs','true_peak_dbtp'))
-                    or abs(encoded['integrated_lufs']+19)>1 or encoded['true_peak_dbtp']>-1):raise SourceError('VIDEO_AUDIO_INVALID')
         plan=validate_plan(bundle['plan'],bundle['cues'])
         timeline=timeline_for_video(state['podcast_id'],state['index'],episode,bundle['cues'],bundle['alignment'],state['source_resolver'])
         validate_visual_timing(plan,timeline)
         manifest={**metadata,'audio_sha256':episode['audio']['sha256'],'script_sha256':script_digest(episode),
-                  'policy':bundle['policy'],'model':bundle['model'],'source_check':bundle['review'],
+                  'policy':bundle['policy'],'model':bundle['model'],
                   'timeline':timeline,'storyboard':plan,
                   'pages':[{'title':p['title'],'start':timeline['segments'][p['start_cue']]['start'],
                             'end':timeline['segments'][p['end_cue']]['end']} for p in plan['pages']]}

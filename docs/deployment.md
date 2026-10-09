@@ -154,3 +154,13 @@ Backend runtime tests 使用 disposable DB；不以產品資料跑測試，不�
 本次指定教材的新作品 ID 保存於本機部署紀錄，兩集音訊約 1:47／2:25，皆由新正式 provider 產生。腳本 v9 增加有界的引用契約修稿與語意強度提示；審查仍 blocking。未生成成功的候選不發布，未將診斷稿直接寫入產品。
 
 本次兩集音訊與教學影片最終均已完成；第二集影片首次來源／教學審查未過，沿原標準重試後通過，未改寫音訊。正式播放器以 1× 實播兩集、第二集音訊與影片跳轉至 120 秒均正常；原教材的需複核標記保留。
+
+## 動畫實驗撤回（2026-10-09）
+
+已撤回 Motion Canvas／通用動畫 PoC 與本輪 interaction 擴充，移除 animation-review 服務及臨時 Compose 掛載。`/animation-poc-review` 與子路徑回 404；部署回到 compose.yaml＋compose.tunnel.yaml。既有講稿、TTS、字幕播放、歷史 MP4 與產品資料保留。撤回的 source 差異、映像身分與本機 DB 備份位於 `data/deployments/podcast-animation-withdrawal-20261009/`；不重寫 Git 歷史或產品資料。
+
+## 開源視覺生成實驗已撤回（2026-10-09）
+
+依使用者要求刪除本輪視覺 PoC：移除 `podcast-visual-test` 的臨時 Compose 掛載、本機／E 槽成果、專用執行環境與 Z-Image／Wan／VACE 測試權重。部署恢復 `compose.yaml`＋`compose.tunnel.yaml`；只更新 Nginx 撤站路由，前端產品 bundle 沿用原部署，後端、DB、TTS、既有 Podcast 與教材未回退或刪除。
+
+`/podcast-visual-test` 及其子路徑在 origin 回 404。撤回與實際新建 Podcast 回測的必要紀錄位於 `data/deployments/podcast-visual-removal-*/`。Cloudflare 的舊快取及先前誤建的 ChatGPT Sites 歷史副本，需依該紀錄的清理狀態判斷，不因 origin 檔案刪除就宣稱外部副本已清空。

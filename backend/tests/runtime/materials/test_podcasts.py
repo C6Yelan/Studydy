@@ -361,3 +361,25 @@ def test_dialogue_roles_are_required_per_episode_not_per_claim():
     value["segments"][1]["turns"][0]["speaker"] = "guest"
     with pytest.raises(podcasts.PodcastError, match="PODCAST_SCRIPT_INVALID"):
         podcasts.validate_script(value, episode)
+
+
+def test_v2_podcast_finishes_without_quality_verdicts_or_loudness_report(closed_loop):
+    owner,_,settings,_,dsn,token=closed_loop
+    identity=create(closed_loop)['podcast_id']
+    state=podcasts.claim_step(dsn=dsn);claim=state['episode']['claims'][0]
+    text=claim['text']
+    ref={'source_index':0,'evidence_ids':[e['evidence_id'] for e in claim['evidence']]}
+    turn={'speaker':'host','text':text,'parts':[{'text':text,'source_refs':[ref]}]}
+    value={'schema':'podcast-script/v2','provider':'synthetic-single-generation',
+           'segments':[{'beat_id':'beat-0','title':'合成重點','turns':[turn]}]}
+    assert podcasts.finish_step(state,script=value,dsn=dsn)
+    audio_state=podcasts.claim_step(dsn=dsn)
+    assert podcasts.finish_step(audio_state,audio=wav(),audio_provider='synthetic',dsn=dsn)
+    result=podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)
+    assert result['status']=='ready' and result['episodes'][0]['script']==value
+    app=api.create_app(api.ApiSettings(profile='local',public_origin='http://127.0.0.1:4183',secure_cookie=False,local_config=settings,dsn=dsn))
+    client=TestClient(app,base_url='http://127.0.0.1:4183')
+    client.cookies.set('studydy_session',token)
+    response=client.get(f'/v1/podcasts/{identity}')
+    assert response.status_code==200
+    assert response.json()['episodes'][0]['script']['review'] is None

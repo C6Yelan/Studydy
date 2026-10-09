@@ -13,6 +13,13 @@ service=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(service)
 
 
+def model_design(schema, kind='comparison'):
+    page = design(kind, 2)['pages'][0]
+    return {'pages': [{'layout': kind, 'title': page['title'],
+                       'nodes': [{k: n[k] for k in ('label', 'text')} for n in page['nodes']],
+                       'relations': []} for _ in range(schema['properties']['pages']['minItems'])]}
+
+
 def test_cancel_before_start_never_calls_model():
     body={'job_id':str(uuid4()),'job_token':str(uuid4())}
     service.cancel(body)
@@ -30,8 +37,10 @@ def test_cancel_running_renderer_stops_child():
     finally:timer.cancel()
 
 
-@pytest.mark.parametrize('recover',[True,False])
-def test_source_feedback_is_rechecked_and_never_published_without_approval(tmp_path,monkeypatch,recover):
+
+@pytest.mark.parametrize('kind',['comparison','flow'])
+@pytest.mark.parametrize('failure',[None,'layout','render'])
+def test_one_storyboard_call_without_quality_review_or_rewrite(tmp_path,monkeypatch,failure,kind):
     import base64,json
     from hashlib import sha256
     from threading import Lock
@@ -40,70 +49,38 @@ def test_source_feedback_is_rechecked_and_never_published_without_approval(tmp_p
     monkeypatch.setenv('STUDYDY_VIDEO_PYTHON',sys.executable)
     monkeypatch.setenv('STUDYDY_VIDEO_WORK_DIR',str(tmp_path))
     monkeypatch.setattr(service,'ensure_space',lambda _:None)
-    reviews=0;designs=[];rendered=[]
+    # 同名段落仍依原稿身分分頁，不以文字猜測邊界。
+    for beat in episode['script']['segments']:beat['title']='同名標題'
+    calls=[];rendered=[]
     def model(prompt,schema,**kwargs):
-        nonlocal reviews
-        if 'pages' in schema['properties']:
-            designs.append(prompt);return design('comparison',2,end=1)
-        reviews+=1
-        return {k:{'passed':recover and reviews==2,'reason':'relation is unsupported'} for k in ('correctness','teaching_quality')}
-    def process(args,env,timeout,cancelled):
-        result=Path(args[5])
-        if args[-1]=='--validate':result.write_text(json.dumps({'valid':True,'plan':{**plan(),'schema':'podcast-storyboard/v2'}}))
-        else:
-            rendered.append(True);result.write_text('{}');result.with_suffix('.mp4').write_bytes(b'synthetic video')
-        return 0
-    monkeypatch.setattr(service,'_process',process)
-    body={'episode':episode,'audio':base64.b64encode(audio).decode(),'source_context':{},'podcast_id':'p','episode_index':0,'source_resolver':'/source'}
-    kwargs=dict(luna=model,model='synthetic',align=lambda *a,**k:alignment,text_lock=Lock(),asr_lock=Lock(),cancelled=Event())
-    if recover:
-        result=service._produce(body,**kwargs)
-        assert result['review']['correctness']['passed'] and len(rendered)==1 and reviews==2
-    else:
-        with pytest.raises(ValueError,match='VIDEO_STORYBOARD_NEEDS_REVIEW'):service._produce(body,**kwargs)
-        assert not rendered and reviews==3
-    assert 'relation is unsupported' in designs[1]
-    assert not list(tmp_path.iterdir())
-
-
-@pytest.mark.parametrize('overflow_only',[False,True])
-def test_layout_and_source_corrections_have_independent_bounded_budgets(tmp_path,monkeypatch,overflow_only):
-    import base64,json
-    from hashlib import sha256
-    from threading import Lock
-    from test_podcast_video_plan import sample,plan
-    episode,cues,alignment=sample();audio=b'synthetic audio';episode['audio']['sha256']=sha256(audio).hexdigest()
-    monkeypatch.setenv('STUDYDY_VIDEO_PYTHON',sys.executable)
-    monkeypatch.setenv('STUDYDY_VIDEO_WORK_DIR',str(tmp_path))
-    monkeypatch.setattr(service,'ensure_space',lambda _:None)
-    plans=[];reviews=0;rendered=[]
-    def model(prompt,schema,**kwargs):
-        nonlocal reviews
-        if 'pages' in schema['properties']:
-            assert 'anyOf' in schema['properties']['pages']['items']
-            plans.append(prompt);return design('comparison',2,end=1)
-        reviews+=1
-        return {k:{'passed':reviews==2,'reason':'remove unsupported relation'} for k in ('correctness','teaching_quality')}
+        assert set(schema['properties'])=={'pages'}
+        assert schema['properties']['pages']['minItems']==2
+        calls.append(prompt);return model_design(schema,kind)
     def process(args,env,timeout,cancelled):
         result=Path(args[5])
         if args[-1]=='--validate':
-            assert '--motion' in args
-            if len(plans)<=2 or overflow_only:
-                result.write_text('{"error":"VIDEO_LAYOUT_INVALID:page=0,element=0,height>=188"}');return 1
-            result.write_text(json.dumps({'valid':True,'plan':{**plan(),'schema':'podcast-storyboard/v2'}}))
+            if failure=='layout':result.write_text('{"error":"VIDEO_LAYOUT_INVALID:bad bounds"}');return 1
+            from runtime.podcast_video_layout import compile_layout
+            request=json.loads(Path(args[3]).read_text())
+            value=compile_layout(request['semantic_plan'],request['cues'],motion=True)
+            assert [(p['start_cue'],p['end_cue']) for p in value['pages']]==[(0,0),(1,1)]
+            assert all(sum(e['kind']=='arrow' for e in p['elements'])==(1 if kind=='flow' else 0) for p in value['pages'])
+            result.write_text(json.dumps({'valid':True,'plan':value}))
         else:
+            if failure=='render':return 1
             rendered.append(True);result.write_text('{}');result.with_suffix('.mp4').write_bytes(b'synthetic video')
         return 0
     monkeypatch.setattr(service,'_process',process)
     body={'episode':episode,'audio':base64.b64encode(audio).decode(),'source_context':{},'podcast_id':'p','episode_index':0,'source_resolver':'/source'}
     kwargs=dict(luna=model,model='synthetic',align=lambda *a,**k:alignment,text_lock=Lock(),asr_lock=Lock(),cancelled=Event())
-    if overflow_only:
-        with pytest.raises(ValueError,match='VIDEO_LAYOUT_INVALID'):service._produce(body,**kwargs)
-        assert len(plans)==3 and reviews==0 and not rendered
+    if failure:
+        with pytest.raises(ValueError,match='VIDEO_LAYOUT_INVALID' if failure=='layout' else 'VIDEO_RENDER_FAILED'):
+            service._produce(body,**kwargs)
+        assert not rendered
     else:
         result=service._produce(body,**kwargs)
-        assert result['review']['correctness']['passed'] and reviews==2 and len(plans)==4 and len(rendered)==1
-        assert 'height>=188' in plans[1] and 'remove unsupported relation' in plans[3]
+        assert 'review' not in result and rendered==[True]
+    assert len(calls)==1 and not list(tmp_path.iterdir())
 
 
 def test_measured_grouping_reaches_storyboard_and_render_without_dropping_turns(tmp_path,monkeypatch):
@@ -116,8 +93,8 @@ def test_measured_grouping_reaches_storyboard_and_render_without_dropping_turns(
     monkeypatch.setenv('STUDYDY_VIDEO_PYTHON',sys.executable);monkeypatch.setenv('STUDYDY_VIDEO_WORK_DIR',str(tmp_path));monkeypatch.setattr(service,'ensure_space',lambda _:None)
     def model(prompt,schema,**kwargs):
         if 'pages' in schema['properties']:
-            assert schema['properties']['pages']['items']['anyOf'][0]['properties']['start_cue']['enum']==[0]
-            return design('comparison',2,end=0)
+            assert schema['properties']['pages']['minItems']==schema['properties']['pages']['maxItems']==1
+            return model_design(schema)
         return {k:{'passed':True,'reason':'synthetic'} for k in ('correctness','teaching_quality')}
     def process(args,env,timeout,cancelled):
         request=json.loads(Path(args[3]).read_text());assert len(request['cues'])==1 and len(request['cues'][0]['parts'])==3
@@ -129,18 +106,3 @@ def test_measured_grouping_reaches_storyboard_and_render_without_dropping_turns(
     monkeypatch.setattr(service,'_process',process)
     result=service._produce({'episode':episode,'audio':base64.b64encode(raw).decode(),'source_context':{},'podcast_id':'p','episode_index':0,'source_resolver':'/source'},luna=model,model='synthetic',align=lambda *a,**k:alignment,text_lock=Lock(),asr_lock=Lock(),cancelled=Event())
     assert len(result['cues'])==1 and 'groups' not in result['alignment']
-
-
-def test_review_preserves_facts_and_event_timing_without_gating_static_previews():
-    from copy import deepcopy
-    static=design('flow',3,end=3)
-    before=deepcopy(static);projected=service.review_storyboard(static)
-    assert static==before
-    for original,read in zip(static['pages'][0]['nodes'],projected['pages'][0]['nodes']):
-        assert read=={'label':original['label'],'text':original['text']}
-    for original,read in zip(static['pages'][0]['relations'],projected['pages'][0]['relations']):
-        assert read=={key:original[key] for key in ('source','target','label')}
-    interaction=design('exchange',2,end=3);interaction['pages'][0]['layout']='interaction'
-    for node in interaction['pages'][0]['nodes']:node['icon']='computer'
-    for edge in interaction['pages'][0]['relations']:edge['outcome']='delivered'
-    assert service.review_storyboard(interaction)==interaction

@@ -2,6 +2,16 @@
 
 [文件入口](../README.md) · [安裝與啟動](getting-started.md) · [限制](limitations.md)
 
+## Podcast 現行驗證範圍（2026-10-09 精簡）
+
+依使用者要求，講稿與分鏡各生成一次，移除獨立 AI correctness／teaching_quality 評分、逐點全覆蓋硬門檻、風格相似度／輪替／附和檢查、動態字數預算及自動重寫迴圈。下方歷史驗收中的 blocking verdict 與四／八次請求描述，不再是現行 Podcast 流程。
+
+模型講稿只輸出角色、台詞與來源編號；程式將合法編號連回原 claim 的 Evidence，保存格式沿用 v2。新稿不捏造 review 通過欄位，舊稿原文與 hash 保留。基本格式、來源索引／Evidence 不越界、實際語音容量、媒體完整性與時序身分仍檢查。音量正規化照常執行，量測值僅記錄，不因偏離目標的小幅差異否決整集。
+
+分鏡模型只輸出每頁標題、圖解類型、節點文字與訊息方向。分頁依原稿段落與 ASR cue 歸屬建立，時間、字幕索引與顯示旗標不交給模型。流程圖按模型排列的步驟連線；每頁內容在頁首呈現，字幕沿用實測對齊。沒有依特定教材、標題或句子設例外，也不以截字或補造內容修復結果。
+
+對應測試：`test_podcast_provider.py`、`test_podcast_beats.py`、`test_podcast_episode_plan.py`、`test_podcast_audio.py`、`test_podcast_video_service.py` 及 runtime 的 Podcast／video 案例。這些程式檢查不宣稱模型內容已經過獨立教學審查；實際品質以生成結果與播放檢查回報。
+
 ## 選擇範圍
 
 | 變更 | 驗證入口 |
@@ -85,7 +95,7 @@ PYTEST
 
 記錄實際命令、範圍、結果與限制。合成測試提供程式回歸證據；模型品質須另以指定素材及標準，透過產品流程生成並人工核對。
 
-Podcast 的可重跑入口為 `backend/tests/runtime/materials/test_podcasts.py`（隔離 DB／API／音訊保存與取消）及 `backend/tests/test_podcast_provider.py`（無模型的來源核對失敗與有限修正）。前端 client 測試包含錯來源腳本與不完整音訊 manifest 的拒絕。provider 的容器測試使用 `compose.test.yaml`，不需安裝 TTS 或呼叫模型。
+Podcast 的可重跑入口為 `backend/tests/runtime/materials/test_podcasts.py`（隔離 DB／API／音訊保存與取消）及 `backend/tests/test_podcast_provider.py`（無模型的單次生成、格式與合法來源綁定）。前端 client 測試包含錯來源腳本與不完整音訊 manifest 的拒絕。provider 的容器測試使用 `compose.test.yaml`，不需安裝 TTS 或呼叫模型。
 
 本輪另以 Playwright MCP 直接操作隔離真 API：先使用受控音訊驗證取消／刪除／帳號隔離，再以合成素材呼叫真實 Luna＋Kokoro，驗證 13 個概念全選成三集、完整模式單概念、播放／seek／重開及連續播放。其後另於公開站完成已授權的真實教材驗收：31 個概念／189 個重點生成 32 集，全部 WAV 端點與來源綁定核對通過；末集續播、連續播放、取消／重試、刪除及登入隔離由 MCP 驗證。這不代表原教材 `needs_review` 已轉為合格，也不代表人工音質驗收已完成。
 
@@ -292,12 +302,9 @@ PYTHONPATH=backend/src:backend/tests/runtime:backend/tests:local_ai/src:data/pod
 
 ~~~bash
 PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/python ops/research/round2.py STRUCTURE_VIEW.json PRIVATE_OUTPUT/acquisition
-PYTHONPATH=backend/src:local_ai/src backend/.venv/bin/python ops/podcast/round2.py STRUCTURE_VIEW.json PRIVATE_OUTPUT/podcast
 ~~~
 
 BreezyVoice PoC 固定官方 source／模型 revision，並以隔離 `breezy-extra` 補齊 g2pw、pypinyin、opencc-python-reimplemented、cn2an、jieba；借用既有語音依賴但不修改 venv。實際 revision／套件版本保存於私人證據的 `tts/environment.json`。使用模型內建 SFT 聲線，未使用真人 reference 或 G2PW 注音；這不是官方 zero-shot 路徑的完整品質驗收。三個 variant 的 ASR 僅供縮寫／單位診斷，不作為口音評分；未證明替代方案更好，故不替換正式聲線。
-
-Motion Canvas 3.17.2 PoC 的可重現 source 在 `ops/podcast/motion-canvas/`；`prepare.py DIRECTORY` 會複製專案並用既有 TTS 產生旁白及實際 sample 邊界。於隔離 DIRECTORY 執行 `npm ci`、`node node_modules/vite/bin/vite.js`，再從 checkout 執行 `node ops/podcast/motion-canvas/render.mjs PRIVATE_RESULT.json`。1280×720／30fps 示例顯示三個封包移動、箭頭、狀態變化及同步說明，已檢查 MP4 解碼和關鍵畫格；尚未整合正式 renderer。
 
 私人必要證據位於 `data/round2-qualification-20261008/`，不加入 Git／CI。來源取得的 browser fallback、論文摘要與 metadata 分級分別保留；分集及講稿比較保留同輸入與來源覆蓋，沒有以少集數或 reviewer 通過冒充教學成效。
 

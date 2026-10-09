@@ -35,13 +35,11 @@ def test_multiple_sources_one_beat_and_precise_cue_evidence():
     assert digest(episode['script'])==before
 
 
-@pytest.mark.parametrize('change',['missing','foreign','text','review','duplicate','boolean_index'])
+@pytest.mark.parametrize('change',['foreign','text','duplicate','boolean_index'])
 def test_rejects_invalid_source_contract(change):
     episode,_,_=sample();script=episode['script'];ref=script['segments'][0]['turns'][0]['parts'][0]['source_refs'][0]
-    if change=='missing':script['segments'][0]['turns'][0]['parts'][1]['source_refs']=[]
-    elif change=='foreign':ref['evidence_ids']=['e1']
+    if change=='foreign':ref['evidence_ids']=['e1']
     elif change=='text':script['segments'][0]['turns'][0]['text']+='新增文字'
-    elif change=='review':script['review']['teaching_quality']['passed']=False
     elif change=='duplicate':script['segments'][0]['turns'][0]['parts'][0]['source_refs'].append(deepcopy(ref))
     else:ref['source_index']=False
     with pytest.raises(ValueError,match='PODCAST_SCRIPT_INVALID'):validate(script,episode)
@@ -82,3 +80,13 @@ def test_free_beats_keep_the_existing_episode_text_budget():
     validate(episode['script'],episode)
     episode['script']['segments'].append({**deepcopy(base),'beat_id':'beat-6'})
     with pytest.raises(ValueError,match='PODCAST_SCRIPT_INVALID'):validate(episode['script'],episode)
+
+
+def test_script_does_not_require_review_or_exhaustive_coverage():
+    episode,_,_=sample();script=episode['script']
+    script.pop('review')
+    script['segments'][0]['turns'][0]['parts'][1]['source_refs']=[]
+    from runtime.podcasts import validate_script
+    assert validate_script(script,episode)==script
+    script['review']={'teaching_quality':{'passed':False,'reason':'舊評分保留，不阻擋讀取'}}
+    assert validate_script(script,episode)==script

@@ -728,7 +728,7 @@ class PodcastBeatScript(_Closed):
     schema_: Literal['podcast-script/v2'] = Field(alias='schema')
     segments: list[PodcastBeat]
     provider: str
-    review: PodcastReview
+    review: PodcastReview | None = None
 
 
 class PodcastMastering(_Closed):

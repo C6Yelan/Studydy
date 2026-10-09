@@ -15,7 +15,7 @@ from .storage.artifacts import _key_digest, quarantine_source_pdf, reconcile_dis
 from .storage.knowledge_structures import _prune_unreferenced_structures, _read_verified_document, _view
 from .storage.source_artifacts import write_blob
 from .storage.tables import Artifact, Material, Podcast, PodcastScenes, database_session
-from .podcast_quality import MAX_EPISODE_CLAIMS
+from .podcast_script import MAX_EPISODE_CLAIMS
 
 
 class PodcastError(RuntimeError):
@@ -259,11 +259,7 @@ def validate_script(script, episode):
     from .podcast_script import SCHEMA, validate
     if isinstance(script, dict) and script.get('schema') == SCHEMA:
         try:
-            result = validate(script, episode)
-            from .podcast_quality import content_budget, budget_issues
-            if budget_issues(result['segments'], content_budget(episode['claims'], episode['delivery'])):
-                raise ValueError()
-            return result
+            return validate(script, episode)
         except ValueError: raise PodcastError('PODCAST_SCRIPT_INVALID') from None
     claims = episode["claims"]
     if not isinstance(script, dict) or set(script) != {"segments", "provider"}:
@@ -322,14 +318,11 @@ def finish_step(claim, *, script=None, audio=None, audio_provider=None, audio_ma
             elif audio is not None and episode["script"]:
                 if not isinstance(audio_provider, str) or not audio_provider.strip() or len(audio_provider) > 300:
                     raise PodcastError("PODCAST_AUDIO_INVALID")
-                from .podcast_script import SCHEMA
-                if episode['script'].get('schema')==SCHEMA and audio_mastering is None:raise PodcastError('PODCAST_AUDIO_INVALID')
                 if audio_mastering is not None:
                     try:
                         if not (set(audio_mastering)=={'policy','integrated_lufs','true_peak_dbtp','loudness_range_lu'}):raise ValueError()
                         if not (audio_mastering['policy']=='podcast-mastering/v1'):raise ValueError()
                         if not (all(type(audio_mastering[k]) in (int,float) and math.isfinite(audio_mastering[k]) for k in ('integrated_lufs','true_peak_dbtp','loudness_range_lu'))):raise ValueError()
-                        if not (abs(audio_mastering['integrated_lufs']+19)<=1 and audio_mastering['true_peak_dbtp']<=-1.9 and audio_mastering['loudness_range_lu']>=0):raise ValueError()
                     except (ValueError,KeyError,TypeError):raise PodcastError('PODCAST_AUDIO_INVALID') from None
                 duration = validate_audio(audio)
                 artifact = write_blob(db, row.learner_id, row.material_id, audio, "podcast_audio", "audio/wav")

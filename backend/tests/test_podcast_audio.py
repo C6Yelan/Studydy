@@ -89,7 +89,7 @@ def test_mastered_video_encodes_and_measures_final_audio(tmp_path):
     data,manifest=validate_bundle(state,bundle)
     assert data==destination.read_bytes() and manifest['audio_sha256']==episode['audio']['sha256']
     bundle['render']['encoded_audio']['true_peak_dbtp']=0
-    with pytest.raises(RuntimeError,match='VIDEO_AUDIO_INVALID'):validate_bundle(state,bundle)
+    assert validate_bundle(state,bundle)[0]==destination.read_bytes()
 
 
 def test_retained_edges_count_toward_pause_budget():
@@ -98,3 +98,10 @@ def test_retained_edges_count_toward_pause_budget():
     padding=max(0,round(audio.pause_seconds('連接',language_join=True)*24000)-tail)
     actual=tail+max(0,padding-next_head)+next_head
     assert head==0 and tail==960 and actual==1920
+
+
+def test_measured_loudness_is_recorded_without_a_quality_veto(tmp_path,monkeypatch):
+    measured={'input_i':'-21','input_tp':'-0.8','input_lra':'3','input_thresh':'-31','target_offset':'0'}
+    monkeypatch.setattr(audio,'_run',lambda *args:measured)
+    result=audio.master(tmp_path/'in.wav',tmp_path/'out.wav')
+    assert result['integrated_lufs']==-21 and result['true_peak_dbtp']==-.8
