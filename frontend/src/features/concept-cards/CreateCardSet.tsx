@@ -183,7 +183,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
           <button className="secondary-button" type="button" disabled={conceptPage === pageCount} onClick={() => setConceptPage((page) => page + 1)}>下一頁</button>
         </nav>}
       </section>
-      <section className="cards-preview" aria-label="卡片預覽"><div className="cards-preview-heading"><h2>卡片預覽</h2><span>一張卡，一個概念</span></div>{preview && <Flashcard key={preview.concept_id} card={preview} structure={view} flipped={flipped} onFlip={() => setFlipped(!flipped)} apiClient={apiClient} sourceResolver={view.source_resolver} />}<p className="cards-preview-hint">點擊翻面，看看這個概念的重點。</p></section>
+      <section className="cards-preview" aria-label="卡片預覽"><div className="cards-preview-heading"><h2>卡片預覽</h2><span>一張卡，一個概念</span></div>{preview && <Flashcard key={preview.concept_id} card={preview} structure={view} materialName={materialName} flipped={flipped} onFlip={() => setFlipped(!flipped)} apiClient={apiClient} sourceResolver={view.source_resolver} />}<p className="cards-preview-hint">點擊翻面，看看這個概念的重點。</p></section>
     </div>
   </section>;
 }

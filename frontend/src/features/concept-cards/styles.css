@@ -56,14 +56,12 @@
 .cards-create-summary strong { font-size: 15px; }
 .cards-create-summary span { color: var(--text-muted); font-size: 12px; }
 .cards-create-toolbar .form-error { flex-basis: 100%; margin: 0; }
-.cards-create .flashcard, .cards-create .flashcard-front, .cards-create .flashcard-back { min-height: 240px; }
-.cards-create .flashcard-front, .cards-create .flashcard-back { padding: 20px; }
-.cards-create .flashcard-title { font-size: clamp(22px, 2vw, 30px); padding: 24px 0; }
+.cards-create .flashcard, .cards-create .flashcard-back { min-height: 240px; } .cards-create .flashcard-back { padding: 20px; }
+
 .flashcard { min-width: 0; width: 100%; min-height: 340px; border: 1px solid #d5e1f1; border-radius: 20px; background: #fff; box-shadow: 0 8px 28px #2b45610b, 0 2px 3px #2b456106; overflow: hidden; animation: card-reveal .18s ease-out; }
-.flashcard-front { display: flex; flex-direction: column; align-items: center; width: 100%; min-height: 340px; padding: 30px; border: 0; color: var(--text-primary); background: #fff; border-radius: inherit; cursor: pointer; }
+
 .flashcard-kicker { display: inline-flex; align-items: center; gap: 6px; color: var(--studydy-blue); font-size: 12px; font-weight: 500; letter-spacing: .1em; }
-.flashcard-title { margin: auto 0; padding: 34px 0; font-size: clamp(25px, 2.8vw, 36px); font-weight: 650; line-height: 1.55; overflow-wrap: anywhere; }
-.flashcard-prompt { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-muted); }
+
 .flashcard-back { min-height: 340px; padding: 24px 28px; }
 .flashcard-back h2 { font-size: 23px; margin: 16px 0 18px; line-height: 1.5; overflow-wrap: anywhere; }
 .flashcard-content { max-height: min(46vh, 470px); overflow-y: auto; overscroll-behavior: contain; padding-right: 5px; }
@@ -85,9 +83,8 @@
 .cards-study-stage { width:100%; margin:12px 0 0; outline:none; }
 .cards-study-counter { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:12px; color:var(--text-secondary); }
 .cards-study-counter strong { color:var(--studydy-blue); font-size:15px; }
-.cards-study .flashcard { min-height:260px; }
-.cards-study .flashcard-front, .cards-study .flashcard-back { min-height:260px; padding:24px; }
-.cards-study .flashcard-title { padding:24px 0; font-size:clamp(28px,3vw,38px); }
+.cards-study .flashcard { min-height:260px; } .cards-study .flashcard-back { min-height:260px; padding:24px; }
+
 .cards-study .flashcard-back h2 { margin:12px 0; }
 .cards-study .flashcard-content { max-height:min(42vh,420px); }
 .cards-study .flashcard-point { padding:12px 0; }
@@ -116,10 +113,9 @@
   .cards-create-summary span { display: none; }
   .cards-create-toolbar .primary-button { font-size: 13px; }
   .cards-study-heading h1 { font-size: 23px; }
-  .flashcard-front { min-height:320px; padding:24px; }
+
   .flashcard-back { min-height:320px; padding:20px; }
-  .cards-study .flashcard { min-height:240px; }
-  .cards-study .flashcard-front, .cards-study .flashcard-back { min-height:240px; padding:20px; }
+  .cards-study .flashcard { min-height:240px; } .cards-study .flashcard-back { min-height:240px; padding:20px; }
   .flashcard-content { max-height: 45vh; }
   .cards-study-toolbar { grid-template-columns:minmax(0,1fr) auto; gap:8px; margin-top:12px; }
   .cards-study-controls { grid-column:1/-1; grid-row:2; }
@@ -166,48 +162,34 @@
   .cards-creation-page .cards-preview-hint { flex-shrink: 0; }
   .cards-creation-page .cards-concept-list { flex: 1; min-height: 0; overflow-y: auto; }
   .cards-creation-page .flashcard { flex: 1; min-height: 0; }
-  .cards-creation-page .flashcard-front { height: 100%; min-height: 0; }
+
   .cards-creation-page .flashcard-back { display: flex; flex-direction: column; height: 100%; min-height: 0; }
   .cards-creation-page .flashcard-back > h2,
   .cards-creation-page .flashcard-back > .flashcard-kicker { flex-shrink: 0; }
   .cards-creation-page .flashcard-content { flex: 1; min-height: 0; max-height: none; }
 }
 
-/* 圖像為正面主體；全文與可操作來源留在背面。 */
-.flashcard-front .concept-visual { display:block; width:100%; max-width:400px; height:auto; flex-shrink:0; }
-.cards-create .flashcard-title, .cards-study .flashcard-title { margin:0; padding:0; font-size:clamp(23px,2.3vw,30px); }
-.flashcard-front { gap:12px; }
-.flashcard-summary { max-width:480px; font-size:15px; line-height:1.75; text-align:left; overflow-wrap:anywhere; white-space:pre-wrap; }
 .flashcard-review { display:block; width:fit-content; padding:4px 9px; border-radius:6px; background:#fff3d9; color:#78541b; font-size:12px; line-height:1.5; }
 .flashcard-relation { padding:14px; margin-block:12px; border:1px solid #cbdfe7; border-radius:12px; background:#f3f8fb; }
 .flashcard-relation h3 { margin:0; font-size:14px; }
 .flashcard-relation p { font-size:14px; line-height:1.7; overflow-wrap:anywhere; }
-@media (min-width:1000px) {
-  .cards-creation-page .flashcard-front { overflow-y:auto; justify-content:flex-start; }
-  .cards-creation-page .flashcard-front > span { flex-shrink:0; }
-}
-@media (max-width:700px) {
-  .cards-study .flashcard-front { padding:16px; gap:10px; }
-  .flashcard-summary { font-size:14px; }
-  .flashcard-prompt { font-size:12px; }
-}
 
-/* 同一張卡保留概念、重點、小圖與來源；長內容在卡內捲動。 */
+/* SVG 圖卡與完整重點共用概念導覽。 */
 .cards-study { max-width:1180px !important; }
 .cards-browse-layout { display:grid; grid-template-columns:210px minmax(0,1fr); gap:24px; align-items:start; }
 .cards-browse-list { display:grid; gap:6px; max-height:70vh; overflow:auto; padding:8px; border:1px solid var(--border-light); border-radius:12px; background:#fff; }
 .cards-browse-list button { border:0; border-radius:8px; padding:12px; text-align:left; background:transparent; color:var(--text-primary); line-height:1.5; }
 .cards-browse-list button[aria-current=true] { background:#eaf2ff; color:#285998; }
-.flashcard.is-front { aspect-ratio:4/3; min-height:0; }
-.cards-create .flashcard-front,.cards-study .flashcard-front,.flashcard-front { height:100%; min-height:0; overflow:auto; display:flex; align-items:stretch; padding:24px; cursor:default; text-align:left; }
-.cards-create .flashcard-title,.cards-study .flashcard-title,.flashcard-title { padding:0; margin:12px 0 8px; font-size:clamp(20px,2vw,28px); line-height:1.3; }
-.flashcard-definition { margin:0 0 16px; font-size:15px; line-height:1.65; color:var(--text-secondary); }
-.flashcard-overview { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:20px; align-items:center; }
-.flashcard-bullets { padding-left:20px; margin:0; font-size:14px; line-height:1.7; }
-.flashcard-bullets li + li { margin-top:8px; }
-.flashcard-overview .concept-visual { width:100%; height:auto; max-height:185px; margin:0; }
-.flashcard-footer { margin-top:auto; padding-top:18px; display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:end; }
-@media(max-width:700px) { .cards-browse-layout { grid-template-columns:1fr; gap:12px; } .cards-browse-list { display:flex; max-height:100px; overflow:auto; } .cards-browse-list button { min-width:120px; } .flashcard.is-front { aspect-ratio:4/3; } .flashcard-overview { grid-template-columns:1fr; gap:12px; } .flashcard-overview .concept-visual { max-height:130px; } }
+
+@media(max-width:700px) { .cards-browse-layout { grid-template-columns:1fr; gap:12px; } .cards-browse-list { display:flex; max-height:100px; overflow:auto; } .cards-browse-list button { min-width:120px; }
+
+ }
 
 .cards-browse-layout { max-width:954px; margin-inline:auto; }
 .cards-browse-layout .cards-study-stage { max-width:720px; }
+
+.visual-card { width: 100%; max-width: 800px; margin: 0 auto; }
+.visual-concept-card { display: block; width: 100%; height: auto; border-radius: 20px; }
+.visual-card-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.cards-creation-page .visual-card { min-height: 0; display: flex; flex-direction: column; }
+.cards-creation-page .visual-concept-card { min-height: 0; flex: 1; }

@@ -1,47 +1,24 @@
 import type { StudydyApiClient } from "../../api/client";
 import type { ConceptCard, KnowledgeStructureView } from "../../api/contracts";
 import { claimText } from "../../ui/claim-text";
-import { Icon } from "../../ui/Icon";
+import { VisualConceptCard } from "./VisualConceptCard";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
-import { cardRelation, ConceptVisual } from "./ConceptVisual";
+import { cardRelation } from "./card-relation";
 
-export function Flashcard({ card, structure, flipped, onFlip, apiClient, sourceResolver }: {
+export function Flashcard({ card, structure, materialName, flipped, onFlip, apiClient, sourceResolver }: {
   card: ConceptCard;
   structure: KnowledgeStructureView;
+  materialName: string;
   flipped: boolean;
   onFlip: () => void;
   apiClient: StudydyApiClient;
   sourceResolver: string;
 }) {
   const relation = cardRelation(card, structure);
-  const textPoint = card.claims.find(claim => !claim.evidence.some(e => e.kind === "code" || e.kind === "formula"));
-  const summary = textPoint ? claimText(textPoint) : "";
-  const excerpt = (text: string, limit: number) => {
-    const first = text.split(/(?<=[。！？])\s*/u)[0] ?? text;
-    const characters = Array.from(first);
-    return characters.length > limit ? characters.slice(0, limit).join('') + '…（節錄）' : first;
-  };
-  const definition = excerpt(summary, 140);
-  const points = card.claims.slice(0, 4);
-  const review = structure.status.quality === "needs_review";
+  const review = structure.status.quality === "needs_review" || structure.status.processing !== "succeeded" || structure.status.decision !== "retain";
+  if (!flipped) return <VisualConceptCard card={card} structure={structure} materialName={materialName} onDetails={onFlip} />;
   return (
-    <div className={`flashcard ${flipped ? "is-back" : "is-front"}`}>
-      {!flipped ? (
-        <article className="flashcard-front" aria-label={`${card.label}概念卡`}>
-          <span className="flashcard-kicker"><Icon name="learning" size={18} /> 概念卡</span>
-          {review && <span className="flashcard-review">待確認 · 原教材尚未通過檢查</span>}
-          <h2 className="flashcard-title">{card.label}</h2>
-          {definition && <p className="flashcard-definition">{definition}</p>}
-          <div className="flashcard-overview">
-            <ul className="flashcard-bullets">{points.map(claim => <li key={claim.claim_id}>{excerpt(claimText(claim), 90)}</li>)}</ul>
-            <ConceptVisual card={card} structure={structure} />
-          </div>
-          <footer className="flashcard-footer">
-            <div className="flashcard-source-links">{sourceLinks(points.flatMap(claim=>claim.evidence)).slice(0,2).map(evidence=><SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} />)}</div>
-            <button className="text-button" type="button" onClick={onFlip} aria-label={`查看「${card.label}」的完整重點與來源`}>完整重點與來源</button>
-          </footer>
-        </article>
-      ) : (
+    <div className="flashcard is-back">
         <article className="flashcard-back" aria-label={`${card.label}的重點`}>
           <span className="flashcard-kicker">概念重點</span>
           {review && <span className="flashcard-review">待確認 · 原教材尚未通過檢查</span>}
@@ -74,7 +51,6 @@ export function Flashcard({ card, structure, flipped, onFlip, apiClient, sourceR
             </section>
           </div>
         </article>
-      )}
     </div>
   );
 }
