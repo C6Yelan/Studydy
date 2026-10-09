@@ -1,3 +1,4 @@
+import { visualCases, visualCase } from "../fixtures/visual-concept-cards";
 import { expect, test, type Page } from "@playwright/test";
 import { artifactId, materialId, runId, sessionId, structureRevision, structureView, mockKnowledgeMapApi, json } from "../fixtures/knowledge-map";
 
@@ -311,7 +312,7 @@ test("mobile keeps review status, long content and sources usable without page o
   await expect(page.getByText("教材已有新版。此卡組保留建立時的教材內容與來源。")).toBeVisible();
   await page.getByRole("button", { name: "翻面", exact: true }).click();
   await expect(page.locator(".flashcard-content")).toContainText("x != 0");
-  await expect(page.getByText("待確認 · 原教材尚未通過檢查", { exact: true })).toBeVisible();
+  await expect(page.getByText("教材版本待複核", { exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "概念重點來源", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const content = page.locator(".flashcard-content");
@@ -415,8 +416,8 @@ test("library stays aligned and card review keeps compact content and controls",
   expect(card!.width / content!.width).toBeLessThan(.85);
   await expect(page.getByRole("navigation", {name:"選擇概念卡"})).toBeVisible();
   expect(card!.width/card!.height).toBeCloseTo(4/3,1);
-  expect(card!.width).toBeLessThanOrEqual(800);
-  expect(card!.height).toBeLessThan(560);
+  expect(card!.width).toBeGreaterThan(950);
+  expect(card!.width).toBeLessThanOrEqual(1200);
   await expect(page.locator(".visual-concept-card")).toBeVisible();
   expect(card!.x).toBeGreaterThan((await page.locator(".cards-browse-list").boundingBox())!.x);
   const controls = page.locator('.cards-study-toolbar');
@@ -426,14 +427,16 @@ test("library stays aligned and card review keeps compact content and controls",
     const box = (await button.boundingBox())!;
     expect(box.width).toBeLessThan(150);
     expect(box.height).toBeGreaterThanOrEqual(40);
-    expect(box.y + box.height).toBeLessThan(960);
+    await button.scrollIntoViewIfNeeded();
+    await expect(button).toBeVisible();
   }
   await page.setViewportSize({width:390,height:844});
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   for(const button of await controls.getByRole('button').all()) {
     const box = (await button.boundingBox())!;
     expect(box.height).toBeGreaterThanOrEqual(40);
-    expect(box.y + box.height).toBeLessThan(844);
+    await button.scrollIntoViewIfNeeded();
+    await expect(button).toBeVisible();
   }
   await page.setViewportSize({width:1536,height:960});
   await page.screenshot({ path: "../.studydy-runtime/card-preview/study-wide.png", fullPage: true });
@@ -682,7 +685,7 @@ for (const sample of ["general", "prerequisite", "contrast", "part_of", "applica
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       if (sample === "prerequisite") await expect(svg).toContainText("先備：");
       if (sample === "contrast") await expect(svg).toContainText("對照：");
-      if (sample === "process-fallback") await expect(svg.getByLabel("待確認", { exact: true })).toBeVisible();
+      if (sample === "process-fallback") await expect(svg.getByLabel("教材版本待複核", { exact: true })).toBeVisible();
       if (!["structure", "code", "formula"].includes(expected)) {
         await expect(svg).toContainText(target.label);
       }
@@ -698,7 +701,7 @@ for (const sample of ["general", "prerequisite", "contrast", "part_of", "applica
       await page.getByRole("button", { name: "翻面", exact: true }).click();
       await expect(page.locator(".flashcard-point p").first()).toHaveText(source.claims[0].text);
       if (!["structure", "code", "formula"].includes(expected)) {
-        await expect(page.getByRole("region", { name: "圖卡關係與來源" })).toContainText(relation.learner_reason);
+        await expect(page.getByRole("region", { name: "圖卡關係與來源" }).first()).toContainText(relation.learner_reason);
         const request = page.waitForRequest("**/evidence/*/source");
         await page.getByRole("button", { name: "關係來源 · 第 1 頁", exact: true }).click();
         expect(decodeURIComponent((await request).url())).toContain(relation.evidence_refs[0]);
@@ -774,7 +777,7 @@ test("whole SVG card exports grounded content and preserves reading navigation",
   const svg = page.locator(".visual-concept-card");
   await expect(svg).toBeVisible();
   await expect(svg.locator('text')).toContainText(["STUDYDY / 概念卡"]);
-  await expect(svg).toContainText("待確認");
+  await expect(svg).toContainText("教材版本待複核");
   await expect(svg).toContainText("資料結構講義.pdf · 第 7 頁");
   expect(await svg.locator('text').evaluateAll(nodes => nodes.every(node => {
     const box = (node as SVGGraphicsElement).getBBox();
@@ -819,5 +822,108 @@ test("sparse SVG card keeps review status without inventing points", async ({ pa
   const svg = page.locator(".visual-concept-card");
   await expect(svg).toContainText("堆疊遵循後進先出");
   await expect(svg).toContainText("資料結構講義.pdf · 第 1 頁");
-  await expect(svg.getByLabel("待確認", { exact: true })).toBeVisible();
+  await expect(svg.getByLabel("教材版本待複核", { exact: true })).toBeVisible();
+});
+
+for (const sample of visualCases) {
+  test(`v2 layout ${sample}: local text regions, semantic fidelity and enlargement`, async ({ page }) => {
+    const { view } = await mockCards(page, { saved: true });
+    Object.assign(view, visualCase(sample));
+    await page.setViewportSize({ width: 1536, height: 960 });
+    await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+    const svg = page.locator('.visual-card > .visual-concept-card');
+    const family = ['code', 'formula'].includes(sample) ? 'technical' : ['three', 'four', 'many'].includes(sample) ? 'points' : 'sparse';
+    await expect(svg).toHaveAttribute('data-layout', family);
+    const regions = await svg.locator('[data-text-region]').evaluateAll(nodes => nodes.map(node => {
+      const r = JSON.parse(node.getAttribute('data-text-region')!);
+      const b = (node as SVGGraphicsElement).getBBox();
+      return { fits: b.width === 0 || (b.x >= r.x - 1 && b.y >= r.y - 1 && b.x + b.width <= r.x + r.width + 1 && b.y + b.height <= r.y + r.height + 1), r, b: { x:b.x, y:b.y, width:b.width, height:b.height } };
+    }));
+    expect(regions.filter(r => !r.fits)).toEqual([]);
+    for (let i = 0; i < regions.length; i++) for (let j = i + 1; j < regions.length; j++) {
+      const a = regions[i].b, b = regions[j].b;
+      expect(a.width === 0 || b.width === 0 || a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y).toBe(true);
+    }
+    if (sample === 'two') await expect(svg.locator('[data-object]')).toHaveCount(3);
+    if (sample === 'many') await expect(svg).toContainText('另有 2 則教材重點');
+    if (sample === 'four') { await expect(svg).toContainText('資料表示 A.pdf'); await expect(svg).toContainText('表示方式 B.pdf'); }
+    if (sample === 'missing-relation') { await expect(svg).toContainText('教材版本待複核'); await expect(svg).toContainText('部分關聯來源不足'); }
+    if (sample === 'code' || sample === 'formula') {
+      expect(await svg.locator('[data-technical-line]').allTextContents()).toEqual(view.concepts[0].claims[0].text.split('\n'));
+      const positions = await svg.locator('[data-technical-line]').evaluateAll(nodes => nodes.flatMap((node, index) => node.textContent ? [{ index, y: (node as SVGTextContentElement).getStartPositionOfChar(0).y }] : []));
+      const step = (positions[1].y - positions[0].y) / (positions[1].index - positions[0].index);
+      positions.slice(1).forEach((p, i) => expect((p.y - positions[i].y) / (p.index - positions[i].index)).toBeCloseTo(step, 2));
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: '放大檢視', exact: true }).click();
+    const zoom = page.getByRole('dialog', { name: '放大概念卡' });
+    await expect(zoom).toBeVisible();
+    expect((await zoom.locator('svg').boundingBox())!.width).toBe(1200);
+    const scroll = zoom.getByLabel('圖卡捲動區');
+    await scroll.focus(); await page.keyboard.press('ArrowRight');
+    await expect.poll(() => scroll.evaluate(e => e.scrollLeft)).toBeGreaterThan(0);
+    await expect(page.locator('.cards-study-counter')).toContainText('1 / 2');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: '放大檢視', exact: true })).toBeFocused();
+    await page.getByRole('button', { name: '完整重點與來源', exact: true }).click();
+    expect(await page.locator('.flashcard-point p').allTextContents()).toEqual(view.concepts[0].claims.map(c => c.text));
+    if (sample === 'missing-relation') await expect(page.getByRole('region', { name: '待複核的教材關係' })).toContainText(view.relations[0].learner_reason);
+  });
+}
+
+test('v2 relation ranking keeps all original reasons and sources on the back', async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true });
+  const original = view.relations[0];
+  view.relations.push({ ...original, relation_id: `relation:sha256:${'9'.repeat(64)}`, type: 'part_of', learner_reason: '合成案例：A 是 B 的組成部分。' });
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  const diagram = page.locator('.visual-card > svg [data-diagram]');
+  await expect(diagram).toHaveAttribute('data-diagram', 'part_of');
+  await expect(diagram).toHaveAttribute('data-source-concept-id', original.source_concept_id);
+  await expect(diagram).toHaveAttribute('data-target-concept-id', original.target_concept_id);
+  await page.getByRole('button', { name: '完整重點與來源', exact: true }).click();
+  const relations = page.getByRole('region', { name: '圖卡關係與來源' });
+  await expect(relations).toHaveCount(2);
+  await expect(relations.nth(0)).toContainText(view.relations[1].learner_reason);
+  await expect(relations.nth(1)).toContainText(original.learner_reason);
+  const request = page.waitForRequest('**/evidence/*/source');
+  await relations.nth(1).getByRole('button').first().click();
+  expect(decodeURIComponent((await request).url())).toContain(original.evidence_refs[0]);
+});
+
+test('v2 downloaded SVG has the same visible rendering without page styles', async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true });
+  Object.assign(view, visualCase('code'));
+  await page.setViewportSize({ width: 1536, height: 1200 });
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  const svg = page.locator('.visual-card > svg');
+  await expect(svg).toBeVisible();
+  await page.getByRole('button', { name: '教材問答', exact: true }).evaluate(e => { e.style.visibility = 'hidden'; });
+  const before = await svg.screenshot({ path: "../.studydy-runtime/visual-card-v2/export-preview.png" });
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: '下載 SVG', exact: true }).click();
+  const stream = (await (await downloaded).createReadStream())!;
+  const chunks = []; for await (const chunk of stream) chunks.push(chunk);
+  const xml = Buffer.concat(chunks).toString();
+  await svg.evaluate(async (element, xml) => {
+    const image = new Image(); image.src = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml' }));
+    await image.decode();
+    image.style.display = 'block'; image.style.width = `${element.getBoundingClientRect().width}px`; image.style.height = `${element.getBoundingClientRect().height}px`;
+    image.setAttribute('data-exported', 'true'); element.replaceWith(image);
+  }, xml);
+  const exported = page.locator('[data-exported]');
+  expect((await exported.screenshot({ path: "../.studydy-runtime/visual-card-v2/export-image.png" })).equals(before)).toBe(true);
+  await exported.evaluate((image: HTMLImageElement) => URL.revokeObjectURL(image.src));
+});
+
+test('v2 prose preserves paragraph gaps and avoids orphan Chinese punctuation', async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true });
+  view.relations = [];
+  view.concepts[0].claims[0].text = '這是第一段。\n\n第二段保留空白分隔。';
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  const body = page.locator('.visual-card > svg [data-claim-id] [data-text-region]');
+  await expect(body).toBeVisible();
+  const lines = await body.locator('tspan').evaluateAll(nodes => nodes.map(node => ({ text: node.textContent, y: node.textContent ? (node as SVGTextContentElement).getStartPositionOfChar(0).y : null })));
+  expect(lines.map(l => l.text)).toEqual(['這是第一段。', '', '第二段保留空白分隔。']);
+  expect(lines[2].y! - lines[0].y!).toBeGreaterThan(100);
 });

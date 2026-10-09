@@ -73,7 +73,7 @@
 .flashcard-sources h3 { margin:0 0 8px; color:var(--text-secondary); font-size:12px; font-weight:600; }
 .flashcard-source-links { display:flex; flex-wrap:wrap; gap:6px; align-items:flex-start; }
 .flashcard-source-links > .text-button { display:block; max-width:100%; min-height:28px; padding:4px 8px; border:1px solid var(--border-light); border-radius:6px; background:var(--page-cool); font-size:12px; line-height:1.5; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.cards-study { width:100%; max-width:800px !important; margin:0 auto; }
+.cards-study { width:100%; max-width:1440px; margin:0 auto; }
 .cards-study-page { width:100%; max-width:none; }
 .cards-study-page > .cards-back { margin-bottom:12px; }
 .cards-study-heading { margin-bottom:12px; }
@@ -175,8 +175,8 @@
 .flashcard-relation p { font-size:14px; line-height:1.7; overflow-wrap:anywhere; }
 
 /* SVG 圖卡與完整重點共用概念導覽。 */
-.cards-study { max-width:1180px !important; }
-.cards-browse-layout { display:grid; grid-template-columns:210px minmax(0,1fr); gap:24px; align-items:start; }
+
+.cards-browse-layout { display:grid; grid-template-columns:190px minmax(0,1fr); gap:24px; align-items:start; }
 .cards-browse-list { display:grid; gap:6px; max-height:70vh; overflow:auto; padding:8px; border:1px solid var(--border-light); border-radius:12px; background:#fff; }
 .cards-browse-list button { border:0; border-radius:8px; padding:12px; text-align:left; background:transparent; color:var(--text-primary); line-height:1.5; }
 .cards-browse-list button[aria-current=true] { background:#eaf2ff; color:#285998; }
@@ -185,11 +185,23 @@
 
  }
 
-.cards-browse-layout { max-width:954px; margin-inline:auto; }
-.cards-browse-layout .cards-study-stage { max-width:720px; }
+.cards-browse-layout { max-width:1440px; margin-inline:auto; }
+.cards-browse-layout .cards-study-stage { min-width:0; }
 
-.visual-card { width: 100%; max-width: 800px; margin: 0 auto; }
-.visual-concept-card { display: block; width: 100%; height: auto; border-radius: 20px; }
-.visual-card-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.visual-card { width: 100%; max-width: 1200px; margin: 0 auto; }
+.visual-concept-card { display: block; width: 100%; height: auto; }
+.visual-card-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-top: 12px; }
 .cards-creation-page .visual-card { min-height: 0; display: flex; flex-direction: column; }
 .cards-creation-page .visual-concept-card { min-height: 0; flex: 1; }
+
+.visual-card-mobile-hint { display: none; }
+.concept-card-zoom { width: min(1320px, calc(100vw - 24px)); max-width: none; max-height: calc(100dvh - 24px); padding: 16px; border: 1px solid var(--border); border-radius: 16px; }
+.concept-card-zoom::backdrop { background: #13233e99; }
+.concept-card-zoom header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 14px; }
+.concept-card-zoom-scroll { overflow: auto; max-height: calc(100dvh - 130px); overscroll-behavior: contain; }
+.concept-card-zoom-scroll .visual-concept-card { width: 1200px; max-width: none; height: 900px; }
+@media (max-width: 700px) {
+  .visual-card-mobile-hint { display: block; margin: 10px 0; font-size: 13px; line-height: 1.6; color: var(--text-secondary); }
+  .visual-card-actions { justify-content: flex-start; gap: 8px; }
+  .visual-card-actions button { min-height: 44px; padding-inline: 12px; }
+}
