@@ -17,3 +17,10 @@
 依賴版本見 [Python lock](backend/uv.lock)、[npm lock](frontend/package-lock.json)；模型設定見 [runtime lock](local_ai/runtime-lock.json)。各套件與模型適用其發行者條款。
 
 Studydy 原創程式碼除另有標示外採 [MIT License](LICENSE) 授權。第三方元件、模型與介面素材仍依各自適用條款，不因專案採 MIT License 而改變其原授權狀態。
+
+## 概念卡圖示與詞彙
+
+[Tabler Icons 3.49.0](https://github.com/tabler/tabler-icons) 幾何資料採 MIT，完整文字在 [Tabler 授權](frontend/public/licenses/tabler-icons.txt)。
+[CC-CEDICT / MDBG](https://www.mdbg.net/chinese/dictionary?page=cc-cedict) 衍生的中文詞表及別名採 CC BY-SA 4.0；不將其改稱 MIT。[署名與修改說明](frontend/public/licenses/concept-icons.txt) 隨網站發佈，SVG 下載也保留署名連結。
+
+圖庫在概念卡開啟時載入，全程本機詞彙與語境比對，不增加模型推論。版本、來源 hash 及生成方式見 [圖庫維護](ops/icons/README.md)。

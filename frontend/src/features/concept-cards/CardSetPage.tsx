@@ -42,7 +42,6 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
 function CardStudy({ view, structure, apiClient, materialId }: { view: CardSetView; structure: KnowledgeStructureView; apiClient: StudydyApiClient; materialId?: string }) {
   const [order, setOrder] = useState(() => view.cards.map((_, index) => index));
   const [position, setPosition] = useState(0);
-  const [flipped, setFlipped] = useState(false);
   const [finished, setFinished] = useState(false);
   const [notice, setNotice] = useState("");
   const stage = useRef<HTMLElement>(null);
@@ -51,11 +50,10 @@ function CardStudy({ view, structure, apiClient, materialId }: { view: CardSetVi
     if (next >= order.length) { setFinished(true); return; }
     if (next < 0) return;
     setPosition(next);
-    setFlipped(false);
   };
   useEffect(() => {
     stage.current?.focus({ preventScroll: true });
-  }, [position, finished, flipped]);
+  }, [position, finished]);
   const restart = (shuffle: boolean) => {
     const next = view.cards.map((_, index) => index);
     if (shuffle) {
@@ -66,7 +64,6 @@ function CardStudy({ view, structure, apiClient, materialId }: { view: CardSetVi
     }
     setOrder(next);
     setPosition(0);
-    setFlipped(false);
     setFinished(false);
     setNotice(shuffle ? "已洗牌，從第一張開始。" : "已回到第一張。");
   };
@@ -77,7 +74,6 @@ function CardStudy({ view, structure, apiClient, materialId }: { view: CardSetVi
     if (target.closest("input, textarea, select, [contenteditable=true], details, .is-code")) return;
     if (event.key === "ArrowRight") { event.preventDefault(); move(position + 1); }
     else if (event.key === "ArrowLeft") { event.preventDefault(); move(position - 1); }
-    else if (event.key === " " && !target.closest("button, a, summary")) { event.preventDefault(); setFlipped(!flipped); }
   };
   return <section className="cards-page cards-study" onKeyDown={keys}>
     <header className="cards-study-heading"><div><h1>{view.name}</h1>{!materialId && <p><Icon name="book" size={15} /> {view.material_name}</p>}</div></header>
@@ -85,17 +81,16 @@ function CardStudy({ view, structure, apiClient, materialId }: { view: CardSetVi
     <div className="cards-browse-layout"><nav className="cards-browse-list" aria-label="選擇概念卡">{order.map((index, positionIndex)=><button type="button" key={view.cards[index].concept_id} aria-current={position===positionIndex?'true':undefined} onClick={()=>{setFinished(false);move(positionIndex);}}>{view.cards[index].label}</button>)}</nav>
     <section ref={stage} tabIndex={-1} className="cards-study-stage" aria-label={finished ? "本輪瀏覽完成" : `第 ${position + 1} 張概念卡`}>
       {finished ? <div className="cards-complete"><span className="cards-empty-icon"><Icon name="check" size={36} /></span><h2>已瀏覽全部卡片</h2><p>這一輪看過了 {view.card_count} 張概念卡。想再回顧一次嗎？</p><div className="state-actions"><button className="primary-button" type="button" onClick={() => restart(false)}>再看一次</button><button className="secondary-button" type="button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" })}>返回卡組</button></div></div>
-        : <><Flashcard key={`${order[position]}:${flipped}`} card={view.cards[order[position]]} structure={structure} materialName={view.material_name} flipped={flipped} onFlip={() => setFlipped(!flipped)} apiClient={apiClient} sourceResolver={view.source_resolver} />
+        : <><Flashcard key={order[position]} card={view.cards[order[position]]} structure={structure} materialName={view.material_name} apiClient={apiClient} sourceResolver={view.source_resolver} />
           <div className="cards-study-toolbar" role="group" aria-label="概念卡操作">
-            <div className="cards-study-counter"><span aria-live="polite">第 <strong>{position + 1}</strong> / {order.length} 張</span><span>{flipped ? "重點面" : "視覺圖卡"}</span></div>
+            <div className="cards-study-counter"><span aria-live="polite">第 <strong>{position + 1}</strong> / {order.length} 張</span></div>
             <div className="cards-study-controls">
               <button className="secondary-button" type="button" disabled={position === 0} onClick={() => move(position - 1)}><Icon name="arrow-left" size={18} /> 上一張</button>
-              <button className="primary-button" type="button" onClick={() => setFlipped(!flipped)}><Icon name="refresh" size={18} /> 翻面</button>
               <button className="secondary-button" type="button" onClick={() => move(position + 1)}>{position === order.length - 1 ? "完成本輪" : "下一張"}<Icon name="chevron-right" size={18} /></button>
             </div>
             <button className="text-button cards-study-shuffle" type="button" disabled={order.length < 2} onClick={() => restart(true)}>洗牌重看</button>
           </div>
-          <p className="cards-keyboard-hint">← → 切換卡片 · 空白鍵翻面</p></>}
+          <p className="cards-keyboard-hint">← → 切換卡片</p></>}
       {notice && <p className="cards-study-notice" role="status">{notice}</p>}
     </section></div>
   </section>;

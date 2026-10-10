@@ -1,10 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import type { ConceptCard, KnowledgeStructureView } from "../../api/contracts";
-import { ConceptCardArtwork } from "./ConceptCardArtwork";
+type ArtworkComponent = typeof import("./ConceptCardArtwork")["ConceptCardArtwork"];
+let cachedArtwork: ArtworkComponent | null = null;
 
-export function VisualConceptCard({ card, structure, materialName, onDetails }: {
-  card: ConceptCard; structure: KnowledgeStructureView; materialName: string; onDetails: () => void;
+export function VisualConceptCard({ card, structure, materialName }: {
+  card: ConceptCard; structure: KnowledgeStructureView; materialName: string;
 }) {
+  const [Artwork, setArtwork] = useState<ArtworkComponent | null>(() => cachedArtwork);
+  const [loadFailed, setLoadFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void import("./ConceptCardArtwork").then(
+      module => { cachedArtwork = module.ConceptCardArtwork; if (active) setArtwork(() => module.ConceptCardArtwork); },
+      () => { if (active) setLoadFailed(true); },
+    );
+    return () => { active = false; };
+  }, []);
   const svg = useRef<SVGSVGElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
@@ -22,16 +33,14 @@ export function VisualConceptCard({ card, structure, materialName, onDetails }: 
   };
   const artwork = { card, structure, materialName };
   return <div className="visual-card">
-    <ConceptCardArtwork {...artwork} svgRef={svg} />
+    {Artwork ? <Artwork {...artwork} svgRef={svg} /> : <p role="status">{loadFailed ? "圖卡載入失敗，重新整理後再試。仍可查看下方完整重點。" : "正在載入圖卡…"}</p>}
     <div className="visual-card-actions">
-      <button type="button" className="secondary-button" onClick={download}>下載 SVG</button>
-      <button ref={opener} type="button" className="secondary-button" onClick={() => setEnlarged(true)}>放大檢視</button>
-      <button type="button" className="text-button" onClick={onDetails}>完整重點與來源</button>
+      <button type="button" className="secondary-button" disabled={!Artwork} onClick={download}>下載 SVG</button>
+      <button ref={opener} type="button" className="secondary-button" disabled={!Artwork} onClick={() => setEnlarged(true)}>放大檢視</button>
     </div>
-    <p className="visual-card-mobile-hint">放大檢視可閱讀原尺寸圖卡，並左右／上下捲動。</p>
     {enlarged && <dialog ref={dialog} className="concept-card-zoom" aria-label="放大概念卡" onClose={() => { setEnlarged(false); opener.current?.focus(); }}>
       <header><span>原尺寸圖卡 · 可左右／上下捲動</span><button className="secondary-button" type="button" onClick={() => dialog.current?.close()}>關閉放大</button></header>
-      <div className="concept-card-zoom-scroll" tabIndex={0} aria-label="圖卡捲動區"><ConceptCardArtwork {...artwork} /></div>
+      <div className="concept-card-zoom-scroll" tabIndex={0} aria-label="圖卡捲動區">{Artwork && <Artwork {...artwork} />}</div>
     </dialog>}
   </div>;
 }

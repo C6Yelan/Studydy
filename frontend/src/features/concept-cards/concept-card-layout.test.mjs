@@ -42,13 +42,13 @@ for (const kind of ["code", "formula"]) test(`${kind} takes priority and preserv
   const before = structuredClone(card); const layout = selectConceptCardLayout(card, view);
   assert.equal(layout.family, "technical"); assert.equal(layout.claims[0].text, before.claims[1].text); assert.deepEqual(card, before);
 });
-test("concrete icons require affirmative examples in the claim and supporting Evidence", () => {
+test("icons require matching affirmative source, including direct subject mentions", () => {
   const { card, view } = fixture(); const claim = card.claims[0];
   claim.text = "通訊端點，例如電腦、行動裝置與服務主機。"; claim.evidence[0].quote = claim.text;
   assert.equal(selectConceptCardLayout(card, view).objects.length, 3);
   claim.text = "不是所有端點都包含電腦。"; assert.equal(selectConceptCardLayout(card, view).objects.length, 0);
   claim.text = "通訊端點，例如電腦。"; claim.evidence[0].quote = "只談通訊端點。"; assert.equal(selectConceptCardLayout(card, view).objects.length, 0);
-  claim.text = "電腦"; claim.evidence[0].quote = "例如電腦。"; assert.equal(selectConceptCardLayout(card, view).objects.length, 0);
+  claim.text = "電腦"; claim.evidence[0].quote = "例如電腦。"; assert.equal(selectConceptCardLayout(card, view).objects[0].kind, "device-desktop");
   claim.text = "惡意軟體包括電腦病毒。"; claim.evidence[0].quote = claim.text; assert.equal(selectConceptCardLayout(card, view).objects.length, 0);
 });
 test("long prose uses capacity-aware structure; missing source and version review stay explicit", () => {
@@ -67,4 +67,46 @@ test("Chinese closing punctuation and paired terminology stay with their words",
   assert.deepEqual(wrapCardText("教材原文。", 4, s => s.length).lines, ["教材", "原文。"]);
   assert.deepEqual(wrapCardText("使用（TCP/IP）說明", 8, s => s.length).lines, ["使用", "（TCP/IP）", "說明"]);
   assert.deepEqual(wrapCardText("第一段\n\n第二段", 10, s => s.length).lines, ["第一段", "", "第二段"]);
+});
+
+for (const [title, text, expected, forbidden] of [
+  ["印表機", "印表機把文件輸出到紙張。", "printer", ""],
+  ["電子郵件", "電子郵件使用網路傳送訊息，信件可以包含附件。", "mail", ""],
+  ["自行車", "自行車是以人力踩踏的交通工具。", "bike", ""],
+  ["選用器材", "Use a telescope instead of a microscope.", "telescope", "microscope"],
+  ["禁用器材", "Do not use a camera. Use a telescope.", "telescope", "camera"],
+  ["Mouse（動物）", "A mouse is a small rodent that eats seeds.", "", "mouse"],
+  ["Musical keyboard", "A keyboard is a musical instrument used in concerts.", "", "keyboard"],
+  ["葉節點", "A leaf is a node with no children in a graph.", "", "leaf"],
+]) test(`source-backed catalog selection: ${title}`, () => {
+  const { card, view } = fixture(); card.label = title;
+  card.claims[0].text = text; card.claims[0].evidence[0].quote = text;
+  const objects = selectConceptCardLayout(card, view).objects;
+  if (expected) assert.equal(objects[0].kind, expected);
+  if (forbidden) assert.ok(!objects.some(o => o.kind === forbidden));
+  objects.forEach(o => { assert.equal(o.claimId, card.claims[0].claim_id); assert.equal(o.evidenceId, "e"); });
+});
+test("catalog cannot borrow evidence or word-sense context from another claim", () => {
+  const { card, view } = fixture(2);
+  card.label = "觀察器材";
+  card.claims[0].text = "望遠鏡"; card.claims[0].evidence[0].quote = "上課日期";
+  card.claims[1].text = "上課日期"; card.claims[1].evidence[0].quote = "望遠鏡";
+  assert.equal(selectConceptCardLayout(card,view).objects.length,0);
+  card.claims[0].text = "A keyboard is a musical instrument."; card.claims[0].evidence[0].quote = card.claims[0].text;
+  card.claims[1].text = "Computer hardware supports typing."; card.claims[1].evidence[0].quote = card.claims[1].text;
+  assert.ok(!selectConceptCardLayout(card,view).objects.some(o => o.kind === "keyboard"));
+  card.label = "望遠鏡"; card.claims[0].text = "望遠鏡"; card.claims[0].evidence[0].quote = "望遠鏡";
+  card.claims[0].evidence[0].source_locator.block_id = "";
+  card.claims[1].evidence = [];
+  assert.equal(selectConceptCardLayout(card,view).objects.length,0);
+});
+
+for (const n of [1, 3, 6]) test(`relation card includes up to three actual claims (${n} available)`, () => {
+  const { card, view } = fixture(n); view.relations = [relation("part_of")];
+  const before = structuredClone(card);
+  const layout = selectConceptCardLayout(card, view);
+  assert.equal(layout.family, "relation");
+  assert.deepEqual(layout.claims, card.claims.slice(0, 3));
+  assert.equal(layout.omitted, Math.max(0, n - 3));
+  assert.deepEqual(card, before);
 });

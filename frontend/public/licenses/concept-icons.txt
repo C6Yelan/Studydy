@@ -1,0 +1,19 @@
+Concept-card icon assets and dictionary attribution
+
+Tabler Icons 3.49.0 by Paweł Kuna and contributors, MIT.
+https://github.com/tabler/tabler-icons
+Full license: /licenses/tabler-icons.txt
+SVG geometry converted to static element/attribute tuples; icons embedded in downloaded SVGs.
+
+CC-CEDICT community / MDBG; original CEDICT by Paul Andrew Denisowski (1997, 1998).
+https://www.mdbg.net/chinese/dictionary?page=cc-cedict
+Dictionary snapshot: 2026-10-09.
+Creative Commons Attribution-ShareAlike 4.0 International:
+https://creativecommons.org/licenses/by-sa/4.0/
+Derived catalog words and dictionary aliases are distributed under CC BY-SA 4.0.
+Changes: extracted headwords, matched dictionary senses to Tabler names and selected explicit noun tags;
+normalized spelling, retained sense qualifiers and source line references.
+The license applies to the derived dictionary data, not to unrelated Studydy source code.
+
+Generated data and source hashes: frontend/src/features/concept-cards/icons/
+Build tool: ops/icons/build_catalog.py
