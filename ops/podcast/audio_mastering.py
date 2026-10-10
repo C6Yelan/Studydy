@@ -57,7 +57,7 @@ def ffmpeg():
 def _run(source, filters, output=None):
     args=[ffmpeg(),'-hide_banner','-nostdin','-y','-i',str(source),'-af',filters]
     args += ['-ar',str(RATE),'-ac','1','-c:a','pcm_s16le',str(output)] if output else ['-f','null','-']
-    result=subprocess.run(args,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,timeout=120,check=False)
+    result=subprocess.run(args,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,check=False)
     if result.returncode:raise ValueError('PODCAST_AUDIO_INVALID')
     try:
         value=json.JSONDecoder().raw_decode(result.stderr[result.stderr.rindex('{'):])[0]

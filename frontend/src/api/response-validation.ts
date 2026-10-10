@@ -845,6 +845,13 @@ export function materialDraft(
 
 export function podcastSummary(value: unknown): value is PodcastSummary {
   const item = object(value);
+  if (item?.generation !== undefined) {
+    const generation = object(item.generation);
+    if (!generation || typeof generation.active !== 'boolean'
+      || ['preview_ready','retryable_videos'].some(key => generation[key] !== undefined && typeof generation[key] !== 'boolean')
+      || !['completed_videos','failed_videos'].every(key => Number.isInteger(generation[key]) && Number(generation[key]) >= 0)
+      || Number(generation.completed_videos) + Number(generation.failed_videos) > Number(item.episode_count)) return false;
+  }
   return !!item && isUuid(item.podcast_id) && isUuid(item.material_id)
     && revision(item.knowledge_structure_revision, "knowledge-structure")
     && typeof item.name === "string" && !!item.name.trim() && typeof item.material_name === "string"

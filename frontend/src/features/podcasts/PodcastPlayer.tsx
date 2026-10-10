@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from "react";
 import type { PodcastView } from "../../api/contracts";
-import { PodcastVideoStatus, type VideoView, type usePodcastVideo } from "./PodcastVideo";
+import { type VideoView, type usePodcastVideo } from "./PodcastVideo";
 
 export function savedPosition(key: string): { episode: number; time: number } {
   try {
@@ -42,7 +42,7 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
   const internalMedia = useRef<HTMLMediaElement>(null);
   const media = mediaRef ?? internalMedia;
   const video: VideoView['video'] = videoState.state?.status === 'ready' ? videoState.state.video : null;
-  const mediaSrc = view.status === 'ready' ? `/v1/podcasts/${view.podcast_id}/episodes/${index}/${video ? 'video/media' : 'audio'}` : undefined;
+  const mediaSrc = view.status === 'ready' ? `/v1/podcasts/${view.podcast_id}/episodes/${index}/video/media` : undefined;
   const handoff = useRef<{time:number;playing:boolean}|null>(null);
   const menu = useRef<HTMLDivElement>(null), gear = useRef<HTMLButtonElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
@@ -102,6 +102,8 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
     syncSubtitles();
     const observer = new ResizeObserver(syncSubtitles);
     if (viewport.current) observer.observe(viewport.current);
+    const controls = viewport.current?.querySelector(".media-playback-controls");
+    if (controls) observer.observe(controls);
     return () => {
       observer.disconnect();
       for (const track of tracks) track.removeEventListener("cuechange", syncSubtitles);
@@ -194,17 +196,10 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
       }}
       tabIndex={0} aria-label={video ? '影片播放區；按空白鍵播放或暫停' : '音訊播放區；按空白鍵播放或暫停'}>
       <div className="media-display" role="region" aria-label={video ? "教學影片" : "Podcast 音訊"} onClick={e => { if (!(e.target as HTMLElement).closest("button, a, input, select")) { toggle(); showControls(); } }}>
-        {video ? <video ref={attachMedia} {...mediaEvents} playsInline className="podcast-video-element" aria-label={`第 ${index+1} 集影片`}>
+        <video ref={attachMedia} {...mediaEvents} playsInline className="podcast-video-element" aria-label={`第 ${index+1} 集影片`}>
           <track kind="subtitles" src={`/v1/podcasts/${view.podcast_id}/episodes/${index}/subtitles`} srcLang="zh-TW" label="繁體中文"
             onLoad={syncSubtitles} />
-        </video> : <audio ref={attachMedia} {...mediaEvents} aria-label={`第 ${index+1} 集音訊`} />}
-        {!video && <>
-        <div className="media-video-empty">
-          <svg className="media-video-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="5" y="10" width="38" height="28" rx="4"/><path d="m20 18 12 6-12 6Z"/></svg>
-          <h3>{videoState.state?.status === "running" ? "正在製作教學影片" : videoState.state?.status === "pending" ? "影片排隊中" : "本集影片尚未生成"}</h3>
-          <p>{view.status !== "ready" ? "音訊完成後即可收聽" : !ready ? "正在載入本集音訊…" : playing ? "正在收聽本集 Podcast" : "可以先收聽本集 Podcast"}</p>
-          <PodcastVideoStatus {...videoState} />
-        </div></>}
+        </video>
       </div>
       {video && caption && <div className="media-subtitles" aria-hidden="true" style={{ bottom: captionBottom }}>{caption}</div>}
       <div className="media-playback-controls" role="group" aria-label="播放控制">

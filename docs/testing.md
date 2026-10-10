@@ -12,6 +12,10 @@
 
 對應測試：`test_podcast_provider.py`、`test_podcast_beats.py`、`test_podcast_episode_plan.py`、`test_podcast_audio.py`、`test_podcast_video_service.py` 及 runtime 的 Podcast／video 案例。這些程式檢查不宣稱模型內容已經過獨立教學審查；實際品質以生成結果與播放檢查回報。
 
+## Podcast 取消與刪除
+
+`backend/tests/test_podcast_process.py` 以本機 HTTP 與真實測試子程序驗證取消、等待資源鎖時取消、提早／遲到的取消、不同 lease 隔離、有明定期限的操作逾時及子程序群組回收，另以推進單調時鐘確認無期限的音訊程序不受原時限影響、長時間工作仍可取消。`backend/tests/runtime/materials/test_podcast_cancellation.py` 使用隔離 DB，驗證正在產稿／製作音訊時取消或刪除會停止子程序，且下一筆節目能完成；另核對取消會刪除已生成的音訊與所有子工作、保留原教材，以及音訊已完成時仍可取消整份節目。音訊租約使用縮短到期時間的隔離案例，驗證正常續期可跨過原到期點、失聯租約不會復活。這些測試不呼叫真實模型、不使用產品 DB，也不宣稱生成內容品質已驗收。
+
 ## 選擇範圍
 
 | 變更 | 驗證入口 |
@@ -354,3 +358,5 @@ PYTHONPATH=ops/podcast data/podcast/cosyvoice-b-runtime/bin/python backend/tests
 臨時試聽網站、這輪及未使用的舊聲音實驗／模型／快取已刪除。清理、實際部署 source hash／映像、必要回復檔與新作品 ID 記於本機 `data/deployments/podcast-vw-20261008/`；不保存帳密，不把私人教材或產物加入 Git。
 
 本次兩集音訊與教學影片最終均已完成；第二集影片首次來源／教學審查未過，沿原標準重試後通過，未改寫音訊。正式播放器以 1× 實播兩集、第二集音訊與影片跳轉至 120 秒均正常；原教材的需複核標記保留。
+
+背景時間限制回歸：`test_generation_leases.py` 使用隔離 DB 驗證問答、主題與研究跨過原租約期限後仍不被重新領取，取消仍傳至 provider；`test_normalization_cancellation.py` 驗證轉檔取消會回收程序。模型／語音／辨識與資源排隊的取消、無生成期限及健康檢查不排隊，由 `test_podcast_process.py` 的合成程序與本機 HTTP 驗證。以上均不呼叫真實模型。

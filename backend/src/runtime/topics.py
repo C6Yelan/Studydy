@@ -9,6 +9,7 @@ from .source_normalization import SourceError,create_draft
 from .storage.artifacts import _key_digest
 from .storage.tables import TopicScope,MaterialResearch,Learner,database_session
 from .voice import provider
+from .generation_jobs import cancellable_job
 
 
 def _text(value,limit):
@@ -53,8 +54,12 @@ def create(owner,request,key,*,dsn=None):
 
 def listing(owner,*,dsn=None):
     with database_session(dsn) as db:
-        return {'topics':[_view(r) for r in db.scalars(select(TopicScope).where(TopicScope.learner_id==owner,
-            TopicScope.status!='cancelled').order_by(TopicScope.created_at.desc()))]}
+        rows=db.execute(select(TopicScope,MaterialResearch).outerjoin(
+            MaterialResearch,TopicScope.research_id==MaterialResearch.research_id).where(
+            TopicScope.learner_id==owner,TopicScope.status!='cancelled').order_by(TopicScope.created_at.desc()))
+        # 教材尚未建立時，教材庫仍可用這份摘要返回搜尋／選取來源進度。
+        return {'topics':[{**_view(row),'research':({'status':work.status,'material_id':work.material_id}
+            if work else None)} for row,work in rows]}
 
 
 def read(owner,identity,*,dsn=None):
@@ -126,7 +131,8 @@ def step(*,dsn=None):
         token=uuid4();row.lease_token=token;row.lease_expires_at=now+timedelta(minutes=20)
         identity,request=row.topic_id,row.request
     try:
-        generated=provider('/scope',{'request':request})
+        with cancellable_job(TopicScope, identity, token, dsn=dsn, statuses=('pending',)) as job:
+            generated=provider('/scope',{**job,'request':request})
         result=proposal(generated['proposal']);producer=_text(generated['provider'],200);error=None
     except Exception:result=None;producer=None;error='TOPIC_PROVIDER_FAILED'
     with database_session(dsn) as db:

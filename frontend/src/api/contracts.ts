@@ -515,6 +515,7 @@ export type PodcastSummary = {
   concept_ids: string[]; status: "pending" | "running" | "ready" | "failed" | "cancelled";
   error_code: string | null; version: number; created_at: string;
   episode_count: number; completed_episodes: number; is_current_revision: boolean;
+  generation?: {preview_ready?:boolean; retryable_videos?:boolean; active:boolean; completed_videos:number; failed_videos:number};
 };
 export type PodcastClaim = ConceptCard["claims"][number] & { concept_id: string; label: string };
 export type PodcastContext = {

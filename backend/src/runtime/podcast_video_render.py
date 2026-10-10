@@ -36,17 +36,29 @@ def font(size):
 
 @lru_cache(maxsize=512)
 def lines(text, size, width):
-    result=[]; line=''
-    # 縮寫、單位與識別符能放入一行時整詞移動，不在 TCP／MB/s 中間換行。
-    for token in re.findall(r'[A-Za-z0-9][A-Za-z0-9_./+-]*|\n|.', text):
+    # 自動換行時，句末標點跟隨前文、開括號跟隨後文；明示換行仍保留。
+    closing = '，。！？；：、％）］｝〉》」』】〕…,.!?;:%)]}'
+    opening = '（［｛〈《「『【〔([{'
+    def units(tokens):
+        result = []
+        for token in tokens:
+            if (result and token != '\n' and result[-1] != '\n'
+                    and (token[0] in closing or result[-1][-1] in opening)):
+                result[-1] += token
+            else:
+                result.append(token)
+        return result
+    result = []; line = ''
+    tokens = units(re.findall(r'[A-Za-z0-9][A-Za-z0-9_./+-]*|\n|.', text))
+    for token in tokens:
         if token == '\n':
-            result.append(line); line=''; continue
-        if line and font(size).getlength(line+token)>width:
-            result.append(line); line=''
-        for char in token:
-            if line and font(size).getlength(line+char)>width:
-                result.append(line); line=''
-            line+=char
+            result.append(line); line = ''; continue
+        # 縮寫、單位與識別符能放入一行時整詞移動；過長時才逐字拆分。
+        parts = [token] if font(size).getlength(token) <= width else units(token)
+        for part in parts:
+            if line and font(size).getlength(line + part) > width:
+                result.append(line); line = ''
+            line += part
     result.append(line)
     return result
 
@@ -64,6 +76,9 @@ def layouts(plan):
                 errors.append(f'page={page_index},element={index},width must exceed {2*padding}')
                 items.append([]);continue
             text_lines=lines(e['text'],e['size'],width)
+            if any(font(e['size']).getlength(line)>width for line in text_lines):
+                errors.append(f'page={page_index},element={index},text exceeds available width={width}')
+                items.append([]);continue
             height=len(text_lines)*(e['size']+10)
             if height>e['h']-2*padding:
                 errors.append(f'page={page_index},element={index},height={e["h"]}; {len(text_lines)} wrapped lines at size={e["size"]} require height>={height+2*padding}; move or shorten text if canvas space is insufficient')
@@ -170,10 +185,9 @@ def draw_scene(t, timeline, plan, page_index, text_layouts, mark_layouts):
         groups=scene_state(t,timeline,page)
         states={j:state for group,state in zip(page['motion']['groups'],groups) for j in group['elements']}
     image=Image.new('RGB',(1920,1080),BACKGROUND);d=ImageDraw.Draw(image,'RGBA')
-    d.text((100,35),'PODCAST  /  圖解講解',font=font(26),fill=PALETTE['teal'])
-    d.text((100,88),page['title'],font=font(54),fill=PALETTE['ink'])
-    d.text((1690,106),f'{page_index+1:02} / {len(plan["pages"]):02}',font=font(30),fill=PALETTE['muted'])
-    d.line((100,185,1820,185),fill='#d7e0e4',width=2)
+    d.text((100,48),page['title'],font=font(54),fill=PALETTE['ink'])
+    d.text((1690,66),f'{page_index+1:02} / {len(plan["pages"]):02}',font=font(30),fill=PALETTE['muted'])
+    d.line((100,140,1820,140),fill='#d7e0e4',width=2)
     for index,e in enumerate(page['elements']):
         # Reveal 完全由時間推導；往回 seek 不留下未到時機的元素。
         reveal=next((g for g in page.get('reveal',[]) if index in g['elements']),None)
@@ -231,11 +245,6 @@ def draw_frame(t, timeline, plan, text_layouts, mark_layouts=None):
             previous=draw_scene(math.nextafter(boundary,-math.inf),timeline,plan,page_index-1,text_layouts,mark_layouts)
             image=Image.blend(previous,image,blend)
     d=ImageDraw.Draw(image,'RGBA')
-    d.rectangle((0,852,1920,1080),fill='#edf1f3')
-    d.text((100,867),'正在講解',font=font(25),fill=PALETTE['teal'])
-    caption=(timeline['segments'][cue_index]['title'] if plan.get('schema') in ('podcast-storyboard/v2','podcast-storyboard/v3') else timeline['segments'][cue_index]['text']).replace('\n',' ')
-    for i,line in enumerate(lines(caption,32,1720)):
-        d.text((100,900+i*42),line,font=font(32),fill=PALETTE['ink'])
     d.rectangle((0,1068,round(1920*min(t/timeline['duration'],1)),1079),fill=PALETTE['teal'])
     return image
 
@@ -245,7 +254,7 @@ def measure_encoded_audio(path):
     import imageio_ffmpeg
     result=subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-hide_banner','-nostdin','-i',str(path),
         '-vn','-af','loudnorm=I=-19:TP=-2:LRA=11:print_format=json','-f','null','-'],
-        stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,timeout=120)
+        stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
     try:
         if result.returncode:raise ValueError()
         value=json.JSONDecoder().raw_decode(result.stderr[result.stderr.rindex('{'):])[0]
@@ -266,8 +275,6 @@ def render(request, audio_path, destination):
     validate_visual_timing(plan,timeline)
     text_layouts=layouts(plan)
     mark_layouts=emphasis_layouts(plan,text_layouts)
-    if any(len(lines((s['title'] if plan.get('schema') in ('podcast-storyboard/v2','podcast-storyboard/v3') else s['text']).replace('\n',' '),32,1720))>4 for s in timeline['segments']):
-        raise ValueError('VIDEO_LAYOUT_INVALID:caption')
     ensure_space(destination.parent)
     fps=request.get('benchmark_fps',60)
     if type(fps) is not int or fps not in (30,60):raise ValueError('VIDEO_RESULT_INVALID')

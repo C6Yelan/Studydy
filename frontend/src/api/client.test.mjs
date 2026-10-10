@@ -1112,3 +1112,19 @@ test('recording upload returns a validated turn identity for scoped voice playba
     await assert.rejects(invalid.voiceRecording(sessionId,audio,'recording-intent'),error=>error.kind==='schema');
   }
 });
+
+
+test("podcast cancellation accepts only a deletion receipt for the same podcast", async () => {
+  const body={schema:"podcast-action/v1",action:"cancel",expected_version:1};
+  const receipt={schema:"podcast-deleted/v1",podcast_id:setId};
+  assert.deepEqual(await new StudydyApiClient(async()=>Response.json(receipt)).podcastAction(setId,body),receipt);
+  for(const value of [podcastView(),{...receipt,podcast_id:materialId}])
+    await assert.rejects(new StudydyApiClient(async()=>Response.json(value)).podcastAction(setId,body),e=>e.kind==="schema");
+});
+
+test("podcast background generation counts stay within the episode count", async () => {
+  const value=podcastView();value.generation={active:true,completed_videos:0,failed_videos:0};
+  assert.equal((await new StudydyApiClient(async()=>Response.json(value)).getPodcast(setId)).generation.active,true);
+  for(const generation of [{active:"yes",completed_videos:0,failed_videos:0},{active:false,completed_videos:2,failed_videos:0},{active:false,completed_videos:1,failed_videos:1}])
+    await assert.rejects(new StudydyApiClient(async()=>Response.json({...value,generation})).getPodcast(setId),e=>e.kind==="schema");
+});

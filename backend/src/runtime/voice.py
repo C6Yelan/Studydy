@@ -15,6 +15,7 @@ from .storage.artifacts import _key_digest
 from .storage.knowledge_structures import _read_verified_document, _view, _prune_unreferenced_structures
 from .storage.tables import VoiceConversation as Conversation, VoiceTurn as Turn, Material, database_session
 from .podcasts import validate_audio
+from .generation_jobs import generation_response, cancellable_job
 
 
 ACTIVE = ('transcribing', 'pending', 'answering', 'speaking')
@@ -28,7 +29,7 @@ def provider(path, body):
     request = Request(base + path, data=json.dumps(body, ensure_ascii=False).encode(),
         headers={'Content-Type':'application/json','Authorization': 'Bearer ' + token})
     try:
-        with urlopen(request, timeout=1800 if path=='/align' else 1200) as response:
+        with (urlopen(request, timeout=5) if path == '/luna-health' else generation_response(request)) as response:
             data = response.read(20 * 1024 * 1024 + 1)
     except HTTPError as error:
         try: code=json.loads(error.read(4096)).get('error_code')
@@ -273,16 +274,17 @@ def step(*, dsn=None):
     state=claim(dsn=dsn)
     if not state:return False
     try:
-        if state['status']=='transcribing':result=provider('/transcribe',{'audio':base64.b64encode(state['recording']).decode()})
-        elif state['status']=='answering':
-            context=None
-            if state['context']:
-                with database_session(dsn) as db:
-                    row,_=_conversation(db,state['owner'],state['conversation_id'])
-                    _,context=podcast_context(db,row,state['context'])
-            result=provider('/answer',{**{k:state[k] for k in ('question','claims','history')},'context':context})
-        else:result=provider('/audio',{'script':{'segments':[{'turns':[{'speaker':'host','text':state['answer']['text']}]}]}})
-        finish(state,result,dsn=dsn)
+        with cancellable_job(Turn, state['turn_id'], state['lease_token'], dsn=dsn, statuses=(state['status'],)) as job:
+            if state['status']=='transcribing':result=provider('/transcribe',{**job,'audio':base64.b64encode(state['recording']).decode()})
+            elif state['status']=='answering':
+                context=None
+                if state['context']:
+                    with database_session(dsn) as db:
+                        row,_=_conversation(db,state['owner'],state['conversation_id'])
+                        _,context=podcast_context(db,row,state['context'])
+                result=provider('/answer',{**job,**{k:state[k] for k in ('question','claims','history')},'context':context})
+            else:result=provider('/audio',{**job,'script':{'segments':[{'turns':[{'speaker':'host','text':state['answer']['text']}]}]}})
+            finish(state,result,dsn=dsn)
     except Exception as error:
         code=str(error) if isinstance(error,SourceError) else 'VOICE_PROVIDER_FAILED'
         finish(state,error=code,dsn=dsn)

@@ -22,10 +22,10 @@ def model_design(schema, kind='comparison'):
 
 def test_cancel_before_start_never_calls_model():
     body={'job_id':str(uuid4()),'job_token':str(uuid4())}
-    service.cancel(body)
-    with pytest.raises(ValueError,match='VIDEO_CANCELLED'):
-        service.produce(body,luna=lambda *_:pytest.fail('cancelled job called model'),model='synthetic',align=None,text_lock=None,asr_lock=None)
-    assert service.job_key(body) not in service.JOBS
+    service.podcast_process.cancel(body)
+    with pytest.raises(ValueError,match='PODCAST_CANCELLED'):
+        with service.podcast_process.job(body) as cancelled:
+            service.produce(body,luna=lambda *_:pytest.fail('cancelled job called model'),model='synthetic',align=None,text_lock=None,asr_lock=None,cancelled=cancelled)
 
 
 def test_cancel_running_renderer_stops_child():
@@ -53,10 +53,12 @@ def test_one_storyboard_call_without_quality_review_or_rewrite(tmp_path,monkeypa
     for beat in episode['script']['segments']:beat['title']='同名標題'
     calls=[];rendered=[]
     def model(prompt,schema,**kwargs):
+        assert kwargs['timeout'] is None
         assert set(schema['properties'])=={'pages'}
         assert schema['properties']['pages']['minItems']==2
         calls.append(prompt);return model_design(schema,kind)
     def process(args,env,timeout,cancelled):
+        assert timeout is None
         result=Path(args[5])
         if args[-1]=='--validate':
             if failure=='layout':result.write_text('{"error":"VIDEO_LAYOUT_INVALID:bad bounds"}');return 1
@@ -75,10 +77,10 @@ def test_one_storyboard_call_without_quality_review_or_rewrite(tmp_path,monkeypa
     kwargs=dict(luna=model,model='synthetic',align=lambda *a,**k:alignment,text_lock=Lock(),asr_lock=Lock(),cancelled=Event())
     if failure:
         with pytest.raises(ValueError,match='VIDEO_LAYOUT_INVALID' if failure=='layout' else 'VIDEO_RENDER_FAILED'):
-            service._produce(body,**kwargs)
+            service.produce(body,**kwargs)
         assert not rendered
     else:
-        result=service._produce(body,**kwargs)
+        result=service.produce(body,**kwargs)
         assert 'review' not in result and rendered==[True]
     assert len(calls)==1 and not list(tmp_path.iterdir())
 
@@ -104,5 +106,5 @@ def test_measured_grouping_reaches_storyboard_and_render_without_dropping_turns(
         if args[-1]!='--validate':result.with_suffix('.mp4').write_bytes(b'synthetic')
         return 0
     monkeypatch.setattr(service,'_process',process)
-    result=service._produce({'episode':episode,'audio':base64.b64encode(raw).decode(),'source_context':{},'podcast_id':'p','episode_index':0,'source_resolver':'/source'},luna=model,model='synthetic',align=lambda *a,**k:alignment,text_lock=Lock(),asr_lock=Lock(),cancelled=Event())
+    result=service.produce({'episode':episode,'audio':base64.b64encode(raw).decode(),'source_context':{},'podcast_id':'p','episode_index':0,'source_resolver':'/source'},luna=model,model='synthetic',align=lambda *a,**k:alignment,text_lock=Lock(),asr_lock=Lock(),cancelled=Event())
     assert len(result['cues'])==1 and 'groups' not in result['alignment']

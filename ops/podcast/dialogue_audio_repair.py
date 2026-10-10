@@ -129,7 +129,7 @@ def assemble(items, rate):
                 sf.write(directory / 'input.wav', audio, rate, subtype='FLOAT')
                 result = subprocess.run([ffmpeg(), '-v', 'error', '-y', '-i', str(directory / 'input.wav'),
                     '-af', f'atempo={estimate["tempo"]:.9f}', '-c:a', 'pcm_f32le', str(directory / 'output.wav')],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=False)
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,  check=False)
                 if result.returncode:
                     raise ValueError('PODCAST_AUDIO_INVALID')
                 audio, actual_rate = sf.read(directory / 'output.wav', dtype='float32')

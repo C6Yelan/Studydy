@@ -112,14 +112,11 @@ def test_cancel_expired_lease_and_delete_fence_late_results(closed_loop):
     view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
     podcasts.change_podcast(owner.learner_id, identity, "cancel", view["version"], dsn=dsn)
     assert not podcasts.finish_step(new, script=script(new), dsn=dsn)
-    cancelled = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
-    with pytest.raises(podcasts.PodcastError, match="PODCAST_CONFLICT"):
-        podcasts.change_podcast(owner.learner_id, identity, "retry", view["version"], dsn=dsn)
-    podcasts.change_podcast(owner.learner_id, identity, "retry", cancelled["version"], dsn=dsn)
-    claim = podcasts.claim_step(dsn=dsn)
-    podcasts.delete_podcast(owner.learner_id, identity, dsn=dsn)
-    assert not podcasts.finish_step(claim, script=script(claim), dsn=dsn)
     assert podcasts.list_podcasts(owner.learner_id, dsn=dsn)["podcasts"] == []
+    with pytest.raises(podcasts.PodcastError, match="RESOURCE_NOT_FOUND"):
+        podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
+    with pytest.raises(podcasts.PodcastError, match="RESOURCE_NOT_FOUND"):
+        podcasts.change_podcast(owner.learner_id, identity, "retry", view["version"], dsn=dsn)
     with pytest.raises(podcasts.PodcastError, match="RESOURCE_NOT_FOUND"):
         create(closed_loop)
 
@@ -221,6 +218,10 @@ def test_api_owner_audio_ranges_and_origin_boundary(closed_loop, monkeypatch):
     assert client.get(detail).status_code == client.get(audio_url).status_code == 404
     assert client.delete(detail, headers={"Origin": origin}).status_code == 404
     client.cookies.set("studydy_session", token)
+    assert view.json()['generation'] == {'active':True,'completed_videos':0,'failed_videos':0,'preview_ready':False,'retryable_videos':False}
+    cancelled = client.post(detail + '/actions', headers={'Origin':origin}, json={
+        'schema':'podcast-action/v1','action':'cancel','expected_version':view.json()['version']})
+    assert cancelled.status_code == 200 and cancelled.json() == {'schema':'podcast-deleted/v1','podcast_id':identity}
     assert client.delete(detail, headers={"Origin": origin}).status_code == 200
     assert client.get(audio_url).status_code == 404
     assert client.post(url, headers=headers, json=body).status_code == 404

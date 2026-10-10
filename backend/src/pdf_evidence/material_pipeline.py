@@ -171,11 +171,11 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
 
 @contextmanager
 def material_analysis_lock(
-    runtime_root: Path, *, wait_seconds: float = 5, cancellation_check: Callable[[], None] | None = None,
+    runtime_root: Path, *, wait_seconds: float | None = None, cancellation_check: Callable[[], None] | None = None,
 ):
     """避免同時載入多個 OCR sidecar；resident Gemma lifecycle 不在此鎖內。"""
 
-    if not runtime_root.is_absolute() or runtime_root.is_symlink() or wait_seconds < 0:
+    if not runtime_root.is_absolute() or runtime_root.is_symlink() or (wait_seconds is not None and wait_seconds < 0):
         raise MaterialAnalysisError("RUNTIME_LAYOUT_INVALID")
     runtime_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     lock_path = runtime_root / "material-analysis.lock"
@@ -183,7 +183,7 @@ def material_analysis_lock(
         raise MaterialAnalysisError("RUNTIME_LAYOUT_INVALID")
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        deadline = time.monotonic() + wait_seconds
+        deadline = None if wait_seconds is None else time.monotonic() + wait_seconds
         while True:
             if cancellation_check is not None:
                 cancellation_check()
@@ -191,7 +191,7 @@ def material_analysis_lock(
                 fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
-                if time.monotonic() >= deadline:
+                if deadline is not None and time.monotonic() >= deadline:
                     raise MaterialAnalysisError("RUNTIME_BUSY") from None
                 time.sleep(0.05)
         yield

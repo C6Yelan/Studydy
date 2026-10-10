@@ -8,6 +8,7 @@ import { StateView } from "../../ui/StateView";
 import { Icon } from "../../ui/Icon";
 import { claimText } from "../../ui/claim-text";
 import { PodcastProgress } from "./PodcastProgress";
+import { podcastPreviewReady } from "./PodcastLibrary";
 
 import { PodcastPlayer, savedPosition, formatTime as duration } from "./PodcastPlayer";
 
@@ -28,7 +29,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const rememberPosition = useRef(true);
   const autoPlayNext = useRef(false);
   const episodeList = useRef<HTMLElement>(null);
-  const videoState = usePodcastVideo(apiClient,podcastId,index,view?.episodes[index]?.audio?.sha256,view?.episodes[index]?.script_sha256??undefined);
+  const videoState = usePodcastVideo(apiClient,podcastId,index,view && podcastPreviewReady(view) ? view.episodes[index]?.audio?.sha256 : undefined,view?.episodes[index]?.script_sha256??undefined);
   useLayoutEffect(() => {
     const layout = workspace.current;
     if (!layout) return;
@@ -40,11 +41,11 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     };
     const observer = new ResizeObserver(resize);
     observer.observe(layout);
-    document.querySelectorAll('.app-header, .material-learning-toolbar, .material-context, .podcast-page > .cards-page-header').forEach(element => observer.observe(element));
+    document.querySelectorAll('.app-header, .material-learning-toolbar, .material-context, .podcast-page > .cards-page-header, .podcast-generation-summary').forEach(element => observer.observe(element));
     window.addEventListener('resize', resize);
     resize();
     return () => { observer.disconnect(); window.removeEventListener('resize', resize); };
-  }, [view?.podcast_id, view?.status, actionError]);
+  }, [view?.podcast_id, view?.status, view?.generation?.active, videoState.state?.status, actionError]);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => {
     let cancelled = false;
@@ -56,7 +57,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
         if (!materialId) { writeRoute({ name: "podcast", podcastId, materialId: result.material_id }, true); return; }
         if (result.material_id !== materialId) throw new Error("這份 Podcast 不屬於此教材。");
         setView(result); setError(null); setIndex((i) => Math.min(i, result.episodes.length - 1));
-        if (result.status === "pending" || result.status === "running") timer = setTimeout(() => void read(), 2000);
+        if (result.status === "pending" || result.status === "running" || result.generation?.active) timer = setTimeout(() => void read(), 2000);
       } catch (e) { if (!cancelled) setError(errorMessage(e)); }
     };
     void read();
@@ -81,6 +82,14 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     if (!view || changing.current) return;
     changing.current = true; setBusy(true); setActionError(null);
     try {
+      if (action === 'cancel') {
+        await apiClient.deletePodcast(podcastId);
+        rememberPosition.current = false;
+        media.current?.pause();
+        try { localStorage.removeItem(storageKey); } catch { /* 不影響伺服器刪除。 */ }
+        if (active.current) writeRoute(materialId ? {name:'material-content',materialId,kind:'podcasts'} : {name:'podcasts'});
+        return;
+      }
       await apiClient.podcastAction(podcastId, { schema: "podcast-action/v1", action, expected_version: view.version });
       if (active.current) { setReload((v) => v + 1); }
     } catch (e) { if (active.current) { setActionError(errorMessage(e)); setReload((v) => v + 1); } }
@@ -91,6 +100,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     description={error ?? "正在載入已保存的內容。"} tone={error ? "failure" : "loading"} live={!error}
     action={error ? <button type="button" className="secondary-button" onClick={() => setReload((v) => v + 1)}>重新讀取</button> : undefined} /></section>;
   const episode = view.episodes[index];
+  const previewReady = podcastPreviewReady(view);
   const groups = [...new Set(episode.claims.map(c => c.concept_id))].map(id => ({ label: episode.claims.find(c => c.concept_id === id)!.label, claims: episode.claims.filter(c => c.concept_id === id) }));
   return <section className="cards-page podcast-page">
     <header className="cards-page-header">{back}<div>
@@ -99,8 +109,9 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     </div></header>
     {actionError && <p className="form-error" role="alert">{actionError}</p>}
     {!view.is_current_revision && <p className="podcast-meta-note">依建立時的教材版本保存</p>}
-    {view.status !== "ready" && <PodcastProgress view={view} busy={busy} onAction={action => void act(action)} />}
-    {view.status === "ready" && <div ref={workspace} className="podcast-listening-layout">
+    {!previewReady && <PodcastProgress view={view} busy={busy} onAction={action => void act(action)} />}
+    {previewReady && videoState.state?.status !== "ready" && <StateView title={videoState.error ? "無法載入影片" : "正在載入影片"} description={videoState.error || "正在確認本集影片。"} tone={videoState.error ? "failure" : "loading"} action={<button type="button" className="secondary-button" onClick={videoState.reload}>重新讀取</button>} />}
+    {previewReady && videoState.state?.status === "ready" && <div ref={workspace} className="podcast-listening-layout">
         <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} videoState={videoState} mediaRef={media} storageKey={storageKey} settingsKey={`studydy.podcast.settings:${learnerId}`} onPrevious={() => { autoPlayNext.current = view.status === "ready"; setIndex(index - 1); }} onNext={() => { autoPlayNext.current = view.status === "ready"; setIndex(index + 1); }} rememberPosition={rememberPosition} autoPlay={autoPlayNext.current} onEnded={(autoAdvance) => {
           if (autoAdvance && index + 1 < view.episodes.length) { autoPlayNext.current = true; setIndex(index + 1); }
         }} />

@@ -97,8 +97,8 @@ def validate_plan(plan, cues):
             if not page['start_cue'] <= e['cue_index'] <= page['end_cue']:
                 raise ValueError(where+f", cue_index must be {page['start_cue']}..{page['end_cue']}")
             if not (100 <= e['x'] <= 1820 and 100 <= e['x']+e['w'] <= 1820
-                    and 220 <= e['y'] <= 810 and 220 <= e['y']+e['h'] <= 810):
-                raise ValueError(where+f", bounds ({e['x']},{e['y']})..({e['x']+e['w']},{e['y']+e['h']}); both endpoints must fit x=100..1820,y=220..810")
+                    and 180 <= e['y'] <= 1020 and 180 <= e['y']+e['h'] <= 1020):
+                raise ValueError(where+f", bounds ({e['x']},{e['y']})..({e['x']+e['w']},{e['y']+e['h']}); both endpoints must fit x=100..1820,y=180..1020")
             if e['kind'] in ('text','box','circle') and (e['w'] <= 0 or e['h'] <= 0):
                 raise ValueError(where+', text/box/circle width and height must be positive')
             if e['kind'] in ('line','arrow') and (e['text'] or (e['w']==0 and e['h']==0)):

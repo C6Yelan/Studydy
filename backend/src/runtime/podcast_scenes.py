@@ -1,6 +1,6 @@
 """音訊時間是唯一時鐘；2D 內容只投影既有 claim／明確步驟與 contrast 關係。"""
 from copy import deepcopy
-from datetime import UTC,datetime,timedelta
+from datetime import UTC,datetime
 import base64
 import math
 import re
@@ -13,6 +13,7 @@ from .storage.tables import PodcastScenes as Scenes,Podcast,Material,database_se
 from .storage.knowledge_structures import _read_verified_document
 from .storage.source_artifacts import open_verified_artifact
 from .voice import provider
+from .generation_jobs import cancellable_job
 from .scene_alignment import normalized
 from .podcast_script import SCHEMA, references, sources
 
@@ -210,7 +211,7 @@ def claim(*,dsn=None):
         podcast=db.get(Podcast,row.podcast_id);episode=deepcopy(podcast.episodes[row.episode_index])
         if row.input_sha256!=identity(podcast,episode):
             row.status='failed';row.error_code='SCENE_SOURCE_CHANGED';row.lease_token=row.lease_expires_at=None;return None
-        row.status='running';row.lease_token=uuid4();row.lease_expires_at=now+timedelta(minutes=45)
+        row.status='running';row.lease_token=uuid4();row.lease_expires_at=now+podcasts.WORKER_LEASE_TTL
         return {'scene_id':row.scene_id,'podcast_id':row.podcast_id,'index':row.episode_index,'lease_token':row.lease_token,
             'owner':podcast.learner_id,'episode':episode,'input_sha256':row.input_sha256,'alignment':deepcopy(row.alignment),'checks':deepcopy(row.checks),
             'document':_read_verified_document(db,podcast.learner_id,podcast.material_id,revision=podcast.knowledge_structure_revision)}
@@ -256,22 +257,23 @@ def step(*,dsn=None):
     state=claim(dsn=dsn)
     if not state:return False
     try:
-        alignment=state['alignment']
-        if not alignment:
-            with open_verified_artifact(state['owner'],UUID(state['episode']['audio']['artifact_id']),dsn=dsn) as artifact:
-                audio=artifact.file.read(100*1024*1024+1)
-            podcasts.validate_audio(audio)
-            texts=[' '.join(t['text'] for t in s['turns']) for s in state['episode']['script']['segments']]
-            alignment=provider('/align',{'audio':base64.b64encode(audio).decode(),'texts':texts,
-                'caption_turns':[t['text'] for s in state['episode']['script']['segments'] for t in s['turns']]})
-        if not save_alignment(state,alignment,dsn=dsn):return True
-        checks=state['checks']
-        if not checks:
-            content=scene_content(state['episode'],state['document']);items=review_items(content)
-            result=provider('/scene-check',{'items':items,'source_context':podcasts.source_context(state['document'],state['episode'])}) if items else None
-            checks=checked_verdicts(content,result)
-            if not save_checks(state,checks,dsn=dsn):return True
-        finish(state,alignment,checks=checks,dsn=dsn)
+        with cancellable_job(Scenes, state['scene_id'], state['lease_token'], dsn=dsn) as job:
+            alignment=state['alignment']
+            if not alignment:
+                with open_verified_artifact(state['owner'],UUID(state['episode']['audio']['artifact_id']),dsn=dsn) as artifact:
+                    audio=artifact.file.read(100*1024*1024+1)
+                podcasts.validate_audio(audio)
+                texts=[' '.join(t['text'] for t in s['turns']) for s in state['episode']['script']['segments']]
+                alignment=provider('/align',{**job,'audio':base64.b64encode(audio).decode(),'texts':texts,
+                    'caption_turns':[t['text'] for s in state['episode']['script']['segments'] for t in s['turns']]})
+            if not save_alignment(state,alignment,dsn=dsn):return True
+            checks=state['checks']
+            if not checks:
+                content=scene_content(state['episode'],state['document']);items=review_items(content)
+                result=provider('/scene-check',{**job,'items':items,'source_context':podcasts.source_context(state['document'],state['episode'])}) if items else None
+                checks=checked_verdicts(content,result)
+                if not save_checks(state,checks,dsn=dsn):return True
+            finish(state,alignment,checks=checks,dsn=dsn)
     except Exception as error:
         code=str(error) if isinstance(error,SourceError) else 'SCENE_PREPARATION_FAILED'
         try:finish(state,error=code,dsn=dsn)

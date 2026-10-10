@@ -77,12 +77,14 @@ def _limits():
         resource.setrlimit(kind, (value, value))
 
 
-def convert(data: bytes, extension: str, media_type: str, policy: dict) -> tuple[bytes, dict]:
+def convert(data: bytes, extension: str, media_type: str, policy: dict, *, cancellation_check=None) -> tuple[bytes, dict]:
     """只接受當前政策；子程序產物須對回原檔與輸出 PDF 的雜湊。"""
     if policy != conversion_policy():
         raise NormalizationError('NORMALIZER_VERSION_MISMATCH')
     if extension not in MIME or MIME[extension] != media_type:
         raise NormalizationError('UNSUPPORTED_MEDIA_TYPE')
+
+    if cancellation_check: cancellation_check()
 
     # venv 的 Python 為 symlink，須掛載基底直譯器及套件目錄。
     base = Path(sys.base_prefix)
@@ -129,11 +131,17 @@ def convert(data: bytes, extension: str, media_type: str, policy: dict) -> tuple
             start_new_session=True, preexec_fn=_limits,
         )
         try:
-            stdout, _ = process.communicate(timeout=60)
-        except subprocess.TimeoutExpired:
+            while True:
+                if cancellation_check: cancellation_check()
+                try:
+                    stdout, _ = process.communicate(timeout=.5)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+        except BaseException:
             os.killpg(process.pid, signal.SIGKILL)
             process.communicate()
-            raise NormalizationError('NORMALIZATION_TIMEOUT') from None
+            raise
         if process.returncode:
             reason = stdout.decode(errors='replace').strip()
             raise NormalizationError(reason if reason in _SAFE_ERRORS else 'NORMALIZATION_FAILED')

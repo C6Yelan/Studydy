@@ -255,6 +255,7 @@ export async function mockKnowledgeMapApi(
     (url) => /^\/v[12]\//.test(url.pathname),
     (route) => apiError(route, "RESOURCE_NOT_FOUND", 404),
   );
+  await mockGet(page, "/v1/topics", () => ({topics: []}));
   await mockGet(page, "/v1/source-capabilities", () => ({
     schema: "source-capabilities/v1",
     quality_notice: "PDF 優先",

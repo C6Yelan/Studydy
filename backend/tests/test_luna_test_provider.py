@@ -6,6 +6,7 @@ from runtime.material_runtime import runtime_binding,runtime_binding_is_valid,lo
 from runtime.semantic_service import request_semantics,preflight_semantic_service,material_request_fits
 from pdf_evidence.material_pipeline import validate_runtime_lock
 from runtime import voice
+from test_podcast_process import provider_server
 
 
 def test_new_luna_runs_record_actual_identity_without_mutating_gemma_lock():
@@ -128,3 +129,31 @@ def test_old_luna_272k_checkpoint_identity_can_resume_under_64k_policy():
     assert runtime_binding_is_valid(runtime_binding(old))
     assert same_material_runtime(old['runtime_lock'], runtime_binding(old), current['runtime_lock'], runtime_binding(current))
     assert old == before
+
+
+def test_luna_semantic_cancellation_stops_inflight_provider_process(monkeypatch, tmp_path, provider_server):
+    import sys
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from runtime import podcast_process
+    from test_podcast_process import provider, wait_until, alive
+    marker = tmp_path / 'started'
+    stopped = Event()
+    def check():
+        if stopped.is_set(): raise RuntimeError('synthetic cancellation')
+    def generate(*args, cancelled=None, **kwargs):
+        podcast_process.run([sys.executable, '-c',
+            'import pathlib,sys,os,time;pathlib.Path(sys.argv[1]).write_text(str(os.getpid()));time.sleep(60)', str(marker)],
+            timeout=None, cancelled=cancelled)
+        return {}
+    monkeypatch.setattr(provider, 'luna', generate)
+    with ThreadPoolExecutor() as pool:
+        future = pool.submit(request_semantics, None, runtime_lock=luna_lock(_runtime_lock()),
+            task='material_semantics', request={'synthetic':True}, response_schema={'type':'object'}, cancellation_check=check)
+        try:
+            wait_until(lambda: marker.exists() and marker.stat().st_size)
+            pid = int(marker.read_text())
+            stopped.set()
+            with pytest.raises(RuntimeError, match='synthetic cancellation'): future.result(timeout=4)
+            assert not alive(pid)
+        finally: stopped.set()

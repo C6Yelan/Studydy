@@ -44,6 +44,9 @@ def test_topic_approval_then_real_source_pipeline(revisions,monkeypatch):
     approved=topics.approve(owner,view['topic_id'],view['version'],edited,'approve',dsn=dsn)
     assert topics.approve(owner,view['topic_id'],view['version'],edited,'approve',dsn=dsn)==approved
     assert calls==[]
+    summary=topics.listing(owner,dsn=dsn)['topics'][0]
+    assert summary['research']=={'status':'searching','material_id':None}
+    assert topics.listing(uuid4(),dsn=dsn)['topics']==[]
     with database_session(dsn) as db:assert db.scalar(select(func.count()).select_from(Material))==before
     research.step(dsn=dsn)
     assert len(calls)==1
@@ -60,6 +63,7 @@ def test_topic_approval_then_real_source_pipeline(revisions,monkeypatch):
     complete=topics.read(owner,view['topic_id'],dsn=dsn)
     assert complete['research']['run']['status']=='succeeded'
     assert complete['research']['material_id']==created['material_id']
+    assert topics.listing(owner,dsn=dsn)['topics'][0]['research']=={'status':'submitted','material_id':created['material_id']}
     research.delete(owner,approved['research_id'],dsn=dsn)
     assert research.listing(owner,created['material_id'],dsn=dsn)['researches']==[]
     retained=topics.read(owner,view['topic_id'],dsn=dsn)['research']

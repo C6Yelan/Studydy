@@ -321,8 +321,11 @@ def request_semantics(
         output_budget = _output_budget(task, task_lock[prefix + 'max_tokens'], input_tokens,
                                        min(65536, runtime_lock['semantic_service']['max_model_len']))
         try:
-            result = provider('/semantics', {'prompt': prompt, 'request': request, 'schema': response_schema})
+            from .generation_jobs import provider_job
+            with provider_job(cancellation_check or (lambda: None)) as job:
+                result = provider('/semantics', {**job, 'prompt': prompt, 'request': request, 'schema': response_schema})
         except Exception as error:
+            if cancellation_check: cancellation_check()
             code = 'SEMANTIC_SERVICE_TIMEOUT' if str(error)=='LUNA_GENERATION_TIMEOUT' else 'SEMANTIC_SERVICE_UNAVAILABLE'
             raise SemanticServiceError(code) from None
         if cancellation_check: cancellation_check()

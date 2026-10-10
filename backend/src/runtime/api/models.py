@@ -657,6 +657,14 @@ class PodcastAction(_Closed):
     name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
+class PodcastGeneration(_Closed):
+    active: bool
+    preview_ready: bool
+    retryable_videos: bool
+    completed_videos: int = Field(ge=0)
+    failed_videos: int = Field(ge=0)
+
+
 class PodcastSummary(_Closed):
     podcast_id: UUID
     material_id: UUID
@@ -672,6 +680,7 @@ class PodcastSummary(_Closed):
     episode_count: int
     completed_episodes: int
     is_current_revision: bool
+    generation: PodcastGeneration
 
 
 class PodcastClaim(ClaimView):
