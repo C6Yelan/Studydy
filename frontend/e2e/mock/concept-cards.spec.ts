@@ -121,8 +121,10 @@ test("card creation fits a desktop viewport and preserves selections across page
   await expect(manual.getByRole("checkbox")).toHaveCount(1);
   await manual.getByRole("checkbox").check();
   await manual.getByRole("searchbox", { name: "搜尋概念" }).fill("");
-  await expect(manual).toContainText("已選 3 / 31");
   await manual.getByRole("button", { name: "預覽「堆疊（Stack）」" }).click();
+  await expect(page.locator('.cards-preview svg').first()).toBeVisible();
+  const previewCount = Number(await page.locator('.cards-preview svg').first().getAttribute('data-image-count'));
+  await expect(manual).toContainText(`已選 ${previewCount + 2} / ${previewCount + 30} 張卡片`);
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator(".flashcard-point")).toContainText("最後一個條件不可遺漏");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
@@ -1114,4 +1116,34 @@ test("a long paragraph continues until its final condition is visible", async ({
     if (i < count - 1) await page.getByRole('button', { name: '下一張', exact: true }).click();
   }
   expect(text.replace(/\s/g, '')).toBe(claim.text.replace(/\s/g, ''));
+});
+
+
+test("library, selection and study count continuation cards consistently and retry failed counts", async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true });
+  view.relations = [];
+  const concept = view.concepts[0];
+  concept.claims = Array.from({ length: 7 }, (_, i) => ({ ...structuredClone(concept.claims[0]), claim_id: `claim:sha256:${(i + 100).toString(16).padStart(64, "0")}`, text: `第 ${i + 1} 則教材重點。` }));
+  let failed = true;
+  await page.route(`**/v1/card-sets/${cardSetId}`, route => failed
+    ? json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Request could not be completed." }, 503)
+    : route.fallback());
+  await page.goto('/concept-cards');
+  const metadata = page.locator('.library-item .library-metadata');
+  await expect(metadata).toContainText('張數載入失敗');
+  await expect(metadata).not.toContainText('2 張卡片');
+  failed = false;
+  await metadata.getByRole('button', { name: '重試', exact: true }).click();
+  await expect(metadata).toContainText('3 張卡片');
+  await page.getByRole('button', { name: '開始複習', exact: true }).click();
+  await expect(page.locator('.cards-study-counter')).toContainText('1 / 3');
+  await openSavedCardManagement(page);
+  await expect(page.locator('.cards-create-summary strong')).toHaveText('3 張卡片');
+  await expect(page.locator('.cards-selection-heading')).toContainText('已選 3 / 3 張卡片');
+  await page.getByRole('checkbox').first().uncheck();
+  await expect(page.locator('.cards-create-summary strong')).toHaveText('1 張卡片');
+  await page.getByRole('button', { name: '保存變更', exact: true }).click();
+  await expect(page.locator('.cards-study-counter')).toContainText('1 / 1');
+  await page.getByRole('button', { name: '返回卡組', exact: true }).click();
+  await expect(metadata).toContainText('1 張卡片');
 });
