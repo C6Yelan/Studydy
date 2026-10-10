@@ -133,4 +133,3 @@ def generation_response(request):
             yield response
     finally:
         connection.close()
-
