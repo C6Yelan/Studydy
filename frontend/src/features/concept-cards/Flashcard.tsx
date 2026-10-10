@@ -3,23 +3,27 @@ import type { ConceptCard, KnowledgeStructureView } from "../../api/contracts";
 import { claimText } from "../../ui/claim-text";
 import { VisualConceptCard } from "./VisualConceptCard";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
+import { cardContent } from "./card-content";
 import { cardRelations, hasCardEvidence } from "./card-relation";
 
-export function Flashcard({ card, structure, materialName, apiClient, sourceResolver }: {
+export function Flashcard({ card, structure, materialName, apiClient, sourceResolver, pageIndex }: {
   card: ConceptCard;
   structure: KnowledgeStructureView;
   materialName: string;
   apiClient: StudydyApiClient;
   sourceResolver: string;
+  pageIndex?: number;
 }) {
   const relations = cardRelations(card, structure);
+  const content = cardContent(card, structure);
+  const shownEvidence = [...card.claims.flatMap(claim => claim.evidence), ...(content?.kind === "group" ? content.items.flatMap(item => item.evidence) : [])];
   const unresolved = structure.relations.filter(r => (r.source_concept_id === card.concept_id || r.target_concept_id === card.concept_id)
     && !relations.some(item => item.relation.relation_id === r.relation_id));
   const availableEvidence = structure.concepts.flatMap(c => c.claims.flatMap(claim => claim.evidence)).filter(hasCardEvidence);
   const review = structure.status.quality === "needs_review" || structure.status.processing !== "succeeded" || structure.status.decision !== "retain";
   return (
     <div className="concept-card">
-      <VisualConceptCard card={card} structure={structure} materialName={materialName} />
+      <VisualConceptCard card={card} structure={structure} materialName={materialName} pageIndex={pageIndex} />
       <details className="concept-card-details">
         <summary>完整重點與來源</summary>
         <div className="flashcard">
@@ -46,16 +50,16 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
                   apiClient={apiClient} resolver={sourceResolver} evidence={evidence} label={`關係來源 · 第 ${evidence.normalized_page ?? evidence.page} 頁`} />)}</div>
               </section>)}
               {unresolved.map(relation => <section key={relation.relation_id} className="flashcard-relation" aria-label="待複核的教材關係">
-                <h3>教材關係 · 來源不完整，待複核</h3>
+                <h3>教材關係 · 待複核</h3>
                 <p>{relation.learner_reason || "此關係尚無說明。"}</p>
-                <p>未用於圖卡構圖；以下僅列可回查的來源。</p>
+                <p>此關係的方向或來源需要確認；以下列出可回查的來源。</p>
                 <div className="flashcard-source-links">{sourceLinks(availableEvidence.filter(e => relation.evidence_refs.includes(e.evidence_id))).map(evidence =>
                   <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} />)}</div>
               </section>)}
               <section className="flashcard-sources" aria-label="概念重點來源">
                 <h3>來源</h3>
                 <div className="flashcard-source-links">
-                  {sourceLinks(card.claims.flatMap(claim => claim.evidence)).map(evidence => (
+                  {sourceLinks(shownEvidence).map(evidence => (
                     <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence}
                       label={evidence.source_name ? `${evidence.source_name} · 第 ${evidence.normalized_page ?? evidence.page} 頁` : undefined} />
                   ))}

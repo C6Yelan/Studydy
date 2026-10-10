@@ -765,7 +765,7 @@ test("visual labels remain inert text and long excerpts keep full conditions in 
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
   await expect(page.locator(".visual-concept-card")).toContainText("保留所有必要條件與符號。");
   await expect(page.locator(".visual-concept-card script, .visual-concept-card image, .visual-concept-card foreignObject")).toHaveCount(0);
-  await expect(page.locator(".visual-concept-card > title")).toHaveText(view.concepts[0].label + "｜概念卡");
+  await expect(page.locator(".visual-concept-card > title")).toHaveText(view.concepts[0].label + `｜概念卡 · 1/${await page.locator(".visual-concept-card").getAttribute("data-image-count")}`);
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator(".flashcard-point p").first()).toContainText("最後一個條件不可遺漏：x != 0。");
 });
@@ -790,7 +790,7 @@ test("whole SVG card exports grounded content and preserves reading navigation",
   const downloaded = page.waitForEvent("download");
   await page.getByRole("button", { name: "下載 SVG" }).click();
   const download = await downloaded;
-  expect(download.suggestedFilename()).toBe("堆疊（Stack）.svg");
+  expect(download.suggestedFilename()).toBe("堆疊（Stack）-1.svg");
   const stream = (await download.createReadStream())!;
   const chunks = [];
   for await (const chunk of stream) chunks.push(chunk);
@@ -808,13 +808,14 @@ test("whole SVG card exports grounded content and preserves reading navigation",
   await page.getByRole("button", { name: "資料結構講義.pdf · 第 7 頁", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "下一張", exact: true }).click();
+  const imageCount = Number(await svg.getAttribute("data-image-count"));
+  for (let i = 0; i < imageCount; i++) await page.getByRole("button", { name: "下一張", exact: true }).click();
   await expect(svg).toHaveAttribute("aria-label", "陣列（Array）視覺化概念卡");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await page.reload();
   await expect(svg).toBeVisible();
-  await expect(page.locator(".visual-concept-card > title")).toHaveText("堆疊（Stack）｜概念卡");
+  await expect(page.locator(".visual-concept-card > title")).toHaveText(`堆疊（Stack）｜概念卡 · 1/${await svg.getAttribute("data-image-count")}`);
 });
 
 test("sparse SVG card keeps review status without inventing points", async ({ page }) => {
@@ -838,7 +839,7 @@ for (const sample of visualCases) {
     await page.setViewportSize({ width: 1536, height: 960 });
     await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
     const svg = page.locator('.visual-card > .visual-concept-card');
-    const family = ['code', 'formula'].includes(sample) ? 'technical' : ['three', 'four', 'many'].includes(sample) ? 'points' : 'sparse';
+    const family = ['code', 'formula'].includes(sample) ? 'technical' : sample === 'long' ? 'text' : ['three', 'four', 'many'].includes(sample) ? 'points' : 'sparse';
     await expect(svg).toHaveAttribute('data-layout', family);
     const regions = await svg.locator('[data-text-region]').evaluateAll(nodes => nodes.map(node => {
       const r = JSON.parse(node.getAttribute('data-text-region')!);
@@ -851,7 +852,11 @@ for (const sample of visualCases) {
       expect(a.width === 0 || b.width === 0 || a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y).toBe(true);
     }
     if (sample === 'two') await expect(svg.locator('[data-object]')).toHaveCount(3);
-    if (sample === 'many') await expect(svg).toContainText('另有 2 則重點');
+    if (sample === 'many') {
+      await expect(svg).toHaveAttribute('data-image-count', '2');
+      await page.getByRole('button', { name: '下一張', exact: true }).click();
+      for (const claim of view.concepts[0].claims.slice(4)) await expect(svg.locator('text')).toContainText([claim.text]);
+    }
     if (sample === 'four') { await expect(svg).toContainText('資料表示 A.pdf'); await expect(svg).toContainText('表示方式 B.pdf'); }
     if (sample === 'missing-relation') { const info = JSON.parse(await svg.locator('metadata').textContent() ?? '{}'); expect(info.needsReview).toBe(true); expect(info.unresolvedRelations).toBe(true); }
     if (sample === 'code' || sample === 'formula') {
@@ -860,6 +865,7 @@ for (const sample of visualCases) {
       const step = (positions[1].y - positions[0].y) / (positions[1].index - positions[0].index);
       positions.slice(1).forEach((p, i) => expect((p.y - positions[i].y) / (p.index - positions[i].index)).toBeCloseTo(step, 2));
     }
+    const counterBeforeZoom = await page.locator('.cards-study-counter').innerText();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: '放大檢視', exact: true }).click();
     const zoom = page.getByRole('dialog', { name: '放大概念卡' });
@@ -868,7 +874,7 @@ for (const sample of visualCases) {
     const scroll = zoom.getByLabel('圖卡捲動區');
     await scroll.focus(); await page.keyboard.press('ArrowRight');
     await expect.poll(() => scroll.evaluate(e => e.scrollLeft)).toBeGreaterThan(0);
-    await expect(page.locator('.cards-study-counter')).toContainText('1 / 2');
+    await expect(page.locator('.cards-study-counter')).toHaveText(counterBeforeZoom);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     await page.keyboard.press('Escape');
     await expect(page.getByRole('button', { name: '放大檢視', exact: true })).toBeFocused();
@@ -933,9 +939,10 @@ test('v2 prose preserves paragraph gaps and avoids orphan Chinese punctuation', 
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
   const body = page.locator('.visual-card > svg [data-claim-id] [data-text-region]');
   await expect(body).toBeVisible();
-  const lines = await body.locator('tspan').evaluateAll(nodes => nodes.map(node => ({ text: node.textContent, y: node.textContent ? (node as SVGTextContentElement).getStartPositionOfChar(0).y : null })));
+  const lines = await body.locator('tspan').evaluateAll(nodes => nodes.map(node => ({ text: node.textContent, y: Number(node.getAttribute('y')) })));
   expect(lines.map(l => l.text)).toEqual(['這是第一段。', '', '第二段保留空白分隔。']);
-  expect(lines[2].y! - lines[0].y!).toBeGreaterThan(100);
+  expect(lines[1].y - lines[0].y).toBeGreaterThan(0);
+  expect(lines[2].y - lines[0].y).toBeCloseTo(2 * (lines[1].y - lines[0].y), 2);
 });
 
 
@@ -1021,4 +1028,90 @@ test("short and detailed cards keep a fixed canvas and navigation position", asy
   const height = Number(await svg.getAttribute('height'));
   await page.getByRole('button', { name: '放大檢視', exact: true }).click();
   expect((await page.getByRole('dialog', { name: '放大概念卡' }).locator('svg').boundingBox())!.height).toBeCloseTo(height, 0);
+});
+
+
+for (const scenario of [
+  { label: "格式示例", kind: "table", lines: ["Input: abc", "Count: 3", "Result: xyz"], check: "xyz" },
+  { label: "回應分類", kind: "table", lines: ["來源中的分類", "2xx", "完成", "5xx", "需要確認原因"], check: "5xx" },
+  { label: "訊息分區", kind: "fields", lines: ["訊息分區", "控制資訊  |  內容資料"], check: "內容資料" },
+  { label: "交換步驟", kind: "sequence", lines: ["依來源順序交换。", "1 甲端 → 乙端", "START", "17", "2 乙端 → 甲端", "READY", "18", "不增加其他步驟。"], check: "READY" },
+]) test(`source structure ${scenario.label} is preserved as a complete ${scenario.kind} graphic`, async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true });
+  view.relations = [];
+  const card = view.concepts[0], claim = card.claims[0], template = structuredClone(claim.evidence[0]);
+  card.label = scenario.label;
+  claim.text = scenario.lines.join(" ");
+  claim.evidence = scenario.lines.map((quote, index) => ({ ...structuredClone(template), evidence_id: `evidence:sha256:${(index + 100).toString(16).padStart(64, "0")}`, quote, kind: "paragraph" }));
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  const svg = page.locator('.visual-card > svg');
+  await expect(svg).toHaveAttribute('data-layout', scenario.kind);
+  await expect(svg).toContainText(scenario.check);
+  await expect(svg.locator('[data-excerpt]')).toHaveCount(0);
+  await expect(svg).toHaveAttribute('height', '760');
+  if (scenario.kind === 'sequence') {
+    expect(await svg.locator('[data-sequence-step]').evaluateAll(nodes => nodes.map(n => [n.getAttribute('data-from'), n.getAttribute('data-to')]))).toEqual([['甲端','乙端'],['乙端','甲端']]);
+  }
+  expect(await svg.locator('[data-text-region]').evaluateAll(nodes => nodes.every(node => {
+    const r = JSON.parse(node.getAttribute('data-text-region')!); const b = (node as SVGGraphicsElement).getBBox();
+    return !b.width || (b.x >= r.x - 1 && b.y >= r.y - 1 && b.x + b.width <= r.x + r.width + 1 && b.y + b.height <= r.y + r.height + 1);
+  }))).toBe(true);
+  await page.locator('.concept-card-details > summary').click();
+  await expect(page.locator('.flashcard-point p').first()).toContainText(scenario.lines[0]);
+});
+
+test("concept images share the deck navigation, counter, zoom and export", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1050 });
+  const { view } = await mockCards(page, { saved: true });
+  view.relations = [];
+  const concept = view.concepts[0];
+  concept.claims = Array.from({ length: 7 }, (_, i) => ({ ...structuredClone(concept.claims[0]), claim_id: `claim:sha256:${(i + 100).toString(16).padStart(64, "0")}`, text: `這是教材的第 ${i + 1} 則重點。` }));
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  const svg = page.locator('.visual-card > svg');
+  await expect(svg).toHaveAttribute('data-image-count', '2');
+  await expect(svg.locator('[data-excerpt]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '下一張圖', exact: true })).toHaveCount(0);
+  await expect(page.locator('.cards-study-counter')).toContainText('1 / 3');
+  const bounds = await svg.boundingBox();
+  await page.getByRole('button', { name: '下一張', exact: true }).click();
+  await expect(svg).toHaveAttribute('data-image-index', '2');
+  expect(await svg.boundingBox()).toEqual(bounds);
+  await expect(svg.locator('text')).toContainText([concept.claims[6].text]);
+  await expect(svg.locator('text').filter({ hasText: '另有' })).toHaveCount(0);
+  await page.getByRole('button', { name: '放大檢視', exact: true }).click();
+  await expect(page.getByRole('dialog').locator('svg')).toHaveAttribute('data-image-index', '2');
+  await page.getByRole('button', { name: '關閉放大' }).click();
+  const downloading = page.waitForEvent('download');
+  await page.getByRole('button', { name: '下載 SVG', exact: true }).click();
+  expect((await downloading).suggestedFilename()).toMatch(/-2\.svg$/);
+  await page.getByRole('button', { name: '下一張', exact: true }).click();
+  await expect(svg).toHaveAttribute('data-image-index', '1');
+  await expect(page.locator('.cards-study-counter')).toContainText('3 / 3');
+  await page.keyboard.press('ArrowLeft');
+  await expect(svg).toHaveAttribute('data-image-index', '2');
+  await expect(page.locator('.cards-study-counter')).toContainText('2 / 3');
+  await page.keyboard.press('ArrowRight');
+  await page.getByRole('button', { name: '完成本輪', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '已瀏覽全部卡片' })).toBeVisible();
+  await page.getByRole('button', { name: '再看一次', exact: true }).click();
+  await expect(svg).toHaveAttribute('data-image-index', '1');
+});
+
+test("a long paragraph continues until its final condition is visible", async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true, long: true });
+  view.relations = [];
+  const claim = view.concepts[0].claims[0];
+  claim.evidence[0].quote = claim.text;
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  const svg = page.locator('.visual-card > svg');
+  await expect(svg).toHaveAttribute('data-image-index', '1');
+  const count = Number(await svg.getAttribute('data-image-count'));
+  expect(count).toBeGreaterThan(1);
+  let text = '';
+  for (let i = 0; i < count; i++) {
+    await expect(svg.locator('[data-excerpt]')).toHaveCount(0);
+    text += (await svg.locator('[data-diagram] tspan').allTextContents()).join('');
+    if (i < count - 1) await page.getByRole('button', { name: '下一張', exact: true }).click();
+  }
+  expect(text.replace(/\s/g, '')).toBe(claim.text.replace(/\s/g, ''));
 });

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardSetView, KnowledgeStructureView } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { Flashcard } from "./Flashcard";
+import { useConceptArtwork } from "./VisualConceptCard";
 
 export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: StudydyApiClient; cardSetId: string; materialId?: string }) {
   const [view, setView] = useState<CardSetView | null>(null);
@@ -41,13 +42,18 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
 
 function CardStudy({ view, structure, apiClient, materialId }: { view: CardSetView; structure: KnowledgeStructureView; apiClient: StudydyApiClient; materialId?: string }) {
   const [order, setOrder] = useState(() => view.cards.map((_, index) => index));
+  const { artworkModule, loadFailed } = useConceptArtwork();
+  const loadingArtwork = !artworkModule && !loadFailed;
+  const counts = useMemo(() => view.cards.map(card => artworkModule?.conceptCardPages(card, structure).length ?? 1), [artworkModule, view.cards, structure]);
+  const pages = order.flatMap(index => Array.from({ length: counts[index] }, (_, pageIndex) => ({ index, pageIndex })));
   const [position, setPosition] = useState(0);
+  const current = pages[position];
   const [finished, setFinished] = useState(false);
   const [notice, setNotice] = useState("");
   const stage = useRef<HTMLElement>(null);
   const move = (next: number) => {
     setNotice("");
-    if (next >= order.length) { setFinished(true); return; }
+    if (next >= pages.length) { setFinished(true); return; }
     if (next < 0) return;
     setPosition(next);
   };
@@ -68,7 +74,7 @@ function CardStudy({ view, structure, apiClient, materialId }: { view: CardSetVi
     setNotice(shuffle ? "已洗牌，從第一張開始。" : "已回到第一張。");
   };
   const keys = (event: KeyboardEvent) => {
-    if (finished || event.altKey || event.ctrlKey || event.metaKey || document.querySelector("dialog[open]")) return;
+    if (loadingArtwork || finished || event.altKey || event.ctrlKey || event.metaKey || document.querySelector("dialog[open]")) return;
     const target = event.target as HTMLElement;
     // 焦點在程式碼內時保留方向鍵的原生捲動，不切換卡片。
     if (target.closest("input, textarea, select, [contenteditable=true], details, .is-code")) return;
@@ -78,17 +84,17 @@ function CardStudy({ view, structure, apiClient, materialId }: { view: CardSetVi
   return <section className="cards-page cards-study" onKeyDown={keys}>
     <header className="cards-study-heading"><div><h1>{view.name}</h1>{!materialId && <p><Icon name="book" size={15} /> {view.material_name}</p>}</div></header>
     {!view.is_current_revision && <p className="cards-notice">教材已有新版。此卡組保留建立時的教材內容與來源。</p>}
-    <div className="cards-browse-layout"><nav className="cards-browse-list" aria-label="選擇概念卡">{order.map((index, positionIndex)=><button type="button" key={view.cards[index].concept_id} aria-current={position===positionIndex?'true':undefined} onClick={()=>{setFinished(false);move(positionIndex);}}>{view.cards[index].label}</button>)}</nav>
+    <div className="cards-browse-layout"><nav className="cards-browse-list" aria-label="選擇概念卡">{order.map((index, positionIndex)=><button type="button" key={view.cards[index].concept_id} disabled={loadingArtwork} aria-current={current.index===index?'true':undefined} onClick={()=>{setFinished(false);move(order.slice(0, positionIndex).reduce((sum, i) => sum + counts[i], 0));}}>{view.cards[index].label}</button>)}</nav>
     <section ref={stage} tabIndex={-1} className="cards-study-stage" aria-label={finished ? "本輪瀏覽完成" : `第 ${position + 1} 張概念卡`}>
-      {finished ? <div className="cards-complete"><span className="cards-empty-icon"><Icon name="check" size={36} /></span><h2>已瀏覽全部卡片</h2><p>這一輪看過了 {view.card_count} 張概念卡。想再回顧一次嗎？</p><div className="state-actions"><button className="primary-button" type="button" onClick={() => restart(false)}>再看一次</button><button className="secondary-button" type="button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" })}>返回卡組</button></div></div>
-        : <><Flashcard key={order[position]} card={view.cards[order[position]]} structure={structure} materialName={view.material_name} apiClient={apiClient} sourceResolver={view.source_resolver} />
+      {finished ? <div className="cards-complete"><span className="cards-empty-icon"><Icon name="check" size={36} /></span><h2>已瀏覽全部卡片</h2><p>這一輪看過了 {pages.length} 張概念卡。想再回顧一次嗎？</p><div className="state-actions"><button className="primary-button" type="button" onClick={() => restart(false)}>再看一次</button><button className="secondary-button" type="button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" })}>返回卡組</button></div></div>
+        : <><Flashcard key={`${current.index}:${current.pageIndex}`} pageIndex={current.pageIndex} card={view.cards[current.index]} structure={structure} materialName={view.material_name} apiClient={apiClient} sourceResolver={view.source_resolver} />
           <div className="cards-study-toolbar" role="group" aria-label="概念卡操作">
-            <div className="cards-study-counter"><span aria-live="polite">第 <strong>{position + 1}</strong> / {order.length} 張</span></div>
+            <div className="cards-study-counter"><span aria-live="polite">第 <strong>{position + 1}</strong> / {pages.length} 張</span></div>
             <div className="cards-study-controls">
-              <button className="secondary-button" type="button" disabled={position === 0} onClick={() => move(position - 1)}><Icon name="arrow-left" size={18} /> 上一張</button>
-              <button className="secondary-button" type="button" onClick={() => move(position + 1)}>{position === order.length - 1 ? "完成本輪" : "下一張"}<Icon name="chevron-right" size={18} /></button>
+              <button className="secondary-button" type="button" disabled={loadingArtwork || position === 0} onClick={() => move(position - 1)}><Icon name="arrow-left" size={18} /> 上一張</button>
+              <button className="secondary-button" type="button" disabled={loadingArtwork} onClick={() => move(position + 1)}>{position === pages.length - 1 ? "完成本輪" : "下一張"}<Icon name="chevron-right" size={18} /></button>
             </div>
-            <button className="text-button cards-study-shuffle" type="button" disabled={order.length < 2} onClick={() => restart(true)}>洗牌重看</button>
+            <button className="text-button cards-study-shuffle" type="button" disabled={loadingArtwork || order.length < 2} onClick={() => restart(true)}>洗牌重看</button>
           </div>
           <p className="cards-keyboard-hint">← → 切換卡片</p></>}
       {notice && <p className="cards-study-notice" role="status">{notice}</p>}

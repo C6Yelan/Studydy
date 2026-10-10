@@ -20,7 +20,7 @@ for (const word of aliases.keys()) words.add(word);
 const boundary = /回應碼|確認號|序號|用戶端|客戶端|連接埠|表示|代表|包含|包括|可以|提供|操作|結果|控制|傳輸|處理|資料|服務|角色|原因|使用|呼叫|收到|不一定|不同/gu;
 for (const word of boundary.source.split("|")) words.add(word);
 const maxWord = Array.from(words).reduce((max, word) => Math.max(max, word.length), 0);
-const generic = new Set("模型 媒介 方式 方法 規則 條件 形式 內容 部分 工作 功能 範圍 環境 時候 能力 組成 元素 意圖 種類 型態 狀態 程度 性質 特性".split(" "));
+const generic = new Set("中心 說明 移動 空間 資料 接收 傳送 輸入 輸出 意義 描述 模型 媒介 方式 方法 規則 條件 形式 內容 部分 工作 功能 範圍 環境 時候 能力 組成 元素 意圖 種類 型態 狀態 程度 性質 特性".split(" "));
 // 已知多義詞的語境規則；這是選圖限制，不是詞典提供的語意等價保證。
 const senses: Record<string, [string[], string[]]> = {
   "command": [["keyboard", "mac", "shortcut", "快捷鍵", "鍵盤"], ["shell", "smtp", "協定", "命令列"]],
@@ -38,15 +38,21 @@ const senses: Record<string, [string[], string[]]> = {
   "flask": [["chemistry", "lab", "laboratory", "化學", "實驗室", "燒瓶"], ["beaker", "thermos", "vacuum", "保溫", "燒杯"]],
   "server": [["hosting", "network", "rack", "role", "server", "主機", "伺服器", "角色"], ["restaurant", "waiter", "服務生", "餐廳"]],
   "bat": [["animal", "mammal", "nocturnal", "動物", "蝙蝠"], ["baseball", "cricket", "球棒"]],
-  "window": [["browser", "window", "瀏覽器", "視窗"], ["congestion", "sequence", "tcp", "壅塞", "封包", "序號"]],
+  "window": [["windowpane", "windowsill", "glass", "house", "窗戶", "窗子", "玻璃"], ["congestion", "sequence", "tcp", "壅塞", "封包", "序號", "流量", "視窗"]],
+  "heart": [["cardiac", "heartbeat", "blood", "love", "心臟", "心跳", "心血管", "愛情"], ["中心", "伺服器"]],
+  "frame": [["photo frame", "picture frame", "畫框", "相框", "裱框"], ["packet", "network", "tcp", "ip", "封包", "連結層", "連結資訊"]],
   "book": [["library", "pages", "paper", "read", "書本", "書籍", "閱讀"], ["book a", "booking", "reserve", "預訂"]],
 };
-const needsContext = new Set(["mouse", "keyboard", "apple", "brand-apple", "cloud", "virus", "cell", "leaf", "plant", "scale", "flask", "bat", "window", "command"]);
+const needsContext = new Set(["mouse", "keyboard", "apple", "brand-apple", "cloud", "virus", "cell", "leaf", "plant", "scale", "flask", "bat", "window", "command", "heart", "frame"]);
 const normalize = (text: string) => text.normalize("NFKC").toLowerCase().replace(/[-_]/g, " ").replace(/\s+/g, " ").trim();
 function clauses(text: string) {
-  return text.normalize("NFKC").replace(/\bnot only\b/gi, "").split(/[。！？；，\n.!?;,]|\bbut\b/iu)
+  // 字串、欄位識別符與編碼示例不是待畫的實物；保留周圍句子的語境。
+  const visualText = text.normalize("NFKC")
+    .replace(/`[^`]*`|"[^"\n]*"|'[^'\n]+'/g, match => " ".repeat(match.length))
+    .replace(/\b[A-Za-z][A-Za-z0-9]*(?:[-_][A-Za-z0-9]+)+\b/g, match => aliases.has(normalize(match)) ? match : " ".repeat(match.length));
+  return visualText.replace(/\bnot only\b/gi, "").split(/[。！？；，\n.!?;,]|\bbut\b/iu)
     .map(part => part.split(/\binstead of\b|\brather than\b|取代|代替|而非/iu)[0].trim())
-    .filter(part => part && !/不是|並非|并非|不(?:使用|用|包括|包含|代表|等於|等于|採用|采用)|沒有|没有|無需|无需|排除|避免|禁止|與其|与其|\b(?:not|no|never|without|cannot|isn't|aren't)\b/iu.test(part));
+    .filter(part => part && !/^(?:input|output|ascii|bits|groups|index|base64)\s*:/i.test(part) && !/不是|並非|并非|不(?:使用|用|包括|包含|代表|等於|等于|採用|采用)|沒有|没有|無需|无需|排除|避免|禁止|與其|与其|\b(?:not|no|never|without|cannot|isn't|aren't)\b/iu.test(part));
 }
 function mentions(text: string) {
   const tokens: { word: string; offset: number }[] = [];
@@ -84,6 +90,7 @@ function senseScore(icon: string, context: string): number | null {
   const category = categories[icon];
   if ((category === "Brand" && icon !== "brand-apple") || ["Letters", "Numbers", "Mood", "Gender", "Gestures", "Zodiac"].includes(category)) return null;
   const ctx = context.toLowerCase(), sense = senses[icon];
+  if (icon === "connection" && /無連線|无连接|connectionless|unconnected|without a connection/u.test(ctx)) return null;
   if (sense?.[1].some(w => contains(ctx,w))) return null;
   const boost = sense?.[0].some(w => contains(ctx,w)) ? 12 : 0;
   if (!boost && needsContext.has(icon)) return null;

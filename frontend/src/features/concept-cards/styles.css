@@ -208,3 +208,5 @@
 .concept-card-details > summary { width: fit-content; cursor: pointer; color: var(--studydy-blue); padding: 8px 0; font-size: 14px; }
 .concept-card-details[open] > summary { margin-bottom: 8px; }
 .cards-creation-page .cards-preview { overflow-y: auto; }
+
+.cards-preview .visual-card + .visual-card { margin-top: 20px; }

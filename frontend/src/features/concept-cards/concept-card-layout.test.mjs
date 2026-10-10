@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { selectConceptCardLayout } from "./concept-card-layout.ts";
-import { cardRelations } from "./card-relation.ts";
+import { cardRelations, relationPresentation } from "./card-relation.ts";
+import { cardSourceText } from "./card-content.ts";
+import { selectCardObjects } from "./icon-selection.ts";
 import { wrapCardText } from "./card-text.ts";
 
 const evidence = { evidence_id: "e", quote: "教材原文", page: 1, kind: "paragraph", source_locator: { block_id: "b" } };
@@ -53,7 +55,7 @@ test("icons require matching affirmative source, including direct subject mentio
 });
 test("long prose uses capacity-aware structure; missing source and version review stay explicit", () => {
   const { card, view } = fixture(2); card.claims[0].text = "中文 English terminology ".repeat(40);
-  assert.equal(selectConceptCardLayout(card, view).family, "points");
+  assert.equal(selectConceptCardLayout(card, view).family, "text");
   card.claims[0].evidence = []; view.status.quality = "needs_review";
   const result = selectConceptCardLayout(card, view); assert.equal(result.missingEvidence, true); assert.equal(result.review, true);
 });
@@ -108,5 +110,130 @@ for (const n of [1, 3, 6]) test(`relation card includes up to three actual claim
   assert.equal(layout.family, "relation");
   assert.deepEqual(layout.claims, card.claims.slice(0, 3));
   assert.equal(layout.omitted, Math.max(0, n - 3));
+  assert.deepEqual(card, before);
+});
+
+
+function quotedCase(label, lines) {
+  const { card, view } = fixture(); card.label = label;
+  card.claims[0].text = lines.join(" ");
+  card.claims[0].evidence = lines.map((quote, i) => ({ ...structuredClone(evidence), evidence_id: `e${i}`, quote }));
+  return { card, view };
+}
+test("literal input, identifier fragments and abstract wording do not become physical icons", () => {
+  for (const [label, text, forbidden] of [
+    ["轉換範例", "Input: horse", ["horse"]],
+    ["字串範例", '將 "horse" 當成文字處理。', ["horse"]],
+    ["保存策略", "以伺服器保存內容為中心。", ["heart"]],
+    ["滑動視窗", "允許範圍會向前移動。", ["window", "device-mobile"]],
+    ["無連線服務", "此協定提供無連線的傳送服務。", ["connection"]],
+    ["Content-Transfer-Encoding", "Content-Transfer-Encoding 說明編碼方式。", ["directions", "transfer"]],
+    ["資料框架", "此框架包含網路封包。", ["frame"]],
+  ]) {
+    const { card } = quotedCase(label, [text]);
+    const icons = selectCardObjects(card).map(o => o.kind);
+    for (const icon of forbidden) assert.ok(!icons.includes(icon), `${label}: ${icon}`);
+  }
+  const { card } = quotedCase("窗戶", ["房間的窗戶由玻璃製成。"]);
+  assert.ok(selectCardObjects(card).some(o => o.kind === "window"));
+});
+test("source block line breaks require an exact lexical match", () => {
+  const { card } = quotedCase("來源", ["第一行", "第二行"]);
+  assert.equal(cardSourceText(card.claims[0]), "第一行\n第二行");
+  card.claims[0].text += " 額外說明";
+  assert.equal(cardSourceText(card.claims[0]), "第一行 第二行 額外說明");
+});
+test("a reversed saved relation is not drawn or silently rewritten", () => {
+  const { card, view } = quotedCase("通信位址", ["節點位置與端點號碼可共同描述通信位址。"]);
+  view.concepts[1].label = "端點號碼";
+  view.relations = [{ ...relation("part_of"), evidence_refs: ["e0"], learner_reason: "端點號碼與節點位置共同構成通信位址。" }];
+  const before = structuredClone(view);
+  const result = selectConceptCardLayout(card, view);
+  assert.equal(result.relation, null); assert.equal(result.unresolvedRelations, true);
+  assert.equal(result.family, "composition"); assert.deepEqual(result.content.fields, ["節點位置", "端點號碼"]);
+  assert.deepEqual(view, before);
+});
+test("explicit numbered exchanges retain direction and literal payloads", () => {
+  const { card, view } = quotedCase("交換範例", ["依序交換。", "1 甲端 → 乙端", "HELLO", "17", "2 乙端 → 甲端", "OK", "18", "保留此條件。"]);
+  const result = selectConceptCardLayout(card, view);
+  assert.equal(result.family, "sequence");
+  assert.deepEqual(result.content.steps, [{ from: "甲端", to: "乙端", values: ["HELLO", "17"] }, { from: "乙端", to: "甲端", values: ["OK", "18"] }]);
+  assert.equal(result.content.notes, "保留此條件。");
+  card.claims[0].evidence[5].quote = "3 乙端 → 甲端";
+  card.claims[0].text = card.claims[0].evidence.map(e => e.quote).join(" ");
+  assert.notEqual(selectConceptCardLayout(card, view).family, "sequence");
+});
+test("structured paragraphs keep complete code categories and literal rows", () => {
+  const codes = quotedCase("分類示例", ["代碼分類", "2xx", "完成", "5xx", "拒絕"]);
+  const table = selectConceptCardLayout(codes.card, codes.view).content;
+  assert.equal(table.kind, "table"); assert.deepEqual(table.rows.map(r => r.label), ["2xx", "5xx"]);
+  const data = quotedCase("文字範例", ["Input: abc", "Count: 3", "Result: example"]);
+  const literal = selectConceptCardLayout(data.card, data.view).content;
+  assert.equal(literal.kind, "table"); assert.equal(literal.rows.at(-1).value, "example");
+  const fields = quotedCase("訊息", ["訊息", "控制段  |  內容段"]);
+  assert.deepEqual(selectConceptCardLayout(fields.card, fields.view).content.fields, ["控制段", "內容段"]);
+});
+
+
+test("related layers use evidence-backed numbers and preserve their source references", () => {
+  const { card, view } = fixture(); card.label = "分層示例";
+  const children = [1, 2].map(n => ({ concept_id: `layer-${n}`, label: n === 1 ? "介面層" : "資料層", claims: [{ claim_id: `layer-claim-${n}`, text: `${n} ${n === 1 ? "介面層" : "資料層"} 處理本層內容。`, evidence: [{ ...structuredClone(evidence), evidence_id: `layer-evidence-${n}`, quote: `${n} ${n === 1 ? "介面層" : "資料層"}\n處理本層內容。` }] }] }));
+  view.concepts = [card, ...children];
+  view.relations = children.map(c => ({ ...relation("part_of", `rel-${c.concept_id}`), source_concept_id: c.concept_id, target_concept_id: card.concept_id, evidence_refs: [c.claims[0].evidence[0].evidence_id], learner_reason: `${c.label}是此模型的層之一。` }));
+  const before = structuredClone(view);
+  const result = selectConceptCardLayout(card, view);
+  assert.equal(result.family, "group"); assert.equal(result.content.ordered, true);
+  assert.deepEqual(result.content.items.map(item => item.ordinal), [2, 1]);
+  assert.ok(result.content.items[0].evidence.some(e => e.evidence_id === "layer-evidence-2"));
+  assert.deepEqual(view, before);
+});
+
+
+test("a negated composition stays prose rather than becoming an affirmative diagram", () => {
+  const { card, view } = quotedCase("通信位址", ["節點位置與端點號碼不能共同描述通信位址。"]);
+  assert.notEqual(selectConceptCardLayout(card, view).family, "composition");
+});
+
+
+test("mentioning classification does not itself establish a category relationship", () => {
+  assert.equal(relationPresentation("這個規則描述數值的範圍與用途分類。", "part_of"), "association");
+  assert.equal(relationPresentation("甲是乙的一種涵義。", "part_of"), "classification");
+  assert.equal(relationPresentation("元件是這種方式的一部分。", "part_of"), "part_of");
+});
+test("explicit numeric ranges are ordered without inventing missing members", () => {
+  const { card, view } = fixture(); card.label = "數值範圍";
+  const children = [20, 10].map(n => ({ concept_id: `range-${n}`, label: `區間${n}`, claims: [{ claim_id: `range-claim-${n}`, text: `${n}–${n + 9} 為區間${n}。`, evidence: [{ ...structuredClone(evidence), evidence_id: `range-evidence-${n}`, quote: `${n}–${n + 9} 為區間${n}。` }] }] }));
+  view.concepts = [card, ...children];
+  view.relations = children.map(c => ({ ...relation("part_of", `rel-${c.concept_id}`), source_concept_id: c.concept_id, target_concept_id: card.concept_id, evidence_refs: [c.claims[0].evidence[0].evidence_id], learner_reason: `${c.label}是數值範圍中的一個區間。` }));
+  const content = selectConceptCardLayout(card, view).content;
+  assert.equal(content.kind, "group");
+  assert.deepEqual(content.items.map(item => item.label), ["區間10", "區間20"]);
+});
+
+
+test("multiple supported applications appear together without inventing component relations", () => {
+  const { card, view } = fixture(); card.label = "共同用途";
+  const children = ["方案甲", "方案乙"].map((label, n) => ({ concept_id: `option-${n}`, label, claims: [{ claim_id: `option-claim-${n}`, text: `${label}用於共同用途。`, evidence: [{ ...structuredClone(evidence), evidence_id: `option-evidence-${n}`, quote: `${label}用於共同用途。` }] }] }));
+  view.concepts = [card, ...children];
+  view.relations = children.map(c => ({ ...relation("application", `rel-${c.concept_id}`), source_concept_id: c.concept_id, target_concept_id: card.concept_id, evidence_refs: [c.claims[0].evidence[0].evidence_id], learner_reason: `${c.label}用於共同用途。` }));
+  const content = selectConceptCardLayout(card, view).content;
+  assert.equal(content.kind, "group"); assert.equal(content.ordered, false);
+  assert.deepEqual(content.items.map(item => item.label).sort(), ["方案乙", "方案甲"].sort());
+  assert.ok(view.relations.every(r => r.type === "application"));
+  card.claims.push(...[1, 2, 3].map(n => ({ ...structuredClone(card.claims[0]), claim_id: `overview-${n}`, text: `總覽重點 ${n}` })));
+  const overview = selectConceptCardLayout(card, view);
+  assert.equal(overview.family, "text"); assert.equal(overview.claims.length, 4);
+});
+
+test("continuation images cover every claim once and preserve evidence", async () => {
+  const { selectConceptCardLayouts } = await import("./concept-card-layout.ts");
+  const { card, view } = fixture(9);
+  view.relations = [relation("example")];
+  const before = structuredClone(card);
+  const pages = selectConceptCardLayouts(card, view);
+  assert.ok(pages.length > 1);
+  assert.deepEqual(pages.flatMap(p => p.claims), card.claims);
+  assert.ok(pages.every(p => p.omitted === 0));
+  assert.ok(pages.slice(1).every(p => !p.relation));
   assert.deepEqual(card, before);
 });
