@@ -86,9 +86,9 @@ def test_progressive_reveal_and_reverse_seek_are_deterministic():
     page['elements'][1]['cue_index']=1
     validate_plan(value,cues)
     timeline=timeline_for_video('p',0,episode,cues,alignment,'/source')
-    layout=layouts(value);before=draw_frame(.1,timeline,value,layout)
-    after=draw_frame(timeline['segments'][1]['start']+.1,timeline,value,layout)
-    again=draw_frame(.1,timeline,value,layout)
+    layout=layouts(value);cache={};before=draw_frame(.1,timeline,value,layout,scene_cache=cache)
+    after=draw_frame(timeline['segments'][1]['start']+.1,timeline,value,layout,scene_cache=cache)
+    again=draw_frame(.1,timeline,value,layout,scene_cache=cache)
     assert before.tobytes()==again.tobytes()
     e=page['elements'][1];box=(e['x'],e['y'],e['x']+e['w'],e['y']+e['h'])
     assert before.crop(box).tobytes()!=after.crop(box).tobytes()

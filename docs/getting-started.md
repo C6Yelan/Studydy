@@ -185,7 +185,7 @@ F5 共用本機 Whisper，對齊原講稿與實際 WAV 的詞時間點；拼音�
 
 同一次 review 分別核對 correctness 與 teaching-quality（兩者都 blocking），檢查語意節點、關係方向與時機；不把版型當成新的知識依據。審查提示明示 `reveal=false` 是頁首可見、exchange 的 `label` 即參與者名稱；不能誤當隱藏，也不要求同一實測錨點內出現不存在的細時機。分鏡／版面與內容審查各保留兩次修正機會，任一類第三次失敗即停止：正常工作只需分鏡＋review 兩次文字請求，有界最差為八次。修正仍保留合法的 reveal／focus，不強制移除所有標記；候選必須重新通過來源審查。沒有模型幾何不代表任何內容皆可容納，過長文字或無效語意索引仍會拒絕。
 
-`backend/src/runtime/podcast_video_render.py` 沿用有限圖形與 CPU 1920×1080／60fps MP4，不執行模型程式碼。reveals 由語意目標的 cue 編譯、同 cue 合併，顯示後保留至頁尾；相關節點不晚於連線出現，單位與必要條件仍由內容審查核對。v3 由 `podcast_video_motion.py` 以 manifest、實測 timeline 與目前媒體秒數直接計算狀態：節點及文字淡入、線條／箭頭 draw-on、焦點明暗與淡底平滑轉移，已出現的次要內容仍保留。flow／exchange 指示沿既有箭頭一次性推進並移交節點焦點；不循環、不表示實際封包速度。同一 anchor 的目標同時聚焦，不編造更細的先後。模型的 focus 仍控制額外暫時標記；v3 relation 不再疊加第二個 trace 指示。換頁後使用短 crossfade，舊頁以邊界前的確定畫格計算，底部提示與進度仍取目前時間。固定的視覺時長上限皆受實測窗口限制；seek／倍速沒有前一影格的殘留狀態。舊 underline／outline／trace 圖形契約保留可讀，標記不設必填配額。
+`backend/src/runtime/podcast_video_render.py` 沿用有限圖形與 1920×1080／60fps MP4（CPU 繪圖，H.264 可選 CPU／NVENC 編碼），不執行模型程式碼。reveals 由語意目標的 cue 編譯、同 cue 合併，顯示後保留至頁尾；相關節點不晚於連線出現，單位與必要條件仍由內容審查核對。v3 由 `podcast_video_motion.py` 以 manifest、實測 timeline 與目前媒體秒數直接計算狀態：節點及文字淡入、線條／箭頭 draw-on、焦點明暗與淡底平滑轉移，已出現的次要內容仍保留。flow／exchange 指示沿既有箭頭一次性推進並移交節點焦點；不循環、不表示實際封包速度。同一 anchor 的目標同時聚焦，不編造更細的先後。模型的 focus 仍控制額外暫時標記；v3 relation 不再疊加第二個 trace 指示。換頁後使用短 crossfade，舊頁以邊界前的確定畫格計算，底部提示與進度仍取目前時間。固定的視覺時長上限皆受實測窗口限制；seek／倍速沒有前一影格的殘留狀態。舊 underline／outline／trace 圖形契約保留可讀，標記不設必填配額。
 
 升級時先更新可接受 v3 的 backend，再更新／重啟 video provider。新 service 明確傳入 `--motion --validate`；仍在執行的舊 service 只傳 `--validate` 時繼續編譯 v2，避免分階段更新意外改變契約。未標 schema 的 legacy 與 v2 保留原繪法；不掃描、重排或重製 ready 產物。
 
@@ -193,7 +193,7 @@ F5 共用本機 Whisper，對齊原講稿與實際 WAV 的詞時間點；拼音�
 
 影片的細切若無法獨立取得可靠錨點，僅在同一原發言內合併相鄰片段；完整辨識的短回覆或共用 ASR 詞時間也可保留角色後合併。合併不遺失文字、不跨越不可靠的完整發言，仍要求至少 8 字的連續語音錨點、實測時間與片段容量上限。字幕優先切成 42 字內讀句，但可靠錨點不足而必須合併時可能較長；不為追求固定字數猜時間。F5 原段落對齊不啟用此合併，音訊不重製。
 
-渲染環境依賴見 `ops/podcast/video-render-requirements.txt`，字型為 Noto Sans CJK。provider.env 設定 `STUDYDY_VIDEO_PYTHON`（獨立渲染環境）、`STUDYDY_VIDEO_WORK_DIR`（暫存目錄）、`STUDYDY_VIDEO_MIN_FREE_BYTES`（最低可用容量）及可選的 `STUDYDY_VIDEO_HOST_FREE_PATH`（宿主磁碟容量檢查）。影片工作串行，暫存檔處理後清除；不用下載影片生成模型。來源不足或驗證失敗會保留失敗狀態，不視為通過。
+渲染環境依賴見 `ops/podcast/video-render-requirements.txt`，字型為 Noto Sans CJK。provider.env 設定 `STUDYDY_VIDEO_PYTHON`（獨立渲染環境）、`STUDYDY_VIDEO_WORK_DIR`（暫存目錄）、`STUDYDY_VIDEO_MIN_FREE_BYTES`（最低可用容量）及可選的 `STUDYDY_VIDEO_HOST_FREE_PATH`（宿主磁碟容量檢查）。`STUDYDY_VIDEO_ENCODER` 選擇 `libx264`（預設）或 `h264_nvenc`；後者需要設定 `STUDYDY_VIDEO_FFMPEG` 指向含 NVENC 的 FFmpeg，以及可用的 NVIDIA 驅動。WSL 主機的 `LD_LIBRARY_PATH` 須包含 `/usr/lib/wsl/lib`。目前正式主機已設定為 `h264_nvenc`。編碼器失敗直接回報，不靜默退回 CPU。相同視覺狀態的頁面使用最多兩頁快取；動畫與進度仍由原媒體時間決定，不降低影格率。Linux 影格 pipe 使用 1 MiB 緩衝以減少傳送切換成本。影片工作串行，暫存檔處理後清除；不用下載影片生成模型。來源不足或驗證失敗會保留失敗狀態，不視為通過。
 
 已認可的原節奏樣片可保留實際來源與時間軸作為既有產物；單一樣片不代表任意教材均已驗收。Gemma 分鏡尚未驗證。臨時比較頁及專用產生腳本已移除。
 

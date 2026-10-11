@@ -176,7 +176,7 @@ def draw_emphasis(draw,t,timeline,page,bounds,element_states=None):
             if progress<1:draw.ellipse((x-7,y-7,x+7,y+7),fill=color,outline=(255,255,255,round(255*opacity)),width=2)
 
 
-def draw_scene(t, timeline, plan, page_index, text_layouts, mark_layouts):
+def draw_scene(t, timeline, plan, page_index, text_layouts, mark_layouts, scene_cache=None):
     from PIL import Image, ImageDraw, ImageColor
     page=plan['pages'][page_index]
     states=None
@@ -184,14 +184,25 @@ def draw_scene(t, timeline, plan, page_index, text_layouts, mark_layouts):
         from .podcast_video_motion import scene_state
         groups=scene_state(t,timeline,page)
         states={j:state for group,state in zip(page['motion']['groups'],groups) for j in group['elements']}
+    visible = tuple(not any(index in group['elements'] and t < visual_window(
+        timeline, group['start_cue'], group['start_cue'], group.get('caption_index'))[0]
+        for group in page.get('reveal', [])) for index in range(len(page['elements'])))
+    # 只重用視覺狀態完全相同的頁面；逐幀進度條在副本上畫，不能污染快取。
+    # emphasis 仍走原繪製路徑，避免漏掉以時間推進的描線或淡出。
+    cache_key = None
+    if scene_cache is not None and not page.get('emphasis'):
+        cache_key = (visible, tuple(tuple(state[k] for k in ('opacity','entrance','focus','draw','token'))
+                                  for state in groups) if states is not None else ())
+        previous = scene_cache.get(page_index)
+        if previous is not None and previous[0] == cache_key:
+            return previous[1].copy()
     image=Image.new('RGB',(1920,1080),BACKGROUND);d=ImageDraw.Draw(image,'RGBA')
     d.text((100,48),page['title'],font=font(54),fill=PALETTE['ink'])
     d.text((1690,66),f'{page_index+1:02} / {len(plan["pages"]):02}',font=font(30),fill=PALETTE['muted'])
     d.line((100,140,1820,140),fill='#d7e0e4',width=2)
     for index,e in enumerate(page['elements']):
         # Reveal 完全由時間推導；往回 seek 不留下未到時機的元素。
-        reveal=next((g for g in page.get('reveal',[]) if index in g['elements']),None)
-        if reveal and t < visual_window(timeline,reveal['start_cue'],reveal['start_cue'],reveal.get('caption_index'))[0]:continue
+        if not visible[index]:continue
         state=states[index] if states is not None else None
         opacity=state['opacity'] if state else 1
         if opacity<=0:continue
@@ -229,30 +240,46 @@ def draw_scene(t, timeline, plan, page_index, text_layouts, mark_layouts):
     if page.get('emphasis'):
         if mark_layouts is None:mark_layouts=emphasis_layouts(plan,text_layouts)
         draw_emphasis(d,t,timeline,page,mark_layouts[page_index],states)
+    if cache_key is not None:
+        if page_index not in scene_cache and len(scene_cache) >= 2:
+            scene_cache.pop(next(iter(scene_cache)))
+        scene_cache[page_index] = (cache_key, image.copy())
     return image
 
 
-def draw_frame(t, timeline, plan, text_layouts, mark_layouts=None):
+def draw_frame(t, timeline, plan, text_layouts, mark_layouts=None, *, scene_cache=None):
     from PIL import Image, ImageDraw
     cue_index=next((i for i,s in enumerate(timeline['segments']) if s['start']<=t<s['end']),len(timeline['segments'])-1)
     page_index,page=next((i,p) for i,p in enumerate(plan['pages']) if p['start_cue']<=cue_index<=p['end_cue'])
-    image=draw_scene(t,timeline,plan,page_index,text_layouts,mark_layouts)
+    image=draw_scene(t,timeline,plan,page_index,text_layouts,mark_layouts,scene_cache)
     if plan.get('schema')=='podcast-storyboard/v3' and page_index:
         from .podcast_video_motion import transition
         blend=transition(t,timeline,page)
         if blend<1:
             boundary=timeline['segments'][page['start_cue']]['start']
-            previous=draw_scene(math.nextafter(boundary,-math.inf),timeline,plan,page_index-1,text_layouts,mark_layouts)
+            previous=draw_scene(math.nextafter(boundary,-math.inf),timeline,plan,page_index-1,text_layouts,mark_layouts,scene_cache)
             image=Image.blend(previous,image,blend)
     d=ImageDraw.Draw(image,'RGBA')
     d.rectangle((0,1068,round(1920*min(t/timeline['duration'],1)),1079),fill=PALETTE['teal'])
     return image
 
 
+def ffmpeg_executable():
+    import imageio_ffmpeg
+    return os.environ.get('STUDYDY_VIDEO_FFMPEG') or imageio_ffmpeg.get_ffmpeg_exe()
+
+
+def encoder_arguments(encoder):
+    if encoder == 'libx264':
+        return ['-c:v','libx264','-preset','fast','-crf','18','-threads','4']
+    if encoder == 'h264_nvenc':
+        return ['-c:v','h264_nvenc','-preset','p5','-tune','hq','-rc','vbr','-cq','18','-b:v','0']
+    raise ValueError('VIDEO_PROVIDER_UNAVAILABLE')
+
+
 def measure_encoded_audio(path):
     """AAC 解碼後再量測，避免 WAV 達標但壓縮成品過峰。"""
-    import imageio_ffmpeg
-    result=subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-hide_banner','-nostdin','-i',str(path),
+    result=subprocess.run([ffmpeg_executable(),'-hide_banner','-nostdin','-i',str(path),
         '-vn','-af','loudnorm=I=-19:TP=-2:LRA=11:print_format=json','-f','null','-'],
         stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
     try:
@@ -265,7 +292,6 @@ def measure_encoded_audio(path):
 
 
 def render(request, audio_path, destination):
-    import imageio_ffmpeg
     episode=request['episode']
     if sha256(audio_path.read_bytes()).hexdigest()!=episode['audio']['sha256']:
         raise ValueError('VIDEO_SOURCE_CHANGED')
@@ -278,19 +304,21 @@ def render(request, audio_path, destination):
     ensure_space(destination.parent)
     fps=request.get('benchmark_fps',60)
     if type(fps) is not int or fps not in (30,60):raise ValueError('VIDEO_RESULT_INVALID')
+    encoder=os.environ.get('STUDYDY_VIDEO_ENCODER','libx264')
+    scene_cache={}
     started=time.monotonic()
-    command=[imageio_ffmpeg.get_ffmpeg_exe(),'-hide_banner','-loglevel','error','-n','-f','rawvideo',
+    command=[ffmpeg_executable(),'-filter_threads','1','-hide_banner','-loglevel','error','-n','-f','rawvideo',
              '-pix_fmt','rgb24','-s','1920x1080','-r',str(fps),'-i','pipe:0','-i',str(audio_path),
-             '-map','0:v:0','-map','1:a:0','-t',str(timeline['duration']),'-c:v','libx264','-preset','fast',
-             '-crf','18','-threads','4','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-movflags','+faststart',str(destination)]
-    with subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL) as process:
+             '-map','0:v:0','-map','1:a:0','-t',str(timeline['duration']),*encoder_arguments(encoder),'-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-movflags','+faststart',str(destination)]
+    # 1080p RGB 每幀約 6 MiB；加大 Linux pipe，減少大量小寫入的切換成本。
+    with subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL, pipesize=1024*1024) as process:
         try:
             for n in range(math.ceil(timeline['duration']*fps)):
                 if n%600==0:
                     ensure_space(destination.parent)
                     if destination.exists() and destination.stat().st_size>MAX_VIDEO_BYTES:
                         raise ValueError('VIDEO_TOO_LARGE')
-                process.stdin.write(draw_frame(n/fps,timeline,plan,text_layouts,mark_layouts).tobytes())
+                process.stdin.write(draw_frame(n/fps,timeline,plan,text_layouts,mark_layouts,scene_cache=scene_cache).tobytes())
             process.stdin.close()
             if process.wait()!=0:raise ValueError('VIDEO_RENDER_FAILED')
         except BaseException:
@@ -298,7 +326,7 @@ def render(request, audio_path, destination):
     if destination.stat().st_size>MAX_VIDEO_BYTES:raise ValueError('VIDEO_TOO_LARGE')
     encoded=measure_encoded_audio(destination) if episode['audio'].get('mastering') else None
     return {**({'encoded_audio':encoded} if encoded else {}),'width':1920,'height':1080,'fps':fps,'duration':timeline['duration'],
-            'sha256':sha256(destination.read_bytes()).hexdigest(),'render_seconds':time.monotonic()-started}
+            'sha256':sha256(destination.read_bytes()).hexdigest(),'render_seconds':time.monotonic()-started,'video_encoder':encoder}
 
 
 if __name__=='__main__':

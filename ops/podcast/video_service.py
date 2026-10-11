@@ -1,4 +1,4 @@
-"""Podcast 影片 provider：一次分鏡生成，單一 CPU 渲染，工作檔離開即清除。"""
+"""Podcast 影片 provider：一次分鏡生成，串行渲染，工作檔離開即清除。"""
 import base64
 from hashlib import sha256
 import json
