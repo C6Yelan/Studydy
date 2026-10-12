@@ -77,7 +77,7 @@ def test_new_analysis_runs_review_and_failed_review_keeps_head(revisions, monkey
     start([second], 'append-review', original['revision'])
     failed = execute()
     assert failed.status == 'failed' and failed.error_code == 'REVIEW_RESPONSE_INVALID'
-    assert len(calls) == 2
+    assert len(calls) == 3 and 'review_correction' in calls[2]
     assert failed.progress_stage == 'review'
     assert failed.completed_units == 1 and failed.total_units == 2
     assert read_knowledge_structure(owner.learner_id, material, revision=original['revision'], dsn=dsn).document == original
@@ -94,20 +94,25 @@ def test_new_analysis_runs_review_and_failed_review_keeps_head(revisions, monkey
     retry_revision(owner.learner_id, failed.run_id, 'retry-review', settings, dsn=dsn)
     completed = execute()
     assert completed.status == 'succeeded', completed.error_code
-    assert len(calls) == (4 if raise_budget else 3) and len(requests) == before
+    assert len(calls) == (5 if raise_budget else 4) and len(requests) == before
     doc = read_knowledge_structure(owner.learner_id, material, run_id=completed.run_id, dsn=dsn).document
     assert doc['page_count'] == 2 and validate_knowledge_structure(doc)
 
 
 def test_explicit_review_after_cancellation_reuses_saved_responses(revisions, monkeypatch):
     from runtime.material_processing import request_material_processing_cancellation
+    from runtime.storage.analysis_archive import AnalysisArchive
     owner, material, settings, dsn, add, start, execute, first, original, requests = revisions
     enable_review(settings)
     run = create_revision(owner.learner_id, material, [], 'cancel-review', settings, base_revision=original['revision'], dsn=dsn)
-    def model(client, **kw):
-        request_material_processing_cancellation(owner.learner_id, run.run_id, update_only=True, dsn=dsn)
-        return keep_response(kw['request'])
-    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    save_review = AnalysisArchive.save_review
+    def save_then_cancel(archive, name, data):
+        save_review(archive, name, data)
+        if archive.run.run_id == run.run_id and name.endswith('/response'):
+            # 已落盤才取消；取消後才回來的模型結果不得寫入或被重用。
+            request_material_processing_cancellation(owner.learner_id, run.run_id, update_only=True, dsn=dsn)
+    monkeypatch.setattr(AnalysisArchive, 'save_review', save_then_cancel)
+    monkeypatch.setattr('runtime.material_review.request_semantics', lambda client, **kw: keep_response(kw['request']))
     assert execute().status == 'cancelled'
     monkeypatch.setattr('runtime.material_review.request_semantics', lambda *a, **kw: pytest.fail('model replay'))
     create_revision(owner.learner_id, material, [], 'resume-reviewed', settings, base_revision=original['revision'], dsn=dsn)
@@ -116,7 +121,9 @@ def test_explicit_review_after_cancellation_reuses_saved_responses(revisions, mo
     assert read_knowledge_structure(owner.learner_id, material, revision=original['revision'], dsn=dsn).document == original
 
 
-def test_coverage_failure_retry_repairs_saved_response_without_analysis(revisions, monkeypatch):
+@pytest.mark.parametrize('error_code', ['REVIEW_CONCEPT_COVERAGE_INVALID', 'REVIEW_ALIAS_EDIT_INVALID',
+                                      'REVIEW_METADATA_REASON_INVALID'])
+def test_contract_failure_retry_repairs_saved_response_without_analysis(revisions, monkeypatch, error_code):
     owner, material, settings, dsn, add, start, execute, first, original, requests = revisions
     enable_review(settings)
     calls = []
@@ -126,7 +133,14 @@ def test_coverage_failure_retry_repairs_saved_response_without_analysis(revision
         calls.append(request)
         response = keep_response(request)
         if len(calls) <= 2:
-            response['assignments'].append(deepcopy(response['assignments'][0]))
+            if error_code == 'REVIEW_CONCEPT_COVERAGE_INVALID':
+                response['assignments'].append(deepcopy(response['assignments'][0]))
+            elif error_code == 'REVIEW_METADATA_REASON_INVALID':
+                response['assignments'][0].update(action='metadata', issue='none')
+            else:
+                concept = request['concepts'][0]
+                response['alias_edits'] = [{'concept': concept['h'], 'remove': ['synthetic-absent-alias'],
+                    'evidence': concept['evidence'], 'reason': '合成不合法別名'}]
         return response
 
     monkeypatch.setattr('runtime.material_review.request_semantics', model)
@@ -134,7 +148,7 @@ def test_coverage_failure_retry_repairs_saved_response_without_analysis(revision
     create_revision(owner.learner_id, material, [], 'coverage-review', settings,
                     base_revision=original['revision'], dsn=dsn)
     failed = execute()
-    assert failed.status == 'failed' and failed.error_code == 'REVIEW_CONCEPT_COVERAGE_INVALID'
+    assert failed.status == 'failed' and failed.error_code == error_code
     assert len(calls) == 2 and 'review_correction' in calls[1]
     assert read_knowledge_structure(owner.learner_id, material, revision=original['revision'], dsn=dsn).document == original
     retry_revision(owner.learner_id, failed.run_id, 'repair-coverage', settings, dsn=dsn)
@@ -178,8 +192,8 @@ def test_review_capacity_splits_concepts_without_truncating_sources(revisions, m
     start([second], 'capacity-review', original['revision'])
     result = execute()
     assert len(all_requests[0]['concepts']) > 1
-    assert all(r['evidence'] == all_requests[0]['evidence'] for r in all_requests)
     if single_fits:
+        assert all(r['evidence'] == all_requests[0]['evidence'] for r in all_requests)
         assert result.status == 'succeeded', result.error_code
         doc = read_knowledge_structure(owner.learner_id, material, run_id=result.run_id, dsn=dsn).document
         assert validate_knowledge_structure(doc)
@@ -195,5 +209,66 @@ def test_review_capacity_splits_concepts_without_truncating_sources(revisions, m
         assert doc['concepts'] == source['concepts'] and doc['evidence'] == source['evidence']
     else:
         assert result.status == 'failed' and result.error_code == 'SEMANTIC_INPUT_TOO_LARGE'
+        assert any(len(r['evidence']) < len(all_requests[0]['evidence']) for r in all_requests)
+        original_blocks = {(e['source_name'], e['page'], e['text']) for e in all_requests[0]['evidence']}
+        assert all({(e['source_name'], e['page'], e['text']) for e in r['evidence']} <= original_blocks for r in all_requests)
         assert not model_calls
         assert read_knowledge_structure(owner.learner_id, material, revision=original['revision'], dsn=dsn).document == original
+
+
+def test_parallel_database_archive_keeps_successes_across_failed_batch(revisions, monkeypatch):
+    from threading import Barrier, Lock
+    from collections import Counter
+    from runtime import material_review as review
+    from runtime.luna_test import test_lock
+    from runtime.storage.analysis_archive import _material_directory
+    from learning_adaptation.study_sessions import create_study_session
+    owner, material, settings, dsn, add, start, execute, first, original, requests = revisions
+    create_study_session(owner, material, original['revision'], 'preserve-parallel-base', dsn=dsn)
+    enable_review(settings)
+    monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', '1')
+    actual = review._review_units
+    monkeypatch.setattr(review, '_review_units', lambda view, units, lock, *a: actual(view, units, test_lock(lock), *a))
+    b = add('B.pdf', 'A queue removes the first inserted element first.')
+    c = add('C.pdf', 'A tree has a root and child nodes.')
+    gate, mutex = Barrier(2), Lock()
+    calls, active, peak = Counter(), 0, 0
+    def model(client, **kw):
+        nonlocal active, peak
+        request = kw['request']
+        with mutex:
+            calls[request['title']] += 1
+            number = sum(calls.values())
+            active += 1
+            peak = max(peak, active)
+        try:
+            if number <= 2: gate.wait(5)
+            result = keep_response(request)
+            if request['title'].startswith('B.pdf'):
+                result['assignments'][0].update(action='metadata', issue='none')
+            return result
+        finally:
+            with mutex: active -= 1
+    monkeypatch.setattr(review, 'request_semantics', model)
+    run = start([b, c], 'parallel-review', original['revision'])
+    failed = execute()
+    assert failed.status == 'failed' and failed.error_code == 'REVIEW_METADATA_REASON_INVALID'
+    assert peak == 2
+    directory = _material_directory(owner.learner_id, material) / run.run_id.hex / 'review'
+    cached = list(directory.glob('cache-*.json'))
+    assert cached
+    saved = {p.name: p.read_bytes() for p in cached}
+    old_calls = calls.copy()
+    def corrected(client, **kw):
+        calls[kw['request']['title']] += 1
+        return keep_response(kw['request'])
+    monkeypatch.setattr(review, 'request_semantics', corrected)
+    analysis_calls = len(requests)
+    retry_revision(owner.learner_id, failed.run_id, 'parallel-review-resume', settings, dsn=dsn)
+    completed = execute()
+    assert completed.status == 'succeeded', completed.error_code
+    assert len(requests) == analysis_calls
+    assert all((directory / name).read_bytes() == content for name, content in saved.items())
+    for title, count in old_calls.items():
+        assert calls[title] == count + (1 if title.startswith('B.pdf') else 0)
+    assert read_knowledge_structure(owner.learner_id, material, revision=original['revision'], dsn=dsn).document == original

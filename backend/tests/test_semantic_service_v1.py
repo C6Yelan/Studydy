@@ -14,6 +14,7 @@ from runtime.semantic_service import (
 
 def _lock() -> dict:
     lock=json.loads((Path(__file__).parents[2] / "local_ai/runtime-lock.json").read_text())
+    lock['material_semantics']=json.loads((Path(__file__).parent/'fixtures/legacy_material_semantics.json').read_text())
     # 原有邊界案例刻意驗證仍支援的 32K 設定。
     lock["semantic_service"]["max_model_len"]=32768
     return lock

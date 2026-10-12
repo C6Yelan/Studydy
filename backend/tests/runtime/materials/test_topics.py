@@ -6,12 +6,13 @@ from sqlalchemy import select,func
 from product_fixtures import closed_loop
 from sources.test_source_revisions import revisions,pdf
 from runtime import topics,research
+from research_fixtures import review_provider,search_to_selection
 from runtime.source_normalization import SourceError,normalize_next
 from runtime.material_discard import request_material_discard
 from runtime.storage.tables import TopicScope,MaterialResearch,Material,database_session
 
 PLAN={'title':'佇列入門','level':'入門','goals':['理解 FIFO'],'topics':['佇列的資料順序'],'exclude':['實作效能最佳化']}
-CANDIDATE={'id':'paper','kind':'paper','title':'Queue source','authors':'Fixture','year':2026,'doi':None,
+CANDIDATE={'id':'paper','kind':'paper','title':'Queue source','authors':'Fixture','year':2026,'description':'A queue removes the first inserted item first.','doi':None,
     'url':'https://example.org/paper','download_url':'https://example.org/paper.pdf','license':'cc-by','license_url':None,
     'version':'publishedVersion','eligible':True,'reason':'fixture','state':'candidate'}
 
@@ -19,10 +20,10 @@ CANDIDATE={'id':'paper','kind':'paper','title':'Queue source','authors':'Fixture
 def fixtures(monkeypatch,empty=False):
     calls=[];data=pdf('A queue removes the first inserted element first.')
     monkeypatch.setattr(topics,'provider',lambda *a:{'proposal':deepcopy(PLAN),'provider':'synthetic-test'})
-    monkeypatch.setattr(research,'provider',lambda *a:{'query':'queue FIFO'})
+    monkeypatch.setattr(research,'provider',review_provider)
     def search(*a):calls.append(a);return ([] if empty else [deepcopy(CANDIDATE)]),None,[]
     monkeypatch.setattr(research.research_sources,'search',search)
-    monkeypatch.setattr(research.research_sources,'acquire',lambda c:(data,'application/pdf','.pdf',{'id':c['id'],'license':'cc-by'}))
+    monkeypatch.setattr(research.research_sources,'acquire',lambda c,**kwargs:(data,'application/pdf','.pdf',{'id':c['id'],'license':'cc-by'}))
     return calls
 
 
@@ -48,7 +49,7 @@ def test_topic_approval_then_real_source_pipeline(revisions,monkeypatch):
     assert summary['research']=={'status':'searching','material_id':None}
     assert topics.listing(uuid4(),dsn=dsn)['topics']==[]
     with database_session(dsn) as db:assert db.scalar(select(func.count()).select_from(Material))==before
-    research.step(dsn=dsn)
+    search_to_selection(owner,approved['research_id'],dsn)
     assert len(calls)==1
     with pytest.raises(SourceError,match='REQUEST_INVALID'):
         research.action(owner,approved['research_id'],'acquire',['paper'],dsn=dsn)
@@ -76,7 +77,7 @@ def test_no_source_does_not_create_fake_material_or_map(closed_loop,monkeypatch)
     learner,_,_,_,dsn,_=closed_loop;owner=learner.learner_id
     view,calls=prepare(owner,dsn,monkeypatch,True)
     topics.approve(owner,view['topic_id'],view['version'],PLAN,'approve',dsn=dsn)
-    research.step(dsn=dsn)
+    search_to_selection(owner,topics.read(owner,view['topic_id'],dsn=dsn)['research_id'],dsn)
     result=topics.read(owner,view['topic_id'],dsn=dsn)
     assert result['research']['status']=='selecting' and result['research']['candidates']==[]
     with pytest.raises(SourceError,match='REQUEST_INVALID'):topics.create_material(owner,view['topic_id'],['invented'],dsn=dsn)
@@ -101,7 +102,7 @@ def test_discard_created_material_cannot_be_resurrected(closed_loop,monkeypatch)
     learner,_,_,_,dsn,_=closed_loop;owner=learner.learner_id
     view,_=prepare(owner,dsn,monkeypatch)
     topics.approve(owner,view['topic_id'],view['version'],PLAN,'approve',dsn=dsn)
-    research.step(dsn=dsn)
+    search_to_selection(owner,topics.read(owner,view['topic_id'],dsn=dsn)['research_id'],dsn)
     material=topics.create_material(owner,view['topic_id'],['paper'],dsn=dsn)['material_id']
     assert request_material_discard(owner,material,dsn=dsn)=='removed'
     assert topics.read(owner,view['topic_id'],dsn=dsn)['status']=='cancelled'
@@ -140,9 +141,9 @@ def test_confirmed_level_controls_search_prompt_without_changing_saved_scope(clo
     approved=topics.approve(owner,view['topic_id'],view['version'],edited,'level-approve',dsn=dsn)
     payloads=[]
     def query(path,body):
-        assert path=='/search-query'
-        payloads.append(deepcopy(body))
-        return {'query':'queue tutorial'}
+        assert path=='/semantics'
+        payloads.append(deepcopy(body['request']))
+        return review_provider(path,body)
     monkeypatch.setattr(research,'provider',query)
     assert research.step(dsn=dsn)
     scope=payloads[0]['approved_scope']
@@ -150,6 +151,7 @@ def test_confirmed_level_controls_search_prompt_without_changing_saved_scope(clo
     if expected_hint:
         assert scope['level'].startswith(level+'：') and expected_hint in scope['level']
     else:assert scope['level']==level
+    search_to_selection(owner,approved['research_id'],dsn)
     assert calls[0][0]=='queue tutorial'
     assert topics.read(owner,view['topic_id'],dsn=dsn)['proposal']==edited
     assert topics.approve(owner,view['topic_id'],view['version'],edited,'level-approve',dsn=dsn)['research_id']==approved['research_id']

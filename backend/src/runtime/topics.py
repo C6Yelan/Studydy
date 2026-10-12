@@ -79,7 +79,7 @@ def approve(owner,identity,expected,edited,key,*,dsn=None):
         if row.status!='ready' or row.version!=expected:raise SourceError('TOPIC_CONFLICT')
         # 與批准同一交易建立 F2 意圖；批准前完全不存在搜尋工作。
         work=MaterialResearch(research_id=uuid4(),learner_id=owner,material_id=None,base_revision=None,
-            topic_id=identity,query=row.request,mode='self-study',status='searching',candidates=[],selection=[],
+            topic_id=identity,query=row.request,mode='self-study',status='searching',candidates=[],selection=[],search_state=research.research_workflow.new_state(),
             idempotency_key_sha256=_key_digest('topic:'+str(identity)),created_at=datetime.now(UTC))
         db.add(work);db.flush()
         row.proposal=edited;row.approved_sha256=fingerprint;row.approval_key_sha256=digest;row.approved_at=datetime.now(UTC)
@@ -97,7 +97,8 @@ def create_material(owner,identity,selected,*,dsn=None):
             return {'material_id':work.material_id,'research_id':work.research_id}
         if work.status!='selecting':raise SourceError('SOURCE_NOT_READY')
         known={c['id']:c for c in work.candidates}
-        if not selected or len(set(selected))!=len(selected) or any(i not in known or not known[i]['eligible'] for i in selected):
+        if not selected or len(set(selected))!=len(selected) or any(i not in known or not known[i]['eligible'] or
+            work.search_state and known[i].get('review',{}).get('phase')!='body' for i in selected):
             raise SourceError('REQUEST_INVALID')
         # 回應遺失也以固定建立 key 接回同一教材，不用假 PDF 或空 KS。
         identity_material=create_draft(owner,row.proposal['title'],'topic:'+str(identity),dsn=dsn)

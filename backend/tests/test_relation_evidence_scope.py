@@ -36,6 +36,8 @@ def _case():
         's': 'queue', 't': 'stack', 'k': 'contrast',
         'r': 'Their removal order differs: earliest versus latest.', 'e': [5], 'c': 0.9,
     }]}
+    # 個別案例會在建立 bundle 後加入既有概念；重新選取其候選。
+    bundle.pop('catalog_keys', None)
     return context, bundle, state, response
 
 
@@ -108,7 +110,7 @@ def test_only_exposed_catalog_evidence_is_allowed_in_incremental_request(label, 
     state.concepts['saved'] = _saved_concept(context, label)
     bundle['include_claim_details'] = details
     request = semantic_request(context, bundle, state)
-    assert ('e' in request['existing_concepts'][0]) is accepted
+    assert any('e' in c for c in request['existing_concepts']) is accepted
     # Catalog 的舊來源可支援 relation，但不放寬「新 Claim 只能引用 current bundle」。
     response['concepts'][0]['c'].append({'m': None, 's': [7]})
     response['relations'][0]['e'] = [7]
@@ -138,7 +140,7 @@ def test_catalog_capacity_fallback_does_not_authorize_hidden_endpoint_claim():
 def test_response_alias_cannot_make_hidden_catalog_evidence_visible_retroactively():
     context, bundle, state, response = _case()
     state.concepts['saved'] = _saved_concept(context, 'Unrelated history')
-    assert 'e' not in semantic_request(context, bundle, state)['existing_concepts'][0]
+    assert not semantic_request(context, bundle, state)['existing_concepts']
     response['concepts'].append({'k': 'saved', 'l': 'Unrelated history', 'a': ['Queue'], 'c': []})
     response['relations'][0]['e'] = [7]
     apply_semantic_response(response, context=context, bundle=bundle, state=state)

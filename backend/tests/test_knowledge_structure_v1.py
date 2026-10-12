@@ -438,7 +438,7 @@ def test_cross_section_concept_has_one_primary_tree_placement_and_zero_prerequis
     ]
 
 
-def test_later_bundle_reuses_semantic_concept_key_without_pairwise_dedup_stage():
+def test_later_bundle_reuses_listed_concept_key_without_pairwise_dedup_stage():
     context = _context()
     state = SemanticState()
     sections = context["sections"]
@@ -463,7 +463,7 @@ def test_later_bundle_reuses_semantic_concept_key_without_pairwise_dedup_stage()
                 "relations": [],
             },
             context=context,
-            bundle={"sections": [section], "evidence": items},
+            bundle={"sections": [section], "evidence": items, "catalog_keys": list(state.concepts)},
             state=state,
         )
     assert list(state.concepts) == ["shared-concept"]
@@ -668,7 +668,7 @@ def test_token_packing_rechecks_current_catalog_and_never_drops_evidence():
         return count + len(request["existing_concepts"]) <= 3
     bundles = build_semantic_bundles(context, state=state, fits=fits)
     first = next(bundles)
-    state.concepts["c0"] = {"label": "Prior", "aliases": [], "claims": []}
+    state.concepts["c0"] = {"label": "Array", "aliases": [], "claims": []}
     remaining = list(bundles)
     assert any(catalog == 1 for catalog, _ in sizes)
     bundled_ids = [
@@ -681,7 +681,7 @@ def test_token_packing_rechecks_current_catalog_and_never_drops_evidence():
         list(build_semantic_bundles(context, state=state, fits=lambda request: False))
 
 
-def test_catalog_keeps_all_identities_but_only_related_details_without_mutating_state():
+def test_catalog_selects_related_identities_without_mutating_saved_state():
     context = build_document_context([
         _page(1, [_block(1, 0, 'heading', 'Earlier'), _block(1, 1, 'paragraph', 'Earlier facts.')]),
         _page(2, [_block(2, 0, 'heading', 'Current'), _block(2, 1, 'paragraph', 'TCP uses transport ports.')]),
@@ -702,9 +702,8 @@ def test_catalog_keeps_all_identities_but_only_related_details_without_mutating_
     bundle = {'sections': [context['sections'][-1]], 'evidence': context['evidence'][2:]}
     request = semantic_request(context, bundle, state)
     entries = {item['k']: item for item in request['existing_concepts']}
-    assert set(entries) == set(state.concepts)
+    assert set(entries) == {'transport', 'local'}
     assert {key for key, item in entries.items() if 'c' in item} == {'transport', 'local'}
-    assert entries['unrelated'] == {'k': 'unrelated', 'l': 'Unrelated topic', 'a': []}
     assert state == before
 
 

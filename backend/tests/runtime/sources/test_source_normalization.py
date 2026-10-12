@@ -219,7 +219,7 @@ def test_replay_does_not_require_converter_or_current_model_config(closed_loop,m
     assert create_revision(owner,material,[job['normalization_id']],'replay-run',{},dsn=dsn).run_id==run.run_id
 
 
-def test_failed_conversion_retry_reuses_one_job_without_policy_migration(closed_loop):
+def test_failed_conversion_retry_reuses_one_job_with_current_policy(closed_loop):
     from runtime.source_normalization import retry_normalization
     owner=closed_loop[0].learner_id;dsn=closed_loop[4]
     material=create_draft(owner,'policy.txt','policy-draft',dsn=dsn)
@@ -235,6 +235,7 @@ def test_failed_conversion_retry_reuses_one_job_without_policy_migration(closed_
     with database_session(dsn) as session:
         job=session.get(SourceNormalization,old);job.status='failed';job.error_code='NORMALIZATION_FAILED'
         original_policy=deepcopy(job.policy)
+        job.policy={**original_policy,'version':0,'remote_resources':False}
     retry_normalization(owner,material,old,dsn=dsn)
     latest=read_sources(owner,material,dsn=dsn)[0]
     assert latest['normalization_id']==old and latest['status']=='pending'

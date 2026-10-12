@@ -53,7 +53,7 @@ download-ocr 下載 runtime lock 指定的 Unlimited-OCR snapshot，不載入模
 
 網站：http://127.0.0.1:4173。Nginx 代理同源 /v1 API；[OpenAPI](http://127.0.0.1:4173/v1/openapi.json)提供實際契約。模型、套件與請求設定以 [runtime-lock.json](../local_ai/runtime-lock.json) 為準。
 
-Gemma 的專案預設 context 為 65,536 tokens，包含輸入與輸出；服務端須配置相同的 `--max-model-len 65536`，preflight／tokenize 仍核對服務實際回報。教材每批新增輸入上限維持 1,536 tokens，單一原文 block 除外；輸出上限維持 32,768，教材至少保留 8,192、評量至少保留 16,384 tokens 的輸出空間。同模型與相同契約僅從 32K 擴為 64K，可重用舊分析 checkpoint，舊 hash 不改寫；降容量或換模型不能沿用此例外。這是專案容量設定，不代表遠端 GPU 已重啟或 VRAM 滿載驗收通過。
+Gemma 的專案預設 context 為 65,536 tokens，包含輸入與輸出；服務端須配置相同的 `--max-model-len 65536`，preflight／tokenize 仍核對服務實際回報。新教材分析採獨立子圖，每批新增輸入目標為 4,096 tokens、最多八路併行，單一原文 block 不截斷；已保存的 v1 工作仍保留原 1,536-token 契約。輸出上限維持 32,768，教材至少保留 8,192、評量至少保留 16,384 tokens 的輸出空間。同模型與相同契約僅從 32K 擴為 64K，可重用舊分析 checkpoint，舊 hash 不改寫；降容量或換模型不能沿用此例外。這是專案容量設定，不代表遠端 GPU 已重啟或 VRAM 滿載驗收通過。
 
 init 建立資料目錄及權限；後端依序核對 migration checksum、套用待執行版本，再啟動 API 與 worker。重跑不重建已有帳號或清空資料。登入、已保存資料讀取、上傳與轉檔不需語意模型。
 
@@ -191,7 +191,7 @@ F5 共用本機 Whisper，對齊原講稿與實際 WAV 的詞時間點；拼音�
 
 新影片底部只放短焦點提示，完整字幕保留 WebVTT，由播放器設定中的字幕按鈕切換。播放器沿用瀏覽器 VTT cue 的實測時序，在可換行的字幕區呈現；字幕底緣依控制列高度與 viewport 調整，避免手機長字幕裁切或被播放控制遮住。既有 MP4、`flat-report/v3`／`v4` manifest 與原顯示方式不自動重製；來源、音訊、script hash、ownership 與晚到結果隔離仍沿用原規則。
 
-影片的細切若無法獨立取得可靠錨點，僅在同一原發言內合併相鄰片段；完整辨識的短回覆或共用 ASR 詞時間也可保留角色後合併。合併不遺失文字、不跨越不可靠的完整發言，仍要求至少 8 字的連續語音錨點、實測時間與片段容量上限。字幕優先切成 42 字內讀句，但可靠錨點不足而必須合併時可能較長；不為追求固定字數猜時間。F5 原段落對齊不啟用此合併，音訊不重製。
+影片對齊不設固定字數門檻。完整匹配沿用整體順序；部分匹配需能區分原稿與辨識中的位置。錨點仍逐字對回原稿，所有起點取自實際 ASR 詞時間，拒絕空白、倒序或越界的時間。共用詞時間的片段可以合併後重新核對，不按字數猜時間。字幕優先切成較短讀句；細字幕無法可靠切分時，沿用已驗證的教學段落時間，以 paragraph-captions/v1 記錄，不讓細字幕失敗阻止整集影片。主段落對齊失敗仍不發布影片，音訊不重製。
 
 渲染環境依賴見 `ops/podcast/video-render-requirements.txt`，字型為 Noto Sans CJK。provider.env 設定 `STUDYDY_VIDEO_PYTHON`（獨立渲染環境）、`STUDYDY_VIDEO_WORK_DIR`（暫存目錄）、`STUDYDY_VIDEO_MIN_FREE_BYTES`（最低可用容量）及可選的 `STUDYDY_VIDEO_HOST_FREE_PATH`（宿主磁碟容量檢查）。`STUDYDY_VIDEO_ENCODER` 選擇 `libx264`（預設）或 `h264_nvenc`；後者需要設定 `STUDYDY_VIDEO_FFMPEG` 指向含 NVENC 的 FFmpeg，以及可用的 NVIDIA 驅動。WSL 主機的 `LD_LIBRARY_PATH` 須包含 `/usr/lib/wsl/lib`。目前正式主機已設定為 `h264_nvenc`。編碼器失敗直接回報，不靜默退回 CPU。相同視覺狀態的頁面使用最多兩頁快取；動畫與進度仍由原媒體時間決定，不降低影格率。Linux 影格 pipe 使用 1 MiB 緩衝以減少傳送切換成本。影片工作串行，暫存檔處理後清除；不用下載影片生成模型。來源不足或驗證失敗會保留失敗狀態，不視為通過。
 

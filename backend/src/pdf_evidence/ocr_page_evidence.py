@@ -34,7 +34,8 @@ def canonical_bytes(value: Any) -> bytes:
         allow_nan=False,
         separators=(",", ":"),
         sort_keys=True,
-    ).encode("utf-8")
+    # PDF 字型擷取可能含孤立 surrogate；以 JSON escape 無損保存，既有 UTF-8 hash 不變。
+    ).encode("utf-8", errors="backslashreplace")
 
 
 def canonical_sha256(value: Any) -> str:
@@ -389,6 +390,9 @@ def _native_text_readable(page: dict[str, Any]) -> bool:
     blocks = _native_text_blocks(page)
     text = " ".join(block["text"] for block in blocks)
     visible = [character for character in text if not character.isspace()]
+    # surrogate 無法成為有效 Unicode Evidence，交由既有整頁 OCR 讀取可見字形。
+    if any(unicodedata.category(character) == "Cs" for character in visible):
+        return False
     if len(visible) < 8:
         return False
     bad = sum(

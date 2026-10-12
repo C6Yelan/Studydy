@@ -81,7 +81,7 @@ def align_script_timeline(base, episode, cues, alignment):
         offset, quote = anchor['script_offset'], anchor['text']
         boundary, boundary_text = anchor['boundary_script_offset'], anchor['boundary_text']
         if (type(offset) is not int or type(boundary) is not int or not 0 <= boundary <= offset
-                or len(quote) < 8 or text[offset:offset+len(quote)] != quote
+                or not quote or text[offset:offset+len(quote)] != quote
                 or not boundary_text or text[boundary:boundary+len(boundary_text)] != boundary_text
                 or not all(type(t) in (int, float) and math.isfinite(t) for t in
                            (anchor['boundary_audio_start'], anchor['audio_start']))

@@ -7,6 +7,7 @@ import {automaticPollIntervalMs,materialElapsedLabel,materialFailureMessage,mate
 import {writeRoute} from '../../app/routes';
 import { Icon } from '../../ui/Icon';
 import { LearningSteps } from '../material-tools/LearningSteps';
+import {ResearchProgress} from '../material-tools/ResearchProgress';
 import {SourceCandidates,sourceReasons} from '../material-tools/SourceCandidates';
 import type {Research} from '../material-tools/research';
 import '../material-tools/styles.css';
@@ -81,7 +82,10 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  }catch(e){if(!stop)setError(errorMessage(e));}};void read();return()=>{stop=true;clearTimeout(timer);};},[api,topicId,reload]);
  const perform=async(fn:()=>Promise<unknown>)=>{setBusy(true);setError('');try{await fn();if(alive.current)setReload(v=>v+1);}catch(e){if(alive.current)setError(errorMessage(e));}finally{if(alive.current)setBusy(false);}};
  const generate=()=>perform(async()=>{const body=JSON.stringify({request});if(createIntent.current?.body!==body)createIntent.current={body,key:crypto.randomUUID()};const t=await api.studyTools<Topic>('/v1/topics',{request},createIntent.current.key);createIntent.current=null;if(alive.current)writeRoute({name:'topic',topicId:t.topic_id});});
- const actResearch=(action:string,ids?:string[])=>perform(()=>api.studyTools(`/v1/research/${view?.research_id}/actions`,{action,...(ids?{selected:ids}:{})}));
+ const actResearch=(action:string,ids?:string[])=>perform(async()=>{
+  const result=await api.studyTools<Work>(`/v1/research/${view?.research_id}/actions`,{action,...(ids?{selected:ids}:{})});
+  if(alive.current)setView(previous=>previous?.research_id===result.research_id?{...previous,research:result}:previous);
+ });
  const work=view?.research,working=!!work&&active.has(work.status);
  const [loadedRun,setLoadedRun]=useState<MaterialProcessingRunView|null>(null),[runError,setRunError]=useState(''),[runReload,setRunReload]=useState(0),[now,setNow]=useState(Date.now);
  const materialRun=loadedRun?.run_id===work?.run_id&&loadedRun?.material_id===work?.material_id?loadedRun:null;
@@ -105,7 +109,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const binding=completed?materialRun.output_binding:null;
  const hasMaterial=!!work?.material_id;
  const readOnlySources=hasMaterial&&!(work?.status==='failed'&&!work.run_id);
- const visibleSources=work?.candidates.filter(c=>!readOnlySources||work.selection.includes(c.id))??[];
+ const visibleSources=work?.candidates.filter(c=>(!readOnlySources||work.selection.includes(c.id)))??[];
  const inputStage=editingRequest||!view||['pending','failed','cancelled'].includes(view.status);
  const step=inputStage?0:view.status==='ready'?1:completed?4:hasMaterial?3:2;
  const errorNotice=error&&<p role="alert" className="form-error">{error}<button className="text-button" onClick={()=>{setError('');setReload(v=>v+1);}}>重新讀取</button></p>;
@@ -133,7 +137,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
 
  {work&&<section className={`surface topic-section topic-sources${!hasMaterial?' is-selecting':''}`}>
  {hasMaterial?<header className="tool-stage-heading"><div><h2>{work.run_id?(completed?'教材與知識地圖已建立':cancelled?'已取消教材處理':failed?'教材處理失敗':cancelling?'正在取消教材處理':materialRun?.status==='pending'?'等待開始處理':materialRun?'正在分析教材':'正在讀取處理狀態'):work.deleted?'查詢已刪除':'正在建立教材'}</h2><p>{completed?(materialRun?.status==='partial'?'知識地圖已建立，可先查看已整理的內容；部分內容未完整整理。':`使用你選擇的 ${work.selection.length} 份來源，已完成這份教材。`):cancelling?'已收到取消要求，會在目前進行中的步驟完成後安全停止。':cancelled?'這次分析已停止。':failed?materialFailureMessage(materialRun.error_code??'MATERIAL_ANALYSIS_FAILED'):'取得的來源會保留，可離開頁面，稍後回來查看進度。'}</p></div>
- </header>:<header className="tool-stage-heading"><div><h2>選擇教材來源</h2><p>勾選想使用的論文或官方教學，再建立知識地圖。</p></div><span className="tool-status">{stages[work.status]}</span></header>}
+ </header>:<header className="tool-stage-heading"><div><h2>選擇教材來源</h2><p>研究完成後，勾選適合的論文、教學或網頁來源，再建立知識地圖。</p></div><span className="tool-status">{stages[work.status]}</span></header>}
 
  <div className="topic-approved-summary"><div><strong>{view.proposal?.title}</strong><span>{view.proposal?.level}</span></div><details><summary>已確認的學習範圍</summary><dl><dt>涵蓋主題</dt><dd>{view.proposal?.topics.join('；')}</dd><dt>學習目標</dt><dd>{view.proposal?.goals.join('；')}</dd><dt>不涵蓋</dt><dd>{view.proposal?.exclude.join('；')||'未另外指定'}</dd></dl></details><button className="text-button" disabled={busy} onClick={()=>setEditingRequest(true)}>重新規劃</button></div>
  {work.deleted&&<p className="tool-notice">查詢紀錄已刪除，已建立的教材與來源仍可查看。</p>}
@@ -151,12 +155,14 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  </div>}
  </>}
  </section>}
- {hasMaterial&&readOnlySources?<details className="topic-selected-sources"><summary>已選來源 · {work.selection.length} 份</summary><SourceCandidates candidates={visibleSources} selected={selected} disabled readOnly onChange={setSelected}/></details>:visibleSources.length>0&&<SourceCandidates candidates={visibleSources} selected={selected} disabled={busy||working||readOnlySources} readOnly={readOnlySources} onChange={setSelected}/>}
+ {work.progress&&!hasMaterial&&<ResearchProgress candidates={work.candidates} progress={work.progress} running={work.status==='searching'}/>}
+ {(!work.progress||work.status!=='searching')&&(hasMaterial&&readOnlySources?<details className="topic-selected-sources"><summary>已選來源 · {work.selection.length} 份</summary><SourceCandidates candidates={visibleSources} selected={selected} disabled readOnly onChange={setSelected}/></details>:(visibleSources.length>0||!!work.cursor)&&<SourceCandidates hasMore={!work.progress&&!hasMaterial&&!!work.cursor&&['selecting','searching'].includes(work.status)} loading={busy||work.status==='searching'} onMore={()=>actResearch('more')} candidates={visibleSources} selected={selected} disabled={busy||working||readOnlySources} readOnly={readOnlySources} onChange={setSelected}/>)}
 
+ {work.progress&&work.status==='selecting'&&!visibleSources.length&&<p className="tool-empty">這次尚未整理出切題的正文來源，可查看未完成原因或依缺口繼續研究。</p>}
  {!work.candidates.length&&work.status==='selecting'&&<p className="tool-empty">沒有找到來源，請調整主題重新規劃。</p>}
  <footer className="tool-stage-footer"><div className="tool-footer-secondary">
  {!work.deleted&&<>
- {work.status==='selecting'&&work.cursor&&!hasMaterial&&<button className="text-button" disabled={busy} onClick={()=>void actResearch('more')}>載入更多論文</button>}
+ {work.status==='selecting'&&!hasMaterial&&<button className="text-button" disabled={busy} onClick={()=>void actResearch('more')}>{work.progress?'依缺口繼續研究':'重新整理研究'}</button>}
  {work.status==='failed'&&!work.run_id&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('retry')}>重試未完成部分</button>}
  {working&&work.status!=='ready'&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('cancel')}>停止處理</button>}
  {work.status==='cancelled'&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('retry')}>接續處理</button>}

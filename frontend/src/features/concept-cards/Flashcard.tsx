@@ -23,7 +23,7 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
   const review = structure.status.quality === "needs_review" || structure.status.processing !== "succeeded" || structure.status.decision !== "retain";
   return (
     <div className="concept-card">
-      <VisualConceptCard card={card} structure={structure} materialName={materialName} pageIndex={pageIndex} />
+      <VisualConceptCard card={card} structure={structure} pageIndex={pageIndex} />
       <details className="concept-card-details">
         <summary>完整重點與來源</summary>
         <div className="flashcard">

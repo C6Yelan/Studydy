@@ -457,7 +457,7 @@ class MaterialResearch(Base):
     query: Mapped[str] = mapped_column(Text)
     mode: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
-    candidates: Mapped[list] = mapped_column(JSONB)
+    candidates: Mapped[list] = mapped_column(EvidenceJSONB)
     selection: Mapped[list] = mapped_column(JSONB)
     search_query: Mapped[str | None] = mapped_column(Text)
     cursor: Mapped[str | None] = mapped_column(Text)
@@ -471,6 +471,7 @@ class MaterialResearch(Base):
     staged_content: Mapped[bytes | None] = mapped_column(LargeBinary)
     staged_metadata: Mapped[dict | None] = mapped_column(JSONB)
     topic_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    search_state: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
 
 
 class TopicScope(Base):

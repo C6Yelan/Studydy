@@ -1,7 +1,7 @@
 from copy import deepcopy
 import pytest
 from runtime.luna_test import test_lock as luna_lock
-from runtime.local_app import _runtime_lock,read_local_ai_config_from_environment
+from runtime.local_app import _runtime_lock as _current_runtime_lock,read_local_ai_config_from_environment
 from runtime.material_runtime import runtime_binding,runtime_binding_is_valid,lock_matches_binding
 from runtime.semantic_service import request_semantics,preflight_semantic_service,material_request_fits
 from pdf_evidence.material_pipeline import validate_runtime_lock
@@ -9,8 +9,16 @@ from runtime import voice
 from test_podcast_process import provider_server
 
 
+def _runtime_lock():
+    import json
+    from pathlib import Path
+    value=_current_runtime_lock()
+    value['material_semantics']=json.loads((Path(__file__).parent/'fixtures/legacy_material_semantics.json').read_text())
+    return value
+
+
 def test_new_luna_runs_record_actual_identity_without_mutating_gemma_lock():
-    original=_runtime_lock();before=deepcopy(original)
+    original=_current_runtime_lock();before=deepcopy(original)
     lock=luna_lock(original)
     assert validate_runtime_lock(lock,assessment=False)
     config=read_local_ai_config_from_environment({'STUDYDY_TEXT_TEST_PROVIDER':'codex-exec-luna'})
@@ -46,13 +54,13 @@ def test_luna_capacity_increase_reuses_verified_old_work_without_changing_hash()
     assert config['runtime_lock']['semantic_service']['max_model_len']==65536
 
 
-def test_luna_large_catalog_fits_without_truncating_existing_concepts():
+def test_luna_large_catalog_requires_candidate_packing_without_mutating_request():
     lock=luna_lock(_runtime_lock())
     request={'sections':[{'evidence':[[1,1,'paragraph','A queue uses FIFO.']]}],
              'existing_concepts':[{'label':'synthetic concept','claims':['Preserve this previously supported claim.']*8} for _ in range(500)]}
     before=deepcopy(request)
     assert len(str(request))>100000
-    assert material_request_fits(None,lock,request)
+    assert not material_request_fits(None,lock,request)
     assert request==before
 
 
@@ -66,7 +74,7 @@ def test_luna_input_limit_uses_actual_provider_serialization_and_retains_output_
         def encode(self,text,**kwargs):seen.append(text);return range(count)
     monkeypatch.setattr(tiktoken,'get_encoding',lambda name:Encoding())
     assert material_request_fits(None,lock,request)
-    assert seen[-1]==lock['material_semantics']['prompt']+'\nINPUT:\n'+json.dumps(request,ensure_ascii=False)
+    assert seen[0]==lock['material_semantics']['prompt']+'\nINPUT:\n'+json.dumps(request,ensure_ascii=False)
     count=57344;assert material_request_fits(None,lock,request)
     count=57345;assert not material_request_fits(None,lock,request)
     lock['semantic_service']['max_model_len']=272000
@@ -157,3 +165,17 @@ def test_luna_semantic_cancellation_stops_inflight_provider_process(monkeypatch,
             with pytest.raises(RuntimeError, match='synthetic cancellation'): future.result(timeout=4)
             assert not alive(pid)
         finally: stopped.set()
+
+
+def test_search_query_uses_one_generation_for_multilingual_queries(monkeypatch,provider_server):
+    from test_podcast_process import post,provider
+    seen=[]
+    def fake_luna(prompt,schema,**kwargs):
+        seen.append((prompt,schema))
+        return {'query':'network reliability\n網路 可靠傳輸'}
+    monkeypatch.setattr(provider,'luna',fake_luna)
+    status,data=post(provider_server,'/search-query',{'query':'網路入門','material_title':'Synthetic','mode':'self-study'})
+    assert status==200 and len(seen)==1
+    assert data['query'].splitlines()==['network reliability','網路 可靠傳輸']
+    assert '不包含搜尋引擎的特殊指令' in seen[0][0]
+    assert seen[0][1]['properties']['query']['maxLength']==300

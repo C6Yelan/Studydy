@@ -250,7 +250,7 @@ def timeline_for_video(podcast_id, episode_index, episode, cues, alignment, sour
             offset, quote = anchor['script_offset'], anchor['text']
             first, first_quote = anchor['boundary_script_offset'], anchor['boundary_text']
             if (type(offset) is not int or type(first) is not int or not 0<=first<=offset
-                    or not isinstance(quote,str) or len(quote)<8 or reference[offset:offset+len(quote)]!=quote
+                    or not isinstance(quote,str) or not quote or reference[offset:offset+len(quote)]!=quote
                     or not isinstance(first_quote,str) or not first_quote or reference[first:first+len(first_quote)]!=first_quote
                     or not all(type(t) in (int,float) and math.isfinite(t) for t in (anchor['audio_start'],anchor['boundary_audio_start']))):
                 raise ValueError()

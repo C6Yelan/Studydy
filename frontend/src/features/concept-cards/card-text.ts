@@ -1,4 +1,4 @@
-// 版型容量採穩定的保守估算；實際 SVG 斷行另以瀏覽器字型量測。
+// 版型容量採穩定的保守估算；實際 Canvas 斷行另以瀏覽器字型量測。
 export function textUnits(text: string): number {
   return Array.from(text).reduce((n, c) => n + (/[\x00-\x7f]/.test(c) ? 0.65 : 1), 0);
 }

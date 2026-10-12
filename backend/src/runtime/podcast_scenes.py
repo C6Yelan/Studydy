@@ -55,7 +55,7 @@ def validate_alignment(episode,alignment):
             raise SourceError('SCENE_ALIGNMENT_INVALID')
         offset,quote,time=anchor['script_offset'],anchor['text'],anchor['audio_start']
         text=normalized(' '.join(t['text'] for t in segments[i]['turns']))
-        if (type(offset)is not int or offset<0 or not isinstance(quote,str) or len(quote)<8
+        if (type(offset)is not int or offset<0 or not isinstance(quote,str) or not quote
             or text[offset:offset+len(quote)]!=quote or type(time)not in (int,float) or not math.isfinite(time)
             or not 0<=time<duration):
             raise SourceError('SCENE_ALIGNMENT_INVALID')

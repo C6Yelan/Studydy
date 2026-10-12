@@ -281,6 +281,8 @@ def retry_normalization(owner, material_id, identity, *, dsn=None):
         if source.removed_at is not None:
             raise SourceError("RESOURCE_NOT_FOUND")
         if job.status == "failed":
+            # 重試以現行轉檔政策處理原檔；已完成的來源快照保持不變。
+            job.policy = conversion_policy()
             job.status = "pending"
             job.error_code = None
             job.attempt = 0

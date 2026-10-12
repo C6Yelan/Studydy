@@ -6,7 +6,16 @@ import {
   materialCurrentStagePercent,
   materialOverallProgressPercent,
   validateSourceFile,
+  materialFailureMessage,
 } from "./material-flow.ts";
+
+test("review failures explain the actual cause instead of a generic failure", () => {
+  assert.match(materialFailureMessage('REVIEW_METADATA_REASON_INVALID'), /非教學內容.*分類理由/);
+  assert.match(materialFailureMessage('REVIEW_ALIAS_EDIT_INVALID'), /別名.*大小寫/);
+  assert.match(materialFailureMessage('REVIEW_GROUPING_CYCLE'), /循環/);
+  assert.match(materialFailureMessage('REVIEW_RESPONSE_INVALID'), /回應格式/);
+  assert.match(materialFailureMessage('SEMANTIC_INPUT_TOO_LARGE'), /目前批次.*單次模型容量.*分批方式/);
+});
 
 test("material stages describe the current processing work", () => {
   assert.equal(materialProgressStageLabel("evidence"), "整理頁面與教材來源");

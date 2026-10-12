@@ -26,6 +26,8 @@ MIN_OUTPUT_TOKENS = {
     "material_semantics": 8192, "material_review": 8192,
     "assessment": 16384, "assessment_check": 16384,
 }
+# 候選目錄最多占 8K tokens；原始來源與最低輸出空間仍各自檢查。
+MAX_MATERIAL_CATALOG_TOKENS = 8192
 
 
 class SemanticServiceError(RuntimeError):
@@ -323,7 +325,7 @@ def request_semantics(
         try:
             from .generation_jobs import provider_job
             with provider_job(cancellation_check or (lambda: None)) as job:
-                result = provider('/semantics', {**job, 'prompt': prompt, 'request': request, 'schema': response_schema})
+                result = provider('/semantics', {**job, 'task': task, 'prompt': prompt, 'request': request, 'schema': response_schema})
         except Exception as error:
             if cancellation_check: cancellation_check()
             code = 'SEMANTIC_SERVICE_TIMEOUT' if str(error)=='LUNA_GENERATION_TIMEOUT' else 'SEMANTIC_SERVICE_UNAVAILABLE'
@@ -426,13 +428,43 @@ def material_request_fits(
     """以模型服務 tokenizer 計算分批容量；不截斷單一來源區塊。"""
 
     from .luna_test import enabled
+    task = runtime_lock['material_semantics']
+    if task['bundle_policy'] == 'independent-evidence-blocks/v1':
+        from knowledge_map.independent_blocks import request_view
+        request = request_view(request)
+        fixed = {**request, 'sections': [], 'source_pages': []}
+        if cancellation_check:
+            cancellation_check()
+        if enabled(runtime_lock):
+            count = _luna_input_tokens(task['prompt'], request)
+            base_count = _luna_input_tokens(task['prompt'], fixed)
+            context_limit = min(65536, runtime_lock['semantic_service']['max_model_len'])
+        else:
+            service = _service(runtime_lock)
+            try:
+                count = _token_count(client, service, _messages(task['prompt'], request), task['generation']['chat_template_kwargs'], cancellation_check)
+                base_count = _token_count(client, service, _messages(task['prompt'], fixed), task['generation']['chat_template_kwargs'], cancellation_check)
+            except httpx.TimeoutException:
+                raise SemanticServiceError('SEMANTIC_SERVICE_TIMEOUT') from None
+            except (httpx.HTTPError, UnicodeError, ValueError):
+                raise SemanticServiceError('SEMANTIC_SERVICE_UNAVAILABLE') from None
+            context_limit = service['max_model_len']
+        single = sum(len(section['evidence']) for section in request['sections']) == 1
+        # 不截斷單一 Evidence；保留完整輸出預算及包裝餘裕。
+        reserve = min(task['max_tokens'], context_limit - MIN_OUTPUT_TOKENS['material_semantics'])
+        return ((single or count - base_count <= task['max_new_input_tokens'])
+                and count + reserve + 4096 <= context_limit)
     if enabled(runtime_lock):
         if cancellation_check: cancellation_check()
         fresh = {**request, 'existing_concepts': []}
         task = runtime_lock['material_semantics']
+        count = _luna_input_tokens(task['prompt'], request)
+        fresh_count = _luna_input_tokens(task['prompt'], fresh) if request.get('existing_concepts') else count
+        if count - fresh_count > MAX_MATERIAL_CATALOG_TOKENS:
+            return False
         try:
             _output_budget('material_semantics', task['max_tokens'],
-                           _luna_input_tokens(task['prompt'], request),
+                           count,
                            min(65536, runtime_lock['semantic_service']['max_model_len']))
         except SemanticServiceError:
             return False
@@ -448,13 +480,15 @@ def material_request_fits(
             _output_budget("material_semantics", task["max_tokens"], count, service["max_model_len"])
         except SemanticServiceError:
             return False
-        # 原始 block 不截斷；多個 block 分批，避免新教材擠爆固定輸出預算。
-        if sum(len(section["evidence"]) for section in request["sections"]) == 1:
-            return True
         new_count = count
         if request.get("existing_concepts"):
             fresh_request = {**request, "existing_concepts": []}
             new_count = _token_count(client, service, _messages(task["prompt"], fresh_request), task["generation"]["chat_template_kwargs"], cancellation_check)
+            if count - new_count > MAX_MATERIAL_CATALOG_TOKENS:
+                return False
+        # 原始 block 不截斷；單一區塊仍必須符合總容量與目錄預算。
+        if sum(len(section["evidence"]) for section in request["sections"]) == 1:
+            return True
     except httpx.TimeoutException as error:
         raise SemanticServiceError("SEMANTIC_SERVICE_TIMEOUT") from error
     except (httpx.HTTPError, UnicodeError, ValueError) as error:

@@ -3,6 +3,7 @@ import { errorMessage, type StudydyApiClient } from '../../api/client';
 import { writeRoute } from '../../app/routes';
 import { Icon } from '../../ui/Icon';
 import { StateView } from '../../ui/StateView';
+import { ResearchProgress } from './ResearchProgress';
 import { SourceCandidates, sourceReasons as reasons } from './SourceCandidates';
 import { researchActive, researchTaskInfo, researchSummary, type Research, type ResearchDraft } from './research';
 
@@ -57,8 +58,8 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
   const selectionMatches = !!view && view.selection.length === selected.length && view.selection.every(id => selected.includes(id));
   const canConfirm = view?.status === 'ready' && !editing && selectionMatches;
   const info = view ? researchTaskInfo(researchSummary(view)) : null;
-  const stageNames = ['搜尋資料', '選取來源', '加入教材'];
-  const currentStage = submitted || canConfirm ? 2 : view?.status === 'searching' || !view?.candidates.length || (['failed', 'cancelled'].includes(view?.status ?? '') && !view?.selection.length) ? 0 : 1;
+  const stageNames = [view?.progress ? '背景研究' : '搜尋資料', '選取來源', '加入教材'];
+  const currentStage = submitted || canConfirm ? 2 : view?.progress && view.status === 'searching' || !view?.candidates.length || (['failed', 'cancelled'].includes(view?.status ?? '') && !view?.selection.length) ? 0 : 1;
   const editable = !!view && ['selecting', 'ready', 'failed'].includes(view.status);
   const canNavigate = [editable, editable && !!view?.candidates.length, view?.status === 'ready' && selectionMatches];
   // 切換只檢視已可用的階段；後端狀態變更時回到實際工作階段。
@@ -69,21 +70,16 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
     if (next === 1 && view.status === 'ready') setEditing(true);
     if (next === 2) setEditing(false);
   };
-  const readOnly = stage !== 1 || !editable || working;
+  const readOnly = stage !== 1 || !editable && view?.status !== 'searching';
   const onlyAcquired = stage === 2 || stage === 1 && !editable && !!view?.selection.length;
-  const displayed = view?.candidates.filter(candidate => !onlyAcquired || view.selection.includes(candidate.id)) ?? [];
+  const displayed = view?.candidates.filter(candidate => (!onlyAcquired || view.selection.includes(candidate.id))) ?? [];
   const acquiredCount = view?.candidates.filter(candidate => view.selection.includes(candidate.id) && candidate.state === 'ready').length ?? 0;
   const selectedCount = submitted || ['acquiring', 'normalizing'].includes(view?.status ?? '') ? view?.selection.length ?? 0 : selected.length;
   const stepDone = [!!view && view.status !== 'searching' && (['selecting', 'ready', 'submitted'].includes(view.status) && view.candidates.length > 0 || view.selection.length > 0), !!submitted || !!canConfirm, !!completed];
-  const summaries = [
-    view?.status === 'searching' ? `已找到 ${view.candidates.length} 個候選，搜尋中…` : view?.candidates.length ? `${view.candidates.length} 個候選來源` : info?.label ?? '尚未搜尋',
-    ['acquiring', 'normalizing'].includes(view?.status ?? '') ? `${info?.label} · 已選 ${selectedCount} 份 · 已取得 ${acquiredCount} 份` : selectedCount ? `已選 ${selectedCount} 份${stage === 1 && info?.tone === 'attention' ? ' · 需要處理' : ''}` : '尚未選取來源',
-    submitted ? `${info?.label} · ${completed ? '已加入' : '已送出'} ${view?.selection.length} 份` : view?.status === 'ready' && selectionMatches ? `${view.selection.length} 份來源已準備好，待確認` : '選取並取得來源後才能加入',
-  ];
   return <section className="cards-page supplementary-page research-detail">
     {contentNavigation}
     <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
-      <header className="cards-page-header research-detail-header"><button className="text-button" type="button" onClick={back}><Icon name="arrow-left" size={17}/>返回補充學習</button><div><h1>{view?.query ?? '查詢詳情'}</h1></div></header>
+      <header className="cards-page-header research-detail-header"><button className="text-button" type="button" onClick={back}><Icon name="arrow-left" size={17}/>返回補充學習</button><div><details className="research-request"><summary><h1>{view?.query ?? '查詢詳情'}</h1></summary><p>{view?.query}</p></details></div></header>
       {!view ? <StateView title={error ? '無法讀取查詢' : '正在讀取查詢'} description={error || '正在載入來源與處理進度。'} tone={error ? 'failure' : 'loading'} live={!error}
         action={error ? <button type="button" className="secondary-button" onClick={() => setReload(value => value + 1)}>重新讀取</button> : undefined}/> : <>
         {error && <p className="form-error" role="alert">{error}</p>}
@@ -91,12 +87,10 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
           <nav className="research-workflow" aria-label="補充學習流程"><ol>{stageNames.map((name, index) => <li key={name} className={`${stepDone[index] ? 'is-complete' : ''} ${currentStage === index ? 'is-current' : ''} ${stage === index ? 'is-viewing' : ''}`}>
             <button type="button" className="research-workflow-step" disabled={busy || !canNavigate[index]} aria-current={currentStage === index ? 'step' : undefined} aria-pressed={stage === index} aria-controls="research-stage-content" onClick={() => navigate(index)}>
               <span className="research-workflow-number" aria-hidden="true">{stepDone[index] ? <Icon name="check" size={14}/> : index + 1}</span>
-              <span><strong>{name}</strong><span className="research-workflow-state">{stepDone[index] ? '已完成' : currentStage === index ? '目前階段' : index === 1 && selectedCount ? '待續' : '未開始'}</span><small>{summaries[index]}</small></span>
+              <strong>{name}</strong>
             </button>
           </li>)}</ol>{submitted && <p>已送入教材分析，來源不可再修改。</p>}</nav>
           <section id="research-stage-content" className="surface research-detail-body tool-stage" aria-label="查詢來源與進度">
-            <div className="research-stage-indicator" role="status" aria-label="目前階段"><span>{stage + 1} / 3</span><strong>{stageNames[stage]}</strong><small>{info!.label} · {view.candidates.length} 個候選</small></div>
-            <header className="research-stage-heading"><div className="research-stage-title"><h2>{stageNames[stage]}</h2><span className={`research-status is-${info!.tone}`}>{stage === 0 && currentStage !== 0 ? '搜尋結果' : editing && view.status === 'ready' ? '調整來源' : info!.label}</span></div><p className="research-stage-counts">{view.candidates.length} 個候選來源</p></header>
       {view.error_code && <p className="tool-notice">{reasons[view.error_code] ?? '處理未完成，已保存取得的結果。'}</p>}
       {view.is_current_revision === false && !submitted && <p className="tool-notice">教材已更新，這次搜尋不能直接加入舊版本。請以目前教材重新搜尋。</p>}
       {stage === 2 && submitted && <div className={`tool-result${completed ? ' is-complete' : ''}`}>
@@ -105,15 +99,18 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
           <p>{completed ? `已將 ${view.selection.length} 份來源加入教材，可查看更新後的知識地圖。` : view.run?.status === 'partial' ? '部分內容仍需確認，請查看教材分析結果。' : '已選來源會保留。可到教材分析頁查看進度或接續處理。'}</p></div>
         {view.run_id && <button className="primary-button" onClick={() => { writeRoute({ name: 'material-run', materialId, runId: view.run_id! }); }}>查看教材分析<Icon name="chevron-right" size={16} /></button>}
       </div>}
-      {stage === 0 && view.status === 'searching' && <div className="tool-wait" role="status"><span className="loading-ring" /><p>正在尋找補充資料，搜尋結果會保存在這筆紀錄。</p></div>}
+      {view.progress && stage !== 2 && <ResearchProgress candidates={view.candidates} progress={view.progress} running={view.status === 'searching'} />}
+      {!view.progress && stage === 0 && view.status === 'searching' && <div className="tool-wait" role="status"><span className="loading-ring" /><p>正在尋找補充資料，搜尋結果會保存在這筆紀錄。</p></div>}
       {stage === 2 && canConfirm && <div className="tool-selection-heading"><h4>確認加入的來源 · {selected.length} 份</h4><button className="text-button" disabled={busy} onClick={() => navigate(1)}>調整來源</button></div>}
       {stage === 2 && submitted && <h4 className="tool-section-label">{completed ? '已加入的來源' : '已送出的來源'} · {view.selection.length} 份</h4>}
-      {(displayed.length > 0 || view.status === 'selecting' && !!view.cursor) && <SourceCandidates compact listAction={view.status === 'selecting' && view.cursor ? <button className="text-button" type="button" disabled={busy} onClick={() => void perform('more')}>載入更多</button> : undefined} showAcquisitionDetails={false} candidates={displayed} selected={selected} disabled={working || !editable || stage !== 1} readOnly={readOnly} search={{value:sourceQuery,onChange:setSourceQuery}} inlineSearch onChange={ids => { setSelected(ids); setConfirmed(false); }} />}
+      {(!view.progress || view.status !== 'searching') && (displayed.length > 0 || view.status === 'selecting' && !!view.cursor) && <SourceCandidates compact hasMore={!view.progress && !!view.cursor && ['selecting', 'searching'].includes(view.status)} loading={busy || view.status === 'searching'} onMore={() => perform('more')} showAcquisitionDetails={false} candidates={displayed} selected={selected} disabled={working || !editable || stage !== 1} readOnly={readOnly} search={{value:sourceQuery,onChange:setSourceQuery}} inlineSearch onChange={ids => { setSelected(ids); setConfirmed(false); }} />}
+      {view.progress && view.status === 'selecting' && !displayed.length && <p className="tool-empty">這次尚未整理出切題的正文來源，可查看未完成原因或依缺口繼續研究。</p>}
       {!view.candidates.length && !researchActive.has(view.status) && <p className="tool-empty">沒有找到來源。可以換個主題或英文關鍵字再搜尋。</p>}
       {stage === 2 && canConfirm && <div className="research-confirm"><p>加入後會更新教材與知識地圖，<strong>無法撤回新增內容</strong>。</p><label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />我了解加入後不可逆</label></div>}
       {!submitted && <footer className="tool-stage-footer">
         <div className="tool-footer-secondary">
           {researchActive.has(view.status) && <button className="secondary-button" disabled={busy} onClick={() => void perform('cancel')}>停止處理</button>}
+          {view.status === 'selecting' && <button className="text-button" disabled={busy} onClick={() => void perform('more')}>{view.progress ? '依缺口繼續研究' : '重新整理研究'}</button>}
           {['failed', 'cancelled'].includes(view.status) && <button className="secondary-button" disabled={busy} onClick={() => void perform('retry')}>重試未完成部分</button>}
           {stage === 1 && editing && view.status === 'ready' && <button className="text-button" disabled={busy} onClick={() => { setSelected(view.selection); setEditing(false); setStageRequest(null); }}>取消調整</button>}
           {!researchActive.has(view.status) && <span>已選 {selected.length} 份來源</span>}

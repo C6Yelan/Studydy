@@ -1,14 +1,21 @@
-"""只在隔離子程序中解析原檔；不連線、不匯入產品 DB／模型。"""
+"""在隔離子程序中轉檔；Office 外部資源盡力取得，不匯入產品 DB／模型。"""
 
 from collections import Counter
 import hashlib
 import html
+from http.client import HTTPException
 import json
+import mimetypes
 from pathlib import Path, PurePosixPath
+import posixpath
 import subprocess
 import sys
+import time
 import unicodedata
+from urllib.request import urlopen
+from urllib.parse import urlsplit
 import zipfile
+from xml.dom import minidom
 import xml.etree.ElementTree as ET
 
 import markdown_it
@@ -48,7 +55,7 @@ _OFFICE_EXPORT_OPTIONS = (
 )
 _SAFE_ERRORS = {
     'UNSUPPORTED_MEDIA_TYPE', 'MATERIAL_TOO_LARGE', 'PDF_UNUSABLE', 'PDF_DAMAGED',
-    'ZIP_PATH', 'OFFICE_ACTIVE_OR_ENCRYPTED', 'OFFICE_EXTERNAL_RELATIONSHIP',
+    'ZIP_PATH', 'OFFICE_ACTIVE_OR_ENCRYPTED',
     'OFFICE_TYPE_MISMATCH', 'OFFICE_INVALID_PACKAGE', 'UTF8_REQUIRED',
     'SLIDE_PAGE_COUNT_MISMATCH', 'UNSAFE_RENDER_HTML', 'NORMALIZER_VERSION_MISMATCH',
 }
@@ -70,7 +77,7 @@ def wrap_text(line):
 
 
 def validate(source):
-    """拒絕損毀、加密、主動內容及外部關聯，再交給轉檔器。"""
+    """拒絕損毀、加密及主動內容；外部關聯不阻擋轉檔。"""
     if source.stat().st_size > MAX_FILE_BYTES:
         raise ValueError('MATERIAL_TOO_LARGE')
 
@@ -121,14 +128,6 @@ def validate(source):
                         or '/activex/' in entry.filename.lower()
                     ):
                         raise ValueError('OFFICE_ACTIVE_OR_ENCRYPTED')
-                    if entry.filename.endswith('.rels'):
-                        root = ET.fromstring(archive.read(entry))
-                        if any(
-                            relationship.get('TargetMode') == 'External'
-                            for relationship in root
-                        ):
-                            raise ValueError('OFFICE_EXTERNAL_RELATIONSHIP')
-
                 if '[Content_Types].xml' not in archive.namelist():
                     raise ValueError('OFFICE_INVALID_PACKAGE')
                 content_types = archive.read('[Content_Types].xml').lower()
@@ -151,6 +150,82 @@ def validate(source):
 
     else:
         raise ValueError('UNSUPPORTED_MEDIA_TYPE')
+
+
+def office_resources(source, target):
+    """只修改轉檔副本：超連結保留，外部素材取得後內嵌，失敗就略過。"""
+    deadline = time.monotonic() + 15
+    remaining = 40 * 1024 * 1024
+    linked_images = {}
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as prepared:
+        content_types = ET.fromstring(original.read('[Content_Types].xml'))
+        namespace = 'http://schemas.openxmlformats.org/package/2006/content-types'
+        # 先處理關聯，再把原本的外連圖片引用改成內嵌引用。
+        for entry in sorted(original.infolist(), key=lambda item: not item.filename.endswith('.rels')):
+            if entry.filename == '[Content_Types].xml':
+                continue
+            data = original.read(entry)
+            if entry.filename.endswith('.rels'):
+                relationships = ET.fromstring(data)
+                for relation in list(relationships):
+                    if relation.get('TargetMode') != 'External' or relation.get('Type', '').endswith('/hyperlink'):
+                        continue
+                    url = relation.get('Target', '')
+                    try:
+                        timeout = min(3, deadline - time.monotonic())
+                        if timeout <= 0 or remaining <= 0 or urlsplit(url).scheme not in ('http', 'https'):
+                            raise ValueError
+                        with urlopen(url, timeout=timeout) as response:
+                            media_type = response.headers.get_content_type()
+                            limit = min(10 * 1024 * 1024, remaining)
+                            blob = bytearray()
+                            while True:
+                                if time.monotonic() >= deadline:
+                                    raise TimeoutError
+                                chunk = response.read1(min(65536, limit + 1 - len(blob)))
+                                if not chunk:
+                                    break
+                                blob.extend(chunk)
+                                if len(blob) > limit:
+                                    raise ValueError
+                        if not blob:
+                            raise ValueError
+                    except (OSError, ValueError, HTTPException):
+                        relationships.remove(relation)
+                        continue
+                    remaining -= len(blob)
+                    suffix = mimetypes.guess_extension(media_type) or '.bin'
+                    part = 'studydy-external/' + hashlib.sha256(blob).hexdigest() + suffix
+                    if part not in prepared.namelist() and part not in original.namelist():
+                        prepared.writestr(part, blob)
+                        ET.SubElement(content_types, f'{{{namespace}}}Override', {
+                            'PartName': '/' + part, 'ContentType': media_type,
+                        })
+                    # 關聯路徑是相對於所屬文件 part，而非 .rels 自己的目錄。
+                    owner = PurePosixPath(entry.filename).parent.parent.as_posix()
+                    relation.set('Target', posixpath.relpath(part, owner))
+                    relation.attrib.pop('TargetMode')
+                    if relation.get('Type', '').endswith('/image'):
+                        owner_part = posixpath.join(owner, PurePosixPath(entry.filename).name.removesuffix('.rels'))
+                        linked_images.setdefault(owner_part, set()).add(relation.get('Id'))
+                ET.register_namespace('', 'http://schemas.openxmlformats.org/package/2006/relationships')
+                data = ET.tostring(relationships, encoding='utf-8', xml_declaration=True)
+            elif entry.filename in linked_images:
+                # DOM 保留原 namespace 宣告，包含 mc:Ignorable 使用的前綴。
+                tree = minidom.parseString(data)
+                relationship_ns = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+                for blip in tree.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/main', 'blip'):
+                    link = blip.getAttributeNodeNS(relationship_ns, 'link')
+                    if link is not None and link.value in linked_images[entry.filename]:
+                        identity, prefix = link.value, link.prefix
+                        blip.removeAttributeNS(relationship_ns, 'link')
+                        blip.setAttributeNS(relationship_ns, prefix + ':embed', identity)
+                data = tree.toxml(encoding='utf-8')
+                tree.unlink()
+            prepared.writestr(entry, data)
+        ET.register_namespace('', namespace)
+        prepared.writestr('[Content_Types].xml', ET.tostring(content_types, encoding='utf-8', xml_declaration=True))
+    return target
 
 
 def text_html(source):
@@ -313,6 +388,10 @@ def main():
     if extension == '.pdf':
         target.write_bytes(source.read_bytes())
     elif extension in ('.docx', '.pptx', '.doc', '.ppt'):
+        render_source = (
+            office_resources(source, output / ('render' + extension))
+            if extension in ('.docx', '.pptx') else source
+        )
         version = subprocess.check_output(
             ['/usr/lib/libreoffice/program/soffice', '--version'], text=True,
         )
@@ -341,11 +420,11 @@ def main():
                 '-env:UserInstallation=file:///tmp/profile',
                 '--headless', '--nologo', '--nodefault', '--norestore',
                 '--convert-to', 'pdf:' + export + ':' + json.dumps(options),
-                '--outdir', str(output), str(source),
+                '--outdir', str(output), str(render_source),
             ],
             capture_output=True,
         )
-        generated = output / (source.stem + '.pdf')
+        generated = output / (render_source.stem + '.pdf')
         if completed.returncode or not generated.is_file():
             raise ValueError('NORMALIZATION_FAILED')
         generated.rename(target)

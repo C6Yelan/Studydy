@@ -176,6 +176,15 @@ def lock_matches_binding(lock, binding):
         return False
 
 
+# 僅放行本次已核准的 v1 → 獨立子圖升級；保留原工作 lock/hash，不能反向降級或換提示。
+_LEGACY_SEMANTICS_HASH = '31a72c95ff107def312071c697d2af5fb31c96f411f3b12bae4de0af766458d1'
+_INDEPENDENT_SEMANTICS_HASH = 'e2b29d956a9f1a4b15f10840caea915fcf4aae96636d66b277fdfd4aa117fc5a'
+
+
+def _semantics_policy_hash(value):
+    return canonical_sha256({k: v for k, v in value.items() if k not in ('max_tokens', 'max_concurrency')})
+
+
 def same_material_runtime(first_lock, first_binding, second_lock, second_binding):
     if not lock_matches_binding(first_lock, first_binding) or not lock_matches_binding(second_lock, second_binding):
         return False
@@ -202,8 +211,12 @@ def same_material_runtime(first_lock, first_binding, second_lock, second_binding
             continue
         if not isinstance(first, dict) or not isinstance(second, dict):
             return False
-        if {k: v for k, v in first.items() if k != 'max_tokens'} != {
-            k: v for k, v in second.items() if k != 'max_tokens'
+        ignored = {'max_tokens', 'max_concurrency'} if task == 'material_semantics' else {'max_tokens'}
+        if {k: v for k, v in first.items() if k not in ignored} != {
+            k: v for k, v in second.items() if k not in ignored
         }:
-            return False
+            if not (task == 'material_semantics'
+                    and _semantics_policy_hash(first) == _LEGACY_SEMANTICS_HASH
+                    and _semantics_policy_hash(second) == _INDEPENDENT_SEMANTICS_HASH):
+                return False
     return True

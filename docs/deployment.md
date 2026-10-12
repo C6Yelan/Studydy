@@ -68,9 +68,9 @@ docker build --label "org.opencontainers.image.revision=$STUDYDY_RELEASE_SHA" \
   -f ops/docker/frontend.Dockerfile -t studydy-frontend:latest .
 ```
 
-## 依賴未變更的輕量更新
+## 系統與 OCR 未變更的輕量更新
 
-磁碟容量有限時，先將目前已驗證的 backend／frontend image ID 分別加上 `studydy-backend-runtime:local` 與 `studydy-frontend-runtime:local` 標籤，再使用 `compose.app-update.yaml` 覆寫建置設定。這些標籤不複製映像。後端只替換 source 與 migrations，不重新安裝或複製 OCR 環境；套件或 local_ai 變更不適用此方式。
+磁碟容量有限時，先將目前已驗證的 backend／frontend image ID 分別加上 `studydy-backend-runtime:local` 與 `studydy-frontend-runtime:local` 標籤，再使用 `compose.app-update.yaml` 覆寫建置設定。這些標籤不複製映像。後端依 `backend/uv.lock` 同步應用程式 Python 套件，再替換 source、migrations 與 runtime lock，不重新安裝或複製 OCR 環境；只有語意分批／提示設定改動時可沿用此方式。系統套件、Python runtime、local_ai 套件或 OCR 模型／設定改動仍需完整建置。
 
 前端先在 checkout 使用既有 node_modules 執行 `npm test` 與 build，將輸出放入 `.studydy-runtime/frontend-static/site/`，同目錄放入 `ops/docker/nginx.conf` 及 `ops/docker/frontend-static.Dockerfile`（命名為 Dockerfile）。建置時保留 `compose.yaml`、`compose.tunnel.yaml`，最後加上 `compose.app-update.yaml`。部署使用已建好的映像及 `--no-build`，不要意外觸發完整 OCR 建置。
 
@@ -164,3 +164,9 @@ Backend runtime tests 使用 disposable DB；不以產品資料跑測試，不�
 依使用者要求刪除本輪視覺 PoC：移除 `podcast-visual-test` 的臨時 Compose 掛載、本機／E 槽成果、專用執行環境與 Z-Image／Wan／VACE 測試權重。部署恢復 `compose.yaml`＋`compose.tunnel.yaml`；只更新 Nginx 撤站路由，前端產品 bundle 沿用原部署，後端、DB、TTS、既有 Podcast 與教材未回退或刪除。
 
 `/podcast-visual-test` 及其子路徑在 origin 回 404。撤回與實際新建 Podcast 回測的必要紀錄位於 `data/deployments/podcast-visual-removal-*/`。Cloudflare 的舊快取及先前誤建的 ChatGPT Sites 歷史副本，需依該紀錄的清理狀態判斷，不因 origin 檔案刪除就宣稱外部副本已清空。
+
+## 免費通用搜尋
+
+`research-search` 使用鎖定 digest 的 SearXNG 映像與 `ops/search/settings.yml`，不發布主機 port，也不需要付費 API key。初次接入先以原本的 HTTPS Compose 組合執行 `up -d --no-deps --wait research-search`，再更新 backend／frontend。搜尋用的內部簽署密鑰在啟動時產生，不寫入版本庫。
+
+搜尋關鍵詞提示位於主機的 `ops/podcast/provider.py`；更新時要保留已執行中的 Podcast／影片／問答工作，確認工作完成的安全空檔後才重啟 provider 與 backend。不能把取消整份 Podcast 當作部署前的例行清理。搜尋服務失敗會保留其他搜尋結果及部分失敗狀態。

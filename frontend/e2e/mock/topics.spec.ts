@@ -160,9 +160,9 @@ test('unavailable sources are hidden and an all-unavailable page can load more',
  await page.route(`**/v1/research/${rid}/actions`,r=>{expect(r.request().postDataJSON()).toEqual({action:'more'});topic.research.candidates.push(candidate);topic.research.cursor=null;return json(r,topic.research);});
  await page.goto(`/topics/${id}`);
  await expect(page.getByText('不可匯入論文',{exact:true})).toHaveCount(0);await expect(page.getByText('僅供查看',{exact:true})).toHaveCount(0);
- await expect(page.getByText('目前沒有可加入的來源，可載入更多或調整主題後重新搜尋。')).toBeVisible();
+ await expect(page.getByText('目前沒有可加入的來源，可搜尋下一頁或調整主題後重新搜尋。')).toBeVisible();
  await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeDisabled();await expect(page.getByRole('button',{name:'全選可用來源'})).toBeDisabled();
- await page.getByRole('button',{name:'載入更多論文'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeVisible();await expect(page.getByText('不可匯入論文',{exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'下一頁（繼續搜尋）'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeVisible();await expect(page.getByText('不可匯入論文',{exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'全選可用來源'}).click();await expect(page.locator('.tool-stage-footer')).toContainText('已選 1 份來源');
  await page.getByLabel('搜尋來源',{exact:true}).fill('不可匯入');await expect(page.getByText('沒有符合篩選的來源。')).toBeVisible();await page.getByRole('button',{name:'清除篩選'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeChecked();
 });
@@ -227,8 +227,8 @@ test('source search provenance and partial service failures remain clear',async(
  const source={...candidate,state:'failed',error_code:'RESEARCH_SOURCE_BLOCKED',discovered_by:['OpenAlex','Crossref']};
  const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,status:'selecting',query:'TCP',mode:'self-study',candidates:[source],selection:[],cursor:'more',error_code:'RESEARCH_PARTIAL_SEARCH',run_id:null}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
- await page.goto(`/topics/${id}`);await expect(page.getByText('部分搜尋服務暫時不可用，已保留其他來源的結果；可稍後載入更多。')).toBeVisible();
- await expect(page.getByText('來源網站拒絕自動下載；可自行下載 PDF 後上傳，或改選其他來源。')).toBeVisible();
+ await page.goto(`/topics/${id}`);await expect(page.getByText('部分來源或搜尋服務曾未完成，已保留其他結果與研究進度。')).toBeVisible();
+ await expect(page.getByText('此入口回應 403，未取得正文。')).toBeVisible();
  await page.getByText('授權與取得資訊',{exact:true}).click();await expect(page.getByText('搜尋來源：OpenAlex、Crossref（同篇文件合併顯示）')).toBeVisible();
  await page.getByRole('checkbox',{name:'選取 TCP handshake'}).check();await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeEnabled();
 });
