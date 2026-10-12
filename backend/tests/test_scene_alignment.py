@@ -10,7 +10,7 @@ def test_measured_word_times_define_scene_boundaries_not_text_lengths():
     result=align_texts(texts,words,10)
     assert result['starts']==[0,7.3]
     assert result['anchors'][1]['text'] in normalized(texts[1])
-    assert result['method']=='whisper-phonetic-boundaries/v2'
+    assert result['method']=='whisper-phonetic-boundaries/v3'
 
 
 def test_unmatched_or_reversed_speech_does_not_get_invented_timing():
@@ -38,14 +38,15 @@ def test_homophones_align_without_rewriting_the_script():
     assert texts[0]=='先確認兩端的連接埠與完整資料。'
 
 
-def test_short_opening_precedes_the_long_identity_witness():
+def test_unique_short_opening_keeps_its_measured_boundary():
     texts=['第一段說明可靠傳輸的重要概念。','接著談資料，這裡完整說明確認封包的傳送順序。']
     words=[{'word':texts[0],'start':0.4,'end':3},
         {'word':'接著談','start':5,'end':6},{'word':'一些東西','start':6,'end':7},
         {'word':'這裡完整說明確認封包的傳送順序','start':8,'end':12}]
     result=align_texts(texts,words,13)
     assert result['starts']==[0,5]
-    assert result['anchors'][1]['audio_start']==8
+    assert result['anchors'][1]['audio_start']==5
+    assert result['anchors'][1]['text']=='接著談'
     assert result['anchors'][1]['boundary_script_offset']==0
 
 
@@ -70,22 +71,22 @@ def test_diagram_requires_source_check_and_unsupported_result_keeps_original_tex
     assert scenes.build_manifest(podcast,episode,document,alignment,allowed)['scenes'][0]['steps']==['用戶端送出請求','伺服器回覆結果']
 
 
-def test_fine_cuts_merge_using_word_times_without_weakening_anchor_length():
+def test_short_captions_keep_their_measured_word_times():
     from runtime.scene_alignment import align_cue_groups
     texts=['先確認。','這是完整且有語音依據的必要條件。']
     words=[{'word':texts[0],'start':.4,'end':1},{'word':'呃','start':1.1,'end':1.3},{'word':texts[1],'start':1.5,'end':5}]
     result=align_cue_groups(texts,words,6,[[0],[0]])
-    assert result['groups']==[[0,1]] and result['starts']==[0]
-    assert result['anchors'][0]['audio_start']==1.5
+    assert result['groups']==[[0],[1]] and result['starts']==[0,1.5]
+    assert result['anchors'][0]['audio_start']==.4
     assert result['anchors'][0]['boundary_audio_start']==.4
-    assert len(result['anchors'][0]['text'])>=8
+    assert result['anchors'][0]['text']==normalized(texts[0])
 
 
-def test_fully_recognized_short_reply_can_share_the_next_measured_cue():
+def test_fully_recognized_short_reply_gets_its_own_measured_cue():
     from runtime.scene_alignment import align_cue_groups
     texts=['對。','這是完整而可回查的語音說明。']
     words=[{'word':texts[0],'start':.2,'end':.6},{'word':texts[1],'start':1,'end':5}]
-    assert align_cue_groups(texts,words,6,[[0],[1]])['groups']==[[0,1]]
+    assert align_cue_groups(texts,words,6,[[0],[1]])['groups']==[[0],[1]]
 
 
 def test_shared_asr_word_time_does_not_create_fake_separate_boundaries():
@@ -105,6 +106,42 @@ def test_grouping_still_refuses_unreliable_speech_and_oversized_captions(failure
     if failure=='reversed':words[0]['word'],words[1]['word']=words[1]['word'],words[0]['word']
     if failure=='invalid_times':words.reverse()
     if failure=='too_long':
-        texts=['對。','這段合成測試說明需要保留完整內容。'*12]
-        words=[{'word':texts[0],'start':.2,'end':.6},{'word':texts[1],'start':1,'end':8}]
+        texts=['第一個完整片段必須保留原文內容。'*6,'第二個完整片段也需保留原文內容。'*6]
+        words=[{'word':''.join(texts),'start':.2,'end':8}]
     with pytest.raises(ValueError,match='SCENE_ALIGNMENT_FAILED'):align_cue_groups(texts,words,9,ids)
+
+
+def test_fully_matched_fragmented_turn_uses_actual_matches_without_a_length_gate():
+    from runtime.scene_alignment import align_cue_groups
+    texts=['甲乙丙丁戊己庚辛壬癸子。','這是可核對的完整來源語句。']
+    words=[{'word':'甲乙丙丁戊','start':.2,'end':1},
+           {'word':'額外','start':1.1,'end':1.3},
+           {'word':'己庚辛壬癸子','start':1.4,'end':3},
+           {'word':texts[1],'start':5,'end':9}]
+    result=align_cue_groups(texts,words,10,[[0],[1]])
+    assert result['groups']==[[0],[1]] and result['starts']==[0,5]
+    assert result['anchors'][0]['text']=='甲乙丙丁戊'
+    assert result['anchors'][0]['audio_start']==.2
+
+
+def test_complete_fragmented_groups_do_not_need_an_eight_character_run():
+    from runtime.scene_alignment import align_cue_groups
+    texts=['abcdefghijk','lmnopqrstuv']
+    words=[{'word':part,'start':i,'end':i+.8} for i,part in enumerate(['abcde','zz','fghijk','zz','lmnop','zz','qrstuv'])]
+    result=align_cue_groups(texts,words,8,[[0],[1]])
+    assert result['starts']==[0,4] and result['groups']==[[0],[1]]
+    assert [a['text'] for a in result['anchors']]==['abcde','lmnop']
+
+
+@pytest.mark.parametrize('texts',[['確認。','開始傳送資料。'],['80','443']])
+def test_short_text_and_number_cues_use_recorded_times(texts):
+    words=[{'word':texts[0],'start':.4,'end':2},{'word':texts[1],'start':5,'end':7}]
+    result=align_texts(texts,words,8)
+    assert result['starts']==[0,5]
+    assert [a['text'] for a in result['anchors']]==list(map(normalized,texts))
+
+
+def test_ambiguous_partial_matches_do_not_invent_cue_identity():
+    texts=['甲明確主題一','乙明確主題二']
+    words=[{'word':'明確主題','start':1,'end':2},{'word':'明確主題','start':3,'end':4}]
+    with pytest.raises(ValueError,match='SCENE_ALIGNMENT_FAILED'):align_texts(texts,words,5)

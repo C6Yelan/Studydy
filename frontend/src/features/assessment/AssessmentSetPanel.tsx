@@ -23,6 +23,7 @@ export function AssessmentSetPanel({
   concept,
   view,
   completed,
+  conceptCompleted = false,
   onSetSelected,
   onProgressChanged,
   onBackToMap,
@@ -36,6 +37,7 @@ export function AssessmentSetPanel({
   concept: Concept;
   view: KnowledgeStructureView;
   completed: boolean;
+  conceptCompleted?: boolean;
   onSetSelected: (id: string) => void;
   onProgressChanged: () => Promise<void>;
   onBackToMap: () => void;
@@ -634,15 +636,15 @@ export function AssessmentSetPanel({
           <h2>{isRemediation ? "本次補強結果" : "本輪檢測結果"}</h2>
           {readError}
           {group.cycle.outcome === "passed" ? (
-            <p className="assessment-cycle-result">本輪檢測通過，僅代表這次檢測範圍的結果。</p>
+            <p className="assessment-cycle-result">可檢測的重點皆已完成。</p>
           ) : group.cycle.outcome === "incomplete" ? (
             <p className="assessment-cycle-result">本輪有未作答或未檢測的重點。</p>
           ) : (
-            group.cycle.pending_count > 0 && <p>答錯的重點可以先複習，再用新題確認。</p>
+            group.cycle.pending_count > 0 && <p>{conceptCompleted ? "本次練習有需要加強的重點，先前的完成紀錄會保留。" : "答錯的重點需連續答對兩道不同題；再次答錯會重新累積。"}</p>
           )}
           <div className="assessment-set-summary" aria-label="本輪檢測摘要">
             <span>
-              {isRemediation ? "本次補強通過" : "答對"}
+              {isRemediation ? "本次答對" : "答對"}
               <strong>
                 {group.passed_count} / {group.published_count} 題
               </strong>
@@ -654,14 +656,14 @@ export function AssessmentSetPanel({
               </span>
             )}
             <span>
-              {isRemediation ? "已完成補強" : "已完成"}
+              {isRemediation ? "已作答" : "已作答"}
               <strong>
                 {group.answered_count} / {group.published_count} 題
               </strong>
             </span>
             {group.kind === "diagnostic" && group.cycle.remediation_passed_count > 0 && (
               <span>
-                其中補強通過<strong>{group.cycle.remediation_passed_count} 個重點</strong>
+                其中補強完成<strong>{group.cycle.remediation_passed_count} 個重點</strong>
               </span>
             )}
             {group.cycle.unanswered_count > 0 && (
@@ -722,7 +724,7 @@ export function AssessmentSetPanel({
                 開始補強 {group.cycle.pending_count} 題
               </button>
             )}
-            {cycleFinished && !group.cycle.active_set_id && continuation && (
+            {(cycleFinished || conceptCompleted) && !group.cycle.active_set_id && continuation && (
               <button
                 className="primary-button assessment-continue"
                 disabled={busy || continuation.busy}
@@ -733,7 +735,7 @@ export function AssessmentSetPanel({
               </button>
             )}
           </div>
-          {!cycleFinished && (
+          {!cycleFinished && !conceptCompleted && (
             <div className="assessment-set-actions assessment-result-navigation">
               <button className="text-button" onClick={onBackToMap}>
                 回到知識地圖

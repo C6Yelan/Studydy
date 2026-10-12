@@ -10,7 +10,7 @@ const features: { icon: IconName; title: string; description: string }[] = [
   {
     icon: "learning",
     title: "依循學習路徑",
-    description: "沿著教材的學習順序，逐步掌握重要概念。",
+    description: "沿著教材的學習順序，逐步完成重要概念的學習。",
   },
   { icon: "book", title: "理解概念", description: "探索教材重點，隨時回到 PDF 查看來源。" },
   { icon: "check", title: "練習與複習", description: "透過題目確認理解，接續原本的學習與回饋。" },

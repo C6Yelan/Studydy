@@ -70,6 +70,9 @@ def passed_fixture(closed_loop, *, count=1, remediation=False):
         child = supplement(fixture, root)
         finish(fixture, 'follow-up')
         answer(fixture, child)
+        child = supplement(fixture, root)
+        finish(fixture, 'second-follow-up')
+        answer(fixture, child)
     assert read(fixture, root)['cycle']['outcome'] == 'passed'
     return fixture, root
 
@@ -90,8 +93,8 @@ def test_complete_check_and_followup_carry_to_appended_revision_and_keep_history
         'knowledge_structure_revision': old['document']['revision'],
         'run_id': old['document']['run_id'],
     }
-    assert state.attempts == 6 and state.correct_answers == 5
-    assert state.status != 'mastered' and not state.mastered_claim_ids
+    assert state.attempts == 7 and state.correct_answers == 6
+    assert state.status == 'completed' and len(state.completed_claim_ids) == 5
     assert progress.next_action.action == 'advance'
     assert progress.next_action.target_concept_id != new['concept']['concept_id']
     assert sets.list_sets(new['learner'], new['study'].study_session_id, dsn=new['dsn'])['sets'] == []
@@ -131,26 +134,45 @@ def test_current_revision_check_supersedes_inherited_pass(closed_loop):
     answer(new, root, wrong={1})
     progress = derive_learner_progress(new['learner'], new['study'].study_session_id, dsn=new['dsn'])
     assert progress.assessment_cycles[0]['outcome'] == 'needs_review'
-    assert progress.next_action.action == 'remediate'
+    assert progress.next_action.action == 'advance'
+    assert next(s for s in progress.concept_states if s.concept_id == new['concept']['concept_id']).status == 'completed'
 
 
-def test_partial_check_does_not_become_passed_after_append(closed_loop):
+def test_partial_check_completion_carries_after_append(closed_loop):
     old = concept_fixture(closed_loop, 3)
     root = create(old)
     finish(old, fail={2})
     change(old, root, 'publish-partial')
     answer(old, root)
-    assert read(old, root)['cycle']['outcome'] == 'incomplete'
+    assert read(old, root)['cycle']['outcome'] == 'passed'
     new = append_revision(old)
     progress = derive_learner_progress(new['learner'], new['study'].study_session_id, dsn=new['dsn'])
-    assert progress.assessment_cycles == []
+    assert progress.assessment_cycles[0]['outcome'] == 'passed'
     assert next(s for s in progress.concept_states if s.concept_id == new['concept']['concept_id']).attempts == 2
 
 
-def test_newer_historical_unfinished_check_does_not_fall_back_to_old_pass(closed_loop):
+def test_newer_practice_does_not_revoke_historical_completion(closed_loop):
     old, _ = passed_fixture(closed_loop)
     middle = append_revision(old)
     create(middle, 'unfinished-new-check')
     current = append_revision(middle)
     progress = derive_learner_progress(current['learner'], current['study'].study_session_id, dsn=current['dsn'])
-    assert progress.assessment_cycles == []
+    assert progress.assessment_cycles[0]['outcome'] == 'passed'
+
+
+def test_wrong_history_cannot_be_bypassed_by_new_revision_first_correct(closed_loop):
+    old = concept_fixture(closed_loop, 1)
+    root = create(old)
+    finish(old)
+    answer(old, root, wrong={1})
+    new = append_revision(old)
+    root = create(new, 'new-check')
+    finish(new, 'new-diagnostic')
+    answer(new, root)
+    assert read(new, root)['cycle']['outcome'] == 'needs_review'
+    progress = derive_learner_progress(new['learner'], new['study'].study_session_id, dsn=new['dsn'])
+    assert progress.next_action.action == 'remediate'
+    child = supplement(new, root)
+    finish(new, 'second-distinct-correct')
+    answer(new, child)
+    assert read(new, root)['cycle']['outcome'] == 'passed'

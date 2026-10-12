@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 
 import pymupdf
@@ -12,9 +13,41 @@ from pdf_evidence.ocr_page_evidence import (
     _native_text_blocks,
     build_native_page_evidence,
     build_page_evidence,
+    canonical_bytes,
     extract_page,
     route_page,
 )
+
+
+def test_canonical_bytes_preserves_existing_utf8_and_lone_surrogates():
+    valid = {"text": "中文 😀 \\ud800"}
+    assert canonical_bytes(valid) == json.dumps(
+        valid, ensure_ascii=False, allow_nan=False, separators=(",", ":"), sort_keys=True,
+    ).encode("utf-8")
+    invalid = {"text": "native \ud800 glyph \udfff"}
+    assert json.loads(canonical_bytes(invalid)) == invalid
+
+
+def test_surrogate_native_glyph_uses_full_page_ocr(tmp_path, monkeypatch):
+    path = tmp_path / "public.pdf"
+    _pdf(path)
+    original = pymupdf.Page.get_text
+
+    def get_text(page, *args, **kwargs):
+        result = original(page, *args, **kwargs)
+        if args and args[0] == "rawdict":
+            result["blocks"][0]["lines"][0]["spans"][0]["chars"][0]["c"] = "\ud800"
+        return result
+
+    monkeypatch.setattr(pymupdf.Page, "get_text", get_text)
+    page = _extract(path)
+    assert route_page(page) == "OCR_needed"
+    artifact = build_page_evidence(
+        page, [{"type": "text", "text": "Public native text", "bbox": [100, 100, 900, 300]}],
+        input_binding={}, produced_at="2026-10-12T00:00:00Z",
+    )
+    assert [block["text"] for block in artifact["evidence_blocks"]] == ["Public native text"]
+    assert all(block["source"] == "unlimited_ocr" for block in artifact["evidence_blocks"])
 
 
 def test_wrapped_statement_crosses_pdf_blocks_but_not_columns_or_new_items():

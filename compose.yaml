@@ -60,11 +60,13 @@ services:
       STUDYDY_SEMANTIC_BASE_URL: ${STUDYDY_SEMANTIC_BASE_URL:-http://host.docker.internal:18000}
       VLLM_API_KEY: ${VLLM_API_KEY:-}
       STUDYDY_TEXT_TEST_PROVIDER: ${STUDYDY_TEXT_TEST_PROVIDER:-}
+      STUDYDY_LUNA_PARALLEL_TEST: ${STUDYDY_LUNA_PARALLEL_TEST:-0}
       STUDYDY_PODCAST_PROVIDER_URL: ${STUDYDY_PODCAST_PROVIDER_URL:-}
       STUDYDY_PODCAST_PROVIDER_TOKEN: ${STUDYDY_PODCAST_PROVIDER_TOKEN:-}
       STUDYDY_OPENALEX_API_KEY: ${STUDYDY_OPENALEX_API_KEY:-}
       STUDYDY_SEMANTIC_SCHOLAR_API_KEY: ${STUDYDY_SEMANTIC_SCHOLAR_API_KEY:-}
       STUDYDY_UNPAYWALL_EMAIL: ${STUDYDY_UNPAYWALL_EMAIL:-}
+      STUDYDY_SEARXNG_URL: ${STUDYDY_SEARXNG_URL:-http://research-search:8080}
     volumes:
       - ${STUDYDY_DATA_DIR:-./data}/artifacts:/data/artifacts
       - ${STUDYDY_DATA_DIR:-./data}/models/unlimited-ocr:/opt/studydy/models/unlimited-ocr:ro
@@ -86,6 +88,40 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks: [database, application]
+
+  research-search:
+    image: searxng/searxng@sha256:76b0bf285aca014c7191fc4d9234c4bfb358624ac33d8883833d496c059ec072
+    user: "977:977"
+    entrypoint: ["/bin/sh", "/usr/local/bin/start-studydy-search.sh"]
+    environment:
+      FORCE_OWNERSHIP: "false"
+      GRANIAN_HOST: "0.0.0.0"
+      GRANIAN_PORT: "8080"
+      GRANIAN_WORKERS: "1"
+      GRANIAN_LOG_LEVEL: "error"
+    volumes:
+      - ./ops/search/settings.yml:/etc/searxng/settings.yml:ro
+      - ./ops/search/start-search.sh:/usr/local/bin/start-studydy-search.sh:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m,mode=1777
+      - /var/cache/searxng:rw,nosuid,nodev,size=64m,uid=977,gid=977,mode=0700
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "/usr/local/searxng/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).close()"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+    restart: unless-stopped
+    networks: [application]
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
 
   frontend:
     environment:

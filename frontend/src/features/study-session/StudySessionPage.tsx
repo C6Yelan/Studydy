@@ -9,7 +9,7 @@ import type {
 } from "../../api/contracts";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
-import { SourceButton, sourceLinks } from "../../ui/SourceButton";
+import { ConceptContent } from "../../ui/ConceptContent";
 import { MaterialTools } from "../material-tools/MaterialTools";
 import { StateView } from "../../ui/StateView";
 import { assessmentPhase, type AssessmentPhase } from "../assessment/assessment-phase";
@@ -107,13 +107,23 @@ export function StudySessionPage({
     }
   };
 
-  const back = () =>
+  const back = () => {
+    const conceptId = data?.assessmentSets.find((item) => item.set_id === data.selectedSetId)?.target_concept_id
+      ?? data?.progress.current_concept_id;
     writeRoute({
       name: "knowledge-map",
       materialId: route.materialId,
       runId: route.runId,
       structureRevision: route.structureRevision,
+    }, false, {
+      knowledgeMap: {
+        revision: route.structureRevision,
+        mode: "focus",
+        concept: conceptId,
+        detail: conceptId,
+      },
     });
+  };
 
   if (message)
     return (
@@ -180,6 +190,8 @@ export function StudySessionPage({
       />
     );
 
+  const conceptState = data.progress.concept_states.find(state => state.concept_id === visibleConceptId);
+  const noAssessment = conceptState?.assessable_claim_ids?.length === 0;
   const initialSetPhase = assessmentPhase(selectedSet);
   const layoutMode = panelPhase ?? initialSetPhase;
   const preparing = layoutMode === "preparing" || layoutMode === "intervention";
@@ -198,10 +210,9 @@ export function StudySessionPage({
   const currentResult =
     !completed &&
     !refreshMessage &&
-    ((layoutMode === "result" && selectedSet?.status === "completed") || inheritedCheck) &&
-    currentCycle &&
-    !currentCycle.active_set_id &&
-    ["passed", "incomplete"].includes(currentCycle.outcome);
+    (noAssessment || (layoutMode === "result" && selectedSet?.status === "completed") || inheritedCheck) &&
+    !currentCycle?.active_set_id &&
+    (noAssessment || conceptState?.status === "completed" || (currentCycle && ["passed", "incomplete"].includes(currentCycle.outcome)));
   const canContinue =
     currentResult &&
     (nextConcept || completesSession) &&
@@ -260,29 +271,11 @@ export function StudySessionPage({
   const position = data.view.initial_learning_path.find(
     (step) => step.concept_id === visibleConcept.concept_id,
   )?.position;
-  const sourceEvidence = sourceLinks(visibleConcept.claims.flatMap((claim) => claim.evidence));
   const materialCard = (
     <article className="surface current-concept-card" aria-labelledby="study-content-title">
       <p className="eyebrow">教材重點</p>
       <h2 id="study-content-title">{visibleConcept.label}</h2>
-      <ul className="study-claims">
-        {visibleConcept.claims.map((claim) => (
-          <li key={claim.claim_id}>{claim.text}</li>
-        ))}
-      </ul>
-      <section className="study-sources" aria-label="教材來源">
-        <h3>教材來源</h3>
-        <div>
-          {sourceEvidence.map((evidence) => (
-            <SourceButton
-              key={evidence.evidence_id}
-              apiClient={apiClient}
-              resolver={data.view.source_resolver}
-              evidence={evidence}
-            />
-          ))}
-        </div>
-      </section>
+      <ConceptContent claims={visibleConcept.claims} apiClient={apiClient} sourceResolver={data.view.source_resolver} />
     </article>
   );
   return (
@@ -291,13 +284,14 @@ export function StudySessionPage({
       <header className="study-header">
         <div>
           <p className="eyebrow">學習進度</p>
-          <h1>{completed ? "學習已完成" : visibleConcept.label}</h1>
+          <h1>{completed ? "本次學習已結束" : visibleConcept.label}</h1>
           <p>
             {position !== undefined &&
               `第 ${position} / ${data.view.initial_learning_path.length} 個概念`}
             {showMaterial && " · 學習進度會自動保存。"}
           </p>
         </div>
+        <button className="secondary-button" type="button" onClick={back}>返回概念地圖</button>
       </header>
       {continueError && (
         <div className="assessment-error" role="alert">
@@ -315,20 +309,24 @@ export function StudySessionPage({
       <div className={`study-workspace is-${layoutMode}-mode${!showRail ? " without-rail" : ""}`}>
         <div className="study-main">
           <div className={`study-learning-grid is-${layoutMode}-mode is-set-mode`}>
-            {showMaterial &&
-              (layoutMode === "preparation" ? (
-                materialCard
-              ) : (
-                <details className="surface study-material-summary">
-                  <summary>教材重點與來源</summary>
-                  {materialCard}
-                </details>
-              ))}
+            {showMaterial && (
+              <details className="surface study-material-summary">
+                <summary>教材重點與來源</summary>
+                {materialCard}
+              </details>
+            )}
             <div className="study-current-action" id="assessment-panel">
-              {inheritedCheck ? (
+              {noAssessment && !currentCycle?.active_set_id ? (
+                <section className="surface assessment-cycle">
+                  <h2>此概念目前無法提供可靠檢測</h2>
+                  <p>這是系統目前無法驗證，不代表你答錯。可以繼續學習其他概念。</p>
+                  {continuation && <button className="primary-button" disabled={continuation.busy}
+                    onClick={() => void continuation.onContinue()}>{continuation.label}</button>}
+                </section>
+              ) : inheritedCheck ? (
                 <section className="surface assessment-cycle inherited-check" aria-label="承接的檢測結果">
-                  <h2>檢測通過</h2>
-                  <p>重點與來源皆未變更，已承接先前版本的檢測通過結果。</p>
+                  <h2>已完成</h2>
+                  <p>重點與來源皆未變更，已承接先前版本的完成紀錄。</p>
                   <div className="assessment-set-actions assessment-result-navigation">
                     <button className="secondary-button" onClick={() => writeRoute({
                       name: "study-session",
@@ -351,6 +349,7 @@ export function StudySessionPage({
                 concept={visibleConcept}
                 view={data.view}
                 completed={completed}
+                conceptCompleted={conceptState?.status === "completed"}
                 onSetSelected={(id) => writeRoute({ ...route, assessmentSetId: id })}
                 onProgressChanged={refresh}
                 onBackToMap={back}

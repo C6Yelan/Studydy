@@ -36,10 +36,10 @@ def location(url='https://example.org/a.pdf',version='publishedVersion'):
     return sources._location(url,'cc-by',version)
 
 
-def test_rank_removes_single_word_official_noise_and_keeps_topic_match():
+def test_rank_prioritizes_topic_match_but_leaves_rejection_to_body_review():
     noise={**paper('mdn',None),'kind':'official','title':'WebXR Augmented Reality','eligible':True}
     good=paper('paper',locations=[location()])
-    assert sources.rank_candidates('retrieval augmented generation',[noise,good])==[good]
+    assert sources.rank_candidates('retrieval augmented generation',[noise,good])==[good,noise]
     tcp={**noise,'title':'TCP handshake'}
     assert sources.rank_candidates('TCP three way handshake',[tcp])==[tcp]
 
@@ -70,7 +70,9 @@ def test_pagination_continues_each_provider_and_failure_keeps_other_results(monk
     monkeypatch.delenv('STUDYDY_SEMANTIC_SCHOLAR_API_KEY',raising=False)
     rows,cursor,warnings=sources.search('retrieval augmented generation')
     assert len(rows)==1 and warnings==['openalex']
-    assert sources.json.loads(cursor)=={'openalex':'*','crossref':20}
+    assert sources.json.loads(cursor)['openalex']=='*'
+    assert sources.json.loads(cursor)['crossref']==20
+    assert sources.json.loads(cursor)['_failures'][0]['provider']=='openalex'
     sources.search('retrieval augmented generation',cursor)
     assert ('cr',20) in calls
     calls.clear();sources.search('retrieval augmented generation','legacy-cursor')
@@ -165,14 +167,14 @@ def test_fetch_strips_api_credentials_on_cross_host_redirect_and_honors_429(monk
     assert len(requests)==count
 
 
-def test_acquisition_attempts_are_bounded_and_dont_lose_original_failure(monkeypatch):
+def test_all_known_same_version_entries_are_tried_without_losing_original_failure(monkeypatch):
     row=paper(locations=[location(f'https://mirror{i}.org/a.pdf') for i in range(6)])
     calls=[]
     def fail(candidate):calls.append(candidate);raise SourceError('RESEARCH_SOURCE_BLOCKED')
     monkeypatch.setattr(sources,'_acquire_location',fail)
-    monkeypatch.setattr(sources,'_unpaywall_locations',lambda c:pytest.fail('must stop at download budget'))
+    monkeypatch.setattr(sources,'_unpaywall_locations',lambda c:[])
     with pytest.raises(SourceError,match='RESEARCH_SOURCE_BLOCKED'):sources.acquire(row)
-    assert len(calls)==3
+    assert len(calls)==6
 
 
 def test_semantic_scholar_uses_configured_key_and_requires_explicit_license(monkeypatch):
@@ -187,3 +189,35 @@ def test_semantic_scholar_uses_configured_key_and_requires_explicit_license(monk
     assert rows[0]['eligible'] and rows[0]['license']=='cc-by' and cursor is None
     assert calls[0][1]['headers']=={'x-api-key':'test-only'}
     assert 'test-only' not in calls[0][0]
+
+
+def test_pdf_identity_uses_actual_title_not_english_word_count_or_percentage(monkeypatch):
+    import fitz
+    def pdf(title,body):
+        with fitz.open() as document:
+            page=document.new_page();page.insert_text((72,72),title);page.insert_text((72,120),body)
+            document.set_metadata({'title':title})
+            return document.tobytes()
+    data=pdf('AI','A short legitimate document title is still a document title.')
+    monkeypatch.setattr(sources,'public_page',lambda url,**kw:(data,url,'application/pdf'))
+    item=paper(locations=[location()]);item.update(title='AI',doi=None)
+    assert sources.acquire(item)[0]==data
+    data=pdf('Different paper','A large set of agents may use language. A model may use any tool.')
+    item=paper(locations=[location()]);item.update(title='Large Language Model Agents',doi=None)
+    with pytest.raises(SourceError,match='RESEARCH_IDENTITY_UNCONFIRMED'):sources.acquire(item)
+
+
+def test_pdf_identity_accepts_a_complete_title_split_across_adjacent_blocks(monkeypatch):
+    import fitz
+    with fitz.open() as pdf:
+        page=pdf.new_page()
+        page.insert_text((50,50),'Journal of Synthetic Examples')
+        page.insert_text((50,110),'A complete research title')
+        page.insert_text((50,145),'continued across PDF blocks')
+        page.insert_text((50,190),'A Fictional Author')
+        data=pdf.tobytes()
+    monkeypatch.setattr(sources,'public_page',lambda url,**kw:(data,url,'application/pdf'))
+    item=paper(locations=[location()]);item.update(title='A complete research title continued across PDF blocks')
+    assert sources.acquire(item)[0]==data
+    item['title']='A complete research title with a different conclusion'
+    with pytest.raises(SourceError,match='RESEARCH_IDENTITY_UNCONFIRMED'):sources.acquire(item)

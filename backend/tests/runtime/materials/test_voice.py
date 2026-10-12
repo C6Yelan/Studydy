@@ -255,3 +255,19 @@ def test_mode_migration_preserves_legacy_turn_and_saved_audio(closed_loop):
     assert result['answer']['text'] == '舊回答。'
     assert voice.audio(owner, cid, turn['turn_id'], dsn=dsn) == audio_fixture()
     assert voice.add_turn(owner, cid, 'legacy-migration', '舊文字提問', dsn=dsn) == turn
+
+
+def test_typed_question_in_voice_mode_uses_same_history_and_generates_audio(closed_loop, monkeypatch):
+    owner, _, cid, dsn = setup(closed_loop)
+    turn = voice.add_turn(owner, cid, 'typed-voice', '用文字輸入的語音模式問題', mode='voice', dsn=dsn)
+    with pytest.raises(SourceError, match='IDEMPOTENCY_CONFLICT'):
+        voice.add_turn(owner, cid, 'typed-voice', '用文字輸入的語音模式問題', mode='text', dsn=dsn)
+    paths = []
+    def provider(path, body):
+        paths.append(path)
+        return {'text':'教材支持的回答。','supported':True,'citations':[0]} if path == '/answer' else audio_fixture()
+    monkeypatch.setattr(voice, 'provider', provider)
+    assert voice.step(dsn=dsn) and voice.step(dsn=dsn) and not voice.step(dsn=dsn)
+    ready = voice.read(owner, cid, dsn=dsn)['turns'][0]
+    assert ready['turn_id'] == turn['turn_id'] and ready['audio_url'] and ready['status'] == 'ready'
+    assert paths == ['/answer', '/audio']

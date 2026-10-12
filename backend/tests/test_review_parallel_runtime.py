@@ -1,0 +1,149 @@
+"""正式協調者的有界並行、分段與取消；不呼叫真實模型。"""
+from threading import Barrier, Event, Lock
+from copy import deepcopy
+import pytest
+
+from runtime.material_review import _review_units
+from runtime.semantic_service import SemanticServiceError
+from knowledge_map.material_review import combine_reviews, project_review
+from test_review_parallel_feasibility import inputs, Archive
+
+
+def response(request):
+    return {'assignments': [{'concept': c['h'], 'action': 'keep', 'target': None,
+        'issue': 'none', 'reason': '來源支持', 'evidence': c['evidence']} for c in request['concepts']],
+        'alias_edits': [], 'claim_edits': [], 'relation_edits': []}
+
+
+def config(luna=True):
+    return {'semantic_service': {'api_protocol': 'codex-exec-luna/v1' if luna else 'openai/v1'},
+            'material_review': {'prompt': 'synthetic'}}
+
+
+@pytest.mark.parametrize('flag,luna,width', [('0', True, 1), ('1', False, 1), ('1', True, 2)])
+def test_real_coordinator_parallelism_is_opt_in_and_luna_only(tmp_path, monkeypatch, flag, luna, width):
+    monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', flag)
+    view, units = inputs(4)
+    before = deepcopy(view)
+    gate, mutex = Barrier(width), Lock()
+    active = peak = 0
+    def model(client, **kwargs):
+        nonlocal active, peak
+        with mutex:
+            active += 1
+            peak = max(peak, active)
+        try:
+            gate.wait(5)
+            return response(kwargs['request'])
+        finally:
+            with mutex: active -= 1
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    archive = Archive(tmp_path / 'archive')
+    progress = []
+    reviews, calls = _review_units(view, units, config(luna), archive, lambda: None, lambda *p: progress.append(p))
+    assert peak == width and calls == 4
+    assert [u.payload['title'] for u, _ in reviews] == [u.payload['title'] for u in units]
+    merged, proposal = combine_reviews(view, reviews)
+    project_review(view, merged, proposal)
+    assert view == before and progress[-1] == ('review', 4, 4)
+    monkeypatch.setattr('runtime.material_review.request_semantics', lambda *a, **k: pytest.fail('cache replayed'))
+    assert _review_units(view, units, config(luna), archive, lambda: None, lambda *p: None)[1] == 0
+
+
+def test_parallel_capacity_splits_keep_full_evidence_and_unique_calls(tmp_path, monkeypatch):
+    monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', '1')
+    view, units = inputs(2)
+    def model(client, **kwargs):
+        request = kwargs['request']
+        assert len(request['evidence']) == 5
+        if len(request['concepts']) > 2:
+            raise SemanticServiceError('SEMANTIC_INPUT_TOO_LARGE')
+        return response(request)
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    archive = Archive(tmp_path / 'archive')
+    progress = []
+    reviews, calls = _review_units(view, units, config(), archive, lambda: None, lambda *p: progress.append(p))
+    assert calls == 6 and len(reviews) == 6
+    assert len(set(archive.requests)) == len(archive.requests)
+    assert progress[-1] == ('review', 6, 6)
+    merged, proposal = combine_reviews(view, reviews)
+    assert len(merged.concepts) == 10
+    project_review(view, merged, proposal)
+
+
+def test_parallel_cancel_stops_both_requests_before_more_dispatch(tmp_path, monkeypatch):
+    monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', '1')
+    view, units = inputs(4)
+    gate = Barrier(2)
+    cancelled = Event()
+    def check():
+        if cancelled.is_set(): raise RuntimeError('synthetic cancellation')
+    def model(client, **kwargs):
+        gate.wait(5)
+        cancelled.set()
+        kwargs['cancellation_check']()
+        pytest.fail('cancelled model returned')
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    archive = Archive(tmp_path / 'archive')
+    with pytest.raises(RuntimeError, match='synthetic cancellation'):
+        _review_units(view, units, config(), archive, check, lambda *p: None)
+    assert len(archive.requests) == 2
+    assert not list(archive.root.glob('cache-*'))
+
+
+def test_oversized_single_concept_keeps_complete_cited_pages_and_cached_resume(tmp_path, monkeypatch):
+    from knowledge_map.material_review import _pack_review
+    from pdf_evidence.ocr_page_evidence import canonical_sha256
+    view, original = inputs(2)
+    # 同一概念跨兩頁引用；同頁其他段落也必須保留。
+    view['concepts'][0]['claims'][0]['evidence'].append(deepcopy(view['concepts'][5]['claims'][0]['evidence'][0]))
+    evidence = [deepcopy(e) for u in original for e in u.evidence]
+    unrelated = deepcopy(evidence[0]); unrelated.update(evidence_id='unrelated-page', page=3, normalized_page=3)
+    foreign = deepcopy(evidence[0]); foreign.update(evidence_id='foreign-source', source_id='another-source')
+    evidence += [unrelated, foreign]
+    unit = _pack_review(view, view['concepts'][:1], evidence, 'Synthetic oversized context')
+    seen = []
+    def model(client, **kwargs):
+        request = kwargs['request']; seen.append(deepcopy(request))
+        if len(request['evidence']) > 10:
+            raise SemanticServiceError('SEMANTIC_INPUT_TOO_LARGE')
+        return response(request)
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    archive = Archive(tmp_path / 'archive')
+    before = deepcopy(unit)
+    reviews, calls = _review_units(view, [unit], config(), archive, lambda: None, lambda *p: None)
+    assert calls == 1 and len(seen) == 2 and unit == before
+    scoped = reviews[0][0]
+    assert scoped.concepts == unit.concepts and scoped.claims == unit.claims
+    assert scoped.evidence == evidence[:10]
+    assert len(scoped.payload['concepts']) == 1 and len(scoped.payload['claims']) == 1
+    split = __import__('json').loads((archive.root / 'call-000001/split.json').read_text())
+    assert split['source_scope'] == 'cited-pages/v1'
+    # 接續沿原分段找到新範圍快取，不重跑已完成的模型請求。
+    def only_capacity(client, **kwargs):
+        assert kwargs['request'] == unit.payload
+        raise SemanticServiceError('SEMANTIC_INPUT_TOO_LARGE')
+    monkeypatch.setattr('runtime.material_review.request_semantics', only_capacity)
+    assert _review_units(view, [unit], config(), archive, lambda: None, lambda *p: None)[1] == 0
+    # 原範圍若已有成功結果，優先重用，不因新分批策略作廢它。
+    key = canonical_sha256({'source': unit.source_digest, 'request': unit.payload, 'policy': config()['material_review']})
+    archive.save_review(f'cache-{key}', response(unit.payload))
+    monkeypatch.setattr('runtime.material_review.request_semantics', lambda *a, **k: pytest.fail('valid old response replayed'))
+    restored, count = _review_units(view, [unit], config(), archive, lambda: None, lambda *p: None)
+    assert count == 0 and restored[0][0].payload == unit.payload
+
+
+def test_single_concept_that_still_exceeds_capacity_stops_without_truncation(tmp_path, monkeypatch):
+    from knowledge_map.material_review import _pack_review
+    view, original = inputs(1)
+    unit = _pack_review(view, view['concepts'][:1], original[0].evidence, 'One complete page')
+    calls = []
+    def model(client, **kwargs):
+        calls.append(kwargs['request'])
+        raise SemanticServiceError('SEMANTIC_INPUT_TOO_LARGE')
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    archive = Archive(tmp_path / 'archive')
+    with pytest.raises(SemanticServiceError, match='SEMANTIC_INPUT_TOO_LARGE'):
+        _review_units(view, [unit], config(), archive, lambda: None, lambda *p: None)
+    assert calls == [unit.payload]
+    assert not list(archive.root.glob('cache-*'))

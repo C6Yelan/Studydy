@@ -36,7 +36,7 @@ def blocked_http(monkeypatch, *, path='/v1/chat/completions', body=False):
         def do_POST(self):
             self.rfile.read(int(self.headers['Content-Length']))
             state.requests.append(self.path)
-            payload = json.dumps({'count': 50, 'max_model_len': 32768} if self.path == '/tokenize'
+            payload = json.dumps({'count': 50, 'max_model_len': json.loads((Path(__file__).parents[2] / 'local_ai/runtime-lock.json').read_text())['semantic_service']['max_model_len']} if self.path == '/tokenize'
                                  else {'choices': [{'finish_reason': 'stop', 'message': {'content': '{"ok":true}'}}]}).encode()
             blocking = self.path == path
             if blocking and not body:

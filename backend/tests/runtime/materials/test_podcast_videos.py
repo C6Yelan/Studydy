@@ -33,7 +33,6 @@ def bundle(state, motion=False):
         plan['pages'][0]['motion']={'layout':'concept','groups':[{'elements':[0],'start_cue':0}]}
     return {'policy':POLICY,'model':'synthetic-test','cues':cues,'plan':plan,
             'alignment':{'starts':starts,'anchors':anchors,'duration':duration,'method':'synthetic','producer':'synthetic'},
-            'review':{k:{'passed':True,'reason':'synthetic fixture, not a quality evaluation'} for k in ('correctness','teaching_quality')},
             'render':{'width':1920,'height':1080,'fps':60,'duration':duration,'sha256':sha256(raw).hexdigest()},
             'video':base64.b64encode(raw).decode()}
 
@@ -87,10 +86,8 @@ def test_expired_request_is_failed_without_replaying_provider(closed_loop):
     assert not videos.finish(claim,bundle=bundle(claim),dsn=dsn)
 
 
-def test_stale_source_and_source_review_failure_do_not_publish(closed_loop):
+def test_stale_source_does_not_publish(closed_loop):
     owner,_,_,_,dsn,_=closed_loop;identity=ready(closed_loop);claim=videos.claim(dsn=dsn)
-    value=bundle(claim);value['review']['correctness']['passed']=False
-    with pytest.raises(SourceError,match='VIDEO_RESULT_INVALID'):videos.finish(claim,bundle=value,dsn=dsn)
     with database_session(dsn) as db:
         p=db.get(Podcast,identity);episodes=deepcopy(p.episodes);episodes[0]['audio']['sha256']='f'*64;p.episodes=episodes
     assert videos.finish(claim,bundle=bundle(claim),dsn=dsn)

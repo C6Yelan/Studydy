@@ -97,8 +97,8 @@ def test_short_question_and_answer_keep_distinct_speakers_in_one_cue():
 
 def test_invalid_geometry_reports_the_element_and_allowed_bounds():
     _,cues,_=sample();value=plan()
-    value['pages'][0]['elements'][1]['y']=750
-    with pytest.raises(ValueError,match=r'page=0,element=1.*bounds.*y=220\.\.810'):
+    value['pages'][0]['elements'][1]['y']=950
+    with pytest.raises(ValueError,match=r'page=0,element=1.*bounds.*y=180\.\.1020'):
         validate_plan(value,cues)
 
 

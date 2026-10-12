@@ -305,12 +305,14 @@ export type AnswerFeedbackView = {
 type ConceptLearningStateView = {
   concept_id: string;
   label: string;
-  status: "not_started" | "learning" | "needs_review" | "mastered";
+  status: "not_started" | "in_progress" | "needs_review" | "completed";
   attempts: number;
   correct_answers: number;
   qualified_correct_items: number;
   covered_claim_ids: string[];
-  mastered_claim_ids: string[];
+  completed_claim_ids: string[];
+  assessable_claim_ids: string[];
+  unavailable_claim_ids: string[];
   weak_claim_ids: string[];
   latest_is_correct: boolean | null;
 };
@@ -513,6 +515,7 @@ export type PodcastSummary = {
   concept_ids: string[]; status: "pending" | "running" | "ready" | "failed" | "cancelled";
   error_code: string | null; version: number; created_at: string;
   episode_count: number; completed_episodes: number; is_current_revision: boolean;
+  generation?: {preview_ready?:boolean; retryable_videos?:boolean; active:boolean; completed_videos:number; failed_videos:number};
 };
 export type PodcastClaim = ConceptCard["claims"][number] & { concept_id: string; label: string };
 export type PodcastContext = {
@@ -525,7 +528,7 @@ export type PodcastScript = {
   segments: { claim_id?: string; beat_id?: string; title?: string;
     turns: { speaker: "host" | "guest"; text: string; parts?: {text:string;source_refs:PodcastSourceReference[]}[] }[] }[];
   provider: string;
-  review?: {correctness:{passed:boolean;reason:string};teaching_quality:{passed:boolean;reason:string}};
+  review?: {correctness:{passed:boolean;reason:string};teaching_quality:{passed:boolean;reason:string}} | null;
 };
 export type PodcastEpisode = {
   delivery: "solo" | "dialogue";

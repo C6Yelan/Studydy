@@ -1,6 +1,9 @@
 """教材發布前的完整地圖整理；來源、提案與套用對照留在私人 analysis archive。"""
 from copy import deepcopy
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from threading import Event
+import os
 import time
 
 from knowledge_map.material_review import (ReviewError, _pack_review, apply_review, combine_reviews,
@@ -53,20 +56,24 @@ def review_inputs(document):
 
 
 def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cancellation_check=None):
-    """概念覆蓋或來源歸屬錯誤最多補正一次；不套用無法驗證的提案。"""
+    """可定位的提案契約錯誤最多補正一次；不套用無法驗證的提案。"""
     key = canonical_sha256({'source': unit.source_digest, 'request': unit.payload,
                             'policy': lock['material_review']})
     rejected = None
     rejection_code = None
     repairable = {'REVIEW_CONCEPT_COVERAGE_INVALID', 'REVIEW_CONCEPT_SUPPORT_INVALID',
-                  'REVIEW_RELATION_EDIT_INVALID', 'REVIEW_EDIT_ID_INVALID'}
+                  'REVIEW_RELATION_EDIT_INVALID', 'REVIEW_EDIT_ID_INVALID',
+                  'REVIEW_ALIAS_EDIT_INVALID', 'REVIEW_METADATA_REASON_INVALID',
+                  'REVIEW_TARGET_INVALID', 'REVIEW_GROUPING_CYCLE',
+                  'REVIEW_EVIDENCE_INVALID', 'REVIEW_CLAIM_EDIT_INVALID',
+                  'REVIEW_RESPONSE_INVALID'}
 
     def validate_saved(value):
         nonlocal rejected, rejection_code
         try:
             validate_proposal(unit, value)
         except ReviewError as error:
-            if str(error) in repairable and rejected is None:
+            if str(error) in repairable and rejection_code is None:
                 rejected = deepcopy(value)
                 rejection_code = str(error)
             raise
@@ -77,8 +84,26 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
         return response, 0
 
     schema = response_schema()
+    schema['$defs']['AliasEdit']['properties']['remove']['description'] = (
+        'Copy exact strings from this concept\'s input aliases, including case. '
+        'The concept label is not an alias unless it also appears in aliases. '
+        'Do not repeat strings; omit the edit when no existing alias should be removed.'
+    )
     schema['properties']['assignments'].update(minItems=len(unit.concepts), maxItems=len(unit.concepts))
     schema['$defs']['Assignment']['properties']['concept']['enum'] = list(range(len(unit.concepts)))
+    # 動作與理由／歸屬一起約束，避免 schema 接受 metadata + none 等矛盾組合。
+    assignment = schema['$defs']['Assignment']
+    variants = []
+    for actions in (['keep', 'needs_review'], ['group', 'example'], ['metadata']):
+        variant = deepcopy(assignment)
+        properties = variant['properties']
+        properties['action'] = {'type': 'string', 'enum': actions}
+        properties['target'] = ({'type': 'integer', 'enum': list(range(len(unit.concepts)))}
+                                if 'group' in actions else {'type': 'null'})
+        if actions == ['metadata']:
+            properties['issue'] = {'type': 'string', 'enum': ['author', 'layout', 'scale']}
+        variants.append(variant)
+    schema['$defs']['Assignment'] = {'anyOf': variants}
     for collection, definition, field, count in (
         ('alias_edits', 'AliasEdit', 'concept', len(unit.concepts)),
         ('claim_edits', 'ClaimEdit', 'claim', len(unit.claims)),
@@ -147,15 +172,18 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
         archive.save_review(f'{name}/response', value)
         return value
 
-    if rejected is None:
+    if rejection_code is None:
         response = request_review(unit.payload, 0)
         try:
             validate_saved(response)
         except ReviewError as error:
             if str(error) not in repairable:
                 raise
-    if rejected is not None:
-        counts = Counter(row['concept'] for row in rejected['assignments'])
+    if rejection_code is not None:
+        # 格式本身錯誤時不索引不可信欄位；仍把原回應交回模型，要求完整補正。
+        parsed = rejected if rejection_code != 'REVIEW_RESPONSE_INVALID' else {
+            key: [] for key in ('assignments', 'alias_edits', 'claim_edits', 'relation_edits')}
+        counts = Counter(row['concept'] for row in parsed['assignments'])
         expected = set(range(len(unit.concepts)))
         request = deepcopy(unit.payload)
         edit_id_issues = {}
@@ -164,7 +192,7 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
             ('claim_edits', 'claim', len(unit.claims)),
             ('relation_edits', 'relation', len(unit.relations)),
         ):
-            handles = Counter(row[field] for row in rejected[collection])
+            handles = Counter(row[field] for row in parsed[collection])
             edit_id_issues[collection] = {
                 'duplicates': sorted(h for h, count in handles.items() if count > 1),
                 'unexpected': sorted(h for h in handles if h not in range(limit)),
@@ -172,10 +200,24 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
         request['review_correction'] = {
             'error': rejection_code,
             'edit_id_issues': edit_id_issues,
+            'invalid_metadata_reasons': [
+                {'concept': a['concept'], 'issue': a['issue']}
+                for a in parsed['assignments']
+                if a['action'] == 'metadata' and a['issue'] not in {'author', 'layout', 'scale'}
+            ],
+            # 只指出輸入與提案的差異；不以大小寫折疊替模型選擇要刪除的別名。
+            'alias_edit_issues': [
+                {'concept': edit['concept'], 'allowed_aliases': concept['aliases'],
+                 'unknown_removals': [alias for alias in edit['remove'] if alias not in concept['aliases']],
+                 'duplicate_removals': [alias for alias, count in Counter(edit['remove']).items() if count > 1],
+                 'has_concept_support': bool(set(edit['evidence']) & set(concept['evidence']))}
+                for edit in parsed['alias_edits']
+                for concept in unit.payload['concepts'] if concept['h'] == edit['concept']
+            ],
             'missing_concepts': sorted(expected - counts.keys()),
             'duplicate_concepts': sorted(h for h, count in counts.items() if count > 1),
             'unexpected_concepts': sorted(counts.keys() - expected),
-            'unsupported_concepts': sorted({a['concept'] for a in rejected['assignments']
+            'unsupported_concepts': sorted({a['concept'] for a in parsed['assignments']
                 if a['concept'] in expected and not set(a['evidence']) &
                 set(unit.payload['concepts'][a['concept']]['evidence'])}),
             'concept_source_bindings': [{'concept': c['h'], 'evidence': c['evidence']} for c in unit.payload['concepts']],
@@ -187,8 +229,15 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
             'previous_response': rejected,
             'instruction': '前次提案未通過檢核，不是標準答案。請依提供的教材重新確認衝突或缺漏，回傳完整提案；'
                            'concept 必須沿用輸入 h，絕不可依回應位置重新編號。每個 h 恰好一筆 assignment；'
+                           'metadata 只限明確作者、版面資訊或表格格值，issue 分別為 author、layout、scale。'
+                           '必須重新確認內容確屬這些範圍，不可只換成合法理由代碼；不確定時保留 needs_review。'
+                           'keep、needs_review、metadata 的 target 必須為 null；group/example 指向本批另一個非 metadata 概念，歸屬不可成環。'
+                           'evidence 必須是本批提供的編號，reason 與修正後的 meaning 不可空白。'
                            '每筆 evidence 必須至少引用該 h 的 concept_source_bindings 中一個來源。'
                            '不得直接取重複資料的第一筆或最後一筆，也不得只替換 evidence 掩蓋錯誤歸屬。'
+                           'alias_edits.remove 必須逐字引用該 concept 的既有 aliases，大小寫也必須相同且不可重複；'
+                           'label 不等於 aliases，不能把概念名稱當成可移除的別名。'
+                           '請重新判斷是否確有錯誤別名；沒有來源支持移除時省略該 edit，不猜測或自行正規化。'
                            'relation_edits 的 evidence 只能引用對應關係兩端的來源；reverse/remove 的 relation_type 須為 null 或原型別。'
                            '反轉與改型別不可合成同一操作；若無充分依據可不修改這條關係，不猜測。'
                            '各 edit 陣列的同一 h 最多出現一次，反轉與改型別也不能拆成兩筆相同 h。'
@@ -201,39 +250,96 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
     return response, calls
 
 
+def _review_units(view, units, lock, archive, check_cancel, progress, wait_cancellation_check=None):
+    """協調者分派／合併；失敗後不再派送，收完在途批次以保留有效結果。"""
+    from .luna_test import enabled
+    width = 2 if os.environ.get('STUDYDY_LUNA_PARALLEL_TEST') == '1' and enabled(lock) else 1
+    units = list(units)
+    reviews, calls, split_units, cursor = {}, 0, 0, 0
+    stopped = Event()
+    pending = {}
+    failure = None
+
+    def check_wait():
+        (wait_cancellation_check or check_cancel)()
+        if stopped.is_set():
+            raise ReviewError('REVIEW_INTERRUPTED')
+
+    def generate(index, unit):
+        with semantic_client() as client:
+            return _checked_review(unit, index, lock, archive, client, check_wait, check_wait)
+
+    progress("review", 0, len(units))
+    pool = ThreadPoolExecutor(max_workers=width, thread_name_prefix='material-review')
+    try:
+        while pending or (failure is None and cursor < len(units)):
+            check_cancel()
+            while failure is None and cursor < len(units) and len(pending) < width:
+                unit = units[cursor]
+                cursor += 1
+                pending[pool.submit(generate, cursor, unit)] = (cursor, unit)
+            done, _ = wait(pending, timeout=.25, return_when=FIRST_COMPLETED)
+            for future in done:
+                index, unit = pending.pop(future)
+                try:
+                    response, new_calls = future.result()
+                except SemanticServiceError as error:
+                    if error.reason_code != 'SEMANTIC_INPUT_TOO_LARGE':
+                        failure = failure or error
+                        continue
+                    calls += (error.request_metadata or {}).get('review_model_calls', 0)
+                    if len(unit.concepts) == 1:
+                        # 舊分段先按原輸入重用成功快取。只對仍超額的單一概念收斂來源頁面，
+                        # 保留每個引用及其所在頁的完整區塊，不截文字、不刪 Claim 或改 Evidence。
+                        pages = {(e['source_id'], e['normalized_page'])
+                                 for c in unit.concepts for q in c['claims'] for e in q['evidence']}
+                        evidence = [e for e in unit.evidence
+                                    if (e['source_id'], e['normalized_page']) in pages]
+                        if len(evidence) == len(unit.evidence):
+                            failure = failure or error
+                            continue
+                        units.append(_pack_review(view, unit.concepts, evidence,
+                            f"{unit.payload['title']}（引用頁面完整來源）"))
+                        split = {'reason': error.reason_code, 'concept_counts': [1],
+                                 'source_scope': 'cited-pages/v1',
+                                 'before_evidence_blocks': len(unit.evidence),
+                                 'after_evidence_blocks': len(evidence)}
+                    else:
+                        middle = len(unit.concepts) // 2
+                        # 先沿用既有分段身分，避免重新推論已完成的子批次。
+                        parts = [unit.concepts[:middle], unit.concepts[middle:]]
+                        units.extend(_pack_review(view, concepts, unit.evidence,
+                            f"{unit.payload['title']}（容量分段 {part}/2）")
+                            for part, concepts in enumerate(parts, 1))
+                        split = {'reason': error.reason_code, 'concept_counts': [len(part) for part in parts]}
+                    archive.save_review(f'call-{index:06d}/split', split)
+                    split_units += 1
+                except Exception as error:
+                    failure = failure or error
+                    continue
+                else:
+                    calls += new_calls
+                    reviews[index] = (unit, response)
+                progress("review", len(reviews), len(units) - split_units)
+        if failure is not None:
+            raise failure
+    finally:
+        stopped.set()
+        pool.shutdown(wait=True, cancel_futures=True)
+    # 完成順序不決定套用順序；以原地圖的概念順序固定跨批合併。
+    positions = {c['concept_id']: i for i, c in enumerate(view['concepts'])}
+    ordered = sorted(reviews.values(), key=lambda item: min(positions[c['concept_id']] for c in item[0].concepts))
+    return ordered, calls
+
+
 def review_structure(document, lock, archive, check_cancel, progress, *, wait_cancellation_check=None):
-    """重用已保存的有效批次；coverage 失敗只做有界補正，不重跑頁面分析。"""
+    """重用已保存的有效批次，檢核與發布仍由單一協調者完成。"""
     if 'material_review' not in lock:
         return document
     view, units = review_inputs(document)
     archive.save_review('source', document)
     started = time.monotonic()
-    reviews, calls, split_units = [], 0, 0
-    progress("review", 0, len(units))
-    with semantic_client() as client:
-        for index, unit in enumerate(units, 1):
-            check_cancel()
-            try:
-                response, new_calls = _checked_review(unit, index, lock, archive, client, check_cancel, wait_cancellation_check)
-            except SemanticServiceError as error:
-                if error.reason_code != 'SEMANTIC_INPUT_TOO_LARGE' or len(unit.concepts) < 2:
-                    raise
-                calls += (error.request_metadata or {}).get('review_model_calls', 0)
-                middle = len(unit.concepts) // 2
-                # 只拆待檢核概念，兩組都保留完整原始來源，不截斷同頁表格或引用。
-                parts = [unit.concepts[:middle], unit.concepts[middle:]]
-                units.extend(_pack_review(view, concepts, unit.evidence,
-                    f"{unit.payload['title']}（容量分段 {part}/2）")
-                    for part, concepts in enumerate(parts, 1))
-                archive.save_review(f'call-{index:06d}/split', {
-                    'reason': error.reason_code, 'concept_counts': [len(part) for part in parts],
-                })
-                split_units += 1
-                progress("review", len(reviews), len(units) - split_units)
-                continue
-            calls += new_calls
-            reviews.append((unit, response))
-            progress('review', len(reviews), len(units) - split_units)
+    reviews, calls = _review_units(view, units, lock, archive, check_cancel, progress, wait_cancellation_check)
     progress("publishing", document["page_count"], document["page_count"])
     unit, proposal = combine_reviews(view, reviews)
     result, projection = apply_review(document, view, unit, proposal)

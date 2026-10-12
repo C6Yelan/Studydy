@@ -222,3 +222,35 @@ def test_worker_stop_reports_busy_and_stops_before_claiming_next_work(monkeypatc
         worker._thread.join(timeout=2)
         worker.stop()
     assert not claimed
+
+
+@pytest.mark.parametrize('luna', [True, False])
+def test_temporary_assessment_worker_is_independent_and_luna_only(monkeypatch, luna):
+    from threading import Event
+    entered, release, assessed = Event(), Event(), Event()
+    monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', '1')
+    for name in ('reconcile_new_artifacts', 'reconcile_removed_material_analysis',
+                 'reconcile_published_checkpoints', 'recover_interrupted_material_runs',
+                 'finish_material_discards', 'normalize_next'):
+        monkeypatch.setattr(workers_module, name, lambda **_: None)
+    monkeypatch.setattr(workers_module, 'claim_next_material_processing_run', lambda **_: object())
+    def execute(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+    monkeypatch.setattr(workers_module, 'execute_claimed_material_processing_run', execute)
+    monkeypatch.setattr(workers_module, 'run_next_set', lambda **_: assessed.set())
+    config = {'runtime_lock': {'semantic_service': {'api_protocol': 'codex-exec-luna/v1' if luna else 'openai/v1'}}}
+    worker = workers_module.RuntimeWorkers(None, config)
+    worker.start()
+    try:
+        assert entered.wait(1)
+        if luna:
+            assert assessed.wait(1)
+            assert worker._assessment_thread.is_alive()
+        else:
+            assert worker._assessment_thread is None and not assessed.is_set()
+    finally:
+        release.set()
+        worker.stop()
+    assert not worker._thread.is_alive()
+    assert worker._assessment_thread is None or not worker._assessment_thread.is_alive()

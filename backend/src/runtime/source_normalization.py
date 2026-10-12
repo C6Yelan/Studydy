@@ -230,13 +230,15 @@ def normalize_next(*, dsn=None):
     try:
         with open_verified_artifact(owner, original_id, dsn=dsn) as stream:
             data = stream.file.read()
-        pdf, mapping = convert(data, PurePath(name).suffix.lower(), media, policy)
+        from .generation_jobs import check_job
+        pdf, mapping = convert(data, PurePath(name).suffix.lower(), media, policy,
+            cancellation_check=lambda: check_job(SourceNormalization, identity, token, dsn=dsn))
         with database_session(dsn) as session:
             material = _material(session, owner, material_id)
             job = session.scalar(select(SourceNormalization).where(
                 SourceNormalization.normalization_id == identity,
             ).with_for_update())
-            if job is None or job.lease_token != token:
+            if job is None or job.lease_token != token or job.status != 'running' or job.lease_expires_at <= datetime.now(UTC):
                 return True
             normalized = write_blob(session, owner, material_id, pdf, "normalized_pdf", "application/pdf")
             metadata = write_blob(
@@ -256,7 +258,7 @@ def normalize_next(*, dsn=None):
             job = session.scalar(select(SourceNormalization).where(
                 SourceNormalization.normalization_id == identity,
             ).with_for_update())
-            if job and job.lease_token == token:
+            if job and job.lease_token == token and job.status == 'running' and job.lease_expires_at > datetime.now(UTC):
                 job.status = "failed"
                 job.error_code = str(error) if isinstance(error, (NormalizationError, SourceError)) else "NORMALIZATION_FAILED"
                 job.lease_token = job.lease_expires_at = None
@@ -279,6 +281,8 @@ def retry_normalization(owner, material_id, identity, *, dsn=None):
         if source.removed_at is not None:
             raise SourceError("RESOURCE_NOT_FOUND")
         if job.status == "failed":
+            # 重試以現行轉檔政策處理原檔；已完成的來源快照保持不變。
+            job.policy = conversion_policy()
             job.status = "pending"
             job.error_code = None
             job.attempt = 0

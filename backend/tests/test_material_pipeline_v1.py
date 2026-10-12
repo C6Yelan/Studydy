@@ -17,6 +17,7 @@ class Client:
 
 def _settings(tmp_path: Path) -> dict:
     lock = json.loads((Path(__file__).parents[2] / "local_ai/runtime-lock.json").read_text())
+    lock['material_semantics'] = json.loads((Path(__file__).parent / 'fixtures/legacy_material_semantics.json').read_text())
     return {
         "private_runtime_root": str(tmp_path / "runtime"),
         "runtime_lock": lock,

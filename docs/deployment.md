@@ -27,7 +27,7 @@
 
 ## Podcast 試聽結束後的正式套用
 
-已移除公開比較頁與試聽 WAV、Compose 靜態掛載。`/podcast-voice-comparison` 及其子路徑回 404，避免舊網址回到 SPA。正式 provider 採用 B 聲線及 v11 對談；舊 Podcast 音訊保留，新建內容套用新版。回復資訊保存在 `data/deployments/podcast-b-v11-*/`，私有 provider 設定備份不輸出或提交。
+已移除公開比較頁與試聽 WAV、Compose 靜態掛載。`/podcast-voice-comparison` 及其子路徑回 404，避免舊網址回到 SPA。正式 provider 已改採 V／W 指令與 v13 整句混讀；舊 Podcast 音訊保留，新建內容套用新版。回復資訊保存在 `data/deployments/podcast-b-v11-*/`，私有 provider 設定備份不輸出或提交。
 
 ## 核准 source 與直接建置
 
@@ -68,9 +68,9 @@ docker build --label "org.opencontainers.image.revision=$STUDYDY_RELEASE_SHA" \
   -f ops/docker/frontend.Dockerfile -t studydy-frontend:latest .
 ```
 
-## 依賴未變更的輕量更新
+## 系統與 OCR 未變更的輕量更新
 
-磁碟容量有限時，先將目前已驗證的 backend／frontend image ID 分別加上 `studydy-backend-runtime:local` 與 `studydy-frontend-runtime:local` 標籤，再使用 `compose.app-update.yaml` 覆寫建置設定。這些標籤不複製映像。後端只替換 source 與 migrations，不重新安裝或複製 OCR 環境；套件或 local_ai 變更不適用此方式。
+磁碟容量有限時，先將目前已驗證的 backend／frontend image ID 分別加上 `studydy-backend-runtime:local` 與 `studydy-frontend-runtime:local` 標籤，再使用 `compose.app-update.yaml` 覆寫建置設定。這些標籤不複製映像。後端依 `backend/uv.lock` 同步應用程式 Python 套件，再替換 source、migrations 與 runtime lock，不重新安裝或複製 OCR 環境；只有語意分批／提示設定改動時可沿用此方式。系統套件、Python runtime、local_ai 套件或 OCR 模型／設定改動仍需完整建置。
 
 前端先在 checkout 使用既有 node_modules 執行 `npm test` 與 build，將輸出放入 `.studydy-runtime/frontend-static/site/`，同目錄放入 `ops/docker/nginx.conf` 及 `ops/docker/frontend-static.Dockerfile`（命名為 Dockerfile）。建置時保留 `compose.yaml`、`compose.tunnel.yaml`，最後加上 `compose.app-update.yaml`。部署使用已建好的映像及 `--no-build`，不要意外觸發完整 OCR 建置。
 
@@ -140,3 +140,33 @@ Backend runtime tests 使用 disposable DB；不以產品資料跑測試，不�
 0009 將已保存的 Podcast 講稿統一為發言輪次，不保留舊格式相容路徑。套用後必須使用識別 0009 的後端；不能直接退回只包含 0008 的映像。升級前備份，升級後核對原文字／來源與音訊 hash，失敗時保留匹配 schema 的映像作前向修復，不自動覆蓋產品 DB。
 
 0017 新增補充查詢的 nullable `deleted_at`。刪除查詢會隱藏歷史紀錄並撤銷尚未送出工作的 lease，保留候選中的來源關係、教材、原始檔案及已送出的分析。升級前保存本機 DB dump；沒有原檔搬移或刪除。套用後保留識別 0017 的後端作前向修復，不直接退回舊後端或覆蓋產品 DB；前端可單獨回復先前映像。
+
+## V／W 正式整合與試聽清理（2026-10-08）
+
+使用者選定 VW-2 並授權正式套用。Podcast 使用原參考錄音、V／W 台灣華語指令、整句中英混讀，以及通用接點／停頓／語速規則。直接在模型片段邊界處理，不將人工指定秒數的診斷腳本或 WAV 句界推測接入產品。經驗與保護條件見 [測試文件](testing.md)。
+
+臨時 `/voice-compare-*` 頁面及 WAV、Compose 掛載、BreezyVoice PoC source／模型／快取、本輪舊試聽產物和專用產生工具已移除；舊網址與其資產回 404，不回 SPA。只保留小型聽評摘要、正式程式及部署回復資料，沒有把整包實驗環境搬進 archive。
+
+部署資料位於 `data/deployments/podcast-vw-20261008/`：包含前後 source hash、實際映像身分、必要 source 回復快照、資格測試摘要及清理清單。資格測試的新正式合成路徑與已接受的 VW-2 WAV 逐位元一致。工作樹仍有先前已授權變更，使用 source snapshot 身分，不冒充乾淨 HEAD；本次沒有 commit／push 或 DB migration。
+
+回復服務時保留試聽入口的 404 與已移除的掛載，不恢復已刪除測試音訊。分集器與 provider 的容量必須同步；已建立的較長分集不能回到只接受六個 claim 的寫稿入口。產品 DB、教材原檔、既有 Podcast、正式參考音及共用環境均保留。
+
+本次指定教材的新作品 ID 保存於本機部署紀錄，兩集音訊約 1:47／2:25，皆由新正式 provider 產生。腳本 v9 增加有界的引用契約修稿與語意強度提示；審查仍 blocking。未生成成功的候選不發布，未將診斷稿直接寫入產品。
+
+本次兩集音訊與教學影片最終均已完成；第二集影片首次來源／教學審查未過，沿原標準重試後通過，未改寫音訊。正式播放器以 1× 實播兩集、第二集音訊與影片跳轉至 120 秒均正常；原教材的需複核標記保留。
+
+## 動畫實驗撤回（2026-10-09）
+
+已撤回 Motion Canvas／通用動畫 PoC 與本輪 interaction 擴充，移除 animation-review 服務及臨時 Compose 掛載。`/animation-poc-review` 與子路徑回 404；部署回到 compose.yaml＋compose.tunnel.yaml。既有講稿、TTS、字幕播放、歷史 MP4 與產品資料保留。撤回的 source 差異、映像身分與本機 DB 備份位於 `data/deployments/podcast-animation-withdrawal-20261009/`；不重寫 Git 歷史或產品資料。
+
+## 開源視覺生成實驗已撤回（2026-10-09）
+
+依使用者要求刪除本輪視覺 PoC：移除 `podcast-visual-test` 的臨時 Compose 掛載、本機／E 槽成果、專用執行環境與 Z-Image／Wan／VACE 測試權重。部署恢復 `compose.yaml`＋`compose.tunnel.yaml`；只更新 Nginx 撤站路由，前端產品 bundle 沿用原部署，後端、DB、TTS、既有 Podcast 與教材未回退或刪除。
+
+`/podcast-visual-test` 及其子路徑在 origin 回 404。撤回與實際新建 Podcast 回測的必要紀錄位於 `data/deployments/podcast-visual-removal-*/`。Cloudflare 的舊快取及先前誤建的 ChatGPT Sites 歷史副本，需依該紀錄的清理狀態判斷，不因 origin 檔案刪除就宣稱外部副本已清空。
+
+## 免費通用搜尋
+
+`research-search` 使用鎖定 digest 的 SearXNG 映像與 `ops/search/settings.yml`，不發布主機 port，也不需要付費 API key。初次接入先以原本的 HTTPS Compose 組合執行 `up -d --no-deps --wait research-search`，再更新 backend／frontend。搜尋用的內部簽署密鑰在啟動時產生，不寫入版本庫。
+
+搜尋關鍵詞提示位於主機的 `ops/podcast/provider.py`；更新時要保留已執行中的 Podcast／影片／問答工作，確認工作完成的安全空檔後才重啟 provider 與 backend。不能把取消整份 Podcast 當作部署前的例行清理。搜尋服務失敗會保留其他搜尋結果及部分失敗狀態。

@@ -12,6 +12,12 @@ import { StateView } from "../../ui/StateView";
 import { MaterialManagement } from "./MaterialManagement";
 import { formatFileSize } from "./material-flow";
 
+type LibraryTopic = {topic_id:string; request:string; proposal:{title:string}|null; status:string; version:number;
+  research:{status:string; material_id:string|null}|null};
+const topicStages:Record<string,string> = {searching:'正在搜尋來源', selecting:'等待選取來源', acquiring:'正在取得來源',
+  normalizing:'正在轉換來源', ready:'正在準備教材分析', submitted:'已送入教材分析', failed:'準備未完成', cancelled:'已停止，可接續處理'};
+const topicWorking = (topic:LibraryTopic) => ['searching','acquiring','normalizing','ready'].includes(topic.research?.status ?? '');
+
 function isProcessing(status: string | undefined) {
   return status === "pending" || status === "running";
 }
@@ -37,8 +43,10 @@ function openStudy(item: MaterialLibraryItem, session: StudySessionLink) {
 
 export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) {
   const [items, setItems] = useState<MaterialLibraryItem[] | null>(null);
+  const [topics, setTopics] = useState<LibraryTopic[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [cancellingTopicId, setCancellingTopicId] = useState<string|null>(null);
   const [startingMaterialId, setStartingMaterialId] = useState<string | null>(null);
   const startCurrentStudy = async (item: MaterialLibraryItem, structure: MaterialStructureLink) => {
     if (startingMaterialId) return;
@@ -73,20 +81,22 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
     const read = async () => {
       const version = mutationVersion.current;
       try {
-        const materials = (await apiClient.listMaterials()).materials;
+        const [library, topicList] = await Promise.all([apiClient.listMaterials(), apiClient.studyTools<{topics:LibraryTopic[]}>('/v1/topics')]);
+        const materials = library.materials;
         if (cancelled) return;
         if (version !== mutationVersion.current) {
           timer = window.setTimeout(read, 3000);
           return;
         }
         setItems(materials);
+        setTopics(topicList.topics.filter(topic => topic.status === "approved"));
         setMessage(null);
         for (const id of pendingRemovals.current) {
           if (!materials.some((item) => item.material_id === id))
             pendingRemovals.current.delete(id);
         }
         if (
-          pendingRemovals.current.size > 0 ||
+          pendingRemovals.current.size > 0 || topicList.topics.some(topicWorking) ||
           materials.some(
             (item) =>
               isProcessing(item.latest_attempt?.status) || isProcessing(item.source?.status),
@@ -108,7 +118,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
     };
   }, [apiClient, reload]);
 
-  const libraryClass = "material-library is-collection";
+  const libraryClass = "material-library is-collection material-bookshelf";
   if (message || items === null) {
     const state = message ? (
       <StateView
@@ -150,6 +160,9 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
   }
   const normalize = (text: string) => text.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
   const query = normalize(searchQuery);
+  const preparingTopics = topics.filter(topic => topic.research && !topic.research.material_id);
+  const total = items.length + preparingTopics.length;
+  const filteredTopics = preparingTopics.filter(topic => normalize(topic.proposal?.title ?? topic.request).includes(query));
   const filteredItems = items.filter((item) => normalize(item.display_name).includes(query));
   const restoreLibraryFocus = () =>
     (searchInput.current ?? heading.current)?.focus({ preventScroll: true });
@@ -170,12 +183,12 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
             我的教材
           </h1>
           <p className="library-subtitle">
-            {items.length === 0
+            {total === 0
               ? "上傳教材後，可在這裡查看處理結果並接續學習。"
-              : `已保存 ${items.length} 份教材，隨時接續你的學習。`}
+              : `已保存 ${items.length} 份教材${preparingTopics.length ? `，${preparingTopics.length} 份準備中` : ''}，隨時接續你的學習。`}
           </p>
         </div>
-        {items.length > 0 && (
+        {total > 0 && (
           <div className="state-actions">
             <button
               className="primary-button"
@@ -187,7 +200,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
           </div>
         )}
       </header>
-      {items.length > 0 && (
+      {total > 0 && (
         <form className="library-search" role="search" onSubmit={(event) => event.preventDefault()}>
           <input
             ref={searchInput}
@@ -203,13 +216,13 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
           />
         </form>
       )}
-      {items.length > 0 && query && filteredItems.length === 0 && (
+      {total > 0 && query && filteredItems.length === 0 && filteredTopics.length === 0 && (
         <div className="library-search-empty" role="status">
           <h2>找不到符合「{query}」的教材</h2>
           <p>試試其他教材名稱。</p>
         </div>
       )}
-      {items.length === 0 && (
+      {total === 0 && (
         <section className="library-empty surface" aria-label="空教材引導">
           <div className="library-empty-illustration">
             <img src="/assets/studydy/empty-disappointed.png" alt="Studydy 坐在打開的空箱子旁" />
@@ -227,8 +240,24 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
         </section>
       )}
       <div className="library-grid">
+        {filteredTopics.map(topic => <article className="surface library-item" key={topic.topic_id} aria-label={topic.proposal?.title ?? topic.request}>
+          <span className="library-file-icon" aria-hidden="true"><Icon name="learning" size={25}/></span>
+          <h2>{topic.proposal?.title ?? topic.request}</h2>
+          <p className="library-metadata">從主題建立 · 準備中的教材</p>
+          <p className="library-state">{topicStages[topic.research!.status] ?? '等待更新'}</p>
+          <div className="state-actions"><button className="primary-button" onClick={()=>writeRoute({name:'topic',topicId:topic.topic_id})}>
+            {topic.research?.status === 'selecting' ? '選取來源' : '查看進度'}
+          </button><button className="text-button" disabled={cancellingTopicId !== null} onClick={async()=>{
+            if(!window.confirm('取消建立這份教材並停止來源準備？'))return;
+            setCancellingTopicId(topic.topic_id);
+            try { await apiClient.studyTools(`/v1/topics/${topic.topic_id}/actions`, {action:'cancel',expected_version:topic.version}); setReload(value=>value+1); }
+            catch(error) { setMessage(errorMessage(error)); }
+            finally { setCancellingTopicId(null); }
+          }}>取消建立</button></div>
+        </article>)}
         {filteredItems.map((item) => {
           const latest = item.latest_attempt;
+          const topic = topics.find(topic => topic.research?.material_id === item.material_id);
           const available = item.available_structures;
           const structure =
             available.find((value) => value.knowledge_structure_revision === item.head_revision) ??
@@ -305,6 +334,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
                   ? `${item.source_count} 個檔案`
                   : formatFileSize(item.size_bytes)}
               </p>
+              {topic && !latest && <p className="library-state">{topicStages[topic.research!.status] ?? '準備中'}</p>}
               {isProcessingRun ? (
                 <p className="library-state">正在建立知識地圖…</p>
               ) : (
@@ -335,10 +365,10 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
                       className="primary-button"
                       type="button"
                       onClick={() =>
-                        writeRoute({ name: "material-sources", materialId: item.material_id })
+                        writeRoute(topic ? {name:"topic",topicId:topic.topic_id} : { name: "material-sources", materialId: item.material_id })
                       }
                     >
-                      建立知識地圖
+                      {topic ? "查看進度" : "建立知識地圖"}
                     </button>
                   )
                 )}

@@ -104,7 +104,7 @@ def captions_for_episode(episode, data):
             first, beginning = anchor['boundary_script_offset'], anchor['boundary_text']
             end = starts[i+1] if i+1 < len(starts) else duration
             if (type(offset) is not int or type(first) is not int or not 0 <= first <= offset
-                    or not isinstance(quote, str) or len(quote) < 8 or reference[offset:offset+len(quote)] != quote
+                    or not isinstance(quote, str) or not quote or reference[offset:offset+len(quote)] != quote
                     or not isinstance(beginning, str) or not beginning or reference[first:first+len(beginning)] != beginning
                     or not all(type(anchor[k]) in (int, float) and math.isfinite(anchor[k]) for k in ('audio_start', 'boundary_audio_start'))
                     or not 0 <= anchor['boundary_audio_start'] <= anchor['audio_start'] < end

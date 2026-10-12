@@ -41,7 +41,7 @@ for(const width of [1920,1440,390]) test(`published workspace widgets stay viewp
   await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);await expect(trigger).toBeFocused();
   if(index===0){
    await page.locator('.app-main').evaluate(el=>(el as HTMLElement).removeAttribute('style'));await page.evaluate(()=>{document.querySelector('[data-test-scroll]')?.remove();window.scrollTo(0,0);});
-   await page.getByRole('tab',{name:'複習重點',exact:true}).click();await expect(trigger).toBeVisible();const review=(await trigger.boundingBox())!;expect(review.x).toBeCloseTo(closed.x,0);expect(review.y).toBeCloseTo(closed.y,0);
+   await page.getByRole('tab',{name:'測驗',exact:true}).click();await expect(trigger).toBeVisible();const review=(await trigger.boundingBox())!;expect(review.x).toBeCloseTo(closed.x,0);expect(review.y).toBeCloseTo(closed.y,0);
   }
  }
 });

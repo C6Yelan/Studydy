@@ -20,6 +20,7 @@ from runtime.storage.tables import (
     KnowledgeStructure, Material, StudySession, database_session,
 )
 from . import assessments
+from .learning_states import claim_completion
 from .map_context import _context_from_validated_document
 from runtime.storage.knowledge_structures import _read_verified_document
 
@@ -154,11 +155,12 @@ def create_set(learner, sid, concept_id, idempotency_key, local_config, *, dsn=N
             if bytes(old.request_fingerprint) != fingerprint:
                 raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
             return old.set_id
-        if study.status not in ('active', 'no_safe'):
+        if study.status not in ('active', 'no_safe', 'completed'):
             raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
         if has_active_set(session, sid, concept_id):
             raise AssessmentSetError('ASSESSMENT_SET_ACTIVE')
         plan = plan_concept(context, concept_id)
+        study.status, study.completed_at = 'active', None
         lock = deepcopy(validate_runtime_lock(local_config['runtime_lock']))
         study.current_concept_id = concept_id
         study.last_applied_guidance_revision = study.last_applied_progress_sha256 = None
@@ -235,7 +237,30 @@ def _cycle(session, study, root):
     by_claim = {}
     for event in events:
         by_claim.setdefault(event.target_claim_id, []).append(event)
+    prior_events = list(session.scalars(select(AnswerEvent).where(
+        AnswerEvent.study_session_id == study.study_session_id,
+        AnswerEvent.target_concept_id == root.target_concept_id,
+        AnswerEvent.created_at < root.created_at,
+    ).order_by(AnswerEvent.event_number)))
+    # 新版本沿用未變重點的錯題歷史，不能因 revision 改變退回首答規則。
+    if session.scalar(select(StudySession.study_session_id).where(
+        StudySession.learner_id == study.learner_id,
+        StudySession.material_id == study.material_id,
+        StudySession.started_at < study.started_at,
+    ).limit(1)):
+        from .inherited_progress import inherited_progress
+        document = _read_verified_document(session, study.learner_id, study.material_id,
+                                           revision=study.knowledge_structure_revision)
+        inherited, _ = inherited_progress(session, TrustedLearner(learner_id=study.learner_id),
+                                          study, document, include_cycles=False)
+        prior_events = sorted([event for event in inherited if event.created_at < root.created_at]
+                              + prior_events, key=lambda event: (event.created_at, str(event.answer_event_id)))
     initial = {item.target_claim_id: item for item in items if item.set_id == root.set_id}
+    latest_items = {}
+    for group in family:
+        for candidate in items:
+            if candidate.set_id == group.set_id:
+                latest_items[candidate.target_claim_id] = candidate
     active = next((group for group in family if group.status in ACTIVE), None)
     other_active = session.scalar(select(AssessmentSet.set_id).where(
         AssessmentSet.study_session_id == study.study_session_id,
@@ -253,11 +278,21 @@ def _cycle(session, study, root):
             None,
         )
         latest = history[-1] if history else None
-        if initial_answer is None:
+        prior = [event for event in prior_events if event.target_claim_id in target['covered_claim_ids']]
+        # 尚未完成的錯題不能靠另開初篩跳過雙題補強；已完成者另算本次練習。
+        completion_history = history if claim_completion(prior)[0] else prior + history
+        latest_item = latest_items[claim_id]
+        group = groups[latest_item.set_id]
+        unavailable = not latest_item.assessment_revision and (
+            latest_item.failure_reason == 'NO_SAFE_ASSESSMENT' or group.sealed_at is not None
+        )
+        if unavailable:
+            result = 'unavailable'
+        elif initial_answer is None:
             result = 'unanswered' if item.assessment_revision else 'unavailable'
-        elif initial_answer.is_correct:
+        elif initial_answer.is_correct and claim_completion(completion_history)[0]:
             result = 'diagnostic_pass'
-        elif latest.is_correct:
+        elif claim_completion(completion_history)[0]:
             result = 'remediation_pass'
         else:
             result = 'needs_review'
@@ -278,7 +313,7 @@ def _cycle(session, study, root):
         outcome = 'in_progress'
     elif pending:
         outcome = 'needs_review'
-    elif points and passed == len(points) and unavailable == 0:
+    elif passed > 0 and passed == len(points) - counts['unavailable']:
         outcome = 'passed'
     else:
         outcome = 'incomplete'
@@ -319,6 +354,47 @@ def _read_cycles(session, study):
                 if key not in ('points', 'can_create_remediation')
             }
     return list(latest.values())
+
+
+def unavailable_claims(session, study, context):
+    unavailable = set(study.no_safe_claim_ids)
+    roots = list(session.scalars(select(AssessmentSet).where(
+        AssessmentSet.study_session_id == study.study_session_id,
+        AssessmentSet.kind == 'diagnostic',
+    ).order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)))
+    seen = set()
+    for root in roots:
+        if root.target_concept_id in seen:
+            continue
+        seen.add(root.target_concept_id)
+        latest = {}
+        for item, sealed_at in session.execute(
+            select(AssessmentSetItem, AssessmentSet.sealed_at)
+            .join(AssessmentSet, AssessmentSet.set_id == AssessmentSetItem.set_id)
+            .where((AssessmentSet.set_id == root.set_id)
+                   | (AssessmentSet.diagnostic_set_id == root.set_id))
+            .order_by(AssessmentSet.created_at, AssessmentSet.set_id)
+        ):
+            latest[item.target_claim_id] = (item, sealed_at)
+        for target in root.target_plan['targets']:
+            item, sealed_at = latest[target['claim_id']]
+            # 尚未準備好或暫時 provider 失敗不等於已確認無安全題。
+            if item.assessment_revision:
+                unavailable.difference_update(target['covered_claim_ids'])
+            elif item.failure_reason == 'NO_SAFE_ASSESSMENT' or sealed_at is not None:
+                unavailable.update(target['covered_claim_ids'])
+    return unavailable
+
+
+def completed_concepts(session, study):
+    """重建曾完成的概念，避免後續練習或可出題範圍改變撤銷完成。"""
+    roots = session.scalars(select(AssessmentSet).where(
+        AssessmentSet.study_session_id == study.study_session_id,
+        AssessmentSet.kind == 'diagnostic',
+        AssessmentSet.status == 'completed',
+    ))
+    return {root.target_concept_id for root in roots
+            if _cycle(session, study, root)['outcome'] == 'passed'}
 
 
 def create_remediation(learner, sid, root_id, expected_version, key, local_config, *, dsn=None):

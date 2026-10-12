@@ -90,6 +90,23 @@ def two_pages():
     return compile_layout(value,[{},{}],timeline,motion=True),timeline
 
 
+@pytest.mark.parametrize('kind', ['concept', 'comparison', 'flow', 'exchange', 'crossfade'])
+@pytest.mark.parametrize('emphasis', [False, True])
+def test_cached_frames_preserve_animation_progress_and_reverse_seek(kind, emphasis):
+    plan, timeline = two_pages() if kind == 'crossfade' else scene(kind)
+    if not emphasis:
+        for page in plan['pages']: page['emphasis'] = []
+    positions = render.layouts(plan); marks = render.emphasis_layouts(plan, positions)
+    times = [0, .1, .5, 1, 1.9, 2, 2.05, 2.1, 2.3, 2.5, 3, 3.9]
+    cache = {}
+    for t in times + list(reversed(times)) + times:
+        expected = render.draw_frame(t, timeline, plan, positions, marks)
+        actual = render.draw_frame(t, timeline, plan, positions, marks, scene_cache=cache)
+        assert actual.tobytes() == expected.tobytes()
+        assert len(cache) <= 2
+    if not emphasis: assert cache
+
+
 def test_crossfade_is_short_has_no_future_page_and_uses_current_footer():
     import math
     plan,timeline=two_pages(); page=plan['pages'][1]
@@ -141,7 +158,7 @@ def test_legacy_schema_and_geometry_are_preserved_when_motion_is_not_requested()
     modern['schema']='podcast-storyboard/v2';del modern['pages'][0]['motion']
     assert legacy==modern
     import json
-    schema=json.dumps(semantic_schema([{}],4))
+    schema=json.dumps(semantic_schema(1))
     assert all(field not in schema for field in ('"duration"','"path"','"x"','"y"'))
     assert board(legacy,timeline,.1)==board(modern,timeline,.1)
 

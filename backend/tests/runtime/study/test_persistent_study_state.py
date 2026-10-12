@@ -43,7 +43,7 @@ def test_ensure_initial_idempotency_completed_and_focus_api(closed_loop, tmp_pat
         stored.completed_at = datetime.now(UTC)
     assert ensure("after-complete").status == "completed"
     assert ensure("after-complete").study_session_id == first.study_session_id
-    assert client.post(path, headers=HEADERS, json=body).status_code >= 400
+    assert client.post(path, headers=HEADERS, json=body).json()["status"] == "completed"
     client.cookies.clear()
     assert client.post(path, headers=HEADERS, json=body).status_code == 401
     with database_session(dsn) as db:

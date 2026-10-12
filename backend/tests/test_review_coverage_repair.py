@@ -73,7 +73,8 @@ def test_coverage_is_repaired_once_with_full_context_and_strict_validation(tmp_p
     schema = calls[0]["response_schema"]
     assignments = schema["properties"]["assignments"]
     assert assignments["minItems"] == assignments["maxItems"] == 5
-    assert schema["$defs"]["Assignment"]["properties"]["concept"]["enum"] == list(range(5))
+    assert all(v['properties']['concept']['enum'] == list(range(5))
+               for v in schema['$defs']['Assignment']['anyOf'])
     assert archive.writes["call-000001/response"] == invalid
     assert archive.writes["call-000001-repair-01/response"] == proposal()
     assert len([key for key in archive.writes if key.startswith("cache-")]) == 1
@@ -96,6 +97,99 @@ def test_valid_cached_review_needs_no_model(tmp_path, monkeypatch):
     assert result == proposal()
     assert count == 0
     assert calls == []
+
+
+@pytest.mark.parametrize('kind,code', [
+    ('metadata', 'REVIEW_METADATA_REASON_INVALID'),
+    ('target', 'REVIEW_TARGET_INVALID'),
+    ('cycle', 'REVIEW_GROUPING_CYCLE'),
+    ('evidence', 'REVIEW_EVIDENCE_INVALID'),
+    ('claim', 'REVIEW_CLAIM_EDIT_INVALID'),
+    ('format', 'REVIEW_RESPONSE_INVALID'),
+])
+def test_other_single_batch_contract_errors_repair_once(tmp_path, monkeypatch, kind, code):
+    invalid = proposal()
+    if kind == 'metadata':
+        invalid['assignments'][0].update(action='metadata', issue='none')
+    elif kind == 'target':
+        invalid['assignments'][0].update(action='group', target=0)
+    elif kind == 'cycle':
+        invalid['assignments'][0].update(action='group', target=1)
+        invalid['assignments'][1].update(action='group', target=0)
+    elif kind == 'evidence':
+        invalid['assignments'][0]['evidence'] = [999]
+    elif kind == 'claim':
+        invalid['claim_edits'] = [{'claim': 0, 'meaning': ' ', 'reason': '合成提案', 'evidence': [0]}]
+    else:
+        invalid = {'assignments': None}
+    archive = Archive(tmp_path, rejected=invalid)
+    (result, count), calls = run(archive, monkeypatch, [proposal()])
+    assert result == proposal() and count == 1
+    correction = calls[0]['request']['review_correction']
+    assert correction['error'] == code and correction['previous_response'] == invalid
+    assert correction['invalid_metadata_reasons'] == ([{'concept': 0, 'issue': 'none'}] if kind == 'metadata' else [])
+    # 同一種錯誤再次出現時，不能發布、存成功快取或無限重試。
+    failed_archive = Archive(tmp_path / 'again', rejected=invalid)
+    with pytest.raises(ReviewError, match=code):
+        run(failed_archive, monkeypatch, [invalid])
+    assert len(failed_archive.requests) == 1
+    assert not any(k.startswith('cache-') for k in failed_archive.writes)
+
+
+def test_assignment_schema_rejects_inconsistent_actions(tmp_path, monkeypatch):
+    (_, _), calls = run(Archive(tmp_path), monkeypatch, [proposal()])
+    variants = calls[0]['response_schema']['$defs']['Assignment']['anyOf']
+    metadata = next(v['properties'] for v in variants if v['properties']['action']['enum'] == ['metadata'])
+    assert metadata['issue']['enum'] == ['author', 'layout', 'scale']
+    assert metadata['target'] == {'type': 'null'}
+    grouped = next(v['properties'] for v in variants if 'group' in v['properties']['action']['enum'])
+    assert grouped['target'] == {'type': 'integer', 'enum': list(range(5))}
+
+
+def test_null_response_is_repaired_and_never_cached_as_success(tmp_path, monkeypatch):
+    archive = Archive(tmp_path)
+    (result, count), calls = run(archive, monkeypatch, [None, proposal()])
+    assert result == proposal() and count == 2
+    assert calls[1]['request']['review_correction']['previous_response'] is None
+    assert all(v == proposal() for k, v in archive.writes.items() if k.startswith('cache-'))
+
+
+@pytest.mark.parametrize('saved', [False, True])
+def test_alias_case_mismatch_gets_one_grounded_correction(tmp_path, monkeypatch, saved):
+    invalid = proposal()
+    invalid['alias_edits'] = [{'concept': 4, 'remove': ['EFFECTIVENESS'],
+        'evidence': [4], 'reason': '合成別名提案'}]
+    corrected = deepcopy(invalid)
+    corrected['alias_edits'][0]['remove'] = ['Effectiveness']
+    archive = Archive(tmp_path, rejected=invalid if saved else None)
+    (result, count), calls = run(archive, monkeypatch, [corrected] if saved else [invalid, corrected])
+    assert count == (1 if saved else 2)
+    correction = calls[-1]['request']['review_correction']
+    assert correction['error'] == 'REVIEW_ALIAS_EDIT_INVALID'
+    assert correction['alias_edit_issues'] == [{
+        'concept': 4, 'allowed_aliases': ['Efficiency', 'Effectiveness'],
+        'unknown_removals': ['EFFECTIVENESS'], 'duplicate_removals': [], 'has_concept_support': True,
+    }]
+    assert correction['previous_response'] == invalid
+    assert calls[-1]['request']['concepts'] == prepare().payload['concepts']
+    assert result == corrected
+    validate_proposal(prepare(), result)
+    assert len([key for key in archive.writes if key.startswith('cache-')]) == 1
+
+
+@pytest.mark.parametrize('removals,evidence', [
+    (['EFFECTIVENESS'], [4]), (['Effectiveness', 'Effectiveness'], [4]),
+    (['Effectiveness'], [0]),
+])
+def test_invalid_alias_correction_stops_without_normalizing_or_caching(tmp_path, monkeypatch, removals, evidence):
+    invalid = proposal()
+    invalid['alias_edits'] = [{'concept': 4, 'remove': removals,
+        'evidence': evidence, 'reason': '合成錯誤提案'}]
+    archive = Archive(tmp_path)
+    with pytest.raises(ReviewError, match='REVIEW_ALIAS_EDIT_INVALID'):
+        run(archive, monkeypatch, [invalid, invalid])
+    assert len(archive.requests) == 2
+    assert not any(key.startswith('cache-') for key in archive.writes)
 
 
 def test_saved_wrong_concept_support_is_repaired_without_renumbering(tmp_path, monkeypatch):

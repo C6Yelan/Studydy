@@ -362,10 +362,10 @@ export class StudydyApiClient {
         && value.knowledge_structure_revision === body.knowledge_structure_revision);
   }
 
-  podcastAction(id: string, body: PodcastAction): Promise<PodcastSummary> {
+  podcastAction(id: string, body: PodcastAction): Promise<PodcastSummary | PodcastDeletedView> {
     return this.json(`/v1/podcasts/${encodeURIComponent(id)}/actions`, {
       method: "POST", headers: { "Content-Type": "application/json", Origin: origin() }, body: JSON.stringify(body),
-    }, (value): value is PodcastSummary => validate.podcastSummary(value) && value.podcast_id === id);
+    }, (value): value is PodcastSummary | PodcastDeletedView => body.action === "cancel" ? validate.podcastDeleted(value) && value.podcast_id === id : validate.podcastSummary(value) && value.podcast_id === id);
   }
 
   deletePodcast(id: string): Promise<PodcastDeletedView> {

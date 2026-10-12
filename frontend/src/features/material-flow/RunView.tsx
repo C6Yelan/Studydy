@@ -397,10 +397,7 @@ export function RunView({
           </button>
         )}
         {run.error_code && (
-          <details className="processing-technical">
-            <summary>技術資訊</summary>
-            <code>{run.error_code}</code>
-          </details>
+          <p className="processing-technical">錯誤代碼：<code>{run.error_code}</code></p>
         )}
       </section>
     );
@@ -688,6 +685,11 @@ function RevisionRun({
         {run.status === "failed" && run.analysis_saved && (
           <p role="status">
             已完成的分析批次保存在本機，使用相同來源與設定重試會接續未完成的部分。
+          </p>
+        )}
+        {run.status === "failed" && run.error_code && (
+          <p className="processing-technical">
+            錯誤代碼：<code>{run.error_code}</code>
           </p>
         )}
         {error && (

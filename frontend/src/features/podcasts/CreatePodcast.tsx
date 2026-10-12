@@ -93,7 +93,7 @@ export function CreatePodcast({ apiClient, route, embedded = false }: {
       <section id="podcast-config-settings" className={`surface podcast-config-section podcast-settings${activePanel === "settings" ? " is-active" : ""}`} aria-label="講解設定">
         <h2>講解設定</h2>
         <fieldset className="podcast-delivery"><legend>講解形式</legend><label><input type="radio" name="delivery" checked={delivery === "dialogue"} disabled={busy} onChange={() => setDelivery("dialogue")} /><span><strong>雙人對談</strong><small>以對話串起教材重點。</small></span></label><label><input type="radio" name="delivery" checked={delivery === "solo"} disabled={busy} onChange={() => setDelivery("solo")} /><span><strong>單人解說</strong><small>以自然口語說明重點。</small></span></label></fieldset>
-    <footer className="podcast-create-footer"><div><strong>{selected.size} 個概念 · {claimCount} 個重點</strong><span>所選重點全部保留，內容較多時自動拆集。</span></div><button type="button" className="primary-button" disabled={busy || !selected.size || !validName} onClick={() => void save()}>{busy ? "正在建立…" : "開始生成 Podcast"}<Icon name="chevron-right" size={18} /></button>{saveError && <p className="form-error" role="alert">{saveError}</p>}</footer>
+    <footer className="podcast-create-footer"><div><strong>{selected.size} 個概念 · {claimCount} 個重點</strong><span>依所選重點生成，內容較多時自動拆集。</span></div><button type="button" className="primary-button" disabled={busy || !selected.size || !validName} onClick={() => void save()}>{busy ? "正在建立…" : "開始生成 Podcast"}<Icon name="chevron-right" size={18} /></button>{saveError && <p className="form-error" role="alert">{saveError}</p>}</footer>
       </section>
     </div>
 

@@ -1076,17 +1076,19 @@ test("dialogue permits a speaker to continue across source segments", async () =
   await assert.rejects(new StudydyApiClient(async () => Response.json(value)).getPodcast(setId), e => e.kind === "schema");
 });
 
-test('teaching beats validate part evidence, duplicate claim positions and two blocking verdicts',async()=>{
+test('teaching beats keep evidence binding without requiring review or exhaustive coverage',async()=>{
   const value=podcastView(),episode=value.episodes[0];
   episode.claims.push(structuredClone(episode.claims[0]));
   const parts=episode.claims.map((claim,index)=>({text:`來源位置${index}的說明。`,source_refs:[{source_index:index,evidence_ids:claim.evidence.map(e=>e.evidence_id)}]}));
   episode.script={schema:'podcast-script/v2',provider:'synthetic',segments:[{beat_id:'beat-0',title:'整合來源',turns:[{speaker:'host',text:parts.map(p=>p.text).join(''),parts}]}],
     review:{correctness:{passed:true,reason:'fixture'},teaching_quality:{passed:true,reason:'fixture'}}};
   assert.equal((await new StudydyApiClient(async()=>Response.json(value)).getPodcast(setId)).episodes[0].script.segments.length,1);
+  delete episode.script.review;
+  episode.script.segments[0].turns[0].parts[1].source_refs=[];
+  assert.equal((await new StudydyApiClient(async()=>Response.json(value)).getPodcast(setId)).episodes[0].script.segments.length,1);
+  episode.script.segments[0].turns[0].parts[1].source_refs=[{source_index:1,evidence_ids:episode.claims[1].evidence.map(e=>e.evidence_id)}];
   for(const change of [
-    v=>{v.episodes[0].script.review.correctness.passed=false},
-    v=>{v.episodes[0].script.review.teaching_quality.passed=false},
-    v=>{v.episodes[0].script.segments[0].turns[0].parts[1].source_refs[0].source_index=0},
+    v=>{v.episodes[0].script.segments[0].turns[0].parts[1].source_refs[0].source_index=99},
     v=>{v.episodes[0].script.segments[0].turns[0].parts[0].source_refs[0].evidence_ids=['foreign']},
     v=>{v.episodes[0].script.segments[0].turns[0].text+='未綁定的文字'},
   ]) {
@@ -1109,4 +1111,20 @@ test('recording upload returns a validated turn identity for scoped voice playba
     const invalid = new StudydyApiClient(async()=>Response.json(value,{status:202}));
     await assert.rejects(invalid.voiceRecording(sessionId,audio,'recording-intent'),error=>error.kind==='schema');
   }
+});
+
+
+test("podcast cancellation accepts only a deletion receipt for the same podcast", async () => {
+  const body={schema:"podcast-action/v1",action:"cancel",expected_version:1};
+  const receipt={schema:"podcast-deleted/v1",podcast_id:setId};
+  assert.deepEqual(await new StudydyApiClient(async()=>Response.json(receipt)).podcastAction(setId,body),receipt);
+  for(const value of [podcastView(),{...receipt,podcast_id:materialId}])
+    await assert.rejects(new StudydyApiClient(async()=>Response.json(value)).podcastAction(setId,body),e=>e.kind==="schema");
+});
+
+test("podcast background generation counts stay within the episode count", async () => {
+  const value=podcastView();value.generation={active:true,completed_videos:0,failed_videos:0};
+  assert.equal((await new StudydyApiClient(async()=>Response.json(value)).getPodcast(setId)).generation.active,true);
+  for(const generation of [{active:"yes",completed_videos:0,failed_videos:0},{active:false,completed_videos:2,failed_videos:0},{active:false,completed_videos:1,failed_videos:1}])
+    await assert.rejects(new StudydyApiClient(async()=>Response.json({...value,generation})).getPodcast(setId),e=>e.kind==="schema");
 });

@@ -9,9 +9,12 @@ class ResearchWorker:
     def start(self):self.thread.start();return self
     def stop(self):self.stop_event.set();self.thread.join(timeout=2)
     def loop(self):
-        while not self.stop_event.wait(2):
+        while not self.stop_event.is_set():
             try:
                 from . import topics
-                topics.step(dsn=self.dsn)
-                research.step(dsn=self.dsn,config=self.config)
-            except Exception:logging.getLogger(__name__).warning('RESEARCH_WORKER_FAILED')
+                progressed=topics.step(dsn=self.dsn)
+                progressed=research.step(dsn=self.dsn,config=self.config) or progressed
+                if not progressed:self.stop_event.wait(2)
+            except Exception:
+                logging.getLogger(__name__).warning('RESEARCH_WORKER_FAILED')
+                self.stop_event.wait(2)

@@ -52,9 +52,9 @@ def complete(dsn):
 def test_split_all_claims_in_selection_order_without_omissions():
     concepts = [{"concept_id": f"concept-{i}", "label": f"概念 {i}", "claims": [
         {"claim_id": f"claim-{i}-{j}", "text": "來源支持的重點。", "evidence": [{"quote": "來源"}]}
-        for j in range(7)]} for i in range(2)]
+        for j in range(20)]} for i in range(2)]
     episodes = podcasts.plan_episodes({"concepts": concepts}, ["concept-1", "concept-0"])
-    assert [len(e["claims"]) for e in episodes] == [5, 5, 4]
+    assert [len(e["claims"]) for e in episodes] == [20, 20]
     assert [c["claim_id"] for e in episodes for c in e["claims"]] == [
         c["claim_id"] for concept in reversed(concepts) for c in concept["claims"]]
     with pytest.raises(podcasts.PodcastError, match="SOURCE_INSUFFICIENT"):
@@ -112,14 +112,11 @@ def test_cancel_expired_lease_and_delete_fence_late_results(closed_loop):
     view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
     podcasts.change_podcast(owner.learner_id, identity, "cancel", view["version"], dsn=dsn)
     assert not podcasts.finish_step(new, script=script(new), dsn=dsn)
-    cancelled = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
-    with pytest.raises(podcasts.PodcastError, match="PODCAST_CONFLICT"):
-        podcasts.change_podcast(owner.learner_id, identity, "retry", view["version"], dsn=dsn)
-    podcasts.change_podcast(owner.learner_id, identity, "retry", cancelled["version"], dsn=dsn)
-    claim = podcasts.claim_step(dsn=dsn)
-    podcasts.delete_podcast(owner.learner_id, identity, dsn=dsn)
-    assert not podcasts.finish_step(claim, script=script(claim), dsn=dsn)
     assert podcasts.list_podcasts(owner.learner_id, dsn=dsn)["podcasts"] == []
+    with pytest.raises(podcasts.PodcastError, match="RESOURCE_NOT_FOUND"):
+        podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
+    with pytest.raises(podcasts.PodcastError, match="RESOURCE_NOT_FOUND"):
+        podcasts.change_podcast(owner.learner_id, identity, "retry", view["version"], dsn=dsn)
     with pytest.raises(podcasts.PodcastError, match="RESOURCE_NOT_FOUND"):
         create(closed_loop)
 
@@ -221,6 +218,10 @@ def test_api_owner_audio_ranges_and_origin_boundary(closed_loop, monkeypatch):
     assert client.get(detail).status_code == client.get(audio_url).status_code == 404
     assert client.delete(detail, headers={"Origin": origin}).status_code == 404
     client.cookies.set("studydy_session", token)
+    assert view.json()['generation'] == {'active':True,'completed_videos':0,'failed_videos':0,'preview_ready':False,'retryable_videos':False}
+    cancelled = client.post(detail + '/actions', headers={'Origin':origin}, json={
+        'schema':'podcast-action/v1','action':'cancel','expected_version':view.json()['version']})
+    assert cancelled.status_code == 200 and cancelled.json() == {'schema':'podcast-deleted/v1','podcast_id':identity}
     assert client.delete(detail, headers={"Origin": origin}).status_code == 200
     assert client.get(audio_url).status_code == 404
     assert client.post(url, headers=headers, json=body).status_code == 404
@@ -361,3 +362,25 @@ def test_dialogue_roles_are_required_per_episode_not_per_claim():
     value["segments"][1]["turns"][0]["speaker"] = "guest"
     with pytest.raises(podcasts.PodcastError, match="PODCAST_SCRIPT_INVALID"):
         podcasts.validate_script(value, episode)
+
+
+def test_v2_podcast_finishes_without_quality_verdicts_or_loudness_report(closed_loop):
+    owner,_,settings,_,dsn,token=closed_loop
+    identity=create(closed_loop)['podcast_id']
+    state=podcasts.claim_step(dsn=dsn);claim=state['episode']['claims'][0]
+    text=claim['text']
+    ref={'source_index':0,'evidence_ids':[e['evidence_id'] for e in claim['evidence']]}
+    turn={'speaker':'host','text':text,'parts':[{'text':text,'source_refs':[ref]}]}
+    value={'schema':'podcast-script/v2','provider':'synthetic-single-generation',
+           'segments':[{'beat_id':'beat-0','title':'合成重點','turns':[turn]}]}
+    assert podcasts.finish_step(state,script=value,dsn=dsn)
+    audio_state=podcasts.claim_step(dsn=dsn)
+    assert podcasts.finish_step(audio_state,audio=wav(),audio_provider='synthetic',dsn=dsn)
+    result=podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)
+    assert result['status']=='ready' and result['episodes'][0]['script']==value
+    app=api.create_app(api.ApiSettings(profile='local',public_origin='http://127.0.0.1:4183',secure_cookie=False,local_config=settings,dsn=dsn))
+    client=TestClient(app,base_url='http://127.0.0.1:4183')
+    client.cookies.set('studydy_session',token)
+    response=client.get(f'/v1/podcasts/{identity}')
+    assert response.status_code==200
+    assert response.json()['episodes'][0]['script']['review'] is None

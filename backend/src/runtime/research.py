@@ -3,7 +3,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from uuid import UUID,uuid4
 import re
-from sqlalchemy import and_,or_,select,func
+from sqlalchemy import and_,or_,select,func,case
 from . import research_sources
 from .card_sets import _material
 from .source_normalization import SourceError,upload_source
@@ -11,6 +11,8 @@ from .source_revisions import create_revision
 from .storage.artifacts import _key_digest
 from .storage.tables import Material,MaterialResearch as Research,SourceNormalization,MaterialProcessingRun,TopicScope,database_session
 from .voice import provider
+from .generation_jobs import cancellable_job
+from . import research_workflow
 
 ACTIVE=('searching','acquiring','normalizing')
 
@@ -48,8 +50,22 @@ def _view(row):
     value={k:deepcopy(getattr(row,k)) for k in ('research_id','material_id','base_revision','query','mode','status','candidates','selection','search_query','cursor','error_code','run_id','created_at','topic_id')}
     # 下載目標與授權快照保留在後端，前端只消費來源說明與取得結果。
     for item in value['candidates']:
+        if research_workflow._screening(item):item['screening']=research_workflow._screening(item)
         item.pop('download_url',None)
         item.pop('download_locations',None)
+        item.pop('page_identity',None)
+        item.pop('web_document',None)
+        item.pop('_reading_text',None)
+        item.pop('_review_chunks',None)
+        item.pop('_read_offset',None)
+        item.pop('inspection_sha256',None);item.pop('inspection_text_sha256',None)
+        item.pop('public_entries',None);item.pop('entry_lookup_done',None)
+        for field in ('description','_preview_text','_read_plan','_read_plan_cursor','_window_scan_offset','_selected_windows','_reading_scope','_skipped_sections','reading_mode','reading_focus'):item.pop(field,None)
+        # 引用仍留在研究紀錄供核對；輪詢畫面只需判斷說明，不重送每篇原文摘錄。
+        if item.get('review'):
+            item['review'].pop('quotes',None);item['review'].pop('skipped_sections',None)
+        if row.search_state and item.get('review',{}).get('phase')!='body':item['eligible']=False
+    value['progress']=research_workflow.progress(row.search_state,row.candidates)
     return value
 
 
@@ -65,7 +81,7 @@ def create(owner,material_id,query,mode,key,*,dsn=None):
             return _view(old)
         if not material.head_revision:raise SourceError('SOURCE_NOT_READY')
         row=Research(research_id=uuid4(),learner_id=owner,material_id=material_id,base_revision=material.head_revision,
-            query=query.strip(),mode=mode,status='searching',candidates=[],selection=[],idempotency_key_sha256=digest,created_at=datetime.now(UTC))
+            query=query.strip(),mode=mode,status='searching',candidates=[],selection=[],search_state=research_workflow.new_state(),idempotency_key_sha256=digest,created_at=datetime.now(UTC))
         db.add(row);db.flush();return _view(row)
 
 
@@ -75,7 +91,8 @@ def listing(owner,material_id,*,dsn=None):
         # 任務卡只讀數量與分析狀態；不為列表載入候選全文或逐筆查詢 run。
         columns=(Research.research_id,Research.query,Research.mode,Research.status,
             Research.selection,Research.error_code,Research.run_id,Research.created_at,
-            func.jsonb_array_length(Research.candidates).label('candidate_count'),
+            func.jsonb_array_length(case((func.jsonb_typeof(Research.candidates)=='array',Research.candidates),
+                else_=Research.candidates['items'])).label('candidate_count'),
             MaterialProcessingRun.status.label('run_status'))
         rows=db.execute(select(*columns).outerjoin(MaterialProcessingRun,MaterialProcessingRun.run_id==Research.run_id).where(Research.learner_id==owner,
             Research.material_id==material_id,Research.deleted_at.is_(None)).order_by(Research.created_at.desc())).mappings().all()
@@ -111,14 +128,20 @@ def action(owner,identity,action,selected=None,*,dsn=None):
         row,_=_owned(db,owner,identity)
         if row.topic_id and db.get(TopicScope,row.topic_id).status!='approved':raise SourceError('TOPIC_CONFLICT')
         if action=='more':
-            if row.status!='selecting' or not row.cursor:raise SourceError('REQUEST_INVALID')
+            if row.status!='selecting':raise SourceError('REQUEST_INVALID')
+            if row.search_state:
+                progress=deepcopy(row.search_state)
+                progress.update(stage='following_up',summary='依目前缺口接續研究。',continue_requested=True)
+                row.search_state=progress
+            else:row.search_state=research_workflow.new_state()
             row.status='searching'
         elif action=='acquire':
             if not row.material_id:raise SourceError('REQUEST_INVALID')
             if row.status=='acquiring' and row.selection==selected:return _view(row)
             if row.status not in ('selecting','ready','failed'):raise SourceError('REQUEST_INVALID')
             known={c['id']:c for c in row.candidates}
-            if not selected or len(set(selected))!=len(selected) or any(i not in known or not known[i]['eligible'] for i in selected):
+            if not selected or len(set(selected))!=len(selected) or any(i not in known or not known[i]['eligible'] or
+                row.search_state and known[i].get('review',{}).get('phase')!='body' for i in selected):
                 raise SourceError('REQUEST_INVALID')
             row.selection=list(selected)
             candidates=deepcopy(row.candidates)
@@ -183,6 +206,7 @@ def claim(*,dsn=None):
         return {**_view(row),'owner':row.learner_id,'lease_token':row.lease_token,'candidates':deepcopy(row.candidates),
             'material_title':db.get(Material,row.material_id).display_name if row.material_id else db.get(TopicScope,row.topic_id).proposal['title'],
             'approved_scope':deepcopy(db.get(TopicScope,row.topic_id).proposal) if row.topic_id else None,
+            'search_state':deepcopy(row.search_state),
             'staged_content':bytes(row.staged_content) if row.staged_content else None,'staged_metadata':deepcopy(row.staged_metadata)}
 
 
@@ -199,7 +223,9 @@ def save(state,mutate,*,dsn=None,release=True):
         mutate(row)
         if release:
             # 已輪詢的工作排到後面，轉檔中的舊研究不阻塞新搜尋。
-            row.lease_token=None;row.lease_expires_at=datetime.now(UTC)
+            row.lease_token=None
+            waiting=(row.search_state or {}).get('waiting_until') if row.status=='searching' else None
+            row.lease_expires_at=datetime.fromtimestamp(waiting,UTC) if waiting else datetime.now(UTC)
         return True
 
 
@@ -207,57 +233,61 @@ def step(*,dsn=None,config=None):
     state=claim(dsn=dsn)
     if not state:return False
     try:
-        if state['status']=='searching':
-            query=state['search_query']
-            if not query:
-                query=provider('/search-query',{'query':state['query'], 'material_title':state['material_title'], 'mode':state['mode'], 'approved_scope':_search_scope(state['approved_scope'])})['query']
-                if not isinstance(query,str) or not 1<=len(query)<=300:raise SourceError('RESEARCH_SEARCH_FAILED')
-            if not save(state,lambda row:None,dsn=dsn,release=False):return True
-            candidates,cursor,warnings=research_sources.search(query,state['cursor'])
-            def found(row):
-                row.candidates=research_sources.merge_candidates(row.candidates,candidates)
-                row.cursor=cursor;row.search_query=query;row.status='selecting';row.error_code='RESEARCH_PARTIAL_SEARCH' if warnings else None
-            save(state,found,dsn=dsn)
-        elif state['status']=='ready':
-            if config is None:raise SourceError('RESEARCH_CONFIGURATION_INVALID')
-            submit(state['owner'],state['research_id'],config,dsn=dsn,attempt_token=state['lease_token'])
-        elif state['status']=='acquiring':
-            items=[c for c in state['candidates'] if c['id'] in state['selection']]
-            candidate=next((c for c in items if c['state']=='candidate'),None)
-            if candidate is None:
-                save(state,lambda r:setattr(r,'status','normalizing'),dsn=dsn);return True
-            try:
-                metadata=state['staged_metadata']
-                if state['staged_content'] and metadata and metadata['id']==candidate['id']:
-                    data=state['staged_content'];media=metadata['media'];suffix=metadata['suffix']
-                else:
-                    data,media,suffix,metadata=research_sources.acquire(candidate)
-                    metadata.update(id=candidate['id'],media=media,suffix=suffix,acquired_at=datetime.now(UTC).isoformat())
-                    def stage(row):row.staged_content=data;row.staged_metadata=metadata
-                    if not save(state,stage,dsn=dsn,release=False):return True
-                name='補充｜'+re.sub(r'[\x00-\x1f/\\]',' ',candidate['title'])[:150]+suffix
-                source_id=upload_source(state['owner'],state['material_id'],data,name,media,
-                    'research:'+str(state['research_id'])+':'+candidate['id'],dsn=dsn,
-                    research_attempt=(state['research_id'],state['lease_token']))
-                candidate.update(state='normalizing',source_id=str(source_id),acquisition=metadata)
-            except Exception as error:
-                candidate.update(state='failed',error_code=str(error) if isinstance(error,SourceError) else 'RESEARCH_DOWNLOAD_FAILED')
-            def acquired(row):row.candidates=state['candidates'];row.staged_content=None;row.staged_metadata=None
-            save(state,acquired,dsn=dsn)
-        else:
-            items=[c for c in state['candidates'] if c['id'] in state['selection']]
-            with database_session(dsn) as db:
-                for c in items:
-                    if c['state']!='normalizing':continue
-                    job=db.scalar(select(SourceNormalization).where(SourceNormalization.source_id==UUID(c['source_id'])).order_by(SourceNormalization.created_at.desc()))
-                    if job and job.status=='ready':c.update(state='ready',normalization_id=str(job.normalization_id))
-                    elif job and job.status in ('failed','cancelled'):c.update(state='failed',error_code=job.error_code or 'RESEARCH_NORMALIZATION_FAILED')
-            def normalized(row):
-                row.candidates=state['candidates']
-                if all(c['state'] in ('ready','failed') for c in items):
-                    row.status='ready' if all(c['state']=='ready' for c in items) else 'failed'
-                    if row.status=='failed':row.error_code='RESEARCH_ITEMS_FAILED'
-            save(state,normalized,dsn=dsn)
+        with cancellable_job(Research, state['research_id'], state['lease_token'], dsn=dsn, statuses=(state['status'],)) as job:
+            if state['status']=='searching':
+                state['approved_scope']=_search_scope(state['approved_scope'])
+                if state['material_id'] and (state['search_state'] or {}).get('stage','planning')=='planning':
+                    from .storage.knowledge_structures import _read_verified_document
+                    with database_session(dsn) as db:
+                        document=_read_verified_document(db,state['owner'],state['material_id'],revision=state['base_revision'])
+                        # 只用目前教材的概念名稱辨識補充範圍，不把私人答案或教材原文當搜尋關鍵詞。
+                        state['existing_concepts']=[concept['label'] for concept in document['concepts']]
+                result=research_workflow.advance(state,lambda path,body:provider(path,{**job,**body}))
+                def progressed(row):
+                    for key,value in result.items():setattr(row,key,value)
+                save(state,progressed,dsn=dsn)
+            elif state['status']=='ready':
+                if config is None:raise SourceError('RESEARCH_CONFIGURATION_INVALID')
+                submit(state['owner'],state['research_id'],config,dsn=dsn,attempt_token=state['lease_token'])
+            elif state['status']=='acquiring':
+                items=[c for c in state['candidates'] if c['id'] in state['selection']]
+                candidate=next((c for c in items if c['state']=='candidate'),None)
+                if candidate is None:
+                    save(state,lambda r:setattr(r,'status','normalizing'),dsn=dsn);return True
+                try:
+                    metadata=state['staged_metadata']
+                    if state['staged_content'] and metadata and metadata['id']==candidate['id']:
+                        data=state['staged_content'];media=metadata['media'];suffix=metadata['suffix']
+                    else:
+                        data,media,suffix,metadata=research_sources.acquire(candidate)
+                        metadata.update(id=candidate['id'],media=media,suffix=suffix,acquired_at=datetime.now(UTC).isoformat())
+                        def stage(row):row.staged_content=data;row.staged_metadata=metadata
+                        if not save(state,stage,dsn=dsn,release=False):return True
+                    name='補充｜'+re.sub(r'[\x00-\x1f/\\]',' ',candidate['title'])[:150]+suffix
+                    source_id=upload_source(state['owner'],state['material_id'],data,name,media,
+                        'research:'+str(state['research_id'])+':'+candidate['id'],dsn=dsn,
+                        research_attempt=(state['research_id'],state['lease_token']))
+                    candidate.update(state='normalizing',source_id=str(source_id),acquisition=metadata)
+                except Exception as error:
+                    candidate.update(state='failed',error_code=str(error) if isinstance(error,SourceError) else 'RESEARCH_DOWNLOAD_FAILED')
+                def acquired(row):row.candidates=state['candidates'];row.staged_content=None;row.staged_metadata=None
+                save(state,acquired,dsn=dsn)
+            else:
+                items=[c for c in state['candidates'] if c['id'] in state['selection']]
+                previous_states=[c['state'] for c in items]
+                with database_session(dsn) as db:
+                    for c in items:
+                        if c['state']!='normalizing':continue
+                        job=db.scalar(select(SourceNormalization).where(SourceNormalization.source_id==UUID(c['source_id'])).order_by(SourceNormalization.created_at.desc()))
+                        if job and job.status=='ready':c.update(state='ready',normalization_id=str(job.normalization_id))
+                        elif job and job.status in ('failed','cancelled'):c.update(state='failed',error_code=job.error_code or 'RESEARCH_NORMALIZATION_FAILED')
+                def normalized(row):
+                    row.candidates=state['candidates']
+                    if all(c['state'] in ('ready','failed') for c in items):
+                        row.status='ready' if all(c['state']=='ready' for c in items) else 'failed'
+                        if row.status=='failed':row.error_code='RESEARCH_ITEMS_FAILED'
+                save(state,normalized,dsn=dsn)
+                return previous_states!=[c['state'] for c in items] or all(c['state'] in ('ready','failed') for c in items)
     except Exception as error:
         def failed(row):row.status='failed';row.error_code=str(error) if isinstance(error,SourceError) else 'RESEARCH_SEARCH_FAILED'
         save(state,failed,dsn=dsn)

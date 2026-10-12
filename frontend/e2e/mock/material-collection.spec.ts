@@ -120,6 +120,7 @@ test.beforeEach(async ({ page }) => {
         json: { schema: "learner-identity/v1", learner_id: "99999999-9999-4999-8999-999999999999" },
       });
     }
+    if (path === "/v1/topics") return route.fulfill({json:{topics:[]}});
     // 目的頁的資料流程由各自 spec 驗證，此檔只驗證列表導向。
     return route.fulfill({
       status: 404,
@@ -201,12 +202,7 @@ for (const state of states) {
       );
     await page.goto("/materials");
     if (state === "loading" || state === "failure") {
-      await expect(
-        page.getByRole("heading", {
-          name: state === "loading" ? "正在讀取教材庫" : "無法讀取教材",
-          exact: true,
-        }),
-      ).toBeVisible();
+      await expect(state === "loading" ? page.getByRole("status").filter({hasText:"正在讀取教材庫"}) : page.getByRole("heading", {name:"無法讀取教材",exact:true})).toBeVisible();
       await expect(page.getByRole("searchbox")).toHaveCount(0);
       if (state === "loading") releaseRead();
       else {
@@ -225,7 +221,7 @@ for (const state of states) {
     );
     for (const [index, item] of items.entries()) {
       const card = cards.nth(index);
-      const actions = expectedActions[state][index];
+      const actions = [...expectedActions[state][index], ...(item.available_structures.length ? ["概念卡", "Podcast"] : [])];
       await expect(card.getByRole("heading")).toHaveText(item.display_name);
       await expect(card.getByRole("button", { name: item.display_name, exact: true })).toHaveCount(
         0,
@@ -444,7 +440,7 @@ for (const viewport of [
   { width: 1024, height: 768, columns: 2 },
   { width: 390, height: 844, columns: 1 },
 ])
-  test(`bookshelf geometry and expanded management at ${viewport.width}px`, async ({ page }) => {
+  test(`bookshelf geometry and expanded management at ${viewport.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     const names = [
       "微積分曲線描繪與函數極值：導數、凹凸性、漸近線及綜合應用練習講義（含例題詳解、課後習題與跨章節解題方法）",
@@ -467,7 +463,7 @@ for (const viewport of [
     await expect(cards.nth(0).locator(".primary-button")).toHaveText("建立知識地圖");
     for (const index of [1, 3]) {
       await expect(cards.nth(index).locator(".primary-button")).toHaveText("繼續學習");
-      await expect(cards.nth(index).locator(".secondary-button")).toHaveText("開啟知識地圖");
+      await expect(cards.nth(index).getByRole("button", {name:"開啟知識地圖",exact:true})).toBeVisible();
     }
     for (const index of [2, 4])
       await expect(cards.nth(index).locator(".primary-button")).toHaveText("開啟知識地圖");
@@ -484,7 +480,7 @@ for (const viewport of [
           actionOffset: rect("fieldset").y - box.y,
           titleOffset: rect("h2").y - box.y,
           metadataOffset: rect(".library-metadata").y - box.y,
-          buttonBottom: box.bottom - rect("fieldset button").bottom,
+          buttonBottom: box.bottom - rect("fieldset").bottom,
         };
       }),
     );
@@ -523,6 +519,7 @@ for (const viewport of [
         .evaluate((element) => element.scrollHeight > element.clientHeight),
     ).toBe(true);
 
+    await page.screenshot({path:testInfo.outputPath("material-library.png"),fullPage:true});
     const card = cards.first();
     await card.getByRole("button", { name: `管理「${names[0]}」`, exact: true }).click();
     await expect(card.getByRole("button", { name: "管理教材", exact: true })).toBeVisible();

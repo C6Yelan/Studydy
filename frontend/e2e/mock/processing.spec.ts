@@ -105,6 +105,8 @@ test.beforeEach(async ({ page }) => {
         return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: learnerId } });
       case "/v1/materials":
         return route.fulfill({ json: { schema: "material-library/v1", materials: [] } });
+      case "/v1/topics":
+        return route.fulfill({ json: { topics: [] } });
       default:
         throw new Error(`Unexpected processing request: ${request.method()} ${path}`);
     }
@@ -226,7 +228,7 @@ for (const status of ["succeeded", "partial"] as const)
     await expect(page.locator(".concept-flow-node")).toHaveCount(view.concepts.length);
   });
 
-test("analysis failure preserves its last progress and hides technical details until expanded", async ({
+test("analysis failure preserves its last progress and shows the error code", async ({
   page,
 }) => {
   const reads = await mockRun(page, (route) =>
@@ -249,8 +251,6 @@ test("analysis failure preserves its last progress and hides technical details u
   await expect(processing.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveCount(
     0,
   );
-  await expect(processing.locator("code")).toBeHidden();
-  await processing.getByText("技術資訊", { exact: true }).click();
   await expect(processing.locator("code")).toHaveText("NO_USABLE_EVIDENCE");
   await expect(processing.locator("code")).toBeVisible();
   await page.clock.runFor(5_000);
@@ -461,4 +461,26 @@ test("cancelled review retains validated batches without declaring completion", 
   await expect(page.getByRole("heading",{name:"已取消教材處理",exact:true})).toBeVisible();
   await expect(page.locator(".failure-progress")).toContainText("已完成 18 / 49 個檢核批次");
   await expect(page.getByRole("progressbar")).toHaveCount(0);
+});
+
+for (const width of [1280, 390]) test(`failed review explains the cause and preserves resume at ${width}px`, async ({page}) => {
+  await page.setViewportSize({width, height:844});
+  await page.route(`**/v1/materials/${materialId}`, route => route.fulfill({json:{
+    schema:'material-library-item/v1', material_id:materialId, source_artifact_id:artifactId,
+    display_name:'合成教材', size_bytes:1000, created_at:base.created_at,
+    latest_attempt:null, study_sessions:[], available_structures:[], head_revision:revision,
+  }}));
+  await mockRun(page, route => route.fulfill({json: {...base, base_revision:revision,
+    status:'failed', progress_stage:'review', completed_pages:1000, total_pages:1000,
+    completed_units:87, total_units:224, completed_at:clockTime.toISOString(),
+    error_code:'REVIEW_METADATA_REASON_INVALID', analysis_saved:true,
+    source_names:Array.from({length:41},(_,i)=>`合成來源 ${i+1}.pdf`)}}));
+  await page.goto(runPath);
+  await expect(page.getByRole('heading',{name:'這次更新未完成',exact:true})).toBeVisible();
+  await expect(page.getByText(/模型將概念標為非教學內容，但沒有提供允許的分類理由/)).toBeVisible();
+  await expect(page.getByText('REVIEW_METADATA_REASON_INVALID',{exact:true})).toBeVisible();
+  await expect(page.locator('.failure-progress')).toContainText('87 / 224 個檢核批次');
+  await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();
+  await expect(page.getByText(/已完成的分析批次保存在本機/)).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

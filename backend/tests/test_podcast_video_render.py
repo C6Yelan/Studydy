@@ -86,9 +86,9 @@ def test_progressive_reveal_and_reverse_seek_are_deterministic():
     page['elements'][1]['cue_index']=1
     validate_plan(value,cues)
     timeline=timeline_for_video('p',0,episode,cues,alignment,'/source')
-    layout=layouts(value);before=draw_frame(.1,timeline,value,layout)
-    after=draw_frame(timeline['segments'][1]['start']+.1,timeline,value,layout)
-    again=draw_frame(.1,timeline,value,layout)
+    layout=layouts(value);cache={};before=draw_frame(.1,timeline,value,layout,scene_cache=cache)
+    after=draw_frame(timeline['segments'][1]['start']+.1,timeline,value,layout,scene_cache=cache)
+    again=draw_frame(.1,timeline,value,layout,scene_cache=cache)
     assert before.tobytes()==again.tobytes()
     e=page['elements'][1];box=(e['x'],e['y'],e['x']+e['w'],e['y']+e['h'])
     assert before.crop(box).tobytes()!=after.crop(box).tobytes()
@@ -110,3 +110,38 @@ def test_page_entry_and_unordered_reveal_groups_render_like_implicit_visibility(
     layout=render.layouts(value)
     for t in (.1,2.1,.1):
         assert render.draw_frame(t,timeline,value,layout).tobytes()==render.draw_frame(t,timeline,implicit,layout).tobytes()
+
+
+def test_expanded_board_is_not_covered_by_a_baked_title_footer():
+    pytest.importorskip('PIL')
+    from PIL import ImageColor
+    from test_podcast_video_plan import sample, plan
+    from runtime.podcast_video_plan import validate_plan, timeline_for_video
+    episode, cues, alignment = sample(); value = plan()
+    value['pages'][0]['elements'][0].update(y=820, h=200)
+    validate_plan(value, cues)
+    timeline = timeline_for_video('p', 0, episode, cues, alignment, '/source')
+    frame = render.draw_frame(.1, timeline, value, render.layouts(value))
+    assert frame.getpixel((100, 1000)) == ImageColor.getrgb(render.PALETTE['teal'])
+    assert frame.getpixel((1800, 1000)) == ImageColor.getrgb(render.BACKGROUND)
+
+
+@pytest.mark.parametrize('text', ['說明文字。下一句，仍保留！', '文字「完整說明」結束。', '資料（含表頭）繼續。', 'TCP/IP，MB/s。'])
+def test_wrapping_keeps_punctuation_with_its_text_without_changing_content(text):
+    pytest.importorskip('PIL')
+    width = render.font(28).getlength('說明文字')
+    rows = render.lines(text, 28, width)
+    assert ''.join(rows) == text
+    assert all(render.font(28).getlength(row) <= width for row in rows)
+    assert all(not row.startswith(tuple('，。！？；：、）」』】')) for row in rows[1:])
+    assert all(not row.endswith(tuple('（「『【')) for row in rows[:-1])
+
+
+def test_wrapping_preserves_explicit_paragraphs_and_splits_long_identifiers():
+    pytest.importorskip('PIL')
+    text = 'Content-Transfer-Encoding。\n第二段。'
+    width = render.font(28).getlength('第二段。')
+    rows = render.lines(text,28,width)
+    assert ''.join(rows) == text.replace('\n','')
+    assert rows[-1] == '第二段。'
+    assert all(render.font(28).getlength(row) <= width for row in rows)

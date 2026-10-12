@@ -58,16 +58,16 @@ def _concept(context, concept_id: str | None) -> ConceptContext | None:
     return next((concept for concept in context.concepts if concept.concept_id == concept_id), None)
 
 
-def _first_unmastered_claim(concept: ConceptContext, states: dict[str, ConceptLearningState]) -> str | None:
+def _first_incomplete_claim(concept: ConceptContext, states: dict[str, ConceptLearningState]) -> str | None:
     state = states[concept.concept_id]
     weak = set(state.weak_claim_ids)
     uncovered = [
         claim.claim_id for claim in concept.claims
-        if claim.claim_id not in state.covered_claim_ids
+        if claim.claim_id in state.assessable_claim_ids and claim.claim_id not in state.covered_claim_ids
     ]
     remaining = [
         claim.claim_id for claim in concept.claims
-        if claim.claim_id not in state.mastered_claim_ids
+        if claim.claim_id in state.assessable_claim_ids and claim.claim_id not in state.completed_claim_ids
     ]
     return next(
         (claim.claim_id for claim in concept.claims if claim.claim_id in weak), None
@@ -79,97 +79,37 @@ def _next_action(
 ) -> NextAction:
     by_id = {state.concept_id: state for state in states}
     current = _concept(context, session.current_concept_id)
-    deferred = set(session.deferred_concept_ids)
-    no_safe = set(session.no_safe_claim_ids)
-    if current is None:
-        target = next(
-            (item for item in context.initial_learning_path if by_id[item].status != "mastered"),
-            None,
-        )
-        return NextAction(
-            action="advance" if target else "complete",
-            target_concept_id=target,
-            target_claim_id=None,
-            prerequisite_concept_ids=[],
-            reason="initial_path" if target else "all_mastered",
-        )
-    cycle = next((item for item in cycles if item['concept_id'] == current.concept_id), None)
-    if cycle is not None:
-        if cycle['active_set_id']:
+    by_cycle = {cycle['concept_id']: cycle for cycle in cycles}
+
+    def remaining(identity):
+        state = by_id[identity]
+        return state.status != 'completed' and bool(state.assessable_claim_ids)
+
+    if current is not None:
+        state = by_id[current.concept_id]
+        cycle = by_cycle.get(current.concept_id)
+        if cycle and cycle['active_set_id']:
+            return NextAction(action='continue_set', target_concept_id=current.concept_id,
+                              target_claim_id=None, prerequisite_concept_ids=[],
+                              reason='active_assessment_set')
+        if remaining(current.concept_id):
+            unmet = [identity for identity in current.prerequisite_ids
+                     if by_id[identity].status != 'completed']
+            remediation = bool(cycle and cycle['outcome'] == 'needs_review')
             return NextAction(
-                action='continue_set', target_concept_id=current.concept_id,
-                target_claim_id=None, prerequisite_concept_ids=[], reason='active_assessment_set',
+                action='remediate' if remediation else 'assess',
+                target_concept_id=current.concept_id,
+                target_claim_id=_first_incomplete_claim(current, by_id),
+                prerequisite_concept_ids=[] if remediation else unmet,
+                reason='incomplete_claims' if remediation else
+                       'canonical_prerequisite_gap' if unmet else 'current_concept',
             )
-        if cycle['outcome'] == 'needs_review':
-            return NextAction(
-                action='remediate', target_concept_id=current.concept_id,
-                target_claim_id=None, prerequisite_concept_ids=[], reason='diagnostic_wrong_points',
-            )
-        if cycle['outcome'] in ('passed', 'incomplete'):
-            finished = {
-                item['concept_id'] for item in cycles
-                if item['outcome'] in ('passed', 'incomplete') and not item['active_set_id']
-            }
-            target = next(
-                (identity for identity in context.initial_learning_path if identity not in finished),
-                None,
-            )
-            return NextAction(
-                action='advance' if target else 'complete', target_concept_id=target,
-                target_claim_id=None, prerequisite_concept_ids=[], reason='round_finished',
-            )
-    state = by_id[current.concept_id]
-    target_claim = _first_unmastered_claim(current, by_id)
-    if target_claim in no_safe:
-        target = next(
-            (
-                item for item in context.initial_learning_path
-                if item != current.concept_id and item not in deferred
-                and by_id[item].status != "mastered"
-            ),
-            None,
-        )
-        return NextAction(
-            action="defer" if target else "no_safe", target_concept_id=target,
-            target_claim_id=target_claim, prerequisite_concept_ids=[], reason="no_safe_assessment",
-        )
-    if state.status != "mastered":
-        unmet = [
-            concept_id for concept_id in current.prerequisite_ids
-            if by_id[concept_id].status != "mastered"
-        ]
-        return NextAction(
-            action="assess", target_concept_id=current.concept_id,
-            target_claim_id=target_claim, prerequisite_concept_ids=unmet,
-            reason="canonical_prerequisite_gap" if unmet else "current_concept",
-        )
-    target = next(
-        (
-            item for item in context.initial_learning_path
-            if by_id[item].status != "mastered" and item not in deferred
-        ),
-        None,
-    )
-    if target:
-        return NextAction(
-            action="advance", target_concept_id=target, target_claim_id=None,
-            prerequisite_concept_ids=[], reason="initial_path",
-        )
-    resumed = next(
-        (
-            item for item in context.initial_learning_path
-            if item in deferred and by_id[item].status != "mastered"
-        ),
-        None,
-    )
-    if resumed:
-        return NextAction(
-            action="resume", target_concept_id=resumed, target_claim_id=None,
-            prerequisite_concept_ids=[], reason="resume_deferred",
-        )
+    target = next((identity for identity in context.initial_learning_path
+                   if remaining(identity)), None)
     return NextAction(
-        action="complete", target_concept_id=None, target_claim_id=None,
-        prerequisite_concept_ids=[], reason="all_mastered",
+        action='advance' if target else 'complete', target_concept_id=target,
+        target_claim_id=None, prerequisite_concept_ids=[],
+        reason='initial_path' if target else 'assessable_concepts_finished',
     )
 
 
@@ -198,7 +138,7 @@ def _snapshot(
         "concept_states": [state.model_dump() for state in states],
         "next_action": action.model_dump(),
         "assessment_cycles": cycles,
-        "policy": "diagnostic-remediation/v1",
+        "policy": "claim-completion/v2",
     }
     return LearnerProgressSnapshot(
         schema_="learner-progress/v1",
@@ -219,7 +159,7 @@ def _snapshot(
 def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=None):
     """同次讀取共用已驗證教材與一致 DB snapshot，不以重讀全部資料來偵測競態。"""
     from runtime.storage.knowledge_structures import _read_verified_document
-    from .assessment_sets import _read_cycles
+    from .assessment_sets import _read_cycles, unavailable_claims, completed_concepts
     from .inherited_progress import inherited_progress
     with database_session(dsn) as db:
         try:
@@ -251,7 +191,11 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
                 ))
                 if inherited else events
             )
-            states = derive_learning_states(context, evidence)
+            states = derive_learning_states(
+                context, evidence, unavailable_claim_ids=unavailable_claims(db, row, context),
+                completed_concept_ids=completed_concepts(db, row) |
+                    {cycle["concept_id"] for cycle in inherited_cycles},
+            )
             current_cycles = {cycle['concept_id'] for cycle in cycles}
             weak = {state.concept_id for state in states if state.weak_claim_ids}
             cycles += [cycle for cycle in inherited_cycles

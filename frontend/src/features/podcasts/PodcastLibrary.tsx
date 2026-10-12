@@ -3,8 +3,11 @@ import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { PodcastSummary, MaterialLibraryItem } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
+import { PodcastCancelControl } from "./PodcastCancelControl";
 import { PodcastManagement } from "./PodcastManagement";
 import { StateView } from "../../ui/StateView";
+
+export const podcastPreviewReady = (item: PodcastSummary) => item.status === 'ready' && item.generation?.preview_ready === true;
 
 export const podcastStatus = { pending: "等待生成", running: "正在生成", ready: "可以播放", failed: "生成中斷", cancelled: "已取消" };
 
@@ -13,15 +16,38 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [deletingId, setDeletingId] = useState<string|null>(null);
   const heading = useRef<HTMLDivElement>(null);
+  const mutationVersion = useRef(0);
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    void apiClient.listPodcasts().then((list) => {
-      if (!cancelled) setItems(material ? list.podcasts.filter(p => p.material_id === material.material_id) : list.podcasts);
-    }, (e) => { if (!cancelled) setError(errorMessage(e)); });
-    return () => { cancelled = true; };
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    const read = async () => {
+      const version = mutationVersion.current;
+      try {
+        const list = await apiClient.listPodcasts();
+        if (cancelled || version !== mutationVersion.current) return;
+        const visible = material ? list.podcasts.filter(p => p.material_id === material.material_id) : list.podcasts;
+        setItems(visible); setError(null);
+        if (visible.some(p=>p.generation?.active || ['pending','running'].includes(p.status))) timer=setTimeout(read,2000);
+      } catch(e) { if(!cancelled)setError(errorMessage(e)); }
+    };
+    void read();
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [apiClient, reload, material?.material_id]);
+  const cancelAndDelete = async (id:string) => {
+    if (deletingId) return;
+    setDeletingId(id);setError(null);
+    try {
+      await apiClient.deletePodcast(id);
+      mutationVersion.current++;
+      try { localStorage.removeItem(`studydy.podcast.position:${learnerId}:${id}`); } catch { /* 不影響伺服器刪除。 */ }
+      setItems(previous=>previous?.filter(p=>p.podcast_id!==id)??null);setReload(value=>value+1);
+      heading.current?.focus();
+    } catch(e) { setError(errorMessage(e)); }
+    finally { setDeletingId(null); }
+  };
   const structure = material?.available_structures.find(s => s.knowledge_structure_revision === material.head_revision);
   const create = () => { if (material && structure) writeRoute({ name: "podcast-create", materialId: material.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision }); else if (!material) writeRoute({ name: "podcast-new" }); };
   const filtered = items?.filter((item) => `${item.name} ${item.material_name}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
@@ -41,15 +67,18 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
         <div className="library-grid">{filtered?.map((item) => <article className="surface library-item podcast-tile" key={item.podcast_id}>
           <span className="podcast-cover" aria-hidden="true"><Icon name="headphones" size={32} /></span>
           <p className="library-metadata">{item.delivery === "dialogue" ? "雙人對談" : "單人解說"} · {item.episode_count} 集</p>
-          <PodcastManagement item={item} apiClient={apiClient} onChanged={() => setReload(v => v + 1)} onDeleted={() => {
+          <PodcastManagement item={item} apiClient={apiClient} onChanged={() => {mutationVersion.current++;setReload(v => v + 1);}} onDeleted={() => {
+            mutationVersion.current++;
             try { localStorage.removeItem(`studydy.podcast.position:${learnerId}:${item.podcast_id}`); } catch { /* 不影響伺服器刪除。 */ }
             setItems(previous => previous?.filter(p => p.podcast_id !== item.podcast_id) ?? null);
-            heading.current?.focus();
+            setReload(v=>v+1);heading.current?.focus();
           }} />
           {!material && <p className="podcast-material-name" title={item.material_name}>{item.material_name}</p>}
-          {item.status !== "ready" && <p className="library-state">{podcastStatus[item.status]} · 已完成 {item.completed_episodes} / {item.episode_count} 集</p>}
+          {item.generation ? <p className="library-state">{item.generation.active ? (item.status === 'ready' ? '影片／字幕生成中' : podcastStatus[item.status]) : item.generation.failed_videos ? '部分影片生成失敗' : podcastStatus[item.status]} · 音訊 {item.completed_episodes} / {item.episode_count} 集 · 影片 {item.generation.completed_videos} / {item.episode_count} 集</p>
+            : item.status !== "ready" && <p className="library-state">{podcastStatus[item.status]} · 音訊已完成 {item.completed_episodes} / {item.episode_count} 集</p>}
+          {(item.generation?.active || ['pending','running'].includes(item.status)) && <PodcastCancelControl busy={deletingId!==null} onConfirm={()=>void cancelAndDelete(item.podcast_id)}/>}
           {!item.is_current_revision && <small>保留建立時的教材版本</small>}
-          <button type="button" className="primary-button" onClick={() => writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id })}>{item.status === "ready" ? "開啟播放" : "查看進度"}</button>
+          <button type="button" className="primary-button" onClick={() => writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id })}>{podcastPreviewReady(item) ? "開啟播放" : "查看進度"}</button>
         </article>)}</div>{filtered?.length === 0 && <p role="status">找不到符合的 Podcast。</p>}</>}
     </div>
   </section>;

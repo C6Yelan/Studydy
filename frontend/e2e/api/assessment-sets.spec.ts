@@ -155,6 +155,6 @@ test("whole paper submits once and restores persisted results after response los
   expect(
     progress.concept_states.find((i: { concept_id: string }) => i.concept_id === data.concept)
       .status,
-  ).not.toBe("mastered");
+  ).toBe("needs_review");
   await context.close();
 });

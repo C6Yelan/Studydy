@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardSetView, KnowledgeStructureView } from "../../api/contracts";
 import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { Flashcard } from "./Flashcard";
+import { useConceptArtwork } from "./VisualConceptCard";
 
 export function CreateCardSet({ apiClient, route, embedded = false }: {
   embedded?: boolean;
@@ -20,7 +21,6 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const [name, setName] = useState("");
   const [selected, setSelected] = useState(new Set<string>());
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [flipped, setFlipped] = useState(false);
   const [query, setQuery] = useState("");
   const [conceptPage, setConceptPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
@@ -68,7 +68,6 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
         setName(deck?.name ?? `${material.display_name.replace(/\.[^.]+$/, "").slice(0, 190)}複習`);
         setSelected(new Set((deck?.cards ?? structure.concepts).map((item) => item.concept_id)));
         setPreviewId(deck?.cards[0]?.concept_id ?? structure.concepts[0]?.concept_id ?? null);
-        setFlipped(false);
       } catch (failure) {
         if (!cancelled) setError(errorMessage(failure));
       }
@@ -131,6 +130,11 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
       if (current()) setBusy(false);
     }
   };
+  const { artworkModule, loadFailed } = useConceptArtwork();
+  const counts = useMemo(() => view && artworkModule ? new Map(view.concepts.map(card => [card.concept_id, artworkModule.conceptCardPages(card, view).length])) : null, [view, artworkModule]);
+  const selectedCount = counts ? [...selected].reduce((n, id) => n + (counts.get(id) ?? 0), 0) : null;
+  const totalCount = counts ? [...counts.values()].reduce((a, b) => a + b, 0) : null;
+  const countPending = loadFailed ? "張數載入失敗" : "正在計算張數…";
   const backLabel = editing ? "返回卡組" : "返回知識地圖";
   if (error || !view) return (
     <section className="cards-page">
@@ -147,14 +151,13 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const toggle = (id: string) => {
     setSelected((previous) => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; });
     setPreviewId(id);
-    setFlipped(false);
   };
   return <section className="cards-page cards-create">
     {!embedded && <button className="cards-back text-button" type="button" onClick={back}><Icon name="arrow-left" size={17} /> {backLabel}</button>}
     {!embedded && <header className="cards-page-header"><div><h1>{editing ? "管理卡組" : "建立概念卡組"}</h1><p className="cards-material-name"><Icon name="book" size={16} /> {materialName}</p></div></header>}
     <header className="cards-create-toolbar">
       <label className="cards-field">卡組名稱<input value={name} maxLength={200} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>
-      <div className="cards-create-summary"><strong>{selected.size} 張概念卡</strong><span>{editing ? "調整名稱或勾選要保留的概念" : "保存後可隨時回來複習"}</span></div>
+      <div className="cards-create-summary"><strong>{selectedCount === null ? countPending : `${selectedCount} 張卡片`}</strong><span>{editing ? "調整名稱或勾選要保留的概念" : "保存後可隨時回來複習"}</span></div>
       <div className="state-actions">
         {editing && <button className="secondary-button" type="button" disabled={busy} onClick={back}>取消變更</button>}
         <button className="primary-button" type="button" disabled={busy || !validName || selected.size === 0 || conflict} onClick={() => void save()}>
@@ -165,7 +168,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     </header>
     <div className="cards-create-grid">
       <section className="cards-selection" aria-label="選擇概念">
-        <div className="cards-selection-heading"><h2>選擇概念</h2><span aria-live="polite">已選 {selected.size} / {view.concepts.length}</span></div>
+        <div className="cards-selection-heading"><h2>選擇概念</h2><span aria-live="polite">{selectedCount === null ? countPending : `已選 ${selectedCount} / ${totalCount} 張卡片`}</span></div>
         <div className="cards-selection-toolbar">
           <input className="cards-concept-search" type="search" aria-label="搜尋概念" placeholder="搜尋概念…" value={query} onChange={(event) => { setQuery(event.target.value); setConceptPage(1); }} />
           <div className="cards-selection-actions"><button className="text-button" type="button" disabled={busy} onClick={() => setSelected(new Set(view.concepts.map((item) => item.concept_id)))}>全選</button><span>／</span><button className="text-button" type="button" disabled={busy} onClick={() => setSelected(new Set())}>取消全選</button></div>
@@ -173,7 +176,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
         <div className="cards-concept-list" ref={conceptList}>
           {pageConcepts.map((concept) => <div className={`cards-concept-row ${selected.has(concept.concept_id) ? "is-selected" : ""}`} key={concept.concept_id}>
             <label><input type="checkbox" checked={selected.has(concept.concept_id)} disabled={busy} onChange={() => toggle(concept.concept_id)} /><span><strong>{concept.label}</strong><small>{concept.claims.length} 個重點</small></span></label>
-            <button className="text-button" type="button" aria-label={`預覽「${concept.label}」`} aria-pressed={previewId === concept.concept_id} onClick={() => { setPreviewId(concept.concept_id); setFlipped(false); }}>預覽</button>
+            <button className="text-button" type="button" aria-label={`預覽「${concept.label}」`} aria-pressed={previewId === concept.concept_id} onClick={() => { setPreviewId(concept.concept_id); }}>預覽</button>
           </div>)}
           {visible.length === 0 && <p className="cards-no-results">找不到符合的概念。</p>}
         </div>
@@ -183,7 +186,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
           <button className="secondary-button" type="button" disabled={conceptPage === pageCount} onClick={() => setConceptPage((page) => page + 1)}>下一頁</button>
         </nav>}
       </section>
-      <section className="cards-preview" aria-label="卡片預覽"><div className="cards-preview-heading"><h2>卡片預覽</h2><span>一張卡，一個概念</span></div>{preview && <Flashcard key={preview.concept_id} card={preview} structure={view} flipped={flipped} onFlip={() => setFlipped(!flipped)} apiClient={apiClient} sourceResolver={view.source_resolver} />}<p className="cards-preview-hint">點擊翻面，看看這個概念的重點。</p></section>
+      <section className="cards-preview" aria-label="卡片預覽"><div className="cards-preview-heading"><h2>卡片預覽</h2><span>依內容呈現完整卡片</span></div>{preview && <Flashcard key={preview.concept_id} card={preview} structure={view} materialName={materialName} apiClient={apiClient} sourceResolver={view.source_resolver} />}</section>
     </div>
   </section>;
 }

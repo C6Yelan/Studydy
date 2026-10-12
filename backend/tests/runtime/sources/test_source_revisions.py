@@ -30,6 +30,9 @@ def pdf(text):
 @pytest.fixture
 def revisions(closed_loop, monkeypatch):
     learner, _, settings, _, dsn, _ = closed_loop
+    import json
+    from pathlib import Path
+    settings['runtime_lock']['material_semantics'] = json.loads((Path(__file__).parents[2]/'fixtures/legacy_material_semantics.json').read_text())
     from pdf_evidence import material_pipeline
     import runtime.material_processing as processing
     monkeypatch.setattr(processing, "runtime_preflight", lambda config: runtime_binding(config))
@@ -109,7 +112,7 @@ def test_append_uses_only_new_semantics_preserves_history_and_replays_after_prom
     newest=read_knowledge_structure(learner.learner_id,material,run_id=result.run_id,dsn=dsn).document
     assert newest['schema']=='knowledge-structure/v1' and 'source_sha256' not in newest
     assert newest['page_count']==2 and len(newest['input_binding']['manifest']['items'])==2
-    assert requests[-1]['existing_concepts']
+    assert 'existing_concepts' in requests[-1]  # 無相關舊概念時可為空；來源綁定仍須保留。
     assert {row[1] for section in requests[-1]['sections'] for row in section['evidence']}=={2}
     assert read_knowledge_structure(learner.learner_id,material,revision=old['revision'],dsn=dsn).document==snapshot
     assert start([second],'append',old['revision']).run_id==run.run_id

@@ -22,7 +22,7 @@ def build_semantic_bundles(
     minimum_page: int = 1,
     minimum_evidence_index: int = 0,
 ) -> Iterator[dict[str, Any]]:
-    """依語意服務的批量判斷封裝連續 Evidence；每批納入最新 concept catalog。"""
+    """封裝連續 Evidence；候選目錄可縮小，來源區塊與已保存概念不截斷。"""
 
     excluded = set(context.get("non_content_evidence_ids", []))
     evidence = [
@@ -43,14 +43,22 @@ def build_semantic_bundles(
         return {"sections": sections, "evidence": items}
 
     def fits_bundle(candidate: dict[str, Any]) -> bool:
+        candidate['catalog_keys'] = _relevant_catalog_keys(context, candidate, state)
         request = semantic_request(context, candidate, state)
         if fits(request):
             return True
-        # 歷史細節擠滿額度時，只省略傳輸視圖中的 Claims；全體概念身分與新來源保留。
-        if not any('c' in entry for entry in request['existing_concepts']):
+        # 先確保本批來源本身放得下；不能因歷史目錄成長而把新來源越切越碎。
+        if not fits({**request, 'existing_concepts': []}):
             return False
         candidate['include_claim_details'] = False
-        return fits(semantic_request(context, candidate, state))
+        while True:
+            if fits(semantic_request(context, candidate, state)):
+                return True
+            # 名稱／別名命中的候選優先，其次才是同章節。只縮請求，不刪 state。
+            keys = candidate['catalog_keys']
+            if not keys:
+                return False
+            candidate['catalog_keys'] = keys[:len(keys) // 2]
 
     start = 0
     while start < len(evidence):
@@ -157,7 +165,7 @@ class SemanticState:
     literal_repairs: int = 0
     source_review_required: bool = False
 
-    def catalog(self, handles: dict[str, int], detailed_keys: set[str] | None = None) -> list[dict[str, Any]]:
+    def catalog(self, handles: dict[str, int], keys: list[str], *, details: bool = True) -> list[dict[str, Any]]:
         return [
             {
                 "k": key, "l": concept["label"], "a": concept["aliases"],
@@ -165,21 +173,23 @@ class SemanticState:
                     "c": [claim["text"] for claim in concept["claims"]],
                     "e": list(dict.fromkeys(handles[span["evidence_id"]]
                         for claim in concept["claims"] for span in claim["source_spans"])),
-                } if detailed_keys is None or key in detailed_keys else {}),
+                } if details else {}),
             }
-            for key, concept in self.concepts.items()
+            for key in keys for concept in [self.concepts[key]]
         ]
 
 
 def _relevant_catalog_keys(
     context: dict[str, Any], bundle: dict[str, Any], state: SemanticState,
-) -> set[str]:
+) -> list[str]:
+    if not state.concepts:
+        return []
     # 名稱／別名供跨來源辨識；同章節既有內容也保留。這只選擇請求視圖，不刪 canonical state。
     text = "\n".join([section['title'] for section in bundle['sections']] +
                      [item['exact_text'] for item in bundle['evidence']]).casefold()
     sections = {section['section_id'] for section in bundle['sections']}
     evidence_sections = {item['evidence_id']: item['section_id'] for item in context['evidence']}
-    selected: set[str] = set()
+    selected = []
     for key, concept in state.concepts.items():
         same_section = any(evidence_sections.get(span['evidence_id']) in sections
                            for claim in concept['claims'] for span in claim['source_spans'])
@@ -189,8 +199,8 @@ def _relevant_catalog_keys(
             for name in names if len(name.strip()) >= 2
         )
         if same_section or mentioned:
-            selected.add(key)
-    return selected
+            selected.append((int(mentioned), int(same_section), key))
+    return [key for _, _, key in sorted(selected, key=lambda item: (-item[0], -item[1], item[2]))]
 
 
 def semantic_request(
@@ -198,13 +208,15 @@ def semantic_request(
 ) -> dict[str, Any]:
     handles = {item["evidence_id"]: index for index, item in enumerate(context["evidence"])}
     evidence = {item["evidence_id"]: item for item in bundle["evidence"]}
-    detailed_keys = (_relevant_catalog_keys(context, bundle, state)
-                     if bundle.get('include_claim_details', True) else set())
-    catalog = state.catalog(handles, detailed_keys)
+    keys = bundle.get('catalog_keys')
+    if keys is None:
+        keys = _relevant_catalog_keys(context, bundle, state)
+    catalog = state.catalog(handles, keys, details=bundle.get('include_claim_details', True))
     source_pages = context.get("source_pages")
     if source_pages:
         all_evidence = {item["evidence_id"]: item for item in context["evidence"]}
-        for entry, concept in zip(catalog, state.concepts.values()):
+        for entry in catalog:
+            concept = state.concepts[entry['k']]
             if "c" not in entry:
                 continue
             entry["claim_sources"] = [list(dict.fromkeys(
@@ -213,9 +225,9 @@ def semantic_request(
     return {
         "existing_concepts": catalog,
         "catalog_policy": (
-            "All saved concept keys, labels and aliases are listed. Claim details c/e are included only "
-            "when related to this batch. Omitted details remain saved, not empty or deleted. "
-            "Reuse keys for equivalent concepts; do not infer missing facts from names alone."
+            "Only a bounded selection of relevant saved concepts is listed. Omitted concepts and "
+            "claim details remain saved, not empty or deleted. Reuse a listed key only for an equivalent "
+            "concept; otherwise create a new key. Do not infer missing facts or relations from names alone."
         ),
         **({
             "update_policy": (
@@ -339,9 +351,22 @@ def apply_semantic_response(
         item["evidence_id"]: item
         for item in bundle["evidence"] if item["evidence_id"] not in non_content_ids
     }
-    all_evidence = {item["evidence_id"] for item in context["evidence"]}
+    # 在套用新 Claims／aliases 前，重用 request builder 的 catalog 篩選與容量降級契約。
+    # 關係可引用本批專屬證據或已傳送的 catalog 證據，不必先成為端點的 Claim。
+    request = semantic_request(context, bundle, state) if response['relations'] else None
+    selected_keys = bundle.get('catalog_keys')
+    visible_keys = set(selected_keys if selected_keys is not None else _relevant_catalog_keys(context, bundle, state))
+    allowed_handles = (
+        {row[0] for section in request["sections"] for row in section["evidence"]}
+        | {ref for concept in request["existing_concepts"] for ref in concept.get("e", [])}
+    ) if request is not None else set()
+    allowed_evidence = {
+        item["evidence_id"] for index, item in enumerate(context["evidence"])
+        if index in allowed_handles and item["evidence_id"] not in non_content_ids
+    }
     all_sections = {section["section_id"] for section in context["sections"]}
     response_keys: set[str] = set()
+    renamed_keys: dict[str, str] = {}
     for proposal in response["concepts"]:
         if not isinstance(proposal, dict) or set(proposal) != {"k", "l", "a", "c"}:
             raise ValueError("SEMANTIC_OUTPUT_INVALID")
@@ -349,6 +374,18 @@ def apply_semantic_response(
         if not isinstance(key, str) or _KEY.fullmatch(key) is None or key in response_keys:
             raise ValueError("SEMANTIC_OUTPUT_INVALID")
         response_keys.add(key)
+        # 未提供的舊概念不能僅因模型選了同名 key 就被隱性合併。
+        if key in state.concepts and key not in visible_keys:
+            base = key[:40] + '.' + canonical_sha256(proposal)[:16]
+            replacement = base
+            suffix = 0
+            while replacement in state.concepts or replacement in response_keys or any(
+                item.get('k') == replacement for item in response['concepts'] if isinstance(item, dict)
+            ):
+                suffix += 1
+                replacement = base + '.' + str(suffix)
+            renamed_keys[key] = replacement
+            key = replacement
         label = _text(proposal["l"], maximum=256)
         aliases = proposal["a"]
         if not isinstance(aliases, list):
@@ -374,10 +411,7 @@ def apply_semantic_response(
             identity = canonical_sha256(claim)
             if all(canonical_sha256(existing) != identity for existing in current["claims"]):
                 current["claims"].append(claim)
-    known_keys = set(state.concepts)
-    context_evidence = {
-        item["evidence_id"]: item for item in context["evidence"]
-    }
+    known_keys = visible_keys | {renamed_keys.get(key, key) for key in response_keys}
     for relation in response["relations"]:
         if not isinstance(relation, dict) or set(relation) != {
             "s", "t", "k", "r", "e", "c",
@@ -395,7 +429,8 @@ def apply_semantic_response(
             continue
         refs = [context["evidence"][ref] for ref in relation["e"]]
         relation = {
-            "source_concept": relation["s"], "target_concept": relation["t"],
+            "source_concept": renamed_keys.get(relation["s"], relation["s"]),
+            "target_concept": renamed_keys.get(relation["t"], relation["t"]),
             "type": relation["k"], "learner_reason": relation["r"],
             "evidence_refs": [item["evidence_id"] for item in refs],
             "context_refs": list(dict.fromkeys(item["section_id"] for item in refs)),
@@ -407,16 +442,6 @@ def apply_semantic_response(
         evidence_refs = relation["evidence_refs"]
         context_refs = relation["context_refs"]
         confidence = relation["confidence"]
-        endpoint_evidence = {
-            span["evidence_id"]
-            for key in (relation["source_concept"], relation["target_concept"])
-            for claim in state.concepts.get(key, {}).get("claims", [])
-            for span in claim["source_spans"]
-        }
-        endpoint_sections = {
-            context_evidence[reference]["section_id"]
-            for reference in endpoint_evidence
-        }
         if (
             relation["source_concept"] not in known_keys
             or relation["target_concept"] not in known_keys
@@ -435,8 +460,7 @@ def apply_semantic_response(
             not isinstance(evidence_refs, list)
             or not evidence_refs
             or len(evidence_refs) != len(set(evidence_refs))
-            or any(reference not in all_evidence for reference in evidence_refs)
-            or not set(evidence_refs) <= endpoint_evidence
+            or not set(evidence_refs) <= allowed_evidence
         ):
             state.rejected_relations += 1
             continue
@@ -444,7 +468,6 @@ def apply_semantic_response(
             not isinstance(context_refs, list)
             or len(context_refs) != len(set(context_refs))
             or any(reference not in all_sections for reference in context_refs)
-            or not set(context_refs) <= endpoint_sections
         ):
             state.rejected_relations += 1
             continue

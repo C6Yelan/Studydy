@@ -111,13 +111,14 @@ def test_complete_unit_grouping_preserves_individual_points_sources_and_original
     group = result["learning_units"][0]
     assert group["member_concept_ids"] == ["c0", "c1", "c2"]
     assert group["claim_ids"] == ["q0", "q1", "q2"]
-    assert len(result["internalized_relations"]) == 2
+    assert result["internalized_relations"] == []
+    assert [(r['source_concept_id'], r['target_concept_id']) for r in result['relations']] == [('c1', 'c0'), ('c2', 'c0')]
     assert result["preserved_claim_ids"] == [f"q{index}" for index in range(5)]
     assert result["preserved_evidence_ids"] == [f"e{index}" for index in range(5)]
     assert result["publication_authorized"] is False
 
 
-def test_applied_groups_are_valid_canonical_claims_with_new_ids_and_unchanged_evidence():
+def test_applied_groups_preserve_canonical_owners_and_literal_guard():
     from test_knowledge_structure_v1 import _block, _page
     from knowledge_map.structure import (SemanticState, build_document_context, apply_semantic_response,
                                          validate_knowledge_structure)
@@ -145,8 +146,8 @@ def test_applied_groups_are_valid_canonical_claims_with_new_ids_and_unchanged_ev
                     'evidence': [0], 'reason': '嘗試補正，但未保留原引用的英文名稱。'}], 'relation_edits': []}
     applied, audit = apply_review(doc, view, unit, response)
     assert doc == before and applied['evidence'] == doc['evidence']
-    assert validate_knowledge_structure(applied) and len(applied['concepts']) == 1
-    assert len(applied['concepts'][0]['claims']) == 3
+    assert validate_knowledge_structure(applied) and applied['concepts'] == doc['concepts']
+    assert len(audit['learning_units']) == 1
     assert applied['revision'] != doc['revision']
     assert set(audit['claim_mapping']) == {q['claim_id'] for c in doc['concepts'] for q in c['claims']}
     assert any(e['reason'] == 'CANONICAL_LITERAL_GUARD' for e in audit['blocked_changes'])

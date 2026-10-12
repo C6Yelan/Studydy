@@ -388,7 +388,7 @@ def _validate_relations_and_path(document):
     relation_ids = set()
     relation_directions: set[tuple[str, str, str]] = set()
     known_sections = {section["section_id"] for section in sections}
-    concept_by_id = {concept["concept_id"]: concept for concept in concepts}
+    evidence_by_id = {item["evidence_id"]: item for item in evidence}
     for relation in relations:
         if not isinstance(relation, dict) or set(relation) != {
             "relation_id", "source_concept_id", "target_concept_id", "type",
@@ -428,27 +428,22 @@ def _validate_relations_and_path(document):
             or reason.casefold() in _GENERIC_REASONS
         ):
             return False
-        endpoint_evidence = set(concept_by_id[source_id]["evidence_refs"]) | set(
-            concept_by_id[target_id]["evidence_refs"]
-        )
         evidence_refs = relation["evidence_refs"]
         if (
             not isinstance(evidence_refs, list)
             or not evidence_refs
             or len(evidence_refs) != len(set(evidence_refs))
             or not set(evidence_refs) <= known_evidence
-            or not set(evidence_refs) <= endpoint_evidence
         ):
             return False
-        endpoint_sections = set(concept_by_id[source_id]["section_ids"]) | set(
-            concept_by_id[target_id]["section_ids"]
-        )
+        # Request scope 已在 semantic projection 檢查；保存結構回查關係自身的來源章節。
+        evidence_sections = {evidence_by_id[ref]["section_id"] for ref in evidence_refs}
         context_refs = relation["context_refs"]
         if (
             not isinstance(context_refs, list)
             or len(context_refs) != len(set(context_refs))
             or not set(context_refs) <= known_sections
-            or not set(context_refs) <= endpoint_sections
+            or not set(context_refs) <= evidence_sections
         ):
             return False
         confidence = relation["confidence"]

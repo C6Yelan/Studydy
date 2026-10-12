@@ -27,7 +27,7 @@ MIME = {
 MAX_FILE_BYTES = 100 * 1024 * 1024
 POLICY = {
     'schema': 'normalization-policy/v1',
-    'version': 1,
+    'version': 2,
     'olefile': '0.47',
     'max_file_bytes': MAX_FILE_BYTES,
     'libreoffice': '26.2.5.2',
@@ -35,12 +35,12 @@ POLICY = {
     'markdown_it': '3.0.0',
     'visible_slides_only': True,
     'notes': False,
-    'remote_resources': False,
+    'remote_resources': 'best-effort',
     'text_columns': 72,
 }
 _SAFE_ERRORS = {
     'UNSUPPORTED_MEDIA_TYPE', 'MATERIAL_TOO_LARGE', 'PDF_UNUSABLE', 'PDF_DAMAGED',
-    'ZIP_PATH', 'OFFICE_ACTIVE_OR_ENCRYPTED', 'OFFICE_EXTERNAL_RELATIONSHIP',
+    'ZIP_PATH', 'OFFICE_ACTIVE_OR_ENCRYPTED',
     'OFFICE_TYPE_MISMATCH', 'OFFICE_INVALID_PACKAGE', 'UTF8_REQUIRED',
     'SLIDE_PAGE_COUNT_MISMATCH', 'UNSAFE_RENDER_HTML', 'NORMALIZER_VERSION_MISMATCH',
 }
@@ -77,12 +77,14 @@ def _limits():
         resource.setrlimit(kind, (value, value))
 
 
-def convert(data: bytes, extension: str, media_type: str, policy: dict) -> tuple[bytes, dict]:
+def convert(data: bytes, extension: str, media_type: str, policy: dict, *, cancellation_check=None) -> tuple[bytes, dict]:
     """只接受當前政策；子程序產物須對回原檔與輸出 PDF 的雜湊。"""
     if policy != conversion_policy():
         raise NormalizationError('NORMALIZER_VERSION_MISMATCH')
     if extension not in MIME or MIME[extension] != media_type:
         raise NormalizationError('UNSUPPORTED_MEDIA_TYPE')
+
+    if cancellation_check: cancellation_check()
 
     # venv 的 Python 為 symlink，須掛載基底直譯器及套件目錄。
     base = Path(sys.base_prefix)
@@ -101,6 +103,9 @@ def convert(data: bytes, extension: str, media_type: str, policy: dict) -> tuple
         # 子程序只讀所需 runtime／系統資源，僅 output 可寫；不繼承外部環境。
         command = [
             'bwrap', '--unshare-all', '--die-with-parent', '--new-session',
+            *(['--share-net', '--ro-bind', '/etc/resolv.conf', '/etc/resolv.conf',
+               '--ro-bind', '/etc/ssl', '/etc/ssl']
+              if extension in ('.docx', '.pptx', '.doc', '.ppt') else []),
             '--cap-drop', 'ALL',
             '--ro-bind', '/usr', '/usr',
             '--symlink', 'usr/bin', '/bin',
@@ -120,6 +125,8 @@ def convert(data: bytes, extension: str, media_type: str, policy: dict) -> tuple
             '--setenv', 'PATH', '/usr/bin',
             '--setenv', 'LANG', 'C.UTF-8',
             '--setenv', 'SAL_USE_VCLPLUGIN', 'svp',
+            # 避免 LibreOffice 依主機 CPU 數開大量工作執行緒，耗盡 2 GiB 位址空間。
+            '--setenv', 'MAX_CONCURRENCY', '2',
             '--setenv', 'XDG_CACHE_HOME', '/tmp/cache',
             '/runtime/bin/python3.12', '/renderer.py',
             '/input/source' + extension, '/output', media_type,
@@ -129,11 +136,17 @@ def convert(data: bytes, extension: str, media_type: str, policy: dict) -> tuple
             start_new_session=True, preexec_fn=_limits,
         )
         try:
-            stdout, _ = process.communicate(timeout=60)
-        except subprocess.TimeoutExpired:
+            while True:
+                if cancellation_check: cancellation_check()
+                try:
+                    stdout, _ = process.communicate(timeout=.5)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+        except BaseException:
             os.killpg(process.pid, signal.SIGKILL)
             process.communicate()
-            raise NormalizationError('NORMALIZATION_TIMEOUT') from None
+            raise
         if process.returncode:
             reason = stdout.decode(errors='replace').strip()
             raise NormalizationError(reason if reason in _SAFE_ERRORS else 'NORMALIZATION_FAILED')

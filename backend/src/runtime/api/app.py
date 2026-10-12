@@ -898,7 +898,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         _require_query(request, set())
         return podcasts.read_podcast(_trusted_learner(request, settings).learner_id, podcast_id, dsn=settings.dsn)
 
-    @app.post("/v1/podcasts/{podcast_id}/actions", response_model=PodcastSummary, tags=["podcasts"])
+    @app.post("/v1/podcasts/{podcast_id}/actions", response_model=PodcastSummary | PodcastDeletedView, tags=["podcasts"])
     def podcast_action_route(request: Request, podcast_id: UUID, body: PodcastAction):
         _require_query(request, set())
         return podcasts.change_podcast(_trusted_learner(request, settings).learner_id,

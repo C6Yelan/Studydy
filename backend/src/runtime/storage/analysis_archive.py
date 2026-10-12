@@ -1,6 +1,7 @@
 """失敗保留可續接狀態；發布完成清理 checkpoint，品質提示不阻擋清理。"""
 
 from pathlib import Path
+from datetime import datetime, UTC
 import json
 import logging
 import os
@@ -81,6 +82,7 @@ class AnalysisArchive:
         self._replayed_responses = set()
         self.review_reuses = []
         self._evidence_candidates = None
+        self._block_candidates = None
         self.evidence_reused_from = set()
 
     def load_checkpoint(self):
@@ -177,6 +179,8 @@ class AnalysisArchive:
                 if (
                     material is None or material.discard_requested_at is not None or run is None
                     or run.worker_token != self.worker_token or run.status != 'running'
+                    or run.cancel_requested_at is not None or run.lease_expires_at is None
+                    or run.lease_expires_at <= datetime.now(UTC)
                 ):
                     raise AnalysisArchiveError('MATERIAL_RUN_UNAVAILABLE')
                 for directory in reversed([self.directory, *list(self.directory.parents)[:3]]):
@@ -185,9 +189,14 @@ class AnalysisArchive:
                     if not stat.S_ISDIR(details.st_mode) or stat.S_IMODE(details.st_mode) != 0o700:
                         raise OSError
                 destination = self.directory / name
-                destination.parent.mkdir(mode=0o700, exist_ok=True)
-                if destination.parent.is_symlink():
-                    raise OSError
+                parent = self.directory
+                # 子圖包含多層目錄；每層都私有且不能沿 symlink 離開教材範圍。
+                for part in destination.parent.relative_to(self.directory).parts:
+                    parent = parent / part
+                    parent.mkdir(mode=0o700, exist_ok=True)
+                    details = parent.stat(follow_symlinks=False)
+                    if not stat.S_ISDIR(details.st_mode) or stat.S_IMODE(details.st_mode) != 0o700:
+                        raise OSError
                 with tempfile.NamedTemporaryFile(dir=self.directory, prefix='.writing-', delete=False) as stream:
                     temporary = Path(stream.name)
                     stream.write(encoded)
@@ -242,6 +251,47 @@ class AnalysisArchive:
 
     def save_checkpoint(self, data):
         self._write('checkpoint.json', data)
+
+    def load_block_response(self, identity, request_digest):
+        """亂序完成的子圖也可接續；只讀相同來源、模型與請求的已驗證結果。"""
+        if self._block_candidates is None:
+            self._block_candidates = [(self.run.run_id, self.signature)]
+            with database_session(self.dsn) as session:
+                prior = session.scalars(select(MaterialProcessingRun).where(
+                    MaterialProcessingRun.learner_id == self.run.learner_id,
+                    MaterialProcessingRun.material_id == self.run.material_id,
+                    MaterialProcessingRun.status.in_(('failed', 'cancelled')),
+                    MaterialProcessingRun.created_at < self.run.created_at,
+                ).order_by(MaterialProcessingRun.created_at.desc())).all()
+                for row in prior:
+                    if _can_reuse_analysis(row, self.run):
+                        self._block_candidates.append((row.run_id, _checkpoint_input_digest(row)))
+        for run_id, signature in self._block_candidates:
+            path = self.directory.parent / run_id.hex / 'blocks' / identity / 'complete.json'
+            if any(part.is_symlink() for part in (path, *list(path.parents)[:5])):
+                raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_INVALID')
+            if not path.exists():
+                continue
+            try:
+                value = _read_envelope(path, run_id, signature)['data']
+                if value['request_sha256'] != request_digest:
+                    raise ValueError
+                return value
+            except (OSError, ValueError, KeyError, TypeError):
+                raise AnalysisArchiveError('ANALYSIS_CHECKPOINT_INVALID') from None
+        return None
+
+    def prepare_block_call(self, identity, number, request):
+        self._write(f'blocks/{identity}/call-{number:06d}/request.json', request)
+
+    def save_block_response(self, identity, number, response):
+        # 原始回應在驗證前保存，失敗原因不能只剩通用錯誤碼。
+        self._write(f'blocks/{identity}/call-{number:06d}/response.json', response)
+
+    def complete_block(self, identity, request_digest, number, response):
+        self._write(f'blocks/{identity}/complete.json', {
+            'request_sha256': request_digest, 'call_number': number, 'response': response,
+        })
 
     def save_ocr_recovery(self, data):
         digest = data['original_evidence_id'].rsplit(':', 1)[-1]

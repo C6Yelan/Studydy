@@ -1,8 +1,10 @@
-"""B 聲線：固定參考、通用正規化與英文片段。"""
+"""固定原參考聲線；Podcast 採 V/W 指令、整句混讀與通用音訊修正。"""
 import json
 import os
 from pathlib import Path
 import sys
+
+PODCAST_INSTRUCTION = 'You are a helpful assistant. 请用自然的台湾口音普通话说话。<|endofprompt|>'
 
 
 def render(body, output):
@@ -28,7 +30,7 @@ def render(body, output):
     import wetext
     from tn.chinese.normalizer import Normalizer as ZhNormalizer
     from tn.english.normalizer import Normalizer as EnNormalizer
-    from spoken_input import speech_spans
+    from spoken_input import speech_spans, mixed_sentences
 
     cache = Path(os.environ["STUDYDY_COSYVOICE_NORMALIZER_CACHE"])
     zh = ZhNormalizer(cache_dir=str(cache / "fst-simplified"), traditional_to_simple=True,
@@ -56,18 +58,21 @@ def render(body, output):
             groups[-1]["text"] += " " + turn["text"]
         else:
             groups.append(dict(turn))
-    samples, total = [], 0
-    from audio_mastering import trim_edges, edge_silence, pause_seconds, master
+    samples, total, podcast_chunks = [], 0, []
+    from audio_mastering import trim_edges, master
     for group_index, turn in enumerate(groups):
         speaker = turn["speaker"]
         set_all_random_seed(42 if speaker == "host" else 43)
         reference = str(voices / f"{speaker}.wav")
         prompt = model.frontend.text_normalize(reference_text[speaker], split=False)
-        plan = speech_spans(turn["text"], zh.normalize, en.normalize)
+        plan = mixed_sentences(turn['text'], zh.normalize, en.normalize) if podcast else speech_spans(turn["text"], zh.normalize, en.normalize)
         if not plan:raise RuntimeError("PODCAST_AUDIO_INVALID")
         for item_index, item in enumerate(plan):
             last = item_index+1 == len(plan)
-            if item["language"] == "en":
+            if podcast:
+                generated = model.inference_instruct2(item['text'], PODCAST_INSTRUCTION,
+                    reference, stream=False, text_frontend=False)
+            elif item["language"] == "en":
                 # 字母間只有空白，逗號只分隔原稿中的列舉；句中的縮寫不另加句號。
                 ending = '.' if item['ending'] in ('。','！','？','.','!','?') or last else ',' if item['ending'] else ''
                 generated = model.inference_cross_lingual(
@@ -77,7 +82,8 @@ def render(body, output):
                 generated = model.inference_zero_shot(item["text"],
                     "You are a helpful assistant.<|endofprompt|>" + prompt,
                     reference, stream=False, text_frontend=False)
-            chunks = [c["tts_speech"].detach().cpu().numpy().reshape(-1) for c in generated]
+            with torch.inference_mode():
+                chunks = [c["tts_speech"].detach().cpu().numpy().reshape(-1) for c in generated]
             if not chunks:
                 raise RuntimeError("PODCAST_AUDIO_INVALID")
             data = np.concatenate(chunks)
@@ -85,21 +91,18 @@ def render(body, output):
             if model.sample_rate != 24000 or data.size < 2400 or not np.isfinite(data).all() or total > 24000 * 1800:
                 raise RuntimeError("PODCAST_AUDIO_INVALID")
             if podcast:
-                data = trim_edges(data)
-                following = groups[group_index+1] if group_index+1 < len(groups) else None
-                pause = pause_seconds(item['ending'], language_join=not last,
-                    next_speaker=last and following is not None and following['speaker'] != speaker,
-                    next_beat=last and following is not None and following['segment_index'] != turn['segment_index'])
-                # 兩端保護區都納入停頓預算，不剪弱音，也不重複疊加靜音。
-                head,tail=edge_silence(data)
-                if samples:samples[-1]=samples[-1][min(head,len(samples[-1])):]
-                samples.extend([data, np.zeros(max(0,round(pause*24000)-tail), dtype=np.float32)])
+                podcast_chunks.append({'audio': trim_edges(data), 'text': item['text'],
+                    'ending': item['ending'], 'speaker': speaker, 'beat': turn['segment_index']})
             else:
                 samples.extend([data, np.zeros(1920, dtype=np.float32)])
         if not podcast:samples.append(np.zeros(5280, dtype=np.float32))
-    if not samples:
+    if podcast:
+        from dialogue_audio_repair import assemble
+        combined = assemble(podcast_chunks, 24000)
+    elif samples:
+        combined = np.concatenate(samples)
+    else:
         raise RuntimeError("PODCAST_AUDIO_INVALID")
-    combined=np.concatenate(samples)
     if combined.size > 24000*1800:raise RuntimeError('PODCAST_AUDIO_INVALID')
     if podcast:
         raw=Path(output).with_suffix('.float.wav')

@@ -11,6 +11,15 @@ export type Research = {
   research_id: string; material_id: string | null; query: string; mode: string; status: string; candidates: Candidate[];
   selection: string[]; cursor: string | null; error_code: string | null; run_id: string | null; created_at: string;
   is_current_revision?: boolean; deleted?: boolean; run?: { status: string; error_code: string | null };
+  progress?: ResearchProgress | null;
+};
+export type ResearchProgress = {
+  stage: string; round: number; completed: number | null; total: number | null; unit: string;
+  candidate_count: number; read_count: number; recommended_count: number; importable_count: number;
+  screened_count?: number; deep_read_count?: number; reference_count?: number; excluded_count?: number; uncertain_count?: number;
+  summary: string; warnings: string[]; finish_reason?: string | null; waiting_until?: number | null;
+  topics: { topic: string; status: string; reason: string; source_ids: string[]; importable_source_ids?: string[]; sources?: {id: string; title: string; url: string}[] }[];
+  unavailable_sources?: { id: string; title: string; url: string; access: NonNullable<Candidate['access']> }[];
 };
 export const researchActive = new Set(['searching', 'acquiring', 'normalizing']);
 const labels: Record<string, string> = {

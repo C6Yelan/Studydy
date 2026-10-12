@@ -1,0 +1,40 @@
+"""對齊已取得的詞時間點，不執行 ASR 模型。"""
+from importlib.util import spec_from_file_location,module_from_spec
+from pathlib import Path
+import pytest
+from runtime.podcast_cues import captions_for_episode
+
+spec=spec_from_file_location('podcast_align_worker',Path(__file__).resolve().parents[2]/'ops/podcast/align.py')
+worker=module_from_spec(spec);spec.loader.exec_module(worker)
+
+
+def test_short_caption_anchors_are_accepted_by_the_consumer():
+    turns=['確認。','開始傳送資料。']
+    words=[{'word':turns[0],'start':.4,'end':2},{'word':turns[1],'start':5,'end':8}]
+    result=worker.align_words(['\n'.join(turns)],words,10,[[0,1]],turns)
+    episode={'script':{'segments':[{'turns':[{'text':text} for text in turns]}]},'audio':{'duration_seconds':10}}
+    captions=captions_for_episode(episode,result['caption_alignment'])
+    assert [c['text'] for c in captions]==turns
+    assert [c['start'] for c in captions]==[0,5]
+    assert captions[-1]['end']==10
+
+
+def test_unreliable_fine_caption_keeps_the_verified_paragraph_clock():
+    turns=['第一段完整說明資料傳送的原理。','嗯。','最後核對完整的教材來源與必要條件。']
+    texts=['\n'.join(turns)]
+    words=[{'word':turns[0],'start':.4,'end':4},{'word':turns[2],'start':7,'end':12}]
+    result=worker.align_words(texts,words,15,[[0,1,2]],turns)
+    assert 'caption_alignment' not in result
+    assert result['starts']==[0] and result['anchors'][0]['boundary_audio_start']==.4
+    assert result['method'].endswith(';paragraph-captions/v1')
+    assert texts==['\n'.join(turns)]
+
+
+def test_missing_paragraph_alignment_still_fails_without_fabricating_times():
+    with pytest.raises(ValueError,match='SCENE_ALIGNMENT_FAILED'):
+        worker.align_words(['甲乙丙丁'],[],10,[[0]],['甲乙丙丁'])
+
+
+def test_foreign_caption_text_is_not_a_reason_to_fall_back():
+    with pytest.raises(ValueError,match='SCENE_ALIGNMENT_FAILED'):
+        worker.align_words(['原本完整的教材說明'],[{'word':'原本完整的教材說明','start':1,'end':5}],10,[[0]],['另一份講稿'])

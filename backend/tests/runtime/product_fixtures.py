@@ -36,7 +36,8 @@ def seed_pdf(owner, stream, key, *, dsn, display_name=None):
     name = display_name or "Synthetic.pdf"
     material = normalization.create_draft(owner, name, key, dsn=dsn)
 
-    def identity(source_bytes, *_):
+    def identity(source_bytes, *_, cancellation_check=None):
+        if cancellation_check: cancellation_check()
         with pymupdf.open(stream=source_bytes, filetype="pdf") as pdf:
             page_count = len(pdf)
         digest = sha256(source_bytes).hexdigest()

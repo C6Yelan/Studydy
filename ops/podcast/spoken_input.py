@@ -1,5 +1,6 @@
 """只產生 TTS 輸入；原講稿不改。依字詞類型處理，不設術語替換表。"""
 import re
+from decimal import Decimal
 from functools import lru_cache
 import cmudict
 import wordninja
@@ -71,7 +72,6 @@ def speech_spans(text, normalize_zh, normalize_en):
     for match in _PARTS.finditer(text):
         pending+=text[cursor:match.start()]
         if match.group('unit'):
-            from decimal import Decimal
             # 保留原本數值，以完整英文單位區分 byte／bit，不展開成中文大數量。
             flush()
             base = 'byte' if match.group('base') == 'B' else 'bit'
@@ -115,3 +115,37 @@ def speech_spans(text, normalize_zh, normalize_en):
             # 縮寫後只有句號時，保留原句界給合成／停頓；不能當成空片段丟掉。
             merged[-1]['ending']=node['ending']
     return merged
+
+
+def mixed_sentences(text, normalize_zh, normalize_en):
+    # 千分位是同一數值；毫秒只在數值後展開，不碰識別符中的 ms。
+    text = re.sub(r'(?<![A-Za-z0-9_.])\d{1,3}(?:,\d{3})+(?:\.\d+)?', lambda m: m[0].replace(',', ''), text)
+    text = re.sub(r'(?<![A-Za-z0-9_.])(\d+(?:\.\d+)?)\s*ms\b', r'\1 毫秒', text)
+    result = []
+
+    for sentence in re.split(r'(?<=[。！？])|(?<=[.!?])\s+', text):
+        if not sentence.strip():
+            continue
+        parts = []
+        cursor = 0
+        for match in _PARTS.finditer(sentence):
+            prefix = sentence[cursor:match.start()]
+            parts.append(normalize_zh(prefix) if prefix.strip() else prefix)
+            if match.group('unit'):
+                base = 'byte' if match.group('base') == 'B' else 'bit'
+                if abs(Decimal(match.group('number'))) != 1:
+                    base += 's'
+                value = normalize_en(match.group('number')) + ' ' + _PREFIX[match.group('prefix')] + base
+                if match.group('rate'):
+                    value += ' per second'
+            else:
+                token = match.group('latin')
+                # 小寫 a 是冠詞；全大寫縮寫才逐字母讀，保留同句中文連接詞。
+                value = token.lower() if not token.isupper() and token.lower() in lexicon() else english_words(token, normalize_en)
+            parts.append(' ' + value + ' ')
+            cursor = match.end()
+        suffix = sentence[cursor:]
+        parts.append(normalize_zh(suffix) if suffix.strip() else suffix)
+        value = re.sub(r'\s+', ' ', ''.join(parts)).strip()
+        result.append({'language': 'mixed', 'text': value, 'ending': sentence.rstrip()[-1]})
+    return result

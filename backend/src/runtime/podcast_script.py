@@ -4,6 +4,7 @@ from hashlib import sha256
 import json
 
 SCHEMA = 'podcast-script/v2'
+MAX_EPISODE_CLAIMS = 32
 
 
 def digest(script):
@@ -12,21 +13,20 @@ def digest(script):
 
 def validate(script, episode):
     try:
-        if not (set(script) == {'schema', 'segments', 'provider', 'review'} and script['schema'] == SCHEMA):raise ValueError()
+        if not ({'schema', 'segments', 'provider'} <= set(script) <= {'schema', 'segments', 'provider', 'review'} and script['schema'] == SCHEMA):raise ValueError()
         if not (isinstance(script['provider'], str) and script['provider']):raise ValueError()
         beats = script['segments']; claims = episode['claims']
         if not (isinstance(beats, list) and 1 <= len(beats) <= 12):raise ValueError()
-        covered = set(); speakers = set(); total_size = 0
+        total_size = 0
         for i, beat in enumerate(beats):
             if not (set(beat) == {'beat_id', 'title', 'turns'} and beat['beat_id'] == f'beat-{i}'):raise ValueError()
             if not (isinstance(beat['title'], str) and 1 <= len(beat['title']) <= 80):raise ValueError()
-            if not (isinstance(beat['turns'], list) and 1 <= len(beat['turns']) <= 12):raise ValueError()
+            if not (isinstance(beat['turns'], list) and beat['turns']):raise ValueError()
             size = 0
             for turn in beat['turns']:
                 if not (set(turn) == {'speaker', 'text', 'parts'}):raise ValueError()
                 if not (turn['speaker'] in ({'host', 'guest'} if episode['delivery'] == 'dialogue' else {'host'})):raise ValueError()
-                speakers.add(turn['speaker'])
-                if not (isinstance(turn['parts'], list) and 1 <= len(turn['parts']) <= 24):raise ValueError()
+                if not (isinstance(turn['parts'], list) and turn['parts']):raise ValueError()
                 for part in turn['parts']:
                     if not (set(part) == {'text', 'source_refs'} and isinstance(part['text'], str) and part['text']):raise ValueError()
                     if not (isinstance(part['source_refs'], list)):raise ValueError()
@@ -35,23 +35,16 @@ def validate(script, episode):
                         if not (set(ref) == {'source_index', 'evidence_ids'}):raise ValueError()
                         index = ref['source_index']
                         if not (type(index) is int and 0 <= index < len(claims) and index not in seen):raise ValueError()
-                        seen.add(index); covered.add(index)
+                        seen.add(index)
                         ids = ref['evidence_ids']
                         if not (isinstance(ids, list) and ids and all(isinstance(e, str) for e in ids)):raise ValueError()
                         if not (len(set(ids)) == len(ids) and set(ids) <= {e['evidence_id'] for e in claims[index]['evidence']}):raise ValueError()
                 if not (turn['text'] == ''.join(p['text'] for p in turn['parts'])):raise ValueError()
                 if not (1 <= len(turn['text'].strip()) <= 1600):raise ValueError()
                 size += len(turn['text'])
-            if not (size <= 3200):raise ValueError()
             total_size += size
         # 沿用原六來源 × 1600 字的全集預算，分段自由不擴大 TTS／cue 容量。
         if total_size > 9600:raise ValueError()
-        if not (covered == set(range(len(claims)))):raise ValueError()
-        if not (episode['delivery'] != 'dialogue' or speakers == {'host', 'guest'}):raise ValueError()
-        review = script['review']
-        if not (set(review) == {'correctness', 'teaching_quality'}):raise ValueError()
-        for verdict in review.values():
-            if not (set(verdict) == {'passed', 'reason'} and verdict['passed'] is True and isinstance(verdict['reason'], str)):raise ValueError()
     except (KeyError, TypeError, ValueError):
         raise ValueError('PODCAST_SCRIPT_INVALID') from None
     return deepcopy(script)

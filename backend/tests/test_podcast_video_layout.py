@@ -20,8 +20,8 @@ def design(kind='exchange', count=2, end=3):
 
 
 def test_model_schema_has_semantic_relations_but_no_geometry_or_compiled_element_indices():
-    raw = json.dumps(semantic_schema([{}, {}]))
-    for field in ('"x"', '"y"', '"w"', '"h"', '"element_index"', '"size"'):
+    raw = json.dumps(semantic_schema(2))
+    for field in ('"x"', '"y"', '"w"', '"h"', '"element_index"', '"size"', '"cue_index"', '"caption_index"', '"start_cue"', '"end_cue"', '"reveal"', '"focus"'):
         assert field not in raw
     assert all(kind in raw for kind in ('concept', 'comparison', 'flow', 'exchange'))
 
@@ -105,7 +105,7 @@ def test_semantic_contract_keeps_invalid_references_out_of_renderer(change):
     elif change == 'geometry': page['nodes'][0]['x'] = 100
     elif change == 'page': page['start_cue'] = 1
     elif change == 'cue': page['relations'][0]['cue_index'] = -1
-    elif change == 'label': page['nodes'][0]['label'] = '標' * 17
+    elif change == 'label': page['nodes'][0]['label'] = '標' * 33
     else:
         page['nodes'][1].update(cue_index=3, reveal=True)
         compiled = compile_layout(value, [{}]*4)
@@ -114,3 +114,29 @@ def test_semantic_contract_keeps_invalid_references_out_of_renderer(change):
         return
     with pytest.raises(ValueError, match='VIDEO_STORYBOARD_INVALID'):
         compile_layout(value, [{}]*4)
+
+
+def test_complete_technical_names_and_longer_sentences_fit_without_truncation():
+    pytest.importorskip('PIL')
+    value = design('concept',4)
+    node = value['pages'][0]['nodes'][2]
+    node.update(label='Content-Transfer-Encoding', text='此欄位描述傳輸編碼。')
+    longer = value['pages'][0]['nodes'][3]
+    longer['text'] = '此欄位描述傳輸編碼，必須保留完整名稱與必要條件。' * 3
+    assert 64 < len(longer['text']) <= 120
+    compiled = compile_layout(value,[{}]*4)
+    element = compiled['pages'][0]['elements'][2]
+    assert element['text'] == node['label']+'\n'+node['text']
+    assert element['size'] == 42
+    assert compiled['pages'][0]['elements'][3]['text'] == longer['label']+'\n'+longer['text']
+    layouts(compiled)
+    schema = semantic_schema(1)['properties']['pages']['items']['anyOf'][0]['properties']['nodes']['items']['properties']
+    assert schema['label']['maxLength'] >= len(node['label'])
+    assert schema['text']['maxLength'] >= len(longer['text'])
+
+
+def test_longer_contract_still_rejects_text_that_cannot_fit_its_area():
+    pytest.importorskip('PIL')
+    from runtime.podcast_video_layout import _element
+    with pytest.raises(ValueError, match='VIDEO_LAYOUT_INVALID'):
+        _element('完整文字。'*20,100,200,100,60,0)

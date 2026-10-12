@@ -1,0 +1,187 @@
+"""免費通用搜尋與公開網頁正文；候選摘要不作為教材 Evidence。"""
+from collections import OrderedDict
+from copy import deepcopy
+from hashlib import sha256
+import json
+from itertools import zip_longest
+import os
+import re
+from threading import Lock
+import time
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
+
+import httpx
+from trafilatura import extract, extract_metadata
+from trafilatura.utils import load_html
+
+from .source_normalization import SourceError
+
+_search_cache=OrderedDict()
+_search_lock=Lock()
+_next_search=0.0
+
+
+def canonical_url(value):
+    if not isinstance(value,str) or any(ord(c)<32 for c in value):return None
+    try:
+        url=urlsplit(value)
+        if url.scheme not in ('http','https') or not url.hostname or url.username or url.password or url.port not in (None,80,443):return None
+        host=url.hostname.encode('idna').decode().lower()
+        query=[(key,value) for key,value in parse_qsl(url.query,keep_blank_values=True)
+               if not key.lower().startswith('utm_') and key.lower() not in {'fbclid','gclid'}
+               and not (key.lower()=='source' and value.lower().startswith('rss'))]
+        return urlunsplit(('https',host,quote(url.path or '/',safe='/%:@!$&\'()*+,;=-._~'),urlencode(query),''))
+    except (ValueError,UnicodeError):return None
+
+
+def _searx(query,page):
+    global _next_search
+    base=os.environ.get('STUDYDY_SEARXNG_URL','').strip().rstrip('/')
+    parsed=urlsplit(base)
+    if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise SourceError('RESEARCH_CONFIGURATION_INVALID')
+    language='zh-TW' if re.search(r'[\u3400-\u9fff]',query) else 'en'
+    key=(base,query,page,language)
+    # 同一個公開關鍵詞／頁碼重用 10 分鐘；串行與間隔避免同時打同一批引擎。
+    with _search_lock:
+        cached=_search_cache.get(key)
+        if cached and cached[0]>time.monotonic():
+            _search_cache.move_to_end(key)
+            return deepcopy(cached[1])
+        delay=max(0,_next_search-time.monotonic())
+        if delay>3:
+            from .research_sources import SourceAccessError
+            raise SourceAccessError('RESEARCH_RATE_LIMITED',retry_at=time.time()+delay)
+        if delay:time.sleep(delay)
+        _next_search=time.monotonic()+3
+        try:
+            with httpx.Client(timeout=20,follow_redirects=False,trust_env=False) as client:
+                # 設定來自部署端；使用者與搜尋結果不能指定這個內部服務位置。
+                with client.stream('POST',base+'/search',data={'q':query,'format':'json','language':language,'pageno':page,'categories':'general'}) as response:
+                    if response.status_code==429:
+                        from .research_sources import _retry_delay
+                        _next_search=time.monotonic()+_retry_delay(response.headers.get('Retry-After'),60)
+                        from .research_sources import SourceAccessError
+                        raise SourceAccessError('RESEARCH_RATE_LIMITED',status=429,retry_at=time.time()+_next_search-time.monotonic())
+                    if response.status_code!=200:raise SourceError('RESEARCH_SEARCH_FAILED')
+                    body=bytearray()
+                    for chunk in response.iter_bytes():
+                        body.extend(chunk)
+                        if len(body)>5*1024*1024:raise SourceError('RESEARCH_SEARCH_FAILED')
+            data=json.loads(body)
+            if not isinstance(data,dict) or not isinstance(data.get('results'),list):raise SourceError('RESEARCH_SEARCH_FAILED')
+        except (httpx.HTTPError,ValueError):
+            _next_search=time.monotonic()+30
+            raise SourceError('RESEARCH_SEARCH_FAILED') from None
+        warnings=data.get('unresponsive_engines',[])
+        if not data['results'] and warnings:raise SourceError('RESEARCH_SEARCH_FAILED')
+        _search_cache[key]=(time.monotonic()+(60 if warnings else 600),data)
+        _search_cache.move_to_end(key)
+        while len(_search_cache)>128:_search_cache.popitem(last=False)
+        return deepcopy(data)
+
+
+def _declared_license(tree,base):
+    # 只採本頁明示的授權；文章中引用某個 CC 網址，不等於整頁可匯入。
+    nodes=tree.xpath('//head/link[contains(concat(" ",normalize-space(@rel)," ")," license ")] | //a[contains(concat(" ",normalize-space(@rel)," ")," license ")] | //head/meta[@name="license" or @property="cc:license"] | //a[@property="cc:license"]')
+    for node in nodes:
+        if node.xpath('ancestor::figure | ancestor::blockquote'):continue
+        value=urljoin(base,node.get('href') or node.get('content') or '')
+        parsed=urlsplit(value)
+        if parsed.hostname not in ('creativecommons.org','www.creativecommons.org'):continue
+        match=re.fullmatch(r'/licenses/(by|by-sa)/(1\.0|2\.[05]|3\.0|4\.0)(?:/(?:deed(?:\.[a-z-]+)?|legalcode(?:\.[a-z-]+)?))?/?',parsed.path,re.I)
+        if match:
+            kind,version=match.groups()
+            return 'CC-'+kind.upper()+'-'+version,'https://creativecommons.org/licenses/'+kind.lower()+'/'+version+'/'
+        if re.fullmatch(r'/publicdomain/zero/1\.0(?:/(?:deed(?:\.[a-z-]+)?|legalcode))?/?',parsed.path,re.I):
+            return 'CC0-1.0','https://creativecommons.org/publicdomain/zero/1.0/'
+    raise SourceError('RESEARCH_LICENSE_UNCONFIRMED')
+
+
+def _web_document(url, *, require_license=True):
+    from .research_sources import public_page
+    data,final,media=public_page(url)
+    return html_document(data,final,media,require_license=require_license)
+
+
+def html_document(data,final,media,*,require_license=False):
+    if 'html' not in media.lower():raise SourceError('RESEARCH_FORMAT_UNSUPPORTED')
+    tree=load_html(data)
+    if tree is None:raise SourceError('RESEARCH_FORMAT_UNSUPPORTED')
+    title=' '.join(tree.xpath('//title/text()')).strip()
+    if re.search(r'captcha|verify you are human|access denied|just a moment|確認您是人類|驗證碼',title,re.I):
+        from .research_sources import SourceAccessError
+        raise SourceAccessError('RESEARCH_CHALLENGE_REQUIRED',url=final)
+    try:license,license_url=_declared_license(tree,final)
+    except SourceError:
+        if require_license:raise
+        license,license_url='unknown',None
+    metadata=extract_metadata(tree,default_url=final)
+    text=extract(tree,output_format='markdown',include_comments=False,include_tables=True,
+                 include_formatting=True,include_links=False,include_images=False)
+    if not text or not text.strip():raise SourceError('RESEARCH_FORMAT_UNSUPPORTED')
+    page_title=title
+    title=(metadata.title if metadata else None) or title
+    # 擷取結果若只有頁面題名，代表尚未取得正文；不以字數門檻判斷短文。
+    normalize=lambda value:''.join(c.casefold() for c in value if c.isalnum())
+    if normalize(text) and normalize(text) in {normalize(page_title),normalize(title)}:
+        from .research_sources import SourceAccessError
+        code='RESEARCH_AUTH_REQUIRED' if re.search(r'\b(?:log[ -]?in|sign[ -]?in)\b|登入|登录',title,re.I) else 'RESEARCH_BODY_UNAVAILABLE'
+        raise SourceAccessError(code,url=final)
+    if not title:raise SourceError('RESEARCH_IDENTITY_UNCONFIRMED')
+    author=(metadata.author if metadata else None) or urlsplit(final).hostname
+    digest=sha256(data).hexdigest()
+    return {'url':final,'title':title,'authors':author,'text':text,'license':license,'license_url':license_url,
+            'original_sha256':digest,'license_snapshot_sha256':digest,
+            'license_text':'來源頁面明示的授權：'+license_url if license_url else '',
+            'access_url':final,'access_method':'html',
+            'page_identity':sha256((final+'\n'+title).encode()).hexdigest()}
+
+
+def search_web(queries,page):
+    if type(page) is not int or page<1:raise SourceError('RESEARCH_SEARCH_FAILED')
+    rows=OrderedDict();warnings=[];successes=0;result_sets=[];failures=[]
+    for query in queries:
+        try:
+            data=_searx(query,page);successes+=1
+        except SourceError as error:
+            failures.append(error);warnings.append('SearXNG');continue
+        warnings.extend('SearXNG:'+str(item[0]) for item in data.get('unresponsive_engines',[]) if isinstance(item,list) and item)
+        result_sets.append(data['results'])
+    # 交錯中英文／子題結果，避免第一組查詢耗盡正文核對額度。
+    for group in zip_longest(*result_sets):
+        for item in group:
+            if not isinstance(item,dict):continue
+            url=canonical_url(item.get('url'))
+            if not url:continue
+            providers=['SearXNG:'+str(name) for name in item.get('engines',[]) if isinstance(name,str)]
+            if url in rows:
+                rows[url]['discovered_by']=list(dict.fromkeys(rows[url]['discovered_by']+providers));continue
+            rows[url]={'id':url,'kind':'web','title':str(item.get('title') or url),'authors':urlsplit(url).hostname,
+                       'year':None,'doi':None,'url':url,'download_url':url,'license':'unknown','license_url':None,
+                       'description':str(item.get('content') or ''),
+                       'description_kind':'search_snippet',
+                       'version':'取得時的網頁版本','eligible':False,'reason':'待閱讀正文與核對來源。',
+                       'state':'candidate','discovered_by':providers or ['SearXNG']}
+    if not successes:
+        from .research_sources import SourceAccessError
+        retry=[e.retry_at for e in failures if getattr(e,'retry_at',None)]
+        raise SourceAccessError('RESEARCH_SEARCH_FAILED',retry_at=min(retry) if retry else None)
+    return list(rows.values()),page+1 if rows else None,list(dict.fromkeys(warnings))
+
+
+def acquire_web(candidate):
+    from .research_reading import read_public_document
+    doc=read_public_document(candidate['download_url'],entries=candidate.get('public_entries'))
+    if not doc.get('license_url'):raise SourceError('RESEARCH_LICENSE_UNCONFIRMED')
+    if candidate.get('inspection_text_sha256') and sha256(doc['text'].encode()).hexdigest()!=candidate['inspection_text_sha256']:
+        raise SourceError('RESEARCH_SOURCE_CHANGED')
+    if doc['page_identity']!=candidate.get('page_identity'):raise SourceError('RESEARCH_IDENTITY_UNCONFIRMED')
+    if doc['license']!=candidate['license'] or doc['license_url']!=candidate['license_url']:
+        raise SourceError('RESEARCH_LICENSE_UNCONFIRMED')
+    metadata={key:candidate.get(key) for key in ('id','title','authors','year','doi','url','license','license_url','version')}
+    metadata.update({key:doc[key] for key in ('original_sha256','license_snapshot_sha256','license_text')})
+    metadata.update(download_url=doc['url'],access_url=doc['access_url'],access_method=doc['access_method'],derivative_license=doc['license'],format='html')
+    text=(doc['title']+'\n來源：'+doc['url']+'\n來源網站／作者：'+doc['authors']+'\n授權：'+doc['license']+' '+doc['license_url']
+          +'\n變更：擷取網頁正文為文字，保留標題、表格及程式碼；未加入其他來源。\n\n'+doc['text'])
+    return text.encode(),'text/plain','.txt',metadata

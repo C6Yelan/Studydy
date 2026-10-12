@@ -2,33 +2,35 @@
 from .podcast_video_plan import object_schema, validate_plan, validate_visual_timing, visual_window
 
 
-def semantic_schema(cues, caption_count=0):
-    cue = {'type': 'integer', 'enum': list(range(len(cues)))}
-    intent = {'cue_index': cue, 'reveal': {'type': 'boolean'}, 'focus': {'type': 'boolean'},
-              'caption_index': {'type': ['integer', 'null'], 'enum': [None, *range(caption_count)]}}
+# 容納完整技術名稱與短句；能否放入畫面仍由實際字型量測決定。
+NODE_LABEL_LIMIT = 32
+NODE_TEXT_LIMIT = 120
+
+def semantic_schema(page_count):
     variants = []
     for layout in ('concept', 'comparison', 'flow', 'exchange'):
-        node = object_schema({'label': {'type': 'string', 'minLength': 1, 'maxLength': 16, 'pattern': r'^[^\r\n]*$'},
+        node = object_schema({'label': {'type': 'string', 'minLength': 1, 'maxLength': NODE_LABEL_LIMIT, 'pattern': r'^[^\r\n]*$'},
                               'text': {'type': 'string', 'enum': ['']} if layout == 'exchange' else
-                                      {'type': 'string', 'maxLength': 64, 'pattern': r'^[^\r\n]*$'}, **intent})
-        relation = object_schema({'source': {'type': 'integer', 'minimum': 0, 'maximum': 5},
-                                  'target': {'type': 'integer', 'minimum': 0, 'maximum': 5},
+                                      {'type': 'string', 'maxLength': NODE_TEXT_LIMIT, 'pattern': r'^[^\r\n]*$'}})
+        relation = object_schema({'source': {'type': 'integer', 'minimum': 0, 'maximum': 1},
+                                  'target': {'type': 'integer', 'minimum': 0, 'maximum': 1},
                                   'label': {'type': 'string', 'minLength': 1, 'maxLength': 36, 'pattern': r'^[^\r\n]*$'} if layout == 'exchange' else
-                                           {'type': 'string', 'enum': ['']}, **intent})
+                                           {'type': 'string', 'enum': ['']}})
         low, high = (2, 2) if layout == 'exchange' else (2, 3) if layout == 'comparison' else (1, 6)
         variants.append(object_schema({'layout': {'type': 'string', 'enum': [layout]},
-            'title': {'type': 'string', 'minLength': 1, 'maxLength': 28}, 'start_cue': cue, 'end_cue': cue,
+            'title': {'type': 'string', 'minLength': 1, 'maxLength': 28},
             'nodes': {'type': 'array', 'minItems': low, 'maxItems': high, 'items': node},
             'relations': {'type': 'array', 'minItems': 1 if layout == 'exchange' else 0,
-                          'maxItems': 6 if layout in ('flow', 'exchange') else 0, 'items': relation}}))
-    return object_schema({'pages': {'type': 'array', 'minItems': 1, 'maxItems': 12, 'items': {'anyOf': variants}}})
+                          'maxItems': 6 if layout == 'exchange' else 0, 'items': relation}}))
+    return object_schema({'pages': {'type': 'array', 'minItems': page_count, 'maxItems': page_count, 'items': {'anyOf': variants}}})
 
 
 def _element(text, x, y, w, h, cue, color='ink', kind='text', maximum=42):
-    from .podcast_video_render import lines
+    from .podcast_video_render import lines, font
     padding = 32 if kind == 'box' else 0
     size = next((s for s in (64, 52, 42, 34, 28) if s <= maximum
-                 and len(lines(text, s, w-padding)) * (s+10) <= h-padding), None)
+                 and len(lines(text, s, w-padding)) * (s+10) <= h-padding
+                 and all(font(s).getlength(line) <= w-padding for line in lines(text, s, w-padding))), None)
     if size is None:
         raise ValueError('VIDEO_LAYOUT_INVALID:node text exceeds its reading area; shorten the label or explanation without dropping necessary conditions')
     return {'kind': kind, 'cue_index': cue, 'text': text, 'x': x, 'y': y, 'w': w, 'h': h,
@@ -65,8 +67,8 @@ def compile_layout(design, cues, timeline=None, *, motion=False):
                 raise ValueError(where + ', use flow or exchange for supported directed relations')
             for i, node in enumerate(nodes):
                 if (set(node) not in ({'label', 'text', 'cue_index', 'reveal', 'focus'}, {'label', 'text', 'cue_index', 'reveal', 'focus', 'caption_index'})
-                        or not isinstance(node['label'], str) or not 1 <= len(node['label']) <= 16
-                        or not isinstance(node['text'], str) or len(node['text']) > 64
+                        or not isinstance(node['label'], str) or not 1 <= len(node['label']) <= NODE_LABEL_LIMIT
+                        or not isinstance(node['text'], str) or len(node['text']) > NODE_TEXT_LIMIT
                         or '\n' in node['label'] + node['text'] or '\r' in node['label'] + node['text']
                         or (kind == 'exchange' and node['text'])):
                     raise ValueError(where + f', node={i}: provide a short label and explanation; exchange participants use empty text')
@@ -125,20 +127,20 @@ def compile_layout(design, cues, timeline=None, *, motion=False):
                 color = ('teal', 'blue', 'orange')[i % 3]
                 text = node['label'] + ('\n' + node['text'] if node['text'] else '')
                 if kind == 'exchange':
-                    x, y, w, h = 140 + i*1140, 230, 500, 100
+                    x, y, w, h = 140 + i*1140, 190, 500, 100
                     shape, size = 'box', 42
                 elif kind == 'comparison':
                     w = (1720 - (len(nodes)-1)*70) // len(nodes)
-                    x, y, h = 100 + i*(w+70), 310, 400
+                    x, y, h = 100 + i*(w+70), 240, 680
                     shape, size = 'text', 52
                 elif kind == 'concept' and len(nodes) <= 4:
                     if len(nodes) == 1:
-                        x, y, w, h = 180, 300, 1560, 380
+                        x, y, w, h = 180, 260, 1560, 640
                     elif i == 0:
-                        x, y, w, h = 120, 310, 670, 380
+                        x, y, w, h = 120, 260, 670, 640
                     else:
-                        h = 510 // (len(nodes)-1)
-                        x, y, w = 930, 250 + (i-1)*h, 850
+                        h = 760 // (len(nodes)-1)
+                        x, y, w = 930, 200 + (i-1)*h, 850
                         h -= 16
                     shape, size = 'text', 52 if i == 0 else 42
                 else:
@@ -146,15 +148,15 @@ def compile_layout(design, cues, timeline=None, *, motion=False):
                     row, col = divmod(i, columns)
                     if row % 2: col = columns-1-col
                     w = (1720-(columns-1)*100)//columns
-                    x = 100 + col*(w+100); y = 250 + row*310 if rows > 1 else 370
-                    h = 224 if rows > 1 else 300
+                    x = 100 + col*(w+100); y = 200 + row*420 if rows > 1 else 310
+                    h = 360 if rows > 1 else 540
                     shape, size = 'box' if kind == 'flow' else 'text', 42
                 add(_element(text, x, y, w, h, node['cue_index'], color, shape, size), node_starts[i], node['focus'], caption=node.get('caption_index'))
                 node_bounds.append((x, y, w, h))
                 if kind == 'comparison':
-                    add(_line(x, 265, w, 0, node['cue_index'], color), node_starts[i])
+                    add(_line(x, 200, w, 0, node['cue_index'], color), node_starts[i])
                 if kind == 'exchange':
-                    add(_line(x+w//2, 340, 0, 440, node['cue_index']), node_starts[i])
+                    add(_line(x+w//2, 300, 0, 700, node['cue_index']), node_starts[i])
                 group(node, first)
             for i, edge in enumerate(relations):
                 first = len(elements)
@@ -162,7 +164,7 @@ def compile_layout(design, cues, timeline=None, *, motion=False):
                 a, b = node_bounds[edge['source']], node_bounds[edge['target']]
                 if kind == 'exchange':
                     x1, x2 = a[0]+a[2]//2, b[0]+b[2]//2
-                    y = 410 + i*(340//max(1, len(relations)-1))
+                    y = 370 + i*(600//max(1, len(relations)-1))
                     add(_element(edge['label'], 420, y-47, 1080, 42, edge['cue_index'], 'ink', maximum=34), when)
                     arrow = _line(x1, y, x2-x1, 0, edge['cue_index'], 'ink', 'arrow')
                 elif a[1] == b[1]:
