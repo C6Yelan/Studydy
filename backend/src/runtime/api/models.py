@@ -222,6 +222,53 @@ class KnowledgeStructureView(_Closed):
     excluded_pages: list[ExcludedPageView]
 
 
+class ConceptSummaryView(_Closed):
+    concept_id: str
+    label: str
+    aliases: list[str]
+    claim_count: int
+
+
+class OutlineRelationView(_Closed):
+    relation_id: str
+    source_concept_id: str
+    target_concept_id: str
+    type: Literal["prerequisite", "part_of", "application", "example", "contrast"]
+
+
+class KnowledgeOutlineView(_Closed):
+    schema_: Literal['knowledge-outline/v1'] = Field(alias='schema')
+    material_id: UUID
+    knowledge_structure_revision: str
+    run_id: UUID
+    source_resolver: str
+    status: StatusView
+    concepts: list[ConceptSummaryView]
+    relations: list[OutlineRelationView]
+    section_count: int
+    initial_learning_path: list[LearningPathStepView]
+    excluded_pages: list[ExcludedPageView]
+
+
+class KnowledgeConceptsView(_Closed):
+    schema_: Literal['knowledge-concepts/v1'] = Field(alias='schema')
+    material_id: UUID
+    knowledge_structure_revision: str
+    requested_concept_ids: list[str]
+    source_resolver: str
+    status: StatusView
+    concepts: list[ConceptView]
+    relations: list[RelationView]
+    relation_evidence: list[EvidenceView]
+
+
+class KnowledgeSearchView(_Closed):
+    schema_: Literal['knowledge-search/v1'] = Field(alias='schema')
+    material_id: UUID
+    knowledge_structure_revision: str
+    concept_ids: list[str]
+
+
 class CardSetCreate(_Closed):
     schema_: Literal["card-set-create/v1"] = Field(alias="schema")
     knowledge_structure_revision: str
@@ -593,6 +640,58 @@ class LearnerProgressView(_Closed):
     weaknesses: list[dict[str, Any]]
     next_action: dict[str, Any]
     guidance_revision: str
+
+
+class StudyProgressView(LearnerProgressView):
+    schema_: Literal['study-progress/v1'] = Field(alias='schema')
+    concept_count: int
+
+
+class MapConceptStateView(_Closed):
+    concept_id: str
+    status: Literal['not_started', 'in_progress', 'needs_review', 'completed']
+    attempts: int
+    assessable: bool
+
+
+class MapProgressView(_Closed):
+    schema_: Literal['map-progress/v1'] = Field(alias='schema')
+    study_session_id: UUID
+    knowledge_structure_revision: str
+    current_concept_id: str | None
+    concept_states: list[MapConceptStateView]
+    next_action: dict[str, Any]
+    assessment_cycles: list[AssessmentCycleSummary]
+
+
+class StudyConceptLabelView(_Closed):
+    concept_id: str
+    label: str
+
+
+class StudyNavigationView(_Closed):
+    schema_: Literal['study-navigation/v1'] = Field(alias='schema')
+    material_id: UUID
+    knowledge_structure_revision: str
+    run_id: UUID
+    source_resolver: str
+    status: StatusView
+    concept_count: int
+    concepts: list[StudyConceptLabelView]
+    initial_learning_path: list[LearningPathStepView]
+
+
+class StudyWorkspaceView(_Closed):
+    schema_: Literal['study-workspace/v1'] = Field(alias='schema')
+    session: StudySessionView
+    run_id: UUID
+    source_artifact_id: UUID
+    outline: StudyNavigationView
+    context: KnowledgeConceptsView | None
+    progress: StudyProgressView
+    assessment_sets: list[AssessmentSetSummary]
+    selected_set_id: UUID | None
+    selected_set: AssessmentSetView | None
 
 
 def project_material_run(run: Any) -> MaterialProcessingRunView:

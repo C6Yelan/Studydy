@@ -77,6 +77,21 @@ def _scope(session, learner, sid, *, lock=False):
     return study, context, document
 
 
+def _read_scope(session, learner, sid):
+    from .study_sessions import _validate_plan
+    from runtime.storage.knowledge_reads import learning
+    if not isinstance(learner, TrustedLearner):
+        raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
+    study = session.scalar(select(StudySession).join(Material, Material.material_id == StudySession.material_id).where(
+        StudySession.learner_id == learner.learner_id, StudySession.study_session_id == sid,
+        Material.learner_id == learner.learner_id, Material.discard_requested_at.is_(None)))
+    if study is None:
+        raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
+    plan = learning(session, learner.learner_id, study.material_id, study.knowledge_structure_revision)
+    _validate_plan(study, plan)
+    return study, plan
+
+
 def _round(session, study, set_id, *, lock=False):
     query = select(AssessmentSet).where(
         AssessmentSet.set_id == set_id,
@@ -113,6 +128,10 @@ def plan_concept(context, concept_id):
     concept = next((item for item in context.concepts if item.concept_id == concept_id), None)
     if concept is None:
         raise AssessmentSetError('ASSESSMENT_SET_TARGET_INVALID')
+    return plan_concept_content(concept)
+
+
+def plan_concept_content(concept):
     targets, excluded, known = [], [], {}
     for claim in concept.claims:
         # 上游可能把完整定義／假設標成 heading；出題資格依引用內容，不能只靠版面類型。
@@ -135,7 +154,7 @@ def plan_concept(context, concept_id):
         })
     return {
         'policy': 'single-concept-grounded-points/v1',
-        'concept_id': concept_id,
+        'concept_id': concept.concept_id,
         'point_count': len(concept.claims),
         'targets': targets,
         'excluded': excluded,
@@ -145,11 +164,18 @@ def plan_concept(context, concept_id):
 def read_plan(learner, sid, concept_id, *, dsn=None):
     with database_session(dsn) as session:
         session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
-        study, context, document = _scope(session, learner, sid)
-        plan = plan_concept(context, concept_id)
+        study, indexed = _read_scope(session, learner, sid)
+        concept = next((c for c in indexed['concepts'] if c['concept_id'] == concept_id), None)
+        if concept is None:
+            raise AssessmentSetError('ASSESSMENT_SET_TARGET_INVALID')
+        covered = {identity for target in concept['targets'] for identity in target['covered_claim_ids']}
         return {'schema': 'assessment-plan/v1', 'study_session_id': str(sid),
-                'knowledge_structure_revision': study.knowledge_structure_revision, **plan,
-                'requested_count': len(plan['targets'])}
+                'knowledge_structure_revision': study.knowledge_structure_revision,
+                'policy': 'single-concept-grounded-points/v1', 'concept_id': concept_id,
+                'point_count': len(concept['claim_ids']), 'targets': concept['targets'],
+                'excluded': [{'claim_id': identity, 'reason': 'no_content_evidence'}
+                             for identity in concept['claim_ids'] if identity not in covered],
+                'requested_count': len(concept['targets'])}
 
 
 def create_set(learner, sid, concept_id, idempotency_key, local_config, *, dsn=None):
@@ -262,10 +288,10 @@ def _cycle(session, study, root):
         StudySession.started_at < study.started_at,
     ).limit(1)):
         from .inherited_progress import inherited_progress
-        document = _read_verified_document(session, study.learner_id, study.material_id,
-                                           revision=study.knowledge_structure_revision)
+        from runtime.storage.knowledge_reads import learning
+        plan = learning(session, study.learner_id, study.material_id, study.knowledge_structure_revision)
         inherited, _ = inherited_progress(session, TrustedLearner(learner_id=study.learner_id),
-                                          study, document, include_cycles=False)
+                                          study, plan, include_cycles=False)
         prior_events = sorted([event for event in inherited if event.created_at < root.created_at]
                               + prior_events, key=lambda event: (event.created_at, str(event.answer_event_id)))
     initial = {item.target_claim_id: item for item in items if item.set_id == root.set_id}
@@ -511,7 +537,7 @@ def read_set(learner, sid, set_id, *, dsn=None):
     with database_session(dsn) as session:
         session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
         session.info['read_snapshot'] = {'documents': {}, 'inherited': {}, 'cycles': {}}
-        study, _, _ = _scope(session, learner, sid)
+        study, _ = _read_scope(session, learner, sid)
         return _read_set(session, study, set_id)
 
 

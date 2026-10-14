@@ -22,17 +22,19 @@ import "@xyflow/react/dist/style.css";
 
 import type { StudydyApiClient } from "../../api/client";
 import type {
-  KnowledgeStructureView,
+  KnowledgeOutlineView,
   RelationType,
-  LearnerProgressView,
+  MapProgressView,
   StudySessionView,
 } from "../../api/contracts";
+import { useConceptContext } from "../material-flow/useConceptContext";
+import { errorMessage } from "../../api/client";
 import { ConceptContent } from "../../ui/ConceptContent";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { learningNavigationItems, focusGraph, initialFocusConceptId } from "./knowledge-map";
 
-type Concept = KnowledgeStructureView["concepts"][number];
+type Concept = KnowledgeOutlineView["concepts"][number];
 type Mode = "focus" | "review";
 type RestoreFocus = () => void;
 
@@ -58,10 +60,10 @@ function LearningBadge({
   progress,
 }: {
   conceptId: string;
-  progress: LearnerProgressView | null;
+  progress: MapProgressView | null;
 }) {
   const state = progress?.concept_states.find((item) => item.concept_id === conceptId);
-  const label = state?.status !== "completed" && state?.assessable_claim_ids?.length === 0
+  const label = state?.status !== "completed" && state?.assessable === false
     ? "此概念目前無法提供可靠檢測"
     : state ? learningLabels[state.status] : null;
   return state && label ? (
@@ -157,8 +159,8 @@ function ConceptDetail({
   isLoadingProgress,
   progressMessage,
 }: {
-  view: KnowledgeStructureView;
-  progress: LearnerProgressView | null;
+  view: KnowledgeOutlineView;
+  progress: MapProgressView | null;
   apiClient: StudydyApiClient;
   concept: Concept;
   close: () => void;
@@ -166,6 +168,8 @@ function ConceptDetail({
   isLoadingProgress: boolean;
   progressMessage: string | null;
 }) {
+  const read = useConceptContext(apiClient, view.material_id, view.knowledge_structure_revision, [concept.concept_id]);
+  const full = read.context?.concepts.find(c => c.concept_id === concept.concept_id);
   return (
     <DetailPanel label="概念詳情" focusKey={concept.concept_id} close={close}>
       <header>
@@ -182,11 +186,9 @@ function ConceptDetail({
       )}
       <section>
         <h3>教材重點</h3>
-        <ConceptContent
-          claims={concept.claims}
-          apiClient={apiClient}
-          sourceResolver={view.source_resolver}
-        />
+        {read.error ? <p role="alert">{read.error}<button type="button" onClick={read.retry}>重新讀取</button></p>
+          : full ? <ConceptContent claims={full.claims} apiClient={apiClient} sourceResolver={view.source_resolver} />
+          : <p role="status">正在讀取概念與來源…</p>}
       </section>
       {studyAction}
     </DetailPanel>
@@ -226,8 +228,8 @@ function LearningNavigator({
   focusConcept,
   progress,
 }: {
-  progress: LearnerProgressView | null;
-  view: KnowledgeStructureView;
+  progress: MapProgressView | null;
+  view: KnowledgeOutlineView;
   selectedConceptId: string;
   focusConcept: (id: string) => void;
 }) {
@@ -347,6 +349,7 @@ function LearningNavigator({
 }
 
 function MapGraph({
+  apiClient,
   openConcept,
   selectedConceptId,
   view,
@@ -355,12 +358,13 @@ function MapGraph({
   selectedRelationId,
   detail,
 }: {
+  apiClient: StudydyApiClient;
   detail: ReactNode;
   selectedRelationId: string | null;
-  progress: LearnerProgressView | null;
+  progress: MapProgressView | null;
   openConcept: (id: string, restoreFocus?: RestoreFocus) => void;
   selectedConceptId: string;
-  view: KnowledgeStructureView;
+  view: KnowledgeOutlineView;
   openRelation: (id: string, restoreFocus?: RestoreFocus) => void;
 }) {
   const conceptById = useMemo(
@@ -411,6 +415,8 @@ function MapGraph({
     [view, selected.concept_id],
   );
   const layout = projection.nodes;
+  const previewRead = useConceptContext(apiClient, view.material_id, view.knowledge_structure_revision, layout.map(node => node.id));
+
   const updateNodeInternals = useUpdateNodeInternals();
   const measuredLayout = useRef<typeof layout | null>(null);
   useEffect(() => {
@@ -422,7 +428,7 @@ function MapGraph({
   const { nodes, edges } = useMemo(() => {
     const layoutById = new Map(layout.map((node) => [node.id, node]));
     // 雙向關係共用連接點排序，讓平行連線的標籤與箭頭保持分離。
-    const pairRelations = new Map<string, KnowledgeStructureView["relations"]>();
+    const pairRelations = new Map<string, KnowledgeOutlineView["relations"]>();
     for (const relation of projection.relations) {
       const key = [relation.source_concept_id, relation.target_concept_id].sort().join("|");
       const group = pairRelations.get(key) ?? [];
@@ -484,7 +490,7 @@ function MapGraph({
           label: (
             <>
               <strong>{concept.label}</strong>
-              <p>{concept.claims[0]?.text}</p>
+              <p>{previewRead.context?.concepts.find(c => c.concept_id === concept.concept_id)?.claims[0]?.text ?? (previewRead.error ? "點選查看概念重點" : "正在讀取重點…")}</p>
               <LearningBadge conceptId={concept.concept_id} progress={progress} />
             </>
           ),
@@ -527,7 +533,7 @@ function MapGraph({
         labelStyle: { fill: color, fontSize: 11 },
         labelBgPadding: [4, 2],
         className: `concept-flow-edge is-relation is-${relation.type}`,
-        ariaLabel: `${label}：${relation.learner_reason}`,
+        ariaLabel: `${label}：${previewRead.context?.relations.find(r => r.relation_id === relation.relation_id)?.learner_reason ?? `${conceptById.get(relation.source_concept_id)?.label} → ${conceptById.get(relation.target_concept_id)?.label}`}`,
         focusable: true,
         domAttributes: {
           onKeyDown: (event: KeyboardEvent<SVGGElement>) => {
@@ -543,6 +549,8 @@ function MapGraph({
   }, [
     layout,
     projection.relations,
+    previewRead.context,
+    previewRead.error,
     selected.concept_id,
     highlightedRelation,
     conceptById,
@@ -581,13 +589,18 @@ function MapGraph({
     return () => observer.disconnect();
   }, [graph]);
   useEffect(() => {
-    if (!initialized || !canvasReady || fittedConcept.current === selected.concept_id) return;
+    if (!initialized || !canvasReady || (!previewRead.context && !previewRead.error)
+      || fittedConcept.current === selected.concept_id) return;
+    let secondFrame = 0;
     const frame = requestAnimationFrame(() => {
-      fittedConcept.current = selected.concept_id;
-      void graph.fitView(fitViewOptions);
+      // 按需文字到達後，先讓節點量測更新，再計算第一次視野。
+      secondFrame = requestAnimationFrame(() => {
+        fittedConcept.current = selected.concept_id;
+        void graph.fitView(fitViewOptions);
+      });
     });
-    return () => cancelAnimationFrame(frame);
-  }, [initialized, canvasReady, graph, selected.concept_id]);
+    return () => { cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame); };
+  }, [initialized, canvasReady, graph, selected.concept_id, previewRead.context, previewRead.error]);
   return (
     <section
       className={`focus-workspace${detail ? " has-inspector" : ""}`}
@@ -696,15 +709,15 @@ function RelationDetail({
   close,
   openConcept,
 }: {
-  relation: KnowledgeStructureView["relations"][number];
-  view: KnowledgeStructureView;
+  relation: KnowledgeOutlineView["relations"][number];
+  view: KnowledgeOutlineView;
   apiClient: StudydyApiClient;
   close: () => void;
   openConcept: (id: string) => void;
 }) {
-  const evidence = view.concepts
-    .flatMap((concept) => concept.claims.flatMap((claim) => claim.evidence))
-    .filter((item) => relation.evidence_refs.includes(item.evidence_id));
+  const read = useConceptContext(apiClient, view.material_id, view.knowledge_structure_revision, [relation.source_concept_id]);
+  const full = read.context?.relations.find(item => item.relation_id === relation.relation_id);
+  const evidence = (read.context?.relation_evidence ?? []).filter(item => full?.evidence_refs.includes(item.evidence_id));
   return (
     <DetailPanel label="關係詳情" focusKey={relation.relation_id} close={close}>
       <header>
@@ -729,7 +742,7 @@ function RelationDetail({
       </section>
       <section>
         <h3>為什麼有這個關係？</h3>
-        <p className="claim-text">{relation.learner_reason}</p>
+        <p className="claim-text">{full?.learner_reason ?? (read.error ? "暫時無法讀取關係說明。" : "正在讀取關係說明…")}</p>
       </section>
       <section>
         <h3>教材來源</h3>
@@ -741,15 +754,17 @@ function RelationDetail({
             evidence={item}
           />
         ))}
-        {evidence.length === 0 && <p>可從來源與目標概念查看相關教材。</p>}
+        {read.error ? <p role="alert">{read.error}<button type="button" onClick={read.retry}>重新讀取</button></p>
+          : !read.context ? <p role="status">正在讀取關係來源…</p>
+          : evidence.length === 0 && <p>可從來源與目標概念查看相關教材。</p>}
       </section>
     </DetailPanel>
   );
 }
 
 function ReviewView({ view, progress, startStudy, busyLabel, loading, returnToMap }: {
-  view: KnowledgeStructureView;
-  progress: LearnerProgressView | null;
+  view: KnowledgeOutlineView;
+  progress: MapProgressView | null;
   startStudy: (id: string) => void;
   busyLabel: string | null;
   loading: boolean;
@@ -796,7 +811,7 @@ export function KnowledgeMapWorkspace({
   view,
 }: {
   apiClient: StudydyApiClient;
-  progress: LearnerProgressView | null;
+  progress: MapProgressView | null;
   learningStateStatus: StudySessionView["status"] | null;
   isLoadingProgress: boolean;
   progressMessage: string | null;
@@ -807,7 +822,7 @@ export function KnowledgeMapWorkspace({
   materialName: string;
   onStartStudy: (conceptId: string) => void;
   startMessage: string | null;
-  view: KnowledgeStructureView;
+  view: KnowledgeOutlineView;
 }) {
   const initialConceptId = progress?.current_concept_id ?? initialFocusConceptId(view);
   // 只記住目前瀏覽器紀錄的呈現位置；登入、作答與 learner progress 仍由 API 管理。
@@ -881,13 +896,19 @@ export function KnowledgeMapWorkspace({
   }, [progress?.study_session_id, progress?.current_concept_id, view.concepts]);
   const selectedRelation = view.relations.find((relation) => relation.relation_id === relationId);
   const query = searchQuery.trim().toLocaleLowerCase();
-  const searchResults = query
-    ? view.concepts.filter((concept) =>
-        [concept.label, ...concept.aliases, ...concept.claims.map((claim) => claim.text)].some(
-          (text) => text.toLocaleLowerCase().includes(query),
-        ),
-      )
-    : [];
+  const [searchState, setSearchState] = useState<{ query: string; ids: string[]; error: string | null }>({ query: "", ids: [], error: null });
+  useEffect(() => {
+    let cancelled = false;
+    if (!query) return;
+    const timer = window.setTimeout(() => {
+      void apiClient.searchConcepts({ materialId: mapRoute.materialId, structureRevision: mapRoute.structureRevision }, query)
+        .then(result => { if (!cancelled) setSearchState({ query, ids: result.concept_ids, error: null }); },
+          error => { if (!cancelled) setSearchState({ query, ids: [], error: errorMessage(error) }); });
+    }, 150);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [apiClient, mapRoute.materialId, mapRoute.structureRevision, query]);
+  const matchedIds = new Set(searchState.query === query ? searchState.ids : []);
+  const searchResults = query ? view.concepts.filter(concept => matchedIds.has(concept.concept_id)) : [];
   const selectedConcept = useMemo(
     () => view.concepts.find((concept) => concept.concept_id === detailConceptId) ?? null,
     [detailConceptId, view.concepts],
@@ -1040,6 +1061,7 @@ export function KnowledgeMapWorkspace({
             type="search"
             aria-label="搜尋概念或關鍵字"
             placeholder="搜尋概念或關鍵字…"
+            maxLength={200}
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.currentTarget.value)}
             onKeyDown={(event) => {
@@ -1053,7 +1075,7 @@ export function KnowledgeMapWorkspace({
           {query && (
             <div ref={searchResultsElement} className="map-search-results">
               <p role="status">
-                {searchResults.length
+                {searchState.query !== query ? "正在搜尋教材內容…" : searchState.error ? searchState.error : searchResults.length
                   ? `找到 ${searchResults.length} 個概念${searchResults.length > 8 ? "，顯示前 8 個，請輸入更多關鍵字縮小範圍" : ""}`
                   : "找不到符合的概念，試試其他關鍵字。"}
               </p>
@@ -1064,7 +1086,7 @@ export function KnowledgeMapWorkspace({
                   onClick={() => chooseSearchResult(concept.concept_id)}
                 >
                   <strong>{concept.label}</strong>
-                  <small>{concept.claims[0]?.text}</small>
+                  <small>{concept.claim_count} 個重點</small>
                 </button>
               ))}
             </div>
@@ -1076,7 +1098,7 @@ export function KnowledgeMapWorkspace({
               <strong>{view.concepts.length}</strong>概念
             </span>
             <span>
-              <strong>{view.document_tree.sections.length}</strong>段落
+              <strong>{view.section_count}</strong>段落
             </span>
             <span>
               <strong>{view.relations.length}</strong>關係
@@ -1114,6 +1136,7 @@ export function KnowledgeMapWorkspace({
           {mode === "focus" && (
             <ReactFlowProvider>
               <MapGraph
+                apiClient={apiClient}
                 selectedRelationId={relationId}
                 progress={progress}
                 openRelation={openRelation}

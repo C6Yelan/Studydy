@@ -58,11 +58,13 @@ from ..source_normalization import (
 from ..source_revisions import create_revision
 from ..storage.artifacts import open_verified_source_pdf
 from ..storage.knowledge_structures import read_knowledge_structure, resolve_evidence_source
+from ..storage import knowledge_reads
 from ..storage.materials import MaterialLibraryError, read_material_library, rename_material
 from ..storage.source_artifacts import open_verified_artifact
 from ..storage.tables import Artifact, Material, MaterialSource, database_session
 from ..workers import start_runtime_workers
 from .models import (
+    KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeSearchView, MapProgressView, StudyWorkspaceView,
     PodcastCreate, PodcastAction, PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView,
     AccountCredentials, ApiErrorView, AssessmentPlanView, AssessmentSetAction,
     AssessmentSetCreate, AssessmentSetListView, AssessmentSetSubmission,
@@ -1007,6 +1009,97 @@ def create_app(settings: ApiSettings) -> FastAPI:
         owner = (await run_in_threadpool(_trusted_learner, request, settings)).learner_id
         return await run_in_threadpool(card_sets.delete_card_set, owner, card_set_id, dsn=settings.dsn)
 
+    @app.get('/v1/materials/{material_id}/knowledge-structures/{structure_revision}/outline',
+             response_model=KnowledgeOutlineView, tags=['review'])
+    def read_outline(request: Request, material_id: UUID, structure_revision: str):
+        _require_query(request, set())
+        learner = _trusted_learner(request, settings)
+        with database_session(settings.dsn) as db:
+            return knowledge_reads.outline(db, learner.learner_id, material_id, structure_revision)
+
+    @app.get('/v1/materials/{material_id}/knowledge-structures/{structure_revision}/concepts',
+             response_model=KnowledgeConceptsView, tags=['review'])
+    def read_concepts(request: Request, material_id: UUID, structure_revision: str,
+                      ids: str, neighbors: bool = False):
+        _require_query(request, {'ids', 'neighbors'})
+        import re
+        identities = ids.split(',')
+        if not 1 <= len(identities) <= 32 or len(set(identities)) != len(identities) or any(
+            not re.fullmatch(r'concept:sha256:[0-9a-f]{64}', identity) for identity in identities
+        ):
+            raise _ApiFailure('REQUEST_INVALID')
+        learner = _trusted_learner(request, settings)
+        with database_session(settings.dsn) as db:
+            return knowledge_reads.concept_context(db, learner.learner_id, material_id,
+                                                   structure_revision, identities, neighbors=neighbors)
+
+    @app.get('/v1/materials/{material_id}/knowledge-structures/{structure_revision}/search',
+             response_model=KnowledgeSearchView, tags=['review'])
+    def search_concepts(request: Request, material_id: UUID, structure_revision: str,
+                        q: str = Query(min_length=1, max_length=200)):
+        _require_query(request, {'q'})
+        learner = _trusted_learner(request, settings)
+        with database_session(settings.dsn) as db:
+            return knowledge_reads.search(db, learner.learner_id, material_id, structure_revision, q)
+
+    @app.get('/v1/study-sessions/{study_session_id}/map-progress', response_model=MapProgressView,
+             tags=['learning'])
+    def map_progress(request: Request, study_session_id: UUID):
+        _require_query(request, set())
+        learner = _trusted_learner(request, settings)
+        progress = derive_learner_progress(learner, study_session_id, dsn=settings.dsn)
+        return {'schema': 'map-progress/v1', 'study_session_id': study_session_id,
+                'knowledge_structure_revision': progress.knowledge_structure_revision,
+                'current_concept_id': progress.current_concept_id,
+                'assessment_cycles': progress.assessment_cycles, 'next_action': progress.next_action.model_dump(),
+                'concept_states': [{'concept_id': s.concept_id, 'status': s.status,
+                                    'attempts': s.attempts, 'assessable': bool(s.assessable_claim_ids)}
+                                   for s in progress.concept_states]}
+
+    @app.get('/v1/materials/{material_id}/knowledge-structures/{structure_revision}'
+             '/study-sessions/{study_session_id}/workspace', response_model=StudyWorkspaceView,
+             tags=['learning'])
+    def study_workspace(request: Request, material_id: UUID, structure_revision: str,
+                        study_session_id: UUID, run_id: UUID, set_id: UUID | None = None):
+        _require_query(request, {'run_id', 'set_id'})
+        learner = _trusted_learner(request, settings)
+        with progress_snapshot(learner, study_session_id, dsn=settings.dsn) as (db, study, plan, progress):
+            if (study.material_id != material_id or study.knowledge_structure_revision != structure_revision
+                    or plan['run_id'] != str(run_id)):
+                raise _ApiFailure('RESOURCE_NOT_FOUND')
+            meta = knowledge_reads.metadata(db, learner.learner_id, material_id, structure_revision)
+            run = read_material_processing_run(learner.learner_id, run_id, dsn=settings.dsn)
+            rounds = assessment_sets._list_sets(db, study)['sets']
+            selected_id = str(set_id) if set_id else next((s['set_id'] for s in rounds
+                if s['target_concept_id'] == study.current_concept_id), None)
+            selected = next((s for s in rounds if s['set_id'] == selected_id), None)
+            if selected_id is not None and selected is None:
+                raise _ApiFailure('RESOURCE_NOT_FOUND')
+            ids = list(dict.fromkeys(identity for identity in (
+                selected['target_concept_id'] if selected else None,
+                study.current_concept_id, progress.next_action.target_concept_id,
+            ) if identity is not None))
+            navigation_ids = set(ids) | {group['target_concept_id'] for group in rounds}
+            navigation_ids.update(cycle['concept_id'] for cycle in progress.assessment_cycles)
+            navigation_ids.update(progress.next_action.prerequisite_concept_ids)
+            outline = {'schema': 'study-navigation/v1', 'material_id': str(material_id),
+                'knowledge_structure_revision': structure_revision, 'run_id': str(run_id),
+                'source_resolver': meta['source_resolver'], 'status': meta['status'],
+                'concept_count': len(plan['concepts']),
+                'concepts': [{'concept_id': c['concept_id'], 'label': c['label']}
+                             for c in plan['concepts'] if c['concept_id'] in navigation_ids],
+                'initial_learning_path': [step for step in plan['path_steps'] if step['concept_id'] in navigation_ids]}
+            focused = project_learner_progress(progress).model_dump(mode='json', by_alias=True)
+            focused.update(schema='study-progress/v1', concept_count=len(progress.concept_states),
+                concept_states=[s for s in focused['concept_states'] if s['concept_id'] in ids],
+                weaknesses=[s for s in focused['weaknesses'] if s['concept_id'] in ids])
+            return {'schema': 'study-workspace/v1', 'session': project_study_session(study),
+                'run_id': run_id, 'source_artifact_id': run.source_artifact_id,
+                'outline': outline, 'context': knowledge_reads.concept_context(db, learner.learner_id,
+                    material_id, structure_revision, ids) if ids else None,
+                'progress': focused, 'assessment_sets': rounds, 'selected_set_id': selected_id,
+                'selected_set': assessment_sets._read_set(db, study, UUID(selected_id)) if selected_id else None}
+
     @app.get(
         "/v1/materials/{material_id}/knowledge-structures/{structure_revision}",
         response_model=KnowledgeStructureView,
@@ -1038,14 +1131,15 @@ def create_app(settings: ApiSettings) -> FastAPI:
         learner = _trusted_learner(request, settings)
         with progress_snapshot(
             learner, study_session_id, dsn=settings.dsn
-        ) as (db, study, document, progress):
+        ) as (db, study, plan, progress):
             if (
                 study.material_id != material_id
                 or study.knowledge_structure_revision != structure_revision
-                or document['run_id'] != str(run_id)
+                or plan['run_id'] != str(run_id)
             ):
                 raise _ApiFailure('RESOURCE_NOT_FOUND')
-            from ..storage.knowledge_structures import _view
+            from ..storage.knowledge_structures import _view, _read_verified_document
+            document = _read_verified_document(db, learner.learner_id, material_id, revision=structure_revision)
             run = read_material_processing_run(learner.learner_id, run_id, dsn=settings.dsn)
             rounds = assessment_sets._list_sets(db, study)
             selected_set = (

@@ -459,3 +459,9 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src .studydy-runtime/research-venv
 2026-10-13 的教材分析 RAG 對照使用生成式 AI 改良版與網路教材的六個既有區塊，保留本批全部原文，比較不補檢索／額外補入同教材相關頁面，各跑兩次，共 24 次 Luna 請求。兩組估算輸入分別為 58,756 與 77,734 tokens（含提示、payload、schema），增加 32.3%。稀疏整合頁能補出較完整的跨頁概念，但密集區塊未顯示穩定品質提升，部分原有例子被擠掉；因此未將每批自動追加檢索接入正式教材分析。這是獨立分析階段的探索，並非完整分析／審查流程的品質通過率。原始輸入、24 份結果、來源投影檢查與人工觀察留在本機 `data/rag/qualification-20261013/analysis-rag-review.json` 及對應私人結果檔，未加入 Git／CI。
 
 概念卡分批讀取：`test_card_reading.py` 驗證首批／尾批、跨批相鄰概念與 Evidence 的完整投影、權限、版本衝突、投影損壞及部分續頁計數。瀏覽器回歸驗證首屏不要求完整 KS、直接跳讀遠端觀念、跨批續頁返回及帳號切換時取消待回應批次。部署驗收另以既有虛擬教材實測首次讀取的 request 數、大小及首張 Canvas 時間。
+
+## 按需教材讀取
+
+`runtime/study/test_knowledge_reads.py` 驗證 outline 不含完整 claims、概念／來源投影與 canonical 內容一致、搜尋只回傳 ID、workspace 只帶當前／下一個概念、跨 owner 與損壞索引拒絕、補建冪等。測試在頁面讀取時禁止呼叫完整教材驗證，避免僅縮小 HTTP 回應卻仍讀全文。
+
+進度、跨版本繼承、題組與來源回歸保持原完成／補強規則。`client.test.mjs` 驗證按需資料的 material／revision／selection 綁定及帳號失效；地圖詳情、學習入口、study-layout、卡組及 Podcast 選材 browser 案例覆蓋延遲讀取、來源、搜尋與歷史切換。Runtime browser 仍用獨立 ports、disposable DB 與受控 provider，不以產品 DB 跑測試。

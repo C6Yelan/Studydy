@@ -136,7 +136,7 @@ def test_current_revision_check_supersedes_inherited_pass(closed_loop, monkeypat
     cycle, = progress.assessment_cycles
     assert cycle['diagnostic_set_id'] == str(root) and cycle['outcome'] == 'in_progress'
     assert not cycle.get('inherited_from')
-    assert sorted(checks) == sorted([old['document']['revision'], new['document']['revision']])
+    assert checks == []  # 發布時已驗證，進度只讀有雜湊的學習索引。
     assert progress.next_action.action == 'continue_set'
     finish(new, 'new-version-check')
     answer(new, root, wrong={1})

@@ -1,3 +1,4 @@
+import { outlineView, conceptsView, readResponse } from "./knowledge-read-views.mjs";
 // 合成資料只驗證版面與公開契約；真實交卷／補強語意由隔離 API browser tests 驗證。
 export async function studyLayoutFixture(page, initialStage = "preparation", scenario = null) {
   const uuid = (seedNumber) => `00000000-0000-4000-8000-${String(seedNumber).padStart(12, "0")}`;
@@ -292,9 +293,12 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
   await page.route(/\/v[12]\//, async (route) => {
     const request = route.request();
     const address = new URL(request.url());
-    const path = decodeURIComponent(address.pathname);
+    const actualPath = decodeURIComponent(address.pathname);
+    const path = actualPath.replace(/\/workspace$/, "/resume");
     const query = address.searchParams;
-    const send = (json, status = 200) => route.fulfill({ json, status });
+    const send = (body, status = 200) => route.fulfill({ json: readResponse(request.url(), body, runId), status });
+    if (request.method() === "GET" && actualPath === `${mapPath}/outline`) return send(outlineView(knowledgeStructure, materialId, runId));
+    if (request.method() === "GET" && actualPath === `${mapPath}/concepts`) return send(conceptsView(knowledgeStructure, materialId, (query.get("ids") ?? "").split(","), query.get("neighbors") === "true"));
     const reject = (reason_code, status) =>
       send(
         {
@@ -521,6 +525,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
   });
   return {
     path: basePath,
+    knowledgeStructure,
     historyPath: `${basePath}/assessment-sets/${historySetId}`,
     requests,
     setGuidance(action, version) {

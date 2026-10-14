@@ -457,7 +457,7 @@ function resumeView() {
       event_watermark: 0,
       current_concept_id: conceptId,
       deferred_concept_ids: [],
-      concept_states: [{ concept_id: conceptId, label: "Stack", status: "not_started" }],
+      concept_states: [{ concept_id: conceptId, label: "Stack", status: "not_started", attempts: 0, assessable_claim_ids: [claimId] }],
       weaknesses: [],
       next_action: {
         action: "assess",
@@ -1230,4 +1230,49 @@ test("current map and saved card revision stay cached together", async () => {
     await client.getKnowledgeStructure({ materialId, structureRevision: revision });
   }
   assert.equal(calls.length, 2);
+});
+
+test('on-demand outlines, concepts and workspace enforce material/version/selection boundaries', async () => {
+  const { outlineView, conceptsView, workspaceView, mapProgressView } = await import('../../e2e/fixtures/knowledge-read-views.mjs');
+  const full = structureView();
+  const request = { materialId, structureRevision };
+  const overview = outlineView(full, materialId, runId);
+  const content = conceptsView(full, materialId, [conceptId]);
+  const calls = [];
+  let body = overview;
+  const client = new StudydyApiClient(async path => { calls.push(path); return Response.json(body); });
+  assert.deepEqual(await client.getKnowledgeOutline(request), overview);
+  assert.deepEqual(await client.getKnowledgeOutline(request), overview);
+  assert.equal(calls.length, 1);
+  assert.ok(!Object.hasOwn(overview.concepts[0], 'claims'));
+  body = content;
+  assert.deepEqual(await client.getConceptContext(request, [conceptId]), content);
+  assert.ok(calls[1].includes('/concepts?'));
+  for (const corrupt of [
+    value => { value.material_id = sessionId; },
+    value => { value.knowledge_structure_revision = `knowledge-structure:sha256:${'f'.repeat(64)}`; },
+    value => { value.requested_concept_ids = []; },
+    value => { value.concepts[0].claims[0].evidence[0].source_locator.page = -1; },
+  ]) {
+    const value = structuredClone(content); corrupt(value);
+    await assert.rejects(new StudydyApiClient(async () => Response.json(value)).getConceptContext(request, [conceptId]), error => error.kind === 'schema');
+  }
+  const workspace = workspaceView(resumeView());
+  const resumeRequest = { ...request, runId, studySessionId: sessionId };
+  assert.equal((await new StudydyApiClient(async () => Response.json(workspace)).resumeWorkspace(resumeRequest)).schema, 'study-workspace/v1');
+  for (const corrupt of [
+    value => { value.context = null; },
+    value => { value.outline.run_id = sessionId; },
+    value => { value.progress.concept_count++; },
+    value => { value.progress.concept_states = []; },
+    value => { value.context.knowledge_structure_revision = `knowledge-structure:sha256:${'f'.repeat(64)}`; },
+  ]) {
+    const value = structuredClone(workspace); corrupt(value);
+    await assert.rejects(new StudydyApiClient(async () => Response.json(value)).resumeWorkspace(resumeRequest), error => error.kind === 'schema');
+  }
+  const summary = mapProgressView(resumeView().progress);
+  assert.equal((await new StudydyApiClient(async () => Response.json(summary)).readMapProgress(sessionId, structureRevision)).schema, 'map-progress/v1');
+  client.invalidate();
+  await assert.rejects(client.getKnowledgeOutline(request), error => error.reasonCode === 'SESSION_REQUIRED');
+  await assert.rejects(client.getConceptContext(request, [conceptId]), error => error.reasonCode === 'SESSION_REQUIRED');
 });

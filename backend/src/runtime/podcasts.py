@@ -13,6 +13,7 @@ from sqlalchemy import delete, or_, select, update
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from .card_sets import _material, _validate_selection
 from .storage.artifacts import _key_digest, quarantine_source_pdf, reconcile_discarded_sources
+from .storage.tables import KnowledgeStructure
 from .storage.knowledge_structures import _prune_unreferenced_structures, _read_verified_document, _view
 from .storage.source_artifacts import write_blob
 from .storage.tables import Artifact, Material, Podcast, PodcastScenes, PodcastVideo, database_session
@@ -202,17 +203,20 @@ def list_podcasts(owner, *, dsn=None):
 def read_podcast(owner, identity, *, dsn=None):
     with database_session(dsn) as db:
         row, material = _locked(db, owner, identity, read=True)
-        document = _read_verified_document(db, owner, row.material_id,
-            revision=row.knowledge_structure_revision)
-        # 播放頁僅需來源入口與狀態，不展開所有概念／Evidence 的大型視圖。
+        from .storage.knowledge_reads import metadata
+        meta = metadata(db, owner, row.material_id, row.knowledge_structure_revision)
+        run_id = db.scalar(select(KnowledgeStructure.run_id).where(
+            KnowledgeStructure.learner_id == owner, KnowledgeStructure.material_id == row.material_id,
+            KnowledgeStructure.structure_revision == row.knowledge_structure_revision))
+        # 播放頁僅需來源入口與狀態，不讀整份教材或展開概念視圖。
         from .podcast_script import digest
         episodes=deepcopy(row.episodes)
         for episode in episodes:
             episode['script_sha256']=digest(episode['script']) if episode['script'] else None
-        return {"schema": "podcast/v1", "run_id":document['run_id'], **_summary(row, material, db),
-            "source_resolver": f"/v1/materials/{row.material_id}/knowledge-structures/{document['revision']}/evidence",
-            "source_status": document["status"],
-            "excluded_pages": document["excluded_pages"], "episodes": episodes}
+        return {"schema": "podcast/v1", "run_id":str(run_id), **_summary(row, material, db),
+            "source_resolver": meta['source_resolver'],
+            "source_status": meta['status'],
+            "excluded_pages": meta['excluded_pages'], "episodes": episodes}
 
 
 def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=None):

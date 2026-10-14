@@ -36,23 +36,38 @@ def claim_completion(events) -> tuple[bool, int]:
     return False, len(correct_questions)
 
 
+def progress_plan(context: MapContext) -> dict:
+    """發布時計算固定的可檢測重點，日常進度不必再讀文字與全部 Evidence。"""
+    from .assessment_sets import plan_concept_content
+    return {
+        'knowledge_structure_revision': context.knowledge_structure_revision,
+        'initial_learning_path': list(context.initial_learning_path),
+        'concepts': [{
+            'concept_id': concept.concept_id, 'label': concept.label,
+            'claim_ids': [claim.claim_id for claim in concept.claims],
+            'prerequisite_ids': list(concept.prerequisite_ids),
+            'targets': plan_concept_content(concept)['targets'],
+        } for concept in context.concepts],
+    }
+
+
 def derive_learning_states(
-    context: MapContext,
+    plan: dict,
     events: tuple[StoredAnswerEvent, ...],
     *,
     unavailable_claim_ids: set[str] | None = None,
     completed_concept_ids: set[str] | None = None,
 ) -> tuple[ConceptLearningState, ...]:
     """主要狀態僅由完成規則投影；系統無法出題不算使用者答錯。"""
-    from .assessment_sets import plan_concept
-
     unavailable = unavailable_claim_ids or set()
     states = []
-    for concept in context.concepts:
-        concept_events = [event for event in events if event.target_concept_id == concept.concept_id]
-        plan = plan_concept(context, concept.concept_id)
+    by_concept = {}
+    for event in events:
+        by_concept.setdefault(event.target_concept_id, []).append(event)
+    for concept in plan['concepts']:
+        concept_events = by_concept.get(concept['concept_id'], [])
         completed, covered, weak, assessable = set(), set(), set(), set()
-        for target in plan['targets']:
+        for target in concept['targets']:
             ids = set(target['covered_claim_ids'])
             history = [event for event in concept_events if event.target_claim_id in ids]
             done, _ = claim_completion(history)
@@ -65,7 +80,7 @@ def derive_learning_states(
                 if history and not done:
                     weak.update(ids)
         # 曾完成的重點保留完成事實；目前無題的重點不形成補強 gate。
-        if concept.concept_id in (completed_concept_ids or set()) or (assessable and assessable <= completed):
+        if concept['concept_id'] in (completed_concept_ids or set()) or (assessable and assessable <= completed):
             status = "completed"
             weak.clear()
         elif weak:
@@ -74,10 +89,10 @@ def derive_learning_states(
             status = "in_progress"
         else:
             status = "not_started"
-        claims = [claim.claim_id for claim in concept.claims]
+        claims = concept['claim_ids']
         states.append(ConceptLearningState(
-            concept_id=concept.concept_id,
-            label=concept.label,
+            concept_id=concept['concept_id'],
+            label=concept['label'],
             status=status,
             attempts=len(concept_events),
             correct_answers=sum(event.is_correct for event in concept_events),

@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from learning_adaptation.learner_progress import _next_action
-from learning_adaptation.learning_states import ConceptLearningState
+from learning_adaptation.learning_states import ConceptLearningState, progress_plan
 from learning_adaptation.map_context import ClaimContext, ConceptContext, MapContext, EvidenceContext
 from learning_adaptation.study_sessions import StoredStudySession
 
@@ -53,7 +53,7 @@ def _session(context: MapContext, current: str, *, no_safe=(), deferred=()) -> S
 def test_prerequisite_gap_advises_without_redirecting_current_concept():
     context = _context()
     study = _session(context, B)
-    action = _next_action(context, study, [_state(A, "not_started"), _state(B, "not_started")], cycles=[])
+    action = _next_action(progress_plan(context), study, [_state(A, "not_started"), _state(B, "not_started")], cycles=[])
     assert study.current_concept_id == B
     assert action.action == "assess"
     assert action.target_concept_id == B
@@ -66,10 +66,10 @@ def test_unavailable_concept_can_advance_without_becoming_completed():
     context = _context()
     states = [_state(A, 'not_started').model_copy(update={'assessable_claim_ids': []}),
               _state(B, 'not_started')]
-    action = _next_action(context, _session(context, A), states, cycles=[])
+    action = _next_action(progress_plan(context), _session(context, A), states, cycles=[])
     assert action.action == 'advance' and action.target_concept_id == B
     states[1] = _state(B, 'completed')
-    action = _next_action(context, _session(context, B), states, cycles=[])
+    action = _next_action(progress_plan(context), _session(context, B), states, cycles=[])
     assert action.action == 'complete'
     assert states[0].status == 'not_started'
     assert context.initial_learning_path == (A, B)
@@ -93,17 +93,17 @@ def test_guidance_moves_past_completed_claim_after_all_claims_are_covered():
         f"semantic-{n}", True, A, claim, (), "correct", True, n,
         datetime.now(UTC), b"x" * 32, b"y" * 32,
     ) for n, claim in enumerate((CLAIM_A, CLAIM_A, CLAIM_B), 1))
-    states = derive_learning_states(context, events)
+    states = derive_learning_states(progress_plan(context), events)
     assert states[0].status == "completed"
     assert states[0].qualified_correct_items == 3
-    action = _next_action(context, session, list(states), cycles=[])
+    action = _next_action(progress_plan(context), session, list(states), cycles=[])
     assert action.action == "advance"
     assert action.target_concept_id == B
 
 
 def test_completed_prerequisite_removes_advisory_without_changing_target():
     context = _context()
-    action = _next_action(context, _session(context, B), [_state(A, "completed"), _state(B, "in_progress")], cycles=[])
+    action = _next_action(progress_plan(context), _session(context, B), [_state(A, "completed"), _state(B, "in_progress")], cycles=[])
     assert action.action == "assess" and action.target_claim_id == CLAIM_B
     assert action.target_concept_id == B and action.prerequisite_concept_ids == []
     assert action.reason == "current_concept"
@@ -125,7 +125,7 @@ def test_multiple_canonical_prerequisites_do_not_include_other_path_steps():
         initial_learning_path=(A, extra, unrelated, B),
     )
     states = [_state(concept_id, "not_started") for concept_id in context.initial_learning_path]
-    action = _next_action(context, _session(context, B), states, cycles=[])
+    action = _next_action(progress_plan(context), _session(context, B), states, cycles=[])
     assert action.action == "assess"
     assert action.target_concept_id == B
     assert action.prerequisite_concept_ids == [A, extra]
@@ -136,22 +136,22 @@ def test_practice_cycle_does_not_override_completed_concept():
     context = _context()
     states = [_state(A, 'completed'), _state(B, 'completed')]
     cycle = {'concept_id': B, 'outcome': 'needs_review', 'active_set_id': None}
-    action = _next_action(context, _session(context, B), states, [cycle])
+    action = _next_action(progress_plan(context), _session(context, B), states, [cycle])
     assert action.action == 'complete'
     cycle['active_set_id'] = 'practice'
-    assert _next_action(context, _session(context, B), states, [cycle]).action == 'continue_set'
+    assert _next_action(progress_plan(context), _session(context, B), states, [cycle]).action == 'continue_set'
 
 
 def test_completed_current_still_advances_or_completes():
     context = _context()
     action = _next_action(
-        context, _session(context, A),
+        progress_plan(context), _session(context, A),
         [_state(A, "completed"), _state(B, "not_started")], cycles=[],
     )
     assert action.action == "advance"
     assert action.target_concept_id == B
     action = _next_action(
-        context, _session(context, B),
+        progress_plan(context), _session(context, B),
         [_state(A, "completed"), _state(B, "completed")], cycles=[],
     )
     assert action.action == "complete"

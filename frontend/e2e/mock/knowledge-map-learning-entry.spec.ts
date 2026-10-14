@@ -1,5 +1,6 @@
+import { outlineView } from "../fixtures/knowledge-read-views.mjs";
 import { expect, test, type Page } from "@playwright/test";
-import type { StudyResumeView } from "../../src/api/contracts";
+import type { StudyWorkspaceView } from "../../src/api/contracts";
 import { studyLayoutFixture } from "../fixtures/study-layout.mjs";
 import {
   materialId,
@@ -25,9 +26,9 @@ for (const stage of ["preparing", "ready", "failed", "no-safe", "remediation"] a
   test(`map entry resumes existing ${stage} state without recreating assessment`, async ({ page }) => {
     const fixture = await studyLayoutFixture(page, stage === "remediation" ? "ready" : stage,
       { wrong: [], kind: stage === "remediation" ? "remediation" : "diagnostic" });
-    let snapshot: StudyResumeView;
+    let snapshot: StudyWorkspaceView;
     page.on("response", async response => {
-      if (response.url().includes("/resume?") && response.ok()) {
+      if (response.url().includes("/workspace?") && response.ok()) {
         // 刻意 reload 可能中止前一次 resume；保留最近完整收到的 fixture snapshot。
         try { snapshot = await response.json(); } catch { /* navigation cancelled this read */ }
       }
@@ -37,7 +38,7 @@ for (const stage of ["preparing", "ready", "failed", "no-safe", "remediation"] a
     const sid = snapshot!.session.study_session_id;
     const mid = snapshot!.session.material_id;
     const rid = snapshot!.run_id;
-    const revision = snapshot!.knowledge_structure.knowledge_structure_revision;
+    const revision = snapshot!.outline.knowledge_structure_revision;
     const published = { ...run, run_id: rid, material_id: mid,
       output_binding: { ...run.output_binding, knowledge_structure_revision: revision } };
     await page.route(`**/v1/materials/${mid}`, route => json(route, {
@@ -47,9 +48,9 @@ for (const stage of ["preparing", "ready", "failed", "no-safe", "remediation"] a
       study_sessions: [{ ...snapshot.session, run_id: rid }],
     }));
     await page.route(`**/v1/material-processing-runs/${rid}`, route => json(route, published));
-    await page.route(url => decodeURIComponent(url.pathname) === `/v1/materials/${mid}/knowledge-structures/${revision}`,
-      route => json(route, snapshot.knowledge_structure));
-    await page.route(`**/v1/study-sessions/${sid}/progress`, route => json(route, snapshot.progress));
+    await page.route(url => decodeURIComponent(url.pathname) === `/v1/materials/${mid}/knowledge-structures/${revision}/outline`,
+      route => json(route, outlineView(fixture.knowledgeStructure, mid, rid)));
+    await page.route(`**/v1/study-sessions/${sid}/map-progress`, route => json(route, snapshot.progress));
     const map = fixture.path.split("/study-sessions/")[0];
     if (stage !== "remediation") {
       snapshot!.progress.concept_states.forEach(state => {
@@ -134,16 +135,17 @@ function trackStudyWrites(page: Page) {
 for (const stage of ["preparation", "completed"] as const) {
  test(`direct assessment entry creates ${stage === "completed" ? "practice" : "first assessment"} without rereading`,async({page})=>{
   const fixture=await studyLayoutFixture(page,stage,{wrong:[]});
-  let snapshot:StudyResumeView;
-  page.on('response',async response=>{if(response.url().includes('/resume?')&&response.ok()){try{snapshot=await response.json();}catch{}}});
+  let snapshot:StudyWorkspaceView;
+  page.on('response',async response=>{if(response.url().includes('/workspace?')&&response.ok()){try{snapshot=await response.json();}catch{}}});
   await fixture.open();await expect.poll(()=>!!snapshot).toBe(true);
-  const {session:sessionView,knowledge_structure:view}=snapshot!;
+  const {session:sessionView}=snapshot!;
+  const view=outlineView(fixture.knowledgeStructure,sessionView.material_id,snapshot!.run_id);
   const mid=sessionView.material_id,sid=sessionView.study_session_id,rid=snapshot!.run_id,revision=view.knowledge_structure_revision;
   const published={...run,run_id:rid,material_id:mid,output_binding:{...run.output_binding,knowledge_structure_revision:revision}};
   await page.route(`**/v1/materials/${mid}`,route=>json(route,{...materialWithHistory([]),material_id:mid,source_artifact_id:snapshot.source_artifact_id,head_revision:revision,latest_attempt:published,available_structures:[{run_id:rid,knowledge_structure_revision:revision,created_at:run.created_at,status:'succeeded'}],study_sessions:[{...sessionView,run_id:rid}]}));
   await page.route(`**/v1/material-processing-runs/${rid}`,route=>json(route,published));
-  await page.route(url=>decodeURIComponent(url.pathname)===`/v1/materials/${mid}/knowledge-structures/${revision}`,route=>json(route,view));
-  await page.route(`**/v1/study-sessions/${sid}/progress`,route=>json(route,snapshot.progress));
+  await page.route(url=>decodeURIComponent(url.pathname)===`/v1/materials/${mid}/knowledge-structures/${revision}/outline`,route=>json(route,view));
+  await page.route(`**/v1/study-sessions/${sid}/map-progress`,route=>json(route,snapshot.progress));
   await page.goto(fixture.path.split('/study-sessions/')[0]);
   if(stage==='completed') await page.getByRole('tab',{name:'測驗',exact:true}).click();
   else await openMapConcept(page, '伺服器');
@@ -221,7 +223,7 @@ test("restoring a saved assessment normalizes the URL without downloading resume
   const setReads: string[] = [];
   page.on("request", request => {
     if (/\/v1\/study-sessions\/[^/]+\/assessment-sets\/[^/?]+$/.test(request.url())) setReads.push(request.url());
-    if (request.url().includes("/resume?")) resumes.push(request.url());
+    if (request.url().includes("/workspace?")) resumes.push(request.url());
   });
   await fixture.open();
   await expect(page).toHaveURL(/assessment-sets/);

@@ -52,14 +52,18 @@ def metadata(session, owner, material_id, revision):
         index = prepare(session, owner, material_id, revision)
     value = index.metadata_
     binding = session.execute(select(MaterialProcessingRun.output_binding, MaterialProcessingRun.input_source_set_id,
-        MaterialSourceSet.digest, MaterialProcessingRun.bundle_manifest_sha256).join(KnowledgeStructure,
+        MaterialSourceSet.digest, MaterialProcessingRun.bundle_manifest_sha256,
+        MaterialProcessingRun.runtime_binding, MaterialProcessingRun.runtime_lock_document).join(KnowledgeStructure,
         KnowledgeStructure.run_id == MaterialProcessingRun.run_id).join(MaterialSourceSet,
         MaterialSourceSet.source_set_id == MaterialProcessingRun.input_source_set_id).where(
         KnowledgeStructure.learner_id == owner, KnowledgeStructure.material_id == material_id,
         KnowledgeStructure.structure_revision == revision,
         MaterialProcessingRun.status.in_(('succeeded', 'partial')))).one_or_none()
+    from ..material_runtime import lock_matches_binding
     if (canonical_sha256(value) != index.content_sha256 or binding is None or binding[0] != value['output_binding']
-        or dict(zip(('source_set_id', 'source_set_digest', 'bundle_manifest_sha256'), (str(binding[1]), binding[2], binding[3]))) != value['source_binding']):
+        or dict(zip(('source_set_id', 'source_set_digest', 'bundle_manifest_sha256'), (str(binding[1]), binding[2], binding[3]))) != value['source_binding']
+        or not lock_matches_binding(binding[5], binding[4])
+        or binding[4]['runtime_lock_sha256'] != value['output_binding']['runtime_lock_sha256']):
         raise KnowledgeStructureStoreError('KNOWLEDGE_STRUCTURE_UNAVAILABLE')
     return value
 

@@ -170,3 +170,20 @@ Backend runtime tests 使用 disposable DB；不以產品資料跑測試，不�
 `research-search` 使用鎖定 digest 的 SearXNG 映像與 `ops/search/settings.yml`，不發布主機 port，也不需要付費 API key。初次接入先以原本的 HTTPS Compose 組合執行 `up -d --no-deps --wait research-search`，再更新 backend／frontend。搜尋用的內部簽署密鑰在啟動時產生，不寫入版本庫。
 
 搜尋關鍵詞提示位於主機的 `ops/podcast/provider.py`；更新時要保留已執行中的 Podcast／影片／問答工作，確認工作完成的安全空檔後才重啟 provider 與 backend。不能把取消整份 Podcast 當作部署前的例行清理。搜尋服務失敗會保留其他搜尋結果及部分失敗狀態。
+
+## 按需教材讀取索引（0027）
+
+`0027_knowledge_read_indexes.sql` 新增導覽／學習規則及單筆 Evidence 定位投影，沿用 `card_source_concepts` 的完整概念內容。原始 PDF、canonical document、revision 與作答事件不變。新發布教材會在同一交易內建立索引；舊教材必須補建後才切換新版前端。
+
+保存 DB dump、來源 diff／新增檔案及實際映像身分後，使用新建的 backend image 執行：
+
+```bash
+docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml \
+  -f compose.app-update.yaml run --rm --no-deps backend prepare-read-indexes
+```
+
+此命令先套用 migration，再逐版本驗證並補建缺少的索引；可重跑、不呼叫模型。確認沒有進行中的發布工作，更新 backend，再重跑補建以涵蓋切換期間完成的舊版工作，最後更新 frontend。不要在一般 GET 交易內補建大型索引。
+
+舊完整教材／resume API 暫時保留給部署前已開啟的頁面；新版使用 outline、concepts、map-progress 與 workspace 讀取。API 仍為 `private, no-store`，每次核對 owner、發布版本、runtime／來源綁定與投影雜湊。瀏覽器記憶體快取隨帳號 client 清除，不存入 localStorage。
+
+0027 套用後不可直接重啟不認識該 migration 的舊 backend；採相容新 schema 的前向修正，不自動還原 DB。前端可單獨退回先前映像，其完整 API 仍可使用。

@@ -246,7 +246,7 @@ for (const status of ["active", "completed"] as const)
       if (new URL(request.url()).pathname.endsWith("/retry")) retries.push(request.url());
     });
     await page.route(
-      `**/v1/materials/${materialId}/knowledge-structures/${encodeURIComponent(revision)}/study-sessions/${studyId}/resume?*`,
+      `**/v1/materials/${materialId}/knowledge-structures/${encodeURIComponent(revision)}/study-sessions/${studyId}/workspace?*`,
       (route) => {
         expect(route.request().method()).toBe("GET");
         expect(new URL(route.request().url()).searchParams.get("run_id")).toBe(publishedId);

@@ -28,7 +28,7 @@ async function openFocusRelation(page: Page) {
   return edge;
 }
 
-test("map opens concept details and source-backed learning on demand", async ({ page }) => {
+test("map opens concept details and preserves each source on demand", async ({ page }) => {
   await mockKnowledgeMapApi(page);
   await page.route("**/v1/study-sessions", (route) => {
     expect(route.request().postDataJSON()).toEqual({
@@ -73,8 +73,7 @@ test("map opens concept details and source-backed learning on demand", async ({ 
   );
   await page.keyboard.press("Escape");
   await openMapConcept(page, "Stack");
-  await page.getByRole("button", { name: "檢測這個概念", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/study-sessions/${sessionId}$`));
+  await expect(page.getByRole("button", { name: "檢測這個概念", exact: true })).toBeEnabled();
 });
 
 test("mobile map has a modal detail drawer with keyboard focus and source links", async ({
@@ -112,7 +111,7 @@ test("map errors can be retried and an empty map has an actionable explanation",
   empty.document_tree.sections = [];
   await mockKnowledgeMapApi(page, empty);
   await page.route(
-    `**${apiMapPath}`,
+    `**${apiMapPath}/outline`,
     (route) =>
       json(
         route,
@@ -285,12 +284,12 @@ for (const viewport of [
       for (const [index, representative] of representatives.entries()) {
         const resolution = page.waitForRequest((request) => {
           const path = new URL(request.url()).pathname;
-          return path.startsWith(`${apiMapPath}/evidence/`) && path.endsWith("/source");
+          return path.startsWith(`${decodeURIComponent(apiMapPath)}/evidence/`) && path.endsWith("/source");
         });
         await links.nth(index).click();
         const source = page.getByRole("dialog", { name: "教材來源", exact: true });
         expect(new URL((await resolution).url()).pathname).toBe(
-          `${apiMapPath}/evidence/${encodeURIComponent(representative.evidence_id)}/source`,
+          `${decodeURIComponent(apiMapPath)}/evidence/${encodeURIComponent(representative.evidence_id)}/source`,
         );
         await expect(
           source.getByRole("heading", {
@@ -338,7 +337,7 @@ for (const width of [1536, 390])
     const evidenceId = view.concepts[0].claims[0].evidence[0].evidence_id;
     let reads = 0;
     await page.route(
-      `**${apiMapPath}/evidence/${encodeURIComponent(evidenceId)}/source`,
+      `**${decodeURIComponent(apiMapPath)}/evidence/${encodeURIComponent(evidenceId)}/source`,
       (route) => {
         expect(route.request().method()).toBe("GET");
         reads++;

@@ -170,6 +170,28 @@ class MaterialPassage(Base):
     keywords: Mapped[Any] = mapped_column(TSVECTOR)
 
 
+class KnowledgeReadIndex(Base):
+    __tablename__ = 'knowledge_read_indexes'
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    structure_revision: Mapped[str] = mapped_column(Text, primary_key=True)
+    # 不隨 ORM metadata 讀取一併解碼；各讀取入口明確選擇所需欄位。
+    outline: Mapped[dict] = mapped_column(EvidenceJSONB, deferred=True)
+    outline_sha256: Mapped[str] = mapped_column(Text)
+    learning: Mapped[dict] = mapped_column(EvidenceJSONB, deferred=True)
+    learning_sha256: Mapped[str] = mapped_column(Text)
+
+
+class KnowledgeEvidenceRef(Base):
+    __tablename__ = 'knowledge_evidence_refs'
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    structure_revision: Mapped[str] = mapped_column(Text, primary_key=True)
+    evidence_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB)
+    content_sha256: Mapped[str] = mapped_column(Text)
+
+
 class CardSourceIndex(Base):
     __tablename__ = 'card_source_indexes'
     learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)

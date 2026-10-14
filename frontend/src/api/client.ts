@@ -1,5 +1,6 @@
 import * as validate from "./response-validation.ts";
 import type {
+  KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeSearchView, MapProgressView, StudyWorkspaceView,
   PodcastContext, PodcastSummary, PodcastView, PodcastCreate, PodcastAction, PodcastListView, PodcastDeletedView,
   ApiReasonCode,
   CardSetCreate,
@@ -146,6 +147,8 @@ export class StudydyApiClient {
   private sessionReady: Promise<LearnerIdentity> | null = null;
   private active = true;
   private readonly structures = new Map<string, Promise<KnowledgeStructureView>>();
+  private readonly outlines = new Map<string, Promise<KnowledgeOutlineView>>();
+  private readonly conceptContexts = new Map<string, Promise<KnowledgeConceptsView>>();
   private readonly pending = new Set<AbortController>();
   private readonly fetchRequest: FetchRequest;
   onSessionExpired: (() => void) | null = null;
@@ -157,6 +160,8 @@ export class StudydyApiClient {
   invalidate(): void {
     this.active = false;
     this.structures.clear();
+    this.outlines.clear();
+    this.conceptContexts.clear();
     this.sessionReady = null;
     for (const controller of this.pending) controller.abort();
     this.pending.clear();
@@ -203,6 +208,8 @@ export class StudydyApiClient {
 
   async logout(): Promise<void> {
     this.structures.clear();
+    this.outlines.clear();
+    this.conceptContexts.clear();
     await this.request(
       "/v1/session",
       { method: "DELETE", headers: { Origin: origin() } },
@@ -595,6 +602,8 @@ export class StudydyApiClient {
 
   async discardMaterial(materialId: string): Promise<MaterialDiscardView> {
     this.structures.clear();
+    this.outlines.clear();
+    this.conceptContexts.clear();
     const view = await this.json(
       `/v1/materials/${encodeURIComponent(materialId)}`,
       {
@@ -606,6 +615,60 @@ export class StudydyApiClient {
     );
     if (view.material_id !== materialId) throw schemaMismatch("教材身分不一致。");
     return view;
+  }
+
+  async getKnowledgeOutline(request: KnowledgeStructureRequest): Promise<KnowledgeOutlineView> {
+    this.requireActive();
+    const key = `${request.materialId}:${request.structureRevision}`;
+    const cached = this.outlines.get(key);
+    if (cached) return cached;
+    const task = this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/outline`,
+      { method: "GET" }, (value): value is KnowledgeOutlineView => validate.knowledgeOutline(value)
+        && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision);
+    this.outlines.set(key, task);
+    if (this.outlines.size > 2) this.outlines.delete(this.outlines.keys().next().value!);
+    try { return await task; } catch (error) { if (this.outlines.get(key) === task) this.outlines.delete(key); throw error; }
+  }
+
+  async getConceptContext(request: KnowledgeStructureRequest, ids: string[], neighbors = false): Promise<KnowledgeConceptsView> {
+    this.requireActive();
+    const key = `${request.materialId}:${request.structureRevision}:${neighbors}:${ids.join(",")}`;
+    const cached = this.conceptContexts.get(key);
+    if (cached) return cached;
+    const query = new URLSearchParams({ ids: ids.join(","), neighbors: String(neighbors) });
+    const task = this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/concepts?${query}`,
+      { method: "GET" }, (value): value is KnowledgeConceptsView => validate.knowledgeConcepts(value)
+        && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision
+        && value.requested_concept_ids.join(",") === ids.join(",")
+        && (neighbors || value.concepts.length === ids.length));
+    this.conceptContexts.set(key, task);
+    if (this.conceptContexts.size > 8) this.conceptContexts.delete(this.conceptContexts.keys().next().value!);
+    try { return await task; } catch (error) { if (this.conceptContexts.get(key) === task) this.conceptContexts.delete(key); throw error; }
+  }
+
+  searchConcepts(request: KnowledgeStructureRequest, text: string): Promise<KnowledgeSearchView> {
+    const query = new URLSearchParams({ q: text });
+    return this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/search?${query}`,
+      { method: "GET" }, (value): value is KnowledgeSearchView => validate.knowledgeSearch(value)
+        && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision);
+  }
+
+  readMapProgress(id: string, revision: string): Promise<MapProgressView> {
+    return this.json(`/v1/study-sessions/${id}/map-progress`, { method: "GET" },
+      (value): value is MapProgressView => validate.mapProgress(value)
+        && value.study_session_id === id && value.knowledge_structure_revision === revision);
+  }
+
+  async resumeWorkspace(request: { materialId: string; structureRevision: string; studySessionId: string; runId: string; assessmentSetId?: string }): Promise<StudyWorkspaceView> {
+    const query = new URLSearchParams({ run_id: request.runId });
+    if (request.assessmentSetId) query.set("set_id", request.assessmentSetId);
+    const restored = await this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/study-sessions/${request.studySessionId}/workspace?${query}`,
+      { method: "GET" }, validate.studyWorkspace);
+    if (restored.session.material_id !== request.materialId || restored.session.study_session_id !== request.studySessionId
+      || restored.session.knowledge_structure_revision !== request.structureRevision || restored.run_id !== request.runId
+      || (request.assessmentSetId !== undefined && restored.selected_set_id !== request.assessmentSetId))
+      throw schemaMismatch("學習紀錄與教材版本不一致。");
+    return restored;
   }
 
   async getKnowledgeStructure(request: KnowledgeStructureRequest): Promise<KnowledgeStructureView> {

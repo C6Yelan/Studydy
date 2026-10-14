@@ -165,6 +165,8 @@ def publish_knowledge_structure(
             if stored != (run_id, document):
                 raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_CONFLICT")
             publish_index(session, learner_id, material_id, document, passages)
+            from .knowledge_reads import prepare
+            prepare(session, learner_id, material_id, document)
             status = binding["processing"]
             updated = session.execute(
                 update(MaterialProcessingRun)
@@ -308,15 +310,10 @@ def read_knowledge_structure(
 
 
 def resolve_evidence_source(owner, material_id, revision, evidence_id, *, dsn=None):
-    stored = read_knowledge_structure(owner, material_id, revision=revision, dsn=dsn)
-    document = stored.document
-    evidence = next((item for item in document["evidence"] if item["evidence_id"] == evidence_id), None)
-    if evidence is None:
-        raise SourceError("RESOURCE_NOT_FOUND")
-    binding = document.get("input_binding")
-    location = binding["bundle"]["pages"][evidence["page"] - 1]
-    source = next(item for item in binding["manifest"]["items"] if item["source_id"] == location["source_id"])
-    normalized_page = location["normalized_page"]
+    from .knowledge_reads import evidence_source
+    with database_session(dsn) as session:
+        source, evidence = evidence_source(session, owner, material_id, revision, evidence_id)
+    normalized_page = evidence['normalized_page']
     with open_verified_artifact(owner, UUID(source["mapping_artifact_id"]), dsn=dsn) as opened:
         mapping = json.loads(opened.file.read())
     if (

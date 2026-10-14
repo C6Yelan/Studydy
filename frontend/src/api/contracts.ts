@@ -214,6 +214,54 @@ export type KnowledgeStructureView = {
   excluded_pages: { page_ref: string; page: number; stage: "evidence"; reason_code: string }[];
 };
 
+export type KnowledgeOutlineView = Pick<KnowledgeStructureView,
+  "source_resolver" | "status" | "initial_learning_path" | "excluded_pages"> & {
+  schema: "knowledge-outline/v1";
+  material_id: string;
+  knowledge_structure_revision: string;
+  run_id: string;
+  section_count: number;
+  relations: Pick<KnowledgeStructureView["relations"][number], "relation_id" | "source_concept_id" | "target_concept_id" | "type">[];
+  concepts: { concept_id: string; label: string; aliases: string[]; claim_count: number }[];
+};
+
+export type KnowledgeConceptsView = ConceptCardContext & {
+  schema: "knowledge-concepts/v1";
+  material_id: string;
+  knowledge_structure_revision: string;
+  requested_concept_ids: string[];
+  relation_evidence: EvidenceView[];
+};
+
+export type KnowledgeSearchView = {
+  schema: "knowledge-search/v1"; material_id: string;
+  knowledge_structure_revision: string; concept_ids: string[];
+};
+
+export type MapProgressView = Pick<LearnerProgressView,
+  "study_session_id" | "knowledge_structure_revision" | "current_concept_id" | "assessment_cycles" | "next_action"> & {
+  schema: "map-progress/v1";
+  concept_states: (Pick<ConceptLearningStateView, "concept_id" | "status" | "attempts"> & { assessable: boolean })[];
+};
+
+export type StudyProgressView = Omit<LearnerProgressView, "schema"> & {
+  schema: "study-progress/v1"; concept_count: number;
+};
+
+export type StudyNavigationView = Pick<KnowledgeOutlineView,
+  "material_id" | "knowledge_structure_revision" | "run_id" | "source_resolver" | "status" | "initial_learning_path"> & {
+  schema: "study-navigation/v1";
+  concept_count: number;
+  concepts: { concept_id: string; label: string }[];
+};
+
+export type StudyWorkspaceView = Omit<StudyResumeView, "schema" | "knowledge_structure" | "progress"> & {
+  schema: "study-workspace/v1";
+  outline: StudyNavigationView;
+  context: KnowledgeConceptsView | null;
+  progress: StudyProgressView;
+};
+
 export type CardDesignSources = { claim_ids: string[]; relation_ids: string[]; evidence_ids: string[] };
 export type CardDesignPage = {
   title: string; layout: "focus" | "compare" | "flow" | "grid";

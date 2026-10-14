@@ -37,7 +37,7 @@ export function AssessmentSetPanel({
   selectedSetId: string | null;
   initialSet: AssessmentSetView | null;
   concept: Concept;
-  view: KnowledgeStructureView;
+  view: Pick<KnowledgeStructureView, "knowledge_structure_revision" | "source_resolver" | "concepts">;
   completed: boolean;
   conceptCompleted?: boolean;
   onSetSelected: (id: string) => void;

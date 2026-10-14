@@ -1,3 +1,4 @@
+import { conceptsView, readResponse } from "./knowledge-read-views.mjs";
 // 地圖 browser 測試共用的合成資料與 API 攔截；不呼叫真實後端或模型。
 import { expect, type Page, type Route } from "@playwright/test";
 import type { EvidenceView } from "../../src/api/contracts";
@@ -188,11 +189,15 @@ export const progress = {
 };
 
 export async function json(route: Route, body: unknown, status = 200) {
-  await route.fulfill({ status, json: body });
+  await route.fulfill({ status, json: readResponse(route.request().url(), body, runId) });
 }
 
 function pathMatches(path: string) {
-  return (url: URL) => decodeURIComponent(url.pathname) === decodeURIComponent(path);
+  return (url: URL) => {
+    const actual = decodeURIComponent(url.pathname);
+    const fixturePath = actual.replace(/\/outline$/, "").replace(/\/workspace$/, "/resume").replace(/\/map-progress$/, "/progress");
+    return actual === decodeURIComponent(path) || fixturePath === decodeURIComponent(path);
+  };
 }
 
 function apiError(route: Route, reasonCode: string, status: number) {
@@ -292,6 +297,15 @@ export async function mockKnowledgeMapApi(
   }));
   await mockGet(page, `/v1/material-processing-runs/${runId}`, () => boundRun);
   await mockGet(page, mapPath, () => view);
+  await mockGet(page, `${mapPath}/concepts`, route => {
+    const query = new URL(route.request().url()).searchParams;
+    return conceptsView(view, materialId, (query.get("ids") ?? "").split(","), query.get("neighbors") === "true");
+  });
+  await mockGet(page, `${mapPath}/search`, route => {
+    const query = (new URL(route.request().url()).searchParams.get("q") ?? "").toLocaleLowerCase();
+    return { schema: "knowledge-search/v1", material_id: materialId, knowledge_structure_revision: revision,
+      concept_ids: view.concepts.filter(c => [c.label, ...c.aliases, ...c.claims.map(c => c.text)].some(t => t.toLocaleLowerCase().includes(query))).map(c => c.concept_id) };
+  });
   await page.route(
     (url) => {
       const path = decodeURIComponent(url.pathname);

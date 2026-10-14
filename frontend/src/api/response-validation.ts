@@ -1,4 +1,5 @@
 import type {
+  KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeSearchView, MapProgressView, StudyWorkspaceView,
   PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView,
   AnswerFeedbackView,
   CardSetSummary,
@@ -544,6 +545,134 @@ export function knowledgeStructure(value: unknown): value is KnowledgeStructureV
     pathIds.every((id) => typeof id === "string" && known.has(id)) &&
     new Set(pathIds).size === pathIds.length
   );
+}
+
+function knowledgeStatus(value: unknown): boolean {
+  const s = object(value);
+  return !!s && ["succeeded", "partial", "failed"].includes(String(s.processing))
+    && ["accepted", "needs_review"].includes(String(s.quality))
+    && ["retain", "review", "reject"].includes(String(s.decision)) && strings(s.reason_codes);
+}
+
+function relationSummary(value: unknown): boolean {
+  const r = object(value);
+  return !!r && revision(r.relation_id, "relation") && revision(r.source_concept_id, "concept")
+    && revision(r.target_concept_id, "concept") && r.source_concept_id !== r.target_concept_id
+    && ["prerequisite", "part_of", "application", "example", "contrast"].includes(String(r.type));
+}
+
+function knowledgeRelation(value: unknown): boolean {
+  const r = object(value);
+  return !!r && relationSummary(r) && typeof r.learner_reason === "string" && strings(r.evidence_refs)
+    && r.evidence_refs.every(id => revision(id, "evidence"));
+}
+
+export function knowledgeOutline(value: unknown): value is KnowledgeOutlineView {
+  const item = object(value);
+  if (!item || item.schema !== "knowledge-outline/v1" || !isUuid(item.material_id) || !isUuid(item.run_id)
+    || !revision(item.knowledge_structure_revision, "knowledge-structure") || !knowledgeStatus(item.status)
+    || item.source_resolver !== `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
+    || !Number.isSafeInteger(item.section_count) || Number(item.section_count) < 0
+    || !Array.isArray(item.concepts) || !Array.isArray(item.relations) || !Array.isArray(item.excluded_pages)
+    || !Array.isArray(item.initial_learning_path)) return false;
+  const ids = new Set<string>();
+  for (const value of item.concepts) {
+    const c = object(value);
+    if (!c || !revision(c.concept_id, "concept") || ids.has(c.concept_id) || typeof c.label !== "string"
+      || !strings(c.aliases) || !Number.isSafeInteger(c.claim_count)
+      || Number(c.claim_count) < 0 || Object.hasOwn(c, "claims")) return false;
+    ids.add(c.concept_id);
+  }
+  const path = item.initial_learning_path;
+  return item.relations.every(r => relationSummary(r) && ids.has(r.source_concept_id) && ids.has(r.target_concept_id))
+    && new Set(item.relations.map(r => r.relation_id)).size === item.relations.length
+    && path.length === ids.size && new Set(path.map(s => s.concept_id)).size === ids.size
+    && path.every((s, i) => object(s) && ids.has(s.concept_id) && s.position === i + 1
+      && ["document_order", "prerequisite"].includes(s.reason));
+}
+
+export function knowledgeConcepts(value: unknown): value is KnowledgeConceptsView {
+  const item = object(value);
+  if (!item || item.schema !== "knowledge-concepts/v1" || !isUuid(item.material_id)
+    || !revision(item.knowledge_structure_revision, "knowledge-structure") || !knowledgeStatus(item.status)
+    || item.source_resolver !== `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
+    || !strings(item.requested_concept_ids) || item.requested_concept_ids.length > 32
+    || !Array.isArray(item.concepts) || !item.concepts.every(c => conceptCard(c) && strings(object(c)?.aliases))
+    || !Array.isArray(item.relations) || !item.relations.every(knowledgeRelation)
+    || !Array.isArray(item.relation_evidence) || !item.relation_evidence.every(cardEvidence)) return false;
+  const ids = new Set(item.concepts.map(c => c.concept_id));
+  return ids.size === item.concepts.length && new Set(item.requested_concept_ids).size === item.requested_concept_ids.length
+    && item.requested_concept_ids.every(id => ids.has(id));
+}
+
+export function knowledgeSearch(value: unknown): value is KnowledgeSearchView {
+  const item = object(value);
+  return !!item && item.schema === "knowledge-search/v1" && isUuid(item.material_id)
+    && revision(item.knowledge_structure_revision, "knowledge-structure") && strings(item.concept_ids)
+    && item.concept_ids.every(id => revision(id, "concept")) && new Set(item.concept_ids).size === item.concept_ids.length;
+}
+
+export function mapProgress(value: unknown): value is MapProgressView {
+  const item = object(value);
+  return !!item && item.schema === "map-progress/v1" && isUuid(item.study_session_id)
+    && revision(item.knowledge_structure_revision, "knowledge-structure")
+    && (item.current_concept_id === null || revision(item.current_concept_id, "concept"))
+    && !!object(item.next_action)
+    && Array.isArray(item.assessment_cycles) && item.assessment_cycles.every(cycleSummary)
+    && Array.isArray(item.concept_states) && item.concept_states.every(value => {
+      const s = object(value);
+      return !!s && revision(s.concept_id, "concept") && typeof s.assessable === "boolean"
+        && ["not_started", "in_progress", "needs_review", "completed"].includes(String(s.status))
+        && Number.isSafeInteger(s.attempts) && Number(s.attempts) >= 0;
+    }) && new Set(item.concept_states.map(s => s.concept_id)).size === item.concept_states.length;
+}
+
+function studyNavigation(value: unknown): value is StudyNavigationView {
+  const item = object(value);
+  if (!item || item.schema !== "study-navigation/v1" || !isUuid(item.material_id) || !isUuid(item.run_id)
+    || !revision(item.knowledge_structure_revision, "knowledge-structure") || !knowledgeStatus(item.status)
+    || item.source_resolver !== `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
+    || !Number.isSafeInteger(item.concept_count) || Number(item.concept_count) < 0
+    || !Array.isArray(item.concepts) || item.concepts.length > Number(item.concept_count)
+    || !item.concepts.every(c => object(c) && revision(c.concept_id, "concept") && typeof c.label === "string")
+    || !Array.isArray(item.initial_learning_path)) return false;
+  const ids = new Set(item.concepts.map(c => c.concept_id));
+  return ids.size === item.concepts.length && item.initial_learning_path.length === ids.size
+    && new Set(item.initial_learning_path.map(s => s.concept_id)).size === ids.size
+    && item.initial_learning_path.every(s => object(s) && ids.has(s.concept_id)
+      && Number.isSafeInteger(s.position) && s.position > 0 && s.position <= Number(item.concept_count)
+      && ["document_order", "prerequisite"].includes(s.reason));
+}
+
+export function studyWorkspace(value: unknown): value is StudyWorkspaceView {
+  const item = object(value), p = object(item?.progress);
+  if (!item || item.schema !== "study-workspace/v1" || !studySession(item.session)
+    || !studyNavigation(item.outline) || !isUuid(item.run_id) || !isUuid(item.source_artifact_id)
+    || !p || p.schema !== "study-progress/v1" || !progress({ ...p, schema: "learner-progress/v1" })
+    || p.concept_count !== item.outline.concept_count
+    || !(item.context === null || knowledgeConcepts(item.context))
+    || !Array.isArray(item.assessment_sets) || !item.assessment_sets.every(assessmentSetSummary)) return false;
+  const session = item.session, outline = item.outline, context = item.context;
+  const ids = new Set(outline.concepts.map(c => c.concept_id));
+  const selected = item.selected_set;
+  if (item.selected_set_id === null ? selected !== null : (
+    !assessmentSet(selected) || selected.set_id !== item.selected_set_id || selected.study_session_id !== session.study_session_id
+    || selected.material_id !== session.material_id || selected.knowledge_structure_revision !== session.knowledge_structure_revision
+    || !item.assessment_sets.some(s => s.set_id === selected.set_id && s.set_version === selected.set_version && s.target_concept_id === selected.target_concept_id)
+  )) return false;
+  const needed = new Set([session.current_concept_id, object(selected)?.target_concept_id, object(p.next_action)?.target_concept_id].filter(v => v != null));
+  return outline.material_id === session.material_id && outline.run_id === item.run_id
+    && outline.knowledge_structure_revision === session.knowledge_structure_revision
+    && p.study_session_id === session.study_session_id && p.event_watermark === session.event_watermark
+    && p.knowledge_structure_revision === session.knowledge_structure_revision
+    && p.current_concept_id === session.current_concept_id
+    && (context === null ? needed.size === 0 : context.material_id === session.material_id
+      && context.knowledge_structure_revision === session.knowledge_structure_revision
+      && context.concepts.length === needed.size && context.concepts.every(c => ids.has(c.concept_id))
+      && [...needed].every(id => context.concepts.some(c => c.concept_id === id)))
+    && (p.concept_states as Json[]).every(s => ids.has(String(s.concept_id)))
+    && [...needed].every(id => (p.concept_states as Json[]).some(s => s.concept_id === id))
+    && item.assessment_sets.every(s => ids.has(s.target_concept_id));
 }
 
 export function studySession(value: unknown): value is StudySessionView {

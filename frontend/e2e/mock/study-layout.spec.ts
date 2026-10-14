@@ -135,7 +135,7 @@ for (const viewport of [
     await expect(page.locator(".current-concept-card")).toHaveCount(0);
     const readyResponse = page.waitForResponse(
       (response) =>
-        response.url().includes("/resume?") &&
+        response.url().includes("/workspace?") &&
         response.request().method() === "GET",
     );
     await page.reload();

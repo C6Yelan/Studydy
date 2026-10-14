@@ -14,7 +14,7 @@ export function AssessmentPanel({
   apiClient: StudydyApiClient;
   record: AssessmentRecordView;
   completed: boolean;
-  view: KnowledgeStructureView;
+  view: Pick<KnowledgeStructureView, "source_resolver" | "concepts">;
   answerSelection: {
     value: string | null;
     disabled: boolean;

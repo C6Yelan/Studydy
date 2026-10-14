@@ -28,7 +28,7 @@ def test_progress_validates_structure_once_and_keeps_a_consistent_snapshot(close
     with progress_snapshot(
         fixture["learner"], fixture["study"].study_session_id, dsn=fixture["dsn"],
     ) as (db, study, document, before):
-        assert len(checks) == 1
+        assert checks == []
         assert before.event_watermark == 0
         with ThreadPoolExecutor(max_workers=1) as pool:
             pool.submit(answer, fixture, root, {1}).result(timeout=15)

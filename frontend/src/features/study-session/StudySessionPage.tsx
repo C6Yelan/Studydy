@@ -4,8 +4,8 @@ import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/c
 import type {
   AssessmentSetSummary,
   AssessmentSetView,
-  KnowledgeStructureView,
-  LearnerProgressView,
+  StudyNavigationView, KnowledgeConceptsView,
+  StudyProgressView,
   StudySessionView,
 } from "../../api/contracts";
 import { routePath, writeRoute, type AppRoute } from "../../app/routes";
@@ -18,9 +18,10 @@ import { AssessmentSetPanel } from "../assessment/AssessmentSetPanel";
 import "./styles.css";
 
 type StudyData = {
-  progress: LearnerProgressView;
+  progress: StudyProgressView;
   session: StudySessionView;
-  view: KnowledgeStructureView;
+  view: StudyNavigationView;
+  context: KnowledgeConceptsView | null;
   assessmentSets: AssessmentSetSummary[];
   selectedSetId: string | null;
   selectedSet: AssessmentSetView | null;
@@ -31,7 +32,7 @@ function validBinding(data: StudyData): boolean {
   return (
     data.assessmentSets.every((group) => concepts.has(group.target_concept_id)) &&
     data.progress.assessment_cycles.every((cycle) => concepts.has(cycle.concept_id)) &&
-    data.progress.concept_states.length === concepts.size &&
+    data.progress.concept_count === data.view.concept_count &&
     data.progress.concept_states.every((state) => concepts.has(state.concept_id)) &&
     (data.progress.current_concept_id === null || concepts.has(data.progress.current_concept_id)) &&
     data.progress.next_action.prerequisite_concept_ids.every((id) => concepts.has(id))
@@ -57,9 +58,10 @@ export function StudySessionPage({
   const restoredRoute = useRef<string | null>(null);
 
   const load = async () => {
-    const restored = await apiClient.resumeStudy(route);
+    const restored = await apiClient.resumeWorkspace(route);
     const next = {
-      view: restored.knowledge_structure,
+      view: restored.outline,
+      context: restored.context,
       session: restored.session,
       progress: restored.progress,
       assessmentSets: restored.assessment_sets,
@@ -181,7 +183,7 @@ export function StudySessionPage({
   const visibleConceptId = route.assessmentSetId
     ? selectedSet?.target_concept_id
     : data.progress.current_concept_id;
-  const visibleConcept = data.view.concepts.find(
+  const visibleConcept = data.context?.concepts.find(
     (concept) => concept.concept_id === visibleConceptId,
   );
   if (!visibleConcept)
@@ -296,7 +298,7 @@ export function StudySessionPage({
           <h1>{completed ? "本次學習已結束" : visibleConcept.label}</h1>
           <p>
             {position !== undefined &&
-              `第 ${position} / ${data.view.initial_learning_path.length} 個概念`}
+              `第 ${position} / ${data.view.concept_count} 個概念`}
             {showMaterial && " · 學習進度會自動保存。"}
           </p>
         </div>
@@ -357,7 +359,7 @@ export function StudySessionPage({
                 selectedSetId={data.selectedSetId}
                 initialSet={data.selectedSet}
                 concept={visibleConcept}
-                view={data.view}
+                view={data.context!}
                 completed={completed}
                 conceptCompleted={conceptState?.status === "completed"}
                 onSetSelected={(id) => writeRoute({ ...route, assessmentSetId: id })}

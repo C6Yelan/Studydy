@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
-import type { CardStudyView, KnowledgeStructureView } from "../../api/contracts";
+import type { CardStudyView, KnowledgeOutlineView } from "../../api/contracts";
 import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
+import { useConceptContext } from "../material-flow/useConceptContext";
 import { Flashcard } from "./Flashcard";
 
 export function CreateCardSet({ apiClient, route, embedded = false }: {
@@ -13,7 +14,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
 }) {
   const editing = route.name === "card-set-edit";
   const routeKey = routePath(route);
-  const [view, setView] = useState<KnowledgeStructureView | null>(null);
+  const [view, setView] = useState<KnowledgeOutlineView | null>(null);
   const [saved, setSaved] = useState<CardStudyView | null>(null);
   const [materialId, setMaterialId] = useState("");
   const [materialName, setMaterialName] = useState("");
@@ -52,7 +53,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
         const revision = deck?.knowledge_structure_revision ?? (route.name === "card-set-create" ? route.structureRevision : "");
         const [material, structure] = await Promise.all([
           apiClient.getMaterial(id),
-          apiClient.getKnowledgeStructure({ materialId: id, structureRevision: revision }),
+          apiClient.getKnowledgeOutline({ materialId: id, structureRevision: revision }),
         ]);
         if (cancelled) return;
         if (structure.knowledge_structure_revision !== revision ||
@@ -93,6 +94,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     resize();
     return () => { observer.disconnect(); desktop.removeEventListener("change", resize); };
   }, [view, embedded]);
+  const previewRead = useConceptContext(apiClient, materialId, view?.knowledge_structure_revision ?? "", view && previewId ? [previewId] : [], true);
   const back = () => writeRoute(route.name === "card-set-edit"
     ? { name: "card-set", cardSetId: route.cardSetId, ...(route.materialId ? { materialId: route.materialId } : {}) }
     : { ...route, name: "knowledge-map" });
@@ -141,7 +143,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const visible = view.concepts.filter((item) => `${item.label} ${item.aliases.join(" ")}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
   const pageConcepts = visible.slice((conceptPage - 1) * pageSize, conceptPage * pageSize);
-  const preview = view.concepts.find((item) => item.concept_id === previewId);
+  const preview = previewRead.context?.concepts.find((item) => item.concept_id === previewId);
   const toggle = (id: string) => {
     setSelected((previous) => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; });
     setPreviewId(id);
@@ -169,7 +171,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
         </div>
         <div className="cards-concept-list" ref={conceptList}>
           {pageConcepts.map((concept) => <div className={`cards-concept-row ${selected.has(concept.concept_id) ? "is-selected" : ""}`} key={concept.concept_id}>
-            <label><input type="checkbox" checked={selected.has(concept.concept_id)} disabled={busy} onChange={() => toggle(concept.concept_id)} /><span><strong>{concept.label}</strong><small>{concept.claims.length} 個重點</small></span></label>
+            <label><input type="checkbox" checked={selected.has(concept.concept_id)} disabled={busy} onChange={() => toggle(concept.concept_id)} /><span><strong>{concept.label}</strong><small>{concept.claim_count} 個重點</small></span></label>
             <button className="text-button" type="button" aria-label={`預覽「${concept.label}」`} aria-pressed={previewId === concept.concept_id} onClick={() => { setPreviewId(concept.concept_id); }}>預覽</button>
           </div>)}
           {visible.length === 0 && <p className="cards-no-results">找不到符合的概念。</p>}
@@ -180,7 +182,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
           <button className="secondary-button" type="button" disabled={conceptPage === pageCount} onClick={() => setConceptPage((page) => page + 1)}>下一頁</button>
         </nav>}
       </section>
-      <section className="cards-preview" aria-label="卡片預覽"><div className="cards-preview-heading"><h2>卡片預覽</h2><span>依內容呈現完整卡片</span></div>{preview && <Flashcard key={preview.concept_id} card={preview} structure={view} materialName={materialName} apiClient={apiClient} sourceResolver={view.source_resolver} />}</section>
+      <section className="cards-preview" aria-label="卡片預覽"><div className="cards-preview-heading"><h2>卡片預覽</h2><span>依內容呈現完整卡片</span></div>{previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : !preview && previewId ? <p role="status">正在讀取概念與來源…</p> : null}{preview && <Flashcard key={preview.concept_id} card={preview} structure={previewRead.context!} materialName={materialName} apiClient={apiClient} sourceResolver={view.source_resolver} />}</section>
     </div>
   </section>;
 }
