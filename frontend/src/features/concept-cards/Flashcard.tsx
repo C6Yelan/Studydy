@@ -20,9 +20,14 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
   const unresolved = structure.relations.filter(r => (r.source_concept_id === card.concept_id || r.target_concept_id === card.concept_id)
     && !relations.some(item => item.relation.relation_id === r.relation_id));
   const review = structure.status.quality === "needs_review" || structure.status.processing !== "succeeded" || structure.status.decision !== "retain";
+  const designed = card.design?.pages[pageIndex ?? 0];
+  const pageEvidence = designed ? [...new Set([designed.takeaway, ...designed.blocks, ...designed.links].flatMap(item => item.evidence_ids))]
+    .flatMap(id => { const evidence = cardSourceIndex(structure).evidence.get(id); return evidence ? [evidence] : []; }) : [];
   return (
     <div className="concept-card">
       <VisualConceptCard card={card} structure={structure} pageIndex={pageIndex} cacheOwner={apiClient} />
+      {designed && <div className="flashcard-source-links" aria-label="本張卡面來源">{sourceLinks(pageEvidence).map(evidence =>
+        <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} label={`本張引用 · 第 ${evidence.normalized_page ?? evidence.page} 頁`} />)}</div>}
       <details className="concept-card-details">
         <summary>完整重點與來源</summary>
         <div className="flashcard">

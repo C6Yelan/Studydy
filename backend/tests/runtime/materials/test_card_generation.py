@@ -1,192 +1,160 @@
-"""隔離 DB 驗證續接、快取與晚到結果；模型回應為合成測試資料。"""
+"""整卡設計的持久進度、來源、快取與失敗重試；模型回應均為合成測試資料。"""
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
-import json
 
 from product_fixtures import closed_loop
 from runtime import card_generation, card_sets
 from runtime.storage.tables import CardSet, database_session
 
 
-SOURCE = '只有當輸入符合指定条件時才會產生結果，輸入未符合條件時不能把輸出視為已經完成。'
-SHORT = '輸入符合指定条件才產生結果；未符合時不能視為完成。'
-
-
 def create(fixture, key='cards'):
     owner, material, _, document, dsn, _ = fixture
     return card_sets.create_card_set(owner.learner_id, material.material_id, document['revision'],
-                                    '卡組', [document['concepts'][0]['concept_id']], key, dsn=dsn)['card_set_id']
+        '卡組', [document['concepts'][0]['concept_id']], key, dsn=dsn)['card_set_id']
 
 
 def finish(dsn, call):
     for _ in range(12):
-        if not card_generation.step(dsn=dsn, call=call):
-            return
+        if not card_generation.step(dsn=dsn, call=call): return
     raise AssertionError('generation did not settle')
 
 
 def response(path, body):
-    assert path == '/semantics'
-    assert body['task'] == 'concept_card'
-    if 'edits' in body['schema']['properties']:
-        return {'edits': [{'index': 0, 'text': SHORT}]}
-    return {'reviews': [{'index': 0, 'supported': True, 'reason': ''}]}
+    assert path == '/semantics' and body['task'] == 'concept_card'
+    if 'pages' not in body['schema']['properties']:
+        return {'supported': True, 'core_preserved': True, 'issues': []}
+    refs = [item['ref'] for item in body['request']['sources'] if item['kind'] == 'claim']
+    return {'pages': [{'title': '堆疊的取出順序', 'layout': 'focus',
+        'takeaway': {'text': '最後放入的元素最先取出。', 'source_refs': refs},
+        'blocks': [{'heading': 'LIFO', 'text': '依後進先出順序取出元素。', 'icon': 'list-check', 'source_refs': refs}], 'links': []}], 'details_refs': []}
 
 
-def test_durable_steps_cache_and_original_claims(closed_loop, monkeypatch):
+def test_durable_design_cache_counts_and_original_sources(closed_loop):
     owner, _, _, _, dsn, _ = closed_loop
-    monkeypatch.setattr(card_generation.compact, 'source_texts', lambda *_: [SOURCE])
     identity = create(closed_loop)
     original = deepcopy(card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)['cards'])
     calls = []
-    def call(path, body):
-        calls.append(body['prompt'])
-        return response(path, body)
+    def call(path, body): calls.append(body['prompt']); return response(path, body)
     assert card_generation.step(dsn=dsn, call=call)
-    assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['stage'] == 'compacting'
+    assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['stage'] == 'designing'
     assert card_generation.step(dsn=dsn, call=call)
     assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['stage'] == 'checking'
-    # 模擬另一個 worker 接手已保存步驟。
     finish(dsn, call)
-    view = card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)
-    assert view['cards'] == original and view['generation']['status'] == 'ready'
-    assert list(view['display_edits'].values()) == [[{'source': SOURCE, 'text': SHORT}]]
+    view = card_sets.read_card_study(owner.learner_id, identity, dsn=dsn)
+    assert view['card_count'] == 1 and view['navigation'][0]['page_count'] == 1
+    card = view['batch']['cards'][0]
+    assert card['claims'] == original[0]['claims']
+    assert card['design']['pages'][0]['takeaway']['claim_ids'] == [c['claim_id'] for c in card['claims']]
+    assert card['design']['pages'][0]['takeaway']['evidence_ids']
     assert len(calls) == 2
-    cached = create(closed_loop, 'cached')
-    finish(dsn, call)
+    cached = create(closed_loop, 'cached'); finish(dsn, call)
     assert len(calls) == 2
     assert card_sets.generation_status(owner.learner_id, cached, dsn=dsn)['cached'] == 1
 
 
-def test_provider_failure_retry_and_semantic_rejection(closed_loop, monkeypatch):
+def test_review_failure_stays_failed_and_retry_receives_feedback(closed_loop):
     owner, _, _, _, dsn, _ = closed_loop
-    monkeypatch.setattr(card_generation.compact, 'source_texts', lambda *_: [SOURCE])
     identity = create(closed_loop)
-    def failed(*_):
-        raise RuntimeError('synthetic provider failure')
-    finish(dsn, failed)
+    def reject(path, body):
+        if 'pages' in body['schema']['properties']: return response(path, body)
+        return {'supported': False, 'core_preserved': False, 'issues': ['遺失必要的適用條件']}
+    finish(dsn, reject)
     progress = card_sets.generation_status(owner.learner_id, identity, dsn=dsn)
     assert progress['status'] == 'failed' and progress['completed'] == 0
+    assert progress['error_code'] == 'CARD_DESIGN_REVIEW_FAILED'
     card_sets.generation_status(owner.learner_id, identity, retry=True, dsn=dsn)
-    def rejected(path, body):
-        if 'reviews' in body['schema']['properties']:
-            return {'reviews': [{'index': 0, 'supported': False, 'reason': '合成拒絕'}]}
+    def retry(path, body):
+        if 'pages' in body['schema']['properties']: assert body['request']['previous_issues'] == ['遺失必要的適用條件']
         return response(path, body)
-    finish(dsn, rejected)
-    view = card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)
-    assert view['generation']['status'] == 'ready'
-    assert view['generation']['retained_original'] == 1
-    assert list(view['display_edits'].values()) == [[]]
-    with database_session(dsn) as db:
-        result = next(iter(db.get(CardSet, identity).generation['results'].values()))
-        assert result['review_rejections'] == [{'source': SOURCE, 'text': SHORT, 'reason': '合成拒絕'}]
+    finish(dsn, retry)
+    assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['status'] == 'ready'
 
 
-def test_model_review_is_final_decision_without_numeric_string_gate(closed_loop, monkeypatch):
+def test_invalid_reference_repair_uses_candidate_and_records_actual_calls(closed_loop):
     owner, _, _, _, dsn, _ = closed_loop
-    sources = ['Latency is 10 ms with this configuration.', '在指定條件下傳送 100 bytes，完成後才回覆。']
-    edits = ['Latency: 10ms.', '傳送 101 bytes 後回覆。']
-    monkeypatch.setattr(card_generation.compact, 'source_texts', lambda *_: sources)
     identity = create(closed_loop)
-    calls = []
+    attempts = 0
     def call(path, body):
-        calls.append(body)
-        if 'edits' in body['schema']['properties']:
-            return {'edits': [{'index': i, 'text': value} for i, value in enumerate(edits)]}
-        assert [{k: item[k] for k in ('index', 'source', 'text')} for item in body['request']['items']] == [
-            {'index': i, 'source': source, 'text': edits[i]} for i, source in enumerate(sources)]
-        return {'reviews': [
-            {'index': 0, 'supported': True, 'reason': '僅調整空白與措辭'},
-            {'index': 1, 'supported': False, 'reason': '100 改為 101，且移除了指定條件'},
-        ]}
+        nonlocal attempts
+        result = response(path, body)
+        if 'pages' in body['schema']['properties']:
+            attempts += 1
+            if attempts == 1: result['pages'][0]['blocks'][0]['source_refs'] = [99]
+            else:
+                assert 'source_refs' in body['request']['previous_issues'][0]
+                assert body['request']['previous_design']['pages'][0]['blocks'][0]['source_refs'] == [99]
+        return result
     finish(dsn, call)
-    view = card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)
-    assert len(calls) == 2
-    assert view['generation']['status'] == 'ready'
-    assert list(view['display_edits'].values()) == [[{'source': sources[0], 'text': edits[0]}]]
-
-
-def test_batches_shared_sources_once_and_preserves_each_concept(closed_loop, monkeypatch):
-    _, _, _, document, dsn, _ = closed_loop
-    first = document['concepts'][0]['concept_id']
-    identities = [first, 'synthetic-second', 'synthetic-third']
-    texts = {first: [SOURCE], identities[1]: [SOURCE, '另一段有獨立條件與結果的完整合成測試說明。' * 3], identities[2]: [SOURCE]}
-    # 合成多觀念輸入，驗證 worker 的來源分派；選材 API 另有來源驗證測試。
-    monkeypatch.setattr(card_generation, '_view', lambda *_: {'concepts': [
-        {'concept_id': identity, 'label': f'概念{i}'} for i, identity in enumerate(identities)]})
-    monkeypatch.setattr(card_generation.compact, 'source_texts', lambda _, identity: texts[identity])
-    identity = create(closed_loop)
+    assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['status'] == 'ready'
     with database_session(dsn) as db:
-        db.get(CardSet, identity).concept_ids = identities
-    calls = []
+        state = db.get(CardSet, identity).generation
+        assert state['calls'] == 3
+        assert next(iter(state['results'].values()))['repair_attempts'] == 1
+
+
+def test_repair_uses_current_issues_and_latest_failed_candidate(closed_loop):
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop)
+    attempts = 0
     def call(path, body):
-        items = body['request']['items'];calls.append(items)
-        if 'edits' in body['schema']['properties']:
-            assert len(items) == 2
-            assert items[0]['labels'] == ['概念0', '概念1', '概念2']
-            return {'edits': [{'index': i, 'text': SHORT if i == 0 else '另一段的簡短說明。'} for i in range(2)]}
-        return {'reviews': [{'index': i, 'supported': i == 0, 'reason': '' if i == 0 else '未保留獨立條件'} for i in range(2)]}
+        nonlocal attempts
+        if 'pages' not in body['schema']['properties']:
+            return {'supported': False, 'core_preserved': False, 'issues': ['不可改變限制程度']}
+        attempts += 1
+        value = response(path, body)
+        if attempts == 2:
+            assert body['request']['previous_design'] == value
+            value['pages'][0]['blocks'][0]['source_refs'] = [99]
+        return value
     finish(dsn, call)
+    assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['status'] == 'failed'
+    card_sets.generation_status(owner.learner_id, identity, retry=True, dsn=dsn)
+    def repair(path, body):
+        if 'pages' in body['schema']['properties']:
+            request = body['request']
+            assert len(request['previous_issues']) == 1
+            assert 'source_refs' in request['previous_issues'][0]
+            assert request['previous_design']['pages'][0]['blocks'][0]['source_refs'] == [99]
+        return response(path, body)
+    finish(dsn, repair)
+    assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['status'] == 'ready'
+
+
+def test_redesign_is_version_bound_idempotent_and_preserves_original(closed_loop):
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop); finish(dsn, response)
+    original = card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)['cards']
+    saved = card_sets.redesign_card_set(owner.learner_id, identity, 1, dsn=dsn)
+    assert saved['version'] == 2 and saved['card_count'] is None
+    assert card_sets.redesign_card_set(owner.learner_id, identity, 1, dsn=dsn) == saved
+    finish(dsn, response)
+    assert card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)['cards'] == original
     with database_session(dsn) as db:
-        row = db.get(CardSet, identity);results = row.generation['results']
-        assert row.status == 'ready' and set(results) == set(identities)
-        assert all(result['edits'] == [{'source': SOURCE, 'text': SHORT}] for result in results.values())
-        assert [results[key]['rejected'] for key in identities] == [0, 1, 0]
-    assert len(calls) == 2
+        state = db.get(CardSet, identity).generation
+        assert state['calls'] == 2 and state['previous_usage'][0]['calls'] == 2
 
 
-def test_resumes_completed_results_and_reuses_reviewed_sources(closed_loop, monkeypatch):
-    _, _, _, document, dsn, _ = closed_loop
-    first = document['concepts'][0]['concept_id'];second = 'synthetic-second'
-    rejected = {'source': '拒絕改寫的合成原文。' * 6, 'text': '不完整改寫', 'reason': '遺漏必要條件'}
-    prior = {'edits': [{'source': SOURCE, 'text': SHORT}], 'rejected': 1,
-             'cached': False, 'review_rejections': [rejected]}
-    monkeypatch.setattr(card_generation, '_view', lambda *_: {'concepts': [
-        {'concept_id': first, 'label': '甲'}, {'concept_id': second, 'label': '乙'}]})
-    monkeypatch.setattr(card_generation.compact, 'source_texts', lambda *_: [SOURCE, rejected['source']])
+def test_provider_switch_does_not_mix_luna_and_gemma_results(closed_loop, monkeypatch):
+    owner, _, _, _, dsn, _ = closed_loop
+    monkeypatch.setenv('STUDYDY_TEXT_TEST_PROVIDER', 'codex-exec-luna')
     identity = create(closed_loop)
-    with database_session(dsn) as db:
-        row = db.get(CardSet, identity);row.concept_ids = [first, second]
-        row.generation = {**card_generation.initial({first: prior}), 'calls': 2}
-    def unexpected(*_):
-        raise AssertionError('already reviewed source requested again')
-    finish(dsn, unexpected)
-    with database_session(dsn) as db:
-        row = db.get(CardSet, identity)
-        assert row.status == 'ready' and row.generation['calls'] == 2
-        assert row.generation['results'][first] == prior
-        assert row.generation['results'][second] == prior
+    monkeypatch.delenv('STUDYDY_TEXT_TEST_PROVIDER')
+    finish(dsn, lambda *_: (_ for _ in ()).throw(AssertionError('must not call a different provider')))
+    assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['error_code'] == 'CARD_PROVIDER_CHANGED'
+    card_sets.redesign_card_set(owner.learner_id, identity, 1, dsn=dsn)
+    finish(dsn, response)
+    design = card_sets.read_card_study(owner.learner_id, identity, dsn=dsn)['batch']['cards'][0]['design']
+    assert design['provider']['api_protocol'] == 'openai-chat-completions/v1'
 
 
-def test_token_bounded_batches_do_not_repeat_shared_source(closed_loop, monkeypatch):
-    _, _, _, document, dsn, _ = closed_loop
-    first = document['concepts'][0]['concept_id'];second = 'synthetic-second'
-    other = SOURCE.replace('輸入', '資料')
-    monkeypatch.setattr(card_generation, '_view', lambda *_: {'concepts': [
-        {'concept_id': first, 'label': 'A'}, {'concept_id': second, 'label': 'B'}]})
-    monkeypatch.setattr(card_generation.compact, 'source_texts', lambda _, key: [SOURCE] if key == first else [SOURCE, other])
-    budget = card_generation._luna_token_count(json.dumps(
-        [{'index': 0, 'labels': ['A', 'B'], 'text': SOURCE}], ensure_ascii=False)) + 5
-    monkeypatch.setattr(card_generation, 'BATCH_SOURCE_TOKENS', budget)
+def test_late_model_response_cannot_restore_deleted_card(closed_loop):
+    owner, _, _, _, dsn, _ = closed_loop
     identity = create(closed_loop)
-    with database_session(dsn) as db:
-        db.get(CardSet, identity).concept_ids = [first, second]
-    sent = []
-    def call(path, body):
-        items = body['request']['items']
-        if 'edits' in body['schema']['properties']:
-            assert card_generation._luna_token_count(json.dumps(items, ensure_ascii=False)) <= budget
-            assert len(items) == 1;sent.append(items[0]['text'])
-            return {'edits': [{'index': 0, 'text': SHORT}]}
-        return {'reviews': [{'index': 0, 'supported': True, 'reason': ''}]}
-    for _ in range(20):
-        if not card_generation.step(dsn=dsn, call=call):
-            break
-    with database_session(dsn) as db:
-        row = db.get(CardSet, identity)
-        assert row.status == 'ready' and row.generation['calls'] == 4
-        assert len(row.generation['results'][second]['edits']) == 2
-    assert sent == [SOURCE, other]
+    def deleted(path, body):
+        card_sets.delete_card_set(owner.learner_id, identity, dsn=dsn)
+        return response(path, body)
+    finish(dsn, deleted)
+    assert card_sets.list_card_sets(owner.learner_id, dsn=dsn)['card_sets'] == []
 
 
 def test_expired_lease_reclaims_and_deleted_set_cannot_publish(closed_loop):

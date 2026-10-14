@@ -78,6 +78,7 @@ def navigation(row, meta):
 
 
 def batch(session, row, meta, offset, limit):
+    from ..card_design import checked_design
     identities = row.concept_ids[offset:offset + limit]
     scope = _scope(row.learner_id, row.material_id, row.knowledge_structure_revision)
     def read(ids):
@@ -99,7 +100,8 @@ def batch(session, row, meta, offset, limit):
     return {'schema': 'card-batch/v1', 'card_set_id': row.card_set_id, 'version': row.version,
             'offset': offset, 'total': len(row.concept_ids),
             'cards': [{**{key: concepts[identity][key] for key in ('concept_id', 'label', 'claims')},
-                       'display_edits': results.get(identity, {}).get('edits', [])} for identity in identities],
+                       'display_edits': results.get(identity, {}).get('edits', []),
+                       'design': checked_design(results.get(identity, {}).get('design'))} for identity in identities],
             'context': {'source_resolver': meta['source_resolver'], 'status': meta['status'],
                         'concepts': list(concepts.values()), 'relations': list(relations.values()),
                         'relation_evidence': list(evidence.values())}}

@@ -1,6 +1,6 @@
 import { recordCardDrawing, cardDrawing, drawnText, expectCardTextFits } from "../fixtures/canvas-cards";
 import { visualCases, visualCase } from "../fixtures/visual-concept-cards";
-import type { CardGeneration, CardTextEdit } from "../../src/api/contracts";
+import type { CardGeneration, CardTextEdit, CardDesign } from "../../src/api/contracts";
 import { expect, test, type Page } from "@playwright/test";
 import { artifactId, materialId, runId, sessionId, structureRevision, structureView, mockKnowledgeMapApi, json } from "../fixtures/knowledge-map";
 
@@ -47,6 +47,7 @@ async function mockCards(page: Page, { saved = false, long = false, many = false
   let pageCounts: Record<string, number> = {};
   let generation: CardGeneration | null = null;
   let displayEdits: Record<string, CardTextEdit[]> = {};
+  let designs: Record<string, CardDesign> = {};
   const readyGeneration = (): CardGeneration => ({ status: "ready", stage: "complete", completed: selection.length, total: selection.length, error_code: null, retained_original: 0, cached: 0 });
   await page.route(`**/v1/card-sets/${cardSetId}/generation`, route => json(route, generation ?? readyGeneration()));
   await page.route(`**/v1/card-sets/${cardSetId}/generation/retry`, route => {
@@ -70,7 +71,7 @@ async function mockCards(page: Page, { saved = false, long = false, many = false
     const ids = new Set([...selected, ...relations.flatMap(r => [r.source_concept_id, r.target_concept_id])]);
     const allEvidence = new Map(view.concepts.flatMap(c => c.claims.flatMap(claim => claim.evidence)).map(e => [e.evidence_id, e]));
     return { schema: 'card-batch/v1', card_set_id: cardSetId, version, offset, total: selection.length,
-      cards: selected.map(id => { const { concept_id, label, claims } = view.concepts.find(c => c.concept_id === id)!; return { concept_id, label, claims, display_edits: displayEdits[id] ?? [] }; }),
+      cards: selected.map(id => { const { concept_id, label, claims } = view.concepts.find(c => c.concept_id === id)!; return { concept_id, label, claims, display_edits: displayEdits[id] ?? [], design: designs[id] ?? null }; }),
       context: { source_resolver: decodeURIComponent(view.source_resolver), status: view.status,
         concepts: view.concepts.filter(c => ids.has(c.concept_id)), relations,
         relation_evidence: [...new Set(relations.flatMap(r => r.evidence_refs))].flatMap(id => allEvidence.has(id) ? [allEvidence.get(id)!] : []) } };
@@ -84,6 +85,13 @@ async function mockCards(page: Page, { saved = false, long = false, many = false
     const query = new URL(route.request().url()).searchParams;
     if (Number(query.get('version')) !== version) return json(route, { schema: 'api-error/v1', request_id: sessionId, reason_code: 'CARD_SET_CONFLICT', retryable: false, message: 'Request could not be completed.' }, 409);
     return json(route, batch(Number(query.get('offset'))));
+  });
+  await page.route(`**/v1/card-sets/${cardSetId}/redesign`, route => {
+    const body = route.request().postDataJSON();
+    if (body.expected_version !== version) return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "CARD_SET_CONFLICT", retryable: false, message: "Request could not be completed." }, 409);
+    version++; cardCount = null; pageCounts = {};
+    generation = { ...readyGeneration(), status: 'pending', stage: 'preparing', completed: 0 };
+    return json(route, summary());
   });
   await page.route(`**/v1/card-sets/${cardSetId}/count`, route => {
     const body = route.request().postDataJSON();
@@ -121,7 +129,7 @@ async function mockCards(page: Page, { saved = false, long = false, many = false
     if (!exists) return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "RESOURCE_NOT_FOUND", retryable: false, message: "Request could not be completed." }, 404);
     return json(route, { ...summary(), schema: "card-set/v1", source_resolver: decodeURIComponent(view.source_resolver), status: view.status, excluded_pages: [], display_edits: displayEdits, generation: generation ?? readyGeneration(), cards: selection.map((id) => view.concepts.find((item) => item.concept_id === id)!).map(({ concept_id, label, claims }) => ({ concept_id, label, claims })) });
   });
-  return { requests, forbiddenMutations, view, summary, study, batch, setGeneration: (value: CardGeneration | null) => { generation = value; }, setEdits: (value: Record<string, CardTextEdit[]>) => { displayEdits = value; } };
+  return { requests, forbiddenMutations, view, summary, study, batch, setDesigns: (value: Record<string, CardDesign>) => { designs = value; }, setGeneration: (value: CardGeneration | null) => { generation = value; }, setEdits: (value: Record<string, CardTextEdit[]>) => { displayEdits = value; } };
 }
 
 async function openSavedCardManagement(page: Page) {
@@ -1368,13 +1376,13 @@ test("a failed canvas drawing leaves sources available and can be retried", asyn
 
 test("card generation restores stages after reload, retries failure and keeps full sources", async ({ page }) => {
   const controls = await mockCards(page, { saved: true });
-  const state: CardGeneration = { status: "running", stage: "compacting", completed: 1, total: 2, error_code: null, retained_original: 0, cached: 0 };
+  const state: CardGeneration = { status: "running", stage: "designing", completed: 1, total: 2, error_code: null, retained_original: 0, cached: 0 };
   controls.setGeneration(state);
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
   await expect(page.getByRole("progressbar", { name: "概念卡生成進度" })).toHaveAttribute("value", "1");
   await expect(page.getByRole("progressbar", { name: "概念卡生成進度" })).toHaveClass("processing-progress");
   await expect(page.locator(".overall-heading")).toContainText("50%");
-  await expect(page.locator(".status-timeline [aria-current=step]")).toContainText("AI 精簡");
+  await expect(page.locator(".status-timeline [aria-current=step]")).toContainText("整理與設計卡面");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.reload();
@@ -1394,3 +1402,66 @@ test("card generation restores stages after reload, retries failure and keeps fu
   await page.getByText("完整重點與來源", { exact: true }).click();
   await expect(page.locator(".flashcard-point").first()).toContainText(card.claims[0].text);
 });
+
+function designedCard(view: ReturnType<typeof structureView>, layout: 'focus' | 'compare' | 'flow' | 'grid', count: number): CardDesign {
+  const card = view.concepts[0];
+  const sources = { claim_ids: card.claims.map(c => c.claim_id), relation_ids: [], evidence_ids: [...new Set(card.claims.flatMap(c => c.evidence.map(e => e.evidence_id)))] };
+  return { schema: 'concept-card-design/v1', revision: 'card-design:sha256:' + 'a'.repeat(64), provider: { model_id: 'synthetic', revision: 'test', api_protocol: 'test' }, details_claim_ids: [],
+    pages: [{ title: '記住核心機制', layout, takeaway: { text: '先確認必要條件，再判斷操作結果。', ...sources },
+      blocks: Array.from({ length: count }, (_, i) => ({ heading: ['必要前提', '處理方式', '回覆結果', '下一步'][i], text: layout === 'grid' && count === 4 ? '確認條件與對應結果。' : '保留必要的條件，省去重複鋪陳。', icon: ['list-check', 'cpu', 'database', 'clock'][i], ...sources })),
+      links: layout === 'flow' ? Array.from({ length: count - 1 }, (_, i) => ({ source: i, target: i + 1, label: '成立後', ...sources })) : [] }] };
+}
+
+for (const [layout, count] of [['focus', 1], ['focus', 2], ['compare', 2], ['flow', 2], ['flow', 3], ['flow', 4], ['grid', 3], ['grid', 4]] as const) {
+  test(`model-designed ${layout}/${count} keeps readable blocks and exact source access`, async ({ page }) => {
+    const fixture = await mockCards(page, { saved: true, long: true });
+    const design = designedCard(fixture.view, layout, count);
+    fixture.setDesigns({ [fixture.view.concepts[0].concept_id]: design });
+    await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+    await expect(page.locator('canvas.visual-concept-card')).toHaveAttribute('data-layout', 'designed');
+    await expectCardTextFits(page);
+    expect(await drawnText(page)).toContain(design.pages[0].takeaway.text);
+    expect(await drawnText(page)).not.toContain('最後一個條件不可遺漏');
+    await expect(page.getByRole('button', { name: '本張引用 · 第 1 頁', exact: true })).toBeVisible();
+    await page.locator('.concept-card-details > summary').click();
+    await expect(page.locator('.flashcard-point p').first()).toContainText('最後一個條件不可遺漏');
+    expect(await page.evaluate(() => window.cardEncodingCount)).toBe(0);
+    const downloading = page.waitForEvent('download');
+    await page.getByRole('button', { name: '下載 PNG', exact: true }).click();
+    expect((await downloading).suggestedFilename()).toMatch(/\.png$/);
+  });
+}
+
+test('existing cards can request a new design without changing their source selection', async ({ page }) => {
+  const fixture = await mockCards(page, { saved: true, savedCount: 2 });
+  await page.goto('/concept-cards');
+  await page.getByRole('button', { name: '管理卡組「資料結構 · 核心概念」', exact: true }).click();
+  await page.getByRole('button', { name: '重新整理卡面', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '正在生成概念卡', exact: true })).toBeVisible();
+  expect(fixture.summary().version).toBe(2);
+  expect(fixture.requests).toEqual([]);
+});
+
+for (const [layout, count] of [['focus', 1], ['compare', 2], ['grid', 4], ['flow', 4]] as const) {
+  test(`model-designed ${layout} wraps long text without truncation or fixed-height rejection`, async ({ page }) => {
+    const fixture = await mockCards(page, { saved: true });
+    const design = designedCard(fixture.view, layout, count);
+    design.pages[0].title = '長標題依照實際字型量測換行並保留完整內容'.repeat(3);
+    design.pages[0].takeaway.text = '結論需要完整保留必要條件，卡面應隨文字內容增高。'.repeat(5);
+    for (const block of design.pages[0].blocks) {
+      block.heading = '較長的區塊標題也必須完整換行顯示';
+      block.text = '這段內容超過原本估算的字寬限制，但只需要正常換行即可完整閱讀。'.repeat(5);
+    }
+    fixture.setDesigns({ [fixture.view.concepts[0].concept_id]: design });
+    await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+    await expectCardTextFits(page);
+    const text = await drawnText(page);
+    expect(text).toContain(design.pages[0].title);
+    expect(text).toContain(design.pages[0].takeaway.text);
+    expect(text).toContain(design.pages[0].blocks[0].text);
+    expect(await page.locator('canvas.visual-concept-card').evaluate((canvas: HTMLCanvasElement) => canvas.height)).toBeGreaterThan(760);
+    const downloading = page.waitForEvent('download');
+    await page.getByRole('button', { name: '下載 PNG', exact: true }).click();
+    expect(await (await downloading).failure()).toBeNull();
+  });
+}

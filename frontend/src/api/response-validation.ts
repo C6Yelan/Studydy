@@ -393,6 +393,41 @@ function cardEdits(value: unknown): boolean {
   });
 }
 
+function cardDesign(value: unknown, card: ConceptCard, context: CardBatch["context"]): boolean {
+  if (value === undefined || value === null) return true;
+  const design = object(value), provider = object(design?.provider);
+  if (!design || design.schema !== "concept-card-design/v1" || !revision(design.revision, "card-design")
+    || !provider || ![provider.model_id, provider.revision, provider.api_protocol].every(v => typeof v === "string" && v.length > 0)
+    || !Array.isArray(design.pages) || !design.pages.length || design.pages.length > 3
+    || !strings(design.details_claim_ids)) return false;
+  const claims = new Map(card.claims.map(c => [c.claim_id, c]));
+  const relations = new Map(context.relations.filter(r => [r.source_concept_id, r.target_concept_id].includes(card.concept_id)).map(r => [r.relation_id, r]));
+  const refs = (value: Json) => {
+    if (!strings(value.claim_ids) || !strings(value.relation_ids) || !strings(value.evidence_ids) || !value.evidence_ids.length
+      || !value.claim_ids.every(id => claims.has(id)) || !value.relation_ids.every(id => relations.has(id))) return false;
+    const evidence = new Set([...value.claim_ids.flatMap(id => claims.get(id)!.evidence.map(e => e.evidence_id)), ...value.relation_ids.flatMap(id => relations.get(id)!.evidence_refs)]);
+    return value.evidence_ids.every(id => evidence.has(id));
+  };
+  return design.details_claim_ids.every(id => claims.has(id)) && design.pages.every(value => {
+    const page = object(value), takeaway = object(page?.takeaway);
+    if (!page || typeof page.title !== "string" || !["focus", "compare", "flow", "grid"].includes(String(page.layout))
+      || !takeaway || typeof takeaway.text !== "string" || !refs(takeaway)
+      || !Array.isArray(page.blocks) || !page.blocks.length || page.blocks.length > 4
+      || !page.blocks.every(value => {
+        const block = object(value);
+        return block && typeof block.heading === "string" && typeof block.text === "string"
+          && ["none", "book", "bulb", "database", "cpu", "network", "arrows-exchange", "shield", "code", "list-check", "hierarchy", "clock"].includes(String(block.icon)) && refs(block);
+      }) || !Array.isArray(page.links)) return false;
+    const blocks = page.blocks;
+    return page.links.every(value => {
+      const link = object(value);
+      return link && Number.isInteger(link.source) && Number.isInteger(link.target)
+        && Number(link.source) >= 0 && Number(link.target) >= 0 && Number(link.source) < blocks.length && Number(link.target) < blocks.length
+        && typeof link.label === "string" && refs(link);
+    });
+  });
+}
+
 export function cardBatch(value: unknown): value is CardBatch {
   const item = object(value), context = object(item?.context), status = object(context?.status);
   if (!item || item.schema !== "card-batch/v1" || !isUuid(item.card_set_id)
@@ -417,7 +452,7 @@ export function cardBatch(value: unknown): value is CardBatch {
         && relation.evidence_refs.every(id => revision(id, "evidence"));
     })) return false;
   const concepts = new Set(context.concepts.map(c => c.concept_id));
-  return concepts.size === context.concepts.length && item.cards.every(c => concepts.has(c.concept_id));
+  return concepts.size === context.concepts.length && item.cards.every(c => concepts.has(c.concept_id) && cardDesign(c.design, c, context as unknown as CardBatch["context"]));
 }
 
 export function cardStudy(value: unknown): value is CardStudyView {
@@ -447,7 +482,7 @@ export function cardStudy(value: unknown): value is CardStudyView {
 export function cardGeneration(value: unknown): value is CardGeneration {
   const item = object(value);
   return !!item && ["pending", "running", "ready", "failed"].includes(String(item.status))
-    && ["preparing", "compacting", "checking", "complete"].includes(String(item.stage))
+    && ["preparing", "compacting", "designing", "checking", "complete"].includes(String(item.stage))
     && [item.completed, item.total, item.retained_original, item.cached].every(n => Number.isInteger(n) && Number(n) >= 0)
     && Number(item.completed) <= Number(item.total)
     && (item.error_code === null || typeof item.error_code === "string");

@@ -24,7 +24,7 @@ export async function recordCardDrawing(page: Page) {
     };
     const fillText = CanvasRenderingContext2D.prototype.fillText;
     CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
-      if (this.canvas.width === 1200 && this.canvas.height === 760) {
+      if (this.canvas.width === 1200 && this.canvas.height >= 760) {
         const m = this.measureText(text), t = this.getTransform();
         drawing(this.canvas).texts.push({
           text, x: x * t.a + t.e, y: y * t.d + t.f, font: this.font,
@@ -50,7 +50,7 @@ export async function recordCardDrawing(page: Page) {
     };
     const encode = HTMLCanvasElement.prototype.toBlob;
     HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
-      if (this.width === 1200 && this.height === 760) window.cardEncodingCount++;
+      if (this.width === 1200 && this.height >= 760) window.cardEncodingCount++;
       encode.call(this, callback, type, quality);
     };
   });
@@ -68,9 +68,10 @@ export async function drawnText(page: Page) {
 
 export async function expectCardTextFits(page: Page) {
   const { texts } = await cardDrawing(page);
+  const canvasHeight = await page.locator(".visual-card > canvas.visual-concept-card").evaluate((canvas: HTMLCanvasElement) => canvas.height);
   const visible = texts.filter(text => text.text.trim());
   expect(visible.length).toBeGreaterThan(0);
-  expect(visible.filter(t => t.left < 0 || t.top < 0 || t.right > 1200 || t.bottom > 760)).toEqual([]);
+  expect(visible.filter(t => t.left < 0 || t.top < 0 || t.right > 1200 || t.bottom > canvasHeight)).toEqual([]);
   for (let i = 0; i < visible.length; i++) for (let j = i + 1; j < visible.length; j++) {
     const a = visible[i], b = visible[j];
     expect(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top,

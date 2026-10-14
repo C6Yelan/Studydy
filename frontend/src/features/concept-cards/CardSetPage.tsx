@@ -54,11 +54,11 @@ function CardGenerationProgress({ view, onRetry }: { view: CardStudyView; onRetr
   const paused = generation.status === "failed";
   const stages = [
     { label: "準備來源", icon: "book" as const },
-    { label: "AI 精簡", icon: "cards" as const },
+    { label: "整理與設計卡面", icon: "cards" as const },
     { label: "核對來源", icon: "check" as const },
     { label: "完成卡組", icon: "check" as const },
   ];
-  const stage = ["preparing", "compacting", "checking", "complete"].indexOf(generation.stage);
+  const stage = ["preparing", "designing", "checking", "complete"].indexOf(generation.stage === "compacting" ? "designing" : generation.stage);
   const activity = paused ? "已中斷" : generation.status === "pending" ? "排隊中" : "處理中";
   // 各觀念會重複精簡與核對；百分比只計已完成觀念，不猜測模型呼叫的內部進度。
   const percent = Math.floor(generation.completed / generation.total * 100);
@@ -72,10 +72,11 @@ function CardGenerationProgress({ view, onRetry }: { view: CardStudyView; onRetr
           <p className="progress-estimate-note">已完成 {generation.completed} / {generation.total} 個觀念；依完成數計算，不代表剩餘時間。</p>
           <section className="processing-current"><h3>目前狀態</h3>
             <div className="progress-heading"><strong className="stage-label stage-status-label">{!paused && <span className="processing-status-indicator" aria-hidden="true" />}{stages[stage].label}</strong><strong>{activity}</strong></div>
-            <p role="status">每個觀念依序準備來源、AI 精簡與核對來源，全部完成後開啟卡組。</p>
+            <p role="status">每個觀念依序整理核心重點、設計圖解並核對來源；完整原文保留在詳情。</p>
+            {paused && <p>{generation.error_code === "CARD_PROVIDER_CHANGED" ? "模型通道已變更，請從卡組選單重新整理卡面。" : generation.error_code === "CARD_DESIGN_REVIEW_FAILED" ? "卡面尚未通過來源與核心內容核對，可重試未完成部分。" : generation.error_code === "CARD_DESIGN_INVALID" ? "卡面文字、版型或引用未通過檢查；重試會依已保存的候選卡面與回饋修正。" : "這一步尚未完成，可重試已保存的進度。"}</p>}
           </section>
         </div>
-        <p className="processing-leave-note">{paused ? "這一步尚未完成，已保存的進度會保留。請重試。" : "可以離開頁面，稍後從概念卡返回查看進度。"}</p>
+        <p className="processing-leave-note">{paused ? "已完成的觀念會保留，重試不會從頭生成。" : "可以離開頁面，稍後從概念卡返回查看進度。"}</p>
         {paused && <div className="processing-cancel"><button className="secondary-button" type="button" onClick={onRetry}>重試未完成部分</button></div>}
       </section>
       <ProcessingTimeline stages={stages} currentIndex={stage} activity={activity} />

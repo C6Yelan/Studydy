@@ -231,7 +231,7 @@ class CardSetCreate(_Closed):
 
 class CardGenerationView(_Closed):
     status: Literal['pending', 'running', 'ready', 'failed']
-    stage: Literal['preparing', 'compacting', 'checking', 'complete']
+    stage: Literal['preparing', 'compacting', 'designing', 'checking', 'complete']
     completed: int
     total: int
     error_code: str | None
@@ -287,8 +287,50 @@ class CardSetView(CardSetSummary):
     display_edits: dict[str, list[CardTextEdit]]
 
 
+class CardDesignSources(_Closed):
+    claim_ids: list[str]
+    relation_ids: list[str]
+    evidence_ids: list[str]
+
+
+class CardDesignText(CardDesignSources):
+    text: str
+
+
+class CardDesignBlock(CardDesignText):
+    heading: str
+    icon: str
+
+
+class CardDesignLink(CardDesignSources):
+    source: int
+    target: int
+    label: str
+
+
+class CardDesignPage(_Closed):
+    title: str
+    layout: Literal['focus', 'compare', 'flow', 'grid']
+    takeaway: CardDesignText
+    blocks: list[CardDesignBlock]
+    links: list[CardDesignLink]
+
+
+class CardDesignView(_Closed):
+    schema_: Literal['concept-card-design/v1'] = Field(alias='schema')
+    revision: str
+    pages: list[CardDesignPage]
+    details_claim_ids: list[str]
+    provider: dict[str, str]
+
+
+class CardRedesign(_Closed):
+    expected_version: int = Field(ge=1, strict=True)
+
+
 class StudyCardView(ConceptCardView):
     display_edits: list[CardTextEdit]
+    design: CardDesignView | None = None
 
 
 class CardContextView(_Closed):

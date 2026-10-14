@@ -214,7 +214,18 @@ export type KnowledgeStructureView = {
   excluded_pages: { page_ref: string; page: number; stage: "evidence"; reason_code: string }[];
 };
 
-export type ConceptCard = Pick<KnowledgeStructureView["concepts"][number], "concept_id" | "label" | "claims"> & { display_edits?: CardTextEdit[] };
+export type CardDesignSources = { claim_ids: string[]; relation_ids: string[]; evidence_ids: string[] };
+export type CardDesignPage = {
+  title: string; layout: "focus" | "compare" | "flow" | "grid";
+  takeaway: CardDesignSources & { text: string };
+  blocks: (CardDesignSources & { heading: string; text: string; icon: string })[];
+  links: (CardDesignSources & { source: number; target: number; label: string })[];
+};
+export type CardDesign = {
+  schema: "concept-card-design/v1"; revision: string; pages: CardDesignPage[];
+  details_claim_ids: string[]; provider: { model_id: string; revision: string; api_protocol: string };
+};
+export type ConceptCard = Pick<KnowledgeStructureView["concepts"][number], "concept_id" | "label" | "claims"> & { display_edits?: CardTextEdit[]; design?: CardDesign | null };
 
 export type ConceptCardContext = Pick<KnowledgeStructureView, "source_resolver" | "status" | "concepts" | "relations"> & {
   relation_evidence?: EvidenceView[];
@@ -235,7 +246,7 @@ export type CardStudyView = CardSetSummary & {
 
 export type CardGeneration = {
   status: "pending" | "running" | "ready" | "failed";
-  stage: "preparing" | "compacting" | "checking" | "complete";
+  stage: "preparing" | "compacting" | "designing" | "checking" | "complete";
   completed: number; total: number; error_code: string | null;
   retained_original: number; cached: number;
 };

@@ -51,7 +51,9 @@ function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageInde
       if (!active || !canvas.current) return;
       const context = canvas.current.getContext("2d");
       if (!context) throw new Error("CARD_CANVAS_UNAVAILABLE");
-      context.clearRect(0, 0, 1200, 760);
+      canvas.current.width = source.width;
+      canvas.current.height = source.height;
+      context.clearRect(0, 0, source.width, source.height);
       context.drawImage(source, 0, 0);
       setResult({ artwork, failed: false });
     }).catch(() => { if (active) setResult({ artwork, failed: true }); });
