@@ -51,7 +51,7 @@ class MaterialProcessingRunView(_Closed):
     material_id: UUID
     source_artifact_id: UUID
     status: Literal["pending", "running", "succeeded", "partial", "failed", "cancelled"]
-    progress_stage: Literal["queued", "evidence", "semantics", "review", "publishing", "completed"]
+    progress_stage: Literal["queued", "evidence", "semantics", "review", "indexing", "publishing", "completed"]
     completed_pages: int
     total_pages: int | None
     completed_units: int | None = None
@@ -68,7 +68,7 @@ class MaterialAttemptView(_Closed):
     base_revision: str | None = Field(default=None,exclude_if=lambda value:value is None)
     run_id: UUID
     status: Literal["pending", "running", "succeeded", "partial", "failed", "cancelled"]
-    progress_stage: Literal["queued", "evidence", "semantics", "review", "publishing", "completed"]
+    progress_stage: Literal["queued", "evidence", "semantics", "review", "indexing", "publishing", "completed"]
     completed_pages: int
     total_pages: int | None
     error_code: str | None
@@ -104,6 +104,8 @@ class SourceView(_Closed):
     status: Literal['pending','running','ready','failed']
     normalized_artifact_id: UUID | None
     page_count: int | None
+    analysis_page_count: int | None = None
+    analysis_mode: Literal['full', 'selected'] = 'full'
     error_code: str | None
 
 
@@ -252,12 +254,29 @@ class ConceptCardView(_Closed):
     claims: list[ClaimView]
 
 
+class CardGenerationView(_Closed):
+    status: Literal['pending', 'running', 'ready', 'failed']
+    stage: Literal['preparing', 'compacting', 'checking', 'complete']
+    completed: int
+    total: int
+    error_code: str | None
+    retained_original: int
+    cached: int
+
+
+class CardTextEdit(_Closed):
+    source: str
+    text: str
+
+
 class CardSetView(CardSetSummary):
     schema_: Literal["card-set/v1"] = Field(alias="schema")
     source_resolver: str
     status: StatusView
     excluded_pages: list[ExcludedPageView]
     cards: list[ConceptCardView]
+    generation: CardGenerationView
+    display_edits: dict[str, list[CardTextEdit]]
 
 
 class CardSetListView(_Closed):

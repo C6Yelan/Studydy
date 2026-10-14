@@ -57,6 +57,7 @@ def _view(row):
         item.pop('web_document',None)
         item.pop('_reading_text',None)
         item.pop('_review_chunks',None)
+        item.pop('_prior_review',None)
         item.pop('_read_offset',None)
         item.pop('inspection_sha256',None);item.pop('inspection_text_sha256',None)
         item.pop('public_entries',None);item.pop('entry_lookup_done',None)
@@ -80,6 +81,8 @@ def create(owner,material_id,query,mode,key,*,dsn=None):
             if old.query!=query.strip() or old.mode!=mode:raise SourceError('IDEMPOTENCY_CONFLICT')
             return _view(old)
         if not material.head_revision:raise SourceError('SOURCE_NOT_READY')
+        from .retrieval import _scope
+        _scope(db, owner, material_id, material.head_revision)
         row=Research(research_id=uuid4(),learner_id=owner,material_id=material_id,base_revision=material.head_revision,
             query=query.strip(),mode=mode,status='searching',candidates=[],selection=[],search_state=research_workflow.new_state(),idempotency_key_sha256=digest,created_at=datetime.now(UTC))
         db.add(row);db.flush();return _view(row)
@@ -126,14 +129,14 @@ def delete(owner,identity,*,dsn=None):
 def action(owner,identity,action,selected=None,*,dsn=None):
     with database_session(dsn) as db:
         row,_=_owned(db,owner,identity)
+        if action!='cancel' and (row.search_state or {}).get('schema')!='material-research/v2':
+            raise SourceError('MATERIAL_FORMAT_UNSUPPORTED')
         if row.topic_id and db.get(TopicScope,row.topic_id).status!='approved':raise SourceError('TOPIC_CONFLICT')
         if action=='more':
             if row.status!='selecting':raise SourceError('REQUEST_INVALID')
-            if row.search_state:
-                progress=deepcopy(row.search_state)
-                progress.update(stage='following_up',summary='依目前缺口接續研究。',continue_requested=True)
-                row.search_state=progress
-            else:row.search_state=research_workflow.new_state()
+            progress=deepcopy(row.search_state)
+            progress.update(stage='following_up',summary='依目前缺口接續研究。',continue_requested=True)
+            row.search_state=progress
             row.status='searching'
         elif action=='acquire':
             if not row.material_id:raise SourceError('REQUEST_INVALID')
@@ -237,11 +240,11 @@ def step(*,dsn=None,config=None):
             if state['status']=='searching':
                 state['approved_scope']=_search_scope(state['approved_scope'])
                 if state['material_id'] and (state['search_state'] or {}).get('stage','planning')=='planning':
-                    from .storage.knowledge_structures import _read_verified_document
+                    from .retrieval import search
                     with database_session(dsn) as db:
-                        document=_read_verified_document(db,state['owner'],state['material_id'],revision=state['base_revision'])
-                        # 只用目前教材的概念名稱辨識補充範圍，不把私人答案或教材原文當搜尋關鍵詞。
-                        state['existing_concepts']=[concept['label'] for concept in document['concepts']]
+                        passages=search(db,state['owner'],state['material_id'],state['base_revision'],[state['query']],neighbors=False)
+                        # 只送與本次需求相關的概念線索，不列出整份教材的數千概念。
+                        state['existing_concepts']=list(dict.fromkeys(hint for p in passages for hint in p['hints']))[:80]
                 result=research_workflow.advance(state,lambda path,body:provider(path,{**job,**body}))
                 def progressed(row):
                     for key,value in result.items():setattr(row,key,value)
@@ -264,9 +267,14 @@ def step(*,dsn=None,config=None):
                         def stage(row):row.staged_content=data;row.staged_metadata=metadata
                         if not save(state,stage,dsn=dsn,release=False):return True
                     name='補充｜'+re.sub(r'[\x00-\x1f/\\]',' ',candidate['title'])[:150]+suffix
+                    from pdf_evidence.analysis_scope import requested_scope
+                    try:
+                        selection_scope = requested_scope(data, candidate['review']['quotes'])
+                    except (ValueError, KeyError) as error:
+                        raise SourceError('SOURCE_SCOPE_EMPTY') from error
                     source_id=upload_source(state['owner'],state['material_id'],data,name,media,
                         'research:'+str(state['research_id'])+':'+candidate['id'],dsn=dsn,
-                        research_attempt=(state['research_id'],state['lease_token']))
+                        research_attempt=(state['research_id'],state['lease_token']), analysis_scope=selection_scope)
                     candidate.update(state='normalizing',source_id=str(source_id),acquisition=metadata)
                 except Exception as error:
                     candidate.update(state='failed',error_code=str(error) if isinstance(error,SourceError) else 'RESEARCH_DOWNLOAD_FAILED')

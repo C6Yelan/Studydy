@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
+from pdf_evidence.analysis_scope import selected_pages
 from knowledge_map.structure import finalize_knowledge_structure
 
 from .storage.tables import (
@@ -13,6 +14,7 @@ from .storage.tables import (
     MaterialProcessingRun,
     MaterialSourceSet,
     MaterialSourceSetItem,
+    MaterialSource,
     SourceNormalization,
     database_session,
 )
@@ -42,7 +44,7 @@ def _bound_input(session, owner, run):
         or bundle.get("source_set_digest") != source_set.digest
         or len(members) != len(manifest["items"])
         or not members
-        or bundle.get("schema") != "bundle-manifest/v1"
+        or bundle.get("schema") != "bundle-manifest/v2"
     ):
         raise SourceError("SOURCE_BINDING_INVALID")
 
@@ -54,6 +56,7 @@ def _bound_input(session, owner, run):
         ):
             raise SourceError("SOURCE_BINDING_INVALID")
         job = session.get(SourceNormalization, member.normalization_id)
+        source = session.get(MaterialSource, member.source_id)
         if (
             job is None
             or job.status != "ready"
@@ -64,6 +67,10 @@ def _bound_input(session, owner, run):
             or job.page_count != item["page_count"]
             or str(job.normalized_artifact_id) != item["normalized_artifact_id"]
             or str(job.mapping_artifact_id) != item["mapping_artifact_id"]
+            or source is None or job.analysis_scope != item['analysis_scope']
+            or (source.analysis_scope is None) != (job.analysis_scope is None)
+            or (job.analysis_scope is not None and
+                {k: v for k, v in job.analysis_scope.items() if k != 'pages'} != source.analysis_scope)
         ):
             raise SourceError("SOURCE_BINDING_INVALID")
         for prefix in ("original", "normalized", "mapping"):
@@ -86,7 +93,7 @@ def _bound_input(session, owner, run):
         raise SourceError("SOURCE_BINDING_INVALID")
     expected_pages = []
     for item in manifest["items"]:
-        for number in range(1, item["page_count"] + 1):
+        for number in selected_pages(item):
             expected_pages.append({
                 "page": len(expected_pages) + 1,
                 "source_id": item["source_id"],
@@ -95,7 +102,7 @@ def _bound_input(session, owner, run):
     if bundle["pages"] != expected_pages:
         raise SourceError("SOURCE_BINDING_INVALID")
     return {
-        "schema": "structure-input-binding/v1",
+        "schema": "structure-input-binding/v2",
         "source_set_id": str(source_set.source_set_id),
         "source_set_digest": source_set.digest,
         "bundle_manifest_sha256": run.bundle_manifest_sha256,

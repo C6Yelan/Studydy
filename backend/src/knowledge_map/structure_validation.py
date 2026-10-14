@@ -53,15 +53,15 @@ def validate_knowledge_structure(document: Any) -> bool:
             document["schema"] != STRUCTURE_SCHEMA
             or document["revision"] != _revision(document)
             or not isinstance(binding, dict)
-            or binding.get("schema") != "structure-input-binding/v1"
+            or binding.get("schema") != "structure-input-binding/v2"
             or set(binding) != {
                 "schema", "source_set_id", "source_set_digest", "bundle_manifest_sha256",
                 "manifest", "bundle", "base_revision",
             }
             or not isinstance(binding["manifest"], dict)
-            or binding["manifest"].get("schema") != "source-set/v1"
+            or binding["manifest"].get("schema") != "source-set/v2"
             or not isinstance(binding["bundle"], dict)
-            or binding["bundle"].get("schema") != "bundle-manifest/v1"
+            or binding["bundle"].get("schema") != "bundle-manifest/v2"
             or binding["source_set_digest"] != document["source_set_sha256"]
         ):
             return False
@@ -323,6 +323,9 @@ def _validate_document_tree(document):
     evidence = document["evidence"]
     concepts = document["concepts"]
     known_concepts = {concept["concept_id"] for concept in concepts}
+    section_concepts = {}
+    for concept in concepts:
+        section_concepts.setdefault(concept["section_ids"][0], []).append(concept["concept_id"])
     tree = document["document_tree"]
     if (
         not isinstance(tree, dict)
@@ -362,11 +365,7 @@ def _validate_document_tree(document):
                     "heading_evidence_id": (
                         item["evidence_id"] if item["kind"] == "heading" else None
                     ),
-                    "concept_ids": [
-                        concept["concept_id"]
-                        for concept in concepts
-                        if concept["section_ids"][0] == item["section_id"]
-                    ],
+                    "concept_ids": section_concepts.get(item["section_id"], []),
                 }
             )
         elif item["heading"] != expected_sections[-1]["title"]:

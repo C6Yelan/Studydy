@@ -76,16 +76,20 @@ def create_draft(owner, name, key, *, dsn=None):
         return row.material_id
 
 
-def upload_source(owner, material_id, data, name, media, key, *, dsn=None, research_attempt=None):
+def upload_source(owner, material_id, data, name, media, key, *, dsn=None, research_attempt=None, analysis_scope=None):
     name = _name(name)
     extension = PurePath(name).suffix.lower()
     if MIME.get(extension) != media:
         raise SourceError("UNSUPPORTED_MEDIA_TYPE")
     if not data or len(data) > MAX_FILE_BYTES:
         raise SourceError("MATERIAL_TOO_LARGE")
+    if analysis_scope is not None and (research_attempt is None
+        or analysis_scope.get('source_sha256') != sha256(data).hexdigest()
+        or analysis_scope.get('schema') != 'source-analysis-scope/v1'):
+        raise SourceError('SOURCE_SCOPE_INVALID')
     digest = _key_digest(key)
     fingerprint = bytes.fromhex(canonical_sha256({
-        "sha256": sha256(data).hexdigest(), "name": name, "media_type": media,
+        "sha256": sha256(data).hexdigest(), "name": name, "media_type": media, 'analysis_scope': analysis_scope,
     }))
     try:
         with database_session(dsn) as session:
@@ -130,6 +134,7 @@ def upload_source(owner, material_id, data, name, media, key, *, dsn=None, resea
             session.add(MaterialSource(
                 source_id=identity, learner_id=owner, material_id=material_id,
                 original_artifact_id=blob.artifact_id, original_name=name, media_type=media,
+                analysis_scope=analysis_scope,
                 idempotency_key_sha256=digest, request_fingerprint=fingerprint, created_at=now,
             ))
             session.flush()
@@ -188,6 +193,8 @@ def read_sources(owner, material_id, *, dsn=None):
             "error_code": job.error_code,
             "normalized_artifact_id": job.normalized_artifact_id,
             "page_count": job.page_count,
+            "analysis_page_count": len(job.analysis_scope['pages']) if job.analysis_scope else job.page_count,
+            "analysis_mode": 'selected' if source.analysis_scope else 'full',
         } for source, job in rows]
 
 def normalize_next(*, dsn=None):
@@ -224,15 +231,22 @@ def normalize_next(*, dsn=None):
         source = session.get(MaterialSource, job.source_id)
         claim = (
             job.normalization_id, job.learner_id, job.material_id,
-            source.original_artifact_id, source.original_name, source.media_type, job.policy,
+            source.original_artifact_id, source.original_name, source.media_type, job.policy, source.analysis_scope,
         )
-    identity, owner, material_id, original_id, name, media, policy = claim
+    identity, owner, material_id, original_id, name, media, policy, selected_scope = claim
     try:
         with open_verified_artifact(owner, original_id, dsn=dsn) as stream:
             data = stream.file.read()
         from .generation_jobs import check_job
         pdf, mapping = convert(data, PurePath(name).suffix.lower(), media, policy,
             cancellation_check=lambda: check_job(SourceNormalization, identity, token, dsn=dsn))
+        from pdf_evidence.analysis_scope import locate_scope
+        # 範圍定位只讀轉檔結果，不使用模型，也不改完整 PDF。
+        if selected_scope is not None:
+            try:
+                selected_scope = locate_scope(pdf, selected_scope)
+            except ValueError as error:
+                raise SourceError(str(error)) from None
         with database_session(dsn) as session:
             material = _material(session, owner, material_id)
             job = session.scalar(select(SourceNormalization).where(
@@ -247,6 +261,7 @@ def normalize_next(*, dsn=None):
             job.normalized_artifact_id = normalized.artifact_id
             job.mapping_artifact_id = metadata.artifact_id
             job.page_count = mapping["page_count"]
+            job.analysis_scope = selected_scope
             job.status = "ready"
             job.lease_token = job.lease_expires_at = None
             job.updated_at = datetime.now(UTC)

@@ -9,7 +9,7 @@ from uuid import UUID
 
 import psycopg
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, ForeignKeyConstraint, Integer, LargeBinary, Text, UniqueConstraint, create_engine, text
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PostgreSQLUUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR, UUID as PostgreSQLUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from sqlalchemy.engine import Engine
 
@@ -143,6 +143,33 @@ class KnowledgeStructure(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class MaterialRetrievalIndex(Base):
+    __tablename__ = 'material_retrieval_indexes'
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    structure_revision: Mapped[str] = mapped_column(Text, primary_key=True)
+    policy: Mapped[str] = mapped_column(Text)
+    passage_count: Mapped[int] = mapped_column(Integer)
+    content_sha256: Mapped[str] = mapped_column(Text)
+    outline: Mapped[list] = mapped_column(EvidenceJSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class MaterialPassage(Base):
+    __tablename__ = 'material_passages'
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    structure_revision: Mapped[str] = mapped_column(Text, primary_key=True)
+    position: Mapped[int] = mapped_column(Integer, primary_key=True)
+    evidence_id: Mapped[str] = mapped_column(Text)
+    source_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    page: Mapped[int] = mapped_column(Integer)
+    section_id: Mapped[str] = mapped_column(Text)
+    concept_ids: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    payload: Mapped[dict] = mapped_column(EvidenceJSONB)
+    keywords: Mapped[Any] = mapped_column(TSVECTOR)
+
+
 class CardSet(Base):
     __tablename__ = "card_sets"
     __table_args__ = (
@@ -165,6 +192,10 @@ class CardSet(Base):
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'ready'"))
+    generation: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Podcast(Base):
@@ -372,6 +403,7 @@ class MaterialSource(Base):
     original_artifact_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
     original_name: Mapped[str] = mapped_column(Text)
     media_type: Mapped[str] = mapped_column(Text)
+    analysis_scope: Mapped[dict | None] = mapped_column(EvidenceJSONB)
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary)
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -392,6 +424,7 @@ class SourceNormalization(Base):
     normalized_artifact_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     mapping_artifact_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     page_count: Mapped[int | None] = mapped_column(Integer)
+    analysis_scope: Mapped[dict | None] = mapped_column(EvidenceJSONB)
     error_code: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -402,7 +435,7 @@ class MaterialSourceSet(Base):
     source_set_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
     learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
     material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    manifest: Mapped[dict] = mapped_column(JSONB)
+    manifest: Mapped[dict] = mapped_column(EvidenceJSONB)
     digest: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
@@ -424,6 +457,7 @@ class VoiceConversation(Base):
     material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
     knowledge_structure_revision: Mapped[str | None] = mapped_column(Text)
     title: Mapped[str] = mapped_column(Text)
+    memory: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary)

@@ -330,7 +330,9 @@ class AnalysisArchive:
                     # 同一輸入可重新驗證保存的回應，避免重複推論。
                     if validate_response is None:
                         continue
-                    for request_path in sorted(directory.glob('call-*/request.json'), reverse=True):
+                    # 先看同批次較新的補正稿；整個路徑排序會因 '/' 大於 '-' 而先挑原稿。
+                    for request_path in sorted(directory.glob('call-*/request.json'),
+                                               key=lambda path: path.parent.name, reverse=True):
                         request = _read_envelope(request_path, run_id, signature)
                         if request['data'].get('cache_key') != key:
                             continue

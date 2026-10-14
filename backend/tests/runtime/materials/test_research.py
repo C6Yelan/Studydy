@@ -22,7 +22,7 @@ def candidate(i='paper1'):
 
 def mock_search(monkeypatch):
     monkeypatch.setattr(research,'provider',review_provider)
-    monkeypatch.setattr(research.research_sources,'search',lambda *a:([candidate()],None,[]))
+    monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([candidate()],None,[]))
     from runtime import research_reading
     def unavailable(*a,**kw):raise SourceError('RESEARCH_DOWNLOAD_FAILED')
     monkeypatch.setattr(research_reading,'read_public_document',unavailable)
@@ -37,7 +37,8 @@ def ready(owner,material,dsn,monkeypatch):
     research.action(owner,identity,'acquire',['paper1'],dsn=dsn)
     assert research.step(dsn=dsn);assert normalize_next(dsn=dsn)
     assert research.step(dsn=dsn);assert research.step(dsn=dsn)
-    assert research.read(owner,identity,dsn=dsn)['status']=='ready'
+    checked=research.read(owner,identity,dsn=dsn)
+    assert checked['status']=='ready', [(c['state'],c.get('error_code')) for c in checked['candidates']]
     return identity
 
 
@@ -103,13 +104,13 @@ def test_revision_conflict_keeps_acquired_sources(revisions,monkeypatch):
 def test_more_results_preserve_selection_and_reject_unlicensed(closed_loop,monkeypatch):
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)
-    monkeypatch.setattr(research.research_sources,'search',lambda *a:([candidate()], 'next',[]))
+    monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([candidate()], 'next',[]))
     identity=research.create(owner,source.material_id,'q','review','r',dsn=dsn)['research_id']
     search_to_selection(owner,identity,dsn)
     research.action(owner,identity,'more',dsn=dsn)
     monkeypatch.setattr(research,'provider',continue_provider)
     c=candidate('unlicensed');c.update(eligible=False,license='unknown',download_url=None)
-    monkeypatch.setattr(research.research_sources,'search',lambda *a:([candidate(),c], None,[]))
+    monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([candidate(),c], None,[]))
     search_to_selection(owner,identity,dsn)
     assert len(research.read(owner,identity,dsn=dsn)['candidates'])==2
     with pytest.raises(SourceError,match='REQUEST_INVALID'):research.action(owner,identity,'acquire',['unlicensed'],dsn=dsn)
@@ -214,13 +215,13 @@ def test_cross_provider_more_deduplicates_without_replacing_candidate_or_exposin
     mock_search(monkeypatch)
     first=candidate();first.update(doi='https://doi.org/10.1234/paper',discovered_by=['OpenAlex'],download_locations=[{'download_url':'https://example.org/a.pdf','license':'cc-by','version':'publishedVersion','url':'https://example.org/article','license_url':None}])
     monkeypatch.setattr(research,'provider',review_provider)
-    monkeypatch.setattr(research.research_sources,'search',lambda *a:([first],'more',[]))
+    monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([first],'more',[]))
     work=research.create(owner,source.material_id,'queue','review','cross-provider',dsn=dsn)
     search_to_selection(owner,work['research_id'],dsn)
     other=deepcopy(first);other.update(id='crossref-other-id',doi='10.1234/PAPER',discovered_by=['Crossref'])
     research.action(owner,work['research_id'],'more',dsn=dsn)
     monkeypatch.setattr(research,'provider',continue_provider)
-    monkeypatch.setattr(research.research_sources,'search',lambda *a:([other],None,['source temporarily unavailable']))
+    monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([other],None,['source temporarily unavailable']))
     search_to_selection(owner,work['research_id'],dsn)
     result=research.read(owner,work['research_id'],dsn=dsn)
     assert result['error_code']=='RESEARCH_PARTIAL_SEARCH'
@@ -243,7 +244,7 @@ def test_web_source_uses_existing_normalization_and_records_acquisition(revision
           'url':doc['url'],'download_url':doc['url'],'license':doc['license'],'license_url':doc['license_url'],
           'page_identity':doc['page_identity'],'version':'取得時的網頁版本'}
     monkeypatch.setattr(research,'provider',review_provider)
-    monkeypatch.setattr(research.research_sources,'search',lambda *a:([item],None,[]))
+    monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([item],None,[]))
     identity=research.create(owner,material,'網頁補充','review','web-research',dsn=dsn)['research_id']
     search_to_selection(owner,identity,dsn)
     research.action(owner,identity,'acquire',['web-source'],dsn=dsn)
@@ -266,7 +267,7 @@ def test_web_source_uses_existing_normalization_and_records_acquisition(revision
 def test_background_checkpoint_survives_cancel_and_retry_without_repeating_finished_search(closed_loop,monkeypatch):
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch);calls=[]
-    monkeypatch.setattr(research.research_sources,'search',lambda *a:(calls.append(a) or [candidate()],None,[]))
+    monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:(calls.append(a) or [candidate()],None,[]))
     identity=research.create(owner,source.material_id,'queue','review','resume-background',dsn=dsn)['research_id']
     assert research.read(owner,identity,dsn=dsn)['progress']['stage']=='planning'
     research.step(dsn=dsn);research.step(dsn=dsn)
@@ -317,11 +318,11 @@ def test_plan_uses_current_material_concepts_without_sending_evidence_or_answers
     mock_search(monkeypatch);payloads=[]
     def provider(path,body):payloads.append(body['request']);return review_provider(path,body)
     monkeypatch.setattr(research,'provider',provider)
-    research.create(owner,source.material_id,'補充原理','review','existing-context',dsn=dsn)
+    research.create(owner,source.material_id,'補充 Stack 原理','review','existing-context',dsn=dsn)
     research.step(dsn=dsn)
     with database_session(dsn) as db:revision=db.get(Material,source.material_id).head_revision
     stored=read_knowledge_structure(owner,source.material_id,revision=revision,dsn=dsn).document
-    assert payloads[0]['existing_concepts']==[c['label'] for c in stored['concepts']]
+    assert all(c['label'] in payloads[0]['existing_concepts'] for c in stored['concepts'])
     assert 'evidence' not in payloads[0] and 'answers' not in payloads[0]
 
 

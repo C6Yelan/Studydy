@@ -26,6 +26,8 @@ from .. import card_sets, podcasts
 from ..podcast_worker import PodcastWorker
 from ..voice_worker import VoiceWorker
 from ..research_worker import ResearchWorker
+from ..card_generation import CardWorker
+from .models import CardGenerationView
 from .research_routes import install as install_research
 from .topic_routes import install as install_topics
 from .scene_routes import install as install_scenes
@@ -124,6 +126,7 @@ _INTERNAL_ERRORS = {
     "MATERIAL_RUN_NOT_FOUND": "RESOURCE_NOT_FOUND",
     "MATERIAL_RUN_UNAVAILABLE": "RESOURCE_NOT_FOUND",
     "KNOWLEDGE_STRUCTURE_UNAVAILABLE": "RESOURCE_NOT_FOUND",
+    "MATERIAL_FORMAT_UNSUPPORTED": "MATERIAL_FORMAT_UNSUPPORTED",
     "ARTIFACT_NOT_AVAILABLE": "RESOURCE_NOT_FOUND",
     "STUDY_SESSION_UNAVAILABLE": "RESOURCE_NOT_FOUND",
     "STUDY_SESSION_MAP_UNAVAILABLE": "RESOURCE_NOT_FOUND",
@@ -250,6 +253,10 @@ _ERROR_STATUS.update({
     "VOICE_TURN_IN_PROGRESS": (409, True), "VOICE_PROVIDER_UNAVAILABLE": (503, True),
     "VOICE_PROVIDER_FAILED": (502, True), "VOICE_TRANSCRIPT_INVALID": (422, False),
     "VOICE_ANSWER_INVALID": (422, True), "VOICE_PODCAST_CONTEXT_INVALID": (409, False),
+    "VOICE_CONTEXT_TOO_LARGE": (422, False), "RETRIEVAL_INDEX_REQUIRED": (409, False),
+    "RETRIEVAL_INDEX_INVALID": (409, False), "MATERIAL_FORMAT_UNSUPPORTED": (409, False),
+    "SOURCE_SCOPE_EMPTY": (422, False), "SOURCE_SCOPE_INVALID": (422, False), "SOURCE_SCOPE_UNRESOLVED": (422, False),
+    "RESEARCH_CONTEXT_TOO_LARGE": (422, True),
 })
 
 def _error_response(reason_code: str, *, status_code: int | None = None) -> JSONResponse:
@@ -498,6 +505,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         scene_worker = SceneWorker(settings.dsn).start()
         video_worker = VideoWorker(settings.dsn).start()
         research_worker = ResearchWorker(settings.dsn, deepcopy(settings.local_config)).start()
+        card_worker = CardWorker(settings.dsn).start()
         try:
             podcast_worker = PodcastWorker(settings.dsn).start()
             yield
@@ -507,6 +515,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
             scene_worker.stop()
             video_worker.stop()
             research_worker.stop()
+            card_worker.stop()
             voice_worker.stop()
             workers.stop()
 
@@ -953,6 +962,18 @@ def create_app(settings: ApiSettings) -> FastAPI:
         return card_sets.update_card_set(
             owner, card_set_id, body.name, body.expected_version, body.concept_ids, dsn=settings.dsn,
         )
+
+    @app.get("/v1/card-sets/{card_set_id}/generation", response_model=CardGenerationView, operation_id="getCardGeneration", tags=["cards"])
+    def card_generation_route(request: Request, card_set_id: UUID):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        return card_sets.generation_status(owner, card_set_id, dsn=settings.dsn)
+
+    @app.post("/v1/card-sets/{card_set_id}/generation/retry", response_model=CardGenerationView, operation_id="retryCardGeneration", tags=["cards"])
+    def retry_card_generation_route(request: Request, card_set_id: UUID):
+        _require_query(request, set())
+        owner = _trusted_learner(request, settings).learner_id
+        return card_sets.generation_status(owner, card_set_id, retry=True, dsn=settings.dsn)
 
     @app.delete("/v1/card-sets/{card_set_id}", response_model=CardSetDeletedView, operation_id="deleteCardSet", tags=["cards"])
     async def delete_card_set_route(request: Request, card_set_id: UUID):

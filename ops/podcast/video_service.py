@@ -14,6 +14,7 @@ from runtime import podcast_process
 from runtime.podcast_video_plan import validate_cues, merge_cue_groups, POLICY
 from runtime.podcast_video_render import ensure_space
 from runtime.podcast_video_layout import semantic_schema
+from runtime.podcast_script import script_input
 
 def _check(cancelled):
     podcast_process.check(cancelled, 'VIDEO_CANCELLED')
@@ -71,7 +72,7 @@ exchange 的 source/target 是從 0 開始的參與者索引，表示真正的�
 """
         source={'pages': [{'title': split['cues'][start]['title'], 'narration': ''.join(texts[start:end+1])}
                           for _, start, end in page_ranges],
-                'claims':episode['claims'],'source_context':body['source_context']}
+                **script_input(episode['claims'], body['source_context'])}
         env={k:v for k,v in os.environ.items() if k!='STUDYDY_PODCAST_PROVIDER_TOKEN'}
         env['PYTHONPATH']=str(PROJECT/'backend/src')
         args=[python,'-m','runtime.podcast_video_render',str(request),str(audio),str(result)]
@@ -103,5 +104,5 @@ exchange 的 source/target 是從 0 開始的參與者索引，表示真正的�
             raise ValueError(code.split(':',1)[0])
         metadata=json.loads(result.read_text());data=result.with_suffix('.mp4').read_bytes()
         if len(data)>100*1024*1024:raise ValueError('VIDEO_TOO_LARGE')
-        return {'policy':POLICY,'model':f'codex-cli/{model};semantic-layout/v2','cues':split['cues'],'alignment':alignment,
+        return {'policy':POLICY,'model':f'codex-cli/{model};semantic-layout/v3','cues':split['cues'],'alignment':alignment,
                 'plan':plan,'render':metadata,'video':base64.b64encode(data).decode()}

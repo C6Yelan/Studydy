@@ -4,6 +4,7 @@ import type { CardSetView, KnowledgeStructureView } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
+import { ProcessingTimeline } from "../material-flow/ProcessingTimeline";
 import { Flashcard } from "./Flashcard";
 import { useConceptArtwork } from "./VisualConceptCard";
 
@@ -14,15 +15,28 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
   const [reload, setReload] = useState(0);
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     setError(null);
     setView(null);
     setStructure(null);
     void (async () => {
       try {
-        const result = await apiClient.getCardSet(cardSetId);
+        let result = await apiClient.getCardSet(cardSetId);
         if (cancelled) return;
         if (!materialId) { writeRoute({ name: "card-set", cardSetId, materialId: result.material_id }, true); return; }
         if (result.material_id !== materialId) throw new Error("這個卡組不屬於此教材。");
+        setView(result);
+        while (result.generation.status !== "ready") {
+          if (result.generation.status === "failed") return;
+          await new Promise<void>(resolve => { timer = setTimeout(resolve, 2000); });
+          if (cancelled) return;
+          const generation = await apiClient.getCardGeneration(cardSetId);
+          if (cancelled) return;
+          result = { ...result, generation };
+          setView(result);
+        }
+        result = await apiClient.getCardSet(cardSetId);
+        if (cancelled) return;
         // 圖像只讀卡組保存的版本，不追隨教材目前的 head。
         const retained = await apiClient.getKnowledgeStructure({ materialId, structureRevision: result.knowledge_structure_revision });
         if (cancelled) return;
@@ -30,17 +44,54 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
         setStructure(retained);
       } catch (failure) { if (!cancelled) setError(errorMessage(failure)); }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [apiClient, cardSetId, materialId, reload]);
   const back = () => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" });
   return <section className="cards-page cards-study-page">
     <button className="cards-back text-button" type="button" onClick={back}><Icon name="arrow-left" size={17} /> 返回卡組</button>
-    {error || !view || !structure ? <StateView title={error ? "無法開啟卡組" : "正在讀取概念卡"} description={error ?? "正在載入已保存的重點。"} tone={error ? "failure" : "loading"} live={!error} action={error ? <button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button> : undefined} />
+    {view && view.generation.status !== "ready" && !error ? <CardGenerationProgress view={view} onRetry={() => {
+      void apiClient.retryCardGeneration(cardSetId).then(() => setReload(n => n + 1)).catch(failure => setError(errorMessage(failure)));
+    }} /> : error || !view || !structure ? <StateView title={error ? "無法開啟卡組" : "正在讀取概念卡"} description={error ?? "正在載入已保存的重點。"} tone={error ? "failure" : "loading"} live={!error} action={error ? <button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button> : undefined} />
       : <CardStudy key={`${cardSetId}:${view.version}`} structure={structure} view={view} apiClient={apiClient} materialId={materialId} />}
   </section>;
 }
 
-function CardStudy({ view, structure, apiClient, materialId }: { view: CardSetView; structure: KnowledgeStructureView; apiClient: StudydyApiClient; materialId?: string }) {
+function CardGenerationProgress({ view, onRetry }: { view: CardSetView; onRetry: () => void }) {
+  const generation = view.generation;
+  const paused = generation.status === "failed";
+  const stages = [
+    { label: "準備來源", icon: "book" as const },
+    { label: "AI 精簡", icon: "cards" as const },
+    { label: "核對來源", icon: "check" as const },
+    { label: "完成卡組", icon: "check" as const },
+  ];
+  const stage = ["preparing", "compacting", "checking", "complete"].indexOf(generation.stage);
+  const activity = paused ? "已中斷" : generation.status === "pending" ? "排隊中" : "處理中";
+  // 各觀念會重複精簡與核對；百分比只計已完成觀念，不猜測模型呼叫的內部進度。
+  const percent = Math.floor(generation.completed / generation.total * 100);
+  return <section className="is-processing" aria-label="概念卡生成狀態">
+    <header className="cards-study-heading"><h1>{view.name}</h1></header>
+    <div className="processing-grid">
+      <section className="surface processing-card">
+        <div className="processing-status" aria-live="polite">
+          <div className="progress-heading overall-heading"><h2>{paused ? "概念卡生成暫停" : "正在生成概念卡"}</h2><strong>{percent}%</strong></div>
+          <progress className="processing-progress" aria-label="概念卡生成進度" max={generation.total} value={generation.completed} />
+          <p className="progress-estimate-note">已完成 {generation.completed} / {generation.total} 個觀念；依完成數計算，不代表剩餘時間。</p>
+          <section className="processing-current"><h3>目前狀態</h3>
+            <div className="progress-heading"><strong className="stage-label stage-status-label">{!paused && <span className="processing-status-indicator" aria-hidden="true" />}{stages[stage].label}</strong><strong>{activity}</strong></div>
+            <p role="status">每個觀念依序準備來源、AI 精簡與核對來源，全部完成後開啟卡組。</p>
+          </section>
+        </div>
+        <p className="processing-leave-note">{paused ? "這一步尚未完成，已保存的進度會保留。請重試。" : "可以離開頁面，稍後從概念卡返回查看進度。"}</p>
+        {paused && <div className="processing-cancel"><button className="secondary-button" type="button" onClick={onRetry}>重試未完成部分</button></div>}
+      </section>
+      <ProcessingTimeline stages={stages} currentIndex={stage} activity={activity} />
+    </div>
+  </section>;
+}
+
+function CardStudy({ view: originalView, structure, apiClient, materialId }: { view: CardSetView; structure: KnowledgeStructureView; apiClient: StudydyApiClient; materialId?: string }) {
+  const view = useMemo(() => ({ ...originalView, cards: originalView.cards.map(card => ({ ...card, display_edits: originalView.display_edits[card.concept_id] ?? [] })) }), [originalView]);
   const [order, setOrder] = useState(() => view.cards.map((_, index) => index));
   const { artworkModule, loadFailed } = useConceptArtwork();
   const loadingArtwork = !artworkModule && !loadFailed;

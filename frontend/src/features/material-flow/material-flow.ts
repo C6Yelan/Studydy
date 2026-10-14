@@ -6,6 +6,7 @@ export const materialProgressStages = [
   "evidence",
   "semantics",
   "review",
+  "indexing",
   "publishing",
   "completed",
 ] as const;
@@ -17,6 +18,7 @@ export function materialProgressStageLabel(
   if (stage === "evidence") return "整理頁面與教材來源";
   if (stage === "semantics") return "建立概念、關係與學習順序";
   if (stage === "review") return "檢查與修正知識結構";
+  if (stage === "indexing") return "建立教材檢索索引";
   if (stage === "publishing") return "組裝與發布知識地圖";
   return "處理完成";
 }
@@ -28,13 +30,13 @@ type ProcessingProgress = Pick<
 
 export function materialStageCount(run: ProcessingProgress): { completed: number; total: number; unit: string } | null {
   const stage = run.progress_stage;
-  if (!["evidence", "semantics", "review"].includes(stage)) return null;
+  if (!["evidence", "semantics", "review", "indexing"].includes(stage)) return null;
   // 舊工作的區塊／檢核分母無法從頁數重建，保持未定量。
   const completed = run.completed_units ?? (stage === "evidence" ? run.completed_pages : null);
   const total = run.total_units ?? (stage === "evidence" ? run.total_pages : null);
   if (completed == null || total == null || !Number.isSafeInteger(completed) ||
       !Number.isSafeInteger(total) || total <= 0 || completed < 0 || completed > total) return null;
-  return { completed, total, unit: stage === "evidence" ? "頁" : stage === "semantics" ? "個來源區塊" : "個檢核批次" };
+  return { completed, total, unit: stage === "evidence" ? "頁" : stage === "semantics" ? "個來源區塊" : stage === "indexing" ? "個索引來源" : "個檢核批次" };
 }
 
 export function materialCurrentStagePercent(run: ProcessingProgress): number | null {

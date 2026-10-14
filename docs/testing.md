@@ -431,3 +431,29 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src .studydy-runtime/research-venv
 ## 八路獨立子圖
 
 `test_independent_blocks.py` 驗證八路併行、取消、亂序完成後只補缺口、checkpoint 後已完成回應重播、舊策略升級及來源／索引邊界；`test_material_provider_parallel.py` 使用真 HTTP 驗證第九個教材請求會等待槽位，不呼叫模型。`runtime/sources/test_independent_block_archive.py` 使用隔離 DB 驗證舊進度升級、artifact 已保存但 checkpoint 寫入失敗時不重做 inference，以及取消後拒絕晚到寫入。舊策略 fixture 僅包含公開 runtime 契約，沒有私人教材或模型回應。
+
+## 選段分析、RAG 與問答（2026-10-13）
+
+新契約以 `test_analysis_scope.py`、`test_material_retrieval.py`、`test_material_qa.py` 檢查原文範圍、去重、輸入預算、補查及逐段核對。`runtime/sources/test_research_selected_scope.py` 使用合成十頁 PDF，驗證只分析第七頁並回查原始第七頁，以及索引儲存失敗不發布新 head。`runtime/materials/test_retrieval.py` 保護 owner／revision 邊界與相鄰來源範圍。這些測試不代表真實 Luna 品質。
+
+語音與文字沿用 `runtime/materials/test_voice.py`，但回答改用受控 `/semantics` 與 `material-answer/v2`，不再保留舊 `/answer` 或舊引用轉接測試。研究／主題回歸核對早停、選段匯入、相同原文重用與補讀不重複範圍。瀏覽器回歸使用 `voice-chat.spec.ts`、`processing.spec.ts`、`topics.spec.ts`、`research-background.spec.ts`、`source-pagination.spec.ts`；包含索引的準備流程共六個階段。
+
+本輪測試依賴位於 `/tmp/studydy-rag-test-venv`，未修改共用 backend/.venv。主機 Office 版本與正式轉檔契約不同，因此四個真 Office 轉檔案例在目前正式 runtime 映像的一次性、無外網、無產品資料容器中執行，不放寬版本檢查。
+
+真實驗收依序使用三份簡報、從主題建立教材、千頁資料集。逐題核對答案與引用，記錄實際取材量、估算 token、模型請求及耗時；不以合成分數或 API 成功宣稱內容驗收。私人紀錄保存在 `data/rag/qualification-20261013/`，不加入 Git。尚未完成的實際驗收不寫成通過。
+
+長對話回歸驗證按 token 超額壓縮、超過三輪的短對話完整保留、摘要沿用、不重壓舊輪次與無效摘要不得靜默丟棄歷史。Runtime 另驗證摘要與回答一起保存、取消隔離、重試舊問題不讀未來摘要、原始輪次保留及刪除時清除摘要。0023 只新增 nullable 對話記憶欄位；這些合成測試不等於真實摘要內容品質已通過。
+
+研究涵蓋核對以單一子題的已選原文為單位，變動時重算該題並保留其他題快取；請求容量不足時接續分批，不以新來源摘要覆蓋舊機制。`test_research_workflow.py` 驗證跨來源合併、變動子題隔離、來源撤回與更正、分批範圍及無原文不得宣稱涵蓋。
+
+## 概念卡語意精簡與持久進度
+
+`test_card_compaction.py` 核對數值／單位與來源投影、格式錯誤及語意拒絕；runtime 的 `test_card_generation.py` 使用隔離 DB 驗證分步保存、同版本快取、模型失敗重試、租約回收與刪除後不得發布。前端版型測試確認精簡不變更表格欄位、Evidence 或技術內容；`concept-cards.spec.ts` 驗證刷新續接、失敗重試、PNG 顯示與完整原文來源。這些是合成模型回應的工程回歸，實際精簡品質需以真實教材生成後另行核對。
+
+
+大型教材讀取的回歸包含 JSONB 的 NUL 無損還原、來源驗證邊界，以及同一工作階段內目前地圖與舊版卡組的兩份不可變結構快取。登出、帳號失效與刪除教材會清除快取，失敗請求可重試；快取不寫入瀏覽器持久儲存。以實際網路回應與功能可用狀態量測，不能把固定等待時間當成完成時間。
+
+長音訊的細字幕對齊失敗時，會以含前後文的短音訊視窗重辨識長段 ASR 空缺；詞時間仍來自實際音訊。補入結果須通過完整原稿覆蓋與時間錨點驗證，失敗仍保留已驗證的段落時序。`test_podcast_align.py` 驗證重疊視窗不重複收取核心詞時間；實際語音與畫面另行核對，不以合成測試宣稱聽感通過。
+
+
+2026-10-13 的教材分析 RAG 對照使用生成式 AI 改良版與網路教材的六個既有區塊，保留本批全部原文，比較不補檢索／額外補入同教材相關頁面，各跑兩次，共 24 次 Luna 請求。兩組估算輸入分別為 58,756 與 77,734 tokens（含提示、payload、schema），增加 32.3%。稀疏整合頁能補出較完整的跨頁概念，但密集區塊未顯示穩定品質提升，部分原有例子被擠掉；因此未將每批自動追加檢索接入正式教材分析。這是獨立分析階段的探索，並非完整分析／審查流程的品質通過率。原始輸入、24 份結果、來源投影檢查與人工觀察留在本機 `data/rag/qualification-20261013/analysis-rag-review.json` 及對應私人結果檔，未加入 Git／CI。

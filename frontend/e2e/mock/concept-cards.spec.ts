@@ -1,5 +1,6 @@
 import { recordCardDrawing, cardDrawing, drawnText, expectCardTextFits } from "../fixtures/canvas-cards";
 import { visualCases, visualCase } from "../fixtures/visual-concept-cards";
+import type { CardGeneration, CardTextEdit } from "../../src/api/contracts";
 import { expect, test, type Page } from "@playwright/test";
 import { artifactId, materialId, runId, sessionId, structureRevision, structureView, mockKnowledgeMapApi, json } from "../fixtures/knowledge-map";
 
@@ -42,6 +43,14 @@ async function mockCards(page: Page, { saved = false, long = false, many = false
   let name = title;
   let exists = saved;
   let version = 1;
+  let generation: CardGeneration | null = null;
+  let displayEdits: Record<string, CardTextEdit[]> = {};
+  const readyGeneration = (): CardGeneration => ({ status: "ready", stage: "complete", completed: selection.length, total: selection.length, error_code: null, retained_original: 0, cached: 0 });
+  await page.route(`**/v1/card-sets/${cardSetId}/generation`, route => json(route, generation ?? readyGeneration()));
+  await page.route(`**/v1/card-sets/${cardSetId}/generation/retry`, route => {
+    generation = { ...(generation ?? readyGeneration()), status: "pending", error_code: null };
+    return json(route, generation);
+  });
   const requests: { key: string | undefined; body: unknown }[] = [];
   const forbiddenMutations: string[] = [];
   page.on("request", (request) => {
@@ -75,9 +84,9 @@ async function mockCards(page: Page, { saved = false, long = false, many = false
       return json(route, { schema: "card-set-deleted/v1", card_set_id: cardSetId });
     }
     if (!exists) return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "RESOURCE_NOT_FOUND", retryable: false, message: "Request could not be completed." }, 404);
-    return json(route, { ...summary(), schema: "card-set/v1", source_resolver: decodeURIComponent(view.source_resolver), status: view.status, excluded_pages: [], cards: selection.map((id) => view.concepts.find((item) => item.concept_id === id)!).map(({ concept_id, label, claims }) => ({ concept_id, label, claims })) });
+    return json(route, { ...summary(), schema: "card-set/v1", source_resolver: decodeURIComponent(view.source_resolver), status: view.status, excluded_pages: [], display_edits: displayEdits, generation: generation ?? readyGeneration(), cards: selection.map((id) => view.concepts.find((item) => item.concept_id === id)!).map(({ concept_id, label, claims }) => ({ concept_id, label, claims })) });
   });
-  return { requests, forbiddenMutations, view, summary };
+  return { requests, forbiddenMutations, view, summary, setGeneration: (value: CardGeneration | null) => { generation = value; }, setEdits: (value: Record<string, CardTextEdit[]>) => { displayEdits = value; } };
 }
 
 async function openSavedCardManagement(page: Page) {
@@ -125,8 +134,7 @@ test("card creation fits a desktop viewport and preserves selections across page
   await manual.getByRole("searchbox", { name: "搜尋概念" }).fill("");
   await manual.getByRole("button", { name: "預覽「堆疊（Stack）」" }).click();
   await expect(page.locator('.cards-preview img.visual-concept-card').first()).toBeVisible();
-  const previewCount = Number(await page.locator('.cards-preview img.visual-concept-card').first().getAttribute('data-image-count'));
-  await expect(manual).toContainText(`已選 ${previewCount + 2} / ${previewCount + 30} 張卡片`);
+  await expect(manual).toContainText('已選 3 / 31 個觀念');
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator(".flashcard-point")).toContainText("最後一個條件不可遺漏");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
@@ -400,7 +408,8 @@ test("library stays aligned and card review keeps compact content and controls",
   const cardTile = (await page.locator('.library-item').first().boundingBox())!;
   expect(cardSearch!.x).toBe(materialSearch!.x);
   expect(cardSearch!.width).toBeGreaterThanOrEqual(materialSearch!.width);
-  expect(cardTile.width).toBeCloseTo(materialCard.width, 0);
+  // 教材書架已有獨立的三欄規則；卡組沿用緊湊網格，只要求左緣對齊。
+  expect(cardTile.x).toBeCloseTo(materialCard.x, 0);
   expect(cardTile.width).toBeLessThan(320);
   expect(cardTile.height).toBeLessThan(270);
   await expect(page.getByRole('heading', { name: '我的概念卡', exact: true })).toHaveCount(0);
@@ -1089,7 +1098,7 @@ test("a long paragraph continues until its final condition is visible", async ({
 });
 
 
-test("library, selection and study count continuation cards consistently and retry failed counts", async ({ page }) => {
+test("selection counts concepts while saved library and study count generated pages", async ({ page }) => {
   const { view } = await mockCards(page, { saved: true });
   view.relations = [];
   const concept = view.concepts[0];
@@ -1108,10 +1117,10 @@ test("library, selection and study count continuation cards consistently and ret
   await page.getByRole('button', { name: '開始複習', exact: true }).click();
   await expect(page.locator('.cards-study-counter')).toContainText('1 / 3');
   await openSavedCardManagement(page);
-  await expect(page.locator('.cards-create-summary strong')).toHaveText('3 張卡片');
-  await expect(page.locator('.cards-selection-heading')).toContainText('已選 3 / 3 張卡片');
+  await expect(page.locator('.cards-create-summary strong')).toHaveText('2 個觀念');
+  await expect(page.locator('.cards-selection-heading')).toContainText('已選 2 / 2 個觀念');
   await page.getByRole('checkbox').first().uncheck();
-  await expect(page.locator('.cards-create-summary strong')).toHaveText('1 張卡片');
+  await expect(page.locator('.cards-create-summary strong')).toHaveText('1 個觀念');
   await page.getByRole('button', { name: '保存變更', exact: true }).click();
   await expect(page.locator('.cards-study-counter')).toContainText('1 / 1');
   await page.getByRole('button', { name: '返回卡組', exact: true }).click();
@@ -1217,4 +1226,34 @@ test("returning to a card reuses its PNG without drawing or encoding again", asy
   await page.getByRole("button", { name: "再看一次", exact: true }).click();
   await expect(image).toHaveAttribute("alt", "堆疊（Stack）視覺化概念卡");
   await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+
+test("card generation restores stages after reload, retries failure and keeps full sources", async ({ page }) => {
+  const controls = await mockCards(page, { saved: true });
+  const state: CardGeneration = { status: "running", stage: "compacting", completed: 1, total: 2, error_code: null, retained_original: 0, cached: 0 };
+  controls.setGeneration(state);
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await expect(page.getByRole("progressbar", { name: "概念卡生成進度" })).toHaveAttribute("value", "1");
+  await expect(page.getByRole("progressbar", { name: "概念卡生成進度" })).toHaveClass("processing-progress");
+  await expect(page.locator(".overall-heading")).toContainText("50%");
+  await expect(page.locator(".status-timeline [aria-current=step]")).toContainText("AI 精簡");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "正在生成概念卡" })).toBeVisible();
+  controls.setGeneration({ ...state, status: "failed", stage: "checking", error_code: "CARD_GENERATION_FAILED" });
+  await expect(page.getByRole("button", { name: "重試未完成部分" })).toBeVisible();
+  await expect(page.locator(".status-timeline [aria-current=step]")).toContainText("已中斷");
+  await page.getByRole("button", { name: "重試未完成部分" }).click();
+  await expect(page.getByRole("heading", { name: "正在生成概念卡" })).toBeVisible();
+  const card = controls.view.concepts[0];
+  controls.setEdits({ [card.concept_id]: [{ source: card.claims[0].text, text: "堆疊：後進先出（LIFO）。" }] });
+  controls.setGeneration({ ...state, status: "ready", stage: "complete", completed: 2, retained_original: 1 });
+  await expect(page.locator(".visual-concept-card").first()).toBeVisible();
+  await expect(page.getByText("部分文字未通過精簡核對，已保留原文。", { exact: true })).toHaveCount(0);
+  const drawing = await cardDrawing(page);
+  expect(drawing.texts.some(line => line.text.includes("後進先出（LIFO）"))).toBeTruthy();
+  await page.getByText("完整重點與來源", { exact: true }).click();
+  await expect(page.locator(".flashcard-point").first()).toContainText(card.claims[0].text);
 });

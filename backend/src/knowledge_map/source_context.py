@@ -160,8 +160,10 @@ def build_document_context(
     for page in ordered:
         if (
             source_pages and last_included_page is not None
-            and source_pages[page["page_number"] - 1]["source_id"]
-            != source_pages[last_included_page - 1]["source_id"]
+            and (source_pages[page["page_number"] - 1]["source_id"]
+                 != source_pages[last_included_page - 1]["source_id"]
+                 or source_pages[page["page_number"] - 1]["normalized_page"]
+                 != source_pages[last_included_page - 1]["normalized_page"] + 1)
         ):
             current = None
         if last_included_page is not None and page["page_number"] != last_included_page + 1:

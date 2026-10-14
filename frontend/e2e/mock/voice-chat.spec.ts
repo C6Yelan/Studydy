@@ -12,7 +12,7 @@ async function mockVoice(page:Page) {
  const conversations:VoiceView[]=[],actions:{action:string;question?:string;turnId:string}[]=[],questions:string[]=[];
  const recorded:VoiceTurn[]=[];let deletes=0;
  const behavior={audio:false,status:'ready'};
- const answer={text:'堆疊採用後進先出。最後放入的資料會最先取出。',supported:true,citations:[structure.concepts[0].claims[0]]};
+ const answer:NonNullable<VoiceTurn['answer']>={schema:'material-answer/v2',text:'堆疊採用後進先出。最後放入的資料會最先取出。',supported:true,citations:[{passage_id:"passage:sha256:"+"a".repeat(64),text:structure.concepts[0].claims[0].text,evidence:structure.concepts[0].claims[0].evidence}]};
  const finishAudio=(c:VoiceView,t:VoiceTurn)=>{t.status='ready';t.error_code=null;t.audio_url=`/v1/voice-conversations/${c.conversation_id}/turns/${t.turn_id}/audio`;};
  const reply=(c:VoiceView,t:VoiceTurn)=>{t.answer={...answer};t.status=t.mode==='text'?'ready':behavior.status;t.error_code=t.status==='failed'?'VOICE_PROVIDER_FAILED':null;if(t.mode!=='text'&&behavior.audio&&t.status==='ready')finishAudio(c,t);};
  const add=()=>{const c:VoiceView={conversation_id:next(),material_id:materialId,knowledge_structure_revision:structureRevision,title:`已保存的對話 ${counter}`,created_at:'2026-10-06T00:00:00Z',is_current_revision:true,source_resolver:structure.source_resolver,turns:[]};conversations.push(c);return c;};
@@ -30,7 +30,6 @@ async function mockVoice(page:Page) {
   if(parts.at(-1)==='actions'){
    const t=c.turns.find(t=>t.turn_id===parts[4])!,body=r.request().postDataJSON();actions.push({...body,turnId:t.turn_id});
    if(body.action==='cancel')t.status='cancelled';
-   else if(body.action==='send'){expect(t.status).toBe('draft');t.question=body.question;reply(c,t);c.title=body.question;}
    else if(body.action==='retry')t.status=t.answer?'speaking':'pending';
    return json(r,{ok:true,status:t.status});
   }
@@ -114,18 +113,15 @@ test('voice mode automatically moves through STT answer and audio with no second
  await page.getByRole('dialog',{name:'教材問答'}).screenshot({path:testInfo.outputPath('voice-ready-desktop.png')});
 });
 
-test('persisted draft stays with its conversation and audio retry never becomes composer text',async({page})=>{
+test('audio retry preserves unsent text and switching conversations clears the composer',async({page})=>{
  const mock=await mockVoice(page),first=mock.add(),second=mock.add();first.is_current_revision=false;
- const answer=mock.turn(first,'原本問題','ready');answer.status='failed';const draft=mock.turn(first,'辨識草稿','draft');mock.turn(second,'另一段對話');
+ const answer=mock.turn(first,'原本問題','ready',false,'voice');answer.status='failed';mock.turn(second,'另一段對話');
  await page.goto(mapPath);await open(page);await choose(page,first.conversation_id);
- const input=page.getByLabel('問題／辨識文字');await expect(input).toHaveValue('辨識草稿');await expect(page.locator('.voice-revision-note')).toContainText('先前的教材版本');
- await input.fill('尚未送出的修改');await choose(page,second.conversation_id);await expect(input).toHaveValue('');await expect(page.locator('.voice-draft-hint')).toHaveCount(0);await expect(page.locator('.voice-question p')).toHaveText('另一段對話');
- await page.reload();await open(page);await choose(page,first.conversation_id);await expect(input).toHaveValue('辨識草稿');
- await page.getByRole('button',{name:'取消這次提問',exact:true}).click();await expect(input).toHaveValue('');expect(draft.status).toBe('cancelled');
- await input.fill('下一個尚未送出的問題');await page.getByRole('button',{name:'重試語音',exact:true}).click();await expect(page.getByText('正在產生語音…',{exact:true})).toBeVisible();await expect(input).toHaveValue('下一個尚未送出的問題');await expect(page.locator('.voice-draft-hint')).toHaveCount(0);expect(mock.actions.at(-1)).toMatchObject({action:'retry',turnId:answer.turn_id});expect(mock.actions.at(-1)).not.toHaveProperty('question');
- answer.status='ready';await expect(input).toBeEnabled();await page.getByRole('button',{name:'新對話',exact:true}).click();await expect(input).toHaveValue('');await expect(input).toBeFocused();await expect(page.locator('.voice-revision-note')).toHaveCount(0);
- await choose(page,second.conversation_id);await page.getByRole('button',{name:'對話紀錄',exact:true}).click();page.once('dialog',dialog=>dialog.dismiss());await page.getByRole('button',{name:'刪除對話',exact:true}).click();expect(mock.deletes()).toBe(0);
- page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'刪除對話',exact:true}).click();await expect(input).toBeFocused();await expect(page.locator('.voice-turn')).toHaveCount(0);expect(mock.deletes()).toBe(1);expect(mock.conversations).toHaveLength(1);
+ const input=page.getByLabel('問題／辨識文字');await expect(input).toHaveValue('');await expect(page.locator('.voice-revision-note')).toContainText('先前的教材版本');
+ await input.fill('下一個尚未送出的問題');await page.getByRole('button',{name:'重試語音',exact:true}).click();await expect(page.getByText('正在產生語音…',{exact:true})).toBeVisible();await expect(input).toHaveValue('下一個尚未送出的問題');expect(mock.actions.at(-1)).toMatchObject({action:'retry',turnId:answer.turn_id});expect(mock.actions.at(-1)).not.toHaveProperty('question');
+ answer.status='ready';await expect(input).toBeEnabled();await choose(page,second.conversation_id);await expect(input).toHaveValue('');
+ await page.getByRole('button',{name:'對話紀錄',exact:true}).click();page.once('dialog',dialog=>dialog.dismiss());await page.getByRole('button',{name:'刪除對話',exact:true}).click();expect(mock.deletes()).toBe(0);
+ page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'刪除對話',exact:true}).click();await expect(input).toBeFocused();await expect(page.locator('.voice-turn')).toHaveCount(0);expect(mock.deletes()).toBe(1);
 });
 
 test('long conversations scroll independently without stealing reading position and audio excludes other media',async({page})=>{
@@ -335,13 +331,13 @@ test('continuous voice supports typed questions, barge-in and microphone cleanup
  await expect.poll(()=>page.evaluate(()=>(window as any).stoppedTracks)).toBeGreaterThan(0);
 });
 
-test('sources reuse evidence numbers without exposing canonical handles and history truncates long titles',async({page})=>{
+test('sources use structured references without rewriting numeric literals and history truncates long titles',async({page})=>{
  const mock=await mockVoice(page),conversation=mock.add();conversation.title='非常長的教材問題'.repeat(20);
  const t=mock.turn(conversation,'來源測試'),citation=t.answer!.citations[0];
- t.answer!.text=`依據 ${citation.evidence[0].evidence_id} 與 ${citation.claim_id} 回答。`;
- t.answer!.citations.push(citation);t.answer!.citation_indices=[0,3];t.answer!.text+=' [0,3]';
+ t.answer!.text='保留向量 [0,3] 與 values[0]。';
+ t.answer!.citations.push(citation);
  await page.goto(mapPath);await open(page);await choose(page,conversation.conversation_id);
- await expect(page.locator('.voice-answer')).toContainText('來源 1');await expect(page.locator('.voice-answer')).not.toContainText('sha256');
+ await expect(page.locator('.voice-answer')).toContainText('來源 1');await expect(page.locator('.voice-answer')).toContainText('[0,3]');await expect(page.locator('.voice-answer')).toContainText('values[0]');
  await page.locator('.voice-sources summary').click();await expect(page.locator('.voice-source-list button')).toHaveCount(1);
  await page.getByRole('button',{name:'對話紀錄',exact:true}).click();
  const entry=page.locator('.voice-history-list button');expect(await entry.evaluate(el=>getComputedStyle(el).textOverflow)).toBe('ellipsis');
@@ -371,4 +367,21 @@ test('closing during microphone permission releases a late stream without sendin
  await page.evaluate(()=>(window as any).grantMicrophone());
  await expect.poll(()=>page.evaluate(()=>(window as any).stoppedTracks)).toBe(1);
  expect(mock.recorded).toHaveLength(0);
+});
+
+test('saved conversation recovers from a transient read failure without resending a question',async({page})=>{
+ const mock=await mockVoice(page),conversation=mock.add();mock.turn(conversation,'已完成的問題');
+ let reads=0;
+ await page.route(`**/v1/voice-conversations/${conversation.conversation_id}`,async route=>{
+  reads++;
+  if(reads===1)return route.fulfill({status:502,contentType:'text/plain',body:'temporary gateway failure'});
+  return route.fallback();
+ });
+ await page.goto(mapPath);await open(page);await choose(page,conversation.conversation_id);
+ await expect(page.locator('.voice-answer')).toContainText(mock.answer.text,{timeout:10000});
+ await expect(page.locator('.voice-composer [role="alert"]')).toHaveCount(0);
+ await choose(page,conversation.conversation_id);
+ await expect(page.locator('.voice-answer')).toContainText(mock.answer.text);
+ expect(mock.questions).toEqual([]);
+ expect(reads).toBeGreaterThanOrEqual(3);
 });

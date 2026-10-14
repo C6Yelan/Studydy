@@ -38,8 +38,7 @@ class Question(BaseModel):
 
 class Action(BaseModel):
     model_config=ConfigDict(extra='forbid')
-    action:Literal['send','cancel','retry']
-    question:str=Field(default='',max_length=4000)
+    action:Literal['cancel','retry']
 
 
 def install(app,settings,trusted,key,query):
@@ -86,7 +85,7 @@ def install(app,settings,trusted,key,query):
 
     @app.post('/v1/voice-conversations/{identity}/turns/{turn_id}/actions')
     def action(request:Request,identity:UUID,turn_id:UUID,body:Action):
-        return voice.action(owner(request),identity,turn_id,body.action,body.question,dsn=settings.dsn)
+        return voice.action(owner(request),identity,turn_id,body.action,dsn=settings.dsn)
 
     @app.get('/v1/voice-conversations/{identity}/turns/{turn_id}/audio')
     def audio(request:Request,identity:UUID,turn_id:UUID):

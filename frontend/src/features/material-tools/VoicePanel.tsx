@@ -10,7 +10,7 @@ import { answerSources } from './answerSources';
 import { useDismissibleMenu } from '../material-flow/useDismissibleMenu';
 
 const pending = new Set(['transcribing','pending','answering','speaking']);
-const labels:Record<string,string> = { transcribing:'正在辨識你的問題…', pending:'等待教材回答…', answering:'正在依教材整理回答…', speaking:'正在產生語音…', failed:'本次處理未完成', cancelled:'已取消', draft:'這段錄音需要確認後送出' };
+const labels:Record<string,string> = { transcribing:'正在辨識你的問題…', pending:'等待教材回答…', answering:'正在依教材整理回答…', speaking:'正在產生語音…', failed:'本次處理未完成', cancelled:'已取消' };
 
 export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,onClose}:{
  api:StudydyApiClient;materialId:string;revision?:string;podcastContext?:PodcastContext;podcastMedia?:RefObject<HTMLMediaElement|null>;onClose:()=>void;
@@ -18,10 +18,10 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
  const [list,setList]=useState<Conversation[]>([]),[id,setId]=useState<string|null>(null),[detail,setView]=useState<VoiceView|null>(null);
  const view=detail?.conversation_id===id?detail:null;
  const [question,setQuestion]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[reload,setReload]=useState(0);
- const [mode,setMode]=useState<'text'|'voice'>('text'),[draftQuestion,setDraftQuestion]=useState('');
+ const [mode,setMode]=useState<'text'|'voice'>('text');
  const alive=useRef(true),inFlight=useRef(false),version=useRef(0),readVersion=useRef(0),listVersion=useRef(0),current=useRef<string|null>(null);
  const audios=useRef(new Set<HTMLAudioElement>());
- const transcript=useRef<HTMLDivElement>(null),input=useRef<HTMLTextAreaElement>(null),draftLoaded=useRef(''),followLatest=useRef(true),focusAfterAction=useRef(false);
+ const transcript=useRef<HTMLDivElement>(null),input=useRef<HTMLTextAreaElement>(null),followLatest=useRef(true),focusAfterAction=useRef(false);
  const history=useRef<HTMLDetailsElement>(null),historyOpener=useRef<HTMLElement>(null);
  const createKey=useRef(crypto.randomUUID()),questionIntent=useRef<{body:string;key:string}|null>(null);
  const [autoPlayTurnId,setAutoPlayTurnId]=useState<string|null>(null);
@@ -41,7 +41,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
  useEffect(()=>{void refreshList().catch(e=>{if(alive.current)setError(errorMessage(e));});},[api,materialId,revision]);
  useEffect(()=>{
   if(!id)return;
-  let stopped=false;let timeout:ReturnType<typeof setTimeout>;
+  let stopped=false;let readFailed=false;let timeout:ReturnType<typeof setTimeout>;
   const read=async()=>{
    const request=++readVersion.current;
    try {
@@ -49,18 +49,24 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
     if(stopped||request!==readVersion.current||current.current!==id)return;
     if(value.conversation_id!==id||value.material_id!==materialId||(expectedRevision&&value.knowledge_structure_revision!==expectedRevision)){setView(null);setError('這段對話不屬於目前的教材版本。');return;}
     setView(value);
-    const draft=value.turns.find(turn=>turn.status==='draft');
-    if(draft&&draftLoaded.current!==draft.turn_id){draftLoaded.current=draft.turn_id;focusAfterAction.current=true;setDraftQuestion(draft.question);}
-    else if(!draft&&draftLoaded.current&&value.turns.some(turn=>turn.turn_id===draftLoaded.current&&turn.status!=='draft')){draftLoaded.current='';setDraftQuestion('');}
+    if(readFailed){readFailed=false;setError('');}
     if(value.turns.some(turn=>pending.has(turn.status)))timeout=setTimeout(read,1800);
-   }catch(e){if(!stopped&&request===readVersion.current)setError(errorMessage(e));}
+   }catch(e){
+    if(stopped||request!==readVersion.current)return;
+    setError(errorMessage(e));
+    // 暫時斷線只重讀已保存的對話，不能重送問題或讓「處理中」永久卡住。
+    if(e instanceof ApiClientError&&(e.kind==='network'||(e.status??0)>=500)){
+     readFailed=true;timeout=setTimeout(read,3000);
+    }
+   }
   };
   void read();return()=>{stopped=true;clearTimeout(timeout);for(const audio of audios.current)audio.pause();};
  },[api,id,reload,materialId,expectedRevision]);
  const choose=(next:string|null)=>{
   version.current++;readVersion.current++;current.current=next;
   for(const audio of audios.current)audio.pause();
-  setId(next);setView(null);setQuestion('');setDraftQuestion('');setError('');draftLoaded.current='';followLatest.current=true;
+  setId(next);setView(null);setQuestion('');setError('');followLatest.current=true;
+  setReload(value=>value+1);
   setAutoPlayTurnId(null);
   if(history.current)history.current.open=false;
   if(inFlight.current)focusAfterAction.current=true;else input.current?.focus();
@@ -84,23 +90,18 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
   finally{inFlight.current=false;if(alive.current){setBusy(false);setReload(value=>value+1);}}
  };
  const send=()=>{
-  const draft=view?.turns.find(turn=>turn.status==='draft'),text=draft?draftQuestion:question;
+  const text=question;
   if(!text.trim())return;
-  pauseMedia();setAutoPlayTurnId(draft&&mode==='voice'?draft.turn_id:null);
+  pauseMedia();setAutoPlayTurnId(null);
   followLatest.current=true;focusAfterAction.current=true;
   void perform(async()=>{
    const active=id??await create();if(!active)return;
-   if(draft){
-    await api.studyTools(`/v1/voice-conversations/${active}/turns/${draft.turn_id}/actions`,{action:'send',question:text});
-    if(alive.current)setView(previous=>previous?.conversation_id===active?{...previous,turns:previous.turns.map(turn=>turn.turn_id===draft.turn_id?{...turn,status:'pending',question:text}:turn)}:previous);
-   }else{
     const body=JSON.stringify({active,question:text,mode,context:podcastContext});
     if(questionIntent.current?.body!==body)questionIntent.current={body,key:crypto.randomUUID()};
     const result=await api.studyTools<{turn_id:string}>(`/v1/voice-conversations/${active}/turns`,{question:text,mode,...(podcastContext?{context:podcastContext}:{})},questionIntent.current.key);
     if(alive.current&&mode==='voice'&&current.current===active)setAutoPlayTurnId(result.turn_id);
     questionIntent.current=null;
-   }
-   if(alive.current&&current.current===active){draftLoaded.current='';if(draft)setDraftQuestion('');else setQuestion('');}
+   if(alive.current&&current.current===active)setQuestion('');
    await refreshList();
   });
  };
@@ -109,9 +110,8 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
   if(action==='cancel')setAutoPlayTurnId(previous=>previous===turn.turn_id?null:previous);
   const result=await api.studyTools<{status?:string}>(`/v1/voice-conversations/${id}/turns/${turn.turn_id}/actions`,{action});
   if(alive.current&&current.current===id){
-   if(action==='retry'&&generation===version.current&&mode==='voice'&&(turn.mode==='voice'||(turn.mode==null&&turn.answer)))setAutoPlayTurnId(turn.turn_id);
+   if(action==='retry'&&generation===version.current&&mode==='voice'&&turn.mode==='voice')setAutoPlayTurnId(turn.turn_id);
    if(action==='cancel')setAutoPlayTurnId(previous=>previous===turn.turn_id?null:previous);
-   if(turn.status==='draft'){draftLoaded.current='';setDraftQuestion('');focusAfterAction.current=true;}
    if(typeof result.status==='string'&&(result.status==='ready'||Object.hasOwn(labels,result.status)))setView(previous=>previous?.conversation_id===id?{...previous,turns:previous.turns.map(item=>item.turn_id===turn.turn_id?{...item,status:result.status!}:item)}:previous);
   }
  });
@@ -120,9 +120,8 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
   window.addEventListener('popstate',changed);return()=>window.removeEventListener('popstate',changed);
  },[]);
 
- const draft=view?.turns.find(turn=>turn.status==='draft');
  const working=view?.turns.some(turn=>pending.has(turn.status))??false;
- const listening=useContinuousVoice({enabled:mode==='voice',paused:busy||working||!!draft,
+ const listening=useContinuousVoice({enabled:mode==='voice',paused:busy||working,
   onSpeech:()=>{for(const audio of audios.current)audio.pause();setAutoPlayTurnId(null);},
   onError:message=>{setError(message);setMode('text');},
   onRecording:blob=>{const generation=version.current;void perform(async()=>{
@@ -136,13 +135,13 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
  useEffect(()=>{
   if(autoPlayTurnId&&view?.turns.some(turn=>turn.turn_id===autoPlayTurnId&&['failed','cancelled'].includes(turn.status)))setAutoPlayTurnId(null);
  },[view,autoPlayTurnId]);
- useEffect(()=>{if(!busy&&!recording&&!permission&&focusAfterAction.current){focusAfterAction.current=false;input.current?.focus();}},[busy,recording,permission,mode,draft]);
- const turns=view?.turns.filter(turn=>turn.status!=='draft')??[];
+ useEffect(()=>{if(!busy&&!recording&&!permission&&focusAfterAction.current){focusAfterAction.current=false;input.current?.focus();}},[busy,recording,permission,mode]);
+ const turns=view?.turns??[];
  const lastTurn=turns.at(-1);
  useLayoutEffect(()=>{
   const element=input.current;if(element){element.style.height='auto';element.style.height=`${element.scrollHeight}px`;}
   if(followLatest.current&&transcript.current)transcript.current.scrollTop=transcript.current.scrollHeight;
- },[question,draftQuestion,mode]);
+ },[question,mode]);
  useLayoutEffect(()=>{
   if(followLatest.current&&transcript.current)transcript.current.scrollTop=transcript.current.scrollHeight;
  },[id,lastTurn?.turn_id,lastTurn?.status,lastTurn?.answer?.text,lastTurn?.audio_url]);
@@ -184,7 +183,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
       {turn.status!=='ready'&&<div className="voice-turn-status">{pending.has(turn.status)&&<span className="voice-wait-dot" aria-hidden="true"/>}<small>{turn.status==='failed'&&turn.answer?'文字回答已完成':labels[turn.status]??'處理中…'}</small>
        {pending.has(turn.status)&&<button className="text-button" disabled={busy} onClick={()=>turnAction(turn,'cancel')}>取消這次提問</button>}
       </div>}
-      {turn.status==='failed'&&<><p className="voice-inline-note">{turn.answer?'語音製作未完成，文字與來源已保留。':'目前無法完成處理。'}{turn.error_code==='VOICE_TRANSCRIPT_INVALID'?'沒有辨識到清楚語音，請重新錄音。':turn.error_code==='VOICE_PODCAST_CONTEXT_INVALID'||turn.error_code==='RESOURCE_NOT_FOUND'?'原 Podcast 已不可用，請改用一般教材問答。':''}</p>{turn.question&&<button className="text-button" disabled={busy||working||!!draft} onClick={()=>turnAction(turn,'retry')}>重試{turn.answer?'語音':'回答'}</button>}</>}
+      {turn.status==='failed'&&<><p className="voice-inline-note">{turn.answer?'語音製作未完成，文字與來源已保留。':'目前無法完成處理。'}{turn.error_code==='VOICE_TRANSCRIPT_INVALID'?'沒有辨識到清楚語音，請重新錄音。':turn.error_code==='VOICE_PODCAST_CONTEXT_INVALID'||turn.error_code==='RESOURCE_NOT_FOUND'?'原 Podcast 已不可用，請改用一般教材問答。':''}</p>{turn.question&&<button className="text-button" disabled={busy||working} onClick={()=>turnAction(turn,'retry')}>重試{turn.answer?'語音':'回答'}</button>}</>}
      </div>
     </article>;
    })}
@@ -192,15 +191,14 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
   <form className="voice-composer" onSubmit={event=>{event.preventDefault();if(!busy&&!working&&!recording&&!permission)send();}}>
    {error&&<p role="alert" className="form-error">{error}</p>}
    <div className="voice-composer-status" role="status">
-    {draft?<><span className="voice-draft-hint">這段錄音需要確認後送出</span><button className="text-button" type="button" disabled={busy} onClick={()=>turnAction(draft,'cancel')}>取消這次提問</button></>
-     :<span>{permission?'等待麥克風…':recording?'正在聆聽你的問題，說完稍停即可送出':busy?'正在送出…':working?(view?.turns.some(turn=>turn.status==='transcribing')?'正在辨識':'正在整理回答'):mode==='voice'?'正在聆聽':'文字回答僅依據這份教材'}</span>}
+    {<span>{permission?'等待麥克風…':recording?'正在聆聽你的問題，說完稍停即可送出':busy?'正在送出…':working?(view?.turns.some(turn=>turn.status==='transcribing')?'正在辨識':'正在整理回答'):mode==='voice'?'正在聆聽':'文字回答僅依據這份教材'}</span>}
 
    </div>
    {<div className="voice-composer-row">
-    <textarea ref={input} className="voice-composer-input" aria-label="問題／辨識文字" rows={1} maxLength={4000} value={draft?draftQuestion:question} disabled={busy||recording||permission} onChange={event=>draft?setDraftQuestion(event.target.value):setQuestion(event.target.value)} placeholder="輸入問題……" title="Enter 送出，Shift+Enter 換行" onKeyDown={event=>{
+    <textarea ref={input} className="voice-composer-input" aria-label="問題／辨識文字" rows={1} maxLength={4000} value={question} disabled={busy||recording||permission} onChange={event=>setQuestion(event.target.value)} placeholder="輸入問題……" title="Enter 送出，Shift+Enter 換行" onKeyDown={event=>{
      if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing&&event.keyCode!==229){event.preventDefault();if(!busy&&!working&&!recording&&!permission)send();}
     }}/>
-    <button className="voice-send" type="submit" aria-label="送出問題" title="送出問題" disabled={busy||working||recording||permission||!(draft?draftQuestion:question).trim()}><Icon name={busy?'process':'chevron-right'} size={20}/></button>
+    <button className="voice-send" type="submit" aria-label="送出問題" title="送出問題" disabled={busy||working||recording||permission||!question.trim()}><Icon name={busy?'process':'chevron-right'} size={20}/></button>
    </div>}
   </form>
  </div>;

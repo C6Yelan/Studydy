@@ -164,7 +164,14 @@ def read(owner,podcast_id,*,dsn=None):
 def enqueue(db,podcast,index):
     episode=podcast.episodes[index]
     if episode['script'].get('schema') != SCHEMA:return
-    if db.scalar(select(Scenes.scene_id).where(Scenes.podcast_id==podcast.podcast_id,Scenes.episode_index==index)):return
+    row=db.scalar(select(Scenes).where(Scenes.podcast_id==podcast.podcast_id,Scenes.episode_index==index).with_for_update())
+    if row:
+        if row.status=='cancelled' and row.input_sha256!=identity(podcast,episode):
+            row.input_sha256=identity(podcast,episode)
+            row.alignment=row.checks=row.manifest=row.error_code=None
+            row.lease_token=row.lease_expires_at=None
+            row.status='pending';row.version+=1
+        return
     db.add(Scenes(scene_id=uuid4(),podcast_id=podcast.podcast_id,episode_index=index,
         input_sha256=identity(podcast,episode),status='pending',version=1,created_at=datetime.now(UTC)))
 
@@ -214,6 +221,7 @@ def claim(*,dsn=None):
         row.status='running';row.lease_token=uuid4();row.lease_expires_at=now+podcasts.WORKER_LEASE_TTL
         return {'scene_id':row.scene_id,'podcast_id':row.podcast_id,'index':row.episode_index,'lease_token':row.lease_token,
             'owner':podcast.learner_id,'episode':episode,'input_sha256':row.input_sha256,'alignment':deepcopy(row.alignment),'checks':deepcopy(row.checks),
+            'source_context':podcasts.source_context(db,podcast.learner_id,podcast.material_id,podcast.knowledge_structure_revision,episode),
             'document':_read_verified_document(db,podcast.learner_id,podcast.material_id,revision=podcast.knowledge_structure_revision)}
 
 
@@ -270,7 +278,7 @@ def step(*,dsn=None):
             checks=state['checks']
             if not checks:
                 content=scene_content(state['episode'],state['document']);items=review_items(content)
-                result=provider('/scene-check',{**job,'items':items,'source_context':podcasts.source_context(state['document'],state['episode'])}) if items else None
+                result=provider('/scene-check',{**job,'items':items,'source_context':state['source_context']}) if items else None
                 checks=checked_verdicts(content,result)
                 if not save_checks(state,checks,dsn=dsn):return True
             finish(state,alignment,checks=checks,dsn=dsn)

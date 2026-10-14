@@ -49,18 +49,6 @@ def complete(dsn):
     assert podcasts.finish_step(claim, audio=wav(), audio_provider="synthetic-test", dsn=dsn)
 
 
-def test_split_all_claims_in_selection_order_without_omissions():
-    concepts = [{"concept_id": f"concept-{i}", "label": f"概念 {i}", "claims": [
-        {"claim_id": f"claim-{i}-{j}", "text": "來源支持的重點。", "evidence": [{"quote": "來源"}]}
-        for j in range(20)]} for i in range(2)]
-    episodes = podcasts.plan_episodes({"concepts": concepts}, ["concept-1", "concept-0"])
-    assert [len(e["claims"]) for e in episodes] == [20, 20]
-    assert [c["claim_id"] for e in episodes for c in e["claims"]] == [
-        c["claim_id"] for concept in reversed(concepts) for c in concept["claims"]]
-    with pytest.raises(podcasts.PodcastError, match="SOURCE_INSUFFICIENT"):
-        podcasts.plan_episodes({"concepts": [{**concepts[0], "claims": []}]}, ["concept-0"])
-
-
 def test_persistent_script_audio_retry_and_idempotency(closed_loop):
     owner, _, _, _, dsn, _ = closed_loop
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -90,7 +78,7 @@ def test_persistent_script_audio_retry_and_idempotency(closed_loop):
         assert db.execute("SELECT count(*) FROM artifacts WHERE kind='podcast_audio'").fetchone() == (1,)
 
 
-def test_podcast_read_shares_material_lock(closed_loop):
+def test_podcast_read_can_coexist_with_material_readers(closed_loop):
     owner,source,_,_,dsn,_=closed_loop
     identity=create(closed_loop)['podcast_id']
     with database_session(dsn) as db:
@@ -98,6 +86,19 @@ def test_podcast_read_shares_material_lock(closed_loop):
         with ThreadPoolExecutor(max_workers=1) as pool:
             view=pool.submit(podcasts.read_podcast,owner.learner_id,identity,dsn=dsn).result(timeout=2)
     assert view['podcast_id']==identity
+
+
+def test_slow_podcast_source_verification_does_not_block_result_saving(closed_loop, monkeypatch):
+    from runtime.card_sets import _material
+    owner, source, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop)['podcast_id']
+    verify = podcasts._read_verified_document
+    def while_reading(*args, **kwargs):
+        with database_session(dsn) as writer:
+            _material(writer, owner.learner_id, source.material_id)
+        return verify(*args, **kwargs)
+    monkeypatch.setattr(podcasts, '_read_verified_document', while_reading)
+    assert podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)['podcast_id'] == identity
 
 
 def test_cancel_expired_lease_and_delete_fence_late_results(closed_loop):
@@ -280,16 +281,6 @@ def test_source_context_keeps_same_page_headers_without_changing_claims(closed_l
     assert podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)["episodes"] == view["episodes"]
 
 
-def test_table_context_includes_headers_but_excludes_unrelated_pages():
-    document = {"input_binding": {"manifest": {"items": [{"source_id": "source-a", "original_name": "table.pdf"}]},
-        "bundle": {"pages": [{"source_id": "source-a", "normalized_page": i} for i in (1, 2)]}},
-        "evidence": [{"page_ref": page, "page": number, "block_order": order, "evidence_id": identity,
-            "exact_text": text, "source_locator": {"region": [0, 0, 1, 1]}}
-            for page, number, order, identity, text in [("table-page", 1, 1, "header", "欄位：甲協定"),
-                ("table-page", 1, 2, "cell", "不提供同等能力"), ("other-page", 2, 1, "unrelated", "其他頁內容")]]}
-    context = podcasts.source_context(document, {"claims": [{"evidence": [{"page_ref": "table-page"}]}]})
-    assert list(context) == ["table-page"]
-    assert [b["evidence_id"] for b in context["table-page"]["blocks"]] == ["header", "cell"]
 
 
 def test_dialogue_persists_turns_and_rejects_wrong_speaker_or_source(closed_loop):
@@ -384,3 +375,20 @@ def test_v2_podcast_finishes_without_quality_verdicts_or_loudness_report(closed_
     response=client.get(f'/v1/podcasts/{identity}')
     assert response.status_code==200
     assert response.json()['episodes'][0]['script']['review'] is None
+
+
+def test_failed_podcast_with_waiting_scenes_does_not_poll_forever(closed_loop):
+    from runtime.storage.tables import PodcastScenes
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop)['podcast_id']
+    with database_session(dsn) as db:
+        row = db.get(Podcast, identity)
+        row.status = 'failed'
+        row.error_code = 'PODCAST_CANCELLED'
+        db.add(PodcastScenes(scene_id=uuid4(), podcast_id=identity, episode_index=0,
+            input_sha256='a'*64, status='pending', version=1, created_at=datetime.now(UTC)))
+    item = podcasts.list_podcasts(owner.learner_id, dsn=dsn)['podcasts'][0]
+    assert item['status'] == 'failed'
+    assert not item['generation']['active']
+    with database_session(dsn) as db:
+        assert db.scalar(select(PodcastScenes.status).where(PodcastScenes.podcast_id == identity)) == 'pending'

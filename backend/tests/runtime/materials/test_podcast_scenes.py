@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 from product_fixtures import closed_loop
-from materials.test_podcasts import create,complete
+from materials.test_podcasts import create,complete,wav
 from runtime import podcast_scenes as scenes,podcasts
 from runtime.scene_alignment import normalized
 from runtime.source_normalization import SourceError
@@ -61,6 +61,30 @@ def test_malformed_timing_and_changed_audio_are_not_published(closed_loop):
     scenes.finish(state,valid,dsn=dsn)
     assert scenes.read(owner.learner_id,identity,dsn=dsn)['episodes'][0]['status']=='unprepared'
     with database_session(dsn) as db:assert db.get(PodcastScenes,state['scene_id']).manifest is None
+
+
+def test_corrected_audio_requeues_cancelled_scenes_and_rejects_old_result(closed_loop):
+    owner,_,_,_,dsn,_=closed_loop;identity=create(closed_loop)['podcast_id']
+    state=podcasts.claim_step(dsn=dsn);claim=state['episode']['claims'][0]
+    text=claim['text'];ref={'source_index':0,'evidence_ids':[e['evidence_id'] for e in claim['evidence']]}
+    script={'schema':'podcast-script/v2','provider':'synthetic',
+        'segments':[{'beat_id':'beat-0','title':'合成重點','turns':[{'speaker':'host','text':text,
+            'parts':[{'text':text,'source_refs':[ref]}]}]}]}
+    assert podcasts.finish_step(state,script=script,dsn=dsn)
+    assert podcasts.finish_step(podcasts.claim_step(dsn=dsn),audio=wav(),audio_provider='synthetic',dsn=dsn)
+    old=scenes.claim(dsn=dsn)
+    version=scenes.read(owner.learner_id,identity,dsn=dsn)['episodes'][0]['version']
+    scenes.action(owner.learner_id,identity,0,'cancel',version,dsn=dsn)
+    with database_session(dsn) as db:
+        row=db.get(Podcast,identity);episodes=deepcopy(row.episodes)
+        episodes[0]['audio']['sha256']='0'*64;row.episodes=episodes
+        scenes.enqueue(db,row,0)
+    scenes.finish(old,alignment(old),dsn=dsn)
+    assert scenes.read(owner.learner_id,identity,dsn=dsn)['episodes'][0]['status']=='pending'
+    new=scenes.claim(dsn=dsn)
+    assert new['episode']['audio']['sha256']=='0'*64
+    scenes.finish(new,alignment(new),dsn=dsn)
+    assert scenes.read(owner.learner_id,identity,dsn=dsn)['episodes'][0]['status']=='ready'
 
 
 def test_worker_consumes_audio_and_saves_actual_provider_identity(closed_loop,monkeypatch):

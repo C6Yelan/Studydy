@@ -6,6 +6,7 @@ import type {
   CardSetUpdate,
   CardSetSummary,
   CardSetView,
+  CardGeneration,
   CardSetListView,
   CardSetDeletedView,
   AssessmentPlanView,
@@ -56,6 +57,14 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   VOICE_PROVIDER_UNAVAILABLE: "語音服務暫時無法連線，已保存的對話仍可查看。",
   VOICE_PROVIDER_FAILED: "這次問答處理失敗，請重試。",
   VOICE_TRANSCRIPT_INVALID: "沒有辨識到清楚的語音，請再錄一次或改用文字。",
+  VOICE_CONTEXT_TOO_LARGE: "這次問題與引用內容超過回答容量，請聚焦一個問題再試。",
+  RETRIEVAL_INDEX_REQUIRED: "這份教材尚未具備新版檢索索引，請使用原始來源重新建立教材。",
+  RETRIEVAL_INDEX_INVALID: "教材檢索索引無法核對，請重新建立教材。",
+  MATERIAL_FORMAT_UNSUPPORTED: "這份舊版教材或對話不支援目前格式，請重新建立。",
+  SOURCE_SCOPE_EMPTY: "尚未取得能加入教材的原文段落。",
+  SOURCE_SCOPE_INVALID: "選讀範圍與來源版本不一致，請重新搜尋核對。",
+  SOURCE_SCOPE_UNRESOLVED: "選讀原文無法定位回來源，尚未加入教材。",
+  RESEARCH_CONTEXT_TOO_LARGE: "這次研究的單批內容超過處理容量，已保留完成部分。",
   RESEARCH_SEARCH_FAILED: "搜尋暫時無法完成，請重試。",
   RESEARCH_DOWNLOAD_FAILED: "來源目前無法下載，其他結果已保留。",
   RESEARCH_LICENSE_UNCONFIRMED: "無法確認這份來源的使用授權。",
@@ -135,6 +144,7 @@ function schemaMismatch(message: string, details: { status?: number } = {}): Api
 export class StudydyApiClient {
   private sessionReady: Promise<LearnerIdentity> | null = null;
   private active = true;
+  private readonly structures = new Map<string, Promise<KnowledgeStructureView>>();
   private readonly pending = new Set<AbortController>();
   private readonly fetchRequest: FetchRequest;
   onSessionExpired: (() => void) | null = null;
@@ -145,6 +155,7 @@ export class StudydyApiClient {
 
   invalidate(): void {
     this.active = false;
+    this.structures.clear();
     this.sessionReady = null;
     for (const controller of this.pending) controller.abort();
     this.pending.clear();
@@ -190,6 +201,7 @@ export class StudydyApiClient {
   }
 
   async logout(): Promise<void> {
+    this.structures.clear();
     await this.request(
       "/v1/session",
       { method: "DELETE", headers: { Origin: origin() } },
@@ -382,6 +394,16 @@ export class StudydyApiClient {
       (value): value is CardSetView => validate.cardSet(value) && value.card_set_id === id);
   }
 
+  getCardGeneration(id: string): Promise<CardGeneration> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/generation`, { method: "GET" }, validate.cardGeneration);
+  }
+
+  retryCardGeneration(id: string): Promise<CardGeneration> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/generation/retry`, {
+      method: "POST", headers: { Origin: origin() },
+    }, validate.cardGeneration);
+  }
+
   createCardSet(materialId: string, body: CardSetCreate, key: string): Promise<CardSetSummary> {
     return this.post(`/v1/materials/${encodeURIComponent(materialId)}/card-sets`, body, key,
       (value): value is CardSetSummary => validate.cardSetSummary(value)
@@ -539,6 +561,7 @@ export class StudydyApiClient {
   }
 
   async discardMaterial(materialId: string): Promise<MaterialDiscardView> {
+    this.structures.clear();
     const view = await this.json(
       `/v1/materials/${encodeURIComponent(materialId)}`,
       {
@@ -553,14 +576,31 @@ export class StudydyApiClient {
   }
 
   async getKnowledgeStructure(request: KnowledgeStructureRequest): Promise<KnowledgeStructureView> {
-    const view = await this.json(
+    this.requireActive();
+    const key = `${request.materialId}:${request.structureRevision}`;
+    // 保留目前地圖與舊版卡組所用的兩份不可變結構，切換功能不必重傳大型教材。
+    const cached = this.structures.get(key);
+    if (cached) {
+      this.structures.delete(key);
+      this.structures.set(key, cached);
+      return cached;
+    }
+    const value = this.json(
       `/v1/materials/${encodeURIComponent(request.materialId)}/knowledge-structures/${encodeURIComponent(request.structureRevision)}`,
       { method: "GET" },
       validate.knowledgeStructure,
-    );
-    if (view.knowledge_structure_revision !== request.structureRevision)
-      throw schemaMismatch("教材結構版本不一致。");
-    return view;
+    ).then(view => {
+      if (view.knowledge_structure_revision !== request.structureRevision)
+        throw schemaMismatch("教材結構版本不一致。");
+      return view;
+    });
+    this.structures.set(key, value);
+    if (this.structures.size > 2) this.structures.delete(this.structures.keys().next().value!);
+    try { return await value; }
+    catch (error) {
+      if (this.structures.get(key) === value) this.structures.delete(key);
+      throw error;
+    }
   }
 
   async readProgress(id: string, structureRevision: string): Promise<LearnerProgressView> {

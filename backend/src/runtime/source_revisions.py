@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select, update
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
+from pdf_evidence.analysis_scope import selected_pages
 from .source_normalization import SourceError, _material
 from .material_runtime import runtime_binding
 from .storage.artifacts import _key_digest
@@ -45,6 +46,7 @@ def _descriptor(session, job):
         "original_name": source.original_name,
         "policy_sha256": canonical_sha256(job.policy),
         "page_count": job.page_count,
+        "analysis_scope": deepcopy(job.analysis_scope),
     }
 
 
@@ -134,7 +136,9 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
             KnowledgeStructure.structure_revision == base_revision,
         )) if base_revision else None
         old_binding = deepcopy(before.document["input_binding"]) if before else None
-        if not normalization_ids and (not old_binding or old_binding["schema"] != "structure-input-binding/v1"):
+        if old_binding and old_binding.get('schema') != 'structure-input-binding/v2':
+            raise SourceError('MATERIAL_FORMAT_UNSUPPORTED')
+        if not normalization_ids and (not old_binding or old_binding["schema"] != "structure-input-binding/v2"):
             raise SourceError("REQUEST_INVALID")
     old_items = deepcopy(old_binding["manifest"]["items"]) if old_binding else []
     runtime = runtime_binding(config)
@@ -185,7 +189,7 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
             if any(old["original_sha256"] == item["original_sha256"] for old in items):
                 raise SourceError("DUPLICATE_SOURCE")
             items.append(item)
-        manifest = {"schema": "source-set/v1", "items": items}
+        manifest = {"schema": "source-set/v2", "items": items}
         manifest_hash = canonical_sha256(manifest)
         source_set = session.scalar(select(MaterialSourceSet).where(
             MaterialSourceSet.learner_id == owner,
@@ -212,14 +216,14 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
             session.flush()
         pages = []
         for item in items:
-            for normalized_page in range(1, item["page_count"] + 1):
+            for normalized_page in selected_pages(item):
                 pages.append({
                     "page": len(pages) + 1,
                     "source_id": item["source_id"],
                     "normalized_page": normalized_page,
                 })
         bundle = {
-            "schema": "bundle-manifest/v1",
+            "schema": "bundle-manifest/v2",
             "source_set_digest": manifest_hash,
             "processing_policy": "source-boundary-incremental/v1",
             "pages": pages,

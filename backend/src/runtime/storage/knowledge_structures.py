@@ -76,6 +76,7 @@ def publish_knowledge_structure(
     *,
     dsn: str | None = None,
     worker_token: UUID | None = None,
+    retrieval_passages: list[dict] | None = None,
 ) -> StoredKnowledgeStructure:
     if not validate_knowledge_structure(document) or document.get("run_id") != str(run_id):
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_INVALID")
@@ -83,6 +84,9 @@ def publish_knowledge_structure(
     binding = _binding(document)
     if binding["processing"] not in {"succeeded", "partial"}:
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_INVALID")
+    from knowledge_map.retrieval import build_passages
+    from ..retrieval import publish_index
+    passages = retrieval_passages if retrieval_passages is not None else build_passages(document)
     try:
         with database_session(dsn) as session:
             material = session.scalar(select(Material).where(
@@ -160,6 +164,7 @@ def publish_knowledge_structure(
             ).one_or_none()
             if stored != (run_id, document):
                 raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_CONFLICT")
+            publish_index(session, learner_id, material_id, document, passages)
             status = binding["processing"]
             updated = session.execute(
                 update(MaterialProcessingRun)
@@ -260,6 +265,8 @@ def _read_verified_document(session, learner_id, material_id, *, run_id=None, re
     if row is None:
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
     document, run, stored_revision = row
+    if document.get('input_binding', {}).get('schema') != 'structure-input-binding/v2':
+        raise KnowledgeStructureStoreError('MATERIAL_FORMAT_UNSUPPORTED')
     if (
         not validate_knowledge_structure(document)
         or document["revision"] != stored_revision
@@ -284,7 +291,8 @@ def read_knowledge_structure(
             document = _read_verified_document(
                 session, learner_id, material_id, run_id=run_id, revision=revision,
             )
-        return StoredKnowledgeStructure(document["revision"], deepcopy(document), _view(document, material_id))
+        # session 已結束，這份 JSON 專屬本次讀取；不再複製完整大型教材。
+        return StoredKnowledgeStructure(document["revision"], document, _view(document, material_id))
     except KnowledgeStructureStoreError:
         raise
     except Exception:

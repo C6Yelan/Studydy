@@ -174,7 +174,7 @@ for(const width of [1920,1440,390]) test(`topic uses canonical run progress with
  let current:any={...runFixture,status:'running',progress_stage:'semantics',total_pages:10,completed_pages:4,source_names:sources.map(c=>c.title),output_binding:null,completed_at:null,created_at:new Date(Date.now()-65000).toISOString()};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));await page.route(`**/v1/material-processing-runs/${runId}`,r=>json(r,current));
  await page.goto(`/topics/${id}`);
- await expect(page.getByRole('heading',{name:'第 3 / 5 階段',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'第 3 / 6 階段',exact:true})).toBeVisible();
  await expect(page.getByText('此階段尚無可計算的工作總數。')).toBeVisible();
  await expect(page.getByRole('progressbar')).toHaveCount(0);
  await expect(page.locator('.processing-times')).toContainText('1 分');
@@ -207,7 +207,7 @@ test('topic run loading failures retry and unknown progress remains indeterminat
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));let fail=true;
  await page.route(`**/v1/material-processing-runs/${runId}`,r=>fail?json(r,{schema:'api-error/v1',request_id:id,reason_code:'INTERNAL_ERROR',retryable:true,message:'Retry'},500):json(r,{...runFixture,status:'running',progress_stage:'evidence',total_pages:null,completed_pages:0,completed_at:null,output_binding:null}));
  await page.goto(`/topics/${id}`);await expect(page.getByRole('alert')).toContainText('無法讀取處理狀態');await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
- fail=false;await page.getByRole('button',{name:'重新讀取進度'}).click();await expect(page.getByRole('heading',{name:'第 2 / 5 階段',exact:true})).toBeVisible();await expect(page.getByText('此階段尚無可計算的工作總數。')).toBeVisible();await expect(page.getByRole('progressbar',{name:/本階段進度/})).toHaveCount(0);
+ fail=false;await page.getByRole('button',{name:'重新讀取進度'}).click();await expect(page.getByRole('heading',{name:'第 2 / 6 階段',exact:true})).toBeVisible();await expect(page.getByText('此階段尚無可計算的工作總數。')).toBeVisible();await expect(page.getByRole('progressbar',{name:/本階段進度/})).toHaveCount(0);
 });
 
 
@@ -227,7 +227,7 @@ test('source search provenance and partial service failures remain clear',async(
  const source={...candidate,state:'failed',error_code:'RESEARCH_SOURCE_BLOCKED',discovered_by:['OpenAlex','Crossref']};
  const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,status:'selecting',query:'TCP',mode:'self-study',candidates:[source],selection:[],cursor:'more',error_code:'RESEARCH_PARTIAL_SEARCH',run_id:null}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
- await page.goto(`/topics/${id}`);await expect(page.getByText('部分來源或搜尋服務曾未完成，已保留其他結果與研究進度。')).toBeVisible();
+ await page.goto(`/topics/${id}`);await expect(page.getByText('已保留搜尋結果；部分主題仍缺少正文依據，或有來源未完成。請查看涵蓋情況與各來源說明。')).toBeVisible();
  await expect(page.getByText('此入口回應 403，未取得正文。')).toBeVisible();
  await page.getByText('授權與取得資訊',{exact:true}).click();await expect(page.getByText('搜尋來源：OpenAlex、Crossref（同篇文件合併顯示）')).toBeVisible();
  await page.getByRole('checkbox',{name:'選取 TCP handshake'}).check();await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeEnabled();

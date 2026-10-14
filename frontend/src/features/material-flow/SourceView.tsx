@@ -342,6 +342,7 @@ export function SourceView({
                     <strong className="source-name">{source.original_name}</strong>
                     <div className="source-metadata">
                       {source.page_count !== null && <span>{source.page_count} 頁</span>}
+                      {source.analysis_mode === 'selected' && source.analysis_page_count != null && <span>依學習需求選讀 {source.analysis_page_count} 頁中的相關段落</span>}
                       {currentStructure && source.included && <span>目前地圖使用中</span>}
                     </div>
                     {source.status !== "ready" && (

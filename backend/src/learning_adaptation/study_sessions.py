@@ -154,7 +154,7 @@ def create_study_session(
             )).one_or_none()
             if canonical is not None:
                 # 後續同範圍請求只讀取既有 session；建立時的意圖指紋保持不變。
-                _validate(session, canonical)
+                _validate_context(canonical, context)
                 return _stored(canonical)
             known = {concept.concept_id for concept in context.concepts}
             from .inherited_progress import preferred_focus
@@ -181,7 +181,7 @@ def create_study_session(
             ))
             if stored is None or bytes(stored.request_fingerprint) != fingerprint:
                 raise StudySessionError("STUDY_SESSION_IDEMPOTENCY_CONFLICT")
-            _validate(session, stored)
+            _validate_context(stored, context)
             return _stored(stored)
     except StudySessionError:
         raise

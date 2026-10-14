@@ -4,6 +4,7 @@ from copy import deepcopy
 
 from .ocr_page_evidence import canonical_sha256
 from .source_pdf import snapshot_pdf_source
+from .analysis_scope import selected_pages, scoped_page
 
 
 def _ref(kind, value):
@@ -51,12 +52,15 @@ def collect_source_set(
         check_cancel()
         snapshot = directory / f"source-{index}.pdf"
         checked = snapshot_pdf_source(source, snapshot)
-        page_count = len(checked["page_numbers"])
+        source_page_count = len(checked["page_numbers"])
         if (
-            page_count != item["page_count"]
+            source_page_count != item["page_count"]
             or checked["expected_source_sha256"] != item["normalized_sha256"]
         ):
             raise ValueError("SOURCE_BINDING_INVALID")
+        selected = selected_pages(item)
+        page_count = len(selected)
+        positions = {number: offset + index + 1 for index, number in enumerate(selected)}
         if base is not None and offset + page_count <= base["page_count"]:
             # 重用頁面 Evidence，依本次來源集合重新綁定身分，不重跑 OCR。
             for number in range(offset + 1, offset + page_count + 1):
@@ -94,24 +98,24 @@ def collect_source_set(
                 report("evidence", number, total_pages)
         else:
             found, failed, source_ocr_calls = extract(
-                snapshot, item["normalized_sha256"], checked["page_numbers"],
+                snapshot, item["normalized_sha256"], selected,
                 settings, produced_at,
                 lambda stage, completed, _total: report(
                     stage, offset + completed, total_pages
                 ),
                 check_cancel,
                 **({
-                    'load_page': lambda number: analysis_archive.load_evidence_page(offset + number),
-                    'save_page': lambda number, page: analysis_archive.save_evidence_page(offset + number, page),
+                    'load_page': lambda number: analysis_archive.load_evidence_page(positions[number]),
+                    'save_page': lambda number, page: analysis_archive.save_evidence_page(positions[number], page),
                 } if analysis_archive is not None else {}),
             )
             ocr_calls += source_ocr_calls
             pages.extend(
-                rebase_page(page, digest, offset + page["page_number"])
+                rebase_page(scoped_page(page, item['analysis_scope']), digest, positions[page["page_number"]])
                 for page in found
             )
             for failure in failed:
-                number = offset + failure["page"]
+                number = positions[failure["page"]]
                 excluded.append({
                     **failure,
                     "page": number,

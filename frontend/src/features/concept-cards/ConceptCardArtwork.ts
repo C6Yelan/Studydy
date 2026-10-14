@@ -1,6 +1,6 @@
 import type { ConceptCard, KnowledgeStructureView } from "../../api/contracts";
 import { claimText } from "../../ui/claim-text";
-import { selectConceptCardLayout, selectConceptCardLayouts } from "./concept-card-layout";
+import { compactLayout, selectConceptCardLayout, selectConceptCardLayouts } from "./concept-card-layout";
 import { cardSourceText } from "./card-content";
 import { textUnits, wrapCardText } from "./card-text";
 
@@ -403,7 +403,7 @@ export function conceptCardPages(card: ConceptCard, structure: KnowledgeStructur
   if (!cards) { cards = new WeakMap(); cardPages.set(structure, cards); }
   const cached = cards.get(card);
   if (cached) return cached;
-  const result = selectConceptCardLayouts(card, structure).flatMap(layout => {
+  const result = selectConceptCardLayouts(card, structure).map(layout => compactLayout(layout, card.display_edits)).flatMap(layout => {
     if (layout.family !== "text") return [layout];
     const needed = layout.claims.reduce((n, c) => n + textHeight(cardSourceText(c), 1056, 28) + 40, 0);
     if (needed <= 526) return [layout];

@@ -49,23 +49,31 @@ def _scope(session, learner, sid, *, lock=False):
         StudySession.learner_id == learner.learner_id,
         StudySession.study_session_id == sid,
     ))
-    query = select(Material).where(
+    material_query = select(Material).where(
         Material.learner_id == learner.learner_id,
         Material.material_id == material_id,
     )
-    material = session.scalar(query.with_for_update() if lock else query)
+    material = session.scalar(material_query)
     if material is None or material.discard_requested_at is not None:
         raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
-    query = select(StudySession).where(
+    study_query = select(StudySession).where(
         StudySession.learner_id == learner.learner_id,
         StudySession.study_session_id == sid,
     )
-    study = session.scalar(query.with_for_update() if lock else query)
+    study = session.scalar(study_query)
     if study is None:
         raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
     document = _read_verified_document(session, learner.learner_id, material_id,
                                        revision=study.knowledge_structure_revision)
     context = _context_from_validated_document(material_id, document)
+    if lock:
+        # 整份固定版本驗證先完成；寫入鎖只保護後續狀態變更，避免大型教材阻塞其他功能。
+        revision = study.knowledge_structure_revision
+        material = session.scalar(material_query.with_for_update().execution_options(populate_existing=True))
+        study = session.scalar(study_query.with_for_update().execution_options(populate_existing=True))
+        if (material is None or material.discard_requested_at is not None or study is None
+                or study.knowledge_structure_revision != revision):
+            raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
     return study, context, document
 
 

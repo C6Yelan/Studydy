@@ -25,7 +25,11 @@ engines:
   - name: yahoo
     disabled: false
   - name: wikipedia
+    # 預設 wikipedia 引擎只接受完整頁名；研究查詢需要 MediaWiki 全文搜尋。
+    engine: mediawiki
+    language_support: true
+    base_url: https://{language}.wikipedia.org/
+    search_type: text
     disabled: false
-    display_type: [list]
   - name: wikibooks
     disabled: false

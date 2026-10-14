@@ -14,7 +14,7 @@ from pdf_evidence.ocr_page_evidence import canonical_sha256
 from .semantic_service import SemanticServiceError, request_semantics, semantic_client
 
 
-def review_inputs(document):
+def review_inputs(document, *, preserved_concept_ids=frozenset()):
     """按連續頁段安排完整來源脈絡；跨頁概念只交給首次出現的頁段處理。"""
     view = build_knowledge_structure_view(document)
     binding = document['input_binding']
@@ -32,6 +32,8 @@ def review_inputs(document):
             q['evidence'] = [deepcopy(evidence[e['evidence_id']]) for e in q['evidence']]
     owners = {}
     for c in view['concepts']:
+        if c['concept_id'] in preserved_concept_ids:
+            continue
         anchor = min((e for q in c['claims'] for e in q['evidence']), key=lambda e: (e['page'], e['block_order']))
         owners.setdefault((anchor['source_id'], anchor['page']), []).append(c)
     chunks, current, source_id, pages = [], [], None, []
@@ -89,10 +91,25 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
         'The concept label is not an alias unless it also appears in aliases. '
         'Do not repeat strings; omit the edit when no existing alias should be removed.'
     )
-    schema['properties']['assignments'].update(minItems=len(unit.concepts), maxItems=len(unit.concepts))
-    schema['$defs']['Assignment']['properties']['concept']['enum'] = list(range(len(unit.concepts)))
+    handles = [str(index) for index in range(len(unit.concepts))]
+    schema['properties']['assignments'] = {
+        'type': 'object', 'additionalProperties': False, 'required': handles,
+        'properties': {str(concept['h']): {
+            'type': 'object', 'additionalProperties': False,
+            'properties': {
+                'concept_source': {'type': 'integer', 'enum': concept['evidence'],
+                    'description': 'Select this concept\'s source supporting the review decision.'},
+                'decision': {'$ref': '#/$defs/Assignment'},
+            },
+            'required': ['concept_source', 'decision'],
+        } for concept in unit.payload['concepts']},
+        'description': 'Each required key is the exact input concept h. Review that concept in its own field.',
+    }
     # 動作與理由／歸屬一起約束，避免 schema 接受 metadata + none 等矛盾組合。
     assignment = schema['$defs']['Assignment']
+    del assignment['properties']['concept']
+    assignment['required'].remove('concept')
+    assignment['properties']['evidence']['minItems'] = 0
     variants = []
     for actions in (['keep', 'needs_review'], ['group', 'example'], ['metadata']):
         variant = deepcopy(assignment)
@@ -117,6 +134,26 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
             schema['$defs'][definition]['properties'][field]['enum'] = list(range(count))
         else:
             schema['properties'][collection]['maxItems'] = 0
+    # 別名是輸入中的完整字串；schema 直接綁定概念與可移除項，避免把複合別名拆詞。
+    alias_choices = []
+    for concept in unit.payload['concepts']:
+        if not concept['aliases']:
+            continue
+        choice = deepcopy(schema['$defs']['AliasEdit'])
+        choice['properties']['concept'] = {'type': 'integer', 'enum': [concept['h']]}
+        choice['properties']['remove']['items'] = {'type': 'string', 'enum': list(dict.fromkeys(concept['aliases']))}
+        choice['properties']['concept_source'] = {
+            'type': 'integer', 'enum': concept['evidence'],
+            'description': 'Select a source belonging to this concept that supports the alias edit.',
+        }
+        choice['required'].append('concept_source')
+        choice['properties']['evidence']['minItems'] = 0
+        alias_choices.append(choice)
+    if alias_choices:
+        schema['properties']['alias_edits']['items'] = {'anyOf': alias_choices}
+        del schema['$defs']['AliasEdit']
+    else:
+        schema['properties']['alias_edits']['maxItems'] = 0
     relation_choices = []
     support_sets = {}
     definitions = schema['$defs']
@@ -155,8 +192,15 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
     calls = 0
 
     def request_review(request, attempt):
-        nonlocal calls
+        nonlocal calls, rejected, rejection_code
         check_cancel()
+        request = {**request, 'assignment_format':
+            'assignments 是以輸入 concept h 的十進位字串為 key 的物件。每個指定 key 都必須填寫；'
+            '其內容只審查該 key 對應的概念，不另填 concept 欄位。target 仍使用輸入的整數 h。'
+            '每個概念先用 concept_source 選取自己的實際支持來源，再把審查結果填入 decision；'
+            'decision.evidence 可另列補充來源。來源不足以支持改動時保留概念或標記 needs_review。'
+            '每筆 alias_edits 的 concept_source 必須由該概念的來源中選擇；evidence 可另列補充來源。'
+            '請核對來源是否確實支持移除該別名，支持不足就省略修改，不為填滿欄位而修改。'}
         archive.prepare_review_call(index, key, request, attempt=attempt)
         calls += 1
         try:
@@ -169,12 +213,38 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
                 error.request_metadata = {**(error.request_metadata or {}), 'review_model_calls': calls - 1}
             raise
         name = f'call-{index:06d}' + (f'-repair-{attempt:02d}' if attempt else '')
+        archive.save_review(f'{name}/wire-response', value)
+        # 固定欄位承載概念身分，不靠陣列順序或替模型修正重複編號。
+        assignments = value.get('assignments') if isinstance(value, dict) else None
+        aliases = value.get('alias_edits') if isinstance(value, dict) else None
+        if not isinstance(assignments, dict) or any(
+            not isinstance(handle, str) or not handle.isascii() or not handle.isdecimal()
+            or str(int(handle)) != handle or not isinstance(row, dict) or 'concept' in row
+            or 'concept_source' not in row or not isinstance(row.get('decision'), dict)
+            or 'concept' in row['decision'] or not isinstance(row['decision'].get('evidence'), list)
+            for handle, row in assignments.items()
+        ) or not isinstance(aliases, list) or any(
+            not isinstance(edit, dict) or 'concept_source' not in edit
+            or not isinstance(edit.get('evidence'), list) for edit in aliases
+        ):
+            if rejection_code is None:
+                rejected, rejection_code = deepcopy(value), 'REVIEW_RESPONSE_INVALID'
+            raise ReviewError('REVIEW_RESPONSE_INVALID')
+        value = {**value,
+            'assignments': [{'concept': int(handle), **row['decision'],
+                             'evidence': [row['concept_source'], *row['decision']['evidence']]}
+                            for handle, row in assignments.items()],
+            # 兩種引用都由模型明確選取；不替它補上任意一筆既有來源。
+            'alias_edits': [{**{key: item for key, item in edit.items() if key != 'concept_source'},
+                            'evidence': [edit['concept_source'], *edit['evidence']]}
+                           for edit in aliases],
+        }
         archive.save_review(f'{name}/response', value)
         return value
 
     if rejection_code is None:
-        response = request_review(unit.payload, 0)
         try:
+            response = request_review(unit.payload, 0)
             validate_saved(response)
         except ReviewError as error:
             if str(error) not in repairable:
@@ -332,15 +402,25 @@ def _review_units(view, units, lock, archive, check_cancel, progress, wait_cance
     return ordered, calls
 
 
-def review_structure(document, lock, archive, check_cancel, progress, *, wait_cancellation_check=None):
+def review_structure(document, lock, archive, check_cancel, progress, *, wait_cancellation_check=None, base_structure=None):
     """重用已保存的有效批次，檢核與發布仍由單一協調者完成。"""
     if 'material_review' not in lock:
         return document
-    view, units = review_inputs(document)
+    from knowledge_map.source_identity import unchanged_concepts
+    preserved = unchanged_concepts(base_structure, document) if base_structure is not None else set()
+    view, units = review_inputs(document, preserved_concept_ids=preserved)
     archive.save_review('source', document)
+    archive.save_review('scope', {'policy': 'changed-content-and-incident-relations/v1',
+        'base_revision': base_structure['revision'] if base_structure else None,
+        'preserved_concept_ids': sorted(preserved),
+        'reviewed_concept_ids': [c['concept_id'] for unit in units for c in unit.concepts]})
+    if not units:
+        progress('review', 0, 0)
+        archive.save_review('result', {'source_revision': document['revision'], 'applied_revision': document['revision'],
+            'model_calls': 0, 'units': 0, 'reused_batches': [], 'projection': None, 'proposal': None})
+        return document
     started = time.monotonic()
     reviews, calls = _review_units(view, units, lock, archive, check_cancel, progress, wait_cancellation_check)
-    progress("publishing", document["page_count"], document["page_count"])
     unit, proposal = combine_reviews(view, reviews)
     result, projection = apply_review(document, view, unit, proposal)
     # 語意回應用量含重用；新增呼叫由 receipt 分別計數。

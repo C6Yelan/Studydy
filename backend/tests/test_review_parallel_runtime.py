@@ -7,6 +7,7 @@ from runtime.material_review import _review_units
 from runtime.semantic_service import SemanticServiceError
 from knowledge_map.material_review import combine_reviews, project_review
 from test_review_parallel_feasibility import inputs, Archive
+from test_material_review import wire_proposal
 
 
 def response(request):
@@ -34,7 +35,7 @@ def test_real_coordinator_parallelism_is_opt_in_and_luna_only(tmp_path, monkeypa
             peak = max(peak, active)
         try:
             gate.wait(5)
-            return response(kwargs['request'])
+            return wire_proposal(response(kwargs['request']))
         finally:
             with mutex: active -= 1
     monkeypatch.setattr('runtime.material_review.request_semantics', model)
@@ -58,7 +59,7 @@ def test_parallel_capacity_splits_keep_full_evidence_and_unique_calls(tmp_path, 
         assert len(request['evidence']) == 5
         if len(request['concepts']) > 2:
             raise SemanticServiceError('SEMANTIC_INPUT_TOO_LARGE')
-        return response(request)
+        return wire_proposal(response(request))
     monkeypatch.setattr('runtime.material_review.request_semantics', model)
     archive = Archive(tmp_path / 'archive')
     progress = []
@@ -107,7 +108,7 @@ def test_oversized_single_concept_keeps_complete_cited_pages_and_cached_resume(t
         request = kwargs['request']; seen.append(deepcopy(request))
         if len(request['evidence']) > 10:
             raise SemanticServiceError('SEMANTIC_INPUT_TOO_LARGE')
-        return response(request)
+        return wire_proposal(response(request))
     monkeypatch.setattr('runtime.material_review.request_semantics', model)
     archive = Archive(tmp_path / 'archive')
     before = deepcopy(unit)
@@ -121,7 +122,7 @@ def test_oversized_single_concept_keeps_complete_cited_pages_and_cached_resume(t
     assert split['source_scope'] == 'cited-pages/v1'
     # 接續沿原分段找到新範圍快取，不重跑已完成的模型請求。
     def only_capacity(client, **kwargs):
-        assert kwargs['request'] == unit.payload
+        assert {k: v for k, v in kwargs['request'].items() if k != 'assignment_format'} == unit.payload
         raise SemanticServiceError('SEMANTIC_INPUT_TOO_LARGE')
     monkeypatch.setattr('runtime.material_review.request_semantics', only_capacity)
     assert _review_units(view, [unit], config(), archive, lambda: None, lambda *p: None)[1] == 0
@@ -145,5 +146,5 @@ def test_single_concept_that_still_exceeds_capacity_stops_without_truncation(tmp
     archive = Archive(tmp_path / 'archive')
     with pytest.raises(SemanticServiceError, match='SEMANTIC_INPUT_TOO_LARGE'):
         _review_units(view, [unit], config(), archive, lambda: None, lambda *p: None)
-    assert calls == [unit.payload]
+    assert [{k: v for k, v in request.items() if k != 'assignment_format'} for request in calls] == [unit.payload]
     assert not list(archive.root.glob('cache-*'))

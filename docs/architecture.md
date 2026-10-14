@@ -12,9 +12,13 @@ flowchart LR
     DB --> Worker[串行 Worker]
     Worker --> Convert[隔離轉檔]
     Worker --> Evidence[原生文字／Unlimited-OCR]
-    Evidence --> Model[Gemma HTTP 服務]
+    Evidence --> Model[語意模型服務]
     Model --> Validate[來源與結構驗證]
-    Validate --> DB
+    Validate --> Index[建立教材檢索索引]
+    Index --> DB
+    UI --> Retrieve[依問題檢索原文]
+    DB --> Retrieve
+    Retrieve --> Answer[有界回答與引用核對]
     Validate --> Store
 ~~~
 
@@ -57,3 +61,11 @@ Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；wor
 Migration runner 核對 [SQL序列](../backend/migrations/) 與 checksum，每版 schema 及帳本同交易提交。API 完整定義以 [OpenAPI](http://127.0.0.1:4173/v1/openapi.json) 及 [models.py](../backend/src/runtime/api/models.py) 為準。
 
 語意生成先取得實際輸入 token 數，再使用 32K 上下文剩餘空間，以上限設定為界。分析／教材檢核至少預留 8K 輸出，出題／題目檢核至少預留 16K（若明確設定較小上限則依該值）。只變更額度時可接續已驗證的分析 checkpoint，原工作快照維持不變。截斷失敗僅保存階段、結束原因與 token 數供排查。
+
+## 教材檢索與選讀
+
+研究來源先依學習需求選讀，核對後的原文範圍傳到來源正規化。完整原檔與 PDF 保留；分析只擷取選定頁面的必要區塊，來源集合中的連續頁碼仍對應原文件頁碼。找不到引用原文時回報範圍定位失敗，不改成全文分析。
+
+知識結構發布前建立 `material_retrieval_indexes` 與 `material_passages`。PostgreSQL GIN 索引使用中文雙字、技術術語、概念名稱與別名；它是可重建的取材投影，不是第二份教材事實來源，也沒有另啟 embedding 模型。問答、研究規劃與 Podcast 共用此索引。問答用 Luna 補查術語以處理不同用詞，最多再取一次來源；每個查詢都固定 owner、教材與 revision。
+
+索引與知識結構同一交易發布，索引失敗不更新教材 head。索引階段可沿已保存的分析與檢核結果重試，不必重新呼叫模型。新來源綁定為 `structure-input-binding/v2`／`source-set/v2`／`bundle-manifest/v2`；舊格式不轉接、不自動遷移，原始檔案不刪除。

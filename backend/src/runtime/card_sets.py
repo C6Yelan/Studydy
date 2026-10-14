@@ -9,6 +9,7 @@ from pdf_evidence.ocr_page_evidence import canonical_sha256
 from .storage.artifacts import _key_digest
 from .storage.knowledge_structures import _prune_unreferenced_structures, _read_verified_document, _view
 from .storage.tables import CardSet, Material, database_session
+from . import card_generation
 
 
 class CardSetError(RuntimeError):
@@ -81,6 +82,7 @@ def create_card_set(owner, material_id, revision, name, concept_ids, key, *, dsn
             idempotency_key_sha256=digest, request_fingerprint=fingerprint,
             created_at=datetime.now(UTC), deleted_at=None,
             version=1,
+            status='pending', generation=card_generation.initial(),
         )
         session.add(row)
         session.flush()
@@ -124,6 +126,9 @@ def read_card_set(owner, card_set_id, *, dsn=None):
             "schema": "card-set/v1", **_summary(row, material),
             "source_resolver": view["source_resolver"], "status": view["status"],
             "excluded_pages": view["excluded_pages"],
+            "generation": card_generation.progress(row),
+            "display_edits": {identity: item['edits'] for identity, item in row.generation.get('results', {}).items()
+                              if identity in row.concept_ids} if row.status == 'ready' else {},
             "cards": [{key: concepts[identity][key] for key in ("concept_id", "label", "claims")}
                       for identity in row.concept_ids],
         }
@@ -153,6 +158,12 @@ def update_card_set(owner, card_set_id, name, expected_version, concept_ids=None
                 return _summary(row, material)
             raise CardSetError("CARD_SET_CONFLICT")
         if not unchanged:
+            if row.concept_ids != ordered:
+                results = {identity: item for identity, item in row.generation.get('results', {}).items() if identity in ordered}
+                row.generation = card_generation.initial(results)
+                row.status = 'pending'
+                row.lease_token = None
+                row.lease_expires_at = None
             row.name = name
             row.concept_ids = ordered
             row.version += 1
@@ -173,6 +184,22 @@ def delete_card_set(owner, card_set_id, *, dsn=None):
             row.knowledge_structure_revision = None
             row.name = ""
             row.concept_ids = []
+            row.generation = {}
+            row.lease_token = None
+            row.lease_expires_at = None
             session.flush()
             _prune_unreferenced_structures(session, owner, material_id, material.head_revision)
     return {"schema": "card-set-deleted/v1", "card_set_id": card_set_id}
+
+
+def generation_status(owner, card_set_id, *, retry=False, dsn=None):
+    with database_session(dsn) as session:
+        material_id = _set_material_id(session, owner, card_set_id)
+        _material(session, owner, material_id, read=not retry)
+        row = session.get(CardSet, card_set_id)
+        if row is None or row.deleted_at is not None:
+            raise CardSetError('RESOURCE_NOT_FOUND')
+        if retry and row.status == 'failed':
+            row.generation = {**row.generation, 'error_code': None}
+            row.status = 'pending'
+        return card_generation.progress(row)

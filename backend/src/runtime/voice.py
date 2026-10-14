@@ -8,14 +8,15 @@ import os
 from uuid import UUID, uuid4
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, tuple_
 from .card_sets import _material
 from .source_normalization import SourceError
 from .storage.artifacts import _key_digest
-from .storage.knowledge_structures import _read_verified_document, _view, _prune_unreferenced_structures
+from .storage.knowledge_structures import _prune_unreferenced_structures
 from .storage.tables import VoiceConversation as Conversation, VoiceTurn as Turn, Material, database_session
 from .podcasts import validate_audio
 from .generation_jobs import generation_response, cancellable_job
+from . import retrieval, material_qa
 
 
 ACTIVE = ('transcribing', 'pending', 'answering', 'speaking')
@@ -42,11 +43,11 @@ def provider(path, body):
     return data if path == '/audio' else json.loads(data)
 
 
-def _conversation(db, owner, identity):
+def _conversation(db, owner, identity, *, read=False):
     row = db.get(Conversation, identity)
     if row is None or row.learner_id != owner:
         raise SourceError('RESOURCE_NOT_FOUND')
-    material = _material(db, owner, row.material_id)
+    material = _material(db, owner, row.material_id, read=read)
     db.refresh(row)
     if row.deleted_at is not None:
         raise SourceError('RESOURCE_NOT_FOUND')
@@ -69,7 +70,7 @@ def create(owner, material_id, key, *, revision=None, dsn=None):
             return _summary(row)
         selected_revision = material.head_revision if revision is None else revision
         if not selected_revision: raise SourceError('SOURCE_NOT_READY')
-        _read_verified_document(db, owner, material_id, revision=selected_revision)
+        retrieval._scope(db, owner, material_id, selected_revision)
         row = Conversation(conversation_id=uuid4(),learner_id=owner,material_id=material_id,
             knowledge_structure_revision=selected_revision,title='新的教材問答',created_at=datetime.now(UTC),
             idempotency_key_sha256=digest)
@@ -79,26 +80,23 @@ def create(owner, material_id, key, *, revision=None, dsn=None):
 
 def listing(owner, material_id, *, dsn=None):
     with database_session(dsn) as db:
-        _material(db, owner, material_id)
+        _material(db, owner, material_id, read=True)
         return {'conversations':[_summary(r) for r in db.scalars(select(Conversation).where(
             Conversation.material_id == material_id,Conversation.deleted_at.is_(None)).order_by(Conversation.created_at.desc()))]}
 
 
 def read(owner, identity, *, dsn=None):
     with database_session(dsn) as db:
-        row, material = _conversation(db, owner, identity)
+        row, material = _conversation(db, owner, identity, read=True)
         turns = db.scalars(select(Turn).where(Turn.conversation_id == identity).order_by(Turn.created_at,Turn.turn_id)).all()
-        # 舊回答未保存 index 對照時，依綁定教材版本重建；不改寫原始引用。
-        claim_indices = None
+        retrieval._scope(db, owner, row.material_id, row.knowledge_structure_revision)
         answers = {}
         for turn in turns:
+            if turn.mode not in ('text','voice') or turn.status=='draft':
+                raise SourceError('MATERIAL_FORMAT_UNSUPPORTED')
             answer = deepcopy(turn.answer)
-            if answer and 'citation_indices' not in answer:
-                if claim_indices is None:
-                    document = _read_verified_document(db, owner, row.material_id, revision=row.knowledge_structure_revision)
-                    claims = [claim for concept in _view(document, row.material_id)['concepts'] for claim in concept['claims']]
-                    claim_indices = {claim['claim_id']: index for index, claim in enumerate(claims)}
-                answer['citation_indices'] = [claim_indices.get(citation['claim_id']) for citation in answer['citations']]
+            if answer and answer.get('schema') != 'material-answer/v2':
+                raise SourceError('MATERIAL_FORMAT_UNSUPPORTED')
             answers[turn.turn_id] = answer
         return {**_summary(row), 'is_current_revision': row.knowledge_structure_revision == material.head_revision,
             'source_resolver':f'/v1/materials/{row.material_id}/knowledge-structures/{row.knowledge_structure_revision}/evidence',
@@ -154,16 +152,15 @@ def add_turn(owner, identity, key, question='', recording=None, *, mode="text", 
         fingerprint=sha256(json.dumps({'input':fingerprint,'context':context},sort_keys=True,separators=(',',':')).encode()).hexdigest()
     if mode not in ('text', 'voice'): raise SourceError('REQUEST_INVALID')
     mode = 'voice' if recording else mode
-    legacy_fingerprint = fingerprint
     fingerprint = sha256(json.dumps({'input': fingerprint, 'mode': mode}, sort_keys=True).encode()).hexdigest()
     with database_session(dsn) as db:
         row, _ = _conversation(db,owner,identity)
+        retrieval._scope(db,owner,row.material_id,row.knowledge_structure_revision)
         old = db.scalar(select(Turn).where(Turn.conversation_id==identity,Turn.request_key==key))
         if old:
-            expected = legacy_fingerprint if old.mode is None else fingerprint
-            if old.fingerprint != expected: raise SourceError('IDEMPOTENCY_CONFLICT')
+            if old.fingerprint != fingerprint: raise SourceError('IDEMPOTENCY_CONFLICT')
             return {'turn_id':old.turn_id}
-        if db.scalar(select(Turn.turn_id).where(Turn.conversation_id==identity,Turn.status.in_(ACTIVE+('draft',)))):
+        if db.scalar(select(Turn.turn_id).where(Turn.conversation_id==identity,Turn.status.in_(ACTIVE))):
             raise SourceError('VOICE_TURN_IN_PROGRESS')
         verified_context = podcast_context(db, row, context)[0] if context is not None else None
         turn = Turn(context=verified_context,mode=mode,turn_id=uuid4(),conversation_id=identity,request_key=key,fingerprint=fingerprint,
@@ -174,21 +171,19 @@ def add_turn(owner, identity, key, question='', recording=None, *, mode="text", 
         return {'turn_id':turn.turn_id}
 
 
-def action(owner, identity, turn_id, action, question='', *, dsn=None):
+def action(owner, identity, turn_id, action, *, dsn=None):
     with database_session(dsn) as db:
         row,_ = _conversation(db,owner,identity)
         turn=db.get(Turn,turn_id)
         if turn is None or turn.conversation_id!=identity: raise SourceError('RESOURCE_NOT_FOUND')
-        if action in ('send','retry') and turn.context:podcast_context(db,row,turn.context)
+        if action=='retry' and turn.context:podcast_context(db,row,turn.context)
         if action=='cancel':
-            if turn.status in ACTIVE+('draft',):
+            if turn.status in ACTIVE:
                 turn.status='cancelled'; turn.recording=None; turn.lease_token=turn.lease_expires_at=None
-        elif action=='send':
-            if turn.status!='draft' or not question.strip() or len(question)>4000: raise SourceError('REQUEST_INVALID')
-            turn.question=question.strip(); turn.status='pending'; row.title=question.strip()[:80]
         elif action=='retry':
+            retrieval._scope(db,owner,row.material_id,row.knowledge_structure_revision)
             if turn.status!='failed': raise SourceError('REQUEST_INVALID')
-            if db.scalar(select(Turn.turn_id).where(Turn.conversation_id==identity,Turn.status.in_(ACTIVE+('draft',)))):
+            if db.scalar(select(Turn.turn_id).where(Turn.conversation_id==identity,Turn.status.in_(ACTIVE))):
                 raise SourceError('VOICE_TURN_IN_PROGRESS')
             if not turn.question: raise SourceError('REQUEST_INVALID')
             turn.status=('ready' if turn.mode=='text' else 'speaking') if turn.answer else 'pending';turn.error_code=None
@@ -201,7 +196,7 @@ def remove(owner, identity, *, dsn=None):
     with database_session(dsn) as db:
         row,material=_conversation(db,owner,identity)
         db.execute(delete(Turn).where(Turn.conversation_id==identity))
-        row.deleted_at=datetime.now(UTC);row.knowledge_structure_revision=None;row.title=''
+        row.deleted_at=datetime.now(UTC);row.knowledge_structure_revision=None;row.title='';row.memory=None
         db.flush()
         _prune_unreferenced_structures(db,owner,row.material_id,material.head_revision)
     return {'ok':True}
@@ -209,7 +204,7 @@ def remove(owner, identity, *, dsn=None):
 
 def audio(owner, identity, turn_id, *, dsn=None):
     with database_session(dsn) as db:
-        _conversation(db,owner,identity)
+        _conversation(db,owner,identity,read=True)
         turn=db.get(Turn,turn_id)
         if not turn or turn.conversation_id!=identity or not turn.audio: raise SourceError('RESOURCE_NOT_FOUND')
         return bytes(turn.audio)
@@ -230,12 +225,28 @@ def claim(*, dsn=None):
         state={k:deepcopy(getattr(turn,k)) for k in ('turn_id','conversation_id','mode','question','answer','status','recording','lease_token','context')}
         state.update(owner=row.learner_id,material_id=row.material_id,revision=row.knowledge_structure_revision)
         if turn.status=='answering':
-            document=_read_verified_document(db,row.learner_id,row.material_id,revision=row.knowledge_structure_revision)
-            view=_view(document,row.material_id)
-            state['claims']=[{'label':c['label'],**a} for c in view['concepts'] for a in c['claims']]
-            state['history']=[{'question':t.question,'answer':t.answer['text']} for t in db.scalars(
-                select(Turn).where(Turn.conversation_id==row.conversation_id,Turn.answer.is_not(None))
-                .order_by(Turn.created_at.desc()).limit(8))][::-1]
+            try:
+                retrieval._scope(db, row.learner_id, row.material_id, row.knowledge_structure_revision)
+            except SourceError as error:
+                turn.status='failed';turn.error_code=str(error)
+                turn.lease_token=turn.lease_expires_at=None
+                return None
+            state['retrieved'] = {}
+            history = select(Turn).where(Turn.conversation_id==row.conversation_id,Turn.answer.is_not(None),
+                tuple_(Turn.created_at,Turn.turn_id)<tuple_(turn.created_at,turn.turn_id))
+            state['user_history'] = [{'question': question, 'created_at': created_at.isoformat()}
+                for question, created_at in db.execute(history.with_only_columns(Turn.question, Turn.created_at)
+                    .order_by(Turn.created_at, Turn.turn_id))]
+            state['memory'] = None
+            if row.memory:
+                cursor = (datetime.fromisoformat(row.memory['through_created_at']), UUID(row.memory['through_turn_id']))
+                # 重試較早失敗的問題不能讀到未來摘要，也不能覆蓋較新的摘要。
+                if cursor < (turn.created_at, turn.turn_id):
+                    state['memory'] = deepcopy(row.memory)
+                    history = history.where(tuple_(Turn.created_at,Turn.turn_id)>tuple_(*cursor))
+            state['history']=[{'turn_id':str(t.turn_id),'created_at':t.created_at.isoformat(),
+                'question':t.question,'answer':t.answer['text']} for t in db.scalars(
+                    history.order_by(Turn.created_at,Turn.turn_id))]
         return state
 
 
@@ -253,18 +264,29 @@ def finish(state, result=None, error=None, *, dsn=None):
             text=result.get('text')
             if not isinstance(text,str) or not text.strip() or len(text)>4000:raise SourceError('VOICE_TRANSCRIPT_INVALID')
             turn.question=text.strip();turn.recording=None
-            # 新錄音直接接續回答；NULL 僅保留舊版待確認錄音的 fallback。
-            turn.status='pending' if turn.mode=='voice' else 'draft'
+            turn.status='pending'
             db.get(Conversation,turn.conversation_id).title=turn.question[:80]
         elif state['status']=='answering':
             if turn.context:podcast_context(db,db.get(Conversation,turn.conversation_id),turn.context)
-            text=result.get('text');indices=result.get('citations');supported=result.get('supported')
-            if (not isinstance(text,str) or not 1<=len(text)<=2400 or not isinstance(indices,list)
-                or any(type(i)is not int or not 0<=i<len(state['claims']) for i in indices)
-                or type(supported)is not bool or (supported and not indices)):
+            text=result.get('text');citations=result.get('citations');supported=result.get('supported')
+            if (not isinstance(text,str) or not 1<=len(text)<=4500 or not isinstance(citations,list)
+                or type(supported)is not bool or (supported and not citations)):
                 raise SourceError('VOICE_ANSWER_INVALID')
-            turn.answer={'text':text,'supported':supported,'citations':[state['claims'][i] for i in dict.fromkeys(indices)],
-                'citation_indices':list(dict.fromkeys(indices)), 'provider':'codex-exec:gpt-5.6-luna'}
+            for citation in citations:
+                if not isinstance(citation, dict): raise SourceError('VOICE_ANSWER_INVALID')
+                passage=state['retrieved'].get(citation.get('passage_id'))
+                if (passage is None or citation.get('text') != passage['text']
+                    or not isinstance(citation.get('evidence'),list) or not citation['evidence']
+                    or any(reference not in passage.get('references',[passage['evidence']]) for reference in citation['evidence'])):
+                    raise SourceError('VOICE_ANSWER_INVALID')
+            turn.answer={**result,'schema':'material-answer/v2'}
+            memory = state.get('memory_update')
+            if memory:
+                conversation = db.get(Conversation,turn.conversation_id)
+                current = conversation.memory
+                if (not current or (memory['through_created_at'],memory['through_turn_id']) >
+                        (current['through_created_at'],current['through_turn_id'])):
+                    conversation.memory = memory
             turn.status='ready' if turn.mode=='text' else 'speaking'
         else:
             validate_audio(result);turn.audio=result;turn.status='ready'
@@ -282,7 +304,17 @@ def step(*, dsn=None):
                     with database_session(dsn) as db:
                         row,_=_conversation(db,state['owner'],state['conversation_id'])
                         _,context=podcast_context(db,row,state['context'])
-                result=provider('/answer',{**job,**{k:state[k] for k in ('question','claims','history')},'context':context})
+                def retrieve(queries):
+                    with database_session(dsn) as db:
+                        passages=retrieval.search(db,state['owner'],state['material_id'],state['revision'],queries)
+                    state['retrieved'].update({p['passage_id']:p for p in passages})
+                    return passages
+                with database_session(dsn) as db:
+                    catalog = retrieval.catalog(db,state['owner'],state['material_id'],state['revision'])
+                result=material_qa.answer(state['question'],state['history'],context,retrieve=retrieve,
+                    call=lambda path,body:provider(path,{**job,**body}),catalog=catalog,memory=state['memory'],
+                    user_history=state['user_history'])
+                state['memory_update'] = result.pop('_memory_update')
             else:result=provider('/audio',{**job,'script':{'segments':[{'turns':[{'speaker':'host','text':state['answer']['text']}]}]}})
             finish(state,result,dsn=dsn)
     except Exception as error:

@@ -21,7 +21,8 @@ function cardSetView() {
     knowledge_structure_revision: structureRevision, created_at: "2026-10-02T00:00:00Z",
     is_current_revision: true, source_resolver: decodeURIComponent(view.source_resolver),
     cards: view.concepts.map(({ concept_id, label, claims }) => ({ concept_id, label, claims })),
-    status: view.status, excluded_pages: [],
+    status: view.status, excluded_pages: [], display_edits: {},
+    generation: { status: "ready", stage: "complete", completed: view.concepts.length, total: view.concepts.length, error_code: null, retained_original: 0, cached: 0 },
   };
 }
 
@@ -186,7 +187,7 @@ test("unknown relation type fails closed with otherwise valid endpoints", async 
   await client.getKnowledgeStructure({ materialId, structureRevision });
   invalid.relations[0].type = "related";
   await assert.rejects(
-    client.getKnowledgeStructure({ materialId, structureRevision }),
+    new StudydyApiClient(async () => Response.json(invalid)).getKnowledgeStructure({ materialId, structureRevision }),
     (error) => error instanceof ApiClientError && error.kind === "schema",
   );
 });
@@ -1127,4 +1128,43 @@ test("podcast background generation counts stay within the episode count", async
   assert.equal((await new StudydyApiClient(async()=>Response.json(value)).getPodcast(setId)).generation.active,true);
   for(const generation of [{active:"yes",completed_videos:0,failed_videos:0},{active:false,completed_videos:2,failed_videos:0},{active:false,completed_videos:1,failed_videos:1}])
     await assert.rejects(new StudydyApiClient(async()=>Response.json({...value,generation})).getPodcast(setId),e=>e.kind==="schema");
+});
+
+
+test("immutable structures are shared across features but never across invalidated sessions", async () => {
+  let calls = 0;
+  const client = new StudydyApiClient(async () => { calls++; return Response.json(structureView()); });
+  const request = { materialId, structureRevision };
+  const [a, b] = await Promise.all([client.getKnowledgeStructure(request), client.getKnowledgeStructure(request)]);
+  assert.equal(a, b);
+  assert.equal(await client.getKnowledgeStructure(request), a);
+  assert.equal(calls, 1);
+  client.invalidate();
+  await assert.rejects(client.getKnowledgeStructure(request), error => error.reasonCode === "SESSION_REQUIRED");
+});
+
+test("failed structure reads can be retried", async () => {
+  let calls = 0;
+  const client = new StudydyApiClient(async () => ++calls === 1 ? Response.json({}) : Response.json(structureView()));
+  const request = { materialId, structureRevision };
+  await assert.rejects(client.getKnowledgeStructure(request));
+  await client.getKnowledgeStructure(request);
+  assert.equal(calls, 2);
+});
+
+test("current map and saved card revision stay cached together", async () => {
+  const previous = `knowledge-structure:sha256:${"f".repeat(64)}`;
+  const calls = [];
+  const client = new StudydyApiClient(async path => {
+    calls.push(path);
+    const revision = decodeURIComponent(String(path).split("/").at(-1));
+    const view = structureView();
+    view.knowledge_structure_revision = revision;
+    view.source_resolver = view.source_resolver.replace(encodeURIComponent(structureRevision), encodeURIComponent(revision));
+    return Response.json(view);
+  });
+  for (const revision of [structureRevision, previous, structureRevision, previous]) {
+    await client.getKnowledgeStructure({ materialId, structureRevision: revision });
+  }
+  assert.equal(calls.length, 2);
 });

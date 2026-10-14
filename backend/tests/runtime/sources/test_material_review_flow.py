@@ -21,21 +21,46 @@ def enable_review(settings):
 
 def keep_response(request):
     return {
-        "assignments": [
-            {
-                "concept": concept["h"],
+        "assignments": {
+            str(concept["h"]): {
+                "concept_source": concept["evidence"][0],
+                "decision": {
                 "action": "keep",
                 "target": None,
                 "issue": "none",
                 "reason": "保留來源中的獨立觀念。",
-                "evidence": concept["evidence"],
+                "evidence": concept["evidence"][1:],
+                },
             }
             for concept in request["concepts"]
-        ],
+        },
         "alias_edits": [],
         "claim_edits": [],
         "relation_edits": [],
     }
+
+
+def test_incremental_review_only_sends_changed_concepts_and_keeps_old_sources(revisions, monkeypatch):
+    from knowledge_map.source_identity import unchanged_claims
+    owner, material, settings, dsn, add, start, execute, first, original, requests = revisions
+    enable_review(settings)
+    calls = []
+    def model(client, **kw):
+        calls.append(kw['request'])
+        return keep_response(kw['request'])
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    addition = add('new.pdf', 'A queue removes the earliest inserted value first.')
+    start([addition], 'incremental-review', original['revision'])
+    completed = execute()
+    assert completed.status in ('succeeded', 'partial')
+    updated = read_knowledge_structure(owner.learner_id, material,
+                                     revision=completed.output_binding['knowledge_structure_revision'], dsn=dsn).document
+    assert calls
+    reviewed = [claim['text'] for call in calls for claim in call['claims']]
+    original_texts = {claim['text'] for concept in original['concepts'] for claim in concept['claims']}
+    assert not original_texts.intersection(reviewed)
+    assert any('queue' in text for text in reviewed)
+    assert len(unchanged_claims(original, updated)) == sum(len(c['claims']) for c in original['concepts'])
 
 
 def test_review_publishes_new_revision_without_ocr_or_analysis_and_preserves_old(revisions, monkeypatch):
@@ -74,7 +99,8 @@ def test_new_analysis_runs_review_and_failed_review_keeps_head(revisions, monkey
         return keep_response(kw['request']) if len(calls) == 1 else {'bad': True}
     monkeypatch.setattr('runtime.material_review.request_semantics', model)
     second = add('B.pdf', 'A queue removes the first inserted element first.')
-    start([second], 'append-review', original['revision'])
+    third = add('C.pdf', 'An array stores values at indexed positions.')
+    start([second, third], 'append-review', original['revision'])
     failed = execute()
     assert failed.status == 'failed' and failed.error_code == 'REVIEW_RESPONSE_INVALID'
     assert len(calls) == 3 and 'review_correction' in calls[2]
@@ -96,7 +122,7 @@ def test_new_analysis_runs_review_and_failed_review_keeps_head(revisions, monkey
     assert completed.status == 'succeeded', completed.error_code
     assert len(calls) == (5 if raise_budget else 4) and len(requests) == before
     doc = read_knowledge_structure(owner.learner_id, material, run_id=completed.run_id, dsn=dsn).document
-    assert doc['page_count'] == 2 and validate_knowledge_structure(doc)
+    assert doc['page_count'] == 3 and validate_knowledge_structure(doc)
 
 
 def test_explicit_review_after_cancellation_reuses_saved_responses(revisions, monkeypatch):
@@ -134,13 +160,13 @@ def test_contract_failure_retry_repairs_saved_response_without_analysis(revision
         response = keep_response(request)
         if len(calls) <= 2:
             if error_code == 'REVIEW_CONCEPT_COVERAGE_INVALID':
-                response['assignments'].append(deepcopy(response['assignments'][0]))
+                response['assignments'].pop('0')
             elif error_code == 'REVIEW_METADATA_REASON_INVALID':
-                response['assignments'][0].update(action='metadata', issue='none')
+                response['assignments']['0']['decision'].update(action='metadata', issue='none')
             else:
                 concept = request['concepts'][0]
                 response['alias_edits'] = [{'concept': concept['h'], 'remove': ['synthetic-absent-alias'],
-                    'evidence': concept['evidence'], 'reason': '合成不合法別名'}]
+                    'concept_source': concept['evidence'][0], 'evidence': [], 'reason': '合成不合法別名'}]
         return response
 
     monkeypatch.setattr('runtime.material_review.request_semantics', model)
@@ -159,6 +185,37 @@ def test_contract_failure_retry_repairs_saved_response_without_analysis(revision
     assert validate_knowledge_structure(doc) and doc['evidence'] == original['evidence']
 
 
+def test_retry_corrects_latest_repair_instead_of_repeating_original_error(revisions, monkeypatch):
+    owner, material, settings, dsn, add, start, execute, first, original, requests = revisions
+    enable_review(settings)
+    calls = []
+    def model(client, **kwargs):
+        request = kwargs['request']
+        calls.append(request)
+        response = keep_response(request)
+        if len(calls) == 1:
+            response['assignments'].pop('0')
+        elif len(calls) == 2:
+            # 原稿的缺漏已修正，但補正稿另有不合法別名，接續應指出這個最新問題。
+            concept = request['concepts'][0]
+            response['alias_edits'] = [{'concept': 0, 'remove': ['synthetic-absent-alias'],
+                'concept_source': concept['evidence'][0], 'evidence': [], 'reason': '合成錯誤別名'}]
+        else:
+            assert request['review_correction']['error'] == 'REVIEW_ALIAS_EDIT_INVALID'
+            assert request['review_correction']['missing_concepts'] == []
+        return response
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    create_revision(owner.learner_id, material, [], 'latest-repair-review', settings,
+                    base_revision=original['revision'], dsn=dsn)
+    failed = execute()
+    assert failed.status == 'failed' and failed.error_code == 'REVIEW_ALIAS_EDIT_INVALID'
+    assert calls[1]['review_correction']['error'] == 'REVIEW_CONCEPT_COVERAGE_INVALID'
+    retry_revision(owner.learner_id, failed.run_id, 'latest-repair-resume', settings, dsn=dsn)
+    completed = execute()
+    assert completed.status == 'succeeded', completed.error_code
+    assert len(calls) == 3
+
+
 @pytest.mark.parametrize('single_fits', [True, False])
 def test_review_capacity_splits_concepts_without_truncating_sources(revisions, monkeypatch, single_fits):
     from runtime import material_review as review
@@ -168,7 +225,7 @@ def test_review_capacity_splits_concepts_without_truncating_sources(revisions, m
     enable_review(settings)
     second = add('B.pdf', 'A queue removes the first inserted element first.')
     original_inputs = review.review_inputs
-    def inputs(document):
+    def inputs(document, **_scope):
         view, units = original_inputs(document)
         evidence = list({e['evidence_id']: e for unit in units for e in unit.evidence}.values())
         return view, [review._pack_review(view, view['concepts'], evidence, 'Synthetic full context')]
@@ -245,7 +302,7 @@ def test_parallel_database_archive_keeps_successes_across_failed_batch(revisions
             if number <= 2: gate.wait(5)
             result = keep_response(request)
             if request['title'].startswith('B.pdf'):
-                result['assignments'][0].update(action='metadata', issue='none')
+                result['assignments']['0']['decision'].update(action='metadata', issue='none')
             return result
         finally:
             with mutex: active -= 1

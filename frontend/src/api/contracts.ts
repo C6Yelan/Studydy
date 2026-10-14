@@ -9,6 +9,14 @@ export type KnownApiReasonCode =
   | "VOICE_PROVIDER_UNAVAILABLE"
   | "VOICE_PROVIDER_FAILED"
   | "VOICE_TRANSCRIPT_INVALID"
+  | "VOICE_CONTEXT_TOO_LARGE"
+  | "RETRIEVAL_INDEX_REQUIRED"
+  | "RETRIEVAL_INDEX_INVALID"
+  | "MATERIAL_FORMAT_UNSUPPORTED"
+  | "SOURCE_SCOPE_EMPTY"
+  | "SOURCE_SCOPE_INVALID"
+  | "SOURCE_SCOPE_UNRESOLVED"
+  | "RESEARCH_CONTEXT_TOO_LARGE"
   | "RESEARCH_SEARCH_FAILED"
   | "RESEARCH_DOWNLOAD_FAILED"
   | "RESEARCH_LICENSE_UNCONFIRMED"
@@ -77,7 +85,7 @@ export type MaterialProcessingRunView = {
   material_id: string;
   source_artifact_id: string;
   status: "pending" | "running" | "succeeded" | "partial" | "failed" | "cancelled";
-  progress_stage: "queued" | "evidence" | "semantics" | "review" | "publishing" | "completed";
+  progress_stage: "queued" | "evidence" | "semantics" | "review" | "indexing" | "publishing" | "completed";
   completed_pages: number;
   total_pages: number | null;
   completed_units?: number | null;
@@ -157,6 +165,8 @@ export type EvidenceView = {
   source: "native_text" | "unlimited_ocr";
   source_locator: SourceLocatorView;
   quote: string;
+  quote_start?: number;
+  quote_end?: number;
 };
 
 export type RelationType = "prerequisite" | "part_of" | "application" | "example" | "contrast";
@@ -204,7 +214,15 @@ export type KnowledgeStructureView = {
   excluded_pages: { page_ref: string; page: number; stage: "evidence"; reason_code: string }[];
 };
 
-export type ConceptCard = Pick<KnowledgeStructureView["concepts"][number], "concept_id" | "label" | "claims">;
+export type ConceptCard = Pick<KnowledgeStructureView["concepts"][number], "concept_id" | "label" | "claims"> & { display_edits?: CardTextEdit[] };
+
+export type CardGeneration = {
+  status: "pending" | "running" | "ready" | "failed";
+  stage: "preparing" | "compacting" | "checking" | "complete";
+  completed: number; total: number; error_code: string | null;
+  retained_original: number; cached: number;
+};
+export type CardTextEdit = { source: string; text: string };
 
 export type CardSetSummary = {
   version: number;
@@ -224,6 +242,8 @@ export type CardSetView = CardSetSummary & {
   status: KnowledgeStructureView["status"];
   excluded_pages: KnowledgeStructureView["excluded_pages"];
   cards: ConceptCard[];
+  generation: CardGeneration;
+  display_edits: Record<string, CardTextEdit[]>;
 };
 
 export type CardSetCreate = {
@@ -486,6 +506,8 @@ export type SourceView = {
   status: "pending" | "running" | "ready" | "failed";
   normalized_artifact_id: string | null;
   page_count: number | null;
+  analysis_page_count?: number | null;
+  analysis_mode?: "full" | "selected";
   error_code: string | null;
 };
 export type SourceListView = {

@@ -8,6 +8,26 @@ from knowledge_map.material_review import (
 from structure_fixtures import build_knowledge_structure
 
 
+def wire_proposal(value):
+    """模型以固定概念欄位回覆；儲存及整理仍使用已驗證的 canonical proposal。"""
+    result = deepcopy(value)
+    if isinstance(result, dict) and isinstance(result.get('assignments'), list):
+        rows = result['assignments']
+        assert len({row['concept'] for row in rows}) == len(rows)
+        result['assignments'] = {
+            str(row['concept']): {
+                'concept_source': row['evidence'][0],
+                'decision': {**{key: value for key, value in row.items() if key != 'concept'},
+                             'evidence': row['evidence'][1:]},
+            }
+            for row in rows
+        }
+        for edit in result.get('alias_edits', []):
+            refs = edit['evidence']
+            edit['concept_source'], edit['evidence'] = refs[0], refs[1:]
+    return result
+
+
 def view():
     labels = ["角色分類", "角色甲", "角色乙", "授課教師", "效率"]
     texts = [

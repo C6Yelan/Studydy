@@ -116,20 +116,26 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
 function CardCount({ item, apiClient }: { item: CardSetSummary; apiClient: StudydyApiClient }) {
   const { artworkModule, loadFailed } = useConceptArtwork();
   const [count, setCount] = useState<number | null>(null);
+  const [generationMessage, setGenerationMessage] = useState("");
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    setCount(null); setFailed(false);
+    setCount(null); setFailed(false); setGenerationMessage("");
     if (!artworkModule) return;
     void Promise.all([
       apiClient.getCardSet(item.card_set_id),
       apiClient.getKnowledgeStructure({ materialId: item.material_id, structureRevision: item.knowledge_structure_revision }),
     ]).then(([deck, structure]) => {
-      if (!cancelled) setCount(deck.cards.reduce((total, card) => total + artworkModule.conceptCardPages(card, structure).length, 0));
+      if (cancelled) return;
+      if (deck.generation.status !== "ready") {
+        setGenerationMessage(deck.generation.status === "failed" ? "生成暫停 · 開啟後可重試" : `生成中 · ${deck.generation.completed} / ${deck.generation.total} 個觀念`);
+        return;
+      }
+      setCount(deck.cards.reduce((total, card) => total + artworkModule.conceptCardPages({ ...card, display_edits: deck.display_edits[card.concept_id] ?? [] }, structure).length, 0));
     }, () => { if (!cancelled) setFailed(true); });
     return () => { cancelled = true; };
   }, [apiClient, artworkModule, item.card_set_id, item.material_id, item.knowledge_structure_revision, retry]);
   if (failed || loadFailed) return <span>張數載入失敗{!loadFailed && <button className="text-button" type="button" onClick={() => setRetry(n => n + 1)}>重試</button>}</span>;
-  return <span>{count === null ? "正在計算張數…" : `${count} 張卡片`}</span>;
+  return <span>{generationMessage || (count === null ? "正在計算張數…" : `${count} 張卡片`)}</span>;
 }

@@ -79,6 +79,12 @@ class PodcastWorker:
             except Exception as error:
                 if claim is not None:
                     code = str(error) if isinstance(error, podcasts.PodcastError) else ("PODCAST_STORAGE_FAILED" if saving else "PODCAST_PROVIDER_FAILED")
+                    logging.getLogger(__name__).warning(json.dumps({
+                        'event': 'podcast_step_failed', 'podcast_id': str(claim['podcast_id']),
+                        'episode_index': claim['index'], 'error_code': code,
+                        'error_type': type(error).__name__,
+                        'sqlstate': getattr(getattr(error, 'orig', None), 'sqlstate', None),
+                    }))
                     try:
                         podcasts.finish_step(claim, error=code, dsn=self.dsn)
                     except Exception:

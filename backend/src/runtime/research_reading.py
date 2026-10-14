@@ -48,7 +48,9 @@ def _pdf_document(data,url):
     try:
         with fitz.open(stream=data,filetype='pdf') as pdf:
             title_page_text=pdf[0].get_text() if len(pdf) else ''
-            text='\n\n'.join(page.get_text() for page in pdf)
+            # PDF 的換行常只是排版；以原生文字區塊分段，避免把整頁當作唯一可選引用。
+            text='\n\n'.join(block[4] for page in pdf for block in page.get_text('blocks')
+                             if len(block)<=6 or block[6]==0)
             title=(pdf.metadata or {}).get('title') or next((line.strip() for line in text.splitlines() if line.strip()),'')
     except Exception:raise SourceError('RESEARCH_FORMAT_UNSUPPORTED') from None
     if not text.strip():raise SourceError('RESEARCH_TEXT_UNAVAILABLE')
@@ -110,6 +112,14 @@ def inspect_candidate(candidate):
     row.pop('inspection_sha256',None);row.pop('inspection_text_sha256',None)
     row.update(_reading_text='',_read_offset=0,_review_chunks=[])
     if row.get('review'):row['review']['phase']='metadata'
+    if sources.arxiv_abstract_url(row['url']):
+        row['arxiv_license_checked']=True
+        try:
+            row.update(sources.arxiv_metadata(row['url']))
+            if row.get('screening',{}).get('decision')=='reference':
+                row['screening']={'decision':'read','basis':'license_verified','reason':'同篇正式頁已確認全文使用條件，接續核對正文。'}
+        except Exception as error:
+            attempts.append(access_failure(error,sources.arxiv_abstract_url(row['url'])))
     licensed_pdf=bool(row.get('download_locations') or sources._location(row.get('download_url'),row.get('license'),row.get('version')))
     if not row.get('web_document') and (row['kind']=='official' or row['kind']=='paper' and (row.get('eligible') or licensed_pdf)):
         try:
@@ -141,7 +151,7 @@ def inspect_candidate(candidate):
     if doc:
         if doc['access_method']=='pdf' and doc.get('original_sha256'):row['inspection_sha256']=doc['original_sha256']
         row['_reading_text']=doc['text']
-        if row.get('web_document'):row['inspection_text_sha256']=sha256(doc['text'].encode()).hexdigest()
+        row['inspection_text_sha256']=sha256(doc['text'].encode()).hexdigest()
         row['access'].update(method=doc['access_method'],url=doc['access_url'],characters=len(doc['text']))
         if doc.get('title'):row['access']['actual_title']=doc['title']
         row['reason']='已取得正文並確認使用條件。' if importable else '已讀取公開內容；全文匯入條件尚未確認，可查看原始來源。'

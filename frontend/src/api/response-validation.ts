@@ -3,6 +3,7 @@ import type {
   AnswerFeedbackView,
   CardSetSummary,
   CardSetView,
+  CardGeneration,
   CardSetListView,
   CardSetDeletedView,
   ConceptCard,
@@ -82,7 +83,7 @@ function materialAttempt(value: unknown): boolean {
   if (
     !item ||
     !isUuid(item.run_id) ||
-    !["queued", "evidence", "semantics", "review", "publishing", "completed"].includes(
+    !["queued", "evidence", "semantics", "review", "indexing", "publishing", "completed"].includes(
       String(item.progress_stage),
     ) ||
     !Number.isInteger(item.completed_pages) ||
@@ -109,7 +110,7 @@ function materialAttempt(value: unknown): boolean {
       item.progress_stage !== "completed" &&
       item.error_code === null &&
       (item.cancel_requested_at === null ||
-        ["queued", "evidence", "semantics", "review", "publishing"].includes(String(item.progress_stage)))
+        ["queued", "evidence", "semantics", "review", "indexing", "publishing"].includes(String(item.progress_stage)))
     );
   if (item.status === "cancelled")
     return (
@@ -360,7 +361,12 @@ export function cardSetList(value: unknown): value is CardSetListView {
 
 export function cardSet(value: unknown): value is CardSetView {
   const item = object(value);
-  if (!item || !cardSetSummary(value) || item.schema !== "card-set/v1") return false;
+  if (!item || !cardSetSummary(value) || item.schema !== "card-set/v1" || !cardGeneration(item.generation)) return false;
+  const edits = object(item.display_edits);
+  if (!edits || !Object.values(edits).every(list => Array.isArray(list) && list.every(edit => {
+    const entry = object(edit);
+    return entry && typeof entry.source === "string" && typeof entry.text === "string";
+  }))) return false;
   const status = object(item.status);
   return item.source_resolver === `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
     && !!status && ["accepted", "needs_review"].includes(String(status.quality))
@@ -375,6 +381,15 @@ export function cardSet(value: unknown): value is CardSetView {
     && item.cards.every(conceptCard)
     && item.cards.every((card) => card.claims.length > 0 && card.claims.every((claim) => claim.evidence.length > 0))
     && new Set(item.cards.map((card) => card.concept_id)).size === item.cards.length;
+}
+
+export function cardGeneration(value: unknown): value is CardGeneration {
+  const item = object(value);
+  return !!item && ["pending", "running", "ready", "failed"].includes(String(item.status))
+    && ["preparing", "compacting", "checking", "complete"].includes(String(item.stage))
+    && [item.completed, item.total, item.retained_original, item.cached].every(n => Number.isInteger(n) && Number(n) >= 0)
+    && Number(item.completed) <= Number(item.total)
+    && (item.error_code === null || typeof item.error_code === "string");
 }
 
 export function cardSetDeleted(value: unknown): value is CardSetDeletedView {
