@@ -29,8 +29,6 @@ export function answerSources(answer: VoiceTurn['answer']) {
     }
     source.quote=quote;
   }
-  let text = answer?.text ?? '';
-  // 模型只接收本輪索引，來源由結構欄位呈現；不可把程式碼／向量中的 [0,1] 改成引用。
-  if (sources.length && !/來源 \d/.test(text)) text += ` [${sources.map((_,index)=>`來源 ${index+1}`).join('、')}]`;
-  return {text, sources};
+  // 來源統一放在回答下方的「查看來源」，正文保留原文。
+  return {text: answer?.text ?? '', sources};
 }

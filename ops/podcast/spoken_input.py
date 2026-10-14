@@ -62,61 +62,6 @@ def english_words(token, normalize_number):
     return ' '.join(token.upper())
 
 
-def speech_spans(text, normalize_zh, normalize_en):
-    """按語言與記號類型建立可讀語音片段；不讓英文片段再次通過中文去空白規則。"""
-    nodes=[];pending='';cursor=0
-    def flush():
-        nonlocal pending
-        if pending.strip():nodes.append({'language':'zh','text':normalize_zh(pending)})
-        pending=''
-    for match in _PARTS.finditer(text):
-        pending+=text[cursor:match.start()]
-        if match.group('unit'):
-            # 保留原本數值，以完整英文單位區分 byte／bit，不展開成中文大數量。
-            flush()
-            base = 'byte' if match.group('base') == 'B' else 'bit'
-            if abs(Decimal(match.group('number'))) != 1:
-                base += 's'
-            value = normalize_en(match.group('number')) + ' ' + _PREFIX[match.group('prefix')] + base
-            if match.group('rate'):
-                value += ' per second'
-            nodes.append({'language': 'en', 'text': value})
-        else:
-            token=match.group('latin')
-            # 常見普通英文詞保留在原句；縮寫、複合詞與識別符保留獨立英文讀法。
-            if token.islower() and token in lexicon() and not initialism(token):
-                pending+=' '+token+' '
-            else:
-                flush();nodes.append({'language':'en','text':english_words(token,normalize_en)})
-        cursor=match.end()
-    pending+=text[cursor:];flush()
-    # 英文列舉合併為一句，避免合成只有「和」或單一標點的碎片。
-    joiners={',':', ', '、':', ', '，':', ', '和':' and ', '與':' and ', '与':' and ', '及':' and ', '或':' or ',
-             '/':' slash ', '／':' slash ', '+':' plus ', '＋':' plus ', '→':' then ', 'and':' and ', 'or':' or '}
-    merged=[];i=0
-    while i<len(nodes):
-        node=dict(nodes[i]);i+=1
-        while node['language']=='en' and i<len(nodes):
-            if nodes[i]['language']=='en':
-                node['text']+=' '+nodes[i]['text'];i+=1
-            elif i+1<len(nodes) and nodes[i]['text'].strip() in joiners and nodes[i+1]['language']=='en':
-                node['text']+=joiners[nodes[i]['text'].strip()]+nodes[i+1]['text'];i+=2
-            else:break
-        if node['language']=='zh' and merged and merged[-1]['language']=='en':
-            leading=re.match(r'^\s*([。！？!?；;，,：:、.])\s*',node['text'])
-            if leading:
-                merged[-1]['ending']=leading[1]
-                node['text']=node['text'][leading.end():]
-        ending=re.search(r'[。！？!?；;，,：:、.]\s*$',node['text'])
-        node['ending']=ending[0].strip() if ending else ''
-        if any(c.isalnum() for c in node['text']):
-            merged.append(node)
-        elif merged and node['ending']:
-            # 縮寫後只有句號時，保留原句界給合成／停頓；不能當成空片段丟掉。
-            merged[-1]['ending']=node['ending']
-    return merged
-
-
 def mixed_sentences(text, normalize_zh, normalize_en):
     # 千分位是同一數值；毫秒只在數值後展開，不碰識別符中的 ms。
     text = re.sub(r'(?<![A-Za-z0-9_.])\d{1,3}(?:,\d{3})+(?:\.\d+)?', lambda m: m[0].replace(',', ''), text)

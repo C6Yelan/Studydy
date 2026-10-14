@@ -337,7 +337,7 @@ test('sources use structured references without rewriting numeric literals and h
  t.answer!.text='保留向量 [0,3] 與 values[0]。';
  t.answer!.citations.push(citation);
  await page.goto(mapPath);await open(page);await choose(page,conversation.conversation_id);
- await expect(page.locator('.voice-answer')).toContainText('來源 1');await expect(page.locator('.voice-answer')).toContainText('[0,3]');await expect(page.locator('.voice-answer')).toContainText('values[0]');
+ await expect(page.locator('.voice-answer')).toHaveText(t.answer!.text);
  await page.locator('.voice-sources summary').click();await expect(page.locator('.voice-source-list button')).toHaveCount(1);
  await page.getByRole('button',{name:'對話紀錄',exact:true}).click();
  const entry=page.locator('.voice-history-list button');expect(await entry.evaluate(el=>getComputedStyle(el).textOverflow)).toBe('ellipsis');

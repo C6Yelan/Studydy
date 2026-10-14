@@ -29,6 +29,8 @@
 
 已移除公開比較頁與試聽 WAV、Compose 靜態掛載。`/podcast-voice-comparison` 及其子路徑回 404，避免舊網址回到 SPA。正式 provider 已改採 V／W 指令與 v13 整句混讀；舊 Podcast 音訊保留，新建內容套用新版。回復資訊保存在 `data/deployments/podcast-b-v11-*/`，私有 provider 設定備份不輸出或提交。
 
+教材問答也共用 Podcast 的整句混讀、台灣口音指令、原 host 聲線、停頓修正與音量處理。舊的中英文分段合成分支已刪除，沒有 legacy 開關；既有音訊保留，新合成與重試使用共用流程。provider 每次音訊請求啟動 checkout 的 `ops/podcast/synthesize.py`，此腳本更新不需重啟 provider 或重建 backend。
+
 ## 核准 source 與直接建置
 
 一般 Git 整合仍為 `feature/* → dev → main`。學生專題需要外網、手機或語音實測時，
