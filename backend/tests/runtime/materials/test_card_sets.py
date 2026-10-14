@@ -16,7 +16,7 @@ from runtime.learner_session import register_account
 from runtime.material_discard import request_material_discard
 from runtime.material_processing import claim_next_material_processing_run, _record_progress
 from runtime.storage.knowledge_structures import _prune_unreferenced_structures, read_knowledge_structure, KnowledgeStructureStoreError
-from runtime.storage.tables import Material, database_session
+from runtime.storage.tables import CardSet, Material, database_session
 
 
 def create(fixture, key="cards", name="概念複習", ids=None):
@@ -183,8 +183,12 @@ def test_add_remove_concepts_and_concurrent_edit_conflict(closed_loop):
         card_sets.update_card_set(owner.learner_id, old["card_set_id"], "舊版本", 1, ids, dsn=dsn)
     saved = card_sets.create_card_set(owner.learner_id, source.material_id, candidate["revision"], "編輯", ids[:1], "two", dsn=dsn)
     identity = saved["card_set_id"]
+    with database_session(dsn) as db:
+        row = db.get(CardSet, identity)
+        row.status = 'ready'
+        row.card_count = 7
     updated = card_sets.update_card_set(owner.learner_id, identity, "兩張", 1, ids, dsn=dsn)
-    assert updated["card_count"] == 2 and updated["version"] == 2
+    assert updated["card_count"] is None and updated["generation"]["total"] == 2 and updated["version"] == 2
     assert card_sets.update_card_set(owner.learner_id, identity, "兩張", 1, ids, dsn=dsn) == updated
     def edit(name):
         try:
@@ -196,7 +200,7 @@ def test_add_remove_concepts_and_concurrent_edit_conflict(closed_loop):
     assert sum(isinstance(result, dict) for result in results) == 1
     assert "CARD_SET_CONFLICT" in results
     final = card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)
-    assert final["card_count"] == 1 and final["version"] == 3
+    assert final["card_count"] is None and len(final["cards"]) == 1 and final["version"] == 3
     assert final["cards"][0]["concept_id"] == ids[1]
     # 推薦順序可與教材原始排列不同；建立、編輯及重開都必須保持確認後的順序。
     reversed_ids = list(reversed(ids))
@@ -204,3 +208,41 @@ def test_add_remove_concepts_and_concurrent_edit_conflict(closed_loop):
     assert [c["concept_id"] for c in card_sets.read_card_set(owner.learner_id, ordered["card_set_id"], dsn=dsn)["cards"]] == reversed_ids
     card_sets.update_card_set(owner.learner_id, identity, "推薦順序", 3, reversed_ids, dsn=dsn)
     assert [c["concept_id"] for c in card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)["cards"]] == reversed_ids
+
+
+def test_count_persists_without_structure_reads_and_respects_version_and_owner(closed_loop, monkeypatch):
+    owner, _, settings, _, dsn, token = closed_loop
+    saved = create(closed_loop)
+    identity = saved['card_set_id']
+    assert saved['card_count'] is None
+    monkeypatch.setattr(api, 'runtime_binding', lambda _: {})
+    origin = 'http://127.0.0.1:4183'
+    client = TestClient(api.create_app(api.ApiSettings(profile='local', public_origin=origin,
+                        secure_cookie=False, local_config=settings, dsn=dsn)), base_url=origin)
+    url = f'/v1/card-sets/{identity}/count'
+    body = {'expected_version': 1, 'card_count': 7, 'layout_policy': 'visual-concept-card/v4'}
+    assert client.post(url, headers={'Origin': origin}, json=body).status_code == 401
+    client.cookies.set('studydy_session', token)
+    assert client.post(url, json=body).status_code == 403
+    assert client.post(url, headers={'Origin': origin}, json=body).status_code == 409  # 尚未生成完成
+    with database_session(dsn) as db:
+        db.get(CardSet, identity).status = 'ready'
+    for change in ({'card_count': 0}, {'card_count': True}, {'layout_policy': 'obsolete'}):
+        assert client.post(url, headers={'Origin': origin}, json={**body, **change}).status_code == 400
+    with monkeypatch.context() as patch:
+        patch.setattr(card_sets, '_read_verified_document', lambda *a, **kw: pytest.fail('count/list must not load structure'))
+        response = client.post(url, headers={'Origin': origin}, json=body)
+        assert response.status_code == 200 and response.json()['card_count'] == 7
+        assert response.json()['version'] == 1
+        assert client.post(url, headers={'Origin': origin}, json=body).json() == response.json()
+        assert client.get('/v1/card-sets').json()['card_sets'][0]['card_count'] == 7
+    # 改名不影響排版，仍保留張數；舊版本寫入不得覆蓋新狀態。
+    renamed = card_sets.update_card_set(owner.learner_id, identity, '改名', 1, dsn=dsn)
+    assert renamed['card_count'] == 7 and renamed['version'] == 2
+    assert client.post(url, headers={'Origin': origin}, json=body).status_code == 409
+    stranger = register_account('count-other@example.com', 'Synthetic other password 42', dsn=dsn)
+    client.cookies.set('studydy_session', stranger.raw_token)
+    assert client.post(url, headers={'Origin': origin}, json={**body, 'expected_version': 2}).status_code == 404
+    client.cookies.set('studydy_session', token)
+    card_sets.delete_card_set(owner.learner_id, identity, dsn=dsn)
+    assert client.post(url, headers={'Origin': origin}, json={**body, 'expected_version': 2}).status_code == 404

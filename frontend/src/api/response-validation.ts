@@ -2,7 +2,7 @@ import type {
   PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView,
   AnswerFeedbackView,
   CardSetSummary,
-  CardSetView,
+  CardSetView, CardStudyView, CardBatch,
   CardGeneration,
   CardSetListView,
   CardSetDeletedView,
@@ -322,13 +322,7 @@ function locator(value: unknown): boolean {
   );
 }
 
-function conceptCard(value: unknown): value is ConceptCard {
-  const item = object(value);
-  return !!item && revision(item.concept_id, "concept") && typeof item.label === "string"
-    && Array.isArray(item.claims) && item.claims.every((value) => {
-      const claim = object(value);
-      return !!claim && revision(claim.claim_id, "claim") && typeof claim.text === "string"
-        && Array.isArray(claim.evidence) && claim.evidence.every((value) => {
+function cardEvidence(value: unknown): boolean {
           const evidence = object(value);
           return !!evidence && revision(evidence.evidence_id, "evidence")
             && Number.isInteger(evidence.page) && Number(evidence.page) > 0
@@ -338,7 +332,15 @@ function conceptCard(value: unknown): value is ConceptCard {
               (Number.isInteger(evidence.normalized_page) && Number(evidence.normalized_page) > 0))
             && ["native_text", "unlimited_ocr"].includes(String(evidence.source))
             && typeof evidence.quote === "string" && locator(evidence.source_locator);
-        });
+}
+
+function conceptCard(value: unknown): value is ConceptCard {
+  const item = object(value);
+  return !!item && revision(item.concept_id, "concept") && typeof item.label === "string"
+    && Array.isArray(item.claims) && item.claims.every((value) => {
+      const claim = object(value);
+      return !!claim && revision(claim.claim_id, "claim") && typeof claim.text === "string"
+        && Array.isArray(claim.evidence) && claim.evidence.every(cardEvidence);
     });
 }
 
@@ -349,7 +351,8 @@ export function cardSetSummary(value: unknown): value is CardSetSummary {
     && revision(item.knowledge_structure_revision, "knowledge-structure")
     && typeof item.name === "string" && item.name.trim().length > 0
     && typeof item.material_name === "string" && timestamp(item.created_at)
-    && Number.isInteger(item.card_count) && Number(item.card_count) > 0
+    && (item.card_count === null || Number.isInteger(item.card_count) && Number(item.card_count) > 0)
+    && cardGeneration(item.generation)
     && typeof item.is_current_revision === "boolean";
 }
 
@@ -377,10 +380,68 @@ export function cardSet(value: unknown): value is CardSetView {
       return !!page && Number.isInteger(page.page) && Number(page.page) > 0
         && typeof page.reason_code === "string";
     })
-    && Array.isArray(item.cards) && item.cards.length === item.card_count
+    && Array.isArray(item.cards) && item.cards.length === item.generation.total
     && item.cards.every(conceptCard)
     && item.cards.every((card) => card.claims.length > 0 && card.claims.every((claim) => claim.evidence.length > 0))
     && new Set(item.cards.map((card) => card.concept_id)).size === item.cards.length;
+}
+
+function cardEdits(value: unknown): boolean {
+  return Array.isArray(value) && value.every(edit => {
+    const item = object(edit);
+    return item && typeof item.source === "string" && typeof item.text === "string";
+  });
+}
+
+export function cardBatch(value: unknown): value is CardBatch {
+  const item = object(value), context = object(item?.context), status = object(context?.status);
+  if (!item || item.schema !== "card-batch/v1" || !isUuid(item.card_set_id)
+    || !Number.isInteger(item.version) || Number(item.version) < 1
+    || !Number.isInteger(item.offset) || Number(item.offset) < 0 || Number(item.offset) % 8 !== 0
+    || !Number.isInteger(item.total) || Number(item.total) <= Number(item.offset)
+    || !Array.isArray(item.cards) || item.cards.length !== Math.min(8, Number(item.total) - Number(item.offset))
+    || !item.cards.every(card => conceptCard(card) && card.claims.length > 0 && cardEdits(object(card)?.display_edits))
+    || new Set(item.cards.map(c => c.concept_id)).size !== item.cards.length
+    || !context || typeof context.source_resolver !== "string"
+    || !status || !["accepted", "needs_review"].includes(String(status.quality))
+    || !["succeeded", "partial"].includes(String(status.processing))
+    || !["retain", "review"].includes(String(status.decision)) || !strings(status.reason_codes)
+    || !Array.isArray(context.concepts) || !context.concepts.every(conceptCard)
+    || !Array.isArray(context.relation_evidence) || !context.relation_evidence.every(cardEvidence)
+    || !Array.isArray(context.relations) || !context.relations.every(value => {
+      const relation = object(value);
+      return relation && revision(relation.relation_id, "relation")
+        && revision(relation.source_concept_id, "concept") && revision(relation.target_concept_id, "concept")
+        && ["prerequisite", "part_of", "application", "example", "contrast"].includes(String(relation.type))
+        && typeof relation.learner_reason === "string" && strings(relation.evidence_refs)
+        && relation.evidence_refs.every(id => revision(id, "evidence"));
+    })) return false;
+  const concepts = new Set(context.concepts.map(c => c.concept_id));
+  return concepts.size === context.concepts.length && item.cards.every(c => concepts.has(c.concept_id));
+}
+
+export function cardStudy(value: unknown): value is CardStudyView {
+  const item = object(value);
+  if (!item || !cardSetSummary(value)) return false;
+  const generation = value.generation;
+  if (item.schema !== "card-study/v1"
+    || item.source_resolver !== `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
+    || !Array.isArray(item.navigation) || item.navigation.length !== generation.total
+    || !item.navigation.every(value => {
+      const entry = object(value);
+      return entry && revision(entry.concept_id, "concept") && typeof entry.label === "string"
+        && (entry.page_count === null || Number.isInteger(entry.page_count) && Number(entry.page_count) > 0);
+    }) || new Set(item.navigation.map(c => c.concept_id)).size !== item.navigation.length) return false;
+  const navigation = item.navigation;
+  const status = object(item.status);
+  if (!status) return false;
+  if (generation.status !== "ready") return item.batch === null;
+  const batch = item.batch;
+  return cardBatch(batch) && batch.card_set_id === item.card_set_id && batch.version === item.version
+    && batch.offset === 0 && batch.total === item.navigation.length
+    && batch.context.source_resolver === item.source_resolver
+    && batch.context.status.processing === status.processing && batch.context.status.quality === status.quality && batch.context.status.decision === status.decision
+    && batch.cards.every((c, i) => c.concept_id === navigation[i].concept_id);
 }
 
 export function cardGeneration(value: unknown): value is CardGeneration {

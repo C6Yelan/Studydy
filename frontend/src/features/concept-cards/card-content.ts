@@ -1,4 +1,4 @@
-import type { ConceptCard, EvidenceView, KnowledgeStructureView } from "../../api/contracts";
+import type { ConceptCard, EvidenceView, ConceptCardContext } from "../../api/contracts";
 import { claimText } from "../../ui/claim-text.ts";
 import { cardRelations, hasCardEvidence } from "./card-relation.ts";
 import { textUnits } from "./card-text.ts";
@@ -57,7 +57,7 @@ function claimTable(claim: Claim, claims: Claim[]): CardContent | null {
   return null;
 }
 
-export function cardContent(card: ConceptCard, structure: KnowledgeStructureView): CardContent | null {
+export function cardContent(card: ConceptCard, structure: ConceptCardContext): CardContent | null {
   const claims = card.claims.filter(c => claimText(c).trim());
   for (const claim of claims) {
     if (!claim.evidence.some(hasCardEvidence)) continue;

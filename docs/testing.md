@@ -448,7 +448,7 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src .studydy-runtime/research-venv
 
 ## 概念卡語意精簡與持久進度
 
-`test_card_compaction.py` 核對數值／單位與來源投影、格式錯誤及語意拒絕；runtime 的 `test_card_generation.py` 使用隔離 DB 驗證分步保存、同版本快取、模型失敗重試、租約回收與刪除後不得發布。前端版型測試確認精簡不變更表格欄位、Evidence 或技術內容；`concept-cards.spec.ts` 驗證刷新續接、失敗重試、PNG 顯示與完整原文來源。這些是合成模型回應的工程回歸，實際精簡品質需以真實教材生成後另行核對。
+`test_card_compaction.py` 核對數值／單位與來源投影、格式錯誤及語意拒絕；runtime 的 `test_card_generation.py` 使用隔離 DB 驗證分步保存、同版本快取、模型失敗重試、租約回收與刪除後不得發布。前端版型測試確認精簡不變更表格欄位、Evidence 或技術內容；`concept-cards.spec.ts` 驗證刷新續接、失敗重試、Canvas 顯示、下載時才編碼 PNG、下載圖素一致性與完整原文來源。這些是合成模型回應的工程回歸，實際精簡品質需以真實教材生成後另行核對。
 
 
 大型教材讀取的回歸包含 JSONB 的 NUL 無損還原、來源驗證邊界，以及同一工作階段內目前地圖與舊版卡組的兩份不可變結構快取。登出、帳號失效與刪除教材會清除快取，失敗請求可重試；快取不寫入瀏覽器持久儲存。以實際網路回應與功能可用狀態量測，不能把固定等待時間當成完成時間。
@@ -457,3 +457,5 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src .studydy-runtime/research-venv
 
 
 2026-10-13 的教材分析 RAG 對照使用生成式 AI 改良版與網路教材的六個既有區塊，保留本批全部原文，比較不補檢索／額外補入同教材相關頁面，各跑兩次，共 24 次 Luna 請求。兩組估算輸入分別為 58,756 與 77,734 tokens（含提示、payload、schema），增加 32.3%。稀疏整合頁能補出較完整的跨頁概念，但密集區塊未顯示穩定品質提升，部分原有例子被擠掉；因此未將每批自動追加檢索接入正式教材分析。這是獨立分析階段的探索，並非完整分析／審查流程的品質通過率。原始輸入、24 份結果、來源投影檢查與人工觀察留在本機 `data/rag/qualification-20261013/analysis-rag-review.json` 及對應私人結果檔，未加入 Git／CI。
+
+概念卡分批讀取：`test_card_reading.py` 驗證首批／尾批、跨批相鄰概念與 Evidence 的完整投影、權限、版本衝突、投影損壞及部分續頁計數。瀏覽器回歸驗證首屏不要求完整 KS、直接跳讀遠端觀念、跨批續頁返回及帳號切換時取消待回應批次。部署驗收另以既有虛擬教材實測首次讀取的 request 數、大小及首張 Canvas 時間。

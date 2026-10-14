@@ -216,6 +216,23 @@ export type KnowledgeStructureView = {
 
 export type ConceptCard = Pick<KnowledgeStructureView["concepts"][number], "concept_id" | "label" | "claims"> & { display_edits?: CardTextEdit[] };
 
+export type ConceptCardContext = Pick<KnowledgeStructureView, "source_resolver" | "status" | "concepts" | "relations"> & {
+  relation_evidence?: EvidenceView[];
+};
+
+export type CardBatch = {
+  schema: "card-batch/v1";
+  card_set_id: string; version: number; offset: number; total: number;
+  cards: ConceptCard[]; context: ConceptCardContext;
+};
+
+export type CardStudyView = CardSetSummary & {
+  schema: "card-study/v1";
+  source_resolver: string; status: KnowledgeStructureView["status"];
+  navigation: { concept_id: string; label: string; page_count: number | null }[];
+  batch: CardBatch | null;
+};
+
 export type CardGeneration = {
   status: "pending" | "running" | "ready" | "failed";
   stage: "preparing" | "compacting" | "checking" | "complete";
@@ -231,7 +248,8 @@ export type CardSetSummary = {
   material_name: string;
   knowledge_structure_revision: string;
   name: string;
-  card_count: number;
+  card_count: number | null;
+  generation: CardGeneration;
   created_at: string;
   is_current_revision: boolean;
 };
@@ -242,7 +260,6 @@ export type CardSetView = CardSetSummary & {
   status: KnowledgeStructureView["status"];
   excluded_pages: KnowledgeStructureView["excluded_pages"];
   cards: ConceptCard[];
-  generation: CardGeneration;
   display_edits: Record<string, CardTextEdit[]>;
 };
 

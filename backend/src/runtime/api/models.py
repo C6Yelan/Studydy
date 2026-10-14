@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictInt
 
 
 class _Closed(BaseModel):
@@ -229,13 +229,24 @@ class CardSetCreate(_Closed):
     concept_ids: list[str] = Field(min_length=1)
 
 
+class CardGenerationView(_Closed):
+    status: Literal['pending', 'running', 'ready', 'failed']
+    stage: Literal['preparing', 'compacting', 'checking', 'complete']
+    completed: int
+    total: int
+    error_code: str | None
+    retained_original: int
+    cached: int
+
+
 class CardSetSummary(_Closed):
     card_set_id: UUID
     material_id: UUID
     material_name: str
     knowledge_structure_revision: str
     name: str
-    card_count: int
+    card_count: int | None
+    generation: CardGenerationView
     version: int
     created_at: datetime
     is_current_revision: bool
@@ -254,14 +265,12 @@ class ConceptCardView(_Closed):
     claims: list[ClaimView]
 
 
-class CardGenerationView(_Closed):
-    status: Literal['pending', 'running', 'ready', 'failed']
-    stage: Literal['preparing', 'compacting', 'checking', 'complete']
-    completed: int
-    total: int
-    error_code: str | None
-    retained_original: int
-    cached: int
+class CardCountSave(_Closed):
+    expected_version: int = Field(ge=1, strict=True)
+    card_count: int | None = Field(default=None, ge=1, le=1_000_000, strict=True)
+    concept_counts: dict[str, StrictInt] = Field(default_factory=dict)
+    # 分頁規則更新時須同步此政策與前端，並以 migration 清除舊張數。
+    layout_policy: Literal['visual-concept-card/v4']
 
 
 class CardTextEdit(_Closed):
@@ -275,8 +284,43 @@ class CardSetView(CardSetSummary):
     status: StatusView
     excluded_pages: list[ExcludedPageView]
     cards: list[ConceptCardView]
-    generation: CardGenerationView
     display_edits: dict[str, list[CardTextEdit]]
+
+
+class StudyCardView(ConceptCardView):
+    display_edits: list[CardTextEdit]
+
+
+class CardContextView(_Closed):
+    source_resolver: str
+    status: StatusView
+    concepts: list[ConceptView]
+    relations: list[RelationView]
+    relation_evidence: list[EvidenceView]
+
+
+class CardBatchView(_Closed):
+    schema_: Literal['card-batch/v1'] = Field(alias='schema')
+    card_set_id: UUID
+    version: int
+    offset: int
+    total: int
+    cards: list[StudyCardView]
+    context: CardContextView
+
+
+class CardNavigationView(_Closed):
+    concept_id: str
+    label: str
+    page_count: int | None
+
+
+class CardStudyView(CardSetSummary):
+    schema_: Literal['card-study/v1'] = Field(alias='schema')
+    source_resolver: str
+    status: StatusView
+    navigation: list[CardNavigationView]
+    batch: CardBatchView | None
 
 
 class CardSetListView(_Closed):

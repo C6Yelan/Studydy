@@ -6,6 +6,7 @@ import type {
   CardSetUpdate,
   CardSetSummary,
   CardSetView,
+  CardStudyView, CardBatch,
   CardGeneration,
   CardSetListView,
   CardSetDeletedView,
@@ -396,6 +397,31 @@ export class StudydyApiClient {
 
   getCardGeneration(id: string): Promise<CardGeneration> {
     return this.json(`/v1/card-sets/${encodeURIComponent(id)}/generation`, { method: "GET" }, validate.cardGeneration);
+  }
+
+  getCardStudy(id: string): Promise<CardStudyView> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/study`, { method: "GET" },
+      (value): value is CardStudyView => validate.cardStudy(value) && value.card_set_id === id);
+  }
+
+  getCardBatch(id: string, version: number, offset: number): Promise<CardBatch> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/cards?offset=${offset}&version=${version}`, { method: "GET" },
+      (value): value is CardBatch => validate.cardBatch(value) && value.card_set_id === id && value.version === version && value.offset === offset);
+  }
+
+  saveConceptCounts(id: string, version: number, counts: Record<string, number>): Promise<CardSetSummary> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/count`, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
+      body: JSON.stringify({ expected_version: version, concept_counts: counts, layout_policy: "visual-concept-card/v4" }),
+    }, (value): value is CardSetSummary => validate.cardSetSummary(value) && value.card_set_id === id && value.version === version);
+  }
+
+  saveCardCount(id: string, version: number, count: number): Promise<CardSetSummary> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/count`, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
+      body: JSON.stringify({ expected_version: version, card_count: count, layout_policy: "visual-concept-card/v4" }),
+    }, (value): value is CardSetSummary => validate.cardSetSummary(value) && value.card_set_id === id
+      && value.version === version && value.card_count !== null);
   }
 
   retryCardGeneration(id: string): Promise<CardGeneration> {

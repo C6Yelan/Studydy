@@ -1,4 +1,4 @@
-import type { ConceptCard, KnowledgeStructureView } from "../../api/contracts";
+import type { ConceptCard, ConceptCardContext } from "../../api/contracts";
 import { claimText } from "../../ui/claim-text";
 import { compactLayout, selectConceptCardLayout, selectConceptCardLayouts } from "./concept-card-layout";
 import { cardSourceText } from "./card-content";
@@ -394,11 +394,11 @@ function technical(draw: CardCanvas, layout: Layout) {
   draw.text(shown.length < lines.length ? `原文節錄 · 僅列完整前 ${shown.length} 行` : "", 82, 713, 20, code ? "#b9dce9" : blue);
 }
 
-const cardPages = new WeakMap<KnowledgeStructureView, WeakMap<ConceptCard, Layout[]>>();
+const cardPages = new WeakMap<ConceptCardContext, WeakMap<ConceptCard, Layout[]>>();
 
 // 依原始內容物件隔離版本，讓切卡／洗牌重用排版與圖片；資料釋放時一起回收。
 // 長段落以實際字型量測切成續圖，保留 Claim 與 Evidence 身分。
-export function conceptCardPages(card: ConceptCard, structure: KnowledgeStructureView): Layout[] {
+export function conceptCardPages(card: ConceptCard, structure: ConceptCardContext): Layout[] {
   let cards = cardPages.get(structure);
   if (!cards) { cards = new WeakMap(); cardPages.set(structure, cards); }
   const cached = cards.get(card);
@@ -432,17 +432,21 @@ export function conceptCardPages(card: ConceptCard, structure: KnowledgeStructur
   return result;
 }
 
-const renderedPages = new WeakMap<Layout, Promise<Blob>>();
+const renderedPages = new WeakMap<object, Map<string, Promise<HTMLCanvasElement>>>();
 
-// 每個內容版本的同一頁只繪製一次；失敗不留快取，讓重試重新繪圖。
-export function conceptCardPng(card: ConceptCard, layout: Layout, pageIndex: number, pageCount: number): Promise<Blob> {
-  const cached = renderedPages.get(layout);
-  if (cached) return cached;
+// 每個帳號工作階段最多保留 8 張點陣圖（約 28 MiB），不寫入硬碟。
+// 快取隨帳號 API 物件釋放；跨批次仍以教材版本、概念、精簡文字及頁碼重用。
+export function conceptCardCanvas(card: ConceptCard, structure: ConceptCardContext, layout: Layout, pageIndex: number, pageCount: number, cacheOwner: object): Promise<HTMLCanvasElement> {
+  let cache = renderedPages.get(cacheOwner);
+  if (!cache) { cache = new Map(); renderedPages.set(cacheOwner, cache); }
+  const key = JSON.stringify([structure.source_resolver, card.concept_id, card.display_edits ?? [], pageIndex, pageCount]);
+  const cached = cache.get(key);
+  if (cached) { cache.delete(key); cache.set(key, cached); return cached; }
   const rendered = document.fonts.ready.then(() => {
     const canvas = document.createElement("canvas");
     canvas.width = 1200; canvas.height = 760; canvas.lang = "zh-Hant";
     const context = canvas.getContext("2d");
-    if (!context) throw new Error("PNG_CANVAS_UNAVAILABLE");
+    if (!context) throw new Error("CARD_CANVAS_UNAVAILABLE");
     Object.assign(context, { lang: "zh-Hant", textRendering: "optimizeLegibility" });
     const draw = new CardCanvas(context);
     const sparseLayout = layout.family === "sparse" ? sparseFrame(layout) : null;
@@ -467,11 +471,10 @@ export function conceptCardPng(card: ConceptCard, layout: Layout, pageIndex: num
     }
     context.restore();
     if (pageCount > 1) draw.text(`第 ${pageIndex + 1} / ${pageCount} 張圖`, 1152, 744, 20, muted, false, "right");
-    return new Promise<Blob>((resolve, reject) => canvas.toBlob(
-      blob => blob ? resolve(blob) : reject(new Error("PNG_ENCODING_FAILED")), "image/png",
-    ));
+    return canvas;
   });
-  renderedPages.set(layout, rendered);
-  void rendered.catch(() => renderedPages.delete(layout));
+  cache.set(key, rendered);
+  if (cache.size > 8) cache.delete(cache.keys().next().value!);
+  void rendered.catch(() => { if (cache.get(key) === rendered) cache.delete(key); });
   return rendered;
 }

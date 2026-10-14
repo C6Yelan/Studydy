@@ -4,8 +4,9 @@ type DrawnText = { text: string; x: number; y: number; font: string; left: numbe
 type Drawing = { texts: DrawnText[]; iconStrokes: number };
 declare global {
   interface Window {
-    cardDrawings: Record<string, Drawing>;
+    cardDrawings: WeakMap<HTMLCanvasElement, Drawing>;
     cardEncodingCount: number;
+    cardRenderCount: number;
   }
 }
 
@@ -13,12 +14,12 @@ declare global {
 export async function recordCardDrawing(page: Page) {
   await page.addInitScript(() => {
     const drawings = new WeakMap<HTMLCanvasElement, Drawing>();
-    const blobs = new WeakMap<Blob, Drawing>();
-    window.cardDrawings = {};
+    window.cardDrawings = drawings;
     window.cardEncodingCount = 0;
+    window.cardRenderCount = 0;
     const drawing = (canvas: HTMLCanvasElement) => {
       let result = drawings.get(canvas);
-      if (!result) { result = { texts: [], iconStrokes: 0 }; drawings.set(canvas, result); }
+      if (!result) { result = { texts: [], iconStrokes: 0 }; drawings.set(canvas, result); window.cardRenderCount++; }
       return result;
     };
     const fillText = CanvasRenderingContext2D.prototype.fillText;
@@ -41,27 +42,24 @@ export async function recordCardDrawing(page: Page) {
       if (this.canvas.width === 1200 && this.getTransform().a !== 1) drawing(this.canvas).iconStrokes++;
       if (path) stroke.call(this, path); else stroke.call(this);
     };
+    const drawImage = CanvasRenderingContext2D.prototype.drawImage;
+    CanvasRenderingContext2D.prototype.drawImage = function (...args: unknown[]) {
+      const source = args[0];
+      if (source instanceof HTMLCanvasElement && drawings.has(source)) drawings.set(this.canvas, drawings.get(source)!);
+      Reflect.apply(drawImage, this, args);
+    };
     const encode = HTMLCanvasElement.prototype.toBlob;
     HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
       if (this.width === 1200 && this.height === 760) window.cardEncodingCount++;
-      encode.call(this, blob => {
-        if (blob && drawings.has(this)) blobs.set(blob, drawing(this));
-        callback(blob);
-      }, type, quality);
-    };
-    const createObjectURL = URL.createObjectURL;
-    URL.createObjectURL = function (blob) {
-      const url = createObjectURL.call(URL, blob);
-      if (blob instanceof Blob && blobs.has(blob)) window.cardDrawings[url] = blobs.get(blob)!;
-      return url;
+      encode.call(this, callback, type, quality);
     };
   });
 }
 
 export async function cardDrawing(page: Page) {
-  const image = page.locator(".visual-card > img.visual-concept-card");
+  const image = page.locator(".visual-card > canvas.visual-concept-card");
   await expect(image).toBeVisible();
-  return image.evaluate((image: HTMLImageElement) => window.cardDrawings[image.src]);
+  return image.evaluate((image: HTMLCanvasElement) => window.cardDrawings.get(image)!);
 }
 
 export async function drawnText(page: Page) {

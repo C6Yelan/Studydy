@@ -170,6 +170,26 @@ class MaterialPassage(Base):
     keywords: Mapped[Any] = mapped_column(TSVECTOR)
 
 
+class CardSourceIndex(Base):
+    __tablename__ = 'card_source_indexes'
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    structure_revision: Mapped[str] = mapped_column(Text, primary_key=True)
+    metadata_: Mapped[dict] = mapped_column('metadata', EvidenceJSONB)
+    content_sha256: Mapped[str] = mapped_column(Text)
+
+
+class CardSourceConcept(Base):
+    __tablename__ = 'card_source_concepts'
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    structure_revision: Mapped[str] = mapped_column(Text, primary_key=True)
+    concept_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    position: Mapped[int] = mapped_column(Integer)
+    payload: Mapped[dict] = mapped_column(EvidenceJSONB)
+    content_sha256: Mapped[str] = mapped_column(Text)
+
+
 class CardSet(Base):
     __tablename__ = "card_sets"
     __table_args__ = (
@@ -187,6 +207,8 @@ class CardSet(Base):
     knowledge_structure_revision: Mapped[str | None] = mapped_column(Text)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     concept_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    card_count: Mapped[int | None] = mapped_column(Integer)
+    page_counts: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     version: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("1"))
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)

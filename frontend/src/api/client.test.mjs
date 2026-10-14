@@ -26,12 +26,51 @@ function cardSetView() {
   };
 }
 
+function cardStudyView() {
+  const old = cardSetView(), structure = structureView();
+  const batch = { schema: 'card-batch/v1', card_set_id: setId, version: 1, offset: 0, total: old.cards.length,
+    cards: old.cards.map(card => ({ ...card, display_edits: [] })),
+    context: { source_resolver: old.source_resolver, status: old.status, concepts: structure.concepts, relations: structure.relations, relation_evidence: [] } };
+  return { ...old, schema: 'card-study/v1', navigation: old.cards.map(card => ({ concept_id: card.concept_id, label: card.label, page_count: null })), batch };
+}
+
+test("card study rejects foreign batches, wrong versions and invalid source context", async () => {
+  const valid = await new StudydyApiClient(async () => Response.json(cardStudyView())).getCardStudy(setId);
+  assert.equal(valid.batch.cards[0].label, 'Stack');
+  for (const change of [
+    value => { value.batch.card_set_id = materialId; },
+    value => { value.batch.version = 2; },
+    value => { value.batch.offset = 8; },
+    value => { value.batch.context.source_resolver = '/wrong/evidence'; },
+    value => { value.batch.cards[0].claims[0].evidence[0].page = 0; },
+    value => { value.navigation[0].concept_id = `concept:sha256:${'f'.repeat(64)}`; },
+    value => { value.batch.cards[0].display_edits = [{ source: 'text', text: 1 }]; },
+  ]) {
+    const value = cardStudyView(); change(value);
+    await assert.rejects(new StudydyApiClient(async () => Response.json(value)).getCardStudy(setId), error => error.kind === 'schema');
+  }
+});
+
+test("card batches and partial page counts stay bound to the selected version", async () => {
+  const study = cardStudyView();
+  const client = new StudydyApiClient(async (url, init) => {
+    if (init.method === 'GET') {
+      assert.equal(url, `/v1/card-sets/${setId}/cards?offset=0&version=1`);
+      return Response.json(study.batch);
+    }
+    assert.deepEqual(JSON.parse(init.body), { expected_version: 1, concept_counts: { [conceptId]: 3 }, layout_policy: 'visual-concept-card/v4' });
+    return Response.json({ ...study, card_count: null });
+  });
+  assert.equal((await client.getCardBatch(setId, 1, 0)).offset, 0);
+  assert.equal((await client.saveConceptCounts(setId, 1, { [conceptId]: 3 })).card_count, null);
+});
+
 test("saved cards reject foreign identities, version-mismatched sources and invalid contents", async () => {
   assert.equal((await new StudydyApiClient(async () => Response.json(cardSetView())).getCardSet(setId)).cards[0].label, "Stack");
   for (const change of [
     (view) => { view.card_set_id = materialId; },
     (view) => { view.source_resolver = view.source_resolver.replace(structureRevision, `knowledge-structure:sha256:${"f".repeat(64)}`); },
-    (view) => { view.card_count = 2; },
+    (view) => { view.card_count = -1; },
     (view) => { view.cards[0].claims[0].evidence = []; },
     (view) => { view.cards[0].claims[0].evidence[0].page = -1; },
     (view) => { delete view.status; },
@@ -55,6 +94,21 @@ test("card creation uses the same supplied intent key and deletion verifies its 
   assert.equal(requests[0].init.headers["Idempotency-Key"], "stable-intent");
   assert.deepEqual(JSON.parse(requests[0].init.body), body);
   await assert.rejects(new StudydyApiClient(async () => Response.json({ schema: "card-set-deleted/v1", card_set_id: materialId })).deleteCardSet(setId), (error) => error.kind === "schema");
+});
+
+test("card_count is the persisted page count, independent of concept count", async () => {
+  for (const count of [null, 17]) {
+    const view = { ...cardSetView(), card_count: count };
+    assert.equal((await new StudydyApiClient(async () => Response.json(view)).getCardSet(setId)).card_count, count);
+  }
+  const view = { ...cardSetView(), card_count: 17 };
+  const client = new StudydyApiClient(async (url, init) => {
+    assert.equal(url, `/v1/card-sets/${setId}/count`);
+    assert.equal(init.method, "POST");
+    assert.deepEqual(JSON.parse(init.body), { expected_version: 1, card_count: 17, layout_policy: "visual-concept-card/v4" });
+    return Response.json(view);
+  });
+  assert.equal((await client.saveCardCount(setId, 1, 17)).card_count, 17);
 });
 
 function apiErrorResponse(reasonCode, status, retryable = false) {

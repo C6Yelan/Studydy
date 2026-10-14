@@ -120,7 +120,8 @@ test("material collections filter both products while outer navigation opens the
   await page.route("**/v1/podcasts", route => json(route, { schema: "podcast-list/v1", podcasts: [fixture.view, { ...fixture.view, podcast_id: secondPodcast, material_id: otherMaterial, name: "別的教材 Podcast" }] }));
   const card = { version: 1, card_set_id: "55555555-5555-4555-8555-555555555555", material_id: materialId,
     material_name: fixture.view.material_name, knowledge_structure_revision: structureRevision,
-    name: "此教材卡組", card_count: 2, created_at: fixture.view.created_at, is_current_revision: true };
+    name: "此教材卡組", card_count: 2, created_at: fixture.view.created_at, is_current_revision: true,
+    generation: { status: "ready", stage: "complete", completed: 2, total: 2, error_code: null, retained_original: 0, cached: 0 } };
   await page.route("**/v1/card-sets", route => json(route, { schema: "card-set-list/v1", card_sets: [card, { ...card, card_set_id: secondPodcast, material_id: otherMaterial, name: "別的教材卡組" }] }));
   await page.goto('/');
   await expect(page.locator('.dashboard-collections')).toHaveCount(0);

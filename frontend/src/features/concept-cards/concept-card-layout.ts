@@ -1,11 +1,11 @@
-import type { ConceptCard, KnowledgeStructureView, CardTextEdit } from "../../api/contracts";
+import type { ConceptCard, ConceptCardContext, CardTextEdit } from "../../api/contracts";
 import { claimText } from "../../ui/claim-text.ts";
 import { cardRelation, cardRelations, hasCardEvidence } from "./card-relation.ts";
 import { textUnits } from "./card-text.ts";
 import { cardContent, cardSourceText } from "./card-content.ts";
 import { selectCardObjects } from "./icon-selection.ts";
 
-export function selectConceptCardLayout(card: ConceptCard, structure: KnowledgeStructureView) {
+export function selectConceptCardLayout(card: ConceptCard, structure: ConceptCardContext) {
   const claims = card.claims.filter(c => claimText(c).trim());
   const technical = claims.find(c => c.evidence.some(e => hasCardEvidence(e) && (e.kind === "code" || e.kind === "formula")));
   const content = technical ? null : cardContent(card, structure);
@@ -28,7 +28,7 @@ export function selectConceptCardLayout(card: ConceptCard, structure: KnowledgeS
 }
 
 // 同一觀念可延續到多張圖；已呈現的重點不再佔用後續圖的容量。
-export function selectConceptCardLayouts(card: ConceptCard, structure: KnowledgeStructureView) {
+export function selectConceptCardLayouts(card: ConceptCard, structure: ConceptCardContext) {
   const layouts: ReturnType<typeof selectConceptCardLayout>[] = [];
   let remaining = card.claims.filter(c => claimText(c).trim());
   do {

@@ -9,6 +9,7 @@ from pdf_evidence.ocr_page_evidence import canonical_sha256
 from .storage.artifacts import _key_digest
 from .storage.knowledge_structures import _prune_unreferenced_structures, _read_verified_document, _view
 from .storage.tables import CardSet, Material, database_session
+from .storage import card_sources
 from . import card_generation
 
 
@@ -33,7 +34,8 @@ def _summary(row, material):
         "material_name": material.display_name,
         "knowledge_structure_revision": row.knowledge_structure_revision,
         "name": row.name,
-        "card_count": len(row.concept_ids),
+        "card_count": row.card_count,
+        "generation": card_generation.progress(row),
         "version": row.version,
         "created_at": row.created_at,
         "is_current_revision": row.knowledge_structure_revision == material.head_revision,
@@ -75,6 +77,7 @@ def create_card_set(owner, material_id, revision, name, concept_ids, key, *, dsn
         known = {concept["concept_id"] for concept in document["concepts"]}
         if not set(concept_ids) <= known:
             raise CardSetError("REQUEST_INVALID")
+        card_sources.prepare(session, owner, material_id, revision, document=document)
         row = CardSet(
             card_set_id=uuid4(), learner_id=owner, material_id=material_id,
             knowledge_structure_revision=revision, name=name,
@@ -126,7 +129,6 @@ def read_card_set(owner, card_set_id, *, dsn=None):
             "schema": "card-set/v1", **_summary(row, material),
             "source_resolver": view["source_resolver"], "status": view["status"],
             "excluded_pages": view["excluded_pages"],
-            "generation": card_generation.progress(row),
             "display_edits": {identity: item['edits'] for identity, item in row.generation.get('results', {}).items()
                               if identity in row.concept_ids} if row.status == 'ready' else {},
             "cards": [{key: concepts[identity][key] for key in ("concept_id", "label", "claims")}
@@ -159,6 +161,8 @@ def update_card_set(owner, card_set_id, name, expected_version, concept_ids=None
             raise CardSetError("CARD_SET_CONFLICT")
         if not unchanged:
             if row.concept_ids != ordered:
+                row.card_count = None
+                row.page_counts = {}
                 results = {identity: item for identity, item in row.generation.get('results', {}).items() if identity in ordered}
                 row.generation = card_generation.initial(results)
                 row.status = 'pending'
@@ -184,6 +188,8 @@ def delete_card_set(owner, card_set_id, *, dsn=None):
             row.knowledge_structure_revision = None
             row.name = ""
             row.concept_ids = []
+            row.card_count = None
+            row.page_counts = {}
             row.generation = {}
             row.lease_token = None
             row.lease_expires_at = None
@@ -203,3 +209,53 @@ def generation_status(owner, card_set_id, *, retry=False, dsn=None):
             row.generation = {**row.generation, 'error_code': None}
             row.status = 'pending'
         return card_generation.progress(row)
+
+
+def save_card_count(owner, card_set_id, count, expected_version, *, concept_counts=None, dsn=None):
+    """保存擁有者瀏覽器的排版結果；舊選材或未完成精簡的張數不得寫入。"""
+    with database_session(dsn) as session:
+        material_id = _set_material_id(session, owner, card_set_id)
+        material = _material(session, owner, material_id)
+        row = session.get(CardSet, card_set_id)
+        if row is None or row.deleted_at is not None:
+            raise CardSetError("RESOURCE_NOT_FOUND")
+        if row.version != expected_version or row.status != 'ready':
+            raise CardSetError("CARD_SET_CONFLICT")
+        if concept_counts:
+            if (not set(concept_counts) <= set(row.concept_ids)
+                    or any(type(n) is not int or not 1 <= n <= 1_000_000 for n in concept_counts.values())):
+                raise CardSetError("REQUEST_INVALID")
+            merged = {**concept_counts, **row.page_counts}
+            if sum(merged.values()) > 1_000_000:
+                raise CardSetError("REQUEST_INVALID")
+            row.page_counts = merged
+            if len(merged) == len(row.concept_ids):
+                row.card_count = sum(merged.values())
+            return _summary(row, material)
+        if type(count) is not int or not len(row.concept_ids) <= count <= 1_000_000:
+            raise CardSetError("REQUEST_INVALID")
+        # 同版本的第一份排版結果為準；重送不修改卡組版本，也不覆蓋已保存張數。
+        if row.card_count is None:
+            row.card_count = count
+        return _summary(row, material)
+
+
+def read_card_study(owner, card_set_id, *, offset=0, expected_version=None, dsn=None):
+    with database_session(dsn) as session:
+        material_id = _set_material_id(session, owner, card_set_id)
+        # 與選材更新及舊卡組一次性補索引共用父鎖，避免版本混用或重複建立。
+        material = _material(session, owner, material_id)
+        row = session.get(CardSet, card_set_id)
+        if row is None or row.deleted_at is not None:
+            raise CardSetError('RESOURCE_NOT_FOUND')
+        if expected_version is not None and (row.version != expected_version or row.status != 'ready'):
+            raise CardSetError('CARD_SET_CONFLICT')
+        if not 0 <= offset < len(row.concept_ids) or offset % 8:
+            raise CardSetError('REQUEST_INVALID')
+        meta = card_sources.metadata(session, owner, material_id, row.knowledge_structure_revision)
+        if expected_version is not None:
+            return card_sources.batch(session, row, meta, offset, 8)
+        return {'schema': 'card-study/v1', **_summary(row, material),
+                'source_resolver': meta['source_resolver'], 'status': meta['status'],
+                'navigation': card_sources.navigation(row, meta),
+                'batch': card_sources.batch(session, row, meta, 0, 8) if row.status == 'ready' else None}
