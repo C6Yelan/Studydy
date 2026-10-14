@@ -20,6 +20,7 @@ export function AssessmentSetPanel({
   apiClient,
   studySessionId,
   selectedSetId,
+  initialSet,
   concept,
   view,
   completed,
@@ -34,6 +35,7 @@ export function AssessmentSetPanel({
   apiClient: StudydyApiClient;
   studySessionId: string;
   selectedSetId: string | null;
+  initialSet: AssessmentSetView | null;
   concept: Concept;
   view: KnowledgeStructureView;
   completed: boolean;
@@ -141,7 +143,9 @@ export function AssessmentSetPanel({
     void (async () => {
       try {
         if (selectedSetId) {
-          const restored = await apiClient.readAssessmentSet(studySessionId, selectedSetId);
+          // 恢復頁面已帶回同一 snapshot 的題組；重新整理題組時仍讀取最新版本。
+          const restored = reload === 0 && initialSet?.set_id === selectedSetId
+            ? initialSet : await apiClient.readAssessmentSet(studySessionId, selectedSetId);
           if (!cancelled) accept(restored);
         } else if (!completed) {
           const nextPlan = await apiClient.readAssessmentPlan(studySessionId, concept.concept_id);

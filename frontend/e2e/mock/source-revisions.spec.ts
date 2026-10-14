@@ -56,7 +56,7 @@ const material: MaterialLibraryItem = {
 
 test.beforeEach(async ({ page }) => {
   await page.clock.install({ time: new Date(timestamp) });
-  await page.clock.pauseAt(new Date(timestamp));
+  // Date 起點固定，讓 React 非同步載入與輪詢計時器仍正常前進。
 });
 
 async function mockMaterial(page: Page, read: () => MaterialLibraryItem) {
@@ -285,7 +285,7 @@ for (const width of [1536, 390]) {
             session: { ...session(), knowledge_structure_revision: newRevision },
             progress: { ...progress, knowledge_structure_revision: newRevision },
             assessment_sets: [],
-            selected_set_id: null,
+            selected_set_id: null, selected_set: null,
           },
         });
       },

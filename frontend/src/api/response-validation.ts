@@ -921,6 +921,15 @@ export function studyResume(value: unknown): value is StudyResumeView {
   )
     return false;
   const session = item.session;
+  const selected = item.selected_set;
+  if (item.selected_set_id === null ? selected !== null : (
+    !assessmentSet(selected) || selected.set_id !== item.selected_set_id ||
+    selected.study_session_id !== session.study_session_id ||
+    selected.material_id !== session.material_id ||
+    selected.knowledge_structure_revision !== session.knowledge_structure_revision ||
+    !item.assessment_sets.some(group => group.set_id === selected.set_id &&
+      group.target_concept_id === selected.target_concept_id && group.set_version === selected.set_version)
+  )) return false;
   return (
     item.progress.study_session_id === session.study_session_id &&
     item.progress.knowledge_structure_revision === session.knowledge_structure_revision &&

@@ -181,6 +181,8 @@ def test_api_preserves_scope_private_preparation_and_read_only_resume(closed_loo
     assert restored.status_code == 200, restored.json()
     assert restored.json()["schema"] == "study-resume/v1"
     assert restored.json()["selected_set_id"] == set_id
+    assert restored.json()["selected_set"] == result.json()
+    assert all(item["assessment"] is None for item in restored.json()["selected_set"]["items"])
     assert "assessments" not in restored.json()
     assert len(calls) == 2
 

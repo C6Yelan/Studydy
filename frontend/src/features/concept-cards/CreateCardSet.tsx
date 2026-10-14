@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
-import type { CardSetView, KnowledgeStructureView } from "../../api/contracts";
+import type { CardStudyView, KnowledgeStructureView } from "../../api/contracts";
 import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
@@ -14,7 +14,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const editing = route.name === "card-set-edit";
   const routeKey = routePath(route);
   const [view, setView] = useState<KnowledgeStructureView | null>(null);
-  const [saved, setSaved] = useState<CardSetView | null>(null);
+  const [saved, setSaved] = useState<CardStudyView | null>(null);
   const [materialId, setMaterialId] = useState("");
   const [materialName, setMaterialName] = useState("");
   const [name, setName] = useState("");
@@ -45,7 +45,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     setConceptPage(1);
     const read = async () => {
       try {
-        const deck = route.name === "card-set-edit" ? await apiClient.getCardSet(route.cardSetId) : null;
+        const deck = route.name === "card-set-edit" ? await apiClient.getCardStudy(route.cardSetId) : null;
         if (deck && route.name === "card-set-edit" && !route.materialId) { if (!cancelled) writeRoute({ name: "card-set-edit", cardSetId: route.cardSetId, materialId: deck.material_id }, true); return; }
         if (deck && route.materialId && deck.material_id !== route.materialId) throw new Error("這個卡組不屬於此教材。");
         const id = deck?.material_id ?? (route.name === "card-set-create" ? route.materialId : "");
@@ -65,8 +65,8 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
         setMaterialId(id);
         setMaterialName(material.display_name);
         setName(deck?.name ?? `${material.display_name.replace(/\.[^.]+$/, "").slice(0, 190)}複習`);
-        setSelected(new Set((deck?.cards ?? structure.concepts).map((item) => item.concept_id)));
-        setPreviewId(deck?.cards[0]?.concept_id ?? structure.concepts[0]?.concept_id ?? null);
+        setSelected(new Set((deck?.navigation ?? structure.concepts).map((item) => item.concept_id)));
+        setPreviewId(deck?.navigation[0]?.concept_id ?? structure.concepts[0]?.concept_id ?? null);
       } catch (failure) {
         if (!cancelled) setError(errorMessage(failure));
       }

@@ -68,11 +68,17 @@ def preferred_focus(session, owner, material_id, revision):
 
 def inherited_progress(session, learner, study, document, *, include_cycles=True):
     from .assessment_sets import _cycle
-    current = session.scalar(select(KnowledgeStructure).where(
+    snapshot = session.info.get("read_snapshot")
+    cache = snapshot["inherited"] if snapshot is not None else None
+    key = (learner.learner_id, study.study_session_id, study.knowledge_structure_revision, include_cycles)
+    if cache is not None and key in cache:
+        return cache[key]
+    # 此處只需版本時間與 run，不再解碼一次完整教材 JSON。
+    current = session.execute(select(KnowledgeStructure.run_id, KnowledgeStructure.created_at).where(
         KnowledgeStructure.learner_id == learner.learner_id,
         KnowledgeStructure.material_id == study.material_id,
         KnowledgeStructure.structure_revision == study.knowledge_structure_revision,
-    ))
+    )).one_or_none()
     if current is None:
         raise ValueError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
     run = session.get(MaterialProcessingRun, current.run_id)
@@ -160,7 +166,12 @@ def inherited_progress(session, learner, study, document, *, include_cycles=True
                     event.answer_event_id,
                     event.assisted,
                 ))
-    return tuple(inherited), [
+    result = (tuple(inherited), [
         latest_cycles[key][1] for key in sorted(latest_cycles)
         if latest_cycles[key][1] is not None
-    ]
+    ])
+    if cache is not None:
+        cache[key] = result
+        # 已取得完整繼承結果時，題組的作答證據檢查可直接重用其中的 events。
+        cache[(*key[:3], False)] = (result[0], [])
+    return result

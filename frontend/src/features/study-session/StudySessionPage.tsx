@@ -3,11 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type {
   AssessmentSetSummary,
+  AssessmentSetView,
   KnowledgeStructureView,
   LearnerProgressView,
   StudySessionView,
 } from "../../api/contracts";
-import { writeRoute, type AppRoute } from "../../app/routes";
+import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { ConceptContent } from "../../ui/ConceptContent";
 import { MaterialTools } from "../material-tools/MaterialTools";
@@ -22,6 +23,7 @@ type StudyData = {
   view: KnowledgeStructureView;
   assessmentSets: AssessmentSetSummary[];
   selectedSetId: string | null;
+  selectedSet: AssessmentSetView | null;
 };
 
 function validBinding(data: StudyData): boolean {
@@ -52,6 +54,7 @@ export function StudySessionPage({
   const [continueError, setContinueError] = useState<string | null>(null);
   const activePage = useRef(false);
   const pageVersion = useRef(0);
+  const restoredRoute = useRef<string | null>(null);
 
   const load = async () => {
     const restored = await apiClient.resumeStudy(route);
@@ -61,14 +64,19 @@ export function StudySessionPage({
       progress: restored.progress,
       assessmentSets: restored.assessment_sets,
       selectedSetId: restored.selected_set_id,
+      selectedSet: restored.selected_set,
     };
     if (!validBinding(next)) throw new Error("STUDY_BINDING_MISMATCH");
     return next;
   };
 
   useEffect(() => {
-    let cancelled = false;
+    // 只補齊剛恢復的題組網址時保留同一份 snapshot；其他導覽仍正常重讀。
+    const alreadyRestored = restoredRoute.current === routePath(route);
+    restoredRoute.current = null;
     activePage.current = true;
+    if (alreadyRestored) return () => { activePage.current = false; };
+    let cancelled = false;
     pageVersion.current += 1;
     setPanelPhase(null);
     setData(null);
@@ -80,8 +88,9 @@ export function StudySessionPage({
       (next) => {
         if (cancelled) return;
         if (next.selectedSetId && !route.assessmentSetId && next.session.status !== "completed") {
-          writeRoute({ ...route, assessmentSetId: next.selectedSetId }, true);
-          return;
+          const destination = { ...route, assessmentSetId: next.selectedSetId };
+          restoredRoute.current = routePath(destination);
+          writeRoute(destination, true);
         }
         setData(next);
       },
@@ -346,6 +355,7 @@ export function StudySessionPage({
                 apiClient={apiClient}
                 studySessionId={route.studySessionId}
                 selectedSetId={data.selectedSetId}
+                initialSet={data.selectedSet}
                 concept={visibleConcept}
                 view={data.view}
                 completed={completed}

@@ -1068,6 +1068,8 @@ def create_app(settings: ApiSettings) -> FastAPI:
                 progress=project_learner_progress(progress),
                 assessment_sets=rounds['sets'],
                 selected_set_id=selected_set,
+                selected_set=(assessment_sets._read_set(db, study, UUID(selected_set))
+                              if selected_set is not None else None),
             )
 
     @app.post(

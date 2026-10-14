@@ -369,7 +369,7 @@ export async function mockKnowledgeMapApi(
     return {
       schema: "study-resume/v1",
       assessment_sets: [],
-      selected_set_id: null,
+      selected_set_id: null, selected_set: null,
       session: {
         ...session(),
         knowledge_structure_revision: revision,
@@ -565,7 +565,7 @@ export async function mockLearningMapApi(
     () => ({
       schema: "study-resume/v1",
       assessment_sets: [],
-      selected_set_id: null,
+      selected_set_id: null, selected_set: null,
       session: saved,
       run_id: runId,
       source_artifact_id: artifactId,

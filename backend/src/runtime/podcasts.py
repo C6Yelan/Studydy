@@ -204,14 +204,15 @@ def read_podcast(owner, identity, *, dsn=None):
         row, material = _locked(db, owner, identity, read=True)
         document = _read_verified_document(db, owner, row.material_id,
             revision=row.knowledge_structure_revision)
-        view = _view(document, row.material_id)
+        # 播放頁僅需來源入口與狀態，不展開所有概念／Evidence 的大型視圖。
         from .podcast_script import digest
         episodes=deepcopy(row.episodes)
         for episode in episodes:
             episode['script_sha256']=digest(episode['script']) if episode['script'] else None
         return {"schema": "podcast/v1", "run_id":document['run_id'], **_summary(row, material, db),
-            "source_resolver": view["source_resolver"], "source_status": view["status"],
-            "excluded_pages": view["excluded_pages"], "episodes": episodes}
+            "source_resolver": f"/v1/materials/{row.material_id}/knowledge-structures/{document['revision']}/evidence",
+            "source_status": document["status"],
+            "excluded_pages": document["excluded_pages"], "episodes": episodes}
 
 
 def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=None):

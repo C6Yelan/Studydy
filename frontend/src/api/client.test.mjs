@@ -432,7 +432,7 @@ function resumeView() {
   return {
     schema: "study-resume/v1",
     assessment_sets: [],
-    selected_set_id: null,
+    selected_set_id: null, selected_set: null,
     run_id: runId,
     source_artifact_id: libraryItem().source_artifact_id,
     session: {
@@ -838,9 +838,8 @@ test("material rename uses the existing item guard and exact identity without a 
   );
 });
 
-test("assessment sets validate preparation, published data and submission requests", async () => {
-  const record = questionRecord();
-  const base = {
+function assessmentSetView() {
+  return {
     ...assessmentSetSummary({ set_version: 2 }),
     schema: "assessment-set/v1",
     study_session_id: sessionId,
@@ -888,6 +887,11 @@ test("assessment sets validate preparation, published data and submission reques
       },
     ],
   };
+}
+
+test("assessment sets validate preparation, published data and submission requests", async () => {
+  const record = questionRecord();
+  const base = assessmentSetView();
   const read = (value) =>
     new StudydyApiClient(async () => Response.json(value)).readAssessmentSet(sessionId, setId);
   assert.equal((await read(base)).verified_count, 1);
@@ -1042,6 +1046,8 @@ test("resume authorizes saved group membership independently of navigation focus
     }),
   ];
   value.selected_set_id = setId;
+  value.selected_set = assessmentSetView();
+  value.assessment_sets = [assessmentSetSummary({ set_version: value.selected_set.set_version })];
   const request = {
     materialId,
     structureRevision,
@@ -1052,6 +1058,9 @@ test("resume authorizes saved group membership independently of navigation focus
   const read = (value) =>
     new StudydyApiClient(async () => Response.json(value)).resumeStudy(request);
   assert.equal((await read(value)).selected_set_id, setId);
+  for (const overrides of [{ study_session_id: materialId }, { material_id: sessionId }, { set_id: runId }, { set_version: 99 }]) {
+    await assert.rejects(read({ ...value, selected_set: { ...value.selected_set, ...overrides } }), error => error.kind === "schema");
+  }
   const missingSet = { ...value, assessment_sets: [], selected_set_id: null };
   await assert.rejects(read(missingSet), (error) => error.kind === "schema");
 });

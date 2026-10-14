@@ -225,6 +225,11 @@ def record_set_answer(session, assessment):
 
 def _cycle(session, study, root):
     """同一初篩及其補強的投影；AnswerEvent 是唯一作答事實，不保存閱讀確認或暫緩決定。"""
+    snapshot = session.info.get("read_snapshot")
+    cache = snapshot["cycles"] if snapshot is not None else None
+    key = (study.study_session_id, root.set_id)
+    if cache is not None and key in cache:
+        return cache[key]
     family = list(session.scalars(
         select(AssessmentSet).where(
             (AssessmentSet.set_id == root.set_id)
@@ -330,7 +335,7 @@ def _cycle(session, study, root):
         and root.status == 'completed'
         and not active and not other_active
     )
-    return {
+    result = {
         'diagnostic_set_id': str(root.set_id),
         'concept_id': root.target_concept_id,
         'set_version': root.set_version,
@@ -344,6 +349,9 @@ def _cycle(session, study, root):
         'can_create_remediation': can_act and pending > 0,
         'points': points,
     }
+    if cache is not None:
+        cache[key] = result
+    return result
 
 
 def _read_cycles(session, study):
@@ -500,80 +508,87 @@ def _list_sets(session, study):
     }
 
 def read_set(learner, sid, set_id, *, dsn=None):
-    from .answer_events import _event, _feedback
-    from runtime.api.models import project_answer_feedback
     with database_session(dsn) as session:
         session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
-        study, context, _ = _scope(session, learner, sid)
-        group = _round(session, study, set_id)
-        rows = _items(session, group)
-        expected_provenance = assessments._provenance(group)
-        projected = []
-        for item in rows:
-            public = feedback = created = None
-            can_submit = False
-            if item.assessment_revision is not None:
-                assessment = session.get(Assessment, item.assessment_revision)
-                stored = assessments._stored(assessment, expected_provenance)
-                public, created = stored.public_document, assessment.created_at
-                event = session.scalar(select(AnswerEvent).where(AnswerEvent.study_session_id == sid,
-                    AnswerEvent.assessment_revision == item.assessment_revision))
-                if event is not None:
-                    feedback = project_answer_feedback(
-                        _feedback(_event(event, assessment, study), assessment)
-                    ).model_dump(by_alias=True)
-                else:
-                    can_submit = membership_can_submit(session, study, assessment)
-            projected.append({
-                'ordinal': item.ordinal,
-                'target_claim_id': item.target_claim_id,
-                'state': item.state,
-                'attempts': item.attempts,
-                'failure_reason': item.failure_reason,
-                'assessment': public,
-                'feedback': feedback,
-                'created_at': created,
-                'can_submit': can_submit,
-            })
-        summary = _summary(session, group, rows)
-        other_active = session.scalar(select(AssessmentSet.set_id).where(
-            AssessmentSet.study_session_id == sid,
-            AssessmentSet.set_id != set_id, AssessmentSet.status.in_(ACTIVE),
-            AssessmentSet.target_concept_id == group.target_concept_id).limit(1)) is not None
-        cycle_root = (
-            session.get(AssessmentSet, group.diagnostic_set_id)
-            if group.diagnostic_set_id else group
-        )
-        return {
-            'schema': 'assessment-set/v1',
-            'study_session_id': str(sid),
-            'material_id': str(study.material_id),
-            'knowledge_structure_revision': study.knowledge_structure_revision,
-            **summary,
-            'kind': group.kind,
-            'selection_policy': group.target_plan['policy'],
-            'point_count': group.target_plan['point_count'],
-            'excluded_count': len(group.target_plan['excluded']),
-            'verified_count': sum(
-                item.state in ('verified', 'published') for item in rows
-            ),
-            'can_retry': (
-                group.status in ('partial_ready', 'failed')
-                and not other_active
-                and study.status in ('active', 'no_safe')
-                and any(
-                    item.state == 'failed' and item.attempts < MAX_ATTEMPTS
-                    for item in rows
-                )
-            ),
-            'can_publish_partial': (
-                group.status == 'partial_ready'
-                and any(item.state == 'verified' for item in rows)
-            ),
-            'can_complete': group.status in ('ready', 'in_progress'),
-            'items': projected,
-            'cycle': _cycle(session, study, cycle_root),
-        }
+        session.info['read_snapshot'] = {'documents': {}, 'inherited': {}, 'cycles': {}}
+        study, _, _ = _scope(session, learner, sid)
+        return _read_set(session, study, set_id)
+
+
+def _read_set(session, study, set_id):
+    """由已驗證教材的同一 snapshot 投影題組；仍只輸出公開題目及本人作答回饋。"""
+    from .answer_events import _event, _feedback
+    from runtime.api.models import project_answer_feedback
+    sid = study.study_session_id
+    group = _round(session, study, set_id)
+    rows = _items(session, group)
+    expected_provenance = assessments._provenance(group)
+    projected = []
+    for item in rows:
+        public = feedback = created = None
+        can_submit = False
+        if item.assessment_revision is not None:
+            assessment = session.get(Assessment, item.assessment_revision)
+            stored = assessments._stored(assessment, expected_provenance)
+            public, created = stored.public_document, assessment.created_at
+            event = session.scalar(select(AnswerEvent).where(AnswerEvent.study_session_id == sid,
+                AnswerEvent.assessment_revision == item.assessment_revision))
+            if event is not None:
+                feedback = project_answer_feedback(
+                    _feedback(_event(event, assessment, study), assessment)
+                ).model_dump(by_alias=True)
+            else:
+                can_submit = membership_can_submit(session, study, assessment)
+        projected.append({
+            'ordinal': item.ordinal,
+            'target_claim_id': item.target_claim_id,
+            'state': item.state,
+            'attempts': item.attempts,
+            'failure_reason': item.failure_reason,
+            'assessment': public,
+            'feedback': feedback,
+            'created_at': created,
+            'can_submit': can_submit,
+        })
+    summary = _summary(session, group, rows)
+    other_active = session.scalar(select(AssessmentSet.set_id).where(
+        AssessmentSet.study_session_id == sid,
+        AssessmentSet.set_id != set_id, AssessmentSet.status.in_(ACTIVE),
+        AssessmentSet.target_concept_id == group.target_concept_id).limit(1)) is not None
+    cycle_root = (
+        session.get(AssessmentSet, group.diagnostic_set_id)
+        if group.diagnostic_set_id else group
+    )
+    return {
+        'schema': 'assessment-set/v1',
+        'study_session_id': str(sid),
+        'material_id': str(study.material_id),
+        'knowledge_structure_revision': study.knowledge_structure_revision,
+        **summary,
+        'kind': group.kind,
+        'selection_policy': group.target_plan['policy'],
+        'point_count': group.target_plan['point_count'],
+        'excluded_count': len(group.target_plan['excluded']),
+        'verified_count': sum(
+            item.state in ('verified', 'published') for item in rows
+        ),
+        'can_retry': (
+            group.status in ('partial_ready', 'failed')
+            and not other_active
+            and study.status in ('active', 'no_safe')
+            and any(
+                item.state == 'failed' and item.attempts < MAX_ATTEMPTS
+                for item in rows
+            )
+        ),
+        'can_publish_partial': (
+            group.status == 'partial_ready'
+            and any(item.state == 'verified' for item in rows)
+        ),
+        'can_complete': group.status in ('ready', 'in_progress'),
+        'items': projected,
+        'cycle': _cycle(session, study, cycle_root),
+    }
 
 
 def _assessment_row(study, item, prepared):

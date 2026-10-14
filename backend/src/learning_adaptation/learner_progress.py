@@ -164,6 +164,7 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
     with database_session(dsn) as db:
         try:
             db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
+            db.info['read_snapshot'] = {'documents': {}, 'inherited': {}, 'cycles': {}}
             row = _row(db, _learner(learner), study_session_id)
             material = db.scalar(select(Material.material_id).where(
                 Material.learner_id == learner.learner_id,
@@ -182,8 +183,8 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
             events = _read_events(db, row)
             if len(events) != study.last_event_number:
                 raise LearnerProgressError('LEARNER_PROGRESS_STALE')
-            cycles = _read_cycles(db, row)
             inherited, inherited_cycles = inherited_progress(db, learner, study, document)
+            cycles = _read_cycles(db, row)
             evidence = (
                 tuple(sorted(
                     (*inherited, *events),

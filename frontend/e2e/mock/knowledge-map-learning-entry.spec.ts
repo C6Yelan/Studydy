@@ -213,3 +213,27 @@ for (const pending of ["create", "saved-focus", "second-focus"] as const) {
     });
   }
 }
+
+
+test("restoring a saved assessment normalizes the URL without downloading resume twice", async ({ page }) => {
+  const fixture = await studyLayoutFixture(page, "ready", { wrong: [] });
+  const resumes: string[] = [];
+  const setReads: string[] = [];
+  page.on("request", request => {
+    if (/\/v1\/study-sessions\/[^/]+\/assessment-sets\/[^/?]+$/.test(request.url())) setReads.push(request.url());
+    if (request.url().includes("/resume?")) resumes.push(request.url());
+  });
+  await fixture.open();
+  await expect(page).toHaveURL(/assessment-sets/);
+  await expect(page.locator(".assessment-set-item")).toHaveCount(4);
+  expect(resumes).toHaveLength(1);
+  expect(setReads).toEqual([]);
+  // 真正切換到歷史題組及重新整理仍須讀取其正確 snapshot。
+  await page.goto(fixture.historyPath);
+  await expect(page.getByRole("heading", { name: "本輪檢測結果", exact: true })).toBeVisible();
+  expect(resumes).toHaveLength(2);
+  expect(new URL(resumes[1]).searchParams.get("set_id")).toBe(fixture.historyPath.split("/").at(-1));
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "本輪檢測結果", exact: true })).toBeVisible();
+  expect(resumes).toHaveLength(3);
+});

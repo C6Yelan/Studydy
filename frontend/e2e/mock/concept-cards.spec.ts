@@ -414,10 +414,16 @@ test("account collection can select a material; failed save retries the same int
 
 test("saved decks can be renamed and edited without replacing their identity", async ({ page }) => {
   await mockCards(page, { saved: true });
+  const fullReads: string[] = [];
+  page.on("request", request => {
+    if (request.method() === "GET" && new URL(request.url()).pathname === `/v1/card-sets/${cardSetId}`)
+      fullReads.push(request.url());
+  });
   await page.goto("/concept-cards");
   await page.getByRole("button", { name: "管理卡組「資料結構 · 核心概念」" }).click();
   await expect(page.getByRole("button", { name: "重新命名", exact: true })).toHaveCount(1);
   await page.locator(".material-management-menu[open]").getByRole("button", { name: "管理卡組", exact: true }).click();
+  expect(fullReads).toEqual([]);
   await page.getByLabel("卡組名稱", { exact: true }).fill("重新命名的卡組");
   await page.getByRole("button", { name: "保存變更", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/concept-cards/${cardSetId}$`));

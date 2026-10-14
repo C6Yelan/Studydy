@@ -441,6 +441,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
         run_id: runId,
         assessment_sets: assessmentSets,
         selected_set_id: selected?.set_id ?? null,
+        selected_set: selected,
       });
     }
     if (path.endsWith("/guidance/apply")) {

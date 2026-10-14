@@ -48,6 +48,18 @@ def _bound_input(session, owner, run):
     ):
         raise SourceError("SOURCE_BINDING_INVALID")
 
+    # 來源關係仍逐筆核對，但以批次查詢避免每份來源另開五次 DB 往返。
+    jobs = {row.normalization_id: row for row in session.scalars(select(SourceNormalization).where(
+        SourceNormalization.normalization_id.in_([member.normalization_id for member in members]),
+    ))}
+    sources = {row.source_id: row for row in session.scalars(select(MaterialSource).where(
+        MaterialSource.source_id.in_([member.source_id for member in members]),
+    ))}
+    artifact_ids = {UUID(item[f"{prefix}_artifact_id"])
+                    for item in manifest["items"] for prefix in ("original", "normalized", "mapping")}
+    artifacts = {row.artifact_id: row for row in session.scalars(select(Artifact).where(
+        Artifact.artifact_id.in_(artifact_ids),
+    ))}
     for ordinal, (member, item) in enumerate(zip(members, manifest["items"]), 1):
         if (
             member.ordinal != ordinal
@@ -55,8 +67,8 @@ def _bound_input(session, owner, run):
             or str(member.normalization_id) != item["normalization_id"]
         ):
             raise SourceError("SOURCE_BINDING_INVALID")
-        job = session.get(SourceNormalization, member.normalization_id)
-        source = session.get(MaterialSource, member.source_id)
+        job = jobs.get(member.normalization_id)
+        source = sources.get(member.source_id)
         if (
             job is None
             or job.status != "ready"
@@ -74,7 +86,7 @@ def _bound_input(session, owner, run):
         ):
             raise SourceError("SOURCE_BINDING_INVALID")
         for prefix in ("original", "normalized", "mapping"):
-            artifact = session.get(Artifact, UUID(item[f"{prefix}_artifact_id"]))
+            artifact = artifacts.get(UUID(item[f"{prefix}_artifact_id"]))
             if (
                 artifact is None
                 or artifact.learner_id != owner

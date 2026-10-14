@@ -413,6 +413,7 @@ export type StudyResumeView = {
   progress: LearnerProgressView;
   assessment_sets: AssessmentSetSummary[];
   selected_set_id: string | null;
+  selected_set: AssessmentSetView | null;
 };
 
 export type AssessmentPlanView = {

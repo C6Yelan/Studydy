@@ -444,6 +444,7 @@ class StudyResumeView(_Closed):
     progress: LearnerProgressView
     assessment_sets: list[AssessmentSetSummary]
     selected_set_id: UUID | None
+    selected_set: AssessmentSetView | None
 
 
 class AssessmentSetCreate(_Closed):

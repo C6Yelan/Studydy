@@ -69,3 +69,34 @@ def test_resume_projects_from_one_verified_document(closed_loop, monkeypatch, tm
     assert response.status_code == 200, response.json()
     assert checks == [fixture["document"]["revision"]]
     assert response.json()["progress"]["event_watermark"] == 0
+
+
+def test_resume_includes_public_selected_set_from_same_snapshot(closed_loop, monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+    import runtime.storage.knowledge_structures as storage
+    fixture = concept_fixture(closed_loop, 2)
+    root = create(fixture)
+    finish(fixture)
+    expected = read(fixture, root)
+    checks = []
+    validate = storage.validate_knowledge_structure
+    def counted(document):
+        checks.append(document['revision'])
+        return validate(document)
+    monkeypatch.setattr(storage, 'validate_knowledge_structure', counted)
+    client = TestClient(_app(fixture['dsn'], tmp_path, monkeypatch), base_url=ORIGIN)
+    client.cookies.set('studydy_session', fixture['token'])
+    response = client.get(
+        f"/v1/materials/{fixture['source'].material_id}/knowledge-structures/{fixture['document']['revision']}"
+        f"/study-sessions/{fixture['study'].study_session_id}/resume",
+        params={'run_id': fixture['document']['run_id']},
+    )
+    assert response.status_code == 200, response.json()
+    result = response.json()
+    assert result['selected_set_id'] == str(root)
+    assert checks == [fixture['document']['revision']]
+    assert result['selected_set']['items'][0]['assessment'] == expected['items'][0]['assessment']
+    from runtime.api.models import AssessmentSetView
+    assert result['selected_set'] == AssessmentSetView.model_validate(expected).model_dump(mode='json', by_alias=True)
+    assert all(item['feedback'] is None for item in result['selected_set']['items'])
+    assert 'correct_option_id' not in response.text and 'private' not in response.text

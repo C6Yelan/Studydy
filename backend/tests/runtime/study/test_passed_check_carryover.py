@@ -121,14 +121,22 @@ def test_changed_or_ambiguous_concept_does_not_inherit_a_whole_check(closed_loop
     assert progress.next_action.action == 'assess'
 
 
-def test_current_revision_check_supersedes_inherited_pass(closed_loop):
+def test_current_revision_check_supersedes_inherited_pass(closed_loop, monkeypatch):
     old, _ = passed_fixture(closed_loop)
     new = append_revision(old)
     root = create(new, 'new-check')
+    import runtime.storage.knowledge_structures as storage
+    checks = []
+    validate = storage.validate_knowledge_structure
+    def counted(document):
+        checks.append(document['revision'])
+        return validate(document)
+    monkeypatch.setattr(storage, 'validate_knowledge_structure', counted)
     progress = derive_learner_progress(new['learner'], new['study'].study_session_id, dsn=new['dsn'])
     cycle, = progress.assessment_cycles
     assert cycle['diagnostic_set_id'] == str(root) and cycle['outcome'] == 'in_progress'
     assert not cycle.get('inherited_from')
+    assert sorted(checks) == sorted([old['document']['revision'], new['document']['revision']])
     assert progress.next_action.action == 'continue_set'
     finish(new, 'new-version-check')
     answer(new, root, wrong={1})

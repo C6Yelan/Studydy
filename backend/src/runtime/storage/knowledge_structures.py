@@ -247,6 +247,12 @@ def _read_verified_document(session, learner_id, material_id, *, run_id=None, re
     """在呼叫者 snapshot 驗證結構、執行快照及來源關係；不掃描原檔。"""
     if (run_id is None) == (revision is None):
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
+    # 僅在呼叫者明確建立的唯讀一致 snapshot 內共用，跨請求仍重新驗證。
+    snapshot = session.info.get("read_snapshot")
+    cache = snapshot["documents"] if snapshot is not None and not lock else None
+    key = (learner_id, material_id, run_id, revision)
+    if cache is not None and key in cache:
+        return cache[key]
     statement = select(
         KnowledgeStructure.document, MaterialProcessingRun, KnowledgeStructure.structure_revision,
     ).join(MaterialProcessingRun, KnowledgeStructure.run_id == MaterialProcessingRun.run_id).where(
@@ -275,6 +281,8 @@ def _read_verified_document(session, learner_id, material_id, *, run_id=None, re
     ):
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
     verify_structure_input(session, run, document)
+    if cache is not None:
+        cache[key] = document
     return document
 
 

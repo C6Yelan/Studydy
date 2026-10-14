@@ -392,3 +392,15 @@ def test_failed_podcast_with_waiting_scenes_does_not_poll_forever(closed_loop):
     assert not item['generation']['active']
     with database_session(dsn) as db:
         assert db.scalar(select(PodcastScenes.status).where(PodcastScenes.podcast_id == identity)) == 'pending'
+
+
+def test_playback_metadata_keeps_sources_without_building_all_concept_views(closed_loop, monkeypatch):
+    owner, source, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop)['podcast_id']
+    before = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
+    def unnecessary_view(*args, **kwargs):
+        raise AssertionError("Playback metadata must not expand every concept")
+    monkeypatch.setattr(podcasts, '_view', unnecessary_view)
+    after = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
+    assert after == before
+    assert after['source_resolver'].startswith(f'/v1/materials/{source.material_id}/')
