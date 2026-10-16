@@ -465,3 +465,11 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src .studydy-runtime/research-venv
 `runtime/study/test_knowledge_reads.py` 驗證 outline 不含完整 claims、概念／來源投影與 canonical 內容一致、搜尋只回傳 ID、workspace 只帶當前／下一個概念、跨 owner 與損壞索引拒絕、補建冪等。測試在頁面讀取時禁止呼叫完整教材驗證，避免僅縮小 HTTP 回應卻仍讀全文。
 
 進度、跨版本繼承、題組與來源回歸保持原完成／補強規則。`client.test.mjs` 驗證按需資料的 material／revision／selection 綁定及帳號失效；地圖詳情、學習入口、study-layout、卡組及 Podcast 選材 browser 案例覆蓋延遲讀取、來源、搜尋與歷史切換。Runtime browser 仍用獨立 ports、disposable DB 與受控 provider，不以產品 DB 跑測試。
+
+## 跨語言學習內容
+
+`test_cross_language_claims.py`、`test_material_localization.py`、`test_review_language.py` 覆蓋原文引用不變、數值／單位／程式保護、跨段公式邊界、代號遺漏與重複、混入外語詞、修正後保留的完整來源，以及語言補正失敗不得發布。獨立子圖與審查回歸另核對呼叫計數、已完成結果重用及舊工作提示不可被新政策覆蓋。
+
+2026-10-15 使用三份完整簡報與一份完整英文 PDF，共 52 頁，經正式上傳、分析及審查。完成版為 53 個概念、105 個重點、35 條關係；逐條核對學習文字、必要原文術語與來源，並修正實測中發現的跨段公式保護及混入外語詞問題。原始 Evidence 不變；原教材內容不足的 `SOURCE_REVIEW_SUGGESTED` 保留，不把語言與功能驗證等同內容全面認可。
+
+真實模型與介面檢查包括五題問答（門檻等號、百分比分母、訓練／推論、壓縮損失與失敗傳播）、三張概念卡、一集約 201 秒的 Podcast／影片及來源回查；另外以德文、日文、法文與西班牙文的有限樣本核對否定、條件與單位。指定帳號複製先於隔離 DB 演練，再核對正式站 24 個主要頁面、194 個授權檔案／媒體讀取與跨帳號拒絕。中間測試教材及版本已依使用者要求移除；私人驗證紀錄留於本機，不加入 Git／CI。

@@ -21,6 +21,7 @@ def block_schema(handles):
     concept['properties']['l']['maxLength'] = 256
     concept['properties']['a']['items']['maxLength'] = 256
     concept['properties']['c']['minItems'] = 1
+    concept['properties']['c']['items']['properties']['m']['type'] = 'string'
     concept['properties']['c']['items']['properties']['m']['maxLength'] = 4096
     relation = schema['properties']['relations']['items']
     for key in ('s', 't'):

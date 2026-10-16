@@ -4,6 +4,7 @@ from threading import Event, Lock
 
 from knowledge_map.semantic_projection import SemanticState, build_semantic_bundles
 from knowledge_map.independent_blocks import block_request, block_schema, project_block, merge_block
+from knowledge_map.localization import localize_block, POLICY as LOCALIZATION_POLICY
 from runtime.semantic_service import semantic_client, SemanticServiceError
 from .ocr_page_evidence import canonical_sha256
 
@@ -39,19 +40,31 @@ def analyze_blocks(context, state, progress, *, lock, fits, semantic_call, archi
     def generate(job):
         nonlocal calls
         with semantic_client() as client:
-            for attempt in range(task['retry_attempts']):
+            def invoke(request, schema):
+                nonlocal calls
                 check()
                 with call_lock:
                     calls += 1
                     number = calls
                 if archive is not None:
-                    archive.prepare_block_call(job['id'], number, job['request'])
+                    archive.prepare_block_call(job['id'], number, request)
+                response = semantic_call(client, runtime_lock=lock, task='material_semantics',
+                                         request=request, response_schema=schema, cancellation_check=check)
+                if archive is not None:
+                    archive.save_block_response(job['id'], number, response)
+                return response, number
+
+            for attempt in range(task['retry_attempts']):
                 try:
-                    response = semantic_call(client, runtime_lock=lock, task='material_semantics',
-                                             request=job['request'], response_schema=job['schema'], cancellation_check=check)
-                    if archive is not None:
-                        archive.save_block_response(job['id'], number, response)
+                    response, number = invoke(job['request'], job['schema'])
                     block = project_block(context, job['bundle'], job['id'], response)
+                    if task.get('localization_policy') == LOCALIZATION_POLICY:
+                        def translate(request, schema):
+                            nonlocal number
+                            translated, number = invoke(request, schema)
+                            return translated
+                        response = localize_block(response, context, job['bundle'], translate)
+                        block = project_block(context, job['bundle'], job['id'], response)
                     if archive is not None:
                         archive.complete_block(job['id'], job['digest'], number, response)
                     return block, number

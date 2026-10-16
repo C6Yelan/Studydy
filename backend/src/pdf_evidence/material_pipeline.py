@@ -118,7 +118,9 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
             or set(material) != ({
                 "request_schema", "response_schema", "bundle_policy",
                 "max_tokens", "prompt", "retry_attempts", "generation", "max_new_input_tokens",
-            } | ({'max_concurrency'} if independent else set()))
+            } | ({'max_concurrency'} if independent else set())
+                | ({'localization_policy'} if 'localization_policy' in material else set()))
+            or ('localization_policy' in material and (not independent or material['localization_policy'] != 'traditional-chinese-literals/v1'))
             or material["request_schema"] != ("material-block-request/v1" if independent else "material-semantics-request/v1")
             or material["response_schema"] != ("material-block-response/v1" if independent else "material-semantics-response/v1")
             or material["bundle_policy"] != ("independent-evidence-blocks/v1" if independent else "contiguous-evidence-new-input/v1")

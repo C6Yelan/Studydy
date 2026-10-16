@@ -31,6 +31,8 @@
 
 教材問答也共用 Podcast 的整句混讀、台灣口音指令、原 host 聲線、停頓修正與音量處理。舊的中英文分段合成分支已刪除，沒有 legacy 開關；既有音訊保留，新合成與重試使用共用流程。provider 每次音訊請求啟動 checkout 的 `ops/podcast/synthesize.py`，此腳本更新不需重啟 provider 或重建 backend。
 
+跨語言教材更新需一起部署後端與 runtime lock。新分析的 `localized_meaning` 投影必須使用支援此驗證規則的後端讀取；不能只回退到不識別它的舊映像。原有知識結構與來源不搬移、不改 hash；舊分析提示的 checkpoint 不與新的翻譯政策混用。修正採前向更新，仍保留既有資料與可回查的來源。
+
 ## 核准 source 與直接建置
 
 一般 Git 整合仍為 `feature/* → dev → main`。學生專題需要外網、手機或語音實測時，

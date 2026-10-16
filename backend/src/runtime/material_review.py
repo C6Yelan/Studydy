@@ -6,8 +6,10 @@ from threading import Event
 import os
 import time
 
-from knowledge_map.material_review import (ReviewError, _pack_review, apply_review, combine_reviews,
+from knowledge_map.material_review import (ReviewError, _pack_review, _corrected_claim, _claim_edit_sources, apply_review, combine_reviews,
                                           response_schema, validate_proposal)
+from knowledge_map.localization import POLICY as LOCALIZATION_POLICY, _needs_translation
+from knowledge_map.claim_literals import language_correction_template, restore_literals
 from knowledge_map.structure import build_knowledge_structure_view, _revision
 from knowledge_map.structure_rules import RELATION_TYPES
 from pdf_evidence.ocr_page_evidence import canonical_sha256
@@ -59,7 +61,18 @@ def review_inputs(document, *, preserved_concept_ids=frozenset()):
 
 def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cancellation_check=None):
     """可定位的提案契約錯誤最多補正一次；不套用無法驗證的提案。"""
-    key = canonical_sha256({'source': unit.source_digest, 'request': unit.payload,
+    localized = lock.get('material_semantics', {}).get('localization_policy') == LOCALIZATION_POLICY
+    translations = [i for i, claim in enumerate(unit.claims) if localized and _needs_translation(claim['text'], claim['evidence'])]
+    payload = deepcopy(unit.payload)
+    if translations:
+        handles = {e['evidence_id']: i for i, e in enumerate(unit.evidence)}
+        payload['language_corrections'] = []
+        for i in translations:
+            template, literals = language_correction_template(unit.claims[i]['text'])
+            payload['language_corrections'].append({'claim': i, 'original_evidence': [
+                handles[e['evidence_id']] for e in unit.claims[i]['evidence']], 'text': template, 'literals': literals,
+                'instruction': 'claim_edits.meaning 必須沿用 text 的所有保留代號且每個恰好一次，不可展開代號。僅修正未保護的外語文字，literals 只供理解原上下文。'})
+    key = canonical_sha256({'source': unit.source_digest, 'request': payload,
                             'policy': lock['material_review']})
     rejected = None
     rejection_code = None
@@ -73,7 +86,13 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
     def validate_saved(value):
         nonlocal rejected, rejection_code
         try:
-            validate_proposal(unit, value)
+            parsed = validate_proposal(unit, value)
+            edits = {edit.claim: edit for edit in parsed.claim_edits}
+            if localized and (any(_needs_translation(edit.meaning, _claim_edit_sources(unit, edit)) for edit in parsed.claim_edits) or any(
+                i not in edits or _corrected_claim(edits[i], _claim_edit_sources(unit, edits[i])) is None
+                for i in translations
+            )):
+                raise ReviewError('REVIEW_CLAIM_EDIT_INVALID')
         except ReviewError as error:
             if str(error) in repairable and rejection_code is None:
                 rejected = deepcopy(value)
@@ -82,10 +101,13 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
 
     response = archive.load_review(key, validate_response=validate_saved)
     if response is not None:
-        validate_proposal(unit, response)
+        validate_saved(response)
         return response, 0
 
     schema = response_schema()
+    schema['$defs']['ClaimEdit']['properties']['meaning']['description'] = (
+        '若此 claim 列在 language_corrections，沿用其 text 範本與保留代號，僅翻譯未保護的文字；不可展開代號。'
+    )
     schema['$defs']['AliasEdit']['properties']['remove']['description'] = (
         'Copy exact strings from this concept\'s input aliases, including case. '
         'The concept label is not an alias unless it also appears in aliases. '
@@ -239,12 +261,24 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
                             'evidence': [edit['concept_source'], *edit['evidence']]}
                            for edit in aliases],
         }
+        edits = value.get('claim_edits')
+        for edit in edits if isinstance(edits, list) else []:
+            if not isinstance(edit, dict) or type(edit.get('claim')) is not int:
+                continue  # 完整提案驗證會回報格式錯誤，不在文字還原時猜測編號。
+            correction = next((item for item in payload.get('language_corrections', []) if item['claim'] == edit['claim']), None)
+            if correction is not None:
+                try:
+                    edit['meaning'] = restore_literals(edit['meaning'], correction['literals'])
+                except (ValueError, KeyError):
+                    if rejection_code is None:
+                        rejected, rejection_code = deepcopy(value), 'REVIEW_CLAIM_EDIT_INVALID'
+                    raise ReviewError('REVIEW_CLAIM_EDIT_INVALID') from None
         archive.save_review(f'{name}/response', value)
         return value
 
     if rejection_code is None:
         try:
-            response = request_review(unit.payload, 0)
+            response = request_review(payload, 0)
             validate_saved(response)
         except ReviewError as error:
             if str(error) not in repairable:
@@ -255,7 +289,7 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
             key: [] for key in ('assignments', 'alias_edits', 'claim_edits', 'relation_edits')}
         counts = Counter(row['concept'] for row in parsed['assignments'])
         expected = set(range(len(unit.concepts)))
-        request = deepcopy(unit.payload)
+        request = deepcopy(payload)
         edit_id_issues = {}
         for collection, field, limit in (
             ('alias_edits', 'concept', len(unit.concepts)),
@@ -315,7 +349,7 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
                            '無法由來源確認時，使用 needs_review 保留該概念；仍須遵守來源與歸屬限制。',
         }
         response = request_review(request, 1)
-        validate_proposal(unit, response)
+        validate_saved(response)
     archive.save_review(f'cache-{key}', response)
     return response, calls
 
@@ -423,6 +457,14 @@ def review_structure(document, lock, archive, check_cancel, progress, *, wait_ca
     reviews, calls = _review_units(view, units, lock, archive, check_cancel, progress, wait_cancellation_check)
     unit, proposal = combine_reviews(view, reviews)
     result, projection = apply_review(document, view, unit, proposal)
+    reviewed_claims = {q['claim_id'] for part in units for q in part.claims}
+    evidence_by_id = {item['evidence_id']: item for item in result['evidence']}
+    if (lock.get('material_semantics', {}).get('localization_policy') == LOCALIZATION_POLICY
+        and any(q['claim_id'] in reviewed_claims and _needs_translation(
+                    q['text'], [evidence_by_id[ref] for ref in q['evidence_refs']],
+                )
+                for c in result['concepts'] for q in c['claims'])):
+        raise ReviewError('REVIEW_CLAIM_EDIT_INVALID')
     # 語意回應用量含重用；新增呼叫由 receipt 分別計數。
     result['metrics']['semantic_calls'] += len(reviews)
     result['metrics']['semantic_duration_ms'] += round((time.monotonic() - started) * 1000)

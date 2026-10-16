@@ -9,10 +9,10 @@ import re
 from typing import Any
 
 from pdf_evidence.ocr_page_evidence import canonical_sha256
+from .claim_literals import preserves_literals
 
 from .structure_rules import (
-    RELATION_BASIS, RELATION_TYPES, _CODE_OR_FORMULA, _GENERIC_REASONS,
-    _KEY, _TECHNICAL, _text,
+    RELATION_BASIS, RELATION_TYPES, _GENERIC_REASONS, _KEY, _text,
 )
 
 
@@ -311,17 +311,9 @@ def _project_claim(claim: Any, evidence: dict[str, dict[str, Any]]) -> dict[str,
         if item not in projected:
             projected.append(item)
     source_text = " ".join(span["quote"] for span in projected)
-    meaning_literals = _TECHNICAL.findall(meaning)
-    source_literals = _TECHNICAL.findall(source_text)
-    needs_literal_repair = (
-        any(literal not in source_text for literal in meaning_literals)
-        or any(literal not in meaning for literal in source_literals)
+    needs_literal_repair = not preserves_literals(
+        meaning, [evidence[span['evidence_id']] for span in projected],
     )
-    if (
-        (_CODE_OR_FORMULA.search(meaning) or _CODE_OR_FORMULA.search(source_text))
-        and meaning not in source_text
-    ):
-        needs_literal_repair = True
     text = source_text if needs_literal_repair else meaning
     # 不把模型誤填的 JSON 空值字串當教材；來源真的討論 null 時仍可保留。
     if _unsupported_null_meaning(text, source_text):
@@ -329,7 +321,7 @@ def _project_claim(claim: Any, evidence: dict[str, dict[str, Any]]) -> dict[str,
     return {
         "text": text,
         "source_spans": projected,
-        "projection": "source_literal_repair" if needs_literal_repair else "semantic_meaning",
+        "projection": "source_literal_repair" if needs_literal_repair else "localized_meaning",
     }
 
 

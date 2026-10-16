@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from .semantic_projection import _unsupported_null_meaning
+from .claim_literals import preserves_literals
 from .structure_rules import (
     STRUCTURE_SCHEMA, RELATION_BASIS, RELATION_PRIORITY, RELATION_TYPES,
     _CODE_OR_FORMULA, _GENERIC_REASONS, _TECHNICAL, _cycle, _id, _path,
@@ -266,6 +267,7 @@ def _validate_concepts(document):
             if claim["projection"] == "source_literal_repair":
                 if claim["text"] != source_text:
                     return False
+            # 已發布的原投影沿用當時規則；不重寫舊內容或雜湊。
             elif claim["projection"] == "semantic_meaning":
                 if (
                     any(
@@ -281,6 +283,11 @@ def _validate_concepts(document):
                         and claim["text"] not in source_text
                     )
                 ):
+                    return False
+            elif claim["projection"] == "localized_meaning":
+                if not preserves_literals(claim['text'], [
+                    evidence_by_id[span['evidence_id']] for span in claim['source_spans']
+                ]):
                     return False
             else:
                 return False

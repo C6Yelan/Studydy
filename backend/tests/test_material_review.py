@@ -170,7 +170,7 @@ def test_applied_groups_preserve_canonical_owners_and_literal_guard():
     assert len(audit['learning_units']) == 1
     assert applied['revision'] != doc['revision']
     assert set(audit['claim_mapping']) == {q['claim_id'] for c in doc['concepts'] for q in c['claims']}
-    assert any(e['reason'] == 'CANONICAL_LITERAL_GUARD' for e in audit['blocked_changes'])
+    assert any(e['reason'] == 'CLAIM_CORRECTION_NOT_SUPPORTED' for e in audit['blocked_changes'])
 
 
 def test_examples_remain_attached_and_metadata_does_not_remove_source_content():
@@ -282,6 +282,23 @@ def test_claim_correction_cannot_change_source_number():
     assert len(project_review(view(), prepare(), response)["claim_changes"]) == 1
 
 
+def test_claim_edit_checks_retained_sources_without_claiming_model_selected_them():
+    document = view()
+    claim = document['concepts'][4]['claims'][0]
+    formula = deepcopy(claim['evidence'][0])
+    formula.update(evidence_id='e5', quote='函式 f(x) 是範例。', block_order=5)
+    claim['evidence'].append(formula)
+    claim['text'] += ' 函式 f(x) 是範例。'
+    value = proposal()
+    value['claim_edits'] = [{'claim': 4, 'meaning': '效率 Efficiency 使用8個資源單位，並保留函式 f(x)。',
+                           'reason': '整理敘述。', 'evidence': [4]}]
+    projected = project_review(document, prepare(document), value)
+    assert len(projected['claim_changes']) == 1
+    assert projected['claim_changes'][0]['evidence_ids'] == ['e4']
+    value['claim_edits'][0]['meaning'] = '效率 Efficiency 使用9個資源單位，並保留函式 f(x)。'
+    assert project_review(document, prepare(document), value)['claim_changes'] == []
+
+
 def test_claim_correction_cannot_introduce_an_uncited_other_concept():
     response = proposal()
     response["claim_edits"] = [{
@@ -310,7 +327,7 @@ def test_claim_can_name_its_existing_owner_without_repeating_the_heading_citatio
 @pytest.mark.parametrize("source,meaning,kind,allowed", [
     ("管理循環(PDCA) 包含 Plan Do Check Action", "管理循環（PDCA）包含 Plan、Do、Check、Action。", "paragraph", True),
     ("呼叫 f(x)", "改為 f(y)", "paragraph", False),
-    ("f(x)", "呼叫 f(x)", "code", False),
+    ("f(x)", "呼叫 f(x)", "code", True),
     ("公式(x)", "公式改為x", "paragraph", False),
     ("效率(Efficiency)", "效率（Effectiveness）", "paragraph", False),
 ])
