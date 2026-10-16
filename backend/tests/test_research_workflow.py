@@ -1003,3 +1003,50 @@ def test_relevant_arxiv_reference_gets_one_formal_license_check():
     assert not flow._needs_body(source)
     source.pop('arxiv_license_checked');source['screening']['decision']='exclude'
     assert not flow._needs_body(source)
+
+
+def test_provided_urls_read_originals_before_any_search(monkeypatch):
+    value=state();value['query']='先閱讀 https://example.org/a，再讀 https://example.org/b。'
+    monkeypatch.setattr(flow.research_sources,'search',lambda *a,**kw: pytest.fail('Known URLs were searched again'))
+    monkeypatch.setattr(flow,'inspect_candidate',inspect)
+    def provider(path,body):
+        if body['request']['task']=='plan':
+            assert body['request']['provided_sources']==['https://example.org/a','https://example.org/b']
+            return {'summary':'讀指定文件','topics':['Agent memory'],'searches':[],'source_indices':[0,1]}
+        return review_provider(path,body)
+    planned={**value,**flow.advance(value,provider)}
+    assert planned['search_state']['stage']=='reading'
+    assert all(not c['eligible'] for c in planned['candidates'])
+    done,stages=drive(planned,provider)
+    assert 'searching' not in stages and 'screening' not in stages
+    assert len(done['candidates'])==2
+    assert all(c['review']['phase']=='body' for c in done['candidates'])
+
+
+def test_provided_url_normalization_deduplicates_arxiv_and_rejects_credentials():
+    rows=flow.provided_sources('讀 https://arxiv.org/pdf/2401.12345.pdf 與 https://arxiv.org/abs/2401.12345；不要使用 https://user:secret@example.org/a')
+    assert [r['url'] for r in rows]==['https://arxiv.org/abs/2401.12345']
+    assert not rows[0]['eligible']
+
+
+def test_organizing_saved_results_keeps_gaps_and_excludes_unreviewed_sources():
+    data=flow.new_state();data.update(topics=['A','B'],finish_reason='user_stopped',
+        coverage=[{'topic':'A','status':'covered','source_ids':['one']},
+                  {'topic':'B','status':'missing','source_ids':[]}])
+    good=candidate();good.update(eligible=True,review={'phase':'body','relevance':'direct','quotes':[]})
+    bad=candidate('unread');bad.update(eligible=True,_reading_text='Unverified text')
+    rows=[bad,good]
+    flow.organize(data,rows)
+    assert data['stage']=='complete' and data['coverage'][1]['status']=='missing'
+    assert rows[0]['id']=='one' and rows[0]['eligible']
+    assert not rows[1]['eligible'] and '_reading_text' not in rows[1]
+
+
+def test_provided_url_selection_can_exclude_a_url_and_rejects_foreign_indices():
+    value=state();value['query']='讀 https://example.org/a，不要用 https://example.org/b。'
+    plan={'summary':'只讀 a','topics':['Agent memory'],'searches':[],'source_indices':[0]}
+    result=flow.advance(value,lambda *args:plan)
+    assert [c['url'] for c in result['candidates']]==['https://example.org/a']
+    for selected in [[2],[True],None]:
+        with pytest.raises(SourceError,match='RESEARCH_REVIEW_FAILED'):
+            flow.advance(value,lambda *args:{**plan,'source_indices':selected})

@@ -132,7 +132,16 @@ def action(owner,identity,action,selected=None,*,dsn=None):
         if action!='cancel' and (row.search_state or {}).get('schema')!='material-research/v2':
             raise SourceError('MATERIAL_FORMAT_UNSUPPORTED')
         if row.topic_id and db.get(TopicScope,row.topic_id).status!='approved':raise SourceError('TOPIC_CONFLICT')
-        if action=='more':
+        if action=='finish':
+            if row.status not in ('searching','selecting','cancelled'):raise SourceError('REQUEST_INVALID')
+            candidates=deepcopy(row.candidates)
+            if not any((c.get('_prior_review') or c.get('review',{})).get('phase')=='body' for c in candidates):
+                raise SourceError('SOURCE_NOT_READY')
+            progress=deepcopy(row.search_state)
+            progress.update(finish_reason='user_stopped',waiting_until=None)
+            research_workflow.organize(progress,candidates)
+            row.search_state=progress;row.candidates=candidates;row.status='selecting'
+        elif action=='more':
             if row.status!='selecting':raise SourceError('REQUEST_INVALID')
             progress=deepcopy(row.search_state)
             progress.update(stage='following_up',summary='依目前缺口接續研究。',continue_requested=True)

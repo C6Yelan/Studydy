@@ -327,6 +327,10 @@ export function SourceView({
                     displayedSources.every((source) => source.status === "ready") &&
                     ` · ${displayedSources.reduce((sum, source) => sum + (source.page_count ?? 0), 0)} 頁`}
                 </p>
+                {currentStructure && <p className="source-inclusion-summary">
+                  目前地圖使用 {displayedSources.filter(source => source.included).length} 份
+                  {staged.length > 0 && ` · ${staged.length} 份尚未納入地圖`}
+                </p>}
               </div>
             </header>
             {removing && <p role="status">正在刪除教材…</p>}
@@ -343,7 +347,7 @@ export function SourceView({
                     <div className="source-metadata">
                       {source.page_count !== null && <span>{source.page_count} 頁</span>}
                       {source.analysis_mode === 'selected' && source.analysis_page_count != null && <span>依學習需求選讀 {source.analysis_page_count} 頁中的相關段落</span>}
-                      {currentStructure && source.included && <span>目前地圖使用中</span>}
+                      {currentStructure && <span>{source.included ? "目前地圖使用中" : "尚未納入目前地圖"}</span>}
                     </div>
                     {source.status !== "ready" && (
                       <p

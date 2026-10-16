@@ -43,7 +43,7 @@ def test_basic_question_answers_with_small_sources_and_preserves_citation_locato
         call=fake_model([response(), checked(True)], calls))
     assert answer['supported'] and answer['text'] == '佇列採先進先出。'
     assert answer['citations'][0]['evidence'][0]['normalized_page'] == 7
-    assert len(calls) == 3 and max(answer['retrieval']['estimated_input_tokens']) <= qa.INPUT_TOKENS
+    assert len(calls) == 2 and max(answer['retrieval']['estimated_input_tokens']) <= qa.INPUT_TOKENS
 
 
 def test_review_uses_cited_page_context_without_resending_unrelated_candidates():
@@ -53,8 +53,8 @@ def test_review_uses_cited_page_context_without_resending_unrelated_candidates()
     calls = []
     qa.answer('佇列怎麼取資料？', [], None, retrieve=lambda _: sources,
         call=fake_model([response(), checked(True)], calls))
-    assert len(calls[1]['request']['sources']) == 20
-    assert [s['index'] for s in calls[2]['request']['sources']] == [0, 1]
+    assert len(calls[0]['request']['sources']) == 20
+    assert [s['index'] for s in calls[-1]['request']['sources']] == [0, 1]
     invalid = checked(True)
     invalid['items'][0]['citations'] = [19]
     with pytest.raises(SourceError, match='VOICE_ANSWER_INVALID'):
@@ -62,7 +62,7 @@ def test_review_uses_cited_page_context_without_resending_unrelated_candidates()
             call=fake_model([response(), invalid], []))
 
 
-def test_natural_question_is_rewritten_to_search_terms_before_retrieval():
+def test_empty_direct_retrieval_uses_search_planning_before_answering():
     calls = []; searches = []
     respond = fake_model([response(), checked(True)], calls)
     def call(path, body):
@@ -72,15 +72,15 @@ def test_natural_question_is_rewritten_to_search_terms_before_retrieval():
         return respond(path, body)
     def retrieve(queries):
         searches.append(queries)
-        return [passage()]
+        return [] if len(searches)==1 else [passage()]
     result = qa.answer('先到的先處理是什麼？', [], None, retrieve=retrieve, call=call)
-    assert searches == [['FIFO queue arrival order', '先到的先處理是什麼？']]
+    assert searches == [['先到的先處理是什麼？'], ['FIFO queue arrival order', '先到的先處理是什麼？']]
     assert result['supported'] and result['retrieval']['calls'] == 3
 
 
 def test_invalid_search_plan_is_rejected_before_database_lookup():
     with pytest.raises(SourceError, match='VOICE_ANSWER_INVALID'):
-        qa.answer('question', [], None, retrieve=lambda _: pytest.fail('Invalid plan reached retrieval'),
+        qa.answer('question', [{'question':'Queue?', 'answer':'FIFO.'}], None, retrieve=lambda _: pytest.fail('Invalid plan reached retrieval'),
                   call=lambda *args: {'queries': [' ']})
 
 
@@ -91,18 +91,18 @@ def test_partial_review_failure_does_not_discard_the_supported_answer():
         call=fake_model([generated, checked(True, False)], calls))
     assert answer['supported'] and '先進先出' in answer['text']
     assert '所有情況都只需一毫秒' not in answer['text']
-    assert '缺少實驗結果' in answer['text'] and len(calls) == 3
+    assert '缺少實驗結果' in answer['text'] and len(calls) == 2
 
 
 def test_retrieval_gap_uses_new_query_once_instead_of_resending_whole_material():
     calls = []; searches = []
     def retrieve(queries):
         searches.append(queries)
-        return [] if len(searches) == 1 else [passage()]
+        return [] if len(searches) <= 2 else [passage()]
     initial = {'segments': [], 'queries': ['Queue FIFO 佇列'], 'missing': '佇列原文'}
     answer = qa.answer('先到先服務是哪種結構？', [], None, retrieve=retrieve,
         call=fake_model([initial, response(), checked(True)], calls))
-    assert answer['supported'] and len(searches) == 2 and searches[1] == ['Queue FIFO 佇列']
+    assert answer['supported'] and len(searches) == 3 and searches[2] == ['Queue FIFO 佇列']
     assert calls[1]['request']['sources'] == [] and len(calls[2]['request']['sources']) == 1
 
 
@@ -117,7 +117,7 @@ def test_gap_keeps_precise_generation_queries_alongside_review_queries():
     result = qa.answer('如何依到達順序處理？', [], None, retrieve=retrieve,
         call=fake_model([initial, review, response(), checked(True)], calls))
     assert result['supported'] and searches[1] == ['arrival order FIFO', 'queue ordering']
-    assert len(searches) == 2 and len(calls) == 5
+    assert len(searches) == 2 and len(calls) == 4
 
 
 def test_foreign_or_boolean_citation_never_passes_to_verifier():
@@ -126,7 +126,7 @@ def test_foreign_or_boolean_citation_never_passes_to_verifier():
         with pytest.raises(SourceError, match='VOICE_ANSWER_INVALID'):
             qa.answer('question', [], None, retrieve=lambda _: [passage()],
                 call=fake_model([response(indices=[index])], calls))
-        assert len(calls) == 2
+        assert len(calls) == 1
 
 
 def test_long_history_and_many_retrieved_paragraphs_stay_bounded():
@@ -192,8 +192,8 @@ def test_verifier_can_complete_a_missing_citation_from_retrieved_original_text()
     review={'items':[{'index':0,'supported':True,'basis':'sources','reason':'','correction':'','citations':[0,1]}], 'queries':[], 'missing':''}
     result=qa.answer('V 是什麼？',[],None,retrieve=lambda _:sources,
         call=fake_model([response('V 是依注意力權重整合的內容向量。',indices=[1]),review],calls))
-    assert result['supported'] and len(result['citations'])==2 and len(calls)==3
-    assert len(calls[2]['request']['sources'])==2
+    assert result['supported'] and len(result['citations'])==2 and len(calls)==2
+    assert len(calls[-1]['request']['sources'])==2
 
 
 def test_unsupported_optional_elaboration_is_removed_without_creating_a_gap():
@@ -205,7 +205,7 @@ def test_unsupported_optional_elaboration_is_removed_without_creating_a_gap():
     review.update(queries=[],missing='')
     answer=qa.answer('佇列怎麼取資料？',[],None,retrieve=lambda _:[passage()],
         call=fake_model([generated,review],calls))
-    assert answer['text']=='佇列採先進先出。' and len(calls)==3
+    assert answer['text']=='佇列採先進先出。' and len(calls)==2
 
 
 def test_review_can_remove_unsupported_clause_without_losing_core_step():
@@ -216,7 +216,7 @@ def test_review_can_remove_unsupported_clause_without_losing_core_step():
         call=fake_model([response('佇列採先進先出，而且一定在一毫秒內完成。'), review], calls))
     assert answer['text'] == '佇列採先進先出。' and answer['supported']
     assert answer['citations'][0]['evidence'][0]['normalized_page'] == 7
-    assert len(calls) == 3
+    assert len(calls) == 2
 
 
 def test_model_citation_markup_is_removed_without_touching_technical_literals():
@@ -225,7 +225,7 @@ def test_model_citation_markup_is_removed_without_touching_technical_literals():
     answer=qa.answer('向量內容是什麼？',[],None,retrieve=lambda _:[passage(text='Vector [0, 1] uses indexes.')],
         call=fake_model([generated,checked(True)],calls))
     assert answer['text']=='向量 [0, 1] 使用索引。'
-    assert calls[2]['request']['segments'][0]['text']==answer['text']
+    assert calls[-1]['request']['segments'][0]['text']==answer['text']
     assert answer['citations'][0]['passage_id']=='p0'
 
 
@@ -269,3 +269,14 @@ def test_long_conversation_retrieves_original_user_conditions_within_history_bud
     assert calls[2]['request']['history']['recalled_user_turns'] == recalled
     assert result['retrieval']['history_tokens'] <= qa.HISTORY_TOKENS
     assert result['retrieval']['recalled_user_turns'] == len(recalled)
+
+
+def test_followup_keeps_query_planning_for_context_resolution():
+    calls=[];queries=[]
+    history=[{'question':'Queue 是什麼？','answer':'佇列採先進先出。'}]
+    result=qa.answer('那它怎麼取資料？',history,None,
+        retrieve=lambda q: queries.append(q) or [passage()],
+        call=fake_model([response(),checked(True)],calls))
+    assert calls[0]['schema']['required']==['queries']
+    assert calls[0]['request']['history']['turns']==history
+    assert result['retrieval']['calls']==3 and len(queries)==1

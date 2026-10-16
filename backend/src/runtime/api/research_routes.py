@@ -11,7 +11,7 @@ class Search(BaseModel):
     mode:Literal['review','self-study']
 class Action(BaseModel):
     model_config=ConfigDict(extra='forbid')
-    action:Literal['more','acquire','cancel','retry']
+    action:Literal['more','acquire','cancel','retry','finish']
     selected:list[str]|None=None
 class Confirm(BaseModel):
     model_config=ConfigDict(extra='forbid')

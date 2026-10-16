@@ -31,13 +31,13 @@ export function researchTaskInfo(record: ResearchSummary) {
   if (record.status === 'selecting' && record.candidate_count === 0) return { label: '未找到來源', tone: 'muted', cta: '查看搜尋結果', description: '換個關鍵字再搜尋，這筆查詢紀錄會保留。' };
   if (record.status === 'submitted') {
     if (record.run_status === 'succeeded') return { label: '已完成', tone: 'complete', cta: '查看完成結果', description: '補充來源已加入教材，可查看更新後的學習內容。' };
-    if (record.run_status === 'partial') return { label: '部分完成', tone: 'attention', cta: '查看處理結果', description: '教材已部分更新，仍有內容需要確認。' };
+    if (record.run_status === 'partial') return { label: '分析結果待確認', tone: 'attention', cta: '查看處理結果', description: '已產生教材分析結果，仍有內容需要確認。' };
     if (['failed', 'cancelled'].includes(record.run_status ?? '')) return { label: record.run_status === 'failed' ? '分析未完成' : '分析已停止', tone: 'attention', cta: '查看處理詳情', description: '已保留選取來源，可查看原因並接續處理。' };
     return { label: '正在建立教材', tone: 'processing', cta: '查看處理進度', description: '來源已送入分析，完成後會更新教材。' };
   }
   const tone = researchActive.has(record.status) ? 'processing' : record.status === 'failed' ? 'attention' : record.status === 'cancelled' ? 'muted' : 'pending';
   const cta = researchActive.has(record.status) ? '查看處理進度' : record.status === 'ready' ? '確認加入來源' : ['failed', 'cancelled'].includes(record.status) ? '接續處理' : '選擇補充來源';
-  const description = record.status === 'ready' ? '選取來源已準備好，確認後即可加入教材。' : record.status === 'selecting' ? '挑選想加入教材的來源，再確認加入。' : researchActive.has(record.status) ? '處理結果會保存在這筆查詢，可先進行其他搜尋。' : '開啟這筆查詢，查看已保留的結果與下一步。';
+  const description = record.status === 'ready' ? '來源已準備，但尚未納入目前知識地圖；確認加入後才會分析。' : record.status === 'selecting' ? '挑選想加入教材的來源，再確認加入。' : researchActive.has(record.status) ? '處理結果會保存在這筆查詢，可先進行其他搜尋。' : record.status === 'cancelled' ? '此查詢已停止，不會繼續搜尋或加入教材；結果留存供查看。' : '開啟這筆查詢，查看已保留的結果與下一步。';
   return { label: labels[record.status] ?? '等待更新', tone, cta, description };
 }
 export function researchSummary(view: Research): ResearchSummary {

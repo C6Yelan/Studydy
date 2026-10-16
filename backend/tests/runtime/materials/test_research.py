@@ -346,3 +346,24 @@ def test_summary_migration_preserves_cancelled_work_and_lossless_source_text(clo
         assert row.candidates[0]['review']==finished['review']
         assert row.candidates[1]['_reading_text']=='literal\x00source' and row.candidates[1]['_read_offset']==3
         assert [c.get('screening',{}).get('decision') for c in row.candidates]==['read','read',None]
+
+
+def test_finish_keeps_verified_sources_and_rejects_late_worker(closed_loop,monkeypatch):
+    learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
+    mock_search(monkeypatch)
+    identity=research.create(owner,source.material_id,'queue','review','finish-sources',dsn=dsn)['research_id']
+    with pytest.raises(SourceError,match='SOURCE_NOT_READY'):
+        research.action(owner,identity,'finish',dsn=dsn)
+    search_to_selection(owner,identity,dsn)
+    research.action(owner,identity,'more',dsn=dsn)
+    stale=research.claim(dsn=dsn)
+    with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):
+        research.action(uuid4(),identity,'finish',dsn=dsn)
+    result=research.action(owner,identity,'finish',dsn=dsn)
+    assert result['status']=='selecting' and result['progress']['finish_reason']=='user_stopped'
+    assert result['candidates'][0]['eligible']
+    assert not research.save(stale,lambda row:setattr(row,'status','searching'),dsn=dsn)
+    research.action(owner,identity,'cancel',dsn=dsn)
+    restored=research.action(owner,identity,'finish',dsn=dsn)
+    assert restored['status']=='selecting'
+    assert research.action(owner,identity,'acquire',['paper1'],dsn=dsn)['status']=='acquiring'

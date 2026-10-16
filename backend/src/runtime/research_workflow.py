@@ -33,11 +33,67 @@ TEXT={'type':'string'}
 INDICES={'type':'array','items':{'type':'integer','minimum':0}}
 CHANNEL={'type':'string','enum':['web','papers','mixed']}
 SEARCH=obj({'query':TEXT,'topics':INDICES,'reason':TEXT,'channel':CHANNEL})
-PLAN=obj({'summary':TEXT,'topics':{'type':'array','minItems':1,'items':TEXT},'searches':{'type':'array','minItems':1,'items':SEARCH}})
+PLAN=obj({'summary':TEXT,'topics':{'type':'array','minItems':1,'items':TEXT},'searches':{'type':'array','items':SEARCH}})
 RELEVANCE={'type':'string','enum':['direct','related','unrelated']}
 
 
 def new_state():return {'schema':'material-research/v2','stage':'planning','round':1,'searches':[],'warnings':[]}
+
+
+
+def provided_sources(query):
+    """已知網址先讀原頁；連線、重新導向、身分與授權仍由既有來源邊界檢查。"""
+    result=[]
+    for token in re.findall(r'https?://[^\s<>"「」『』（）。，；、]+',query):
+        token=token.rstrip('.,;!?')
+        while token.endswith(')') and token.count(')')>token.count('('):token=token[:-1]
+        url=canonical_url(token)
+        if not url:continue
+        url=research_sources.arxiv_abstract_url(url) or url
+        if any(c['url']==url for c in result):continue
+        result.append({'id':url,'url':url,'kind':'web','title':url,'authors':urlsplit(url).hostname,
+            'year':None,'doi':None,'license':'unknown','license_url':None,'version':'取得時的來源版本',
+            'eligible':False,'state':'candidate','discovered_by':['User-provided URL'],
+            'reason':'使用者指定來源，尚待核對正文、身分與使用條件。',
+            'screening':{'decision':'read','basis':'user_provided','reason':'先讀指定來源，不以網址推定內容正確或可匯入。'}})
+    return result
+
+
+def organize(data,candidates):
+    """整理既有結果，不呼叫模型，也不把未核對的子題改成已涵蓋。"""
+    for c in candidates:
+        if c.get('_prior_review'):c['review']=c.pop('_prior_review')
+    # 最終排序使用正文判斷；無法匯入的相關參考資料仍可查看，不用偏題資料填滿清單。
+    level={'direct':0,'related':1,'unrelated':2}
+    candidates.sort(key=lambda c:(level.get(c.get('review',{}).get('relevance'),3),
+        c.get('review',{}).get('phase')!='body',not c.get('eligible',False)))
+    # 合併身分與內容指紋相同的入口，保留各自的來源與審閱紀錄。
+    documents={};aliases={}
+    for c in sorted(candidates,key=lambda c:not c.get('eligible',False)):
+        key=_document_key(c)
+        if c.get('review',{}).get('phase')!='body' or not key:continue
+        if key not in documents:documents[key]=c;continue
+        if c.get('state')!='candidate':continue
+        kept=documents[key];aliases[c['id']]=kept['id']
+        kept['discovered_by']=list(dict.fromkeys(kept.get('discovered_by',[])+c.get('discovered_by',[])))
+        quotes=kept['review']['quotes']+c['review']['quotes']
+        kept['review']['quotes']=[{'topic':topic,'quote':quote} for topic,quote in dict.fromkeys((q['topic'],q['quote']) for q in quotes)]
+        kept['review']['topics']=list(dict.fromkeys(q['topic'] for q in kept['review']['quotes']))
+        c.update(duplicate_of=kept['id'],eligible=False,reason='同篇且內容相同，已合併搜尋管道；保留原始審閱紀錄。')
+    for topic in data.get('coverage',[]):
+        for field in ('source_ids','importable_source_ids'):
+            topic[field]=list(dict.fromkeys(aliases.get(identity,identity) for identity in topic.get(field,[])))
+    # 完成閱讀後只保留可回查的引用與 hash；不永久重複保存每篇公開全文。
+    for candidate in candidates:
+        candidate.pop('_reading_text',None);candidate.pop('_review_chunks',None)
+        if candidate.get('review',{}).get('phase')!='body' or candidate['review']['relevance']=='unrelated':candidate['eligible']=False
+        if candidate.get('review',{}).get('phase')!='body' and candidate.get('access',{}).get('status')=='read':
+            candidate['access']['status']='not_reviewed'
+    data['summary']={'covered':'已依正文整理出支持這次需求的來源，可查看各子題的依據與來源說明後選取。',
+                     'user_stopped':'已停止擴查並保留已核對的來源；未完成的子題仍保留原狀，可先選用目前資料。',
+                     'references_only':'已找到可查看的參考連結，但目前尚無經正文核對的可匯入教材。',
+                     'gaps_remaining':'已整理現有來源；仍有尚未補足的子題，請查看涵蓋情況與未完成原因。'}[data['finish_reason']]
+    data['stage']='complete'
 
 
 def _call(call,task,instruction,payload,schema):
@@ -266,7 +322,10 @@ def advance(state,call):
         return result
     stage=data['stage'];context={'request':state['query'],'mode':state['mode'],'approved_scope':state.get('approved_scope')}
     if stage=='planning':
+        supplied=provided_sources(state['query'])
         result=_call(call,'plan',
+            'topics 只列使用者想學的知識，不把來源數量、去重、授權、公開取得或版本核查等管理要求列為知識子題；這些要求在來源管理與選用時核對。'
+            'provided_sources 若有網址，source_indices 只選使用者要求閱讀的網址索引；不選明示排除或僅作反例的網址。先閱讀指定來源，searches 可留空；不能把網址或論文 ID 改成一般搜尋詞重新尋找同一來源。'
             '把需求拆成可核對的學習子題 topics，並規劃少量互補的 searches。每個 query 只搜尋一個核心概念，用一至四個精簡關鍵詞；需要時用另一個查詢補其他概念。'
             '入門原理先用核心名詞加必要的領域消歧詞尋找基礎教材，再查細節；不要在第一個查詢同時要求該概念的多個機制、參數與實作步驟。'
             '不要把學習目標的所有步驟串成關鍵詞長串，也不要附加 open access、open educational material 等泛稱；使用條件在取得來源後另行核對。'
@@ -277,12 +336,20 @@ def advance(state,call):
             '目的是建立可保存的教材，優先尋找明示開放授權的教學、開放教材或論文；搜尋到公開頁面不等於可以匯入，仍由後端核對。'
             'existing_concepts 是原教材已涵蓋的概念名稱，只用來理解先備與避免重複，不能照抄成外部搜尋查詢；優先找需求指定的延伸與缺口。'
             '不要把你自行舉的例子、特定工具或框架變成必需條件；使用者只要求具體案例時，任何切題可核對的案例都可。',
-            {**context,'material_title':state.get('material_title'),'existing_concepts':state.get('existing_concepts',[])},PLAN)
+            {**context,'material_title':state.get('material_title'),'existing_concepts':state.get('existing_concepts',[]),
+             'provided_sources':[c['url'] for c in supplied]},
+            obj({**PLAN['properties'],'source_indices':_indices(len(supplied))}) if supplied else PLAN)
+        if supplied:supplied=[supplied[i] for i in _topics(result.get('source_indices'),supplied)]
         topics=result['topics']
         if not topics or any(not isinstance(t,str) or not t.strip() for t in topics):raise SourceError('RESEARCH_REVIEW_FAILED')
-        data.update(topics=topics,searches=_searches(result['searches'],topics),summary=result['summary'],stage='searching',
+        data.update(topics=topics,searches=[] if supplied else _searches(result['searches'],topics),
+                    summary=result['summary'],stage='reading' if supplied else 'searching',
                     coverage=[{'topic':t,'status':'pending','reason':'尚未閱讀來源。','source_ids':[]} for t in topics])
-        if set(i for search in data['searches'] for i in search['topics'])!=set(range(len(topics))):raise SourceError('RESEARCH_REVIEW_FAILED')
+        for candidate in supplied:
+            candidate['research_topics']=list(range(len(topics)))
+            candidates.append(candidate)
+        if not supplied and set(i for search in data['searches'] for i in search['topics'])!=set(range(len(topics))):
+            raise SourceError('RESEARCH_REVIEW_FAILED')
     elif stage=='searching':
         waiting=data.pop('waiting_until',None)
         work=next((s for s in data['searches'] if s['status']=='pending' and s.get('retry_at',0)<=time.time()),None)
@@ -465,6 +532,7 @@ def advance(state,call):
             schema=obj({'relevance':RELEVANCE,'reason':TEXT,'supports':{'type':'array','items':support}})
             result=_call(call,'read',
                 '這次閱讀一份來源中依需求選定的正文片段。判斷這段對學習需求的用途，不把未提供的部分宣稱為已讀。'
+                '只核對本篇能支援的知識，不要求每篇涵蓋全部子題，也不要求本文證明來源總數、授權或多來源已齊備。'
                 'supports 指向原文 passages 的 index，由系統保留原文，不要自行抄寫、改寫引用。'
                 '選取真正說明原理、步驟、限制或案例的段落；可以用多個相鄰段落支持同一子題。'
                 '選中的原文將作為實際教材分析範圍；請一起指出必要定義、條件、步驟與圖表說明，不要只挑一句結論。'
@@ -605,6 +673,7 @@ def advance(state,call):
             'covered 代表原文足以解釋使用者要學的具體機制、步驟、條件與限制，不代表涵蓋該領域所有細節。只提到術語或只有背景仍不能算 covered。'
             '教學案例可以依有依據的機制合理組合，不要求來源逐字使用相同情境。使用者接受資料流、程式碼或機制說明時，不擅自加上完整可執行程式、通用框架或生產驗證的要求。'
             'topics 是搜尋時拆解的線索，不能把其中比原始 request 與 approved_scope 更細的術語、替代方案或通用規格擴張成必要條件；缺口必須對應使用者真正要求且仍無原文支持的內容。'
+            '來源數量、身分去重、授權及取得狀態屬來源管理，不能要求每篇正文證明多來源已齊備，也不能為這些管理要求新增知識缺口。'
             'items 是已取得且符合匯入條件的正文來源；reference_only 僅供參考，不能代替可交付的教材內容。sources 使用本次 items 的 index。'
             '需求以使用者原始 request 與 approved_scope 為準，不把研究計畫自行舉出的例子或工具變成額外硬條件。'
             '這是分批核對，不保證已讀所有候選；資料足夠就停止，不能為清空候選而繼續深讀。read_next 可從 unread 選取需要升級深入的背景來源，或需擴大閱讀的既有來源；scope=sections 表示只核對了相關區段，不是全文。'
@@ -732,38 +801,7 @@ def advance(state,call):
             if not all_reviewed and any(c.get('screening',{}).get('decision')=='reference' for c in candidates) else 'gaps_remaining')
     elif stage=='organizing':
         # 已有證據足夠而結束研究時，未完成的擴讀仍保留原先可回查的審閱結果。
-        for c in candidates:
-            if c.get('_prior_review'):c['review']=c.pop('_prior_review')
-        # 最終排序使用正文判斷；無法匯入的相關參考資料仍可查看，不用偏題資料填滿清單。
-        level={'direct':0,'related':1,'unrelated':2}
-        candidates.sort(key=lambda c:(level.get(c.get('review',{}).get('relevance'),3),
-            c.get('review',{}).get('phase')!='body',not c.get('eligible',False)))
-        # 合併身分與內容指紋相同的入口，保留各自的來源與審閱紀錄。
-        documents={};aliases={}
-        for c in sorted(candidates,key=lambda c:not c.get('eligible',False)):
-            key=_document_key(c)
-            if c.get('review',{}).get('phase')!='body' or not key:continue
-            if key not in documents:documents[key]=c;continue
-            if c.get('state')!='candidate':continue
-            kept=documents[key];aliases[c['id']]=kept['id']
-            kept['discovered_by']=list(dict.fromkeys(kept.get('discovered_by',[])+c.get('discovered_by',[])))
-            quotes=kept['review']['quotes']+c['review']['quotes']
-            kept['review']['quotes']=[{'topic':topic,'quote':quote} for topic,quote in dict.fromkeys((q['topic'],q['quote']) for q in quotes)]
-            kept['review']['topics']=list(dict.fromkeys(q['topic'] for q in kept['review']['quotes']))
-            c.update(duplicate_of=kept['id'],eligible=False,reason='同篇且內容相同，已合併搜尋管道；保留原始審閱紀錄。')
-        for topic in data.get('coverage',[]):
-            for field in ('source_ids','importable_source_ids'):
-                topic[field]=list(dict.fromkeys(aliases.get(identity,identity) for identity in topic.get(field,[])))
-        # 完成閱讀後只保留可回查的引用與 hash；不永久重複保存每篇公開全文。
-        for candidate in candidates:
-            candidate.pop('_reading_text',None);candidate.pop('_review_chunks',None)
-            if candidate.get('review',{}).get('phase')!='body' or candidate['review']['relevance']=='unrelated':candidate['eligible']=False
-            if candidate.get('review',{}).get('phase')!='body' and candidate.get('access',{}).get('status')=='read':
-                candidate['access']['status']='not_reviewed'
-        data['summary']={'covered':'已依正文整理出支持這次需求的來源，可查看各子題的依據與來源說明後選取。',
-                         'references_only':'已找到可查看的參考連結，但目前尚無經正文核對的可匯入教材。',
-                         'gaps_remaining':'已整理現有來源；仍有尚未補足的子題，請查看涵蓋情況與未完成原因。'}[data['finish_reason']]
-        data['stage']='complete'
+        organize(data,candidates)
     elif stage=='complete':
         return {'search_state':data,'candidates':candidates,'status':'selecting','cursor':None}
     else:raise SourceError('RESEARCH_REVIEW_FAILED')

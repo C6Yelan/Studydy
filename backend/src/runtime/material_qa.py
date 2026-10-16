@@ -203,14 +203,18 @@ def answer(question, history, context, *, retrieve, call, catalog=(), memory=Non
         if _count([*outline, entry]) > 1000:
             break
         outline.append(entry)
-    plan = _request(call, SEARCH_PROMPT,
-        {'question': question, 'history': history, 'context': context, 'catalog_for_search_only': outline},
-        obj({'queries': {**_strings(4), 'minItems': 1}}), metrics)
-    queries = plan.get('queries')
-    if (not isinstance(queries, list) or not 1 <= len(queries) <= 4
-        or any(not isinstance(q, str) or not q.strip() or len(q) > 240 for q in queries)):
-        raise SourceError('VOICE_ANSWER_INVALID')
-    passages = retrieve(list(dict.fromkeys([*queries, question])))
+    # 無前文指涉時先用原問題檢索；有段落不等於已答對，仍須生成、核對與必要補查。
+    contextual = bool(history['turns'] or history['summary'] or history.get('recalled_user_turns') or context)
+    passages = [] if contextual else retrieve([question])
+    if contextual or not passages:
+        plan = _request(call, SEARCH_PROMPT,
+            {'question': question, 'history': history, 'context': context, 'catalog_for_search_only': outline},
+            obj({'queries': {**_strings(4), 'minItems': 1}}), metrics)
+        queries = plan.get('queries')
+        if (not isinstance(queries, list) or not 1 <= len(queries) <= 4
+            or any(not isinstance(q, str) or not q.strip() or len(q) > 240 for q in queries)):
+            raise SourceError('VOICE_ANSWER_INVALID')
+        passages = retrieve(list(dict.fromkeys([*queries, question])))
     accepted = []
     missing = ''
     for attempt in range(2):

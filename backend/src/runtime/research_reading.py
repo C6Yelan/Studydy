@@ -153,7 +153,10 @@ def inspect_candidate(candidate):
         row['_reading_text']=doc['text']
         row['inspection_text_sha256']=sha256(doc['text'].encode()).hexdigest()
         row['access'].update(method=doc['access_method'],url=doc['access_url'],characters=len(doc['text']))
-        if doc.get('title'):row['access']['actual_title']=doc['title']
+        if doc.get('title'):
+            row['access']['actual_title']=doc['title']
+            if row['title']==row['url']:
+                row['title']=doc['title'];row['authors']=doc.get('authors') or row.get('authors')
         row['reason']='已取得正文並確認使用條件。' if importable else '已讀取公開內容；全文匯入條件尚未確認，可查看原始來源。'
         if doc.get('fulltext_unavailable'):
             row['access']['fulltext_unavailable']=True
