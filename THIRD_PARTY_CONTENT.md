@@ -24,3 +24,7 @@ Studydy 原創程式碼除另有標示外採 [MIT License](LICENSE) 授權。第
 [CC-CEDICT / MDBG](https://www.mdbg.net/chinese/dictionary?page=cc-cedict) 衍生的中文詞表及別名採 CC BY-SA 4.0；不將其改稱 MIT。[署名與修改說明](frontend/public/licenses/concept-icons.txt) 隨網站發佈，SVG 下載也保留署名連結。
 
 圖庫在概念卡開啟時載入，全程本機詞彙與語境比對，不增加模型推論。版本、來源 hash 及生成方式見 [圖庫維護](ops/icons/README.md)。
+
+## 瀏覽器人聲辨識
+
+語音模式使用 [vad-web 0.0.31](https://github.com/ricky0123/vad)（ISC）、[Silero VAD v6](https://github.com/snakers4/silero-vad)（MIT）與 [ONNX Runtime Web 1.22.0](https://github.com/microsoft/onnxruntime)（MIT）。模型、worklet 與 WASM 從鎖定 npm 套件建置，隨本站發布；[完整授權文字](frontend/public/voice-assets/LICENSES.txt) 同時提供給網站使用者。人聲分類在瀏覽器執行，通過判定的錄音才交給既有 Studydy 語音問答服務。

@@ -36,6 +36,18 @@ def test_compound_protocol_notation_preserves_operators():
     assert sentences('ABC → XYZ')[0]['text'] == 'A B C → X Y Z'
 
 
+def test_english_compound_words_do_not_read_typographic_hyphens():
+    assert sentences('Retrieval-Augmented Generation')[0]['text'] == 'retrieval augmented generation'
+    assert sentences('使用 evidence-based 方法。')[0]['text'] == '使用 evidence based 方法。'
+    assert 'hyphen' not in sentences('state-of-the-art')[0]['text']
+
+
+def test_identifier_hyphens_and_underscores_remain_audible():
+    assert sentences('SYN-ACK')[0]['text'] == 'S Y N hyphen A C K'
+    assert sentences('version-2')[0]['text'] == 'version hyphen 2'
+    assert sentences('sample_name')[0]['text'] == 'sample underscore name'
+
+
 def test_units_preserve_bit_byte_case_and_chinese_connector():
     result = sentences('8 Mb/s 與 8 MB/s')
     assert result[0]['text'] == '8 megabits per second 與 8 megabytes per second'

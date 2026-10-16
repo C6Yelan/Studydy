@@ -43,6 +43,11 @@ def english_words(token, normalize_number):
         return normalize_number(token)
     if initialism(token):
         return ' '.join(token.upper())
+    # 一般英文複合詞的連字號不朗讀；代碼、縮寫及數值中的符號仍保留。
+    words = token.split('-')
+    if len(words) > 1 and all(word.isalpha() and not initialism(word)
+                              and word.lower() in lexicon() for word in words):
+        return ' '.join(word.lower() for word in words)
     if '_' in token or '-' in token or (not token.islower() and not token.isupper()) or any(c.isdigit() for c in token):
         chunks=[]
         for part in re.split(r'([_-])',token):

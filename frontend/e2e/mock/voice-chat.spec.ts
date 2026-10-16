@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import type { VoiceTurn, VoiceView } from '../../src/features/material-tools/types';
 import { materialId, runId, structureRevision, structureView, mockKnowledgeMapApi, json } from '../fixtures/knowledge-map';
@@ -41,28 +42,33 @@ async function mockVoice(page:Page) {
 async function open(page:Page) {await page.getByRole('button',{name:'教材問答',exact:true}).click();await expect(page.getByRole('dialog',{name:'教材問答'})).toBeVisible();}
 async function choose(page:Page,id:string) {await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${id}"]`).click();}
 async function microphone(page:Page) {
+ // UI lifecycle tests inject speech events; real model classification is tested separately.
+ await page.route('**/assets/voice-vad-*.js', route => route.fulfill({contentType:'text/javascript',body:`
+  export async function createVoiceVad(stream, context, callbacks) {
+   let paused=false, speaking=false;
+   const timer=setInterval(()=>{
+    if(paused)return;
+    if(window.speechActive&&!speaking){speaking=true;callbacks.onStart();}
+    if(!window.speechActive&&speaking){speaking=false;callbacks.onEnd(new Blob(['synthetic recording'],{type:'audio/wav'}));}
+   },20);
+   return {pause:async()=>{paused=true;speaking=false;},start:async()=>{paused=false;},destroy:async()=>clearInterval(timer)};
+  }
+ `}));
  await page.addInitScript(()=>{
   (window as any).stoppedTracks=0;
-  (window as any).voiceLevel=0;
+  (window as any).speechActive=false;
   (window as any).AudioContext=class {
    state='running'; resume(){return Promise.resolve();} close(){this.state='closed';return Promise.resolve();}
-   createMediaStreamSource(){return {connect(){}};}
-   createAnalyser(){return {fftSize:2048,getFloatTimeDomainData(buffer:Float32Array){buffer.fill((window as any).voiceLevel);}};}
   };
   Object.defineProperty(navigator.mediaDevices,'getUserMedia',{value:async()=>({getTracks:()=>[{stop:()=>{(window as any).stoppedTracks++;}}]})});
-  (window as any).MediaRecorder=class {
-   state='inactive';mimeType='audio/webm';ondataavailable?: (e:{data:Blob})=>void;onstop?:()=>void;
-   start(){this.state='recording';}
-   stop(){this.state='inactive';queueMicrotask(()=>{this.ondataavailable?.({data:new Blob(['synthetic recording'],{type:this.mimeType})});this.onstop?.();});}
-  };
  });
 }
 
 async function speak(page:Page) {
  await expect(page.locator('.voice-composer-status')).toContainText('正在聆聽');
- await page.evaluate(()=>(window as any).voiceLevel=.12);
+ await page.evaluate(()=>(window as any).speechActive=true);
  await expect(page.locator('.voice-composer-status')).toContainText('說完稍停');
- await page.evaluate(()=>(window as any).voiceLevel=0);
+ await page.evaluate(()=>(window as any).speechActive=false);
 }
 
 test('compact widget has one entry, chat bubbles, secondary sources and a growing single composer',async({page},testInfo)=>{
@@ -91,10 +97,10 @@ test('voice mode automatically moves through STT answer and audio with no second
  await page.getByRole('switch',{name:'語音模式',exact:true}).click();
  await expect(page.locator('.voice-panel textarea')).toHaveCount(1);
  await expect(page.locator('.voice-composer-status')).toContainText('正在聆聽');
- await page.evaluate(()=>(window as any).voiceLevel=.12);
+ await page.evaluate(()=>(window as any).speechActive=true);
  await expect(page.locator('.voice-composer-status')).toContainText('說完稍停');
  await page.getByRole('switch',{name:'語音模式',exact:true}).click();expect(mock.recorded).toHaveLength(0);
- await page.evaluate(()=>(window as any).voiceLevel=0);
+ await page.evaluate(()=>(window as any).speechActive=false);
  await page.getByRole('switch',{name:'語音模式',exact:true}).click();
  await speak(page);
  await expect.poll(()=>mock.recorded.length).toBe(1);await expect(page.getByText('正在辨識你的問題…',{exact:true})).toBeVisible();
@@ -362,7 +368,7 @@ test('closing during microphone permission releases a late stream without sendin
   })});
  });
  await page.goto(mapPath);await open(page);await page.getByRole('switch',{name:'語音模式'}).click();
- await expect(page.locator('.voice-composer-status')).toContainText('等待麥克風');
+ await expect(page.locator('.voice-composer-status')).toContainText('等待麥克風權限');
  await page.getByRole('button',{name:'關閉',exact:true}).click();
  await page.evaluate(()=>(window as any).grantMicrophone());
  await expect.poll(()=>page.evaluate(()=>(window as any).stoppedTracks)).toBe(1);
@@ -384,4 +390,91 @@ test('saved conversation recovers from a transient read failure without resendin
  await expect(page.locator('.voice-answer')).toContainText(mock.answer.text);
  expect(mock.questions).toEqual([]);
  expect(reads).toBeGreaterThanOrEqual(3);
+});
+
+test('real local VAD rejects non-speech and preserves quiet speech with a sentence pause',async({page},testInfo)=>{
+ test.setTimeout(90000);
+ const mock=await mockVoice(page), uploads:Buffer[]=[], external:string[]=[], assets:string[]=[];
+ page.on('request',request=>{
+  if(request.url().includes('/voice-assets/'))assets.push(request.url());
+  if(request.url().includes('/recordings'))uploads.push(request.postDataBuffer()!);
+  if(!request.url().startsWith('http://127.0.0.1:')&&!request.url().startsWith('blob:')&&!request.url().startsWith('data:'))external.push(request.url());
+ });
+ const speech=readFileSync(new URL('../fixtures/voice/speech.wav',import.meta.url)).toString('base64');
+ await page.addInitScript(({speech})=>{
+  const w=window as any;
+  Object.defineProperty(navigator.mediaDevices,'getUserMedia',{value:async()=>{
+   const context=new AudioContext({sampleRate:16000}),destination=context.createMediaStreamDestination();
+   await context.resume();
+   w.voiceTracks=destination.stream.getTracks();
+   w.playSample=async(kind:string)=>{
+    const decoded=await context.decodeAudioData(Uint8Array.from(atob(speech),c=>c.charCodeAt(0)).buffer);
+    const original=decoded.getChannelData(0),rate=context.sampleRate;
+    const duration=kind==='noise'?4:original.length/rate*2+0.8;
+    const buffer=context.createBuffer(1,Math.ceil((duration+2)*rate),rate),samples=buffer.getChannelData(0);
+    const rms=Math.sqrt(original.reduce((sum,x)=>sum+x*x,0)/original.length),scale=0.008/rms;
+    let seed=17;
+    for(let i=0;i<duration*rate;i++){
+     seed=(Math.imul(seed,1664525)+1013904223)|0;
+     const random=(seed/2147483648);
+     if(kind==='noise')samples[i]=random*.08+Math.sin(i/rate*2*Math.PI*60)*.1+(i%8000<32?.3:0);
+     else {
+      const offset=i<original.length?i:i-original.length-Math.round(.8*rate);
+      const value=(offset>=0&&offset<original.length?original[offset]*scale:0);
+      samples[i]=value+(kind==='mixed'?random*.003:0);
+     }
+    }
+    const source=context.createBufferSource();source.buffer=buffer;source.connect(destination);
+    source.start();await new Promise(resolve=>{source.onended=resolve;});
+    return {inputSeconds:duration, rms:0.008};
+   };
+   return destination.stream;
+  }});
+ },{speech});
+ await page.goto(mapPath);await open(page);await page.getByRole('switch',{name:'語音模式'}).click();
+ await expect(page.locator('.voice-composer-status')).toContainText('正在聆聽',{timeout:30000});
+ await page.evaluate(()=>(window as any).playSample('noise'));
+ expect(uploads).toHaveLength(0);expect(mock.recorded).toHaveLength(0);
+ for(const kind of ['quiet','mixed']) {
+  const before=uploads.length;
+  const sample=await page.evaluate(kind=>(window as any).playSample(kind),kind);
+  await expect.poll(()=>uploads.length).toBe(before+1);
+  const wav=uploads.at(-1)!;
+  expect(wav.subarray(0,4).toString()).toBe('RIFF');expect(wav.readUInt32LE(24)).toBe(16000);
+  const seconds=(wav.length-44)/32000;
+  // 兩句之間的 800ms 停頓不得分成兩次上傳，也不得丟掉第一句。
+  expect(seconds).toBeGreaterThan(sample.inputSeconds-.5);
+  // 800ms 前置緩衝 + 1400ms 收尾，另容許三個 32ms 模型 frame。
+  expect(seconds).toBeLessThan(sample.inputSeconds+2.3);
+  await testInfo.attach(`${kind}.wav`,{body:wav,contentType:'audio/wav'});
+  mock.recorded.at(-1)!.status='cancelled';
+  await expect(page.locator('.voice-composer-status')).toHaveText('正在聆聽');
+ }
+ await page.getByRole('switch',{name:'語音模式'}).click();
+ await expect.poll(()=>page.evaluate(()=>(window as any).voiceTracks.every((track:MediaStreamTrack)=>track.readyState==='ended'))).toBe(true);
+ expect(external).toEqual([]);
+ for(const file of ['silero_vad_v6.onnx','ort-wasm-simd-threaded.wasm'])expect(assets.filter(url=>url.endsWith(file))).toHaveLength(1);
+});
+
+test('closing while the voice model loads stops microphone and prevents late initialization',async({page})=>{
+ const mock=await mockVoice(page);await microphone(page);
+ let release:()=>void=()=>{};
+ const delayed=new Promise<void>(resolve=>{release=resolve;});
+ let requested=false;
+ await page.route('**/assets/voice-vad-*.js',async route=>{
+  requested=true;await delayed;
+  await route.fulfill({contentType:'text/javascript',body:'export async function createVoiceVad(){window.lateVoiceInit=true;throw Error("Should not initialize after close");}'});
+ });
+ await page.goto(mapPath);await open(page);
+ await expect.poll(()=>requested).toBe(true);
+ await expect(page.getByRole('switch',{name:'語音模式'})).toHaveAttribute('aria-checked','false');
+ await expect(page.getByLabel('問題／辨識文字')).toBeEnabled();
+ await page.getByRole('switch',{name:'語音模式'}).click();
+ await expect(page.locator('.voice-composer-status')).toContainText('正在載入人聲辨識');
+ await page.getByRole('button',{name:'關閉',exact:true}).click();
+ await expect.poll(()=>page.evaluate(()=>(window as any).stoppedTracks)).toBe(1);
+ release();
+ await page.waitForLoadState('networkidle');
+ expect(await page.evaluate(()=>(window as any).lateVoiceInit)).toBeUndefined();
+ expect(mock.recorded).toHaveLength(0);
 });

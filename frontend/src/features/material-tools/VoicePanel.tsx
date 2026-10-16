@@ -130,12 +130,12 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
    if(alive.current&&generation===version.current&&current.current===active){setAutoPlayTurnId(turnId);followLatest.current=true;}
   });},
  });
- const recording=listening==='recording',permission=listening==='permission';
+ const recording=listening==='recording',preparing=listening==='permission'||listening==='loading';
 
  useEffect(()=>{
   if(autoPlayTurnId&&view?.turns.some(turn=>turn.turn_id===autoPlayTurnId&&['failed','cancelled'].includes(turn.status)))setAutoPlayTurnId(null);
  },[view,autoPlayTurnId]);
- useEffect(()=>{if(!busy&&!recording&&!permission&&focusAfterAction.current){focusAfterAction.current=false;input.current?.focus();}},[busy,recording,permission,mode]);
+ useEffect(()=>{if(!busy&&!recording&&!preparing&&focusAfterAction.current){focusAfterAction.current=false;input.current?.focus();}},[busy,recording,preparing,mode]);
  const turns=view?.turns??[];
  const lastTurn=turns.at(-1);
  useLayoutEffect(()=>{
@@ -152,12 +152,12 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
    <div className="voice-header-actions">
     <details className="voice-history-menu" ref={history}><summary ref={historyOpener} role="button" aria-label="對話紀錄" title="對話紀錄"><Icon name="clock" size={18}/></summary>
      <div className="voice-conversation-popover" role="group" aria-label="已保存的對話"><p>歷史對話</p><div className="voice-history-list">{list.map(c=><button type="button" key={c.conversation_id} data-conversation-id={c.conversation_id} title={c.title} aria-current={c.conversation_id===id?'true':undefined} disabled={busy} onClick={()=>{switchMode('text');choose(c.conversation_id);}}>{c.title}</button>)}{!list.length&&<p>尚無歷史對話</p>}</div>
-      {id&&<button className="text-button voice-delete" disabled={busy||recording||permission} onClick={()=>{
+      {id&&<button className="text-button voice-delete" disabled={busy||recording||preparing} onClick={()=>{
        if(window.confirm('刪除這段對話及語音？教材會保留。'))void perform(async()=>{await api.studyTools(`/v1/voice-conversations/${id}`,undefined,undefined,'DELETE');if(alive.current){choose(null);await refreshList();}});
       }}>刪除對話</button>}
      </div>
     </details>
-    <button className="voice-icon-button" type="button" aria-label="新對話" title="新對話" disabled={busy||recording||permission} onClick={()=>choose(null)}><span aria-hidden="true">＋</span></button>
+    <button className="voice-icon-button" type="button" aria-label="新對話" title="新對話" disabled={busy||recording||preparing} onClick={()=>choose(null)}><span aria-hidden="true">＋</span></button>
     <button className="voice-icon-button" type="button" aria-label="關閉" title="關閉" onClick={onClose}><span aria-hidden="true">×</span></button>
    </div>
   </header>
@@ -188,17 +188,17 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
     </article>;
    })}
   </div>
-  <form className="voice-composer" onSubmit={event=>{event.preventDefault();if(!busy&&!working&&!recording&&!permission)send();}}>
+  <form className="voice-composer" onSubmit={event=>{event.preventDefault();if(!busy&&!working&&!recording&&!preparing)send();}}>
    {error&&<p role="alert" className="form-error">{error}</p>}
    <div className="voice-composer-status" role="status">
-    {<span>{permission?'等待麥克風…':recording?'正在聆聽你的問題，說完稍停即可送出':busy?'正在送出…':working?(view?.turns.some(turn=>turn.status==='transcribing')?'正在辨識':'正在整理回答'):mode==='voice'?'正在聆聽':'文字回答僅依據這份教材'}</span>}
+    {<span>{listening==='permission'?'等待麥克風權限…':listening==='loading'?'正在載入人聲辨識…':recording?'正在聆聽你的問題，說完稍停即可送出':busy?'正在送出…':working?(view?.turns.some(turn=>turn.status==='transcribing')?'正在辨識':'正在整理回答'):mode==='voice'?'正在聆聽':'文字回答僅依據這份教材'}</span>}
 
    </div>
    {<div className="voice-composer-row">
-    <textarea ref={input} className="voice-composer-input" aria-label="問題／辨識文字" rows={1} maxLength={4000} value={question} disabled={busy||recording||permission} onChange={event=>setQuestion(event.target.value)} placeholder="輸入問題……" title="Enter 送出，Shift+Enter 換行" onKeyDown={event=>{
-     if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing&&event.keyCode!==229){event.preventDefault();if(!busy&&!working&&!recording&&!permission)send();}
+    <textarea ref={input} className="voice-composer-input" aria-label="問題／辨識文字" rows={1} maxLength={4000} value={question} disabled={busy||recording||preparing} onChange={event=>setQuestion(event.target.value)} placeholder="輸入問題……" title="Enter 送出，Shift+Enter 換行" onKeyDown={event=>{
+     if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing&&event.keyCode!==229){event.preventDefault();if(!busy&&!working&&!recording&&!preparing)send();}
     }}/>
-    <button className="voice-send" type="submit" aria-label="送出問題" title="送出問題" disabled={busy||working||recording||permission||!question.trim()}><Icon name={busy?'process':'chevron-right'} size={20}/></button>
+    <button className="voice-send" type="submit" aria-label="送出問題" title="送出問題" disabled={busy||working||recording||preparing||!question.trim()}><Icon name={busy?'process':'chevron-right'} size={20}/></button>
    </div>}
   </form>
  </div>;

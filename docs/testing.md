@@ -479,3 +479,9 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src .studydy-runtime/research-venv
 問答在沒有對話／Podcast 指涉時先檢索原問題；空結果再規劃查詢，仍保留回答、逐段引用核對與補查。`test_material_qa.py` 驗證直接路徑、空結果補救、對話指涉、否定與技術字面值、無依據拒答及上下文容量。
 
 補充研究先從使用者要求閱讀的網址取得原頁，沿用來源身分、授權與安全連線檢查；不把網址改成搜尋詞重找同一篇。來源數量／授權等管理要求不當作每篇正文必須回答的知識子題。「使用目前已核對的來源」會整理現有結果並保留缺口，不宣稱研究全部完成。workflow／來源單元測試、隔離研究 runtime 及 research-background 瀏覽器案例覆蓋網址排除、無授權不得匯入、停止後選用及晚到 worker 拒絕。未增加並行度。
+
+### 2026-10-15 持續語音的人聲判定
+
+`frontend/e2e/mock/voice-chat.spec.ts` 的介面案例以語音事件替身驗證開關、插話、取消與載入晚到；其中 `real local VAD` 案例使用真正 Silero v6／ONNX WASM 與 WebAudio 串流，檢查持續噪音／嗡聲／脈衝不送出、RMS 0.008 的合成人聲與混噪人聲各送出一次，以及 800ms 句中停頓不拆段。錄音保留 800ms 前置與 1400ms 收尾，輸出 mono 16kHz WAV。此為合成音源回歸，不能宣稱實體麥克風或所有背景聲均已驗收；附近其他人的說話仍可能被判為人聲。
+
+模型與 WASM 由 Vite 從鎖定 npm 依賴發佈至 `/voice-assets/`，開啟問答面板時平行預載公共模型與運算資產，開啟語音模式後才取得麥克風並初始化辨識器；版本化資產採一年 immutable 快取，授權文字不套用此快取。Nginx 必須保留該路徑的 `.mjs`／`.wasm` MIME 設定。測試音源來源見 `frontend/e2e/fixtures/voice/README.md`。
