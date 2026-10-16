@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictInt
 
 
 class _Closed(BaseModel):
@@ -51,7 +51,7 @@ class MaterialProcessingRunView(_Closed):
     material_id: UUID
     source_artifact_id: UUID
     status: Literal["pending", "running", "succeeded", "partial", "failed", "cancelled"]
-    progress_stage: Literal["queued", "evidence", "semantics", "review", "publishing", "completed"]
+    progress_stage: Literal["queued", "evidence", "semantics", "review", "indexing", "publishing", "completed"]
     completed_pages: int
     total_pages: int | None
     completed_units: int | None = None
@@ -68,7 +68,7 @@ class MaterialAttemptView(_Closed):
     base_revision: str | None = Field(default=None,exclude_if=lambda value:value is None)
     run_id: UUID
     status: Literal["pending", "running", "succeeded", "partial", "failed", "cancelled"]
-    progress_stage: Literal["queued", "evidence", "semantics", "review", "publishing", "completed"]
+    progress_stage: Literal["queued", "evidence", "semantics", "review", "indexing", "publishing", "completed"]
     completed_pages: int
     total_pages: int | None
     error_code: str | None
@@ -104,6 +104,8 @@ class SourceView(_Closed):
     status: Literal['pending','running','ready','failed']
     normalized_artifact_id: UUID | None
     page_count: int | None
+    analysis_page_count: int | None = None
+    analysis_mode: Literal['full', 'selected'] = 'full'
     error_code: str | None
 
 
@@ -220,11 +222,68 @@ class KnowledgeStructureView(_Closed):
     excluded_pages: list[ExcludedPageView]
 
 
+class ConceptSummaryView(_Closed):
+    concept_id: str
+    label: str
+    aliases: list[str]
+    claim_count: int
+
+
+class OutlineRelationView(_Closed):
+    relation_id: str
+    source_concept_id: str
+    target_concept_id: str
+    type: Literal["prerequisite", "part_of", "application", "example", "contrast"]
+
+
+class KnowledgeOutlineView(_Closed):
+    schema_: Literal['knowledge-outline/v1'] = Field(alias='schema')
+    material_id: UUID
+    knowledge_structure_revision: str
+    run_id: UUID
+    source_resolver: str
+    status: StatusView
+    concepts: list[ConceptSummaryView]
+    relations: list[OutlineRelationView]
+    section_count: int
+    initial_learning_path: list[LearningPathStepView]
+    excluded_pages: list[ExcludedPageView]
+
+
+class KnowledgeConceptsView(_Closed):
+    schema_: Literal['knowledge-concepts/v1'] = Field(alias='schema')
+    material_id: UUID
+    knowledge_structure_revision: str
+    requested_concept_ids: list[str]
+    source_resolver: str
+    status: StatusView
+    concepts: list[ConceptView]
+    relations: list[RelationView]
+    relation_evidence: list[EvidenceView]
+
+
+class KnowledgeSearchView(_Closed):
+    schema_: Literal['knowledge-search/v1'] = Field(alias='schema')
+    material_id: UUID
+    knowledge_structure_revision: str
+    concept_ids: list[str]
+
+
 class CardSetCreate(_Closed):
     schema_: Literal["card-set-create/v1"] = Field(alias="schema")
     knowledge_structure_revision: str
     name: str = Field(min_length=1, max_length=200)
     concept_ids: list[str] = Field(min_length=1)
+
+
+class CardGenerationView(_Closed):
+    status: Literal['pending', 'running', 'ready', 'failed']
+    stage: Literal['preparing', 'compacting', 'designing', 'checking', 'complete']
+    completed: int
+    total: int
+    error_code: str | None
+    retained_original: int
+    cached: int
 
 
 class CardSetSummary(_Closed):
@@ -233,7 +292,8 @@ class CardSetSummary(_Closed):
     material_name: str
     knowledge_structure_revision: str
     name: str
-    card_count: int
+    card_count: int | None
+    generation: CardGenerationView
     version: int
     created_at: datetime
     is_current_revision: bool
@@ -252,12 +312,100 @@ class ConceptCardView(_Closed):
     claims: list[ClaimView]
 
 
+class CardCountSave(_Closed):
+    expected_version: int = Field(ge=1, strict=True)
+    card_count: int | None = Field(default=None, ge=1, le=1_000_000, strict=True)
+    concept_counts: dict[str, StrictInt] = Field(default_factory=dict)
+    # 分頁規則更新時須同步此政策與前端，並以 migration 清除舊張數。
+    layout_policy: Literal['visual-concept-card/v4']
+
+
+class CardTextEdit(_Closed):
+    source: str
+    text: str
+
+
 class CardSetView(CardSetSummary):
     schema_: Literal["card-set/v1"] = Field(alias="schema")
     source_resolver: str
     status: StatusView
     excluded_pages: list[ExcludedPageView]
     cards: list[ConceptCardView]
+    display_edits: dict[str, list[CardTextEdit]]
+
+
+class CardDesignSources(_Closed):
+    claim_ids: list[str]
+    relation_ids: list[str]
+    evidence_ids: list[str]
+
+
+class CardDesignText(CardDesignSources):
+    text: str
+
+
+class CardDesignBlock(CardDesignText):
+    heading: str
+    icon: str
+
+
+class CardDesignLink(CardDesignSources):
+    source: int
+    target: int
+    label: str
+
+
+class CardDesignPage(_Closed):
+    title: str
+    layout: Literal['focus', 'compare', 'flow', 'grid']
+    takeaway: CardDesignText
+    blocks: list[CardDesignBlock]
+    links: list[CardDesignLink]
+
+
+class CardDesignView(_Closed):
+    schema_: Literal['concept-card-design/v1'] = Field(alias='schema')
+    revision: str
+    pages: list[CardDesignPage]
+    details_claim_ids: list[str]
+    provider: dict[str, str]
+
+
+class StudyCardView(ConceptCardView):
+    display_edits: list[CardTextEdit]
+    design: CardDesignView | None = None
+
+
+class CardContextView(_Closed):
+    source_resolver: str
+    status: StatusView
+    concepts: list[ConceptView]
+    relations: list[RelationView]
+    relation_evidence: list[EvidenceView]
+
+
+class CardBatchView(_Closed):
+    schema_: Literal['card-batch/v1'] = Field(alias='schema')
+    card_set_id: UUID
+    version: int
+    offset: int
+    total: int
+    cards: list[StudyCardView]
+    context: CardContextView
+
+
+class CardNavigationView(_Closed):
+    concept_id: str
+    label: str
+    page_count: int | None
+
+
+class CardStudyView(CardSetSummary):
+    schema_: Literal['card-study/v1'] = Field(alias='schema')
+    source_resolver: str
+    status: StatusView
+    navigation: list[CardNavigationView]
+    batch: CardBatchView | None
 
 
 class CardSetListView(_Closed):
@@ -339,6 +487,7 @@ class StudyResumeView(_Closed):
     progress: LearnerProgressView
     assessment_sets: list[AssessmentSetSummary]
     selected_set_id: UUID | None
+    selected_set: AssessmentSetView | None
 
 
 class AssessmentSetCreate(_Closed):
@@ -487,6 +636,58 @@ class LearnerProgressView(_Closed):
     weaknesses: list[dict[str, Any]]
     next_action: dict[str, Any]
     guidance_revision: str
+
+
+class StudyProgressView(LearnerProgressView):
+    schema_: Literal['study-progress/v1'] = Field(alias='schema')
+    concept_count: int
+
+
+class MapConceptStateView(_Closed):
+    concept_id: str
+    status: Literal['not_started', 'in_progress', 'needs_review', 'completed']
+    attempts: int
+    assessable: bool
+
+
+class MapProgressView(_Closed):
+    schema_: Literal['map-progress/v1'] = Field(alias='schema')
+    study_session_id: UUID
+    knowledge_structure_revision: str
+    current_concept_id: str | None
+    concept_states: list[MapConceptStateView]
+    next_action: dict[str, Any]
+    assessment_cycles: list[AssessmentCycleSummary]
+
+
+class StudyConceptLabelView(_Closed):
+    concept_id: str
+    label: str
+
+
+class StudyNavigationView(_Closed):
+    schema_: Literal['study-navigation/v1'] = Field(alias='schema')
+    material_id: UUID
+    knowledge_structure_revision: str
+    run_id: UUID
+    source_resolver: str
+    status: StatusView
+    concept_count: int
+    concepts: list[StudyConceptLabelView]
+    initial_learning_path: list[LearningPathStepView]
+
+
+class StudyWorkspaceView(_Closed):
+    schema_: Literal['study-workspace/v1'] = Field(alias='schema')
+    session: StudySessionView
+    run_id: UUID
+    source_artifact_id: UUID
+    outline: StudyNavigationView
+    context: KnowledgeConceptsView | None
+    progress: StudyProgressView
+    assessment_sets: list[AssessmentSetSummary]
+    selected_set_id: UUID | None
+    selected_set: AssessmentSetView | None
 
 
 def project_material_run(run: Any) -> MaterialProcessingRunView:

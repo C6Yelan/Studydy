@@ -79,7 +79,7 @@ def _row(row: RunRow) -> MaterialProcessingRun:
             output is None and row.error_code is None and row.completed_at is None
             and row.progress_stage != "completed"
             and (row.status != "pending" or (row.progress_stage == "queued" and row.cancel_requested_at is None))
-            and (row.cancel_requested_at is None or row.progress_stage in {"queued", "evidence", "semantics", "review", "publishing"})
+            and (row.cancel_requested_at is None or row.progress_stage in {"queued", "evidence", "semantics", "review", "indexing", "publishing"})
         )
     elif row.status == "cancelled":
         valid_lifecycle = (
@@ -139,7 +139,7 @@ def _row(row: RunRow) -> MaterialProcessingRun:
         or not ((row.completed_units is None and row.total_units is None) or
                 (type(row.completed_units) is int and type(row.total_units) is int
                  and 0 <= row.completed_units <= row.total_units))
-        or row.progress_stage not in {"queued", "evidence", "semantics", "review", "publishing", "completed"}
+        or row.progress_stage not in {"queued", "evidence", "semantics", "review", "indexing", "publishing", "completed"}
         or type(row.completed_pages) is not int
         or row.completed_pages < 0
         or (row.total_pages is not None and (type(row.total_pages) is not int or row.total_pages < 1))
@@ -273,12 +273,13 @@ def claim_next_material_processing_run(*, dsn: str | None = None) -> ClaimedMate
 
 _NEXT_STAGES = {
     "queued": {"evidence"}, "evidence": {"semantics"},
-    "semantics": {"review", "publishing"}, "review": {"publishing"},
+    "semantics": {"review", "indexing", "publishing"}, "review": {"indexing", "publishing"},
+    "indexing": {"publishing"},
 }
 
 
 def _record_progress(run_id: UUID, stage: str, completed: int, total: int, *, dsn: str | None) -> None:
-    if (stage not in {"evidence", "semantics", "review", "publishing"}
+    if (stage not in {"evidence", "semantics", "review", "indexing", "publishing"}
         or type(completed) is not int or type(total) is not int
         or not 0 <= completed <= total or (stage in {"evidence", "publishing"} and total < 1)):
         raise MaterialProcessingError("MATERIAL_RUN_INVALID")
@@ -411,7 +412,7 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn, check_
                 structure['revision'] = _revision(structure)
                 progress('evidence', structure['page_count'], structure['page_count'])
                 progress('semantics', 0, 0)
-            elif binding is not None and binding['schema']=='structure-input-binding/v1':
+            elif binding is not None and binding['schema']=='structure-input-binding/v2':
                 sources=[]
                 for index,item in enumerate(binding['manifest']['items']):
                     path=Path(directory)/f'source-{index}.pdf'
@@ -431,11 +432,17 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn, check_
             structure=bind_structure_input(run.learner_id,run.run_id,structure,dsn=dsn)
         inherited_calls = structure['metrics']['semantic_calls'] if review_only else 0
         structure=review_structure(structure, local_config['runtime_lock'], archive, check_cancel, progress,
-                                   wait_cancellation_check=check_wait)
+                                   wait_cancellation_check=check_wait,
+                                   base_structure=base if not review_only else None)
         if review_only:
             structure['metrics']['semantic_calls'] -= inherited_calls
+        from knowledge_map.retrieval import build_passages
+        progress('indexing', 0, len(structure['evidence']))
+        retrieval_passages = build_passages(structure)
+        progress('indexing', len(structure['evidence']), len(structure['evidence']))
         progress("publishing", structure["page_count"], structure["page_count"])
-        publish_knowledge_structure(run.learner_id, run.material_id, run.run_id, structure, worker_token=claim.worker_token, dsn=dsn)
+        publish_knowledge_structure(run.learner_id, run.material_id, run.run_id, structure,
+            worker_token=claim.worker_token, dsn=dsn, retrieval_passages=retrieval_passages)
     except MaterialProcessingCancelled:
         pass
     except (KnowledgeStructureStoreError, MaterialAnalysisError, MaterialProcessingError, MaterialRuntimeError, AnalysisArchiveError, ReviewError, SemanticServiceError) as error:

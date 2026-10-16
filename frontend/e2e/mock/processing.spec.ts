@@ -88,7 +88,8 @@ const activeCases: [
   ["semantics", semantics, null, 44, 2],
   ["semantics-full", { ...semantics, completed_units: 45 }, null, 100, 2],
   ["review", { ...semantics, progress_stage: "review", completed_units: 18, total_units: 49 }, null, 36, 3],
-  ["publishing", publishing, null, null, 4],
+  ["indexing", { ...semantics, progress_stage: "indexing", completed_units: 20, total_units: 100 }, null, 20, 4],
+  ["publishing", publishing, null, null, 5],
   ["unknown-total", { ...base, completed_pages: 0, total_pages: null }, null, null, 1],
 ];
 
@@ -132,7 +133,7 @@ for (const [name, run, overall, current, step] of activeCases)
       name === "pending" ? "等待開始處理" : "正在分析教材",
     );
     await expect(processing.getByRole("progressbar", { name: /^整體流程進度/ })).toHaveCount(0);
-    await expect(processing.getByRole("heading", { name: `第 ${step + 1} / 5 階段`, exact: true })).toBeVisible();
+    await expect(processing.getByRole("heading", { name: `第 ${step + 1} / 6 階段`, exact: true })).toBeVisible();
     const stage = processing.locator(".processing-current");
     if (current === null) {
       await expect(stage.getByRole("heading")).toHaveText("目前狀態");
@@ -157,7 +158,7 @@ for (const [name, run, overall, current, step] of activeCases)
       await expect(stage.locator(".processing-status-indicator")).toHaveCount(1);
     }
     const steps = processing.locator(".status-timeline > li");
-    await expect(steps).toHaveCount(5);
+    await expect(steps).toHaveCount(6);
     await expect(steps.nth(step)).toHaveAttribute("aria-current", "step");
     await expect(processing.locator(".status-timeline > li.is-complete")).toHaveCount(step);
     await expect(
@@ -213,9 +214,9 @@ for (const status of ["succeeded", "partial"] as const)
     await expect(
       processing.getByRole("button", { name: "取消並刪除教材", exact: true }),
     ).toHaveCount(0);
-    await expect(processing.locator(".status-timeline > li.is-complete")).toHaveCount(5);
+    await expect(processing.locator(".status-timeline > li.is-complete")).toHaveCount(6);
     await expect(processing.locator(".status-timeline p")).toHaveText(
-      Array(5).fill("此階段已完成。"),
+      Array(6).fill("此階段已完成。"),
     );
     const openMap = processing.getByRole("button", { name: "開啟知識地圖", exact: true });
     await expect(openMap).toHaveClass("primary-button");
@@ -435,7 +436,7 @@ for (const width of [1280, 390]) test(`large review progress survives reload and
     source_names:Array.from({length:24},(_,i)=>`公開範例教材 ${i+1}.pdf`)};
   await mockRun(page, route=>route.fulfill({json:server}));
   await page.goto(runPath);
-  await expect(page.getByRole("heading",{name:"第 4 / 5 階段",exact:true})).toBeVisible();
+  await expect(page.getByRole("heading",{name:"第 4 / 6 階段",exact:true})).toBeVisible();
   await expect(page.locator(".stage-pages")).toHaveText("已完成 31 / 49 個檢核批次");
   await expect(page.locator(".overall-heading")).not.toContainText("%");
   await expect(page.locator(".processing-sources li").first()).toBeHidden();

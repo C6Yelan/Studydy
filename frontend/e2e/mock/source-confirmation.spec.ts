@@ -224,6 +224,9 @@ for (const width of [1536, 390])
     }) => {
       const { state } = await mockSources(page, true);
       await page.goto(sourcesPath);
+      await expect(page.locator('.source-inclusion-summary')).toHaveText('目前地圖使用 1 份 · 2 份尚未納入地圖');
+      await expect(page.getByText('尚未納入目前地圖', {exact: true})).toHaveCount(2);
+      await expect(page.getByText('目前地圖使用中', {exact: true})).toHaveCount(1);
       await expect(page.getByRole("heading", { name: "教材來源", exact: true })).toBeVisible();
       const rows = await readyRows(page);
       await expect(rows.first().getByRole("button", { name: "移除", exact: true })).toHaveCount(0);

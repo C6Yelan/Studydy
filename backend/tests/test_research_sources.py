@@ -42,6 +42,9 @@ def test_rank_prioritizes_topic_match_but_leaves_rejection_to_body_review():
     assert sources.rank_candidates('retrieval augmented generation',[noise,good])==[good,noise]
     tcp={**noise,'title':'TCP handshake'}
     assert sources.rank_candidates('TCP three way handshake',[tcp])==[tcp]
+    generic={**paper('generic'), 'title':'Synopsis: Original scientific paper', 'description':''}
+    bm25={**paper('bm25'), 'title':'BM25 ranking functions', 'description':''}
+    assert sources.rank_candidates('BM25 ranking original paper',[generic,bm25])==[bm25,generic]
 
 
 def test_doi_merge_preserves_selection_id_and_collects_versioned_locations():
@@ -75,8 +78,26 @@ def test_pagination_continues_each_provider_and_failure_keeps_other_results(monk
     assert sources.json.loads(cursor)['_failures'][0]['provider']=='openalex'
     sources.search('retrieval augmented generation',cursor)
     assert ('cr',20) in calls
-    calls.clear();sources.search('retrieval augmented generation','legacy-cursor')
-    assert calls==[('oa','legacy-cursor')]
+    calls.clear()
+    with pytest.raises(SourceError,match='REQUEST_INVALID'):
+        sources.search('retrieval augmented generation','legacy-cursor')
+    assert calls==[]
+
+
+@pytest.mark.parametrize('query,expected',[
+    ('LLM tokenization embeddings context window',[]),
+    ('Python generators',['Python']),
+    ('JavaScript DOM events',['MDN']),
+])
+def test_specialized_docs_only_run_for_the_requested_technology(monkeypatch,query,expected):
+    from runtime import research_web
+    called=[]
+    monkeypatch.setenv('STUDYDY_SEARXNG_URL','http://search.test')
+    monkeypatch.setattr(research_web,'search_web',lambda *args:([],None,[]))
+    monkeypatch.setattr(sources,'official_search',lambda q:called.append('Python') or [])
+    monkeypatch.setattr(sources,'mdn_search',lambda q:called.append('MDN') or [])
+    assert sources.search(query,channel='web')==([],None,[])
+    assert called==expected
 
 
 def test_all_search_services_failing_is_not_an_empty_success(monkeypatch):

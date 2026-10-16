@@ -14,7 +14,7 @@ from uuid import uuid4
 from sqlalchemy import update
 from sqlalchemy.exc import SQLAlchemyError
 
-from .storage.tables import (Material, Podcast, PodcastVideo, PodcastScenes, VoiceTurn,
+from .storage.tables import (Material, CardSet, Podcast, PodcastVideo, PodcastScenes, VoiceTurn,
                              VoiceConversation, TopicScope, MaterialResearch, SourceNormalization, database_session)
 
 WORKER_LEASE_TTL = timedelta(minutes=15)
@@ -26,7 +26,10 @@ class JobCancelled(RuntimeError):
 
 
 def _source_active(db, row):
-    if isinstance(row, (Podcast, PodcastVideo, PodcastScenes)):
+    if isinstance(row, CardSet):
+        if row.deleted_at is not None: return False
+        material_id = row.material_id
+    elif isinstance(row, (Podcast, PodcastVideo, PodcastScenes)):
         parent = row if isinstance(row, Podcast) else db.get(Podcast, row.podcast_id)
         if parent is None or parent.status in ('cancelled', 'deleted'): return False
         material_id = parent.material_id

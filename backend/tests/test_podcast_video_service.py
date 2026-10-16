@@ -46,6 +46,11 @@ def test_one_storyboard_call_without_quality_review_or_rewrite(tmp_path,monkeypa
     from threading import Lock
     from test_podcast_video_plan import sample,plan
     episode,cues,alignment=sample();audio=b'synthetic audio';episode['audio']['sha256']=sha256(audio).hexdigest()
+    context = {}
+    for i, claim in enumerate(episode['claims']):
+        claim.update(label=f'觀念 {i}', text=f'來源公式 x={i+3}，只適用 N>0。')
+        context[str(i)] = {'source_name': 'synthetic.pdf', 'normalized_page': i+1,
+            'blocks': [{'evidence_id': claim['evidence'][0]['evidence_id'], 'text': claim['text']}]}
     monkeypatch.setenv('STUDYDY_VIDEO_PYTHON',sys.executable)
     monkeypatch.setenv('STUDYDY_VIDEO_WORK_DIR',str(tmp_path))
     monkeypatch.setattr(service,'ensure_space',lambda _:None)
@@ -56,6 +61,11 @@ def test_one_storyboard_call_without_quality_review_or_rewrite(tmp_path,monkeypa
         assert kwargs['timeout'] is None
         assert set(schema['properties'])=={'pages'}
         assert schema['properties']['pages']['minItems']==2
+        source = json.loads(prompt[prompt.index('{"source":'):])['source']
+        assert set(source) == {'pages', 'sources', 'page_context'}
+        assert [p['blocks'][0]['text'] for p in source['page_context']] == [c['text'] for c in episode['claims']]
+        assert [s['block_indices'] for s in source['sources']] == [[0], [1]]
+        assert '"evidence_id"' not in prompt and all('claim' not in s for s in source['sources'])
         calls.append(prompt);return model_design(schema,kind)
     def process(args,env,timeout,cancelled):
         assert timeout is None
@@ -73,7 +83,7 @@ def test_one_storyboard_call_without_quality_review_or_rewrite(tmp_path,monkeypa
             rendered.append(True);result.write_text('{}');result.with_suffix('.mp4').write_bytes(b'synthetic video')
         return 0
     monkeypatch.setattr(service,'_process',process)
-    body={'episode':episode,'audio':base64.b64encode(audio).decode(),'source_context':{},'podcast_id':'p','episode_index':0,'source_resolver':'/source'}
+    body={'episode':episode,'audio':base64.b64encode(audio).decode(),'source_context':context,'podcast_id':'p','episode_index':0,'source_resolver':'/source'}
     kwargs=dict(luna=model,model='synthetic',align=lambda *a,**k:alignment,text_lock=Lock(),asr_lock=Lock(),cancelled=Event())
     if failure:
         with pytest.raises(ValueError,match='VIDEO_LAYOUT_INVALID' if failure=='layout' else 'VIDEO_RENDER_FAILED'):
@@ -91,6 +101,8 @@ def test_measured_grouping_reaches_storyboard_and_render_without_dropping_turns(
     from threading import Lock
     from test_podcast_video_plan import sample,plan
     episode,cues,alignment=sample();raw=b'synthetic';episode['audio']['sha256']=sha256(raw).hexdigest()
+    for i, claim in enumerate(episode['claims']):
+        claim.update(label=f'觀念 {i}', text=f'有來源的觀念 {i}')
     alignment.update(groups=[[0,1]],starts=[0],anchors=[alignment['anchors'][0]])
     monkeypatch.setenv('STUDYDY_VIDEO_PYTHON',sys.executable);monkeypatch.setenv('STUDYDY_VIDEO_WORK_DIR',str(tmp_path));monkeypatch.setattr(service,'ensure_space',lambda _:None)
     def model(prompt,schema,**kwargs):

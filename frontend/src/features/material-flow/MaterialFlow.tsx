@@ -1,9 +1,10 @@
-import { useRef } from "react";
+import { lazy, Suspense, useRef } from "react";
 import type { ResearchDraft } from "../material-tools/research";
 import { TopicPage } from "../topics/TopicPage";
 import type { StudydyApiClient } from "../../api/client";
 import type { AppRoute } from "../../app/routes";
-import KnowledgeMap from "../knowledge-map/App";
+import { StateView } from "../../ui/StateView";
+import "../knowledge-map/styles.css";
 import { StudySessionPage } from "../study-session/StudySessionPage";
 import { Dashboard } from "../dashboard/Dashboard";
 import { MaterialContent } from "./MaterialContent";
@@ -20,6 +21,8 @@ import { PodcastPage } from "../podcasts/PodcastPage";
 import "../podcasts/styles.css";
 import "../concept-cards/styles.css";
 import "./styles.css";
+
+const KnowledgeMap = lazy(() => import("../knowledge-map/App"));
 
 function MaterialFlowBody({
   apiClient,
@@ -63,11 +66,13 @@ function MaterialFlowBody({
     return <RunView key={route.runId} apiClient={apiClient} route={route} />;
   if (route.name === "knowledge-map")
     return (
-      <KnowledgeMap
-        key={`${route.materialId}/${route.runId}/${route.structureRevision}`}
-        apiClient={apiClient}
-        route={route}
-      />
+      <Suspense fallback={<StateView title="正在讀取知識地圖" description="正在載入教材概念與學習順序。" tone="loading" live />}>
+        <KnowledgeMap
+          key={`${route.materialId}/${route.runId}/${route.structureRevision}`}
+          apiClient={apiClient}
+          route={route}
+        />
+      </Suspense>
     );
   return (
     <StudySessionPage

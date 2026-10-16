@@ -25,6 +25,7 @@ _CANCELLATION_POLL_SECONDS = 0.1
 MIN_OUTPUT_TOKENS = {
     "material_semantics": 8192, "material_review": 8192,
     "assessment": 16384, "assessment_check": 16384,
+    "concept_card": 4096,
 }
 # 候選目錄最多占 8K tokens；原始來源與最低輸出空間仍各自檢查。
 MAX_MATERIAL_CATALOG_TOKENS = 8192
@@ -307,6 +308,7 @@ def request_semantics(
     request: dict[str, Any],
     response_schema: dict[str, Any],
     cancellation_check: Callable[[], None] | None = None,
+    usage: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """透過共用 HTTP 邊界請求語意結果。"""
 
@@ -341,7 +343,7 @@ def request_semantics(
         prompt = task_lock[prefix + "prompt"]
         max_tokens = task_lock[prefix + "max_tokens"]
         if (
-            task not in {"material_semantics", "material_review", "assessment", "assessment_check"}
+            task not in MIN_OUTPUT_TOKENS
             or not isinstance(prompt, str)
             or not prompt
             or type(max_tokens) is not int
@@ -387,6 +389,9 @@ def request_semantics(
             object_pairs_hook=_unique_object,
             parse_constant=_reject_constant,
         )
+        if usage is not None and isinstance(api_body.get('usage'), dict):
+            usage.update({key: api_body['usage'][key] for key in ('prompt_tokens', 'completion_tokens', 'total_tokens')
+                          if type(api_body['usage'].get(key)) is int and api_body['usage'][key] >= 0})
         choice = api_body["choices"][0]
         if choice.get("finish_reason") != "stop":
             error = SemanticServiceError("SEMANTIC_OUTPUT_TRUNCATED")

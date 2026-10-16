@@ -72,6 +72,7 @@ def _path(concepts: list[dict[str, Any]], relations: list[dict[str, Any]]) -> li
             source, target = relation["source_concept_id"], relation["target_concept_id"]
             outgoing[source].add(target)
             incoming[target].add(source)
+    prerequisites = {target for target, sources in incoming.items() if sources}
     ready = sorted((key for key, values in incoming.items() if not values), key=baseline.get)
     ordered: list[str] = []
     while ready:
@@ -88,10 +89,7 @@ def _path(concepts: list[dict[str, Any]], relations: list[dict[str, Any]]) -> li
         {
             "position": index,
             "concept_id": concept_id,
-            "reason": "prerequisite" if any(
-                relation["type"] == "prerequisite" and relation["target_concept_id"] == concept_id
-                for relation in relations
-            ) else "document_order",
+            "reason": "prerequisite" if concept_id in prerequisites else "document_order",
         }
         for index, concept_id in enumerate(ordered, start=1)
     ]

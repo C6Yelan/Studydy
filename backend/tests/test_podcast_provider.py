@@ -95,45 +95,12 @@ def test_luna_timeout_has_fixed_reason_and_task_specific_deadline(monkeypatch):
         provider.luna('synthetic prompt',{'type':'object'},timeout=300)
 
 
-def test_qa_repairs_missing_citations_and_rechecks_without_changing_supported_text(monkeypatch):
-    request={**body(),'question':'合成來源問題'}
-    request['claims'].append(deepcopy(request['claims'][0]))
-    candidate={'text':'兩項來源支持的合成回答。','supported':True,'citations':[0]}
-    fixed={**candidate,'citations':[0,1,0]}
-    responses=iter([candidate,{'supported':False,'unsupported_claims':['缺少第二項來源']},fixed,{'supported':True,'unsupported_claims':[]}]);calls=[]
-    def model(prompt,schema,**kwargs):calls.append(prompt);return next(responses)
-    monkeypatch.setattr(provider,'luna',model)
-    assert provider.answer(request)=={**candidate,'citations':[0,1]}
-    assert len(calls)==4 and '缺少第二項來源' in calls[2]
 
 
-def test_qa_unsupported_answer_is_not_published_after_bounded_repair(monkeypatch):
-    request={**body(),'question':'合成來源問題'}
-    responses=iter([{'text':'沒有來源的斷言','supported':True,'citations':[0]}, {'supported':False,'unsupported_claims':['沒有來源的斷言']}]*2)
-    calls=[]
-    def model(*args,**kwargs):calls.append(args);return next(responses)
-    monkeypatch.setattr(provider,'luna',model)
-    result=provider.answer(request)
-    assert result['supported'] is False and result['citations']==[]
-    assert '沒有來源的斷言' not in result['text'] and len(calls)==4
 
 
-def test_qa_grounding_rejects_foreign_indices_before_review(monkeypatch):
-    monkeypatch.setattr(provider,'luna',lambda *_,**kwargs:{'text':'合成回答','supported':True,'citations':[999]})
-    with pytest.raises(ValueError,match='VOICE_ANSWER_INVALID'):
-        provider.answer({**body(),'question':'合成問題'})
 
 
-def test_qa_citation_verifier_does_not_treat_claim_paraphrase_as_evidence(monkeypatch):
-    request={**body(),'question':'合成問題'}
-    request['claims'][0]['text']='UNSUPPORTED_CLAIM_PARAPHRASE'
-    calls=[];responses=iter([{'text':'空堆疊不可 pop。','supported':True,'citations':[0]}, {'supported':True,'unsupported_claims':[]}])
-    def model(prompt,schema,**kwargs):calls.append(prompt);return next(responses)
-    monkeypatch.setattr(provider,'luna',model)
-    provider.answer(request)
-    assert 'UNSUPPORTED_CLAIM_PARAPHRASE' in calls[0]
-    assert 'UNSUPPORTED_CLAIM_PARAPHRASE' not in calls[1]
-    assert '空堆疊不可 pop。' in calls[1]
 
 
 def test_context_does_not_guess_a_header_from_another_column_or_distant_page_text():
@@ -145,6 +112,20 @@ def test_context_does_not_guess_a_header_from_another_column_or_distant_page_tex
     result=provider.script_context(request['claims'],pages)
     assert list(result)==['p0']
     assert [b['evidence_id'] for b in result['p0']['blocks']]==['e0']
+
+
+def test_retrieved_original_is_not_repeated_in_claim_and_quote(monkeypatch):
+    request = body()
+    request['source_context'] = {'p0': {'blocks': [{'evidence_id': 'e0', 'text': '空堆疊不可 pop。'}]}}
+    prompts = []
+    def model(prompt, schema, **kwargs):
+        prompts.append(prompt)
+        return candidate()
+    monkeypatch.setattr(provider, 'luna', model)
+    provider.script(request)
+    assert prompts[0].count('空堆疊不可 pop。') == 1
+    assert '"block_indices": [0]' in prompts[0]
+    assert 'e0' not in prompts[0]
 
 
 def test_job_diagnostics_exclude_private_input_and_exception_text(caplog):

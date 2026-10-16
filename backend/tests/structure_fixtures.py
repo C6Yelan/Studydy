@@ -8,12 +8,12 @@ def build_knowledge_structure(context, state, **kwargs):
     draft = build_structure_draft(context, state, **kwargs)
     source_id = "00000000-0000-4000-8000-000000000001"
     digest = kwargs["source_sha256"]
-    manifest = {"schema": "source-set/v1", "items": [{
+    manifest = {"schema": "source-set/v2", "items": [{
         "source_id": source_id, "original_name": "Synthetic.pdf",
         "original_sha256": digest, "normalized_sha256": digest,
     }]}
     bundle = {
-        "schema": "bundle-manifest/v1",
+        "schema": "bundle-manifest/v2",
         "source_set_digest": digest,
         "processing_policy": "source-boundary-incremental/v1",
         "source_names": ["Synthetic.pdf"],
@@ -23,7 +23,7 @@ def build_knowledge_structure(context, state, **kwargs):
         ],
     }
     return finalize_knowledge_structure(draft, {
-        "schema": "structure-input-binding/v1",
+        "schema": "structure-input-binding/v2",
         "source_set_id": source_id,
         "source_set_digest": digest,
         "bundle_manifest_sha256": canonical_sha256(bundle),

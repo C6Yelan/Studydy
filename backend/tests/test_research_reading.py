@@ -163,3 +163,53 @@ def test_pdf_paper_identity_checks_the_title_page_beyond_the_journal_header(monk
     assert row['access']['method']=='pdf' and row['access']['status']=='read'
     assert row['inspection_sha256']==reading.sha256(data).hexdigest()
     assert not any(a.get('error_code')=='RESEARCH_IDENTITY_UNCONFIRMED' for a in row['access']['attempts'])
+
+
+def test_arxiv_declared_license_binds_the_same_versioned_pdf_and_is_rechecked(monkeypatch):
+    import fitz,pytest
+    from hashlib import sha256
+    abstract='https://arxiv.org/abs/2401.00001v2';pdf_url='https://arxiv.org/pdf/2401.00001v2'
+    html=b'''<html><head><meta name="citation_title" content="A sampling example">
+    <meta name="citation_author" content="Fixture Author">
+    <meta name="citation_pdf_url" content="https://arxiv.org/pdf/2401.00001"></head>
+    <body><div class="abs-license"><a title="Rights to this article" href="https://creativecommons.org/licenses/by/4.0/">CC BY</a></div></body></html>'''
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72,72),'A sampling example\nSampling chooses a token using the probability distribution.')
+        pdf.set_metadata({'title':'A sampling example'});data=pdf.tobytes()
+    calls=[];revoked=False
+    def fetch(url,**kwargs):
+        calls.append(url)
+        if url==abstract:
+            body=html.replace(b'https://creativecommons.org/licenses/by/4.0/',b'https://arxiv.org/licenses/nonexclusive-distrib/1.0/') if revoked else html
+            return body,url,'text/html'
+        assert url==pdf_url
+        return data,url,'application/pdf'
+    monkeypatch.setattr(sources,'public_page',fetch)
+    candidate={'id':'found','kind':'web','url':'https://arxiv.org/html/2401.00001v2','title':'Search result title',
+        'eligible':False,'license':'unknown','screening':{'decision':'reference','basis':'importability','reason':'Unchecked'}}
+    checked=reading.inspect_candidate(candidate)
+    assert checked['eligible'] and checked['kind']=='paper' and checked['screening']['decision']=='read'
+    assert checked['download_url']==pdf_url and checked['version']=='arxiv:2401.00001v2'
+    assert checked['inspection_sha256']==sha256(data).hexdigest()
+    assert checked['license_snapshot_sha256']==sha256(html).hexdigest()
+    acquired,media,suffix,metadata=sources.acquire(checked)
+    assert acquired==data and media=='application/pdf' and suffix=='.pdf'
+    assert abstract in metadata['license_text'] and metadata['license_snapshot_sha256']==sha256(html).hexdigest()
+    revoked=True
+    with pytest.raises(SourceError,match='RESEARCH_LICENSE_UNCONFIRMED'):sources.acquire(checked)
+    assert calls[-1]==abstract
+
+
+def test_arxiv_license_does_not_apply_to_another_paper_or_incidental_cc_link(monkeypatch):
+    import pytest
+    abstract='https://arxiv.org/abs/2401.00001v1'
+    template='''<html><head><meta name="citation_title" content="Fixture">
+    <meta name="citation_pdf_url" content="PDF"></head><body>LICENSE</body></html>'''
+    license='<div class="abs-license"><a title="Rights to this article" href="https://creativecommons.org/licenses/by/4.0/">CC BY</a></div>'
+    for pdf,terms,error in [('https://arxiv.org/pdf/2401.00002',license,'RESEARCH_IDENTITY_UNCONFIRMED'),
+                            ('https://arxiv.org/pdf/2401.00001','<a href="https://creativecommons.org/licenses/by/4.0/">A cited source</a>','RESEARCH_LICENSE_UNCONFIRMED')]:
+        html=template.replace('PDF',pdf).replace('LICENSE',terms).encode()
+        monkeypatch.setattr(sources,'public_page',lambda url,**kwargs:(html,url,'text/html'))
+        with pytest.raises(SourceError,match=error):sources.arxiv_metadata(abstract)
+    assert sources.arxiv_abstract_url('https://arxiv.org.attacker.example/pdf/2401.00001') is None
+    assert sources.arxiv_abstract_url('https://example.org/pdf/2401.00001') is None

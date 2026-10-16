@@ -116,7 +116,7 @@ Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排�
 
 符合上述檢查的候選稿經獨立 review inference 回傳 `correctness` 與 `teaching_quality` 兩個 blocking verdict；任一失敗不得發布，最多重寫一次，重寫後兩者都重新核對。每集單次生成／重試最多四次文字請求，每次至多 120 秒。CLI 使用既有登入、ephemeral、唯讀空目錄並停用工具，不改寫原教材 Gemma binding；真實模型呼叫仍須有當次素材及費用授權。來源不足、provider／儲存失敗不視為成功。舊 turns 腳本保留原 bytes／hash，由唯讀來源投影相容，不批次改寫舊 JSON。
 
-語音在本機執行 CosyVoice 3（`FunAudioLLM/Fun-CosyVoice3-0.5B-2512`）官方 RL 權重，輸出 24 kHz PCM WAV。Podcast 沿用原 host／guest 參考錄音與固定角色 seed，採用已選定的 V／W `inference_instruct2` 台灣華語指令。`spoken-input/v13` 把同一句的中文、英文與縮寫一起合成，不再因語言切換而改用另一種聲音生成模式；英文冠詞 a 保留，縮寫依通用字母名稱處理，千分位與毫秒先正規化。MB／Mb 仍區分 megabytes／megabits，速率讀 per second。原講稿、來源與引用不改；未知識別符、byte／bit 與其他術語仍須真實聽評。語音問答仍沿用原 v12 路徑，本次只切換 Podcast。
+語音在本機執行 CosyVoice 3（`FunAudioLLM/Fun-CosyVoice3-0.5B-2512`）官方 RL 權重，輸出 24 kHz PCM WAV。Podcast 沿用原 host／guest 參考錄音與固定角色 seed，採用已選定的 V／W `inference_instruct2` 台灣華語指令。`spoken-input/v13` 把同一句的中文、英文與縮寫一起合成，不再因語言切換而改用另一種聲音生成模式；英文冠詞 a 保留，縮寫依通用字母名稱處理，千分位與毫秒先正規化。MB／Mb 仍區分 megabytes／megabits，速率讀 per second。原講稿、來源與引用不改；未知識別符、byte／bit 與其他術語仍須真實聽評。Podcast 與語音問答共用的文字前處理會把可辨識的英文複合詞連字號當作詞間分隔，不再插入 hyphen；代碼、縮寫與數值的符號仍保留。此規則不依特定教材或術語。
 
 新分集共用 `MAX_EPISODE_CLAIMS=32` 的來源上限，仍保留每集 2400 字來源容量及既有來源／教學審查。優先保留完整概念和關係，避免少量短 claim 把節目切碎；這不代表每集固定時長，也不能為了湊長度補造或重複內容。已保存的分集不重新切割。
 

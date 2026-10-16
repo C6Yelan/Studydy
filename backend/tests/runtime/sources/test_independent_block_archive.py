@@ -15,7 +15,10 @@ from product_fixtures import closed_loop
 
 def fake_response(kwargs,legacy=False):
     h=kwargs['request']['sections'][0]['evidence'][0][0]
-    concept={'l':f'Concept {h}','a':[],'c':[{'m':None,'s':[h]}]}
+    source=kwargs['request']['sections'][0]['evidence'][0][3]
+    meaning={'A queue removes the first inserted item.':'佇列取出最早加入的資料。',
+             'A tree connects parent and child nodes.':'樹連接父節點與子節點。'}[source]
+    concept={'l':f'概念 {h}','a':[],'c':[{'m':meaning,'s':[h]}]}
     if legacy:concept['k']=f'old_{h}'
     value={'concepts':[concept],'relations':[]}
     if legacy and 'update_policy' in kwargs['request']:value['review_required']=False
@@ -42,7 +45,8 @@ def test_partial_v1_run_upgrades_and_calls_only_remaining_sources(revisions,monk
     path=_material_directory(learner.learner_id,material)/old_run.run_id.hex/'checkpoint.json'
     raw=path.read_bytes();saved=json.loads(raw)['data'];assert saved['cursor']>0
     old_lock=deepcopy(old_run.runtime_lock_document)
-    settings['runtime_lock']['material_semantics']=deepcopy(_runtime_lock()['material_semantics'])
+    settings['runtime_lock']['material_semantics']=json.loads(
+        (Path(__file__).parents[2]/'fixtures/independent_material_semantics.json').read_text())
     seen=[]
     def new(client,**kwargs):
         seen.extend(e[0] for s in kwargs['request']['sections'] for e in s['evidence'])

@@ -1,11 +1,14 @@
 import * as validate from "./response-validation.ts";
 import type {
+  KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeSearchView, MapProgressView, StudyWorkspaceView,
   PodcastContext, PodcastSummary, PodcastView, PodcastCreate, PodcastAction, PodcastListView, PodcastDeletedView,
   ApiReasonCode,
   CardSetCreate,
   CardSetUpdate,
   CardSetSummary,
   CardSetView,
+  CardStudyView, CardBatch,
+  CardGeneration,
   CardSetListView,
   CardSetDeletedView,
   AssessmentPlanView,
@@ -56,6 +59,14 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   VOICE_PROVIDER_UNAVAILABLE: "語音服務暫時無法連線，已保存的對話仍可查看。",
   VOICE_PROVIDER_FAILED: "這次問答處理失敗，請重試。",
   VOICE_TRANSCRIPT_INVALID: "沒有辨識到清楚的語音，請再錄一次或改用文字。",
+  VOICE_CONTEXT_TOO_LARGE: "這次問題與引用內容超過回答容量，請聚焦一個問題再試。",
+  RETRIEVAL_INDEX_REQUIRED: "這份教材尚未具備新版檢索索引，請使用原始來源重新建立教材。",
+  RETRIEVAL_INDEX_INVALID: "教材檢索索引無法核對，請重新建立教材。",
+  MATERIAL_FORMAT_UNSUPPORTED: "這份舊版教材或對話不支援目前格式，請重新建立。",
+  SOURCE_SCOPE_EMPTY: "尚未取得能加入教材的原文段落。",
+  SOURCE_SCOPE_INVALID: "選讀範圍與來源版本不一致，請重新搜尋核對。",
+  SOURCE_SCOPE_UNRESOLVED: "選讀原文無法定位回來源，尚未加入教材。",
+  RESEARCH_CONTEXT_TOO_LARGE: "這次研究的單批內容超過處理容量，已保留完成部分。",
   RESEARCH_SEARCH_FAILED: "搜尋暫時無法完成，請重試。",
   RESEARCH_DOWNLOAD_FAILED: "來源目前無法下載，其他結果已保留。",
   RESEARCH_LICENSE_UNCONFIRMED: "無法確認這份來源的使用授權。",
@@ -135,6 +146,9 @@ function schemaMismatch(message: string, details: { status?: number } = {}): Api
 export class StudydyApiClient {
   private sessionReady: Promise<LearnerIdentity> | null = null;
   private active = true;
+  private readonly structures = new Map<string, Promise<KnowledgeStructureView>>();
+  private readonly outlines = new Map<string, Promise<KnowledgeOutlineView>>();
+  private readonly conceptContexts = new Map<string, Promise<KnowledgeConceptsView>>();
   private readonly pending = new Set<AbortController>();
   private readonly fetchRequest: FetchRequest;
   onSessionExpired: (() => void) | null = null;
@@ -145,6 +159,9 @@ export class StudydyApiClient {
 
   invalidate(): void {
     this.active = false;
+    this.structures.clear();
+    this.outlines.clear();
+    this.conceptContexts.clear();
     this.sessionReady = null;
     for (const controller of this.pending) controller.abort();
     this.pending.clear();
@@ -190,6 +207,9 @@ export class StudydyApiClient {
   }
 
   async logout(): Promise<void> {
+    this.structures.clear();
+    this.outlines.clear();
+    this.conceptContexts.clear();
     await this.request(
       "/v1/session",
       { method: "DELETE", headers: { Origin: origin() } },
@@ -382,6 +402,41 @@ export class StudydyApiClient {
       (value): value is CardSetView => validate.cardSet(value) && value.card_set_id === id);
   }
 
+  getCardGeneration(id: string): Promise<CardGeneration> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/generation`, { method: "GET" }, validate.cardGeneration);
+  }
+
+  getCardStudy(id: string): Promise<CardStudyView> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/study`, { method: "GET" },
+      (value): value is CardStudyView => validate.cardStudy(value) && value.card_set_id === id);
+  }
+
+  getCardBatch(id: string, version: number, offset: number): Promise<CardBatch> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/cards?offset=${offset}&version=${version}`, { method: "GET" },
+      (value): value is CardBatch => validate.cardBatch(value) && value.card_set_id === id && value.version === version && value.offset === offset);
+  }
+
+  saveConceptCounts(id: string, version: number, counts: Record<string, number>): Promise<CardSetSummary> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/count`, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
+      body: JSON.stringify({ expected_version: version, concept_counts: counts, layout_policy: "visual-concept-card/v4" }),
+    }, (value): value is CardSetSummary => validate.cardSetSummary(value) && value.card_set_id === id && value.version === version);
+  }
+
+  saveCardCount(id: string, version: number, count: number): Promise<CardSetSummary> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/count`, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
+      body: JSON.stringify({ expected_version: version, card_count: count, layout_policy: "visual-concept-card/v4" }),
+    }, (value): value is CardSetSummary => validate.cardSetSummary(value) && value.card_set_id === id
+      && value.version === version && value.card_count !== null);
+  }
+
+  retryCardGeneration(id: string): Promise<CardGeneration> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/generation/retry`, {
+      method: "POST", headers: { Origin: origin() },
+    }, validate.cardGeneration);
+  }
+
   createCardSet(materialId: string, body: CardSetCreate, key: string): Promise<CardSetSummary> {
     return this.post(`/v1/materials/${encodeURIComponent(materialId)}/card-sets`, body, key,
       (value): value is CardSetSummary => validate.cardSetSummary(value)
@@ -539,6 +594,9 @@ export class StudydyApiClient {
   }
 
   async discardMaterial(materialId: string): Promise<MaterialDiscardView> {
+    this.structures.clear();
+    this.outlines.clear();
+    this.conceptContexts.clear();
     const view = await this.json(
       `/v1/materials/${encodeURIComponent(materialId)}`,
       {
@@ -552,15 +610,86 @@ export class StudydyApiClient {
     return view;
   }
 
+  async getKnowledgeOutline(request: KnowledgeStructureRequest): Promise<KnowledgeOutlineView> {
+    this.requireActive();
+    const key = `${request.materialId}:${request.structureRevision}`;
+    const cached = this.outlines.get(key);
+    if (cached) return cached;
+    const task = this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/outline`,
+      { method: "GET" }, (value): value is KnowledgeOutlineView => validate.knowledgeOutline(value)
+        && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision);
+    this.outlines.set(key, task);
+    if (this.outlines.size > 2) this.outlines.delete(this.outlines.keys().next().value!);
+    try { return await task; } catch (error) { if (this.outlines.get(key) === task) this.outlines.delete(key); throw error; }
+  }
+
+  async getConceptContext(request: KnowledgeStructureRequest, ids: string[], neighbors = false): Promise<KnowledgeConceptsView> {
+    this.requireActive();
+    const key = `${request.materialId}:${request.structureRevision}:${neighbors}:${ids.join(",")}`;
+    const cached = this.conceptContexts.get(key);
+    if (cached) return cached;
+    const query = new URLSearchParams({ ids: ids.join(","), neighbors: String(neighbors) });
+    const task = this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/concepts?${query}`,
+      { method: "GET" }, (value): value is KnowledgeConceptsView => validate.knowledgeConcepts(value)
+        && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision
+        && value.requested_concept_ids.join(",") === ids.join(",")
+        && (neighbors || value.concepts.length === ids.length));
+    this.conceptContexts.set(key, task);
+    if (this.conceptContexts.size > 8) this.conceptContexts.delete(this.conceptContexts.keys().next().value!);
+    try { return await task; } catch (error) { if (this.conceptContexts.get(key) === task) this.conceptContexts.delete(key); throw error; }
+  }
+
+  searchConcepts(request: KnowledgeStructureRequest, text: string): Promise<KnowledgeSearchView> {
+    const query = new URLSearchParams({ q: text });
+    return this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/search?${query}`,
+      { method: "GET" }, (value): value is KnowledgeSearchView => validate.knowledgeSearch(value)
+        && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision);
+  }
+
+  readMapProgress(id: string, revision: string): Promise<MapProgressView> {
+    return this.json(`/v1/study-sessions/${id}/map-progress`, { method: "GET" },
+      (value): value is MapProgressView => validate.mapProgress(value)
+        && value.study_session_id === id && value.knowledge_structure_revision === revision);
+  }
+
+  async resumeWorkspace(request: { materialId: string; structureRevision: string; studySessionId: string; runId: string; assessmentSetId?: string }): Promise<StudyWorkspaceView> {
+    const query = new URLSearchParams({ run_id: request.runId });
+    if (request.assessmentSetId) query.set("set_id", request.assessmentSetId);
+    const restored = await this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/study-sessions/${request.studySessionId}/workspace?${query}`,
+      { method: "GET" }, validate.studyWorkspace);
+    if (restored.session.material_id !== request.materialId || restored.session.study_session_id !== request.studySessionId
+      || restored.session.knowledge_structure_revision !== request.structureRevision || restored.run_id !== request.runId
+      || (request.assessmentSetId !== undefined && restored.selected_set_id !== request.assessmentSetId))
+      throw schemaMismatch("學習紀錄與教材版本不一致。");
+    return restored;
+  }
+
   async getKnowledgeStructure(request: KnowledgeStructureRequest): Promise<KnowledgeStructureView> {
-    const view = await this.json(
+    this.requireActive();
+    const key = `${request.materialId}:${request.structureRevision}`;
+    // 保留目前地圖與舊版卡組所用的兩份不可變結構，切換功能不必重傳大型教材。
+    const cached = this.structures.get(key);
+    if (cached) {
+      this.structures.delete(key);
+      this.structures.set(key, cached);
+      return cached;
+    }
+    const value = this.json(
       `/v1/materials/${encodeURIComponent(request.materialId)}/knowledge-structures/${encodeURIComponent(request.structureRevision)}`,
       { method: "GET" },
       validate.knowledgeStructure,
-    );
-    if (view.knowledge_structure_revision !== request.structureRevision)
-      throw schemaMismatch("教材結構版本不一致。");
-    return view;
+    ).then(view => {
+      if (view.knowledge_structure_revision !== request.structureRevision)
+        throw schemaMismatch("教材結構版本不一致。");
+      return view;
+    });
+    this.structures.set(key, value);
+    if (this.structures.size > 2) this.structures.delete(this.structures.keys().next().value!);
+    try { return await value; }
+    catch (error) {
+      if (this.structures.get(key) === value) this.structures.delete(key);
+      throw error;
+    }
   }
 
   async readProgress(id: string, structureRevision: string): Promise<LearnerProgressView> {

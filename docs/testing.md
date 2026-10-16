@@ -431,3 +431,57 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src .studydy-runtime/research-venv
 ## 八路獨立子圖
 
 `test_independent_blocks.py` 驗證八路併行、取消、亂序完成後只補缺口、checkpoint 後已完成回應重播、舊策略升級及來源／索引邊界；`test_material_provider_parallel.py` 使用真 HTTP 驗證第九個教材請求會等待槽位，不呼叫模型。`runtime/sources/test_independent_block_archive.py` 使用隔離 DB 驗證舊進度升級、artifact 已保存但 checkpoint 寫入失敗時不重做 inference，以及取消後拒絕晚到寫入。舊策略 fixture 僅包含公開 runtime 契約，沒有私人教材或模型回應。
+
+## 選段分析、RAG 與問答（2026-10-13）
+
+新契約以 `test_analysis_scope.py`、`test_material_retrieval.py`、`test_material_qa.py` 檢查原文範圍、去重、輸入預算、補查及逐段核對。`runtime/sources/test_research_selected_scope.py` 使用合成十頁 PDF，驗證只分析第七頁並回查原始第七頁，以及索引儲存失敗不發布新 head。`runtime/materials/test_retrieval.py` 保護 owner／revision 邊界與相鄰來源範圍。這些測試不代表真實 Luna 品質。
+
+語音與文字沿用 `runtime/materials/test_voice.py`，但回答改用受控 `/semantics` 與 `material-answer/v2`，不再保留舊 `/answer` 或舊引用轉接測試。研究／主題回歸核對早停、選段匯入、相同原文重用與補讀不重複範圍。瀏覽器回歸使用 `voice-chat.spec.ts`、`processing.spec.ts`、`topics.spec.ts`、`research-background.spec.ts`、`source-pagination.spec.ts`；包含索引的準備流程共六個階段。
+
+本輪測試依賴位於 `/tmp/studydy-rag-test-venv`，未修改共用 backend/.venv。主機 Office 版本與正式轉檔契約不同，因此四個真 Office 轉檔案例在目前正式 runtime 映像的一次性、無外網、無產品資料容器中執行，不放寬版本檢查。
+
+真實驗收依序使用三份簡報、從主題建立教材、千頁資料集。逐題核對答案與引用，記錄實際取材量、估算 token、模型請求及耗時；不以合成分數或 API 成功宣稱內容驗收。私人紀錄保存在 `data/rag/qualification-20261013/`，不加入 Git。尚未完成的實際驗收不寫成通過。
+
+長對話回歸驗證按 token 超額壓縮、超過三輪的短對話完整保留、摘要沿用、不重壓舊輪次與無效摘要不得靜默丟棄歷史。Runtime 另驗證摘要與回答一起保存、取消隔離、重試舊問題不讀未來摘要、原始輪次保留及刪除時清除摘要。0023 只新增 nullable 對話記憶欄位；這些合成測試不等於真實摘要內容品質已通過。
+
+研究涵蓋核對以單一子題的已選原文為單位，變動時重算該題並保留其他題快取；請求容量不足時接續分批，不以新來源摘要覆蓋舊機制。`test_research_workflow.py` 驗證跨來源合併、變動子題隔離、來源撤回與更正、分批範圍及無原文不得宣稱涵蓋。
+
+## 概念卡整理、版面設計與持久進度
+
+`test_card_design.py` 核對來源編號、整卡合併與詳情分流、容量及有向連線限制，以及 Luna 暫用與 Gemma／既有 Pod endpoint 的路由隔離；Gemma 的這項檢查使用 HTTP 替身，不宣稱遠端模型品質通過。Runtime 的 `test_card_generation.py` 使用隔離 DB 驗證分步保存、同版本與模型快取、定向修正、失敗重試、重新整理的版本衝突、租約回收與刪除後不得發布。瀏覽器檢查各設計版型的實際文字邊界、引用入口、原文保留、Canvas 顯示與 PNG 下載；真實 Luna 的整理品質另以授權教材生成後人工檢查，不把 JSON 合法或模型核對結果單獨當成品質通過。
+
+
+大型教材讀取的回歸包含 JSONB 的 NUL 無損還原、來源驗證邊界，以及同一工作階段內目前地圖與舊版卡組的兩份不可變結構快取。登出、帳號失效與刪除教材會清除快取，失敗請求可重試；快取不寫入瀏覽器持久儲存。以實際網路回應與功能可用狀態量測，不能把固定等待時間當成完成時間。
+
+長音訊的細字幕對齊失敗時，會以含前後文的短音訊視窗重辨識長段 ASR 空缺；詞時間仍來自實際音訊。補入結果須通過完整原稿覆蓋與時間錨點驗證，失敗仍保留已驗證的段落時序。`test_podcast_align.py` 驗證重疊視窗不重複收取核心詞時間；實際語音與畫面另行核對，不以合成測試宣稱聽感通過。
+
+
+2026-10-13 的教材分析 RAG 對照使用生成式 AI 改良版與網路教材的六個既有區塊，保留本批全部原文，比較不補檢索／額外補入同教材相關頁面，各跑兩次，共 24 次 Luna 請求。兩組估算輸入分別為 58,756 與 77,734 tokens（含提示、payload、schema），增加 32.3%。稀疏整合頁能補出較完整的跨頁概念，但密集區塊未顯示穩定品質提升，部分原有例子被擠掉；因此未將每批自動追加檢索接入正式教材分析。這是獨立分析階段的探索，並非完整分析／審查流程的品質通過率。原始輸入、24 份結果、來源投影檢查與人工觀察留在本機 `data/rag/qualification-20261013/analysis-rag-review.json` 及對應私人結果檔，未加入 Git／CI。
+
+概念卡分批讀取：`test_card_reading.py` 驗證首批／尾批、跨批相鄰概念與 Evidence 的完整投影、權限、版本衝突、投影損壞及部分續頁計數。瀏覽器回歸驗證首屏不要求完整 KS、直接跳讀遠端觀念、跨批續頁返回及帳號切換時取消待回應批次。部署驗收另以既有虛擬教材實測首次讀取的 request 數、大小及首張 Canvas 時間。
+
+## 按需教材讀取
+
+`runtime/study/test_knowledge_reads.py` 驗證 outline 不含完整 claims、概念／來源投影與 canonical 內容一致、搜尋只回傳 ID、workspace 只帶當前／下一個概念、跨 owner 與損壞索引拒絕、補建冪等。測試在頁面讀取時禁止呼叫完整教材驗證，避免僅縮小 HTTP 回應卻仍讀全文。
+
+進度、跨版本繼承、題組與來源回歸保持原完成／補強規則。`client.test.mjs` 驗證按需資料的 material／revision／selection 綁定及帳號失效；地圖詳情、學習入口、study-layout、卡組及 Podcast 選材 browser 案例覆蓋延遲讀取、來源、搜尋與歷史切換。Runtime browser 仍用獨立 ports、disposable DB 與受控 provider，不以產品 DB 跑測試。
+
+## 跨語言學習內容
+
+`test_cross_language_claims.py`、`test_material_localization.py`、`test_review_language.py` 覆蓋原文引用不變、數值／單位／程式保護、跨段公式邊界、代號遺漏與重複、混入外語詞、修正後保留的完整來源，以及語言補正失敗不得發布。獨立子圖與審查回歸另核對呼叫計數、已完成結果重用及舊工作提示不可被新政策覆蓋。
+
+2026-10-15 使用三份完整簡報與一份完整英文 PDF，共 52 頁，經正式上傳、分析及審查。完成版為 53 個概念、105 個重點、35 條關係；逐條核對學習文字、必要原文術語與來源，並修正實測中發現的跨段公式保護及混入外語詞問題。原始 Evidence 不變；原教材內容不足的 `SOURCE_REVIEW_SUGGESTED` 保留，不把語言與功能驗證等同內容全面認可。
+
+真實模型與介面檢查包括五題問答（門檻等號、百分比分母、訓練／推論、壓縮損失與失敗傳播）、三張概念卡、一集約 201 秒的 Podcast／影片及來源回查；另外以德文、日文、法文與西班牙文的有限樣本核對否定、條件與單位。指定帳號複製先於隔離 DB 演練，再核對正式站 24 個主要頁面、194 個授權檔案／媒體讀取與跨帳號拒絕。中間測試教材及版本已依使用者要求移除；私人驗證紀錄留於本機，不加入 Git／CI。
+
+## 問答與補充研究的機制效率（2026-10-15）
+
+問答在沒有對話／Podcast 指涉時先檢索原問題；空結果再規劃查詢，仍保留回答、逐段引用核對與補查。`test_material_qa.py` 驗證直接路徑、空結果補救、對話指涉、否定與技術字面值、無依據拒答及上下文容量。
+
+補充研究先從使用者要求閱讀的網址取得原頁，沿用來源身分、授權與安全連線檢查；不把網址改成搜尋詞重找同一篇。來源數量／授權等管理要求不當作每篇正文必須回答的知識子題。「使用目前已核對的來源」會整理現有結果並保留缺口，不宣稱研究全部完成。workflow／來源單元測試、隔離研究 runtime 及 research-background 瀏覽器案例覆蓋網址排除、無授權不得匯入、停止後選用及晚到 worker 拒絕。未增加並行度。
+
+### 2026-10-15 持續語音的人聲判定
+
+`frontend/e2e/mock/voice-chat.spec.ts` 的介面案例以語音事件替身驗證開關、插話、取消與載入晚到；其中 `real local VAD` 案例使用真正 Silero v6／ONNX WASM 與 WebAudio 串流，檢查持續噪音／嗡聲／脈衝不送出、RMS 0.008 的合成人聲與混噪人聲各送出一次，以及 800ms 句中停頓不拆段。錄音保留 800ms 前置與 1400ms 收尾，輸出 mono 16kHz WAV。此為合成音源回歸，不能宣稱實體麥克風或所有背景聲均已驗收；附近其他人的說話仍可能被判為人聲。
+
+模型與 WASM 由 Vite 從鎖定 npm 依賴發佈至 `/voice-assets/`，開啟問答面板時平行預載公共模型與運算資產，開啟語音模式後才取得麥克風並初始化辨識器；版本化資產採一年 immutable 快取，授權文字不套用此快取。Nginx 必須保留該路徑的 `.mjs`／`.wasm` MIME 設定。測試音源來源見 `frontend/e2e/fixtures/voice/README.md`。

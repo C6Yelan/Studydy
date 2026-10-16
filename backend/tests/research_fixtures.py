@@ -6,7 +6,7 @@ def review_provider(path,body):
     request=body['request'];task=request['task']
     if task=='plan':
         return {'summary':'測試研究計畫','topics':['queue'],
-                'searches':[{'query':'queue tutorial','topics':[0],'reason':'fixture'}]}
+                'searches':[{'query':'queue tutorial','channel':'web','topics':[0],'reason':'fixture'}]}
     if task=='find_entries':return {'entries':[]}
     if task=='screen':
         return {'items':[{'index':i['index'],'relevance':'direct','decision':'read','topics':list(range(len(request['topics']))),'reason':'fixture topic match'} for i in request['items']]}
@@ -16,7 +16,7 @@ def review_provider(path,body):
                 'supports':[{'topic':n,'passages':[0]} for n in range(len(request['topics']))]}
     if task=='follow_up':
         return {'coverage':[{'topic':n,'status':'covered' if any(i['importable'] for i in request['items']) else 'missing',
-            'reason':'fixture coverage','sources':[i['index'] for i in request['items']]} for n in range(len(request['topics']))],
+            'reason':'fixture coverage','sources':[i['index'] for i in request['items']]} for n in ([] if request['coverage_topic'] is None else [request['coverage_topic']])],
             'read_next':[],'searches':[]}
     raise AssertionError(task)
 
@@ -35,6 +35,11 @@ def search_to_selection(owner,identity,dsn):
 def continue_provider(path,body):
     result=review_provider(path,body)
     if body['request']['task']=='follow_up':
-        result['searches']=[{'query':s['query'],'topics':[0],'reason':'fixture continuation'}
+        result['searches']=[{'query':s['query'],'channel':'web','topics':[0],'reason':'fixture continuation'}
             for s in body['request']['searched'] if s['next_page']]
     return result
+
+
+def requested_coverage(body,items):
+    """模型的 coverage 回應只包含此請求指定的子題；規劃請求不重算涵蓋。"""
+    return [item for item in items if item['topic']==body['request']['coverage_topic']]

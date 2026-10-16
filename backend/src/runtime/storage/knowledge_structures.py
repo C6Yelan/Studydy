@@ -76,6 +76,7 @@ def publish_knowledge_structure(
     *,
     dsn: str | None = None,
     worker_token: UUID | None = None,
+    retrieval_passages: list[dict] | None = None,
 ) -> StoredKnowledgeStructure:
     if not validate_knowledge_structure(document) or document.get("run_id") != str(run_id):
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_INVALID")
@@ -83,6 +84,9 @@ def publish_knowledge_structure(
     binding = _binding(document)
     if binding["processing"] not in {"succeeded", "partial"}:
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_INVALID")
+    from knowledge_map.retrieval import build_passages
+    from ..retrieval import publish_index
+    passages = retrieval_passages if retrieval_passages is not None else build_passages(document)
     try:
         with database_session(dsn) as session:
             material = session.scalar(select(Material).where(
@@ -160,6 +164,9 @@ def publish_knowledge_structure(
             ).one_or_none()
             if stored != (run_id, document):
                 raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_CONFLICT")
+            publish_index(session, learner_id, material_id, document, passages)
+            from .knowledge_reads import prepare
+            prepare(session, learner_id, material_id, document)
             status = binding["processing"]
             updated = session.execute(
                 update(MaterialProcessingRun)
@@ -242,6 +249,12 @@ def _read_verified_document(session, learner_id, material_id, *, run_id=None, re
     """在呼叫者 snapshot 驗證結構、執行快照及來源關係；不掃描原檔。"""
     if (run_id is None) == (revision is None):
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
+    # 僅在呼叫者明確建立的唯讀一致 snapshot 內共用，跨請求仍重新驗證。
+    snapshot = session.info.get("read_snapshot")
+    cache = snapshot["documents"] if snapshot is not None and not lock else None
+    key = (learner_id, material_id, run_id, revision)
+    if cache is not None and key in cache:
+        return cache[key]
     statement = select(
         KnowledgeStructure.document, MaterialProcessingRun, KnowledgeStructure.structure_revision,
     ).join(MaterialProcessingRun, KnowledgeStructure.run_id == MaterialProcessingRun.run_id).where(
@@ -260,6 +273,8 @@ def _read_verified_document(session, learner_id, material_id, *, run_id=None, re
     if row is None:
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
     document, run, stored_revision = row
+    if document.get('input_binding', {}).get('schema') != 'structure-input-binding/v2':
+        raise KnowledgeStructureStoreError('MATERIAL_FORMAT_UNSUPPORTED')
     if (
         not validate_knowledge_structure(document)
         or document["revision"] != stored_revision
@@ -268,6 +283,8 @@ def _read_verified_document(session, learner_id, material_id, *, run_id=None, re
     ):
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
     verify_structure_input(session, run, document)
+    if cache is not None:
+        cache[key] = document
     return document
 
 
@@ -284,7 +301,8 @@ def read_knowledge_structure(
             document = _read_verified_document(
                 session, learner_id, material_id, run_id=run_id, revision=revision,
             )
-        return StoredKnowledgeStructure(document["revision"], deepcopy(document), _view(document, material_id))
+        # session 已結束，這份 JSON 專屬本次讀取；不再複製完整大型教材。
+        return StoredKnowledgeStructure(document["revision"], document, _view(document, material_id))
     except KnowledgeStructureStoreError:
         raise
     except Exception:
@@ -292,15 +310,10 @@ def read_knowledge_structure(
 
 
 def resolve_evidence_source(owner, material_id, revision, evidence_id, *, dsn=None):
-    stored = read_knowledge_structure(owner, material_id, revision=revision, dsn=dsn)
-    document = stored.document
-    evidence = next((item for item in document["evidence"] if item["evidence_id"] == evidence_id), None)
-    if evidence is None:
-        raise SourceError("RESOURCE_NOT_FOUND")
-    binding = document.get("input_binding")
-    location = binding["bundle"]["pages"][evidence["page"] - 1]
-    source = next(item for item in binding["manifest"]["items"] if item["source_id"] == location["source_id"])
-    normalized_page = location["normalized_page"]
+    from .knowledge_reads import evidence_source
+    with database_session(dsn) as session:
+        source, evidence = evidence_source(session, owner, material_id, revision, evidence_id)
+    normalized_page = evidence['normalized_page']
     with open_verified_artifact(owner, UUID(source["mapping_artifact_id"]), dsn=dsn) as opened:
         mapping = json.loads(opened.file.read())
     if (

@@ -1,16 +1,18 @@
-import type { KnowledgeStructureView } from "../../api/contracts";
+import type { KnowledgeStructureView, KnowledgeOutlineView } from "../../api/contracts";
+
+type MapView = Pick<KnowledgeOutlineView, "relations" | "initial_learning_path"> & { concepts: Pick<KnowledgeStructureView["concepts"][number], "concept_id" | "label" | "aliases">[] };
 
 type MapNode = { id: string; x: number; y: number; width: number; depth: 0 | 1 | 2 };
 
 // API 已驗證路徑完整包含教材概念；導覽只依正式順序排列。
-export function learningNavigationItems(view: KnowledgeStructureView) {
+export function learningNavigationItems(view: MapView) {
   const byId = new Map(view.concepts.map((concept) => [concept.concept_id, concept]));
   return [...view.initial_learning_path]
     .sort((a, b) => a.position - b.position)
     .map((step) => ({ concept: byId.get(step.concept_id)!, step }));
 }
 
-export function initialFocusConceptId(view: KnowledgeStructureView): string {
+export function initialFocusConceptId(view: MapView): string {
   const neighbours = new Map<string, Set<string>>();
   for (const relation of view.relations) {
     if (relation.source_concept_id === relation.target_concept_id) continue;
@@ -37,10 +39,10 @@ export function initialFocusConceptId(view: KnowledgeStructureView): string {
 const MAX_MAP_NODES = 30;
 const MAX_MAP_RELATIONS = 60;
 
-export function focusGraph(view: KnowledgeStructureView, selectedId: string) {
+export function focusGraph(view: MapView, selectedId: string) {
   type Visit = { depth: 0 | 1 | 2; side: -1 | 0 | 1; parentRelation: string | null };
   const visits = new Map<string, Visit>();
-  const adjacent = new Map<string, KnowledgeStructureView["relations"]>();
+  const adjacent = new Map<string, KnowledgeOutlineView["relations"]>();
   for (const relation of view.relations) {
     for (const id of new Set([relation.source_concept_id, relation.target_concept_id])) {
       const list = adjacent.get(id) ?? [];

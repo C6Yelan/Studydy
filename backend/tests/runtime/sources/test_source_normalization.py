@@ -56,7 +56,7 @@ def test_source_round_trip_freeze_resume_and_owned_delete(closed_loop,tmp_path,m
         source_path=tmp_path/'normalized-fixture.pdf';source_path.write_bytes(pdf.file.read());source_sha=pdf.sha256
     def semantics(_client,**request):
         handle=request['request']['sections'][0]['evidence'][0][0]
-        return {'concepts':[{'k':'stack','l':'Stack','a':[],'c':[{'m':None,'s':[handle]}]}],'relations':[]}
+        return {'concepts':[{'l':'Stack','a':[],'c':[{'m':None,'s':[handle]}]}],'relations':[]}
     from runtime.source_resolver import _input
     source_request={'media_type':'application/pdf','source_path':str(source_path),'expected_source_sha256':source_sha}
     document=material_pipeline.analyze_material(

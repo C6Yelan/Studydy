@@ -45,7 +45,13 @@ def enqueue(db, podcast, index):
     if not episode['audio'] or not episode['script']:raise SourceError('SOURCE_NOT_READY')
     row=_row(db,podcast.podcast_id,index)
     if row:
-        if row.source_sha256!=identity(podcast,episode):raise SourceError('VIDEO_SOURCE_CHANGED')
+        if row.source_sha256!=identity(podcast,episode):
+            if row.status!='cancelled':raise SourceError('VIDEO_SOURCE_CHANGED')
+            # 已取消的舊工作可隨修正版音訊重建；清除舊租約，拒收遲到結果。
+            row.source_sha256=identity(podcast,episode)
+            row.artifact_id=row.manifest=row.error_code=None
+            row.lease_token=row.lease_expires_at=None
+            row.status='pending';row.version+=1
         return row
     row=Video(video_id=uuid4(),podcast_id=podcast.podcast_id,episode_index=index,
               source_sha256=identity(podcast,episode),status='pending',version=1,created_at=datetime.now(UTC))
@@ -132,10 +138,9 @@ def claim(*,dsn=None):
         if row.source_sha256!=identity(podcast,episode):
             row.status='failed';row.error_code='VIDEO_SOURCE_CHANGED';row.version+=1;return None
         row.status='running';row.lease_token=uuid4();row.lease_expires_at=now+podcasts.WORKER_LEASE_TTL;row.version+=1
-        document=_read_verified_document(db,podcast.learner_id,podcast.material_id,revision=podcast.knowledge_structure_revision)
         return {'video_id':row.video_id,'podcast_id':row.podcast_id,'index':row.episode_index,'token':row.lease_token,
                 'owner':podcast.learner_id,'episode':episode,'source_sha256':row.source_sha256,
-                'source_context':podcasts.source_context(document,episode),
+                'source_context':podcasts.source_context(db,podcast.learner_id,podcast.material_id,podcast.knowledge_structure_revision,episode),
                 'source_resolver':f'/v1/materials/{podcast.material_id}/knowledge-structures/{podcast.knowledge_structure_revision}/evidence'}
 
 

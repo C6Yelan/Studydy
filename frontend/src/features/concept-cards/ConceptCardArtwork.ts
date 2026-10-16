@@ -1,6 +1,6 @@
-import type { ConceptCard, KnowledgeStructureView } from "../../api/contracts";
+import type { ConceptCard, ConceptCardContext, CardDesignPage } from "../../api/contracts";
 import { claimText } from "../../ui/claim-text";
-import { selectConceptCardLayout, selectConceptCardLayouts } from "./concept-card-layout";
+import { compactLayout, selectConceptCardLayout, selectConceptCardLayouts } from "./concept-card-layout";
 import { cardSourceText } from "./card-content";
 import { textUnits, wrapCardText } from "./card-text";
 
@@ -394,16 +394,100 @@ function technical(draw: CardCanvas, layout: Layout) {
   draw.text(shown.length < lines.length ? `原文節錄 · 僅列完整前 ${shown.length} 行` : "", 82, 713, 20, code ? "#b9dce9" : blue);
 }
 
-const cardPages = new WeakMap<KnowledgeStructureView, WeakMap<ConceptCard, Layout[]>>();
+type DesignedPage = { family: "designed"; design: CardDesignPage; claims: ConceptCard["claims"] };
+type CardPage = Layout | DesignedPage;
+
+// 先量測實際換行，再讓區塊與卡面增高；內容完整保留，不以估算字寬退件。
+function designTextLayout(text: string, width: number, preferredHeight: number, size: number, minSize: number, bold = false) {
+  for (let fontSize = size; fontSize >= minSize; fontSize -= 2) {
+    const metrics = fontMetrics(fontSize, bold ? 600 : 400);
+    const lineHeight = Math.max(fontSize * 1.4, metrics.ascent + metrics.descent);
+    const measureLine = (value: string) => measure(value, fontSize, false, bold ? 600 : 400);
+    const wrapped = wrapCardText(text, width - 6, measureLine);
+    // 單一長識別符也可視覺換行，原始字元與引用不變。
+    const lines = wrapped.lines.flatMap(line => {
+      if (measureLine(line) <= width - 6) return [line];
+      const parts: string[] = []; let part = "";
+      for (const char of line) {
+        if (part && measureLine(part + char) > width - 6) { parts.push(part); part = ""; }
+        part += char;
+      }
+      if (part) parts.push(part);
+      return parts;
+    });
+    const height = lines.length * lineHeight + 4;
+    if (height <= preferredHeight || fontSize === minSize) return { lines, height, fontSize, metrics, lineHeight, bold };
+  }
+  throw new Error("CARD_FONT_CONFIGURATION_INVALID");
+}
+
+function designText(draw: CardCanvas, layout: ReturnType<typeof designTextLayout>, x: number, y: number, fill = ink) {
+  layout.lines.forEach((line, index) => draw.text(line, x + 2, y + layout.metrics.ascent + 2 + index * layout.lineHeight, layout.fontSize, fill, layout.bold));
+}
+
+function designed(draw: CardCanvas, page: CardDesignPage) {
+  const title = designTextLayout(page.title, 1104, 86, 50, 44, true);
+  const takeaway = designTextLayout(page.takeaway.text, 1056, 112, 38, 34, true);
+  const takeawayY = Math.max(130, 30 + title.height + 16), takeawayHeight = Math.max(140, takeaway.height + 28);
+  const labels = page.links.map(link => designTextLayout(link.label, 180, 42, 24, 20));
+  const top = takeawayY + takeawayHeight + Math.max(60, ...labels.map(label => label.height + 24));
+  const count = page.blocks.length, compact = page.layout === "grid" && count === 4;
+  const boxes = page.blocks.map((block, index) => {
+    const soloIcon = page.layout === "focus" && count === 1 && block.icon !== "none";
+    const gap = page.layout === "flow" ? 44 : 28;
+    const width = compact ? 540 : page.layout === "focus" ? count === 1 ? 1104 : index ? 406 : 670 : (1104 - gap * (count - 1)) / count;
+    const x = compact ? 48 + index % 2 * 564 : page.layout === "focus" ? index ? 746 : 48 : 48 + index * (width + gap);
+    const iconWidth = compact && block.icon !== "none" ? 56 : 0;
+    const headingX = soloIcon ? 300 : compact ? 20 + iconWidth : 20;
+    const headingY = soloIcon ? 28 : compact ? 12 : block.icon === "none" ? 28 : 86;
+    const heading = designTextLayout(block.heading, width - headingX - (soloIcon ? 28 : 20), compact ? 52 : soloIcon ? 80 : page.layout === "flow" && count === 4 ? 56 : 96, soloIcon ? 44 : compact ? 36 : 40, soloIcon ? 36 : 28, true);
+    const bodyX = soloIcon ? 300 : 20, bodyY = Math.max(compact ? 76 : 0, headingY + heading.height + (compact ? 12 : 20));
+    const body = designTextLayout(block.text, width - bodyX - (soloIcon ? 28 : 20), Math.max(92, (compact ? 178 : 370) - bodyY - 20), soloIcon ? 40 : compact ? 34 : 36, soloIcon ? 30 : 28);
+    return { x, y: top, width, height: Math.max(compact ? 178 : 370, bodyY + body.height + 20), heading, body, headingX, headingY, bodyX, bodyY, soloIcon };
+  });
+  if (compact) {
+    const firstHeight = Math.max(boxes[0].height, boxes[1].height), secondHeight = Math.max(boxes[2].height, boxes[3].height);
+    boxes.forEach((box, index) => { box.y = top + (index < 2 ? 0 : firstHeight + 24); box.height = index < 2 ? firstHeight : secondHeight; });
+  } else {
+    const height = Math.max(...boxes.map(box => box.height)); boxes.forEach(box => { box.height = height; });
+  }
+  const canvasHeight = Math.ceil(Math.max(760, ...boxes.map(box => box.y + box.height + 60)));
+  draw.context.canvas.height = canvasHeight;
+  draw.box(0, 0, 1200, canvasHeight, 28, "#f8f7f0");
+  designText(draw, title, 48, 30);
+  draw.box(48, takeawayY, 1104, takeawayHeight, 22, "#173d52");
+  designText(draw, takeaway, 72, takeawayY + 15, "#ffffff");
+  page.blocks.forEach((block, index) => {
+    const box = boxes[index];
+    draw.box(box.x, box.y, box.width, box.height, 22, index % 2 ? "#e0ede5" : "#e3edf5");
+    if (block.icon !== "none") draw.icon(block.icon, box.x + (box.soloIcon ? 56 : compact ? 18 : 20), box.y + (box.soloIcon ? 80 : compact ? 12 : 20), box.soloIcon ? 192 : compact ? 40 : 44);
+    designText(draw, box.heading, box.x + box.headingX, box.y + box.headingY);
+    designText(draw, box.body, box.x + box.bodyX, box.y + box.bodyY);
+  });
+  page.links.forEach((link, index) => {
+    const from = boxes[link.source], to = boxes[link.target], forward = link.target > link.source;
+    const start = forward ? from.x + from.width + 5 : from.x - 5, end = forward ? to.x - 5 : to.x + to.width + 5;
+    const y = from.y + from.height / 2;
+    draw.path(`M${start} ${y}H${end}m${forward ? -10 : 10} -9 ${forward ? 10 : -10} 9 ${forward ? -10 : 10} 9`, blue, 3);
+    if (link.label) designText(draw, labels[index], (start + end) / 2 - 90, top - labels[index].height - 16, blue);
+  });
+}
+
+const cardPages = new WeakMap<ConceptCardContext, WeakMap<ConceptCard, CardPage[]>>();
 
 // 依原始內容物件隔離版本，讓切卡／洗牌重用排版與圖片；資料釋放時一起回收。
 // 長段落以實際字型量測切成續圖，保留 Claim 與 Evidence 身分。
-export function conceptCardPages(card: ConceptCard, structure: KnowledgeStructureView): Layout[] {
+export function conceptCardPages(card: ConceptCard, structure: ConceptCardContext): CardPage[] {
   let cards = cardPages.get(structure);
   if (!cards) { cards = new WeakMap(); cardPages.set(structure, cards); }
   const cached = cards.get(card);
   if (cached) return cached;
-  const result = selectConceptCardLayouts(card, structure).flatMap(layout => {
+  if (card.design) {
+    const result: DesignedPage[] = card.design.pages.map(page => ({ family: "designed", design: page, claims: card.claims }));
+    cards.set(card, result);
+    return result;
+  }
+  const result = selectConceptCardLayouts(card, structure).map(layout => compactLayout(layout, card.display_edits)).flatMap(layout => {
     if (layout.family !== "text") return [layout];
     const needed = layout.claims.reduce((n, c) => n + textHeight(cardSourceText(c), 1056, 28) + 40, 0);
     if (needed <= 526) return [layout];
@@ -432,19 +516,28 @@ export function conceptCardPages(card: ConceptCard, structure: KnowledgeStructur
   return result;
 }
 
-const renderedPages = new WeakMap<Layout, Promise<Blob>>();
+const renderedPages = new WeakMap<object, Map<string, Promise<HTMLCanvasElement>>>();
 
-// 每個內容版本的同一頁只繪製一次；失敗不留快取，讓重試重新繪圖。
-export function conceptCardPng(card: ConceptCard, layout: Layout, pageIndex: number, pageCount: number): Promise<Blob> {
-  const cached = renderedPages.get(layout);
-  if (cached) return cached;
+// 每個帳號工作階段最多保留 8 張點陣圖（約 28 MiB），不寫入硬碟。
+// 快取隨帳號 API 物件釋放；跨批次仍以教材版本、概念、精簡文字及頁碼重用。
+export function conceptCardCanvas(card: ConceptCard, structure: ConceptCardContext, layout: CardPage, pageIndex: number, pageCount: number, cacheOwner: object): Promise<HTMLCanvasElement> {
+  let cache = renderedPages.get(cacheOwner);
+  if (!cache) { cache = new Map(); renderedPages.set(cacheOwner, cache); }
+  const key = JSON.stringify([structure.source_resolver, card.concept_id, card.design?.revision, card.display_edits ?? [], pageIndex, pageCount]);
+  const cached = cache.get(key);
+  if (cached) { cache.delete(key); cache.set(key, cached); return cached; }
   const rendered = document.fonts.ready.then(() => {
     const canvas = document.createElement("canvas");
     canvas.width = 1200; canvas.height = 760; canvas.lang = "zh-Hant";
     const context = canvas.getContext("2d");
-    if (!context) throw new Error("PNG_CANVAS_UNAVAILABLE");
+    if (!context) throw new Error("CARD_CANVAS_UNAVAILABLE");
     Object.assign(context, { lang: "zh-Hant", textRendering: "optimizeLegibility" });
     const draw = new CardCanvas(context);
+    if (layout.family === "designed") {
+      designed(draw, layout.design);
+      if (pageCount > 1) draw.text(`第 ${pageIndex + 1} / ${pageCount} 張圖`, 1152, canvas.height - 16, 20, muted, false, "right");
+      return canvas;
+    }
     const sparseLayout = layout.family === "sparse" ? sparseFrame(layout) : null;
     const compact = layout.family === "relation" ? compactRelationFrame(layout) : null;
     const contentHeight = sparseLayout?.height ?? compact?.height ?? 760;
@@ -467,11 +560,10 @@ export function conceptCardPng(card: ConceptCard, layout: Layout, pageIndex: num
     }
     context.restore();
     if (pageCount > 1) draw.text(`第 ${pageIndex + 1} / ${pageCount} 張圖`, 1152, 744, 20, muted, false, "right");
-    return new Promise<Blob>((resolve, reject) => canvas.toBlob(
-      blob => blob ? resolve(blob) : reject(new Error("PNG_ENCODING_FAILED")), "image/png",
-    ));
+    return canvas;
   });
-  renderedPages.set(layout, rendered);
-  void rendered.catch(() => renderedPages.delete(layout));
+  cache.set(key, rendered);
+  if (cache.size > 8) cache.delete(cache.keys().next().value!);
+  void rendered.catch(() => { if (cache.get(key) === rendered) cache.delete(key); });
   return rendered;
 }

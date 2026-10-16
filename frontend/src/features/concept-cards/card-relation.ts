@@ -1,8 +1,27 @@
-import type { ConceptCard, EvidenceView, KnowledgeStructureView, RelationType } from "../../api/contracts";
+import type { ConceptCard, EvidenceView, ConceptCardContext, RelationType } from "../../api/contracts";
 import { textUnits, wrapCardText } from "./card-text.ts";
 
 export function hasCardEvidence(evidence: EvidenceView) {
   return !!evidence.quote.trim() && evidence.page > 0 && !!evidence.source_locator.block_id;
+}
+
+const sourceIndexes = new WeakMap<ConceptCardContext["concepts"], {
+  concepts: Map<string, ConceptCardContext["concepts"][number]>;
+  evidence: Map<string, EvidenceView>;
+}>();
+
+// 同一不可變教材版本共用來源索引；續圖僅改變關係選取，不重掃整份教材。
+export function cardSourceIndex(structure: ConceptCardContext) {
+  let index = sourceIndexes.get(structure.concepts);
+  if (!index) {
+    index = {
+      concepts: new Map(structure.concepts.map(concept => [concept.concept_id, concept])),
+      evidence: new Map(structure.concepts.flatMap(c => c.claims.flatMap(claim => claim.evidence)).map(e => [e.evidence_id, e])),
+    };
+    for (const evidence of structure.relation_evidence ?? []) index.evidence.set(evidence.evidence_id, evidence);
+    sourceIndexes.set(structure.concepts, index);
+  }
+  return index;
 }
 
 // 只承接原文明示的比較面向；缺少結構化比較軸時寧可不畫對照圖。
@@ -32,14 +51,15 @@ export function relationPresentation(reason: string, type: RelationType) {
   return "association";
 }
 
-export function cardRelations(card: ConceptCard, structure: KnowledgeStructureView) {
-  const evidence = new Map(structure.concepts.flatMap(c => c.claims.flatMap(claim => claim.evidence)).filter(hasCardEvidence).map(e => [e.evidence_id, e]));
+export function cardRelations(card: ConceptCard, structure: ConceptCardContext) {
+  if (!structure.relations.length) return [];
+  const { concepts, evidence } = cardSourceIndex(structure);
   return structure.relations.flatMap(relation => {
     if (relation.source_concept_id !== card.concept_id && relation.target_concept_id !== card.concept_id) return [];
     if (relation.source_concept_id === relation.target_concept_id || !relation.learner_reason.trim()) return [];
-    const source = structure.concepts.find(c => c.concept_id === relation.source_concept_id);
-    const target = structure.concepts.find(c => c.concept_id === relation.target_concept_id);
-    if (!source || !target || !relation.evidence_refs.length || !relation.evidence_refs.every(id => evidence.has(id))) return [];
+    const source = concepts.get(relation.source_concept_id);
+    const target = concepts.get(relation.target_concept_id);
+    if (!source || !target || !relation.evidence_refs.length || !relation.evidence_refs.every(id => evidence.has(id) && hasCardEvidence(evidence.get(id)!))) return [];
     if (relation.type === "part_of" && contradictsPartDirection(relation.learner_reason, source.label, target.label)) return [];
     return [{ relation, source, target, presentation: relationPresentation(relation.learner_reason, relation.type), evidence: relation.evidence_refs.map(id => evidence.get(id)!), axis: comparisonAxis(relation.learner_reason) }];
   }).sort((a, b) =>
@@ -50,7 +70,7 @@ export function cardRelations(card: ConceptCard, structure: KnowledgeStructureVi
     || (a.relation.relation_id < b.relation.relation_id ? -1 : a.relation.relation_id > b.relation.relation_id ? 1 : 0));
 }
 
-export function cardRelation(card: ConceptCard, structure: KnowledgeStructureView) {
+export function cardRelation(card: ConceptCard, structure: ConceptCardContext) {
   return cardRelations(card, structure).find(({ relation, source, target, axis }) =>
     (relation.type !== "contrast" || axis !== null)
     && [source.label, target.label].every(label => {

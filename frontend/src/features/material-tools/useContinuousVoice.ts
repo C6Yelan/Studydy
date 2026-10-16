@@ -1,75 +1,101 @@
 import { useEffect, useRef, useState } from 'react';
+import type { createVoiceVad } from './voice-vad';
 
-// 簡單音量 VAD：瀏覽器回音消除處理播放聲，不另建串流服務。
+declare const __VOICE_ASSET_BASE__: string;
+
+type VoiceVad = Awaited<ReturnType<typeof createVoiceVad>>;
+
 export function useContinuousVoice({enabled, paused, onRecording, onSpeech, onError}: {
   enabled: boolean; paused: boolean; onRecording: (blob: Blob) => void;
   onSpeech: () => void; onError: (message: string) => void;
 }) {
   const latest = useRef({paused, onRecording, onSpeech, onError});
   latest.current = {paused, onRecording, onSpeech, onError};
-  const [state, setState] = useState<'off'|'permission'|'listening'|'recording'>('off');
+  const syncPaused = useRef<(() => void) | undefined>(undefined);
+  const [state, setState] = useState<'off'|'permission'|'loading'|'listening'|'recording'>('off');
+  // 開啟問答面板即平行下載公共資產，不取得麥克風；之後的 fetch 重用瀏覽器快取。
+  useEffect(() => {
+    for (const file of ['silero_vad_v6.onnx', 'ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs']) {
+      const href = __VOICE_ASSET_BASE__ + file;
+      if (document.querySelector(`link[href="${href}"]`)) continue;
+      const link = document.createElement('link');
+      link.rel = file.endsWith('.mjs') ? 'modulepreload' : 'preload';
+      if (link.rel === 'preload') link.as = 'fetch';
+      link.crossOrigin = 'anonymous'; link.href = href;
+      document.head.append(link);
+    }
+    // 預載失敗仍可用文字；實際開啟語音時由原本的錯誤處理回報。
+    void import('./voice-vad').catch(() => {});
+  }, []);
   useEffect(() => {
     if (!enabled) { setState('off'); return; }
-    let cancelled = false, media: MediaStream | undefined, context: AudioContext | undefined;
-    let recorder: MediaRecorder | undefined, interval: ReturnType<typeof setInterval> | undefined;
-    let chunks: Blob[] = [], voiced = false, started = 0, lastVoice = 0, loudSince = 0;
-    const stop = (send: boolean) => {
-      const current = recorder;
-      recorder = undefined;
-      if (!current || current.state === 'inactive') return;
-      const captured = chunks;
-      current.ondataavailable = event => { if (event.data.size) captured.push(event.data); };
-      current.onstop = () => {
-        if (send && !cancelled && captured.length) latest.current.onRecording(new Blob(captured, {type: current.mimeType}));
-      };
-      current.stop();
+    let cancelled = false, submitted = false;
+    let media: MediaStream | undefined, context: AudioContext | undefined, vad: VoiceVad | undefined;
+    let operations = Promise.resolve();
+    const allowed = () => !cancelled && !submitted && !latest.current.paused;
+    const fail = (failure: unknown) => {
+      if (!cancelled) latest.current.onError(failure instanceof Error ? failure.message : '無法啟動語音辨識，請重新開啟語音模式或使用文字提問。');
     };
+    // 暫停、恢復與銷毀依序執行，避免快速切換模式時留下麥克風或送出舊錄音。
+    const synchronize = () => {
+      operations = operations.then(async () => {
+        if (!vad || cancelled) return;
+        if (latest.current.paused) {
+          await vad.pause();
+          if (!cancelled) setState('listening');
+        } else {
+          submitted = false;
+          await vad.start();
+        }
+      }).catch(fail);
+    };
+    syncPaused.current = synchronize;
     setState('permission');
-    void (async () => {
+    const initialize = (async () => {
       try {
-        if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder || !window.AudioContext) throw new Error('此瀏覽器無法持續錄音，請使用文字提問。');
-        media = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
+        if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext) throw new Error('此瀏覽器無法持續錄音，請使用文字提問。');
+        media = await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
         if (cancelled) { media.getTracks().forEach(track => track.stop()); return; }
+        setState('loading');
         context = new AudioContext();
         await context.resume();
+        const {createVoiceVad} = await import('./voice-vad');
         if (cancelled) return;
-        const source = context.createMediaStreamSource(media), analyser = context.createAnalyser();
-        analyser.fftSize = 2048;
-        source.connect(analyser);
-        const samples = new Float32Array(analyser.fftSize);
-        setState('listening');
-        interval = setInterval(() => {
-          if (latest.current.paused) { stop(false); voiced = false; loudSince = 0; setState('listening'); return; }
-          const now = performance.now();
-          if (!recorder) {
-            try { recorder = new MediaRecorder(media!); } catch { latest.current.onError('此瀏覽器無法啟動錄音，請使用文字。'); return; }
-            chunks = []; voiced = false; started = now; loudSince = 0;
-            recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
-            recorder.onerror = () => latest.current.onError('錄音中斷，請重新開啟語音模式或使用文字。');
-            recorder.start();
-          }
-          analyser.getFloatTimeDomainData(samples);
-          const rms = Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
-          if (rms > 0.025) {
-            if (!loudSince) loudSince = now;
-            if (now - loudSince >= 120) {
-              lastVoice = now;
-              if (!voiced) { voiced = true; setState('recording'); latest.current.onSpeech(); }
-            }
-          } else loudSince = 0;
-          if ((voiced && now - lastVoice > 900) || now - started > (voiced ? 120000 : 15000)) {
-            stop(voiced); voiced = false; setState('listening');
-          }
-        }, 40);
+        vad = await createVoiceVad(media, context, {
+          onStart: () => { if (allowed()) { setState('recording'); latest.current.onSpeech(); } },
+          onMisfire: () => { if (allowed()) setState('listening'); },
+          onLimit: () => {
+            operations = operations.then(async () => {
+              if (!vad || cancelled) return;
+              await vad.pause();
+              // 長片段若仍不足有效人聲，捨棄後繼續聆聽；有效錄音則等問答完成。
+              if (allowed()) await vad.start();
+            }).catch(fail);
+          },
+          onEnd: blob => {
+            if (!allowed()) return;
+            submitted = true;
+            setState('listening');
+            latest.current.onRecording(blob);
+          },
+        });
+        if (!cancelled) { setState('listening'); synchronize(); }
       } catch (failure) {
-        if (!cancelled) latest.current.onError(failure instanceof Error ? failure.message : '無法取得麥克風，請使用文字提問。');
+        media?.getTracks().forEach(track => track.stop());
+        if (context && context.state !== 'closed') await context.close();
+        fail(failure);
       }
     })();
     return () => {
-      cancelled = true; clearInterval(interval); stop(false);
+      cancelled = true;
+      syncPaused.current = undefined;
       media?.getTracks().forEach(track => track.stop());
-      if (context && context.state !== 'closed') void context.close();
+      void initialize.then(() => operations).then(async () => {
+        try { await vad?.destroy(); }
+        finally { if (context && context.state !== 'closed') await context.close(); }
+      }).catch(() => {});
     };
   }, [enabled]);
+  useEffect(() => { syncPaused.current?.(); }, [paused]);
   return state;
 }

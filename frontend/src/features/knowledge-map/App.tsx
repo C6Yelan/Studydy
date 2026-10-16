@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type {
-  KnowledgeStructureView,
-  LearnerProgressView,
+  KnowledgeOutlineView,
+  MapProgressView,
   MaterialLibraryItem,
   StudySessionView,
 } from "../../api/contracts";
@@ -28,7 +28,7 @@ export default function KnowledgeMap({
   route: Extract<AppRoute, { name: "knowledge-map" }>;
 }) {
   const [materialName,setMaterialName] = useState(()=>rememberedMaterial(apiClient,route.materialId)?.display_name??"" );
-  const [progress, setProgress] = useState<LearnerProgressView | null>(null);
+  const [progress, setProgress] = useState<MapProgressView | null>(null);
   const [savedSession, setSavedSession] = useState<Pick<
     StudySessionView,
     "study_session_id" | "status"
@@ -36,7 +36,7 @@ export default function KnowledgeMap({
   const [isLoadingProgress, setIsLoadingProgress] = useState(true);
   const [progressMessage, setProgressMessage] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
-  const [view, setView] = useState<KnowledgeStructureView | null>(null);
+  const [view, setView] = useState<KnowledgeOutlineView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [startMessage, setStartMessage] = useState<string | null>(null);
   const [isStartingStudy, setIsStartingStudy] = useState(false);
@@ -102,7 +102,7 @@ export default function KnowledgeMap({
           return saved
             ? {
                 saved,
-                progress: await apiClient.readProgress(
+                progress: await apiClient.readMapProgress(
                   saved.study_session_id,
                   route.structureRevision,
                 ),
@@ -116,7 +116,7 @@ export default function KnowledgeMap({
       try {
         const [mapResult, run] = await Promise.all([
           apiClient
-            .getKnowledgeStructure({
+            .getKnowledgeOutline({
               materialId: route.materialId,
               structureRevision: route.structureRevision,
             })
@@ -193,7 +193,7 @@ export default function KnowledgeMap({
         session = await apiClient.focusStudySession(session.study_session_id, conceptId);
         if (!isCurrentPage()) return;
       }
-      const latest = await apiClient.readProgress(session.study_session_id, route.structureRevision);
+      const latest = await apiClient.readMapProgress(session.study_session_id, route.structureRevision);
       if (!isCurrentPage()) return;
       const cycle = latest.assessment_cycles.find(item => item.concept_id === conceptId);
       if (cycle?.active_set_id) {
@@ -201,7 +201,7 @@ export default function KnowledgeMap({
         return;
       }
       const state = latest.concept_states.find(item => item.concept_id === conceptId);
-      if (state?.assessable_claim_ids?.length === 0) {
+      if (state?.assessable === false) {
         openStudySession(session.study_session_id);
         return;
       }

@@ -53,18 +53,8 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
     } catch (error) { if (alive.current) setSearchError(errorMessage(error)); }
     finally { creating.current = false; if (alive.current) setBusy(false); }
   };
-  return <section className="material-library is-collection supplementary-page research-library" aria-label="補充學習查詢">
-    {contentNavigation}
-    <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
-      <header className="library-header library-header-compact collection-toolbar"><div className="collection-summary" ref={heading} tabIndex={-1}><h1>補充學習</h1><p>{list === null ? '正在讀取查詢…' : `已保存 ${list.length} 筆查詢`}</p></div></header>
-      <section className="surface research-compose" aria-labelledby="research-prompt"><h2 id="research-prompt">想補充什麼內容？</h2>
-        <form onSubmit={event => { event.preventDefault(); void search(); }}><input type="search" aria-label="想多了解什麼？" placeholder="輸入想補充的內容…" maxLength={1000} value={query} onChange={event => setQuery(event.target.value)}/>
-          <button className="primary-button" type="submit" disabled={busy || !query.trim()}>{busy ? '正在建立搜尋…' : '搜尋補充資料'}<Icon name="chevron-right" size={16}/></button></form>
-        {searchError && <p className="form-error" role="alert">{searchError}</p>}
-      </section>
-      {listError && <p className="form-error" role="alert">{listError}<button className="text-button" type="button" onClick={() => void refresh().catch(error => setListError(errorMessage(error)))}>重新讀取查詢</button></p>}
-      {list?.length === 0 && <p className="research-empty">還沒有補充查詢。建立查詢後，可從卡片開啟來源與處理進度。</p>}
-      <div className="library-grid research-records" role="region" tabIndex={0} aria-label="補充搜尋紀錄">{list?.map(item => {
+  const stopped = list?.filter(item => item.status === 'cancelled') ?? [];
+  const renderRecord = (item: ResearchSummary) => {
         const info = researchTaskInfo(item), route = {name:'research' as const,materialId,researchId:item.research_id};
         return <article className={`surface library-item research-record is-${info.tone}`} key={item.research_id} aria-label={item.query}>
           <span className={`research-status is-${info.tone}`}>{info.label}</span>
@@ -81,7 +71,24 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
           {item.created_at && <time className="library-metadata" dateTime={item.created_at}>{new Date(item.created_at).toLocaleString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})} 建立</time>}
           <button className={info.tone === 'complete' ? 'secondary-button' : 'primary-button'} type="button" onClick={() => writeRoute(route)}>{info.cta}<Icon name="chevron-right" size={16}/></button>
         </article>;
-      })}</div>
+
+  };
+  return <section className="material-library is-collection supplementary-page research-library" aria-label="補充學習查詢">
+    {contentNavigation}
+    <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
+      <header className="library-header library-header-compact collection-toolbar"><div className="collection-summary" ref={heading} tabIndex={-1}><h1>補充學習</h1><p>{list === null ? '正在讀取查詢…' : `已保存 ${list.length} 筆查詢`}</p></div></header>
+      <section className="surface research-compose" aria-labelledby="research-prompt"><h2 id="research-prompt">想補充什麼內容？</h2>
+        <form onSubmit={event => { event.preventDefault(); void search(); }}><input type="search" aria-label="想多了解什麼？" placeholder="輸入想補充的內容…" maxLength={1000} value={query} onChange={event => setQuery(event.target.value)}/>
+          <button className="primary-button" type="submit" disabled={busy || !query.trim()}>{busy ? '正在建立搜尋…' : '搜尋補充資料'}<Icon name="chevron-right" size={16}/></button></form>
+        {searchError && <p className="form-error" role="alert">{searchError}</p>}
+      </section>
+      {listError && <p className="form-error" role="alert">{listError}<button className="text-button" type="button" onClick={() => void refresh().catch(error => setListError(errorMessage(error)))}>重新讀取查詢</button></p>}
+      {list?.length === 0 && <p className="research-empty">還沒有補充查詢。建立查詢後，可從卡片開啟來源與處理進度。</p>}
+      <div className="library-grid research-records" role="region" tabIndex={0} aria-label="補充搜尋紀錄">{list?.filter(item => item.status !== 'cancelled').map(renderRecord)}</div>
+      {!!stopped.length && <details className="research-stopped">
+        <summary>已停止的查詢 · {stopped.length} 筆</summary>
+        <div className="library-grid research-records">{stopped.map(renderRecord)}</div>
+      </details>}
     </div>
   </section>;
 }

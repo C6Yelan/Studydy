@@ -38,3 +38,19 @@ def test_missing_paragraph_alignment_still_fails_without_fabricating_times():
 def test_foreign_caption_text_is_not_a_reason_to_fall_back():
     with pytest.raises(ValueError,match='SCENE_ALIGNMENT_FAILED'):
         worker.align_words(['原本完整的教材說明'],[{'word':'原本完整的教材說明','start':1,'end':5}],10,[[0]],['另一份講稿'])
+
+
+def test_short_windows_use_context_but_keep_each_core_timestamp_once():
+    from types import SimpleNamespace
+    calls=[]
+    class Model:
+        def transcribe(self,samples,**kwargs):
+            calls.append((len(samples),kwargs))
+            # 相鄰視窗都辨識到同一個詞；依實際核心區間只收一次。
+            start,end=(9.2,9.8) if len(calls)==1 else (1.2,1.8)
+            word=SimpleNamespace(word='完整詞',start=start,end=end)
+            return [SimpleNamespace(words=[word])],None
+    words=worker.short_window_words(Model(),[0]*(20*16000))
+    assert words==[{'word':'完整詞','start':9.2,'end':9.8}]
+    assert [length for length,_ in calls]==[12*16000,12*16000]
+    assert all(not options['vad_filter'] and options['no_speech_threshold'] is None for _,options in calls)

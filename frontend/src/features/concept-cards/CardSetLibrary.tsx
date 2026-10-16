@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardSetSummary, MaterialLibraryItem } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
@@ -33,6 +33,14 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
     );
     return () => { cancelled = true; };
   }, [apiClient, reload, material?.material_id]);
+  useEffect(() => {
+    if (!sets?.some(item => ["pending", "running"].includes(item.generation.status))) return;
+    const timer = setTimeout(() => setReload(value => value + 1), 2000);
+    return () => clearTimeout(timer);
+  }, [sets]);
+  const countSaved = useCallback((item: CardSetSummary) => {
+    setSets(previous => previous?.map(current => current.card_set_id === item.card_set_id && current.version <= item.version ? item : current) ?? null);
+  }, []);
   useEffect(() => {
     if (removing) cancel.current?.focus();
     else if (restoreFocus.current && opener.current?.isConnected) opener.current.focus({ preventScroll: true });
@@ -98,7 +106,7 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
                   </div>
                   {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
                 </form>}
-                <p className="library-metadata">{new Date(item.created_at).toLocaleDateString()} · <CardCount key={`${item.card_set_id}:${item.version}`} item={item} apiClient={apiClient} /></p>
+                <p className="library-metadata">{new Date(item.created_at).toLocaleDateString()} · <CardCount key={`${item.card_set_id}:${item.version}`} item={item} apiClient={apiClient} onSaved={countSaved} /></p>
                 {!material && <p className="cards-library-material" title={item.material_name}>{item.material_name}</p>}
                 {!item.is_current_revision && <p className="library-state">教材已有新版</p>}
                 <div className="state-actions"><button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id })}>開始複習</button></div>
@@ -112,24 +120,48 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
   );
 }
 
-// 張數由瀏覽頁使用的同一套排版計算，不能拿選取概念數代替續圖後的張數。
-function CardCount({ item, apiClient }: { item: CardSetSummary; apiClient: StudydyApiClient }) {
+type CountProps = { item: CardSetSummary; apiClient: StudydyApiClient; onSaved: (item: CardSetSummary) => void };
+
+function CardCount(props: CountProps) {
+  const { item } = props;
+  if (item.card_count !== null) return <span>{item.card_count} 張卡片</span>;
+  if (item.generation.status !== "ready") return <span>{item.generation.status === "failed" ? "生成暫停 · 開啟後可重試" : `生成中 · ${item.generation.completed} / ${item.generation.total} 個觀念`}</span>;
+  return <UncountedCards {...props} />;
+}
+
+// 僅尚未保存張數的版本執行一次實際排版；列表不再逐次下載教材及載入繪圖模組。
+function UncountedCards({ item, apiClient, onSaved }: CountProps) {
   const { artworkModule, loadFailed } = useConceptArtwork();
-  const [count, setCount] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    setCount(null); setFailed(false);
+    setFailed(false);
     if (!artworkModule) return;
-    void Promise.all([
-      apiClient.getCardSet(item.card_set_id),
-      apiClient.getKnowledgeStructure({ materialId: item.material_id, structureRevision: item.knowledge_structure_revision }),
-    ]).then(([deck, structure]) => {
-      if (!cancelled) setCount(deck.cards.reduce((total, card) => total + artworkModule.conceptCardPages(card, structure).length, 0));
-    }, () => { if (!cancelled) setFailed(true); });
+    void (async () => {
+      const study = await apiClient.getCardStudy(item.card_set_id);
+      if (cancelled) return;
+      if (study.generation.status !== "ready" || study.card_count !== null) { onSaved(study); return; }
+      let saved: CardSetSummary = study;
+      for (let offset = 0; offset < study.navigation.length; offset += 8) {
+        if (cancelled) return;
+        if (study.navigation.slice(offset, offset + 8).every(n => n.page_count !== null)) continue;
+        const batch = offset === 0 ? study.batch! : await apiClient.getCardBatch(item.card_set_id, study.version, offset);
+        if (cancelled) return;
+        if (batch.context.source_resolver !== study.source_resolver || batch.cards.some((card, i) => card.concept_id !== study.navigation[offset + i]?.concept_id)) throw new Error("卡片版本不一致。");
+        const counts: Record<string, number> = {};
+        for (const card of batch.cards) {
+          if (cancelled) return;
+          counts[card.concept_id] = artworkModule.conceptCardPages(card, batch.context).length;
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        if (cancelled) return;
+        saved = await apiClient.saveConceptCounts(item.card_set_id, study.version, counts);
+      }
+      if (!cancelled) onSaved(saved);
+    })().catch(() => { if (!cancelled) setFailed(true); });
     return () => { cancelled = true; };
-  }, [apiClient, artworkModule, item.card_set_id, item.material_id, item.knowledge_structure_revision, retry]);
-  if (failed || loadFailed) return <span>張數載入失敗{!loadFailed && <button className="text-button" type="button" onClick={() => setRetry(n => n + 1)}>重試</button>}</span>;
-  return <span>{count === null ? "正在計算張數…" : `${count} 張卡片`}</span>;
+  }, [apiClient, artworkModule, item.card_set_id, item.material_id, item.knowledge_structure_revision, retry, onSaved]);
+  if (failed || loadFailed) return <span>張數計算或保存失敗{!loadFailed && <button className="text-button" type="button" onClick={() => setRetry(n => n + 1)}>重試</button>}</span>;
+  return <span>首次計算張數…</span>;
 }

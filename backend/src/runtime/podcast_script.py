@@ -5,6 +5,44 @@ import json
 
 SCHEMA = 'podcast-script/v2'
 MAX_EPISODE_CLAIMS = 32
+MAX_SOURCE_TOKENS = 8000
+MAX_SCRIPT_INPUT_TOKENS = 10000
+
+
+def prompt_sources(claims, pages):
+    """原文只放在檢索 context 一次；重點與來源的對應仍逐項保留。"""
+    blocks = {b['evidence_id']: b['text'] for p in pages.values() for b in p['blocks']}
+    result = []
+    for index, claim in enumerate(claims):
+        ids = list(dict.fromkeys(e['evidence_id'] for e in claim['evidence']))
+        source = {'source_index': index, 'concept': claim['label'], 'evidence_ids': ids}
+        original = [blocks[i] for i in ids if i in blocks]
+        # 只省略完全相同的原文，不做截斷或語意猜測。獨立的摘要仍須提供給講稿模型。
+        normalized = ' '.join(claim['text'].split())
+        if normalized not in {' '.join(t.split()) for t in [*original, '\n'.join(original)]}:
+            source['claim'] = claim['text']
+        missing = [e for e in claim['evidence'] if e['evidence_id'] not in blocks]
+        if missing:
+            source['evidence'] = [{k: e[k] for k in ('page_ref', 'quote') if k in e} for e in missing]
+        result.append(source)
+    return result
+
+
+def script_input(claims, pages):
+    """模型只讀局部編號與原文；長 hash／座標留在程式端回填來源。"""
+    indices = {}
+    context = []
+    for page in pages.values():
+        blocks = []
+        for block in page['blocks']:
+            index = len(indices)
+            indices[block['evidence_id']] = index
+            blocks.append({'index': index, 'text': block['text']})
+        context.append({'source': page.get('source_name', ''), 'page': page.get('normalized_page'), 'blocks': blocks})
+    sources = prompt_sources(claims, pages)
+    for source in sources:
+        source['block_indices'] = [indices[i] for i in source.pop('evidence_ids') if i in indices]
+    return {'sources': sources, 'page_context': context}
 
 
 def digest(script):

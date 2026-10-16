@@ -96,6 +96,15 @@ def _validate(session, row: StudySession) -> MapContext:
 def _validate_context(row, context):
     concept_ids = {concept.concept_id for concept in context.concepts}
     claim_ids = {claim.claim_id for concept in context.concepts for claim in concept.claims}
+    _validate_ids(row, concept_ids, claim_ids)
+
+
+def _validate_plan(row, plan):
+    _validate_ids(row, {c['concept_id'] for c in plan['concepts']},
+                  {claim for c in plan['concepts'] for claim in c['claim_ids']})
+
+
+def _validate_ids(row, concept_ids, claim_ids):
     if (
         row.current_concept_id is not None and row.current_concept_id not in concept_ids
         or not set(row.no_safe_claim_ids) <= claim_ids
@@ -154,7 +163,7 @@ def create_study_session(
             )).one_or_none()
             if canonical is not None:
                 # 後續同範圍請求只讀取既有 session；建立時的意圖指紋保持不變。
-                _validate(session, canonical)
+                _validate_context(canonical, context)
                 return _stored(canonical)
             known = {concept.concept_id for concept in context.concepts}
             from .inherited_progress import preferred_focus
@@ -181,7 +190,7 @@ def create_study_session(
             ))
             if stored is None or bytes(stored.request_fingerprint) != fingerprint:
                 raise StudySessionError("STUDY_SESSION_IDEMPOTENCY_CONFLICT")
-            _validate(session, stored)
+            _validate_context(stored, context)
             return _stored(stored)
     except StudySessionError:
         raise

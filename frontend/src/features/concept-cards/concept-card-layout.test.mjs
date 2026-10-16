@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { selectConceptCardLayout } from "./concept-card-layout.ts";
+import { compactLayout, selectConceptCardLayout } from "./concept-card-layout.ts";
 import { cardRelations, relationPresentation } from "./card-relation.ts";
 import { cardSourceText } from "./card-content.ts";
 import { selectCardObjects } from "./icon-selection.ts";
@@ -236,4 +236,34 @@ test("continuation images cover every claim once and preserve evidence", async (
   assert.ok(pages.every(p => p.omitted === 0));
   assert.ok(pages.slice(1).every(p => !p.relation));
   assert.deepEqual(card, before);
+});
+
+
+test("concise display preserves layout, row order and canonical source text", () => {
+  const { card, view } = fixture();
+  card.claims[0].text = "FieldA: 原文的欄位說明很長，必須保留條件。\nFieldB: 第二個欄位。\nFieldC: 第三個欄位。";
+  const layout = selectConceptCardLayout(card, view);
+  assert.equal(layout.family, "table");
+  const before = structuredClone(layout);
+  const result = compactLayout(layout, [{ source: "原文的欄位說明很長，必須保留條件。", text: "欄位說明須保留條件。" }]);
+  assert.equal(result.family, "table");
+  assert.deepEqual(result.content.rows.map(row => row.label), ["FieldA", "FieldB", "FieldC"]);
+  assert.equal(result.content.rows[0].value, "欄位說明須保留條件。");
+  assert.deepEqual(layout, before);
+  assert.equal(result.claims[0].evidence, card.claims[0].evidence);
+  card.claims[0].evidence[0].kind = "code";
+  const technical = selectConceptCardLayout(card, view);
+  assert.equal(compactLayout(technical, [{ source: card.claims[0].text, text: "刪除程式" }]), technical);
+});
+
+test("concise paragraphs match restored PDF line wraps without changing evidence", () => {
+  const { card, view } = fixture(1);
+  const original = "The model predicts noise while the sampler\nupdates the latent state under the specified schedule.";
+  card.claims[0].text = original;
+  const layout = selectConceptCardLayout(card, view);
+  const shorter = "The model predicts noise; the sampler updates the latent state on schedule.";
+  const result = compactLayout(layout, [{ source: original.replace(/\s+/gu, " "), text: shorter }]);
+  assert.equal(result.claims[0].text, shorter);
+  assert.equal(card.claims[0].text, original);
+  assert.equal(result.claims[0].evidence, card.claims[0].evidence);
 });

@@ -370,7 +370,8 @@ def merge_candidates(existing,incoming):
 
 
 _SEARCH_STOP={'the','and','for','with','about','of','to','a','in','an','how','what','is','are',
-    'introduction','introductory','beginner','beginners','tutorial','advanced','overview','fundamentals','basic','basics'}
+    'introduction','introductory','beginner','beginners','tutorial','advanced','overview','fundamentals','basic','basics',
+    'original','paper','papers','official','documentation'}
 
 
 def _terms(text):
@@ -381,6 +382,7 @@ def _terms(text):
 
 
 def rank_candidates(query,rows):
+    # 「原始論文／官方文件」是來源形式，不應壓過 BM25 等具體主題的排名。
     terms=_terms(query)
     if not terms:return rows
     def matches(row):return len(terms&_terms(row['title']))*2+len(terms&_terms(row.get('description','')))
@@ -388,24 +390,30 @@ def rank_candidates(query,rows):
     return sorted(rows,key=lambda r:-matches(r))
 
 
-def search(query,cursor=None):
-    # cursor 仍是 opaque string；既有 OpenAlex cursor 只接續原本來源，不重跑首頁。
+def search(query,cursor=None,*,channel='mixed'):
+    if channel not in ('web','papers','mixed'):raise SourceError('REQUEST_INVALID')
     if cursor:
         try:state=json.loads(cursor)
-        except (ValueError,TypeError):state={'openalex':cursor}
-        if not isinstance(state,dict):state={'openalex':cursor}
+        except (ValueError,TypeError):raise SourceError('REQUEST_INVALID') from None
+        if not isinstance(state,dict):raise SourceError('REQUEST_INVALID')
     else:
-        state={'openalex':'*','crossref':0}
-        if os.environ.get('STUDYDY_SEMANTIC_SCHOLAR_API_KEY'):state['semantic_scholar']=0
+        state={'openalex':'*','crossref':0} if channel in ('papers','mixed') else {}
+        if channel in ('papers','mixed') and os.environ.get('STUDYDY_SEMANTIC_SCHOLAR_API_KEY'):state['semantic_scholar']=0
     queries=list(dict.fromkeys(line.strip() for line in query.splitlines() if line.strip()))[:3]
     primary=queries[0] if queries else query
     web_enabled=bool(os.environ.get('STUDYDY_SEARXNG_URL','').strip())
-    if not cursor and web_enabled:state['web']=1
+    if not cursor and web_enabled and channel in ('web','mixed'):state['web']=1
     providers={'openalex':openalex_search,'crossref':crossref_search,'semantic_scholar':semantic_scholar_search}
     rows=[];warnings=[];next_state={};successes=0;failures=[]
     with ThreadPoolExecutor(max_workers=4) as pool:
         jobs={name:pool.submit(providers[name],primary,position) for name,position in state.items() if name in providers}
-        official_jobs=[] if cursor else [pool.submit(official,primary) for official in (official_search,mdn_search)]
+        # 專門文件庫只用於明確指定其技術的查詢，不能每個主題都搜尋 Python／瀏覽器文件。
+        official_jobs={}
+        terms=set(re.findall(r'[a-z]+',primary.casefold()))
+        if not cursor and channel!='papers':
+            if 'python' in terms:official_jobs['Python']=pool.submit(official_search,primary)
+            if terms & {'javascript','typescript','html','css','mdn','dom'}:
+                official_jobs['MDN']=pool.submit(mdn_search,primary)
         web_job=None
         if web_enabled and 'web' in state:
             from .research_web import search_web
@@ -418,9 +426,9 @@ def search(query,cursor=None):
                 warnings.append(name);next_state[name]=state[name]
                 failures.append({'provider':name,'error_code':str(error) if isinstance(error,SourceError) else 'RESEARCH_SEARCH_FAILED',
                                  'retry_at':getattr(error,'retry_at',None)})
-        for index,job in enumerate(official_jobs):
+        for name,job in official_jobs.items():
             try:rows.extend(job.result());successes+=1
-            except Exception:warnings.append(('Python','MDN')[index])
+            except Exception:warnings.append(name)
         if web_job:
             try:
                 found,next_page,partial=web_job.result();rows.extend(found);successes+=1
@@ -446,8 +454,46 @@ def _unpaywall_locations(candidate):
     return [l for item in data.get('oa_locations',[]) if (l:=_location(item.get('url_for_pdf'),item.get('license'),item.get('version'),item.get('url_for_landing_page')))]
 
 
+def arxiv_abstract_url(url):
+    parsed=urlsplit(url or '')
+    if parsed.hostname not in ('arxiv.org','www.arxiv.org'):return None
+    match=re.fullmatch(r'/(?:abs|pdf|html)/(\d{4}\.\d{4,5}(?:v\d+)?)(?:\.pdf)?/?',parsed.path)
+    return 'https://arxiv.org/abs/'+match.group(1) if match else None
+
+
+def arxiv_metadata(url):
+    """只從同篇 arXiv 正式摘要頁核對授權，不把可下載 PDF 當作使用許可。"""
+    from trafilatura.utils import load_html
+    abstract=arxiv_abstract_url(url)
+    if not abstract:return None
+    data,final,media=public_page(abstract,limit=2*1024*1024)
+    if arxiv_abstract_url(final)!=abstract or 'html' not in media.lower():raise SourceError('RESEARCH_IDENTITY_UNCONFIRMED')
+    tree=load_html(data)
+    if tree is None:raise SourceError('RESEARCH_FORMAT_UNSUPPORTED')
+    title=tree.xpath('//meta[@name="citation_title"]/@content')
+    pdf=tree.xpath('//meta[@name="citation_pdf_url"]/@content')
+    if not title or not pdf:raise SourceError('RESEARCH_IDENTITY_UNCONFIRMED')
+    identity=abstract.rsplit('/',1)[-1]
+    advertised=arxiv_abstract_url(pdf[0])
+    if not advertised or re.sub(r'v\d+$','',advertised)!=re.sub(r'v\d+$','',abstract):
+        raise SourceError('RESEARCH_IDENTITY_UNCONFIRMED')
+    licenses=tree.xpath('//div[contains(concat(" ",normalize-space(@class)," ")," abs-license ")]/a[@title="Rights to this article"]/@href')
+    license_url=next((value for value in licenses if _license(value)),None)
+    if not license_url:raise SourceError('RESEARCH_LICENSE_UNCONFIRMED')
+    return {'kind':'paper','title':title[0],'authors':', '.join(tree.xpath('//meta[@name="citation_author"]/@content')),
+            'download_url':'https://arxiv.org/pdf/'+identity,'license':_license(license_url),'license_url':license_url,
+            'version':'arxiv:'+identity,'web_document':False,'arxiv_license_checked':True,
+            'license_snapshot_sha256':hashlib.sha256(data).hexdigest(),
+            'license_text':'arXiv 正式摘要頁 '+abstract+' 明示 Rights to this article：'+license_url}
+
+
 def acquire(candidate, *, attempts=None):
     if not candidate.get('eligible'):raise SourceError('RESEARCH_LICENSE_UNCONFIRMED')
+    if candidate.get('arxiv_license_checked'):
+        current=arxiv_metadata(candidate['url'])
+        if not current or any(current[key]!=candidate.get(key) for key in ('title','download_url','license','license_url','version')):
+            raise SourceError('RESEARCH_SOURCE_CHANGED')
+        candidate.update(current)
     if candidate['kind']=='web' or candidate.get('web_document'):
         from .research_web import acquire_web
         return acquire_web(candidate)
@@ -487,6 +533,8 @@ def _acquire_location(candidate):
     url=candidate['download_url']
     data,final,media=public_page(url,limit=MAX_BYTES)
     metadata={k:candidate.get(k) for k in ('id','title','authors','year','doi','url','license','license_url','version')}
+    for key in ('license_snapshot_sha256','license_text'):
+        if candidate.get(key):metadata[key]=candidate[key]
     metadata.update(download_url=final,original_sha256=hashlib.sha256(data).hexdigest())
     if candidate.get('inspection_sha256') and metadata['original_sha256']!=candidate['inspection_sha256']:
         raise SourceError('RESEARCH_SOURCE_CHANGED')

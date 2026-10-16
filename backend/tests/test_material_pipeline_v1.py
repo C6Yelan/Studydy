@@ -61,6 +61,7 @@ def _analyze(source: Path, settings: dict, **kwargs):
         "manifest": {"items": [{
             "normalized_sha256": digest,
             "page_count": page_count,
+            "analysis_scope": None,
         }]},
         "bundle": {"pages": [
             {"page": page, "source_id": "synthetic-source", "normalized_page": page}
@@ -417,7 +418,7 @@ def test_19_sources_368_pages_resume_from_disk_without_repeating_first_250(tmp_p
                 doc.new_page().insert_text((72,72),f'Source {index} page {number}: synthetic evidence remains traceable across retries.')
             doc.save(path)
         request=_request(path);inputs.append(request)
-        items.append({'normalized_sha256':request['expected_source_sha256'],'page_count':count})
+        items.append({'normalized_sha256':request['expected_source_sha256'],'page_count':count,'analysis_scope':None})
         offset=len(source_pages)
         source_pages.extend({'page':offset+n,'source_id':f'source-{index}','normalized_page':n} for n in range(1,count+1))
     binding={'source_set_digest':'a'*64,'manifest':{'items':items},'bundle':{'pages':source_pages}}

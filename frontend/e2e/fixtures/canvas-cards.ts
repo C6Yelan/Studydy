@@ -4,8 +4,9 @@ type DrawnText = { text: string; x: number; y: number; font: string; left: numbe
 type Drawing = { texts: DrawnText[]; iconStrokes: number };
 declare global {
   interface Window {
-    cardDrawings: Record<string, Drawing>;
+    cardDrawings: WeakMap<HTMLCanvasElement, Drawing>;
     cardEncodingCount: number;
+    cardRenderCount: number;
   }
 }
 
@@ -13,17 +14,17 @@ declare global {
 export async function recordCardDrawing(page: Page) {
   await page.addInitScript(() => {
     const drawings = new WeakMap<HTMLCanvasElement, Drawing>();
-    const blobs = new WeakMap<Blob, Drawing>();
-    window.cardDrawings = {};
+    window.cardDrawings = drawings;
     window.cardEncodingCount = 0;
+    window.cardRenderCount = 0;
     const drawing = (canvas: HTMLCanvasElement) => {
       let result = drawings.get(canvas);
-      if (!result) { result = { texts: [], iconStrokes: 0 }; drawings.set(canvas, result); }
+      if (!result) { result = { texts: [], iconStrokes: 0 }; drawings.set(canvas, result); window.cardRenderCount++; }
       return result;
     };
     const fillText = CanvasRenderingContext2D.prototype.fillText;
     CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
-      if (this.canvas.width === 1200 && this.canvas.height === 760) {
+      if (this.canvas.width === 1200 && this.canvas.height >= 760) {
         const m = this.measureText(text), t = this.getTransform();
         drawing(this.canvas).texts.push({
           text, x: x * t.a + t.e, y: y * t.d + t.f, font: this.font,
@@ -41,27 +42,24 @@ export async function recordCardDrawing(page: Page) {
       if (this.canvas.width === 1200 && this.getTransform().a !== 1) drawing(this.canvas).iconStrokes++;
       if (path) stroke.call(this, path); else stroke.call(this);
     };
+    const drawImage = CanvasRenderingContext2D.prototype.drawImage;
+    CanvasRenderingContext2D.prototype.drawImage = function (...args: unknown[]) {
+      const source = args[0];
+      if (source instanceof HTMLCanvasElement && drawings.has(source)) drawings.set(this.canvas, drawings.get(source)!);
+      Reflect.apply(drawImage, this, args);
+    };
     const encode = HTMLCanvasElement.prototype.toBlob;
     HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
-      if (this.width === 1200 && this.height === 760) window.cardEncodingCount++;
-      encode.call(this, blob => {
-        if (blob && drawings.has(this)) blobs.set(blob, drawing(this));
-        callback(blob);
-      }, type, quality);
-    };
-    const createObjectURL = URL.createObjectURL;
-    URL.createObjectURL = function (blob) {
-      const url = createObjectURL.call(URL, blob);
-      if (blob instanceof Blob && blobs.has(blob)) window.cardDrawings[url] = blobs.get(blob)!;
-      return url;
+      if (this.width === 1200 && this.height >= 760) window.cardEncodingCount++;
+      encode.call(this, callback, type, quality);
     };
   });
 }
 
 export async function cardDrawing(page: Page) {
-  const image = page.locator(".visual-card > img.visual-concept-card");
+  const image = page.locator(".visual-card > canvas.visual-concept-card");
   await expect(image).toBeVisible();
-  return image.evaluate((image: HTMLImageElement) => window.cardDrawings[image.src]);
+  return image.evaluate((image: HTMLCanvasElement) => window.cardDrawings.get(image)!);
 }
 
 export async function drawnText(page: Page) {
@@ -70,9 +68,10 @@ export async function drawnText(page: Page) {
 
 export async function expectCardTextFits(page: Page) {
   const { texts } = await cardDrawing(page);
+  const canvasHeight = await page.locator(".visual-card > canvas.visual-concept-card").evaluate((canvas: HTMLCanvasElement) => canvas.height);
   const visible = texts.filter(text => text.text.trim());
   expect(visible.length).toBeGreaterThan(0);
-  expect(visible.filter(t => t.left < 0 || t.top < 0 || t.right > 1200 || t.bottom > 760)).toEqual([]);
+  expect(visible.filter(t => t.left < 0 || t.top < 0 || t.right > 1200 || t.bottom > canvasHeight)).toEqual([]);
   for (let i = 0; i < visible.length; i++) for (let j = i + 1; j < visible.length; j++) {
     const a = visible[i], b = visible[j];
     expect(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top,

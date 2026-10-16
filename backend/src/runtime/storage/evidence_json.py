@@ -5,6 +5,7 @@ from sqlalchemy.types import TypeDecorator
 
 _MARKER = '_studydy_json_storage'
 _ESCAPE = '\ue000'
+_ESCAPED_CHAR = re.compile(_ESCAPE+'([E0])')
 
 
 def _has_nul(value):
@@ -44,7 +45,8 @@ class EvidenceJSONB(TypeDecorator):
         if kind=='nul-object/v1':payload={k:v for k,v in value.items() if k!=_MARKER}
         elif kind=='nul-array/v1':payload=value['items']
         else:raise ValueError('JSON_STORAGE_ENCODING_INVALID')
-        return _strings(payload,lambda s:re.sub(_ESCAPE+'([E0])',lambda m:_ESCAPE if m[1]=='E' else '\x00',s))
+        return _strings(payload,lambda s: _ESCAPED_CHAR.sub(
+            lambda m:_ESCAPE if m[1]=='E' else '\x00',s) if _ESCAPE in s else s)
 
     def coerce_compared_value(self,op,value):
         # 保留 JSONB 路徑與 contains 的原生操作，不能把欄位名編成 JSON 字串。

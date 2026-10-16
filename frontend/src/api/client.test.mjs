@@ -21,16 +21,56 @@ function cardSetView() {
     knowledge_structure_revision: structureRevision, created_at: "2026-10-02T00:00:00Z",
     is_current_revision: true, source_resolver: decodeURIComponent(view.source_resolver),
     cards: view.concepts.map(({ concept_id, label, claims }) => ({ concept_id, label, claims })),
-    status: view.status, excluded_pages: [],
+    status: view.status, excluded_pages: [], display_edits: {},
+    generation: { status: "ready", stage: "complete", completed: view.concepts.length, total: view.concepts.length, error_code: null, retained_original: 0, cached: 0 },
   };
 }
+
+function cardStudyView() {
+  const old = cardSetView(), structure = structureView();
+  const batch = { schema: 'card-batch/v1', card_set_id: setId, version: 1, offset: 0, total: old.cards.length,
+    cards: old.cards.map(card => ({ ...card, display_edits: [] })),
+    context: { source_resolver: old.source_resolver, status: old.status, concepts: structure.concepts, relations: structure.relations, relation_evidence: [] } };
+  return { ...old, schema: 'card-study/v1', navigation: old.cards.map(card => ({ concept_id: card.concept_id, label: card.label, page_count: null })), batch };
+}
+
+test("card study rejects foreign batches, wrong versions and invalid source context", async () => {
+  const valid = await new StudydyApiClient(async () => Response.json(cardStudyView())).getCardStudy(setId);
+  assert.equal(valid.batch.cards[0].label, 'Stack');
+  for (const change of [
+    value => { value.batch.card_set_id = materialId; },
+    value => { value.batch.version = 2; },
+    value => { value.batch.offset = 8; },
+    value => { value.batch.context.source_resolver = '/wrong/evidence'; },
+    value => { value.batch.cards[0].claims[0].evidence[0].page = 0; },
+    value => { value.navigation[0].concept_id = `concept:sha256:${'f'.repeat(64)}`; },
+    value => { value.batch.cards[0].display_edits = [{ source: 'text', text: 1 }]; },
+  ]) {
+    const value = cardStudyView(); change(value);
+    await assert.rejects(new StudydyApiClient(async () => Response.json(value)).getCardStudy(setId), error => error.kind === 'schema');
+  }
+});
+
+test("card batches and partial page counts stay bound to the selected version", async () => {
+  const study = cardStudyView();
+  const client = new StudydyApiClient(async (url, init) => {
+    if (init.method === 'GET') {
+      assert.equal(url, `/v1/card-sets/${setId}/cards?offset=0&version=1`);
+      return Response.json(study.batch);
+    }
+    assert.deepEqual(JSON.parse(init.body), { expected_version: 1, concept_counts: { [conceptId]: 3 }, layout_policy: 'visual-concept-card/v4' });
+    return Response.json({ ...study, card_count: null });
+  });
+  assert.equal((await client.getCardBatch(setId, 1, 0)).offset, 0);
+  assert.equal((await client.saveConceptCounts(setId, 1, { [conceptId]: 3 })).card_count, null);
+});
 
 test("saved cards reject foreign identities, version-mismatched sources and invalid contents", async () => {
   assert.equal((await new StudydyApiClient(async () => Response.json(cardSetView())).getCardSet(setId)).cards[0].label, "Stack");
   for (const change of [
     (view) => { view.card_set_id = materialId; },
     (view) => { view.source_resolver = view.source_resolver.replace(structureRevision, `knowledge-structure:sha256:${"f".repeat(64)}`); },
-    (view) => { view.card_count = 2; },
+    (view) => { view.card_count = -1; },
     (view) => { view.cards[0].claims[0].evidence = []; },
     (view) => { view.cards[0].claims[0].evidence[0].page = -1; },
     (view) => { delete view.status; },
@@ -54,6 +94,21 @@ test("card creation uses the same supplied intent key and deletion verifies its 
   assert.equal(requests[0].init.headers["Idempotency-Key"], "stable-intent");
   assert.deepEqual(JSON.parse(requests[0].init.body), body);
   await assert.rejects(new StudydyApiClient(async () => Response.json({ schema: "card-set-deleted/v1", card_set_id: materialId })).deleteCardSet(setId), (error) => error.kind === "schema");
+});
+
+test("card_count is the persisted page count, independent of concept count", async () => {
+  for (const count of [null, 17]) {
+    const view = { ...cardSetView(), card_count: count };
+    assert.equal((await new StudydyApiClient(async () => Response.json(view)).getCardSet(setId)).card_count, count);
+  }
+  const view = { ...cardSetView(), card_count: 17 };
+  const client = new StudydyApiClient(async (url, init) => {
+    assert.equal(url, `/v1/card-sets/${setId}/count`);
+    assert.equal(init.method, "POST");
+    assert.deepEqual(JSON.parse(init.body), { expected_version: 1, card_count: 17, layout_policy: "visual-concept-card/v4" });
+    return Response.json(view);
+  });
+  assert.equal((await client.saveCardCount(setId, 1, 17)).card_count, 17);
 });
 
 function apiErrorResponse(reasonCode, status, retryable = false) {
@@ -186,7 +241,7 @@ test("unknown relation type fails closed with otherwise valid endpoints", async 
   await client.getKnowledgeStructure({ materialId, structureRevision });
   invalid.relations[0].type = "related";
   await assert.rejects(
-    client.getKnowledgeStructure({ materialId, structureRevision }),
+    new StudydyApiClient(async () => Response.json(invalid)).getKnowledgeStructure({ materialId, structureRevision }),
     (error) => error instanceof ApiClientError && error.kind === "schema",
   );
 });
@@ -377,7 +432,7 @@ function resumeView() {
   return {
     schema: "study-resume/v1",
     assessment_sets: [],
-    selected_set_id: null,
+    selected_set_id: null, selected_set: null,
     run_id: runId,
     source_artifact_id: libraryItem().source_artifact_id,
     session: {
@@ -402,7 +457,7 @@ function resumeView() {
       event_watermark: 0,
       current_concept_id: conceptId,
       deferred_concept_ids: [],
-      concept_states: [{ concept_id: conceptId, label: "Stack", status: "not_started" }],
+      concept_states: [{ concept_id: conceptId, label: "Stack", status: "not_started", attempts: 0, assessable_claim_ids: [claimId] }],
       weaknesses: [],
       next_action: {
         action: "assess",
@@ -783,9 +838,8 @@ test("material rename uses the existing item guard and exact identity without a 
   );
 });
 
-test("assessment sets validate preparation, published data and submission requests", async () => {
-  const record = questionRecord();
-  const base = {
+function assessmentSetView() {
+  return {
     ...assessmentSetSummary({ set_version: 2 }),
     schema: "assessment-set/v1",
     study_session_id: sessionId,
@@ -833,6 +887,11 @@ test("assessment sets validate preparation, published data and submission reques
       },
     ],
   };
+}
+
+test("assessment sets validate preparation, published data and submission requests", async () => {
+  const record = questionRecord();
+  const base = assessmentSetView();
   const read = (value) =>
     new StudydyApiClient(async () => Response.json(value)).readAssessmentSet(sessionId, setId);
   assert.equal((await read(base)).verified_count, 1);
@@ -987,6 +1046,8 @@ test("resume authorizes saved group membership independently of navigation focus
     }),
   ];
   value.selected_set_id = setId;
+  value.selected_set = assessmentSetView();
+  value.assessment_sets = [assessmentSetSummary({ set_version: value.selected_set.set_version })];
   const request = {
     materialId,
     structureRevision,
@@ -997,6 +1058,9 @@ test("resume authorizes saved group membership independently of navigation focus
   const read = (value) =>
     new StudydyApiClient(async () => Response.json(value)).resumeStudy(request);
   assert.equal((await read(value)).selected_set_id, setId);
+  for (const overrides of [{ study_session_id: materialId }, { material_id: sessionId }, { set_id: runId }, { set_version: 99 }]) {
+    await assert.rejects(read({ ...value, selected_set: { ...value.selected_set, ...overrides } }), error => error.kind === "schema");
+  }
   const missingSet = { ...value, assessment_sets: [], selected_set_id: null };
   await assert.rejects(read(missingSet), (error) => error.kind === "schema");
 });
@@ -1127,4 +1191,88 @@ test("podcast background generation counts stay within the episode count", async
   assert.equal((await new StudydyApiClient(async()=>Response.json(value)).getPodcast(setId)).generation.active,true);
   for(const generation of [{active:"yes",completed_videos:0,failed_videos:0},{active:false,completed_videos:2,failed_videos:0},{active:false,completed_videos:1,failed_videos:1}])
     await assert.rejects(new StudydyApiClient(async()=>Response.json({...value,generation})).getPodcast(setId),e=>e.kind==="schema");
+});
+
+
+test("immutable structures are shared across features but never across invalidated sessions", async () => {
+  let calls = 0;
+  const client = new StudydyApiClient(async () => { calls++; return Response.json(structureView()); });
+  const request = { materialId, structureRevision };
+  const [a, b] = await Promise.all([client.getKnowledgeStructure(request), client.getKnowledgeStructure(request)]);
+  assert.equal(a, b);
+  assert.equal(await client.getKnowledgeStructure(request), a);
+  assert.equal(calls, 1);
+  client.invalidate();
+  await assert.rejects(client.getKnowledgeStructure(request), error => error.reasonCode === "SESSION_REQUIRED");
+});
+
+test("failed structure reads can be retried", async () => {
+  let calls = 0;
+  const client = new StudydyApiClient(async () => ++calls === 1 ? Response.json({}) : Response.json(structureView()));
+  const request = { materialId, structureRevision };
+  await assert.rejects(client.getKnowledgeStructure(request));
+  await client.getKnowledgeStructure(request);
+  assert.equal(calls, 2);
+});
+
+test("current map and saved card revision stay cached together", async () => {
+  const previous = `knowledge-structure:sha256:${"f".repeat(64)}`;
+  const calls = [];
+  const client = new StudydyApiClient(async path => {
+    calls.push(path);
+    const revision = decodeURIComponent(String(path).split("/").at(-1));
+    const view = structureView();
+    view.knowledge_structure_revision = revision;
+    view.source_resolver = view.source_resolver.replace(encodeURIComponent(structureRevision), encodeURIComponent(revision));
+    return Response.json(view);
+  });
+  for (const revision of [structureRevision, previous, structureRevision, previous]) {
+    await client.getKnowledgeStructure({ materialId, structureRevision: revision });
+  }
+  assert.equal(calls.length, 2);
+});
+
+test('on-demand outlines, concepts and workspace enforce material/version/selection boundaries', async () => {
+  const { outlineView, conceptsView, workspaceView, mapProgressView } = await import('../../e2e/fixtures/knowledge-read-views.mjs');
+  const full = structureView();
+  const request = { materialId, structureRevision };
+  const overview = outlineView(full, materialId, runId);
+  const content = conceptsView(full, materialId, [conceptId]);
+  const calls = [];
+  let body = overview;
+  const client = new StudydyApiClient(async path => { calls.push(path); return Response.json(body); });
+  assert.deepEqual(await client.getKnowledgeOutline(request), overview);
+  assert.deepEqual(await client.getKnowledgeOutline(request), overview);
+  assert.equal(calls.length, 1);
+  assert.ok(!Object.hasOwn(overview.concepts[0], 'claims'));
+  body = content;
+  assert.deepEqual(await client.getConceptContext(request, [conceptId]), content);
+  assert.ok(calls[1].includes('/concepts?'));
+  for (const corrupt of [
+    value => { value.material_id = sessionId; },
+    value => { value.knowledge_structure_revision = `knowledge-structure:sha256:${'f'.repeat(64)}`; },
+    value => { value.requested_concept_ids = []; },
+    value => { value.concepts[0].claims[0].evidence[0].source_locator.page = -1; },
+  ]) {
+    const value = structuredClone(content); corrupt(value);
+    await assert.rejects(new StudydyApiClient(async () => Response.json(value)).getConceptContext(request, [conceptId]), error => error.kind === 'schema');
+  }
+  const workspace = workspaceView(resumeView());
+  const resumeRequest = { ...request, runId, studySessionId: sessionId };
+  assert.equal((await new StudydyApiClient(async () => Response.json(workspace)).resumeWorkspace(resumeRequest)).schema, 'study-workspace/v1');
+  for (const corrupt of [
+    value => { value.context = null; },
+    value => { value.outline.run_id = sessionId; },
+    value => { value.progress.concept_count++; },
+    value => { value.progress.concept_states = []; },
+    value => { value.context.knowledge_structure_revision = `knowledge-structure:sha256:${'f'.repeat(64)}`; },
+  ]) {
+    const value = structuredClone(workspace); corrupt(value);
+    await assert.rejects(new StudydyApiClient(async () => Response.json(value)).resumeWorkspace(resumeRequest), error => error.kind === 'schema');
+  }
+  const summary = mapProgressView(resumeView().progress);
+  assert.equal((await new StudydyApiClient(async () => Response.json(summary)).readMapProgress(sessionId, structureRevision)).schema, 'map-progress/v1');
+  client.invalidate();
+  await assert.rejects(client.getKnowledgeOutline(request), error => error.reasonCode === 'SESSION_REQUIRED');
+  await assert.rejects(client.getConceptContext(request, [conceptId]), error => error.reasonCode === 'SESSION_REQUIRED');
 });

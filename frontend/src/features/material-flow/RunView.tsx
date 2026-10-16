@@ -26,7 +26,7 @@ function canRequestDiscard(run: MaterialProcessingRunView | null): boolean {
     !!run &&
     activeRun(run) &&
     run.cancel_requested_at === null &&
-    ["queued", "evidence", "semantics", "review"].includes(run.progress_stage)
+    ["queued", "evidence", "semantics", "review", "indexing"].includes(run.progress_stage)
   );
 }
 

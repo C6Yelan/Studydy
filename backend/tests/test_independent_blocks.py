@@ -2,6 +2,8 @@
 from copy import deepcopy
 from dataclasses import asdict
 from threading import Barrier, Event, Lock
+import json
+from pathlib import Path
 import time
 
 import pytest
@@ -38,7 +40,7 @@ def context(count=8):
 
 def response(kwargs):
     handle=kwargs['request']['sections'][0]['evidence'][0][0]
-    return {'concepts':[{'l':f'Concept {handle}','a':[],'c':[{'m':None,'s':[handle]}]}],'relations':[]}
+    return {'concepts':[{'l':f'概念 {handle}','a':[],'c':[{'m':'來源重點：'+kwargs['request']['sections'][0]['evidence'][0][3],'s':[handle]}]}],'relations':[]}
 
 
 def run(ctx,state,progress,archive,call,check=lambda:None,snapshots=None):
@@ -56,7 +58,7 @@ def test_eight_calls_are_parallel_and_global_state_has_no_key_collisions():
         with mutex:active+=1;peak=max(peak,active)
         gate.wait(timeout=10)
         result=response(kwargs)
-        if result['concepts'][0]['l']=='Concept 0':time.sleep(.04)
+        if result['concepts'][0]['l']=='概念 0':time.sleep(.04)
         with mutex:active-=1
         return result
     state=SemanticState();progress={'cursor':0,'semantic_calls':0,'ranges':[]};archive=Archive();snapshots=[]
@@ -91,6 +93,27 @@ def test_saved_response_after_last_checkpoint_is_replayed_without_inference():
     restored=SemanticState();old_progress={'cursor':0,'semantic_calls':0,'ranges':[]}
     run(context(3),restored,old_progress,archive,forbidden)
     assert restored==original and old_progress['cursor']==3 and old_progress['semantic_calls']==3
+
+
+def test_localization_calls_are_counted_and_completed_result_is_reusable():
+    ctx=build_document_context([_page(1,[_block(1,0,'paragraph','The mass of the object is 5 kg.')])],page_count=1)
+    calls=[]
+    def model(client,**kwargs):
+        request=kwargs['request'];calls.append(request)
+        if 'localization' in request:
+            token=next(iter(request['localization']['claim_0_0']['literals']))
+            return {'label_0':'質量','claim_0_0':'物體質量為'+token+'。'}
+        return {'concepts':[{'l':'Mass','a':[],'c':[{'m':'質量為6 kg。','s':[0]}]}],'relations':[]}
+    state=SemanticState();progress={'cursor':0,'semantic_calls':0,'ranges':[]};archive=Archive()
+    run(ctx,state,progress,archive,model)
+    assert len(calls)==progress['semantic_calls']==2
+    assert state.literal_repairs==0
+    assert next(iter(state.concepts.values()))['claims'][0]['text']=='物體質量為5 kg。'
+    assert next(iter(archive.responses.values()))['call_number']==2
+    def forbidden(*_,**__):raise AssertionError('completed localization replayed')
+    restored=SemanticState();resumed={'cursor':0,'semantic_calls':0,'ranges':[]}
+    run(ctx,restored,resumed,archive,forbidden)
+    assert restored==state and resumed['semantic_calls']==2
 
 
 def test_cancellation_drains_all_eight_inflight_calls():
@@ -136,6 +159,8 @@ def test_local_schema_and_projection_keep_source_and_endpoint_boundaries():
 
 def test_only_approved_forward_policy_upgrade_preserves_runtime(tmp_path):
     old=_settings(tmp_path);new=deepcopy(old);new['runtime_lock']=_runtime_lock()
+    # 已核准的舊升級使用當時的精確提示，不能隨目前語言政策一起改寫。
+    new['runtime_lock']['material_semantics']=json.loads((Path(__file__).parent/'fixtures/independent_material_semantics.json').read_text())
     old_before=deepcopy(old)
     validate_runtime_lock(old['runtime_lock']);validate_runtime_lock(new['runtime_lock'])
     assert same_material_runtime(old['runtime_lock'],runtime_binding(old),new['runtime_lock'],runtime_binding(new))
@@ -145,6 +170,13 @@ def test_only_approved_forward_policy_upgrade_preserves_runtime(tmp_path):
     changed=deepcopy(new);changed['runtime_lock']['material_semantics']['max_concurrency']=4
     assert same_material_runtime(new['runtime_lock'],runtime_binding(new),changed['runtime_lock'],runtime_binding(changed))
     assert old==old_before
+
+
+def test_cross_language_policy_does_not_reuse_old_semantic_checkpoints(tmp_path):
+    current=_settings(tmp_path);current['runtime_lock']=_runtime_lock()
+    before=deepcopy(current)
+    before['runtime_lock']['material_semantics']=json.loads((Path(__file__).parent/'fixtures/independent_material_semantics.json').read_text())
+    assert not same_material_runtime(before['runtime_lock'],runtime_binding(before),current['runtime_lock'],runtime_binding(current))
 
 
 @pytest.mark.parametrize('length,expected',[(4096,True),(4097,False)])

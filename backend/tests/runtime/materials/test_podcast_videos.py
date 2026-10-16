@@ -41,6 +41,22 @@ def ready(fixture):
     identity=create(fixture)['podcast_id'];complete(fixture[4]);return identity
 
 
+def test_corrected_audio_requeues_cancelled_video_and_rejects_old_result(closed_loop):
+    owner,_,_,_,dsn,_=closed_loop;identity=ready(closed_loop)
+    old=videos.claim(dsn=dsn)
+    view=videos.read(owner.learner_id,identity,0,dsn=dsn)
+    videos.action(owner.learner_id,identity,0,'cancel',view['version'],dsn=dsn)
+    with database_session(dsn) as db:
+        row=db.get(Podcast,identity);episodes=deepcopy(row.episodes)
+        episodes[0]['audio']['sha256']='0'*64;row.episodes=episodes
+        videos.enqueue(db,row,0)
+    assert videos.read(owner.learner_id,identity,0,dsn=dsn)['status']=='pending'
+    assert not videos.finish(old,bundle=bundle(old),dsn=dsn)
+    new=videos.claim(dsn=dsn)
+    assert new['episode']['audio']['sha256']=='0'*64
+    assert videos.finish(new,bundle=bundle(new),dsn=dsn)
+
+
 @pytest.mark.parametrize('motion',[False,True])
 def test_audio_automatically_queues_one_video_and_published_video_survives_reopen(closed_loop,motion):
     owner,_,_,_,dsn,_=closed_loop;identity=ready(closed_loop)

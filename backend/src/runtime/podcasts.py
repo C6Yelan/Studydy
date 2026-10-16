@@ -3,6 +3,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from hashlib import sha256
 import io
+import json
 import math
 import wave
 from uuid import UUID, uuid4
@@ -12,10 +13,14 @@ from sqlalchemy import delete, or_, select, update
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from .card_sets import _material, _validate_selection
 from .storage.artifacts import _key_digest, quarantine_source_pdf, reconcile_discarded_sources
+from .storage.tables import KnowledgeStructure
 from .storage.knowledge_structures import _prune_unreferenced_structures, _read_verified_document, _view
 from .storage.source_artifacts import write_blob
 from .storage.tables import Artifact, Material, Podcast, PodcastScenes, PodcastVideo, database_session
-from .podcast_script import MAX_EPISODE_CLAIMS
+from .podcast_script import MAX_EPISODE_CLAIMS, MAX_SOURCE_TOKENS, MAX_SCRIPT_INPUT_TOKENS, script_input
+from . import retrieval
+from .semantic_service import _luna_token_count
+from .source_normalization import SourceError
 
 
 from .generation_jobs import WORKER_LEASE_TTL
@@ -28,7 +33,9 @@ class PodcastError(RuntimeError):
 def _summary(row, material, db):
     videos = list(db.scalars(select(PodcastVideo.status).where(PodcastVideo.podcast_id == row.podcast_id)))
     scenes = list(db.scalars(select(PodcastScenes.status).where(PodcastScenes.podcast_id == row.podcast_id)))
-    generation = {'active': row.status in ('pending', 'running') or any(status in ('pending', 'running') for status in videos + scenes),
+    # 分鏡 worker 只接 ready 節目；失敗節目的待處理分鏡不代表仍在生成。
+    active_children = videos + (scenes if row.status == 'ready' else [])
+    generation = {'active': row.status in ('pending', 'running') or any(status in ('pending', 'running') for status in active_children),
                   'completed_videos': videos.count('ready'), 'failed_videos': videos.count('failed'),
                   'preview_ready': row.status == 'ready' and all(e.get('audio') for e in row.episodes)
                                    and videos.count('ready') == len(row.episodes),
@@ -45,7 +52,7 @@ def _summary(row, material, db):
             "is_current_revision": row.knowledge_structure_revision == material.head_revision}
 
 
-def plan_episodes(view, concept_ids):
+def plan_episodes(view, concept_ids, source_pages):
     concepts = {c["concept_id"]: c for c in view["concepts"]}
     if not set(concept_ids) <= concepts.keys():
         raise PodcastError("REQUEST_INVALID")
@@ -57,8 +64,6 @@ def plan_episodes(view, concept_ids):
         for claim in concept["claims"]:
             if not claim["evidence"]:
                 raise PodcastError("PODCAST_SOURCE_INSUFFICIENT")
-            if len(claim['text']) > 2400:
-                raise PodcastError('PODCAST_SOURCE_TOO_LARGE')
             claims.append({**deepcopy(claim), "concept_id": identity, "label": concept["label"]})
     if not claims:
         return []
@@ -69,20 +74,48 @@ def plan_episodes(view, concept_ids):
         positions.setdefault(claim['concept_id'], []).append(i)
     relations = [r for r in view.get('relations', [])
                  if r['source_concept_id'] in positions and r['target_concept_id'] in positions]
+    # 每個邊界的關係代價只計算一次；千頁教材不在每個候選分集重掃整張關係圖。
+    relation_cuts = [0] * (len(claims) + 1)
+    for relation in relations:
+        ends = positions[relation['source_concept_id']] + positions[relation['target_concept_id']]
+        relation_cuts[min(ends) + 1] += 1
+        relation_cuts[max(ends) + 1] -= 1
+    for i in range(1, len(relation_cuts)):
+        relation_cuts[i] += relation_cuts[i-1]
     costs = [(0, 0, 0, 0)] + [None] * len(claims)
     previous = [None] * (len(claims) + 1)
+    # 依 provider 實際送入模型的投影估算，不把僅供回填的 hash／locator 算成講稿輸入。
+    projected = script_input(claims, source_pages)
+    token_sizes = [_luna_token_count(json.dumps(source, ensure_ascii=False)) + 4
+                   for source in projected['sources']]
+    # 引用片語可能只佔原區塊一小部分；分集必須另計索引原文及定位欄位，不能只算 claim.quote。
+    block_costs = {}; page_costs = {}
+    for (page_ref, page), compact in zip(source_pages.items(), projected['page_context']):
+        page_costs[page_ref] = _luna_token_count(json.dumps({**compact,'blocks':[]},ensure_ascii=False)) + 4
+        for block, compact_block in zip(page['blocks'], compact['blocks']):
+            block_costs[block['evidence_id']] = (page_ref, _luna_token_count(json.dumps(compact_block,ensure_ascii=False)) + 4)
+    if any(e['evidence_id'] not in block_costs for claim in claims for e in claim['evidence']):
+        raise PodcastError('PODCAST_SOURCE_INSUFFICIENT')
     for end in range(1, len(claims) + 1):
-        size = 0
+        tokens = 0
+        context_tokens = 2; seen_blocks = set(); seen_pages = set()
         for start in range(end - 1, max(-1, end - MAX_EPISODE_CLAIMS - 1), -1):
-            size += len(claims[start]['text'])
-            if size > 2400:
+            tokens += token_sizes[start]
+            for evidence in claims[start]['evidence']:
+                identity = evidence['evidence_id']
+                if identity in seen_blocks:continue
+                page_ref, cost = block_costs[identity]
+                context_tokens += cost; seen_blocks.add(identity)
+                if page_ref not in seen_pages:
+                    context_tokens += page_costs[page_ref]; seen_pages.add(page_ref)
+            if context_tokens > MAX_SOURCE_TOKENS or tokens + context_tokens + 32 > MAX_SCRIPT_INPUT_TOKENS:
                 break
+            if costs[start] is None:
+                continue
             inside = int(start > 0 and claims[start-1]['concept_id'] == claims[start]['concept_id'])
             crossed = 0
             if start:
-                crossed = sum(min(positions[r['source_concept_id']] + positions[r['target_concept_id']]) < start
-                              <= max(positions[r['source_concept_id']] + positions[r['target_concept_id']])
-                              for r in relations)
+                crossed = relation_cuts[start]
                 # 同一引用區塊通常是連續定義／步驟；同分時避免從中間切開。
                 crossed += bool({e['evidence_id'] for e in claims[start-1]['evidence'] if 'evidence_id' in e}
                                 & {e['evidence_id'] for e in claims[start]['evidence'] if 'evidence_id' in e})
@@ -90,6 +123,8 @@ def plan_episodes(view, concept_ids):
             cost = tuple(a+b for a, b in zip(costs[start], delta))
             if costs[end] is None or cost < costs[end]:
                 costs[end], previous[end] = cost, start
+    if previous[-1] is None:
+        raise PodcastError('PODCAST_SOURCE_TOO_LARGE')
     episodes = []
     end = len(claims)
     while end:
@@ -117,7 +152,14 @@ def create_podcast(owner, material_id, revision, name, concept_ids, key, *, deli
                 raise PodcastError("RESOURCE_NOT_FOUND")
             return _summary(row, material, db)
         document = _read_verified_document(db, owner, material_id, revision=revision)
-        episodes = plan_episodes(_view(document, material_id), concept_ids)
+        retrieval._scope(db, owner, material_id, revision)
+        view = _view(document, material_id)
+        selected = set(concept_ids)
+        ids = {e['evidence_id'] for c in view['concepts'] if c['concept_id'] in selected
+               for claim in c['claims'] for e in claim['evidence']}
+        passages = retrieval.evidence_context(db, owner, material_id, revision, ids)
+        pages = _context_pages([p for p in passages if p['evidence_id'] in ids])
+        episodes = plan_episodes(view, concept_ids, pages)
         for episode in episodes:
             episode["delivery"] = delivery
         # 舊模式欄位保留歷史資料；新建固定儲存值，不再參與 API 或生成決策。
@@ -135,7 +177,14 @@ def _locked(db, owner, identity, *, allow_deleted=False, read=False):
         Podcast.podcast_id == identity, Podcast.learner_id == owner))
     if material_id is None:
         raise PodcastError("RESOURCE_NOT_FOUND")
-    material = _material(db, owner, material_id, read=read)
+    if read:
+        # 固定 revision 的唯讀驗證可能耗時；不持有教材鎖阻擋生成結果保存。
+        material = db.scalar(select(Material).where(Material.material_id == material_id,
+            Material.learner_id == owner, Material.discard_requested_at.is_(None)))
+        if material is None:
+            raise PodcastError('RESOURCE_NOT_FOUND')
+    else:
+        material = _material(db, owner, material_id)
     row = db.get(Podcast, identity, populate_existing=True)
     if row is None or (row.status == "deleted" and not allow_deleted):
         raise PodcastError("RESOURCE_NOT_FOUND")
@@ -154,16 +203,20 @@ def list_podcasts(owner, *, dsn=None):
 def read_podcast(owner, identity, *, dsn=None):
     with database_session(dsn) as db:
         row, material = _locked(db, owner, identity, read=True)
-        document = _read_verified_document(db, owner, row.material_id,
-            revision=row.knowledge_structure_revision)
-        view = _view(document, row.material_id)
+        from .storage.knowledge_reads import metadata
+        meta = metadata(db, owner, row.material_id, row.knowledge_structure_revision)
+        run_id = db.scalar(select(KnowledgeStructure.run_id).where(
+            KnowledgeStructure.learner_id == owner, KnowledgeStructure.material_id == row.material_id,
+            KnowledgeStructure.structure_revision == row.knowledge_structure_revision))
+        # 播放頁僅需來源入口與狀態，不讀整份教材或展開概念視圖。
         from .podcast_script import digest
         episodes=deepcopy(row.episodes)
         for episode in episodes:
             episode['script_sha256']=digest(episode['script']) if episode['script'] else None
-        return {"schema": "podcast/v1", "run_id":document['run_id'], **_summary(row, material, db),
-            "source_resolver": view["source_resolver"], "source_status": view["status"],
-            "excluded_pages": view["excluded_pages"], "episodes": episodes}
+        return {"schema": "podcast/v1", "run_id":str(run_id), **_summary(row, material, db),
+            "source_resolver": meta['source_resolver'],
+            "source_status": meta['status'],
+            "excluded_pages": meta['excluded_pages'], "episodes": episodes}
 
 
 def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=None):
@@ -174,6 +227,8 @@ def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=
         row, material = _locked(db, owner, identity)
         if row.version != expected_version:
             raise PodcastError("PODCAST_CONFLICT")
+        if action == 'retry':
+            retrieval._scope(db,owner,row.material_id,row.knowledge_structure_revision)
         if action == "rename":
             row.name = _validate_selection(name, row.concept_ids)
         elif action == "retry" and row.status == "ready":
@@ -232,25 +287,49 @@ def delete_podcast(owner, identity, *, expected_version=None, dsn=None):
     return {"schema": "podcast-deleted/v1", "podcast_id": identity}
 
 
-def source_context(document, episode):
-    """只帶入引用所在頁的原始區塊，補足表格欄列標題與省略主語；不改 claim 引用。"""
-    selected_pages = {e["page_ref"] for c in episode["claims"] for e in c["evidence"]}
-    binding = document["input_binding"]
-    names = {s["source_id"]: s["original_name"] for s in binding["manifest"]["items"]}
+def _context_pages(passages):
+    """還原已取回的原文；不連續片段須標出缺口，不能假接成完整區塊。"""
     pages = {}
-    for evidence in sorted(document["evidence"], key=lambda e: (e["page"], e["block_order"])):
+    ends = {}
+    for passage in passages:
+        evidence = passage['evidence']
         page_ref = evidence["page_ref"]
-        if page_ref not in selected_pages:
-            continue
-        location = binding["bundle"]["pages"][evidence["page"] - 1]
         page = pages.setdefault(page_ref, {
-            "source_id": location["source_id"], "source_name": names[location["source_id"]],
-            "normalized_page": location["normalized_page"], "blocks": [],
+            "source_id": evidence["source_id"], "source_name": evidence['source_name'],
+            "normalized_page": evidence["normalized_page"], "blocks": [],
         })
+        existing = next((block for block in page['blocks'] if block['evidence_id'] == evidence['evidence_id']), None)
+        if existing:
+            if passage['start'] != ends[evidence['evidence_id']]:
+                existing['text'] += '\n[…]\n'
+            existing['text'] += passage['text']
+            ends[evidence['evidence_id']] = passage['end']
+            continue
         page["blocks"].append({
             "evidence_id": evidence["evidence_id"], "block_order": evidence["block_order"],
-            "text": evidence["exact_text"], "region": deepcopy(evidence["source_locator"]["region"]),
+            "text": passage['text'], "region": deepcopy(evidence["source_locator"]["region"]),
         })
+        ends[evidence['evidence_id']] = passage['end']
+    return pages
+
+
+def source_context(db, owner, material_id, revision, episode):
+    """全部必要引用先保留，再以剩餘容量補同頁鄰接區塊。"""
+    ids = {e['evidence_id'] for c in episode['claims'] for e in c['evidence']}
+    passages = retrieval.evidence_context(db, owner, material_id, revision, ids)
+    selected = [p for p in passages if p['evidence_id'] in ids]
+    pages = _context_pages(selected)
+    def fits(context):
+        projected = script_input(episode['claims'], context)
+        return (_luna_token_count(json.dumps(projected['page_context'], ensure_ascii=False)) <= MAX_SOURCE_TOKENS
+                and _luna_token_count(json.dumps(projected, ensure_ascii=False)) <= MAX_SCRIPT_INPUT_TOKENS)
+    if not fits(pages):
+        raise PodcastError('PODCAST_SOURCE_TOO_LARGE')
+    for passage in passages:
+        if passage['evidence_id'] in ids:continue
+        proposed = _context_pages(sorted([*selected,passage],key=lambda p:p['position']))
+        if fits(proposed):
+            selected.append(passage);pages = proposed
     return pages
 
 
@@ -274,10 +353,14 @@ def claim_step(*, dsn=None):
             index = next(i for i, e in enumerate(row.episodes) if not e.get("audio"))
             episode = deepcopy(row.episodes[index])
             context = {}
-            if episode["script"] is None:
-                document = _read_verified_document(db, owner, row.material_id,
-                    revision=row.knowledge_structure_revision)
-                context = source_context(document, episode)
+            try:
+                if episode["script"] is None:
+                    context = source_context(db, owner, row.material_id, row.knowledge_structure_revision, episode)
+                else:
+                    retrieval._scope(db,owner,row.material_id,row.knowledge_structure_revision)
+            except (PodcastError, SourceError) as error:
+                row.status='failed';row.error_code=str(error);row.lease_token=row.lease_expires_at=None
+                continue
             return {"podcast_id": row.podcast_id, "owner": owner, "token": row.lease_token,
                 "index": index, "episode": episode, "source_context": context}
     return None

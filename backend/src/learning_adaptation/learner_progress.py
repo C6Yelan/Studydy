@@ -12,8 +12,7 @@ from runtime.storage.tables import Material, database_session
 
 from .answer_events import _read_events
 from .learning_states import ConceptLearningState, derive_learning_states
-from .map_context import ConceptContext, _context_from_validated_document
-from .study_sessions import StoredStudySession, _learner, _row, _stored, _validate_context
+from .study_sessions import StoredStudySession, _learner, _row, _stored, _validate_plan
 
 
 class LearnerProgressError(RuntimeError):
@@ -54,23 +53,23 @@ class LearnerProgressSnapshot(BaseModel):
     assessment_cycles: list[dict]
 
 
-def _concept(context, concept_id: str | None) -> ConceptContext | None:
-    return next((concept for concept in context.concepts if concept.concept_id == concept_id), None)
+def _concept(context, concept_id: str | None):
+    return next((concept for concept in context['concepts'] if concept['concept_id'] == concept_id), None)
 
 
-def _first_incomplete_claim(concept: ConceptContext, states: dict[str, ConceptLearningState]) -> str | None:
-    state = states[concept.concept_id]
+def _first_incomplete_claim(concept: dict, states: dict[str, ConceptLearningState]) -> str | None:
+    state = states[concept['concept_id']]
     weak = set(state.weak_claim_ids)
     uncovered = [
-        claim.claim_id for claim in concept.claims
-        if claim.claim_id in state.assessable_claim_ids and claim.claim_id not in state.covered_claim_ids
+        claim for claim in concept['claim_ids']
+        if claim in state.assessable_claim_ids and claim not in state.covered_claim_ids
     ]
     remaining = [
-        claim.claim_id for claim in concept.claims
-        if claim.claim_id in state.assessable_claim_ids and claim.claim_id not in state.completed_claim_ids
+        claim for claim in concept['claim_ids']
+        if claim in state.assessable_claim_ids and claim not in state.completed_claim_ids
     ]
     return next(
-        (claim.claim_id for claim in concept.claims if claim.claim_id in weak), None
+        (claim for claim in concept['claim_ids'] if claim in weak), None
     ) or (uncovered[0] if uncovered else remaining[0] if remaining else None)
 
 
@@ -86,25 +85,25 @@ def _next_action(
         return state.status != 'completed' and bool(state.assessable_claim_ids)
 
     if current is not None:
-        state = by_id[current.concept_id]
-        cycle = by_cycle.get(current.concept_id)
+        state = by_id[current['concept_id']]
+        cycle = by_cycle.get(current['concept_id'])
         if cycle and cycle['active_set_id']:
-            return NextAction(action='continue_set', target_concept_id=current.concept_id,
+            return NextAction(action='continue_set', target_concept_id=current['concept_id'],
                               target_claim_id=None, prerequisite_concept_ids=[],
                               reason='active_assessment_set')
-        if remaining(current.concept_id):
-            unmet = [identity for identity in current.prerequisite_ids
+        if remaining(current['concept_id']):
+            unmet = [identity for identity in current['prerequisite_ids']
                      if by_id[identity].status != 'completed']
             remediation = bool(cycle and cycle['outcome'] == 'needs_review')
             return NextAction(
                 action='remediate' if remediation else 'assess',
-                target_concept_id=current.concept_id,
+                target_concept_id=current['concept_id'],
                 target_claim_id=_first_incomplete_claim(current, by_id),
                 prerequisite_concept_ids=[] if remediation else unmet,
                 reason='incomplete_claims' if remediation else
                        'canonical_prerequisite_gap' if unmet else 'current_concept',
             )
-    target = next((identity for identity in context.initial_learning_path
+    target = next((identity for identity in context['initial_learning_path']
                    if remaining(identity)), None)
     return NextAction(
         action='advance' if target else 'complete', target_concept_id=target,
@@ -158,12 +157,13 @@ def _snapshot(
 @contextmanager
 def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=None):
     """同次讀取共用已驗證教材與一致 DB snapshot，不以重讀全部資料來偵測競態。"""
-    from runtime.storage.knowledge_structures import _read_verified_document
+    from runtime.storage.knowledge_reads import learning
     from .assessment_sets import _read_cycles, unavailable_claims, completed_concepts
     from .inherited_progress import inherited_progress
     with database_session(dsn) as db:
         try:
             db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
+            db.info['read_snapshot'] = {'documents': {}, 'inherited': {}, 'cycles': {}}
             row = _row(db, _learner(learner), study_session_id)
             material = db.scalar(select(Material.material_id).where(
                 Material.learner_id == learner.learner_id,
@@ -172,18 +172,14 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
             ))
             if material is None:
                 raise LearnerProgressError('LEARNER_PROGRESS_UNAVAILABLE')
-            document = _read_verified_document(
-                db, learner.learner_id, row.material_id,
-                revision=row.knowledge_structure_revision,
-            )
-            context = _context_from_validated_document(row.material_id, document)
-            _validate_context(row, context)
+            context = learning(db, learner.learner_id, row.material_id, row.knowledge_structure_revision)
+            _validate_plan(row, context)
             study = _stored(row)
             events = _read_events(db, row)
             if len(events) != study.last_event_number:
                 raise LearnerProgressError('LEARNER_PROGRESS_STALE')
+            inherited, inherited_cycles = inherited_progress(db, learner, study, context)
             cycles = _read_cycles(db, row)
-            inherited, inherited_cycles = inherited_progress(db, learner, study, document)
             evidence = (
                 tuple(sorted(
                     (*inherited, *events),
@@ -205,7 +201,7 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
             raise
         except Exception:
             raise LearnerProgressError('LEARNER_PROGRESS_UNAVAILABLE') from None
-        yield db, study, document, snapshot
+        yield db, study, context, snapshot
 
 
 def derive_learner_progress(

@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import pytest
 
-from knowledge_map.source_identity import unchanged_claims, seed_incremental_state
+from knowledge_map.source_identity import unchanged_claims, unchanged_concepts, seed_incremental_state
 from knowledge_map.structure import SemanticState, apply_semantic_response, build_document_context
 from pdf_evidence.source_set import rebase_page
 from structure_fixtures import build_knowledge_structure
@@ -63,10 +63,37 @@ def test_source_local_identity_survives_new_set_but_changed_claims_do_not_inheri
     assert len(matches) == 1
     assert next(iter(matches))[1] != next(iter(matches.values()))[1]
     assert old == snapshot
+    assert unchanged_concepts(old, updated) == {updated['concepts'][0]['concept_id']}
 
     changed = deepcopy(updated)
     changed["concepts"][0]["claims"][0]["text"] = "A stack removes the first inserted value first."
     assert unchanged_claims(old, changed) == {}
+    assert unchanged_concepts(old, changed) == set()
+    renamed = deepcopy(updated)
+    renamed['concepts'][0]['aliases'].append('New meaning')
+    assert unchanged_concepts(old, renamed) == set()
     duplicated = deepcopy(updated)
     duplicated["concepts"].append(deepcopy(duplicated["concepts"][0]))
     assert unchanged_claims(old, duplicated) == {}
+
+
+def test_changed_relation_rechecks_both_endpoints_but_not_unrelated_concept():
+    page = _page(1, [_block(1, i, 'paragraph', text) for i, text in enumerate([
+        'A stack uses LIFO.', 'A queue uses FIFO.', 'An array stores indexed values.',
+    ])])
+    context = build_document_context([page], page_count=1)
+    state = SemanticState()
+    apply_semantic_response({'concepts': [
+        {'k': str(i), 'l': label, 'a': [], 'c': [{'m': None, 's': [i]}]}
+        for i, label in enumerate(['Stack', 'Queue', 'Array'])
+    ], 'relations': []}, context=context, bundle={'evidence': context['evidence']}, state=state)
+    old = structure(context, state, '1' * 64)
+    changed = deepcopy(old)
+    first, second, third = old['concepts']
+    changed['relations'] = [{'source_concept_id': first['concept_id'], 'target_concept_id': second['concept_id'],
+        'type': 'contrast', 'learner_reason': '比較取出順序', 'inference_basis': 'comparison', 'confidence': 1,
+        'evidence_refs': first['evidence_refs'] + second['evidence_refs']}]
+    assert unchanged_concepts(old, changed) == {third['concept_id']}
+    newer = deepcopy(changed)
+    newer['relations'][0]['learner_reason'] = '修改過的比較說明'
+    assert unchanged_concepts(changed, newer) == {third['concept_id']}

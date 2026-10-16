@@ -19,9 +19,9 @@ CANDIDATE={'id':'paper','kind':'paper','title':'Queue source','authors':'Fixture
 
 def fixtures(monkeypatch,empty=False):
     calls=[];data=pdf('A queue removes the first inserted element first.')
-    monkeypatch.setattr(topics,'provider',lambda *a:{'proposal':deepcopy(PLAN),'provider':'synthetic-test'})
+    monkeypatch.setattr(topics,'provider',lambda *a,**kwargs:deepcopy(PLAN))
     monkeypatch.setattr(research,'provider',review_provider)
-    def search(*a):calls.append(a);return ([] if empty else [deepcopy(CANDIDATE)]),None,[]
+    def search(*a,**kwargs):calls.append(a);return ([] if empty else [deepcopy(CANDIDATE)]),None,[]
     monkeypatch.setattr(research.research_sources,'search',search)
     monkeypatch.setattr(research.research_sources,'acquire',lambda c,**kwargs:(data,'application/pdf','.pdf',{'id':c['id'],'license':'cc-by'}))
     return calls
@@ -92,7 +92,7 @@ def test_scope_owner_stale_version_and_cancel_late_generation(closed_loop,monkey
     with pytest.raises(SourceError,match='TOPIC_CONFLICT'):topics.approve(owner,view['topic_id'],1,PLAN,'approve',dsn=dsn)
     with database_session(dsn) as db:assert not db.scalars(select(MaterialResearch)).all()
     row=topics.create(owner,'取消測試','late',dsn=dsn)
-    def late(*a):topics.action(owner,row['topic_id'],'cancel',row['version'],dsn=dsn);return {'proposal':PLAN,'provider':'synthetic-test'}
+    def late(*a):topics.action(owner,row['topic_id'],'cancel',row['version'],dsn=dsn);return deepcopy(PLAN)
     monkeypatch.setattr(topics,'provider',late)
     topics.step(dsn=dsn)
     assert topics.read(owner,row['topic_id'],dsn=dsn)['status']=='cancelled'
@@ -124,7 +124,7 @@ def test_topic_api_requires_identity_origin_and_exact_scope(closed_loop,monkeypa
     assert client.post('/v1/topics',headers=headers,json={'request':'佇列','learner_id':str(learner.learner_id)}).status_code==400
     r=client.post('/v1/topics',headers=headers,json={'request':'佇列'});assert r.status_code==202
     identity=r.json()['topic_id'];topics.step(dsn=dsn)
-    view=client.get('/v1/topics/'+identity).json();assert view['generation_provider']=='synthetic-test'
+    view=client.get('/v1/topics/'+identity).json();assert view['generation_provider']=='codex-exec:gpt-5.6-luna;scope/v2'
     r=client.post('/v1/topics/'+identity+'/approve',headers=headers,json={'expected_version':view['version'],'proposal':PLAN})
     assert r.status_code==200 and r.json()['approved_at']
     assert client.get('/v1/topics/'+identity).headers['cache-control']=='private, no-store'

@@ -9,7 +9,7 @@ import pytest
 
 from knowledge_map.material_review import _pack_review, combine_reviews, project_review, ReviewError
 from runtime.material_review import _checked_review
-from test_material_review import view, proposal
+from test_material_review import view, proposal, wire_proposal
 from test_podcast_process import provider_server, provider, post, wait_until
 
 
@@ -132,7 +132,7 @@ def test_parallel_review_matches_serial_merge_and_cached_resume(tmp_path, monkey
             calls += 1
         try:
             gate.wait(timeout=5)
-            return proposal()
+            return wire_proposal(proposal())
         finally:
             with mutex:
                 active -= 1
@@ -159,7 +159,7 @@ def test_one_bad_alias_is_repaired_without_replaying_other_parallel_batches(tmp_
         if request['title'] == 'synthetic-3' and 'review_correction' not in request:
             response['alias_edits'] = [{'concept': 4, 'remove': ['EFFECTIVENESS'],
                 'evidence': [4], 'reason': '合成大小寫錯誤'}]
-        return response
+        return wire_proposal(response)
     monkeypatch.setattr('runtime.material_review.request_semantics', model)
     reviewed = parallel(units, Archive(tmp_path / 'archive'), 8)
     assert sum(calls.values()) == 9 and calls['synthetic-3'] == 2
@@ -170,7 +170,7 @@ def test_failure_drains_inflight_work_and_resume_reuses_successes(tmp_path, monk
     _, units = inputs(16)
     archive = Archive(tmp_path / 'archive')
     # 先建立一個真正通過既有 validator 的已完成批次。
-    monkeypatch.setattr('runtime.material_review.request_semantics', lambda *a, **k: proposal())
+    monkeypatch.setattr('runtime.material_review.request_semantics', lambda *a, **k: wire_proposal(proposal()))
     parallel(units[:1], archive, 1)
     gate = Barrier(8)
     calls = []
@@ -186,7 +186,7 @@ def test_failure_drains_inflight_work_and_resume_reuses_successes(tmp_path, monk
         if name == 'synthetic-1':
             return {'invalid': True}
         assert archive.cancelled.wait(5)
-        return proposal()  # 晚到結果必須被 archive 的取消檢查拒絕。
+        return wire_proposal(proposal())  # 晚到結果必須被 archive 的取消檢查拒絕。
     monkeypatch.setattr('runtime.material_review.request_semantics', fail)
     with pytest.raises(ReviewError, match='REVIEW_RESPONSE_INVALID'):
         parallel(units, archive, 8)
@@ -197,7 +197,7 @@ def test_failure_drains_inflight_work_and_resume_reuses_successes(tmp_path, monk
     resumed = []
     def model(client, **kwargs):
         resumed.append(kwargs['request']['title'])
-        return proposal()
+        return wire_proposal(proposal())
     monkeypatch.setattr('runtime.material_review.request_semantics', model)
     assert len(parallel(units, archive, 8)) == 16
     assert len(resumed) == 15 and 'synthetic-0' not in resumed
@@ -218,7 +218,7 @@ def test_isolated_http_review_lock_capacity(provider_server, monkeypatch, slots)
             peak = max(peak, active)
         try:
             assert release.wait(8)
-            return proposal()
+            return wire_proposal(proposal())
         finally:
             with mutex:
                 active -= 1

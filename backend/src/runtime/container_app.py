@@ -52,7 +52,7 @@ def check_sandbox() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("init", "migrate", "serve"))
+    parser.add_argument("command", choices=("init", "migrate", "serve", "prepare-read-indexes"))
     command = parser.parse_args().command
     try:
         if command == "init":
@@ -65,6 +65,10 @@ def main() -> None:
         # 啟動時核對已套用的 checksum，再以交易執行待套用的 migration。
         run_migrations()
         if command == "migrate":
+            return
+        if command == "prepare-read-indexes":
+            from .storage.knowledge_reads import backfill
+            print(f"Prepared read indexes: {backfill()}", flush=True)
             return
         run_local_app(host="0.0.0.0", port=8001)
     except Exception:

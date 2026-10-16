@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from .semantic_projection import _project_claim
 from .structure_rules import (
-    RELATION_BASIS, RELATION_PRIORITY, _CODE_OR_FORMULA, _TECHNICAL,
+    RELATION_BASIS, RELATION_PRIORITY,
     _id, _path, _revision,
 )
 from .structure_validation import validate_knowledge_structure
@@ -344,29 +344,14 @@ def validate_proposal(unit: ReviewUnit, value: dict) -> Proposal:
     return proposal
 
 
-def _prose_glosses(text: str) -> str:
-    """僅辨識中文後的英文括注；f(x)、(x)、數學及程式括號仍受保護。"""
-
-    def replace(match):
-        prefix = text[:match.start()].rstrip()
-        return '' if prefix and '\u3400' <= prefix[-1] <= '\u9fff' else match.group()
-
-    return re.sub(r'\([A-Za-z]{2,}(?:[ -][A-Za-z]+)*\)', replace, text)
-
-
 def _corrected_claim(edit: ClaimEdit, sources: list[dict]) -> str | None:
     text = ' '.join(item['quote'] for item in sources)
     meaning = ' '.join(edit.meaning.split())
-    numbers = lambda value: set(re.findall(r'\d+(?:\.\d+)?[%％]?', value))
     words = lambda value: set(re.findall(r'[A-Za-z][A-Za-z0-9_]*', value))
-    if numbers(meaning) != numbers(text) or not words(meaning) <= words(text):
-        return None
-    # 圖表的方向／不等式也是教材條件，不能改寫成不帶方向的泛稱。
-    symbols = lambda value: set(re.findall(r'[↑↓←→↔⇐⇒⇔≤≥≠±∓]', value))
-    if symbols(meaning) != symbols(text):
+    if not words(meaning) <= words(text):
         return None
     evidence = {
-        item['evidence_id']: {'exact_text': item['quote']}
+        item['evidence_id']: {'exact_text': item['quote'], 'kind': item['kind']}
         for item in sources
     }
     projected = _project_claim({
@@ -376,24 +361,15 @@ def _corrected_claim(edit: ClaimEdit, sources: list[dict]) -> str | None:
             for item in sources
         ],
     }, evidence)
-    if projected is None:
-        return None
-    if projected['projection'] != 'source_literal_repair':
-        return projected['text']
-    # 英文括注可作散文整理，但須保留技術字面值，
-    # code／formula Evidence、符號、數值與識別詞仍受保護。
-    if any(item['kind'] in {'code', 'formula'} for item in sources):
-        return None
-    if (
-        words(meaning) != words(text)
-        or set(_TECHNICAL.findall(meaning)) != set(_TECHNICAL.findall(text))
-    ):
-        return None
-    if any(_CODE_OR_FORMULA.search(_prose_glosses(item['quote'])) for item in sources):
-        return None
-    if _CODE_OR_FORMULA.search(_prose_glosses(meaning)):
-        return None
-    return meaning
+    return projected['text'] if projected and projected['projection'] == 'localized_meaning' else None
+
+
+def _claim_edit_sources(unit: ReviewUnit, edit: ClaimEdit) -> list[dict]:
+    """核對套用後會保留的原引用與補正引用，不把原引用冒稱為模型新選取。"""
+    evidence = {item['evidence_id']: item for item in unit.evidence}
+    original = [item['evidence_id'] for item in unit.claims[edit.claim]['evidence']]
+    selected = [unit.evidence[h]['evidence_id'] for h in edit.evidence]
+    return [evidence[identity] for identity in dict.fromkeys([*original, *selected])]
 
 
 def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
@@ -503,7 +479,7 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
     # 改寫須通過字面值檢查；保留原文不算修正成功。
     claim_changes = []
     for edit in proposal.claim_edits:
-        sources = [unit.evidence[h] for h in edit.evidence]
+        sources = _claim_edit_sources(unit, edit)
         claim_id = unit.claims[edit.claim]['claim_id']
         source_text = _name(' '.join(item['quote'] for item in sources))
         meaning = _name(edit.meaning)
@@ -531,7 +507,7 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
             claim_changes.append({
                 'original_claim_id': claim_id,
                 'proposed_text': corrected,
-                'evidence_ids': [item['evidence_id'] for item in sources],
+                'evidence_ids': [unit.evidence[h]['evidence_id'] for h in edit.evidence],
                 'reason': edit.reason,
             })
     relation_changes = {
@@ -667,7 +643,7 @@ def apply_review(document: dict, view: dict, unit: ReviewUnit, response: dict) -
                     'meaning': edit['proposed_text'],
                     'source_spans': spans,
                 }, evidence)
-                if projected is None or projected['projection'] != 'semantic_meaning':
+                if projected is None or projected['projection'] != 'localized_meaning':
                     rejected_claim_edits.add(original['claim_id'])
                 else:
                     claim.update(projected, evidence_refs=refs)

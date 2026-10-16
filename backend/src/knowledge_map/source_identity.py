@@ -65,6 +65,42 @@ def unchanged_claims(before, after):
     return matches
 
 
+def unchanged_concepts(before, after):
+    """增補時只略過內容、章節脈絡及相連關係皆不變的概念；不是新的品質驗收。"""
+    def identities(document):
+        evidence = {item['evidence_id']: evidence_identity(document, item) for item in document['evidence']}
+        titles = {section['section_id']: section['title'] for section in document['document_tree']['sections']}
+        concepts = {}
+        for concept in document['concepts']:
+            concepts[concept['concept_id']] = canonical_sha256({
+                'label': concept['label'], 'aliases': concept['aliases'],
+                'sections': [titles[identity] for identity in concept['section_ids']],
+                'claims': [{'text': claim['text'], 'projection': claim['projection'],
+                            'sources': [(evidence[span['evidence_id']], span['quote']) for span in claim['source_spans']]}
+                           for claim in concept['claims']],
+            })
+        relations = defaultdict(list)
+        for relation in document['relations']:
+            signature = canonical_sha256({
+                'source': concepts[relation['source_concept_id']],
+                'target': concepts[relation['target_concept_id']],
+                **{key: relation[key] for key in ('type', 'learner_reason', 'inference_basis', 'confidence')},
+                'evidence': [evidence[identity] for identity in relation['evidence_refs']],
+            })
+            for endpoint in ('source_concept_id', 'target_concept_id'):
+                relations[relation[endpoint]].append(signature)
+        return {identity: canonical_sha256({'content': signature, 'relations': sorted(relations[identity])})
+                for identity, signature in concepts.items()}
+    old = defaultdict(list)
+    for identity, signature in identities(before).items():
+        old[signature].append(identity)
+    new = identities(after)
+    counts = defaultdict(int)
+    for signature in new.values():
+        counts[signature] += 1
+    return {identity for identity, signature in new.items() if len(old[signature]) == counts[signature] == 1}
+
+
 def seed_incremental_state(before, context, binding):
     """依來源綁定重建語意狀態與集合頁碼。"""
     current = {"input_binding": binding}

@@ -39,6 +39,7 @@ export function CardSetManagement({ item, apiClient, onChanged, onDelete, confir
         }}>刪除卡組</button>
       </div>
     </details>
+    {error && !renaming && <p className="form-error" role="alert">{error}</p>}
     {renaming ? <InlineNameEditor label="卡組名稱" name={name} busy={busy} error={error} onChange={setName} onSave={() => void rename()} onCancel={() => setRenaming(false)} />
       : <h2 title={item.name}>{item.name}</h2>}
   </>;

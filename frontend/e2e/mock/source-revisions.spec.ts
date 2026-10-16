@@ -1,3 +1,4 @@
+import { workspaceView } from "../fixtures/knowledge-read-views.mjs";
 import { expect, test, type Page } from "@playwright/test";
 import type {
   MaterialLibraryItem,
@@ -56,7 +57,7 @@ const material: MaterialLibraryItem = {
 
 test.beforeEach(async ({ page }) => {
   await page.clock.install({ time: new Date(timestamp) });
-  await page.clock.pauseAt(new Date(timestamp));
+  // Date 起點固定，讓 React 非同步載入與輪詢計時器仍正常前進。
 });
 
 async function mockMaterial(page: Page, read: () => MaterialLibraryItem) {
@@ -270,14 +271,14 @@ for (const width of [1536, 390]) {
       expect(route.request().method()).toBe("GET");
       return route.fulfill({ json: run });
     });
-    // 共用 fixture 的 resume 綁定舊 run；只覆寫本案例的新版綁定。
+    // 共用 fixture 的 workspace 綁定舊 run；只覆寫本案例的新版綁定。
     await page.route(
-      `**/v1/materials/${materialId}/knowledge-structures/${encodeURIComponent(newRevision)}/study-sessions/${sessionId}/resume?*`,
+      `**/v1/materials/${materialId}/knowledge-structures/${encodeURIComponent(newRevision)}/study-sessions/${sessionId}/workspace?*`,
       (route) => {
         expect(route.request().method()).toBe("GET");
         expect(new URL(route.request().url()).searchParams.get("run_id")).toBe(newRunId);
         return route.fulfill({
-          json: {
+          json: workspaceView({
             schema: "study-resume/v1",
             run_id: newRunId,
             source_artifact_id: run.source_artifact_id,
@@ -285,8 +286,8 @@ for (const width of [1536, 390]) {
             session: { ...session(), knowledge_structure_revision: newRevision },
             progress: { ...progress, knowledge_structure_revision: newRevision },
             assessment_sets: [],
-            selected_set_id: null,
-          },
+            selected_set_id: null, selected_set: null,
+          }),
         });
       },
     );

@@ -101,7 +101,7 @@ for (const viewport of [
     );
     await expect(card.getByRole("button", { name: "回到知識地圖", exact: true })).toBeVisible();
     const preparingUrl = page.url();
-    // 詳細題組 GET 延遲時，resume 摘要已足以隱藏教材與 rail。
+    // 輪詢延遲時，resume 內的完整題組已可呈現進度，不閃現教材與 rail。
     let releaseRead!: () => void;
     const readGate = new Promise<void>((resolve) => {
       releaseRead = resolve;
@@ -123,7 +123,7 @@ for (const viewport of [
     expect(
       await page.evaluate(() => (window as unknown as { readingFlash: boolean }).readingFlash),
     ).toBe(false);
-    await expect(bar).not.toHaveAttribute("aria-valuenow");
+    await expect(bar).toHaveAttribute("aria-valuenow", "33");
     releaseRead();
     await expect(bar).toHaveAttribute("aria-valuenow", "33");
     await expect(page).toHaveURL(preparingUrl);
@@ -135,11 +135,11 @@ for (const viewport of [
     await expect(page.locator(".current-concept-card")).toHaveCount(0);
     const readyResponse = page.waitForResponse(
       (response) =>
-        /\/v1\/study-sessions\/[^/]+\/assessment-sets\/[^/?]+$/.test(response.url()) &&
+        response.url().includes("/workspace?") &&
         response.request().method() === "GET",
     );
     await page.reload();
-    const readySet: AssessmentSetView = await (await readyResponse).json();
+    const readySet: AssessmentSetView = (await (await readyResponse).json()).selected_set;
     await expect(page.locator(".assessment-set-item")).toHaveCount(6);
     // 最後一題選第四個選項，刻意不同於 fixture 預載結果的第二個選項。
     const choices = [0, 0, 0, 0, 0, 3];
@@ -208,13 +208,13 @@ for (const viewport of [
   });
 }
 
-test("plan loading, generation failure and no-safe remain preparation", async ({ page }) => {
+test("plan loading and generation failure keep their state; no-safe skips assessment planning", async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
   const fixture = await studyLayoutFixture(page, "failed");
   await fixture.open();
   await expect(page.getByRole("button", { name: "再試一次", exact: true })).toBeVisible();
   await inlinePreparing(page, "intervention");
-  fixture.setStage("no-safe");
+  fixture.setStage("preparation");
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -227,10 +227,14 @@ test("plan loading, generation failure and no-safe remain preparation", async ({
   await expect(page.getByText("正在讀取這個觀念的檢測範圍…", { exact: true })).toBeVisible();
   await preparationLayout(page, 1366);
   release();
-  await expect(page.getByRole("button", { name: "開始本輪 0 題", exact: true })).toBeDisabled();
-  await expect(
-    page.getByText("有 6 個教材重點目前未納入本輪檢測。", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "開始本輪 6 題", exact: true })).toBeEnabled();
+  fixture.setStage("no-safe");
+  const plans: string[] = [];
+  page.on("request", request => { if (request.url().includes("/assessment-plan?")) plans.push(request.url()); });
+  await fixture.open();
+  await expect(page.getByRole("heading", { name: "此概念目前無法提供可靠檢測", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /開始本輪/ })).toHaveCount(0);
+  expect(plans).toEqual([]);
 });
 
 test("create failure restores entry and retry retains its idempotency key", async ({ page }) => {

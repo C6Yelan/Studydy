@@ -1,8 +1,10 @@
 import type {
+  KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeSearchView, MapProgressView, StudyWorkspaceView,
   PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView,
   AnswerFeedbackView,
   CardSetSummary,
-  CardSetView,
+  CardSetView, CardStudyView, CardBatch,
+  CardGeneration,
   CardSetListView,
   CardSetDeletedView,
   ConceptCard,
@@ -82,7 +84,7 @@ function materialAttempt(value: unknown): boolean {
   if (
     !item ||
     !isUuid(item.run_id) ||
-    !["queued", "evidence", "semantics", "review", "publishing", "completed"].includes(
+    !["queued", "evidence", "semantics", "review", "indexing", "publishing", "completed"].includes(
       String(item.progress_stage),
     ) ||
     !Number.isInteger(item.completed_pages) ||
@@ -109,7 +111,7 @@ function materialAttempt(value: unknown): boolean {
       item.progress_stage !== "completed" &&
       item.error_code === null &&
       (item.cancel_requested_at === null ||
-        ["queued", "evidence", "semantics", "review", "publishing"].includes(String(item.progress_stage)))
+        ["queued", "evidence", "semantics", "review", "indexing", "publishing"].includes(String(item.progress_stage)))
     );
   if (item.status === "cancelled")
     return (
@@ -321,13 +323,7 @@ function locator(value: unknown): boolean {
   );
 }
 
-function conceptCard(value: unknown): value is ConceptCard {
-  const item = object(value);
-  return !!item && revision(item.concept_id, "concept") && typeof item.label === "string"
-    && Array.isArray(item.claims) && item.claims.every((value) => {
-      const claim = object(value);
-      return !!claim && revision(claim.claim_id, "claim") && typeof claim.text === "string"
-        && Array.isArray(claim.evidence) && claim.evidence.every((value) => {
+function cardEvidence(value: unknown): boolean {
           const evidence = object(value);
           return !!evidence && revision(evidence.evidence_id, "evidence")
             && Number.isInteger(evidence.page) && Number(evidence.page) > 0
@@ -337,7 +333,15 @@ function conceptCard(value: unknown): value is ConceptCard {
               (Number.isInteger(evidence.normalized_page) && Number(evidence.normalized_page) > 0))
             && ["native_text", "unlimited_ocr"].includes(String(evidence.source))
             && typeof evidence.quote === "string" && locator(evidence.source_locator);
-        });
+}
+
+function conceptCard(value: unknown): value is ConceptCard {
+  const item = object(value);
+  return !!item && revision(item.concept_id, "concept") && typeof item.label === "string"
+    && Array.isArray(item.claims) && item.claims.every((value) => {
+      const claim = object(value);
+      return !!claim && revision(claim.claim_id, "claim") && typeof claim.text === "string"
+        && Array.isArray(claim.evidence) && claim.evidence.every(cardEvidence);
     });
 }
 
@@ -348,7 +352,8 @@ export function cardSetSummary(value: unknown): value is CardSetSummary {
     && revision(item.knowledge_structure_revision, "knowledge-structure")
     && typeof item.name === "string" && item.name.trim().length > 0
     && typeof item.material_name === "string" && timestamp(item.created_at)
-    && Number.isInteger(item.card_count) && Number(item.card_count) > 0
+    && (item.card_count === null || Number.isInteger(item.card_count) && Number(item.card_count) > 0)
+    && cardGeneration(item.generation)
     && typeof item.is_current_revision === "boolean";
 }
 
@@ -360,7 +365,12 @@ export function cardSetList(value: unknown): value is CardSetListView {
 
 export function cardSet(value: unknown): value is CardSetView {
   const item = object(value);
-  if (!item || !cardSetSummary(value) || item.schema !== "card-set/v1") return false;
+  if (!item || !cardSetSummary(value) || item.schema !== "card-set/v1" || !cardGeneration(item.generation)) return false;
+  const edits = object(item.display_edits);
+  if (!edits || !Object.values(edits).every(list => Array.isArray(list) && list.every(edit => {
+    const entry = object(edit);
+    return entry && typeof entry.source === "string" && typeof entry.text === "string";
+  }))) return false;
   const status = object(item.status);
   return item.source_resolver === `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
     && !!status && ["accepted", "needs_review"].includes(String(status.quality))
@@ -371,10 +381,112 @@ export function cardSet(value: unknown): value is CardSetView {
       return !!page && Number.isInteger(page.page) && Number(page.page) > 0
         && typeof page.reason_code === "string";
     })
-    && Array.isArray(item.cards) && item.cards.length === item.card_count
+    && Array.isArray(item.cards) && item.cards.length === item.generation.total
     && item.cards.every(conceptCard)
     && item.cards.every((card) => card.claims.length > 0 && card.claims.every((claim) => claim.evidence.length > 0))
     && new Set(item.cards.map((card) => card.concept_id)).size === item.cards.length;
+}
+
+function cardEdits(value: unknown): boolean {
+  return Array.isArray(value) && value.every(edit => {
+    const item = object(edit);
+    return item && typeof item.source === "string" && typeof item.text === "string";
+  });
+}
+
+function cardDesign(value: unknown, card: ConceptCard, context: CardBatch["context"]): boolean {
+  if (value === undefined || value === null) return true;
+  const design = object(value), provider = object(design?.provider);
+  if (!design || design.schema !== "concept-card-design/v1" || !revision(design.revision, "card-design")
+    || !provider || ![provider.model_id, provider.revision, provider.api_protocol].every(v => typeof v === "string" && v.length > 0)
+    || !Array.isArray(design.pages) || !design.pages.length || design.pages.length > 3
+    || !strings(design.details_claim_ids)) return false;
+  const claims = new Map(card.claims.map(c => [c.claim_id, c]));
+  const relations = new Map(context.relations.filter(r => [r.source_concept_id, r.target_concept_id].includes(card.concept_id)).map(r => [r.relation_id, r]));
+  const refs = (value: Json) => {
+    if (!strings(value.claim_ids) || !strings(value.relation_ids) || !strings(value.evidence_ids) || !value.evidence_ids.length
+      || !value.claim_ids.every(id => claims.has(id)) || !value.relation_ids.every(id => relations.has(id))) return false;
+    const evidence = new Set([...value.claim_ids.flatMap(id => claims.get(id)!.evidence.map(e => e.evidence_id)), ...value.relation_ids.flatMap(id => relations.get(id)!.evidence_refs)]);
+    return value.evidence_ids.every(id => evidence.has(id));
+  };
+  return design.details_claim_ids.every(id => claims.has(id)) && design.pages.every(value => {
+    const page = object(value), takeaway = object(page?.takeaway);
+    if (!page || typeof page.title !== "string" || !["focus", "compare", "flow", "grid"].includes(String(page.layout))
+      || !takeaway || typeof takeaway.text !== "string" || !refs(takeaway)
+      || !Array.isArray(page.blocks) || !page.blocks.length || page.blocks.length > 4
+      || !page.blocks.every(value => {
+        const block = object(value);
+        return block && typeof block.heading === "string" && typeof block.text === "string"
+          && ["none", "book", "bulb", "database", "cpu", "network", "arrows-exchange", "shield", "code", "list-check", "hierarchy", "clock"].includes(String(block.icon)) && refs(block);
+      }) || !Array.isArray(page.links)) return false;
+    const blocks = page.blocks;
+    return page.links.every(value => {
+      const link = object(value);
+      return link && Number.isInteger(link.source) && Number.isInteger(link.target)
+        && Number(link.source) >= 0 && Number(link.target) >= 0 && Number(link.source) < blocks.length && Number(link.target) < blocks.length
+        && typeof link.label === "string" && refs(link);
+    });
+  });
+}
+
+export function cardBatch(value: unknown): value is CardBatch {
+  const item = object(value), context = object(item?.context), status = object(context?.status);
+  if (!item || item.schema !== "card-batch/v1" || !isUuid(item.card_set_id)
+    || !Number.isInteger(item.version) || Number(item.version) < 1
+    || !Number.isInteger(item.offset) || Number(item.offset) < 0 || Number(item.offset) % 8 !== 0
+    || !Number.isInteger(item.total) || Number(item.total) <= Number(item.offset)
+    || !Array.isArray(item.cards) || item.cards.length !== Math.min(8, Number(item.total) - Number(item.offset))
+    || !item.cards.every(card => conceptCard(card) && card.claims.length > 0 && cardEdits(object(card)?.display_edits))
+    || new Set(item.cards.map(c => c.concept_id)).size !== item.cards.length
+    || !context || typeof context.source_resolver !== "string"
+    || !status || !["accepted", "needs_review"].includes(String(status.quality))
+    || !["succeeded", "partial"].includes(String(status.processing))
+    || !["retain", "review"].includes(String(status.decision)) || !strings(status.reason_codes)
+    || !Array.isArray(context.concepts) || !context.concepts.every(conceptCard)
+    || !Array.isArray(context.relation_evidence) || !context.relation_evidence.every(cardEvidence)
+    || !Array.isArray(context.relations) || !context.relations.every(value => {
+      const relation = object(value);
+      return relation && revision(relation.relation_id, "relation")
+        && revision(relation.source_concept_id, "concept") && revision(relation.target_concept_id, "concept")
+        && ["prerequisite", "part_of", "application", "example", "contrast"].includes(String(relation.type))
+        && typeof relation.learner_reason === "string" && strings(relation.evidence_refs)
+        && relation.evidence_refs.every(id => revision(id, "evidence"));
+    })) return false;
+  const concepts = new Set(context.concepts.map(c => c.concept_id));
+  return concepts.size === context.concepts.length && item.cards.every(c => concepts.has(c.concept_id) && cardDesign(c.design, c, context as unknown as CardBatch["context"]));
+}
+
+export function cardStudy(value: unknown): value is CardStudyView {
+  const item = object(value);
+  if (!item || !cardSetSummary(value)) return false;
+  const generation = value.generation;
+  if (item.schema !== "card-study/v1"
+    || item.source_resolver !== `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
+    || !Array.isArray(item.navigation) || item.navigation.length !== generation.total
+    || !item.navigation.every(value => {
+      const entry = object(value);
+      return entry && revision(entry.concept_id, "concept") && typeof entry.label === "string"
+        && (entry.page_count === null || Number.isInteger(entry.page_count) && Number(entry.page_count) > 0);
+    }) || new Set(item.navigation.map(c => c.concept_id)).size !== item.navigation.length) return false;
+  const navigation = item.navigation;
+  const status = object(item.status);
+  if (!status) return false;
+  if (generation.status !== "ready") return item.batch === null;
+  const batch = item.batch;
+  return cardBatch(batch) && batch.card_set_id === item.card_set_id && batch.version === item.version
+    && batch.offset === 0 && batch.total === item.navigation.length
+    && batch.context.source_resolver === item.source_resolver
+    && batch.context.status.processing === status.processing && batch.context.status.quality === status.quality && batch.context.status.decision === status.decision
+    && batch.cards.every((c, i) => c.concept_id === navigation[i].concept_id);
+}
+
+export function cardGeneration(value: unknown): value is CardGeneration {
+  const item = object(value);
+  return !!item && ["pending", "running", "ready", "failed"].includes(String(item.status))
+    && ["preparing", "compacting", "designing", "checking", "complete"].includes(String(item.stage))
+    && [item.completed, item.total, item.retained_original, item.cached].every(n => Number.isInteger(n) && Number(n) >= 0)
+    && Number(item.completed) <= Number(item.total)
+    && (item.error_code === null || typeof item.error_code === "string");
 }
 
 export function cardSetDeleted(value: unknown): value is CardSetDeletedView {
@@ -433,6 +545,134 @@ export function knowledgeStructure(value: unknown): value is KnowledgeStructureV
     pathIds.every((id) => typeof id === "string" && known.has(id)) &&
     new Set(pathIds).size === pathIds.length
   );
+}
+
+function knowledgeStatus(value: unknown): boolean {
+  const s = object(value);
+  return !!s && ["succeeded", "partial", "failed"].includes(String(s.processing))
+    && ["accepted", "needs_review"].includes(String(s.quality))
+    && ["retain", "review", "reject"].includes(String(s.decision)) && strings(s.reason_codes);
+}
+
+function relationSummary(value: unknown): boolean {
+  const r = object(value);
+  return !!r && revision(r.relation_id, "relation") && revision(r.source_concept_id, "concept")
+    && revision(r.target_concept_id, "concept") && r.source_concept_id !== r.target_concept_id
+    && ["prerequisite", "part_of", "application", "example", "contrast"].includes(String(r.type));
+}
+
+function knowledgeRelation(value: unknown): boolean {
+  const r = object(value);
+  return !!r && relationSummary(r) && typeof r.learner_reason === "string" && strings(r.evidence_refs)
+    && r.evidence_refs.every(id => revision(id, "evidence"));
+}
+
+export function knowledgeOutline(value: unknown): value is KnowledgeOutlineView {
+  const item = object(value);
+  if (!item || item.schema !== "knowledge-outline/v1" || !isUuid(item.material_id) || !isUuid(item.run_id)
+    || !revision(item.knowledge_structure_revision, "knowledge-structure") || !knowledgeStatus(item.status)
+    || item.source_resolver !== `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
+    || !Number.isSafeInteger(item.section_count) || Number(item.section_count) < 0
+    || !Array.isArray(item.concepts) || !Array.isArray(item.relations) || !Array.isArray(item.excluded_pages)
+    || !Array.isArray(item.initial_learning_path)) return false;
+  const ids = new Set<string>();
+  for (const value of item.concepts) {
+    const c = object(value);
+    if (!c || !revision(c.concept_id, "concept") || ids.has(c.concept_id) || typeof c.label !== "string"
+      || !strings(c.aliases) || !Number.isSafeInteger(c.claim_count)
+      || Number(c.claim_count) < 0 || Object.hasOwn(c, "claims")) return false;
+    ids.add(c.concept_id);
+  }
+  const path = item.initial_learning_path;
+  return item.relations.every(r => relationSummary(r) && ids.has(r.source_concept_id) && ids.has(r.target_concept_id))
+    && new Set(item.relations.map(r => r.relation_id)).size === item.relations.length
+    && path.length === ids.size && new Set(path.map(s => s.concept_id)).size === ids.size
+    && path.every((s, i) => object(s) && ids.has(s.concept_id) && s.position === i + 1
+      && ["document_order", "prerequisite"].includes(s.reason));
+}
+
+export function knowledgeConcepts(value: unknown): value is KnowledgeConceptsView {
+  const item = object(value);
+  if (!item || item.schema !== "knowledge-concepts/v1" || !isUuid(item.material_id)
+    || !revision(item.knowledge_structure_revision, "knowledge-structure") || !knowledgeStatus(item.status)
+    || item.source_resolver !== `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
+    || !strings(item.requested_concept_ids) || item.requested_concept_ids.length > 32
+    || !Array.isArray(item.concepts) || !item.concepts.every(c => conceptCard(c) && strings(object(c)?.aliases))
+    || !Array.isArray(item.relations) || !item.relations.every(knowledgeRelation)
+    || !Array.isArray(item.relation_evidence) || !item.relation_evidence.every(cardEvidence)) return false;
+  const ids = new Set(item.concepts.map(c => c.concept_id));
+  return ids.size === item.concepts.length && new Set(item.requested_concept_ids).size === item.requested_concept_ids.length
+    && item.requested_concept_ids.every(id => ids.has(id));
+}
+
+export function knowledgeSearch(value: unknown): value is KnowledgeSearchView {
+  const item = object(value);
+  return !!item && item.schema === "knowledge-search/v1" && isUuid(item.material_id)
+    && revision(item.knowledge_structure_revision, "knowledge-structure") && strings(item.concept_ids)
+    && item.concept_ids.every(id => revision(id, "concept")) && new Set(item.concept_ids).size === item.concept_ids.length;
+}
+
+export function mapProgress(value: unknown): value is MapProgressView {
+  const item = object(value);
+  return !!item && item.schema === "map-progress/v1" && isUuid(item.study_session_id)
+    && revision(item.knowledge_structure_revision, "knowledge-structure")
+    && (item.current_concept_id === null || revision(item.current_concept_id, "concept"))
+    && !!object(item.next_action)
+    && Array.isArray(item.assessment_cycles) && item.assessment_cycles.every(cycleSummary)
+    && Array.isArray(item.concept_states) && item.concept_states.every(value => {
+      const s = object(value);
+      return !!s && revision(s.concept_id, "concept") && typeof s.assessable === "boolean"
+        && ["not_started", "in_progress", "needs_review", "completed"].includes(String(s.status))
+        && Number.isSafeInteger(s.attempts) && Number(s.attempts) >= 0;
+    }) && new Set(item.concept_states.map(s => s.concept_id)).size === item.concept_states.length;
+}
+
+function studyNavigation(value: unknown): value is StudyNavigationView {
+  const item = object(value);
+  if (!item || item.schema !== "study-navigation/v1" || !isUuid(item.material_id) || !isUuid(item.run_id)
+    || !revision(item.knowledge_structure_revision, "knowledge-structure") || !knowledgeStatus(item.status)
+    || item.source_resolver !== `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
+    || !Number.isSafeInteger(item.concept_count) || Number(item.concept_count) < 0
+    || !Array.isArray(item.concepts) || item.concepts.length > Number(item.concept_count)
+    || !item.concepts.every(c => object(c) && revision(c.concept_id, "concept") && typeof c.label === "string")
+    || !Array.isArray(item.initial_learning_path)) return false;
+  const ids = new Set(item.concepts.map(c => c.concept_id));
+  return ids.size === item.concepts.length && item.initial_learning_path.length === ids.size
+    && new Set(item.initial_learning_path.map(s => s.concept_id)).size === ids.size
+    && item.initial_learning_path.every(s => object(s) && ids.has(s.concept_id)
+      && Number.isSafeInteger(s.position) && s.position > 0 && s.position <= Number(item.concept_count)
+      && ["document_order", "prerequisite"].includes(s.reason));
+}
+
+export function studyWorkspace(value: unknown): value is StudyWorkspaceView {
+  const item = object(value), p = object(item?.progress);
+  if (!item || item.schema !== "study-workspace/v1" || !studySession(item.session)
+    || !studyNavigation(item.outline) || !isUuid(item.run_id) || !isUuid(item.source_artifact_id)
+    || !p || p.schema !== "study-progress/v1" || !progress({ ...p, schema: "learner-progress/v1" })
+    || p.concept_count !== item.outline.concept_count
+    || !(item.context === null || knowledgeConcepts(item.context))
+    || !Array.isArray(item.assessment_sets) || !item.assessment_sets.every(assessmentSetSummary)) return false;
+  const session = item.session, outline = item.outline, context = item.context;
+  const ids = new Set(outline.concepts.map(c => c.concept_id));
+  const selected = item.selected_set;
+  if (item.selected_set_id === null ? selected !== null : (
+    !assessmentSet(selected) || selected.set_id !== item.selected_set_id || selected.study_session_id !== session.study_session_id
+    || selected.material_id !== session.material_id || selected.knowledge_structure_revision !== session.knowledge_structure_revision
+    || !item.assessment_sets.some(s => s.set_id === selected.set_id && s.set_version === selected.set_version && s.target_concept_id === selected.target_concept_id)
+  )) return false;
+  const needed = new Set([session.current_concept_id, object(selected)?.target_concept_id, object(p.next_action)?.target_concept_id].filter(v => v != null));
+  return outline.material_id === session.material_id && outline.run_id === item.run_id
+    && outline.knowledge_structure_revision === session.knowledge_structure_revision
+    && p.study_session_id === session.study_session_id && p.event_watermark === session.event_watermark
+    && p.knowledge_structure_revision === session.knowledge_structure_revision
+    && p.current_concept_id === session.current_concept_id
+    && (context === null ? needed.size === 0 : context.material_id === session.material_id
+      && context.knowledge_structure_revision === session.knowledge_structure_revision
+      && context.concepts.length === needed.size && context.concepts.every(c => ids.has(c.concept_id))
+      && [...needed].every(id => context.concepts.some(c => c.concept_id === id)))
+    && (p.concept_states as Json[]).every(s => ids.has(String(s.concept_id)))
+    && [...needed].every(id => (p.concept_states as Json[]).some(s => s.concept_id === id))
+    && item.assessment_sets.every(s => ids.has(s.target_concept_id));
 }
 
 export function studySession(value: unknown): value is StudySessionView {
@@ -810,6 +1050,15 @@ export function studyResume(value: unknown): value is StudyResumeView {
   )
     return false;
   const session = item.session;
+  const selected = item.selected_set;
+  if (item.selected_set_id === null ? selected !== null : (
+    !assessmentSet(selected) || selected.set_id !== item.selected_set_id ||
+    selected.study_session_id !== session.study_session_id ||
+    selected.material_id !== session.material_id ||
+    selected.knowledge_structure_revision !== session.knowledge_structure_revision ||
+    !item.assessment_sets.some(group => group.set_id === selected.set_id &&
+      group.target_concept_id === selected.target_concept_id && group.set_version === selected.set_version)
+  )) return false;
   return (
     item.progress.study_session_id === session.study_session_id &&
     item.progress.knowledge_structure_revision === session.knowledge_structure_revision &&

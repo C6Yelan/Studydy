@@ -11,7 +11,7 @@ export type Candidate = {
   access?: { status: string; method?: string; attempts: { url: string; outcome: string; error_code?: string; http_status?: number | null; method?: string }[] };
 };
 export const sourceReasons: Record<string, string> = {
-  RESEARCH_PARTIAL_SEARCH: '部分來源或搜尋服務曾未完成，已保留其他結果與研究進度。',
+  RESEARCH_PARTIAL_SEARCH: '已保留搜尋結果；部分主題仍缺少正文依據，或有來源未完成。請查看涵蓋情況與各來源說明。',
   RESEARCH_BODY_UNAVAILABLE: '入口只有標題或導覽，尚未取得正文。',
   RESEARCH_AUTH_REQUIRED: '此入口要求登入，未取得正文。',
   RESEARCH_SOURCE_BLOCKED: '此入口回應 403，未取得正文。',

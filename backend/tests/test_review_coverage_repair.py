@@ -6,7 +6,7 @@ import pytest
 
 from knowledge_map.material_review import ReviewError, validate_proposal
 from runtime.material_review import _checked_review
-from test_material_review import prepare, proposal
+from test_material_review import prepare, proposal, wire_proposal
 
 
 class Archive:
@@ -40,7 +40,7 @@ def run(archive, monkeypatch, responses, cancel=lambda: None):
 
     def model(client, **kwargs):
         calls.append(deepcopy(kwargs))
-        return deepcopy(responses[len(calls) - 1])
+        return wire_proposal(responses[len(calls) - 1])
 
     monkeypatch.setattr("runtime.material_review.request_semantics", model)
     result = _checked_review(
@@ -49,15 +49,9 @@ def run(archive, monkeypatch, responses, cancel=lambda: None):
     return result, calls
 
 
-@pytest.mark.parametrize("kind", ["duplicate", "missing"])
-def test_coverage_is_repaired_once_with_full_context_and_strict_validation(tmp_path, monkeypatch, kind):
+def test_missing_coverage_is_repaired_once_with_full_context_and_strict_validation(tmp_path, monkeypatch):
     invalid = proposal()
-    if kind == "duplicate":
-        invalid["assignments"].append({
-            **invalid["assignments"][1], "action": "group", "target": 0,
-        })
-    else:
-        invalid["assignments"].pop()
+    invalid["assignments"].pop()
     original = deepcopy(invalid)
     archive = Archive(tmp_path)
     (result, count), calls = run(archive, monkeypatch, [invalid, proposal()])
@@ -68,13 +62,13 @@ def test_coverage_is_repaired_once_with_full_context_and_strict_validation(tmp_p
 
     repair = calls[1]["request"]["review_correction"]
     assert repair["previous_response"] == invalid
-    assert repair["duplicate_concepts"] == ([1] if kind == "duplicate" else [])
-    assert repair["missing_concepts"] == ([4] if kind == "missing" else [])
+    assert repair["duplicate_concepts"] == []
+    assert repair["missing_concepts"] == [4]
     schema = calls[0]["response_schema"]
     assignments = schema["properties"]["assignments"]
-    assert assignments["minItems"] == assignments["maxItems"] == 5
-    assert all(v['properties']['concept']['enum'] == list(range(5))
-               for v in schema['$defs']['Assignment']['anyOf'])
+    assert assignments['type'] == 'object' and assignments['additionalProperties'] is False
+    assert assignments['required'] == list(assignments['properties']) == list(map(str, range(5)))
+    assert all('concept' not in v['properties'] for v in schema['$defs']['Assignment']['anyOf'])
     assert archive.writes["call-000001/response"] == invalid
     assert archive.writes["call-000001-repair-01/response"] == proposal()
     assert len([key for key in archive.writes if key.startswith("cache-")]) == 1
@@ -97,6 +91,41 @@ def test_valid_cached_review_needs_no_model(tmp_path, monkeypatch):
     assert result == proposal()
     assert count == 0
     assert calls == []
+
+
+def test_assignment_identity_comes_from_required_key_not_response_order(tmp_path, monkeypatch):
+    original = proposal()
+    wire = wire_proposal(original)
+    wire['assignments'] = dict(reversed(list(wire['assignments'].items())))
+    archive = Archive(tmp_path)
+    (result, count), calls = run(archive, monkeypatch, [wire])
+    assert count == 1
+    assert {row['concept']: row for row in result['assignments']} == {
+        row['concept']: row for row in original['assignments']}
+    assert archive.writes['call-000001/wire-response'] == wire
+    validate_proposal(prepare(), result)
+
+
+@pytest.mark.parametrize('kind', ['renumbered', 'embedded_concept', 'array'])
+def test_invalid_wire_identity_is_rejected_without_relabelling(tmp_path, monkeypatch, kind):
+    wire = wire_proposal(proposal())
+    if kind == 'renumbered':
+        wire['assignments']['00'] = wire['assignments'].pop('0')
+    elif kind == 'embedded_concept':
+        wire['assignments']['0']['concept'] = 1
+    else:
+        wire = proposal()
+    calls = []
+    def model(*args, **kwargs):
+        calls.append(kwargs)
+        return deepcopy(wire)
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    archive = Archive(tmp_path)
+    with pytest.raises(ReviewError, match='REVIEW_RESPONSE_INVALID'):
+        _checked_review(prepare(), 1, {'material_review': {'prompt': 'fixture'}}, archive, None, lambda: None)
+    assert len(calls) == 2
+    assert calls[1]['request']['review_correction']['previous_response'] == wire
+    assert not any(name.startswith('cache-') for name in archive.writes)
 
 
 @pytest.mark.parametrize('kind,code', [
@@ -210,9 +239,38 @@ def test_saved_wrong_concept_support_is_repaired_without_renumbering(tmp_path, m
     }
 
 
+def test_assignment_source_is_model_selected_and_preserves_additional_support(tmp_path, monkeypatch):
+    expected = proposal()
+    expected['assignments'][0]['evidence'] = [0, 4]
+    archive = Archive(tmp_path)
+    (actual, count), calls = run(archive, monkeypatch, [expected])
+    assert count == 1 and actual == expected
+    fields = calls[0]['response_schema']['properties']['assignments']['properties']
+    for concept in prepare().payload['concepts']:
+        field = fields[str(concept['h'])]
+        assert field['required'] == ['concept_source', 'decision']
+        assert field['properties']['concept_source']['enum'] == concept['evidence']
+    assert archive.writes['call-000001/wire-response']['assignments']['0']['concept_source'] == 0
+
+
+@pytest.mark.parametrize('kind', ['missing', 'wrong_concept'])
+def test_assignment_source_is_not_filled_or_corrected_by_decoder(tmp_path, monkeypatch, kind):
+    wire = wire_proposal(proposal())
+    if kind == 'missing':
+        del wire['assignments']['0']['concept_source']
+    else:
+        wire['assignments']['0']['concept_source'] = 4
+    archive = Archive(tmp_path)
+    code = 'REVIEW_RESPONSE_INVALID' if kind == 'missing' else 'REVIEW_CONCEPT_SUPPORT_INVALID'
+    with pytest.raises(ReviewError, match=code):
+        run(archive, monkeypatch, [wire, wire])
+    assert len(archive.requests) == 2
+    assert not any(name.startswith('cache-') for name in archive.writes)
+
+
 def test_invalid_repair_stops_without_success_cache(tmp_path, monkeypatch):
     invalid = proposal()
-    invalid["assignments"].append(invalid["assignments"][1])
+    invalid["assignments"].pop()
     archive = Archive(tmp_path)
     with pytest.raises(ReviewError, match="COVERAGE_INVALID"):
         run(archive, monkeypatch, [invalid, invalid])
@@ -265,13 +323,13 @@ def test_relation_type_error_repairs_with_endpoint_bindings(tmp_path, monkeypatc
 def test_oversized_correction_reports_only_prior_model_call(tmp_path, monkeypatch):
     from runtime.semantic_service import SemanticServiceError
     invalid = proposal()
-    invalid['assignments'].append(deepcopy(invalid['assignments'][0]))
+    invalid['assignments'].pop()
     archive = Archive(tmp_path)
     calls = []
     def model(*args, **kwargs):
         calls.append(kwargs['request'])
         if len(calls) == 1:
-            return invalid
+            return wire_proposal(invalid)
         raise SemanticServiceError('SEMANTIC_INPUT_TOO_LARGE')
     monkeypatch.setattr('runtime.material_review.request_semantics', model)
     with pytest.raises(SemanticServiceError) as failure:
@@ -317,3 +375,43 @@ def test_relation_schema_binds_each_edit_to_its_own_sources_and_action_type(tmp_
         assert resolve(fixed['relation_type'])['enum'] == [None, relation['type']]
         retype = next(v for v in variants if resolve(v['action'])['enum'] == ['retype'])
         assert None not in resolve(retype['relation_type'])['enum']
+
+
+def test_alias_schema_binds_whole_alias_strings_to_their_concept(tmp_path, monkeypatch):
+    unit = prepare()
+    compound = 'Node Expansion and Fake Tool Invocation'
+    unit.concepts[4]['aliases'] = [compound]
+    unit.payload['concepts'][4]['aliases'] = [compound]
+    result = proposal()
+    result['alias_edits'] = [{'concept': 4, 'remove': [compound], 'evidence': [4, 0], 'reason': 'Synthetic compound alias correction'}]
+    calls = []
+    def model(client, **kwargs):
+        calls.append(kwargs)
+        return wire_proposal(result)
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    actual, count = _checked_review(unit, 1, {'material_review': {'prompt': 'fixture'}}, Archive(tmp_path), None, lambda: None)
+    assert actual == result and count == 1
+    choices = calls[0]['response_schema']['properties']['alias_edits']['items']['anyOf']
+    allowed = {choice['properties']['concept']['enum'][0]: choice['properties']['remove']['items']['enum'] for choice in choices}
+    assert allowed == {c['h']: list(dict.fromkeys(c['aliases'])) for c in unit.payload['concepts'] if c['aliases']}
+    assert allowed[4] == [compound]
+    for choice in choices:
+        concept = unit.payload['concepts'][choice['properties']['concept']['enum'][0]]
+        assert choice['properties']['concept_source']['enum'] == concept['evidence']
+        assert 'concept_source' in choice['required']
+        assert choice['properties']['evidence']['minItems'] == 0
+    invalid = deepcopy(result)
+    invalid['alias_edits'][0]['remove'] = ['Node Expansion', 'Fake Tool Invocation']
+    with pytest.raises(ReviewError, match='REVIEW_ALIAS_EDIT_INVALID'):
+        validate_proposal(unit, invalid)
+
+
+def test_missing_alias_source_cannot_be_filled_from_existing_concept(tmp_path, monkeypatch):
+    wire = wire_proposal(proposal())
+    wire['alias_edits'] = [{'concept': 4, 'remove': ['Effectiveness'],
+        'evidence': [4], 'reason': 'Synthetic missing source selection'}]
+    archive = Archive(tmp_path)
+    with pytest.raises(ReviewError, match='REVIEW_RESPONSE_INVALID'):
+        run(archive, monkeypatch, [wire, wire])
+    assert len(archive.requests) == 2
+    assert not any(name.startswith('cache-') for name in archive.writes)

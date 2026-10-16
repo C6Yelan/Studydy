@@ -3,11 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type {
   AssessmentSetSummary,
-  KnowledgeStructureView,
-  LearnerProgressView,
+  AssessmentSetView,
+  StudyNavigationView, KnowledgeConceptsView,
+  StudyProgressView,
   StudySessionView,
 } from "../../api/contracts";
-import { writeRoute, type AppRoute } from "../../app/routes";
+import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { ConceptContent } from "../../ui/ConceptContent";
 import { MaterialTools } from "../material-tools/MaterialTools";
@@ -17,11 +18,13 @@ import { AssessmentSetPanel } from "../assessment/AssessmentSetPanel";
 import "./styles.css";
 
 type StudyData = {
-  progress: LearnerProgressView;
+  progress: StudyProgressView;
   session: StudySessionView;
-  view: KnowledgeStructureView;
+  view: StudyNavigationView;
+  context: KnowledgeConceptsView | null;
   assessmentSets: AssessmentSetSummary[];
   selectedSetId: string | null;
+  selectedSet: AssessmentSetView | null;
 };
 
 function validBinding(data: StudyData): boolean {
@@ -29,7 +32,7 @@ function validBinding(data: StudyData): boolean {
   return (
     data.assessmentSets.every((group) => concepts.has(group.target_concept_id)) &&
     data.progress.assessment_cycles.every((cycle) => concepts.has(cycle.concept_id)) &&
-    data.progress.concept_states.length === concepts.size &&
+    data.progress.concept_count === data.view.concept_count &&
     data.progress.concept_states.every((state) => concepts.has(state.concept_id)) &&
     (data.progress.current_concept_id === null || concepts.has(data.progress.current_concept_id)) &&
     data.progress.next_action.prerequisite_concept_ids.every((id) => concepts.has(id))
@@ -52,23 +55,30 @@ export function StudySessionPage({
   const [continueError, setContinueError] = useState<string | null>(null);
   const activePage = useRef(false);
   const pageVersion = useRef(0);
+  const restoredRoute = useRef<string | null>(null);
 
   const load = async () => {
-    const restored = await apiClient.resumeStudy(route);
+    const restored = await apiClient.resumeWorkspace(route);
     const next = {
-      view: restored.knowledge_structure,
+      view: restored.outline,
+      context: restored.context,
       session: restored.session,
       progress: restored.progress,
       assessmentSets: restored.assessment_sets,
       selectedSetId: restored.selected_set_id,
+      selectedSet: restored.selected_set,
     };
     if (!validBinding(next)) throw new Error("STUDY_BINDING_MISMATCH");
     return next;
   };
 
   useEffect(() => {
-    let cancelled = false;
+    // 只補齊剛恢復的題組網址時保留同一份 snapshot；其他導覽仍正常重讀。
+    const alreadyRestored = restoredRoute.current === routePath(route);
+    restoredRoute.current = null;
     activePage.current = true;
+    if (alreadyRestored) return () => { activePage.current = false; };
+    let cancelled = false;
     pageVersion.current += 1;
     setPanelPhase(null);
     setData(null);
@@ -80,8 +90,9 @@ export function StudySessionPage({
       (next) => {
         if (cancelled) return;
         if (next.selectedSetId && !route.assessmentSetId && next.session.status !== "completed") {
-          writeRoute({ ...route, assessmentSetId: next.selectedSetId }, true);
-          return;
+          const destination = { ...route, assessmentSetId: next.selectedSetId };
+          restoredRoute.current = routePath(destination);
+          writeRoute(destination, true);
         }
         setData(next);
       },
@@ -172,7 +183,7 @@ export function StudySessionPage({
   const visibleConceptId = route.assessmentSetId
     ? selectedSet?.target_concept_id
     : data.progress.current_concept_id;
-  const visibleConcept = data.view.concepts.find(
+  const visibleConcept = data.context?.concepts.find(
     (concept) => concept.concept_id === visibleConceptId,
   );
   if (!visibleConcept)
@@ -287,7 +298,7 @@ export function StudySessionPage({
           <h1>{completed ? "本次學習已結束" : visibleConcept.label}</h1>
           <p>
             {position !== undefined &&
-              `第 ${position} / ${data.view.initial_learning_path.length} 個概念`}
+              `第 ${position} / ${data.view.concept_count} 個概念`}
             {showMaterial && " · 學習進度會自動保存。"}
           </p>
         </div>
@@ -346,8 +357,9 @@ export function StudySessionPage({
                 apiClient={apiClient}
                 studySessionId={route.studySessionId}
                 selectedSetId={data.selectedSetId}
+                initialSet={data.selectedSet}
                 concept={visibleConcept}
-                view={data.view}
+                view={data.context!}
                 completed={completed}
                 conceptCompleted={conceptState?.status === "completed"}
                 onSetSelected={(id) => writeRoute({ ...route, assessmentSetId: id })}

@@ -95,8 +95,8 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
       {view.is_current_revision === false && !submitted && <p className="tool-notice">教材已更新，這次搜尋不能直接加入舊版本。請以目前教材重新搜尋。</p>}
       {stage === 2 && submitted && <div className={`tool-result${completed ? ' is-complete' : ''}`}>
         <span className="tool-result-icon"><Icon name={completed ? 'check' : 'process'} size={24} /></span>
-        <div><h3>{completed ? '補充教材已建立' : view.run?.status === 'partial' ? '教材已部分更新' : view.run?.status === 'failed' ? '教材分析尚未完成' : view.run?.status === 'cancelled' ? '教材分析已取消' : '正在建立補充教材'}</h3>
-          <p>{completed ? `已將 ${view.selection.length} 份來源加入教材，可查看更新後的知識地圖。` : view.run?.status === 'partial' ? '部分內容仍需確認，請查看教材分析結果。' : '已選來源會保留。可到教材分析頁查看進度或接續處理。'}</p></div>
+        <div><h3>{completed ? '補充教材已建立' : view.run?.status === 'partial' ? '分析結果仍需確認' : view.run?.status === 'failed' ? '教材分析尚未完成' : view.run?.status === 'cancelled' ? '教材分析已取消' : '正在建立補充教材'}</h3>
+          <p>{completed ? `已將 ${view.selection.length} 份來源加入教材，可查看更新後的知識地圖。` : view.run?.status === 'partial' ? '已產生可查看的教材分析結果，部分內容仍需確認。' : '已選來源會保留。可到教材分析頁查看進度或接續處理。'}</p></div>
         {view.run_id && <button className="primary-button" onClick={() => { writeRoute({ name: 'material-run', materialId, runId: view.run_id! }); }}>查看教材分析<Icon name="chevron-right" size={16} /></button>}
       </div>}
       {view.progress && stage !== 2 && <ResearchProgress candidates={view.candidates} progress={view.progress} running={view.status === 'searching'} />}
@@ -106,9 +106,10 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
       {(!view.progress || view.status !== 'searching') && (displayed.length > 0 || view.status === 'selecting' && !!view.cursor) && <SourceCandidates compact hasMore={!view.progress && !!view.cursor && ['selecting', 'searching'].includes(view.status)} loading={busy || view.status === 'searching'} onMore={() => perform('more')} showAcquisitionDetails={false} candidates={displayed} selected={selected} disabled={working || !editable || stage !== 1} readOnly={readOnly} search={{value:sourceQuery,onChange:setSourceQuery}} inlineSearch onChange={ids => { setSelected(ids); setConfirmed(false); }} />}
       {view.progress && view.status === 'selecting' && !displayed.length && <p className="tool-empty">這次尚未整理出切題的正文來源，可查看未完成原因或依缺口繼續研究。</p>}
       {!view.candidates.length && !researchActive.has(view.status) && <p className="tool-empty">沒有找到來源。可以換個主題或英文關鍵字再搜尋。</p>}
-      {stage === 2 && canConfirm && <div className="research-confirm"><p>加入後會更新教材與知識地圖，<strong>無法撤回新增內容</strong>。</p><label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />我了解加入後不可逆</label></div>}
+      {stage === 2 && canConfirm && <div className="research-confirm"><p>這些來源目前尚未納入知識地圖；確認後會開始分析。加入後會更新教材與知識地圖，<strong>無法撤回新增內容</strong>。</p><label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />我了解加入後不可逆</label></div>}
       {!submitted && <footer className="tool-stage-footer">
         <div className="tool-footer-secondary">
+          {view.progress && ['searching','cancelled'].includes(view.status) && view.progress.read_count > 0 && <button className="secondary-button" disabled={busy} onClick={() => void perform('finish')}>使用目前已核對的來源</button>}
           {researchActive.has(view.status) && <button className="secondary-button" disabled={busy} onClick={() => void perform('cancel')}>停止處理</button>}
           {view.status === 'selecting' && <button className="text-button" disabled={busy} onClick={() => void perform('more')}>{view.progress ? '依缺口繼續研究' : '重新整理研究'}</button>}
           {['failed', 'cancelled'].includes(view.status) && <button className="secondary-button" disabled={busy} onClick={() => void perform('retry')}>重試未完成部分</button>}

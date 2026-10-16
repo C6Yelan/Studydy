@@ -1,14 +1,14 @@
 import type { StudydyApiClient } from "../../api/client";
-import type { ConceptCard, KnowledgeStructureView } from "../../api/contracts";
+import type { ConceptCard, ConceptCardContext } from "../../api/contracts";
 import { claimText } from "../../ui/claim-text";
 import { VisualConceptCard } from "./VisualConceptCard";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 import { cardContent } from "./card-content";
-import { cardRelations, hasCardEvidence } from "./card-relation";
+import { cardRelations, cardSourceIndex, hasCardEvidence } from "./card-relation";
 
 export function Flashcard({ card, structure, materialName, apiClient, sourceResolver, pageIndex }: {
   card: ConceptCard;
-  structure: KnowledgeStructureView;
+  structure: ConceptCardContext;
   materialName: string;
   apiClient: StudydyApiClient;
   sourceResolver: string;
@@ -19,11 +19,15 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
   const shownEvidence = [...card.claims.flatMap(claim => claim.evidence), ...(content?.kind === "group" ? content.items.flatMap(item => item.evidence) : [])];
   const unresolved = structure.relations.filter(r => (r.source_concept_id === card.concept_id || r.target_concept_id === card.concept_id)
     && !relations.some(item => item.relation.relation_id === r.relation_id));
-  const availableEvidence = structure.concepts.flatMap(c => c.claims.flatMap(claim => claim.evidence)).filter(hasCardEvidence);
   const review = structure.status.quality === "needs_review" || structure.status.processing !== "succeeded" || structure.status.decision !== "retain";
+  const designed = card.design?.pages[pageIndex ?? 0];
+  const pageEvidence = designed ? [...new Set([designed.takeaway, ...designed.blocks, ...designed.links].flatMap(item => item.evidence_ids))]
+    .flatMap(id => { const evidence = cardSourceIndex(structure).evidence.get(id); return evidence ? [evidence] : []; }) : [];
   return (
     <div className="concept-card">
-      <VisualConceptCard card={card} structure={structure} pageIndex={pageIndex} />
+      <VisualConceptCard card={card} structure={structure} pageIndex={pageIndex} cacheOwner={apiClient} />
+      {designed && <div className="flashcard-source-links" aria-label="本張卡面來源">{sourceLinks(pageEvidence).map(evidence =>
+        <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} label={`本張引用 · 第 ${evidence.normalized_page ?? evidence.page} 頁`} />)}</div>}
       <details className="concept-card-details">
         <summary>完整重點與來源</summary>
         <div className="flashcard">
@@ -53,7 +57,10 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
                 <h3>教材關係 · 待複核</h3>
                 <p>{relation.learner_reason || "此關係尚無說明。"}</p>
                 <p>此關係的方向或來源需要確認；以下列出可回查的來源。</p>
-                <div className="flashcard-source-links">{sourceLinks(availableEvidence.filter(e => relation.evidence_refs.includes(e.evidence_id))).map(evidence =>
+                <div className="flashcard-source-links">{sourceLinks(relation.evidence_refs.flatMap(id => {
+                  const evidence = cardSourceIndex(structure).evidence.get(id);
+                  return evidence && hasCardEvidence(evidence) ? [evidence] : [];
+                })).map(evidence =>
                   <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} />)}</div>
               </section>)}
               <section className="flashcard-sources" aria-label="概念重點來源">

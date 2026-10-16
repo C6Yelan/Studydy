@@ -9,6 +9,14 @@ export type KnownApiReasonCode =
   | "VOICE_PROVIDER_UNAVAILABLE"
   | "VOICE_PROVIDER_FAILED"
   | "VOICE_TRANSCRIPT_INVALID"
+  | "VOICE_CONTEXT_TOO_LARGE"
+  | "RETRIEVAL_INDEX_REQUIRED"
+  | "RETRIEVAL_INDEX_INVALID"
+  | "MATERIAL_FORMAT_UNSUPPORTED"
+  | "SOURCE_SCOPE_EMPTY"
+  | "SOURCE_SCOPE_INVALID"
+  | "SOURCE_SCOPE_UNRESOLVED"
+  | "RESEARCH_CONTEXT_TOO_LARGE"
   | "RESEARCH_SEARCH_FAILED"
   | "RESEARCH_DOWNLOAD_FAILED"
   | "RESEARCH_LICENSE_UNCONFIRMED"
@@ -77,7 +85,7 @@ export type MaterialProcessingRunView = {
   material_id: string;
   source_artifact_id: string;
   status: "pending" | "running" | "succeeded" | "partial" | "failed" | "cancelled";
-  progress_stage: "queued" | "evidence" | "semantics" | "review" | "publishing" | "completed";
+  progress_stage: "queued" | "evidence" | "semantics" | "review" | "indexing" | "publishing" | "completed";
   completed_pages: number;
   total_pages: number | null;
   completed_units?: number | null;
@@ -157,6 +165,8 @@ export type EvidenceView = {
   source: "native_text" | "unlimited_ocr";
   source_locator: SourceLocatorView;
   quote: string;
+  quote_start?: number;
+  quote_end?: number;
 };
 
 export type RelationType = "prerequisite" | "part_of" | "application" | "example" | "contrast";
@@ -204,7 +214,91 @@ export type KnowledgeStructureView = {
   excluded_pages: { page_ref: string; page: number; stage: "evidence"; reason_code: string }[];
 };
 
-export type ConceptCard = Pick<KnowledgeStructureView["concepts"][number], "concept_id" | "label" | "claims">;
+export type KnowledgeOutlineView = Pick<KnowledgeStructureView,
+  "source_resolver" | "status" | "initial_learning_path" | "excluded_pages"> & {
+  schema: "knowledge-outline/v1";
+  material_id: string;
+  knowledge_structure_revision: string;
+  run_id: string;
+  section_count: number;
+  relations: Pick<KnowledgeStructureView["relations"][number], "relation_id" | "source_concept_id" | "target_concept_id" | "type">[];
+  concepts: { concept_id: string; label: string; aliases: string[]; claim_count: number }[];
+};
+
+export type KnowledgeConceptsView = ConceptCardContext & {
+  schema: "knowledge-concepts/v1";
+  material_id: string;
+  knowledge_structure_revision: string;
+  requested_concept_ids: string[];
+  relation_evidence: EvidenceView[];
+};
+
+export type KnowledgeSearchView = {
+  schema: "knowledge-search/v1"; material_id: string;
+  knowledge_structure_revision: string; concept_ids: string[];
+};
+
+export type MapProgressView = Pick<LearnerProgressView,
+  "study_session_id" | "knowledge_structure_revision" | "current_concept_id" | "assessment_cycles" | "next_action"> & {
+  schema: "map-progress/v1";
+  concept_states: (Pick<ConceptLearningStateView, "concept_id" | "status" | "attempts"> & { assessable: boolean })[];
+};
+
+export type StudyProgressView = Omit<LearnerProgressView, "schema"> & {
+  schema: "study-progress/v1"; concept_count: number;
+};
+
+export type StudyNavigationView = Pick<KnowledgeOutlineView,
+  "material_id" | "knowledge_structure_revision" | "run_id" | "source_resolver" | "status" | "initial_learning_path"> & {
+  schema: "study-navigation/v1";
+  concept_count: number;
+  concepts: { concept_id: string; label: string }[];
+};
+
+export type StudyWorkspaceView = Omit<StudyResumeView, "schema" | "knowledge_structure" | "progress"> & {
+  schema: "study-workspace/v1";
+  outline: StudyNavigationView;
+  context: KnowledgeConceptsView | null;
+  progress: StudyProgressView;
+};
+
+export type CardDesignSources = { claim_ids: string[]; relation_ids: string[]; evidence_ids: string[] };
+export type CardDesignPage = {
+  title: string; layout: "focus" | "compare" | "flow" | "grid";
+  takeaway: CardDesignSources & { text: string };
+  blocks: (CardDesignSources & { heading: string; text: string; icon: string })[];
+  links: (CardDesignSources & { source: number; target: number; label: string })[];
+};
+export type CardDesign = {
+  schema: "concept-card-design/v1"; revision: string; pages: CardDesignPage[];
+  details_claim_ids: string[]; provider: { model_id: string; revision: string; api_protocol: string };
+};
+export type ConceptCard = Pick<KnowledgeStructureView["concepts"][number], "concept_id" | "label" | "claims"> & { display_edits?: CardTextEdit[]; design?: CardDesign | null };
+
+export type ConceptCardContext = Pick<KnowledgeStructureView, "source_resolver" | "status" | "concepts" | "relations"> & {
+  relation_evidence?: EvidenceView[];
+};
+
+export type CardBatch = {
+  schema: "card-batch/v1";
+  card_set_id: string; version: number; offset: number; total: number;
+  cards: ConceptCard[]; context: ConceptCardContext;
+};
+
+export type CardStudyView = CardSetSummary & {
+  schema: "card-study/v1";
+  source_resolver: string; status: KnowledgeStructureView["status"];
+  navigation: { concept_id: string; label: string; page_count: number | null }[];
+  batch: CardBatch | null;
+};
+
+export type CardGeneration = {
+  status: "pending" | "running" | "ready" | "failed";
+  stage: "preparing" | "compacting" | "designing" | "checking" | "complete";
+  completed: number; total: number; error_code: string | null;
+  retained_original: number; cached: number;
+};
+export type CardTextEdit = { source: string; text: string };
 
 export type CardSetSummary = {
   version: number;
@@ -213,7 +307,8 @@ export type CardSetSummary = {
   material_name: string;
   knowledge_structure_revision: string;
   name: string;
-  card_count: number;
+  card_count: number | null;
+  generation: CardGeneration;
   created_at: string;
   is_current_revision: boolean;
 };
@@ -224,6 +319,7 @@ export type CardSetView = CardSetSummary & {
   status: KnowledgeStructureView["status"];
   excluded_pages: KnowledgeStructureView["excluded_pages"];
   cards: ConceptCard[];
+  display_edits: Record<string, CardTextEdit[]>;
 };
 
 export type CardSetCreate = {
@@ -365,6 +461,7 @@ export type StudyResumeView = {
   progress: LearnerProgressView;
   assessment_sets: AssessmentSetSummary[];
   selected_set_id: string | null;
+  selected_set: AssessmentSetView | null;
 };
 
 export type AssessmentPlanView = {
@@ -486,6 +583,8 @@ export type SourceView = {
   status: "pending" | "running" | "ready" | "failed";
   normalized_artifact_id: string | null;
   page_count: number | null;
+  analysis_page_count?: number | null;
+  analysis_mode?: "full" | "selected";
   error_code: string | null;
 };
 export type SourceListView = {

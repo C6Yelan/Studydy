@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { KnowledgeStructureView } from "../../api/contracts";
+import type { KnowledgeOutlineView } from "../../api/contracts";
 import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { StateView } from "../../ui/StateView";
 import { Icon } from "../../ui/Icon";
+import { useConceptContext } from "../material-flow/useConceptContext";
 import { claimText } from "../../ui/claim-text";
 
 export function CreatePodcast({ apiClient, route, embedded = false }: {
   embedded?: boolean;
   apiClient: StudydyApiClient; route: Extract<AppRoute, { name: "podcast-create" }>;
 }) {
-  const [view, setView] = useState<KnowledgeStructureView | null>(null);
+  const [view, setView] = useState<KnowledgeOutlineView | null>(null);
   const [materialName, setMaterialName] = useState("");
   const [name, setName] = useState("");
   const [delivery, setDelivery] = useState<"solo" | "dialogue">("dialogue");
@@ -30,7 +31,7 @@ export function CreatePodcast({ apiClient, route, embedded = false }: {
   useEffect(() => {
     let cancelled = false;
     setError(null); setView(null);
-    void Promise.all([apiClient.getMaterial(route.materialId), apiClient.getKnowledgeStructure({
+    void Promise.all([apiClient.getMaterial(route.materialId), apiClient.getKnowledgeOutline({
       materialId: route.materialId, structureRevision: route.structureRevision,
     })]).then(([material, structure]) => {
       if (cancelled) return;
@@ -44,6 +45,7 @@ export function CreatePodcast({ apiClient, route, embedded = false }: {
     }, (e) => { if (!cancelled) setError(errorMessage(e)); });
     return () => { cancelled = true; };
   }, [apiClient, route.materialId, route.runId, route.structureRevision, reload]);
+  const previewRead = useConceptContext(apiClient, route.materialId, route.structureRevision, previewId ? [previewId] : []);
   const validName = name.trim().length > 0 && Array.from(name.trim()).length <= 200 && !/[\p{Cc}\p{Cs}]/u.test(name);
   const save = async () => {
     if (!view || !selected.size || !validName || saving.current) return;
@@ -63,8 +65,8 @@ export function CreatePodcast({ apiClient, route, embedded = false }: {
     action={error ? <button type="button" onClick={() => setReload((v) => v + 1)}>重新讀取</button> : undefined} /></section>;
   const matches = view.concepts.filter(c => `${c.label} ${c.aliases.join(" ")}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const visible = matches.filter(c => !onlySelected || selected.has(c.concept_id));
-  const preview = view.concepts.find(c => c.concept_id === previewId);
-  const claimCount = view.concepts.filter(c => selected.has(c.concept_id)).reduce((sum, c) => sum + c.claims.length, 0);
+  const preview = previewRead.context?.concepts.find(c => c.concept_id === previewId);
+  const claimCount = view.concepts.filter(c => selected.has(c.concept_id)).reduce((sum, c) => sum + c.claim_count, 0);
   const selectVisible = (choose: boolean) => setSelected(previous => {
     const next = new Set(previous);
     for (const concept of matches) { if (choose) next.add(concept.concept_id); else next.delete(concept.concept_id); }
@@ -85,9 +87,10 @@ export function CreatePodcast({ apiClient, route, embedded = false }: {
           <label><input type="checkbox" checked={onlySelected} onChange={e => setOnlySelected(e.target.checked)} />只看已選</label></div>
         <div className="podcast-concept-list">{visible.map(concept => <div className={`podcast-concept-option${selected.has(concept.concept_id) ? " is-selected" : ""}`} key={concept.concept_id}>
           <label><input type="checkbox" disabled={busy} checked={selected.has(concept.concept_id)} onChange={() => setSelected(previous => { const next = new Set(previous); if (next.has(concept.concept_id)) next.delete(concept.concept_id); else next.add(concept.concept_id); return next; })} />
-            <strong title={concept.label}>{concept.label}</strong><small>{concept.claims.length} 點</small></label>
+            <strong title={concept.label}>{concept.label}</strong><small>{concept.claim_count} 點</small></label>
           <button type="button" className="text-button" aria-label={`查看「${concept.label}」重點`} aria-pressed={previewId === concept.concept_id} onClick={() => setPreviewId(previewId === concept.concept_id ? null : concept.concept_id)}>預覽</button>
         </div>)}{visible.length === 0 && <p>{onlySelected ? "目前篩選範圍沒有已選概念。" : "找不到符合的概念。"}</p>}</div>
+        {previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : previewId && !preview ? <p role="status">正在讀取概念重點…</p> : null}
         {preview && <section className="podcast-concept-preview" aria-label={`${preview.label}重點預覽`}><header><strong>{preview.label}</strong><button type="button" className="text-button" onClick={() => setPreviewId(null)}>關閉預覽</button></header><div>{preview.claims.map(claim => <p className="podcast-claim-text" key={claim.claim_id}>{claimText(claim)}</p>)}</div></section>}
       </section>
       <section id="podcast-config-settings" className={`surface podcast-config-section podcast-settings${activePanel === "settings" ? " is-active" : ""}`} aria-label="講解設定">

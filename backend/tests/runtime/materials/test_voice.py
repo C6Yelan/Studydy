@@ -6,9 +6,10 @@ from sqlalchemy import select
 from product_fixtures import closed_loop
 from sources.test_source_revisions import revisions
 from runtime import voice
+from qa_fixtures import grounded_answer, qa_model
 from runtime.source_normalization import SourceError
 from runtime.card_sets import CardSetError
-from runtime.storage.tables import VoiceTurn, database_session
+from runtime.storage.tables import VoiceConversation, VoiceTurn, database_session
 from runtime.material_discard import request_material_discard
 import runtime.api.app as api
 
@@ -19,6 +20,15 @@ def setup(f):
     return owner.learner_id,source.material_id,c['conversation_id'],dsn
 
 
+def test_conversation_reads_do_not_wait_for_another_material_reader(closed_loop):
+    from runtime.card_sets import _material
+    owner, material, identity, dsn = setup(closed_loop)
+    with database_session(dsn) as db:
+        _material(db, owner, material, read=True)
+        assert voice.listing(owner, material, dsn=dsn)['conversations'][0]['conversation_id'] == identity
+        assert voice.read(owner, identity, dsn=dsn)['turns'] == []
+
+
 def test_voice_answer_persistence_replay_cancel_and_owner(closed_loop):
     owner,material,c,dsn=setup(closed_loop)
     assert voice.create(owner,material,'conversation',dsn=dsn)['conversation_id']==c
@@ -27,27 +37,84 @@ def test_voice_answer_persistence_replay_cancel_and_owner(closed_loop):
     with pytest.raises(SourceError,match='IDEMPOTENCY_CONFLICT'):voice.add_turn(owner,c,'first','不同',dsn=dsn)
     with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):voice.read(uuid4(),c,dsn=dsn)
     state=voice.claim(dsn=dsn)
-    assert state['claims'] and state['history']==[]
-    voice.finish(state,{'text':'依照教材說明這個概念。','supported':True,'citations':[0]},dsn=dsn)
+    assert state['retrieved']=={} and state['history']==[]
+    answer=grounded_answer(state,dsn)
+    voice.finish(state,answer,dsn=dsn)
     v=voice.read(owner,c,dsn=dsn)
-    assert v['turns'][0]['answer']['citations'][0]==state['claims'][0]
+    assert v['turns'][0]['answer']['citations']==answer['citations']
     assert v['turns'][0]['mode']=='text' and v['turns'][0]['status']=='ready'
     assert v['turns'][0]['audio_url'] is None and voice.claim(dsn=dsn) is None
     voice.remove(owner,c,dsn=dsn)
     with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):voice.create(owner,material,'conversation',dsn=dsn)
 
 
-def test_legacy_transcript_confirmation_and_invalid_reference(closed_loop):
+def test_conversation_memory_persists_without_recompressing_or_reading_future(closed_loop, monkeypatch):
+    owner,_,cid,dsn=setup(closed_loop)
+    old=voice.add_turn(owner,cid,'old-failure','最早未成功的問題',dsn=dsn)
+    voice.finish(voice.claim(dsn=dsn),error='VOICE_PROVIDER_FAILED',dsn=dsn)
+    for i in range(7):
+        voice.add_turn(owner,cid,f'history-{i}',f'條件 {i}',dsn=dsn)
+        state=voice.claim(dsn=dsn)
+        voice.finish(state,grounded_answer(state,dsn,'舊的完整教材說明。'*70),dsn=dsn)
+    calls=[]
+    def provider(path, body):
+        calls.append(deepcopy(body))
+        if body['schema']['required']==['summary']:
+            return {'summary':'使用者已提供條件 0 至 6，曾討論教材概念。'}
+        return qa_model(body)
+    monkeypatch.setattr(voice,'provider',provider)
+    voice.add_turn(owner,cid,'compact','沿用早期條件',dsn=dsn)
+    assert voice.step(dsn=dsn)
+    with database_session(dsn) as db:
+        memory=deepcopy(db.get(VoiceConversation,cid).memory)
+    assert memory and any(c['schema']['required']==['summary'] for c in calls)
+    assert len(voice.read(owner,cid,dsn=dsn)['turns'])==9
+    calls.clear()
+    voice.add_turn(owner,cid,'reuse','繼續',dsn=dsn)
+    assert voice.step(dsn=dsn)
+    assert all(c['schema']['required']!=['summary'] for c in calls)
+    assert calls[0]['request']['history']['summary']==memory['summary']
+    voice.action(owner,cid,old['turn_id'],'retry',dsn=dsn)
+    state=voice.claim(dsn=dsn)
+    assert state['memory'] is None and state['history']==[]
+    voice.finish(state,grounded_answer(state,dsn),dsn=dsn)
+    with database_session(dsn) as db:
+        assert db.get(VoiceConversation,cid).memory==memory
+    pending=voice.add_turn(owner,cid,'cancel-memory','取消測試',dsn=dsn)
+    state=voice.claim(dsn=dsn)
+    state['memory_update']={**memory,'summary':'不能發布的摘要'}
+    voice.action(owner,cid,pending['turn_id'],'cancel',dsn=dsn)
+    voice.finish(state,grounded_answer(state,dsn),dsn=dsn)
+    with database_session(dsn) as db:
+        assert db.get(VoiceConversation,cid).memory==memory
+    voice.remove(owner,cid,dsn=dsn)
+    with database_session(dsn) as db:
+        assert db.get(VoiceConversation,cid).memory is None
+
+
+def test_missing_index_is_rejected_and_cannot_leave_an_unclaimable_turn(closed_loop):
+    from sqlalchemy import delete
+    from runtime.storage.tables import MaterialRetrievalIndex
+    owner,material,cid,dsn=setup(closed_loop)
+    turn=voice.add_turn(owner,cid,'before-index-loss','Stack 是什麼？',dsn=dsn)
+    with database_session(dsn) as db:
+        db.execute(delete(MaterialRetrievalIndex).where(MaterialRetrievalIndex.material_id==material))
+    assert voice.claim(dsn=dsn) is None
+    with database_session(dsn) as db:
+        saved=db.get(VoiceTurn,turn['turn_id'])
+        assert saved.status=='failed' and saved.error_code=='RETRIEVAL_INDEX_REQUIRED' and saved.lease_token is None
+    with pytest.raises(SourceError,match='RETRIEVAL_INDEX_REQUIRED'):
+        voice.add_turn(owner,cid,'after-index-loss','另一題',dsn=dsn)
+
+
+def test_transcript_auto_continues_and_invalid_reference_is_rejected(closed_loop):
     owner,_,c,dsn=setup(closed_loop)
     t=voice.add_turn(owner,c,'record',recording=b'synthetic media',dsn=dsn)
-    # 遷移前的錄音仍保留明確草稿 fallback；新 Voice turn 不走這個流程。
-    with database_session(dsn) as db:db.get(VoiceTurn,t['turn_id']).mode=None
     state=voice.claim(dsn=dsn)
     voice.finish(state,{'text':'修改前的問題'},dsn=dsn)
     with database_session(dsn) as db:assert db.get(VoiceTurn,t['turn_id']).recording is None
-    voice.action(owner,c,t['turn_id'],'send','修改後的問題',dsn=dsn)
     state=voice.claim(dsn=dsn)
-    assert state['question']=='修改後的問題'
+    assert state['question']=='修改前的問題'
     with pytest.raises(SourceError,match='VOICE_ANSWER_INVALID'):
         voice.finish(state,{'text':'錯誤來源不得發表','supported':True,'citations':[99999]},dsn=dsn)
     voice.finish(state,error='VOICE_PROVIDER_FAILED',dsn=dsn)
@@ -91,7 +158,7 @@ def test_expired_voice_result_cannot_publish(closed_loop):
     assert voice.read(owner,cid,dsn=dsn)['turns'][0]['answer'] is None
     renewed=voice.claim(dsn=dsn);assert renewed['lease_token']!=state['lease_token']
     voice.finish(state,{'text':'舊工作回答','supported':True,'citations':[0]},dsn=dsn)
-    voice.finish(renewed,{'text':'有效的回答','supported':True,'citations':[0]},dsn=dsn)
+    voice.finish(renewed,grounded_answer(renewed,dsn,'有效的回答'),dsn=dsn)
     assert voice.read(owner,cid,dsn=dsn)['turns'][0]['answer']['text']=='有效的回答'
 
 
@@ -111,9 +178,9 @@ def test_voice_worker_auto_chains_transcript_answer_audio_without_send(closed_lo
     def provider(path, body):
         paths.append(path)
         if path == '/transcribe': return {'text': '辨識出的教材問題'}
-        if path == '/answer':
-            assert body['question'] == '辨識出的教材問題'
-            return {'text': '來源支持的回答。', 'supported': True, 'citations': [0]}
+        if path == '/semantics':
+            assert body['request']['question'] == '辨識出的教材問題'
+            return qa_model(body)
         assert path == '/audio'
         return audio_fixture()
     monkeypatch.setattr(voice, 'provider', provider)
@@ -130,7 +197,7 @@ def test_voice_worker_auto_chains_transcript_answer_audio_without_send(closed_lo
     ready = voice.read(owner, cid, dsn=dsn)['turns'][0]
     assert ready['status'] == 'ready' and ready['audio_url']
     assert voice.audio(owner, cid, turn['turn_id'], dsn=dsn) == audio_fixture()
-    assert paths == ['/transcribe', '/answer', '/audio']
+    assert paths == ['/transcribe', '/semantics', '/semantics', '/semantics', '/audio']
     assert not voice.step(dsn=dsn)
 
 
@@ -142,14 +209,14 @@ def test_text_worker_finishes_without_audio_provider_and_mode_is_part_of_intent(
     paths = []
     def provider(path, body):
         paths.append(path)
-        assert path == '/answer', 'Text mode must not request TTS'
-        return {'text': '純文字回答。', 'supported': True, 'citations': [0]}
+        assert path == '/semantics', 'Text mode must not request TTS'
+        return qa_model(body, '純文字回答。')
     monkeypatch.setattr(voice, 'provider', provider)
     assert voice.step(dsn=dsn) and not voice.step(dsn=dsn)
     ready = voice.read(owner, cid, dsn=dsn)['turns'][0]
     assert ready['turn_id'] == turn['turn_id'] and ready['mode'] == 'text'
     assert ready['status'] == 'ready' and ready['audio_url'] is None
-    assert paths == ['/answer']
+    assert paths == ['/semantics', '/semantics', '/semantics']
 
 
 @pytest.mark.parametrize('phase', ['transcribing', 'answering', 'speaking'])
@@ -162,7 +229,7 @@ def test_voice_cancel_ignores_late_result_at_each_stage(closed_loop, phase):
         voice.finish(state, {'text': '問題'}, dsn=dsn)
         state = voice.claim(dsn=dsn)
     if phase == 'speaking':
-        voice.finish(state, answer, dsn=dsn)
+        voice.finish(state, grounded_answer(state,dsn,'已保存的回答。'), dsn=dsn)
         state = voice.claim(dsn=dsn)
     assert state['status'] == phase
     voice.action(owner, cid, turn['turn_id'], 'cancel', dsn=dsn)
@@ -178,7 +245,8 @@ def test_voice_audio_retry_keeps_answer_and_does_not_repeat_stt_or_answer(closed
     owner, _, cid, dsn = setup(closed_loop)
     turn = voice.add_turn(owner, cid, 'audio-retry', recording=b'synthetic recording', dsn=dsn)
     voice.finish(voice.claim(dsn=dsn), {'text': '原問題'}, dsn=dsn)
-    voice.finish(voice.claim(dsn=dsn), {'text': '保留這份回答。', 'supported': True, 'citations': [0]}, dsn=dsn)
+    state=voice.claim(dsn=dsn)
+    voice.finish(state, grounded_answer(state,dsn,'保留這份回答。'), dsn=dsn)
     voice.finish(voice.claim(dsn=dsn), error='VOICE_PROVIDER_FAILED', dsn=dsn)
     before = deepcopy(voice.read(owner, cid, dsn=dsn)['turns'][0]['answer'])
     voice.action(owner, cid, turn['turn_id'], 'retry', dsn=dsn)
@@ -192,16 +260,6 @@ def test_voice_audio_retry_keeps_answer_and_does_not_repeat_stt_or_answer(closed
     assert paths == ['/audio']
 
 
-def test_legacy_turn_keeps_its_idempotency_and_audio_behavior(closed_loop):
-    from hashlib import sha256
-    owner, _, cid, dsn = setup(closed_loop)
-    turn = voice.add_turn(owner, cid, 'legacy', '舊文字問題', dsn=dsn)
-    with database_session(dsn) as db:
-        old = db.get(VoiceTurn, turn['turn_id']);old.mode = None
-        old.fingerprint = sha256('舊文字問題'.encode()).hexdigest()
-    assert voice.add_turn(owner, cid, 'legacy', '舊文字問題', dsn=dsn) == turn
-    voice.finish(voice.claim(dsn=dsn), {'text': '舊回合回答。', 'supported': True, 'citations': [0]}, dsn=dsn)
-    assert voice.read(owner, cid, dsn=dsn)['turns'][0]['status'] == 'speaking'
 
 
 def test_invalid_transcript_does_not_send_question_or_keep_recording(closed_loop, monkeypatch):
@@ -230,31 +288,12 @@ def test_voice_conversation_keeps_its_revision_after_material_head_changes(revis
     voice.add_turn(owner, conversation['conversation_id'], 'old-question', '舊版本問題', dsn=dsn)
     state = voice.claim(dsn=dsn)
     assert state['revision'] == original['revision']
-    assert {c['claim_id'] for c in state['claims']} == {q['claim_id'] for c in original['concepts'] for q in c['claims']}
-    voice.finish(state, {'text': '引用舊版本的回答。', 'supported': True, 'citations': [0]}, dsn=dsn)
+    answer=grounded_answer(state,dsn,'引用舊版本的回答。')
+    assert answer['citations'][0]['evidence'][0]['evidence_id'] in {e['evidence_id'] for e in original['evidence']}
+    voice.finish(state, answer, dsn=dsn)
     assert voice.read(owner, conversation['conversation_id'], dsn=dsn)['turns'][0]['status'] == 'ready'
 
 
-def test_mode_migration_preserves_legacy_turn_and_saved_audio(closed_loop):
-    from hashlib import sha256
-    from pathlib import Path
-    from sqlalchemy import text
-    from runtime.storage.migrations import run_migrations
-    owner, _, cid, dsn = setup(closed_loop)
-    turn = voice.add_turn(owner, cid, 'legacy-migration', '舊文字提問', dsn=dsn)
-    voice.finish(voice.claim(dsn=dsn), {'text': '舊回答。', 'supported': False, 'citations': []}, dsn=dsn)
-    with database_session(dsn) as db:
-        row = db.get(VoiceTurn, turn['turn_id']);row.audio = audio_fixture()
-        row.fingerprint = sha256('舊文字提問'.encode()).hexdigest()
-        db.flush()
-        db.execute(text('ALTER TABLE voice_turns DROP COLUMN mode'))
-        db.execute(text((Path(__file__).parents[3]/'migrations/0018_voice_turn_mode.sql').read_text()))
-    assert run_migrations(dsn) == ()
-    result = voice.read(owner, cid, dsn=dsn)['turns'][0]
-    assert result['mode'] is None and result['status'] == 'ready'
-    assert result['answer']['text'] == '舊回答。'
-    assert voice.audio(owner, cid, turn['turn_id'], dsn=dsn) == audio_fixture()
-    assert voice.add_turn(owner, cid, 'legacy-migration', '舊文字提問', dsn=dsn) == turn
 
 
 def test_typed_question_in_voice_mode_uses_same_history_and_generates_audio(closed_loop, monkeypatch):
@@ -265,9 +304,9 @@ def test_typed_question_in_voice_mode_uses_same_history_and_generates_audio(clos
     paths = []
     def provider(path, body):
         paths.append(path)
-        return {'text':'教材支持的回答。','supported':True,'citations':[0]} if path == '/answer' else audio_fixture()
+        return qa_model(body, '教材支持的回答。') if path == '/semantics' else audio_fixture()
     monkeypatch.setattr(voice, 'provider', provider)
     assert voice.step(dsn=dsn) and voice.step(dsn=dsn) and not voice.step(dsn=dsn)
     ready = voice.read(owner, cid, dsn=dsn)['turns'][0]
     assert ready['turn_id'] == turn['turn_id'] and ready['audio_url'] and ready['status'] == 'ready'
-    assert paths == ['/answer', '/audio']
+    assert paths == ['/semantics', '/semantics', '/semantics', '/audio']

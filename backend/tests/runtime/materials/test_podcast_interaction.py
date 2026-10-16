@@ -1,5 +1,6 @@
 """Podcast → exact-revision Voice／Assessment；只用隔離 DB 與合成內容。"""
 from copy import deepcopy
+from qa_fixtures import grounded_answer
 from pathlib import Path
 from uuid import uuid4
 import pytest
@@ -93,7 +94,7 @@ def test_voice_old_revision_context_and_assessment_authority(closed_loop):
     changed=deepcopy(locator);changed['source_refs'][0]['end']-=1
     with pytest.raises(SourceError,match='IDEMPOTENCY_CONFLICT'):voice.add_turn(owner,cid,'question','這裡的條件是什麼？',context=changed,dsn=dsn)
     state=voice.claim(dsn=dsn);assert state['revision']==original['revision']
-    voice.finish(state,{'text':'原版本教材支持的回答。','supported':True,'citations':[0]},dsn=dsn)
+    voice.finish(state,grounded_answer(state,dsn,'原版本教材支持的回答。'),dsn=dsn)
     assert voice.claim(dsn=dsn) is None  # 文字問答不再等待或製作 TTS。
     read=voice.read(owner,cid,dsn=dsn)
     assert not read['is_current_revision'] and read['source_resolver']==view['source_resolver']

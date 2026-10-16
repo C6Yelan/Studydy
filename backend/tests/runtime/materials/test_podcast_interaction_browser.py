@@ -3,13 +3,15 @@ import json
 from threading import Event, Thread
 from sqlalchemy import select, func
 import runtime.api.app as api
-from runtime import voice, podcast_scenes as scenes
+from runtime import voice, podcast_scenes as scenes, podcast_videos as videos
 from runtime.scene_alignment import normalized
 from runtime.storage.tables import VoiceConversation, VoiceTurn, StudySession, AnswerEvent, database_session
 from browser_e2e_runner import PORT, local_api, main as run_browser
 from product_fixtures import closed_loop
 from materials.test_podcasts import wav
 from materials.test_podcast_interaction import beats, new_head
+from materials.test_podcast_videos import bundle
+from qa_fixtures import qa_model
 
 
 def test_podcast_voice_assessment_browser_uses_original_revision(closed_loop,monkeypatch):
@@ -25,13 +27,19 @@ def test_podcast_voice_assessment_browser_uses_original_revision(closed_loop,mon
         'boundary_script_offset':0,'boundary_text':quote,'boundary_audio_start':0}],
         'duration':1,'method':'synthetic','producer':'fixture',
         'caption_alignment':align_captions(turns, words, 1)},dsn=dsn)
+    # 現行介面在整份影音完成後才開啟逐字稿預覽；本案例使用合成影片，只驗證契約。
+    video = videos.claim(dsn=dsn)
+    assert video
+    video_bundle = bundle(video)
+    video_bundle['alignment']['caption_alignment'] = align_captions(turns, words, 1)
+    assert videos.finish(video, bundle=video_bundle, dsn=dsn)
     new_head(closed_loop)
     requests=[]
     def provider(path,body):
         requests.append(path)
-        if path=='/answer':
-            assert body['context']['turns'] and body['claims']
-            return {'text':'這個回答引用原版本教材的必要條件。','supported':True,'citations':[0]}
+        if path=='/semantics':
+            if 'context' in body['request']:assert body['request']['context']['turns']
+            return qa_model(body,'這個回答引用原版本教材的必要條件。')
         if path=='/audio':return wav()
         raise AssertionError('UNEXPECTED_PROVIDER_REQUEST')
     monkeypatch.setattr(voice,'provider',provider)
