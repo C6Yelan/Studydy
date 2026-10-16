@@ -2,6 +2,12 @@
 
 [文件入口](../README.md) · [安裝與啟動](getting-started.md) · [限制](limitations.md)
 
+## 動態語音停頓
+
+`test_podcast_audio_repair.py` 驗證短回應、長句、問句、換人與換段的優先順序、原文字數門檻，以及保留的片段靜音不被重複加算。`test_podcast_spoken_input.py` 核對朗讀展開仍保留原句、句尾引號與小數不破壞句界。DSP 與來源測試不代替實際聽評；新生成節目另核對新音訊的字幕對齊與講稿內容。
+
+`test_podcast_align.py` 驗證字幕漏辨句首時，只採用局部音訊重新辨識到的句首時間；未辨識到開頭、時間重疊或無關音訊都不會產生猜測的修正。字幕文字與教學段落時鐘保持不變。
+
 ## Podcast 現行驗證範圍（2026-10-09 精簡）
 
 依使用者要求，講稿與分鏡各生成一次，移除獨立 AI correctness／teaching_quality 評分、逐點全覆蓋硬門檻、風格相似度／輪替／附和檢查、動態字數預算及自動重寫迴圈。下方歷史驗收中的 blocking verdict 與四／八次請求描述，不再是現行 Podcast 流程。

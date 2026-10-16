@@ -70,7 +70,8 @@ def render(body, output):
             if model.sample_rate != 24000 or data.size < 2400 or not np.isfinite(data).all() or total > 24000 * 1800:
                 raise RuntimeError("PODCAST_AUDIO_INVALID")
             audio_chunks.append({'audio': trim_edges(data), 'text': item['text'],
-                'ending': item['ending'], 'speaker': speaker, 'beat': turn['segment_index']})
+                'source_text': item['source_text'], 'ending': item['ending'],
+                'speaker': speaker, 'beat': turn['segment_index']})
     from dialogue_audio_repair import assemble
     combined = assemble(audio_chunks, 24000)
     if combined.size > 24000*1800:raise RuntimeError('PODCAST_AUDIO_INVALID')

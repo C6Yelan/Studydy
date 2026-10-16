@@ -8,7 +8,7 @@ try:
     import cmudict, wordninja
 except ImportError:
     raise unittest.SkipTest("Run with the dedicated CosyVoice Python environment")
-from dialogue_audio_repair import clean_onset, soften_edges, spoken_units, pace_plan, assemble
+from dialogue_audio_repair import clean_onset, soften_edges, spoken_units, pace_plan, pause_seconds, assemble
 from spoken_input import mixed_sentences
 
 RATE = 24000
@@ -94,7 +94,7 @@ class MixedInputTests(unittest.TestCase):
 
 class AssemblyTests(unittest.TestCase):
     def test_known_speaker_boundary_has_more_pause_without_overlap(self):
-        items = [{'text': '短句', 'ending': '。', 'speaker': speaker, 'beat': 0,
+        items = [{'text': '短句', 'source_text': '短句', 'ending': '。', 'speaker': speaker, 'beat': 0,
                   'audio': tone(.3)} for speaker in ('host', 'host')]
         same = assemble(items, RATE)
         items[1]['speaker'] = 'guest'
@@ -105,7 +105,7 @@ class AssemblyTests(unittest.TestCase):
     def test_tempo_failure_is_not_silently_accepted(self):
         from unittest.mock import patch
         from types import SimpleNamespace
-        items = [{'text': '應用程式會依需求處理資料並檢查傳送結果', 'ending': '。',
+        items = [{'text': '應用程式會依需求處理資料並檢查傳送結果', 'source_text': '應用程式會依需求處理資料並檢查傳送結果', 'ending': '。',
                   'speaker': 'host', 'beat': 0, 'audio': tone(s)} for s in (3, 5, 5, 5)]
         with patch('audio_mastering.ffmpeg', return_value='/synthetic/ffmpeg'), patch('subprocess.run', return_value=SimpleNamespace(returncode=1)):
             with self.assertRaisesRegex(ValueError, 'PODCAST_AUDIO_INVALID'):
@@ -114,3 +114,31 @@ class AssemblyTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_dynamic_pause_priority_and_source_text_length():
+    def item(text, speaker='host', beat=0, ending='。'):
+        return {'source_text':text, 'text':'expanded speech '*30,
+                'speaker':speaker, 'beat':beat, 'ending':ending}
+    continuation=item('接下來繼續說明完整的條件。')
+    assert pause_seconds(item('對。'),continuation)==.25
+    assert pause_seconds(item('先確認版本，再判斷適用範圍。'),continuation)==.55
+    assert pause_seconds(item('這是一個包含比較多資訊並且需要保留完整條件的長句。'),continuation)==.85
+    assert pause_seconds(item('這份資料能夠支持結論嗎？',ending='？'),continuation)==.65
+    assert pause_seconds(item('先確認版本，再判斷適用範圍。'),item('接下來繼續說明完整的條件。','guest'))==.65
+    # 簡短接話優先於問句；換段優先於其他條件，不把秒數相加。
+    assert pause_seconds(item('這份資料能夠支持結論嗎？',ending='？'),item('不一定。','guest'))==.35
+    assert pause_seconds(item('對。'),item('下一段。','guest',1))==1.1
+    assert pause_seconds(item('8 MB/s。'),continuation)==.25
+    assert pause_seconds(item('字'*19),continuation)==.55
+    assert pause_seconds(item('字'*20),continuation)==.85
+
+
+def test_assembly_counts_retained_edge_silence_without_cutting_audio():
+    # 總停頓 250ms 已包含前後各 80ms；不得再額外加上完整 250ms。
+    audio=np.concatenate([np.zeros(1920,dtype='float32'),tone(.4),np.zeros(1920,dtype='float32')])
+    items=[{'text':'對。','source_text':'對。','ending':'。','speaker':'host','beat':0,'audio':audio.copy()},
+           {'text':'接著說明條件。','source_text':'接著說明條件。','ending':'。','speaker':'host','beat':0,'audio':audio.copy()}]
+    result=assemble(items,RATE)
+    assert abs(len(result)-(2*len(audio)+round((.25-.16)*RATE)))<=2
+    np.testing.assert_array_equal(result[1920:1920+len(tone(.4))],tone(.4))

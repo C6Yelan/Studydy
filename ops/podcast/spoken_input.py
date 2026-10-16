@@ -68,14 +68,15 @@ def english_words(token, normalize_number):
 
 
 def mixed_sentences(text, normalize_zh, normalize_en):
-    # 千分位是同一數值；毫秒只在數值後展開，不碰識別符中的 ms。
-    text = re.sub(r'(?<![A-Za-z0-9_.])\d{1,3}(?:,\d{3})+(?:\.\d+)?', lambda m: m[0].replace(',', ''), text)
-    text = re.sub(r'(?<![A-Za-z0-9_.])(\d+(?:\.\d+)?)\s*ms\b', r'\1 毫秒', text)
     result = []
-
-    for sentence in re.split(r'(?<=[。！？])|(?<=[.!?])\s+', text):
-        if not sentence.strip():
+    # 句尾引號留在同一句，避免只剩引號的片段被送去合成；小數點不當句界。
+    for match in re.finditer(r'.+?(?:[。！？]+[」』”\'"）)\]]*|[.!?]+[」』”\'"）)\]]*(?=\s|$)|$)', text, re.S):
+        source_text = match.group().strip()
+        if not source_text:
             continue
+        # 判斷句長使用原文字；縮寫、數值的朗讀展開不改變停頓類型。
+        sentence = re.sub(r'(?<![A-Za-z0-9_.])\d{1,3}(?:,\d{3})+(?:\.\d+)?', lambda m: m[0].replace(',', ''), source_text)
+        sentence = re.sub(r'(?<![A-Za-z0-9_.])(\d+(?:\.\d+)?)\s*ms\b', r'\1 毫秒', sentence)
         parts = []
         cursor = 0
         for match in _PARTS.finditer(sentence):
@@ -97,5 +98,6 @@ def mixed_sentences(text, normalize_zh, normalize_en):
         suffix = sentence[cursor:]
         parts.append(normalize_zh(suffix) if suffix.strip() else suffix)
         value = re.sub(r'\s+', ' ', ''.join(parts)).strip()
-        result.append({'language': 'mixed', 'text': value, 'ending': sentence.rstrip()[-1]})
+        result.append({'language': 'mixed', 'text': value, 'source_text': source_text,
+                       'ending': source_text.rstrip('」』”\'"）)]')[-1]})
     return result

@@ -28,15 +28,6 @@ def test_invalid_or_silent_chunk_is_not_published(samples):
     with pytest.raises(ValueError,match='PODCAST_AUDIO_INVALID'):audio.trim_edges(samples)
 
 
-def test_pauses_follow_semantic_boundaries_without_stacking():
-    assert audio.pause_seconds('TCP',language_join=True)==.08
-    assert audio.pause_seconds('說明。')==.22
-    assert audio.pause_seconds('問題？',next_speaker=True)==.22
-    assert audio.pause_seconds('問題？',next_speaker=True,next_beat=True)==.32
-    assert audio.pause_seconds('句號。',language_join=True)==.22
-    assert audio.pause_seconds('，',language_join=True)==.12
-
-
 def test_real_ffmpeg_two_pass_mastering_and_decoded_aac(tmp_path):
     import subprocess
     try:audio.ffmpeg()
@@ -90,14 +81,6 @@ def test_mastered_video_encodes_and_measures_final_audio(tmp_path):
     assert data==destination.read_bytes() and manifest['audio_sha256']==episode['audio']['sha256']
     bundle['render']['encoded_audio']['true_peak_dbtp']=0
     assert validate_bundle(state,bundle)[0]==destination.read_bytes()
-
-
-def test_retained_edges_count_toward_pause_budget():
-    first=[.2]*100+[0.]*960;second=[0.]*960+[.2]*100
-    head,tail=audio.edge_silence(first);next_head,_=audio.edge_silence(second)
-    padding=max(0,round(audio.pause_seconds('連接',language_join=True)*24000)-tail)
-    actual=tail+max(0,padding-next_head)+next_head
-    assert head==0 and tail==960 and actual==1920
 
 
 def test_measured_loudness_is_recorded_without_a_quality_veto(tmp_path,monkeypatch):

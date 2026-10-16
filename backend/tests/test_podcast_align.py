@@ -54,3 +54,29 @@ def test_short_windows_use_context_but_keep_each_core_timestamp_once():
     assert words==[{'word':'完整詞','start':9.2,'end':9.8}]
     assert [length for length,_ in calls]==[12*16000,12*16000]
     assert all(not options['vad_filter'] and options['no_speech_threshold'] is None for _,options in calls)
+
+
+@pytest.mark.parametrize('recognized,begin,expected',[
+    ('至少補充三件事，保留來源。',4,4),
+    ('保留來源。',7,8),
+    ('完全無關的另一段聲音。',4,8),
+    ('至少補充三件事，保留來源。',0,8),
+])
+def test_missing_caption_prefix_uses_only_new_measured_nonoverlapping_boundary(recognized,begin,expected):
+    from types import SimpleNamespace
+    from copy import deepcopy
+    turns=['先提出問題。','至少補充三件事，保留來源。','接著確認版本。']
+    words=[{'word':turns[0],'start':.2,'end':2},{'word':'保留來源。','start':8,'end':10},
+           {'word':turns[2],'start':12,'end':14}]
+    result=worker.align_words(turns,words,16,[[0],[1],[2]],turns)
+    original=deepcopy(result)
+    class Model:
+        def transcribe(self,samples,**kwargs):
+            assert kwargs['word_timestamps'] and not kwargs['vad_filter']
+            return [SimpleNamespace(words=[SimpleNamespace(word=recognized,start=begin,end=begin+2)])],None
+    worker.repair_caption_prefixes(Model(),[0]*(16*16000),result)
+    assert result['caption_alignment']['alignment']['starts']==[0,expected,12]
+    assert result['starts']==original['starts']  # 教學段落與影片時鐘不移動。
+    assert result['caption_alignment']['cues']==original['caption_alignment']['cues']
+    episode={'script':{'segments':[{'turns':[{'text':text} for text in turns]}]},'audio':{'duration_seconds':16}}
+    assert [c['text'] for c in captions_for_episode(episode,result['caption_alignment'])]==turns

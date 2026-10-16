@@ -109,6 +109,23 @@ def pace_plan(items, rate):
     return {'target_rate': target, 'sentences': estimates}
 
 
+def pause_seconds(current, following):
+    """依原講稿的句界選一個停頓；換段優先，短接話不疊加換人／問句時間。"""
+    current_length = sum(character.isalnum() for character in current['source_text'])
+    following_length = sum(character.isalnum() for character in following['source_text'])
+    if current['beat'] != following['beat']:
+        return 1.10
+    if current['speaker'] != following['speaker'] and following_length <= 6:
+        return .35
+    if current['speaker'] == following['speaker'] and current_length <= 6:
+        return .25
+    if current['ending'] in ('？', '?'):
+        return .65
+    if current['speaker'] != following['speaker']:
+        return .65
+    return .85 if current_length >= 20 else .55
+
+
 def assemble(items, rate):
     """直接使用模型片段的已知邊界；不從已發布 WAV 推測句界。"""
     import subprocess
@@ -141,7 +158,7 @@ def assemble(items, rate):
         parts.append(audio)
         if index + 1 < len(rendered):
             current, following = cleaned[index:index+2]
-            pause = .32 if (current['speaker'] != following['speaker'] or current['beat'] != following['beat']) else .26 if current['ending'] in ('？', '?') else .24
+            pause = pause_seconds(current, following)
             silent = max(0, round(pause * rate) - edge_silence(audio)[1] - edge_silence(rendered[index+1])[0])
             parts.append(np.zeros(silent, dtype='float32'))
     return np.concatenate(parts)

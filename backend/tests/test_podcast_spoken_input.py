@@ -51,3 +51,16 @@ def test_identifier_hyphens_and_underscores_remain_audible():
 def test_units_preserve_bit_byte_case_and_chinese_connector():
     result = sentences('8 Mb/s 與 8 MB/s')
     assert result[0]['text'] == '8 megabits per second 與 8 megabytes per second'
+
+
+def test_original_sentence_length_is_preserved_before_spoken_expansion():
+    result=sentences('8 MB/s，等待250ms。')
+    assert result[0]['source_text']=='8 MB/s，等待250ms。'
+    assert 'megabytes per second' in result[0]['text']
+    assert '250 毫秒' in result[0]['text']
+
+
+def test_closing_quotes_stay_with_sentence_and_question_boundary():
+    result=sentences('他問：「可以嗎？」接著確認條件。')
+    assert [x['source_text'] for x in result]==['他問：「可以嗎？」','接著確認條件。']
+    assert [x['ending'] for x in result]==['？','。']

@@ -138,3 +138,18 @@ def test_job_diagnostics_exclude_private_input_and_exception_text(caplog):
     assert value['job_id']==body['job_id'] and value['episode_index']==3
     assert value['result']=='PODCAST_PROVIDER_FAILED' and value['error_type']=='ValueError'
     assert 'do-not-log' not in message
+
+
+@pytest.mark.parametrize('metadata',[None,{'policy':'podcast-mastering/v1','integrated_lufs':-19,'true_peak_dbtp':-2,'loudness_range_lu':5}])
+def test_voice_and_podcast_responses_use_the_same_dynamic_pause_identity(metadata):
+    from io import BytesIO
+    handler=object.__new__(provider.Handler)
+    handler.path='/audio';handler.wfile=BytesIO()
+    headers={}
+    handler.send_response=lambda status: None
+    handler.send_header=lambda key,value: headers.update({key:value})
+    handler.end_headers=lambda: None
+    handler.respond(b'RIFF-test','audio/wav',metadata)
+    assert 'dynamic-pauses/v1' in headers['X-Studydy-Audio-Provider']
+    assert 'spoken-input/v12' not in headers['X-Studydy-Audio-Provider']
+    assert handler.wfile.getvalue()==b'RIFF-test'

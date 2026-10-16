@@ -301,7 +301,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", media)
         self.send_header("Content-Length", str(len(data)))
         if self.path == "/audio":
-            self.send_header("X-Studydy-Audio-Provider", ("Fun-CosyVoice3-0.5B-2512;rl-reference-vw;spoken-input/v13;dialogue-audio/v1;podcast-mastering/v1" if audio_metadata else "Fun-CosyVoice3-0.5B-2512;rl-reference-b;spoken-input/v12"))
+            self.send_header("X-Studydy-Audio-Provider", "Fun-CosyVoice3-0.5B-2512;rl-reference-vw;spoken-input/v13;dynamic-pauses/v1;podcast-mastering/v1")
             if audio_metadata:self.send_header('X-Studydy-Audio-Mastering',json.dumps(audio_metadata,separators=(',',':')))
         self.end_headers()
         self.wfile.write(data)

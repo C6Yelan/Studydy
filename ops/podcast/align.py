@@ -42,12 +42,40 @@ def render(audio_path,texts,turn_indices=None,caption_turns=None):
         if 'caption_alignment' in retry:
             result['caption_alignment']=retry['caption_alignment']
             result['method']=result['method'].removesuffix(';paragraph-captions/v1')+';short-window-captions/v1'
+    repair_caption_prefixes(model, samples, result)
     metadata=Path(os.environ['STUDYDY_STT_MODEL_DIR'])/'.cache/huggingface/download/model.bin.metadata'
     revision=metadata.read_text().splitlines()[0] if metadata.is_file() else 'local-checkpoint'
     result['producer']='faster-whisper:large-v3-turbo@'+revision
     if 'caption_alignment' in result:
         result['caption_alignment']['alignment']['producer']=result['producer']
     return result
+
+
+def repair_caption_prefixes(model, samples, result):
+    """漏辨句首會讓字幕晚切；只用局部音訊重新辨識到的句首時間修正，不按字數倒推。"""
+    captions=result.get('caption_alignment')
+    if not captions:return
+    alignment=captions['alignment'];starts=alignment['starts'];anchors=alignment['anchors']
+    original_starts=list(starts);duration=result['duration'];changed=False
+    for index, cue in enumerate(captions['cues']):
+        if index==0 or anchors[index]['boundary_script_offset']==0:continue
+        start=max(0,original_starts[index-1]-1)
+        end=min(duration,(original_starts[index+1] if index+1<len(starts) else duration)+1)
+        segments,_=model.transcribe(samples[round(start*16000):round(end*16000)],
+            language='zh',beam_size=3,word_timestamps=True,vad_filter=False,no_speech_threshold=None,
+            initial_prompt='繁體中文教材講解。保留英文專有名詞、數字與否定詞。',condition_on_previous_text=False)
+        words=[{'word':word.word,'start':float(word.start)+start,'end':min(duration,float(word.end)+start)}
+               for segment in segments for word in (segment.words or [])]
+        text='\n'.join(part['text'] for part in cue['parts'])
+        try:anchor=align_texts([text],words,duration)['anchors'][0]
+        except AlignmentError:continue
+        # 必須真的辨識到原句開頭，而且時間仍在相鄰字幕之間；失敗就保留原來的可回查錨點。
+        if (anchor['script_offset']!=0 or anchor['boundary_script_offset']!=0
+                or not starts[index-1]<anchor['boundary_audio_start']<starts[index]):continue
+        starts[index]=anchor['boundary_audio_start'];anchors[index]=anchor;changed=True
+    if changed:
+        alignment['method']+=';caption-prefix-repair/v1'
+        result['method']+=';caption-prefix-repair/v1'
 
 
 def short_window_words(model,samples,gaps=()):
