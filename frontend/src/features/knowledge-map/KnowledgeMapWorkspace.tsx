@@ -1098,9 +1098,6 @@ export function KnowledgeMapWorkspace({
               <strong>{view.concepts.length}</strong>概念
             </span>
             <span>
-              <strong>{view.section_count}</strong>段落
-            </span>
-            <span>
               <strong>{view.relations.length}</strong>關係
             </span>
           </div>
